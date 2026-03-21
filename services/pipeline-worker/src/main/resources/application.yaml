@@ -1,3 +1,16 @@
 spring:
   application:
     name: pipeline-worker
+
+server:
+  port: 8081  # backend(8080)와 포트 충돌 방지
+
+# 각 외부 API의 base URL 설정
+# Jira는 테넌트마다 URL이 다르므로 요청 시 options.baseUrl로 덮어씀
+app:
+  github:
+    base-url: https://api.github.com
+  jira:
+    base-url: ""  # 요청의 options.baseUrl로 전달
+  slack:
+    base-url: https://slack.com/api
