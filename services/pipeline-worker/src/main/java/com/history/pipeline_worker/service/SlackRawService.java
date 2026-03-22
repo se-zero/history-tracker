@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -14,6 +15,12 @@ public class SlackRawService {
 
     // 페이지당 최대 수 (Slack API 최대값)
     private static final int PAGE_SIZE = 200;
+
+    // channel_join 등 실제 대화와 무관한 시스템 메시지 타입
+    private static final List<String> NOISE_SUBTYPES = List.of(
+            "channel_join", "channel_leave", "channel_archive",
+            "channel_unarchive", "bot_message", "channel_purpose", "channel_name"
+    );
 
     private final WebClient webClient;
 
@@ -27,7 +34,10 @@ public class SlackRawService {
     public Map<String, Object> fetch(RawFetchRequest request) {
         String auth = request.credentials();
 
-        // 봇이 참여 중인 전체 채널 목록 수집
+        // xoxp 유저 토큰으로 워크스페이스 전체 멤버 수집 (userId → displayName 매핑)
+        Map<String, String> userMap = fetchUserMap(auth);
+
+        // 전체 채널 목록 수집
         List<Object> allChannels = fetchAllChannels(auth);
 
         // 각 채널의 메시지 + 스레드 수집
@@ -38,8 +48,8 @@ public class SlackRawService {
             String channelId = (String) channel.get("id");
             String channelName = (String) channel.get("name");
 
-            List<Object> messages = fetchAllMessages(auth, channelId);
-            List<Object> threads = fetchAllThreads(auth, channelId, messages);
+            List<Object> messages = fetchAllMessages(auth, channelId, userMap);
+            List<Object> threads = fetchAllThreads(auth, channelId, messages, userMap);
 
             channelData.add(Map.of(
                     "channelId", channelId,
@@ -52,11 +62,58 @@ public class SlackRawService {
 
         return Map.of(
                 "totalChannels", allChannels.size(),
+                "totalUsers", userMap.size(),
                 "channels", channelData
         );
     }
 
-    // 봇이 속한 전체 채널 목록을 cursor 페이지네이션으로 수집
+    // users.list로 워크스페이스 전체 멤버의 userId → displayName 맵 구성
+    @SuppressWarnings("unchecked")
+    private Map<String, String> fetchUserMap(String auth) {
+        Map<String, String> userMap = new HashMap<>();
+        String cursor = null;
+
+        do {
+            String uri = cursor == null
+                    ? "/users.list?limit=" + PAGE_SIZE
+                    : "/users.list?limit=" + PAGE_SIZE + "&cursor=" + cursor;
+
+            Map<String, Object> response = webClient.get()
+                    .uri(uri)
+                    .header("Authorization", auth)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (response == null) break;
+
+            List<Map<String, Object>> members = (List<Map<String, Object>>) response.get("members");
+            if (members != null) {
+                for (Map<String, Object> member : members) {
+                    String id = (String) member.get("id");
+                    Map<String, Object> profile = (Map<String, Object>) member.get("profile");
+                    String displayName = null;
+                    if (profile != null) {
+                        String dn = (String) profile.get("display_name");
+                        displayName = (dn != null && !dn.isBlank())
+                                ? dn
+                                : (String) profile.get("real_name"); // display_name 없으면 실명으로 fallback
+                    }
+                    if (displayName == null || displayName.isBlank()) {
+                        displayName = (String) member.get("name"); // 그것도 없으면 username으로 fallback
+                    }
+                    if (id != null) userMap.put(id, displayName);
+                }
+            }
+
+            cursor = extractNextCursor(response);
+
+        } while (cursor != null && !cursor.isBlank());
+
+        return userMap;
+    }
+
+    // xoxp로 접근 가능한 전체 채널 목록 수집
     @SuppressWarnings("unchecked")
     private List<Object> fetchAllChannels(String auth) {
         List<Object> allChannels = new ArrayList<>();
@@ -88,9 +145,9 @@ public class SlackRawService {
         return allChannels;
     }
 
-    // cursor 기반 페이지네이션으로 채널 전체 메시지 수집
+    // cursor 페이지네이션으로 채널 전체 메시지 수집 (노이즈 필터링 + displayName 주입)
     @SuppressWarnings("unchecked")
-    private List<Object> fetchAllMessages(String auth, String channelId) {
+    private List<Object> fetchAllMessages(String auth, String channelId, Map<String, String> userMap) {
         List<Object> allMessages = new ArrayList<>();
         String cursor = null;
 
@@ -108,9 +165,12 @@ public class SlackRawService {
 
             if (response == null) break;
 
-            List<Object> messages = (List<Object>) response.get("messages");
+            List<Map<String, Object>> messages = (List<Map<String, Object>>) response.get("messages");
             if (messages != null) {
-                allMessages.addAll(messages);
+                for (Map<String, Object> msg : messages) {
+                    if (isNoise(msg)) continue;
+                    allMessages.add(enrichWithUserName(msg, userMap));
+                }
             }
 
             cursor = extractNextCursor(response);
@@ -122,7 +182,7 @@ public class SlackRawService {
 
     // 스레드가 달린 메시지의 replies를 모두 수집
     @SuppressWarnings("unchecked")
-    private List<Object> fetchAllThreads(String auth, String channelId, List<Object> messages) {
+    private List<Object> fetchAllThreads(String auth, String channelId, List<Object> messages, Map<String, String> userMap) {
         List<Object> allThreads = new ArrayList<>();
 
         for (Object msg : messages) {
@@ -131,7 +191,7 @@ public class SlackRawService {
             if (replyCount == null || ((Number) replyCount).intValue() == 0) continue;
 
             String ts = (String) message.get("ts");
-            List<Object> replies = fetchAllReplies(auth, channelId, ts);
+            List<Object> replies = fetchAllReplies(auth, channelId, ts, userMap);
             if (!replies.isEmpty()) {
                 allThreads.add(Map.of("thread_ts", ts, "replies", replies));
             }
@@ -142,7 +202,7 @@ public class SlackRawService {
 
     // 스레드 replies도 cursor 페이지네이션으로 전체 수집
     @SuppressWarnings("unchecked")
-    private List<Object> fetchAllReplies(String auth, String channelId, String threadTs) {
+    private List<Object> fetchAllReplies(String auth, String channelId, String threadTs, Map<String, String> userMap) {
         List<Object> allReplies = new ArrayList<>();
         String cursor = null;
 
@@ -160,10 +220,15 @@ public class SlackRawService {
 
             if (response == null) break;
 
-            List<Object> messages = (List<Object>) response.get("messages");
+            List<Map<String, Object>> messages = (List<Map<String, Object>>) response.get("messages");
             if (messages != null) {
-                // 첫 번째 메시지는 원본 메시지(이미 수집됨)이므로 제외
-                allReplies.addAll(messages.subList(cursor == null ? 1 : 0, messages.size()));
+                // 첫 번째는 원본 메시지(이미 수집됨)이므로 제외
+                List<Map<String, Object>> replies = messages.subList(cursor == null ? 1 : 0, messages.size());
+                for (Map<String, Object> reply : replies) {
+                    if (!isNoise(reply)) {
+                        allReplies.add(enrichWithUserName(reply, userMap));
+                    }
+                }
             }
 
             cursor = extractNextCursor(response);
@@ -171,6 +236,22 @@ public class SlackRawService {
         } while (cursor != null && !cursor.isBlank());
 
         return allReplies;
+    }
+
+    // channel_join 등 대화와 무관한 시스템 메시지 여부 확인
+    private boolean isNoise(Map<String, Object> message) {
+        String subtype = (String) message.get("subtype");
+        return subtype != null && NOISE_SUBTYPES.contains(subtype);
+    }
+
+    // userId → displayName을 메시지에 추가
+    private Map<String, Object> enrichWithUserName(Map<String, Object> message, Map<String, String> userMap) {
+        String userId = (String) message.get("user");
+        if (userId == null || !userMap.containsKey(userId)) return message;
+
+        Map<String, Object> enriched = new HashMap<>(message);
+        enriched.put("userName", userMap.get(userId));
+        return enriched;
     }
 
     @SuppressWarnings("unchecked")
