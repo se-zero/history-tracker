@@ -1,0 +1,55 @@
+services:
+  # ── 인프라 (기본 실행) ─────────────────────────────────────────
+
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: history-graph-neo4j
+    ports:
+      - "7474:7474"  # Browser UI
+      - "7687:7687"  # Bolt (드라이버 연결)
+    environment:
+      NEO4J_AUTH: neo4j/password1234
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: history-graph-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass password1234 --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "password1234", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 애플리케이션 (--profile app) ──────────────────────────────
+
+  ai-engine:
+    build:
+      context: ../../services/ai-engine
+    container_name: history-graph-ai-engine
+    ports:
+      - "8000:8000"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: [app]
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  redis_data:
