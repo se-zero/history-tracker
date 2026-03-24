@@ -68,9 +68,11 @@ public class JiraRawService {
     @SuppressWarnings("unchecked")
     private Map<String, Object> fetchSearch(WebClient client, String auth, String projectKey) {
         Map<String, Object> body = Map.of(
-                "jql", "project=" + projectKey,
-                "maxResults", 5,
-                "expand", "changelog"
+                "jql", "project=" + projectKey + " ORDER BY created DESC",
+                "maxResults", 50,
+                "expand", "changelog",
+                "fields", List.of("summary", "status", "assignee", "reporter", "issuetype",
+                        "priority", "created", "updated", "description", "labels", "parent")
         );
 
         return client.post()
