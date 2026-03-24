@@ -14,3 +14,5 @@ app:
     base-url: ""  # 요청의 options.baseUrl로 전달
   slack:
     base-url: https://slack.com/api
+  ai-engine:
+    base-url: http://localhost:8000  # Docker 환경에서는 http://ai-engine:8000
