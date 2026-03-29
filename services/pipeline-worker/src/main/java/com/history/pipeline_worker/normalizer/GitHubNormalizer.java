@@ -23,6 +23,11 @@ public class GitHubNormalizer {
         List<NormalizedEvent> events = new ArrayList<>();
         for (Object raw : commits) {
             Map<String, Object> commit = (Map<String, Object>) raw;
+
+            // merge commit 제외
+            List<Object> parents = (List<Object>) commit.get("parents");
+            if (parents != null && parents.size() > 1) continue;
+
             Map<String, Object> commitDetail = (Map<String, Object>) commit.get("commit");
             if (commitDetail == null) continue;
 
