@@ -23,6 +23,11 @@ public class GitHubNormalizer {
         List<NormalizedEvent> events = new ArrayList<>();
         for (Object raw : commits) {
             Map<String, Object> commit = (Map<String, Object>) raw;
+
+            // merge commit 제외
+            List<Object> parents = (List<Object>) commit.get("parents");
+            if (parents != null && parents.size() > 1) continue;
+
             Map<String, Object> commitDetail = (Map<String, Object>) commit.get("commit");
             if (commitDetail == null) continue;
 
@@ -35,11 +40,21 @@ public class GitHubNormalizer {
             String dateStr = authorDetail != null ? (String) authorDetail.get("date") : null;
 
             Map<String, Object> properties = new HashMap<>();
+            List<Object> rawFiles = (List<Object>) commit.get("files");
+            List<Map<String, Object>> files = new ArrayList<>();
+            if (rawFiles != null) {
+                for (Object f : rawFiles) {
+                    Map<String, Object> fd = (Map<String, Object>) f;
+                    Map<String, Object> entry = new HashMap<>();
+                    entry.put("path", fd.get("filename"));
+                    entry.put("diff", fd.get("patch"));
+                    files.add(entry);
+                }
+            }
+
             properties.put("hash", commit.get("sha"));
             properties.put("message", message);
-            properties.put("files", List.of());    // 커밋 상세 API 별도 호출 필요 — Phase 2 추가 예정
-            properties.put("lines_added", null);   // 동일 이유로 null
-            properties.put("lines_removed", null);
+            properties.put("files", files);
             events.add(new NormalizedEvent(
                     "ChangeSet",
                     "GITHUB",
