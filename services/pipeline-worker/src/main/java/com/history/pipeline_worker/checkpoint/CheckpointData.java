@@ -9,7 +9,9 @@ public class CheckpointData {
     public SourceCheckpoint jira = new SourceCheckpoint();
 
     public static class GitHubCheckpoint {
-        public Instant lastScannedAt;  // null = 최초 실행
+        public Instant commitsScannedAt;       // null = 최초 실행
+        public Instant pullRequestsScannedAt;
+        public Instant issuesScannedAt;
     }
 
     public static class SourceCheckpoint {

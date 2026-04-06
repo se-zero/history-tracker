@@ -43,9 +43,23 @@ public class FileCheckpointManager {
         }
     }
 
-    public void updateGitHub(Instant scannedAt) {
+    public void updateGitHubCommits(Instant scannedAt) {
         synchronized (lock) {
-            cached.github.lastScannedAt = scannedAt;
+            cached.github.commitsScannedAt = scannedAt;
+            save(cached);
+        }
+    }
+
+    public void updateGitHubPullRequests(Instant scannedAt) {
+        synchronized (lock) {
+            cached.github.pullRequestsScannedAt = scannedAt;
+            save(cached);
+        }
+    }
+
+    public void updateGitHubIssues(Instant scannedAt) {
+        synchronized (lock) {
+            cached.github.issuesScannedAt = scannedAt;
             save(cached);
         }
     }
