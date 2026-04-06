@@ -20,16 +20,19 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7.4-alpine
-    container_name: history-graph-redis
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: history-graph-rabbitmq
     ports:
-      - "6379:6379"
-    command: redis-server --requirepass password1234 --appendonly yes
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
     volumes:
-      - redis_data:/data
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "password1234", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,11 +48,9 @@ services:
     depends_on:
       neo4j:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     profiles: [app]
 
 volumes:
   neo4j_data:
   neo4j_logs:
-  redis_data:
+  rabbitmq_data:

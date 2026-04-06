@@ -1,6 +1,11 @@
 spring:
   application:
     name: pipeline-worker
+  rabbitmq:
+    host: localhost  # Docker 환경에서는 'rabbitmq'
+    port: 5672
+    username: guest
+    password: guest
 
 server:
   port: 8081  # backend(8080)와 포트 충돌 방지
@@ -14,5 +19,24 @@ app:
     base-url: ""  # 요청의 options.baseUrl로 전달
   slack:
     base-url: https://slack.com/api
-  ai-engine:
-    base-url: http://localhost:8000  # Docker 환경에서는 http://ai-engine:8000
+
+  rabbitmq:
+    exchange: history.exchange
+    queue: history.events
+    routing-key-github: event.github
+    routing-key-jira: event.jira
+    routing-key-slack: event.slack
+
+  checkpoint:
+    path: ./checkpoint.json  # Docker 환경에서는 volume mount로 /data/checkpoint.json
+
+  rate-limit:
+    github:
+      default-delay-ms: 300
+      low-remaining-threshold: 10
+    slack:
+      conversations-list-delay-ms: 3000    # Tier 2: 20/min
+      conversations-history-delay-ms: 1200  # Tier 3: 50/min
+      conversations-replies-delay-ms: 1200  # Tier 3: 50/min
+    jira:
+      delay-ms: 200
