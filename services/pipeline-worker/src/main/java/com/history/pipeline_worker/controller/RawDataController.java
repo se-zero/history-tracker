@@ -6,11 +6,13 @@ import com.history.pipeline_worker.dto.RawFetchResponse;
 import com.history.pipeline_worker.normalizer.GitHubNormalizer;
 import com.history.pipeline_worker.normalizer.JiraNormalizer;
 import com.history.pipeline_worker.normalizer.SlackNormalizer;
+import com.history.pipeline_worker.messaging.EventPublisher;
 import com.history.pipeline_worker.service.GitHubRawService;
 import com.history.pipeline_worker.service.JiraRawService;
 import com.history.pipeline_worker.service.SlackRawService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 public class RawDataController {
@@ -32,6 +35,8 @@ public class RawDataController {
     private final GitHubNormalizer gitHubNormalizer;
     private final JiraNormalizer jiraNormalizer;
     private final SlackNormalizer slackNormalizer;
+
+    private final EventPublisher eventPublisher;
 
     // ── Raw 수집 엔드포인트 ─────────────────────────────────────
 
@@ -61,6 +66,9 @@ public class RawDataController {
         events.addAll(gitHubNormalizer.normalizePullRequests(getList(raw, "pullRequests")));
         events.addAll(gitHubNormalizer.normalizeIssues(getList(raw, "issues")));
 
+        int published = eventPublisher.publishAll(events);
+        log.info("GitHub 이벤트 발행: {}", published);
+
         return ResponseEntity.ok(events);
     }
 
@@ -70,13 +78,21 @@ public class RawDataController {
         @SuppressWarnings("unchecked")
         Map<String, Object> searchResult = (Map<String, Object>) raw.get("search");
 
-        return ResponseEntity.ok(jiraNormalizer.normalizeIssues(searchResult));
+        List<NormalizedEvent> events = jiraNormalizer.normalizeIssues(searchResult);
+        int published = eventPublisher.publishAll(events);
+        log.info("Jira 이벤트 발행: {}", published);
+
+        return ResponseEntity.ok(events);
     }
 
     @PostMapping("/api/v1/normalize/slack")
     public ResponseEntity<List<NormalizedEvent>> normalizeSlack(@RequestBody @Valid RawFetchRequest request) {
         Map<String, Object> raw = slackRawService.fetch(request);
-        return ResponseEntity.ok(slackNormalizer.normalizeChannels(raw));
+        List<NormalizedEvent> events = slackNormalizer.normalizeChannels(raw);
+        int published = eventPublisher.publishAll(events);
+        log.info("Slack 이벤트 발행: {}", published);
+
+        return ResponseEntity.ok(events);
     }
 
     @SuppressWarnings("unchecked")
