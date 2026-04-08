@@ -58,17 +58,14 @@ public class GitHubRawService {
                 auth, "/repos/{owner}/{repo}/commits?per_page=" + PER_PAGE, owner, repo,
                 cp.commitsScannedAt, "commit.author.date");
         List<Object> commits = enrichCommits(auth, rawCommits, owner, repo);
-        checkpointManager.updateGitHubCommits(Instant.now());
 
         List<Object> pullRequests = fetchAllPages(
                 auth, "/repos/{owner}/{repo}/pulls?state=all&per_page=" + PER_PAGE, owner, repo,
                 cp.pullRequestsScannedAt, "created_at");
-        checkpointManager.updateGitHubPullRequests(Instant.now());
 
         List<Object> issues = fetchAllPages(
                 auth, "/repos/{owner}/{repo}/issues?state=all&per_page=" + PER_PAGE, owner, repo,
                 cp.issuesScannedAt, "created_at");
-        checkpointManager.updateGitHubIssues(Instant.now());
 
         log.info("GitHub 수집 완료: commits={}, PRs={}, issues={}", commits.size(), pullRequests.size(), issues.size());
 

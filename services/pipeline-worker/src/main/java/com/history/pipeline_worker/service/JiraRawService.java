@@ -62,7 +62,6 @@ public class JiraRawService {
             rateLimiter.acquire();
         }
 
-        checkpointManager.updateJira(Instant.now());
         log.info("Jira 수집 완료: issues={}", extractIssueCount(filteredResult));
 
         return Map.of(

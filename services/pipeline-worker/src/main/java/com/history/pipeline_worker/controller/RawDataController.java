@@ -6,6 +6,7 @@ import com.history.pipeline_worker.dto.RawFetchResponse;
 import com.history.pipeline_worker.normalizer.GitHubNormalizer;
 import com.history.pipeline_worker.normalizer.JiraNormalizer;
 import com.history.pipeline_worker.normalizer.SlackNormalizer;
+import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.messaging.EventPublisher;
 import com.history.pipeline_worker.service.GitHubRawService;
 import com.history.pipeline_worker.service.JiraRawService;
@@ -37,6 +38,7 @@ public class RawDataController {
     private final SlackNormalizer slackNormalizer;
 
     private final EventPublisher eventPublisher;
+    private final FileCheckpointManager checkpointManager;
 
     // ── Raw 수집 엔드포인트 ─────────────────────────────────────
 
@@ -67,6 +69,9 @@ public class RawDataController {
         events.addAll(gitHubNormalizer.normalizeIssues(getList(raw, "issues")));
 
         int published = eventPublisher.publishAll(events);
+        checkpointManager.updateGitHubCommits(Instant.now());
+        checkpointManager.updateGitHubPullRequests(Instant.now());
+        checkpointManager.updateGitHubIssues(Instant.now());
         log.info("GitHub 이벤트 발행: {}", published);
 
         return ResponseEntity.ok(events);
@@ -80,6 +85,7 @@ public class RawDataController {
 
         List<NormalizedEvent> events = jiraNormalizer.normalizeIssues(searchResult);
         int published = eventPublisher.publishAll(events);
+        checkpointManager.updateJira(Instant.now());
         log.info("Jira 이벤트 발행: {}", published);
 
         return ResponseEntity.ok(events);
@@ -90,6 +96,7 @@ public class RawDataController {
         Map<String, Object> raw = slackRawService.fetch(request);
         List<NormalizedEvent> events = slackNormalizer.normalizeChannels(raw);
         int published = eventPublisher.publishAll(events);
+        checkpointManager.updateSlack(Instant.now());
         log.info("Slack 이벤트 발행: {}", published);
 
         return ResponseEntity.ok(events);

@@ -73,7 +73,6 @@ public class SlackRawService {
             ));
         }
 
-        checkpointManager.updateSlack(Instant.now());
         log.info("Slack 수집 완료: {} 채널", channelData.size());
 
         return Map.of(
