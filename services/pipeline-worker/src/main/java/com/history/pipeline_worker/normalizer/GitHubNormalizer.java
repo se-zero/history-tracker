@@ -48,6 +48,8 @@ public class GitHubNormalizer {
                     Map<String, Object> entry = new HashMap<>();
                     entry.put("path", fd.get("filename"));
                     entry.put("diff", fd.get("patch"));
+                    entry.put("additions", fd.get("additions"));
+                    entry.put("deletions", fd.get("deletions"));
                     files.add(entry);
                 }
             }
