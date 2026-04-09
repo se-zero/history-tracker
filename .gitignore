@@ -28,3 +28,7 @@ Thumbs.db
 
 # ── Docker ─────────────────────────────────────────────────────
 docker-compose.override.yml
+
+# ── 테스트 / 로컬 데이터 ────────────────────────────────────────
+normalized_*.json
+*_summarized.json
