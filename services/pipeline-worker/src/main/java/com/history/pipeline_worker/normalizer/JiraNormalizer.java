@@ -44,10 +44,13 @@ public class JiraNormalizer {
 
             String createdAt = (String) fields.get("created");
             String summary = (String) fields.get("summary");
+            Object description = fields.get("description");
+            String descriptionText = extractPlainText(description);
 
             Map<String, Object> properties = new HashMap<>();
             properties.put("jira_key", issue.get("key"));
             properties.put("title", summary);
+            properties.put("body", descriptionText);
             properties.put("status", status != null ? status.get("name") : null);
             properties.put("issue_type", issueType != null ? issueType.get("name") : null);
             properties.put("priority", priority != null ? priority.get("name") : null);
@@ -63,9 +66,37 @@ public class JiraNormalizer {
                     createdAt != null ? OffsetDateTime.parse(createdAt, JIRA_DATE_FMT).toInstant() : Instant.now(),
                     actor,
                     properties,
-                    refsExtractor.extract(summary)
+                    refsExtractor.extract(summary + " " + descriptionText)
             ));
         }
         return events;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractPlainText(Object node) {
+        if (node == null) return "";
+        if (node instanceof String) return (String) node;
+        if (!(node instanceof Map)) return "";
+
+        Map<String, Object> map = (Map<String, Object>) node;
+
+        if ("text".equals(map.get("type")) && map.containsKey("text")) {
+            return (String) map.get("text");
+        }
+
+        Object content = map.get("content");
+        if (content instanceof List) {
+            StringBuilder sb = new StringBuilder();
+            for (Object child : (List<?>) content) {
+                String childText = extractPlainText(child);
+                if (!childText.isEmpty()) {
+                    if (sb.length() > 0) sb.append(" ");
+                    sb.append(childText);
+                }
+            }
+            return sb.toString();
+        }
+
+        return "";
     }
 }
