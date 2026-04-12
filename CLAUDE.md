@@ -45,3 +45,8 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
 ### pipeline-worker (Spring Boot)
 - 패키지 구조: `controller` / `service` / `repository` / `domain` / `config`
 - `controller`에 비즈니스 로직 금지 — `service`에만 작성
+
+
+## 참고 문서
+`docs/`에 상세한 사양이 있으며, 필요할 때 Claude가 이를 읽는 구조
+- `docs/graph-schema.md` - 지식 그래프 노드, 관계 정의
