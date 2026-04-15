@@ -61,7 +61,7 @@ public class GitHubNormalizer {
                     "ChangeSet",
                     "GITHUB",
                     dateStr != null ? Instant.parse(dateStr) : Instant.now(),
-                    new ActorDto(authorLogin, authorName),
+                    new ActorDto(authorLogin, authorName, null),
                     properties,
                     refsExtractor.extract(message)
             ));
@@ -98,7 +98,8 @@ public class GitHubNormalizer {
                     createdAt != null ? Instant.parse(createdAt) : Instant.now(),
                     new ActorDto(
                             user != null ? (String) user.get("login") : null,
-                            user != null ? (String) user.get("login") : null
+                            user != null ? (String) user.get("login") : null,
+                            null
                     ),
                     properties,
                     refsExtractor.extract(content)
@@ -140,7 +141,8 @@ public class GitHubNormalizer {
                     createdAt != null ? Instant.parse(createdAt) : Instant.now(),
                     new ActorDto(
                             user != null ? (String) user.get("login") : null,
-                            user != null ? (String) user.get("login") : null
+                            user != null ? (String) user.get("login") : null,
+                            null
                     ),
                     properties,
                     refsExtractor.extract(content)

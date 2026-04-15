@@ -76,7 +76,7 @@ public class SlackNormalizer {
                 "Communication",
                 "SLACK",
                 tsToInstant(ts),
-                new ActorDto(userId, userName),
+                new ActorDto(userId, userName, null),
                 properties,
                 refsExtractor.extract(text)
         );
