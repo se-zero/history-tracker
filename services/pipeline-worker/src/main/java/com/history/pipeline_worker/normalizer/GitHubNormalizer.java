@@ -34,7 +34,8 @@ public class GitHubNormalizer {
             Map<String, Object> authorDetail = (Map<String, Object>) commitDetail.get("author");
             Map<String, Object> ghAuthor = (Map<String, Object>) commit.get("author"); // GitHub 계정 (null 가능)
 
-            String authorName = authorDetail != null ? (String) authorDetail.get("name") : null;
+            String authorName  = authorDetail != null ? (String) authorDetail.get("name")  : null;
+            String authorEmail = authorDetail != null ? (String) authorDetail.get("email") : null;
             String authorLogin = ghAuthor != null ? (String) ghAuthor.get("login") : authorName;
             String message = (String) commitDetail.get("message");
             String dateStr = authorDetail != null ? (String) authorDetail.get("date") : null;
@@ -61,7 +62,7 @@ public class GitHubNormalizer {
                     "ChangeSet",
                     "GITHUB",
                     dateStr != null ? Instant.parse(dateStr) : Instant.now(),
-                    new ActorDto(authorLogin, authorName, null),
+                    new ActorDto(authorLogin, authorName, authorEmail),
                     properties,
                     refsExtractor.extract(message)
             ));
@@ -98,8 +99,8 @@ public class GitHubNormalizer {
                     createdAt != null ? Instant.parse(createdAt) : Instant.now(),
                     new ActorDto(
                             user != null ? (String) user.get("login") : null,
-                            user != null ? (String) user.get("login") : null,
-                            null
+                            user != null ? resolveDisplayName(user) : null,
+                            user != null ? (String) user.get("email") : null
                     ),
                     properties,
                     refsExtractor.extract(content)
@@ -141,13 +142,19 @@ public class GitHubNormalizer {
                     createdAt != null ? Instant.parse(createdAt) : Instant.now(),
                     new ActorDto(
                             user != null ? (String) user.get("login") : null,
-                            user != null ? (String) user.get("login") : null,
-                            null
+                            user != null ? resolveDisplayName(user) : null,
+                            user != null ? (String) user.get("email") : null
                     ),
                     properties,
                     refsExtractor.extract(content)
             ));
         }
         return events;
+    }
+
+    /** enrichUserObjects가 name을 보강했으면 사용, 없으면 login으로 대체 */
+    private String resolveDisplayName(Map<String, Object> user) {
+        String name = (String) user.get("name");
+        return (name != null && !name.isBlank()) ? name : (String) user.get("login");
     }
 }

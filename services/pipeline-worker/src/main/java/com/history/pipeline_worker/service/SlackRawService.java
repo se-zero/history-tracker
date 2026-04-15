@@ -18,6 +18,8 @@ import java.util.Map;
 @Service
 public class SlackRawService {
 
+    private record UserInfo(String name, String email) {}
+
     // 페이지당 최대 수 (Slack API 최대값)
     private static final int PAGE_SIZE = 200;
 
@@ -47,8 +49,8 @@ public class SlackRawService {
 
         Instant lastScannedAt = checkpointManager.getCached().slack.lastScannedAt;
 
-        // xoxp 유저 토큰으로 워크스페이스 전체 멤버 수집 (userId → displayName 매핑)
-        Map<String, String> userMap = fetchUserMap(auth);
+        // xoxp 유저 토큰으로 워크스페이스 전체 멤버 수집 (userId → UserInfo 매핑)
+        Map<String, UserInfo> userMap = fetchUserMap(auth);
 
         // 전체 채널 목록 수집
         List<Object> allChannels = fetchAllChannels(auth);
@@ -82,10 +84,10 @@ public class SlackRawService {
         );
     }
 
-    // users.list로 워크스페이스 전체 멤버의 userId → displayName 맵 구성
+    // users.list로 워크스페이스 전체 멤버의 userId → UserInfo(name, email) 맵 구성
     @SuppressWarnings("unchecked")
-    private Map<String, String> fetchUserMap(String auth) {
-        Map<String, String> userMap = new HashMap<>();
+    private Map<String, UserInfo> fetchUserMap(String auth) {
+        Map<String, UserInfo> userMap = new HashMap<>();
         String cursor = null;
 
         do {
@@ -108,16 +110,18 @@ public class SlackRawService {
                     String id = (String) member.get("id");
                     Map<String, Object> profile = (Map<String, Object>) member.get("profile");
                     String displayName = null;
+                    String email = null;
                     if (profile != null) {
                         String dn = (String) profile.get("display_name");
                         displayName = (dn != null && !dn.isBlank())
                                 ? dn
                                 : (String) profile.get("real_name");
+                        email = (String) profile.get("email");
                     }
                     if (displayName == null || displayName.isBlank()) {
                         displayName = (String) member.get("name");
                     }
-                    if (id != null) userMap.put(id, displayName);
+                    if (id != null) userMap.put(id, new UserInfo(displayName, email));
                 }
             }
 
@@ -163,7 +167,7 @@ public class SlackRawService {
     // cursor 페이지네이션으로 채널 전체 메시지 수집 (Tier 3: conversations.history)
     @SuppressWarnings("unchecked")
     private List<Object> fetchAllMessages(String auth, String channelId,
-                                           Map<String, String> userMap, Instant lastScannedAt) {
+                                           Map<String, UserInfo> userMap, Instant lastScannedAt) {
         List<Object> allMessages = new ArrayList<>();
         String cursor = null;
 
@@ -202,7 +206,7 @@ public class SlackRawService {
     // 스레드가 달린 메시지의 replies를 모두 수집
     @SuppressWarnings("unchecked")
     private List<Object> fetchAllThreads(String auth, String channelId,
-                                          List<Object> messages, Map<String, String> userMap) {
+                                          List<Object> messages, Map<String, UserInfo> userMap) {
         List<Object> allThreads = new ArrayList<>();
 
         for (Object msg : messages) {
@@ -223,7 +227,7 @@ public class SlackRawService {
     // 스레드 replies도 cursor 페이지네이션으로 전체 수집 (Tier 3: conversations.replies)
     @SuppressWarnings("unchecked")
     private List<Object> fetchAllReplies(String auth, String channelId,
-                                          String threadTs, Map<String, String> userMap) {
+                                          String threadTs, Map<String, UserInfo> userMap) {
         List<Object> allReplies = new ArrayList<>();
         String cursor = null;
 
@@ -291,13 +295,15 @@ public class SlackRawService {
         return subtype != null && NOISE_SUBTYPES.contains(subtype);
     }
 
-    // userId → displayName을 메시지에 추가
-    private Map<String, Object> enrichWithUserName(Map<String, Object> message, Map<String, String> userMap) {
+    // userId → userName·userEmail을 메시지에 추가
+    private Map<String, Object> enrichWithUserName(Map<String, Object> message, Map<String, UserInfo> userMap) {
         String userId = (String) message.get("user");
         if (userId == null || !userMap.containsKey(userId)) return message;
 
+        UserInfo info = userMap.get(userId);
         Map<String, Object> enriched = new HashMap<>(message);
-        enriched.put("userName", userMap.get(userId));
+        enriched.put("userName", info.name());
+        if (info.email() != null) enriched.put("userEmail", info.email());
         return enriched;
     }
 

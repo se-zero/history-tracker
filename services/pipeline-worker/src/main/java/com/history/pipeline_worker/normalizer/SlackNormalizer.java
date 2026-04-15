@@ -60,8 +60,9 @@ public class SlackNormalizer {
     }
 
     private NormalizedEvent normalizeMessage(Map<String, Object> msg, String channelName, String channelId, String threadTs) {
-        String userId = (String) msg.get("user");
-        String userName = (String) msg.get("userName");
+        String userId    = (String) msg.get("user");
+        String userName  = (String) msg.get("userName");
+        String userEmail = (String) msg.get("userEmail");
         String text = (String) msg.get("text");
         String ts = (String) msg.get("ts");
 
@@ -76,7 +77,7 @@ public class SlackNormalizer {
                 "Communication",
                 "SLACK",
                 tsToInstant(ts),
-                new ActorDto(userId, userName, null),
+                new ActorDto(userId, userName, userEmail),
                 properties,
                 refsExtractor.extract(text)
         );

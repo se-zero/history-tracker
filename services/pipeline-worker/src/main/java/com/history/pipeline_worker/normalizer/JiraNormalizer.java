@@ -57,7 +57,10 @@ public class JiraNormalizer {
             properties.put("assignee", assigneeField != null ? assigneeField.get("displayName") : null);
 
             ActorDto actor = reporter != null
-                    ? new ActorDto((String) reporter.get("accountId"), (String) reporter.get("displayName"), null)
+                    ? new ActorDto(
+                            (String) reporter.get("accountId"),
+                            (String) reporter.get("displayName"),
+                            (String) reporter.get("emailAddress"))
                     : new ActorDto(null, null, null);
 
             events.add(new NormalizedEvent(
