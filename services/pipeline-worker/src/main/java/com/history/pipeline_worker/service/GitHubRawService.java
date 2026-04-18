@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
@@ -26,6 +27,9 @@ public class GitHubRawService {
     private final WebClient webClient;
     private final GitHubRateLimiter rateLimiter;
     private final FileCheckpointManager checkpointManager;
+
+    // login → {email, name} 캐시 — 동일 user에 대한 반복 API 호출 방지
+    private final Map<String, Map<String, String>> userProfileCache = new ConcurrentHashMap<>();
 
     public GitHubRawService(
             WebClient.Builder webClientBuilder,
@@ -59,13 +63,13 @@ public class GitHubRawService {
                 cp.commitsScannedAt, "commit.author.date");
         List<Object> commits = enrichCommits(auth, rawCommits, owner, repo);
 
-        List<Object> pullRequests = fetchAllPages(
+        List<Object> pullRequests = enrichUserObjects(auth, fetchAllPages(
                 auth, "/repos/{owner}/{repo}/pulls?state=all&per_page=" + PER_PAGE, owner, repo,
-                cp.pullRequestsScannedAt, "created_at");
+                cp.pullRequestsScannedAt, "created_at"));
 
-        List<Object> issues = fetchAllPages(
+        List<Object> issues = enrichUserObjects(auth, fetchAllPages(
                 auth, "/repos/{owner}/{repo}/issues?state=all&per_page=" + PER_PAGE, owner, repo,
-                cp.issuesScannedAt, "created_at");
+                cp.issuesScannedAt, "created_at"));
 
         log.info("GitHub 수집 완료: commits={}, PRs={}, issues={}", commits.size(), pullRequests.size(), issues.size());
 
@@ -127,6 +131,52 @@ public class GitHubRawService {
             result.add(commit);
         }
         return result;
+    }
+
+    /** PR·Issue의 user 객체에 email·name을 보강 (GET /users/{login}) */
+    @SuppressWarnings("unchecked")
+    private List<Object> enrichUserObjects(String auth, List<Object> items) {
+        List<Object> result = new ArrayList<>();
+        for (Object raw : items) {
+            Map<String, Object> item = new HashMap<>((Map<String, Object>) raw);
+            Map<String, Object> user = (Map<String, Object>) item.get("user");
+            if (user != null) {
+                String login = (String) user.get("login");
+                if (login != null) {
+                    Map<String, String> profile = fetchUserProfile(login, auth);
+                    Map<String, Object> enrichedUser = new HashMap<>(user);
+                    if (profile.containsKey("email")) enrichedUser.put("email", profile.get("email"));
+                    if (profile.containsKey("name"))  enrichedUser.put("name",  profile.get("name"));
+                    item.put("user", enrichedUser);
+                }
+            }
+            result.add(item);
+        }
+        return result;
+    }
+
+    /** GET /users/{login} → {email, name} (캐시 적용) */
+    @SuppressWarnings("unchecked")
+    private Map<String, String> fetchUserProfile(String login, String auth) {
+        return userProfileCache.computeIfAbsent(login, l -> {
+            AtomicReference<org.springframework.http.HttpHeaders> headersRef = new AtomicReference<>();
+            Map<String, Object> result = webClient.get()
+                    .uri("/users/{login}", l)
+                    .header("Authorization", auth)
+                    .exchangeToMono(resp -> {
+                        headersRef.set(resp.headers().asHttpHeaders());
+                        return resp.bodyToMono(Map.class);
+                    })
+                    .block();
+            rateLimiter.acquire(headersRef.get());
+            if (result == null) return Map.of();
+            Map<String, String> profile = new HashMap<>();
+            String email = (String) result.get("email");
+            String name  = (String) result.get("name");
+            if (email != null) profile.put("email", email);
+            if (name  != null) profile.put("name",  name);
+            return profile;
+        });
     }
 
     @SuppressWarnings("unchecked")
