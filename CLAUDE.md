@@ -51,3 +51,4 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
 `docs/`에 상세한 사양이 있으며, 필요할 때 Claude가 이를 읽는 구조
 - `docs/graph-schema.md` - 지식 그래프 노드, 관계 정의
 - `docs/actor-node-design.md` - Actor 동일인 판단 파이프라인 상세 설계 (스코어링 로직, LLM 프롬프트, Neo4j 쿼리)
+- `docs/embedding-design.md` - 임베딩 모델 선택, 대상 노드/엣지, REFERENCE 엣지 생성 흐름, Neo4j Vector Index 도입 계획
