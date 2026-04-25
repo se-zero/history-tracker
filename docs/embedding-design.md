@@ -54,6 +54,22 @@ Issue 이벤트         → embed_text(title + body)   → Issue.embedding 저�
 
 각 이벤트마다 API 1회 호출 (`embed_text` 사용).
 
+### threshold 선정 근거
+
+`text-embedding-3-small`로 실측한 결과, diffSummary(구조화된 포맷)와 Communication.body(구어체 대화)는 같은 내용이어도 임베딩 공간에서 거리가 있어 유사도가 전반적으로 낮게 나온다.
+
+| 케이스 | 유사도 |
+|--------|--------|
+| 무관한 쌍 (점심 메뉴) | 0.15 |
+| 관련 있는 쌍 (한국어, 낙관적 락) | 0.33 |
+| 관련 있는 쌍 (한/영, JWT) | 0.40 |
+| 동일 의미 한/영 | 0.57 |
+
+무관한 쌍(0.15)과 관련 있는 쌍(0.33~) 사이인 **0.30**을 기본값으로 설정.
+Neo4j 연동 후 실제 데이터로 추가 조정 권장.
+
+---
+
 ### 배치 — REFERENCE 엣지 생성 (reference_builder.py)
 
 ```
@@ -64,7 +80,7 @@ Neo4j에서 Communication.embedding 목록 조회
   ↓
 occurredAt 차이 5일 이내인 쌍만 코사인 유사도 계산  ← 시간 윈도우 필터
   ↓
-유사도 ≥ 0.75 → REFERENCE 엣지 생성 (confidence = 유사도)
+유사도 ≥ 0.30 → REFERENCE 엣지 생성 (confidence = 유사도)
 ```
 
 ---
@@ -108,7 +124,7 @@ MATCH (cs:ChangeSet)-[m:MODIFIED]->(f:File)
 WHERE m.embedding IS NOT NULL
 CALL db.index.vector.queryNodes('comm_embedding', 10, m.embedding)
 YIELD node AS comm, score
-WHERE score >= 0.75
+WHERE score >= 0.30
 MERGE (cs)-[r:REFERENCE]->(comm)
 SET r.confidence = score
 ```

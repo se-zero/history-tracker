@@ -22,7 +22,7 @@ from graph.embedder import cosine_similarity, embed_batch
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_THRESHOLD = 0.75
+DEFAULT_THRESHOLD = 0.30
 TIME_WINDOW_DAYS = 5
 
 
