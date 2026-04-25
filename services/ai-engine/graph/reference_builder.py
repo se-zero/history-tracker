@@ -15,6 +15,7 @@ Neo4j 직접 호출 없이 ReferenceStore 인터페이스로 주입받아 테스
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Awaitable, Callable
 
 from graph.embedder import cosine_similarity, embed_batch
@@ -22,6 +23,7 @@ from graph.embedder import cosine_similarity, embed_batch
 logger = logging.getLogger(__name__)
 
 DEFAULT_THRESHOLD = 0.75
+TIME_WINDOW_DAYS = 5
 
 
 @dataclass
@@ -31,13 +33,14 @@ class ReferenceStore:
     fetch_modified_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 MODIFIED 엣지 반환.
     Returns:
-        [{"changeset_id": str, "file_path": str, "diff_summary": str, "embedding": list[float]}, ...]
+        [{"changeset_id": str, "file_path": str, "diff_summary": str,
+          "embedding": list[float], "occurred_at": datetime}, ...]
     """
 
     fetch_communication_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 Communication 노드 반환.
     Returns:
-        [{"id": str, "body": str, "embedding": list[float]}, ...]
+        [{"id": str, "body": str, "embedding": list[float], "occurred_at": datetime}, ...]
     """
 
     create_reference_edge: Callable[[str, str, float], Awaitable[None]]
@@ -82,10 +85,16 @@ async def build_reference_edges(
         logger.info("REFERENCE 엣지 생성 스킵: modified=%d, comm=%d", len(modified_list), len(comm_list))
         return 0
 
+    window = timedelta(days=TIME_WINDOW_DAYS)
+
     created = 0
     for mod in modified_list:
         mod_vec = mod["embedding"]
+        mod_time = mod["occurred_at"]
         for comm in comm_list:
+            # 시간 윈도우 필터: 5일 이상 차이나는 쌍은 비교 스킵
+            if abs(mod_time - comm["occurred_at"]) > window:
+                continue
             score = cosine_similarity(mod_vec, comm["embedding"])
             if score >= threshold:
                 await store.create_reference_edge(mod["changeset_id"], comm["id"], score)
