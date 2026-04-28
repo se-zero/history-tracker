@@ -2,12 +2,11 @@ package com.history.pipeline_worker.normalizer;
 
 import com.history.pipeline_worker.dto.ActorDto;
 import com.history.pipeline_worker.dto.NormalizedEvent;
+import com.history.pipeline_worker.util.JiraDateUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,9 +15,6 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 public class JiraNormalizer {
-
-    private static final DateTimeFormatter JIRA_DATE_FMT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
 
     private final RefsExtractor refsExtractor;
 
@@ -66,7 +62,7 @@ public class JiraNormalizer {
             events.add(new NormalizedEvent(
                     "Issue",
                     "JIRA",
-                    createdAt != null ? OffsetDateTime.parse(createdAt, JIRA_DATE_FMT).toInstant() : Instant.now(),
+                    createdAt != null ? JiraDateUtils.parse(createdAt) : Instant.now(),
                     actor,
                     properties,
                     refsExtractor.extract(summary + " " + descriptionText)

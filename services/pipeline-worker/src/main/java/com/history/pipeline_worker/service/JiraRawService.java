@@ -3,6 +3,7 @@ package com.history.pipeline_worker.service;
 import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.ratelimit.JiraRateLimiter;
+import com.history.pipeline_worker.util.JiraDateUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -10,20 +11,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Instant;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
 public class JiraRawService {
 
-    private static final DateTimeFormatter JIRA_DATE_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+    private static final Pattern JIRA_PROJECT_KEY =
+            Pattern.compile("^[A-Z][A-Z0-9]{1,9}$");
+    private static final int PAGE_SIZE = 100;
 
     private final WebClient.Builder webClientBuilder;
     private final String defaultBaseUrl;
@@ -45,15 +47,14 @@ public class JiraRawService {
     public Map<String, Object> fetch(RawFetchRequest request) {
         String baseUrl = resolveBaseUrl(request);
         String auth = resolveAuth(request.credentials());
+        String projectKey = resolveProjectKey(request.projectKey());
 
         WebClient client = webClientBuilder.baseUrl(baseUrl).build();
 
         Instant lastScannedAt = checkpointManager.getCached().jira.lastScannedAt;
 
-        Map<String, Object> searchResult = fetchSearch(client, auth, request.projectKey());
-        rateLimiter.acquire();
-
-        Map<String, Object> filteredResult = filterIssuesByDate(searchResult, lastScannedAt);
+        Map<String, Object> searchResult = fetchAllSearchPages(client, auth, projectKey, lastScannedAt);
+        Map<String, Object> filteredResult = filterIssuesByUpdated(searchResult, lastScannedAt);
 
         String firstIssueKey = extractFirstIssueKey(filteredResult);
         List<Object> comments = Collections.emptyList();
@@ -70,9 +71,9 @@ public class JiraRawService {
         );
     }
 
-    /** lastScannedAt 이후 생성된 이슈만 남기도록 searchResult 내 issues 필터링 */
+    /** lastScannedAt 이후 갱신된 이슈만 남기도록 searchResult 내 issues 필터링 */
     @SuppressWarnings("unchecked")
-    private Map<String, Object> filterIssuesByDate(Map<String, Object> searchResult, Instant lastScannedAt) {
+    private Map<String, Object> filterIssuesByUpdated(Map<String, Object> searchResult, Instant lastScannedAt) {
         if (lastScannedAt == null || searchResult == null) {
             return searchResult != null ? searchResult : Map.of();
         }
@@ -84,10 +85,10 @@ public class JiraRawService {
                 .filter(issue -> {
                     Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
                     if (fields == null) return true;
-                    String created = (String) fields.get("created");
-                    if (created == null) return true;
+                    String updated = (String) fields.get("updated");
+                    if (updated == null) return true;
                     try {
-                        return parseJiraDate(created).isAfter(lastScannedAt);
+                        return JiraDateUtils.parse(updated).isAfter(lastScannedAt);
                     } catch (Exception e) {
                         return true;
                     }
@@ -97,10 +98,6 @@ public class JiraRawService {
         Map<String, Object> result = new HashMap<>(searchResult);
         result.put("issues", filtered);
         return result;
-    }
-
-    private Instant parseJiraDate(String dateStr) {
-        return ZonedDateTime.parse(dateStr, JIRA_DATE_FORMAT).toInstant();
     }
 
     private int extractIssueCount(Map<String, Object> searchResult) {
@@ -119,6 +116,13 @@ public class JiraRawService {
         throw new IllegalArgumentException("Jira baseUrl must be provided in options.baseUrl");
     }
 
+    private String resolveProjectKey(String projectKey) {
+        if (projectKey == null || !JIRA_PROJECT_KEY.matcher(projectKey).matches()) {
+            throw new IllegalArgumentException("Invalid Jira project key: " + projectKey);
+        }
+        return projectKey;
+    }
+
     // credentials 형식: "email:apiToken" 또는 이미 "Basic xxx" / "Bearer xxx"
     private String resolveAuth(String credentials) {
         if (credentials.startsWith("Basic ") || credentials.startsWith("Bearer ")) {
@@ -129,14 +133,42 @@ public class JiraRawService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> fetchSearch(WebClient client, String auth, String projectKey) {
-        Map<String, Object> body = Map.of(
-                "jql", "project=" + projectKey + " ORDER BY created DESC",
-                "maxResults", 50,
-                "expand", "changelog",
-                "fields", List.of("summary", "status", "assignee", "reporter", "issuetype",
-                        "priority", "created", "updated", "description", "labels", "parent")
-        );
+    private Map<String, Object> fetchAllSearchPages(WebClient client, String auth, String projectKey,
+                                                    Instant lastScannedAt) {
+        List<Object> allIssues = new ArrayList<>();
+        String nextPageToken = null;
+        Map<String, Object> lastResponse = Map.of();
+
+        do {
+            lastResponse = fetchSearchPage(client, auth, projectKey, lastScannedAt, nextPageToken);
+            rateLimiter.acquire();
+            if (lastResponse == null) {
+                return Map.of("issues", allIssues, "maxResults", PAGE_SIZE);
+            }
+
+            List<Object> issues = (List<Object>) lastResponse.get("issues");
+            if (issues != null) allIssues.addAll(issues);
+
+            nextPageToken = (String) lastResponse.get("nextPageToken");
+        } while (nextPageToken != null && !nextPageToken.isBlank());
+
+        Map<String, Object> result = new HashMap<>(lastResponse);
+        result.put("issues", allIssues);
+        result.put("maxResults", PAGE_SIZE);
+        return result;
+    }
+
+    private Map<String, Object> fetchSearchPage(WebClient client, String auth, String projectKey,
+                                                Instant lastScannedAt, String nextPageToken) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("jql", buildJql(projectKey, lastScannedAt));
+        body.put("maxResults", PAGE_SIZE);
+        body.put("expand", "changelog");
+        body.put("fields", List.of("summary", "status", "assignee", "reporter", "issuetype",
+                "priority", "created", "updated", "description", "labels", "parent"));
+        if (nextPageToken != null && !nextPageToken.isBlank()) {
+            body.put("nextPageToken", nextPageToken);
+        }
 
         return client.post()
                 .uri("/rest/api/3/search/jql")
@@ -147,6 +179,14 @@ public class JiraRawService {
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block();
+    }
+
+    private String buildJql(String projectKey, Instant lastScannedAt) {
+        String jql = "project=" + projectKey;
+        if (lastScannedAt != null) {
+            jql += " AND updated >= \"" + JiraDateUtils.formatForJql(lastScannedAt) + "\"";
+        }
+        return jql + " ORDER BY updated DESC";
     }
 
     private String extractFirstIssueKey(Map<String, Object> searchResult) {

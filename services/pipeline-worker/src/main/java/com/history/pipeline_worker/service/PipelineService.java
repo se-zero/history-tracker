@@ -7,6 +7,7 @@ import com.history.pipeline_worker.messaging.EventPublisher;
 import com.history.pipeline_worker.normalizer.GitHubNormalizer;
 import com.history.pipeline_worker.normalizer.JiraNormalizer;
 import com.history.pipeline_worker.normalizer.SlackNormalizer;
+import com.history.pipeline_worker.util.JiraDateUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -52,11 +53,11 @@ public class PipelineService {
     public List<NormalizedEvent> normalizeJira(RawFetchRequest request) {
         Map<String, Object> raw = jiraRawService.fetch(request);
         @SuppressWarnings("unchecked")
-        Map<String, Object> searchResult = (Map<String, Object>) raw.get("search");
+        Map<String, Object> filteredSearchResult = (Map<String, Object>) raw.get("search");
 
-        List<NormalizedEvent> events = jiraNormalizer.normalizeIssues(searchResult);
+        List<NormalizedEvent> events = jiraNormalizer.normalizeIssues(filteredSearchResult);
         int published = eventPublisher.publishAll(events);
-        maxOccurredAt(events).ifPresent(checkpointManager::updateJira);
+        maxJiraUpdatedAt(filteredSearchResult).ifPresent(checkpointManager::updateJira);
         log.info("Jira 이벤트 발행: {}", published);
 
         return events;
@@ -98,6 +99,25 @@ public class PipelineService {
         return events.stream()
                 .map(NormalizedEvent::occurredAt)
                 .filter(Objects::nonNull)
+                .max(Instant::compareTo);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Optional<Instant> maxJiraUpdatedAt(Map<String, Object> searchResult) {
+        if (searchResult == null) return Optional.empty();
+        Object rawIssues = searchResult.get("issues");
+        if (!(rawIssues instanceof List<?> issues)) return Optional.empty();
+
+        return issues.stream()
+                .filter(Map.class::isInstance)
+                .map(issue -> (Map<String, Object>) issue)
+                .map(issue -> issue.get("fields"))
+                .filter(Map.class::isInstance)
+                .map(fields -> (Map<String, Object>) fields)
+                .map(fields -> (String) fields.get("updated"))
+                .filter(Objects::nonNull)
+                .map(JiraDateUtils::tryParse)
+                .flatMap(Optional::stream)
                 .max(Instant::compareTo);
     }
 
