@@ -51,16 +51,34 @@ public class PipelineService {
     }
 
     public List<NormalizedEvent> normalizeJira(RawFetchRequest request) {
-        Map<String, Object> raw = jiraRawService.fetch(request);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> filteredSearchResult = (Map<String, Object>) raw.get("search");
+        JiraRawService.JiraFetchContext context = jiraRawService.prepareFetchContext(request);
+        List<NormalizedEvent> allEvents = new ArrayList<>();
+        String nextPageToken = null;
+        int totalPublished = 0;
+        int pageNumber = 0;
 
-        List<NormalizedEvent> events = jiraNormalizer.normalizeIssues(filteredSearchResult);
-        int published = eventPublisher.publishAll(events);
-        maxJiraUpdatedAt(filteredSearchResult).ifPresent(checkpointManager::updateJira);
-        log.info("Jira 이벤트 발행: {}", published);
+        do {
+            JiraRawService.JiraSearchPage page = jiraRawService.fetchSearchPage(context, nextPageToken, pageNumber + 1);
+            if (page.limitReached()) {
+                log.warn("Jira max pages per run 도달: queued={}", totalPublished);
+                break;
+            }
 
-        return events;
+            Map<String, Object> filteredSearchResult = page.searchResult();
+            List<NormalizedEvent> pageEvents = jiraNormalizer.normalizeIssues(filteredSearchResult);
+
+            int published = eventPublisher.publishAll(pageEvents);
+            totalPublished += published;
+            allEvents.addAll(pageEvents);
+            maxJiraUpdatedAt(filteredSearchResult).ifPresent(checkpointManager::updateJira);
+
+            nextPageToken = page.nextPageToken();
+            pageNumber++;
+        } while (nextPageToken != null && !nextPageToken.isBlank());
+
+        log.info("Jira 이벤트 발행: {}", totalPublished);
+
+        return allEvents;
     }
 
     public List<NormalizedEvent> normalizeSlack(RawFetchRequest request) {

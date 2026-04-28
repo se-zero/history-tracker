@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -23,43 +22,43 @@ import java.util.regex.Pattern;
 @Service
 public class JiraRawService {
 
+    public record JiraSearchPage(Map<String, Object> searchResult, String nextPageToken, boolean limitReached) {}
+    public record JiraFetchContext(WebClient client, String auth, String projectKey, Instant lastScannedAt) {}
+
     private static final Pattern JIRA_PROJECT_KEY =
             Pattern.compile("^[A-Z][A-Z0-9]{1,9}$");
     private static final int PAGE_SIZE = 100;
 
     private final WebClient.Builder webClientBuilder;
     private final String defaultBaseUrl;
+    private final int maxPagesPerRun;
     private final JiraRateLimiter rateLimiter;
     private final FileCheckpointManager checkpointManager;
 
     public JiraRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.jira.base-url}") String defaultBaseUrl,
+            @Value("${app.jira.max-pages-per-run:50}") int maxPagesPerRun,
             JiraRateLimiter rateLimiter,
             FileCheckpointManager checkpointManager
     ) {
         this.webClientBuilder = webClientBuilder;
         this.defaultBaseUrl = defaultBaseUrl;
+        this.maxPagesPerRun = maxPagesPerRun;
         this.rateLimiter = rateLimiter;
         this.checkpointManager = checkpointManager;
     }
 
     public Map<String, Object> fetch(RawFetchRequest request) {
-        String baseUrl = resolveBaseUrl(request);
-        String auth = resolveAuth(request.credentials());
-        String projectKey = resolveProjectKey(request.projectKey());
+        JiraFetchContext context = prepareFetchContext(request);
 
-        WebClient client = webClientBuilder.baseUrl(baseUrl).build();
-
-        Instant lastScannedAt = checkpointManager.getCached().jira.lastScannedAt;
-
-        Map<String, Object> searchResult = fetchAllSearchPages(client, auth, projectKey, lastScannedAt);
-        Map<String, Object> filteredResult = filterIssuesByUpdated(searchResult, lastScannedAt);
+        JiraSearchPage page = fetchSearchPage(context, null, 1);
+        Map<String, Object> filteredResult = page.searchResult();
 
         String firstIssueKey = extractFirstIssueKey(filteredResult);
         List<Object> comments = Collections.emptyList();
         if (firstIssueKey != null) {
-            comments = fetchComments(client, auth, firstIssueKey);
+            comments = fetchComments(context.client(), context.auth(), firstIssueKey);
             rateLimiter.acquire();
         }
 
@@ -69,6 +68,37 @@ public class JiraRawService {
                 "search", filteredResult,
                 "sampleComments", comments
         );
+    }
+
+    public JiraFetchContext prepareFetchContext(RawFetchRequest request) {
+        String baseUrl = resolveBaseUrl(request);
+        String auth = resolveAuth(request.credentials());
+        String projectKey = resolveProjectKey(request.projectKey());
+        WebClient client = webClientBuilder.baseUrl(baseUrl).build();
+        Instant lastScannedAt = checkpointManager.getCached().jira.lastScannedAt;
+        return new JiraFetchContext(client, auth, projectKey, lastScannedAt);
+    }
+
+    public JiraSearchPage fetchSearchPage(JiraFetchContext context, String nextPageToken, int pageNumber) {
+        if (pageNumber > maxPagesPerRun) {
+            log.warn("Jira max pages per run 도달: maxPages={}", maxPagesPerRun);
+            return new JiraSearchPage(Map.of("issues", List.of(), "maxResults", PAGE_SIZE), null, true);
+        }
+
+        Map<String, Object> page = fetchSearchPage(
+                context.client(),
+                context.auth(),
+                context.projectKey(),
+                context.lastScannedAt(),
+                nextPageToken
+        );
+        rateLimiter.acquire();
+        if (page == null) {
+            return new JiraSearchPage(Map.of("issues", List.of(), "maxResults", PAGE_SIZE), null, false);
+        }
+
+        Map<String, Object> filteredPage = filterIssuesByUpdated(page, context.lastScannedAt());
+        return new JiraSearchPage(filteredPage, (String) page.get("nextPageToken"), false);
     }
 
     /** lastScannedAt 이후 갱신된 이슈만 남기도록 searchResult 내 issues 필터링 */
@@ -132,32 +162,6 @@ public class JiraRawService {
         return "Basic " + encoded;
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> fetchAllSearchPages(WebClient client, String auth, String projectKey,
-                                                    Instant lastScannedAt) {
-        List<Object> allIssues = new ArrayList<>();
-        String nextPageToken = null;
-        Map<String, Object> lastResponse = Map.of();
-
-        do {
-            lastResponse = fetchSearchPage(client, auth, projectKey, lastScannedAt, nextPageToken);
-            rateLimiter.acquire();
-            if (lastResponse == null) {
-                return Map.of("issues", allIssues, "maxResults", PAGE_SIZE);
-            }
-
-            List<Object> issues = (List<Object>) lastResponse.get("issues");
-            if (issues != null) allIssues.addAll(issues);
-
-            nextPageToken = (String) lastResponse.get("nextPageToken");
-        } while (nextPageToken != null && !nextPageToken.isBlank());
-
-        Map<String, Object> result = new HashMap<>(lastResponse);
-        result.put("issues", allIssues);
-        result.put("maxResults", PAGE_SIZE);
-        return result;
-    }
-
     private Map<String, Object> fetchSearchPage(WebClient client, String auth, String projectKey,
                                                 Instant lastScannedAt, String nextPageToken) {
         Map<String, Object> body = new HashMap<>();
@@ -186,7 +190,7 @@ public class JiraRawService {
         if (lastScannedAt != null) {
             jql += " AND updated >= \"" + JiraDateUtils.formatForJql(lastScannedAt) + "\"";
         }
-        return jql + " ORDER BY updated DESC";
+        return jql + " ORDER BY updated ASC";
     }
 
     private String extractFirstIssueKey(Map<String, Object> searchResult) {
