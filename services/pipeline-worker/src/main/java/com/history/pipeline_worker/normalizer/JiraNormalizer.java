@@ -39,6 +39,7 @@ public class JiraNormalizer {
             Map<String, Object> priority = (Map<String, Object>) fields.get("priority");
 
             String createdAt = (String) fields.get("created");
+            String updatedAt = (String) fields.get("updated");
             String summary = (String) fields.get("summary");
             Object description = fields.get("description");
             String descriptionText = extractPlainText(description);
@@ -51,6 +52,7 @@ public class JiraNormalizer {
             properties.put("issue_type", issueType != null ? issueType.get("name") : null);
             properties.put("priority", priority != null ? priority.get("name") : null);
             properties.put("assignee", assigneeField != null ? assigneeField.get("displayName") : null);
+            properties.put("created_at", createdAt);
 
             ActorDto actor = reporter != null
                     ? new ActorDto(
@@ -62,13 +64,19 @@ public class JiraNormalizer {
             events.add(new NormalizedEvent(
                     "Issue",
                     "JIRA",
-                    createdAt != null ? JiraDateUtils.parse(createdAt) : Instant.now(),
+                    resolveOccurredAt(updatedAt, createdAt),
                     actor,
                     properties,
                     refsExtractor.extract(summary + " " + descriptionText)
             ));
         }
         return events;
+    }
+
+    private Instant resolveOccurredAt(String updatedAt, String createdAt) {
+        if (updatedAt != null) return JiraDateUtils.parse(updatedAt);
+        if (createdAt != null) return JiraDateUtils.parse(createdAt);
+        return Instant.now();
     }
 
     @SuppressWarnings("unchecked")

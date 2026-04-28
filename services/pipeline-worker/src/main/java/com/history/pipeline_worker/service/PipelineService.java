@@ -7,7 +7,6 @@ import com.history.pipeline_worker.messaging.EventPublisher;
 import com.history.pipeline_worker.normalizer.GitHubNormalizer;
 import com.history.pipeline_worker.normalizer.JiraNormalizer;
 import com.history.pipeline_worker.normalizer.SlackNormalizer;
-import com.history.pipeline_worker.util.JiraDateUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -50,9 +49,8 @@ public class PipelineService {
         return events;
     }
 
-    public List<NormalizedEvent> normalizeJira(RawFetchRequest request) {
+    public int normalizeJira(RawFetchRequest request) {
         JiraRawService.JiraFetchContext context = jiraRawService.prepareFetchContext(request);
-        List<NormalizedEvent> allEvents = new ArrayList<>();
         String nextPageToken = null;
         int totalPublished = 0;
         int pageNumber = 0;
@@ -69,8 +67,7 @@ public class PipelineService {
 
             int published = eventPublisher.publishAll(pageEvents);
             totalPublished += published;
-            allEvents.addAll(pageEvents);
-            maxJiraUpdatedAt(filteredSearchResult).ifPresent(checkpointManager::updateJira);
+            maxOccurredAt(pageEvents).ifPresent(checkpointManager::updateJira);
 
             nextPageToken = page.nextPageToken();
             pageNumber++;
@@ -78,7 +75,7 @@ public class PipelineService {
 
         log.info("Jira 이벤트 발행: {}", totalPublished);
 
-        return allEvents;
+        return totalPublished;
     }
 
     public List<NormalizedEvent> normalizeSlack(RawFetchRequest request) {
@@ -117,25 +114,6 @@ public class PipelineService {
         return events.stream()
                 .map(NormalizedEvent::occurredAt)
                 .filter(Objects::nonNull)
-                .max(Instant::compareTo);
-    }
-
-    @SuppressWarnings("unchecked")
-    private Optional<Instant> maxJiraUpdatedAt(Map<String, Object> searchResult) {
-        if (searchResult == null) return Optional.empty();
-        Object rawIssues = searchResult.get("issues");
-        if (!(rawIssues instanceof List<?> issues)) return Optional.empty();
-
-        return issues.stream()
-                .filter(Map.class::isInstance)
-                .map(issue -> (Map<String, Object>) issue)
-                .map(issue -> issue.get("fields"))
-                .filter(Map.class::isInstance)
-                .map(fields -> (Map<String, Object>) fields)
-                .map(fields -> (String) fields.get("updated"))
-                .filter(Objects::nonNull)
-                .map(JiraDateUtils::tryParse)
-                .flatMap(Optional::stream)
                 .max(Instant::compareTo);
     }
 

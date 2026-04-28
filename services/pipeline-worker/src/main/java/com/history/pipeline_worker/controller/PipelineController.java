@@ -1,6 +1,7 @@
 package com.history.pipeline_worker.controller;
 
 import com.history.pipeline_worker.dto.NormalizedEvent;
+import com.history.pipeline_worker.dto.QueuedResponse;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.service.PipelineService;
 import jakarta.validation.Valid;
@@ -24,8 +25,8 @@ public class PipelineController {
     }
 
     @PostMapping("/api/v1/normalize/jira")
-    public ResponseEntity<List<NormalizedEvent>> normalizeJira(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.ok(pipelineService.normalizeJira(request));
+    public ResponseEntity<QueuedResponse> normalizeJira(@RequestBody @Valid RawFetchRequest request) {
+        return ResponseEntity.accepted().body(new QueuedResponse(pipelineService.normalizeJira(request)));
     }
 
     @PostMapping("/api/v1/normalize/slack")

@@ -7,6 +7,7 @@ import com.history.pipeline_worker.util.JiraDateUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -34,6 +35,8 @@ public class JiraRawService {
     private final int maxPagesPerRun;
     private final JiraRateLimiter rateLimiter;
     private final FileCheckpointManager checkpointManager;
+    private static final ParameterizedTypeReference<Map<String, Object>> MAP_RESPONSE =
+            new ParameterizedTypeReference<>() {};
 
     public JiraRawService(
             WebClient.Builder webClientBuilder,
@@ -102,19 +105,18 @@ public class JiraRawService {
     }
 
     /** lastScannedAt 이후 갱신된 이슈만 남기도록 searchResult 내 issues 필터링 */
-    @SuppressWarnings("unchecked")
     private Map<String, Object> filterIssuesByUpdated(Map<String, Object> searchResult, Instant lastScannedAt) {
         if (lastScannedAt == null || searchResult == null) {
             return searchResult != null ? searchResult : Map.of();
         }
 
-        List<Map<String, Object>> issues = (List<Map<String, Object>>) searchResult.get("issues");
-        if (issues == null) return searchResult;
+        List<Map<String, Object>> issues = extractIssueMaps(searchResult);
+        if (issues.isEmpty()) return searchResult;
 
         List<Map<String, Object>> filtered = issues.stream()
                 .filter(issue -> {
-                    Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
-                    if (fields == null) return true;
+                    Map<String, Object> fields = toStringObjectMap(issue.get("fields"));
+                    if (fields.isEmpty()) return true;
                     String updated = (String) fields.get("updated");
                     if (updated == null) return true;
                     try {
@@ -181,7 +183,7 @@ public class JiraRawService {
                 .header("Accept", "application/json")
                 .bodyValue(body)
                 .retrieve()
-                .bodyToMono(Map.class)
+                .bodyToMono(MAP_RESPONSE)
                 .block();
     }
 
@@ -195,23 +197,42 @@ public class JiraRawService {
 
     private String extractFirstIssueKey(Map<String, Object> searchResult) {
         if (searchResult == null) return null;
-        List<Map<String, Object>> issues = (List<Map<String, Object>>) searchResult.get("issues");
-        if (issues == null || issues.isEmpty()) return null;
+        List<Map<String, Object>> issues = extractIssueMaps(searchResult);
+        if (issues.isEmpty()) return null;
         return (String) issues.get(0).get("key");
     }
 
-    @SuppressWarnings("unchecked")
     private List<Object> fetchComments(WebClient client, String auth, String issueKey) {
         Map<String, Object> result = client.get()
                 .uri("/rest/api/3/issue/{issueKey}/comment?maxResults=3", issueKey)
                 .header("Authorization", auth)
                 .header("Accept", "application/json")
                 .retrieve()
-                .bodyToMono(Map.class)
+                .bodyToMono(MAP_RESPONSE)
                 .block();
 
         if (result == null) return Collections.emptyList();
-        List<Object> comments = (List<Object>) result.get("comments");
-        return comments != null ? comments : Collections.emptyList();
+        Object comments = result.get("comments");
+        return comments instanceof List<?> list ? List.copyOf(list) : Collections.emptyList();
+    }
+
+    private List<Map<String, Object>> extractIssueMaps(Map<String, Object> searchResult) {
+        Object rawIssues = searchResult.get("issues");
+        if (!(rawIssues instanceof List<?> issues)) return List.of();
+        return issues.stream()
+                .map(this::toStringObjectMap)
+                .filter(issue -> !issue.isEmpty())
+                .toList();
+    }
+
+    private Map<String, Object> toStringObjectMap(Object value) {
+        if (!(value instanceof Map<?, ?> rawMap)) return Map.of();
+        Map<String, Object> result = new HashMap<>();
+        rawMap.forEach((key, mapValue) -> {
+            if (key instanceof String stringKey) {
+                result.put(stringKey, mapValue);
+            }
+        });
+        return result;
     }
 }
