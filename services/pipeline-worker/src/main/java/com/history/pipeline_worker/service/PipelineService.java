@@ -15,6 +15,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -41,9 +43,7 @@ public class PipelineService {
         events.addAll(gitHubNormalizer.normalizeIssues(getList(raw, "issues")));
 
         int published = eventPublisher.publishAll(events);
-        checkpointManager.updateGitHubCommits(Instant.now());
-        checkpointManager.updateGitHubPullRequests(Instant.now());
-        checkpointManager.updateGitHubIssues(Instant.now());
+        updateGitHubCheckpoints(events);
         log.info("GitHub 이벤트 발행: {}", published);
 
         return events;
@@ -56,7 +56,7 @@ public class PipelineService {
 
         List<NormalizedEvent> events = jiraNormalizer.normalizeIssues(searchResult);
         int published = eventPublisher.publishAll(events);
-        checkpointManager.updateJira(Instant.now());
+        maxOccurredAt(events).ifPresent(checkpointManager::updateJira);
         log.info("Jira 이벤트 발행: {}", published);
 
         return events;
@@ -66,10 +66,39 @@ public class PipelineService {
         Map<String, Object> raw = slackRawService.fetch(request);
         List<NormalizedEvent> events = slackNormalizer.normalizeChannels(raw);
         int published = eventPublisher.publishAll(events);
-        checkpointManager.updateSlack(Instant.now());
+        maxOccurredAt(events).ifPresent(checkpointManager::updateSlack);
         log.info("Slack 이벤트 발행: {}", published);
 
         return events;
+    }
+
+    private void updateGitHubCheckpoints(List<NormalizedEvent> events) {
+        maxOccurredAtBySourceAndNodeType(events, "GITHUB", "ChangeSet")
+                .ifPresent(checkpointManager::updateGitHubCommits);
+        maxOccurredAtBySourceAndNodeType(events, "GITHUB", "PullRequest")
+                .ifPresent(checkpointManager::updateGitHubPullRequests);
+        maxOccurredAtBySourceAndNodeType(events, "GITHUB", "Communication")
+                .ifPresent(checkpointManager::updateGitHubIssues);
+    }
+
+    private Optional<Instant> maxOccurredAtBySourceAndNodeType(
+            List<NormalizedEvent> events,
+            String source,
+            String nodeType
+    ) {
+        return events.stream()
+                .filter(event -> source.equals(event.source()))
+                .filter(event -> nodeType.equals(event.nodeType()))
+                .map(NormalizedEvent::occurredAt)
+                .filter(Objects::nonNull)
+                .max(Instant::compareTo);
+    }
+
+    private Optional<Instant> maxOccurredAt(List<NormalizedEvent> events) {
+        return events.stream()
+                .map(NormalizedEvent::occurredAt)
+                .filter(Objects::nonNull)
+                .max(Instant::compareTo);
     }
 
     @SuppressWarnings("unchecked")
