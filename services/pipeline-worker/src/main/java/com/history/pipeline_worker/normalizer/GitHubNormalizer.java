@@ -60,8 +60,6 @@ public class GitHubNormalizer {
             properties.put("hash", commit.get("sha"));
             properties.put("message", message);
             properties.put("files", files);
-            properties.put("authored_at", authoredAt);
-            properties.put("committed_at", committedAt);
 
             Map<String, String> refs = refsExtractor.extract(message);
             Object prNumber = commit.get("prNumber");
@@ -101,7 +99,6 @@ public class GitHubNormalizer {
             properties.put("state", pr.get("state"));
             properties.put("base_branch", base != null ? base.get("ref") : null);
             properties.put("created_at", createdAt);
-            properties.put("merged_at", mergedAt);
             properties.put("url", pr.get("html_url"));
 
             String content = (body != null ? body : "") + " " + pr.get("title");
