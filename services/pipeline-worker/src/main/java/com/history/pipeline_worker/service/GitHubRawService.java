@@ -8,13 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
-import org.springframework.web.util.UriUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -27,8 +23,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class GitHubRawService {
 
     private static final int PER_PAGE = 100; // GitHub API 최대값
-    private static final DateTimeFormatter GITHUB_SEARCH_DATE_TIME =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'+00:00'").withZone(ZoneOffset.UTC);
 
     private final WebClient webClient;
     private final GitHubRateLimiter rateLimiter;
@@ -231,43 +225,6 @@ public class GitHubRawService {
         return result;
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> fetchMergedPullRequestSearchPage(String auth, String owner, String repo,
-                                                                 Instant lastMergedAt, int page) {
-        String query = "repo:" + owner + "/" + repo + " is:pr is:merged";
-        if (lastMergedAt != null) {
-            query += " merged:>" + GITHUB_SEARCH_DATE_TIME.format(lastMergedAt);
-        }
-        String encodedQuery = UriUtils.encodeQueryParam(query, StandardCharsets.UTF_8);
-
-        AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
-        Map<String, Object> result = webClient.get()
-                .uri("/search/issues?q=" + encodedQuery + "&sort=updated&order=asc&per_page=" + PER_PAGE + "&page=" + page)
-                .header("Authorization", auth)
-                .exchangeToMono(resp -> {
-                    headersRef.set(resp.headers().asHttpHeaders());
-                    return resp.bodyToMono(Map.class);
-                })
-                .block();
-        rateLimiter.acquire(headersRef.get());
-        return result != null ? result : Map.of("items", List.of());
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> fetchPullRequestDetail(String auth, String owner, String repo, String prNumber) {
-        AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
-        Map<String, Object> result = webClient.get()
-                .uri("/repos/{owner}/{repo}/pulls/{pull_number}", owner, repo, prNumber)
-                .header("Authorization", auth)
-                .exchangeToMono(resp -> {
-                    headersRef.set(resp.headers().asHttpHeaders());
-                    return resp.bodyToMono(Map.class);
-                })
-                .block();
-        rateLimiter.acquire(headersRef.get());
-        return result;
-    }
-
     private List<Object> fetchPullRequestCommits(String auth, String owner, String repo, String prNumber) {
         List<Object> allItems = new ArrayList<>();
         int page = 1;
@@ -291,30 +248,25 @@ public class GitHubRawService {
 
     @SuppressWarnings("unchecked")
     private List<Object> fetchMergedPullRequests(String auth, String owner, String repo, Instant lastMergedAt) {
-        List<Object> result = new ArrayList<>();
-        int page = 1;
+        List<Object> closedPullRequests = fetchAllPages(
+                auth,
+                "/repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=" + PER_PAGE,
+                owner,
+                repo,
+                lastMergedAt,
+                "updated_at"
+        );
 
-        while (true) {
-            Map<String, Object> searchResult = fetchMergedPullRequestSearchPage(auth, owner, repo, lastMergedAt, page);
-            List<Object> items = (List<Object>) searchResult.get("items");
-            if (items == null || items.isEmpty()) break;
-
-            for (Object itemRaw : items) {
-                Map<String, Object> item = (Map<String, Object>) itemRaw;
-                Object numberValue = item.get("number");
-                if (numberValue == null) continue;
-
-                Map<String, Object> prDetail = fetchPullRequestDetail(auth, owner, repo, String.valueOf(numberValue));
-                if (prDetail != null && prDetail.get("merged_at") != null) {
-                    result.add(prDetail);
-                }
-            }
-
-            if (items.size() < PER_PAGE) break;
-            page++;
+        List<Object> mergedPullRequests = new ArrayList<>();
+        for (Object raw : closedPullRequests) {
+            Map<String, Object> pr = (Map<String, Object>) raw;
+            String mergedAt = (String) pr.get("merged_at");
+            if (mergedAt == null) continue;
+            if (lastMergedAt != null && !Instant.parse(mergedAt).isAfter(lastMergedAt)) continue;
+            mergedPullRequests.add(pr);
         }
 
-        return result;
+        return mergedPullRequests;
     }
 
     @SuppressWarnings("unchecked")
