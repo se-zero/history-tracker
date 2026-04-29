@@ -38,7 +38,9 @@ public class GitHubNormalizer {
             String authorEmail = authorDetail != null ? (String) authorDetail.get("email") : null;
             String authorLogin = ghAuthor != null ? (String) ghAuthor.get("login") : authorName;
             String message = (String) commitDetail.get("message");
-            String dateStr = authorDetail != null ? (String) authorDetail.get("date") : null;
+            String authoredAt = authorDetail != null ? (String) authorDetail.get("date") : null;
+            Map<String, Object> committerDetail = (Map<String, Object>) commitDetail.get("committer");
+            String committedAt = committerDetail != null ? (String) committerDetail.get("date") : null;
 
             Map<String, Object> properties = new HashMap<>();
             List<Object> rawFiles = (List<Object>) commit.get("files");
@@ -58,13 +60,22 @@ public class GitHubNormalizer {
             properties.put("hash", commit.get("sha"));
             properties.put("message", message);
             properties.put("files", files);
+            properties.put("authored_at", authoredAt);
+            properties.put("committed_at", committedAt);
+
+            Map<String, String> refs = refsExtractor.extract(message);
+            Object prNumber = commit.get("prNumber");
+            if (prNumber != null) {
+                refs.put("prNumber", String.valueOf(prNumber));
+            }
+
             events.add(new NormalizedEvent(
                     "ChangeSet",
                     "GITHUB",
-                    dateStr != null ? Instant.parse(dateStr) : Instant.now(),
+                    resolveInstant(committedAt, authoredAt),
                     new ActorDto(authorLogin, authorName, authorEmail),
                     properties,
-                    refsExtractor.extract(message)
+                    refs
             ));
         }
         return events;
@@ -80,6 +91,7 @@ public class GitHubNormalizer {
             Map<String, Object> base = (Map<String, Object>) pr.get("base");
 
             String createdAt = (String) pr.get("created_at");
+            String mergedAt = (String) pr.get("merged_at");
             String body = (String) pr.get("body");
 
             Map<String, Object> properties = new HashMap<>();
@@ -88,7 +100,8 @@ public class GitHubNormalizer {
             properties.put("body", body);
             properties.put("state", pr.get("state"));
             properties.put("base_branch", base != null ? base.get("ref") : null);
-            properties.put("merged_at", pr.get("merged_at"));
+            properties.put("created_at", createdAt);
+            properties.put("merged_at", mergedAt);
             properties.put("url", pr.get("html_url"));
 
             String content = (body != null ? body : "") + " " + pr.get("title");
@@ -96,7 +109,7 @@ public class GitHubNormalizer {
             events.add(new NormalizedEvent(
                     "PullRequest",
                     "GITHUB",
-                    createdAt != null ? Instant.parse(createdAt) : Instant.now(),
+                    resolveInstant(mergedAt, createdAt),
                     new ActorDto(
                             user != null ? (String) user.get("login") : null,
                             user != null ? resolveDisplayName(user) : null,
@@ -121,6 +134,7 @@ public class GitHubNormalizer {
 
             Map<String, Object> user = (Map<String, Object>) issue.get("user");
             String createdAt = (String) issue.get("created_at");
+            String updatedAt = (String) issue.get("updated_at");
             String title = (String) issue.get("title");
             String body = (String) issue.get("body");
 
@@ -133,13 +147,14 @@ public class GitHubNormalizer {
             properties.put("channel", "github_issues");
             properties.put("url", issue.get("html_url"));
             properties.put("conversation_id", String.valueOf(issue.get("number")));
+            properties.put("created_at", createdAt);
 
             String content = combinedBody;
 
             events.add(new NormalizedEvent(
                     "Communication",
                     "GITHUB",
-                    createdAt != null ? Instant.parse(createdAt) : Instant.now(),
+                    resolveInstant(updatedAt, createdAt),
                     new ActorDto(
                             user != null ? (String) user.get("login") : null,
                             user != null ? resolveDisplayName(user) : null,
@@ -156,5 +171,11 @@ public class GitHubNormalizer {
     private String resolveDisplayName(Map<String, Object> user) {
         String name = (String) user.get("name");
         return (name != null && !name.isBlank()) ? name : (String) user.get("login");
+    }
+
+    private Instant resolveInstant(String primary, String fallback) {
+        if (primary != null) return Instant.parse(primary);
+        if (fallback != null) return Instant.parse(fallback);
+        return Instant.now();
     }
 }
