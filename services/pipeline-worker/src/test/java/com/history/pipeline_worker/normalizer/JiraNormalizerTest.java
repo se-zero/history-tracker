@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +81,23 @@ class JiraNormalizerTest {
         assertThat(event.actor().id()).isEqualTo("account-xyz");
         assertThat(event.actor().name()).isEqualTo("Jane Doe");
         assertThat(event.actor().email()).isEqualTo("jane@example.com");
+    }
+
+    @Test
+    @DisplayName("Jira issue occurredAt은 created가 아닌 updated를 우선 사용")
+    @SuppressWarnings("unchecked")
+    void normalizeIssues_usesUpdatedForOccurredAt() {
+        Map<String, Object> issue = buildIssue("PROJ-20", "Updated issue", null, "Open", "Task", "Medium",
+                "account-xyz", "Jane Doe", "jane@example.com");
+        Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
+        fields.put("created", "2024-03-15T10:30:00.000+0900");
+        fields.put("updated", "2024-03-20T11:45:00.000+0900");
+
+        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-20T02:45:00Z"));
+        assertThat(event.properties()).containsEntry("created_at", "2024-03-15T10:30:00.000+0900");
+        assertThat(event.properties()).doesNotContainKey("updated_at");
     }
 
     @Test
@@ -202,6 +220,7 @@ class JiraNormalizerTest {
         fields.put("summary", summary);
         fields.put("description", description);
         fields.put("created", "2024-03-15T10:30:00.000+0900");
+        fields.put("updated", "2024-03-15T10:30:00.000+0900");
         fields.put("status", Map.of("name", statusName));
         fields.put("issuetype", Map.of("name", typeName));
         fields.put("priority", Map.of("name", priorityName));

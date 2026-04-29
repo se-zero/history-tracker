@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -70,6 +71,33 @@ class GitHubNormalizerTest {
         NormalizedEvent event = normalizer.normalizeCommits(List.of(commit)).get(0);
 
         assertThat(event.refs()).containsEntry("jiraKey", "PAYMENT-301");
+    }
+
+    @Test
+    @DisplayName("raw commit prNumber가 있으면 refs.prNumber에 구조적으로 반영")
+    void normalizeCommits_rawPrNumber_refsPopulated() {
+        Map<String, Object> commit = buildCommit("sha1", "fix: no PR number in message", "2024-03-15T10:00:00Z",
+                List.of(Map.of("sha", "p1")));
+        commit.put("prNumber", "42");
+
+        NormalizedEvent event = normalizer.normalizeCommits(List.of(commit)).get(0);
+
+        assertThat(event.refs()).containsEntry("prNumber", "42");
+    }
+
+    @Test
+    @DisplayName("commit occurredAt은 author date가 아닌 committer date를 우선 사용")
+    @SuppressWarnings("unchecked")
+    void normalizeCommits_usesCommitterDateForOccurredAt() {
+        Map<String, Object> commit = buildCommit("sha1", "feat: commit date", "2024-03-15T10:00:00Z",
+                List.of(Map.of("sha", "p1")));
+        Map<String, Object> commitDetail = (Map<String, Object>) commit.get("commit");
+        commitDetail.put("committer", Map.of("date", "2024-03-16T12:30:00Z"));
+
+        NormalizedEvent event = normalizer.normalizeCommits(List.of(commit)).get(0);
+
+        assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-16T12:30:00Z"));
+        assertThat(event.properties()).doesNotContainKeys("authored_at", "committed_at");
     }
 
     @Test
@@ -145,6 +173,19 @@ class GitHubNormalizerTest {
     }
 
     @Test
+    @DisplayName("PR occurredAt은 merged_at을 우선 사용")
+    void normalizePullRequests_usesMergedAtForOccurredAt() {
+        Map<String, Object> pr = buildPullRequest(10, "merged PR", "closed", "main", "2024-04-01T00:00:00Z");
+        pr.put("merged_at", "2024-04-05T09:00:00Z");
+
+        NormalizedEvent event = normalizer.normalizePullRequests(List.of(pr)).get(0);
+
+        assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-04-05T09:00:00Z"));
+        assertThat(event.properties()).containsEntry("created_at", "2024-04-01T00:00:00Z");
+        assertThat(event.properties()).doesNotContainKey("merged_at");
+    }
+
+    @Test
     @DisplayName("PR user가 null이면 actor 필드 모두 null")
     void normalizePullRequests_nullUser_actorFieldsNull() {
         Map<String, Object> pr = buildPullRequest(1, "title", "open", "main", "2024-01-01T00:00:00Z");
@@ -202,6 +243,19 @@ class GitHubNormalizerTest {
     }
 
     @Test
+    @DisplayName("GitHub issue occurredAt은 updated_at을 우선 사용")
+    void normalizeIssues_usesUpdatedAtForOccurredAt() {
+        Map<String, Object> issue = buildIssue(7, "Bug report", "Some body");
+        issue.put("updated_at", "2024-03-03T12:00:00Z");
+
+        NormalizedEvent event = normalizer.normalizeIssues(List.of(issue)).get(0);
+
+        assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-03T12:00:00Z"));
+        assertThat(event.properties()).containsEntry("created_at", "2024-03-01T00:00:00Z");
+        assertThat(event.properties()).doesNotContainKey("updated_at");
+    }
+
+    @Test
     @DisplayName("title + body → combinedBody: title\\n\\nbody 형식")
     void normalizeIssues_titleAndBody_combined() {
         Map<String, Object> issue = buildIssue(3, "My Title", "Detailed body");
@@ -236,6 +290,7 @@ class GitHubNormalizerTest {
         Map<String, Object> commitDetail = new HashMap<>();
         commitDetail.put("message", message);
         commitDetail.put("author", authorDetail);
+        commitDetail.put("committer", Map.of("date", date));
 
         Map<String, Object> ghAuthor = new HashMap<>();
         ghAuthor.put("login", "test-user");
@@ -280,6 +335,7 @@ class GitHubNormalizerTest {
         issue.put("title", title);
         issue.put("body", body);
         issue.put("created_at", "2024-03-01T00:00:00Z");
+        issue.put("updated_at", "2024-03-01T00:00:00Z");
         issue.put("user", user);
         issue.put("html_url", "https://github.com/test/repo/issues/" + number);
         return issue;
