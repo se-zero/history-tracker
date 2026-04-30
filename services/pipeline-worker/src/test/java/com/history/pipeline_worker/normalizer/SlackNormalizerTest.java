@@ -66,6 +66,7 @@ class SlackNormalizerTest {
         assertThat(event.actor().name()).isEqualTo("Alice");
         assertThat(event.properties()).containsEntry("body", "Hello world");
         assertThat(event.properties()).containsEntry("channel", "general");
+        assertThat(event.properties()).containsEntry("created_at", null);
     }
 
     @Test
