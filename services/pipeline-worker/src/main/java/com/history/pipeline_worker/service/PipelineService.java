@@ -34,7 +34,7 @@ public class PipelineService {
     private final EventPublisher eventPublisher;
     private final FileCheckpointManager checkpointManager;
 
-    public List<NormalizedEvent> normalizeGitHub(RawFetchRequest request) {
+    public int normalizeGitHub(RawFetchRequest request) {
         Map<String, Object> raw = gitHubRawService.fetch(request);
 
         List<NormalizedEvent> events = new ArrayList<>();
@@ -46,7 +46,7 @@ public class PipelineService {
         updateGitHubCheckpoints(events);
         log.info("GitHub 이벤트 발행: {}", published);
 
-        return events;
+        return published;
     }
 
     public int normalizeJira(RawFetchRequest request) {
@@ -78,14 +78,14 @@ public class PipelineService {
         return totalPublished;
     }
 
-    public List<NormalizedEvent> normalizeSlack(RawFetchRequest request) {
+    public int normalizeSlack(RawFetchRequest request) {
         Map<String, Object> raw = slackRawService.fetch(request);
         List<NormalizedEvent> events = slackNormalizer.normalizeChannels(raw);
         int published = eventPublisher.publishAll(events);
         maxOccurredAt(events).ifPresent(checkpointManager::updateSlack);
         log.info("Slack 이벤트 발행: {}", published);
 
-        return events;
+        return published;
     }
 
     private void updateGitHubCheckpoints(List<NormalizedEvent> events) {

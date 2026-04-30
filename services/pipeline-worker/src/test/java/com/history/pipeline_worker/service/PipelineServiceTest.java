@@ -71,9 +71,9 @@ class PipelineServiceTest {
         when(gitHubRawService.fetch(request)).thenReturn(raw);
         when(eventPublisher.publishAll(anyList())).thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
 
-        List<NormalizedEvent> events = pipelineService.normalizeGitHub(request);
+        int queued = pipelineService.normalizeGitHub(request);
 
-        assertThat(events).hasSize(4);
+        assertThat(queued).isEqualTo(4);
         verify(checkpointManager).updateGitHubCommits(Instant.parse("2024-01-03T00:00:00Z"));
         verify(checkpointManager).updateGitHubPullRequests(Instant.parse("2024-02-02T00:00:00Z"));
         verify(checkpointManager).updateGitHubIssues(Instant.parse("2024-03-03T00:00:00Z"));
