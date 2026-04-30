@@ -23,7 +23,7 @@ Jira 티켓.
   "nodeType": "Issue",
   "source": "",                        // JIRA
   "occurredAt": "",                    // ISO-8601 — Jira updated 시각 기준 (변경 이력 반영); 생성만 있으면 created 사용
-  "actor": { "id": "", "name": "" },   // 소스별 사용자 ID, 표시 이름
+  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
     "jira_key": "",                    // Jira 고유 키 (예: HT-7)
     "title": "",                       // 티켓 제목
@@ -34,7 +34,7 @@ Jira 티켓.
     "assignee": "",                    // 담당자 이름
     "created_at": ""                   // 티켓 최초 생성 시각 (ISO-8601); occurredAt이 updated 기준이므로 보존
   },
-  "refs": {}
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
@@ -50,7 +50,7 @@ Slack 메시지 또는 GitHub Issue. 텍스트 기반 의사소통 단위.
   "occurredAt": "",                    // ISO-8601
                                        // SLACK: 메시지 ts (Unix epoch 소수) 변환 기준
                                        // GITHUB: updated_at 기준 (fallback: created_at)
-  "actor": { "id": "", "name": "" },   // 소스별 사용자 ID, 표시 이름
+  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
     "body": "",                        // 메시지 본문 (GitHub Issue는 title + "\n\n" + body)
     "channel": "",                     // Slack 채널명 또는 "github_issues"
@@ -59,7 +59,7 @@ Slack 메시지 또는 GitHub Issue. 텍스트 기반 의사소통 단위.
                                        // GitHub Issue: issue number (string)
     "created_at": ""                   // GitHub Issue 최초 생성 시각 (ISO-8601); SLACK은 null
   },
-  "refs": {}
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
@@ -72,8 +72,8 @@ GitHub Pull Request. 머지된 PR만 수집한다.
 {
   "nodeType": "PullRequest",
   "source": "",                        // GITHUB
-  "occurredAt": "",                    // ISO-8601 — merged_at 기준 (fallback: created_at)
-  "actor": { "id": "", "name": "" },   // 소스별 사용자 ID, 표시 이름
+  "occurredAt": "",                    // ISO-8601 — merged_at 기준 (fallback: created_at); properties에는 저장 안 됨
+  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
     "pr_number": "",                   // PR 번호
     "title": "",                       // PR 제목
@@ -81,10 +81,9 @@ GitHub Pull Request. 머지된 PR만 수집한다.
     "state": "",                       // closed (머지된 PR만 수집)
     "base_branch": "",                 // 머지 대상 브랜치
     "created_at": "",                  // PR 최초 생성 시각 (ISO-8601)
-    "merged_at": "",                   // 머지 시각 (ISO-8601)
     "url": ""                          // PR 링크
   },
-  "refs": {}
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
@@ -97,14 +96,11 @@ GitHub Commit. 실제 코드 변경 단위. merge commit은 제외한다.
 {
   "nodeType": "ChangeSet",
   "source": "",                        // GITHUB
-  "occurredAt": "",                    // ISO-8601 — committed_at 기준 (fallback: authored_at)
-                                       // rebase/squash merge 시 두 값이 다를 수 있음
-  "actor": { "id": "", "name": "" },   // 소스별 사용자 ID, 표시 이름
+  "occurredAt": "",                    // ISO-8601 — commit.committer.date 기준 (fallback: commit.author.date)
+  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
     "hash": "",                        // git commit hash
     "message": "",                     // 커밋 메시지
-    "authored_at": "",                 // 커밋 최초 작성 시각 (ISO-8601)
-    "committed_at": "",                // 커밋 확정 시각 (ISO-8601); rebase 등으로 authored_at과 다를 수 있음
     "files": [
       {
         "path": "",                    // 파일 경로 → File 노드 upsert에 사용
@@ -114,7 +110,7 @@ GitHub Commit. 실제 코드 변경 단위. merge commit은 제외한다.
       }
     ]
   },
-  "refs": {}
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 

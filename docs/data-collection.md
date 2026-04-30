@@ -26,9 +26,11 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 
 ### 페이지네이션
 
-- `sort=updated&direction=desc` (최신순 정렬)
-- `per_page=100` (GitHub API 최대값)
-- checkpoint 이전 항목이 나오면 이후 페이지도 모두 이전임이 보장되므로 **조기 종료**
+- 공통으로 `per_page=100`을 사용한다 (GitHub API 최대값).
+- Commit: `/commits?per_page=100&page=N`을 사용한다. 별도 `sort` 파라미터는 없고, raw `commit.committer.date`를 checkpoint와 비교한다.
+- Pull Request: `/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=N`을 사용한다. `updated_at` 기준 최신순 페이지를 받은 뒤 `merged_at != null`, `merged_at > checkpoint`를 클라이언트에서 필터링한다.
+- Issue: `/issues?state=all&sort=updated&direction=desc&per_page=100&page=N`을 사용한다. `updated_at`을 checkpoint와 비교한다.
+- checkpoint 이전 항목이 나오면 이후 페이지도 모두 이전이라고 보고 **조기 종료**한다.
 
 ### PR 수집 상세
 
@@ -40,11 +42,11 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 
 ### occurredAt 기준
 
-| 타입 | occurredAt 기준 | fallback |
-|------|----------------|---------|
-| ChangeSet | `committed_at` | `authored_at` |
-| PullRequest | `merged_at` | `created_at` |
-| Communication (Issue) | `updated_at` | `created_at` |
+| 타입 | occurredAt 기준 | fallback | properties 보존 |
+|------|----------------|---------|----------------|
+| ChangeSet | `commit.committer.date` | `commit.author.date` | — |
+| PullRequest | `merged_at` | `created_at` | `created_at`만 보존 |
+| Communication (Issue) | `updated_at` | `created_at` | `created_at`만 보존 |
 
 ### Rate Limiting
 
@@ -86,7 +88,8 @@ GitHub `/issues` API는 PR도 반환한다. `GitHubNormalizer`에서 `pull_reque
 commits, PRs, issues 전체를 메모리에 쌓은 뒤 반환한다.
 
 - **문제**: 초기 전체 수집 시 수천 개 커밋이 있는 저장소에서 OOM 가능성.
-- **현재 선택 이유**: 구조 단순성 유지. Jira처럼 채널별 즉시 publish + 202 응답으로 전환하면 해결 가능하나 GitHub·Slack은 아직 미전환.
+- **현재 상태**: normalize 응답은 `202 {"queued": N}`로 전환되어 HTTP 응답 직렬화 부담은 줄었다. 다만 `GitHubRawService`와 `PipelineService` 내부에서는 아직 raw 데이터와 `NormalizedEvent`를 한 번에 누적한 뒤 publish하므로 메모리 문제는 완전히 해결되지 않았다.
+- **개선 방향**: Jira처럼 페이지/타입 단위로 fetch → normalize → publish → checkpoint 갱신을 반복하면 내부 누적도 줄일 수 있다.
 
 ### 웹훅 기반 증분 수집 _(계획)_
 
@@ -253,7 +256,8 @@ JQL 서버 필터 + `filterIssuesByUpdated` 클라이언트 필터의 이중 구
 모든 채널의 messages·threads를 `channelData` List에 쌓아 반환한다.
 
 - **문제**: 채널이 많고 메시지가 많을수록 메모리 사용량이 선형 증가. 채널 수 × 메시지 수 규모에서 OOM 가능성.
-- **현재 선택 이유**: 구조 단순성 유지. 채널별 즉시 normalize·publish 구조로 전환하면 해결 가능하나 미구현.
+- **현재 상태**: normalize 응답은 `202 {"queued": N}`로 전환되어 HTTP 응답 직렬화 부담은 줄었다. 다만 `SlackRawService`와 `PipelineService` 내부에서는 여전히 모든 채널의 raw 메시지와 `NormalizedEvent`를 한 번에 누적한 뒤 publish한다.
+- **개선 방향**: 채널 단위로 fetch → normalize → publish → checkpoint 갱신을 수행하면 내부 누적도 줄일 수 있다.
 
 #### User map 전체 수집 — 매 실행마다 반복
 
