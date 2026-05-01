@@ -24,6 +24,11 @@ public class SlackRateLimiter {
         sleep(listDelayMs);
     }
 
+    /** users.list 호출 후 대기 */
+    public void afterUsersList() {
+        sleep(listDelayMs);
+    }
+
     /** conversations.history 호출 후 대기 (Tier 3: 50/min) */
     public void afterConversationsHistory() {
         sleep(historyDelayMs);

@@ -22,18 +22,19 @@ Jira 티켓.
 {
   "nodeType": "Issue",
   "source": "",                        // JIRA
-  "occurredAt": "",                    // ISO-8601
-  "actor": { "id": "", "name": "" },   // 소스별 사용자 ID, 표시 이름
+  "occurredAt": "",                    // ISO-8601 — Jira updated 시각 기준 (변경 이력 반영); 생성만 있으면 created 사용
+  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
-    "jira_key": "",                    // ira 고유 키 (예: HT-7)
+    "jira_key": "",                    // Jira 고유 키 (예: HT-7)
     "title": "",                       // 티켓 제목
     "body": "",                        // 티켓 본문
     "status": "",                      // 현재 상태 (예: 진행 중)
     "issue_type": "",                  // Task | Bug | Story ...
     "priority": "",                    // 우선순위 (예: Medium)
-    "assignee": ""                     // 담당자 이름
+    "assignee": "",                    // 담당자 이름
+    "created_at": ""                   // 티켓 최초 생성 시각 (ISO-8601); occurredAt이 updated 기준이므로 보존
   },
-  "refs": {}
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
@@ -47,53 +48,56 @@ Slack 메시지 또는 GitHub Issue. 텍스트 기반 의사소통 단위.
   "nodeType": "Communication",
   "source": "",                        // SLACK | GITHUB
   "occurredAt": "",                    // ISO-8601
-  "actor": { "id": "", "name": "" },   // 소스별 사용자 ID, 표시 이름
+                                       // SLACK: 메시지 ts (Unix epoch 소수) 변환 기준
+                                       // GITHUB: updated_at 기준 (fallback: created_at)
+  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
     "body": "",                        // 메시지 본문 (GitHub Issue는 title + "\n\n" + body)
     "channel": "",                     // Slack 채널명 또는 "github_issues"
     "url": "",                         // 원본 링크
-    "conversation_id": ""              // Slack: 루트 메시지 ts / 스레드 reply는 부모 ts
+    "conversation_id": "",             // Slack: 루트 메시지 ts / 스레드 reply는 부모 ts
                                        // GitHub Issue: issue number (string)
+    "created_at": ""                   // GitHub Issue 최초 생성 시각 (ISO-8601); SLACK은 null
   },
-  "refs": {}
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
 ---
 
 ### PullRequest
-GitHub Pull Request.
+GitHub Pull Request. 머지된 PR만 수집한다.
 
 ```json
 {
   "nodeType": "PullRequest",
   "source": "",                        // GITHUB
-  "occurredAt": "",                    // ISO-8601
-  "actor": { "id": "", "name": "" },   // 소스별 사용자 ID, 표시 이름
+  "occurredAt": "",                    // ISO-8601 — merged_at 기준 (fallback: created_at); properties에는 저장 안 됨
+  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
     "pr_number": "",                   // PR 번호
     "title": "",                       // PR 제목
     "body": "",                        // PR 본문
-    "state": "",                       // open | closed
+    "state": "",                       // closed (머지된 PR만 수집)
     "base_branch": "",                 // 머지 대상 브랜치
-    "merged_at": "",                   // 머지 시각 (ISO-8601), 미머지 시 null
+    "created_at": "",                  // PR 최초 생성 시각 (ISO-8601)
     "url": ""                          // PR 링크
   },
-  "refs": {}
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
 ---
 
 ### ChangeSet
-GitHub Commit. 실제 코드 변경 단위.
+GitHub Commit. 실제 코드 변경 단위. merge commit은 제외한다.
 
 ```json
 {
   "nodeType": "ChangeSet",
   "source": "",                        // GITHUB
-  "occurredAt": "",                    // ISO-8601
-  "actor": { "id": "", "name": "" },   // 소스별 사용자 ID, 표시 이름
+  "occurredAt": "",                    // ISO-8601 — commit.committer.date 기준 (fallback: commit.author.date)
+  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
     "hash": "",                        // git commit hash
     "message": "",                     // 커밋 메시지
@@ -106,7 +110,7 @@ GitHub Commit. 실제 코드 변경 단위.
       }
     ]
   },
-  "refs": {}
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
@@ -199,13 +203,10 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | Layer 1 | `CHILD_OF` (Issue) | Issue 이벤트 | Jira parent 필드 |
 | Layer 2 | `DISCUSSED_IN` | `refs.jiraKey` 존재 시 | Communication의 refs |
 | Layer 2 | `TRIGGERED_BY` | `refs.jiraKey` 존재 시 | ChangeSet의 refs |
-| Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (※1) |
+| Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
 | Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary |
 | Layer 4 | `REFERENCE` | 배치 처리 | `diffSummary` ↔ `body` 코사인 유사도 ≥ threshold |
 
-> ※1 `CONTAINS`는 커밋 메시지 텍스트 추출에 의존하므로 유실률이 높음.
-> pipeline-worker에서 PR 컨텍스트로 커밋 정규화 시 `refs.prNumber`를 구조적으로 포함하도록 변경 권고.
->
 > **순서 보장**: Layer 2에서 참조 대상 노드가 아직 없으면 PK만 가진 stub 노드를 생성하고,
 > 해당 이벤트가 도착하면 Layer 1에서 properties를 채움.
 
@@ -221,7 +222,7 @@ refs에 의존하는 관계인 `DISCUSSED_IN`, `TRIGGERED_BY`, `CONTAINS`는 대
 |------|-------------|
 | `DISCUSSED_IN` (Issue ↔ Communication) | 연결 불가 |
 | `TRIGGERED_BY` (ChangeSet ↔ Issue) | 연결 불가 |
-| `CONTAINS` (PullRequest ↔ ChangeSet) | 연결 불가 (※1) |
+| `CONTAINS` (PullRequest ↔ ChangeSet) | GitHub API(`/pulls/{pr}/commits`)로 구축 — refs 없어도 연결 가능 |
 | `MODIFIED` (ChangeSet → File) | 항상 가능 |
 | `REFERENCE` (ChangeSet ↔ Communication) | 항상 가능 (시맨틱) |
 

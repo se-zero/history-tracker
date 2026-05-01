@@ -17,6 +17,7 @@ app:
     base-url: https://api.github.com
   jira:
     base-url: ""  # 요청의 options.baseUrl로 전달
+    max-pages-per-run: 50
   slack:
     base-url: https://slack.com/api
 

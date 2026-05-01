@@ -57,19 +57,19 @@ public class GitHubRawService {
 
         CheckpointData.GitHubCheckpoint cp = checkpointManager.getCached().github;
 
+        List<Object> pullRequests = enrichUserObjects(auth,
+                fetchMergedPullRequests(auth, owner, repo, cp.pullRequestsScannedAt));
+        Map<String, String> commitPrNumbers = fetchCommitPrNumbers(auth, pullRequests, owner, repo);
+
         // 타입별 독립 체크포인트 — 재시작 시 완료된 타입은 건너뜀
         List<Object> rawCommits = fetchAllPages(
                 auth, "/repos/{owner}/{repo}/commits?per_page=" + PER_PAGE, owner, repo,
-                cp.commitsScannedAt, "commit.author.date");
-        List<Object> commits = enrichCommits(auth, rawCommits, owner, repo);
-
-        List<Object> pullRequests = enrichUserObjects(auth, fetchAllPages(
-                auth, "/repos/{owner}/{repo}/pulls?state=all&per_page=" + PER_PAGE, owner, repo,
-                cp.pullRequestsScannedAt, "created_at"));
+                cp.commitsScannedAt, "commit.committer.date");
+        List<Object> commits = enrichCommits(auth, rawCommits, owner, repo, commitPrNumbers);
 
         List<Object> issues = enrichUserObjects(auth, fetchAllPages(
-                auth, "/repos/{owner}/{repo}/issues?state=all&per_page=" + PER_PAGE, owner, repo,
-                cp.issuesScannedAt, "created_at"));
+                auth, "/repos/{owner}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=" + PER_PAGE, owner, repo,
+                cp.issuesScannedAt, "updated_at"));
 
         log.info("GitHub 수집 완료: commits={}, PRs={}, issues={}", commits.size(), pullRequests.size(), issues.size());
 
@@ -119,7 +119,8 @@ public class GitHubRawService {
     }
 
     @SuppressWarnings("unchecked")
-    private List<Object> enrichCommits(String auth, List<Object> commits, String owner, String repo) {
+    private List<Object> enrichCommits(String auth, List<Object> commits, String owner, String repo,
+                                       Map<String, String> commitPrNumbers) {
         List<Object> result = new ArrayList<>();
         for (Object raw : commits) {
             Map<String, Object> commit = new HashMap<>((Map<String, Object>) raw);
@@ -128,7 +129,37 @@ public class GitHubRawService {
             if (detail != null) {
                 commit.put("files", detail.get("files"));
             }
+            String prNumber = commitPrNumbers.get(sha);
+            if (prNumber != null) {
+                commit.put("prNumber", prNumber);
+            }
             result.add(commit);
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, String> fetchCommitPrNumbers(String auth, List<Object> pullRequests, String owner, String repo) {
+        Map<String, String> result = new HashMap<>();
+        for (Object raw : pullRequests) {
+            Map<String, Object> pr = (Map<String, Object>) raw;
+            Object numberValue = pr.get("number");
+            if (numberValue == null) continue;
+
+            String prNumber = String.valueOf(numberValue);
+            Object mergeCommitSha = pr.get("merge_commit_sha");
+            if (mergeCommitSha != null) {
+                result.putIfAbsent(String.valueOf(mergeCommitSha), prNumber);
+            }
+
+            List<Object> prCommits = fetchPullRequestCommits(auth, owner, repo, prNumber);
+            for (Object commitRaw : prCommits) {
+                Map<String, Object> commit = (Map<String, Object>) commitRaw;
+                String sha = (String) commit.get("sha");
+                if (sha != null) {
+                    result.putIfAbsent(sha, prNumber);
+                }
+            }
         }
         return result;
     }
@@ -192,6 +223,50 @@ public class GitHubRawService {
                 .block();
         rateLimiter.acquire(headersRef.get());
         return result;
+    }
+
+    private List<Object> fetchPullRequestCommits(String auth, String owner, String repo, String prNumber) {
+        List<Object> allItems = new ArrayList<>();
+        int page = 1;
+
+        while (true) {
+            List<Object> pageItems = fetchPage(
+                    auth,
+                    "/repos/{owner}/{repo}/pulls/" + prNumber + "/commits?per_page=" + PER_PAGE + "&page=" + page,
+                    owner,
+                    repo
+            );
+            if (pageItems.isEmpty()) break;
+
+            allItems.addAll(pageItems);
+            if (pageItems.size() < PER_PAGE) break;
+            page++;
+        }
+
+        return allItems;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> fetchMergedPullRequests(String auth, String owner, String repo, Instant lastMergedAt) {
+        List<Object> closedPullRequests = fetchAllPages(
+                auth,
+                "/repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=" + PER_PAGE,
+                owner,
+                repo,
+                lastMergedAt,
+                "updated_at"
+        );
+
+        List<Object> mergedPullRequests = new ArrayList<>();
+        for (Object raw : closedPullRequests) {
+            Map<String, Object> pr = (Map<String, Object>) raw;
+            String mergedAt = (String) pr.get("merged_at");
+            if (mergedAt == null) continue;
+            if (lastMergedAt != null && !Instant.parse(mergedAt).isAfter(lastMergedAt)) continue;
+            mergedPullRequests.add(pr);
+        }
+
+        return mergedPullRequests;
     }
 
     @SuppressWarnings("unchecked")

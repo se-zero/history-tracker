@@ -19,6 +19,7 @@ import java.util.Map;
 public class SlackRawService {
 
     private record UserInfo(String name, String email) {}
+    private record ChannelMessages(List<Object> messages, List<Object> threadCandidates) {}
 
     // 페이지당 최대 수 (Slack API 최대값)
     private static final int PAGE_SIZE = 200;
@@ -63,8 +64,9 @@ public class SlackRawService {
             String channelId = (String) channel.get("id");
             String channelName = (String) channel.get("name");
 
-            List<Object> messages = fetchAllMessages(auth, channelId, userMap, lastScannedAt);
-            List<Object> threads = fetchAllThreads(auth, channelId, messages, userMap);
+            ChannelMessages channelMessages = fetchAllMessages(auth, channelId, userMap, lastScannedAt);
+            List<Object> messages = channelMessages.messages();
+            List<Object> threads = fetchAllThreads(auth, channelId, channelMessages.threadCandidates(), userMap, lastScannedAt);
 
             channelData.add(Map.of(
                     "channelId", channelId,
@@ -101,6 +103,8 @@ public class SlackRawService {
                     .retrieve()
                     .bodyToMono(Map.class)
                     .block();
+
+            rateLimiter.afterUsersList();
 
             if (response == null) break;
 
@@ -166,9 +170,10 @@ public class SlackRawService {
 
     // cursor 페이지네이션으로 채널 전체 메시지 수집 (Tier 3: conversations.history)
     @SuppressWarnings("unchecked")
-    private List<Object> fetchAllMessages(String auth, String channelId,
-                                           Map<String, UserInfo> userMap, Instant lastScannedAt) {
+    private ChannelMessages fetchAllMessages(String auth, String channelId,
+                                             Map<String, UserInfo> userMap, Instant lastScannedAt) {
         List<Object> allMessages = new ArrayList<>();
+        List<Object> threadCandidates = new ArrayList<>();
         String cursor = null;
 
         do {
@@ -191,8 +196,14 @@ public class SlackRawService {
             if (messages != null) {
                 for (Map<String, Object> msg : messages) {
                     if (isNoise(msg)) continue;
-                    if (isBeforeCheckpoint(msg, lastScannedAt)) continue;
-                    allMessages.add(enrichWithUserName(msg, userMap));
+
+                    Map<String, Object> enriched = enrichWithUserName(msg, userMap);
+                    if (shouldFetchThreadReplies(msg, lastScannedAt)) {
+                        threadCandidates.add(enriched);
+                    }
+                    if (!isBeforeCheckpoint(msg, lastScannedAt)) {
+                        allMessages.add(enriched);
+                    }
                 }
             }
 
@@ -200,22 +211,23 @@ public class SlackRawService {
 
         } while (cursor != null && !cursor.isBlank());
 
-        return allMessages;
+        return new ChannelMessages(allMessages, threadCandidates);
     }
 
     // 스레드가 달린 메시지의 replies를 모두 수집
     @SuppressWarnings("unchecked")
     private List<Object> fetchAllThreads(String auth, String channelId,
-                                          List<Object> messages, Map<String, UserInfo> userMap) {
+                                          List<Object> threadCandidates, Map<String, UserInfo> userMap,
+                                          Instant lastScannedAt) {
         List<Object> allThreads = new ArrayList<>();
 
-        for (Object msg : messages) {
+        for (Object msg : threadCandidates) {
             Map<String, Object> message = (Map<String, Object>) msg;
             Object replyCount = message.get("reply_count");
             if (replyCount == null || ((Number) replyCount).intValue() == 0) continue;
 
             String ts = (String) message.get("ts");
-            List<Object> replies = fetchAllReplies(auth, channelId, ts, userMap);
+            List<Object> replies = fetchAllReplies(auth, channelId, ts, userMap, lastScannedAt);
             if (!replies.isEmpty()) {
                 allThreads.add(Map.of("thread_ts", ts, "replies", replies));
             }
@@ -227,14 +239,13 @@ public class SlackRawService {
     // 스레드 replies도 cursor 페이지네이션으로 전체 수집 (Tier 3: conversations.replies)
     @SuppressWarnings("unchecked")
     private List<Object> fetchAllReplies(String auth, String channelId,
-                                          String threadTs, Map<String, UserInfo> userMap) {
+                                          String threadTs, Map<String, UserInfo> userMap,
+                                          Instant lastScannedAt) {
         List<Object> allReplies = new ArrayList<>();
         String cursor = null;
 
         do {
-            String uri = cursor == null
-                    ? "/conversations.replies?channel={channelId}&ts={ts}&limit=" + PAGE_SIZE
-                    : "/conversations.replies?channel={channelId}&ts={ts}&limit=" + PAGE_SIZE + "&cursor=" + cursor;
+            String uri = buildRepliesUri(cursor, lastScannedAt);
 
             Map<String, Object> response = webClient.get()
                     .uri(uri, channelId, threadTs)
@@ -249,10 +260,12 @@ public class SlackRawService {
 
             List<Map<String, Object>> messages = (List<Map<String, Object>>) response.get("messages");
             if (messages != null) {
-                // 첫 번째는 원본 메시지(이미 수집됨)이므로 제외
-                List<Map<String, Object>> replies = messages.subList(cursor == null ? 1 : 0, messages.size());
-                for (Map<String, Object> reply : replies) {
-                    if (!isNoise(reply)) allReplies.add(enrichWithUserName(reply, userMap));
+                for (Map<String, Object> reply : messages) {
+                    String replyTs = (String) reply.get("ts");
+                    if (threadTs.equals(replyTs)) continue;
+                    if (isNoise(reply)) continue;
+                    if (isBeforeCheckpoint(reply, lastScannedAt)) continue;
+                    allReplies.add(enrichWithUserName(reply, userMap));
                 }
             }
 
@@ -261,6 +274,37 @@ public class SlackRawService {
         } while (cursor != null && !cursor.isBlank());
 
         return allReplies;
+    }
+
+    private String buildRepliesUri(String cursor, Instant lastScannedAt) {
+        String uri = "/conversations.replies?channel={channelId}&ts={ts}&limit=" + PAGE_SIZE;
+        if (lastScannedAt != null) {
+            uri += "&oldest=" + instantToSlackTs(lastScannedAt);
+        }
+        if (cursor != null) {
+            uri += "&cursor=" + cursor;
+        }
+        return uri;
+    }
+
+    private boolean shouldFetchThreadReplies(Map<String, Object> message, Instant lastScannedAt) {
+        Object replyCount = message.get("reply_count");
+        if (!(replyCount instanceof Number) || ((Number) replyCount).intValue() == 0) {
+            return false;
+        }
+        if (lastScannedAt == null || !isBeforeCheckpoint(message, lastScannedAt)) {
+            return true;
+        }
+
+        String latestReply = (String) message.get("latest_reply");
+        if (latestReply == null) {
+            return false;
+        }
+        try {
+            return tsToInstant(latestReply).isAfter(lastScannedAt);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** ts가 lastScannedAt 이전이면 true (스킵 대상) */
@@ -287,6 +331,10 @@ public class SlackRawService {
             nanos = Long.parseLong(fraction.substring(0, 9));
         }
         return Instant.ofEpochSecond(seconds, nanos);
+    }
+
+    private String instantToSlackTs(Instant instant) {
+        return "%d.%06d".formatted(instant.getEpochSecond(), instant.getNano() / 1_000);
     }
 
     // channel_join 등 대화와 무관한 시스템 메시지 여부 확인
