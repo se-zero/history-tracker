@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -77,6 +78,12 @@ class PipelineServiceTest {
         verify(checkpointManager).updateGitHubCommits(Instant.parse("2024-01-03T00:00:00Z"));
         verify(checkpointManager).updateGitHubPullRequests(Instant.parse("2024-02-02T00:00:00Z"));
         verify(checkpointManager).updateGitHubIssues(Instant.parse("2024-03-03T00:00:00Z"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<NormalizedEvent>> eventsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(eventPublisher, times(3)).publishAll(eventsCaptor.capture());
+        assertThat(eventsCaptor.getAllValues()).extracting(events -> events.get(0).nodeType())
+                .containsExactly("ChangeSet", "PullRequest", "Communication");
     }
 
     @Test

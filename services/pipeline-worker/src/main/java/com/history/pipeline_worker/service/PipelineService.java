@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,13 +36,18 @@ public class PipelineService {
     public int normalizeGitHub(RawFetchRequest request) {
         Map<String, Object> raw = gitHubRawService.fetch(request);
 
-        List<NormalizedEvent> events = new ArrayList<>();
-        events.addAll(gitHubNormalizer.normalizeCommits(getList(raw, "commits")));
-        events.addAll(gitHubNormalizer.normalizePullRequests(getList(raw, "pullRequests")));
-        events.addAll(gitHubNormalizer.normalizeIssues(getList(raw, "issues")));
+        List<NormalizedEvent> commitEvents = gitHubNormalizer.normalizeCommits(getList(raw, "commits"));
+        int published = eventPublisher.publishAll(commitEvents);
+        maxOccurredAt(commitEvents).ifPresent(checkpointManager::updateGitHubCommits);
 
-        int published = eventPublisher.publishAll(events);
-        updateGitHubCheckpoints(events);
+        List<NormalizedEvent> pullRequestEvents = gitHubNormalizer.normalizePullRequests(getList(raw, "pullRequests"));
+        published += eventPublisher.publishAll(pullRequestEvents);
+        maxOccurredAt(pullRequestEvents).ifPresent(checkpointManager::updateGitHubPullRequests);
+
+        List<NormalizedEvent> issueEvents = gitHubNormalizer.normalizeIssues(getList(raw, "issues"));
+        published += eventPublisher.publishAll(issueEvents);
+        maxOccurredAt(issueEvents).ifPresent(checkpointManager::updateGitHubIssues);
+
         log.info("GitHub 이벤트 발행: {}", published);
 
         return published;
@@ -86,28 +90,6 @@ public class PipelineService {
         log.info("Slack 이벤트 발행: {}", published);
 
         return published;
-    }
-
-    private void updateGitHubCheckpoints(List<NormalizedEvent> events) {
-        maxOccurredAtBySourceAndNodeType(events, "GITHUB", "ChangeSet")
-                .ifPresent(checkpointManager::updateGitHubCommits);
-        maxOccurredAtBySourceAndNodeType(events, "GITHUB", "PullRequest")
-                .ifPresent(checkpointManager::updateGitHubPullRequests);
-        maxOccurredAtBySourceAndNodeType(events, "GITHUB", "Communication")
-                .ifPresent(checkpointManager::updateGitHubIssues);
-    }
-
-    private Optional<Instant> maxOccurredAtBySourceAndNodeType(
-            List<NormalizedEvent> events,
-            String source,
-            String nodeType
-    ) {
-        return events.stream()
-                .filter(event -> source.equals(event.source()))
-                .filter(event -> nodeType.equals(event.nodeType()))
-                .map(NormalizedEvent::occurredAt)
-                .filter(Objects::nonNull)
-                .max(Instant::compareTo);
     }
 
     private Optional<Instant> maxOccurredAt(List<NormalizedEvent> events) {
