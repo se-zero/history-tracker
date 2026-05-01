@@ -72,6 +72,7 @@ public class SlackNormalizer {
         properties.put("url", "https://slack.com/archives/" + channelId);
         // 루트 메시지는 자신의 ts, 스레드 reply는 부모 메시지의 ts
         properties.put("conversation_id", threadTs != null ? threadTs : ts);
+        properties.put("created_at", null);
 
         return new NormalizedEvent(
                 "Communication",

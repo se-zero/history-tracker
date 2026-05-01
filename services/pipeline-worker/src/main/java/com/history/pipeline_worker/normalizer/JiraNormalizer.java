@@ -2,12 +2,11 @@ package com.history.pipeline_worker.normalizer;
 
 import com.history.pipeline_worker.dto.ActorDto;
 import com.history.pipeline_worker.dto.NormalizedEvent;
+import com.history.pipeline_worker.util.JiraDateUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,9 +15,6 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 public class JiraNormalizer {
-
-    private static final DateTimeFormatter JIRA_DATE_FMT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
 
     private final RefsExtractor refsExtractor;
 
@@ -43,6 +39,7 @@ public class JiraNormalizer {
             Map<String, Object> priority = (Map<String, Object>) fields.get("priority");
 
             String createdAt = (String) fields.get("created");
+            String updatedAt = (String) fields.get("updated");
             String summary = (String) fields.get("summary");
             Object description = fields.get("description");
             String descriptionText = extractPlainText(description);
@@ -55,6 +52,7 @@ public class JiraNormalizer {
             properties.put("issue_type", issueType != null ? issueType.get("name") : null);
             properties.put("priority", priority != null ? priority.get("name") : null);
             properties.put("assignee", assigneeField != null ? assigneeField.get("displayName") : null);
+            properties.put("created_at", createdAt);
 
             ActorDto actor = reporter != null
                     ? new ActorDto(
@@ -66,13 +64,19 @@ public class JiraNormalizer {
             events.add(new NormalizedEvent(
                     "Issue",
                     "JIRA",
-                    createdAt != null ? OffsetDateTime.parse(createdAt, JIRA_DATE_FMT).toInstant() : Instant.now(),
+                    resolveOccurredAt(updatedAt, createdAt),
                     actor,
                     properties,
                     refsExtractor.extract(summary + " " + descriptionText)
             ));
         }
         return events;
+    }
+
+    private Instant resolveOccurredAt(String updatedAt, String createdAt) {
+        if (updatedAt != null) return JiraDateUtils.parse(updatedAt);
+        if (createdAt != null) return JiraDateUtils.parse(createdAt);
+        return Instant.now();
     }
 
     @SuppressWarnings("unchecked")
