@@ -15,6 +15,7 @@ logging.basicConfig(
 )
 """
 
+from graph.builder import close_driver, get_driver
 from graph.consumer import start_consumer
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_driver()  # 연결 검증 겸 초기화
     task = asyncio.create_task(start_consumer())
     try:
         yield
@@ -31,6 +33,7 @@ async def lifespan(app: FastAPI):
             await task
         except asyncio.CancelledError:
             pass
+        await close_driver()
 
 
 app = FastAPI(title="History Graph AI Engine", lifespan=lifespan)

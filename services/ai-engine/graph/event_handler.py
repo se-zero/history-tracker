@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+from graph import builder
 from graph.embedder import embed_text
 from graph.path_filter import should_skip
 from graph.summarizer import summarize_diff
@@ -12,7 +13,8 @@ async def handle(event: dict) -> None:
     """NormalizedEvent를 nodeType에 따라 분기 처리한다."""
     node_type = event.get("nodeType", "unknown")
     source    = event.get("source", "unknown")
-    actor_id  = (event.get("actor") or {}).get("id")
+    actor     = event.get("actor") or {}
+    actor_id  = actor.get("id", "unknown")
 
     logger.info("[%s/%s] actor=%s 수신", source, node_type, actor_id)
 
@@ -29,14 +31,33 @@ async def handle(event: dict) -> None:
 
 
 async def _handle_changeset(event: dict) -> None:
-    props   = event.get("properties") or {}
-    files   = props.get("files") or []
-    message = props.get("message", "")
-    logger.debug("ChangeSet 수신: hash=%s", props.get("hash"))
+    props       = event.get("properties") or {}
+    refs        = event.get("refs") or {}
+    actor       = event.get("actor") or {}
+    hash_       = props.get("hash", "")
+    message     = props.get("message", "")
+    occurred_at = event.get("occurredAt", "")
+    source      = event.get("source", "")
 
-    # TODO: Neo4j - Actor resolve 후 ChangeSet 노드 MERGE, AUTHORED 엣지 생성
+    logger.debug("ChangeSet 수신: hash=%s", hash_)
 
-    for file in files:
+    await builder.upsert_changeset(
+        hash=hash_,
+        message=message,
+        occurred_at=occurred_at,
+        source=source,
+        actor_id=actor.get("id", "unknown"),
+        actor_name=actor.get("name", ""),
+    )
+
+    # Layer 2: refs 기반 엣지
+    if refs.get("jiraKey"):
+        await builder.link_changeset_to_issue(hash_, refs["jiraKey"])
+    if refs.get("prNumber"):
+        await builder.link_pr_to_changeset(refs["prNumber"], hash_)
+
+    # Layer 3: 파일별 diff 요약 + 임베딩 → MODIFIED 엣지
+    for file in props.get("files") or []:
         path      = file.get("path", "")
         diff      = file.get("diff", "")
         additions = file.get("additions", 0)
@@ -48,42 +69,104 @@ async def _handle_changeset(event: dict) -> None:
         diff_summary = await asyncio.to_thread(summarize_diff, path, diff, additions, deletions, message)
         embedding    = await embed_text(diff_summary)
 
-        logger.debug("ChangeSet 파일 처리: path=%s summary_len=%d", path, len(diff_summary))
+        await builder.upsert_file_with_modified_edge(
+            changeset_hash=hash_,
+            file_path=path,
+            diff_summary=diff_summary,
+            embedding=embedding,
+        )
 
-        # TODO: Neo4j - File 노드 upsert, MODIFIED 엣지 생성 { diffSummary, embedding }
+        logger.debug("ChangeSet 파일 처리 완료: path=%s", path)
 
 
 async def _handle_pull_request(event: dict) -> None:
-    props = event.get("properties") or {}
+    props       = event.get("properties") or {}
+    actor       = event.get("actor") or {}
+    occurred_at = event.get("occurredAt")
+    source      = event.get("source", "")
+
     logger.debug("PullRequest 수신: pr_number=%s", props.get("pr_number"))
 
-    # TODO: Neo4j - Actor resolve 후 PullRequest 노드 MERGE, AUTHORED 엣지 생성
-    # TODO: Neo4j - refs.prNumber 있으면 CONTAINS 엣지 생성
+    await builder.upsert_pull_request(
+        pr_number=props.get("pr_number"),
+        title=props.get("title", ""),
+        body=props.get("body", ""),
+        state=props.get("state", ""),
+        base_branch=props.get("base_branch", ""),
+        merged_at=props.get("merged_at"),
+        url=props.get("url", ""),
+        occurred_at=occurred_at,
+        created_at=props.get("created_at"),
+        source=source,
+        actor_id=actor.get("id", "unknown"),
+        actor_name=actor.get("name", ""),
+    )
 
 
 async def _handle_issue(event: dict) -> None:
-    props = event.get("properties") or {}
-    title = props.get("title", "")
-    body  = props.get("body", "")
+    props       = event.get("properties") or {}
+    refs        = event.get("refs") or {}
+    actor       = event.get("actor") or {}
+    occurred_at = event.get("occurredAt", "")
+    source      = event.get("source", "")
+    title       = props.get("title", "")
+    body        = props.get("body", "")
+
     logger.debug("Issue 수신: jira_key=%s", props.get("jira_key"))
 
-    # title + body 를 합쳐 임베딩 — 나중에 DISCUSSED_IN / TRIGGERED_BY 시맨틱 연결에 사용
     embedding = await embed_text(f"{title}\n\n{body}")
 
-    logger.debug("Issue 임베딩 완료: jira_key=%s", props.get("jira_key"))
+    await builder.upsert_issue(
+        jira_key=props.get("jira_key", ""),
+        title=title,
+        body=body,
+        status=props.get("status", ""),
+        issue_type=props.get("issue_type", ""),
+        priority=props.get("priority", ""),
+        assignee=props.get("assignee", ""),
+        occurred_at=occurred_at,
+        created_at=props.get("created_at"),
+        source=source,
+        actor_id=actor.get("id", "unknown"),
+        actor_name=actor.get("name", ""),
+        embedding=embedding,
+    )
 
-    # TODO: Neo4j - Actor resolve 후 Issue 노드 MERGE { embedding }, CREATED 엣지 생성
-    # TODO: Neo4j - refs.jiraKey 있으면 DISCUSSED_IN, TRIGGERED_BY 엣지 생성
+    # Layer 2: Jira parent → CHILD_OF
+    if refs.get("parentKey"):
+        await builder.link_issue_to_parent(props["jira_key"], refs["parentKey"])
 
 
 async def _handle_communication(event: dict) -> None:
-    props = event.get("properties") or {}
-    body  = props.get("body", "")
+    props       = event.get("properties") or {}
+    refs        = event.get("refs") or {}
+    actor       = event.get("actor") or {}
+    occurred_at = event.get("occurredAt", "")
+    source      = event.get("source", "")
+    body        = props.get("body", "")
+    url         = props.get("url", "")
+
     logger.debug("Communication 수신: channel=%s", props.get("channel"))
+
+    if not url:
+        logger.warning("Communication url 없음 — 건너뜀 (channel=%s)", props.get("channel"))
+        return
 
     embedding = await embed_text(body)
 
-    logger.debug("Communication 임베딩 완료: channel=%s", props.get("channel"))
+    await builder.upsert_communication(
+        url=url,
+        body=body,
+        channel=props.get("channel", ""),
+        conversation_id=props.get("conversation_id", ""),
+        occurred_at=occurred_at,
+        created_at=props.get("created_at"),
+        source=source,
+        actor_id=actor.get("id", "unknown"),
+        actor_name=actor.get("name", ""),
+        embedding=embedding,
+    )
 
-    # TODO: Neo4j - Actor resolve 후 Communication 노드 MERGE { embedding }, WROTE 엣지 생성
-    # TODO: Neo4j - refs.jiraKey 있으면 DISCUSSED_IN 엣지 생성
+    # Layer 2: refs.jiraKey → DISCUSSED_IN
+    if refs.get("jiraKey"):
+        await builder.link_issue_to_communication(refs["jiraKey"], url)
