@@ -45,41 +45,55 @@ public class FileCheckpointManager {
 
     public void updateGitHubCommits(Instant scannedAt) {
         synchronized (lock) {
+            Instant previous = cached.github.commitsScannedAt;
             cached.github.commitsScannedAt = scannedAt;
-            save(cached);
+            saveWithRollback(() -> cached.github.commitsScannedAt = previous);
         }
     }
 
     public void updateGitHubPullRequests(Instant scannedAt) {
         synchronized (lock) {
+            Instant previous = cached.github.pullRequestsScannedAt;
             cached.github.pullRequestsScannedAt = scannedAt;
-            save(cached);
+            saveWithRollback(() -> cached.github.pullRequestsScannedAt = previous);
         }
     }
 
     public void updateGitHubIssues(Instant scannedAt) {
         synchronized (lock) {
+            Instant previous = cached.github.issuesScannedAt;
             cached.github.issuesScannedAt = scannedAt;
-            save(cached);
+            saveWithRollback(() -> cached.github.issuesScannedAt = previous);
         }
     }
 
     public void updateSlack(Instant scannedAt) {
         synchronized (lock) {
+            Instant previous = cached.slack.lastScannedAt;
             cached.slack.lastScannedAt = scannedAt;
-            save(cached);
+            saveWithRollback(() -> cached.slack.lastScannedAt = previous);
         }
     }
 
     public void updateJira(Instant scannedAt) {
         synchronized (lock) {
+            Instant previous = cached.jira.lastScannedAt;
             cached.jira.lastScannedAt = scannedAt;
-            save(cached);
+            saveWithRollback(() -> cached.jira.lastScannedAt = previous);
         }
     }
 
     public CheckpointData getCached() {
         return cached;
+    }
+
+    private void saveWithRollback(Runnable rollback) {
+        try {
+            save(cached);
+        } catch (RuntimeException e) {
+            rollback.run();
+            throw e;
+        }
     }
 
     private void save(CheckpointData data) {
@@ -89,6 +103,7 @@ public class FileCheckpointManager {
             Files.move(tmp, checkpointPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             log.error("체크포인트 저장 실패: {}", e.getMessage());
+            throw new IllegalStateException("체크포인트 저장 실패", e);
         }
     }
 }

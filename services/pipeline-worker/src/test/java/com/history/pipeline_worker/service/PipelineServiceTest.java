@@ -21,9 +21,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class PipelineServiceTest {
@@ -77,6 +77,26 @@ class PipelineServiceTest {
         verify(checkpointManager).updateGitHubCommits(Instant.parse("2024-01-03T00:00:00Z"));
         verify(checkpointManager).updateGitHubPullRequests(Instant.parse("2024-02-02T00:00:00Z"));
         verify(checkpointManager).updateGitHubIssues(Instant.parse("2024-03-03T00:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("GitHub 발행 실패 시 체크포인트 미갱신")
+    void normalizeGitHub_publishFailure_doesNotUpdateCheckpoint() {
+        RawFetchRequest request = new RawFetchRequest("Bearer token", "owner/repo", Map.of());
+        Map<String, Object> raw = Map.of(
+                "commits", List.of(buildCommit("sha-1", "first", "2024-01-01T00:00:00Z")),
+                "pullRequests", List.of(),
+                "issues", List.of()
+        );
+        when(gitHubRawService.fetch(request)).thenReturn(raw);
+        when(eventPublisher.publishAll(anyList())).thenThrow(new IllegalStateException("publish failed"));
+
+        assertThatThrownBy(() -> pipelineService.normalizeGitHub(request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("publish failed");
+        verify(checkpointManager, never()).updateGitHubCommits(any());
+        verify(checkpointManager, never()).updateGitHubPullRequests(any());
+        verify(checkpointManager, never()).updateGitHubIssues(any());
     }
 
     private Map<String, Object> buildCommit(String sha, String message, String committedAt) {

@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * FileCheckpointManager: checkpoint.json 저장·로드·원자적 쓰기·캐시 갱신 검증.
@@ -157,6 +158,50 @@ class FileCheckpointManagerTest {
         manager.updateGitHubCommits(Instant.now());
 
         Path tmpFile = tempDir.resolve("checkpoint.json.tmp");
+        assertThat(tmpFile).doesNotExist();
+        assertThat(checkpointFile).exists();
+    }
+
+    @Test
+    @DisplayName("체크포인트 저장 실패 시 예외 전파")
+    void save_failure_throwsException(@TempDir Path tempDir) throws IOException {
+        Path notDirectory = tempDir.resolve("not-a-dir");
+        Files.writeString(notDirectory, "file");
+        Path checkpointFile = notDirectory.resolve("checkpoint.json");
+        FileCheckpointManager manager = new FileCheckpointManager(checkpointFile.toString(), objectMapper);
+
+        assertThatThrownBy(() -> manager.updateJira(Instant.parse("2024-04-25T15:00:00Z")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("체크포인트 저장 실패");
+    }
+
+    @Test
+    @DisplayName("체크포인트 저장 실패 시 캐시를 이전 값으로 롤백")
+    void save_failure_rollsBackCachedValue(@TempDir Path tempDir) throws IOException {
+        Instant previous = Instant.parse("2024-04-25T15:00:00Z");
+        Path notDirectory = tempDir.resolve("not-a-dir");
+        Files.writeString(notDirectory, "file");
+        FileCheckpointManager failingManager = new FileCheckpointManager(
+                notDirectory.resolve("checkpoint.json").toString(),
+                objectMapper
+        );
+        failingManager.getCached().jira.lastScannedAt = previous;
+
+        assertThatThrownBy(() -> failingManager.updateJira(Instant.parse("2024-04-25T16:00:00Z")))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(failingManager.getCached().jira.lastScannedAt).isEqualTo(previous);
+    }
+
+    @Test
+    @DisplayName("기존 .tmp 파일이 있어도 다음 저장 성공 시 제거")
+    void save_existingTmpFile_overwrittenAndRemoved(@TempDir Path tempDir) throws IOException {
+        Path checkpointFile = tempDir.resolve("checkpoint.json");
+        Path tmpFile = tempDir.resolve("checkpoint.json.tmp");
+        Files.writeString(tmpFile, "stale");
+
+        FileCheckpointManager manager = new FileCheckpointManager(checkpointFile.toString(), objectMapper);
+        manager.updateGitHubCommits(Instant.parse("2024-04-25T17:00:00Z"));
+
         assertThat(tmpFile).doesNotExist();
         assertThat(checkpointFile).exists();
     }
