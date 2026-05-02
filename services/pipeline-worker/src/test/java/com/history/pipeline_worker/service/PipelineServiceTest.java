@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.service;
 
+import com.history.pipeline_worker.checkpoint.CheckpointData;
 import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import com.history.pipeline_worker.dto.RawFetchRequest;
@@ -61,15 +62,19 @@ class PipelineServiceTest {
     @DisplayName("GitHub 체크포인트는 source+nodeType별 최대 occurredAt으로 갱신")
     void normalizeGitHub_updatesCheckpointsByGithubNodeTypeMaxOccurredAt() {
         RawFetchRequest request = new RawFetchRequest("Bearer token", "owner/repo", Map.of());
-        Map<String, Object> raw = Map.of(
-                "commits", List.of(
+        GitHubRawService.GitHubFetchContext context = githubContext();
+        when(gitHubRawService.prepareFetchContext(request)).thenReturn(context);
+        when(gitHubRawService.fetchMergedPullRequestPage(context, 1))
+                .thenReturn(new GitHubRawService.GitHubPage(List.of(buildPullRequest(10, "2024-02-02T00:00:00Z")), true));
+        when(gitHubRawService.fetchCommitPrNumbers(context, List.of(buildPullRequest(10, "2024-02-02T00:00:00Z"))))
+                .thenReturn(Map.of());
+        when(gitHubRawService.fetchCommitPage(context, 1, Map.of()))
+                .thenReturn(new GitHubRawService.GitHubPage(List.of(
                         buildCommit("sha-1", "first", "2024-01-01T00:00:00Z"),
                         buildCommit("sha-2", "second", "2024-01-03T00:00:00Z")
-                ),
-                "pullRequests", List.of(buildPullRequest(10, "2024-02-02T00:00:00Z")),
-                "issues", List.of(buildIssue(1, "2024-03-03T00:00:00Z"))
-        );
-        when(gitHubRawService.fetch(request)).thenReturn(raw);
+                ), true));
+        when(gitHubRawService.fetchIssuePage(context, 1))
+                .thenReturn(new GitHubRawService.GitHubPage(List.of(buildIssue(1, "2024-03-03T00:00:00Z")), true));
         when(eventPublisher.publishAll(anyList())).thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
 
         int queued = pipelineService.normalizeGitHub(request);
@@ -83,19 +88,17 @@ class PipelineServiceTest {
         ArgumentCaptor<List<NormalizedEvent>> eventsCaptor = ArgumentCaptor.forClass(List.class);
         verify(eventPublisher, times(3)).publishAll(eventsCaptor.capture());
         assertThat(eventsCaptor.getAllValues()).extracting(events -> events.get(0).nodeType())
-                .containsExactly("ChangeSet", "PullRequest", "Communication");
+                .containsExactly("PullRequest", "ChangeSet", "Communication");
     }
 
     @Test
     @DisplayName("GitHub 발행 실패 시 체크포인트 미갱신")
     void normalizeGitHub_publishFailure_doesNotUpdateCheckpoint() {
         RawFetchRequest request = new RawFetchRequest("Bearer token", "owner/repo", Map.of());
-        Map<String, Object> raw = Map.of(
-                "commits", List.of(buildCommit("sha-1", "first", "2024-01-01T00:00:00Z")),
-                "pullRequests", List.of(),
-                "issues", List.of()
-        );
-        when(gitHubRawService.fetch(request)).thenReturn(raw);
+        GitHubRawService.GitHubFetchContext context = githubContext();
+        when(gitHubRawService.prepareFetchContext(request)).thenReturn(context);
+        when(gitHubRawService.fetchMergedPullRequestPage(context, 1))
+                .thenReturn(new GitHubRawService.GitHubPage(List.of(buildPullRequest(10, "2024-02-02T00:00:00Z")), true));
         when(eventPublisher.publishAll(anyList())).thenThrow(new IllegalStateException("publish failed"));
 
         assertThatThrownBy(() -> pipelineService.normalizeGitHub(request))
@@ -104,6 +107,15 @@ class PipelineServiceTest {
         verify(checkpointManager, never()).updateGitHubCommits(any());
         verify(checkpointManager, never()).updateGitHubPullRequests(any());
         verify(checkpointManager, never()).updateGitHubIssues(any());
+    }
+
+    private GitHubRawService.GitHubFetchContext githubContext() {
+        return new GitHubRawService.GitHubFetchContext(
+                "Bearer token",
+                "owner",
+                "repo",
+                new CheckpointData.GitHubCheckpoint()
+        );
     }
 
     private Map<String, Object> buildCommit(String sha, String message, String committedAt) {

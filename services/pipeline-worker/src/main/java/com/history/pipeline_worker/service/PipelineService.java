@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,19 +35,48 @@ public class PipelineService {
     private final FileCheckpointManager checkpointManager;
 
     public int normalizeGitHub(RawFetchRequest request) {
-        Map<String, Object> raw = gitHubRawService.fetch(request);
+        GitHubRawService.GitHubFetchContext context = gitHubRawService.prepareFetchContext(request);
+        Map<String, String> commitPrNumbers = new HashMap<>();
+        int published = 0;
+        Instant pullRequestCheckpoint = null;
 
-        List<NormalizedEvent> commitEvents = gitHubNormalizer.normalizeCommits(getList(raw, "commits"));
-        int published = eventPublisher.publishAll(commitEvents);
-        maxOccurredAt(commitEvents).ifPresent(checkpointManager::updateGitHubCommits);
+        int pageNumber = 1;
+        while (true) {
+            GitHubRawService.GitHubPage page = gitHubRawService.fetchMergedPullRequestPage(context, pageNumber);
+            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizePullRequests(page.items());
+            published += eventPublisher.publishAll(pageEvents);
+            pullRequestCheckpoint = maxInstant(pullRequestCheckpoint, maxOccurredAt(pageEvents).orElse(null));
+            commitPrNumbers.putAll(gitHubRawService.fetchCommitPrNumbers(context, page.items()));
 
-        List<NormalizedEvent> pullRequestEvents = gitHubNormalizer.normalizePullRequests(getList(raw, "pullRequests"));
-        published += eventPublisher.publishAll(pullRequestEvents);
-        maxOccurredAt(pullRequestEvents).ifPresent(checkpointManager::updateGitHubPullRequests);
+            if (page.finished()) break;
+            pageNumber++;
+        }
 
-        List<NormalizedEvent> issueEvents = gitHubNormalizer.normalizeIssues(getList(raw, "issues"));
-        published += eventPublisher.publishAll(issueEvents);
-        maxOccurredAt(issueEvents).ifPresent(checkpointManager::updateGitHubIssues);
+        pageNumber = 1;
+        while (true) {
+            GitHubRawService.GitHubPage page = gitHubRawService.fetchCommitPage(context, pageNumber, commitPrNumbers);
+            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizeCommits(page.items());
+            published += eventPublisher.publishAll(pageEvents);
+            maxOccurredAt(pageEvents).ifPresent(checkpointManager::updateGitHubCommits);
+
+            if (page.finished()) break;
+            pageNumber++;
+        }
+
+        if (pullRequestCheckpoint != null) {
+            checkpointManager.updateGitHubPullRequests(pullRequestCheckpoint);
+        }
+
+        pageNumber = 1;
+        while (true) {
+            GitHubRawService.GitHubPage page = gitHubRawService.fetchIssuePage(context, pageNumber);
+            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizeIssues(page.items());
+            published += eventPublisher.publishAll(pageEvents);
+            maxOccurredAt(pageEvents).ifPresent(checkpointManager::updateGitHubIssues);
+
+            if (page.finished()) break;
+            pageNumber++;
+        }
 
         log.info("GitHub 이벤트 발행: {}", published);
 
@@ -99,9 +129,10 @@ public class PipelineService {
                 .max(Instant::compareTo);
     }
 
-    @SuppressWarnings("unchecked")
-    private List<Object> getList(Map<String, Object> map, String key) {
-        Object val = map.get(key);
-        return val instanceof List ? (List<Object>) val : List.of();
+    private Instant maxInstant(Instant current, Instant candidate) {
+        if (candidate == null) return current;
+        if (current == null || candidate.isAfter(current)) return candidate;
+        return current;
     }
+
 }
