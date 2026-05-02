@@ -49,36 +49,6 @@ public class GitHubRawService {
         this.checkpointManager = checkpointManager;
     }
 
-    public Map<String, Object> fetch(RawFetchRequest request) {
-        GitHubFetchContext context = prepareFetchContext(request);
-        String owner = context.owner();
-        String repo = context.repo();
-        String auth = context.auth();
-        CheckpointData.GitHubCheckpoint cp = context.checkpoint();
-
-        List<Object> pullRequests = enrichUserObjects(auth,
-                fetchMergedPullRequests(auth, owner, repo, cp.pullRequestsScannedAt));
-        Map<String, String> commitPrNumbers = fetchCommitPrNumbers(auth, pullRequests, owner, repo);
-
-        // 타입별 독립 체크포인트 — 재시작 시 완료된 타입은 건너뜀
-        List<Object> rawCommits = fetchAllPages(
-                auth, "/repos/{owner}/{repo}/commits?per_page=" + PER_PAGE, owner, repo,
-                cp.commitsScannedAt, "commit.committer.date");
-        List<Object> commits = enrichCommits(auth, rawCommits, owner, repo, commitPrNumbers);
-
-        List<Object> issues = enrichUserObjects(auth, fetchAllPages(
-                auth, "/repos/{owner}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=" + PER_PAGE, owner, repo,
-                cp.issuesScannedAt, "updated_at"));
-
-        log.info("GitHub 수집 완료: commits={}, PRs={}, issues={}", commits.size(), pullRequests.size(), issues.size());
-
-        return Map.of(
-                "commits", commits,
-                "pullRequests", pullRequests,
-                "issues", issues
-        );
-    }
-
     public GitHubFetchContext prepareFetchContext(RawFetchRequest request) {
         String[] parts = request.projectKey().split("/", 2);
         if (parts.length != 2) {
@@ -89,6 +59,20 @@ public class GitHubRawService {
         String auth = request.credentials();
 
         return new GitHubFetchContext(auth, owner, repo, checkpointManager.getCached().github);
+    }
+
+    public Map<String, Object> fetchSample(RawFetchRequest request) {
+        GitHubFetchContext context = prepareFetchContext(request);
+        GitHubPage pullRequestPage = fetchMergedPullRequestPage(context, 1);
+        Map<String, String> commitPrNumbers = fetchCommitPrNumbers(context, pullRequestPage.items());
+        GitHubPage commitPage = fetchCommitPage(context, 1, commitPrNumbers);
+        GitHubPage issuePage = fetchIssuePage(context, 1);
+
+        return Map.of(
+                "commits", commitPage.items(),
+                "pullRequests", pullRequestPage.items(),
+                "issues", issuePage.items()
+        );
     }
 
     public GitHubPage fetchMergedPullRequestPage(GitHubFetchContext context, int page) {
@@ -140,27 +124,6 @@ public class GitHubRawService {
                 page
         );
         return new GitHubPage(enrichUserObjects(context.auth(), issues.items()), issues.finished());
-    }
-
-    /**
-     * 전체 페이지를 순회하며 항목 수집.
-     * GitHub는 최신순으로 반환하므로 lastScannedAt 이전 항목이 나오면 조기 종료.
-     * lastScannedAt이 null(최초 실행)이면 전체 수집.
-     */
-
-    private List<Object> fetchAllPages(String auth, String basePath, String owner, String repo,
-                                        Instant lastScannedAt, String dateField) {
-        List<Object> allItems = new ArrayList<>();
-        int page = 1;
-
-        while (true) {
-            GitHubPage fetchedPage = fetchPageAfterCheckpoint(auth, basePath, owner, repo, lastScannedAt, dateField, page);
-            allItems.addAll(fetchedPage.items());
-            if (fetchedPage.finished()) break;
-            page++;
-        }
-
-        return allItems;
     }
 
     @SuppressWarnings("unchecked")
@@ -314,19 +277,6 @@ public class GitHubRawService {
         }
 
         return allItems;
-    }
-
-    private List<Object> fetchMergedPullRequests(String auth, String owner, String repo, Instant lastMergedAt) {
-        List<Object> closedPullRequests = fetchAllPages(
-                auth,
-                "/repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=" + PER_PAGE,
-                owner,
-                repo,
-                lastMergedAt,
-                "updated_at"
-        );
-
-        return filterMergedPullRequests(closedPullRequests, lastMergedAt);
     }
 
     @SuppressWarnings("unchecked")

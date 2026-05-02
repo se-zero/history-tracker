@@ -26,7 +26,7 @@ public class RawDataController {
 
     @PostMapping("/api/v1/raw/github")
     public ResponseEntity<RawFetchResponse> fetchGitHub(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.ok(new RawFetchResponse("GITHUB", Instant.now(), gitHubRawService.fetch(request)));
+        return ResponseEntity.ok(new RawFetchResponse("GITHUB", Instant.now(), gitHubRawService.fetchSample(request)));
     }
 
     @PostMapping("/api/v1/raw/jira")
