@@ -31,14 +31,19 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 - Pull Request: `/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=N`을 사용한다. `updated_at` 기준 최신순 페이지를 받은 뒤 `merged_at != null`, `merged_at > checkpoint`를 클라이언트에서 필터링한다.
 - Issue: `/issues?state=all&sort=updated&direction=desc&per_page=100&page=N`을 사용한다. `updated_at`을 checkpoint와 비교한다.
 - checkpoint 이전 항목이 나오면 이후 페이지도 모두 이전이라고 보고 **조기 종료**한다.
+- normalize 경로는 페이지 단위로 `fetch → normalize → publish → checkpoint 갱신`을 반복한다. raw 응답용 엔드포인트는 전체 수집이 아니라 1페이지만 반환하는 샘플/debug 용도다.
 
 ### PR 수집 상세
 
-`/pulls?state=closed`로 closed PR 전체를 가져온 뒤 클라이언트에서 `merged_at != null` 필터링한다.
+`/pulls?state=closed`로 closed PR 페이지를 가져온 뒤 클라이언트에서 `merged_at != null` 필터링한다.
 (GitHub `/pulls` API는 `merged_at` 서버사이드 필터를 지원하지 않음)
 
 각 PR에 속한 커밋 목록은 `/pulls/{pr}/commits`로 추가 수집해 `prNumber` 매핑을 구성한다 (PR당 1회 호출).
 각 커밋의 변경 파일 목록(`files`)은 `/commits/{sha}`로 추가 수집한다 (커밋당 1회 호출).
+
+PR 페이지는 먼저 발행하지만, `pullRequestsScannedAt` checkpoint는 commit 페이지 처리가 끝난 뒤 갱신한다.
+commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다음 실행에서 PR 페이지를 다시 읽고 `sha → prNumber` 매핑을 재구성할 수 있다.
+이 선택은 PR 이벤트 중복 발행 가능성을 감수하고 commit의 `prNumber` 누락을 피하기 위한 것이다.
 
 ### occurredAt 기준
 
@@ -63,7 +68,7 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
   초기 전체 수집 시 수천 개의 커밋이 있는 저장소에서는 수십 분이 걸릴 수 있다.
 - **현재 선택 이유**: `files`의 diff는 LLM이 diffSummary를 생성하고 `MODIFIED` 관계를 구축하는 핵심 데이터다. 없으면 지식 그래프의 코어 기능이 동작하지 않는다.
 
-#### PR 수집 — closed 전체 수집 후 클라이언트 필터
+#### PR 수집 — closed 페이지 수집 후 클라이언트 필터
 
 GitHub Search API(`/search/issues?is:pr is:merged`)를 사용하면 서버사이드에서 merged PR만 필터할 수 있지만, 현재 환경에서 422 오류로 사용 불가. `/pulls` API에는 `merged_at` 서버사이드 필터가 없다.
 
@@ -83,13 +88,13 @@ GitHub `/issues` API는 PR도 반환한다. `GitHubNormalizer`에서 `pull_reque
 - **문제**: PR 데이터를 이슈 엔드포인트에서도 받아오지만 정규화 시 폐기 → 불필요한 데이터 전송.
 - **현재 선택 이유**: GitHub API에 `is_issue=true` 같은 서버사이드 필터가 없다. API 특성상 불가피.
 
-#### 전체 데이터 메모리 누적
+#### GitHub normalize 경로의 메모리 누적
 
-commits, PRs, issues 전체를 메모리에 쌓은 뒤 반환한다.
+normalize 경로는 PR, commit, issue를 페이지 단위로 처리한다.
 
-- **문제**: 초기 전체 수집 시 수천 개 커밋이 있는 저장소에서 OOM 가능성.
-- **현재 상태**: normalize 응답은 `202 {"queued": N}`로 전환되어 HTTP 응답 직렬화 부담은 줄었다. 다만 `GitHubRawService`와 `PipelineService` 내부에서는 아직 raw 데이터와 `NormalizedEvent`를 한 번에 누적한 뒤 publish하므로 메모리 문제는 완전히 해결되지 않았다.
-- **개선 방향**: Jira처럼 페이지/타입 단위로 fetch → normalize → publish → checkpoint 갱신을 반복하면 내부 누적도 줄일 수 있다.
+- **현재 상태**: normalize 응답은 `202 {"queued": N}`이며, 내부에서도 raw 전체와 `NormalizedEvent` 전체를 한 번에 누적하지 않는다.
+- **남는 데이터**: PR-commit 관계 보강을 위해 실행 동안 `sha → prNumber` 맵은 유지한다. 이 맵은 PR raw 전체보다 작고 commit `refs.prNumber` 보강에 필요하다.
+- **raw endpoint**: `/api/v1/raw/github`는 필드 확인용 샘플로 동작하며 PR/commit/issue 1페이지만 반환한다.
 
 ### 웹훅 기반 증분 수집 _(계획)_
 
