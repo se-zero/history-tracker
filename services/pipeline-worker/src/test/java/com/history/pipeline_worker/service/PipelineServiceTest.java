@@ -130,9 +130,9 @@ class PipelineServiceTest {
                 Map.of("id", "C002", "name", "dev")
         ));
         when(slackRawService.fetchHistoryPage(context, Map.of("id", "C001", "name", "general"), null))
-                .thenReturn(new SlackRawService.SlackHistoryPage(firstChannel, null, true));
+                .thenReturn(new SlackRawService.SlackHistoryPage(firstChannel, null));
         when(slackRawService.fetchHistoryPage(context, Map.of("id", "C002", "name", "dev"), null))
-                .thenReturn(new SlackRawService.SlackHistoryPage(secondChannel, null, true));
+                .thenReturn(new SlackRawService.SlackHistoryPage(secondChannel, null));
         when(eventPublisher.publishAll(anyList())).thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
 
         int queued = pipelineService.normalizeSlack(request);

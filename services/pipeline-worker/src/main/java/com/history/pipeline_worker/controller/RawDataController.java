@@ -36,6 +36,6 @@ public class RawDataController {
 
     @PostMapping("/api/v1/raw/slack")
     public ResponseEntity<RawFetchResponse> fetchSlack(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.ok(new RawFetchResponse("SLACK", Instant.now(), slackRawService.fetch(request)));
+        return ResponseEntity.ok(new RawFetchResponse("SLACK", Instant.now(), slackRawService.fetchSample(request)));
     }
 }

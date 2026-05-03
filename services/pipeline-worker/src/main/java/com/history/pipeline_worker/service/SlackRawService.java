@@ -20,7 +20,7 @@ public class SlackRawService {
 
     public record UserInfo(String name, String email) {}
     public record SlackFetchContext(String auth, Instant lastScannedAt, Map<String, UserInfo> userMap) {}
-    public record SlackHistoryPage(Map<String, Object> channelData, String nextCursor, boolean finished) {}
+    public record SlackHistoryPage(Map<String, Object> channelData, String nextCursor) {}
     private record ChannelMessages(List<Object> messages, List<Object> threadCandidates, String nextCursor) {}
 
     // 페이지당 최대 수 (Slack API 최대값)
@@ -47,26 +47,26 @@ public class SlackRawService {
         this.checkpointManager = checkpointManager;
     }
 
-    public Map<String, Object> fetch(RawFetchRequest request) {
+    public Map<String, Object> fetchSample(RawFetchRequest request) {
         SlackFetchContext context = prepareFetchContext(request);
 
-        // 전체 채널 목록 수집
         List<Object> allChannels = fetchChannels(context);
-
-        // 각 채널의 메시지 + 스레드 수집
-        List<Object> channelData = new ArrayList<>();
-        for (Object ch : allChannels) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> channel = (Map<String, Object>) ch;
-            channelData.add(fetchChannel(channel, context));
+        if (allChannels.isEmpty()) {
+            return Map.of(
+                    "totalChannels", 0,
+                    "totalUsers", context.userMap().size(),
+                    "channels", List.of()
+            );
         }
 
-        log.info("Slack 수집 완료: {} 채널", channelData.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstChannel = (Map<String, Object>) allChannels.get(0);
+        SlackHistoryPage page = fetchHistoryPage(context, firstChannel, null);
 
         return Map.of(
                 "totalChannels", allChannels.size(),
                 "totalUsers", context.userMap().size(),
-                "channels", channelData
+                "channels", List.of(page.channelData())
         );
     }
 
@@ -108,7 +108,7 @@ public class SlackRawService {
                 "threads", threads
         );
         String nextCursor = channelMessages.nextCursor();
-        return new SlackHistoryPage(channelData, nextCursor, nextCursor == null || nextCursor.isBlank());
+        return new SlackHistoryPage(channelData, nextCursor);
     }
 
     // users.list로 워크스페이스 전체 멤버의 userId → UserInfo(name, email) 맵 구성
@@ -191,37 +191,6 @@ public class SlackRawService {
         } while (cursor != null && !cursor.isBlank());
 
         return allChannels;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> fetchChannel(Map<String, Object> channel, SlackFetchContext context) {
-        String cursor = null;
-        List<Object> messages = new ArrayList<>();
-        List<Object> threads = new ArrayList<>();
-        Map<String, Object> lastPage = null;
-
-        do {
-            SlackHistoryPage page = fetchHistoryPage(context, channel, cursor);
-            lastPage = page.channelData();
-            messages.addAll((List<Object>) lastPage.get("messages"));
-            threads.addAll((List<Object>) lastPage.get("threads"));
-            cursor = page.nextCursor();
-        } while (cursor != null && !cursor.isBlank());
-
-        String channelId = (String) channel.get("id");
-        String channelName = (String) channel.get("name");
-        if (lastPage != null) {
-            channelId = (String) lastPage.get("channelId");
-            channelName = (String) lastPage.get("channelName");
-        }
-
-        return Map.of(
-                "channelId", channelId,
-                "channelName", channelName,
-                "totalMessages", messages.size(),
-                "messages", messages,
-                "threads", threads
-        );
     }
 
     @SuppressWarnings("unchecked")
