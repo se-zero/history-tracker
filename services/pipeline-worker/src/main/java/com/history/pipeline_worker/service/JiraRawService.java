@@ -169,7 +169,6 @@ public class JiraRawService {
         Map<String, Object> body = new HashMap<>();
         body.put("jql", buildJql(projectKey, lastScannedAt));
         body.put("maxResults", PAGE_SIZE);
-        body.put("expand", "changelog");
         body.put("fields", List.of("summary", "status", "assignee", "reporter", "issuetype",
                 "priority", "created", "updated", "description", "labels", "parent"));
         if (nextPageToken != null && !nextPageToken.isBlank()) {
