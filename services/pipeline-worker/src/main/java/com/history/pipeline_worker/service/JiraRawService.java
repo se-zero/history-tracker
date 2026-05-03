@@ -52,7 +52,7 @@ public class JiraRawService {
         this.checkpointManager = checkpointManager;
     }
 
-    public Map<String, Object> fetch(RawFetchRequest request) {
+    public Map<String, Object> fetchSample(RawFetchRequest request) {
         JiraFetchContext context = prepareFetchContext(request);
 
         JiraSearchPage page = fetchSearchPage(context, null, 1);

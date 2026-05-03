@@ -31,7 +31,7 @@ public class RawDataController {
 
     @PostMapping("/api/v1/raw/jira")
     public ResponseEntity<RawFetchResponse> fetchJira(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.ok(new RawFetchResponse("JIRA", Instant.now(), jiraRawService.fetch(request)));
+        return ResponseEntity.ok(new RawFetchResponse("JIRA", Instant.now(), jiraRawService.fetchSample(request)));
     }
 
     @PostMapping("/api/v1/raw/slack")
