@@ -123,7 +123,16 @@ class PipelineServiceTest {
                 "C002",
                 List.of(buildSlackMessage("U002", "second", "1714000100.000000"))
         );
-        when(slackRawService.fetch(request)).thenReturn(Map.of("channels", List.of(firstChannel, secondChannel)));
+        SlackRawService.SlackFetchContext context = slackContext();
+        when(slackRawService.prepareFetchContext(request)).thenReturn(context);
+        when(slackRawService.fetchChannels(context)).thenReturn(List.of(
+                Map.of("id", "C001", "name", "general"),
+                Map.of("id", "C002", "name", "dev")
+        ));
+        when(slackRawService.fetchHistoryPage(context, Map.of("id", "C001", "name", "general"), null))
+                .thenReturn(new SlackRawService.SlackHistoryPage(firstChannel, null, true));
+        when(slackRawService.fetchHistoryPage(context, Map.of("id", "C002", "name", "dev"), null))
+                .thenReturn(new SlackRawService.SlackHistoryPage(secondChannel, null, true));
         when(eventPublisher.publishAll(anyList())).thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
 
         int queued = pipelineService.normalizeSlack(request);
@@ -131,6 +140,14 @@ class PipelineServiceTest {
         assertThat(queued).isEqualTo(2);
         verify(eventPublisher, times(2)).publishAll(anyList());
         verify(checkpointManager).updateSlack(Instant.ofEpochSecond(1714000100L));
+    }
+
+    private SlackRawService.SlackFetchContext slackContext() {
+        return new SlackRawService.SlackFetchContext(
+                "Bearer token",
+                null,
+                Map.of()
+        );
     }
 
     private GitHubRawService.GitHubFetchContext githubContext() {

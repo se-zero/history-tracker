@@ -113,16 +113,23 @@ public class PipelineService {
     }
 
     public int normalizeSlack(RawFetchRequest request) {
-        Map<String, Object> raw = slackRawService.fetch(request);
+        SlackRawService.SlackFetchContext context = slackRawService.prepareFetchContext(request);
         int published = 0;
         Instant checkpoint = null;
 
-        for (Object channel : getList(raw, "channels")) {
-            List<NormalizedEvent> channelEvents = slackNormalizer.normalizeChannels(
-                    Map.of("channels", List.of(channel))
-            );
-            published += eventPublisher.publishAll(channelEvents);
-            checkpoint = maxInstant(checkpoint, maxOccurredAt(channelEvents).orElse(null));
+        for (Object rawChannel : slackRawService.fetchChannels(context)) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> channel = (Map<String, Object>) rawChannel;
+            String cursor = null;
+            do {
+                SlackRawService.SlackHistoryPage page = slackRawService.fetchHistoryPage(context, channel, cursor);
+                List<NormalizedEvent> pageEvents = slackNormalizer.normalizeChannels(
+                        Map.of("channels", List.of(page.channelData()))
+                );
+                published += eventPublisher.publishAll(pageEvents);
+                checkpoint = maxInstant(checkpoint, maxOccurredAt(pageEvents).orElse(null));
+                cursor = page.nextCursor();
+            } while (cursor != null && !cursor.isBlank());
         }
 
         if (checkpoint != null) {
@@ -144,13 +151,6 @@ public class PipelineService {
         if (candidate == null) return current;
         if (current == null || candidate.isAfter(current)) return candidate;
         return current;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Object> getList(Map<String, Object> map, String key) {
-        if (map == null) return List.of();
-        Object val = map.get(key);
-        return val instanceof List ? (List<Object>) val : List.of();
     }
 
 }
