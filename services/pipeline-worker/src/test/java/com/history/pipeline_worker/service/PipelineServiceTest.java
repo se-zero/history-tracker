@@ -109,6 +109,30 @@ class PipelineServiceTest {
         verify(checkpointManager, never()).updateGitHubIssues(any());
     }
 
+    @Test
+    @DisplayName("Slack 이벤트는 채널별로 발행하고 전체 최대 occurredAt으로 체크포인트 갱신")
+    void normalizeSlack_publishesPerChannelAndUpdatesCheckpointWithMaxOccurredAt() {
+        RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
+        Map<String, Object> firstChannel = buildSlackChannel(
+                "general",
+                "C001",
+                List.of(buildSlackMessage("U001", "first", "1714000000.000000"))
+        );
+        Map<String, Object> secondChannel = buildSlackChannel(
+                "dev",
+                "C002",
+                List.of(buildSlackMessage("U002", "second", "1714000100.000000"))
+        );
+        when(slackRawService.fetch(request)).thenReturn(Map.of("channels", List.of(firstChannel, secondChannel)));
+        when(eventPublisher.publishAll(anyList())).thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
+
+        int queued = pipelineService.normalizeSlack(request);
+
+        assertThat(queued).isEqualTo(2);
+        verify(eventPublisher, times(2)).publishAll(anyList());
+        verify(checkpointManager).updateSlack(Instant.ofEpochSecond(1714000100L));
+    }
+
     private GitHubRawService.GitHubFetchContext githubContext() {
         return new GitHubRawService.GitHubFetchContext(
                 "Bearer token",
@@ -156,5 +180,22 @@ class PipelineServiceTest {
         issue.put("user", Map.of("login", "dev"));
         issue.put("html_url", "https://github.com/owner/repo/issues/" + number);
         return issue;
+    }
+
+    private Map<String, Object> buildSlackChannel(String name, String id, List<Map<String, Object>> messages) {
+        Map<String, Object> channel = new HashMap<>();
+        channel.put("channelName", name);
+        channel.put("channelId", id);
+        channel.put("messages", messages);
+        channel.put("threads", List.of());
+        return channel;
+    }
+
+    private Map<String, Object> buildSlackMessage(String userId, String text, String ts) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("user", userId);
+        message.put("text", text);
+        message.put("ts", ts);
+        return message;
     }
 }

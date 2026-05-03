@@ -114,9 +114,20 @@ public class PipelineService {
 
     public int normalizeSlack(RawFetchRequest request) {
         Map<String, Object> raw = slackRawService.fetch(request);
-        List<NormalizedEvent> events = slackNormalizer.normalizeChannels(raw);
-        int published = eventPublisher.publishAll(events);
-        maxOccurredAt(events).ifPresent(checkpointManager::updateSlack);
+        int published = 0;
+        Instant checkpoint = null;
+
+        for (Object channel : getList(raw, "channels")) {
+            List<NormalizedEvent> channelEvents = slackNormalizer.normalizeChannels(
+                    Map.of("channels", List.of(channel))
+            );
+            published += eventPublisher.publishAll(channelEvents);
+            checkpoint = maxInstant(checkpoint, maxOccurredAt(channelEvents).orElse(null));
+        }
+
+        if (checkpoint != null) {
+            checkpointManager.updateSlack(checkpoint);
+        }
         log.info("Slack 이벤트 발행: {}", published);
 
         return published;
@@ -133,6 +144,13 @@ public class PipelineService {
         if (candidate == null) return current;
         if (current == null || candidate.isAfter(current)) return candidate;
         return current;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> getList(Map<String, Object> map, String key) {
+        if (map == null) return List.of();
+        Object val = map.get(key);
+        return val instanceof List ? (List<Object>) val : List.of();
     }
 
 }
