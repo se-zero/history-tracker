@@ -123,9 +123,7 @@ public class PipelineService {
             String cursor = null;
             do {
                 SlackRawService.SlackHistoryPage page = slackRawService.fetchHistoryPage(context, channel, cursor);
-                List<NormalizedEvent> pageEvents = slackNormalizer.normalizeChannels(
-                        Map.of("channels", List.of(page.channelData()))
-                );
+                List<NormalizedEvent> pageEvents = slackNormalizer.normalizeChannel(page.channelData());
                 published += eventPublisher.publishAll(pageEvents);
                 checkpoint = maxInstant(checkpoint, maxOccurredAt(pageEvents).orElse(null));
                 cursor = page.nextCursor();
