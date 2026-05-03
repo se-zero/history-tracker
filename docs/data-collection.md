@@ -66,7 +66,7 @@ commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다�
 
 - **문제**: 커밋 수가 많을수록 호출량과 시간이 선형 증가. 커밋 1,000개면 1,000번 호출 + 300ms × 1,000 ≒ 5분.
   초기 전체 수집 시 수천 개의 커밋이 있는 저장소에서는 수십 분이 걸릴 수 있다.
-- **현재 선택 이유**: `files`의 diff는 LLM이 diffSummary를 생성하고 `MODIFIED` 관계를 구축하는 핵심 데이터다. 없으면 지식 그래프의 코어 기능이 동작하지 않는다.
+- **방법 선택 이유**: `files`의 diff는 LLM이 diffSummary를 생성하고 `MODIFIED` 관계를 구축하는 핵심 데이터다. 없으면 지식 그래프의 코어 기능이 동작하지 않는다.
 
 #### PR 수집 — closed 페이지 수집 후 클라이언트 필터
 
@@ -74,81 +74,27 @@ GitHub Search API(`/search/issues?is:pr is:merged`)를 사용하면 서버사이
 
 - **문제**: `updated_at > checkpoint`이지만 `merged_at <= checkpoint`인 PR — 이미 수집했지만 이후에 코멘트·리뷰가 달려 updated된 경우 — 을 API로 받아왔다가 버린다.
   오래된 PR에 코멘트가 활발한 저장소에서 불필요한 API 호출이 증가할 수 있다.
-- **현재 선택 이유**: 동작하는 유일한 방법. `closed` → `merged_at`으로 2단계 필터하므로 정확성은 보장된다.
+- **방법 선택 이유**: 동작하는 유일한 방법. `closed` → `merged_at`으로 2단계 필터하므로 정확성은 보장된다.
 
 #### PR-커밋 관계 구축 — `/pulls/{pr}/commits` (PR당 1회 호출)
 
 - **문제**: PR 100개 = commits 엔드포인트 100번 추가 호출. 초기 전체 수집 시 PR이 많은 저장소에서 호출량 급증.
-- **현재 선택 이유**: 커밋 메시지에 `PR #123` 텍스트가 없으면 `CONTAINS` 관계가 유실된다. API 기반으로 하면 squash/rebase merge를 포함해 100% 정확한 관계 구축이 가능하다. 증분 수집에서 수집 대상 PR이 적어 허용 범위.
+- **방법 선택 이유**: 커밋 메시지에 `PR #123` 텍스트가 없으면 `CONTAINS` 관계가 유실된다. API 기반으로 하면 squash/rebase merge를 포함해 100% 정확한 관계 구축이 가능하다. 증분 수집에서 수집 대상 PR이 적어 허용 범위.
 
 #### Issues list가 PR 포함
 
 GitHub `/issues` API는 PR도 반환한다. `GitHubNormalizer`에서 `pull_request` 키가 있는 항목을 필터링해 버린다.
 
 - **문제**: PR 데이터를 이슈 엔드포인트에서도 받아오지만 정규화 시 폐기 → 불필요한 데이터 전송.
-- **현재 선택 이유**: GitHub API에 `is_issue=true` 같은 서버사이드 필터가 없다. API 특성상 불가피.
+- **방법 선택 이유**: GitHub API에 `is_issue=true` 같은 서버사이드 필터가 없다. API 특성상 불가피.
 
 #### GitHub normalize 경로의 메모리 누적
 
 normalize 경로는 PR, commit, issue를 페이지 단위로 처리한다.
 
-- **현재 상태**: normalize 응답은 `202 {"queued": N}`이며, 내부에서도 raw 전체와 `NormalizedEvent` 전체를 한 번에 누적하지 않는다.
+- **동작**: normalize 응답은 `202 {"queued": N}`이며, 내부에서도 raw 전체와 `NormalizedEvent` 전체를 한 번에 누적하지 않는다.
 - **남는 데이터**: PR-commit 관계 보강을 위해 실행 동안 `sha → prNumber` 맵은 유지한다. 이 맵은 PR raw 전체보다 작고 commit `refs.prNumber` 보강에 필요하다.
 - **raw endpoint**: `/api/v1/raw/github`는 필드 확인용 샘플로 동작하며 PR/commit/issue 1페이지만 반환한다.
-
-### 웹훅 기반 증분 수집 _(계획)_
-
-폴링은 초기 전체 수집과 정기 배치에 적합하지만, 새 PR이 머지되는 즉시 반응하려면 API를 반복 호출해야 한다. 웹훅은 GitHub가 이벤트 발생 시점에 직접 push하므로 지연 없이 증분 처리가 가능하다.
-
-#### 대상 이벤트
-
-| 웹훅 이벤트 | 조건 | 처리 대상 |
-|------------|------|---------|
-| `pull_request.closed` | `merged == true` | PullRequest + 소속 ChangeSet 관계 보강 |
-
-커밋(`push` 이벤트)과 이슈(`issues` 이벤트)는 폴링으로 커버하거나 향후 추가.
-
-#### PR 머지 처리 흐름
-
-```
-[GitHub] pull_request.closed (merged=true)
-    │
-    ▼
-1. GET /repos/{owner}/{repo}/pulls/{prNumber}
-   → PR detail 수집 (merge_commit_sha, merged_at, title, body 등)
-    │
-    ▼
-2. PullRequest NormalizedEvent 생성 → RabbitMQ 발행 (upsert)
-    │
-    ▼
-3. GET /repos/{owner}/{repo}/pulls/{prNumber}/commits
-   → PR에 속한 커밋 sha 목록 수집
-    │
-    ▼
-4. 각 commitSha에 대해:
-    ├─ [ChangeSet 이미 존재] → prNumber만 refs에 추가, CONTAINS 관계 보강 이벤트 발행
-    └─ [ChangeSet 없음]
-         ├─ 옵션 A: 최소 ChangeSet stub 생성 (sha만 포함) → 이후 push 이벤트 또는 폴링에서 채움
-         └─ 옵션 B: GET /commits/{sha} 호출 → 파일 diff 포함 전체 ChangeSet 생성
-```
-
-#### ChangeSet 존재 여부 분기 판단
-
-ai-engine이 이벤트를 처리할 때 Neo4j에서 sha로 ChangeSet 노드를 조회한다. pipeline-worker에서는 분기를 판단하지 않고 **항상 ChangeSet 이벤트와 prNumber refs를 함께 발행**한다. ai-engine의 upsert 로직이 이미 있으면 관계만 추가, 없으면 노드를 생성한다.
-
-#### 폴링과의 관계
-
-웹훅은 폴링을 **대체하지 않고 보완**한다.
-
-| 역할 | 담당 |
-|------|------|
-| 초기 전체 수집 | 폴링 |
-| 웹훅 수신 전 기간 복구 (서비스 다운 중 발생한 이벤트) | 폴링 |
-| 실시간 증분 | 웹훅 |
-
-폴링과 웹훅이 동시에 같은 PR을 처리해도 ai-engine의 upsert로 중복 노드 생성 없이 처리된다.
-
----
 
 ## Jira
 
@@ -190,21 +136,21 @@ JQL `updated >= checkpoint`는 Jira 서버에서 분 단위로 반올림될 수 
 이슈 상태가 바뀌면 동일 이슈가 다시 수집되어 재발행된다.
 
 - **문제**: ai-engine이 동일 Jira key의 이벤트를 upsert로 처리하지 않으면 노드가 중복 생성된다.
-- **현재 선택 이유**: `created` 기준으로만 수집하면 기존 이슈의 상태 변경이 그래프에 반영되지 않는다. 변경 이력 추적이 이 프로젝트의 핵심 목적이므로 중복 발행이 누락보다 낫다. ai-engine의 upsert 처리가 전제 조건.
+- **방법 선택 이유**: `created` 기준으로만 수집하면 기존 이슈의 상태 변경이 그래프에 반영되지 않는다. 변경 이력 추적이 이 프로젝트의 핵심 목적이므로 중복 발행이 누락보다 낫다. ai-engine의 upsert 처리가 전제 조건.
 
 #### `app.jira.max-pages-per-run` 상한 — 처리 지연
 
 한 번 실행에서 처리 못 한 페이지는 다음 호출까지 발행이 미뤄진다.
 
 - **문제**: 초기 전체 수집 또는 대규모 업데이트 배치 직후에 여러 번 호출해야 완료된다. 스케줄링 없이 수동 호출하면 "언제 다 처리되는지" 알기 어렵다.
-- **현재 선택 이유**: 상한 없이 처리하면 페이지당 200ms × 수백 페이지 = 수 분 블로킹. 다른 타입(GitHub, Slack) 수집을 차단한다. 페이지 단위 checkpoint 갱신으로 중단 재개가 가능해 반복 호출로 완료할 수 있다.
+- **방법 선택 이유**: 상한 없이 처리하면 페이지당 200ms × 수백 페이지 = 수 분 블로킹. 다른 타입(GitHub, Slack) 수집을 차단한다. 페이지 단위 checkpoint 갱신으로 중단 재개가 가능해 반복 호출로 완료할 수 있다.
 
-#### `expand=changelog` 요청 — 미사용 데이터 전송
+#### changelog 확장 미사용
 
-`JiraRawService.fetchSearchPage`에서 `"expand", "changelog"`를 요청하지만 `JiraNormalizer`가 changelog를 사용하지 않는다.
+`JiraRawService.fetchSearchPage`는 changelog를 요청하지 않는다. `JiraNormalizer`가 사용하는 필드만 search body의 `fields`에 포함한다.
 
-- **문제**: 응답 크기가 불필요하게 커진다. changelog에는 이슈 필드 변경 이력이 포함되어 페이로드가 수배 증가할 수 있다. 페이지당 처리 시간이 늘어나 `max-pages-per-run` 상한에 더 빨리 도달한다.
-- **현재 선택 이유**: 향후 "언제 상태가 바뀌었는지" 등 변경 이력 분석 기능 추가를 위해 유지 중. 당장 필요 없으면 제거해도 무방하나 보류.
+- **문제**: changelog에는 이슈 필드 변경 이력이 포함되어 페이로드가 수배 증가할 수 있다.
+- **방법 선택 이유**: normalize 경로에서 changelog를 사용하지 않으므로 요청 payload에서 제외한다.
 
 #### 클라이언트 이중 필터 — 서버에서 이미 필터했는데 다시 필터
 
@@ -235,6 +181,8 @@ JQL 서버 필터 + `filterIssuesByUpdated` 클라이언트 필터의 이중 구
 `conversations.replies` 호출 시 `oldest=lastScannedAt` 파라미터를 붙여 서버사이드 필터링한다.
 
 수집 대상(발행할 메시지)과 reply 확인 대상(오래된 스레드 포함)을 `ChannelMessages` record로 분리해 처리한다.
+normalize 경로는 `conversations.history`를 page 단위로 가져오고, 해당 page의 메시지와 thread replies를 정규화·발행한다.
+Slack checkpoint는 채널별로 갱신하지 않고 전체 실행 중 최대 `occurredAt`을 마지막에 한 번 갱신한다.
 
 ### occurredAt 기준
 
@@ -248,32 +196,31 @@ JQL 서버 필터 + `filterIssuesByUpdated` 클라이언트 필터의 이중 구
 
 ### Tradeoff & 예상 문제점
 
-#### `conversations.history`에 `oldest` 파라미터 없음 — 채널 전체 순회
+#### `conversations.history`에 `oldest` 파라미터 없음 — 채널 히스토리 순회
 
-`fetchAllMessages`의 URI에 `oldest=lastScannedAt`이 없다. 매번 채널의 전체 메시지 히스토리를 최신순으로 cursor 페이지네이션으로 순회한다.
+`fetchHistoryPage`의 URI에 `oldest=lastScannedAt`이 없다. 매번 채널의 메시지 히스토리를 최신순으로 cursor 페이지네이션으로 순회한다.
 
 - **문제**: 채널 메시지가 수만 건인 경우 checkpoint 시각에 도달할 때까지 수십 페이지를 API로 가져온다. 대형 워크스페이스에서 수집 시간과 API 호출량이 선형 증가하며 현실적으로 수 시간이 걸릴 수 있다. 더 심각한 문제는 **조기 종료 로직이 없다**는 점 — checkpoint 이전 메시지가 나와도 루프가 계속 돌아 채널 전체 히스토리를 끝까지 받아온다.
-- **현재 선택 이유**: `threadCandidates` 수집을 위해 checkpoint 이전 메시지도 `latest_reply` 체크가 필요하다. 단순히 `oldest` 파라미터를 추가하면 오래된 스레드에 달린 새 reply를 놓친다는 트레이드오프. 완전한 해결은 `oldest`로 서버 필터 + 별도 "활성 스레드 목록 유지" 구조가 필요하나 미구현.
-- **개선 방향**: checkpoint 이전 메시지에서 `latest_reply > checkpoint`인 thread_ts만 별도 추적 → 해당 스레드만 replies 조회. 나머지 히스토리는 `oldest` 파라미터로 서버사이드 차단.
+- **방법 선택 이유**: `threadCandidates` 수집을 위해 checkpoint 이전 메시지도 `latest_reply` 체크가 필요하다. 단순히 `oldest` 파라미터를 추가하면 오래된 스레드에 달린 새 reply를 놓친다.
 
-#### 채널 전체 메시지 메모리 누적
+#### Slack normalize 경로의 메모리 누적
 
-모든 채널의 messages·threads를 `channelData` List에 쌓아 반환한다.
+normalize 경로는 채널의 history page 단위로 처리한다.
 
-- **문제**: 채널이 많고 메시지가 많을수록 메모리 사용량이 선형 증가. 채널 수 × 메시지 수 규모에서 OOM 가능성.
-- **현재 상태**: normalize 응답은 `202 {"queued": N}`로 전환되어 HTTP 응답 직렬화 부담은 줄었다. 다만 `SlackRawService`와 `PipelineService` 내부에서는 여전히 모든 채널의 raw 메시지와 `NormalizedEvent`를 한 번에 누적한 뒤 publish한다.
-- **개선 방향**: 채널 단위로 fetch → normalize → publish → checkpoint 갱신을 수행하면 내부 누적도 줄일 수 있다.
+- **동작**: normalize 응답은 `202 {"queued": N}`이며, 내부에서도 workspace 전체 raw와 `NormalizedEvent` 전체를 한 번에 누적하지 않는다.
+- **남는 데이터**: `users.list` 결과인 user map과 `conversations.list` 결과인 채널 목록은 실행 동안 유지한다.
+- **raw endpoint**: `/api/v1/raw/slack`은 필드 확인용 샘플로 동작하며 첫 채널의 history 1페이지와 해당 page의 thread replies만 반환한다.
 
 #### User map 전체 수집 — 매 실행마다 반복
 
 `fetchUserMap`으로 워크스페이스 전체 멤버를 매번 수집한다.
 
 - **문제**: 수천 명 규모 워크스페이스에서 `users.list`를 여러 페이지로 호출. 멤버 수 / 200 페이지 × 1,200ms 딜레이 추가.
-- **현재 선택 이유**: 메시지에는 userId만 있어 displayName·email 보강이 필요하다. 인메모리 캐시(GitHubRawService의 `userProfileCache` 방식)로 개선 가능하나 현재는 실행당 1회 전체 수집.
+- **방법 선택 이유**: 메시지에는 userId만 있어 displayName·email 보강이 필요하다. user map은 실행당 1회 전체 수집한다.
 
 #### 모든 채널 무조건 수집
 
 채널 필터링 없이 워크스페이스 전체 채널을 수집한다.
 
 - **문제**: 수백 개 채널이 있는 대형 워크스페이스에서 conversations.list 페이지 순회 + 채널당 history 호출로 수집 시간이 채널 수에 비례해 증가한다.
-- **현재 선택 이유**: 어떤 채널에 관련 맥락이 있을지 사전에 알 수 없다. 채널 whitelist 설정으로 제한 가능하나 현재 미구현. 워크스페이스 규모가 작은 초기에는 허용 범위.
+- **방법 선택 이유**: 어떤 채널에 관련 맥락이 있을지 사전에 알 수 없어 전체 채널을 대상으로 한다.
