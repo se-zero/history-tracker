@@ -52,7 +52,7 @@ public class JiraRawService {
         this.checkpointManager = checkpointManager;
     }
 
-    public Map<String, Object> fetch(RawFetchRequest request) {
+    public Map<String, Object> fetchSample(RawFetchRequest request) {
         JiraFetchContext context = prepareFetchContext(request);
 
         JiraSearchPage page = fetchSearchPage(context, null, 1);
@@ -169,7 +169,6 @@ public class JiraRawService {
         Map<String, Object> body = new HashMap<>();
         body.put("jql", buildJql(projectKey, lastScannedAt));
         body.put("maxResults", PAGE_SIZE);
-        body.put("expand", "changelog");
         body.put("fields", List.of("summary", "status", "assignee", "reporter", "issuetype",
                 "priority", "created", "updated", "description", "labels", "parent"));
         if (nextPageToken != null && !nextPageToken.isBlank()) {

@@ -26,16 +26,16 @@ public class RawDataController {
 
     @PostMapping("/api/v1/raw/github")
     public ResponseEntity<RawFetchResponse> fetchGitHub(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.ok(new RawFetchResponse("GITHUB", Instant.now(), gitHubRawService.fetch(request)));
+        return ResponseEntity.ok(new RawFetchResponse("GITHUB", Instant.now(), gitHubRawService.fetchSample(request)));
     }
 
     @PostMapping("/api/v1/raw/jira")
     public ResponseEntity<RawFetchResponse> fetchJira(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.ok(new RawFetchResponse("JIRA", Instant.now(), jiraRawService.fetch(request)));
+        return ResponseEntity.ok(new RawFetchResponse("JIRA", Instant.now(), jiraRawService.fetchSample(request)));
     }
 
     @PostMapping("/api/v1/raw/slack")
     public ResponseEntity<RawFetchResponse> fetchSlack(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.ok(new RawFetchResponse("SLACK", Instant.now(), slackRawService.fetch(request)));
+        return ResponseEntity.ok(new RawFetchResponse("SLACK", Instant.now(), slackRawService.fetchSample(request)));
     }
 }

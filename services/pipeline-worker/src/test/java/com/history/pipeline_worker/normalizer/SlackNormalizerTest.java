@@ -70,6 +70,19 @@ class SlackNormalizerTest {
     }
 
     @Test
+    @DisplayName("단일 채널 → Communication 이벤트 생성")
+    void normalizeChannel_normalMessage_createsCommunicationEvent() {
+        Map<String, Object> msg = buildMessage("U001", "Alice", "alice@test.com",
+                "Hello world", "1714000000.000000");
+        Map<String, Object> channel = buildChannel("general", "C001", List.of(msg), null);
+
+        List<NormalizedEvent> events = normalizer.normalizeChannel(channel);
+
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).properties()).containsEntry("channel", "general");
+    }
+
+    @Test
     @DisplayName("루트 메시지의 conversation_id는 자신의 ts")
     void normalizeChannels_rootMessage_conversationIdIsOwnTs() {
         String ts = "1714000000.123456";
@@ -190,14 +203,21 @@ class SlackNormalizerTest {
     private Map<String, Object> buildSlackData(String channelName, String channelId,
                                                 List<Map<String, Object>> messages,
                                                 List<Map<String, Object>> threads) {
+        Map<String, Object> channel = buildChannel(channelName, channelId, messages, threads);
+
+        Map<String, Object> slackData = new HashMap<>();
+        slackData.put("channels", List.of(channel));
+        return slackData;
+    }
+
+    private Map<String, Object> buildChannel(String channelName, String channelId,
+                                             List<Map<String, Object>> messages,
+                                             List<Map<String, Object>> threads) {
         Map<String, Object> channel = new HashMap<>();
         channel.put("channelName", channelName);
         channel.put("channelId", channelId);
         channel.put("messages", messages);
         channel.put("threads", threads);
-
-        Map<String, Object> slackData = new HashMap<>();
-        slackData.put("channels", List.of(channel));
-        return slackData;
+        return channel;
     }
 }

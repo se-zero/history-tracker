@@ -24,6 +24,9 @@ public class GitHubRawService {
 
     private static final int PER_PAGE = 100; // GitHub API 최대값
 
+    public record GitHubFetchContext(String auth, String owner, String repo, CheckpointData.GitHubCheckpoint checkpoint) {}
+    public record GitHubPage(List<Object> items, boolean finished) {}
+
     private final WebClient webClient;
     private final GitHubRateLimiter rateLimiter;
     private final FileCheckpointManager checkpointManager;
@@ -46,7 +49,7 @@ public class GitHubRawService {
         this.checkpointManager = checkpointManager;
     }
 
-    public Map<String, Object> fetch(RawFetchRequest request) {
+    public GitHubFetchContext prepareFetchContext(RawFetchRequest request) {
         String[] parts = request.projectKey().split("/", 2);
         if (parts.length != 2) {
             throw new IllegalArgumentException("projectKey must be in 'owner/repo' format");
@@ -55,67 +58,97 @@ public class GitHubRawService {
         String repo = parts[1];
         String auth = request.credentials();
 
-        CheckpointData.GitHubCheckpoint cp = checkpointManager.getCached().github;
+        return new GitHubFetchContext(auth, owner, repo, checkpointManager.getCached().github);
+    }
 
-        List<Object> pullRequests = enrichUserObjects(auth,
-                fetchMergedPullRequests(auth, owner, repo, cp.pullRequestsScannedAt));
-        Map<String, String> commitPrNumbers = fetchCommitPrNumbers(auth, pullRequests, owner, repo);
-
-        // 타입별 독립 체크포인트 — 재시작 시 완료된 타입은 건너뜀
-        List<Object> rawCommits = fetchAllPages(
-                auth, "/repos/{owner}/{repo}/commits?per_page=" + PER_PAGE, owner, repo,
-                cp.commitsScannedAt, "commit.committer.date");
-        List<Object> commits = enrichCommits(auth, rawCommits, owner, repo, commitPrNumbers);
-
-        List<Object> issues = enrichUserObjects(auth, fetchAllPages(
-                auth, "/repos/{owner}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=" + PER_PAGE, owner, repo,
-                cp.issuesScannedAt, "updated_at"));
-
-        log.info("GitHub 수집 완료: commits={}, PRs={}, issues={}", commits.size(), pullRequests.size(), issues.size());
+    public Map<String, Object> fetchSample(RawFetchRequest request) {
+        GitHubFetchContext context = prepareFetchContext(request);
+        GitHubPage pullRequestPage = fetchMergedPullRequestPage(context, 1);
+        Map<String, String> commitPrNumbers = fetchCommitPrNumbers(context, pullRequestPage.items());
+        GitHubPage commitPage = fetchCommitPage(context, 1, commitPrNumbers);
+        GitHubPage issuePage = fetchIssuePage(context, 1);
 
         return Map.of(
-                "commits", commits,
-                "pullRequests", pullRequests,
-                "issues", issues
+                "commits", commitPage.items(),
+                "pullRequests", pullRequestPage.items(),
+                "issues", issuePage.items()
         );
     }
 
-    /**
-     * 전체 페이지를 순회하며 항목 수집.
-     * GitHub는 최신순으로 반환하므로 lastScannedAt 이전 항목이 나오면 조기 종료.
-     * lastScannedAt이 null(최초 실행)이면 전체 수집.
-     */
+    public GitHubPage fetchMergedPullRequestPage(GitHubFetchContext context, int page) {
+        GitHubPage closedPullRequests = fetchPageAfterCheckpoint(
+                context.auth(),
+                "/repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=" + PER_PAGE,
+                context.owner(),
+                context.repo(),
+                context.checkpoint().pullRequestsScannedAt,
+                "updated_at",
+                page
+        );
+
+        List<Object> mergedPullRequests = filterMergedPullRequests(
+                closedPullRequests.items(),
+                context.checkpoint().pullRequestsScannedAt
+        );
+        return new GitHubPage(enrichUserObjects(context.auth(), mergedPullRequests), closedPullRequests.finished());
+    }
+
+    public Map<String, String> fetchCommitPrNumbers(GitHubFetchContext context, List<Object> pullRequests) {
+        return fetchCommitPrNumbers(context.auth(), pullRequests, context.owner(), context.repo());
+    }
+
+    public GitHubPage fetchCommitPage(GitHubFetchContext context, int page, Map<String, String> commitPrNumbers) {
+        GitHubPage rawCommits = fetchPageAfterCheckpoint(
+                context.auth(),
+                "/repos/{owner}/{repo}/commits?per_page=" + PER_PAGE,
+                context.owner(),
+                context.repo(),
+                context.checkpoint().commitsScannedAt,
+                "commit.committer.date",
+                page
+        );
+        return new GitHubPage(
+                enrichCommits(context.auth(), rawCommits.items(), context.owner(), context.repo(), commitPrNumbers),
+                rawCommits.finished()
+        );
+    }
+
+    public GitHubPage fetchIssuePage(GitHubFetchContext context, int page) {
+        GitHubPage issues = fetchPageAfterCheckpoint(
+                context.auth(),
+                "/repos/{owner}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=" + PER_PAGE,
+                context.owner(),
+                context.repo(),
+                context.checkpoint().issuesScannedAt,
+                "updated_at",
+                page
+        );
+        return new GitHubPage(enrichUserObjects(context.auth(), issues.items()), issues.finished());
+    }
+
     @SuppressWarnings("unchecked")
-    private List<Object> fetchAllPages(String auth, String basePath, String owner, String repo,
-                                        Instant lastScannedAt, String dateField) {
-        List<Object> allItems = new ArrayList<>();
-        int page = 1;
+    private GitHubPage fetchPageAfterCheckpoint(String auth, String basePath, String owner, String repo,
+                                                Instant lastScannedAt, String dateField, int page) {
+        List<Object> pageItems = fetchPage(auth, basePath + "&page=" + page, owner, repo);
+        if (pageItems.isEmpty()) return new GitHubPage(List.of(), true);
 
-        while (true) {
-            List<Object> pageItems = fetchPage(auth, basePath + "&page=" + page, owner, repo);
-            if (pageItems.isEmpty()) break;
-
-            for (Object item : pageItems) {
-                if (lastScannedAt != null) {
-                    String dateStr = extractNestedStr((Map<String, Object>) item, dateField);
-                    if (dateStr != null) {
-                        try {
-                            if (!Instant.parse(dateStr).isAfter(lastScannedAt)) {
-                                // 최신순 정렬 → 이후 항목도 모두 checkpoint 이전 → 조기 종료
-                                log.debug("체크포인트 도달 (page={}, date={}), 수집 종료", page, dateStr);
-                                return allItems;
-                            }
-                        } catch (Exception ignored) {}
-                    }
+        List<Object> items = new ArrayList<>();
+        for (Object item : pageItems) {
+            if (lastScannedAt != null) {
+                String dateStr = extractNestedStr((Map<String, Object>) item, dateField);
+                if (dateStr != null) {
+                    try {
+                        if (!Instant.parse(dateStr).isAfter(lastScannedAt)) {
+                            log.debug("체크포인트 도달 (page={}, date={}), 수집 종료", page, dateStr);
+                            return new GitHubPage(items, true);
+                        }
+                    } catch (Exception ignored) {}
                 }
-                allItems.add(item);
             }
-
-            if (pageItems.size() < PER_PAGE) break; // 마지막 페이지
-            page++;
+            items.add(item);
         }
 
-        return allItems;
+        return new GitHubPage(items, pageItems.size() < PER_PAGE);
     }
 
     @SuppressWarnings("unchecked")
@@ -247,16 +280,7 @@ public class GitHubRawService {
     }
 
     @SuppressWarnings("unchecked")
-    private List<Object> fetchMergedPullRequests(String auth, String owner, String repo, Instant lastMergedAt) {
-        List<Object> closedPullRequests = fetchAllPages(
-                auth,
-                "/repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=" + PER_PAGE,
-                owner,
-                repo,
-                lastMergedAt,
-                "updated_at"
-        );
-
+    private List<Object> filterMergedPullRequests(List<Object> closedPullRequests, Instant lastMergedAt) {
         List<Object> mergedPullRequests = new ArrayList<>();
         for (Object raw : closedPullRequests) {
             Map<String, Object> pr = (Map<String, Object>) raw;

@@ -24,9 +24,9 @@ import static org.mockito.Mockito.when;
 class GitHubRawServiceTest {
 
     @Test
-    @DisplayName("merged PR만 수집하고 PR commit sha를 raw commit prNumber로 주입")
+    @DisplayName("sample은 1페이지 merged PR만 수집하고 PR commit sha를 raw commit prNumber로 주입")
     @SuppressWarnings("unchecked")
-    void fetch_collectsOnlyMergedPrsAndInjectsCommitPrNumber() {
+    void fetchSample_collectsOnlyMergedPrsAndInjectsCommitPrNumber() {
         CheckpointData checkpointData = new CheckpointData();
         FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
         when(checkpointManager.getCached()).thenReturn(checkpointData);
@@ -47,7 +47,7 @@ class GitHubRawServiceTest {
                 checkpointManager
         );
 
-        Map<String, Object> raw = service.fetch(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
+        Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
 
         List<Map<String, Object>> pullRequests = (List<Map<String, Object>>) raw.get("pullRequests");
         assertThat(pullRequests).hasSize(1);

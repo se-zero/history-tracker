@@ -25,9 +25,9 @@ import static org.mockito.Mockito.when;
 class SlackRawServiceTest {
 
     @Test
-    @DisplayName("checkpoint 이전 root thread라도 최신 reply가 있으면 replies를 수집")
+    @DisplayName("sample은 첫 채널 첫 페이지에서 checkpoint 이전 root thread라도 최신 reply가 있으면 replies를 수집")
     @SuppressWarnings("unchecked")
-    void fetch_collectsNewRepliesFromOldThread() {
+    void fetchSample_collectsNewRepliesFromOldThread() {
         CheckpointData checkpointData = new CheckpointData();
         checkpointData.slack.lastScannedAt = Instant.ofEpochSecond(1_700_000_000L, 123_456_000);
         FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
@@ -50,7 +50,7 @@ class SlackRawServiceTest {
                 checkpointManager
         );
 
-        Map<String, Object> raw = service.fetch(new RawFetchRequest("Bearer token", null, Map.of()));
+        Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", null, Map.of()));
 
         List<Map<String, Object>> channels = (List<Map<String, Object>>) raw.get("channels");
         Map<String, Object> channel = channels.get(0);
