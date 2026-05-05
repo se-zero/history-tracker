@@ -32,9 +32,9 @@ cd services/pipeline-worker
 | `POST /api/v1/normalize/github` | GitHub 수집 → 정규화 → RabbitMQ 발행 | `202 {"queued": N}` |
 | `POST /api/v1/normalize/jira` | Jira 수집 → 정규화 → RabbitMQ 발행 | `202 {"queued": N}` |
 | `POST /api/v1/normalize/slack` | Slack 수집 → 정규화 → RabbitMQ 발행 | `202 {"queued": N}` |
-| `POST /api/v1/raw/github` | GitHub raw 디버그 | raw payload |
-| `POST /api/v1/raw/jira` | Jira raw 디버그, 기본 1페이지 | raw payload |
-| `POST /api/v1/raw/slack` | Slack raw 디버그 | raw payload |
+| `POST /api/v1/raw/github` | GitHub raw 디버그, 타입별 1페이지 샘플 | raw payload |
+| `POST /api/v1/raw/jira` | Jira raw 디버그, 기본 1페이지 샘플 | raw payload |
+| `POST /api/v1/raw/slack` | Slack raw 디버그, 첫 채널 1페이지 샘플 | raw payload |
 
 ## RabbitMQ 라우팅 키
 
@@ -58,7 +58,8 @@ Exchange: `history.exchange` / Queue: `history.events`
 - 체크포인트 기준: `Instant.now()`가 아닌 이벤트 실제 발생 시각인 `occurredAt` 기준으로 갱신한다.
 - GitHub는 타입별 독립 체크포인트를 사용한다: `commitsScannedAt`, `pullRequestsScannedAt`, `issuesScannedAt`.
 - GitHub `occurredAt` 기준: Commit은 raw `commit.committer.date`, PR은 raw `merged_at`, Issue는 raw `updated_at`.
-- Slack은 `lastScannedAt` 단일 체크포인트를 사용한다. 루트 메시지가 checkpoint 이전이라도 `latest_reply`가 이후면 스레드 reply를 수집한다.
+- GitHub normalize 경로는 PR/Commit/Issue를 페이지 단위로 처리한다. PR checkpoint는 commit 처리 성공 후 갱신해 재시작 시 `sha → prNumber` 매핑을 다시 만들 수 있게 한다.
+- Slack은 `lastScannedAt` 단일 체크포인트를 사용한다. normalize 경로는 history page 단위로 처리하고, 전체 실행 중 최대 `occurredAt`을 마지막에 한 번 갱신한다. 루트 메시지가 checkpoint 이전이라도 `latest_reply`가 이후면 스레드 reply를 수집한다.
 - Jira는 `lastScannedAt` 단일 체크포인트를 사용한다. `created`가 아닌 `updated` 기준으로 필터링하고, 페이지 단위 publish 후 checkpoint를 갱신한다.
 - checkpoint 파일은 `.tmp` 파일에 쓴 뒤 `Files.move(ATOMIC_MOVE)`로 교체한다.
 
@@ -74,4 +75,4 @@ Exchange: `history.exchange` / Queue: `history.events`
 - Controller에는 비즈니스 오케스트레이션 로직을 두지 않는다. fetch/normalize/publish/checkpoint 조합은 `PipelineService`에서 처리한다.
 - GitHub merge commit은 `GitHubNormalizer`에서 필터링한다.
 - GitHub PR 수집은 `/pulls?state=closed` + 클라이언트 `merged_at != null` 필터 방식이다. Search API(`/search/issues`)는 사용하지 않는다.
-- `/api/v1/raw/*` 엔드포인트는 디버그용으로 유지한다.
+- `/api/v1/raw/*` 엔드포인트는 디버그용으로 유지한다. raw 응답은 전체 수집이 아니라 필드 확인용 샘플이다.

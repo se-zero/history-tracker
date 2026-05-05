@@ -18,8 +18,10 @@ import java.util.Map;
 @Service
 public class SlackRawService {
 
-    private record UserInfo(String name, String email) {}
-    private record ChannelMessages(List<Object> messages, List<Object> threadCandidates) {}
+    public record UserInfo(String name, String email) {}
+    public record SlackFetchContext(String auth, Instant lastScannedAt, Map<String, UserInfo> userMap) {}
+    public record SlackHistoryPage(Map<String, Object> channelData, String nextCursor) {}
+    private record ChannelMessages(List<Object> messages, List<Object> threadCandidates, String nextCursor) {}
 
     // 페이지당 최대 수 (Slack API 최대값)
     private static final int PAGE_SIZE = 200;
@@ -45,45 +47,68 @@ public class SlackRawService {
         this.checkpointManager = checkpointManager;
     }
 
-    public Map<String, Object> fetch(RawFetchRequest request) {
-        String auth = request.credentials();
+    public Map<String, Object> fetchSample(RawFetchRequest request) {
+        SlackFetchContext context = prepareFetchContext(request);
 
-        Instant lastScannedAt = checkpointManager.getCached().slack.lastScannedAt;
-
-        // xoxp 유저 토큰으로 워크스페이스 전체 멤버 수집 (userId → UserInfo 매핑)
-        Map<String, UserInfo> userMap = fetchUserMap(auth);
-
-        // 전체 채널 목록 수집
-        List<Object> allChannels = fetchAllChannels(auth);
-
-        // 각 채널의 메시지 + 스레드 수집
-        List<Object> channelData = new ArrayList<>();
-        for (Object ch : allChannels) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> channel = (Map<String, Object>) ch;
-            String channelId = (String) channel.get("id");
-            String channelName = (String) channel.get("name");
-
-            ChannelMessages channelMessages = fetchAllMessages(auth, channelId, userMap, lastScannedAt);
-            List<Object> messages = channelMessages.messages();
-            List<Object> threads = fetchAllThreads(auth, channelId, channelMessages.threadCandidates(), userMap, lastScannedAt);
-
-            channelData.add(Map.of(
-                    "channelId", channelId,
-                    "channelName", channelName,
-                    "totalMessages", messages.size(),
-                    "messages", messages,
-                    "threads", threads
-            ));
+        List<Object> allChannels = fetchChannels(context);
+        if (allChannels.isEmpty()) {
+            return Map.of(
+                    "totalChannels", 0,
+                    "totalUsers", context.userMap().size(),
+                    "channels", List.of()
+            );
         }
 
-        log.info("Slack 수집 완료: {} 채널", channelData.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstChannel = (Map<String, Object>) allChannels.get(0);
+        SlackHistoryPage page = fetchHistoryPage(context, firstChannel, null);
 
         return Map.of(
                 "totalChannels", allChannels.size(),
-                "totalUsers", userMap.size(),
-                "channels", channelData
+                "totalUsers", context.userMap().size(),
+                "channels", List.of(page.channelData())
         );
+    }
+
+    public SlackFetchContext prepareFetchContext(RawFetchRequest request) {
+        String auth = request.credentials();
+        Instant lastScannedAt = checkpointManager.getCached().slack.lastScannedAt;
+        return new SlackFetchContext(auth, lastScannedAt, fetchUserMap(auth));
+    }
+
+    public List<Object> fetchChannels(SlackFetchContext context) {
+        return fetchAllChannels(context.auth());
+    }
+
+    public SlackHistoryPage fetchHistoryPage(SlackFetchContext context, Map<String, Object> channel, String cursor) {
+        String channelId = (String) channel.get("id");
+        String channelName = (String) channel.get("name");
+
+        ChannelMessages channelMessages = fetchMessagesPage(
+                context.auth(),
+                channelId,
+                context.userMap(),
+                context.lastScannedAt(),
+                cursor
+        );
+        List<Object> messages = channelMessages.messages();
+        List<Object> threads = fetchAllThreads(
+                context.auth(),
+                channelId,
+                channelMessages.threadCandidates(),
+                context.userMap(),
+                context.lastScannedAt()
+        );
+
+        Map<String, Object> channelData = Map.of(
+                "channelId", channelId,
+                "channelName", channelName,
+                "totalMessages", messages.size(),
+                "messages", messages,
+                "threads", threads
+        );
+        String nextCursor = channelMessages.nextCursor();
+        return new SlackHistoryPage(channelData, nextCursor);
     }
 
     // users.list로 워크스페이스 전체 멤버의 userId → UserInfo(name, email) 맵 구성
@@ -168,50 +193,45 @@ public class SlackRawService {
         return allChannels;
     }
 
-    // cursor 페이지네이션으로 채널 전체 메시지 수집 (Tier 3: conversations.history)
     @SuppressWarnings("unchecked")
-    private ChannelMessages fetchAllMessages(String auth, String channelId,
-                                             Map<String, UserInfo> userMap, Instant lastScannedAt) {
-        List<Object> allMessages = new ArrayList<>();
+    private ChannelMessages fetchMessagesPage(String auth, String channelId,
+                                              Map<String, UserInfo> userMap, Instant lastScannedAt,
+                                              String cursor) {
+        String uri = cursor == null
+                ? "/conversations.history?channel={channelId}&limit=" + PAGE_SIZE
+                : "/conversations.history?channel={channelId}&limit=" + PAGE_SIZE + "&cursor=" + cursor;
+
+        Map<String, Object> response = webClient.get()
+                .uri(uri, channelId)
+                .header("Authorization", auth)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block();
+
+        rateLimiter.afterConversationsHistory();
+
+        if (response == null) {
+            return new ChannelMessages(List.of(), List.of(), null);
+        }
+
+        List<Object> pageMessages = new ArrayList<>();
         List<Object> threadCandidates = new ArrayList<>();
-        String cursor = null;
+        List<Map<String, Object>> messages = (List<Map<String, Object>>) response.get("messages");
+        if (messages != null) {
+            for (Map<String, Object> msg : messages) {
+                if (isNoise(msg)) continue;
 
-        do {
-            String uri = cursor == null
-                    ? "/conversations.history?channel={channelId}&limit=" + PAGE_SIZE
-                    : "/conversations.history?channel={channelId}&limit=" + PAGE_SIZE + "&cursor=" + cursor;
-
-            Map<String, Object> response = webClient.get()
-                    .uri(uri, channelId)
-                    .header("Authorization", auth)
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block();
-
-            rateLimiter.afterConversationsHistory();
-
-            if (response == null) break;
-
-            List<Map<String, Object>> messages = (List<Map<String, Object>>) response.get("messages");
-            if (messages != null) {
-                for (Map<String, Object> msg : messages) {
-                    if (isNoise(msg)) continue;
-
-                    Map<String, Object> enriched = enrichWithUserName(msg, userMap);
-                    if (shouldFetchThreadReplies(msg, lastScannedAt)) {
-                        threadCandidates.add(enriched);
-                    }
-                    if (!isBeforeCheckpoint(msg, lastScannedAt)) {
-                        allMessages.add(enriched);
-                    }
+                Map<String, Object> enriched = enrichWithUserName(msg, userMap);
+                if (shouldFetchThreadReplies(msg, lastScannedAt)) {
+                    threadCandidates.add(enriched);
+                }
+                if (!isBeforeCheckpoint(msg, lastScannedAt)) {
+                    pageMessages.add(enriched);
                 }
             }
+        }
 
-            cursor = extractNextCursor(response);
-
-        } while (cursor != null && !cursor.isBlank());
-
-        return new ChannelMessages(allMessages, threadCandidates);
+        return new ChannelMessages(pageMessages, threadCandidates, extractNextCursor(response));
     }
 
     // 스레드가 달린 메시지의 replies를 모두 수집

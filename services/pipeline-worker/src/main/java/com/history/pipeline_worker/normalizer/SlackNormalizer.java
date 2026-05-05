@@ -28,30 +28,40 @@ public class SlackNormalizer {
         if (channels == null) return events;
 
         for (Map<String, Object> channel : channels) {
-            String channelName = (String) channel.get("channelName");
-            String channelId = (String) channel.get("channelId");
+            events.addAll(normalizeChannel(channel));
+        }
+        return events;
+    }
 
-            List<Map<String, Object>> messages = (List<Map<String, Object>>) channel.get("messages");
-            if (messages != null) {
-                for (Map<String, Object> msg : messages) {
-                    events.add(normalizeMessage(msg, channelName, channelId));
-                }
+    @SuppressWarnings("unchecked")
+    public List<NormalizedEvent> normalizeChannel(Map<String, Object> channel) {
+        List<NormalizedEvent> events = new ArrayList<>();
+        if (channel == null) return events;
+
+        String channelName = (String) channel.get("channelName");
+        String channelId = (String) channel.get("channelId");
+
+        List<Map<String, Object>> messages = (List<Map<String, Object>>) channel.get("messages");
+        if (messages != null) {
+            for (Map<String, Object> msg : messages) {
+                events.add(normalizeMessage(msg, channelName, channelId));
             }
+        }
 
-            // 스레드 replies도 각각 Communication 이벤트로 변환
-            List<Map<String, Object>> threads = (List<Map<String, Object>>) channel.get("threads");
-            if (threads != null) {
-                for (Map<String, Object> thread : threads) {
-                    String threadTs = (String) thread.get("thread_ts");
-                    List<Map<String, Object>> replies = (List<Map<String, Object>>) thread.get("replies");
-                    if (replies != null) {
-                        for (Map<String, Object> reply : replies) {
-                            events.add(normalizeMessage(reply, channelName, channelId, threadTs));
-                        }
+        // 스레드 replies도 각각 Communication 이벤트로 변환
+        List<Map<String, Object>> threads = (List<Map<String, Object>>) channel.get("threads");
+        if (threads != null) {
+            for (Map<String, Object> thread : threads) {
+                String threadTs = (String) thread.get("thread_ts");
+                List<Map<String, Object>> replies = (List<Map<String, Object>>) thread.get("replies");
+                if (replies != null) {
+                    for (Map<String, Object> reply : replies) {
+                        events.add(normalizeMessage(reply, channelName, channelId, threadTs));
                     }
                 }
             }
         }
+
         return events;
     }
 
