@@ -15,8 +15,10 @@ logging.basicConfig(
 )
 """
 
-from graph.builder import close_driver, get_driver
+from graph.builder import close_driver, get_driver, make_neo4j_reference_store
 from graph.consumer import start_consumer
+from graph.event_handler import handle
+from graph.reference_builder import backfill_communication_embeddings, build_reference_edges
 
 logger = logging.getLogger(__name__)
 
@@ -42,3 +44,26 @@ app = FastAPI(title="History Graph AI Engine", lifespan=lifespan)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/test/ingest", tags=["test"])
+async def test_ingest(event: dict):
+    """[테스트 전용] NormalizedEvent를 RabbitMQ 없이 직접 주입한다."""
+    await handle(event)
+    return {"ok": True}
+
+
+@app.post("/reference/build")
+async def trigger_reference_build():
+    """REFERENCE 엣지 배치 생성. 임베딩이 충분히 쌓인 뒤 수동 호출."""
+    store = make_neo4j_reference_store()
+    created = await build_reference_edges(store)
+    return {"created": created}
+
+
+@app.post("/reference/backfill")
+async def trigger_backfill():
+    """embedding 없는 Communication 노드 일괄 임베딩 보정."""
+    store = make_neo4j_reference_store()
+    saved = await backfill_communication_embeddings(store)
+    return {"saved": saved}

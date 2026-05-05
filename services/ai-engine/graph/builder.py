@@ -47,12 +47,13 @@ async def upsert_changeset(
     source: str,
     actor_id: str,
     actor_name: str,
+    actor_email: Optional[str],
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
             MERGE (a:Actor {id: $actor_id})
-            SET a.name = $actor_name
+            SET a.name = $actor_name, a.email = $actor_email
             MERGE (c:ChangeSet {hash: $hash})
             SET c.message = $message,
                 c.occurredAt = datetime($occurred_at),
@@ -61,6 +62,7 @@ async def upsert_changeset(
             """,
             actor_id=actor_id,
             actor_name=actor_name,
+            actor_email=actor_email,
             hash=hash,
             message=message,
             occurred_at=occurred_at,
@@ -99,25 +101,24 @@ async def upsert_pull_request(
     body: str,
     state: str,
     base_branch: str,
-    merged_at: Optional[str],
     url: str,
     occurred_at: Optional[str],
     created_at: Optional[str],
     source: str,
     actor_id: str,
     actor_name: str,
+    actor_email: Optional[str],
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
             MERGE (a:Actor {id: $actor_id})
-            SET a.name = $actor_name
+            SET a.name = $actor_name, a.email = $actor_email
             MERGE (pr:PullRequest {pr_number: $pr_number})
             SET pr.title = $title,
                 pr.body = $body,
                 pr.state = $state,
                 pr.base_branch = $base_branch,
-                pr.merged_at = $merged_at,
                 pr.url = $url,
                 pr.occurredAt = CASE WHEN $occurred_at IS NOT NULL THEN datetime($occurred_at) ELSE null END,
                 pr.createdAt  = CASE WHEN $created_at  IS NOT NULL THEN datetime($created_at)  ELSE null END,
@@ -126,12 +127,12 @@ async def upsert_pull_request(
             """,
             actor_id=actor_id,
             actor_name=actor_name,
+            actor_email=actor_email,
             pr_number=pr_number,
             title=title,
             body=body,
             state=state,
             base_branch=base_branch,
-            merged_at=merged_at,
             url=url,
             occurred_at=occurred_at,
             created_at=created_at,
@@ -153,13 +154,14 @@ async def upsert_issue(
     source: str,
     actor_id: str,
     actor_name: str,
+    actor_email: Optional[str],
     embedding: list[float],
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
             MERGE (a:Actor {id: $actor_id})
-            SET a.name = $actor_name
+            SET a.name = $actor_name, a.email = $actor_email
             MERGE (i:Issue {jira_key: $jira_key})
             SET i.title = $title,
                 i.body = $body,
@@ -175,6 +177,7 @@ async def upsert_issue(
             """,
             actor_id=actor_id,
             actor_name=actor_name,
+            actor_email=actor_email,
             jira_key=jira_key,
             title=title,
             body=body,
@@ -200,13 +203,14 @@ async def upsert_communication(
     source: str,
     actor_id: str,
     actor_name: str,
+    actor_email: Optional[str],
     embedding: list[float],
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
             MERGE (a:Actor {id: $actor_id})
-            SET a.name = $actor_name
+            SET a.name = $actor_name, a.email = $actor_email
             MERGE (comm:Communication {url: $url})
             SET comm.body = $body,
                 comm.channel = $channel,
@@ -219,6 +223,7 @@ async def upsert_communication(
             """,
             actor_id=actor_id,
             actor_name=actor_name,
+            actor_email=actor_email,
             url=url,
             body=body,
             channel=channel,
@@ -292,3 +297,108 @@ async def link_issue_to_parent(child_key: str, parent_key: str) -> None:
             parent_key=parent_key,
             child_key=child_key,
         )
+
+
+# ── ReferenceStore Neo4j 구현체 ───────────────────────────────────────────
+
+
+async def _fetch_modified_embeddings() -> list[dict]:
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (c:ChangeSet)-[r:MODIFIED]->(f:File)
+            WHERE r.embedding IS NOT NULL AND c.occurredAt IS NOT NULL
+            RETURN c.hash AS changeset_id,
+                   f.path AS file_path,
+                   r.diffSummary AS diff_summary,
+                   r.embedding AS embedding,
+                   c.occurredAt AS occurred_at
+            """
+        )
+        rows = await result.data()
+    return [
+        {
+            "changeset_id": r["changeset_id"],
+            "file_path":    r["file_path"],
+            "diff_summary": r["diff_summary"],
+            "embedding":    list(r["embedding"]),
+            "occurred_at":  r["occurred_at"].to_native(),
+        }
+        for r in rows
+    ]
+
+
+async def _fetch_communication_embeddings() -> list[dict]:
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (comm:Communication)
+            WHERE comm.embedding IS NOT NULL AND comm.occurredAt IS NOT NULL
+            RETURN comm.url AS id,
+                   comm.body AS body,
+                   comm.embedding AS embedding,
+                   comm.occurredAt AS occurred_at
+            """
+        )
+        rows = await result.data()
+    return [
+        {
+            "id":          r["id"],
+            "body":        r["body"],
+            "embedding":   list(r["embedding"]),
+            "occurred_at": r["occurred_at"].to_native(),
+        }
+        for r in rows
+    ]
+
+
+async def _create_reference_edge(changeset_id: str, communication_id: str, confidence: float) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (c:ChangeSet {hash: $changeset_id})
+            MATCH (comm:Communication {url: $communication_id})
+            MERGE (c)-[r:REFERENCE]->(comm)
+            SET r.confidence = $confidence
+            """,
+            changeset_id=changeset_id,
+            communication_id=communication_id,
+            confidence=confidence,
+        )
+
+
+async def _fetch_unembedded_communications() -> list[dict]:
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (comm:Communication)
+            WHERE comm.embedding IS NULL
+            RETURN comm.url AS id, comm.body AS body
+            """
+        )
+        rows = await result.data()
+    return [{"id": r["id"], "body": r["body"]} for r in rows]
+
+
+async def _save_communication_embedding(communication_id: str, embedding: list[float]) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (comm:Communication {url: $communication_id})
+            SET comm.embedding = $embedding
+            """,
+            communication_id=communication_id,
+            embedding=embedding,
+        )
+
+
+def make_neo4j_reference_store():
+    """Neo4j 기반 ReferenceStore 인스턴스를 반환한다."""
+    from graph.reference_builder import ReferenceStore
+    return ReferenceStore(
+        fetch_modified_embeddings=_fetch_modified_embeddings,
+        fetch_communication_embeddings=_fetch_communication_embeddings,
+        create_reference_edge=_create_reference_edge,
+        fetch_unembedded_communications=_fetch_unembedded_communications,
+        save_communication_embedding=_save_communication_embedding,
+    )

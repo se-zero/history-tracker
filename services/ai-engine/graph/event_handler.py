@@ -48,6 +48,7 @@ async def _handle_changeset(event: dict) -> None:
         source=source,
         actor_id=actor.get("id", "unknown"),
         actor_name=actor.get("name", ""),
+        actor_email=actor.get("email"),
     )
 
     # Layer 2: refs 기반 엣지
@@ -93,13 +94,13 @@ async def _handle_pull_request(event: dict) -> None:
         body=props.get("body", ""),
         state=props.get("state", ""),
         base_branch=props.get("base_branch", ""),
-        merged_at=props.get("merged_at"),
         url=props.get("url", ""),
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
         source=source,
         actor_id=actor.get("id", "unknown"),
         actor_name=actor.get("name", ""),
+        actor_email=actor.get("email"),
     )
 
 
@@ -129,6 +130,7 @@ async def _handle_issue(event: dict) -> None:
         source=source,
         actor_id=actor.get("id", "unknown"),
         actor_name=actor.get("name", ""),
+        actor_email=actor.get("email"),
         embedding=embedding,
     )
 
@@ -164,6 +166,7 @@ async def _handle_communication(event: dict) -> None:
         source=source,
         actor_id=actor.get("id", "unknown"),
         actor_name=actor.get("name", ""),
+        actor_email=actor.get("email"),
         embedding=embedding,
     )
 
