@@ -255,13 +255,12 @@ async def link_changeset_to_issue(changeset_hash: str, jira_key: str) -> None:
 
 
 async def link_pr_to_changeset(pr_number: int, changeset_hash: str) -> None:
-    """CONTAINS: ChangeSet refs.prNumber 존재 시"""
+    """CONTAINS: ChangeSet refs.prNumber 존재 시. 머지된 PR 노드가 없으면 생성하지 않음."""
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (c:ChangeSet {hash: $hash})
-            WITH c
-            MERGE (pr:PullRequest {pr_number: $pr_number})
+            MATCH (pr:PullRequest {pr_number: $pr_number})
+            MATCH (c:ChangeSet {hash: $hash})
             MERGE (pr)-[:CONTAINS]->(c)
             """,
             hash=changeset_hash,

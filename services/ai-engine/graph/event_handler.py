@@ -57,27 +57,28 @@ async def _handle_changeset(event: dict) -> None:
     if refs.get("prNumber"):
         await builder.link_pr_to_changeset(refs["prNumber"], hash_)
 
-    # Layer 3: 파일별 diff 요약 + 임베딩 → MODIFIED 엣지
-    for file in props.get("files") or []:
+    # Layer 3: 파일별 diff 요약 + 임베딩 → MODIFIED 엣지 (병렬 처리)
+    files = [f for f in (props.get("files") or []) if not should_skip(f.get("path", ""))]
+
+    async def process_file(file: dict) -> None:
         path      = file.get("path", "")
         diff      = file.get("diff", "")
         additions = file.get("additions", 0)
         deletions = file.get("deletions", 0)
+        try:
+            diff_summary = await asyncio.to_thread(summarize_diff, path, diff, additions, deletions, message)
+            embedding    = await embed_text(diff_summary)
+            await builder.upsert_file_with_modified_edge(
+                changeset_hash=hash_,
+                file_path=path,
+                diff_summary=diff_summary,
+                embedding=embedding,
+            )
+            logger.debug("ChangeSet 파일 처리 완료: path=%s", path)
+        except Exception:
+            logger.exception("ChangeSet 파일 처리 실패 (건너뜀): hash=%s path=%s", hash_, path)
 
-        if should_skip(path):
-            continue
-
-        diff_summary = await asyncio.to_thread(summarize_diff, path, diff, additions, deletions, message)
-        embedding    = await embed_text(diff_summary)
-
-        await builder.upsert_file_with_modified_edge(
-            changeset_hash=hash_,
-            file_path=path,
-            diff_summary=diff_summary,
-            embedding=embedding,
-        )
-
-        logger.debug("ChangeSet 파일 처리 완료: path=%s", path)
+    await asyncio.gather(*[process_file(f) for f in files])
 
 
 async def _handle_pull_request(event: dict) -> None:
