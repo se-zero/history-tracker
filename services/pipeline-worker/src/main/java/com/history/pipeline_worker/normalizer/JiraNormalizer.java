@@ -65,6 +65,7 @@ public class JiraNormalizer {
 
             Map<String, String> refs = new HashMap<>(refsExtractor.extract(summary + " " + descriptionText));
             if (parentKey != null) refs.put("parentJiraKey", parentKey);
+            if (assigneeField != null) refs.put("assigneeId", (String) assigneeField.get("accountId"));
 
             events.add(new NormalizedEvent(
                     "Issue",
