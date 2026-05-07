@@ -37,6 +37,8 @@ public class JiraNormalizer {
             Map<String, Object> status = (Map<String, Object>) fields.get("status");
             Map<String, Object> issueType = (Map<String, Object>) fields.get("issuetype");
             Map<String, Object> priority = (Map<String, Object>) fields.get("priority");
+            Map<String, Object> parent = (Map<String, Object>) fields.get("parent");
+            String parentKey = parent != null ? (String) parent.get("key") : null;
 
             String createdAt = (String) fields.get("created");
             String updatedAt = (String) fields.get("updated");
@@ -61,13 +63,16 @@ public class JiraNormalizer {
                             (String) reporter.get("emailAddress"))
                     : new ActorDto(null, null, null);
 
+            Map<String, String> refs = new HashMap<>(refsExtractor.extract(summary + " " + descriptionText));
+            if (parentKey != null) refs.put("parentJiraKey", parentKey);
+
             events.add(new NormalizedEvent(
                     "Issue",
                     "JIRA",
                     resolveOccurredAt(updatedAt, createdAt),
                     actor,
                     properties,
-                    refsExtractor.extract(summary + " " + descriptionText)
+                    refs
             ));
         }
         return events;
