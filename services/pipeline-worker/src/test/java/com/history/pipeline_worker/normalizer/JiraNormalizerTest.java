@@ -204,6 +204,52 @@ class JiraNormalizerTest {
         assertThat(event.refs()).containsEntry("jiraKey", "AUTH-99");
     }
 
+    @Test
+    @DisplayName("parent 필드 있는 이슈 → refs에 parentJiraKey 포함")
+    void normalizeIssues_withParent_parentKeyInRefs() {
+        Map<String, Object> issue = buildIssue("PROJ-9", "Child story", null, "Open", "Story", "Medium",
+                "id1", "Name", "email@test.com");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
+        fields.put("parent", Map.of("key", "EPIC-1"));
+
+        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.refs()).containsEntry("parentJiraKey", "EPIC-1");
+    }
+
+    @Test
+    @DisplayName("assignee 있는 이슈 → refs에 assigneeAccountId 포함")
+    void normalizeIssues_withAssignee_assigneeAccountIdInRefs() {
+        Map<String, Object> issue = buildIssue("PROJ-11", "Assigned issue", null, "Open", "Task", "Medium",
+                "reporter-id", "Reporter", "reporter@test.com");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
+        Map<String, Object> assignee = new HashMap<>();
+        assignee.put("accountId", "assignee-account-id");
+        assignee.put("displayName", "Assignee Name");
+        fields.put("assignee", assignee);
+
+        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.refs()).containsEntry("assigneeAccountId", "assignee-account-id");
+    }
+
+    @Test
+    @DisplayName("parent 필드 없는 이슈 → refs에 parentJiraKey 없음")
+    void normalizeIssues_withoutParent_noParentKeyInRefs() {
+        Map<String, Object> result = buildSearchResult(List.of(
+                buildIssue("PROJ-10", "Root epic", null, "Open", "Epic", "High",
+                        "id1", "Name", "email@test.com")
+        ));
+
+        NormalizedEvent event = normalizer.normalizeIssues(result).get(0);
+
+        assertThat(event.refs()).doesNotContainKey("parentJiraKey");
+    }
+
     // ─── 헬퍼 메서드 ───────────────────────────────────────────────────────────
 
     private Map<String, Object> buildSearchResult(List<Map<String, Object>> issues) {

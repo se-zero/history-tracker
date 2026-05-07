@@ -95,14 +95,15 @@ class SlackNormalizerTest {
     }
 
     @Test
-    @DisplayName("채널 URL은 channelId 기반으로 생성")
-    void normalizeChannels_url_containsChannelId() {
-        Map<String, Object> msg = buildMessage("U001", "Alice", null, "text", "1714000000.000000");
+    @DisplayName("메시지 URL은 channelId와 ts 기반 딥링크로 생성")
+    void normalizeChannels_url_isDeepLink() {
+        Map<String, Object> msg = buildMessage("U001", "Alice", null, "text", "1714000000.123456");
         Map<String, Object> slackData = buildSlackData("general", "C999", List.of(msg), null);
 
         NormalizedEvent event = normalizer.normalizeChannels(slackData).get(0);
 
-        assertThat(event.properties().get("url").toString()).contains("C999");
+        assertThat(event.properties().get("url").toString())
+                .isEqualTo("https://slack.com/archives/C999/p1714000000123456");
     }
 
     // ─── 스레드 reply 처리 ───────────────────────────────────────────────────────
