@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 """
 
-from graph.builder import close_driver, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store
+from graph.builder import close_driver, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
 from graph.consumer import start_consumer
 from graph.event_handler import handle
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
@@ -68,6 +68,13 @@ async def trigger_backfill():
     store = make_neo4j_reference_store()
     saved = await backfill_communication_embeddings(store)
     return {"saved": saved}
+
+
+@app.post("/reference/propagate-threads")
+async def trigger_thread_propagation():
+    """방안 C — 스레드 전파: DISCUSSED_IN 엣지를 같은 conversation_id 내 전체 메시지로 전파."""
+    created = await propagate_thread_discussed_in()
+    return {"created": created}
 
 
 @app.post("/issue-links/build")

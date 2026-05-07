@@ -298,6 +298,25 @@ async def link_issue_to_parent(child_key: str, parent_key: str) -> None:
         )
 
 
+async def propagate_thread_discussed_in() -> int:
+    """방안 C — 스레드 전파: conversation_id로 묶인 스레드 내 하나의 Communication이
+    DISCUSSED_IN을 가지면 같은 스레드의 나머지 Communication에도 전파."""
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (i:Issue)-[:DISCUSSED_IN]->(seed:Communication)
+            WHERE seed.conversation_id IS NOT NULL AND seed.conversation_id <> ''
+            WITH i, seed.conversation_id AS conv_id
+            MATCH (other:Communication {conversation_id: conv_id})
+            WHERE NOT (i)-[:DISCUSSED_IN]->(other)
+            MERGE (i)-[:DISCUSSED_IN]->(other)
+            RETURN count(*) AS created
+            """
+        )
+        record = await result.single()
+        return record["created"] if record else 0
+
+
 async def link_issue_to_assignee(jira_key: str, assignee_id: str) -> None:
     """ASSIGNED_TO: Issue assignee 존재 시"""
     async with get_driver().session() as session:
