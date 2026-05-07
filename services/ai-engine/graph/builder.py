@@ -401,3 +401,74 @@ def make_neo4j_reference_store():
         fetch_unembedded_communications=_fetch_unembedded_communications,
         save_communication_embedding=_save_communication_embedding,
     )
+
+
+# ── IssueLinkStore Neo4j 구현체 ───────────────────────────────────────────
+
+
+async def _fetch_issue_embeddings() -> list[dict]:
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (i:Issue)
+            WHERE i.embedding IS NOT NULL AND i.occurredAt IS NOT NULL
+            RETURN i.jira_key AS id,
+                   i.embedding AS embedding,
+                   i.occurredAt AS occurred_at
+            """
+        )
+        rows = await result.data()
+    return [
+        {
+            "id":          r["id"],
+            "embedding":   list(r["embedding"]),
+            "occurred_at": r["occurred_at"].to_native(),
+        }
+        for r in rows
+    ]
+
+
+async def _create_triggered_by_semantic_edge(
+    changeset_id: str, jira_key: str, confidence: float
+) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (c:ChangeSet {hash: $changeset_id})
+            MATCH (i:Issue {jira_key: $jira_key})
+            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            SET r.confidence = $confidence
+            """,
+            changeset_id=changeset_id,
+            jira_key=jira_key,
+            confidence=confidence,
+        )
+
+
+async def _create_discussed_in_semantic_edge(
+    jira_key: str, comm_url: str, confidence: float
+) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (i:Issue {jira_key: $jira_key})
+            MATCH (comm:Communication {url: $comm_url})
+            MERGE (i)-[r:DISCUSSED_IN]->(comm)
+            SET r.confidence = $confidence
+            """,
+            jira_key=jira_key,
+            comm_url=comm_url,
+            confidence=confidence,
+        )
+
+
+def make_neo4j_issue_link_store():
+    """Neo4j 기반 IssueLinkStore 인스턴스를 반환한다."""
+    from graph.issue_linker import IssueLinkStore
+    return IssueLinkStore(
+        fetch_issue_embeddings=_fetch_issue_embeddings,
+        fetch_modified_embeddings=_fetch_modified_embeddings,
+        fetch_communication_embeddings=_fetch_communication_embeddings,
+        create_triggered_by_edge=_create_triggered_by_semantic_edge,
+        create_discussed_in_edge=_create_discussed_in_semantic_edge,
+    )

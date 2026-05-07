@@ -15,9 +15,10 @@ logging.basicConfig(
 )
 """
 
-from graph.builder import close_driver, get_driver, make_neo4j_reference_store
+from graph.builder import close_driver, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store
 from graph.consumer import start_consumer
 from graph.event_handler import handle
+from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
 from graph.reference_builder import backfill_communication_embeddings, build_reference_edges
 
 logger = logging.getLogger(__name__)
@@ -67,3 +68,12 @@ async def trigger_backfill():
     store = make_neo4j_reference_store()
     saved = await backfill_communication_embeddings(store)
     return {"saved": saved}
+
+
+@app.post("/issue-links/build")
+async def trigger_issue_links():
+    """방안 A — 임베딩 유사도로 Issue ↔ ChangeSet, Issue ↔ Communication 엣지 생성."""
+    store = make_neo4j_issue_link_store()
+    triggered_by = await build_issue_changeset_links(store)
+    discussed_in = await build_issue_communication_links(store)
+    return {"triggered_by": triggered_by, "discussed_in": discussed_in}
