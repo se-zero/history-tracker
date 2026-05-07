@@ -79,7 +79,7 @@ public class SlackNormalizer {
         Map<String, Object> properties = new HashMap<>();
         properties.put("body", text);
         properties.put("channel", channelName);
-        properties.put("url", "https://slack.com/archives/" + channelId);
+        properties.put("url", "https://slack.com/archives/" + channelId + "/p" + tsToMessageId(ts));
         // 루트 메시지는 자신의 ts, 스레드 reply는 부모 메시지의 ts
         properties.put("conversation_id", threadTs != null ? threadTs : ts);
         properties.put("created_at", null);
@@ -92,6 +92,11 @@ public class SlackNormalizer {
                 properties,
                 refsExtractor.extract(text)
         );
+    }
+
+    private String tsToMessageId(String ts) {
+        if (ts == null) return "";
+        return ts.replace(".", "");
     }
 
     // Slack ts는 Unix epoch 소수점 문자열 (예: "1773799131.363769")
