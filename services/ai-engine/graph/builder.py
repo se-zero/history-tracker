@@ -298,6 +298,21 @@ async def link_issue_to_parent(child_key: str, parent_key: str) -> None:
         )
 
 
+async def link_issue_to_assignee(jira_key: str, assignee_id: str) -> None:
+    """ASSIGNED_TO: Issue assignee 존재 시"""
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MERGE (a:Actor {id: $assignee_id})
+            WITH a
+            MATCH (i:Issue {jira_key: $jira_key})
+            MERGE (i)-[:ASSIGNED_TO]->(a)
+            """,
+            jira_key=jira_key,
+            assignee_id=assignee_id,
+        )
+
+
 # ── ReferenceStore Neo4j 구현체 ───────────────────────────────────────────
 
 

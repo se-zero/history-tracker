@@ -136,8 +136,12 @@ async def _handle_issue(event: dict) -> None:
     )
 
     # Layer 2: Jira parent → CHILD_OF
-    if refs.get("parentKey"):
-        await builder.link_issue_to_parent(props["jira_key"], refs["parentKey"])
+    if refs.get("parentJiraKey"):
+        await builder.link_issue_to_parent(props["jira_key"], refs["parentJiraKey"])
+
+    # Layer 2: Jira assignee → ASSIGNED_TO
+    if refs.get("assigneeId"):
+        await builder.link_issue_to_assignee(props["jira_key"], refs["assigneeId"])
 
 
 async def _handle_communication(event: dict) -> None:
