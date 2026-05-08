@@ -2,6 +2,8 @@ import asyncio
 import logging
 
 from graph import builder
+from graph.actor_resolver import resolve_actor
+from graph.builder import make_neo4j_actor_store
 from graph.embedder import embed_text
 from graph.path_filter import should_skip
 from graph.summarizer import summarize_diff
@@ -41,14 +43,14 @@ async def _handle_changeset(event: dict) -> None:
 
     logger.debug("ChangeSet 수신: hash=%s", hash_)
 
+    resolved = await resolve_actor(actor, source, make_neo4j_actor_store(), event)
+
     await builder.upsert_changeset(
         hash=hash_,
         message=message,
         occurred_at=occurred_at,
         source=source,
-        actor_id=actor.get("id", "unknown"),
-        actor_name=actor.get("name", ""),
-        actor_email=actor.get("email"),
+        actor_uuid=resolved["uuid"],
     )
 
     # Layer 2: refs 기반 엣지
@@ -89,6 +91,8 @@ async def _handle_pull_request(event: dict) -> None:
 
     logger.debug("PullRequest 수신: pr_number=%s", props.get("pr_number"))
 
+    resolved = await resolve_actor(actor, source, make_neo4j_actor_store(), event)
+
     await builder.upsert_pull_request(
         pr_number=props.get("pr_number"),
         title=props.get("title", ""),
@@ -99,9 +103,7 @@ async def _handle_pull_request(event: dict) -> None:
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
         source=source,
-        actor_id=actor.get("id", "unknown"),
-        actor_name=actor.get("name", ""),
-        actor_email=actor.get("email"),
+        actor_uuid=resolved["uuid"],
     )
 
 
@@ -116,6 +118,7 @@ async def _handle_issue(event: dict) -> None:
 
     logger.debug("Issue 수신: jira_key=%s", props.get("jira_key"))
 
+    resolved  = await resolve_actor(actor, source, make_neo4j_actor_store(), event)
     embedding = await embed_text(f"{title}\n\n{body}")
 
     await builder.upsert_issue(
@@ -129,9 +132,7 @@ async def _handle_issue(event: dict) -> None:
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
         source=source,
-        actor_id=actor.get("id", "unknown"),
-        actor_name=actor.get("name", ""),
-        actor_email=actor.get("email"),
+        actor_uuid=resolved["uuid"],
         embedding=embedding,
     )
 
@@ -159,6 +160,7 @@ async def _handle_communication(event: dict) -> None:
         logger.warning("Communication url 없음 — 건너뜀 (channel=%s)", props.get("channel"))
         return
 
+    resolved  = await resolve_actor(actor, source, make_neo4j_actor_store(), event)
     embedding = await embed_text(body)
 
     await builder.upsert_communication(
@@ -169,9 +171,7 @@ async def _handle_communication(event: dict) -> None:
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
         source=source,
-        actor_id=actor.get("id", "unknown"),
-        actor_name=actor.get("name", ""),
-        actor_email=actor.get("email"),
+        actor_uuid=resolved["uuid"],
         embedding=embedding,
     )
 

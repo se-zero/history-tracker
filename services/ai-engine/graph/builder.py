@@ -9,6 +9,7 @@ Neo4j 그래프 빌더.
 
 import logging
 import os
+import uuid
 from typing import Optional
 
 from neo4j import AsyncDriver, AsyncGraphDatabase
@@ -45,24 +46,19 @@ async def upsert_changeset(
     message: str,
     occurred_at: str,
     source: str,
-    actor_id: str,
-    actor_name: str,
-    actor_email: Optional[str],
+    actor_uuid: str,
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (a:Actor {id: $actor_id})
-            SET a.name = $actor_name, a.email = $actor_email
+            MATCH (a:Actor {uuid: $actor_uuid})
             MERGE (c:ChangeSet {hash: $hash})
             SET c.message = $message,
                 c.occurredAt = datetime($occurred_at),
                 c.source = $source
             MERGE (a)-[:AUTHORED]->(c)
             """,
-            actor_id=actor_id,
-            actor_name=actor_name,
-            actor_email=actor_email,
+            actor_uuid=actor_uuid,
             hash=hash,
             message=message,
             occurred_at=occurred_at,
@@ -105,15 +101,12 @@ async def upsert_pull_request(
     occurred_at: Optional[str],
     created_at: Optional[str],
     source: str,
-    actor_id: str,
-    actor_name: str,
-    actor_email: Optional[str],
+    actor_uuid: str,
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (a:Actor {id: $actor_id})
-            SET a.name = $actor_name, a.email = $actor_email
+            MATCH (a:Actor {uuid: $actor_uuid})
             MERGE (pr:PullRequest {pr_number: $pr_number})
             SET pr.title = $title,
                 pr.body = $body,
@@ -125,9 +118,7 @@ async def upsert_pull_request(
                 pr.source = $source
             MERGE (a)-[:AUTHORED]->(pr)
             """,
-            actor_id=actor_id,
-            actor_name=actor_name,
-            actor_email=actor_email,
+            actor_uuid=actor_uuid,
             pr_number=pr_number,
             title=title,
             body=body,
@@ -152,16 +143,13 @@ async def upsert_issue(
     occurred_at: str,
     created_at: Optional[str],
     source: str,
-    actor_id: str,
-    actor_name: str,
-    actor_email: Optional[str],
+    actor_uuid: str,
     embedding: list[float],
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (a:Actor {id: $actor_id})
-            SET a.name = $actor_name, a.email = $actor_email
+            MATCH (a:Actor {uuid: $actor_uuid})
             MERGE (i:Issue {jira_key: $jira_key})
             SET i.title = $title,
                 i.body = $body,
@@ -175,9 +163,7 @@ async def upsert_issue(
                 i.embedding = $embedding
             MERGE (a)-[:CREATED]->(i)
             """,
-            actor_id=actor_id,
-            actor_name=actor_name,
-            actor_email=actor_email,
+            actor_uuid=actor_uuid,
             jira_key=jira_key,
             title=title,
             body=body,
@@ -201,16 +187,13 @@ async def upsert_communication(
     occurred_at: str,
     created_at: Optional[str],
     source: str,
-    actor_id: str,
-    actor_name: str,
-    actor_email: Optional[str],
+    actor_uuid: str,
     embedding: list[float],
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (a:Actor {id: $actor_id})
-            SET a.name = $actor_name, a.email = $actor_email
+            MATCH (a:Actor {uuid: $actor_uuid})
             MERGE (comm:Communication {url: $url})
             SET comm.body = $body,
                 comm.channel = $channel,
@@ -221,9 +204,7 @@ async def upsert_communication(
                 comm.embedding = $embedding
             MERGE (a)-[:WROTE]->(comm)
             """,
-            actor_id=actor_id,
-            actor_name=actor_name,
-            actor_email=actor_email,
+            actor_uuid=actor_uuid,
             url=url,
             body=body,
             channel=channel,
@@ -318,17 +299,18 @@ async def propagate_thread_discussed_in() -> int:
 
 
 async def link_issue_to_assignee(jira_key: str, assignee_id: str) -> None:
-    """ASSIGNED_TO: Issue assignee 존재 시"""
+    """ASSIGNED_TO: Issue assignee 존재 시. JIRA source-scoped alias로 Actor 조회."""
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (a:Actor {id: $assignee_id})
+            MATCH (a:Actor)
+            WHERE $scoped_alias IN a.aliases
             WITH a
             MATCH (i:Issue {jira_key: $jira_key})
             MERGE (i)-[:ASSIGNED_TO]->(a)
             """,
             jira_key=jira_key,
-            assignee_id=assignee_id,
+            scoped_alias=f"JIRA:{assignee_id}",
         )
 
 
@@ -509,4 +491,142 @@ def make_neo4j_issue_link_store():
         fetch_communication_embeddings=_fetch_communication_embeddings,
         create_triggered_by_edge=_create_triggered_by_semantic_edge,
         create_discussed_in_edge=_create_discussed_in_semantic_edge,
+    )
+
+
+# ── ActorStore Neo4j 구현체 ───────────────────────────────────────────────
+
+
+async def _lookup_actor_by_alias(source_id: str) -> Optional[dict]:
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Actor)
+            WHERE $source_id IN a.aliases
+            RETURN a.uuid AS uuid, a.name AS name,
+                   a.aliases AS aliases, a.emails AS emails,
+                   a.confidence AS confidence
+            """,
+            source_id=source_id,
+        )
+        record = await result.single()
+    return dict(record) if record else None
+
+
+async def _lookup_actor_by_email(email: str) -> Optional[dict]:
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Actor)
+            WHERE $email IN a.emails
+            RETURN a.uuid AS uuid, a.name AS name,
+                   a.aliases AS aliases, a.emails AS emails,
+                   a.confidence AS confidence
+            """,
+            email=email,
+        )
+        record = await result.single()
+    return dict(record) if record else None
+
+
+async def _lookup_actor_by_name(normalized_name: str) -> list[dict]:
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Actor)
+            WHERE a.normalized_name = $normalized_name
+            RETURN a.uuid AS uuid, a.name AS name,
+                   a.aliases AS aliases, a.emails AS emails,
+                   a.confidence AS confidence
+            """,
+            normalized_name=normalized_name,
+        )
+        rows = await result.data()
+    return [dict(r) for r in rows]
+
+
+async def _lookup_actor_activities(actor: dict) -> list[dict]:
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Actor {uuid: $actor_uuid})-[:AUTHORED|WROTE|CREATED]->(n)
+            WHERE n.occurredAt IS NOT NULL
+            RETURN labels(n)[0] AS nodeType,
+                   n.source AS source,
+                   n.message AS message,
+                   n.title AS title,
+                   n.body AS body
+            ORDER BY n.occurredAt DESC
+            LIMIT 10
+            """,
+            actor_uuid=actor.get("uuid"),
+        )
+        rows = await result.data()
+    return [dict(r) for r in rows]
+
+
+async def _merge_actor(
+    actor: dict, new_alias: str, new_email: Optional[str], confidence: float
+) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (a:Actor {uuid: $actor_uuid})
+            SET a.aliases = CASE WHEN $new_alias IN a.aliases
+                                 THEN a.aliases
+                                 ELSE a.aliases + $new_alias END,
+                a.emails  = CASE WHEN $new_email IS NULL OR $new_email IN a.emails
+                                 THEN a.emails
+                                 ELSE a.emails + $new_email END,
+                a.confidence = $confidence
+            """,
+            actor_uuid=actor.get("uuid"),
+            new_alias=new_alias,
+            new_email=new_email,
+            confidence=confidence,
+        )
+
+
+async def _create_actor(
+    name: str, aliases: list, emails: list, confidence: float
+) -> dict:
+    from graph.actor_resolver import normalize_name
+    actor_uuid     = str(uuid.uuid4())
+    normalized     = normalize_name(name)
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            CREATE (a:Actor {
+                uuid: $uuid,
+                name: $name,
+                normalized_name: $normalized_name,
+                aliases: $aliases,
+                emails: $emails,
+                confidence: $confidence
+            })
+            RETURN a.uuid AS uuid, a.name AS name,
+                   a.aliases AS aliases, a.emails AS emails,
+                   a.confidence AS confidence
+            """,
+            uuid=actor_uuid,
+            name=name,
+            normalized_name=normalized,
+            aliases=aliases,
+            emails=emails,
+            confidence=confidence,
+        )
+        record = await result.single()
+    return dict(record)
+
+
+def make_neo4j_actor_store():
+    """Neo4j 기반 ActorStore 인스턴스를 반환한다."""
+    from graph.actor_resolver import ActorStore
+    return ActorStore(
+        lookup_by_alias=_lookup_actor_by_alias,
+        lookup_by_email=_lookup_actor_by_email,
+        lookup_by_name=_lookup_actor_by_name,
+        lookup_activities=_lookup_actor_activities,
+        merge_actor=_merge_actor,
+        create_actor=_create_actor,
     )
