@@ -16,6 +16,7 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -58,6 +59,62 @@ class GitHubRawServiceTest {
         assertThat(commits.get(0)).containsEntry("sha", "sha-pr")
                 .containsEntry("prNumber", "10");
         assertThat(searchApiCalled).isFalse();
+    }
+
+    @Test
+    @DisplayName("branch 옵션 지정 시 commits 요청 URL에 sha 파라미터 포함")
+    void prepareFetchContext_withBranchOption_addsShaParam() {
+        CheckpointData checkpointData = new CheckpointData();
+        FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
+        when(checkpointManager.getCached()).thenReturn(checkpointData);
+
+        AtomicReference<String> capturedCommitsQuery = new AtomicReference<>();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    if (request.url().getPath().equals("/repos/owner/repo/commits")) {
+                        capturedCommitsQuery.set(request.url().getQuery());
+                    }
+                    return Mono.just(jsonResponse(responseFor(request)));
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0),
+                checkpointManager
+        );
+
+        service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of("branch", "develop")));
+
+        assertThat(capturedCommitsQuery.get()).contains("sha=develop");
+    }
+
+    @Test
+    @DisplayName("branch 옵션 미지정 시 commits 요청 URL에 sha 파라미터 미포함")
+    void prepareFetchContext_withoutBranchOption_noShaParam() {
+        CheckpointData checkpointData = new CheckpointData();
+        FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
+        when(checkpointManager.getCached()).thenReturn(checkpointData);
+
+        AtomicReference<String> capturedCommitsQuery = new AtomicReference<>();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    if (request.url().getPath().equals("/repos/owner/repo/commits")) {
+                        capturedCommitsQuery.set(request.url().getQuery());
+                    }
+                    return Mono.just(jsonResponse(responseFor(request)));
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0),
+                checkpointManager
+        );
+
+        service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
+
+        assertThat(capturedCommitsQuery.get()).doesNotContain("sha=");
     }
 
     private ClientResponse jsonResponse(String body) {
