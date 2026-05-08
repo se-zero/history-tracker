@@ -447,6 +447,8 @@ async def _fetch_issue_embeddings() -> list[dict]:
             MATCH (i:Issue)
             WHERE i.embedding IS NOT NULL AND i.occurredAt IS NOT NULL
             RETURN i.jira_key AS id,
+                   i.title AS title,
+                   i.body AS body,
                    i.embedding AS embedding,
                    i.occurredAt AS occurred_at
             """
@@ -455,6 +457,8 @@ async def _fetch_issue_embeddings() -> list[dict]:
     return [
         {
             "id":          r["id"],
+            "title":       r["title"] or "",
+            "body":        r["body"] or "",
             "embedding":   list(r["embedding"]),
             "occurred_at": r["occurred_at"].to_native(),
         }

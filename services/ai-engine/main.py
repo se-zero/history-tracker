@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -77,10 +78,33 @@ async def trigger_thread_propagation():
     return {"created": created}
 
 
+class IssueLinkOptions(BaseModel):
+    threshold: float = 0.40
+    llm_verify: bool = False
+    top_k: int = 5
+    llm_threshold: float = 0.7
+
+
 @app.post("/issue-links/build")
-async def trigger_issue_links():
-    """방안 A — 임베딩 유사도로 Issue ↔ ChangeSet, Issue ↔ Communication 엣지 생성."""
+async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
+    """방안 A/D — Issue ↔ ChangeSet, Issue ↔ Communication 엣지 생성.
+
+    llm_verify=false (기본): 방안 A — 임베딩 유사도만으로 판단
+    llm_verify=true:         방안 D — 임베딩 후보 선별 후 LLM 검증
+    """
     store = make_neo4j_issue_link_store()
-    triggered_by = await build_issue_changeset_links(store)
-    discussed_in = await build_issue_communication_links(store)
+    if options.llm_verify:
+        from graph.issue_verifier import (
+            build_issue_changeset_links_verified,
+            build_issue_communication_links_verified,
+        )
+        triggered_by = await build_issue_changeset_links_verified(
+            store, options.threshold, options.top_k, options.llm_threshold
+        )
+        discussed_in = await build_issue_communication_links_verified(
+            store, options.threshold, options.top_k, options.llm_threshold
+        )
+    else:
+        triggered_by = await build_issue_changeset_links(store, threshold=options.threshold)
+        discussed_in = await build_issue_communication_links(store, threshold=options.threshold)
     return {"triggered_by": triggered_by, "discussed_in": discussed_in}

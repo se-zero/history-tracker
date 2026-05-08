@@ -144,6 +144,7 @@ GitHub 저장소 내 파일.
 | `CREATED` | `(Actor)→(Issue)` | — | Actor가 Jira 티켓을 생성 |
 | `WROTE` | `(Actor)→(Communication)` | — | Actor가 메시지/이슈를 작성 |
 | `AUTHORED` | `(Actor)→(PullRequest)`, `(Actor)→(ChangeSet)` | — | Actor가 PR/commit을 생성 |
+| `ASSIGNED_TO` | `(Issue)→(Actor)` | — | Jira 이슈의 담당자 |
 | `DISCUSSED_IN` | `(Issue)→(Communication)` | — | Jira 이슈가 특정 대화에서 언급됨 (`refs.jiraKey` 또는 `시간` 기반) |
 | `CHILD_OF` | `(Issue)→(Issue)`, `(ChangeSet)→(ChangeSet)` | — | 이슈 계층 구조 (Sub-task → Parent), 커밋 계층 구조 |
 | `TRIGGERED_BY` | `(ChangeSet)→(Issue)` | — | 이슈에 대한 커밋 |
@@ -230,7 +231,7 @@ refs에 의존하는 관계인 `DISCUSSED_IN`, `TRIGGERED_BY`, `CONTAINS`는 대
 
 ## 해결 방안
 
-### 방안 A — 시맨틱 유사도 (Layer 4 확장)
+### 방안 A — 시맨틱 유사도 (Layer 4 확장) ✅ 구현됨
 
 Layer 4의 임베딩 방식을 Issue 연결에도 적용한다.
 
@@ -246,7 +247,7 @@ Issue.title + body  ↔  ChangeSet.message + diffSummary  → TRIGGERED_BY
 
 ---
 
-### 방안 B — 시맨틱 + 시간 + Actor 조합
+### 방안 B — 시맨틱 + 시간 + Actor 조합 - 보류
 
 유사도에 시간·Actor 신호를 AND 조건으로 추가해 정밀도를 높인다.
 
@@ -263,7 +264,7 @@ Issue.title + body  ↔  ChangeSet.message + diffSummary  → TRIGGERED_BY
 
 ---
 
-### 방안 C — 스레드 전파 (Communication 특화)
+### 방안 C — 스레드 전파 (Communication 특화) ✅ 구현됨
 
 Communication은 `conversation_id`로 스레드가 묶여 있다. 스레드 내 하나의 메시지에만 refs가 있어도 그 스레드 전체에 같은 Issue 연결을 전파한다.
 
@@ -279,7 +280,7 @@ thread (conversation_id: "1773799131")
 
 ---
 
-### 방안 D — 2단계: 임베딩 후보 선별 → LLM 검증
+### 방안 D — 2단계: 임베딩 후보 선별 → LLM 검증 ✅ 구현됨
 
 방안 A와 동일하게 임베딩 유사도로 시작하지만, 유사도를 **최종 판단**으로 쓰지 않고 **후보 선별 도구**로만 사용한다. 최종 판단은 LLM이 실제 텍스트를 읽고 내린다.
 
@@ -303,6 +304,17 @@ LLM은 문맥, 부정, 인과관계를 이해할 수 있어 임베딩이 놓치�
 
 - 장점: 방안 A보다 높은 정확도, 전체 N×M을 LLM에 돌리지 않아 비용 절감
 - 단점: Stage 1에서 놓친 후보(false negative)는 Stage 2에서 회복 불가
+
+**사용법**: `POST /issue-links/build` 요청 시 옵션으로 제어. 코드 수정 불필요.
+
+```json
+{
+  "llm_verify": true,      // false(기본): 방안 A, true: 방안 D
+  "threshold": 0.40,       // 임베딩 유사도 최소값 (후보 선별 기준)
+  "top_k": 5,              // Issue당 LLM에 넘길 최대 후보 수 (비용 제어)
+  "llm_threshold": 0.7     // LLM confidence 최소값 (엣지 생성 기준)
+}
+```
 
 ---
 
