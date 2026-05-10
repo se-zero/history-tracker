@@ -17,11 +17,23 @@ QUEUE_NAME    = "history.events"
 async def start_consumer() -> None:
     """RabbitMQ에 연결하고 history.events 큐를 소비한다.
 
-    connect_robust를 사용해 연결 끊김 시 자동 재연결.
+    예외 발생 시 5초 후 자동 재시작.
     실패 유형을 구분해 처리:
     - JSON 파싱 오류(영구 실패): ack 후 버림 — 재시도해도 동일한 오류
     - 처리 오류(일시 실패): 예외를 raise → aio-pika가 nack(requeue=False) 처리
     """
+    while True:
+        try:
+            await _run_consumer()
+        except asyncio.CancelledError:
+            logger.info("RabbitMQ consumer 종료")
+            raise
+        except Exception:
+            logger.exception("RabbitMQ consumer 오류 — 5초 후 재시작")
+            await asyncio.sleep(5)
+
+
+async def _run_consumer() -> None:
     logger.info("RabbitMQ 연결 시도: %s", RABBITMQ_URL)
     connection = await aio_pika.connect_robust(RABBITMQ_URL)
 

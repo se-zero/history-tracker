@@ -3,3 +3,4 @@ uvicorn==0.34.0
 openai==1.75.0
 python-dotenv==1.1.0
 aio-pika==9.4.3
+neo4j==5.28.1

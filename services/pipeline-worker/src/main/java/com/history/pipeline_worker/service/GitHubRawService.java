@@ -24,7 +24,7 @@ public class GitHubRawService {
 
     private static final int PER_PAGE = 100; // GitHub API 최대값
 
-    public record GitHubFetchContext(String auth, String owner, String repo, CheckpointData.GitHubCheckpoint checkpoint) {}
+    public record GitHubFetchContext(String auth, String owner, String repo, String branch, CheckpointData.GitHubCheckpoint checkpoint) {}
     public record GitHubPage(List<Object> items, boolean finished) {}
 
     private final WebClient webClient;
@@ -58,7 +58,8 @@ public class GitHubRawService {
         String repo = parts[1];
         String auth = request.credentials();
 
-        return new GitHubFetchContext(auth, owner, repo, checkpointManager.getCached().github);
+        String branch = request.options() != null ? request.options().getOrDefault("branch", null) : null;
+        return new GitHubFetchContext(auth, owner, repo, branch, checkpointManager.getCached().github);
     }
 
     public Map<String, Object> fetchSample(RawFetchRequest request) {
@@ -98,9 +99,10 @@ public class GitHubRawService {
     }
 
     public GitHubPage fetchCommitPage(GitHubFetchContext context, int page, Map<String, String> commitPrNumbers) {
+        String branchParam = context.branch() != null ? "&sha=" + context.branch() : "";
         GitHubPage rawCommits = fetchPageAfterCheckpoint(
                 context.auth(),
-                "/repos/{owner}/{repo}/commits?per_page=" + PER_PAGE,
+                "/repos/{owner}/{repo}/commits?per_page=" + PER_PAGE + branchParam,
                 context.owner(),
                 context.repo(),
                 context.checkpoint().commitsScannedAt,

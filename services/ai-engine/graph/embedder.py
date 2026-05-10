@@ -7,7 +7,7 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=30.0)
 _MODEL = "text-embedding-3-small"
 
 

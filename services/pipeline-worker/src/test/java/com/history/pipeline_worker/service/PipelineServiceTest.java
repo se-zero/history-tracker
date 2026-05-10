@@ -155,6 +155,7 @@ class PipelineServiceTest {
                 "Bearer token",
                 "owner",
                 "repo",
+                null,
                 new CheckpointData.GitHubCheckpoint()
         );
     }

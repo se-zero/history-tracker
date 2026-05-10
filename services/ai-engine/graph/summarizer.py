@@ -1,7 +1,7 @@
 import os
 from openai import OpenAI
 
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=30.0)
 
 SYSTEM_PROMPT = """\
 당신은 코드 변경사항 요약가입니다. 소스 파일의 unified diff를 받아 한국어로 간결하게 요약하세요.
