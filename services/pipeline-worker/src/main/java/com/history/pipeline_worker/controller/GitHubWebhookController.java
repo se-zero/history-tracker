@@ -1,6 +1,6 @@
 package com.history.pipeline_worker.controller;
 
-import com.history.pipeline_worker.service.GitHubWebhookService;
+import com.history.pipeline_worker.webhook.GitHubWebhookService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
