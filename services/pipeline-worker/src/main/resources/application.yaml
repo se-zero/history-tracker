@@ -31,6 +31,15 @@ app:
   checkpoint:
     path: ./checkpoint.json  # Docker 환경에서는 volume mount로 /data/checkpoint.json
 
+  webhook:
+    github:
+      secret: ""  # GitHub webhook secret. X-Hub-Signature-256 검증에 사용.
+    executor:
+      await-termination-seconds: 300
+    delivery-store:
+      type: file
+      path: ./webhook-deliveries.json
+      
   integration:
     resolver:
       type: noop
