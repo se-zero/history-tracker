@@ -235,7 +235,7 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.refs()).containsEntry("assigneeAccountId", "assignee-account-id");
+        assertThat(event.refs()).containsEntry("assigneeId", "assignee-account-id");
     }
 
     @Test
