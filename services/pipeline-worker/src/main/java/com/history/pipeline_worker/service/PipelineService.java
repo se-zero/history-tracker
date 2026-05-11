@@ -34,6 +34,20 @@ public class PipelineService {
     private final EventPublisher eventPublisher;
     private final FileCheckpointManager checkpointManager;
 
+    public CollectionResult collectIncremental(ProjectCollectionContext context) {
+        int github = normalizeGitHub(toRawFetchRequest(context.github()));
+        int jira = context.jira()
+                .map(this::toRawFetchRequest)
+                .map(this::normalizeJira)
+                .orElse(0);
+        int slack = context.slack()
+                .map(this::toRawFetchRequest)
+                .map(this::normalizeSlack)
+                .orElse(0);
+
+        return new CollectionResult(github, jira, slack);
+    }
+
     public int normalizeGitHub(RawFetchRequest request) {
         GitHubRawService.GitHubFetchContext context = gitHubRawService.prepareFetchContext(request);
         Map<String, String> commitPrNumbers = new HashMap<>();
@@ -150,5 +164,27 @@ public class PipelineService {
         if (current == null || candidate.isAfter(current)) return candidate;
         return current;
     }
+
+    private RawFetchRequest toRawFetchRequest(GitHubIntegration integration) {
+        Map<String, String> options = new HashMap<>();
+        if (integration.branch() != null && !integration.branch().isBlank()) {
+            options.put("branch", integration.branch());
+        }
+        return new RawFetchRequest(integration.credentials(), integration.repositoryFullName(), options);
+    }
+
+    private RawFetchRequest toRawFetchRequest(JiraIntegration integration) {
+        Map<String, String> options = new HashMap<>();
+        if (integration.baseUrl() != null && !integration.baseUrl().isBlank()) {
+            options.put("baseUrl", integration.baseUrl());
+        }
+        return new RawFetchRequest(integration.credentials(), integration.projectKey(), options);
+    }
+
+    private RawFetchRequest toRawFetchRequest(SlackIntegration integration) {
+        return new RawFetchRequest(integration.credentials(), null, Map.of());
+    }
+
+    public record CollectionResult(int github, int jira, int slack) {}
 
 }
