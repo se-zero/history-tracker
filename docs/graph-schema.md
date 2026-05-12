@@ -7,9 +7,12 @@
 
 ```json
 {
+  "uuid": "",            // 고유 식별자
   "name": "",            // 표시 이름
-  "aliases": [""],       // alias 통합 후 원본 ID 목록
-  "email": ""            // alias 통합 시 동일인 판단 기준
+  "normalized_name": "", // 정규화 이름 (소문자·특수문자 제거) — 동일인 스코어링에 사용
+  "aliases": [""],       // source-scoped ID 목록 (예: "GITHUB:se-zero", "JIRA:123abc")
+  "emails": [""],        // 확인된 이메일 목록 — 동일인 판단 1차 기준
+  "confidence": 0.0      // 마지막 합산/생성 시점의 신뢰도
 }
 ```
 
@@ -34,7 +37,7 @@ Jira 티켓.
     "assignee": "",                    // 담당자 이름
     "created_at": ""                   // 티켓 최초 생성 시각 (ISO-8601); occurredAt이 updated 기준이므로 보존
   },
-  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
+  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "parentJiraKey": "HT-1", "assigneeId": "abc123" }
 }
 ```
 
@@ -66,6 +69,7 @@ Slack 메시지 또는 GitHub Issue. 텍스트 기반 의사소통 단위.
 ---
 
 ### PullRequest
+
 GitHub Pull Request. 머지된 PR만 수집한다.
 
 ```json
@@ -146,7 +150,8 @@ GitHub 저장소 내 파일.
 | `AUTHORED` | `(Actor)→(PullRequest)`, `(Actor)→(ChangeSet)` | — | Actor가 PR/commit을 생성 |
 | `ASSIGNED_TO` | `(Issue)→(Actor)` | — | Jira 이슈의 담당자 |
 | `DISCUSSED_IN` | `(Issue)→(Communication)` | — | Jira 이슈가 특정 대화에서 언급됨 (`refs.jiraKey` 또는 `시간` 기반) |
-| `CHILD_OF` | `(Issue)→(Issue)`, `(ChangeSet)→(ChangeSet)` | — | 이슈 계층 구조 (Sub-task → Parent), 커밋 계층 구조 |
+| `CHILD_OF` | `(Issue)→(Issue)` | — | 이슈 계층 구조 (Sub-task → Parent). `refs.parentJiraKey` 기반 |
+| `CHILD_OF` | `(ChangeSet)→(ChangeSet)` _(미구현)_ | — | 커밋 계층 구조 — 현재 미구현 |
 | `TRIGGERED_BY` | `(ChangeSet)→(Issue)` | — | 이슈에 대한 커밋 |
 | `CONTAINS` | `(PullRequest)→(ChangeSet)` | — | PR에 포함된 커밋 |
 | `MODIFIED` | `(ChangeSet)→(File)` | `diffSummary: String` | 커밋이 파일을 변경. LLM이 생성한 diff 요약문의 임베딩 포함 |
@@ -174,10 +179,11 @@ graph LR
 
     Issue -->|DISCUSSED_IN| Communication
     Issue -->|CHILD_OF| Issue
+    Issue -->|ASSIGNED_TO| Actor
     Issue -.->|DESCRIBED_IN| Document
 
     ChangeSet -->|TRIGGERED_BY| Issue
-    ChangeSet -->|CHILD_OF| ChangeSet
+    ChangeSet -.->|CHILD_OF 미구현| ChangeSet
     ChangeSet -->|MODIFIED| File
     ChangeSet -.->|REFERENCE| Communication
 
@@ -201,12 +207,15 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | 레이어 | 관계 | 생성 조건 | 근거 |
 |--------|------|-----------|------|
 | Layer 1 | `CREATED` / `WROTE` / `AUTHORED` | 모든 이벤트 | `actor` 필드 |
-| Layer 1 | `CHILD_OF` (Issue) | Issue 이벤트 | Jira parent 필드 |
+| Layer 2 | `CHILD_OF` (Issue) | `refs.parentJiraKey` 존재 시 | Issue의 refs (Jira Sub-task → Parent) |
+| Layer 2 | `ASSIGNED_TO` | `refs.assigneeId` 존재 시 | Issue의 refs (Jira 담당자 ID) |
 | Layer 2 | `DISCUSSED_IN` | `refs.jiraKey` 존재 시 | Communication의 refs |
 | Layer 2 | `TRIGGERED_BY` | `refs.jiraKey` 존재 시 | ChangeSet의 refs |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
-| Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary |
-| Layer 4 | `REFERENCE` | 배치 처리 | `diffSummary` ↔ `body` 코사인 유사도 ≥ threshold |
+| Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary; 임베딩은 MODIFIED 엣지 속성으로 저장 |
+| Layer 4 | `REFERENCE` | 배치 처리 | `MODIFIED.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.30 (기본값), 시간 범위 ±5일 |
+| Layer 4 | `DISCUSSED_IN` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.40 (기본값), 시간 범위 ±30일 |
+| Layer 4 | `TRIGGERED_BY` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ 0.40 (기본값), 시간 범위 ±30일 |
 
 > **순서 보장**: Layer 2에서 참조 대상 노드가 아직 없으면 PK만 가진 stub 노드를 생성하고,
 > 해당 이벤트가 도착하면 Layer 1에서 properties를 채움.
@@ -225,7 +234,7 @@ refs에 의존하는 관계인 `DISCUSSED_IN`, `TRIGGERED_BY`, `CONTAINS`는 대
 | `TRIGGERED_BY` (ChangeSet ↔ Issue) | 연결 불가 |
 | `CONTAINS` (PullRequest ↔ ChangeSet) | GitHub API(`/pulls/{pr}/commits`)로 구축 — refs 없어도 연결 가능 |
 | `MODIFIED` (ChangeSet → File) | 항상 가능 |
-| `REFERENCE` (ChangeSet ↔ Communication) | 항상 가능 (시맨틱) |
+| `REFERENCE` (ChangeSet → Communication) | 항상 가능 (시맨틱) |
 
 ---
 
@@ -236,11 +245,11 @@ refs에 의존하는 관계인 `DISCUSSED_IN`, `TRIGGERED_BY`, `CONTAINS`는 대
 Layer 4의 임베딩 방식을 Issue 연결에도 적용한다.
 
 ```
-Issue.title + body  ↔  Communication.body        → DISCUSSED_IN
-Issue.title + body  ↔  ChangeSet.message + diffSummary  → TRIGGERED_BY
+Issue.embedding  ↔  Communication.embedding        → DISCUSSED_IN  (기본 threshold: 0.40, 시간 범위: ±30일)
+Issue.embedding  ↔  MODIFIED.embedding (diffSummary)  → TRIGGERED_BY  (기본 threshold: 0.40, 시간 범위: ±30일)
 ```
 
-유사도 ≥ threshold인 쌍에 엣지 생성. threshold는 실험적으로 조정.
+유사도 ≥ threshold인 쌍에 엣지 생성. threshold는 `POST /issue-links/build` 요청 시 조정 가능.
 
 - 장점: 추가 데이터 불필요, 범용
 - 단점: 도메인 용어가 겹치면 false positive 발생
@@ -323,5 +332,5 @@ LLM은 문맥, 부정, 인과관계를 이해할 수 있어 임베딩이 놓치�
 | 연결 | 권장 방안 |
 |------|-----------|
 | Issue ↔ Communication | 방안 C (스레드 전파) + 방안 A (시맨틱) |
-| Issue ↔ ChangeSet | 방안 B (시맨틱 + 시간 + Actor) |
+| Issue ↔ ChangeSet | 방안 A (시맨틱) 또는 방안 D (정확도 우선) |
 | 정확도 우선 | 방안 D (2단계 LLM 검증) 선택 적용 |
