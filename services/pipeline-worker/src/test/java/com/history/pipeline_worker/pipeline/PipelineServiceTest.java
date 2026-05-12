@@ -1,14 +1,21 @@
-package com.history.pipeline_worker.service;
+package com.history.pipeline_worker.pipeline;
 
 import com.history.pipeline_worker.checkpoint.CheckpointData;
 import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
+import com.history.pipeline_worker.collection.GitHubIntegration;
+import com.history.pipeline_worker.collection.JiraIntegration;
+import com.history.pipeline_worker.collection.ProjectCollectionContext;
+import com.history.pipeline_worker.collection.SlackIntegration;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.messaging.EventPublisher;
-import com.history.pipeline_worker.normalizer.GitHubNormalizer;
-import com.history.pipeline_worker.normalizer.JiraNormalizer;
+import com.history.pipeline_worker.source.github.GitHubNormalizer;
+import com.history.pipeline_worker.source.github.GitHubRawService;
+import com.history.pipeline_worker.source.jira.JiraNormalizer;
+import com.history.pipeline_worker.source.jira.JiraRawService;
 import com.history.pipeline_worker.normalizer.RefsExtractor;
-import com.history.pipeline_worker.normalizer.SlackNormalizer;
+import com.history.pipeline_worker.source.slack.SlackNormalizer;
+import com.history.pipeline_worker.source.slack.SlackRawService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +28,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -56,6 +64,53 @@ class PipelineServiceTest {
                 eventPublisher,
                 checkpointManager
         );
+    }
+
+    @Test
+    @DisplayName("project context 기반 증분 수집은 GitHub/Jira/Slack integration을 기존 요청으로 변환한다")
+    void collectIncremental_projectContext_delegatesToExistingPipelines() {
+        ProjectCollectionContext context = new ProjectCollectionContext(
+                "project-1",
+                new GitHubIntegration("Bearer gh", "owner/repo", "main"),
+                Optional.of(new JiraIntegration("jira:token", "PROJ", "https://jira.example.com")),
+                Optional.of(new SlackIntegration("Bearer slack"))
+        );
+        RawFetchRequest githubRequest = new RawFetchRequest("Bearer gh", "owner/repo", Map.of("branch", "main"));
+        RawFetchRequest jiraRequest = new RawFetchRequest("jira:token", "PROJ", Map.of("baseUrl", "https://jira.example.com"));
+        RawFetchRequest slackRequest = new RawFetchRequest("Bearer slack", null, Map.of());
+
+        GitHubRawService.GitHubFetchContext githubContext = githubContext();
+        when(gitHubRawService.prepareFetchContext(githubRequest)).thenReturn(githubContext);
+        when(gitHubRawService.fetchMergedPullRequestPage(githubContext, 1))
+                .thenReturn(new GitHubRawService.GitHubPage(List.of(), true));
+        when(gitHubRawService.fetchCommitPrNumbers(githubContext, List.of())).thenReturn(Map.of());
+        when(gitHubRawService.fetchCommitPage(githubContext, 1, Map.of()))
+                .thenReturn(new GitHubRawService.GitHubPage(List.of(), true));
+        when(gitHubRawService.fetchIssuePage(githubContext, 1))
+                .thenReturn(new GitHubRawService.GitHubPage(List.of(), true));
+
+        JiraRawService.JiraFetchContext jiraContext = new JiraRawService.JiraFetchContext(
+                org.springframework.web.reactive.function.client.WebClient.builder().build(),
+                "Basic token",
+                "PROJ",
+                null
+        );
+        when(jiraRawService.prepareFetchContext(jiraRequest)).thenReturn(jiraContext);
+        when(jiraRawService.fetchSearchPage(jiraContext, null, 1))
+                .thenReturn(new JiraRawService.JiraSearchPage(Map.of("issues", List.of()), null, false));
+
+        SlackRawService.SlackFetchContext slackContext = slackContext();
+        when(slackRawService.prepareFetchContext(slackRequest)).thenReturn(slackContext);
+        when(slackRawService.fetchChannels(slackContext)).thenReturn(List.of());
+
+        CollectionResult result = pipelineService.collectIncremental(context);
+
+        assertThat(result.github()).isZero();
+        assertThat(result.jira()).isZero();
+        assertThat(result.slack()).isZero();
+        verify(gitHubRawService).prepareFetchContext(githubRequest);
+        verify(jiraRawService).prepareFetchContext(jiraRequest);
+        verify(slackRawService).prepareFetchContext(slackRequest);
     }
 
     @Test

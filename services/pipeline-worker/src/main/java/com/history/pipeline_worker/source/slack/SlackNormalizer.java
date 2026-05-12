@@ -1,7 +1,8 @@
-package com.history.pipeline_worker.normalizer;
+package com.history.pipeline_worker.source.slack;
 
 import com.history.pipeline_worker.dto.ActorDto;
 import com.history.pipeline_worker.dto.NormalizedEvent;
+import com.history.pipeline_worker.normalizer.RefsExtractor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

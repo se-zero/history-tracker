@@ -1,5 +1,6 @@
-package com.history.pipeline_worker.normalizer;
+package com.history.pipeline_worker.source.jira;
 
+import com.history.pipeline_worker.normalizer.RefsExtractor;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -234,7 +235,7 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.refs()).containsEntry("assigneeAccountId", "assignee-account-id");
+        assertThat(event.refs()).containsEntry("assigneeId", "assignee-account-id");
     }
 
     @Test

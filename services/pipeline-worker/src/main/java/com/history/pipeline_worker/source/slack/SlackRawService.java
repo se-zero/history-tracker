@@ -1,8 +1,7 @@
-package com.history.pipeline_worker.service;
+package com.history.pipeline_worker.source.slack;
 
 import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
-import com.history.pipeline_worker.ratelimit.SlackRateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;

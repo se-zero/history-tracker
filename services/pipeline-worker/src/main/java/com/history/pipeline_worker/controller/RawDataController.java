@@ -2,9 +2,9 @@ package com.history.pipeline_worker.controller;
 
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.dto.RawFetchResponse;
-import com.history.pipeline_worker.service.GitHubRawService;
-import com.history.pipeline_worker.service.JiraRawService;
-import com.history.pipeline_worker.service.SlackRawService;
+import com.history.pipeline_worker.source.github.GitHubRawService;
+import com.history.pipeline_worker.source.jira.JiraRawService;
+import com.history.pipeline_worker.source.slack.SlackRawService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

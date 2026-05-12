@@ -1,4 +1,4 @@
-package com.history.pipeline_worker.ratelimit;
+package com.history.pipeline_worker.source.github;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

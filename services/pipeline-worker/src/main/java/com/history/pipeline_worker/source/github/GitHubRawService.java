@@ -1,9 +1,8 @@
-package com.history.pipeline_worker.service;
+package com.history.pipeline_worker.source.github;
 
 import com.history.pipeline_worker.checkpoint.CheckpointData;
 import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
-import com.history.pipeline_worker.ratelimit.GitHubRateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;

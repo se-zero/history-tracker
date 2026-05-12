@@ -1,12 +1,19 @@
-package com.history.pipeline_worker.service;
+package com.history.pipeline_worker.pipeline;
 
 import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
+import com.history.pipeline_worker.collection.GitHubIntegration;
+import com.history.pipeline_worker.collection.JiraIntegration;
+import com.history.pipeline_worker.collection.ProjectCollectionContext;
+import com.history.pipeline_worker.collection.SlackIntegration;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.messaging.EventPublisher;
-import com.history.pipeline_worker.normalizer.GitHubNormalizer;
-import com.history.pipeline_worker.normalizer.JiraNormalizer;
-import com.history.pipeline_worker.normalizer.SlackNormalizer;
+import com.history.pipeline_worker.source.github.GitHubNormalizer;
+import com.history.pipeline_worker.source.github.GitHubRawService;
+import com.history.pipeline_worker.source.jira.JiraNormalizer;
+import com.history.pipeline_worker.source.jira.JiraRawService;
+import com.history.pipeline_worker.source.slack.SlackNormalizer;
+import com.history.pipeline_worker.source.slack.SlackRawService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,6 +40,20 @@ public class PipelineService {
 
     private final EventPublisher eventPublisher;
     private final FileCheckpointManager checkpointManager;
+
+    public CollectionResult collectIncremental(ProjectCollectionContext context) {
+        int github = normalizeGitHub(toRawFetchRequest(context.github()));
+        int jira = context.jira()
+                .map(this::toRawFetchRequest)
+                .map(this::normalizeJira)
+                .orElse(0);
+        int slack = context.slack()
+                .map(this::toRawFetchRequest)
+                .map(this::normalizeSlack)
+                .orElse(0);
+
+        return new CollectionResult(github, jira, slack);
+    }
 
     public int normalizeGitHub(RawFetchRequest request) {
         GitHubRawService.GitHubFetchContext context = gitHubRawService.prepareFetchContext(request);
@@ -149,6 +170,26 @@ public class PipelineService {
         if (candidate == null) return current;
         if (current == null || candidate.isAfter(current)) return candidate;
         return current;
+    }
+
+    private RawFetchRequest toRawFetchRequest(GitHubIntegration integration) {
+        Map<String, String> options = new HashMap<>();
+        if (integration.branch() != null && !integration.branch().isBlank()) {
+            options.put("branch", integration.branch());
+        }
+        return new RawFetchRequest(integration.credentials(), integration.repositoryFullName(), options);
+    }
+
+    private RawFetchRequest toRawFetchRequest(JiraIntegration integration) {
+        Map<String, String> options = new HashMap<>();
+        if (integration.baseUrl() != null && !integration.baseUrl().isBlank()) {
+            options.put("baseUrl", integration.baseUrl());
+        }
+        return new RawFetchRequest(integration.credentials(), integration.projectKey(), options);
+    }
+
+    private RawFetchRequest toRawFetchRequest(SlackIntegration integration) {
+        return new RawFetchRequest(integration.credentials(), null, Map.of());
     }
 
 }

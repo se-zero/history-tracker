@@ -2,7 +2,7 @@ package com.history.pipeline_worker.controller;
 
 import com.history.pipeline_worker.dto.QueuedResponse;
 import com.history.pipeline_worker.dto.RawFetchRequest;
-import com.history.pipeline_worker.service.PipelineService;
+import com.history.pipeline_worker.pipeline.PipelineService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

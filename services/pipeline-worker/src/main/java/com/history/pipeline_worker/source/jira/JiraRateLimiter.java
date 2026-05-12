@@ -1,4 +1,4 @@
-package com.history.pipeline_worker.ratelimit;
+package com.history.pipeline_worker.source.jira;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;

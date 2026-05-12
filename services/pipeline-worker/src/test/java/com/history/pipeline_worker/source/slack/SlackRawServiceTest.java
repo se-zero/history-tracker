@@ -1,9 +1,8 @@
-package com.history.pipeline_worker.service;
+package com.history.pipeline_worker.source.slack;
 
 import com.history.pipeline_worker.checkpoint.CheckpointData;
 import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
-import com.history.pipeline_worker.ratelimit.SlackRateLimiter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
