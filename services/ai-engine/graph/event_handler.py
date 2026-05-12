@@ -57,7 +57,7 @@ async def _handle_changeset(event: dict) -> None:
     if refs.get("jiraKey"):
         await builder.link_changeset_to_issue(hash_, refs["jiraKey"])
     if refs.get("prNumber"):
-        await builder.link_pr_to_changeset(refs["prNumber"], hash_)
+        await builder.link_pr_to_changeset(int(refs["prNumber"]), hash_)
 
     # Layer 3: 파일별 diff 요약 + 임베딩 → MODIFIED 엣지 (병렬 처리)
     files = [f for f in (props.get("files") or []) if not should_skip(f.get("path", ""))]

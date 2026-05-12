@@ -37,6 +37,32 @@ async def close_driver() -> None:
         _driver = None
 
 
+async def ensure_vector_indexes() -> None:
+    """comm_embedding, issue_embedding 벡터 인덱스를 생성한다. 이미 존재하면 무시."""
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            CREATE VECTOR INDEX comm_embedding IF NOT EXISTS
+            FOR (c:Communication) ON (c.embedding)
+            OPTIONS { indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }}
+            """
+        )
+        await session.run(
+            """
+            CREATE VECTOR INDEX issue_embedding IF NOT EXISTS
+            FOR (i:Issue) ON (i.embedding)
+            OPTIONS { indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }}
+            """
+        )
+    logger.info("벡터 인덱스 확인 완료 (comm_embedding, issue_embedding)")
+
+
 # ── Layer 1 + Layer 3 upserts ─────────────────────────────────────────────
 
 

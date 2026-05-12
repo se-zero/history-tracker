@@ -16,7 +16,8 @@ logging.basicConfig(
 )
 """
 
-from graph.builder import close_driver, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
+from agent import orchestrator
+from graph.builder import close_driver, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
 from graph.consumer import start_consumer
 from graph.event_handler import handle
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_driver()  # 연결 검증 겸 초기화
+    await ensure_vector_indexes()
     task = asyncio.create_task(start_consumer())
     try:
         yield
@@ -76,6 +78,17 @@ async def trigger_thread_propagation():
     """방안 C — 스레드 전파: DISCUSSED_IN 엣지를 같은 conversation_id 내 전체 메시지로 전파."""
     created = await propagate_thread_discussed_in()
     return {"created": created}
+
+
+class QueryRequest(BaseModel):
+    question: str
+
+
+@app.post("/query")
+async def query(req: QueryRequest):
+    """자연어 질문을 받아 GraphRAG tool calling으로 답변을 반환한다."""
+    answer = await orchestrator.run(req.question)
+    return {"answer": answer}
 
 
 class IssueLinkOptions(BaseModel):
