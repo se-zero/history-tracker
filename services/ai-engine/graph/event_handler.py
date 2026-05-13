@@ -12,6 +12,13 @@ from graph.summarizer import summarize_diff
 logger = logging.getLogger(__name__)
 
 
+def _is_bot_actor(actor_id: str) -> bool:
+    """GitHub 봇 계정 판별. login이 [bot] 접미사로 끝나는 App bot을 거른다.
+    예: dependabot[bot], renovate[bot], github-actions[bot]
+    """
+    return bool(actor_id) and actor_id.endswith("[bot]")
+
+
 async def handle(event: dict) -> None:
     """NormalizedEvent를 nodeType에 따라 분기 처리한다."""
     node_type = event.get("nodeType", "unknown")
@@ -20,6 +27,11 @@ async def handle(event: dict) -> None:
     actor_id  = actor.get("id", "unknown")
 
     logger.info("[%s/%s] actor=%s 수신", source, node_type, actor_id)
+
+    # GitHub 봇 커밋/PR은 그래프에서 제외 (의사결정 맥락 노이즈)
+    if source == "GITHUB" and node_type in ("ChangeSet", "PullRequest") and _is_bot_actor(actor_id):
+        logger.debug("봇 이벤트 건너뜀: actor=%s nodeType=%s", actor_id, node_type)
+        return
 
     if node_type == "ChangeSet":
         await _handle_changeset(event)
