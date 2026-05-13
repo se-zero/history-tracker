@@ -18,6 +18,7 @@ logging.basicConfig(
 
 from agent import orchestrator
 from graph.builder import close_driver, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
+from graph.slack_batch_filter import run_slack_llm_filter
 from graph.consumer import start_consumer
 from graph.event_handler import handle
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
@@ -89,6 +90,25 @@ async def query(req: QueryRequest):
     """자연어 질문을 받아 GraphRAG tool calling으로 답변을 반환한다."""
     answer = await orchestrator.run(req.question)
     return {"answer": answer}
+
+
+class SlackFilterOptions(BaseModel):
+    repo: str = ""  # "owner/repo" 형식, 없으면 기본 컨텍스트 사용
+
+
+@app.post("/slack/filter")
+async def trigger_slack_filter(options: SlackFilterOptions = SlackFilterOptions()):
+    """LLM 기반 Slack Communication 배치 필터링.
+    슬랙 데이터 수집 완료 후 수동 호출. 스레드 단위 또는 (channel, date) 묶음으로 LLM 판단.
+    """
+    project_context = ""
+    if options.repo and "/" in options.repo:
+        from graph.project_context import get_project_summary
+        owner, repo_name = options.repo.split("/", 1)
+        project_context = await asyncio.to_thread(get_project_summary, owner, repo_name)
+
+    result = await run_slack_llm_filter(project_context)
+    return result
 
 
 class IssueLinkOptions(BaseModel):

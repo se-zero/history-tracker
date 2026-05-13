@@ -215,6 +215,7 @@ async def upsert_communication(
     source: str,
     actor_uuid: str,
     embedding: list[float],
+    llm_filtered: bool = False,
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
@@ -227,7 +228,8 @@ async def upsert_communication(
                 comm.occurredAt = datetime($occurred_at),
                 comm.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
                 comm.source = $source,
-                comm.embedding = $embedding
+                comm.embedding = $embedding,
+                comm.llm_filtered = $llm_filtered
             MERGE (a)-[:WROTE]->(comm)
             """,
             actor_uuid=actor_uuid,
@@ -239,6 +241,7 @@ async def upsert_communication(
             created_at=created_at,
             source=source,
             embedding=embedding,
+            llm_filtered=llm_filtered,
         )
 
 
@@ -643,6 +646,48 @@ async def _create_actor(
         )
         record = await result.single()
     return dict(record)
+
+
+async def fetch_unfiltered_communications() -> list[dict]:
+    """llm_filtered=False인 Communication 노드를 배치 필터용으로 조회한다."""
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (comm:Communication)
+            WHERE comm.llm_filtered = false
+            RETURN comm.url AS url, comm.body AS body,
+                   comm.channel AS channel,
+                   comm.conversation_id AS conversation_id,
+                   comm.occurredAt AS occurred_at
+            """
+        )
+        rows = await result.data()
+    return [
+        {
+            "url": r["url"],
+            "body": r["body"],
+            "channel": r["channel"] or "",
+            "conversation_id": r["conversation_id"] or "",
+            "occurred_at": r["occurred_at"].to_native() if r["occurred_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+async def mark_communication_llm_filtered(url: str) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            "MATCH (comm:Communication {url: $url}) SET comm.llm_filtered = true",
+            url=url,
+        )
+
+
+async def delete_communication(url: str) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            "MATCH (comm:Communication {url: $url}) DETACH DELETE comm",
+            url=url,
+        )
 
 
 def make_neo4j_actor_store():

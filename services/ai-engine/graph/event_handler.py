@@ -6,6 +6,7 @@ from graph.actor_resolver import resolve_actor
 from graph.builder import make_neo4j_actor_store
 from graph.embedder import embed_text
 from graph.path_filter import should_skip
+from graph.slack_filter import should_skip_slack
 from graph.summarizer import summarize_diff
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,10 @@ async def _handle_communication(event: dict) -> None:
         logger.warning("Communication url 없음 — 건너뜀 (channel=%s)", props.get("channel"))
         return
 
+    if should_skip_slack(body):
+        logger.debug("Communication 룰 필터 제거: url=%s", url)
+        return
+
     resolved  = await resolve_actor(actor, source, make_neo4j_actor_store(), event)
     embedding = await embed_text(body)
 
@@ -173,6 +178,7 @@ async def _handle_communication(event: dict) -> None:
         source=source,
         actor_uuid=resolved["uuid"],
         embedding=embedding,
+        llm_filtered=False,
     )
 
     # Layer 2: refs.jiraKey → DISCUSSED_IN
