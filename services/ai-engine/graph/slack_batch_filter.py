@@ -38,11 +38,12 @@ async def run_slack_llm_filter(project_context: str = "") -> dict:
     kept = 0
     deleted = 0
 
-    # 스레드 단위 처리
+    # 스레드 단위 처리 (occurred_at 기준 정렬 후 LLM 호출)
     for cid, msgs in threads.items():
+        msgs.sort(key=lambda m: m["occurred_at"] or 0)
         bodies = [m["body"] for m in msgs]
         try:
-            keep_flags = await asyncio.to_thread(filter_messages, bodies, project_context)
+            keep_flags = await asyncio.to_thread(filter_messages, bodies, project_context, True)
         except Exception:
             logger.exception("스레드 LLM 필터 실패, 전체 보존: conversation_id=%s", cid)
             keep_flags = [True] * len(msgs)
