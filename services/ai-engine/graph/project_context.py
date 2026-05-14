@@ -7,10 +7,13 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=30.0)
 
-_NOT_LOADED = object()
-_cached_summary: str | None = _NOT_LOADED  # type: ignore[assignment]
+# (owner, repo) → 요약 결과 캐시. None은 "요약 불가" 캐시값.
+_summary_cache: dict[tuple[str, str], str | None] = {}
+
+_MIN_README_LENGTH = 100
+_MAX_README_CHARS = 30000
 
 _SUMMARIZE_PROMPT = """\
 아래는 GitHub 레포지토리의 README입니다.
@@ -27,8 +30,6 @@ null
 
 마크다운, 불릿, 헤더 없이 plain text로만 작성하세요.
 """
-
-_MIN_README_LENGTH = 100
 
 
 def _fetch_readme(owner: str, repo: str) -> str | None:
@@ -47,45 +48,64 @@ def _fetch_readme(owner: str, repo: str) -> str | None:
     return base64.b64decode(content).decode("utf-8")
 
 
+def _is_null_response(text: str) -> bool:
+    """LLM 응답이 'null 의도' 인지 보수적으로 판단.
+    'null', 'Null.', 'null입니다' 등 'null' 토큰으로 시작하는 짧은 응답은 모두 null로 처리.
+    """
+    stripped = text.strip().lower()
+    if not stripped:
+        return True
+    # 30자 이내이면서 'null'로 시작하면 null 의도로 간주
+    return len(stripped) <= 30 and stripped.startswith("null")
+
+
 def _summarize(readme: str) -> str | None:
-    response = _client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": _SUMMARIZE_PROMPT},
-            {"role": "user", "content": readme},
-        ],
-        temperature=0,
-    )
+    if len(readme) > _MAX_README_CHARS:
+        logger.info("README 크기 초과 (%d자), 앞 %d자만 사용", len(readme), _MAX_README_CHARS)
+        readme = readme[:_MAX_README_CHARS]
+
+    try:
+        response = _client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _SUMMARIZE_PROMPT},
+                {"role": "user", "content": readme},
+            ],
+            temperature=0,
+        )
+    except Exception:
+        logger.exception("프로젝트 요약 LLM 호출 실패")
+        return None
+
     result = response.choices[0].message.content.strip()
-    return None if result.lower() == "null" else result
+    return None if _is_null_response(result) else result
 
 
 def get_project_summary(owner: str, repo: str) -> str | None:
-    """README를 가져와 LLM으로 요약한 프로젝트 설명 반환. 최초 1회만 실행 후 캐시.
+    """README를 가져와 LLM으로 요약한 프로젝트 설명 반환. (owner, repo) 단위로 캐시.
 
     Returns:
         요약 문자열, 또는 README가 없거나 의미 없는 경우 None
     """
-    global _cached_summary
-    if _cached_summary is not _NOT_LOADED:
-        return _cached_summary  # type: ignore[return-value]
+    key = (owner, repo)
+    if key in _summary_cache:
+        return _summary_cache[key]
 
+    summary: str | None = None
     try:
         readme = _fetch_readme(owner, repo)
         if readme is None:
             logger.info("README 없음: %s/%s", owner, repo)
-            _cached_summary = None
         elif len(readme.strip()) < _MIN_README_LENGTH:
             logger.info("README 너무 짧음 (%d자): %s/%s", len(readme.strip()), owner, repo)
-            _cached_summary = None
         else:
-            _cached_summary = _summarize(readme)
-            if _cached_summary is None:
-                logger.info("README 내용 불충분 (LLM 판단): %s/%s", owner, repo)
+            summary = _summarize(readme)
+            if summary is None:
+                logger.info("README 내용 불충분 또는 요약 실패: %s/%s", owner, repo)
             else:
                 logger.info("프로젝트 컨텍스트 로드 완료: %s/%s", owner, repo)
-    except Exception as e:
-        logger.warning("README 로드 실패: %s", e)
-        _cached_summary = None
+    except Exception:
+        logger.exception("README 로드 실패: %s/%s", owner, repo)
 
-    return _cached_summary  # type: ignore[return-value]
+    _summary_cache[key] = summary
+    return summary

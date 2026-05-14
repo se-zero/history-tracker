@@ -116,6 +116,7 @@ class IssueLinkOptions(BaseModel):
     llm_verify: bool = False
     top_k: int = 5
     llm_threshold: float = 0.7
+    repo: str = ""  # "owner/repo" 형식. llm_verify=true 일 때 도메인 컨텍스트 주입에 사용
 
 
 @app.post("/issue-links/build")
@@ -131,11 +132,17 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
             build_issue_changeset_links_verified,
             build_issue_communication_links_verified,
         )
+        project_context = ""
+        if options.repo and "/" in options.repo:
+            from graph.project_context import get_project_summary
+            owner, repo_name = options.repo.split("/", 1)
+            project_context = await asyncio.to_thread(get_project_summary, owner, repo_name) or ""
+
         triggered_by = await build_issue_changeset_links_verified(
-            store, options.threshold, options.top_k, options.llm_threshold
+            store, options.threshold, options.top_k, options.llm_threshold, project_context,
         )
         discussed_in = await build_issue_communication_links_verified(
-            store, options.threshold, options.top_k, options.llm_threshold
+            store, options.threshold, options.top_k, options.llm_threshold, project_context,
         )
     else:
         triggered_by = await build_issue_changeset_links(store, threshold=options.threshold)
