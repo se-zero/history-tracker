@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -27,10 +28,25 @@ from graph.reference_builder import backfill_communication_embeddings, build_ref
 logger = logging.getLogger(__name__)
 
 
+async def _prewarm_project_context() -> None:
+    """GITHUB_REPO 환경변수가 설정되어 있으면 시작 시점에 프로젝트 컨텍스트를 캐시한다.
+    이후 모든 엔드포인트는 콜드 스타트 race condition 없이 캐시 히트로 동작한다.
+    실패해도 서비스는 정상 기동한다 (None이 캐시되므로 추후 재시도 안 함)."""
+    repo = os.environ.get("GITHUB_REPO", "")
+    if not repo or "/" not in repo:
+        logger.info("GITHUB_REPO 미설정 — 프로젝트 컨텍스트 pre-warm 생략")
+        return
+    owner, repo_name = repo.split("/", 1)
+    from graph.project_context import get_project_summary
+    summary = await asyncio.to_thread(get_project_summary, owner, repo_name)
+    logger.info("프로젝트 컨텍스트 pre-warm 완료: %s/%s loaded=%s", owner, repo_name, summary is not None)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_driver()  # 연결 검증 겸 초기화
     await ensure_vector_indexes()
+    await _prewarm_project_context()
     task = asyncio.create_task(start_consumer())
     try:
         yield
@@ -83,12 +99,19 @@ async def trigger_thread_propagation():
 
 class QueryRequest(BaseModel):
     question: str
+    repo: str = ""  # "owner/repo" 형식. 도메인 컨텍스트 주입용. 없으면 컨텍스트 없이 동작.
 
 
 @app.post("/query")
 async def query(req: QueryRequest):
     """자연어 질문을 받아 GraphRAG tool calling으로 답변을 반환한다."""
-    answer = await orchestrator.run(req.question)
+    project_context = ""
+    if req.repo and "/" in req.repo:
+        from graph.project_context import get_project_summary
+        owner, repo_name = req.repo.split("/", 1)
+        project_context = await asyncio.to_thread(get_project_summary, owner, repo_name) or ""
+
+    answer = await orchestrator.run(req.question, project_context)
     return {"answer": answer}
 
 

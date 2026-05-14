@@ -23,7 +23,7 @@ if __name__ == "__main__":
             from graph.project_context import get_project_summary
             owner, repo_name = repo.split("/", 1)
             print(f"\n[프로젝트 컨텍스트 로드 중] {owner}/{repo_name}")
-            project_context = get_project_summary(owner, repo_name)
+            project_context = get_project_summary(owner, repo_name) or ""
             print(f"[컨텍스트]\n{project_context}\n")
         else:
             print("[경고] --repo=owner/repo 또는 GITHUB_REPO 환경변수가 없어 기본 컨텍스트 사용")
