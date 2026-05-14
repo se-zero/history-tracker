@@ -584,14 +584,22 @@ async def _lookup_actor_activities(actor: dict) -> list[dict]:
                    n.source AS source,
                    n.message AS message,
                    n.title AS title,
-                   n.body AS body
+                   n.body AS body,
+                   n.channel AS channel,
+                   n.occurredAt AS occurred_at
             ORDER BY n.occurredAt DESC
             LIMIT 10
             """,
             actor_uuid=actor.get("uuid"),
         )
         rows = await result.data()
-    return [dict(r) for r in rows]
+    return [
+        {
+            **{k: r[k] for k in ("nodeType", "source", "message", "title", "body", "channel")},
+            "occurred_at": r["occurred_at"].to_native() if r["occurred_at"] else None,
+        }
+        for r in rows
+    ]
 
 
 async def _merge_actor(
