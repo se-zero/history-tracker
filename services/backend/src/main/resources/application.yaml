@@ -25,3 +25,12 @@ security:
     secret: ${JWT_SECRET:local-development-jwt-secret-must-be-changed}
     access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT15M}
     refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:P14D}
+
+github:
+  app:
+    client-id: ${GITHUB_CLIENT_ID:}
+    client-secret: ${GITHUB_CLIENT_SECRET:}
+    redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/v1/auth/github/callback}
+    authorize-url: ${GITHUB_AUTHORIZE_URL:https://github.com/login/oauth/authorize}
+    access-token-url: ${GITHUB_ACCESS_TOKEN_URL:https://github.com/login/oauth/access_token}
+    user-url: ${GITHUB_USER_URL:https://api.github.com/user}

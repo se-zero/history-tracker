@@ -3,7 +3,6 @@ package com.history.backend.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.backend.common.error.ErrorResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -17,7 +16,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @RequiredArgsConstructor
-@EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();

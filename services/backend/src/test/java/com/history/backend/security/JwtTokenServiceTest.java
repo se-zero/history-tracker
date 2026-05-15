@@ -27,7 +27,9 @@ class JwtTokenServiceTest {
         JwtTokenService tokenService = tokenService(Duration.ofMinutes(15));
         String token = tokenService.issueAccessToken(USER_ID);
 
-        String tamperedToken = token.substring(0, token.length() - 1) + "x";
+        String[] parts = token.split("\\.");
+        String tamperedPayload = (parts[1].charAt(0) == 'e' ? "a" : "e") + parts[1].substring(1);
+        String tamperedToken = parts[0] + "." + tamperedPayload + "." + parts[2];
 
         assertThrows(JwtAuthenticationException.class, () -> tokenService.validateAccessToken(tamperedToken));
     }

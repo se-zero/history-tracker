@@ -2,16 +2,18 @@ package com.history.backend.common.error;
 
 import java.util.List;
 
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
+// 글로벌 예외 처리 클래스
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-
-    // 도메인 예외를 공통 API 에러 응답으로 변환한다.
+    
     @ExceptionHandler(NotFoundException.class)
     ResponseEntity<ErrorResponse> handleNotFound(NotFoundException exception) {
         return errorResponse(HttpStatus.NOT_FOUND, exception.getMessage());
@@ -35,6 +37,16 @@ public class GlobalExceptionHandler {
                         "Request validation failed.",
                         fields
                 ));
+    }
+
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    ResponseEntity<ErrorResponse> handleHandlerMethodValidation(HandlerMethodValidationException exception) {
+        return errorResponse(HttpStatus.BAD_REQUEST, "Request validation failed.");
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException exception) {
+        return errorResponse(HttpStatus.BAD_REQUEST, "Request validation failed.");
     }
 
     private ResponseEntity<ErrorResponse> errorResponse(HttpStatus status, String message) {

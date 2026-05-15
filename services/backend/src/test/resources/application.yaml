@@ -20,3 +20,12 @@ security:
     secret: test-jwt-secret-for-backend-security-tests
     access-token-ttl: PT15M
     refresh-token-ttl: P14D
+
+github:
+  app:
+    client-id: test-client-id
+    client-secret: test-client-secret
+    redirect-uri: http://localhost/api/v1/auth/github/callback
+    authorize-url: https://github.com/login/oauth/authorize
+    access-token-url: https://github.com/login/oauth/access_token
+    user-url: https://api.github.com/user
