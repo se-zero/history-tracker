@@ -10,7 +10,7 @@ from tools.executor import execute
 
 logger = logging.getLogger(__name__)
 
-_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=60.0)
 _MODEL = os.environ.get("QUERY_MODEL", "gpt-4o-mini")
 _MAX_ITERATIONS = 10
 
@@ -36,61 +36,107 @@ GitHub(커밋, PR), Jira(이슈), Slack(메시지) 데이터가 Neo4j 지식 그
 - 여러 출처 비교: get_conflict_context
 """
 
+_FALLBACK_ANSWER = "답변을 생성하지 못했습니다."
+_LLM_FAILURE_ANSWER = "AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
 
-async def run(question: str) -> str:
-    """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환."""
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": question},
+
+def _build_system_prompt(project_context: str = "") -> str:
+    """프로젝트 컨텍스트가 있으면 시스템 프롬프트 상단에 도메인 정보를 주입한다."""
+    if not project_context.strip():
+        return _SYSTEM_PROMPT
+    return (
+        f"[프로젝트 컨텍스트]\n{project_context.strip()}\n"
+        f"위 프로젝트의 도메인 용어와 일관되게 답변하고, 도구 호출 키워드도 도메인에 맞춰 선택하세요.\n\n"
+        f"{_SYSTEM_PROMPT}"
+    )
+
+
+async def _call_llm(messages: list, with_tools: bool = True):
+    """OpenAI tool calling 호출. 실패 시 None 반환."""
+    kwargs = {"model": _MODEL, "messages": messages}
+    if with_tools:
+        kwargs["tools"]       = TOOLS
+        kwargs["tool_choice"] = "auto"
+    try:
+        return await asyncio.to_thread(_client.chat.completions.create, **kwargs)
+    except Exception:
+        logger.exception("LLM 호출 실패")
+        return None
+
+
+def _tool_error(tool_call_id: str, message: str) -> dict:
+    """도구 호출 실패를 LLM에게 전달할 메시지 형태로 만든다."""
+    return {
+        "role": "tool",
+        "tool_call_id": tool_call_id,
+        "content": json.dumps({"error": message}, ensure_ascii=False),
+    }
+
+
+async def run(question: str, project_context: str = "") -> str:
+    """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환.
+    project_context가 주어지면 시스템 프롬프트에 도메인 정보를 주입한다.
+    """
+    messages: list = [
+        {"role": "system", "content": _build_system_prompt(project_context)},
+        {"role": "user",   "content": question},
     ]
+    seen_calls: set[tuple[str, str]] = set()  # (tool_name, args_json) 중복 호출 가드
 
     for iteration in range(_MAX_ITERATIONS):
-        response = await asyncio.to_thread(
-            _client.chat.completions.create,
-            model=_MODEL,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-        )
+        response = await _call_llm(messages, with_tools=True)
+        if response is None:
+            return _LLM_FAILURE_ANSWER
 
         message = response.choices[0].message
 
         # tool_calls 없음 → 최종 텍스트 답변
         if not message.tool_calls:
-            return message.content or "답변을 생성하지 못했습니다."
+            return message.content or _FALLBACK_ANSWER
 
-        # tool_calls 실행
         messages.append(message)
 
-        tool_results = []
         for tc in message.tool_calls:
             tool_name = tc.function.name
+
+            # 인자 JSON 파싱 — 실패 시 LLM이 다음 iteration에서 교정할 수 있게 명확히 알림
             try:
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:
-                args = {}
+                logger.warning("도구 인자 JSON 파싱 실패: %s", tool_name)
+                messages.append(_tool_error(
+                    tc.id,
+                    f"{tool_name} 인자 JSON 파싱 실패. 올바른 JSON 형식으로 다시 호출하세요.",
+                ))
+                continue
 
-            logger.info("도구 호출: %s args=%s", tool_name, args)
+            # 중복 호출 가드 — 같은 인자로 같은 도구를 반복 호출하면 비용/컨텍스트 낭비
+            call_key = (tool_name, json.dumps(args, sort_keys=True, ensure_ascii=False))
+            if call_key in seen_calls:
+                logger.info("중복 도구 호출 차단: %s args=%s", tool_name, args)
+                messages.append(_tool_error(
+                    tc.id,
+                    f"{tool_name}을(를) 동일한 인자로 이미 호출했습니다. 이전 결과를 참고하거나 다른 인자/도구를 시도하세요.",
+                ))
+                continue
+            seen_calls.add(call_key)
+
+            logger.info("도구 호출: %s", tool_name)
             result_str = await execute(tool_name, args)
-            logger.debug("도구 결과: %s → %s", tool_name, result_str[:200])
+            logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
 
-            tool_results.append({
+            messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
                 "content": result_str,
             })
 
-        messages.extend(tool_results)
-
-    logger.warning("최대 반복 횟수(%d) 도달 — 부분 답변 반환", _MAX_ITERATIONS)
-    # 마지막으로 tool 없이 최종 답변 요청
+    logger.warning("최대 반복 횟수(%d) 도달 — 부분 답변 요청", _MAX_ITERATIONS)
     messages.append({
         "role": "user",
         "content": "지금까지 수집한 정보를 바탕으로 최종 답변을 작성해주세요.",
     })
-    response = await asyncio.to_thread(
-        _client.chat.completions.create,
-        model=_MODEL,
-        messages=messages,
-    )
-    return response.choices[0].message.content or "답변을 생성하지 못했습니다."
+    response = await _call_llm(messages, with_tools=False)
+    if response is None:
+        return _LLM_FAILURE_ANSWER
+    return response.choices[0].message.content or _FALLBACK_ANSWER

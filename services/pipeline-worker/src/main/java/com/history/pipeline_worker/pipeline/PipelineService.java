@@ -60,6 +60,8 @@ public class PipelineService {
         Map<String, String> commitPrNumbers = new HashMap<>();
         int published = 0;
         Instant pullRequestCheckpoint = null;
+        Instant commitCheckpoint = null;
+        Instant issueCheckpoint = null;
 
         int pageNumber = 1;
         while (true) {
@@ -78,7 +80,7 @@ public class PipelineService {
             GitHubRawService.GitHubPage page = gitHubRawService.fetchCommitPage(context, pageNumber, commitPrNumbers);
             List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizeCommits(page.items());
             published += eventPublisher.publishAll(pageEvents);
-            maxOccurredAt(pageEvents).ifPresent(checkpointManager::updateGitHubCommits);
+            commitCheckpoint = maxInstant(commitCheckpoint, maxOccurredAt(pageEvents).orElse(null));
 
             if (page.finished()) break;
             pageNumber++;
@@ -87,16 +89,23 @@ public class PipelineService {
         if (pullRequestCheckpoint != null) {
             checkpointManager.updateGitHubPullRequests(pullRequestCheckpoint);
         }
+        if (commitCheckpoint != null) {
+            checkpointManager.updateGitHubCommits(commitCheckpoint);
+        }
 
         pageNumber = 1;
         while (true) {
             GitHubRawService.GitHubPage page = gitHubRawService.fetchIssuePage(context, pageNumber);
             List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizeIssues(page.items());
             published += eventPublisher.publishAll(pageEvents);
-            maxOccurredAt(pageEvents).ifPresent(checkpointManager::updateGitHubIssues);
+            issueCheckpoint = maxInstant(issueCheckpoint, maxOccurredAt(pageEvents).orElse(null));
 
             if (page.finished()) break;
             pageNumber++;
+        }
+
+        if (issueCheckpoint != null) {
+            checkpointManager.updateGitHubIssues(issueCheckpoint);
         }
 
         log.info("GitHub 이벤트 발행: {}", published);

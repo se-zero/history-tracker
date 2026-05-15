@@ -6,9 +6,17 @@ from graph.actor_resolver import resolve_actor
 from graph.builder import make_neo4j_actor_store
 from graph.embedder import embed_text
 from graph.path_filter import should_skip
+from graph.slack_filter import should_skip_slack
 from graph.summarizer import summarize_diff
 
 logger = logging.getLogger(__name__)
+
+
+def _is_bot_actor(actor_id: str) -> bool:
+    """GitHub 봇 계정 판별. login이 [bot] 접미사로 끝나는 App bot을 거른다.
+    예: dependabot[bot], renovate[bot], github-actions[bot]
+    """
+    return bool(actor_id) and actor_id.endswith("[bot]")
 
 
 async def handle(event: dict) -> None:
@@ -19,6 +27,11 @@ async def handle(event: dict) -> None:
     actor_id  = actor.get("id", "unknown")
 
     logger.info("[%s/%s] actor=%s 수신", source, node_type, actor_id)
+
+    # GitHub 봇 커밋/PR은 그래프에서 제외 (의사결정 맥락 노이즈)
+    if source == "GITHUB" and node_type in ("ChangeSet", "PullRequest") and _is_bot_actor(actor_id):
+        logger.debug("봇 이벤트 건너뜀: actor=%s nodeType=%s", actor_id, node_type)
+        return
 
     if node_type == "ChangeSet":
         await _handle_changeset(event)
@@ -160,6 +173,10 @@ async def _handle_communication(event: dict) -> None:
         logger.warning("Communication url 없음 — 건너뜀 (channel=%s)", props.get("channel"))
         return
 
+    if should_skip_slack(body):
+        logger.debug("Communication 룰 필터 제거: url=%s", url)
+        return
+
     resolved  = await resolve_actor(actor, source, make_neo4j_actor_store(), event)
     embedding = await embed_text(body)
 
@@ -173,6 +190,7 @@ async def _handle_communication(event: dict) -> None:
         source=source,
         actor_uuid=resolved["uuid"],
         embedding=embedding,
+        llm_filtered=False,
     )
 
     # Layer 2: refs.jiraKey → DISCUSSED_IN

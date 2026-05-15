@@ -42,10 +42,26 @@ def _truncate(text: str) -> str:
     return text[:_MAX_TEXT_LEN] + "..." if len(text) > _MAX_TEXT_LEN else text
 
 
-def _verify_pair(issue_title: str, issue_body: str, target_type: str, target_text: str) -> float:
-    """LLM으로 Issue와 대상 텍스트의 관련성 판단. confidence(0.0~1.0) 반환."""
+def _verify_pair(
+    issue_title: str,
+    issue_body: str,
+    target_type: str,
+    target_text: str,
+    project_context: str = "",
+) -> float:
+    """LLM으로 Issue와 대상 텍스트의 관련성 판단. confidence(0.0~1.0) 반환.
+
+    project_context가 주어지면 도메인 용어 매칭 정확도 향상에 활용.
+    """
+    context_block = (
+        f"[프로젝트 컨텍스트]\n{project_context.strip()}\n\n"
+        if project_context.strip()
+        else ""
+    )
     prompt = (
-        f"다음 Issue와 {target_type}이 실제로 관련이 있는지 판단해주세요.\n\n"
+        f"{context_block}"
+        f"다음 Issue와 {target_type}이 실제로 관련이 있는지 판단해주세요.\n"
+        f"위 프로젝트 컨텍스트의 도메인 용어가 양쪽에서 일치하는지 우선 확인하세요.\n\n"
         f"Issue:\n제목: {_truncate(issue_title)}\n내용: {_truncate(issue_body)}\n\n"
         f"{target_type}:\n{_truncate(target_text)}\n\n"
         f"JSON 형식으로만 응답: {{\"confidence\": 0.8, \"reason\": \"한 줄 이유\"}}\n"
@@ -70,6 +86,7 @@ async def build_issue_changeset_links_verified(
     threshold: float = DEFAULT_THRESHOLD,
     top_k: int = DEFAULT_TOP_K,
     llm_threshold: float = DEFAULT_LLM_THRESHOLD,
+    project_context: str = "",
 ) -> int:
     """방안 D — Issue ↔ ChangeSet: 임베딩 후보 선별 후 LLM 검증으로 TRIGGERED_BY 생성.
 
@@ -104,7 +121,8 @@ async def build_issue_changeset_links_verified(
         # Stage 2: LLM 검증
         for _, mod in candidates[:top_k]:
             confidence = await asyncio.to_thread(
-                _verify_pair, issue_title, issue_body, "커밋 변경 요약", mod.get("diff_summary", "")
+                _verify_pair, issue_title, issue_body, "커밋 변경 요약",
+                mod.get("diff_summary", ""), project_context,
             )
             if confidence >= llm_threshold:
                 await store.create_triggered_by_edge(mod["changeset_id"], issue["id"], confidence)
@@ -122,6 +140,7 @@ async def build_issue_communication_links_verified(
     threshold: float = DEFAULT_THRESHOLD,
     top_k: int = DEFAULT_TOP_K,
     llm_threshold: float = DEFAULT_LLM_THRESHOLD,
+    project_context: str = "",
 ) -> int:
     """방안 D — Issue ↔ Communication: 임베딩 후보 선별 후 LLM 검증으로 DISCUSSED_IN 생성.
 
@@ -156,7 +175,8 @@ async def build_issue_communication_links_verified(
         # Stage 2: LLM 검증
         for _, comm in candidates[:top_k]:
             confidence = await asyncio.to_thread(
-                _verify_pair, issue_title, issue_body, "Slack 메시지", comm.get("body", "")
+                _verify_pair, issue_title, issue_body, "Slack 메시지",
+                comm.get("body", ""), project_context,
             )
             if confidence >= llm_threshold:
                 await store.create_discussed_in_edge(issue["id"], comm["id"], confidence)

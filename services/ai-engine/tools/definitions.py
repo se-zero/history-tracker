@@ -294,14 +294,15 @@ TOOLS = [
             "name": "get_thread_context",
             "description": (
                 "Slack 스레드를 conversation_id로 완전히 조회한다. "
-                "스레드 전체 맥락 파악, 스레드 전파(방안 C) 검증에 사용."
+                "스레드 전체 맥락 파악, 스레드 전파(방안 C) 검증에 사용. "
+                "Slack 스레드 전용 — GitHub Issue나 다른 소스에는 사용 불가."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "conversation_id": {
                         "type": "string",
-                        "description": "Slack 스레드 루트 메시지 ts (예: 1773799131.000200) 또는 GitHub Issue 번호",
+                        "description": "Slack 스레드 루트 메시지 ts (예: 1773799131.000200)",
                     }
                 },
                 "required": ["conversation_id"],

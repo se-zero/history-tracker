@@ -78,29 +78,38 @@ def normalize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9가-힣]", "", name.lower().strip())
 
 
+_MAX_LLM_CANDIDATES = 3
+
+
 def _score_candidate(new_email: Optional[str], candidate: dict) -> float:
     """기존 Actor 후보와의 매칭 점수를 계산한다.
 
     lookup_by_name으로 찾은 후보는 이름이 이미 매칭됨 → base score 0.5.
 
     Score 구성:
-        +0.5        이름 정규화 매칭 (lookup_by_name 조건이므로 항상 적용)
-        +ratio*0.5  이메일 로컬파트 유사 (SequenceMatcher ratio, 최대 +0.5)
+        +0.5         이름 정규화 매칭 (lookup_by_name 조건이므로 항상 적용)
+        +ratio*0.3   이메일 로컬파트 유사도 (SequenceMatcher ratio)
+        +0.2         이메일 도메인 일치 (동일 조직 신호)
     """
     score = 0.5
     candidate_emails = candidate.get("emails") or []
-    if not new_email or not candidate_emails:
+    if not new_email or "@" not in new_email or not candidate_emails:
         return score
 
-    new_local = new_email.split("@")[0] if "@" in new_email else ""
-    candidate_locals = [e.split("@")[0] for e in candidate_emails if "@" in e]
+    new_local, _, new_domain = new_email.partition("@")
+    candidate_locals  = [e.split("@")[0] for e in candidate_emails if "@" in e]
+    candidate_domains = {e.split("@")[1] for e in candidate_emails if "@" in e}
+
     best_ratio = max(
         (SequenceMatcher(None, new_local, lp).ratio() for lp in candidate_locals),
         default=0.0,
     )
-    score += best_ratio * 0.5
+    score += best_ratio * 0.3
 
-    return score
+    if new_domain in candidate_domains:
+        score += 0.2
+
+    return min(score, 1.0)
 
 
 async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Optional[dict] = None) -> dict:
@@ -146,25 +155,30 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
     candidates = await store.lookup_by_name(normalized_new_name)
 
     if candidates:
-        best_candidate = max(candidates, key=lambda c: _score_candidate(email, c))
-        best_score = _score_candidate(email, best_candidate)
+        scored = sorted(
+            ((_score_candidate(email, c), c) for c in candidates),
+            key=lambda x: x[0],
+            reverse=True,
+        )
         logger.debug(
-            "[Step 2] 후보 %d명, best_score=%.2f, candidate=%s",
-            len(candidates), best_score, best_candidate.get("name"),
+            "[Step 2] 후보 %d명, top scores=%s",
+            len(candidates), [f"{s:.2f}" for s, _ in scored[:_MAX_LLM_CANDIDATES]],
         )
 
-        if best_score >= 0.4:
-            # ── Step 3: LLM 다중 신호 판단 ──────────────────────────────────
-            activities = await store.lookup_activities(best_candidate)
-            result = await judge_same_person(best_candidate, activities, actor, source, event)
+        # ── Step 3: 상위 후보들에 대해 LLM 다중 신호 판단 (max K명) ──────
+        for score, candidate in scored[:_MAX_LLM_CANDIDATES]:
+            if score < 0.4:
+                break
+            activities = await store.lookup_activities(candidate)
+            result = await judge_same_person(candidate, activities, actor, source, event)
             logger.info(
-                "[Step 3] LLM 판단: same=%s, confidence=%.2f, signals=%s",
-                result["same_person"], result["confidence"], result.get("key_signals"),
+                "[Step 3] LLM 판단: candidate=%s same=%s confidence=%.2f signals=%s",
+                candidate.get("name"), result["same_person"], result["confidence"], result.get("key_signals"),
             )
 
-            if result["same_person"] and result["confidence"] >= 0.85:
-                await store.merge_actor(best_candidate, source_id, email, result["confidence"])
-                return best_candidate
+            if result["same_person"] and result["confidence"] >= 0.9:
+                await store.merge_actor(candidate, source_id, email, result["confidence"])
+                return candidate
 
     # ── Step 4: 신규 Actor 노드 생성 ─────────────────────────────────────
     emails = [email] if email else []
