@@ -9,13 +9,10 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-"""
-로그 확인용
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-"""
 
 from agent import orchestrator
 from graph.builder import close_driver, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
