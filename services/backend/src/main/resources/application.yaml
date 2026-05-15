@@ -19,3 +19,9 @@ spring:
 ai:
   engine:
     url: http://localhost:8000
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:local-development-jwt-secret-must-be-changed}
+    access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT15M}
+    refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:P14D}

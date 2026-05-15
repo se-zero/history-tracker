@@ -10,12 +10,33 @@ import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.repository.GitHubInstallationRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
-@SpringBootTest
+@DataJpaTest
+@Testcontainers(disabledWithoutDocker = true)
 @Transactional
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
 class AuthPersistenceTest {
+
+    @Container
+    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @DynamicPropertySource
+    static void configurePostgres(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+    }
 
     @Autowired
     private UserRepository userRepository;
@@ -26,6 +47,10 @@ class AuthPersistenceTest {
     @Autowired
     private GitHubInstallationRepository gitHubInstallationRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    // 운영 PostgreSQL migration 기준으로 Repository 매핑을 검증한다.
     @Test
     void saveAndFindAuthFoundationEntities() {
         User user = userRepository.save(new User(
@@ -55,5 +80,53 @@ class AuthPersistenceTest {
                 .contains(refreshToken);
         assertThat(gitHubInstallationRepository.findByInstallationId(98765L))
                 .contains(installation);
+        assertThat(gitHubInstallationRepository.findAllByInstallerUser(user))
+                .containsExactly(installation);
+        assertThat(gitHubInstallationRepository.findByIdAndInstallerUser(installation.getId(), user))
+                .contains(installation);
+    }
+
+    // soft-deleted user를 위한 운영 partial unique index를 검증한다.
+    @Test
+    void allowSameOAuthIdentityAfterSoftDelete() {
+        User deletedUser = userRepository.saveAndFlush(new User(
+                "github",
+                "12345",
+                "octocat@example.com",
+                "Octocat",
+                null
+        ));
+        deletedUser.softDelete(Instant.now());
+        userRepository.saveAndFlush(deletedUser);
+
+        User newUser = userRepository.saveAndFlush(new User(
+                "github",
+                "12345",
+                "octocat@example.com",
+                "Octocat",
+                null
+        ));
+
+        assertThat(newUser.getId()).isNotEqualTo(deletedUser.getId());
+    }
+
+    // 운영 CITEXT email 비교 규칙을 검증한다.
+    @Test
+    void emailUsesCaseInsensitiveCitextComparison() {
+        userRepository.saveAndFlush(new User(
+                "github",
+                "12345",
+                "Octocat@Example.com",
+                "Octocat",
+                null
+        ));
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE email = ?",
+                Integer.class,
+                "octocat@example.com"
+        );
+
+        assertThat(count).isEqualTo(1);
     }
 }

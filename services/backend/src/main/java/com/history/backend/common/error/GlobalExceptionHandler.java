@@ -11,6 +11,17 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    // 도메인 예외를 공통 API 에러 응답으로 변환한다.
+    @ExceptionHandler(NotFoundException.class)
+    ResponseEntity<ErrorResponse> handleNotFound(NotFoundException exception) {
+        return errorResponse(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    ResponseEntity<ErrorResponse> handleForbidden(ForbiddenException exception) {
+        return errorResponse(HttpStatus.FORBIDDEN, exception.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException exception) {
         List<FieldErrorDetail> fields = exception.getBindingResult().getFieldErrors().stream()
@@ -23,6 +34,15 @@ public class GlobalExceptionHandler {
                         HttpStatus.BAD_REQUEST.getReasonPhrase(),
                         "Request validation failed.",
                         fields
+                ));
+    }
+
+    private ResponseEntity<ErrorResponse> errorResponse(HttpStatus status, String message) {
+        return ResponseEntity.status(status)
+                .body(ErrorResponse.of(
+                        status.value(),
+                        status.getReasonPhrase(),
+                        message
                 ));
     }
 }
