@@ -2,7 +2,7 @@ spring:
   application:
     name: backend
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/history_tracker}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/history_tracker?stringtype=unspecified}
     username: ${DB_USERNAME:history_tracker}
     password: ${DB_PASSWORD:history_tracker}
   flyway:

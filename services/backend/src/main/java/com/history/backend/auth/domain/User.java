@@ -32,7 +32,7 @@ public class User {
     @Column(name = "provider_user_id", nullable = false)
     private String providerUserId;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "citext")
     private String email;
 
     @Column(name = "display_name")
