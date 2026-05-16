@@ -6,13 +6,18 @@ import static org.mockito.Mockito.when;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
+import com.history.backend.github.dto.GitHubInstallationAccountResponse;
+import com.history.backend.github.dto.GitHubInstallationResponse;
+import com.history.backend.github.dto.GitHubInstallationsResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
+import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
@@ -31,7 +36,8 @@ class AuthServiceTest {
             "http://localhost/api/v1/auth/github/callback",
             "https://github.com/login/oauth/authorize",
             "https://github.com/login/oauth/access_token",
-            "https://api.github.com/user"
+            "https://api.github.com/user",
+            "https://api.github.com/user/installations"
     );
 
     private static final JwtProperties JWT_PROPERTIES = new JwtProperties(
@@ -42,6 +48,9 @@ class AuthServiceTest {
 
     @Mock
     private GitHubOAuthClient gitHubOAuthClient;
+
+    @Mock
+    private GitHubInstallationService gitHubInstallationService;
 
     @Mock
     private UserService userService;
@@ -89,10 +98,37 @@ class AuthServiceTest {
         verify(gitHubOAuthClient).fetchUser("github-user-token");
     }
 
+    @Test
+    void loginWithGitHubPersistsInstallationWhenCallbackHasInstallationId() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse installation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("acme", "Organization")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(installation)));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, 98765L));
+
+        verify(gitHubInstallationService).upsertInstallation(user, installation);
+    }
+
     private AuthService authService() {
         return new AuthService(
                 GITHUB_PROPERTIES,
                 gitHubOAuthClient,
+                gitHubInstallationService,
                 userService,
                 refreshTokenService,
                 jwtTokenService,

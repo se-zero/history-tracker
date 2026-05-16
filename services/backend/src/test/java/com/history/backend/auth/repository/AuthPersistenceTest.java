@@ -80,9 +80,9 @@ class AuthPersistenceTest {
                 .contains(refreshToken);
         assertThat(gitHubInstallationRepository.findByInstallationId(98765L))
                 .contains(installation);
-        assertThat(gitHubInstallationRepository.findAllByInstallerUser(user))
+        assertThat(gitHubInstallationRepository.findAllByInstallerUser_Id(user.getId()))
                 .containsExactly(installation);
-        assertThat(gitHubInstallationRepository.findByIdAndInstallerUser(installation.getId(), user))
+        assertThat(gitHubInstallationRepository.findByIdAndInstallerUser_Id(installation.getId(), user.getId()))
                 .contains(installation);
     }
 

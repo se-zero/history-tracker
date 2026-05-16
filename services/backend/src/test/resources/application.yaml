@@ -29,3 +29,4 @@ github:
     authorize-url: https://github.com/login/oauth/authorize
     access-token-url: https://github.com/login/oauth/access_token
     user-url: https://api.github.com/user
+    installations-url: https://api.github.com/user/installations

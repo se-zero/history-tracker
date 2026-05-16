@@ -2,6 +2,7 @@ package com.history.backend.github.service;
 
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
+import com.history.backend.github.dto.GitHubInstallationsResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -46,5 +47,15 @@ public class GitHubOAuthClient {
                 .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
                 .retrieve()
                 .body(GitHubUserResponse.class);
+    }
+
+    public GitHubInstallationsResponse fetchInstallations(String accessToken) {
+        return restClient
+                .get()
+                .uri(properties.installationsUrl())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                .retrieve()
+                .body(GitHubInstallationsResponse.class);
     }
 }

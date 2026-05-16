@@ -9,6 +9,7 @@ public record GitHubAppProperties(
         String redirectUri,
         String authorizeUrl,
         String accessTokenUrl,
-        String userUrl
+        String userUrl,
+        String installationsUrl
 ) {
 }

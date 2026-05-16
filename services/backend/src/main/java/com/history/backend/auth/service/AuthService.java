@@ -1,13 +1,17 @@
 package com.history.backend.auth.service;
 
 import java.net.URI;
+import java.util.Optional;
 
+import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
 import com.history.backend.auth.dto.TokenResponse;
-import com.history.backend.auth.domain.User;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
+import com.history.backend.github.dto.GitHubInstallationResponse;
+import com.history.backend.github.dto.GitHubInstallationsResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
+import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
@@ -22,6 +26,7 @@ public class AuthService {
 
     private final GitHubAppProperties gitHubAppProperties;
     private final GitHubOAuthClient gitHubOAuthClient;
+    private final GitHubInstallationService gitHubInstallationService;
     private final UserService userService;
     private final RefreshTokenService refreshTokenService;
     private final JwtTokenService jwtTokenService;
@@ -40,24 +45,40 @@ public class AuthService {
         return builder.build(true).toUri();
     }
 
-    // GitHub OAuth 로그인 처리: 액세스 토큰 교환, 사용자 정보 조회, 회원 가입/업데이트, JWT 발급
     @Transactional
     public TokenResponse loginWithGitHub(GitHubCallbackRequest request) {
-        // 1. GitHub로부터 액세스 토큰 교환
+        // GitHub code를 user access token으로 교환
         GitHubAccessTokenResponse accessToken = gitHubOAuthClient.exchangeCode(request.code());
 
-        // 2. 액세스 토큰으로 GitHub 사용자 정보 조회
+        // GitHub 사용자 정보 조회
         GitHubUserResponse gitHubUser = gitHubOAuthClient.fetchUser(accessToken.accessToken());
-        
-        // 3. 사용자 정보로 회원 가입 또는 기존 회원 정보 업데이트
+
+        // 내부 user 생성 또는 갱신
         User user = userService.upsertGitHubUser(gitHubUser);
 
-        // 4. JWT 액세스 토큰과 리프레시 토큰 발급
+        if (request.installationId() != null) {
+            // callback installation_id 기준 설치 정보 저장
+            findInstallation(accessToken.accessToken(), request.installationId())
+                    .ifPresent(installation -> gitHubInstallationService.upsertInstallation(user, installation));
+        }
+
+        // 서비스 access token과 refresh token 발급
         return new TokenResponse(
                 jwtTokenService.issueAccessToken(user.getId()),
                 refreshTokenService.issueRefreshToken(user),
                 "Bearer",
                 jwtProperties.accessTokenTtl().toSeconds()
         );
+    }
+
+    private Optional<GitHubInstallationResponse> findInstallation(String accessToken, Long installationId) {
+        GitHubInstallationsResponse installations = gitHubOAuthClient.fetchInstallations(accessToken);
+        if (installations == null || installations.installations() == null) {
+            return Optional.empty();
+        }
+
+        return installations.installations().stream()
+                .filter(installation -> installationId.equals(installation.id()))
+                .findFirst();
     }
 }
