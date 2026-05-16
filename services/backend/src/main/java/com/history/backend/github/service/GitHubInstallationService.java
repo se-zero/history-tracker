@@ -25,12 +25,23 @@ public class GitHubInstallationService {
                     installation.updateAccount(response.account().type(), response.account().login(), installer);
                     return installation;
                 })
-                .orElseGet(() -> gitHubInstallationRepository.save(new GitHubInstallation(
+                .orElseGet(() -> createInstallation(installer, response));
+    }
+
+    private GitHubInstallation createInstallation(User installer, GitHubInstallationResponse response) {
+        return gitHubInstallationRepository.insertInstallationIfAbsent(
                         response.id(),
                         response.account().type(),
                         response.account().login(),
-                        installer
-                )));
+                        installer.getId()
+                )
+                .flatMap(gitHubInstallationRepository::findById)
+                .or(() -> gitHubInstallationRepository.findByInstallationId(response.id()))
+                .map(installation -> {
+                    installation.updateAccount(response.account().type(), response.account().login(), installer);
+                    return installation;
+                })
+                .orElseThrow(() -> new IllegalStateException("Failed to create or load GitHub installation."));
     }
 
     @Transactional(readOnly = true)

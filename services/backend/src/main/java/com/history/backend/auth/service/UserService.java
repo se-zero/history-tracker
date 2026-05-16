@@ -38,13 +38,24 @@ public class UserService {
                     user.restore();
                     return updateProfile(user, gitHubUser);
                 })
-                .orElseGet(() -> userRepository.save(new User(
+                .orElseGet(() -> createUser(providerUserId, gitHubUser));
+    }
+
+    private User createUser(String providerUserId, GitHubUserResponse gitHubUser) {
+        return userRepository.insertActiveUserIfAbsent(
                         GITHUB_PROVIDER,
                         providerUserId,
                         gitHubUser.emailOrFallback(),
                         gitHubUser.displayName(),
                         gitHubUser.avatarUrl()
-                )));
+                )
+                .flatMap(userRepository::findById)
+                .or(() -> userRepository.findByProviderAndProviderUserIdAndDeletedAtIsNull(
+                        GITHUB_PROVIDER,
+                        providerUserId
+                ))
+                .map(user -> updateProfile(user, gitHubUser))
+                .orElseThrow(() -> new IllegalStateException("Failed to create or load GitHub user."));
     }
 
     private User updateProfile(User user, GitHubUserResponse gitHubUser) {

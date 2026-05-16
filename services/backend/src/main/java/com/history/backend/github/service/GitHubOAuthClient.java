@@ -1,5 +1,6 @@
 package com.history.backend.github.service;
 
+import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
 import com.history.backend.github.dto.GitHubInstallationsResponse;
@@ -29,7 +30,7 @@ public class GitHubOAuthClient {
         form.add("code", code);
         form.add("redirect_uri", properties.redirectUri());
 
-        return restClient
+        GitHubAccessTokenResponse response = restClient
                 .post()
                 .uri(properties.accessTokenUrl())
                 .accept(MediaType.APPLICATION_JSON)
@@ -37,6 +38,12 @@ public class GitHubOAuthClient {
                 .body(form)
                 .retrieve()
                 .body(GitHubAccessTokenResponse.class);
+
+        if (response == null || response.accessToken() == null || response.accessToken().isBlank()) {
+            throw new UnauthorizedException("Invalid GitHub authorization code.");
+        }
+
+        return response;
     }
 
     public GitHubUserResponse fetchUser(String accessToken) {

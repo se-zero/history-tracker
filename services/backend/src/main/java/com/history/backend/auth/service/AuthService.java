@@ -7,6 +7,7 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
 import com.history.backend.auth.dto.RefreshTokenRequest;
 import com.history.backend.auth.dto.TokenResponse;
+import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
 import com.history.backend.github.dto.GitHubInstallationResponse;
@@ -43,23 +44,23 @@ public class AuthService {
             builder.queryParam("state", state);
         }
 
-        return builder.build(true).toUri();
+        return builder.encode().build().toUri();
     }
 
     @Transactional
     public TokenResponse loginWithGitHub(GitHubCallbackRequest request) {
         // GitHub code를 user access token으로 교환
-        GitHubAccessTokenResponse accessToken = gitHubOAuthClient.exchangeCode(request.code());
+        String accessToken = requireAccessToken(gitHubOAuthClient.exchangeCode(request.code()));
 
         // GitHub 사용자 정보 조회
-        GitHubUserResponse gitHubUser = gitHubOAuthClient.fetchUser(accessToken.accessToken());
+        GitHubUserResponse gitHubUser = gitHubOAuthClient.fetchUser(accessToken);
 
         // 내부 user 생성 또는 갱신
         User user = userService.upsertGitHubUser(gitHubUser);
 
         if (request.installationId() != null) {
             // callback installation_id 기준 설치 정보 저장
-            findInstallation(accessToken.accessToken(), request.installationId())
+            findInstallation(accessToken, request.installationId())
                     .ifPresent(installation -> gitHubInstallationService.upsertInstallation(user, installation));
         }
 
@@ -70,6 +71,13 @@ public class AuthService {
                 "Bearer",
                 jwtProperties.accessTokenTtl().toSeconds()
         );
+    }
+
+    private String requireAccessToken(GitHubAccessTokenResponse response) {
+        if (response == null || response.accessToken() == null || response.accessToken().isBlank()) {
+            throw new UnauthorizedException("Invalid GitHub authorization code.");
+        }
+        return response.accessToken();
     }
 
     @Transactional
