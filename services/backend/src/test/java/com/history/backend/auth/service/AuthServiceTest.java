@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
+import com.history.backend.auth.dto.RefreshTokenRequest;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
 import com.history.backend.github.dto.GitHubInstallationAccountResponse;
@@ -122,6 +123,34 @@ class AuthServiceTest {
         authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, 98765L));
 
         verify(gitHubInstallationService).upsertInstallation(user, installation);
+    }
+
+    @Test
+    void refreshRotatesRefreshTokenAndIssuesAccessToken() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+
+        when(refreshTokenService.rotateRefreshToken("old-refresh-token"))
+                .thenReturn(new RefreshTokenIssue(user, "new-refresh-token"));
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("new-access-token");
+
+        var response = authService.refresh(new RefreshTokenRequest("old-refresh-token"));
+
+        assertThat(response.accessToken()).isEqualTo("new-access-token");
+        assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
+        assertThat(response.tokenType()).isEqualTo("Bearer");
+        assertThat(response.expiresIn()).isEqualTo(900);
+    }
+
+    @Test
+    void logoutRevokesRefreshToken() {
+        AuthService authService = authService();
+
+        authService.logout(new RefreshTokenRequest("refresh-token"));
+
+        verify(refreshTokenService).revokeRefreshToken("refresh-token");
     }
 
     private AuthService authService() {

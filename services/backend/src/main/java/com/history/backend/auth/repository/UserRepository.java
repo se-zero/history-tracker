@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    Optional<User> findByIdAndDeletedAtIsNull(UUID id);
+
     Optional<User> findByProviderAndProviderUserIdAndDeletedAtIsNull(String provider, String providerUserId);
 
     Optional<User> findFirstByProviderAndProviderUserIdOrderByCreatedAtDesc(String provider, String providerUserId);

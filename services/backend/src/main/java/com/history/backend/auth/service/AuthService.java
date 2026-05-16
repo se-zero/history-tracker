@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
+import com.history.backend.auth.dto.RefreshTokenRequest;
 import com.history.backend.auth.dto.TokenResponse;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
@@ -69,6 +70,21 @@ public class AuthService {
                 "Bearer",
                 jwtProperties.accessTokenTtl().toSeconds()
         );
+    }
+
+    @Transactional
+    public TokenResponse refresh(RefreshTokenRequest request) {
+        RefreshTokenIssue issue = refreshTokenService.rotateRefreshToken(request.refreshToken());
+        return new TokenResponse(
+                jwtTokenService.issueAccessToken(issue.user().getId()),
+                issue.refreshToken(),
+                "Bearer",
+                jwtProperties.accessTokenTtl().toSeconds()
+        );
+    }
+
+    public void logout(RefreshTokenRequest request) {
+        refreshTokenService.revokeRefreshToken(request.refreshToken());
     }
 
     private Optional<GitHubInstallationResponse> findInstallation(String accessToken, Long installationId) {

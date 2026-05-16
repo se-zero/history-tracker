@@ -10,10 +10,15 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
-// 글로벌 예외 처리 클래스
+// 전역 API 예외 처리
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-    
+
+    @ExceptionHandler(UnauthorizedException.class)
+    ResponseEntity<ErrorResponse> handleUnauthorized(UnauthorizedException exception) {
+        return errorResponse(HttpStatus.UNAUTHORIZED, exception.getMessage());
+    }
+
     @ExceptionHandler(NotFoundException.class)
     ResponseEntity<ErrorResponse> handleNotFound(NotFoundException exception) {
         return errorResponse(HttpStatus.NOT_FOUND, exception.getMessage());

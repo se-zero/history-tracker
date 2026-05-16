@@ -2,9 +2,12 @@ package com.history.backend.auth.service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.dto.UserResponse;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.dto.GitHubUserResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -53,7 +56,11 @@ public class UserService {
         return user.getDeletedAt() != null
                 && user.getDeletedAt().isAfter(Instant.now().minus(RESTORE_GRACE_PERIOD));
     }
-}
- 
-    
 
+    @Transactional(readOnly = true)
+    public UserResponse getCurrentUser(UUID userId) {
+        return userRepository.findByIdAndDeletedAtIsNull(userId)
+                .map(UserResponse::from)
+                .orElseThrow(() -> new NotFoundException("User not found."));
+    }
+}

@@ -1,18 +1,20 @@
 package com.history.backend.auth.service;
 
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 
 import com.history.backend.auth.domain.RefreshToken;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.RefreshTokenRepository;
+import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.security.JwtProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -24,12 +26,10 @@ public class RefreshTokenService {
     private final JwtProperties jwtProperties;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    // 사용자에게 리프레시 토큰 발급: 랜덤 토큰 생성, 해시 저장, 원본 토큰 반환
+    // refresh token 발급 및 hash 저장
+    @Transactional
     public String issueRefreshToken(User user) {
-        byte[] randomBytes = new byte[REFRESH_TOKEN_BYTES];
-        secureRandom.nextBytes(randomBytes);
-
-        String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+        String rawToken = generateRefreshToken();
         refreshTokenRepository.save(new RefreshToken(
                 user,
                 sha256(rawToken),
@@ -38,7 +38,33 @@ public class RefreshTokenService {
         return rawToken;
     }
 
-    // SHA-256 해시 알고리즘을 사용하여 토큰을 해시화
+    @Transactional
+    public RefreshTokenIssue rotateRefreshToken(String rawToken) {
+        RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(sha256(rawToken))
+                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token."));
+
+        if (!refreshToken.getExpiresAt().isAfter(Instant.now())) {
+            refreshTokenRepository.delete(refreshToken);
+            throw new UnauthorizedException("Expired refresh token.");
+        }
+
+        User user = refreshToken.getUser();
+        refreshTokenRepository.delete(refreshToken);
+        return new RefreshTokenIssue(user, issueRefreshToken(user));
+    }
+
+    @Transactional
+    public void revokeRefreshToken(String rawToken) {
+        refreshTokenRepository.findByTokenHash(sha256(rawToken))
+                .ifPresent(refreshTokenRepository::delete);
+    }
+
+    private String generateRefreshToken() {
+        byte[] randomBytes = new byte[REFRESH_TOKEN_BYTES];
+        secureRandom.nextBytes(randomBytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+    }
+
     private byte[] sha256(String token) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8));

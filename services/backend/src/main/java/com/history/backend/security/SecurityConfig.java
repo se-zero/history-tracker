@@ -32,6 +32,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/auth/github/**",
                                 "/api/v1/auth/refresh",
+                                "/api/v1/auth/logout",
                                 "/error"
                         ).permitAll()
                         .anyRequest().authenticated()
