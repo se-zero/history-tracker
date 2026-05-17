@@ -62,7 +62,7 @@ public class GitHubNormalizer {
             properties.put("message", message);
             properties.put("files", files);
 
-            Map<String, String> refs = refsExtractor.extract(message);
+            Map<String, Object> refs = refsExtractor.extract(message);
             Object prNumber = commit.get("prNumber");
             if (prNumber != null) {
                 refs.put("prNumber", String.valueOf(prNumber));

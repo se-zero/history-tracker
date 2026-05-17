@@ -70,7 +70,12 @@ async def _handle_changeset(event: dict) -> None:
     if refs.get("jiraKey"):
         await builder.link_changeset_to_issue(hash_, refs["jiraKey"])
     if refs.get("prNumber"):
-        await builder.link_pr_to_changeset(int(refs["prNumber"]), hash_)
+        pr_num = int(refs["prNumber"])
+        await builder.link_pr_to_changeset(pr_num, hash_)
+        # CONTAINS 직후 PR.jira_keys 전파를 다시 호출 — PR이 이미 jira_keys와 함께 도착했다면
+        # 이 새 ChangeSet도 같은 이슈에 text TRIGGERED_BY로 연결된다 (idempotent).
+        # PR이 아직 안 도착했으면 PR의 _handle_pull_request에서 처리됨.
+        await builder.link_pr_changesets_to_issues(pr_num)
 
     # Layer 3: 파일별 diff 요약 + 임베딩 → MODIFIED 엣지 (병렬 처리)
     files = [f for f in (props.get("files") or []) if not should_skip(f.get("path", ""))]
@@ -98,16 +103,24 @@ async def _handle_changeset(event: dict) -> None:
 
 async def _handle_pull_request(event: dict) -> None:
     props       = event.get("properties") or {}
+    refs        = event.get("refs") or {}
     actor       = event.get("actor") or {}
     occurred_at = event.get("occurredAt")
     source      = event.get("source", "")
+    pr_number   = props.get("pr_number")
 
-    logger.debug("PullRequest 수신: pr_number=%s", props.get("pr_number"))
+    logger.debug("PullRequest 수신: pr_number=%s", pr_number)
 
     resolved = await resolve_actor(actor, source, make_neo4j_actor_store(), event)
 
+    # PR 제목/본문에서 추출된 Jira 키 목록. pipeline-worker의 RefsExtractor가 jiraKeys로 전달.
+    # 단일 jiraKey만 있고 jiraKeys가 없는 구버전 이벤트도 호환 (단일 키만이라도 전파에 사용).
+    jira_keys = refs.get("jiraKeys")
+    if jira_keys is None and refs.get("jiraKey"):
+        jira_keys = [refs["jiraKey"]]
+
     await builder.upsert_pull_request(
-        pr_number=props.get("pr_number"),
+        pr_number=pr_number,
         title=props.get("title", ""),
         body=props.get("body", ""),
         state=props.get("state", ""),
@@ -117,7 +130,15 @@ async def _handle_pull_request(event: dict) -> None:
         created_at=props.get("created_at"),
         source=source,
         actor_uuid=resolved["uuid"],
+        jira_keys=jira_keys,
     )
+
+    # Layer 2 전파: PR에 등록된 jira_keys를 그 PR이 머지한 모든 CONTAINS 커밋에 text TRIGGERED_BY로 적용.
+    # PR이 commits보다 늦게 도착하는 케이스도 _handle_changeset 쪽에서 다시 호출되어 동일하게 처리됨.
+    if pr_number is not None and jira_keys:
+        propagated = await builder.link_pr_changesets_to_issues(int(pr_number))
+        if propagated:
+            logger.info("PR #%s text TRIGGERED_BY 전파: %d개 갱신", pr_number, propagated)
 
 
 async def _handle_issue(event: dict) -> None:
@@ -144,6 +165,10 @@ async def _handle_issue(event: dict) -> None:
         assignee=props.get("assignee", ""),
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
+        # pipeline-worker는 status가 terminal일 때만 closed_at을 보낸다.
+        # None + non-terminal status → builder가 i.closedAt을 null로 클리어 (재오픈 케이스).
+        # None + terminal status     → 기존 i.closedAt 보존 (구버전 호환).
+        closed_at=props.get("closed_at"),
         source=source,
         actor_uuid=resolved["uuid"],
         embedding=embedding,

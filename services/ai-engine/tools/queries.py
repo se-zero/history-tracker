@@ -1,7 +1,35 @@
 from graph.builder import get_driver
 
 
+# TRIGGERED_BY 엣지 노이즈 컷오프.
+# 텍스트 매칭은 항상 1.0이므로 항상 통과. 시맨틱은 0.5 미만이면 응답에서 제외.
+# (issue_linker 자체 생성 임계값은 0.40이라 0.40~0.49 구간이 응답 단에서 마저 차단됨)
+_MIN_CONFIDENCE = 0.5
+
+# CHILD_OF 재귀 깊이 상한. Jira epic 구조 깊이는 보통 1~2 단계.
+_CHILD_DEPTH = 5
+
+
 async def get_issue_context(jira_key: str) -> dict:
+    """이슈 단일 키로 직속 작업 + 자식 이슈 작업까지 모두 집계해서 반환.
+
+    반환 구조:
+      {
+        jira_key, title, body, status, ..., creator, assignee,
+        changesets:    [...],   # root 이슈에 직접 연결된 커밋
+        pull_requests: [...],
+        discussions:   [...],
+        descendants: [
+          {jira_key, title, status, changesets, pull_requests, discussions},
+          ...
+        ]
+      }
+
+    필터 정책:
+      - TRIGGERED_BY 엣지는 confidence >= _MIN_CONFIDENCE 만 통과 (텍스트 매칭은 항상 1.0)
+      - 각 changeset 항목에 source('text' | 'semantic') 노출하여 LLM이 신뢰도 구분 가능
+      - CHILD_OF 재귀 깊이 상한 _CHILD_DEPTH
+    """
     async with get_driver().session() as session:
         # 1단계: 이슈 + creator + assignee
         result = await session.run(
@@ -21,46 +49,99 @@ async def get_issue_context(jira_key: str) -> dict:
             return {"message": f"이슈를 찾을 수 없습니다: {jira_key}"}
         base = dict(row)
 
-        # 2단계: 커밋 + PR (cs × pr은 1:1이므로 cross product 없음)
+        # 2단계: 스코프 결정 — root + 자식 이슈 메타데이터 (root 자체는 항상 첫 항목)
         result = await session.run(
-            """
-            MATCH (i:Issue {jira_key: $jira_key})
+            f"""
+            MATCH (root:Issue {{jira_key: $jira_key}})
+            OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
+            WITH root, collect(DISTINCT desc) AS descs
+            UNWIND ([root] + descs) AS i
+            WITH i WHERE i IS NOT NULL
+            RETURN i.jira_key AS jira_key, i.title AS title, i.status AS status
+            """,
+            jira_key=jira_key,
+        )
+        scope_issues = await result.data()  # 첫 항목이 root, 이후가 descendants
+
+        # 3단계: 스코프 내 각 이슈의 커밋 + PR 일괄 조회 (jira_key 기준 grouping)
+        result = await session.run(
+            f"""
+            MATCH (root:Issue {{jira_key: $jira_key}})
+            OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
+            WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
+            UNWIND issues_raw AS i
+            WITH i WHERE i IS NOT NULL
             OPTIONAL MATCH (cs:ChangeSet)-[tb:TRIGGERED_BY]->(i)
+            WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (cs_author:Actor)-[:AUTHORED]->(cs)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
-            RETURN collect(DISTINCT {
-                hash: cs.hash, message: cs.message,
-                occurredAt: toString(cs.occurredAt),
-                author: cs_author.name,
-                confidence: tb.confidence
-            }) AS changesets,
-            collect(DISTINCT {
-                pr_number: pr.pr_number, title: pr.title, url: pr.url,
-                occurredAt: toString(pr.occurredAt)
-            }) AS pull_requests
+            RETURN i.jira_key AS jira_key,
+                   collect(DISTINCT {{
+                       hash: cs.hash, message: cs.message,
+                       occurredAt: toString(cs.occurredAt),
+                       author: cs_author.name,
+                       confidence: tb.confidence,
+                       link_source: tb.source
+                   }}) AS changesets,
+                   collect(DISTINCT {{
+                       pr_number: pr.pr_number, title: pr.title, url: pr.url,
+                       occurredAt: toString(pr.occurredAt)
+                   }}) AS pull_requests
             """,
             jira_key=jira_key,
+            min_conf=_MIN_CONFIDENCE,
         )
-        row2 = await result.single()
-        base["changesets"] = row2["changesets"] if row2 else []
-        base["pull_requests"] = row2["pull_requests"] if row2 else []
+        work_rows = {r["jira_key"]: r for r in await result.data()}
 
-        # 3단계: 논의 (이슈 × 논의는 독립 — 별도 WITH로 분리)
+        # 4단계: 스코프 내 각 이슈의 논의 일괄 조회 (jira_key 기준 grouping)
         result = await session.run(
-            """
-            MATCH (i:Issue {jira_key: $jira_key})-[disc:DISCUSSED_IN]->(c:Communication)
+            f"""
+            MATCH (root:Issue {{jira_key: $jira_key}})
+            OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
+            WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
+            UNWIND issues_raw AS i
+            WITH i WHERE i IS NOT NULL
+            OPTIONAL MATCH (i)-[disc:DISCUSSED_IN]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
-            RETURN collect(DISTINCT {
-                body: c.body, channel: c.channel, source: c.source,
-                occurredAt: toString(c.occurredAt),
-                author: c_author.name,
-                confidence: disc.confidence
-            }) AS discussions
+            RETURN i.jira_key AS jira_key,
+                   collect(DISTINCT {{
+                       body: c.body, channel: c.channel, source: c.source,
+                       occurredAt: toString(c.occurredAt),
+                       conversation_id: c.conversation_id,
+                       author: c_author.name,
+                       confidence: disc.confidence
+                   }}) AS discussions
             """,
             jira_key=jira_key,
         )
-        row3 = await result.single()
-        base["discussions"] = row3["discussions"] if row3 else []
+        disc_rows = {r["jira_key"]: r["discussions"] for r in await result.data()}
+
+        def _filter_empty(items: list[dict]) -> list[dict]:
+            """collect로 OPTIONAL MATCH가 비었을 때 들어오는 전 필드 None 더미 제거."""
+            return [it for it in items if any(v is not None for v in it.values())]
+
+        def _per_issue(key: str) -> dict:
+            w = work_rows.get(key, {})
+            return {
+                "changesets":    _filter_empty(w.get("changesets", [])),
+                "pull_requests": _filter_empty(w.get("pull_requests", [])),
+                "discussions":   _filter_empty(disc_rows.get(key, [])),
+            }
+
+        # root 자체의 작업은 top-level에 그대로 배치 (하위 호환)
+        base.update(_per_issue(jira_key))
+
+        # descendants는 root 제외하고 jira_key 사전순 정렬
+        base["descendants"] = [
+            {
+                "jira_key": i["jira_key"],
+                "title":    i["title"],
+                "status":   i["status"],
+                **_per_issue(i["jira_key"]),
+            }
+            for i in sorted(scope_issues, key=lambda x: x["jira_key"])
+            if i["jira_key"] != jira_key
+        ]
 
         return base
 
@@ -72,6 +153,7 @@ async def get_changeset_context(hash: str) -> dict:
             MATCH (cs:ChangeSet {hash: $hash})
             MATCH (a:Actor)-[:AUTHORED]->(cs)
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
@@ -83,7 +165,8 @@ async def get_changeset_context(hash: str) -> dict:
                    collect(DISTINCT {
                        jira_key: i.jira_key, title: i.title,
                        body: i.body, status: i.status,
-                       confidence: tb.confidence
+                       confidence: tb.confidence,
+                       link_source: tb.source
                    }) AS issues,
                    collect(DISTINCT {
                        body: c.body, channel: c.channel, source: c.source,
@@ -95,6 +178,7 @@ async def get_changeset_context(hash: str) -> dict:
                    collect(DISTINCT {path: f.path, diffSummary: m.diffSummary}) AS file_changes
             """,
             hash=hash,
+            min_conf=_MIN_CONFIDENCE,
         )
         row = await result.single()
         if not row:
@@ -137,12 +221,15 @@ async def get_timeline(jira_key: str) -> list[dict]:
         result = await session.run(
             """
             MATCH (i:Issue {jira_key: $jira_key})
-            OPTIONAL MATCH (cs:ChangeSet)-[:TRIGGERED_BY]->(i)
+            OPTIONAL MATCH (cs:ChangeSet)-[tb:TRIGGERED_BY]->(i)
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
             WITH i,
                  collect(DISTINCT {
                      type: 'ChangeSet', occurredAt: toString(cs.occurredAt),
-                     data: {hash: cs.hash, message: cs.message}
+                     data: {hash: cs.hash, message: cs.message,
+                            confidence: tb.confidence,
+                            link_source: tb.source}
                  }) AS cs_events,
                  collect(DISTINCT {
                      type: 'PullRequest', occurredAt: toString(pr.occurredAt),
@@ -151,6 +238,7 @@ async def get_timeline(jira_key: str) -> list[dict]:
             RETURN i, cs_events, pr_events
             """,
             jira_key=jira_key,
+            min_conf=_MIN_CONFIDENCE,
         )
         row = await result.single()
         if not row:
@@ -221,7 +309,8 @@ async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: f
             CALL db.index.vector.queryNodes('issue_embedding', $top_k, $embedding)
             YIELD node AS i, score
             WHERE score >= $threshold
-            OPTIONAL MATCH (cs:ChangeSet)-[:TRIGGERED_BY]->(i)
+            OPTIONAL MATCH (cs:ChangeSet)-[tb:TRIGGERED_BY]->(i)
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             RETURN 'Issue' AS type,
                    (i.title + ': ' + coalesce(i.body, '')) AS text,
                    null AS channel,
@@ -235,6 +324,7 @@ async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: f
             embedding=embedding,
             top_k=top_k,
             threshold=threshold,
+            min_conf=_MIN_CONFIDENCE,
         )
         issue_rows = await result.data()
 
@@ -350,7 +440,8 @@ async def get_file_history(path: str, limit: int = 20) -> list[dict]:
             """
             MATCH (f:File {path: $path})<-[m:MODIFIED]-(cs:ChangeSet)
             MATCH (a:Actor)-[:AUTHORED]->(cs)
-            OPTIONAL MATCH (cs)-[:TRIGGERED_BY]->(i:Issue)
+            OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
             RETURN cs.hash AS hash,
                    cs.message AS message,
@@ -359,6 +450,8 @@ async def get_file_history(path: str, limit: int = 20) -> list[dict]:
                    m.diffSummary AS diff_summary,
                    i.jira_key AS jira_key,
                    i.title AS issue_title,
+                   tb.confidence AS issue_link_confidence,
+                   tb.source     AS issue_link_source,
                    pr.pr_number AS pr_number,
                    pr.url AS pr_url
             ORDER BY cs.occurredAt DESC
@@ -366,6 +459,7 @@ async def get_file_history(path: str, limit: int = 20) -> list[dict]:
             """,
             path=path,
             limit=limit,
+            min_conf=_MIN_CONFIDENCE,
         )
         rows = await result.data()
         if not rows:
@@ -382,7 +476,10 @@ async def check_missing_context(
         result = await session.run(
             """
             MATCH (cs:ChangeSet)
-            WHERE NOT (cs)-[:TRIGGERED_BY]->(:Issue)
+            WHERE NOT EXISTS {
+                MATCH (cs)-[tb:TRIGGERED_BY]->(:Issue)
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
+              }
               AND NOT (cs)-[:REFERENCE]->(:Communication)
               AND ($from_time IS NULL OR cs.occurredAt >= datetime($from_time))
               AND ($to_time IS NULL OR cs.occurredAt <= datetime($to_time))
@@ -399,6 +496,7 @@ async def check_missing_context(
             from_time=from_time,
             to_time=to_time,
             limit=limit,
+            min_conf=_MIN_CONFIDENCE,
         )
         rows = await result.data()
         if not rows:
@@ -439,6 +537,7 @@ async def get_conflict_context(hash: str) -> dict:
             """
             MATCH (cs:ChangeSet {hash: $hash})
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
             OPTIONAL MATCH (cs)-[m:MODIFIED]->(f:File)
@@ -449,7 +548,8 @@ async def get_conflict_context(hash: str) -> dict:
                        source: 'Jira',
                        id: i.jira_key,
                        text: i.title + '\n' + coalesce(i.body, ''),
-                       confidence: coalesce(tb.confidence, 1.0)
+                       confidence: tb.confidence,
+                       link_source: tb.source
                    }) AS jira_contexts,
                    collect(DISTINCT {
                        source: c.source,
@@ -467,6 +567,7 @@ async def get_conflict_context(hash: str) -> dict:
                    collect(DISTINCT {path: f.path, diff_summary: m.diffSummary}) AS file_changes
             """,
             hash=hash,
+            min_conf=_MIN_CONFIDENCE,
         )
         row = await result.single()
         if not row:
@@ -525,6 +626,7 @@ async def get_pr_context(pr_number: int) -> dict:
             OPTIONAL MATCH (pr)-[:CONTAINS]->(cs:ChangeSet)
             OPTIONAL MATCH (cs_author:Actor)-[:AUTHORED]->(cs)
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
             OPTIONAL MATCH (cs)-[m:MODIFIED]->(f:File)
@@ -542,7 +644,9 @@ async def get_pr_context(pr_number: int) -> dict:
                    }) AS changesets,
                    collect(DISTINCT {
                        jira_key: i.jira_key, title: i.title,
-                       status: i.status, confidence: tb.confidence
+                       status: i.status,
+                       confidence: tb.confidence,
+                       link_source: tb.source
                    }) AS issues,
                    collect(DISTINCT {
                        body: c.body, channel: c.channel, source: c.source,
@@ -552,6 +656,7 @@ async def get_pr_context(pr_number: int) -> dict:
                    collect(DISTINCT {path: f.path, diff_summary: m.diffSummary}) AS file_changes
             """,
             pr_number=pr_number,
+            min_conf=_MIN_CONFIDENCE,
         )
         row = await result.single()
         if not row:

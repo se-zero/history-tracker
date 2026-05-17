@@ -238,6 +238,52 @@ class JiraNormalizerTest {
         assertThat(event.refs()).containsEntry("assigneeId", "assignee-account-id");
     }
 
+    // ─── closed_at 추론 (status terminal 여부 + resolutiondate fallback) ────────
+
+    @Test
+    @DisplayName("status='완료' + resolutiondate 있음 → closed_at = resolutiondate")
+    @SuppressWarnings("unchecked")
+    void normalizeIssues_terminalStatusWithResolutionDate_setsClosedAt() {
+        Map<String, Object> issue = buildIssue("PROJ-100", "Resolved issue", null, "완료", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+        Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
+        fields.put("resolutiondate", "2026-04-06T10:00:00.000+0900");
+        fields.put("updated",        "2026-04-08T11:00:00.000+0900");
+
+        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).containsEntry("closed_at", "2026-04-06T10:00:00.000+0900");
+    }
+
+    @Test
+    @DisplayName("status='Done' + resolutiondate 없음 → closed_at = updated (fallback)")
+    @SuppressWarnings("unchecked")
+    void normalizeIssues_terminalStatusWithoutResolutionDate_fallsBackToUpdated() {
+        Map<String, Object> issue = buildIssue("PROJ-101", "Done without resolution", null, "Done", "Bug", "Low",
+                "id1", "Name", "email@test.com");
+        Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
+        fields.put("resolutiondate", null);
+        fields.put("updated", "2026-04-10T09:00:00.000+0900");
+
+        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).containsEntry("closed_at", "2026-04-10T09:00:00.000+0900");
+    }
+
+    @Test
+    @DisplayName("status가 terminal이 아니면 properties에 closed_at 키 자체가 없음")
+    @SuppressWarnings("unchecked")
+    void normalizeIssues_nonTerminalStatus_noClosedAtKey() {
+        Map<String, Object> issue = buildIssue("PROJ-102", "In progress", null, "In Progress", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+        Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
+        fields.put("resolutiondate", "2026-04-06T10:00:00.000+0900"); // 진행 중인데 resolutiondate가 남아있어도 무시
+
+        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).doesNotContainKey("closed_at");
+    }
+
     @Test
     @DisplayName("parent 필드 없는 이슈 → refs에 parentJiraKey 없음")
     void normalizeIssues_withoutParent_noParentKeyInRefs() {
