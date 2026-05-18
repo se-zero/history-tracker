@@ -26,10 +26,11 @@ public class ProjectService {
     @Transactional
     public Project createProject(UUID ownerId, String name, String description) {
         User owner = userService.getActiveUser(ownerId);
-        validateNameAvailable(ownerId, name);
+        String normalizedName = name.trim();
+        validateNameAvailable(ownerId, normalizedName);
         try {
-            // flush를 강제해 UPDATE의 unique 제약 위반을 트랜잭션 내에서 감지
-            return projectRepository.saveAndFlush(new Project(owner, name, description));
+            // flush를 강제해 unique 제약 위반을 트랜잭션 내에서 감지
+            return projectRepository.saveAndFlush(new Project(owner, normalizedName, description));
         } catch (DataIntegrityViolationException exception) {
             throw new ConflictException("Project name already exists.");
         }
@@ -54,8 +55,9 @@ public class ProjectService {
         userService.getActiveUser(ownerId);
         Project project = findActiveProject(projectId);
         validateOwner(project, ownerId);
-        validateNameAvailableForUpdate(ownerId, projectId, name);
-        project.updateDetails(name, description);
+        String normalizedName = name.trim();
+        validateNameAvailableForUpdate(ownerId, projectId, normalizedName);
+        project.updateDetails(normalizedName, description);
         try {
             return projectRepository.saveAndFlush(project);
         } catch (DataIntegrityViolationException exception) {

@@ -54,6 +54,20 @@ class ProjectServiceTest {
     }
 
     @Test
+    void createProjectTrimsNameBeforeValidationAndSave() {
+        ProjectService service = new ProjectService(projectRepository, userService);
+        User owner = user(OWNER_ID);
+        when(userService.getActiveUser(OWNER_ID)).thenReturn(owner);
+        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
+                .thenReturn(false);
+        when(projectRepository.saveAndFlush(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Project result = service.createProject(OWNER_ID, "  History Tracker  ", null);
+
+        assertThat(result.getName()).isEqualTo("History Tracker");
+    }
+
+    @Test
     void createProjectRejectsDuplicateActiveNameForOwner() {
         ProjectService service = new ProjectService(projectRepository, userService);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
@@ -138,6 +152,24 @@ class ProjectServiceTest {
 
         assertThat(result.getName()).isEqualTo("History Tracker API");
         assertThat(result.getDescription()).isEqualTo("Backend API");
+    }
+
+    @Test
+    void updateProjectTrimsNameBeforeValidationAndSave() {
+        ProjectService service = new ProjectService(projectRepository, userService);
+        Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
+        when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
+        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+                OWNER_ID,
+                "History Tracker API",
+                PROJECT_ID
+        )).thenReturn(false);
+        when(projectRepository.saveAndFlush(project)).thenReturn(project);
+
+        Project result = service.updateProject(OWNER_ID, PROJECT_ID, "  History Tracker API  ", null);
+
+        assertThat(result.getName()).isEqualTo("History Tracker API");
     }
 
     @Test
