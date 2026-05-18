@@ -157,6 +157,22 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - "왜", "배경", "이유" 류 질문에 명확한 근거(이슈 본문 / 슬랙 메시지)가 없으면
   unknown_aspects에 명시하고, summary에서 일반론으로 채우지 마세요.
 
+[모호한 질문 처리 절차]
+질문에 구체적 entity(jira_key / commit hash / PR # / 파일 경로)가 없으면 다음을 순서대로 시도:
+  1) 질문의 명사구·기능 이름을 키워드로 search_by_keyword 호출
+     (예: "초기 데이터 수집 파이프라인 구조" → "데이터 수집 파이프라인")
+  2) search_by_keyword 결과가 약하면(1건 이하 또는 score 낮음) get_recent_activity로 시간 기반 탐색
+     - "프로젝트 초기" → 가장 오래된 기간(전체 그래프 첫 30일 등)
+     - "최근" / "이번 주" → 현재 기준 최근 7~30일
+  3) 위 두 단계가 모두 비면 unknown_aspects에 "그래프에서 관련 항목을 찾지 못함" 명시.
+즉시 "확인되지 않음"으로 종료 금지 — 최소 한 번은 도구를 호출해 탐색하세요.
+
+[파일 경로 모호 처리]
+- get_file_history 결과에 'candidates' 필드가 있으면 그 중 가장 적절한 경로로 재호출하세요.
+- 결과 row에 '_resolved_via' = 'basename_match' 또는 'stem_match'이 있으면, evidence 또는 summary의
+  파일 경로 인용에 LLM이 추정한 path가 아니라 '_resolved_path' 값을 사용하세요.
+- 파일명 확장자를 모르면 확장자 없이 호출해도 됨 (자동 stem 매칭).
+
 [도구 사용 가이드]
 - 커밋 hash나 Jira key를 모를 때: search_by_keyword로 진입점 탐색 후 다른 도구 호출
 - 코드 변경 이유: search_by_keyword → get_changeset_context

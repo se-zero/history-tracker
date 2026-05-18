@@ -545,37 +545,162 @@ async def get_actor_activity(
         return actor
 
 
+_FUZZY_CANDIDATE_LIMIT = 5     # candidates 리스트에 노출할 최대 후보 수
+
+
 async def get_file_history(path: str, limit: int = 20) -> list[dict]:
+    """파일 경로의 변경 이력을 최신순으로 반환한다.
+
+    strict path match가 비면 다음 순서로 fuzzy fallback:
+      1) basename ENDS WITH 매칭 (확장자 그대로, 다른 디렉토리 허용)
+      2) stem 매칭 (확장자 무관)
+
+    단일 매칭 시: 그 파일의 변경 이력을 반환하고 각 row에 `_resolved_via` /
+                  `_resolved_path` 메타 필드를 인라인으로 부여 (LLM이 evidence에
+                  실제 경로를 사용하도록).
+    다중 매칭 시: `{"message": "...", "candidates": [...]}` 단건 반환 — LLM이
+                  candidates 중 선택해 재호출하도록.
+    """
     async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (f:File {path: $path})<-[m:MODIFIED]-(cs:ChangeSet)
-            MATCH (a:Actor)-[:AUTHORED]->(cs)
-            OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
-                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
-            OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
-            RETURN cs.hash AS hash,
-                   cs.message AS message,
-                   toString(cs.occurredAt) AS occurredAt,
-                   a.name AS author,
-                   m.diffSummary AS diff_summary,
-                   i.jira_key AS jira_key,
-                   i.title AS issue_title,
-                   tb.confidence AS issue_link_confidence,
-                   tb.source     AS issue_link_source,
-                   pr.pr_number AS pr_number,
-                   pr.url AS pr_url
-            ORDER BY cs.occurredAt DESC
-            LIMIT $limit
-            """,
-            path=path,
-            limit=limit,
-            min_conf=_MIN_CONFIDENCE,
-        )
-        rows = await result.data()
-        if not rows:
-            return [{"message": f"해당 파일의 변경 이력이 없습니다: {path}"}]
-        return rows
+        # 1단계: strict
+        rows = await _fetch_file_history(session, path, limit)
+        if rows:
+            return rows
+
+        basename = path.rsplit("/", 1)[-1]
+
+        # 2단계: basename ENDS WITH (동일 파일명, 다른 디렉토리 가능)
+        if basename:
+            candidates = await _find_files_ending_with(session, basename, _FUZZY_CANDIDATE_LIMIT)
+            if len(candidates) == 1:
+                return await _fetch_with_resolution_meta(
+                    session, candidates[0], limit, resolved_via="basename_match",
+                )
+            if len(candidates) > 1:
+                return [{
+                    "message": (
+                        f"'{basename}' basename으로 {len(candidates)}개 파일 매칭됨. "
+                        f"candidates 중 가장 적절한 경로로 재호출하세요."
+                    ),
+                    "candidates": candidates,
+                }]
+
+        # 3단계: stem 매칭 (확장자 무관 — '.py'로 호출했는데 실제 '.java'인 케이스 대응)
+        stem = basename.rpartition(".")[0] or basename
+        if stem:
+            candidates = await _find_files_by_stem(session, stem, _FUZZY_CANDIDATE_LIMIT)
+            if len(candidates) == 1:
+                return await _fetch_with_resolution_meta(
+                    session, candidates[0], limit, resolved_via="stem_match",
+                )
+            if len(candidates) > 1:
+                return [{
+                    "message": (
+                        f"'{stem}' 파일명(stem)으로 {len(candidates)}개 파일 매칭됨(확장자 무관). "
+                        f"candidates 중 가장 적절한 경로로 재호출하세요."
+                    ),
+                    "candidates": candidates,
+                }]
+
+        return [{"message": f"해당 파일 또는 비슷한 이름의 파일을 찾을 수 없습니다: {path}"}]
+
+
+async def _fetch_file_history(session, path: str, limit: int) -> list[dict]:
+    """strict path match로 변경 이력 조회. 결과 0건이면 빈 리스트 반환."""
+    result = await session.run(
+        """
+        MATCH (f:File {path: $path})<-[m:MODIFIED]-(cs:ChangeSet)
+        MATCH (a:Actor)-[:AUTHORED]->(cs)
+        OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
+            WHERE coalesce(tb.confidence, 1.0) >= $min_conf
+        OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
+        RETURN cs.hash AS hash,
+               cs.message AS message,
+               toString(cs.occurredAt) AS occurredAt,
+               a.name AS author,
+               m.diffSummary AS diff_summary,
+               i.jira_key AS jira_key,
+               i.title AS issue_title,
+               tb.confidence AS issue_link_confidence,
+               tb.source     AS issue_link_source,
+               pr.pr_number AS pr_number,
+               pr.url AS pr_url
+        ORDER BY cs.occurredAt DESC
+        LIMIT $limit
+        """,
+        path=path,
+        limit=limit,
+        min_conf=_MIN_CONFIDENCE,
+    )
+    return await result.data()
+
+
+async def _fetch_with_resolution_meta(
+    session, resolved_path: str, limit: int, resolved_via: str,
+) -> list[dict]:
+    """resolved_path로 history 조회 후 row마다 fuzzy resolution 메타를 인라인 부여.
+
+    이력이 비어있어도 resolved 정보를 전달해 LLM이 다음 호출에서 정확한 경로를 사용할 수 있게 한다.
+    """
+    rows = await _fetch_file_history(session, resolved_path, limit)
+    if not rows:
+        return [{
+            "message": f"파일 매칭됐으나 변경 이력 없음: {resolved_path}",
+            "_resolved_via":  resolved_via,
+            "_resolved_path": resolved_path,
+        }]
+    for r in rows:
+        r["_resolved_via"]  = resolved_via
+        r["_resolved_path"] = resolved_path
+    return rows
+
+
+async def _find_files_ending_with(session, basename: str, max_candidates: int) -> list[str]:
+    """f.path ENDS WITH '/' + basename 또는 정확히 basename — 동일 basename 검색.
+
+    경로 짧은 순서로 정렬 (root에 가까운 파일 우선 — 일반적으로 사용자가 찾는 파일이 더 위에 있음).
+    """
+    result = await session.run(
+        """
+        MATCH (f:File)
+        WHERE f.path ENDS WITH ('/' + $basename) OR f.path = $basename
+        RETURN DISTINCT f.path AS path
+        ORDER BY size(path) ASC, path ASC
+        LIMIT $max
+        """,
+        basename=basename,
+        max=max_candidates,
+    )
+    return [r["path"] for r in await result.data()]
+
+
+async def _find_files_by_stem(session, stem: str, max_candidates: int) -> list[str]:
+    """파일명 stem이 정확히 일치 (확장자 무관).
+
+    LIMIT이 정제 전 후보에 걸리면 실제 후보가 누락될 수 있으므로, Cypher에서
+    basename의 stem을 먼저 계산하고 정확히 일치하는 path만 제한한다.
+    """
+    if not stem:
+        return []
+    result = await session.run(
+        """
+        MATCH (f:File)
+        WITH f.path AS path, last(split(f.path, '/')) AS basename
+        WITH path,
+             CASE
+               WHEN basename CONTAINS '.' AND NOT (basename STARTS WITH '.')
+               THEN substring(basename, 0, size(basename) - size(last(split(basename, '.'))) - 1)
+               ELSE basename
+             END AS file_stem
+        WHERE file_stem = $stem
+        RETURN DISTINCT path
+        ORDER BY size(path) ASC, path ASC
+        LIMIT $max
+        """,
+        stem=stem,
+        max=max_candidates,
+    )
+    return [r["path"] for r in await result.data()]
 
 
 async def check_missing_context(
@@ -788,6 +913,9 @@ async def get_pr_context(pr_number: int) -> dict:
 
 async def get_thread_context(conversation_id: str) -> list[dict]:
     async with get_driver().session() as session:
+        # collect(DISTINCT ...) 때문에 RETURN이 aggregation으로 처리됨 →
+        # ORDER BY는 RETURN의 projected alias만 참조 가능 (c.occurredAt 직접 참조 시 SyntaxError).
+        # occurredAt이 ISO 문자열이라 lexicographic = chronological 정렬.
         result = await session.run(
             """
             MATCH (c:Communication {conversation_id: $conversation_id})
@@ -799,7 +927,7 @@ async def get_thread_context(conversation_id: str) -> list[dict]:
                    c.url AS url,
                    a.name AS author,
                    collect(DISTINCT {jira_key: i.jira_key, title: i.title}) AS related_issues
-            ORDER BY c.occurredAt ASC
+            ORDER BY occurredAt ASC
             """,
             conversation_id=conversation_id,
         )
