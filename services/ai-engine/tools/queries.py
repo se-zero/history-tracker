@@ -278,8 +278,17 @@ async def find_expert(path_prefix: str) -> list[dict]:
 
 
 async def get_timeline(jira_key: str) -> list[dict]:
+    """이슈 생명주기 이벤트를 시간순으로 반환.
+
+    각 이벤트에 명시적 event_meaning 라벨을 붙여 LLM이 occurredAt만 보고 생성/완료/머지를
+    추정하지 않도록 한다. Issue 생명주기는 createdAt → 'issue_created',
+    closedAt(존재 시) → 'issue_closed' 두 이벤트로 분리; PR도 createdAt → 'pr_opened',
+    occurredAt(merged_at) → 'pr_merged' 분리.
+
+    반환 항목 공통 구조: {type, event_meaning, occurredAt, data: {...}}
+    """
     async with get_driver().session() as session:
-        # 커밋 + PR 수집 (cs × pr은 1:1)
+        # 이슈 자체 + 연결된 커밋·PR
         result = await session.run(
             """
             MATCH (i:Issue {jira_key: $jira_key})
@@ -288,16 +297,26 @@ async def get_timeline(jira_key: str) -> list[dict]:
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
             WITH i,
                  collect(DISTINCT {
-                     type: 'ChangeSet', occurredAt: toString(cs.occurredAt),
+                     type: 'ChangeSet',
+                     event_meaning: 'commit_authored',
+                     occurredAt: toString(cs.occurredAt),
                      data: {hash: cs.hash, message: cs.message,
                             confidence: tb.confidence,
                             link_source: tb.source}
                  }) AS cs_events,
                  collect(DISTINCT {
-                     type: 'PullRequest', occurredAt: toString(pr.occurredAt),
+                     type: 'PullRequest',
+                     event_meaning: 'pr_opened',
+                     occurredAt: toString(pr.createdAt),
                      data: {pr_number: pr.pr_number, title: pr.title, url: pr.url}
-                 }) AS pr_events
-            RETURN i, cs_events, pr_events
+                 }) AS pr_open_events,
+                 collect(DISTINCT {
+                     type: 'PullRequest',
+                     event_meaning: 'pr_merged',
+                     occurredAt: toString(pr.occurredAt),
+                     data: {pr_number: pr.pr_number, title: pr.title, url: pr.url}
+                 }) AS pr_merge_events
+            RETURN i, cs_events, pr_open_events, pr_merge_events
             """,
             jira_key=jira_key,
             min_conf=_MIN_CONFIDENCE,
@@ -307,25 +326,41 @@ async def get_timeline(jira_key: str) -> list[dict]:
             return [{"message": f"이슈를 찾을 수 없습니다: {jira_key}"}]
 
         i = row["i"]
-        all_events = [
-            {
+        issue_data = {
+            "jira_key": i.get("jira_key"),
+            "title":    i.get("title"),
+            "status":   i.get("status"),
+        }
+        # Issue 생명주기 이벤트 — createdAt / closedAt 각각 별도 이벤트로 emit.
+        # occurredAt(최종 업데이트)은 의미가 모호하므로 별도 이벤트로 만들지 않는다.
+        issue_events: list[dict] = []
+        if i.get("createdAt"):
+            issue_events.append({
                 "type": "Issue",
-                "occurredAt": str(i.get("occurredAt", "")),
-                "data": {
-                    "jira_key": i.get("jira_key"),
-                    "title": i.get("title"),
-                    "status": i.get("status"),
-                },
-            }
-        ] + row["cs_events"] + row["pr_events"]
+                "event_meaning": "issue_created",
+                "occurredAt": str(i.get("createdAt")),
+                "data": issue_data,
+            })
+        if i.get("closedAt"):
+            issue_events.append({
+                "type": "Issue",
+                "event_meaning": "issue_closed",
+                "occurredAt": str(i.get("closedAt")),
+                "data": issue_data,
+            })
+
+        all_events = issue_events + row["cs_events"] + row["pr_open_events"] + row["pr_merge_events"]
 
         # 논의 수집 (이슈와 독립적이므로 별도 쿼리)
         result2 = await session.run(
             """
             MATCH (i:Issue {jira_key: $jira_key})-[:DISCUSSED_IN]->(c:Communication)
             RETURN collect(DISTINCT {
-                type: 'Communication', occurredAt: toString(c.occurredAt),
-                data: {body: c.body, channel: c.channel, source: c.source}
+                type: 'Communication',
+                event_meaning: 'message_posted',
+                occurredAt: toString(c.occurredAt),
+                data: {body: c.body, channel: c.channel, source: c.source,
+                       conversation_id: c.conversation_id}
             }) AS comm_events
             """,
             jira_key=jira_key,

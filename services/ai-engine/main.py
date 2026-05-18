@@ -139,15 +139,21 @@ class QueryRequest(BaseModel):
 
 @app.post("/query")
 async def query(req: QueryRequest):
-    """자연어 질문을 받아 GraphRAG tool calling으로 답변을 반환한다."""
+    """자연어 질문을 받아 GraphRAG tool calling으로 답변을 반환한다.
+
+    응답:
+      - answer: markdown 형식 답변 (Structured Output → render).
+      - structured: grounded_answer 스키마 dict (summary/evidence/unknown_aspects).
+        Structured 호출 실패 시 null — 이때 answer는 LLM의 자유 텍스트 fallback.
+    """
     project_context = ""
     if req.repo and "/" in req.repo:
         from graph.project_context import get_project_summary
         owner, repo_name = req.repo.split("/", 1)
         project_context = await asyncio.to_thread(get_project_summary, owner, repo_name) or ""
 
-    answer = await orchestrator.run(req.question, project_context)
-    return {"answer": answer}
+    answer, structured = await orchestrator.run(req.question, project_context)
+    return {"answer": answer, "structured": structured}
 
 
 class SlackFilterOptions(BaseModel):
