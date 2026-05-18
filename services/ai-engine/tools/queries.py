@@ -10,6 +10,63 @@ _MIN_CONFIDENCE = 0.5
 _CHILD_DEPTH = 5
 
 
+def _group_communications_by_thread(comms: list[dict]) -> list[dict]:
+    """flat Communication 리스트를 conversation_id 기준으로 그룹핑한다.
+
+    Slack 응답에서 LLM이 서로 다른 스레드를 한 대화로 합치거나 화자(author)를
+    swap하지 않도록, 도구 응답 단계에서 스레드 경계를 명시적으로 구조화한다.
+
+    입력: 각 dict는 최소 {body, conversation_id} 를 가지며 그 외 author, occurredAt,
+          source, channel, confidence 등 임의 메타가 포함될 수 있다.
+
+    반환:
+        [
+            {
+                "conversation_id": str,
+                "source":          str | None,  # SLACK / GITHUB
+                "channel":         str | None,
+                "messages": [
+                    {author, body, occurredAt, confidence, ...},  # 그룹 메타 제외
+                    ...
+                ]  # occurredAt 오름차순 정렬
+            },
+            ...
+        ]
+        그룹들 자체는 첫 메시지 occurredAt 오름차순 정렬.
+
+    예외 처리:
+        - conversation_id가 None이거나 빈 문자열이면 별도 "(orphan)" 그룹으로 모음
+        - 본문/저자/시각이 모두 None인 더미 dict는 제외 (OPTIONAL MATCH 미매치 잔재)
+    """
+    GROUP_KEYS = {"conversation_id", "source", "channel"}
+
+    valid = [
+        c for c in comms
+        if any(c.get(k) is not None for k in c if k not in GROUP_KEYS)
+    ]
+
+    groups: dict[str, dict] = {}
+    for c in valid:
+        cid = c.get("conversation_id") or "(orphan)"
+        if cid not in groups:
+            groups[cid] = {
+                "conversation_id": cid,
+                "source":          c.get("source"),
+                "channel":         c.get("channel"),
+                "messages":        [],
+            }
+        msg = {k: v for k, v in c.items() if k not in GROUP_KEYS}
+        groups[cid]["messages"].append(msg)
+
+    for g in groups.values():
+        g["messages"].sort(key=lambda m: m.get("occurredAt") or "")
+
+    return sorted(
+        groups.values(),
+        key=lambda g: (g["messages"][0].get("occurredAt") or "") if g["messages"] else "",
+    )
+
+
 async def get_issue_context(jira_key: str) -> dict:
     """이슈 단일 키로 직속 작업 + 자식 이슈 작업까지 모두 집계해서 반환.
 
@@ -122,10 +179,11 @@ async def get_issue_context(jira_key: str) -> dict:
 
         def _per_issue(key: str) -> dict:
             w = work_rows.get(key, {})
+            # discussions는 thread별 그룹핑된 구조로 반환 — LLM이 스레드 경계 명확히 인지하도록.
             return {
                 "changesets":    _filter_empty(w.get("changesets", [])),
                 "pull_requests": _filter_empty(w.get("pull_requests", [])),
-                "discussions":   _filter_empty(disc_rows.get(key, [])),
+                "discussions":   _group_communications_by_thread(disc_rows.get(key, [])),
             }
 
         # root 자체의 작업은 top-level에 그대로 배치 (하위 호환)
@@ -171,6 +229,7 @@ async def get_changeset_context(hash: str) -> dict:
                    collect(DISTINCT {
                        body: c.body, channel: c.channel, source: c.source,
                        occurredAt: toString(c.occurredAt),
+                       conversation_id: c.conversation_id,
                        author: c_author.name,
                        confidence: ref.confidence
                    }) AS communications,
@@ -183,7 +242,10 @@ async def get_changeset_context(hash: str) -> dict:
         row = await result.single()
         if not row:
             return {"message": f"커밋을 찾을 수 없습니다: {hash}"}
-        return dict(row)
+        out = dict(row)
+        # Slack 스레드 경계 보존 — communications를 conversation_id별로 그룹핑.
+        out["communications"] = _group_communications_by_thread(out.get("communications") or [])
+        return out
 
 
 async def find_expert(path_prefix: str) -> list[dict]:
@@ -291,6 +353,7 @@ async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: f
                    left(c.body, 300) AS text,
                    c.channel AS channel,
                    c.source AS source,
+                   c.conversation_id AS conversation_id,
                    toString(c.occurredAt) AS occurredAt,
                    score,
                    collect(DISTINCT cs.hash) AS related_changesets,
@@ -302,6 +365,19 @@ async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: f
             threshold=threshold,
         )
         comm_rows = await result.data()
+
+        # 같은 스레드의 여러 메시지가 검색에 잡혔을 때 dedupe — 대표 메시지(최고 score) 한 건만 유지.
+        # 후속으로 LLM이 conversation_id를 가지고 get_thread_context를 호출해 전체 스레드 맥락을 얻도록.
+        seen_threads: set[str] = set()
+        deduped_comm_rows: list[dict] = []
+        for r in comm_rows:
+            cid = r.get("conversation_id")
+            if cid and cid in seen_threads:
+                continue
+            if cid:
+                seen_threads.add(cid)
+            deduped_comm_rows.append(r)
+        comm_rows = deduped_comm_rows
 
         # Issue 인덱스 검색
         result = await session.run(
@@ -539,6 +615,7 @@ async def get_conflict_context(hash: str) -> dict:
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
+            OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
             OPTIONAL MATCH (cs)-[m:MODIFIED]->(f:File)
             RETURN cs.hash AS hash,
@@ -554,7 +631,9 @@ async def get_conflict_context(hash: str) -> dict:
                    collect(DISTINCT {
                        source: c.source,
                        channel: c.channel,
-                       text: c.body,
+                       conversation_id: c.conversation_id,
+                       body: c.body,
+                       author: c_author.name,
                        occurredAt: toString(c.occurredAt),
                        confidence: ref.confidence
                    }) AS comm_contexts,
@@ -572,7 +651,12 @@ async def get_conflict_context(hash: str) -> dict:
         row = await result.single()
         if not row:
             return {"message": f"커밋을 찾을 수 없습니다: {hash}"}
-        return dict(row)
+        out = dict(row)
+        # Slack 스레드 경계 보존. (기존 comm_contexts는 text 키로 본문을 노출했지만,
+        # 그룹핑 결과에서는 messages[*].body로 정규화 — _group_communications_by_thread가
+        # GROUP_KEYS 외 모든 필드를 메시지 dict에 그대로 넘김.)
+        out["comm_contexts"] = _group_communications_by_thread(out.get("comm_contexts") or [])
+        return out
 
 
 async def get_recent_activity(
@@ -651,6 +735,7 @@ async def get_pr_context(pr_number: int) -> dict:
                    collect(DISTINCT {
                        body: c.body, channel: c.channel, source: c.source,
                        occurredAt: toString(c.occurredAt),
+                       conversation_id: c.conversation_id,
                        author: c_author.name, confidence: ref.confidence
                    }) AS discussions,
                    collect(DISTINCT {path: f.path, diff_summary: m.diffSummary}) AS file_changes
@@ -661,7 +746,9 @@ async def get_pr_context(pr_number: int) -> dict:
         row = await result.single()
         if not row:
             return {"message": f"PR을 찾을 수 없습니다: #{pr_number}"}
-        return dict(row)
+        out = dict(row)
+        out["discussions"] = _group_communications_by_thread(out.get("discussions") or [])
+        return out
 
 
 async def get_thread_context(conversation_id: str) -> list[dict]:
