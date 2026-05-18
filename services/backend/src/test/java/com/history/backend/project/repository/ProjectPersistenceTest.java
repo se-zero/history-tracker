@@ -2,8 +2,6 @@ package com.history.backend.project.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Instant;
-
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.project.domain.Project;
@@ -47,30 +45,30 @@ class ProjectPersistenceTest {
     private ProjectRepository projectRepository;
 
     @Test
-    void saveAndFindActiveProject() {
+    void saveAndfindProject() {
         User owner = userRepository.save(new User("github", "2001", "owner@example.com", "Owner", null));
         Project project = projectRepository.save(new Project(owner, "History Tracker", "GraphRAG backend"));
 
-        assertThat(projectRepository.findByIdAndDeletedAtIsNull(project.getId())).contains(project);
-        assertThat(projectRepository.findAllByOwner_IdAndDeletedAtIsNullOrderByCreatedAtDesc(owner.getId()))
+        assertThat(projectRepository.findById(project.getId())).contains(project);
+        assertThat(projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(owner.getId()))
                 .containsExactly(project);
-        assertThat(projectRepository.existsActiveByOwnerIdAndNameIgnoreCase(
+        assertThat(projectRepository.existsByOwnerIdAndNameIgnoreCase(
                 owner.getId(),
                 "history tracker"
         )).isTrue();
     }
 
     @Test
-    void deletedProjectIsExcludedFromActiveQueries() {
+    void deleteRemovesProject() {
         User owner = userRepository.save(new User("github", "2002", "owner2@example.com", "Owner", null));
         Project project = projectRepository.saveAndFlush(new Project(owner, "History Tracker", null));
-        project.softDelete(Instant.now());
-        projectRepository.saveAndFlush(project);
+        projectRepository.delete(project);
+        projectRepository.flush();
 
-        assertThat(projectRepository.findByIdAndDeletedAtIsNull(project.getId())).isEmpty();
-        assertThat(projectRepository.findAllByOwner_IdAndDeletedAtIsNullOrderByCreatedAtDesc(owner.getId()))
+        assertThat(projectRepository.findById(project.getId())).isEmpty();
+        assertThat(projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(owner.getId()))
                 .isEmpty();
-        assertThat(projectRepository.existsActiveByOwnerIdAndNameIgnoreCase(
+        assertThat(projectRepository.existsByOwnerIdAndNameIgnoreCase(
                 owner.getId(),
                 "History Tracker"
         )).isFalse();
@@ -81,7 +79,7 @@ class ProjectPersistenceTest {
         User owner = userRepository.save(new User("github", "2003", "owner3@example.com", "Owner", null));
         Project project = projectRepository.save(new Project(owner, "History Tracker", null));
 
-        assertThat(projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+        assertThat(projectRepository.existsByOwnerIdAndNameIgnoreCaseExcludingId(
                 owner.getId(),
                 "history tracker",
                 project.getId()
@@ -94,10 +92,11 @@ class ProjectPersistenceTest {
         Project currentProject = projectRepository.save(new Project(owner, "History Tracker", null));
         projectRepository.save(new Project(owner, "Backend API", null));
 
-        assertThat(projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+        assertThat(projectRepository.existsByOwnerIdAndNameIgnoreCaseExcludingId(
                 owner.getId(),
                 "backend api",
                 currentProject.getId()
         )).isTrue();
     }
 }
+

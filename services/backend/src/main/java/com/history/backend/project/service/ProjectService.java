@@ -1,6 +1,5 @@
 package com.history.backend.project.service;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,13 +38,13 @@ public class ProjectService {
     @Transactional(readOnly = true)
     public List<Project> findProjects(UUID ownerId) {
         userService.getActiveUser(ownerId);
-        return projectRepository.findAllByOwner_IdAndDeletedAtIsNullOrderByCreatedAtDesc(ownerId);
+        return projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(ownerId);
     }
 
     @Transactional(readOnly = true)
     public Project getProject(UUID ownerId, UUID projectId) {
         userService.getActiveUser(ownerId);
-        Project project = findActiveProject(projectId);
+        Project project = findProject(projectId);
         validateOwner(project, ownerId);
         return project;
     }
@@ -53,7 +52,7 @@ public class ProjectService {
     @Transactional
     public Project updateProject(UUID ownerId, UUID projectId, String name, String description) {
         userService.getActiveUser(ownerId);
-        Project project = findActiveProject(projectId);
+        Project project = findProject(projectId);
         validateOwner(project, ownerId);
         String normalizedName = name.trim();
         validateNameAvailableForUpdate(ownerId, projectId, normalizedName);
@@ -68,13 +67,13 @@ public class ProjectService {
     @Transactional
     public void deleteProject(UUID ownerId, UUID projectId) {
         userService.getActiveUser(ownerId);
-        Project project = findActiveProject(projectId);
+        Project project = findProject(projectId);
         validateOwner(project, ownerId);
-        project.softDelete(Instant.now());
+        projectRepository.delete(project);
     }
 
-    private Project findActiveProject(UUID projectId) {
-        return projectRepository.findByIdAndDeletedAtIsNull(projectId)
+    private Project findProject(UUID projectId) {
+        return projectRepository.findById(projectId)
                 .orElseThrow(() -> new NotFoundException("Project not found."));
     }
 
@@ -85,14 +84,15 @@ public class ProjectService {
     }
 
     private void validateNameAvailable(UUID ownerId, String name) {
-        if (projectRepository.existsActiveByOwnerIdAndNameIgnoreCase(ownerId, name)) {
+        if (projectRepository.existsByOwnerIdAndNameIgnoreCase(ownerId, name)) {
             throw new ConflictException("Project name already exists.");
         }
     }
 
     private void validateNameAvailableForUpdate(UUID ownerId, UUID projectId, String name) {
-        if (projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(ownerId, name, projectId)) {
+        if (projectRepository.existsByOwnerIdAndNameIgnoreCaseExcludingId(ownerId, name, projectId)) {
             throw new ConflictException("Project name already exists.");
         }
     }
 }
+

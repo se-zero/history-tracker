@@ -42,7 +42,7 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         User owner = user(OWNER_ID);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(owner);
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
                 .thenReturn(false);
         when(projectRepository.saveAndFlush(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -58,7 +58,7 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         User owner = user(OWNER_ID);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(owner);
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
                 .thenReturn(false);
         when(projectRepository.saveAndFlush(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -71,7 +71,7 @@ class ProjectServiceTest {
     void createProjectRejectsDuplicateActiveNameForOwner() {
         ProjectService service = new ProjectService(projectRepository, userService);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
                 .thenReturn(true);
 
         assertThatThrownBy(() -> service.createProject(OWNER_ID, "History Tracker", null))
@@ -83,7 +83,7 @@ class ProjectServiceTest {
     void createProjectConvertsUniqueConstraintViolationToConflict() {
         ProjectService service = new ProjectService(projectRepository, userService);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCase(OWNER_ID, "History Tracker"))
                 .thenReturn(false);
         when(projectRepository.saveAndFlush(any(Project.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate project name"));
@@ -98,7 +98,7 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OTHER_USER_ID)).thenReturn(user(OTHER_USER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
 
         assertThatThrownBy(() -> service.getProject(OTHER_USER_ID, PROJECT_ID))
                 .isInstanceOf(ForbiddenException.class)
@@ -109,7 +109,7 @@ class ProjectServiceTest {
     void getProjectRejectsMissingProject() {
         ProjectService service = new ProjectService(projectRepository, userService);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.empty());
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getProject(OWNER_ID, PROJECT_ID))
                 .isInstanceOf(NotFoundException.class)
@@ -121,8 +121,8 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCaseExcludingId(
                 OWNER_ID,
                 "History Tracker",
                 PROJECT_ID
@@ -140,8 +140,8 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCaseExcludingId(
                 OWNER_ID,
                 "History Tracker API",
                 PROJECT_ID
@@ -159,8 +159,8 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCaseExcludingId(
                 OWNER_ID,
                 "History Tracker API",
                 PROJECT_ID
@@ -177,8 +177,8 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCaseExcludingId(
                 OWNER_ID,
                 "History Tracker API",
                 PROJECT_ID
@@ -194,7 +194,7 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OTHER_USER_ID)).thenReturn(user(OTHER_USER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
 
         assertThatThrownBy(() -> service.updateProject(OTHER_USER_ID, PROJECT_ID, "History Tracker API", null))
                 .isInstanceOf(ForbiddenException.class)
@@ -206,8 +206,8 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
-        when(projectRepository.existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.existsByOwnerIdAndNameIgnoreCaseExcludingId(
                 OWNER_ID,
                 "History Tracker API",
                 PROJECT_ID
@@ -221,16 +221,15 @@ class ProjectServiceTest {
     }
 
     @Test
-    void deleteProjectSoftDeletesProject() {
+    void deleteProjectDeletesProject() {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
 
         service.deleteProject(OWNER_ID, PROJECT_ID);
 
-        verify(projectRepository).findByIdAndDeletedAtIsNull(PROJECT_ID);
-        assertThat(project.getDeletedAt()).isNotNull();
+        verify(projectRepository).delete(project);
     }
 
     @Test
@@ -238,7 +237,7 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OTHER_USER_ID)).thenReturn(user(OTHER_USER_ID));
-        when(projectRepository.findByIdAndDeletedAtIsNull(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(projectRepository.findById(PROJECT_ID)).thenReturn(Optional.of(project));
 
         assertThatThrownBy(() -> service.deleteProject(OTHER_USER_ID, PROJECT_ID))
                 .isInstanceOf(ForbiddenException.class)
@@ -250,7 +249,7 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findAllByOwner_IdAndDeletedAtIsNullOrderByCreatedAtDesc(OWNER_ID))
+        when(projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(OWNER_ID))
                 .thenReturn(List.of(project));
 
         List<Project> result = service.findProjects(OWNER_ID);
@@ -270,3 +269,5 @@ class ProjectServiceTest {
         return project;
     }
 }
+
+

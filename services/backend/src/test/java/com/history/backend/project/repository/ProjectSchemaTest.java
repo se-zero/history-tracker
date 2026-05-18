@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -54,14 +52,10 @@ class ProjectSchemaTest {
     }
 
     @Test
-    void projectNameCanBeReusedAfterSoftDelete() {
+    void projectNameCanBeReusedAfterHardDelete() {
         UUID ownerId = insertUser("owner2@example.com");
         UUID projectId = insertProject(ownerId, "History Tracker", null);
-        jdbcTemplate.update(
-                "UPDATE projects SET deleted_at = ? WHERE id = ?",
-                Timestamp.from(Instant.now()),
-                projectId
-        );
+        jdbcTemplate.update("DELETE FROM projects WHERE id = ?", projectId);
 
         UUID newProjectId = insertProject(ownerId, "history tracker", null);
 

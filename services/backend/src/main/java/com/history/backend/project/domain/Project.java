@@ -46,9 +46,6 @@ public class Project {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    @Column(name = "deleted_at")
-    private Instant deletedAt;
-
     public Project(User owner, String name, String description) {
         this.owner = owner;
         this.name = name;
@@ -62,10 +59,6 @@ public class Project {
     public void updateDetails(String name, String description) {
         this.name = name;
         this.description = description;
-    }
-
-    public void softDelete(Instant deletedAt) {
-        this.deletedAt = deletedAt;
     }
 
     @PrePersist

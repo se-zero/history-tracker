@@ -1,7 +1,6 @@
 package com.history.backend.project.repository;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.project.domain.Project;
@@ -11,18 +10,15 @@ import org.springframework.data.repository.query.Param;
 
 public interface ProjectRepository extends JpaRepository<Project, UUID> {
 
-    List<Project> findAllByOwner_IdAndDeletedAtIsNullOrderByCreatedAtDesc(UUID ownerId);
-
-    Optional<Project> findByIdAndDeletedAtIsNull(UUID id);
+    List<Project> findAllByOwner_IdOrderByCreatedAtDesc(UUID ownerId);
 
     @Query("""
             SELECT COUNT(project) > 0
             FROM Project project
             WHERE project.owner.id = :ownerId
               AND LOWER(project.name) = LOWER(:name)
-              AND project.deletedAt IS NULL
             """)
-    boolean existsActiveByOwnerIdAndNameIgnoreCase(
+    boolean existsByOwnerIdAndNameIgnoreCase(
             @Param("ownerId") UUID ownerId,
             @Param("name") String name
     );
@@ -32,12 +28,12 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
             FROM Project project
             WHERE project.owner.id = :ownerId
               AND LOWER(project.name) = LOWER(:name)
-              AND project.deletedAt IS NULL
               AND project.id <> :projectId
             """)
-    boolean existsActiveByOwnerIdAndNameIgnoreCaseExcludingId(
+    boolean existsByOwnerIdAndNameIgnoreCaseExcludingId(
             @Param("ownerId") UUID ownerId,
             @Param("name") String name,
             @Param("projectId") UUID projectId
     );
 }
+
