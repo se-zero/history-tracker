@@ -29,6 +29,11 @@ public class GlobalExceptionHandler {
         return errorResponse(HttpStatus.FORBIDDEN, exception.getMessage());
     }
 
+    @ExceptionHandler(ConflictException.class)
+    ResponseEntity<ErrorResponse> handleConflict(ConflictException exception) {
+        return errorResponse(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException exception) {
         List<FieldErrorDetail> fields = exception.getBindingResult().getFieldErrors().stream()

@@ -70,8 +70,12 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public UserResponse getCurrentUser(UUID userId) {
+        return UserResponse.from(getActiveUser(userId));
+    }
+
+    @Transactional(readOnly = true)
+    public User getActiveUser(UUID userId) {
         return userRepository.findByIdAndDeletedAtIsNull(userId)
-                .map(UserResponse::from)
                 .orElseThrow(() -> new NotFoundException("User not found."));
     }
 }
