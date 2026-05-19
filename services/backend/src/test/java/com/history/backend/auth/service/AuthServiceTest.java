@@ -36,13 +36,19 @@ import org.springframework.test.util.ReflectionTestUtils;
 class AuthServiceTest {
 
     private static final GitHubAppProperties GITHUB_PROPERTIES = new GitHubAppProperties(
+            "app-id",
+            "history-tracker",
+            "",
             "client-id",
             "client-secret",
             "http://localhost/api/v1/auth/github/callback",
+            "",
             "https://github.com/login/oauth/authorize",
             "https://github.com/login/oauth/access_token",
             "https://api.github.com/user",
-            "https://api.github.com/user/installations"
+            "https://api.github.com/user/installations",
+            "https://api.github.com/app/installations/{installation_id}/access_tokens",
+            "https://api.github.com/installation/repositories"
     );
 
     private static final JwtProperties JWT_PROPERTIES = new JwtProperties(
@@ -73,9 +79,7 @@ class AuthServiceTest {
         URI uri = authService.buildGitHubAuthorizeUri("foo&bar=baz");
 
         assertThat(uri.toString())
-                .startsWith("https://github.com/login/oauth/authorize")
-                .contains("client_id=client-id")
-                .contains("redirect_uri=http://localhost/api/v1/auth/github/callback")
+                .startsWith("https://github.com/apps/history-tracker/installations/new")
                 .contains("state=foo%26bar%3Dbaz");
     }
 

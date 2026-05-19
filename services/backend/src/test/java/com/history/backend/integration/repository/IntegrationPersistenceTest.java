@@ -1,0 +1,182 @@
+package com.history.backend.integration.repository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.util.Map;
+import java.util.Optional;
+
+import com.history.backend.auth.domain.User;
+import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.github.domain.GitHubInstallation;
+import com.history.backend.github.repository.GitHubInstallationRepository;
+import com.history.backend.integration.domain.Integration;
+import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.project.domain.Project;
+import com.history.backend.project.repository.ProjectRepository;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.annotation.Transactional;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+@DataJpaTest
+@Testcontainers(disabledWithoutDocker = true)
+@Transactional
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+class IntegrationPersistenceTest {
+
+    @Container
+    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @DynamicPropertySource
+    static void configurePostgres(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", IntegrationPersistenceTest::postgresJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+    }
+
+    private static String postgresJdbcUrl() {
+        return postgres.getJdbcUrl() + "&stringtype=unspecified";
+    }
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private ProjectRepository projectRepository;
+
+    @Autowired
+    private GitHubInstallationRepository gitHubInstallationRepository;
+
+    @Autowired
+    private IntegrationRepository integrationRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Test
+    void saveAndFindGitHubIntegration() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = integrationRepository.saveAndFlush(Integration.github(
+                fixture.project(),
+                fixture.installation(),
+                12345L,
+                "acme/widget"
+        ));
+
+        Optional<Integration> result = integrationRepository.findByProject_IdAndProvider(
+                fixture.project().getId(),
+                IntegrationProvider.GITHUB
+        );
+
+        assertThat(result).contains(integration);
+        assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.GITHUB);
+        assertThat(result.orElseThrow().getGitHubRepositoryId()).isEqualTo(12345L);
+        assertThat(result.orElseThrow().getGitHubRepositoryFullName()).isEqualTo("acme/widget");
+        assertThat(result.orElseThrow().getInstallation()).isEqualTo(fixture.installation());
+        assertThat(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(fixture.project().getId()))
+                .containsExactly(integration);
+        assertThat(integrationRepository.findByIdAndProject_Id(integration.getId(), fixture.project().getId()))
+                .contains(integration);
+        assertThat(integrationRepository.existsByProject_IdAndProvider(
+                fixture.project().getId(),
+                IntegrationProvider.GITHUB
+        )).isTrue();
+    }
+
+    @Test
+    void providerIsStoredAsLowercaseDatabaseValue() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = integrationRepository.saveAndFlush(Integration.github(
+                fixture.project(),
+                fixture.installation(),
+                12345L,
+                "acme/widget"
+        ));
+
+        String provider = jdbcTemplate.queryForObject(
+                "SELECT provider FROM integrations WHERE id = ?",
+                String.class,
+                integration.getId()
+        );
+
+        assertThat(provider).isEqualTo("github");
+    }
+
+    @Test
+    void externalRefIsStoredAsJsonb() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = integrationRepository.saveAndFlush(Integration.github(
+                fixture.project(),
+                fixture.installation(),
+                12345L,
+                "acme/widget"
+        ));
+
+        String repositoryFullName = jdbcTemplate.queryForObject(
+                "SELECT external_ref->>'repository_full_name' FROM integrations WHERE id = ?",
+                String.class,
+                integration.getId()
+        );
+
+        assertThat(repositoryFullName).isEqualTo("acme/widget");
+    }
+
+    @Test
+    void githubRepositoryIdFailsWhenExternalRefIsMissingRepositoryId() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget");
+        ReflectionTestUtils.setField(integration, "externalRef", Map.of(
+                Integration.GITHUB_REPOSITORY_FULL_NAME, "acme/widget"
+        ));
+
+        assertThatThrownBy(integration::getGitHubRepositoryId)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Missing GitHub repository_id.");
+    }
+
+    @Test
+    void githubRepositoryIdFailsWhenExternalRefUsesUnexpectedType() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget");
+        ReflectionTestUtils.setField(integration, "externalRef", Map.of(
+                Integration.GITHUB_REPOSITORY_ID, "12345",
+                Integration.GITHUB_REPOSITORY_FULL_NAME, "acme/widget"
+        ));
+
+        assertThatThrownBy(integration::getGitHubRepositoryId)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageStartingWith("Unexpected GitHub repository_id type:");
+    }
+
+    private ProjectFixture createProjectFixture() {
+        User owner = userRepository.save(new User(
+                "github",
+                "user-" + System.nanoTime(),
+                "owner@example.com",
+                "Owner",
+                null
+        ));
+        Project project = projectRepository.save(new Project(owner, "History Tracker", null));
+        GitHubInstallation installation = gitHubInstallationRepository.save(new GitHubInstallation(
+                System.nanoTime(),
+                "Organization",
+                "acme",
+                owner
+        ));
+        return new ProjectFixture(project, installation);
+    }
+
+    private record ProjectFixture(Project project, GitHubInstallation installation) {
+    }
+}

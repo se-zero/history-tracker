@@ -36,15 +36,23 @@ public class AuthService {
 
     // GitHub OAuth 인증 URL 생성
     public URI buildGitHubAuthorizeUri(String state) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(gitHubAppProperties.authorizeUrl())
-                .queryParam("client_id", gitHubAppProperties.clientId())
-                .queryParam("redirect_uri", gitHubAppProperties.redirectUri());
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(gitHubInstallationUrl());
 
         if (state != null && !state.isBlank()) {
             builder.queryParam("state", state);
         }
 
         return builder.encode().build().toUri();
+    }
+
+    private String gitHubInstallationUrl() {
+        if (gitHubAppProperties.installationUrl() != null && !gitHubAppProperties.installationUrl().isBlank()) {
+            return gitHubAppProperties.installationUrl();
+        }
+        if (gitHubAppProperties.appSlug() != null && !gitHubAppProperties.appSlug().isBlank()) {
+            return "https://github.com/apps/" + gitHubAppProperties.appSlug() + "/installations/new";
+        }
+        throw new IllegalStateException("GitHub App installation URL is not configured.");
     }
 
     @Transactional

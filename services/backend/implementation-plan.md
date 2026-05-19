@@ -10,11 +10,11 @@ backend 작업은 기능 단위 vertical slice PR로 진행한다. 각 PR은 필
 |---:|---|---|---|
 | 1 | `codex/backend-auth-github-foundation` | 인증/GitHub App 기반 | Spring Security/JPA/Flyway 의존성, 공통 패키지, `users`, `refresh_tokens`, `github_installations` migration/entity/repository, JWT, GitHub authorize/callback, `/me`, refresh, logout |
 | 2 | `codex/backend-projects` | 프로젝트 관리 | `projects` migration/entity/repository, Project CRUD API, owner 검증, soft delete, 프로젝트명 중복 제약 |
-| 3 | `codex/backend-github-integrations` | GitHub repo 연동 | `integrations` migration/entity/repository 중 GitHub 경로 우선, installation 검증, repo 연결/해제 API, provider별 CHECK 제약 기본 |
+| 3 | `codex/backend-github-integrations` | GitHub repo 연동 | `integrations` migration/entity/repository 중 GitHub 경로 우선, installation 검증, installation repository 목록 조회 API, 프로젝트당 GitHub repo 1개 연결 API, provider별 CHECK 제약 기본 |
 | 4 | `codex/backend-optional-integrations` | Slack/Jira 연동 | AES-GCM 암호화 설정, Slack/Jira token 저장, provider별 request/validation, integration 응답 정리 |
 | 5 | `codex/backend-conversations` | 대화/Q&A 전환 | `conversations`, `messages` migration/entity/repository, Conversation/Message API, 기존 Query API 제거, ai-engine 호출 로직 이전 |
 | 6 | `codex/backend-pipeline-shared-tables` | pipeline 공유 DB 계약 | `webhook_deliveries`, `checkpoints` migration/entity/repository, 중복 webhook claim용 제약, checkpoint 복합 PK |
-| 7 | `codex/backend-installation-token-cache` | GitHub installation token 관리 | `InstallationTokenService`, token 암호화 저장/갱신, 만료 5분 전 재발급, row lock 또는 conditional update |
+| 7 | `codex/backend-installation-token-cache` | GitHub installation token 관리 | `InstallationTokenService`, token 암호화 저장/갱신, 만료 5분 전 재발급, row lock 또는 conditional update. 3번 PR의 repository 목록 조회는 캐시 없이 발급하고, 이 단계에서 공통 캐시 경로로 합친다 |
 | 8 | `codex/backend-user-lifecycle` | 사용자 탈퇴/복구 | user soft delete, grace period 복구, refresh token 폐기, purge scheduler, owner 리소스 정리 정책 |
 
 ## Flyway 규칙
