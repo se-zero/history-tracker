@@ -1,0 +1,186 @@
+package com.history.backend.integration.controller;
+
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.time.Instant;
+import java.util.UUID;
+
+import com.history.backend.auth.domain.User;
+import com.history.backend.common.error.ConflictException;
+import com.history.backend.github.domain.GitHubInstallation;
+import com.history.backend.integration.domain.Integration;
+import com.history.backend.integration.service.IntegrationService;
+import com.history.backend.project.domain.Project;
+import com.history.backend.security.AuthenticatedUser;
+import com.history.backend.security.JwtTokenService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+class IntegrationControllerTest {
+
+    private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+    private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
+    private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
+    private static final UUID INTEGRATION_ID = UUID.fromString("72b9c869-77f6-4b4d-b8c5-db85023ef3b8");
+    private static final Instant CREATED_AT = Instant.parse("2026-05-19T01:00:00Z");
+    private static final Instant UPDATED_AT = Instant.parse("2026-05-19T02:00:00Z");
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private IntegrationService integrationService;
+
+    @MockitoBean
+    private JwtTokenService jwtTokenService;
+
+    @BeforeEach
+    void setUpAuthentication() {
+        when(jwtTokenService.validateAccessToken(anyString())).thenReturn(new AuthenticatedUser(USER_ID));
+    }
+
+    @Test
+    void connectGitHubRepositoryReturnsCreatedIntegration() throws Exception {
+        when(integrationService.connectGitHubRepository(
+                USER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget"
+        )).thenReturn(integration());
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
+                                  "repository_id": 12345,
+                                  "repository_full_name": "acme/widget"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(INTEGRATION_ID.toString()))
+                .andExpect(jsonPath("$.projectId").value(PROJECT_ID.toString()))
+                .andExpect(jsonPath("$.provider").value("github"))
+                .andExpect(jsonPath("$.installationId").value(INSTALLATION_ID.toString()))
+                .andExpect(jsonPath("$.externalRef.repository_id").value(12345))
+                .andExpect(jsonPath("$.externalRef.repository_full_name").value("acme/widget"))
+                .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
+                .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
+    }
+
+    @Test
+    void connectGitHubRepositoryRejectsInvalidRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
+                                  "repository_id": 0,
+                                  "repository_full_name": ""
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed."));
+    }
+
+    @Test
+    void connectGitHubRepositoryRejectsInvalidRepositoryFullNameFormat() throws Exception {
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
+                                  "repository_id": 12345,
+                                  "repository_full_name": "acme/platform/widget"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed."))
+                .andExpect(jsonPath("$.fields[0].field").value("repositoryFullName"));
+    }
+
+    @Test
+    void connectGitHubRepositoryReturnsConflictWhenAlreadyConnected() throws Exception {
+        when(integrationService.connectGitHubRepository(
+                USER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget"
+        )).thenThrow(new ConflictException("GitHub integration already exists."));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
+                                  "repository_id": 12345,
+                                  "repository_full_name": "acme/widget"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("GitHub integration already exists."));
+    }
+
+    @Test
+    void deleteIntegrationReturnsNoContent() throws Exception {
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNoContent());
+
+        verify(integrationService).deleteIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
+    }
+
+    @Test
+    void rejectMissingAccessToken() throws Exception {
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
+                                  "repository_id": 12345,
+                                  "repository_full_name": "acme/widget"
+                                }
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Authentication is required."));
+    }
+
+    private Integration integration() {
+        User owner = new User("github", "12345", "owner@example.com", "Owner", null);
+        ReflectionTestUtils.setField(owner, "id", USER_ID);
+
+        Project project = new Project(owner, "History Tracker", null);
+        ReflectionTestUtils.setField(project, "id", PROJECT_ID);
+
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", owner);
+        ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
+
+        Integration integration = Integration.github(project, installation, 12345L, "acme/widget");
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
+        ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);
+        return integration;
+    }
+}
