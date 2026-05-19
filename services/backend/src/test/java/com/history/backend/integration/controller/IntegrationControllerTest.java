@@ -1,9 +1,7 @@
 package com.history.backend.integration.controller;
 
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -141,15 +139,6 @@ class IntegrationControllerTest {
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("GitHub integration already exists."));
-    }
-
-    @Test
-    void deleteIntegrationReturnsNoContent() throws Exception {
-        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
-                .andExpect(status().isNoContent());
-
-        verify(integrationService).deleteIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
     }
 
     @Test

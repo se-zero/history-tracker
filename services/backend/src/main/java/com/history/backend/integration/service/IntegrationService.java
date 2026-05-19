@@ -3,7 +3,6 @@ package com.history.backend.integration.service;
 import java.util.UUID;
 
 import com.history.backend.common.error.ConflictException;
-import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.integration.domain.Integration;
@@ -47,14 +46,6 @@ public class IntegrationService {
         } catch (DataIntegrityViolationException exception) {
             throw new ConflictException("GitHub integration already exists.");
         }
-    }
-
-    @Transactional
-    public void deleteIntegration(UUID ownerId, UUID projectId, UUID integrationId) {
-        projectService.getProject(ownerId, projectId);
-        Integration integration = integrationRepository.findByIdAndProject_Id(integrationId, projectId)
-                .orElseThrow(() -> new NotFoundException("Integration not found."));
-        integrationRepository.delete(integration);
     }
 
     private void validateProviderAvailable(UUID projectId, IntegrationProvider provider) {
