@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.InstallationResponse;
@@ -49,5 +50,11 @@ public class GitHubInstallationService {
         return gitHubInstallationRepository.findAllByInstallerUser_Id(installerId).stream()
                 .map(InstallationResponse::from)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public GitHubInstallation getInstallationForInstaller(UUID installerId, UUID installationId) {
+        return gitHubInstallationRepository.findByIdAndInstallerUser_Id(installationId, installerId)
+                .orElseThrow(() -> new NotFoundException("GitHub installation not found."));
     }
 }
