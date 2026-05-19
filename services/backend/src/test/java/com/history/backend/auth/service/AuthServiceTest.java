@@ -36,13 +36,17 @@ import org.springframework.test.util.ReflectionTestUtils;
 class AuthServiceTest {
 
     private static final GitHubAppProperties GITHUB_PROPERTIES = new GitHubAppProperties(
+            "app-id",
+            "",
             "client-id",
             "client-secret",
             "http://localhost/api/v1/auth/github/callback",
             "https://github.com/login/oauth/authorize",
             "https://github.com/login/oauth/access_token",
             "https://api.github.com/user",
-            "https://api.github.com/user/installations"
+            "https://api.github.com/user/installations",
+            "https://api.github.com/app/installations/{installation_id}/access_tokens",
+            "https://api.github.com/installation/repositories"
     );
 
     private static final JwtProperties JWT_PROPERTIES = new JwtProperties(

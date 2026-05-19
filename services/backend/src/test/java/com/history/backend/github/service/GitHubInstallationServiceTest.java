@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -13,12 +14,17 @@ import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.dto.GitHubInstallationAccountResponse;
 import com.history.backend.github.dto.GitHubInstallationResponse;
+import com.history.backend.github.dto.GitHubRepositoryOwnerResponse;
+import com.history.backend.github.dto.GitHubRepositoryResponse;
 import com.history.backend.github.repository.GitHubInstallationRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 
 @ExtendWith(MockitoExtension.class)
 class GitHubInstallationServiceTest {
@@ -26,12 +32,21 @@ class GitHubInstallationServiceTest {
     @Mock
     private GitHubInstallationRepository gitHubInstallationRepository;
 
+    @Mock
+    private GitHubAppClient gitHubAppClient;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
+    @Mock
+    private TransactionStatus transactionStatus;
+
     private static final UUID INSTALLER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
 
     @Test
     void upsertInstallationReloadsInstallationWhenConcurrentInsertWins() {
-        GitHubInstallationService service = new GitHubInstallationService(gitHubInstallationRepository);
+        GitHubInstallationService service = service();
         User installer = new User("github", "12345", "octocat@example.com", "Octocat", null);
         ReflectionTestUtils.setField(installer, "id", INSTALLER_ID);
         GitHubInstallationResponse response = new GitHubInstallationResponse(
@@ -53,7 +68,7 @@ class GitHubInstallationServiceTest {
 
     @Test
     void getInstallationForInstallerReturnsOwnedInstallation() {
-        GitHubInstallationService service = new GitHubInstallationService(gitHubInstallationRepository);
+        GitHubInstallationService service = service();
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer());
         when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.of(installation));
@@ -65,13 +80,45 @@ class GitHubInstallationServiceTest {
 
     @Test
     void getInstallationForInstallerRejectsMissingInstallation() {
-        GitHubInstallationService service = new GitHubInstallationService(gitHubInstallationRepository);
+        GitHubInstallationService service = service();
         when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getInstallationForInstaller(INSTALLER_ID, INSTALLATION_ID))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("GitHub installation not found.");
+    }
+
+    @Test
+    void findRepositoriesReturnsRepositoriesForOwnedInstallation() {
+        GitHubInstallationService service = service();
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer());
+        when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
+        when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
+                .thenReturn(Optional.of(installation));
+        when(gitHubAppClient.createInstallationAccessToken(98765L))
+                .thenReturn("installation-token");
+        when(gitHubAppClient.fetchInstallationRepositories("installation-token"))
+                .thenReturn(List.of(new GitHubRepositoryResponse(
+                        12345L,
+                        "widget",
+                        "acme/widget",
+                        new GitHubRepositoryOwnerResponse("acme"),
+                        true,
+                        "private",
+                        "main"
+                )));
+
+        var result = service.findRepositories(INSTALLER_ID, INSTALLATION_ID);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).id()).isEqualTo(12345L);
+        assertThat(result.get(0).fullName()).isEqualTo("acme/widget");
+        assertThat(result.get(0).privateRepository()).isTrue();
+    }
+
+    private GitHubInstallationService service() {
+        return new GitHubInstallationService(gitHubInstallationRepository, gitHubAppClient, transactionManager);
     }
 
     private User installer() {

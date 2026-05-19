@@ -34,6 +34,11 @@ public class GlobalExceptionHandler {
         return errorResponse(HttpStatus.CONFLICT, exception.getMessage());
     }
 
+    @ExceptionHandler(BadGatewayException.class)
+    ResponseEntity<ErrorResponse> handleBadGateway(BadGatewayException exception) {
+        return errorResponse(HttpStatus.BAD_GATEWAY, exception.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException exception) {
         List<FieldErrorDetail> fields = exception.getBindingResult().getFieldErrors().stream()
