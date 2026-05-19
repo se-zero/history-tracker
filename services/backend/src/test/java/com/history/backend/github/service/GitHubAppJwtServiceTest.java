@@ -150,10 +150,12 @@ class GitHubAppJwtServiceTest {
     private GitHubAppProperties properties(String privateKey) {
         return new GitHubAppProperties(
                 "123456",
+                "history-tracker",
                 privateKey,
                 "client-id",
                 "client-secret",
                 "http://localhost/api/v1/auth/github/callback",
+                "https://github.com/apps/history-tracker/installations/new",
                 "https://github.com/login/oauth/authorize",
                 "https://github.com/login/oauth/access_token",
                 "https://api.github.com/user",

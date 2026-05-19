@@ -36,12 +36,15 @@ class AuthControllerTest {
     @Test
     void authorizeGitHubRedirectsToGitHub() throws Exception {
         when(authService.buildGitHubAuthorizeUri("state-123"))
-                .thenReturn(URI.create("https://github.com/login/oauth/authorize?state=state-123"));
+                .thenReturn(URI.create("https://github.com/apps/history-tracker/installations/new?state=state-123"));
 
         mockMvc.perform(get("/api/v1/auth/github/authorize")
                         .queryParam("state", "state-123"))
                 .andExpect(status().isFound())
-                .andExpect(header().string("Location", "https://github.com/login/oauth/authorize?state=state-123"));
+                .andExpect(header().string(
+                        "Location",
+                        "https://github.com/apps/history-tracker/installations/new?state=state-123"
+                ));
     }
 
     @Test

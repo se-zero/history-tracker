@@ -29,10 +29,12 @@ security:
 github:
   app:
     app-id: ${GITHUB_APP_ID:}
+    app-slug: ${GITHUB_APP_SLUG:}
     private-key: ${GITHUB_APP_PRIVATE_KEY:}
     client-id: ${GITHUB_CLIENT_ID:}
     client-secret: ${GITHUB_CLIENT_SECRET:}
     redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/v1/auth/github/callback}
+    installation-url: ${GITHUB_INSTALLATION_URL:}
     authorize-url: ${GITHUB_AUTHORIZE_URL:https://github.com/login/oauth/authorize}
     access-token-url: ${GITHUB_ACCESS_TOKEN_URL:https://github.com/login/oauth/access_token}
     user-url: ${GITHUB_USER_URL:https://api.github.com/user}
