@@ -95,6 +95,54 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    void saveAndFindSlackIntegration() {
+        ProjectFixture fixture = createProjectFixture();
+        byte[] encryptedCredential = new byte[] {10, 20, 30};
+        Integration integration = integrationRepository.saveAndFlush(Integration.slack(
+                fixture.project(),
+                "T123",
+                "Acme",
+                encryptedCredential
+        ));
+
+        Optional<Integration> result = integrationRepository.findByProject_IdAndProvider(
+                fixture.project().getId(),
+                IntegrationProvider.SLACK
+        );
+
+        assertThat(result).contains(integration);
+        assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.SLACK);
+        assertThat(result.orElseThrow().getSlackWorkspaceId()).isEqualTo("T123");
+        assertThat(result.orElseThrow().getSlackWorkspaceName()).isEqualTo("Acme");
+        assertThat(result.orElseThrow().getInstallation()).isNull();
+        assertThat(result.orElseThrow().getEncryptedCredential()).containsExactly(10, 20, 30);
+    }
+
+    @Test
+    void saveAndFindJiraIntegration() {
+        ProjectFixture fixture = createProjectFixture();
+        byte[] encryptedCredential = new byte[] {40, 50, 60};
+        Integration integration = integrationRepository.saveAndFlush(Integration.jira(
+                fixture.project(),
+                "PLAT",
+                "https://acme.atlassian.net",
+                encryptedCredential
+        ));
+
+        Optional<Integration> result = integrationRepository.findByProject_IdAndProvider(
+                fixture.project().getId(),
+                IntegrationProvider.JIRA
+        );
+
+        assertThat(result).contains(integration);
+        assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.JIRA);
+        assertThat(result.orElseThrow().getJiraProjectKey()).isEqualTo("PLAT");
+        assertThat(result.orElseThrow().getJiraBaseUrl()).isEqualTo("https://acme.atlassian.net");
+        assertThat(result.orElseThrow().getInstallation()).isNull();
+        assertThat(result.orElseThrow().getEncryptedCredential()).containsExactly(40, 50, 60);
+    }
+
+    @Test
     void providerIsStoredAsLowercaseDatabaseValue() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = integrationRepository.saveAndFlush(Integration.github(
@@ -133,6 +181,44 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    void slackExternalRefIsStoredAsJsonb() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = integrationRepository.saveAndFlush(Integration.slack(
+                fixture.project(),
+                "T123",
+                "Acme",
+                new byte[] {1, 2, 3}
+        ));
+
+        String workspaceId = jdbcTemplate.queryForObject(
+                "SELECT external_ref->>'workspace_id' FROM integrations WHERE id = ?",
+                String.class,
+                integration.getId()
+        );
+
+        assertThat(workspaceId).isEqualTo("T123");
+    }
+
+    @Test
+    void jiraExternalRefIsStoredAsJsonb() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = integrationRepository.saveAndFlush(Integration.jira(
+                fixture.project(),
+                "PLAT",
+                "https://acme.atlassian.net",
+                new byte[] {1, 2, 3}
+        ));
+
+        String projectKey = jdbcTemplate.queryForObject(
+                "SELECT external_ref->>'project_key' FROM integrations WHERE id = ?",
+                String.class,
+                integration.getId()
+        );
+
+        assertThat(projectKey).isEqualTo("PLAT");
+    }
+
+    @Test
     void githubRepositoryIdFailsWhenExternalRefIsMissingRepositoryId() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget");
@@ -157,6 +243,38 @@ class IntegrationPersistenceTest {
         assertThatThrownBy(integration::getGitHubRepositoryId)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageStartingWith("Unexpected GitHub repository_id type:");
+    }
+
+    @Test
+    void slackWorkspaceIdFailsWhenExternalRefIsMissingWorkspaceId() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = Integration.slack(fixture.project(), "T123", "Acme", new byte[] {1, 2, 3});
+        ReflectionTestUtils.setField(integration, "externalRef", Map.of(
+                Integration.SLACK_WORKSPACE_NAME, "Acme"
+        ));
+
+        assertThatThrownBy(integration::getSlackWorkspaceId)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Missing Slack workspace_id.");
+    }
+
+    @Test
+    void jiraBaseUrlFailsWhenExternalRefUsesUnexpectedType() {
+        ProjectFixture fixture = createProjectFixture();
+        Integration integration = Integration.jira(
+                fixture.project(),
+                "PLAT",
+                "https://acme.atlassian.net",
+                new byte[] {1, 2, 3}
+        );
+        ReflectionTestUtils.setField(integration, "externalRef", Map.of(
+                Integration.JIRA_PROJECT_KEY, "PLAT",
+                Integration.JIRA_BASE_URL, 123
+        ));
+
+        assertThatThrownBy(integration::getJiraBaseUrl)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageStartingWith("Unexpected Jira base_url type:");
     }
 
     private ProjectFixture createProjectFixture() {
