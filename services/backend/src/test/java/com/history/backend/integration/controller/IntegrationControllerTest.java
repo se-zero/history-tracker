@@ -85,6 +85,34 @@ class IntegrationControllerTest {
     }
 
     @Test
+    void connectSlackWorkspaceReturnsCreatedIntegration() throws Exception {
+        when(integrationService.connectSlackWorkspace(
+                USER_ID,
+                PROJECT_ID,
+                "xoxb-token"
+        )).thenReturn(slackIntegration());
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "token": "xoxb-token"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(INTEGRATION_ID.toString()))
+                .andExpect(jsonPath("$.projectId").value(PROJECT_ID.toString()))
+                .andExpect(jsonPath("$.provider").value("slack"))
+                .andExpect(jsonPath("$.installationId").doesNotExist())
+                .andExpect(jsonPath("$.externalRef.workspace_id").value("T123"))
+                .andExpect(jsonPath("$.externalRef.workspace_name").value("Acme"))
+                .andExpect(jsonPath("$.externalRef.token").doesNotExist())
+                .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
+                .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
+    }
+
+    @Test
     void connectGitHubRepositoryRejectsInvalidRequest() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -94,6 +122,20 @@ class IntegrationControllerTest {
                                   "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
                                   "repository_id": 0,
                                   "repository_full_name": ""
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed."));
+    }
+
+    @Test
+    void connectSlackWorkspaceRejectsInvalidRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "token": ""
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -142,6 +184,26 @@ class IntegrationControllerTest {
     }
 
     @Test
+    void connectSlackWorkspaceReturnsConflictWhenAlreadyConnected() throws Exception {
+        when(integrationService.connectSlackWorkspace(
+                USER_ID,
+                PROJECT_ID,
+                "xoxb-token"
+        )).thenThrow(new ConflictException("Slack integration already exists."));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "token": "xoxb-token"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Slack integration already exists."));
+    }
+
+    @Test
     void rejectMissingAccessToken() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -167,6 +229,20 @@ class IntegrationControllerTest {
         ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
 
         Integration integration = Integration.github(project, installation, 12345L, "acme/widget");
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
+        ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);
+        return integration;
+    }
+
+    private Integration slackIntegration() {
+        User owner = new User("github", "12345", "owner@example.com", "Owner", null);
+        ReflectionTestUtils.setField(owner, "id", USER_ID);
+
+        Project project = new Project(owner, "History Tracker", null);
+        ReflectionTestUtils.setField(project, "id", PROJECT_ID);
+
+        Integration integration = Integration.slack(project, "T123", "Acme", new byte[] {1, 2, 3});
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);

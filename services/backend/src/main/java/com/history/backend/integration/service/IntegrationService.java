@@ -2,6 +2,7 @@ package com.history.backend.integration.service;
 
 import java.util.UUID;
 
+import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
@@ -10,10 +11,13 @@ import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
+import com.history.backend.slack.service.SlackClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -22,6 +26,9 @@ public class IntegrationService {
     private final IntegrationRepository integrationRepository;
     private final ProjectService projectService;
     private final GitHubInstallationService gitHubInstallationService;
+    private final CredentialCryptoService credentialCryptoService;
+    private final SlackClient slackClient;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
     public Integration connectGitHubRepository(
@@ -48,9 +55,56 @@ public class IntegrationService {
         }
     }
 
+    public Integration connectSlackWorkspace(
+            UUID ownerId,
+            UUID projectId,
+            String token
+    ) {
+        String normalizedToken = token.trim();
+        SlackClient.SlackWorkspace workspace = slackClient.verifyToken(normalizedToken);
+        byte[] encryptedCredential = credentialCryptoService.encrypt(normalizedToken);
+
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        return transactionTemplate.execute(status -> saveSlackWorkspace(
+                ownerId,
+                projectId,
+                workspace,
+                encryptedCredential
+        ));
+    }
+
+    private Integration saveSlackWorkspace(
+            UUID ownerId,
+            UUID projectId,
+            SlackClient.SlackWorkspace workspace,
+            byte[] encryptedCredential
+    ) {
+        Project project = projectService.getProject(ownerId, projectId);
+        validateProviderAvailable(projectId, IntegrationProvider.SLACK);
+
+        try {
+            return integrationRepository.saveAndFlush(Integration.slack(
+                    project,
+                    workspace.id(),
+                    workspace.name(),
+                    encryptedCredential
+            ));
+        } catch (DataIntegrityViolationException exception) {
+            throw new ConflictException("Slack integration already exists.");
+        }
+    }
+
     private void validateProviderAvailable(UUID projectId, IntegrationProvider provider) {
         if (integrationRepository.existsByProject_IdAndProvider(projectId, provider)) {
-            throw new ConflictException("GitHub integration already exists.");
+            throw new ConflictException(providerDisplayName(provider) + " integration already exists.");
         }
+    }
+
+    private String providerDisplayName(IntegrationProvider provider) {
+        return switch (provider) {
+            case GITHUB -> "GitHub";
+            case SLACK -> "Slack";
+            case JIRA -> "Jira";
+        };
     }
 }
