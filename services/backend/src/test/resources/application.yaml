@@ -16,6 +16,8 @@ ai:
     url: http://localhost:8000
 
 security:
+  credentials:
+    key: dGVzdC1jcmVkZW50aWFsLWtleS0zMi1ieXRlcyEhISE=
   jwt:
     secret: test-jwt-secret-for-backend-security-tests
     access-token-ttl: PT15M

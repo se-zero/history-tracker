@@ -21,6 +21,8 @@ ai:
     url: http://localhost:8000
 
 security:
+  credentials:
+    key: ${BACKEND_CREDENTIAL_KEY:bG9jYWwtY3JlZGVudGlhbC1rZXktMzItYnl0ZXMhISE=}
   jwt:
     secret: ${JWT_SECRET:local-development-jwt-secret-must-be-changed}
     access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT15M}
