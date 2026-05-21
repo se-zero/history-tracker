@@ -4,7 +4,6 @@ import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.slack.SlackProperties;
 import com.history.backend.slack.dto.SlackAuthTestResponse;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
@@ -20,7 +19,6 @@ public class SlackClient {
     private final SlackProperties properties;
     private final RestClient restClient;
 
-    @Autowired
     public SlackClient(
             SlackProperties properties,
             @Qualifier("slackRestClient")

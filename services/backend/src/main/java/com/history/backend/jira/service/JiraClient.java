@@ -7,7 +7,6 @@ import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.jira.dto.JiraProjectResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
@@ -21,7 +20,6 @@ public class JiraClient {
 
     private final RestClient restClient;
 
-    @Autowired
     public JiraClient(@Qualifier("jiraRestClient") RestClient restClient) {
         this.restClient = restClient;
     }

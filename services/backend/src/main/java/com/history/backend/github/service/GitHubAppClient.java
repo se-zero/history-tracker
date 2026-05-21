@@ -10,7 +10,6 @@ import com.history.backend.github.dto.GitHubRepositoriesResponse;
 import com.history.backend.github.dto.GitHubRepositoryResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -27,7 +26,6 @@ public class GitHubAppClient {
     private final GitHubAppJwtService gitHubAppJwtService;
     private final RestClient restClient;
 
-    @Autowired
     public GitHubAppClient(
             GitHubAppProperties properties,
             GitHubAppJwtService gitHubAppJwtService,
