@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.auth.domain.User;
+import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
@@ -16,6 +17,7 @@ import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.repository.IntegrationRepository;
+import com.history.backend.jira.service.JiraClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.slack.service.SlackClient;
@@ -52,6 +54,9 @@ class IntegrationServiceTest {
     @Mock
     private SlackClient slackClient;
 
+    @Mock
+    private JiraClient jiraClient;
+
     private final PlatformTransactionManager transactionManager = new NoopTransactionManager();
 
     @Test
@@ -62,6 +67,7 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 credentialCryptoService,
                 slackClient,
+                jiraClient,
                 transactionManager
         );
         Project project = project();
@@ -97,6 +103,7 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 credentialCryptoService,
                 slackClient,
+                jiraClient,
                 transactionManager
         );
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -124,6 +131,7 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 credentialCryptoService,
                 slackClient,
+                jiraClient,
                 transactionManager
         );
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -149,6 +157,7 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 credentialCryptoService,
                 slackClient,
+                jiraClient,
                 transactionManager
         );
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -178,6 +187,7 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 credentialCryptoService,
                 slackClient,
+                jiraClient,
                 transactionManager
         );
         Project project = project();
@@ -213,6 +223,7 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 credentialCryptoService,
                 slackClient,
+                jiraClient,
                 transactionManager
         );
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -236,6 +247,7 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 credentialCryptoService,
                 slackClient,
+                jiraClient,
                 transactionManager
         );
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -254,6 +266,171 @@ class IntegrationServiceTest {
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Slack integration already exists.");
+    }
+
+    @Test
+    void connectJiraProjectEncryptsCredentialAndSavesIntegrationForOwnedProject() {
+        IntegrationService service = new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                transactionManager
+        );
+        Project project = project();
+        byte[] encryptedCredential = new byte[] {4, 5, 6};
+        when(jiraClient.verifyProject(
+                "https://93.184.216.34",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        )).thenReturn(new JiraClient.JiraProject("PROJ", "Project"));
+        when(credentialCryptoService.encrypt("owner@example.com:jira-token"))
+                .thenReturn(encryptedCredential);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(false);
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Integration result = service.connectJiraProject(
+                OWNER_ID,
+                PROJECT_ID,
+                "  https://93.184.216.34/  ",
+                "PROJ",
+                "  owner@example.com  ",
+                "  jira-token  "
+        );
+
+        assertThat(result.getProject()).isSameAs(project);
+        assertThat(result.getInstallation()).isNull();
+        assertThat(result.getProvider()).isEqualTo(IntegrationProvider.JIRA);
+        assertThat(result.getJiraProjectKey()).isEqualTo("PROJ");
+        assertThat(result.getJiraProjectName()).isEqualTo("Project");
+        assertThat(result.getJiraBaseUrl()).isEqualTo("https://93.184.216.34");
+        assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
+    }
+
+    @Test
+    void connectJiraProjectRejectsLoopbackBaseUrl() {
+        IntegrationService service = new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                transactionManager
+        );
+
+        assertThatThrownBy(() -> service.connectJiraProject(
+                OWNER_ID,
+                PROJECT_ID,
+                "https://127.0.0.1",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        ))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Jira base URL host must be public.");
+    }
+
+    @Test
+    void connectJiraProjectRejectsHttpBaseUrl() {
+        IntegrationService service = new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                transactionManager
+        );
+
+        assertThatThrownBy(() -> service.connectJiraProject(
+                OWNER_ID,
+                PROJECT_ID,
+                "http://example.atlassian.net",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        ))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Jira base URL must start with https://.");
+    }
+
+    @Test
+    void connectJiraProjectRejectsDuplicateJiraProvider() {
+        IntegrationService service = new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                transactionManager
+        );
+        when(jiraClient.verifyProject(
+                "https://93.184.216.34",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        )).thenReturn(new JiraClient.JiraProject("PROJ", "Project"));
+        when(credentialCryptoService.encrypt("owner@example.com:jira-token"))
+                .thenReturn(new byte[] {4, 5, 6});
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service.connectJiraProject(
+                OWNER_ID,
+                PROJECT_ID,
+                "https://93.184.216.34",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        ))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Jira integration already exists.");
+    }
+
+    @Test
+    void connectJiraProjectConvertsUniqueConstraintViolationToConflict() {
+        IntegrationService service = new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                transactionManager
+        );
+        when(jiraClient.verifyProject(
+                "https://93.184.216.34",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        )).thenReturn(new JiraClient.JiraProject("PROJ", "Project"));
+        when(credentialCryptoService.encrypt("owner@example.com:jira-token"))
+                .thenReturn(new byte[] {4, 5, 6});
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(false);
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate integration"));
+
+        assertThatThrownBy(() -> service.connectJiraProject(
+                OWNER_ID,
+                PROJECT_ID,
+                "https://93.184.216.34",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        ))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Jira integration already exists.");
     }
 
     private User user() {

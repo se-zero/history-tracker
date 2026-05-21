@@ -34,6 +34,11 @@ public class GlobalExceptionHandler {
         return errorResponse(HttpStatus.CONFLICT, exception.getMessage());
     }
 
+    @ExceptionHandler(BadRequestException.class)
+    ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException exception) {
+        return errorResponse(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
     @ExceptionHandler(BadGatewayException.class)
     ResponseEntity<ErrorResponse> handleBadGateway(BadGatewayException exception) {
         return errorResponse(HttpStatus.BAD_GATEWAY, exception.getMessage());

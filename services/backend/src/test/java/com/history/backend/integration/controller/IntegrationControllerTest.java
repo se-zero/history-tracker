@@ -113,6 +113,42 @@ class IntegrationControllerTest {
     }
 
     @Test
+    void connectJiraProjectReturnsCreatedIntegration() throws Exception {
+        when(integrationService.connectJiraProject(
+                USER_ID,
+                PROJECT_ID,
+                "https://example.atlassian.net",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        )).thenReturn(jiraIntegration());
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "base_url": "https://example.atlassian.net",
+                                  "project_key": "PROJ",
+                                  "email": "owner@example.com",
+                                  "api_token": "jira-token"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(INTEGRATION_ID.toString()))
+                .andExpect(jsonPath("$.projectId").value(PROJECT_ID.toString()))
+                .andExpect(jsonPath("$.provider").value("jira"))
+                .andExpect(jsonPath("$.installationId").doesNotExist())
+                .andExpect(jsonPath("$.externalRef.project_key").value("PROJ"))
+                .andExpect(jsonPath("$.externalRef.project_name").value("Project"))
+                .andExpect(jsonPath("$.externalRef.base_url").value("https://example.atlassian.net"))
+                .andExpect(jsonPath("$.externalRef.email").doesNotExist())
+                .andExpect(jsonPath("$.externalRef.api_token").doesNotExist())
+                .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
+                .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
+    }
+
+    @Test
     void connectGitHubRepositoryRejectsInvalidRequest() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -136,6 +172,23 @@ class IntegrationControllerTest {
                         .content("""
                                 {
                                   "token": ""
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed."));
+    }
+
+    @Test
+    void connectJiraProjectRejectsInvalidRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "base_url": "ftp://example.atlassian.net",
+                                  "project_key": "bad key",
+                                  "email": "not-email",
+                                  "api_token": ""
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -204,6 +257,32 @@ class IntegrationControllerTest {
     }
 
     @Test
+    void connectJiraProjectReturnsConflictWhenAlreadyConnected() throws Exception {
+        when(integrationService.connectJiraProject(
+                USER_ID,
+                PROJECT_ID,
+                "https://example.atlassian.net",
+                "PROJ",
+                "owner@example.com",
+                "jira-token"
+        )).thenThrow(new ConflictException("Jira integration already exists."));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "base_url": "https://example.atlassian.net",
+                                  "project_key": "PROJ",
+                                  "email": "owner@example.com",
+                                  "api_token": "jira-token"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Jira integration already exists."));
+    }
+
+    @Test
     void rejectMissingAccessToken() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -243,6 +322,26 @@ class IntegrationControllerTest {
         ReflectionTestUtils.setField(project, "id", PROJECT_ID);
 
         Integration integration = Integration.slack(project, "T123", "Acme", new byte[] {1, 2, 3});
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
+        ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);
+        return integration;
+    }
+
+    private Integration jiraIntegration() {
+        User owner = new User("github", "12345", "owner@example.com", "Owner", null);
+        ReflectionTestUtils.setField(owner, "id", USER_ID);
+
+        Project project = new Project(owner, "History Tracker", null);
+        ReflectionTestUtils.setField(project, "id", PROJECT_ID);
+
+        Integration integration = Integration.jira(
+                project,
+                "PROJ",
+                "Project",
+                "https://example.atlassian.net",
+                new byte[] {4, 5, 6}
+        );
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);

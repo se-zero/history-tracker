@@ -3,6 +3,7 @@ package com.history.backend.integration.controller;
 import java.util.UUID;
 
 import com.history.backend.integration.dto.ConnectGitHubIntegrationRequest;
+import com.history.backend.integration.dto.ConnectJiraIntegrationRequest;
 import com.history.backend.integration.dto.ConnectSlackIntegrationRequest;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.service.IntegrationService;
@@ -52,6 +53,23 @@ public class IntegrationController {
                 authenticatedUser.id(),
                 projectId,
                 request.token()
+        ));
+    }
+
+    @PostMapping("/jira")
+    @ResponseStatus(HttpStatus.CREATED)
+    public IntegrationResponse connectJiraProject(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @Valid @RequestBody ConnectJiraIntegrationRequest request
+    ) {
+        return IntegrationResponse.from(integrationService.connectJiraProject(
+                authenticatedUser.id(),
+                projectId,
+                request.baseUrl(),
+                request.projectKey(),
+                request.email(),
+                request.apiToken()
         ));
     }
 }

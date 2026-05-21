@@ -125,6 +125,7 @@ class IntegrationPersistenceTest {
         Integration integration = integrationRepository.saveAndFlush(Integration.jira(
                 fixture.project(),
                 "PLAT",
+                "Platform",
                 "https://acme.atlassian.net",
                 encryptedCredential
         ));
@@ -137,6 +138,7 @@ class IntegrationPersistenceTest {
         assertThat(result).contains(integration);
         assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.JIRA);
         assertThat(result.orElseThrow().getJiraProjectKey()).isEqualTo("PLAT");
+        assertThat(result.orElseThrow().getJiraProjectName()).isEqualTo("Platform");
         assertThat(result.orElseThrow().getJiraBaseUrl()).isEqualTo("https://acme.atlassian.net");
         assertThat(result.orElseThrow().getInstallation()).isNull();
         assertThat(result.orElseThrow().getEncryptedCredential()).containsExactly(40, 50, 60);
@@ -205,6 +207,7 @@ class IntegrationPersistenceTest {
         Integration integration = integrationRepository.saveAndFlush(Integration.jira(
                 fixture.project(),
                 "PLAT",
+                "Platform",
                 "https://acme.atlassian.net",
                 new byte[] {1, 2, 3}
         ));
@@ -214,8 +217,14 @@ class IntegrationPersistenceTest {
                 String.class,
                 integration.getId()
         );
+        String projectName = jdbcTemplate.queryForObject(
+                "SELECT external_ref->>'project_name' FROM integrations WHERE id = ?",
+                String.class,
+                integration.getId()
+        );
 
         assertThat(projectKey).isEqualTo("PLAT");
+        assertThat(projectName).isEqualTo("Platform");
     }
 
     @Test
@@ -264,6 +273,7 @@ class IntegrationPersistenceTest {
         Integration integration = Integration.jira(
                 fixture.project(),
                 "PLAT",
+                "Platform",
                 "https://acme.atlassian.net",
                 new byte[] {1, 2, 3}
         );

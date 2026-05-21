@@ -2,6 +2,7 @@ package com.history.backend.integration.domain;
 
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -36,6 +37,7 @@ public class Integration {
     public static final String SLACK_WORKSPACE_ID = "workspace_id";
     public static final String SLACK_WORKSPACE_NAME = "workspace_name";
     public static final String JIRA_PROJECT_KEY = "project_key";
+    public static final String JIRA_PROJECT_NAME = "project_name";
     public static final String JIRA_BASE_URL = "base_url";
 
     @Id
@@ -107,16 +109,20 @@ public class Integration {
     public static Integration jira(
             Project project,
             String projectKey,
+            String projectName,
             String baseUrl,
             byte[] encryptedCredential
     ) {
+        Map<String, Object> externalRef = new HashMap<>();
+        externalRef.put(JIRA_PROJECT_KEY, projectKey);
+        externalRef.put(JIRA_BASE_URL, baseUrl);
+        if (projectName != null && !projectName.isBlank()) {
+            externalRef.put(JIRA_PROJECT_NAME, projectName);
+        }
         return new Integration(
                 project,
                 IntegrationProvider.JIRA,
-                Map.of(
-                        JIRA_PROJECT_KEY, projectKey,
-                        JIRA_BASE_URL, baseUrl
-                ),
+                Map.copyOf(externalRef),
                 null,
                 encryptedCredential
         );
@@ -169,6 +175,17 @@ public class Integration {
 
     public String getJiraProjectKey() {
         return getRequiredString(JIRA_PROJECT_KEY, "Jira project_key");
+    }
+
+    public String getJiraProjectName() {
+        Object value = externalRef.get(JIRA_PROJECT_NAME);
+        if (value instanceof String text && !text.isBlank()) {
+            return text;
+        }
+        if (value == null) {
+            return null;
+        }
+        throw new IllegalStateException("Unexpected Jira project_name type: " + value.getClass());
     }
 
     public String getJiraBaseUrl() {
