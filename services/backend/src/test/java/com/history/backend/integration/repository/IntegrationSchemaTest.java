@@ -114,6 +114,45 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    void jiraIntegrationRequiresEncryptedCredentialWithoutInstallation() {
+        UUID ownerId = insertUser("owner8@example.com");
+        UUID projectId = insertProject(ownerId);
+
+        UUID integrationId = jdbcTemplate.queryForObject(
+                """
+                        INSERT INTO integrations (
+                            project_id, provider, external_ref, encrypted_credential
+                        )
+                        VALUES (?, 'jira', ?, ?)
+                        RETURNING id
+                        """,
+                UUID.class,
+                projectId,
+                "{\"project_key\":\"PLAT\",\"base_url\":\"https://acme.atlassian.net\"}",
+                new byte[] {1, 2, 3}
+        );
+
+        assertThat(integrationId).isNotNull();
+    }
+
+    @Test
+    void jiraIntegrationRejectsMissingEncryptedCredential() {
+        UUID ownerId = insertUser("owner9@example.com");
+        UUID projectId = insertProject(ownerId);
+
+        assertThatThrownBy(() -> jdbcTemplate.queryForObject(
+                """
+                        INSERT INTO integrations (project_id, provider, external_ref)
+                        VALUES (?, 'jira', ?)
+                        RETURNING id
+                        """,
+                UUID.class,
+                projectId,
+                "{\"project_key\":\"PLAT\",\"base_url\":\"https://acme.atlassian.net\"}"
+        )).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
     void providerIsUniquePerProject() {
         UUID ownerId = insertUser("owner5@example.com");
         UUID projectId = insertProject(ownerId);

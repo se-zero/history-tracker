@@ -21,6 +21,8 @@ ai:
     url: http://localhost:8000
 
 security:
+  credentials:
+    key: ${BACKEND_CREDENTIAL_KEY:bG9jYWwtY3JlZGVudGlhbC1rZXktMzItYnl0ZXMhISE=}
   jwt:
     secret: ${JWT_SECRET:local-development-jwt-secret-must-be-changed}
     access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT15M}
@@ -41,3 +43,6 @@ github:
     installations-url: ${GITHUB_INSTALLATIONS_URL:https://api.github.com/user/installations}
     installation-access-token-url: ${GITHUB_INSTALLATION_ACCESS_TOKEN_URL:https://api.github.com/app/installations/{installation_id}/access_tokens}
     installation-repositories-url: ${GITHUB_INSTALLATION_REPOSITORIES_URL:https://api.github.com/installation/repositories}
+
+slack:
+  auth-test-url: ${SLACK_AUTH_TEST_URL:https://slack.com/api/auth.test}

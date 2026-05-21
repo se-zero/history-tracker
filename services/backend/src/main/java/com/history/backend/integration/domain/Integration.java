@@ -1,6 +1,8 @@
 package com.history.backend.integration.domain;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -32,6 +34,11 @@ public class Integration {
 
     public static final String GITHUB_REPOSITORY_ID = "repository_id";
     public static final String GITHUB_REPOSITORY_FULL_NAME = "repository_full_name";
+    public static final String SLACK_WORKSPACE_ID = "workspace_id";
+    public static final String SLACK_WORKSPACE_NAME = "workspace_name";
+    public static final String JIRA_PROJECT_KEY = "project_key";
+    public static final String JIRA_PROJECT_NAME = "project_name";
+    public static final String JIRA_BASE_URL = "base_url";
 
     @Id
     @GeneratedValue
@@ -81,6 +88,46 @@ public class Integration {
         );
     }
 
+    public static Integration slack(
+            Project project,
+            String workspaceId,
+            String workspaceName,
+            byte[] encryptedCredential
+    ) {
+        return new Integration(
+                project,
+                IntegrationProvider.SLACK,
+                Map.of(
+                        SLACK_WORKSPACE_ID, workspaceId,
+                        SLACK_WORKSPACE_NAME, workspaceName
+                ),
+                null,
+                encryptedCredential
+        );
+    }
+
+    public static Integration jira(
+            Project project,
+            String projectKey,
+            String projectName,
+            String baseUrl,
+            byte[] encryptedCredential
+    ) {
+        Map<String, Object> externalRef = new HashMap<>();
+        externalRef.put(JIRA_PROJECT_KEY, projectKey);
+        externalRef.put(JIRA_BASE_URL, baseUrl);
+        if (projectName != null && !projectName.isBlank()) {
+            externalRef.put(JIRA_PROJECT_NAME, projectName);
+        }
+        return new Integration(
+                project,
+                IntegrationProvider.JIRA,
+                Map.copyOf(externalRef),
+                null,
+                encryptedCredential
+        );
+    }
+
     private Integration(
             Project project,
             IntegrationProvider provider,
@@ -92,7 +139,15 @@ public class Integration {
         this.provider = provider;
         this.externalRef = externalRef;
         this.installation = installation;
-        this.encryptedCredential = encryptedCredential;
+        this.encryptedCredential = encryptedCredential == null
+                ? null
+                : Arrays.copyOf(encryptedCredential, encryptedCredential.length);
+    }
+
+    public byte[] getEncryptedCredential() {
+        return encryptedCredential == null
+                ? null
+                : Arrays.copyOf(encryptedCredential, encryptedCredential.length);
     }
 
     public Long getGitHubRepositoryId() {
@@ -107,16 +162,45 @@ public class Integration {
     }
 
     public String getGitHubRepositoryFullName() {
-        Object repositoryFullName = externalRef.get(GITHUB_REPOSITORY_FULL_NAME);
-        if (repositoryFullName instanceof String text && !text.isBlank()) {
+        return getRequiredString(GITHUB_REPOSITORY_FULL_NAME, "GitHub repository_full_name");
+    }
+
+    public String getSlackWorkspaceId() {
+        return getRequiredString(SLACK_WORKSPACE_ID, "Slack workspace_id");
+    }
+
+    public String getSlackWorkspaceName() {
+        return getRequiredString(SLACK_WORKSPACE_NAME, "Slack workspace_name");
+    }
+
+    public String getJiraProjectKey() {
+        return getRequiredString(JIRA_PROJECT_KEY, "Jira project_key");
+    }
+
+    public String getJiraProjectName() {
+        Object value = externalRef.get(JIRA_PROJECT_NAME);
+        if (value instanceof String text && !text.isBlank()) {
             return text;
         }
-        if (repositoryFullName == null) {
-            throw new IllegalStateException("Missing GitHub repository_full_name.");
+        if (value == null) {
+            return null;
         }
-        throw new IllegalStateException(
-                "Unexpected GitHub repository_full_name type: " + repositoryFullName.getClass()
-        );
+        throw new IllegalStateException("Unexpected Jira project_name type: " + value.getClass());
+    }
+
+    public String getJiraBaseUrl() {
+        return getRequiredString(JIRA_BASE_URL, "Jira base_url");
+    }
+
+    private String getRequiredString(String key, String label) {
+        Object value = externalRef.get(key);
+        if (value instanceof String text && !text.isBlank()) {
+            return text;
+        }
+        if (value == null) {
+            throw new IllegalStateException("Missing " + label + ".");
+        }
+        throw new IllegalStateException("Unexpected " + label + " type: " + value.getClass());
     }
 
     @PrePersist

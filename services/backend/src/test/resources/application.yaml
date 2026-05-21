@@ -16,6 +16,8 @@ ai:
     url: http://localhost:8000
 
 security:
+  credentials:
+    key: dGVzdC1jcmVkZW50aWFsLWtleS0zMi1ieXRlcyEhISE=
   jwt:
     secret: test-jwt-secret-for-backend-security-tests
     access-token-ttl: PT15M
@@ -36,3 +38,6 @@ github:
     installations-url: https://api.github.com/user/installations
     installation-access-token-url: https://api.github.com/app/installations/{installation_id}/access_tokens
     installation-repositories-url: https://api.github.com/installation/repositories
+
+slack:
+  auth-test-url: https://slack.test/api/auth.test
