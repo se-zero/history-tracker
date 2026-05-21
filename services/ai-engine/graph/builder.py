@@ -9,6 +9,7 @@ Neo4j 그래프 빌더.
 
 import logging
 import os
+import re
 import uuid
 from typing import Optional
 
@@ -128,7 +129,15 @@ async def upsert_pull_request(
     created_at: Optional[str],
     source: str,
     actor_uuid: str,
+    jira_keys: Optional[list[str]] = None,
 ) -> None:
+    """PullRequest 노드 upsert.
+
+    jira_keys:
+      PR 제목/본문에서 추출한 다중 Jira 키. 그 PR이 머지한 모든 ChangeSet에 동일 키로
+      text TRIGGERED_BY를 전파하는 데 사용된다 (link_pr_changesets_to_issues).
+      None이면 기존 pr.jira_keys 값을 보존, 명시되면 갱신.
+    """
     async with get_driver().session() as session:
         await session.run(
             """
@@ -141,6 +150,7 @@ async def upsert_pull_request(
                 pr.url = $url,
                 pr.occurredAt = CASE WHEN $occurred_at IS NOT NULL THEN datetime($occurred_at) ELSE null END,
                 pr.createdAt  = CASE WHEN $created_at  IS NOT NULL THEN datetime($created_at)  ELSE null END,
+                pr.jira_keys  = CASE WHEN $jira_keys   IS NOT NULL THEN $jira_keys              ELSE pr.jira_keys END,
                 pr.source = $source
             MERGE (a)-[:AUTHORED]->(pr)
             """,
@@ -153,6 +163,7 @@ async def upsert_pull_request(
             url=url,
             occurred_at=occurred_at,
             created_at=created_at,
+            jira_keys=jira_keys,
             source=source,
         )
 
@@ -168,10 +179,22 @@ async def upsert_issue(
     assignee: str,
     occurred_at: str,
     created_at: Optional[str],
+    closed_at: Optional[str] = None,
     source: str,
     actor_uuid: str,
     embedding: list[float],
 ) -> None:
+    """Issue 노드 upsert.
+
+    closed_at 정책 (status-aware):
+      - closed_at 값 있음                            → 그 값으로 덮어씀
+      - closed_at 값 없음(None) + status가 TERMINAL → 기존 i.closedAt 보존
+        (pipeline-worker가 아직 closed_at을 안 보내는 마이그레이션 단계 안전망)
+      - closed_at 값 없음(None) + status가 non-TERMINAL → null 로 클리어
+        (재오픈된 이슈가 비대칭 시간 윈도우 계산에서 오래된 종료 시각을 쓰지 않도록 함)
+
+    createdAt 정책: 원래대로 — 값 있으면 SET, 없으면 null (이벤트 소스가 항상 보내는 게 정상).
+    """
     async with get_driver().session() as session:
         await session.run(
             """
@@ -185,6 +208,11 @@ async def upsert_issue(
                 i.assignee = $assignee,
                 i.occurredAt = datetime($occurred_at),
                 i.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
+                i.closedAt   = CASE
+                                  WHEN $closed_at IS NOT NULL THEN datetime($closed_at)
+                                  WHEN $status IN ['완료', 'Done', 'Closed', 'Resolved', '해결됨'] THEN i.closedAt
+                                  ELSE null
+                               END,
                 i.source = $source,
                 i.embedding = $embedding
             MERGE (a)-[:CREATED]->(i)
@@ -199,6 +227,7 @@ async def upsert_issue(
             assignee=assignee,
             occurred_at=occurred_at,
             created_at=created_at,
+            closed_at=closed_at,
             source=source,
             embedding=embedding,
         )
@@ -250,14 +279,19 @@ async def upsert_communication(
 
 
 async def link_changeset_to_issue(changeset_hash: str, jira_key: str) -> None:
-    """TRIGGERED_BY: ChangeSet refs.jiraKey 존재 시"""
+    """TRIGGERED_BY (text): ChangeSet refs.jiraKey 존재 시.
+
+    명시적 텍스트 참조이므로 source='text', confidence=1.0으로 고정한다.
+    같은 (changeset, issue) 쌍에 시맨틱 엣지가 먼저 만들어져 있어도 텍스트가 우선이므로 덮어쓴다.
+    """
     async with get_driver().session() as session:
         await session.run(
             """
             MERGE (i:Issue {jira_key: $jira_key})
             WITH i
             MATCH (c:ChangeSet {hash: $hash})
-            MERGE (c)-[:TRIGGERED_BY]->(i)
+            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            SET r.source = 'text', r.confidence = 1.0
             """,
             jira_key=jira_key,
             hash=changeset_hash,
@@ -276,6 +310,38 @@ async def link_pr_to_changeset(pr_number: int, changeset_hash: str) -> None:
             hash=changeset_hash,
             pr_number=pr_number,
         )
+
+
+async def link_pr_changesets_to_issues(pr_number: int) -> int:
+    """TRIGGERED_BY (text) 전파: PR.jira_keys에 등록된 각 Jira 키를 그 PR이 머지한
+    모든 ChangeSet에 동일하게 연결한다.
+
+    호출 시점:
+      - PR 이벤트 처리 직후 (PR.jira_keys 갱신 직후 — 기존 CONTAINS 커밋에 전파)
+      - ChangeSet 이벤트 처리 중 link_pr_to_changeset 직후 (PR이 먼저 도착했으면 새 커밋이 즉시 전파됨)
+
+    PR.jira_keys가 비어있거나 CONTAINS 커밋이 없으면 noop. 모든 절은 MERGE/SET 기반이라 idempotent.
+
+    Returns:
+        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (pr:PullRequest {pr_number: $pr_number})
+            WHERE pr.jira_keys IS NOT NULL AND size(pr.jira_keys) > 0
+            UNWIND pr.jira_keys AS jira_key
+            MERGE (i:Issue {jira_key: jira_key})
+            WITH pr, i
+            MATCH (pr)-[:CONTAINS]->(c:ChangeSet)
+            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            SET r.source = 'text', r.confidence = 1.0
+            RETURN count(r) AS n
+            """,
+            pr_number=pr_number,
+        )
+        row = await result.single()
+        return row["n"] if row else 0
 
 
 async def link_issue_to_communication(jira_key: str, comm_url: str) -> None:
@@ -325,6 +391,162 @@ async def propagate_thread_discussed_in() -> int:
         )
         record = await result.single()
         return record["created"] if record else 0
+
+
+async def backfill_triggered_by_source() -> dict:
+    """기존 TRIGGERED_BY 엣지에 source / confidence 속성을 채우는 일회성 마이그레이션.
+
+    분류 기준:
+      - confidence IS NULL          → 텍스트 경로로만 생성된 것 → source='text', confidence=1.0
+      - confidence IS NOT NULL      → 시맨틱 경로 산물            → source='semantic'
+      - 위 둘 다 끝난 뒤, commit.message에 jira_key 텍스트가 들어있는 시맨틱 엣지는
+        실제로는 텍스트 참조 케이스로 봐야 하므로 'text'로 승격 (confidence=1.0)
+
+    모든 절은 idempotent. 재실행해도 안전.
+    반환: 단계별 갱신 카운트.
+    """
+    async with get_driver().session() as session:
+        # 1) confidence가 없으면 텍스트 경로로만 생성된 것 → text/1.0
+        result = await session.run(
+            """
+            MATCH ()-[r:TRIGGERED_BY]->()
+            WHERE r.source IS NULL AND r.confidence IS NULL
+            SET r.source = 'text', r.confidence = 1.0
+            RETURN count(r) AS n
+            """
+        )
+        text_backfilled = (await result.single())["n"]
+
+        # 2) confidence 있으면 시맨틱 산물 → source='semantic'
+        result = await session.run(
+            """
+            MATCH ()-[r:TRIGGERED_BY]->()
+            WHERE r.source IS NULL AND r.confidence IS NOT NULL
+            SET r.source = 'semantic'
+            RETURN count(r) AS n
+            """
+        )
+        semantic_backfilled = (await result.single())["n"]
+
+        # 3) commit message에 jira_key가 직접 들어있는 시맨틱 엣지를 텍스트로 승격
+        #    (pipeline-worker가 refs.jiraKey 추출에 실패했어도 후속 정정)
+        result = await session.run(
+            """
+            MATCH (c:ChangeSet)-[r:TRIGGERED_BY]->(i:Issue)
+            WHERE r.source = 'semantic'
+              AND c.message IS NOT NULL
+              AND c.message CONTAINS i.jira_key
+            SET r.source = 'text', r.confidence = 1.0
+            RETURN count(r) AS n
+            """
+        )
+        promoted = (await result.single())["n"]
+
+    logger.info(
+        "TRIGGERED_BY source 백필 완료: text=%d, semantic=%d, promoted=%d",
+        text_backfilled, semantic_backfilled, promoted,
+    )
+    return {
+        "text_backfilled": text_backfilled,
+        "semantic_backfilled": semantic_backfilled,
+        "promoted_to_text": promoted,
+    }
+
+
+_JIRA_KEY_PATTERN = re.compile(r"\b([A-Z]{2,}-\d+)\b")
+
+
+async def backfill_pr_jira_keys() -> dict:
+    """기존 PR 노드의 title/body에서 jira_keys를 추출해 pr.jira_keys로 저장하고
+    link_pr_changesets_to_issues 전파까지 수행한다.
+
+    배경:
+      Phase 2 이후 _handle_pull_request는 PR 이벤트가 들어올 때 refs.jiraKeys를 받아
+      pr.jira_keys로 저장하지만, 그 변경 이전에 이미 그래프에 들어와 있던 PR은 속성이
+      비어있다. 이 함수는 그런 기존 PR에 한정해 한 번에 후처리한다.
+
+    동작:
+      pr.jira_keys가 NULL이거나 빈 PR을 찾아 title + body 텍스트에서 Jira 키를 추출.
+      매치가 있으면 pr.jira_keys 설정 후 link_pr_changesets_to_issues로 CONTAINS 커밋에
+      텍스트 TRIGGERED_BY 전파.
+
+    Idempotent: jira_keys가 이미 채워진 PR은 건너뜀.
+
+    Returns:
+        {"pr_scanned": N, "pr_backfilled": K, "edges_propagated": M}
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (pr:PullRequest)
+            WHERE pr.jira_keys IS NULL OR size(pr.jira_keys) = 0
+            RETURN pr.pr_number AS pr_number,
+                   pr.title     AS title,
+                   pr.body      AS body
+            """
+        )
+        prs = await result.data()
+
+    backfilled = 0
+    edges_propagated = 0
+    for pr in prs:
+        text = (pr["title"] or "") + " " + (pr["body"] or "")
+        # 중복 제거 + 입력 순서 유지 — pipeline-worker RefsExtractor와 같은 정책
+        keys = list(dict.fromkeys(_JIRA_KEY_PATTERN.findall(text)))
+        if not keys:
+            continue
+
+        pr_number = pr["pr_number"]
+        async with get_driver().session() as session:
+            await session.run(
+                """
+                MATCH (pr:PullRequest {pr_number: $pr_number})
+                SET pr.jira_keys = $keys
+                """,
+                pr_number=pr_number,
+                keys=keys,
+            )
+        propagated = await link_pr_changesets_to_issues(pr_number)
+        edges_propagated += propagated
+        backfilled += 1
+        logger.debug("PR #%s 백필: jira_keys=%s → 전파 %d개", pr_number, keys, propagated)
+
+    logger.info(
+        "PR jira_keys 백필 완료: scanned=%d, backfilled=%d, propagated=%d",
+        len(prs), backfilled, edges_propagated,
+    )
+    return {
+        "pr_scanned":       len(prs),
+        "pr_backfilled":    backfilled,
+        "edges_propagated": edges_propagated,
+    }
+
+
+async def clear_semantic_triggered_by() -> int:
+    """source='semantic'인 TRIGGERED_BY 엣지를 일괄 삭제한다.
+
+    용도: 정책(threshold/window/top-1) 변경 후 시맨틱 결과를 깨끗하게 재구축하고 싶을 때.
+    텍스트 매칭(source='text')은 보존되므로 명시 참조는 손상되지 않는다.
+
+    선행 조건:
+      backfill_triggered_by_source가 한 번이라도 실행되어 모든 엣지에 source가 라벨링되어 있어야 한다.
+      (라벨이 없으면 이 함수가 그것을 시맨틱으로 간주하지 못해 정리 대상에서 누락된다.)
+
+    Returns:
+        삭제된 엣지 수.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH ()-[r:TRIGGERED_BY]->()
+            WHERE r.source = 'semantic'
+            DELETE r
+            """
+        )
+        summary = await result.consume()
+        deleted = summary.counters.relationships_deleted
+    logger.info("시맨틱 TRIGGERED_BY 엣지 삭제 완료: %d개", deleted)
+    return deleted
 
 
 async def link_issue_to_assignee(jira_key: str, assignee_id: str) -> None:
@@ -452,6 +674,11 @@ def make_neo4j_reference_store():
 
 
 async def _fetch_issue_embeddings() -> list[dict]:
+    """이슈 임베딩 + 비대칭 시간 윈도우 계산에 필요한 메타데이터 반환.
+
+    closed_at은 NULL일 수 있다 (pipeline-worker가 아직 보내지 않으면).
+    issue_linker._compute_issue_window가 status가 terminal일 때 occurred_at으로 fallback.
+    """
     async with get_driver().session() as session:
         result = await session.run(
             """
@@ -461,7 +688,10 @@ async def _fetch_issue_embeddings() -> list[dict]:
                    i.title AS title,
                    i.body AS body,
                    i.embedding AS embedding,
-                   i.occurredAt AS occurred_at
+                   i.occurredAt AS occurred_at,
+                   i.createdAt  AS created_at,
+                   i.closedAt   AS closed_at,
+                   i.status     AS status
             """
         )
         rows = await result.data()
@@ -472,6 +702,45 @@ async def _fetch_issue_embeddings() -> list[dict]:
             "body":        r["body"] or "",
             "embedding":   list(r["embedding"]),
             "occurred_at": r["occurred_at"].to_native(),
+            "created_at":  r["created_at"].to_native() if r["created_at"] else None,
+            "closed_at":   r["closed_at"].to_native()  if r["closed_at"]  else None,
+            "status":      r["status"] or "",
+        }
+        for r in rows
+    ]
+
+
+async def _fetch_modified_embeddings_for_issue_linking() -> list[dict]:
+    """이슈 시맨틱 연결용 — text TRIGGERED_BY가 이미 있는 ChangeSet은 제외.
+
+    이미 텍스트 참조로 확정된 커밋은 시맨틱 매칭의 후보에서 빼서:
+      1) 텍스트 매칭 결과가 시맨틱에 의해 다른 이슈로 덮어쓰이지 않게 보호 (semantic 가드 보완)
+      2) Issue × ChangeSet 비교량 감소 → 처리 시간 단축
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (c:ChangeSet)-[r:MODIFIED]->(f:File)
+            WHERE r.embedding IS NOT NULL AND c.occurredAt IS NOT NULL
+              AND NOT EXISTS {
+                MATCH (c)-[tb:TRIGGERED_BY]->(:Issue)
+                WHERE tb.source = 'text'
+              }
+            RETURN c.hash AS changeset_id,
+                   f.path AS file_path,
+                   r.diffSummary AS diff_summary,
+                   r.embedding AS embedding,
+                   c.occurredAt AS occurred_at
+            """
+        )
+        rows = await result.data()
+    return [
+        {
+            "changeset_id": r["changeset_id"],
+            "file_path":    r["file_path"],
+            "diff_summary": r["diff_summary"],
+            "embedding":    list(r["embedding"]),
+            "occurred_at":  r["occurred_at"].to_native(),
         }
         for r in rows
     ]
@@ -480,13 +749,20 @@ async def _fetch_issue_embeddings() -> list[dict]:
 async def _create_triggered_by_semantic_edge(
     changeset_id: str, jira_key: str, confidence: float
 ) -> None:
+    """TRIGGERED_BY (semantic): 임베딩/LLM 검증으로 발견된 연결.
+
+    source='text' 인 엣지는 이미 더 신뢰성 높은 텍스트 참조로 확정된 것이므로
+    시맨틱 결과가 덮어쓰지 못하도록 가드한다. 그 외(신규 엣지, 기존 semantic 엣지)는 갱신.
+    """
     async with get_driver().session() as session:
         await session.run(
             """
             MATCH (c:ChangeSet {hash: $changeset_id})
             MATCH (i:Issue {jira_key: $jira_key})
             MERGE (c)-[r:TRIGGERED_BY]->(i)
-            SET r.confidence = $confidence
+            WITH r
+            WHERE coalesce(r.source, '') <> 'text'
+            SET r.source = 'semantic', r.confidence = $confidence
             """,
             changeset_id=changeset_id,
             jira_key=jira_key,
@@ -512,11 +788,16 @@ async def _create_discussed_in_semantic_edge(
 
 
 def make_neo4j_issue_link_store():
-    """Neo4j 기반 IssueLinkStore 인스턴스를 반환한다."""
+    """Neo4j 기반 IssueLinkStore 인스턴스를 반환한다.
+
+    fetch_modified_embeddings는 issue-linking 전용 함수를 사용해
+    text TRIGGERED_BY가 이미 있는 ChangeSet은 후보에서 제외한다.
+    (REFERENCE 엣지용 store는 여전히 _fetch_modified_embeddings를 사용)
+    """
     from graph.issue_linker import IssueLinkStore
     return IssueLinkStore(
         fetch_issue_embeddings=_fetch_issue_embeddings,
-        fetch_modified_embeddings=_fetch_modified_embeddings,
+        fetch_modified_embeddings=_fetch_modified_embeddings_for_issue_linking,
         fetch_communication_embeddings=_fetch_communication_embeddings,
         create_triggered_by_edge=_create_triggered_by_semantic_edge,
         create_discussed_in_edge=_create_discussed_in_semantic_edge,

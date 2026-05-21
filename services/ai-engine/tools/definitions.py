@@ -149,7 +149,11 @@ TOOLS = [
             "description": (
                 "특정 파일의 변경 이력을 최신순으로 반환한다. "
                 "각 커밋마다 diffSummary, 연결 Jira 이슈, PR을 포함. "
-                "'auth.py가 어떻게 변해왔는지' 파악할 때 사용."
+                "'auth.py가 어떻게 변해왔는지' 파악할 때 사용. "
+                "strict path match가 비면 자동으로 basename → stem 순서로 fuzzy fallback 수행. "
+                "다수 후보가 매칭되면 단건 응답 {message, candidates}을 반환 — candidates 중 정확한 경로로 재호출. "
+                "단일 fuzzy 매칭이면 각 row에 _resolved_via / _resolved_path 메타가 인라인 부여되어, "
+                "evidence에는 LLM이 추정한 path가 아닌 _resolved_path를 사용해야 함."
             ),
             "parameters": {
                 "type": "object",
