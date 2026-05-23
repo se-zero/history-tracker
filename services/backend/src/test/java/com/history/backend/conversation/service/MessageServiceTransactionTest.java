@@ -25,6 +25,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Import(MessageServiceTransactionTestConfig.class)
 class MessageServiceTransactionTest {
 
+    private static final java.util.UUID CONVERSATION_ID = java.util.UUID.fromString(
+            "7dbd88a3-807d-4b6d-8fef-462de48f6c6c"
+    );
+
     @Container
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
 
@@ -49,5 +53,12 @@ class MessageServiceTransactionTest {
                 new Conversation(null, null, null),
                 "Question"
         )).isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void findMessagesInCurrentTransactionRequiresExistingTransaction() {
+        assertThatThrownBy(() -> messageService.findMessagesInCurrentTransaction(CONVERSATION_ID))
+                .isInstanceOf(IllegalTransactionStateException.class);
     }
 }

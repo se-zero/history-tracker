@@ -67,6 +67,16 @@ public class ConversationService {
         return findConversation(projectId, conversationId);
     }
 
+    @Transactional(readOnly = true)
+    public ConversationDetail getConversationDetail(UUID userId, UUID projectId, UUID conversationId) {
+        projectService.getProject(userId, projectId);
+        Conversation conversation = findConversation(projectId, conversationId);
+        return new ConversationDetail(
+                conversation,
+                messageService.findMessagesInCurrentTransaction(conversationId)
+        );
+    }
+
     @Transactional
     public Conversation updateTitle(UUID userId, UUID projectId, UUID conversationId, String title) {
         projectService.getProject(userId, projectId);

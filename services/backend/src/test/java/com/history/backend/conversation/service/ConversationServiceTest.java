@@ -134,6 +134,23 @@ class ConversationServiceTest {
     }
 
     @Test
+    void getConversationDetailReturnsConversationAndMessages() {
+        ConversationService service = service();
+        Conversation conversation = conversation(project(), user(), "Title");
+        Message message = Message.user(conversation, "Question");
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation));
+        when(messageService.findMessagesInCurrentTransaction(CONVERSATION_ID))
+                .thenReturn(List.of(message));
+
+        ConversationDetail result = service.getConversationDetail(USER_ID, PROJECT_ID, CONVERSATION_ID);
+
+        assertThat(result.conversation()).isSameAs(conversation);
+        assertThat(result.messages()).containsExactly(message);
+    }
+
+    @Test
     void updateTitleTrimsTitle() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Old title");

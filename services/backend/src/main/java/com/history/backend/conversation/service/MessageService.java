@@ -68,6 +68,11 @@ public class MessageService {
     public List<Message> findMessages(UUID userId, UUID projectId, UUID conversationId) {
         projectService.getProject(userId, projectId);
         findConversation(projectId, conversationId);
+        return findMessagesInCurrentTransaction(conversationId);
+    }
+
+    @Transactional(readOnly = true, propagation = Propagation.MANDATORY)
+    public List<Message> findMessagesInCurrentTransaction(UUID conversationId) {
         return messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId);
     }
 
