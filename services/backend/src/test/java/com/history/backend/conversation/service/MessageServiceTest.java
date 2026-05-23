@@ -1,0 +1,207 @@
+package com.history.backend.conversation.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import com.history.backend.auth.domain.User;
+import com.history.backend.common.error.BadRequestException;
+import com.history.backend.common.error.NotFoundException;
+import com.history.backend.conversation.domain.Conversation;
+import com.history.backend.conversation.domain.Message;
+import com.history.backend.conversation.domain.MessageRole;
+import com.history.backend.conversation.repository.ConversationRepository;
+import com.history.backend.conversation.repository.MessageRepository;
+import com.history.backend.project.domain.Project;
+import com.history.backend.project.service.ProjectService;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
+
+@ExtendWith(MockitoExtension.class)
+class MessageServiceTest {
+
+    private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+    private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
+    private static final UUID CONVERSATION_ID = UUID.fromString("7dbd88a3-807d-4b6d-8fef-462de48f6c6c");
+
+    @Mock
+    private MessageRepository messageRepository;
+
+    @Mock
+    private ConversationRepository conversationRepository;
+
+    @Mock
+    private ProjectService projectService;
+
+    @Mock
+    private AiEngineQueryClient aiEngineQueryClient;
+
+    private final TransactionTemplate transactionTemplate = new TransactionTemplate(new NoopTransactionManager());
+
+    @Test
+    void addMessageSavesUserAndAssistantMessages() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(aiEngineQueryClient.ask("Why did auth change?"))
+                .thenReturn(AiEngineQueryResult.success("OAuth callback changed."));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MessageExchange result = service.addMessage(
+                USER_ID,
+                PROJECT_ID,
+                CONVERSATION_ID,
+                "  Why did auth change?  "
+        );
+
+        assertThat(result.userMessage().getConversation()).isSameAs(conversation);
+        assertThat(result.userMessage().getRole()).isEqualTo(MessageRole.USER);
+        assertThat(result.userMessage().getContent()).isEqualTo("Why did auth change?");
+        assertThat(result.assistantMessage().getConversation()).isSameAs(conversation);
+        assertThat(result.assistantMessage().getRole()).isEqualTo(MessageRole.ASSISTANT);
+        assertThat(result.assistantMessage().getContent()).isEqualTo("OAuth callback changed.");
+        assertThat(result.assistantMessage().getMetadata()).isNull();
+        assertThat(conversation.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    void addMessageStoresFallbackAssistantMessageWhenAiEngineFails() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(aiEngineQueryClient.ask("Why did auth change?"))
+                .thenReturn(AiEngineQueryResult.fallback("질문을 처리하는 중 오류가 발생했습니다."));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MessageExchange result = service.addMessage(
+                USER_ID,
+                PROJECT_ID,
+                CONVERSATION_ID,
+                "Why did auth change?"
+        );
+
+        assertThat(result.userMessage().getContent()).isEqualTo("Why did auth change?");
+        assertThat(result.assistantMessage().getContent()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
+        assertThat(result.assistantMessage().getMetadata())
+                .containsEntry("fallback", true)
+                .containsEntry("error_type", "AI_ENGINE_ERROR");
+    }
+
+    @Test
+    void appendUserMessageTouchesConversation() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Message result = service.appendUserMessageInCurrentTransaction(conversation, "Question");
+
+        assertThat(result.getContent()).isEqualTo("Question");
+        assertThat(conversation.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    void addMessageRejectsBlankContent() {
+        MessageService service = service();
+
+        assertThatThrownBy(() -> service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, " "))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Message content is required.");
+
+        verifyNoInteractions(projectService, conversationRepository, messageRepository, aiEngineQueryClient);
+    }
+
+    @Test
+    void addMessageRejectsMissingConversation() {
+        MessageService service = service();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Question"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Conversation not found.");
+    }
+
+    @Test
+    void findMessagesValidatesProjectAndConversation() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        Message message = Message.user(conversation, "Question");
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of(message));
+
+        List<Message> result = service.findMessages(USER_ID, PROJECT_ID, CONVERSATION_ID);
+
+        assertThat(result).containsExactly(message);
+    }
+
+    private MessageService service() {
+        return new MessageService(
+                messageRepository,
+                conversationRepository,
+                projectService,
+                aiEngineQueryClient,
+                transactionTemplate
+        );
+    }
+
+    private User user() {
+        User user = new User("github", "12345", "owner@example.com", "Owner", null);
+        ReflectionTestUtils.setField(user, "id", USER_ID);
+        return user;
+    }
+
+    private Project project() {
+        Project project = new Project(user(), "History Tracker", null);
+        ReflectionTestUtils.setField(project, "id", PROJECT_ID);
+        return project;
+    }
+
+    private Conversation conversation() {
+        Conversation conversation = new Conversation(project(), user(), "Title");
+        ReflectionTestUtils.setField(conversation, "id", CONVERSATION_ID);
+        return conversation;
+    }
+
+    private static class NoopTransactionManager extends AbstractPlatformTransactionManager {
+
+        @Override
+        protected Object doGetTransaction() {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {
+        }
+    }
+}

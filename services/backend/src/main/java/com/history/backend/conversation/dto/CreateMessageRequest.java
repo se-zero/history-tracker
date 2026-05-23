@@ -1,11 +1,11 @@
-package com.history.backend.dto;
+package com.history.backend.conversation.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-public record QueryRequest(
+public record CreateMessageRequest(
         @NotBlank
         @Size(max = 1000)
-        String question
+        String content
 ) {
 }
