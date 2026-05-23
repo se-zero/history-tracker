@@ -37,15 +37,30 @@ class AiEngineQueryClientTest {
     }
 
     @Test
-    void askReturnsBlankAnswerWhenResponseBodyIsMissing() {
+    void askReturnsFallbackWhenResponseBodyIsMissing() {
         AiEngineQueryClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
 
         AiEngineQueryResult result = fixture.client.ask("Why did auth change?");
 
-        assertThat(result.answer()).isEmpty();
-        assertThat(result.fallback()).isFalse();
+        assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
+        assertThat(result.fallback()).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    void askReturnsFallbackWhenAnswerIsBlank() {
+        AiEngineQueryClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
+                .andRespond(withSuccess("""
+                        {"answer":"  "}
+                        """, MediaType.APPLICATION_JSON));
+
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?");
+
+        assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
+        assertThat(result.fallback()).isTrue();
         fixture.server.verify();
     }
 

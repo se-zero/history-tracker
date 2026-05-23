@@ -26,7 +26,11 @@ public class AiEngineQueryClient {
                     .body(new AiEngineQueryRequest(question))
                     .retrieve()
                     .body(AiEngineQueryResponse.class);
-            return AiEngineQueryResult.success(normalizeAnswer(response));
+            String answer = normalizeAnswer(response);
+            if (answer.isBlank()) {
+                return AiEngineQueryResult.fallback(FALLBACK_ANSWER);
+            }
+            return AiEngineQueryResult.success(answer);
         } catch (RestClientException exception) {
             log.error("ai-engine query request failed: {}", exception.getMessage());
             return AiEngineQueryResult.fallback(FALLBACK_ANSWER);
@@ -37,6 +41,6 @@ public class AiEngineQueryClient {
         if (response == null || response.answer() == null) {
             return "";
         }
-        return response.answer();
+        return response.answer().trim();
     }
 }
