@@ -62,12 +62,6 @@ public class ConversationService {
     }
 
     @Transactional(readOnly = true)
-    public Conversation getConversation(UUID userId, UUID projectId, UUID conversationId) {
-        projectService.getProject(userId, projectId);
-        return findConversation(projectId, conversationId);
-    }
-
-    @Transactional(readOnly = true)
     public ConversationDetail getConversationDetail(UUID userId, UUID projectId, UUID conversationId) {
         projectService.getProject(userId, projectId);
         Conversation conversation = findConversation(projectId, conversationId);

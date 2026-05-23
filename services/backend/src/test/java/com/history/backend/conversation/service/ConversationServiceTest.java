@@ -14,7 +14,6 @@ import java.util.UUID;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.BadRequestException;
-import com.history.backend.common.error.NotFoundException;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.repository.ConversationRepository;
@@ -106,31 +105,6 @@ class ConversationServiceTest {
         List<Conversation> result = service.findConversations(USER_ID, PROJECT_ID);
 
         assertThat(result).containsExactly(conversation);
-    }
-
-    @Test
-    void getConversationReturnsConversationForProject() {
-        ConversationService service = service();
-        Conversation conversation = conversation(project(), user(), "Title");
-        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
-        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
-                .thenReturn(Optional.of(conversation));
-
-        Conversation result = service.getConversation(USER_ID, PROJECT_ID, CONVERSATION_ID);
-
-        assertThat(result).isSameAs(conversation);
-    }
-
-    @Test
-    void getConversationRejectsMissingConversation() {
-        ConversationService service = service();
-        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
-        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
-                .thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.getConversation(USER_ID, PROJECT_ID, CONVERSATION_ID))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessage("Conversation not found.");
     }
 
     @Test

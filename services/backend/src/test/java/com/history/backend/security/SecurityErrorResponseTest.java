@@ -21,10 +21,10 @@ class SecurityErrorResponseTest {
 
     @Test
     void rejectMissingAccessTokenWithErrorResponse() throws Exception {
-        mockMvc.perform(post("/api/v1/projects/history-tracker/query")
+        mockMvc.perform(post("/api/v1/projects/f4dfc513-bb7b-41f4-aaf9-46bcc18380f8/conversations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"question":"Why did this file change?"}
+                                {"message":"Why did this file change?"}
                                 """))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
