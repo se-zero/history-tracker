@@ -14,8 +14,9 @@ backend 작업은 기능 단위 vertical slice PR로 진행한다. 각 PR은 필
 | 4 | `codex/backend-optional-integrations` | Slack/Jira 연동 | AES-GCM 암호화 설정, Slack/Jira token 저장, provider별 request/validation, integration 응답 정리 |
 | 5 | `codex/backend-conversations` | 대화/Q&A 전환 | `conversations`, `messages` migration/entity/repository, Conversation/Message API, 기존 Query API 제거, ai-engine 호출 로직 이전 |
 | 6 | `codex/backend-pipeline-shared-tables` | pipeline 공유 DB 계약 | `webhook_deliveries`, `checkpoints` migration/entity/repository, 중복 webhook claim용 제약, checkpoint 복합 PK |
-| 7 | `codex/backend-installation-token-cache` | GitHub installation token 관리 | `InstallationTokenService`, token 암호화 저장/갱신, 만료 5분 전 재발급, row lock 또는 conditional update. 3번 PR의 repository 목록 조회는 캐시 없이 발급하고, 이 단계에서 공통 캐시 경로로 합친다 |
-| 8 | `codex/backend-user-lifecycle` | 사용자 탈퇴/복구 | user soft delete, grace period 복구, refresh token 폐기, purge scheduler, owner 리소스 정리 정책 |
+| 7 | `codex/pipeline-worker-db-transition` | pipeline-worker DB 기반 전환 | `ProjectIntegrationResolver` DB 기반 교체, `WebhookDeliveryStore` DB 구현, `FileCheckpointManager`를 project/provider/cursor_key 기반 `checkpoints`로 교체, 파일 기반 webhook/checkpoint 설정 제거 |
+| 8 | `codex/backend-installation-token-cache` | GitHub installation token 관리 | `InstallationTokenService`, token 암호화 저장/갱신, 만료 5분 전 재발급, row lock 또는 conditional update. 3번 PR의 repository 목록 조회는 캐시 없이 발급하고, 이 단계에서 공통 캐시 경로로 합친다 |
+| 9 | `codex/backend-user-lifecycle` | 사용자 탈퇴/복구 | user soft delete, grace period 복구, refresh token 폐기, purge scheduler, owner 리소스 정리 정책 |
 
 ## Flyway 규칙
 
