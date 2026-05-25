@@ -1,5 +1,6 @@
 package com.history.backend.shared.repository;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,11 +19,21 @@ public interface WebhookDeliveryRepository extends JpaRepository<WebhookDelivery
     @Modifying
     @Query(
             value = """
-                    INSERT INTO webhook_deliveries (delivery_id, project_id, status)
-                    VALUES (:deliveryId, :projectId, 'IN_PROGRESS')
+                    INSERT INTO webhook_deliveries (
+                        delivery_id, project_id, status, received_at, updated_at
+                    )
+                    VALUES (:deliveryId, :projectId, 'IN_PROGRESS', :claimedAt, :claimedAt)
                     ON CONFLICT (delivery_id) DO NOTHING
                     """,
             nativeQuery = true
     )
-    int tryClaim(@Param("deliveryId") String deliveryId, @Param("projectId") UUID projectId);
+    int tryClaimAt(
+            @Param("deliveryId") String deliveryId,
+            @Param("projectId") UUID projectId,
+            @Param("claimedAt") Instant claimedAt
+    );
+
+    default int tryClaim(String deliveryId, UUID projectId) {
+        return tryClaimAt(deliveryId, projectId, Instant.now());
+    }
 }
