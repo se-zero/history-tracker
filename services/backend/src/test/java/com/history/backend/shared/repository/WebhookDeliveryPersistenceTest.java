@@ -155,7 +155,7 @@ class WebhookDeliveryPersistenceTest {
     }
 
     @Test
-    void deletingProjectSetsProjectToNull() {
+    void deletingProjectCascadesWebhookDelivery() {
         Project project = createProject();
         WebhookDelivery delivery = webhookDeliveryRepository.saveAndFlush(WebhookDelivery.claimed(
                 "delivery-7",
@@ -166,8 +166,7 @@ class WebhookDeliveryPersistenceTest {
         jdbcTemplate.update("DELETE FROM projects WHERE id = ?", project.getId());
         entityManager.clear();
 
-        assertThat(webhookDeliveryRepository.findById(delivery.getId()))
-                .hasValueSatisfying(result -> assertThat(result.getProject()).isNull());
+        assertThat(webhookDeliveryRepository.findById(delivery.getId())).isEmpty();
     }
 
     private Project createProject() {

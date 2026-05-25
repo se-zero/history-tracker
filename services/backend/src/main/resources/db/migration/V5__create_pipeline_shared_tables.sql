@@ -1,7 +1,7 @@
 CREATE TABLE webhook_deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     delivery_id TEXT NOT NULL,
-    project_id UUID REFERENCES projects (id) ON DELETE SET NULL,
+    project_id UUID REFERENCES projects (id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'IN_PROGRESS',
     received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

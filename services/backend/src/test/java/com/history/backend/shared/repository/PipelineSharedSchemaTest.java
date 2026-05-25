@@ -70,7 +70,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
-    void deletingProjectSetsWebhookDeliveryProjectToNullForAudit() {
+    void deletingProjectCascadesWebhookDeliveries() {
         UUID ownerId = insertUser("owner3@example.com");
         UUID projectId = insertProject(ownerId);
         UUID deliveryId = insertWebhookDelivery("delivery-4", projectId, "PROCESSED");
@@ -82,13 +82,7 @@ class PipelineSharedSchemaTest {
                 Integer.class,
                 deliveryId
         );
-        UUID deliveryProjectId = jdbcTemplate.queryForObject(
-                "SELECT project_id FROM webhook_deliveries WHERE id = ?",
-                UUID.class,
-                deliveryId
-        );
-        assertThat(deliveryCount).isOne();
-        assertThat(deliveryProjectId).isNull();
+        assertThat(deliveryCount).isZero();
     }
 
     @Test
