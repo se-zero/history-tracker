@@ -20,7 +20,7 @@ CREATE TABLE checkpoints (
     project_id UUID NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
     provider TEXT NOT NULL,
     cursor_key TEXT NOT NULL,
-    cursor_value TEXT NOT NULL,
+    cursor_value TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (project_id, provider, cursor_key),
     CONSTRAINT chk_checkpoints_provider

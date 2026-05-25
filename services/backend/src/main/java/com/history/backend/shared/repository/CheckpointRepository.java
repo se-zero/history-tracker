@@ -24,8 +24,12 @@ public interface CheckpointRepository extends JpaRepository<Checkpoint, Checkpoi
                     INSERT INTO checkpoints (project_id, provider, cursor_key, cursor_value, updated_at)
                     VALUES (:projectId, :provider, :cursorKey, :cursorValue, :updatedAt)
                     ON CONFLICT (project_id, provider, cursor_key)
-                    DO UPDATE SET cursor_value = EXCLUDED.cursor_value,
-                                  updated_at = EXCLUDED.updated_at
+                    DO UPDATE SET cursor_value = GREATEST(checkpoints.cursor_value, EXCLUDED.cursor_value),
+                                  updated_at = CASE
+                                      WHEN EXCLUDED.cursor_value > checkpoints.cursor_value
+                                      THEN EXCLUDED.updated_at
+                                      ELSE checkpoints.updated_at
+                                  END
                     """,
             nativeQuery = true
     )
@@ -33,23 +37,21 @@ public interface CheckpointRepository extends JpaRepository<Checkpoint, Checkpoi
             @Param("projectId") UUID projectId,
             @Param("provider") String provider,
             @Param("cursorKey") String cursorKey,
-            @Param("cursorValue") String cursorValue,
+            @Param("cursorValue") Instant cursorValue,
             @Param("updatedAt") Instant updatedAt
     );
 
     /**
-     * Upserts a cursor value without monotonicity guarantees.
+     * Upserts a cursor value while preserving monotonic progress.
      *
-     * <p>The cursor value is provider-specific free-form text, so this repository
-     * cannot safely compare old and new cursor values. Callers must serialize
-     * updates for the same {@code (projectId, provider, cursorKey)} or otherwise
-     * ensure an older collection result cannot overwrite a newer cursor.</p>
+     * <p>On conflict, older cursor timestamps are ignored so a delayed collection
+     * result cannot move a checkpoint backward.</p>
      */
     default void upsertCursor(
             UUID projectId,
             IntegrationProvider provider,
             String cursorKey,
-            String cursorValue
+            Instant cursorValue
     ) {
         upsertCursorValue(projectId, provider.value(), cursorKey, cursorValue, Instant.now());
     }

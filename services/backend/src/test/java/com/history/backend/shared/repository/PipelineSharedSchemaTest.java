@@ -3,6 +3,8 @@ package com.history.backend.shared.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -98,7 +100,7 @@ class PipelineSharedSchemaTest {
                 projectId,
                 "github",
                 "github_commits",
-                "2024-01-03T00:00:00Z"
+                Instant.parse("2024-01-03T00:00:00Z")
         );
 
         assertThat(inserted).isOne();
@@ -108,13 +110,13 @@ class PipelineSharedSchemaTest {
     void checkpointCompositePrimaryKeyRejectsDuplicateCursor() {
         UUID ownerId = insertUser("owner5@example.com");
         UUID projectId = insertProject(ownerId);
-        insertCheckpoint(projectId, "github", "github_commits", "2024-01-03T00:00:00Z");
+        insertCheckpoint(projectId, "github", "github_commits", Instant.parse("2024-01-03T00:00:00Z"));
 
         assertThatThrownBy(() -> insertCheckpoint(
                 projectId,
                 "github",
                 "github_commits",
-                "2024-01-04T00:00:00Z"
+                Instant.parse("2024-01-04T00:00:00Z")
         )).isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -124,9 +126,14 @@ class PipelineSharedSchemaTest {
         UUID secondOwnerId = insertUser("owner7@example.com");
         UUID firstProjectId = insertProject(firstOwnerId);
         UUID secondProjectId = insertProject(secondOwnerId);
-        insertCheckpoint(firstProjectId, "github", "github_commits", "2024-01-03T00:00:00Z");
+        insertCheckpoint(firstProjectId, "github", "github_commits", Instant.parse("2024-01-03T00:00:00Z"));
 
-        int inserted = insertCheckpoint(secondProjectId, "github", "github_commits", "2024-01-03T00:00:00Z");
+        int inserted = insertCheckpoint(
+                secondProjectId,
+                "github",
+                "github_commits",
+                Instant.parse("2024-01-03T00:00:00Z")
+        );
 
         assertThat(inserted).isOne();
     }
@@ -140,7 +147,7 @@ class PipelineSharedSchemaTest {
                 projectId,
                 "linear",
                 "linear_issues",
-                "2024-01-03T00:00:00Z"
+                Instant.parse("2024-01-03T00:00:00Z")
         )).isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -148,8 +155,8 @@ class PipelineSharedSchemaTest {
     void deletingProjectCascadesCheckpoints() {
         UUID ownerId = insertUser("owner9@example.com");
         UUID projectId = insertProject(ownerId);
-        insertCheckpoint(projectId, "github", "github_commits", "2024-01-03T00:00:00Z");
-        insertCheckpoint(projectId, "jira", "jira_updated", "2024-01-04T00:00:00Z");
+        insertCheckpoint(projectId, "github", "github_commits", Instant.parse("2024-01-03T00:00:00Z"));
+        insertCheckpoint(projectId, "jira", "jira_updated", Instant.parse("2024-01-04T00:00:00Z"));
 
         jdbcTemplate.update("DELETE FROM projects WHERE id = ?", projectId);
 
@@ -201,7 +208,7 @@ class PipelineSharedSchemaTest {
         );
     }
 
-    private int insertCheckpoint(UUID projectId, String provider, String cursorKey, String cursorValue) {
+    private int insertCheckpoint(UUID projectId, String provider, String cursorKey, Instant cursorValue) {
         return jdbcTemplate.update(
                 """
                         INSERT INTO checkpoints (project_id, provider, cursor_key, cursor_value)
@@ -210,7 +217,7 @@ class PipelineSharedSchemaTest {
                 projectId,
                 provider,
                 cursorKey,
-                cursorValue
+                Timestamp.from(cursorValue)
         );
     }
 }

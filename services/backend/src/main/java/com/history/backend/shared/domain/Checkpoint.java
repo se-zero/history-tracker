@@ -33,7 +33,7 @@ public class Checkpoint {
     private Project project;
 
     @Column(name = "cursor_value", nullable = false)
-    private String cursorValue;
+    private Instant cursorValue;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
@@ -42,7 +42,7 @@ public class Checkpoint {
             Project project,
             IntegrationProvider provider,
             String cursorKey,
-            String cursorValue
+            Instant cursorValue
     ) {
         this.project = project;
         this.id = new CheckpointId(project.getId(), provider, cursorKey);
@@ -57,7 +57,7 @@ public class Checkpoint {
         return id.getCursorKey();
     }
 
-    public void updateCursorValue(String cursorValue) {
+    public void updateCursorValue(Instant cursorValue) {
         this.cursorValue = cursorValue;
     }
 

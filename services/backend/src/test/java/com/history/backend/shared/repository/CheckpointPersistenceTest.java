@@ -69,7 +69,7 @@ class CheckpointPersistenceTest {
                 project,
                 IntegrationProvider.GITHUB,
                 "github_commits",
-                "2024-01-03T00:00:00Z"
+                Instant.parse("2024-01-03T00:00:00Z")
         ));
 
         Optional<Checkpoint> result = checkpointRepository.findById(new CheckpointId(
@@ -82,7 +82,7 @@ class CheckpointPersistenceTest {
         assertThat(result.orElseThrow().getProject()).isEqualTo(project);
         assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.GITHUB);
         assertThat(result.orElseThrow().getCursorKey()).isEqualTo("github_commits");
-        assertThat(result.orElseThrow().getCursorValue()).isEqualTo("2024-01-03T00:00:00Z");
+        assertThat(result.orElseThrow().getCursorValue()).isEqualTo(Instant.parse("2024-01-03T00:00:00Z"));
         assertThat(result.orElseThrow().getUpdatedAt()).isNotNull();
     }
 
@@ -93,7 +93,7 @@ class CheckpointPersistenceTest {
                 project,
                 IntegrationProvider.JIRA,
                 "jira_updated",
-                "2024-01-04T00:00:00Z"
+                Instant.parse("2024-01-04T00:00:00Z")
         ));
 
         Optional<Checkpoint> result = checkpointRepository.findById(new CheckpointId(
@@ -112,19 +112,19 @@ class CheckpointPersistenceTest {
                 project,
                 IntegrationProvider.GITHUB,
                 "github_commits",
-                "2024-01-03T00:00:00Z"
+                Instant.parse("2024-01-03T00:00:00Z")
         ));
         checkpointRepository.save(new Checkpoint(
                 project,
                 IntegrationProvider.GITHUB,
                 "github_issues",
-                "2024-01-04T00:00:00Z"
+                Instant.parse("2024-01-04T00:00:00Z")
         ));
         checkpointRepository.save(new Checkpoint(
                 project,
                 IntegrationProvider.SLACK,
                 "slack_messages",
-                "1714000100.000000"
+                Instant.parse("2024-04-25T00:01:40Z")
         ));
         checkpointRepository.flush();
 
@@ -143,7 +143,7 @@ class CheckpointPersistenceTest {
                 project,
                 IntegrationProvider.SLACK,
                 "slack_messages",
-                "1714000100.000000"
+                Instant.parse("2024-04-25T00:01:40Z")
         ));
 
         String provider = jdbcTemplate.queryForObject(
@@ -161,21 +161,19 @@ class CheckpointPersistenceTest {
     }
 
     @Test
-    void updateCursorValueRefreshesUpdatedAt() {
+    void updateCursorValueChangesCursorValue() {
         Project project = createProject();
         Checkpoint checkpoint = checkpointRepository.saveAndFlush(new Checkpoint(
                 project,
                 IntegrationProvider.GITHUB,
                 "github_pull_requests",
-                "2024-01-03T00:00:00Z"
+                Instant.parse("2024-01-03T00:00:00Z")
         ));
-        Instant before = checkpoint.getUpdatedAt();
 
-        checkpoint.updateCursorValue("2024-01-04T00:00:00Z");
+        checkpoint.updateCursorValue(Instant.parse("2024-01-04T00:00:00Z"));
         checkpointRepository.flush();
 
-        assertThat(checkpoint.getCursorValue()).isEqualTo("2024-01-04T00:00:00Z");
-        assertThat(checkpoint.getUpdatedAt()).isAfterOrEqualTo(before);
+        assertThat(checkpoint.getCursorValue()).isEqualTo(Instant.parse("2024-01-04T00:00:00Z"));
     }
 
     @Test
@@ -186,15 +184,16 @@ class CheckpointPersistenceTest {
                 project.getId(),
                 IntegrationProvider.GITHUB,
                 "github_commits",
-                "2024-01-03T00:00:00Z"
+                Instant.parse("2024-01-03T00:00:00Z")
         );
+        entityManager.clear();
 
         assertThat(checkpointRepository.findById(new CheckpointId(
                 project.getId(),
                 IntegrationProvider.GITHUB,
                 "github_commits"
         ))).hasValueSatisfying(checkpoint ->
-                assertThat(checkpoint.getCursorValue()).isEqualTo("2024-01-03T00:00:00Z")
+                assertThat(checkpoint.getCursorValue()).isEqualTo(Instant.parse("2024-01-03T00:00:00Z"))
         );
     }
 
@@ -205,23 +204,53 @@ class CheckpointPersistenceTest {
                 project.getId(),
                 IntegrationProvider.GITHUB,
                 "github_commits",
-                "2024-01-03T00:00:00Z"
+                Instant.parse("2024-01-03T00:00:00Z")
         );
 
         checkpointRepository.upsertCursor(
                 project.getId(),
                 IntegrationProvider.GITHUB,
                 "github_commits",
-                "2024-01-04T00:00:00Z"
+                Instant.parse("2024-01-04T00:00:00Z")
         );
+        entityManager.clear();
 
         assertThat(checkpointRepository.findById(new CheckpointId(
                 project.getId(),
                 IntegrationProvider.GITHUB,
                 "github_commits"
         ))).hasValueSatisfying(checkpoint ->
-                assertThat(checkpoint.getCursorValue()).isEqualTo("2024-01-04T00:00:00Z")
+                assertThat(checkpoint.getCursorValue()).isEqualTo(Instant.parse("2024-01-04T00:00:00Z"))
         );
+    }
+
+    @Test
+    void upsertCursorIgnoresOlderCheckpoint() {
+        Project project = createProject();
+        checkpointRepository.upsertCursor(
+                project.getId(),
+                IntegrationProvider.GITHUB,
+                "github_commits",
+                Instant.parse("2024-01-04T00:00:00Z")
+        );
+        Instant updatedAt = findUpdatedAt(project, IntegrationProvider.GITHUB, "github_commits");
+
+        checkpointRepository.upsertCursor(
+                project.getId(),
+                IntegrationProvider.GITHUB,
+                "github_commits",
+                Instant.parse("2024-01-03T00:00:00Z")
+        );
+        entityManager.clear();
+
+        assertThat(checkpointRepository.findById(new CheckpointId(
+                project.getId(),
+                IntegrationProvider.GITHUB,
+                "github_commits"
+        ))).hasValueSatisfying(checkpoint -> {
+            assertThat(checkpoint.getCursorValue()).isEqualTo(Instant.parse("2024-01-04T00:00:00Z"));
+            assertThat(checkpoint.getUpdatedAt()).isEqualTo(updatedAt);
+        });
     }
 
     @Test
@@ -231,7 +260,7 @@ class CheckpointPersistenceTest {
                 project,
                 IntegrationProvider.GITHUB,
                 "github_commits",
-                "2024-01-03T00:00:00Z"
+                Instant.parse("2024-01-03T00:00:00Z")
         ));
 
         jdbcTemplate.update("DELETE FROM projects WHERE id = ?", project.getId());
@@ -249,5 +278,11 @@ class CheckpointPersistenceTest {
                 null
         ));
         return projectRepository.saveAndFlush(new Project(owner, "History Tracker " + System.nanoTime(), null));
+    }
+
+    private Instant findUpdatedAt(Project project, IntegrationProvider provider, String cursorKey) {
+        return checkpointRepository.findById(new CheckpointId(project.getId(), provider, cursorKey))
+                .orElseThrow()
+                .getUpdatedAt();
     }
 }
