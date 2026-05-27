@@ -6,6 +6,15 @@ spring:
     port: 5672
     username: guest
     password: guest
+  datasource:
+    url: ${PIPELINE_WORKER_DATASOURCE_URL:jdbc:postgresql://localhost:5432/history_tracker}
+    username: ${PIPELINE_WORKER_DATASOURCE_USERNAME:history}
+    password: ${PIPELINE_WORKER_DATASOURCE_PASSWORD:history}
+    driver-class-name: org.postgresql.Driver
+
+security:
+  credentials:
+    key: ${BACKEND_CREDENTIAL_KEY:bG9jYWwtY3JlZGVudGlhbC1rZXktMzItYnl0ZXMhISE=}
 
 server:
   port: 8081  # backend(8080)와 포트 충돌 방지
