@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.collection.GitHubIntegration;
 import com.history.pipeline_worker.collection.JiraIntegration;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
-import com.history.pipeline_worker.collection.ProjectIntegrationResolver;
+import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.collection.SlackIntegration;
 import com.history.pipeline_worker.pipeline.CollectionResult;
 import com.history.pipeline_worker.pipeline.PipelineService;
@@ -22,7 +22,7 @@ class GitHubWebhookServiceTest {
 
     private GitHubWebhookVerifier verifier;
     private WebhookDeliveryStore deliveryStore;
-    private ProjectIntegrationResolver projectIntegrationResolver;
+    private ProjectIntegrationService projectIntegrationService;
     private PipelineService pipelineService;
     private GitHubWebhookService service;
 
@@ -30,13 +30,13 @@ class GitHubWebhookServiceTest {
     void setUp() {
         verifier = mock(GitHubWebhookVerifier.class);
         deliveryStore = mock(WebhookDeliveryStore.class);
-        projectIntegrationResolver = mock(ProjectIntegrationResolver.class);
+        projectIntegrationService = mock(ProjectIntegrationService.class);
         pipelineService = mock(PipelineService.class);
         service = new GitHubWebhookService(
                 new ObjectMapper(),
                 verifier,
                 deliveryStore,
-                projectIntegrationResolver,
+                projectIntegrationService,
                 pipelineService,
                 new SyncTaskExecutor()
         );
@@ -50,7 +50,7 @@ class GitHubWebhookServiceTest {
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload(true, "closed"));
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.UNAUTHORIZED);
-        verifyNoInteractions(deliveryStore, projectIntegrationResolver, pipelineService);
+        verifyNoInteractions(deliveryStore, projectIntegrationService, pipelineService);
     }
 
     @Test
@@ -63,7 +63,7 @@ class GitHubWebhookServiceTest {
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.IGNORED);
-        verifyNoInteractions(deliveryStore, projectIntegrationResolver, pipelineService);
+        verifyNoInteractions(deliveryStore, projectIntegrationService, pipelineService);
     }
 
     @Test
@@ -76,7 +76,7 @@ class GitHubWebhookServiceTest {
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.IGNORED);
         verify(deliveryStore, never()).tryClaim(anyString());
-        verifyNoInteractions(projectIntegrationResolver, pipelineService);
+        verifyNoInteractions(projectIntegrationService, pipelineService);
     }
 
     @Test
@@ -84,7 +84,7 @@ class GitHubWebhookServiceTest {
         HttpHeaders headers = headers();
         String payload = payload(true, "closed");
         when(verifier.verify(payload, "sig")).thenReturn(true);
-        when(projectIntegrationResolver.resolveGitHubPullRequestWebhook(any()))
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(Optional.empty());
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
@@ -99,7 +99,7 @@ class GitHubWebhookServiceTest {
         HttpHeaders headers = headers();
         String payload = payload(true, "closed");
         when(verifier.verify(payload, "sig")).thenReturn(true);
-        when(projectIntegrationResolver.resolveGitHubPullRequestWebhook(any()))
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(Optional.of(collectionContext()));
         when(deliveryStore.tryClaim("delivery-1")).thenReturn(false);
 
@@ -117,7 +117,7 @@ class GitHubWebhookServiceTest {
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(deliveryStore.tryClaim("delivery-1")).thenReturn(true);
-        when(projectIntegrationResolver.resolveGitHubPullRequestWebhook(any()))
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(Optional.of(context));
         when(pipelineService.collectIncremental(context)).thenReturn(new CollectionResult(1, 2, 3));
 

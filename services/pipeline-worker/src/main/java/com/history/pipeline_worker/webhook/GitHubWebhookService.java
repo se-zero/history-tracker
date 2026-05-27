@@ -3,7 +3,7 @@ package com.history.pipeline_worker.webhook;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
-import com.history.pipeline_worker.collection.ProjectIntegrationResolver;
+import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.pipeline.CollectionResult;
 import com.history.pipeline_worker.pipeline.PipelineService;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +19,7 @@ public class GitHubWebhookService {
     private final ObjectMapper objectMapper;
     private final GitHubWebhookVerifier verifier;
     private final WebhookDeliveryStore deliveryStore;
-    private final ProjectIntegrationResolver projectIntegrationResolver;
+    private final ProjectIntegrationService projectIntegrationService;
     private final PipelineService pipelineService;
     private final TaskExecutor taskExecutor;
 
@@ -27,14 +27,14 @@ public class GitHubWebhookService {
             ObjectMapper objectMapper,
             GitHubWebhookVerifier verifier,
             WebhookDeliveryStore deliveryStore,
-            ProjectIntegrationResolver projectIntegrationResolver,
+            ProjectIntegrationService projectIntegrationService,
             PipelineService pipelineService,
             @Qualifier("webhookTaskExecutor") TaskExecutor taskExecutor
     ) {
         this.objectMapper = objectMapper;
         this.verifier = verifier;
         this.deliveryStore = deliveryStore;
-        this.projectIntegrationResolver = projectIntegrationResolver;
+        this.projectIntegrationService = projectIntegrationService;
         this.pipelineService = pipelineService;
         this.taskExecutor = taskExecutor;
     }
@@ -66,7 +66,7 @@ public class GitHubWebhookService {
             return new WebhookResult(WebhookStatus.IGNORED, "not a merged pull request");
         }
 
-        ProjectCollectionContext collectionContext = projectIntegrationResolver
+        ProjectCollectionContext collectionContext = projectIntegrationService
                 .resolveGitHubPullRequestWebhook(webhook)
                 .orElse(null);
         if (collectionContext == null) {

@@ -48,11 +48,6 @@ app:
     delivery-store:
       type: file
       path: ./webhook-deliveries.json
-      
-  integration:
-    resolver:
-      type: noop
-
   rate-limit:
     github:
       default-delay-ms: 300
