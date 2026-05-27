@@ -60,4 +60,31 @@ public class WebhookDeliveryRepository {
                 .addValue("lastError", lastError)
                 .addValue("now", Instant.now()));
     }
+
+    public int releaseClaim(String deliveryId) {
+        String sql = """
+                DELETE FROM webhook_deliveries
+                WHERE delivery_id = :deliveryId
+                  AND status = 'IN_PROGRESS'
+                """;
+
+        return jdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("deliveryId", deliveryId));
+    }
+
+    public int markStaleInProgressFailed(Instant staleBefore, String lastError) {
+        String sql = """
+                UPDATE webhook_deliveries
+                SET status = 'FAILED',
+                    updated_at = :now,
+                    last_error = :lastError
+                WHERE status = 'IN_PROGRESS'
+                  AND received_at < :staleBefore
+                """;
+
+        return jdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("staleBefore", staleBefore)
+                .addValue("lastError", lastError)
+                .addValue("now", Instant.now()));
+    }
 }

@@ -37,4 +37,31 @@ class WebhookDeliveryRepositoryTest {
 
         assertThat(claimed).isFalse();
     }
+
+    @Test
+    void releaseClaim_deletesOnlyInProgressDelivery() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        when(jdbcTemplate.update(contains("status = 'IN_PROGRESS'"), any(MapSqlParameterSource.class)))
+                .thenReturn(1);
+        WebhookDeliveryRepository repository = new WebhookDeliveryRepository(jdbcTemplate);
+
+        int deleted = repository.releaseClaim("delivery-1");
+
+        assertThat(deleted).isEqualTo(1);
+    }
+
+    @Test
+    void markStaleInProgressFailed_marksOldInProgressRowsFailed() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        when(jdbcTemplate.update(contains("received_at < :staleBefore"), any(MapSqlParameterSource.class)))
+                .thenReturn(2);
+        WebhookDeliveryRepository repository = new WebhookDeliveryRepository(jdbcTemplate);
+
+        int updated = repository.markStaleInProgressFailed(
+                java.time.Instant.parse("2026-01-01T00:00:00Z"),
+                "stale"
+        );
+
+        assertThat(updated).isEqualTo(2);
+    }
 }

@@ -45,9 +45,8 @@ app:
       secret: ""  # GitHub webhook secret. X-Hub-Signature-256 검증에 사용.
     executor:
       await-termination-seconds: 300
-    delivery-store:
-      type: file
-      path: ./webhook-deliveries.json
+    delivery:
+      stale-in-progress-timeout: 10m
   rate-limit:
     github:
       default-delay-ms: 300
