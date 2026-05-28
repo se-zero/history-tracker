@@ -1,6 +1,7 @@
 package com.history.pipeline_worker.pipeline;
 
-import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
+import com.history.pipeline_worker.checkpoint.CheckpointService;
+import com.history.pipeline_worker.checkpoint.ProjectCheckpointData;
 import com.history.pipeline_worker.collection.GitHubIntegration;
 import com.history.pipeline_worker.collection.JiraIntegration;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
@@ -39,24 +40,44 @@ public class PipelineService {
     private final SlackNormalizer slackNormalizer;
 
     private final EventPublisher eventPublisher;
-    private final FileCheckpointManager checkpointManager;
+    private final CheckpointService checkpointService;
 
     public CollectionResult collectIncremental(ProjectCollectionContext context) {
-        int github = normalizeGitHub(toRawFetchRequest(context.github()));
+        ProjectCheckpointData checkpoints = checkpointService.loadProjectCheckpoints(context.projectId());
+        int github = normalizeGitHub(context.projectId(), toRawFetchRequest(context.github()), checkpoints.github);
         int jira = context.jira()
                 .map(this::toRawFetchRequest)
-                .map(this::normalizeJira)
+                .map(request -> normalizeJira(context.projectId(), request, checkpoints.jira.lastScannedAt))
                 .orElse(0);
         int slack = context.slack()
                 .map(this::toRawFetchRequest)
-                .map(this::normalizeSlack)
+                .map(request -> normalizeSlack(context.projectId(), request, checkpoints.slack.lastScannedAt))
                 .orElse(0);
 
         return new CollectionResult(github, jira, slack);
     }
 
-    public int normalizeGitHub(RawFetchRequest request) {
-        GitHubRawService.GitHubFetchContext context = gitHubRawService.prepareFetchContext(request);
+    public int normalizeGitHub(String projectId, RawFetchRequest request) {
+        ProjectCheckpointData checkpoints = checkpointService.loadProjectCheckpoints(projectId);
+        return normalizeGitHub(projectId, request, checkpoints.github);
+    }
+
+    public int normalizeJira(String projectId, RawFetchRequest request) {
+        ProjectCheckpointData checkpoints = checkpointService.loadProjectCheckpoints(projectId);
+        return normalizeJira(projectId, request, checkpoints.jira.lastScannedAt);
+    }
+
+    public int normalizeSlack(String projectId, RawFetchRequest request) {
+        ProjectCheckpointData checkpoints = checkpointService.loadProjectCheckpoints(projectId);
+        return normalizeSlack(projectId, request, checkpoints.slack.lastScannedAt);
+    }
+
+    private int normalizeGitHub(
+            String projectId,
+            RawFetchRequest request,
+            ProjectCheckpointData.GitHubCheckpoint checkpoint
+    ) {
+        GitHubRawService.GitHubFetchContext context = gitHubRawService.prepareFetchContext(request, checkpoint);
         Map<String, String> commitPrNumbers = new HashMap<>();
         int published = 0;
         Instant pullRequestCheckpoint = null;
@@ -87,10 +108,10 @@ public class PipelineService {
         }
 
         if (pullRequestCheckpoint != null) {
-            checkpointManager.updateGitHubPullRequests(pullRequestCheckpoint);
+            checkpointService.updateGitHubPullRequests(projectId, pullRequestCheckpoint);
         }
         if (commitCheckpoint != null) {
-            checkpointManager.updateGitHubCommits(commitCheckpoint);
+            checkpointService.updateGitHubCommits(projectId, commitCheckpoint);
         }
 
         pageNumber = 1;
@@ -105,7 +126,7 @@ public class PipelineService {
         }
 
         if (issueCheckpoint != null) {
-            checkpointManager.updateGitHubIssues(issueCheckpoint);
+            checkpointService.updateGitHubIssues(projectId, issueCheckpoint);
         }
 
         log.info("GitHub 이벤트 발행: {}", published);
@@ -113,8 +134,8 @@ public class PipelineService {
         return published;
     }
 
-    public int normalizeJira(RawFetchRequest request) {
-        JiraRawService.JiraFetchContext context = jiraRawService.prepareFetchContext(request);
+    private int normalizeJira(String projectId, RawFetchRequest request, Instant lastScannedAt) {
+        JiraRawService.JiraFetchContext context = jiraRawService.prepareFetchContext(request, lastScannedAt);
         String nextPageToken = null;
         int totalPublished = 0;
         int pageNumber = 0;
@@ -131,7 +152,7 @@ public class PipelineService {
 
             int published = eventPublisher.publishAll(pageEvents);
             totalPublished += published;
-            maxOccurredAt(pageEvents).ifPresent(checkpointManager::updateJira);
+            maxOccurredAt(pageEvents).ifPresent(checkpoint -> checkpointService.updateJira(projectId, checkpoint));
 
             nextPageToken = page.nextPageToken();
             pageNumber++;
@@ -142,8 +163,8 @@ public class PipelineService {
         return totalPublished;
     }
 
-    public int normalizeSlack(RawFetchRequest request) {
-        SlackRawService.SlackFetchContext context = slackRawService.prepareFetchContext(request);
+    private int normalizeSlack(String projectId, RawFetchRequest request, Instant lastScannedAt) {
+        SlackRawService.SlackFetchContext context = slackRawService.prepareFetchContext(request, lastScannedAt);
         int published = 0;
         Instant checkpoint = null;
 
@@ -161,7 +182,7 @@ public class PipelineService {
         }
 
         if (checkpoint != null) {
-            checkpointManager.updateSlack(checkpoint);
+            checkpointService.updateSlack(projectId, checkpoint);
         }
         log.info("Slack 이벤트 발행: {}", published);
 

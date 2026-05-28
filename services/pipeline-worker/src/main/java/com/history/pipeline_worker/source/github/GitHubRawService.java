@@ -1,7 +1,6 @@
 package com.history.pipeline_worker.source.github;
 
-import com.history.pipeline_worker.checkpoint.CheckpointData;
-import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
+import com.history.pipeline_worker.checkpoint.ProjectCheckpointData;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,12 +22,11 @@ public class GitHubRawService {
 
     private static final int PER_PAGE = 100; // GitHub API 최대값
 
-    public record GitHubFetchContext(String auth, String owner, String repo, String branch, CheckpointData.GitHubCheckpoint checkpoint) {}
+    public record GitHubFetchContext(String auth, String owner, String repo, String branch, ProjectCheckpointData.GitHubCheckpoint checkpoint) {}
     public record GitHubPage(List<Object> items, boolean finished) {}
 
     private final WebClient webClient;
     private final GitHubRateLimiter rateLimiter;
-    private final FileCheckpointManager checkpointManager;
 
     // login → {email, name} 캐시 — 동일 user에 대한 반복 API 호출 방지
     private final Map<String, Map<String, String>> userProfileCache = new ConcurrentHashMap<>();
@@ -36,8 +34,7 @@ public class GitHubRawService {
     public GitHubRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.github.base-url}") String baseUrl,
-            GitHubRateLimiter rateLimiter,
-            FileCheckpointManager checkpointManager
+            GitHubRateLimiter rateLimiter
     ) {
         this.webClient = webClientBuilder
                 .baseUrl(baseUrl)
@@ -45,10 +42,12 @@ public class GitHubRawService {
                 .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
                 .build();
         this.rateLimiter = rateLimiter;
-        this.checkpointManager = checkpointManager;
     }
 
-    public GitHubFetchContext prepareFetchContext(RawFetchRequest request) {
+    public GitHubFetchContext prepareFetchContext(
+            RawFetchRequest request,
+            ProjectCheckpointData.GitHubCheckpoint checkpoint
+    ) {
         String[] parts = request.projectKey().split("/", 2);
         if (parts.length != 2) {
             throw new IllegalArgumentException("projectKey must be in 'owner/repo' format");
@@ -58,11 +57,11 @@ public class GitHubRawService {
         String auth = request.credentials();
 
         String branch = request.options() != null ? request.options().getOrDefault("branch", null) : null;
-        return new GitHubFetchContext(auth, owner, repo, branch, checkpointManager.getCached().github);
+        return new GitHubFetchContext(auth, owner, repo, branch, checkpoint);
     }
 
     public Map<String, Object> fetchSample(RawFetchRequest request) {
-        GitHubFetchContext context = prepareFetchContext(request);
+        GitHubFetchContext context = prepareFetchContext(request, new ProjectCheckpointData.GitHubCheckpoint());
         GitHubPage pullRequestPage = fetchMergedPullRequestPage(context, 1);
         Map<String, String> commitPrNumbers = fetchCommitPrNumbers(context, pullRequestPage.items());
         GitHubPage commitPage = fetchCommitPage(context, 1, commitPrNumbers);

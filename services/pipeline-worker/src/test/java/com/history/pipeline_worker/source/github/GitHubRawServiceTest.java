@@ -1,7 +1,5 @@
 package com.history.pipeline_worker.source.github;
 
-import com.history.pipeline_worker.checkpoint.CheckpointData;
-import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,8 +16,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class GitHubRawServiceTest {
 
@@ -27,10 +23,6 @@ class GitHubRawServiceTest {
     @DisplayName("sample은 1페이지 merged PR만 수집하고 PR commit sha를 raw commit prNumber로 주입")
     @SuppressWarnings("unchecked")
     void fetchSample_collectsOnlyMergedPrsAndInjectsCommitPrNumber() {
-        CheckpointData checkpointData = new CheckpointData();
-        FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
-        when(checkpointManager.getCached()).thenReturn(checkpointData);
-
         AtomicBoolean searchApiCalled = new AtomicBoolean(false);
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -43,8 +35,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
-                checkpointManager
+                new GitHubRateLimiter(0, 0)
         );
 
         Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
@@ -63,10 +54,6 @@ class GitHubRawServiceTest {
     @Test
     @DisplayName("branch 옵션 지정 시 commits 요청 URL에 sha 파라미터 포함")
     void prepareFetchContext_withBranchOption_addsShaParam() {
-        CheckpointData checkpointData = new CheckpointData();
-        FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
-        when(checkpointManager.getCached()).thenReturn(checkpointData);
-
         AtomicReference<String> capturedCommitsQuery = new AtomicReference<>();
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -79,8 +66,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
-                checkpointManager
+                new GitHubRateLimiter(0, 0)
         );
 
         service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of("branch", "develop")));
@@ -91,10 +77,6 @@ class GitHubRawServiceTest {
     @Test
     @DisplayName("branch 옵션 미지정 시 commits 요청 URL에 sha 파라미터 미포함")
     void prepareFetchContext_withoutBranchOption_noShaParam() {
-        CheckpointData checkpointData = new CheckpointData();
-        FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
-        when(checkpointManager.getCached()).thenReturn(checkpointData);
-
         AtomicReference<String> capturedCommitsQuery = new AtomicReference<>();
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -107,8 +89,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
-                checkpointManager
+                new GitHubRateLimiter(0, 0)
         );
 
         service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));

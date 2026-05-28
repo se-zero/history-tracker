@@ -1,7 +1,5 @@
 package com.history.pipeline_worker.source.jira;
 
-import com.history.pipeline_worker.checkpoint.CheckpointData;
-import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,27 +14,22 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class JiraRawServiceTest {
 
     @Test
     @DisplayName("Jira projectKey는 허용된 패턴만 통과")
     void prepareFetchContext_invalidProjectKey_throwsException() {
-        FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
-        when(checkpointManager.getCached()).thenReturn(new CheckpointData());
         JiraRawService service = new JiraRawService(
                 WebClient.builder(),
                 "",
                 50,
-                new JiraRateLimiter(0),
-                checkpointManager
+                new JiraRateLimiter(0)
         );
         RawFetchRequest request = new RawFetchRequest("email:token", "PROJ OR project=BAD",
                 Map.of("baseUrl", "https://example.atlassian.net"));
 
-        assertThatThrownBy(() -> service.prepareFetchContext(request))
+        assertThatThrownBy(() -> service.prepareFetchContext(request, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Invalid Jira project key");
     }
@@ -76,8 +69,7 @@ class JiraRawServiceTest {
                 WebClient.builder(),
                 "",
                 50,
-                new JiraRateLimiter(0),
-                mock(FileCheckpointManager.class)
+                new JiraRateLimiter(0)
         );
         JiraRawService.JiraFetchContext context = new JiraRawService.JiraFetchContext(
                 client,
@@ -102,8 +94,7 @@ class JiraRawServiceTest {
                 WebClient.builder(),
                 "",
                 1,
-                new JiraRateLimiter(0),
-                mock(FileCheckpointManager.class)
+                new JiraRateLimiter(0)
         );
         JiraRawService.JiraFetchContext context = new JiraRawService.JiraFetchContext(
                 WebClient.builder().baseUrl("https://example.atlassian.net").build(),

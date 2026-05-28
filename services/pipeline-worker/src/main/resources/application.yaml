@@ -37,9 +37,6 @@ app:
     routing-key-jira: event.jira
     routing-key-slack: event.slack
 
-  checkpoint:
-    path: ./checkpoint.json  # Docker 환경에서는 volume mount로 /data/checkpoint.json
-
   webhook:
     github:
       secret: ""  # GitHub webhook secret. X-Hub-Signature-256 검증에 사용.

@@ -1,6 +1,5 @@
 package com.history.pipeline_worker.source.jira;
 
-import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.util.JiraDateUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -33,7 +32,6 @@ public class JiraRawService {
     private final String defaultBaseUrl;
     private final int maxPagesPerRun;
     private final JiraRateLimiter rateLimiter;
-    private final FileCheckpointManager checkpointManager;
     private static final ParameterizedTypeReference<Map<String, Object>> MAP_RESPONSE =
             new ParameterizedTypeReference<>() {};
 
@@ -41,18 +39,16 @@ public class JiraRawService {
             WebClient.Builder webClientBuilder,
             @Value("${app.jira.base-url}") String defaultBaseUrl,
             @Value("${app.jira.max-pages-per-run:50}") int maxPagesPerRun,
-            JiraRateLimiter rateLimiter,
-            FileCheckpointManager checkpointManager
+            JiraRateLimiter rateLimiter
     ) {
         this.webClientBuilder = webClientBuilder;
         this.defaultBaseUrl = defaultBaseUrl;
         this.maxPagesPerRun = maxPagesPerRun;
         this.rateLimiter = rateLimiter;
-        this.checkpointManager = checkpointManager;
     }
 
     public Map<String, Object> fetchSample(RawFetchRequest request) {
-        JiraFetchContext context = prepareFetchContext(request);
+        JiraFetchContext context = prepareFetchContext(request, null);
 
         JiraSearchPage page = fetchSearchPage(context, null, 1);
         Map<String, Object> filteredResult = page.searchResult();
@@ -72,12 +68,11 @@ public class JiraRawService {
         );
     }
 
-    public JiraFetchContext prepareFetchContext(RawFetchRequest request) {
+    public JiraFetchContext prepareFetchContext(RawFetchRequest request, Instant lastScannedAt) {
         String baseUrl = resolveBaseUrl(request);
         String auth = resolveAuth(request.credentials());
         String projectKey = resolveProjectKey(request.projectKey());
         WebClient client = webClientBuilder.baseUrl(baseUrl).build();
-        Instant lastScannedAt = checkpointManager.getCached().jira.lastScannedAt;
         return new JiraFetchContext(client, auth, projectKey, lastScannedAt);
     }
 
