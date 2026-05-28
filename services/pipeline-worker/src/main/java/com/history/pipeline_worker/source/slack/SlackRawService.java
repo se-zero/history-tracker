@@ -1,6 +1,5 @@
 package com.history.pipeline_worker.source.slack;
 
-import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,21 +32,18 @@ public class SlackRawService {
 
     private final WebClient webClient;
     private final SlackRateLimiter rateLimiter;
-    private final FileCheckpointManager checkpointManager;
 
     public SlackRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.slack.base-url}") String baseUrl,
-            SlackRateLimiter rateLimiter,
-            FileCheckpointManager checkpointManager
+            SlackRateLimiter rateLimiter
     ) {
         this.webClient = webClientBuilder.baseUrl(baseUrl).build();
         this.rateLimiter = rateLimiter;
-        this.checkpointManager = checkpointManager;
     }
 
     public Map<String, Object> fetchSample(RawFetchRequest request) {
-        SlackFetchContext context = prepareFetchContext(request);
+        SlackFetchContext context = prepareFetchContext(request, null);
 
         List<Object> allChannels = fetchChannels(context);
         if (allChannels.isEmpty()) {
@@ -69,9 +65,8 @@ public class SlackRawService {
         );
     }
 
-    public SlackFetchContext prepareFetchContext(RawFetchRequest request) {
+    public SlackFetchContext prepareFetchContext(RawFetchRequest request, Instant lastScannedAt) {
         String auth = request.credentials();
-        Instant lastScannedAt = checkpointManager.getCached().slack.lastScannedAt;
         return new SlackFetchContext(auth, lastScannedAt, fetchUserMap(auth));
     }
 

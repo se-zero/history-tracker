@@ -1,7 +1,7 @@
 package com.history.pipeline_worker.controller;
 
+import com.history.pipeline_worker.dto.NormalizeFetchRequest;
 import com.history.pipeline_worker.dto.QueuedResponse;
-import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.pipeline.PipelineService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,17 +17,23 @@ public class PipelineController {
     private final PipelineService pipelineService;
 
     @PostMapping("/api/v1/normalize/github")
-    public ResponseEntity<QueuedResponse> normalizeGitHub(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.accepted().body(new QueuedResponse(pipelineService.normalizeGitHub(request)));
+    public ResponseEntity<QueuedResponse> normalizeGitHub(@RequestBody @Valid NormalizeFetchRequest request) {
+        return ResponseEntity.accepted().body(new QueuedResponse(
+                pipelineService.normalizeGitHub(request.projectId(), request.toRawFetchRequest())
+        ));
     }
 
     @PostMapping("/api/v1/normalize/jira")
-    public ResponseEntity<QueuedResponse> normalizeJira(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.accepted().body(new QueuedResponse(pipelineService.normalizeJira(request)));
+    public ResponseEntity<QueuedResponse> normalizeJira(@RequestBody @Valid NormalizeFetchRequest request) {
+        return ResponseEntity.accepted().body(new QueuedResponse(
+                pipelineService.normalizeJira(request.projectId(), request.toRawFetchRequest())
+        ));
     }
 
     @PostMapping("/api/v1/normalize/slack")
-    public ResponseEntity<QueuedResponse> normalizeSlack(@RequestBody @Valid RawFetchRequest request) {
-        return ResponseEntity.accepted().body(new QueuedResponse(pipelineService.normalizeSlack(request)));
+    public ResponseEntity<QueuedResponse> normalizeSlack(@RequestBody @Valid NormalizeFetchRequest request) {
+        return ResponseEntity.accepted().body(new QueuedResponse(
+                pipelineService.normalizeSlack(request.projectId(), request.toRawFetchRequest())
+        ));
     }
 }

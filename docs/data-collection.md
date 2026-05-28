@@ -6,9 +6,11 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 
 ## 공통 원칙
 
-- **증분 수집**: checkpoint에 기록된 마지막 수집 시각 이후 데이터만 가져온다. 재시작해도 중복 발행 없음.
+- **증분 수집**: checkpoint에 기록된 마지막 수집 시각 이후 데이터만 가져온다. 재시작해도 누락을 방지하고 중복 발행을 최소화한다.
 - **occurredAt 기준 checkpoint 갱신**: 수집 시각(`Instant.now()`)이 아닌 이벤트 실제 발생 시각을 기준으로 갱신한다. 발행하지 못한 이벤트가 있어도 checkpoint가 앞으로 이동하지 않아 누락이 없다.
-- **원자적 checkpoint 저장**: `.tmp` 파일에 쓴 뒤 `Files.move(ATOMIC_MOVE)`로 교체 — 중간 실패 시 오염 방지.
+- **DB checkpoint 저장**: checkpoint는 DB `checkpoints` 테이블에 `(project_id, provider, cursor_key)` 단위로 저장한다. cursor 갱신 시 기존 값과 새 값 중 더 최신 시각을 저장해 checkpoint가 과거로 되돌아가지 않게 한다.
+- **manual/webhook 동일 checkpoint 사용**: webhook 수집은 `ProjectCollectionContext.projectId`, 수동 normalize endpoint는 요청의 `projectId`로 같은 DB checkpoint를 조회하고 갱신한다.
+- **raw endpoint는 샘플 전용**: `/api/v1/raw/*` endpoint는 필드 확인용 1페이지 샘플이며 DB checkpoint를 조회하거나 갱신하지 않는다.
 
 ---
 
@@ -16,13 +18,13 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 
 ### 수집 대상
 
-| 타입 | 엔드포인트 | checkpoint 필드 |
-|------|-----------|----------------|
-| Commit | `GET /repos/{owner}/{repo}/commits` | `commitsScannedAt` |
-| Pull Request | `GET /repos/{owner}/{repo}/pulls?state=closed` | `pullRequestsScannedAt` |
-| Issue | `GET /repos/{owner}/{repo}/issues?state=all` | `issuesScannedAt` |
+| 타입 | 엔드포인트 | DB checkpoint |
+|------|-----------|---------------|
+| Commit | `GET /repos/{owner}/{repo}/commits` | `github/github_commits` |
+| Pull Request | `GET /repos/{owner}/{repo}/pulls?state=closed` | `github/github_pull_requests` |
+| Issue | `GET /repos/{owner}/{repo}/issues?state=all` | `github/github_issues` |
 
-타입별 checkpoint가 독립적이라 재시작 시 완료된 타입은 건너뛴다.
+타입별 checkpoint가 독립적이라 재시작 시 완료된 타입은 건너뛴다. 코드 내부에서는 GitHub checkpoint snapshot을 `commitsScannedAt`, `pullRequestsScannedAt`, `issuesScannedAt` 필드로 다룬다.
 
 ### 페이지네이션
 
@@ -101,6 +103,8 @@ normalize 경로는 PR, commit, issue를 페이지 단위로 처리한다.
 ### 수집 대상
 
 Jira 이슈 전체를 JQL로 조회한다.
+
+Jira checkpoint는 `checkpoints` 테이블에서 `provider=jira`, `cursor_key=jira_updated` row에 저장한다.
 
 ```
 project = {key} AND updated >= "{checkpoint}" ORDER BY updated ASC
@@ -183,6 +187,7 @@ JQL 서버 필터 + `filterIssuesByUpdated` 클라이언트 필터의 이중 구
 수집 대상(발행할 메시지)과 reply 확인 대상(오래된 스레드 포함)을 `ChannelMessages` record로 분리해 처리한다.
 normalize 경로는 `conversations.history`를 page 단위로 가져오고, 해당 page의 메시지와 thread replies를 정규화·발행한다.
 Slack checkpoint는 채널별로 갱신하지 않고 전체 실행 중 최대 `occurredAt`을 마지막에 한 번 갱신한다.
+Slack checkpoint는 `checkpoints` 테이블에서 `provider=slack`, `cursor_key=slack_messages` row에 저장한다.
 
 ### occurredAt 기준
 

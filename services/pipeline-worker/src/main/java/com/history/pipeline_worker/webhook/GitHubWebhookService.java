@@ -3,7 +3,7 @@ package com.history.pipeline_worker.webhook;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
-import com.history.pipeline_worker.collection.ProjectIntegrationResolver;
+import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.pipeline.CollectionResult;
 import com.history.pipeline_worker.pipeline.PipelineService;
 import lombok.extern.slf4j.Slf4j;
@@ -12,29 +12,31 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.RejectedExecutionException;
+
 @Slf4j
 @Service
 public class GitHubWebhookService {
 
     private final ObjectMapper objectMapper;
     private final GitHubWebhookVerifier verifier;
-    private final WebhookDeliveryStore deliveryStore;
-    private final ProjectIntegrationResolver projectIntegrationResolver;
+    private final WebhookDeliveryService webhookDeliveryService;
+    private final ProjectIntegrationService projectIntegrationService;
     private final PipelineService pipelineService;
     private final TaskExecutor taskExecutor;
 
     public GitHubWebhookService(
             ObjectMapper objectMapper,
             GitHubWebhookVerifier verifier,
-            WebhookDeliveryStore deliveryStore,
-            ProjectIntegrationResolver projectIntegrationResolver,
+            WebhookDeliveryService webhookDeliveryService,
+            ProjectIntegrationService projectIntegrationService,
             PipelineService pipelineService,
             @Qualifier("webhookTaskExecutor") TaskExecutor taskExecutor
     ) {
         this.objectMapper = objectMapper;
         this.verifier = verifier;
-        this.deliveryStore = deliveryStore;
-        this.projectIntegrationResolver = projectIntegrationResolver;
+        this.webhookDeliveryService = webhookDeliveryService;
+        this.projectIntegrationService = projectIntegrationService;
         this.pipelineService = pipelineService;
         this.taskExecutor = taskExecutor;
     }
@@ -66,21 +68,24 @@ public class GitHubWebhookService {
             return new WebhookResult(WebhookStatus.IGNORED, "not a merged pull request");
         }
 
-        ProjectCollectionContext collectionContext = projectIntegrationResolver
+        ProjectCollectionContext collectionContext = projectIntegrationService
                 .resolveGitHubPullRequestWebhook(webhook)
                 .orElse(null);
         if (collectionContext == null) {
             return new WebhookResult(WebhookStatus.NOT_FOUND, "no project integration found");
         }
 
-        if (!deliveryStore.tryClaim(deliveryId)) {
+        if (!webhookDeliveryService.tryClaim(deliveryId, collectionContext.projectId())) {
             return new WebhookResult(WebhookStatus.DUPLICATE, "duplicate delivery");
         }
 
         try {
             taskExecutor.execute(() -> runCollection(deliveryId, collectionContext));
+        } catch (RejectedExecutionException e) {
+            webhookDeliveryService.releaseClaim(deliveryId);
+            throw e;
         } catch (RuntimeException e) {
-            deliveryStore.markFailed(deliveryId);
+            webhookDeliveryService.markFailed(deliveryId, failureReason(e));
             throw e;
         }
         return new WebhookResult(WebhookStatus.ACCEPTED, "collection queued");
@@ -114,13 +119,21 @@ public class GitHubWebhookService {
     private void runCollection(String deliveryId, ProjectCollectionContext context) {
         try {
             CollectionResult result = pipelineService.collectIncremental(context);
-            deliveryStore.markProcessed(deliveryId);
+            webhookDeliveryService.markProcessed(deliveryId);
             log.info("Webhook-triggered collection completed: deliveryId={}, projectId={}, github={}, jira={}, slack={}",
                     deliveryId, context.projectId(), result.github(), result.jira(), result.slack());
         } catch (Exception e) {
-            deliveryStore.markFailed(deliveryId);
+            webhookDeliveryService.markFailed(deliveryId, failureReason(e));
             log.error("Webhook-triggered collection failed: deliveryId={}", deliveryId, e);
         }
+    }
+
+    private String failureReason(Exception exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+        return exception.getClass().getSimpleName() + ": " + message;
     }
 
     public record WebhookResult(WebhookStatus status, String message) {}

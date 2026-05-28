@@ -6,6 +6,15 @@ spring:
     port: 5672
     username: guest
     password: guest
+  datasource:
+    url: ${PIPELINE_WORKER_DATASOURCE_URL:jdbc:postgresql://localhost:5432/history_tracker}
+    username: ${PIPELINE_WORKER_DATASOURCE_USERNAME:history}
+    password: ${PIPELINE_WORKER_DATASOURCE_PASSWORD:history}
+    driver-class-name: org.postgresql.Driver
+
+security:
+  credentials:
+    key: ${BACKEND_CREDENTIAL_KEY:bG9jYWwtY3JlZGVudGlhbC1rZXktMzItYnl0ZXMhISE=}
 
 server:
   port: 8081  # backend(8080)와 포트 충돌 방지
@@ -28,22 +37,13 @@ app:
     routing-key-jira: event.jira
     routing-key-slack: event.slack
 
-  checkpoint:
-    path: ./checkpoint.json  # Docker 환경에서는 volume mount로 /data/checkpoint.json
-
   webhook:
     github:
       secret: ""  # GitHub webhook secret. X-Hub-Signature-256 검증에 사용.
     executor:
       await-termination-seconds: 300
-    delivery-store:
-      type: file
-      path: ./webhook-deliveries.json
-      
-  integration:
-    resolver:
-      type: noop
-
+    delivery:
+      stale-in-progress-timeout: 10m
   rate-limit:
     github:
       default-delay-ms: 300

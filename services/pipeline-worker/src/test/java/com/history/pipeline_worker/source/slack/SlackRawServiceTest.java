@@ -1,7 +1,5 @@
 package com.history.pipeline_worker.source.slack;
 
-import com.history.pipeline_worker.checkpoint.CheckpointData;
-import com.history.pipeline_worker.checkpoint.FileCheckpointManager;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,14 +10,11 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class SlackRawServiceTest {
 
@@ -27,11 +22,6 @@ class SlackRawServiceTest {
     @DisplayName("sample은 첫 채널 첫 페이지에서 checkpoint 이전 root thread라도 최신 reply가 있으면 replies를 수집")
     @SuppressWarnings("unchecked")
     void fetchSample_collectsNewRepliesFromOldThread() {
-        CheckpointData checkpointData = new CheckpointData();
-        checkpointData.slack.lastScannedAt = Instant.ofEpochSecond(1_700_000_000L, 123_456_000);
-        FileCheckpointManager checkpointManager = mock(FileCheckpointManager.class);
-        when(checkpointManager.getCached()).thenReturn(checkpointData);
-
         AtomicReference<String> repliesQuery = new AtomicReference<>();
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -45,15 +35,16 @@ class SlackRawServiceTest {
         SlackRawService service = new SlackRawService(
                 webClientBuilder,
                 "https://slack.example",
-                new SlackRateLimiter(0, 0, 0),
-                checkpointManager
+                new SlackRateLimiter(0, 0, 0)
         );
 
         Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", null, Map.of()));
 
         List<Map<String, Object>> channels = (List<Map<String, Object>>) raw.get("channels");
         Map<String, Object> channel = channels.get(0);
-        assertThat((List<?>) channel.get("messages")).isEmpty();
+        List<Map<String, Object>> messages = (List<Map<String, Object>>) channel.get("messages");
+        assertThat(messages).hasSize(1);
+        assertThat(messages.get(0)).containsEntry("ts", "1699999900.000000");
 
         List<Map<String, Object>> threads = (List<Map<String, Object>>) channel.get("threads");
         assertThat(threads).hasSize(1);
@@ -61,7 +52,7 @@ class SlackRawServiceTest {
         assertThat(replies).hasSize(1);
         assertThat(replies.get(0)).containsEntry("ts", "1700000100.000000")
                 .containsEntry("userName", "Alice");
-        assertThat(repliesQuery.get()).contains("oldest=1700000000.123456");
+        assertThat(repliesQuery.get()).doesNotContain("oldest=");
     }
 
     private ClientResponse jsonResponse(String body) {
