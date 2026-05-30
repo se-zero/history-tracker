@@ -3,9 +3,10 @@ package com.history.backend.github.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,9 +24,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.TransactionStatus;
 
 @ExtendWith(MockitoExtension.class)
 class GitHubInstallationServiceTest {
@@ -37,10 +35,7 @@ class GitHubInstallationServiceTest {
     private GitHubAppClient gitHubAppClient;
 
     @Mock
-    private PlatformTransactionManager transactionManager;
-
-    @Mock
-    private TransactionStatus transactionStatus;
+    private InstallationTokenService installationTokenService;
 
     private static final UUID INSTALLER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
@@ -94,14 +89,11 @@ class GitHubInstallationServiceTest {
     void findRepositoriesReturnsRepositoriesForOwnedInstallation() {
         GitHubInstallationService service = service();
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer());
-        when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
+        ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
         when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.of(installation));
-        when(gitHubAppClient.createInstallationAccessToken(98765L))
-                .thenReturn(new InstallationAccessToken(
-                        "installation-token",
-                        Instant.parse("2026-05-19T01:00:00Z")
-                ));
+        when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
+                .thenReturn("installation-token");
         when(gitHubAppClient.fetchInstallationRepositories("installation-token"))
                 .thenReturn(List.of(new GitHubRepositoryResponse(
                         12345L,
@@ -119,10 +111,11 @@ class GitHubInstallationServiceTest {
         assertThat(result.get(0).id()).isEqualTo(12345L);
         assertThat(result.get(0).fullName()).isEqualTo("acme/widget");
         assertThat(result.get(0).privateRepository()).isTrue();
+        verify(gitHubAppClient, never()).createInstallationAccessToken(any());
     }
 
     private GitHubInstallationService service() {
-        return new GitHubInstallationService(gitHubInstallationRepository, gitHubAppClient, transactionManager);
+        return new GitHubInstallationService(gitHubInstallationRepository, gitHubAppClient, installationTokenService);
     }
 
     private User installer() {
