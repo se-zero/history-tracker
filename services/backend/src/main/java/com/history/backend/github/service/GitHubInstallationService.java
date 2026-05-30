@@ -65,8 +65,8 @@ public class GitHubInstallationService {
 
     public List<RepositoryResponse> findRepositories(UUID installerId, UUID installationId) {
         Long gitHubInstallationId = loadGitHubInstallationId(installerId, installationId);
-        String installationAccessToken = gitHubAppClient.createInstallationAccessToken(gitHubInstallationId);
-        return gitHubAppClient.fetchInstallationRepositories(installationAccessToken).stream()
+        InstallationAccessToken installationAccessToken = gitHubAppClient.createInstallationAccessToken(gitHubInstallationId);
+        return gitHubAppClient.fetchInstallationRepositories(installationAccessToken.token()).stream()
                 .map(RepositoryResponse::from)
                 .toList();
     }

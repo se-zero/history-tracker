@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -97,7 +98,10 @@ class GitHubInstallationServiceTest {
         when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.of(installation));
         when(gitHubAppClient.createInstallationAccessToken(98765L))
-                .thenReturn("installation-token");
+                .thenReturn(new InstallationAccessToken(
+                        "installation-token",
+                        Instant.parse("2026-05-19T01:00:00Z")
+                ));
         when(gitHubAppClient.fetchInstallationRepositories("installation-token"))
                 .thenReturn(List.of(new GitHubRepositoryResponse(
                         12345L,

@@ -2,6 +2,8 @@ package com.history.backend.github.service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.GitHubAppProperties;
@@ -37,7 +39,7 @@ public class GitHubAppClient {
         this.restClient = restClient;
     }
 
-    public String createInstallationAccessToken(Long installationId) {
+    public InstallationAccessToken createInstallationAccessToken(Long installationId) {
         GitHubInstallationTokenResponse response;
         try {
             response = restClient
@@ -56,7 +58,10 @@ public class GitHubAppClient {
         if (response == null || response.token() == null || response.token().isBlank()) {
             throw new IllegalStateException("GitHub installation access token response is empty.");
         }
-        return response.token();
+        if (response.expiresAt() == null || response.expiresAt().isBlank()) {
+            throw new IllegalStateException("GitHub installation access token expiry is empty.");
+        }
+        return new InstallationAccessToken(response.token(), parseExpiresAt(response.expiresAt()));
     }
 
     public List<GitHubRepositoryResponse> fetchInstallationRepositories(String installationAccessToken) {
@@ -111,5 +116,13 @@ public class GitHubAppClient {
 
     private BadGatewayException gitHubApiException(String message, RestClientResponseException exception) {
         return new BadGatewayException(message + " GitHub responded with " + exception.getStatusCode() + ".", exception);
+    }
+
+    private Instant parseExpiresAt(String expiresAt) {
+        try {
+            return Instant.parse(expiresAt);
+        } catch (DateTimeParseException exception) {
+            throw new IllegalStateException("GitHub installation access token expiry is invalid.", exception);
+        }
     }
 }
