@@ -1,0 +1,128 @@
+// TODO(backend): Phase 4-실제연결에서 GET /graph/project/{pid}/overview, /graph/by-message/{mid},
+//                /graph/neighborhood로 교체. 지금은 디자인 확인용 더미.
+
+import type { GraphData } from "@/types/graph";
+
+export const DUMMY_GRAPH: GraphData = {
+  nodes: [
+    {
+      id: "pr88",
+      type: "pr",
+      title: "feat(retry): max attempts 5→3 + backoff",
+      meta: "PR #88",
+      source: "github/payments",
+      snippet: "재시도 최대 3회로 줄이고 지수 백오프 적용. 중복 결제 위험 완화.",
+    },
+    {
+      id: "iss31",
+      type: "jira",
+      title: "PAY-31 중복 결제 클레임 다발",
+      meta: "PAY-31",
+      source: "jira/pay",
+      snippet: "10월 CS팀 보고: retry 5회로 인해 중복 결제 클레임 17건 발생.",
+    },
+    {
+      id: "slack1",
+      type: "slack",
+      title: "#payments-eng 토론",
+      meta: "slack/#payments-eng · 2025-10-08",
+      source: "slack",
+      snippet:
+        "지호: 백오프 없이 5번이면 30초 안에 5번 다 때려서 PG가 같은 결제로 인식 못 함.",
+    },
+    {
+      id: "iss120",
+      type: "issue",
+      title: "Duplicate charges in stripe webhook",
+      meta: "Issue #120",
+      source: "github/payments",
+      snippet: "Stripe webhook에서 같은 charge id가 여러 번 들어오는 케이스.",
+    },
+    {
+      id: "c1",
+      type: "commit",
+      title: "feat(retry): expo backoff + cap=3",
+      meta: "4f1a8c2",
+      source: "github/payments",
+      snippet:
+        "PaymentRetry.attempt() 의 max를 5에서 3으로 변경, 100ms·400ms·1.6s 백오프.",
+    },
+    {
+      id: "c2",
+      type: "commit",
+      title: "test: idempotency under retry",
+      meta: "b29f3d7",
+      source: "github/payments",
+      snippet: "동일 요청 키에서 retry가 발생해도 중복 charge 발생하지 않는지 검증.",
+    },
+    {
+      id: "code1",
+      type: "code",
+      title: "PaymentRetry.go",
+      meta: "internal/retry/payment.go:47",
+      source: "github/payments",
+      snippet:
+        "const maxAttempts = 3 // was 5\nvar backoff = []time.Duration{100*ms, 400*ms, 1600*ms}",
+    },
+    {
+      id: "u1",
+      type: "actor",
+      title: "박지호",
+      meta: "@jiho.p · Tech Lead",
+      source: "people",
+      snippet: "Payments 도메인 리드. retry 정책 변경을 주도.",
+    },
+    {
+      id: "u2",
+      type: "actor",
+      title: "최수아",
+      meta: "@sua.c · Backend",
+      source: "people",
+      snippet: "PR #88 작성자. retry/backoff 구현 담당.",
+    },
+    {
+      id: "u3",
+      type: "actor",
+      title: "김도현",
+      meta: "@dohyun.k · CS",
+      source: "people",
+      snippet: "중복 결제 클레임을 정리한 CS 리드.",
+    },
+    {
+      id: "slack2",
+      type: "slack",
+      title: "#cs-escalation",
+      meta: "slack/#cs-escalation · 2025-10-05",
+      source: "slack",
+      snippet:
+        "도현: 이번주 동일카드 동일금액 중복결제 컴플레인 9건. PG 로그 첨부.",
+    },
+    {
+      id: "pr80",
+      type: "pr",
+      title: "Idempotency-Key middleware",
+      meta: "PR #80",
+      source: "github/payments",
+      snippet: "Idempotency-Key 미들웨어 도입. PR #88의 선행 작업.",
+    },
+  ],
+  edges: [
+    ["iss120", "iss31"],
+    ["iss31", "slack2"],
+    ["slack2", "slack1"],
+    ["slack1", "pr88"],
+    ["iss31", "pr88"],
+    ["pr88", "c1"],
+    ["pr88", "c2"],
+    ["c1", "code1"],
+    ["u1", "slack1"],
+    ["u1", "pr88"],
+    ["u2", "pr88"],
+    ["u2", "c1"],
+    ["u2", "c2"],
+    ["u3", "iss31"],
+    ["u3", "slack2"],
+    ["pr80", "pr88"],
+    ["pr80", "code1"],
+  ],
+};
