@@ -62,9 +62,53 @@ services:
     container_name: history-graph-ai-engine
     ports:
       - "8000:8000"
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password1234
     depends_on:
       neo4j:
         condition: service_healthy
+    profiles: [app]
+
+  backend:
+    build:
+      context: ../../services/backend
+    container_name: history-tracker-backend
+    ports:
+      - "8080:8080"
+    environment:
+      # 컨테이너 네트워크 hostname으로 override
+      DB_URL: jdbc:postgresql://postgres:5432/history_tracker?stringtype=unspecified
+      DB_USERNAME: history_tracker
+      DB_PASSWORD: history_tracker
+      AI_ENGINE_URL: http://ai-engine:8000
+
+      # 보안 키
+      JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-must-be-changed}
+      BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:-bG9jYWwtY3JlZGVudGlhbC1rZXktMzItYnl0ZXMhISE=}
+
+      # GitHub App — host env에서 그대로 forward (setenv.sh 패턴)
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:8080/api/v1/auth/github/callback}
+      GITHUB_INSTALLATION_URL: ${GITHUB_INSTALLATION_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: [app]
+
+  web-dashboard:
+    build:
+      context: ../../clients/web-dashboard
+    container_name: history-tracker-web
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
     profiles: [app]
 
 volumes:
