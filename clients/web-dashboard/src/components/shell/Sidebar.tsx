@@ -1,4 +1,9 @@
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
 import { Icons } from "@/components/Icons";
+import { useAuth } from "@/auth/AuthProvider";
+import { useTheme } from "@/theme/ThemeProvider";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import type { Conversation, Project, User } from "@/types/api";
 
@@ -119,17 +124,83 @@ export function Sidebar({
           </div>
         )}
       </div>
-      <div className="user-card">
-        <div className="avatar">{userInitials(user)}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="user-name">{user?.displayName ?? "사용자"}</div>
-          <div className="user-handle mono">{userHandle(user)}</div>
-        </div>
-        <button className="icon-btn">
-          <Icons.More />
-        </button>
-      </div>
+      <UserMenu user={user} />
     </aside>
+  );
+}
+
+function UserMenu({ user }: { user: User | null }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  const { theme, toggle } = useTheme();
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const handleLogout = async () => {
+    setOpen(false);
+    await logout();
+    navigate("/login", { replace: true });
+  };
+
+  return (
+    <div className="user-card" style={{ position: "relative" }} ref={ref}>
+      <div className="avatar">{userInitials(user)}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="user-name">{user?.displayName ?? "사용자"}</div>
+        <div className="user-handle mono">{userHandle(user)}</div>
+      </div>
+      <button
+        className="icon-btn"
+        title="메뉴"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Icons.More />
+      </button>
+
+      {open && (
+        <div
+          className="project-dropdown"
+          role="menu"
+          style={{
+            top: "auto",
+            bottom: "calc(100% + 6px)",
+          }}
+        >
+          <button
+            className="dropdown-item"
+            onClick={() => {
+              toggle();
+              setOpen(false);
+            }}
+          >
+            <span className="dropdown-icon">
+              {theme === "dark" ? (
+                <Icons.Sun size={13} />
+              ) : (
+                <Icons.Moon size={13} />
+              )}
+            </span>
+            <span>{theme === "dark" ? "Light 모드로" : "Dark 모드로"}</span>
+          </button>
+          <div className="dropdown-divider" />
+          <button className="dropdown-item" onClick={handleLogout}>
+            <span className="dropdown-icon">
+              <Icons.ArrowRight size={13} />
+            </span>
+            <span>로그아웃</span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

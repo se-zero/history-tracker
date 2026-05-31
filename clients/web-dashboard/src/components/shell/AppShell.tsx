@@ -4,6 +4,7 @@ import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-rou
 
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { StatusView } from "@/components/StatusView";
 import { listConversations } from "@/api/conversations";
 import { listProjects } from "@/api/projects";
 import { useAuth } from "@/auth/AuthProvider";
@@ -66,7 +67,26 @@ export function AppShell({ children }: { children?: ReactNode }) {
   );
 
   if (projectsQuery.isLoading) {
-    return <ShellLoading />;
+    return <StatusView tone="loading" description="프로젝트 불러오는 중…" fullPage />;
+  }
+
+  if (projectsQuery.isError) {
+    return (
+      <StatusView
+        tone="error"
+        title="프로젝트를 불러오지 못했어요"
+        description="네트워크나 서버 상태를 확인한 뒤 새로고침해 주세요."
+        action={
+          <button
+            className="btn btn-primary"
+            onClick={() => window.location.reload()}
+          >
+            새로고침
+          </button>
+        }
+        fullPage
+      />
+    );
   }
 
   if (projects.length === 0) {
@@ -120,19 +140,3 @@ export function AppShell({ children }: { children?: ReactNode }) {
   );
 }
 
-function ShellLoading() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100vh",
-        color: "var(--fg-muted)",
-        fontSize: 13,
-      }}
-    >
-      로딩 중…
-    </div>
-  );
-}

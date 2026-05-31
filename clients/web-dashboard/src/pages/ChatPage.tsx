@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { Icons } from "@/components/Icons";
+import { StatusView } from "@/components/StatusView";
 import {
   createConversation,
   getConversation,
@@ -81,17 +82,21 @@ export function ChatPage({ project }: { project: Project }) {
         {!conversationId ? (
           <ChatEmpty project={project} onPick={handleSend} />
         ) : conversationQuery.isLoading ? (
-          <ChatStream>
-            <div
-              style={{
-                padding: "24px 0",
-                color: "var(--fg-muted)",
-                fontSize: 13,
-              }}
-            >
-              메시지를 불러오는 중…
-            </div>
-          </ChatStream>
+          <StatusView tone="loading" description="메시지를 불러오는 중…" />
+        ) : conversationQuery.isError ? (
+          <StatusView
+            tone="error"
+            title="대화를 불러오지 못했어요"
+            description="다시 시도하거나 다른 대화를 선택해 보세요."
+            action={
+              <button
+                className="btn"
+                onClick={() => conversationQuery.refetch()}
+              >
+                다시 시도
+              </button>
+            }
+          />
         ) : (
           <ChatStream>
             {messages.map((m) => (

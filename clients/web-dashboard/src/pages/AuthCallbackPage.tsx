@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { exchangeGitHubCode } from "@/api/auth";
+import { StatusView } from "@/components/StatusView";
 import { useAuth } from "@/auth/AuthProvider";
 import { tokenStorage } from "@/auth/tokenStorage";
 
@@ -39,29 +40,24 @@ export function AuthCallbackPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100vh",
-        gap: 12,
-        color: "var(--fg-muted)",
-        fontSize: 13,
-      }}
-    >
-      {error ? (
-        <>
-          <div style={{ color: "var(--danger)" }}>{error}</div>
-          <button className="btn" onClick={() => navigate("/login", { replace: true })}>
+  if (error) {
+    return (
+      <StatusView
+        tone="error"
+        title="로그인에 실패했어요"
+        description={error}
+        action={
+          <button
+            className="btn btn-primary"
+            onClick={() => navigate("/login", { replace: true })}
+          >
             로그인으로 돌아가기
           </button>
-        </>
-      ) : (
-        <div>GitHub 인증 처리 중…</div>
-      )}
-    </div>
-  );
+        }
+        fullPage
+      />
+    );
+  }
+
+  return <StatusView tone="loading" description="GitHub 인증 처리 중…" fullPage />;
 }
