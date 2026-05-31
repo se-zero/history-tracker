@@ -363,15 +363,24 @@ function SlackCard({ projectId }: { projectId: string }) {
       {open && (
         <div className="connect-form">
           <div className="field">
-            <label>User OAuth Token</label>
+            <label>User OAuth Token (xoxp-)</label>
             <input
               type="password"
               placeholder="xoxp-..."
               value={form.token}
-              onChange={(e) => setForm({ token: e.target.value })}
+              onChange={(e) => setForm({ token: e.target.value.trim() })}
             />
-            <span className="hint">Slack 앱 관리 → OAuth & Permissions에서 발급</span>
+            <span className="hint">
+              Slack 앱 관리 → OAuth & Permissions → <strong>User OAuth Token</strong>{" "}
+              발급. Bot Token(xoxb-)은 사용할 수 없습니다.
+            </span>
           </div>
+          {form.token && !form.token.startsWith("xoxp-") && (
+            <div style={{ color: "var(--warning)", fontSize: 12 }}>
+              User OAuth Token은 <code>xoxp-</code>로 시작해야 합니다. Bot Token
+              (xoxb-) 또는 다른 형식은 허용되지 않아요.
+            </div>
+          )}
           {mutation.isError && (
             <div style={{ color: "var(--danger)", fontSize: 12 }}>
               연결에 실패했어요. 토큰을 확인해 주세요.
@@ -388,7 +397,10 @@ function SlackCard({ projectId }: { projectId: string }) {
             if (open) mutation.mutate();
             else setOpen(true);
           }}
-          disabled={mutation.isPending}
+          disabled={
+            mutation.isPending ||
+            (open && (!form.token || !form.token.startsWith("xoxp-")))
+          }
         >
           {mutation.isPending
             ? "연결 중…"

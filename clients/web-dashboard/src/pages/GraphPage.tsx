@@ -44,7 +44,7 @@ export function GraphPage({ project }: { project: Project }) {
           edges={data.edges}
           selectedId={selectedId}
           onSelect={(n) => setSelectedId(n.id)}
-          showLegend
+          showLegend={false}
           showControls
           showFilters
         />

@@ -136,9 +136,9 @@ export const Icons = {
   Filter: makeIcon(<path d="M2.5 3.5h11l-4 5v4l-3 1.5v-5.5l-4-5z" />),
   More: makeIcon(
     <>
-      <circle cx="3.5" cy="8" r="1" />
-      <circle cx="8" cy="8" r="1" />
-      <circle cx="12.5" cy="8" r="1" />
+      <circle cx="3.5" cy="8" r="1.3" fill="currentColor" />
+      <circle cx="8" cy="8" r="1.3" fill="currentColor" />
+      <circle cx="12.5" cy="8" r="1.3" fill="currentColor" />
     </>,
     { sw: 0 },
   ),

@@ -132,6 +132,20 @@ export function GraphVis({
     return () => ro.disconnect();
   }, []);
 
+  // React의 onWheel은 passive listener라 preventDefault가 무시됨.
+  // 그래프 안에서는 페이지 스크롤 막고 zoom만 동작하도록 native listener를 직접 부착.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      setView((v) => ({ ...v, k: clamp(v.k * factor, 0.4, 2.5) }));
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
   const simNodes = useMemo(() => runSimulation(nodes, edges), [nodes, edges]);
   const pad = compact ? 24 : 60;
   const positioned = useMemo(
@@ -160,11 +174,6 @@ export function GraphVis({
     });
   }, [edges, nodeById, activeFilters]);
 
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    setView((v) => ({ ...v, k: clamp(v.k * factor, 0.4, 2.5) }));
-  };
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     panRef.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
@@ -204,7 +213,6 @@ export function GraphVis({
     <div
       className="graph-wrap"
       ref={wrapRef}
-      onWheel={onWheel}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}

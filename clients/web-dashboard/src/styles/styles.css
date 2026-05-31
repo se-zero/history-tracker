@@ -165,7 +165,8 @@ a { color: inherit; text-decoration: none; }
 .app {
   display: grid;
   grid-template-columns: 260px 1fr;
-  height: 100%;
+  height: 100vh;
+  overflow: hidden;
   background: var(--bg);
 }
 .app.no-sidebar { grid-template-columns: 1fr; }
@@ -177,6 +178,8 @@ a { color: inherit; text-decoration: none; }
   background: var(--surface-2);
   border-right: 1px solid var(--border);
   min-width: 0;
+  height: 100%;
+  overflow-y: auto;
 }
 .sidebar-section { padding: 12px; }
 .sidebar-divider { height: 1px; background: var(--border); margin: 0 12px; }
@@ -344,6 +347,7 @@ a { color: inherit; text-decoration: none; }
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow-y: auto;
 }
 .topbar {
   display: flex;
