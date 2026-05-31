@@ -13,8 +13,6 @@ import com.history.backend.github.repository.GitHubInstallationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -22,7 +20,7 @@ public class GitHubInstallationService {
 
     private final GitHubInstallationRepository gitHubInstallationRepository;
     private final GitHubAppClient gitHubAppClient;
-    private final PlatformTransactionManager transactionManager;
+    private final InstallationTokenService installationTokenService;
 
     @Transactional
     public GitHubInstallation upsertInstallation(User installer, GitHubInstallationResponse response) {
@@ -64,17 +62,10 @@ public class GitHubInstallationService {
     }
 
     public List<RepositoryResponse> findRepositories(UUID installerId, UUID installationId) {
-        Long gitHubInstallationId = loadGitHubInstallationId(installerId, installationId);
-        String installationAccessToken = gitHubAppClient.createInstallationAccessToken(gitHubInstallationId);
+        GitHubInstallation installation = getInstallationForInstaller(installerId, installationId);
+        String installationAccessToken = installationTokenService.getInstallationAccessToken(installation.getId());
         return gitHubAppClient.fetchInstallationRepositories(installationAccessToken).stream()
                 .map(RepositoryResponse::from)
                 .toList();
-    }
-
-    private Long loadGitHubInstallationId(UUID installerId, UUID installationId) {
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
-        transactionTemplate.setReadOnly(true);
-        return transactionTemplate.execute(status -> getInstallationForInstaller(installerId, installationId)
-                .getInstallationId());
     }
 }

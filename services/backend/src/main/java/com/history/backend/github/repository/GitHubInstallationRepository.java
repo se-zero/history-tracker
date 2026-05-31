@@ -5,7 +5,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.github.domain.GitHubInstallation;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +18,18 @@ public interface GitHubInstallationRepository extends JpaRepository<GitHubInstal
     List<GitHubInstallation> findAllByInstallerUser_Id(UUID installerId);
 
     Optional<GitHubInstallation> findByIdAndInstallerUser_Id(UUID id, UUID installerId);
+
+    @Query("""
+            SELECT installation.encryptedInstallationToken AS encryptedInstallationToken,
+                   installation.installationTokenExpiresAt AS installationTokenExpiresAt
+            FROM GitHubInstallation installation
+            WHERE installation.id = :id
+            """)
+    Optional<InstallationTokenCacheView> findTokenCacheById(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT installation FROM GitHubInstallation installation WHERE installation.id = :id")
+    Optional<GitHubInstallation> findByIdForUpdate(@Param("id") UUID id);
 
     @Query(value = """
             INSERT INTO github_installations (installation_id, account_type, account_login, installer_user_id)

@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.time.Instant;
 import java.util.List;
 
 import com.history.backend.common.error.BadGatewayException;
@@ -43,9 +44,10 @@ class GitHubAppClientTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        String result = fixture.client.createInstallationAccessToken(98765L);
+        InstallationAccessToken result = fixture.client.createInstallationAccessToken(98765L);
 
-        assertThat(result).isEqualTo("installation-token");
+        assertThat(result.token()).isEqualTo("installation-token");
+        assertThat(result.expiresAt()).isEqualTo(Instant.parse("2026-05-19T01:00:00Z"));
         fixture.server.verify();
     }
 
@@ -64,6 +66,42 @@ class GitHubAppClientTest {
         assertThatThrownBy(() -> fixture.client.createInstallationAccessToken(98765L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("GitHub installation access token response is empty.");
+        fixture.server.verify();
+    }
+
+    @Test
+    void createInstallationAccessTokenRejectsEmptyExpiryResponse() {
+        GitHubAppClientFixture fixture = fixture();
+        when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
+        fixture.server.expect(once(), requestTo("https://api.github.test/app/installations/98765/access_tokens"))
+                .andRespond(withSuccess("""
+                        {
+                          "token": "installation-token",
+                          "expires_at": ""
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.createInstallationAccessToken(98765L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("GitHub installation access token expiry is empty.");
+        fixture.server.verify();
+    }
+
+    @Test
+    void createInstallationAccessTokenRejectsInvalidExpiryResponse() {
+        GitHubAppClientFixture fixture = fixture();
+        when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
+        fixture.server.expect(once(), requestTo("https://api.github.test/app/installations/98765/access_tokens"))
+                .andRespond(withSuccess("""
+                        {
+                          "token": "installation-token",
+                          "expires_at": "not-an-instant"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.createInstallationAccessToken(98765L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("GitHub installation access token expiry is invalid.");
         fixture.server.verify();
     }
 
