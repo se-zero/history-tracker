@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # infra/docker/dev.sh
-# setenv.sh를 자동 source한 뒤 docker compose --profile app <args> 를 실행.
+# docker compose --profile app <args> wrapper.
+#
+# 환경변수는 같은 디렉토리의 `.env` 파일에서 자동으로 로드됩니다 (docker compose 표준).
+# `.env`는 `.env.example`을 복사해 만드세요:
+#   cp .env.example .env
 #
 # 사용법:
 #   ./dev.sh up -d --build
@@ -11,16 +15,12 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SETENV="$SCRIPT_DIR/../../services/backend/setenv.sh"
 
-if [ ! -f "$SETENV" ]; then
-  echo "❌ $SETENV 가 없습니다." >&2
-  echo "   services/backend/setenv.sh 를 만들고 GITHUB_* 환경변수를 export 하세요." >&2
+if [ ! -f "$SCRIPT_DIR/.env" ]; then
+  echo "⚠️  $SCRIPT_DIR/.env 가 없습니다." >&2
+  echo "    cp .env.example .env 후 값을 채워 주세요." >&2
   exit 1
 fi
-
-# shellcheck disable=SC1090
-source "$SETENV"
 
 cd "$SCRIPT_DIR"
 exec docker compose --profile app "$@"
