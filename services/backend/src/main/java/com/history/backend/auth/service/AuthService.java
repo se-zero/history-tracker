@@ -34,25 +34,27 @@ public class AuthService {
     private final JwtTokenService jwtTokenService;
     private final JwtProperties jwtProperties;
 
-    // GitHub OAuth 인증 URL 생성
+    // GitHub OAuth 인증 URL 생성.
+    // 이미 앱이 설치된 사용자도, 미설치 사용자도 동일한 OAuth authorize URL로 보낸다.
+    // GitHub App의 OAuth authorize 페이지는 동의와 함께 "Install on" 옵션도 함께 제공하므로
+    // 신규 사용자는 같은 흐름에서 앱 설치까지 끝낼 수 있다.
     public URI buildGitHubAuthorizeUri(String state) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(gitHubInstallationUrl());
+        if (gitHubAppProperties.clientId() == null || gitHubAppProperties.clientId().isBlank()) {
+            throw new IllegalStateException("GitHub App client_id is not configured.");
+        }
+        if (gitHubAppProperties.redirectUri() == null || gitHubAppProperties.redirectUri().isBlank()) {
+            throw new IllegalStateException("GitHub App redirect_uri is not configured.");
+        }
+
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(gitHubAppProperties.authorizeUrl())
+                .queryParam("client_id", gitHubAppProperties.clientId())
+                .queryParam("redirect_uri", gitHubAppProperties.redirectUri());
 
         if (state != null && !state.isBlank()) {
             builder.queryParam("state", state);
         }
 
         return builder.encode().build().toUri();
-    }
-
-    private String gitHubInstallationUrl() {
-        if (gitHubAppProperties.installationUrl() != null && !gitHubAppProperties.installationUrl().isBlank()) {
-            return gitHubAppProperties.installationUrl();
-        }
-        if (gitHubAppProperties.appSlug() != null && !gitHubAppProperties.appSlug().isBlank()) {
-            return "https://github.com/apps/" + gitHubAppProperties.appSlug() + "/installations/new";
-        }
-        throw new IllegalStateException("GitHub App installation URL is not configured.");
     }
 
     @Transactional
