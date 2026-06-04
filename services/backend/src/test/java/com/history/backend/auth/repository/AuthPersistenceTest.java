@@ -171,4 +171,21 @@ class AuthPersistenceTest {
         assertThat(candidateIds).contains(expiredDeletedUser.getId());
         assertThat(candidateIds).doesNotContain(recentDeletedUser.getId());
     }
+
+    @Test
+    void usersDeletedAtPurgeIndexExists() {
+        String indexDefinition = jdbcTemplate.queryForObject(
+                """
+                        SELECT indexdef
+                        FROM pg_indexes
+                        WHERE schemaname = 'public'
+                          AND tablename = 'users'
+                          AND indexname = 'idx_users_deleted_at_purge'
+                        """,
+                String.class
+        );
+
+        assertThat(indexDefinition).contains("deleted_at");
+        assertThat(indexDefinition).contains("WHERE (deleted_at IS NOT NULL)");
+    }
 }
