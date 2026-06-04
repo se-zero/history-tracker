@@ -73,6 +73,12 @@ public class UserService {
         return UserResponse.from(getActiveUser(userId));
     }
 
+    @Transactional
+    public void deactivateUser(UUID userId) {
+        User user = getActiveUser(userId);
+        user.softDelete(Instant.now());
+    }
+
     @Transactional(readOnly = true)
     public User getActiveUser(UUID userId) {
         return userRepository.findByIdAndDeletedAtIsNull(userId)
