@@ -1,5 +1,6 @@
 package com.history.backend.config;
 
+import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.common.crypto.CredentialCryptoProperties;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.security.JwtProperties;
@@ -12,7 +13,8 @@ import org.springframework.context.annotation.Configuration;
         CredentialCryptoProperties.class,
         JwtProperties.class,
         GitHubAppProperties.class,
-        SlackProperties.class
+        SlackProperties.class,
+        UserPurgeProperties.class
 })
 public class PropertiesConfig {
 }
