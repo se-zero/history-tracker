@@ -3,11 +3,13 @@ package com.history.backend.auth.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.util.List;
 
 import com.history.backend.auth.domain.RefreshToken;
 import com.history.backend.auth.domain.User;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.repository.GitHubInstallationRepository;
+import org.springframework.data.domain.PageRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -132,5 +134,58 @@ class AuthPersistenceTest {
         );
 
         assertThat(count).isEqualTo(1);
+    }
+
+    @Test
+    void findPurgeCandidateIdsReturnsExpiredDeletedUsersOnly() {
+        User expiredDeletedUser = userRepository.save(new User(
+                "github",
+                "expired",
+                "expired@example.com",
+                "Expired",
+                null
+        ));
+        expiredDeletedUser.softDelete(Instant.now().minusSeconds(31L * 24 * 60 * 60));
+        User recentDeletedUser = userRepository.save(new User(
+                "github",
+                "recent",
+                "recent@example.com",
+                "Recent",
+                null
+        ));
+        recentDeletedUser.softDelete(Instant.now().minusSeconds(29L * 24 * 60 * 60));
+        userRepository.save(new User(
+                "github",
+                "active",
+                "active@example.com",
+                "Active",
+                null
+        ));
+        userRepository.flush();
+
+        List<java.util.UUID> candidateIds = userRepository.findPurgeCandidateIds(
+                Instant.now().minusSeconds(30L * 24 * 60 * 60),
+                PageRequest.of(0, 100)
+        );
+
+        assertThat(candidateIds).contains(expiredDeletedUser.getId());
+        assertThat(candidateIds).doesNotContain(recentDeletedUser.getId());
+    }
+
+    @Test
+    void usersDeletedAtPurgeIndexExists() {
+        String indexDefinition = jdbcTemplate.queryForObject(
+                """
+                        SELECT indexdef
+                        FROM pg_indexes
+                        WHERE schemaname = 'public'
+                          AND tablename = 'users'
+                          AND indexname = 'idx_users_deleted_at_purge'
+                        """,
+                String.class
+        );
+
+        assertThat(indexDefinition).contains("deleted_at");
+        assertThat(indexDefinition).contains("WHERE (deleted_at IS NOT NULL)");
     }
 }

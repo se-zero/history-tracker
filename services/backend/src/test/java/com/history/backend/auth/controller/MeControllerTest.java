@@ -32,4 +32,11 @@ class MeControllerTest {
         assertThat(result).isEqualTo(response);
         verify(userService).getCurrentUser(USER_ID);
     }
+
+    @Test
+    void deleteMeDeactivatesCurrentUser() {
+        new MeController(userService).deleteMe(new AuthenticatedUser(USER_ID));
+
+        verify(userService).deactivateUser(USER_ID);
+    }
 }

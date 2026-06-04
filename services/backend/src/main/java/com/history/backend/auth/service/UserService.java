@@ -21,6 +21,7 @@ public class UserService {
     private static final Duration RESTORE_GRACE_PERIOD = Duration.ofDays(30);
 
     private final UserRepository userRepository;
+    private final RefreshTokenService refreshTokenService;
 
     // GitHub OAuth 로그인 시, 사용자 정보로 회원 가입 또는 기존 회원 정보 업데이트
     @Transactional
@@ -71,6 +72,13 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserResponse getCurrentUser(UUID userId) {
         return UserResponse.from(getActiveUser(userId));
+    }
+
+    @Transactional
+    public void deactivateUser(UUID userId) {
+        User user = getActiveUser(userId);
+        user.softDelete(Instant.now());
+        refreshTokenService.revokeAllRefreshTokens(user);
     }
 
     @Transactional(readOnly = true)

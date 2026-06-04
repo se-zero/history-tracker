@@ -29,6 +29,10 @@ public class RefreshTokenService {
     // refresh token 발급 및 hash 저장
     @Transactional
     public String issueRefreshToken(User user) {
+        if (user.getDeletedAt() != null) {
+            throw new UnauthorizedException("User is deactivated.");
+        }
+
         String rawToken = generateRefreshToken();
         refreshTokenRepository.save(new RefreshToken(
                 user,
@@ -50,6 +54,11 @@ public class RefreshTokenService {
 
         User user = refreshToken.getUser();
         refreshTokenRepository.delete(refreshToken);
+
+        if (user.getDeletedAt() != null) {
+            throw new UnauthorizedException("User is deactivated.");
+        }
+
         return new RefreshTokenIssue(user, issueRefreshToken(user));
     }
 
@@ -57,6 +66,11 @@ public class RefreshTokenService {
     public void revokeRefreshToken(String rawToken) {
         refreshTokenRepository.findByTokenHash(sha256(rawToken))
                 .ifPresent(refreshTokenRepository::delete);
+    }
+
+    @Transactional
+    public void revokeAllRefreshTokens(User user) {
+        refreshTokenRepository.deleteByUserId(user.getId());
     }
 
     private String generateRefreshToken() {

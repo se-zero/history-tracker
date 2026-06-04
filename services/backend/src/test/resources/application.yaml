@@ -23,6 +23,13 @@ security:
     access-token-ttl: PT15M
     refresh-token-ttl: P14D
 
+user-lifecycle:
+  purge:
+    enabled: false
+    grace-period: P30D
+    cron: "0 0 3 * * *"
+    batch-size: 100
+
 github:
   app:
     app-id: test-app-id

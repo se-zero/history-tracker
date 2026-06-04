@@ -28,6 +28,13 @@ security:
     access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT15M}
     refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:P14D}
 
+user-lifecycle:
+  purge:
+    enabled: ${USER_PURGE_ENABLED:true}
+    grace-period: ${USER_PURGE_GRACE_PERIOD:P30D}
+    cron: "${USER_PURGE_CRON:0 0 3 * * *}"
+    batch-size: ${USER_PURGE_BATCH_SIZE:100}
+
 github:
   app:
     app-id: ${GITHUB_APP_ID:}

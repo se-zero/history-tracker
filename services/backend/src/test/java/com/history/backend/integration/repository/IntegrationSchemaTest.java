@@ -181,16 +181,34 @@ class IntegrationSchemaTest {
     }
 
     @Test
-    void deletingReferencedInstallationIsRestricted() {
+    void deletingReferencedInstallationCascadesGitHubIntegrations() {
         UUID ownerId = insertUser("owner7@example.com");
         UUID projectId = insertProject(ownerId);
         UUID installationId = insertGitHubInstallation(ownerId, 1007L);
         insertGitHubIntegration(projectId, installationId, 12345L, "acme/widget");
 
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                "DELETE FROM github_installations WHERE id = ?",
+        jdbcTemplate.update("DELETE FROM github_installations WHERE id = ?", installationId);
+
+        Integer integrationCount = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM integrations WHERE installation_id = ?",
+                Integer.class,
                 installationId
-        )).isInstanceOf(DataIntegrityViolationException.class);
+        );
+        assertThat(integrationCount).isZero();
+    }
+
+    @Test
+    void deletingUserCascadesOwnedProjectsIntegrationsAndInstallations() {
+        UUID ownerId = insertUser("owner10@example.com");
+        UUID projectId = insertProject(ownerId);
+        UUID installationId = insertGitHubInstallation(ownerId, 1010L);
+        insertGitHubIntegration(projectId, installationId, 12345L, "acme/widget");
+
+        jdbcTemplate.update("DELETE FROM users WHERE id = ?", ownerId);
+
+        assertThat(countRows("projects", "id", projectId)).isZero();
+        assertThat(countRows("integrations", "project_id", projectId)).isZero();
+        assertThat(countRows("github_installations", "id", installationId)).isZero();
     }
 
     private UUID insertUser(String email) {
@@ -255,6 +273,14 @@ class IntegrationSchemaTest {
                         {"repository_id":%d,"repository_full_name":"%s"}
                         """.formatted(repositoryId, repositoryFullName),
                 installationId
+        );
+    }
+
+    private int countRows(String table, String column, UUID value) {
+        return jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM " + table + " WHERE " + column + " = ?",
+                Integer.class,
+                value
         );
     }
 }

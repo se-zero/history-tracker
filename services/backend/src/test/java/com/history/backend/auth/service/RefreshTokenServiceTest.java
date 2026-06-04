@@ -3,12 +3,14 @@ package com.history.backend.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 import com.history.backend.auth.domain.RefreshToken;
 import com.history.backend.auth.domain.User;
@@ -20,9 +22,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class RefreshTokenServiceTest {
+
+    private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
 
     @Mock
     private RefreshTokenRepository refreshTokenRepository;
@@ -38,6 +43,16 @@ class RefreshTokenServiceTest {
         verify(refreshTokenRepository).save(captor.capture());
         assertThat(rawToken).isNotBlank();
         assertThat(captor.getValue().getTokenHash()).isNotEmpty();
+    }
+
+    @Test
+    void issueRefreshTokenRejectsDeletedUser() {
+        RefreshTokenService service = refreshTokenService();
+        User user = user();
+        user.softDelete(Instant.now());
+
+        assertThrows(UnauthorizedException.class, () -> service.issueRefreshToken(user));
+        verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
     }
 
     @Test
@@ -73,6 +88,19 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    void rotateRefreshTokenDeletesTokenAndRejectsDeletedUser() {
+        RefreshTokenService service = refreshTokenService();
+        User user = user();
+        user.softDelete(Instant.now());
+        RefreshToken refreshToken = new RefreshToken(user, new byte[]{1, 2, 3}, Instant.now().plusSeconds(60));
+        when(refreshTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(refreshToken));
+
+        assertThrows(UnauthorizedException.class, () -> service.rotateRefreshToken("deleted-user-refresh-token"));
+        verify(refreshTokenRepository).delete(refreshToken);
+        verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
+    }
+
+    @Test
     void revokeRefreshTokenDeletesTokenWhenItExists() {
         RefreshTokenService service = refreshTokenService();
         RefreshToken refreshToken = new RefreshToken(user(), new byte[]{1, 2, 3}, Instant.now().plusSeconds(60));
@@ -81,6 +109,17 @@ class RefreshTokenServiceTest {
         service.revokeRefreshToken("refresh-token");
 
         verify(refreshTokenRepository).delete(refreshToken);
+    }
+
+    @Test
+    void revokeAllRefreshTokensDeletesTokensByUserId() {
+        RefreshTokenService service = refreshTokenService();
+        User user = user();
+        ReflectionTestUtils.setField(user, "id", USER_ID);
+
+        service.revokeAllRefreshTokens(user);
+
+        verify(refreshTokenRepository).deleteByUserId(USER_ID);
     }
 
     private RefreshTokenService refreshTokenService() {

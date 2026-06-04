@@ -3,8 +3,8 @@ package com.history.backend.github.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.dto.GitHubInstallationAccountResponse;
@@ -36,6 +37,9 @@ class GitHubInstallationServiceTest {
 
     @Mock
     private InstallationTokenService installationTokenService;
+
+    @Mock
+    private UserService userService;
 
     private static final UUID INSTALLER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
@@ -65,7 +69,9 @@ class GitHubInstallationServiceTest {
     @Test
     void getInstallationForInstallerReturnsOwnedInstallation() {
         GitHubInstallationService service = service();
+        User installer = installer();
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer());
+        when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
         when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.of(installation));
 
@@ -75,8 +81,36 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
+    void findInstallationsRequiresActiveInstaller() {
+        GitHubInstallationService service = service();
+        User installer = installer();
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
+        when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
+        when(gitHubInstallationRepository.findAllByInstallerUser_Id(INSTALLER_ID))
+                .thenReturn(List.of(installation));
+
+        var result = service.findInstallations(INSTALLER_ID);
+
+        assertThat(result).hasSize(1);
+        verify(userService).getActiveUser(INSTALLER_ID);
+    }
+
+    @Test
+    void findInstallationsRejectsDeletedInstaller() {
+        GitHubInstallationService service = service();
+        when(userService.getActiveUser(INSTALLER_ID))
+                .thenThrow(new NotFoundException("User not found."));
+
+        assertThatThrownBy(() -> service.findInstallations(INSTALLER_ID))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("User not found.");
+        verify(gitHubInstallationRepository, never()).findAllByInstallerUser_Id(any());
+    }
+
+    @Test
     void getInstallationForInstallerRejectsMissingInstallation() {
         GitHubInstallationService service = service();
+        when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer());
         when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.empty());
 
@@ -88,8 +122,10 @@ class GitHubInstallationServiceTest {
     @Test
     void findRepositoriesReturnsRepositoriesForOwnedInstallation() {
         GitHubInstallationService service = service();
-        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer());
+        User installer = installer();
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
         ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
+        when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
         when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.of(installation));
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
@@ -114,8 +150,27 @@ class GitHubInstallationServiceTest {
         verify(gitHubAppClient, never()).createInstallationAccessToken(any());
     }
 
+    @Test
+    void findRepositoriesRejectsDeletedInstaller() {
+        GitHubInstallationService service = service();
+        when(userService.getActiveUser(INSTALLER_ID))
+                .thenThrow(new NotFoundException("User not found."));
+
+        assertThatThrownBy(() -> service.findRepositories(INSTALLER_ID, INSTALLATION_ID))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("User not found.");
+        verify(gitHubInstallationRepository, never()).findByIdAndInstallerUser_Id(any(), any());
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
+        verify(gitHubAppClient, never()).fetchInstallationRepositories(any());
+    }
+
     private GitHubInstallationService service() {
-        return new GitHubInstallationService(gitHubInstallationRepository, gitHubAppClient, installationTokenService);
+        return new GitHubInstallationService(
+                gitHubInstallationRepository,
+                gitHubAppClient,
+                installationTokenService,
+                userService
+        );
     }
 
     private User installer() {
