@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.dto.GitHubInstallationResponse;
@@ -21,6 +22,7 @@ public class GitHubInstallationService {
     private final GitHubInstallationRepository gitHubInstallationRepository;
     private final GitHubAppClient gitHubAppClient;
     private final InstallationTokenService installationTokenService;
+    private final UserService userService;
 
     @Transactional
     public GitHubInstallation upsertInstallation(User installer, GitHubInstallationResponse response) {
@@ -50,6 +52,7 @@ public class GitHubInstallationService {
 
     @Transactional(readOnly = true)
     public List<InstallationResponse> findInstallations(UUID installerId) {
+        userService.getActiveUser(installerId);
         return gitHubInstallationRepository.findAllByInstallerUser_Id(installerId).stream()
                 .map(InstallationResponse::from)
                 .toList();
@@ -57,6 +60,7 @@ public class GitHubInstallationService {
 
     @Transactional(readOnly = true)
     public GitHubInstallation getInstallationForInstaller(UUID installerId, UUID installationId) {
+        userService.getActiveUser(installerId);
         return gitHubInstallationRepository.findByIdAndInstallerUser_Id(installationId, installerId)
                 .orElseThrow(() -> new NotFoundException("GitHub installation not found."));
     }
