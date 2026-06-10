@@ -38,6 +38,7 @@ public class IntegrationService {
     private final JiraClient jiraClient;
     private final PlatformTransactionManager transactionManager;
 
+    // 프로젝트에 GitHub 저장소 연동 추가
     @Transactional
     public Integration connectGitHubRepository(
             UUID ownerId,
@@ -59,10 +60,12 @@ public class IntegrationService {
                     normalizedRepositoryFullName
             ));
         } catch (DataIntegrityViolationException exception) {
+            // 동시 연결 경합으로 사전 중복 검사를 통과한 경우 unique 제약 위반을 409로 변환
             throw new ConflictException("GitHub integration already exists.");
         }
     }
 
+    // Slack 토큰 검증 후 workspace 연동 추가
     public Integration connectSlackWorkspace(
             UUID ownerId,
             UUID projectId,
@@ -72,6 +75,7 @@ public class IntegrationService {
         SlackClient.SlackWorkspace workspace = slackClient.verifyToken(normalizedToken);
         byte[] encryptedCredential = credentialCryptoService.encrypt(normalizedToken);
 
+        // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         return transactionTemplate.execute(status -> saveSlackWorkspace(
                 ownerId,
@@ -81,6 +85,7 @@ public class IntegrationService {
         ));
     }
 
+    // Jira 자격증명·프로젝트 검증 후 연동 추가
     public Integration connectJiraProject(
             UUID ownerId,
             UUID projectId,
@@ -104,6 +109,7 @@ public class IntegrationService {
                 normalizedEmail + ":" + normalizedApiToken
         );
 
+        // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         return transactionTemplate.execute(status -> saveJiraProject(
                 ownerId,
@@ -131,6 +137,7 @@ public class IntegrationService {
                     encryptedCredential
             ));
         } catch (DataIntegrityViolationException exception) {
+            // 동시 연결 경합 시 unique 제약 위반을 409로 변환
             throw new ConflictException("Slack integration already exists.");
         }
     }
@@ -154,10 +161,12 @@ public class IntegrationService {
                     encryptedCredential
             ));
         } catch (DataIntegrityViolationException exception) {
+            // 동시 연결 경합 시 unique 제약 위반을 409로 변환
             throw new ConflictException("Jira integration already exists.");
         }
     }
 
+    // Jira base URL 정규화 및 검증 (https 필수, 공개 호스트만 허용)
     private String normalizeBaseUrl(String baseUrl) {
         String normalized = baseUrl.trim();
         while (normalized.endsWith("/")) {
@@ -179,6 +188,7 @@ public class IntegrationService {
         }
     }
 
+    // SSRF 방지 — 내부망·루프백 주소로 해석되는 호스트 차단
     private void validatePublicHost(String host) {
         String normalizedHost = host.toLowerCase();
         if ("localhost".equals(normalizedHost) || normalizedHost.endsWith(".localhost")) {
@@ -203,6 +213,7 @@ public class IntegrationService {
                 && !isUniqueLocalIpv6Address(address);
     }
 
+    // IPv6 ULA(fc00::/7) 여부 판별
     private boolean isUniqueLocalIpv6Address(InetAddress address) {
         if (!(address instanceof Inet6Address)) {
             return false;
@@ -211,6 +222,7 @@ public class IntegrationService {
         return (firstByte & 0xfe) == 0xfc;
     }
 
+    // 프로젝트당 provider별 1개 연동 제한 검증
     private void validateProviderAvailable(UUID projectId, IntegrationProvider provider) {
         if (integrationRepository.existsByProject_IdAndProvider(projectId, provider)) {
             throw new ConflictException(providerDisplayName(provider) + " integration already exists.");

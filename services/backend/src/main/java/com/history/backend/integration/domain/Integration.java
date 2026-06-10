@@ -26,6 +26,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
+// 프로젝트 외부 연동 (provider별 메타데이터는 external_ref JSON 컬럼에 저장)
 @Getter
 @Entity
 @Table(name = "integrations")
@@ -139,12 +140,14 @@ public class Integration {
         this.provider = provider;
         this.externalRef = externalRef;
         this.installation = installation;
+        // byte[] 가변성 차단을 위한 방어적 복사
         this.encryptedCredential = encryptedCredential == null
                 ? null
                 : Arrays.copyOf(encryptedCredential, encryptedCredential.length);
     }
 
     public byte[] getEncryptedCredential() {
+        // byte[] 가변성 차단을 위한 방어적 복사
         return encryptedCredential == null
                 ? null
                 : Arrays.copyOf(encryptedCredential, encryptedCredential.length);
