@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+// GitHub installation access token 캐싱 발급 (암호화 후 DB 저장)
 @Service
 public class InstallationTokenService {
 
@@ -45,8 +46,10 @@ public class InstallationTokenService {
         this.clock = clock;
     }
 
+    // 캐시된 토큰 재사용 또는 신규 발급
     @Transactional
     public String getInstallationAccessToken(UUID installationId) {
+        // 잠금 없는 경량 projection으로 먼저 확인해 유효 토큰이면 잠금 비용 회피
         InstallationTokenCacheView tokenCache = gitHubInstallationRepository.findTokenCacheById(installationId)
                 .orElseThrow(() -> new NotFoundException("GitHub installation not found."));
 
@@ -57,6 +60,7 @@ public class InstallationTokenService {
         GitHubInstallation lockedInstallation = gitHubInstallationRepository.findByIdForUpdate(installationId)
                 .orElseThrow(() -> new NotFoundException("GitHub installation not found."));
 
+        // 잠금 대기 중 다른 트랜잭션이 갱신했을 수 있어 재확인 (double-checked locking)
         if (hasReusableToken(lockedInstallation)) {
             return credentialCryptoService.decrypt(lockedInstallation.getEncryptedInstallationToken());
         }
@@ -85,6 +89,7 @@ public class InstallationTokenService {
         );
     }
 
+    // 사용 중 만료를 막기 위해 만료 5분 전부터 갱신 대상으로 처리
     private boolean isReusable(byte[] encryptedToken, Instant expiresAt) {
         return encryptedToken != null
                 && expiresAt != null

@@ -24,6 +24,7 @@ public class GitHubInstallationService {
     private final InstallationTokenService installationTokenService;
     private final UserService userService;
 
+    // installation 저장 또는 계정·설치자 정보 갱신
     @Transactional
     public GitHubInstallation upsertInstallation(User installer, GitHubInstallationResponse response) {
         return gitHubInstallationRepository.findByInstallationId(response.id())
@@ -34,6 +35,7 @@ public class GitHubInstallationService {
                 .orElseGet(() -> createInstallation(installer, response));
     }
 
+    // 동시 설치 콜백 경합에 안전한 installation 생성
     private GitHubInstallation createInstallation(User installer, GitHubInstallationResponse response) {
         return gitHubInstallationRepository.insertInstallationIfAbsent(
                         response.id(),
@@ -42,6 +44,7 @@ public class GitHubInstallationService {
                         installer.getId()
                 )
                 .flatMap(gitHubInstallationRepository::findById)
+                // 경합으로 insert가 무시된 경우 먼저 생성된 installation을 재조회해 사용
                 .or(() -> gitHubInstallationRepository.findByInstallationId(response.id()))
                 .map(installation -> {
                     installation.updateAccount(response.account().type(), response.account().login(), installer);

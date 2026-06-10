@@ -12,6 +12,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
+// GitHub OAuth 사용자 인증 API 클라이언트
 @Component
 public class GitHubOAuthClient {
 
