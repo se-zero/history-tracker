@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Lock;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID> {
 
+    // 동시 rotation에 의한 토큰 재사용 방지를 위한 비관적 잠금
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<RefreshToken> findByTokenHash(byte[] tokenHash);
 

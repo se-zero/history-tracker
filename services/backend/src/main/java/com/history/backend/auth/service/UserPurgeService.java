@@ -11,6 +11,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+// grace period 경과 탈퇴 사용자 hard delete
 @Service
 @RequiredArgsConstructor
 public class UserPurgeService {
@@ -35,6 +36,7 @@ public class UserPurgeService {
     }
 
     private int purgeBatch(Instant cutoff) {
+        // 대량 삭제로 인한 장기 트랜잭션을 피하기 위해 batch 단위로 트랜잭션 분리
         return transactionTemplate.execute(status -> {
             List<UUID> userIds = userRepository.findPurgeCandidateIds(
                     cutoff,

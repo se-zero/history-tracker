@@ -32,6 +32,7 @@ public class UserService {
                 .orElseGet(() -> restoreOrCreate(providerUserId, gitHubUser));
     }
 
+    // grace period 내 탈퇴 사용자 복구 또는 신규 생성
     private User restoreOrCreate(String providerUserId, GitHubUserResponse gitHubUser) {
         return userRepository.findFirstByProviderAndProviderUserIdOrderByCreatedAtDesc(GITHUB_PROVIDER, providerUserId)
                 .filter(this::canRestore)
@@ -42,6 +43,7 @@ public class UserService {
                 .orElseGet(() -> createUser(providerUserId, gitHubUser));
     }
 
+    // 동시 가입 경합에 안전한 신규 사용자 생성
     private User createUser(String providerUserId, GitHubUserResponse gitHubUser) {
         return userRepository.insertActiveUserIfAbsent(
                         GITHUB_PROVIDER,
@@ -51,6 +53,7 @@ public class UserService {
                         gitHubUser.avatarUrl()
                 )
                 .flatMap(userRepository::findById)
+                // 경합으로 insert가 무시된 경우 먼저 생성된 active user를 재조회해 사용
                 .or(() -> userRepository.findByProviderAndProviderUserIdAndDeletedAtIsNull(
                         GITHUB_PROVIDER,
                         providerUserId
@@ -64,6 +67,7 @@ public class UserService {
         return user;
     }
 
+    // grace period(30일) 내 복구 가능 여부 판단
     private boolean canRestore(User user) {
         return user.getDeletedAt() != null
                 && user.getDeletedAt().isAfter(Instant.now().minus(RESTORE_GRACE_PERIOD));
@@ -74,6 +78,7 @@ public class UserService {
         return UserResponse.from(getActiveUser(userId));
     }
 
+    // 사용자 soft delete 및 전체 refresh token 폐기
     @Transactional
     public void deactivateUser(UUID userId) {
         User user = getActiveUser(userId);
@@ -81,6 +86,7 @@ public class UserService {
         refreshTokenService.revokeAllRefreshTokens(user);
     }
 
+    // 활성(미탈퇴) 사용자 조회 — 비공개 API의 공통 사용자 검증 진입점
     @Transactional(readOnly = true)
     public User getActiveUser(UUID userId) {
         return userRepository.findByIdAndDeletedAtIsNull(userId)
