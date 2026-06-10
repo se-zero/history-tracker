@@ -16,6 +16,7 @@ public interface WebhookDeliveryRepository extends JpaRepository<WebhookDelivery
 
     boolean existsByDeliveryId(String deliveryId);
 
+    // delivery_id 선점 insert — 이미 처리 중/완료된 중복 webhook이면 0 반환 (멱등 처리)
     @Modifying
     @Query(
             value = """

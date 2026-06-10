@@ -21,6 +21,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
 
+// webhook 중복 처리 방지용 수신 기록 — pipeline-worker 공유 테이블
 @Getter
 @Entity
 @Table(name = "webhook_deliveries")
