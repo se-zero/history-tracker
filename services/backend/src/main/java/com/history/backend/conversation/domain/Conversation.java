@@ -62,6 +62,7 @@ public class Conversation {
         touch();
     }
 
+    // 대화 목록 정렬 기준인 updatedAt 갱신
     public void touch() {
         this.updatedAt = Instant.now();
     }
