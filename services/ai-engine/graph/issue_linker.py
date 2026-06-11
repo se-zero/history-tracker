@@ -20,6 +20,7 @@ Issue와 ChangeSet / Communication을 연결한다.
 """
 
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
@@ -27,6 +28,14 @@ from typing import Awaitable, Callable
 from graph.embedder import cosine_similarity
 
 logger = logging.getLogger(__name__)
+
+
+def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
+    """project_id 기준 그룹핑 — 프로젝트 간 임베딩 비교(크로스 테넌트 엣지)를 차단한다."""
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        grouped[row.get("project_id") or ""].append(row)
+    return grouped
 
 # TRIGGERED_BY 시맨틱 매칭 임계값 — 정밀도 우선
 TRIGGERED_BY_THRESHOLD = 0.55
@@ -76,32 +85,34 @@ class IssueLinkStore:
     fetch_issue_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 Issue 노드 반환.
     Returns:
-        [{"id": str (jira_key), "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "id": str (jira_key), "embedding": list[float], "occurred_at": datetime}, ...]
     """
 
     fetch_modified_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 MODIFIED 엣지 반환.
     Returns:
-        [{"changeset_id": str, "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "changeset_id": str, "embedding": list[float], "occurred_at": datetime}, ...]
     """
 
     fetch_communication_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 Communication 노드 반환.
     Returns:
-        [{"id": str (url), "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "id": str (url), "embedding": list[float], "occurred_at": datetime}, ...]
     """
 
-    create_triggered_by_edge: Callable[[str, str, float], Awaitable[None]]
+    create_triggered_by_edge: Callable[[str, str, str, float], Awaitable[None]]
     """TRIGGERED_BY 엣지 생성 또는 갱신.
     Args:
+        project_id:   프로젝트 UUID (노드 매칭 스코프)
         changeset_id: ChangeSet hash
         jira_key:     Issue jira_key
         confidence:   코사인 유사도 (0~1)
     """
 
-    create_discussed_in_edge: Callable[[str, str, float], Awaitable[None]]
+    create_discussed_in_edge: Callable[[str, str, str, float], Awaitable[None]]
     """DISCUSSED_IN 엣지 생성 또는 갱신.
     Args:
+        project_id: 프로젝트 UUID (노드 매칭 스코프)
         jira_key: Issue jira_key
         comm_url: Communication url
         confidence: 코사인 유사도 (0~1)
@@ -130,30 +141,36 @@ async def build_issue_changeset_links(
         logger.info("TRIGGERED_BY 생성 스킵: issues=%d, modified=%d", len(issues), len(modified))
         return 0
 
-    # changeset_id → (best_jira_key, best_score) — top-1 보장
-    best_per_cs: dict[str, tuple[str, float]] = {}
+    # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
+    issues_by_project = _group_by_project(issues)
+    mods_by_project   = _group_by_project(modified)
 
-    for issue in issues:
-        issue_vec = issue["embedding"]
-        start, end = _compute_issue_window(issue)
+    # (project_id, changeset_id) → (best_jira_key, best_score) — top-1 보장
+    best_per_cs: dict[tuple[str, str], tuple[str, float]] = {}
 
-        for mod in modified:
-            mod_time = mod["occurred_at"]
-            if mod_time < start or mod_time > end:
-                continue
+    for project_id, project_issues in issues_by_project.items():
+        project_mods = mods_by_project.get(project_id, [])
+        for issue in project_issues:
+            issue_vec = issue["embedding"]
+            start, end = _compute_issue_window(issue)
 
-            score = cosine_similarity(issue_vec, mod["embedding"])
-            if score < threshold:
-                continue
+            for mod in project_mods:
+                mod_time = mod["occurred_at"]
+                if mod_time < start or mod_time > end:
+                    continue
 
-            cs_id   = mod["changeset_id"]
-            current = best_per_cs.get(cs_id)
-            if current is None or score > current[1]:
-                best_per_cs[cs_id] = (issue["id"], score)
+                score = cosine_similarity(issue_vec, mod["embedding"])
+                if score < threshold:
+                    continue
+
+                cs_key  = (project_id, mod["changeset_id"])
+                current = best_per_cs.get(cs_key)
+                if current is None or score > current[1]:
+                    best_per_cs[cs_key] = (issue["id"], score)
 
     created = 0
-    for cs_id, (jira_key, confidence) in best_per_cs.items():
-        await store.create_triggered_by_edge(cs_id, jira_key, confidence)
+    for (project_id, cs_id), (jira_key, confidence) in best_per_cs.items():
+        await store.create_triggered_by_edge(project_id, cs_id, jira_key, confidence)
         created += 1
         logger.debug("TRIGGERED_BY 생성: changeset=%s issue=%s score=%.3f",
                      cs_id, jira_key, confidence)
@@ -185,21 +202,27 @@ async def build_issue_communication_links(
 
     window = timedelta(days=TIME_WINDOW_DAYS)
 
+    # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
+    issues_by_project = _group_by_project(issues)
+    comms_by_project  = _group_by_project(comms)
+
     created = 0
-    for issue in issues:
-        issue_vec  = issue["embedding"]
-        issue_time = issue["occurred_at"]
+    for project_id, project_issues in issues_by_project.items():
+        project_comms = comms_by_project.get(project_id, [])
+        for issue in project_issues:
+            issue_vec  = issue["embedding"]
+            issue_time = issue["occurred_at"]
 
-        for comm in comms:
-            if abs(issue_time - comm["occurred_at"]) > window:
-                continue
+            for comm in project_comms:
+                if abs(issue_time - comm["occurred_at"]) > window:
+                    continue
 
-            score = cosine_similarity(issue_vec, comm["embedding"])
-            if score >= threshold:
-                await store.create_discussed_in_edge(issue["id"], comm["id"], confidence=score)
-                created += 1
-                logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f",
-                             issue["id"], comm["id"], score)
+                score = cosine_similarity(issue_vec, comm["embedding"])
+                if score >= threshold:
+                    await store.create_discussed_in_edge(project_id, issue["id"], comm["id"], confidence=score)
+                    created += 1
+                    logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f",
+                                 issue["id"], comm["id"], score)
 
     logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f)", created, threshold)
     return created

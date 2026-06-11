@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 
 from agent import orchestrator
-from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, clear_semantic_triggered_by, close_driver, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
+from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, clear_semantic_triggered_by, close_driver, ensure_constraints, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
 from graph.slack_batch_filter import run_slack_llm_filter
 from graph.consumer import start_consumer
 from graph.event_handler import handle
@@ -42,6 +42,7 @@ async def _prewarm_project_context() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_driver()  # 연결 검증 겸 초기화
+    await ensure_constraints()
     await ensure_vector_indexes()
     await _prewarm_project_context()
     task = asyncio.create_task(start_consumer())
@@ -66,7 +67,10 @@ def health():
 
 @app.post("/test/ingest", tags=["test"])
 async def test_ingest(event: dict):
-    """[테스트 전용] NormalizedEvent를 RabbitMQ 없이 직접 주입한다."""
+    """[테스트 전용] NormalizedEvent를 RabbitMQ 없이 직접 주입한다.
+
+    projectId 필수 — 없는 이벤트는 그래프 격리를 위해 건너뛴다 (event_handler.handle 참고).
+    """
     await handle(event)
     return {"ok": True}
 

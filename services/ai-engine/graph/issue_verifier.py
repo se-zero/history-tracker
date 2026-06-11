@@ -25,6 +25,7 @@ from graph.issue_linker import (
     TRIGGERED_BY_THRESHOLD,
     IssueLinkStore,
     _compute_issue_window,
+    _group_by_project,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,43 +112,49 @@ async def build_issue_changeset_links_verified(
         logger.info("TRIGGERED_BY(D) 생성 스킵: issues=%d, modified=%d", len(issues), len(modified))
         return 0
 
-    # changeset_id → (best_jira_key, best_confidence) — top-1
-    best_per_cs: dict[str, tuple[str, float]] = {}
+    # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
+    issues_by_project = _group_by_project(issues)
+    mods_by_project   = _group_by_project(modified)
 
-    for issue in issues:
-        issue_vec   = issue["embedding"]
-        issue_title = issue.get("title", "")
-        issue_body  = issue.get("body", "")
-        start, end  = _compute_issue_window(issue)
+    # (project_id, changeset_id) → (best_jira_key, best_confidence) — top-1
+    best_per_cs: dict[tuple[str, str], tuple[str, float]] = {}
 
-        # Stage 1: 비대칭 윈도우 + 유사도 필터 → Issue당 top_k 후보
-        candidates = []
-        for mod in modified:
-            mod_time = mod["occurred_at"]
-            if mod_time < start or mod_time > end:
-                continue
-            score = cosine_similarity(issue_vec, mod["embedding"])
-            if score < threshold:
-                continue
-            candidates.append((score, mod))
-        candidates.sort(key=lambda x: x[0], reverse=True)
+    for project_id, project_issues in issues_by_project.items():
+        project_mods = mods_by_project.get(project_id, [])
+        for issue in project_issues:
+            issue_vec   = issue["embedding"]
+            issue_title = issue.get("title", "")
+            issue_body  = issue.get("body", "")
+            start, end  = _compute_issue_window(issue)
 
-        # Stage 2: LLM 검증 → top-1로 누적
-        for _, mod in candidates[:top_k]:
-            confidence = await asyncio.to_thread(
-                _verify_pair, issue_title, issue_body, "커밋 변경 요약",
-                mod.get("diff_summary", ""), project_context,
-            )
-            if confidence < llm_threshold:
-                continue
-            cs_id   = mod["changeset_id"]
-            current = best_per_cs.get(cs_id)
-            if current is None or confidence > current[1]:
-                best_per_cs[cs_id] = (issue["id"], confidence)
+            # Stage 1: 비대칭 윈도우 + 유사도 필터 → Issue당 top_k 후보
+            candidates = []
+            for mod in project_mods:
+                mod_time = mod["occurred_at"]
+                if mod_time < start or mod_time > end:
+                    continue
+                score = cosine_similarity(issue_vec, mod["embedding"])
+                if score < threshold:
+                    continue
+                candidates.append((score, mod))
+            candidates.sort(key=lambda x: x[0], reverse=True)
+
+            # Stage 2: LLM 검증 → top-1로 누적
+            for _, mod in candidates[:top_k]:
+                confidence = await asyncio.to_thread(
+                    _verify_pair, issue_title, issue_body, "커밋 변경 요약",
+                    mod.get("diff_summary", ""), project_context,
+                )
+                if confidence < llm_threshold:
+                    continue
+                cs_key  = (project_id, mod["changeset_id"])
+                current = best_per_cs.get(cs_key)
+                if current is None or confidence > current[1]:
+                    best_per_cs[cs_key] = (issue["id"], confidence)
 
     created = 0
-    for cs_id, (jira_key, confidence) in best_per_cs.items():
-        await store.create_triggered_by_edge(cs_id, jira_key, confidence)
+    for (project_id, cs_id), (jira_key, confidence) in best_per_cs.items():
+        await store.create_triggered_by_edge(project_id, cs_id, jira_key, confidence)
         created += 1
         logger.debug("TRIGGERED_BY(D) 생성: changeset=%s issue=%s conf=%.2f",
                      cs_id, jira_key, confidence)
@@ -179,32 +186,38 @@ async def build_issue_communication_links_verified(
     window  = timedelta(days=TIME_WINDOW_DAYS)
     created = 0
 
-    for issue in issues:
-        issue_vec   = issue["embedding"]
-        issue_time  = issue["occurred_at"]
-        issue_title = issue.get("title", "")
-        issue_body  = issue.get("body", "")
+    # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
+    issues_by_project = _group_by_project(issues)
+    comms_by_project  = _group_by_project(comms)
 
-        # Stage 1: 시간 윈도우 + 유사도 필터 → Issue당 top_k 후보
-        candidates = [
-            (cosine_similarity(issue_vec, comm["embedding"]), comm)
-            for comm in comms
-            if abs(issue_time - comm["occurred_at"]) <= window
-            and cosine_similarity(issue_vec, comm["embedding"]) >= threshold
-        ]
-        candidates.sort(key=lambda x: x[0], reverse=True)
+    for project_id, project_issues in issues_by_project.items():
+        project_comms = comms_by_project.get(project_id, [])
+        for issue in project_issues:
+            issue_vec   = issue["embedding"]
+            issue_time  = issue["occurred_at"]
+            issue_title = issue.get("title", "")
+            issue_body  = issue.get("body", "")
 
-        # Stage 2: LLM 검증
-        for _, comm in candidates[:top_k]:
-            confidence = await asyncio.to_thread(
-                _verify_pair, issue_title, issue_body, "Slack 메시지",
-                comm.get("body", ""), project_context,
-            )
-            if confidence >= llm_threshold:
-                await store.create_discussed_in_edge(issue["id"], comm["id"], confidence)
-                created += 1
-                logger.debug("DISCUSSED_IN(D) 생성: issue=%s comm=%s conf=%.2f",
-                             issue["id"], comm["id"], confidence)
+            # Stage 1: 시간 윈도우 + 유사도 필터 → Issue당 top_k 후보
+            candidates = [
+                (cosine_similarity(issue_vec, comm["embedding"]), comm)
+                for comm in project_comms
+                if abs(issue_time - comm["occurred_at"]) <= window
+                and cosine_similarity(issue_vec, comm["embedding"]) >= threshold
+            ]
+            candidates.sort(key=lambda x: x[0], reverse=True)
+
+            # Stage 2: LLM 검증
+            for _, comm in candidates[:top_k]:
+                confidence = await asyncio.to_thread(
+                    _verify_pair, issue_title, issue_body, "Slack 메시지",
+                    comm.get("body", ""), project_context,
+                )
+                if confidence >= llm_threshold:
+                    await store.create_discussed_in_edge(project_id, issue["id"], comm["id"], confidence)
+                    created += 1
+                    logger.debug("DISCUSSED_IN(D) 생성: issue=%s comm=%s conf=%.2f",
+                                 issue["id"], comm["id"], confidence)
 
     logger.info("DISCUSSED_IN(D) 엣지 생성 완료: %d개 (threshold=%.2f, llm_threshold=%.2f)",
                 created, threshold, llm_threshold)

@@ -87,7 +87,7 @@ public class PipelineService {
         int pageNumber = 1;
         while (true) {
             GitHubRawService.GitHubPage page = gitHubRawService.fetchMergedPullRequestPage(context, pageNumber);
-            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizePullRequests(page.items());
+            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizePullRequests(projectId, page.items());
             published += eventPublisher.publishAll(pageEvents);
             pullRequestCheckpoint = maxInstant(pullRequestCheckpoint, maxOccurredAt(pageEvents).orElse(null));
             commitPrNumbers.putAll(gitHubRawService.fetchCommitPrNumbers(context, page.items()));
@@ -99,7 +99,7 @@ public class PipelineService {
         pageNumber = 1;
         while (true) {
             GitHubRawService.GitHubPage page = gitHubRawService.fetchCommitPage(context, pageNumber, commitPrNumbers);
-            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizeCommits(page.items());
+            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizeCommits(projectId, page.items());
             published += eventPublisher.publishAll(pageEvents);
             commitCheckpoint = maxInstant(commitCheckpoint, maxOccurredAt(pageEvents).orElse(null));
 
@@ -117,7 +117,7 @@ public class PipelineService {
         pageNumber = 1;
         while (true) {
             GitHubRawService.GitHubPage page = gitHubRawService.fetchIssuePage(context, pageNumber);
-            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizeIssues(page.items());
+            List<NormalizedEvent> pageEvents = gitHubNormalizer.normalizeIssues(projectId, page.items());
             published += eventPublisher.publishAll(pageEvents);
             issueCheckpoint = maxInstant(issueCheckpoint, maxOccurredAt(pageEvents).orElse(null));
 
@@ -148,7 +148,7 @@ public class PipelineService {
             }
 
             Map<String, Object> filteredSearchResult = page.searchResult();
-            List<NormalizedEvent> pageEvents = jiraNormalizer.normalizeIssues(filteredSearchResult);
+            List<NormalizedEvent> pageEvents = jiraNormalizer.normalizeIssues(projectId, filteredSearchResult);
 
             int published = eventPublisher.publishAll(pageEvents);
             totalPublished += published;
@@ -174,7 +174,7 @@ public class PipelineService {
             String cursor = null;
             do {
                 SlackRawService.SlackHistoryPage page = slackRawService.fetchHistoryPage(context, channel, cursor);
-                List<NormalizedEvent> pageEvents = slackNormalizer.normalizeChannel(page.channelData());
+                List<NormalizedEvent> pageEvents = slackNormalizer.normalizeChannel(projectId, page.channelData());
                 published += eventPublisher.publishAll(pageEvents);
                 checkpoint = maxInstant(checkpoint, maxOccurredAt(pageEvents).orElse(null));
                 cursor = page.nextCursor();

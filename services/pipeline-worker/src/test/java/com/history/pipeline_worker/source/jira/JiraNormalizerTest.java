@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class JiraNormalizerTest {
 
+    private static final String PROJECT_ID = "11111111-1111-1111-1111-111111111111";
+
     private JiraNormalizer normalizer;
 
     @BeforeEach
@@ -31,19 +33,19 @@ class JiraNormalizerTest {
     @Test
     @DisplayName("null 입력 → 빈 이벤트 목록")
     void normalizeIssues_nullInput_returnsEmpty() {
-        assertThat(normalizer.normalizeIssues(null)).isEmpty();
+        assertThat(normalizer.normalizeIssues(PROJECT_ID,null)).isEmpty();
     }
 
     @Test
     @DisplayName("issues 키 없는 Map → 빈 이벤트 목록")
     void normalizeIssues_noIssuesKey_returnsEmpty() {
-        assertThat(normalizer.normalizeIssues(Map.of("total", 0))).isEmpty();
+        assertThat(normalizer.normalizeIssues(PROJECT_ID,Map.of("total", 0))).isEmpty();
     }
 
     @Test
     @DisplayName("issues 빈 리스트 → 빈 이벤트 목록")
     void normalizeIssues_emptyIssuesList_returnsEmpty() {
-        assertThat(normalizer.normalizeIssues(Map.of("issues", List.of()))).isEmpty();
+        assertThat(normalizer.normalizeIssues(PROJECT_ID,Map.of("issues", List.of()))).isEmpty();
     }
 
     // ─── 정상 변환 ──────────────────────────────────────────────────────────────
@@ -56,7 +58,7 @@ class JiraNormalizerTest {
                         "reporter-id", "Reporter Name", "reporter@test.com")
         ));
 
-        List<NormalizedEvent> events = normalizer.normalizeIssues(result);
+        List<NormalizedEvent> events = normalizer.normalizeIssues(PROJECT_ID,result);
 
         assertThat(events).hasSize(1);
         NormalizedEvent event = events.get(0);
@@ -77,7 +79,7 @@ class JiraNormalizerTest {
                         "account-xyz", "Jane Doe", "jane@example.com")
         ));
 
-        NormalizedEvent event = normalizer.normalizeIssues(result).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,result).get(0);
 
         assertThat(event.actor().id()).isEqualTo("account-xyz");
         assertThat(event.actor().name()).isEqualTo("Jane Doe");
@@ -94,7 +96,7 @@ class JiraNormalizerTest {
         fields.put("created", "2024-03-15T10:30:00.000+0900");
         fields.put("updated", "2024-03-20T11:45:00.000+0900");
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-20T02:45:00Z"));
         assertThat(event.properties()).containsEntry("created_at", "2024-03-15T10:30:00.000+0900");
@@ -112,7 +114,7 @@ class JiraNormalizerTest {
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("reporter", null);
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.actor().id()).isNull();
         assertThat(event.actor().name()).isNull();
@@ -129,7 +131,7 @@ class JiraNormalizerTest {
                         "id1", "Name", "email@test.com")
         ));
 
-        NormalizedEvent event = normalizer.normalizeIssues(result).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,result).get(0);
 
         assertThat(event.properties()).containsEntry("body", "");
     }
@@ -144,7 +146,7 @@ class JiraNormalizerTest {
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("description", "plain text description");
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.properties()).containsEntry("body", "plain text description");
     }
@@ -164,7 +166,7 @@ class JiraNormalizerTest {
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("description", doc);
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.properties()).containsEntry("body", "Hello world");
     }
@@ -185,7 +187,7 @@ class JiraNormalizerTest {
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("description", doc);
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat((String) event.properties().get("body"))
                 .contains("First")
@@ -200,7 +202,7 @@ class JiraNormalizerTest {
                         "id1", "Name", "email@test.com")
         ));
 
-        NormalizedEvent event = normalizer.normalizeIssues(result).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,result).get(0);
 
         assertThat(event.refs()).containsEntry("jiraKey", "AUTH-99");
     }
@@ -215,7 +217,7 @@ class JiraNormalizerTest {
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("parent", Map.of("key", "EPIC-1"));
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.refs()).containsEntry("parentJiraKey", "EPIC-1");
     }
@@ -233,7 +235,7 @@ class JiraNormalizerTest {
         assignee.put("displayName", "Assignee Name");
         fields.put("assignee", assignee);
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.refs()).containsEntry("assigneeId", "assignee-account-id");
     }
@@ -250,7 +252,7 @@ class JiraNormalizerTest {
         fields.put("resolutiondate", "2026-04-06T10:00:00.000+0900");
         fields.put("updated",        "2026-04-08T11:00:00.000+0900");
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.properties()).containsEntry("closed_at", "2026-04-06T10:00:00.000+0900");
     }
@@ -265,7 +267,7 @@ class JiraNormalizerTest {
         fields.put("resolutiondate", null);
         fields.put("updated", "2026-04-10T09:00:00.000+0900");
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.properties()).containsEntry("closed_at", "2026-04-10T09:00:00.000+0900");
     }
@@ -279,7 +281,7 @@ class JiraNormalizerTest {
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("resolutiondate", "2026-04-06T10:00:00.000+0900"); // 진행 중인데 resolutiondate가 남아있어도 무시
 
-        NormalizedEvent event = normalizer.normalizeIssues(buildSearchResult(List.of(issue))).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
         assertThat(event.properties()).doesNotContainKey("closed_at");
     }
@@ -292,7 +294,7 @@ class JiraNormalizerTest {
                         "id1", "Name", "email@test.com")
         ));
 
-        NormalizedEvent event = normalizer.normalizeIssues(result).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,result).get(0);
 
         assertThat(event.refs()).doesNotContainKey("parentJiraKey");
     }

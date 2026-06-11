@@ -64,11 +64,49 @@ async def ensure_vector_indexes() -> None:
     logger.info("벡터 인덱스 확인 완료 (comm_embedding, issue_embedding)")
 
 
+# 프로젝트 격리의 핵심 — 모든 도메인 노드는 (project_id, 자연키) 복합 유니크.
+# pr_number/path/jira_key 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하므로
+# project_id 없이 MERGE하면 서로 다른 프로젝트의 데이터가 같은 노드로 병합된다.
+_UNIQUE_CONSTRAINTS: list[tuple[str, str, list[str]]] = [
+    ("changeset_project_hash",      "ChangeSet",     ["project_id", "hash"]),
+    ("pull_request_project_number", "PullRequest",   ["project_id", "pr_number"]),
+    ("issue_project_jira_key",      "Issue",         ["project_id", "jira_key"]),
+    ("communication_project_url",   "Communication", ["project_id", "url"]),
+    ("file_project_path",           "File",          ["project_id", "path"]),
+    ("actor_uuid",                  "Actor",         ["uuid"]),
+]
+
+
+async def ensure_constraints() -> None:
+    """(project_id, 자연키) 복합 유니크 제약을 생성한다. 이미 존재하면 무시.
+
+    제약 생성이 실패하는 환경(에디션/버전 차이)에서는 동일 키 조합의 range 인덱스로
+    폴백한다 — MERGE 패턴 자체가 복합 키를 쓰므로 단일 컨슈머 환경에서는
+    제약 없이도 중복이 생기지 않고, 인덱스만으로도 조회 성능은 확보된다.
+    """
+    async with get_driver().session() as session:
+        for name, label, props in _UNIQUE_CONSTRAINTS:
+            key = ", ".join(f"n.{p}" for p in props)
+            try:
+                await session.run(
+                    f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+                    f"FOR (n:{label}) REQUIRE ({key}) IS UNIQUE"
+                )
+            except Exception:
+                logger.warning("유니크 제약 생성 실패 — range 인덱스로 폴백: %s", name, exc_info=True)
+                await session.run(
+                    f"CREATE INDEX {name}_idx IF NOT EXISTS "
+                    f"FOR (n:{label}) ON ({key})"
+                )
+    logger.info("프로젝트 스코프 유니크 제약 확인 완료 (%d개)", len(_UNIQUE_CONSTRAINTS))
+
+
 # ── Layer 1 + Layer 3 upserts ─────────────────────────────────────────────
 
 
 async def upsert_changeset(
     *,
+    project_id: str,
     hash: str,
     message: str,
     occurred_at: str,
@@ -79,13 +117,14 @@ async def upsert_changeset(
         await session.run(
             """
             MATCH (a:Actor {uuid: $actor_uuid})
-            MERGE (c:ChangeSet {hash: $hash})
+            MERGE (c:ChangeSet {project_id: $project_id, hash: $hash})
             SET c.message = $message,
                 c.occurredAt = datetime($occurred_at),
                 c.source = $source
             MERGE (a)-[:AUTHORED]->(c)
             """,
             actor_uuid=actor_uuid,
+            project_id=project_id,
             hash=hash,
             message=message,
             occurred_at=occurred_at,
@@ -95,6 +134,7 @@ async def upsert_changeset(
 
 async def upsert_file_with_modified_edge(
     *,
+    project_id: str,
     changeset_hash: str,
     file_path: str,
     diff_summary: str,
@@ -103,13 +143,14 @@ async def upsert_file_with_modified_edge(
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (f:File {path: $file_path})
+            MERGE (f:File {project_id: $project_id, path: $file_path})
             WITH f
-            MATCH (c:ChangeSet {hash: $changeset_hash})
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
             MERGE (c)-[r:MODIFIED]->(f)
             SET r.diffSummary = $diff_summary,
                 r.embedding = $embedding
             """,
+            project_id=project_id,
             file_path=file_path,
             changeset_hash=changeset_hash,
             diff_summary=diff_summary,
@@ -119,6 +160,7 @@ async def upsert_file_with_modified_edge(
 
 async def upsert_pull_request(
     *,
+    project_id: str,
     pr_number: int,
     title: str,
     body: str,
@@ -142,7 +184,7 @@ async def upsert_pull_request(
         await session.run(
             """
             MATCH (a:Actor {uuid: $actor_uuid})
-            MERGE (pr:PullRequest {pr_number: $pr_number})
+            MERGE (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
             SET pr.title = $title,
                 pr.body = $body,
                 pr.state = $state,
@@ -155,6 +197,7 @@ async def upsert_pull_request(
             MERGE (a)-[:AUTHORED]->(pr)
             """,
             actor_uuid=actor_uuid,
+            project_id=project_id,
             pr_number=pr_number,
             title=title,
             body=body,
@@ -170,6 +213,7 @@ async def upsert_pull_request(
 
 async def upsert_issue(
     *,
+    project_id: str,
     jira_key: str,
     title: str,
     body: str,
@@ -199,7 +243,7 @@ async def upsert_issue(
         await session.run(
             """
             MATCH (a:Actor {uuid: $actor_uuid})
-            MERGE (i:Issue {jira_key: $jira_key})
+            MERGE (i:Issue {project_id: $project_id, jira_key: $jira_key})
             SET i.title = $title,
                 i.body = $body,
                 i.status = $status,
@@ -218,6 +262,7 @@ async def upsert_issue(
             MERGE (a)-[:CREATED]->(i)
             """,
             actor_uuid=actor_uuid,
+            project_id=project_id,
             jira_key=jira_key,
             title=title,
             body=body,
@@ -235,6 +280,7 @@ async def upsert_issue(
 
 async def upsert_communication(
     *,
+    project_id: str,
     url: str,
     body: str,
     channel: str,
@@ -250,7 +296,7 @@ async def upsert_communication(
         await session.run(
             """
             MATCH (a:Actor {uuid: $actor_uuid})
-            MERGE (comm:Communication {url: $url})
+            MERGE (comm:Communication {project_id: $project_id, url: $url})
             SET comm.body = $body,
                 comm.channel = $channel,
                 comm.conversation_id = $conversation_id,
@@ -262,6 +308,7 @@ async def upsert_communication(
             MERGE (a)-[:WROTE]->(comm)
             """,
             actor_uuid=actor_uuid,
+            project_id=project_id,
             url=url,
             body=body,
             channel=channel,
@@ -278,7 +325,7 @@ async def upsert_communication(
 # 참조 대상 노드가 아직 없으면 MERGE로 stub 생성 후 실제 이벤트 도착 시 SET으로 채워짐
 
 
-async def link_changeset_to_issue(changeset_hash: str, jira_key: str) -> None:
+async def link_changeset_to_issue(project_id: str, changeset_hash: str, jira_key: str) -> None:
     """TRIGGERED_BY (text): ChangeSet refs.jiraKey 존재 시.
 
     명시적 텍스트 참조이므로 source='text', confidence=1.0으로 고정한다.
@@ -287,32 +334,34 @@ async def link_changeset_to_issue(changeset_hash: str, jira_key: str) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (i:Issue {jira_key: $jira_key})
+            MERGE (i:Issue {project_id: $project_id, jira_key: $jira_key})
             WITH i
-            MATCH (c:ChangeSet {hash: $hash})
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
             MERGE (c)-[r:TRIGGERED_BY]->(i)
             SET r.source = 'text', r.confidence = 1.0
             """,
+            project_id=project_id,
             jira_key=jira_key,
             hash=changeset_hash,
         )
 
 
-async def link_pr_to_changeset(pr_number: int, changeset_hash: str) -> None:
+async def link_pr_to_changeset(project_id: str, pr_number: int, changeset_hash: str) -> None:
     """CONTAINS: ChangeSet refs.prNumber 존재 시. 머지된 PR 노드가 없으면 생성하지 않음."""
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (pr:PullRequest {pr_number: $pr_number})
-            MATCH (c:ChangeSet {hash: $hash})
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
             MERGE (pr)-[:CONTAINS]->(c)
             """,
+            project_id=project_id,
             hash=changeset_hash,
             pr_number=pr_number,
         )
 
 
-async def link_pr_changesets_to_issues(pr_number: int) -> int:
+async def link_pr_changesets_to_issues(project_id: str, pr_number: int) -> int:
     """TRIGGERED_BY (text) 전파: PR.jira_keys에 등록된 각 Jira 키를 그 PR이 머지한
     모든 ChangeSet에 동일하게 연결한다.
 
@@ -328,47 +377,50 @@ async def link_pr_changesets_to_issues(pr_number: int) -> int:
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (pr:PullRequest {pr_number: $pr_number})
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
             WHERE pr.jira_keys IS NOT NULL AND size(pr.jira_keys) > 0
             UNWIND pr.jira_keys AS jira_key
-            MERGE (i:Issue {jira_key: jira_key})
+            MERGE (i:Issue {project_id: $project_id, jira_key: jira_key})
             WITH pr, i
             MATCH (pr)-[:CONTAINS]->(c:ChangeSet)
             MERGE (c)-[r:TRIGGERED_BY]->(i)
             SET r.source = 'text', r.confidence = 1.0
             RETURN count(r) AS n
             """,
+            project_id=project_id,
             pr_number=pr_number,
         )
         row = await result.single()
         return row["n"] if row else 0
 
 
-async def link_issue_to_communication(jira_key: str, comm_url: str) -> None:
+async def link_issue_to_communication(project_id: str, jira_key: str, comm_url: str) -> None:
     """DISCUSSED_IN: Communication refs.jiraKey 존재 시"""
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (i:Issue {jira_key: $jira_key})
+            MERGE (i:Issue {project_id: $project_id, jira_key: $jira_key})
             WITH i
-            MATCH (comm:Communication {url: $comm_url})
+            MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
             MERGE (i)-[:DISCUSSED_IN]->(comm)
             """,
+            project_id=project_id,
             jira_key=jira_key,
             comm_url=comm_url,
         )
 
 
-async def link_issue_to_parent(child_key: str, parent_key: str) -> None:
+async def link_issue_to_parent(project_id: str, child_key: str, parent_key: str) -> None:
     """CHILD_OF: Issue Jira parent 필드 존재 시"""
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (parent:Issue {jira_key: $parent_key})
+            MERGE (parent:Issue {project_id: $project_id, jira_key: $parent_key})
             WITH parent
-            MERGE (child:Issue {jira_key: $child_key})
+            MERGE (child:Issue {project_id: $project_id, jira_key: $child_key})
             MERGE (child)-[:CHILD_OF]->(parent)
             """,
+            project_id=project_id,
             parent_key=parent_key,
             child_key=child_key,
         )
@@ -376,14 +428,17 @@ async def link_issue_to_parent(child_key: str, parent_key: str) -> None:
 
 async def propagate_thread_discussed_in() -> int:
     """방안 C — 스레드 전파: conversation_id로 묶인 스레드 내 하나의 Communication이
-    DISCUSSED_IN을 가지면 같은 스레드의 나머지 Communication에도 전파."""
+    DISCUSSED_IN을 가지면 같은 스레드의 나머지 Communication에도 전파.
+
+    conversation_id(Slack ts 등)는 프로젝트 간 충돌 가능 — 같은 project_id 안에서만 전파한다.
+    """
     async with get_driver().session() as session:
         result = await session.run(
             """
             MATCH (i:Issue)-[:DISCUSSED_IN]->(seed:Communication)
             WHERE seed.conversation_id IS NOT NULL AND seed.conversation_id <> ''
-            WITH i, seed.conversation_id AS conv_id
-            MATCH (other:Communication {conversation_id: conv_id})
+            WITH i, seed
+            MATCH (other:Communication {project_id: seed.project_id, conversation_id: seed.conversation_id})
             WHERE NOT (i)-[:DISCUSSED_IN]->(other)
             MERGE (i)-[:DISCUSSED_IN]->(other)
             RETURN count(*) AS created
@@ -479,10 +534,12 @@ async def backfill_pr_jira_keys() -> dict:
         result = await session.run(
             """
             MATCH (pr:PullRequest)
-            WHERE pr.jira_keys IS NULL OR size(pr.jira_keys) = 0
-            RETURN pr.pr_number AS pr_number,
-                   pr.title     AS title,
-                   pr.body      AS body
+            WHERE (pr.jira_keys IS NULL OR size(pr.jira_keys) = 0)
+              AND pr.project_id IS NOT NULL
+            RETURN pr.project_id AS project_id,
+                   pr.pr_number  AS pr_number,
+                   pr.title      AS title,
+                   pr.body       AS body
             """
         )
         prs = await result.data()
@@ -496,17 +553,19 @@ async def backfill_pr_jira_keys() -> dict:
         if not keys:
             continue
 
+        project_id = pr["project_id"]
         pr_number = pr["pr_number"]
         async with get_driver().session() as session:
             await session.run(
                 """
-                MATCH (pr:PullRequest {pr_number: $pr_number})
+                MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
                 SET pr.jira_keys = $keys
                 """,
+                project_id=project_id,
                 pr_number=pr_number,
                 keys=keys,
             )
-        propagated = await link_pr_changesets_to_issues(pr_number)
+        propagated = await link_pr_changesets_to_issues(project_id, pr_number)
         edges_propagated += propagated
         backfilled += 1
         logger.debug("PR #%s 백필: jira_keys=%s → 전파 %d개", pr_number, keys, propagated)
@@ -549,17 +608,18 @@ async def clear_semantic_triggered_by() -> int:
     return deleted
 
 
-async def link_issue_to_assignee(jira_key: str, assignee_id: str) -> None:
+async def link_issue_to_assignee(project_id: str, jira_key: str, assignee_id: str) -> None:
     """ASSIGNED_TO: Issue assignee 존재 시. JIRA source-scoped alias로 Actor 조회."""
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (a:Actor)
+            MATCH (a:Actor {project_id: $project_id})
             WHERE $scoped_alias IN a.aliases
             WITH a
-            MATCH (i:Issue {jira_key: $jira_key})
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
             MERGE (i)-[:ASSIGNED_TO]->(a)
             """,
+            project_id=project_id,
             jira_key=jira_key,
             scoped_alias=f"JIRA:{assignee_id}",
         )
@@ -574,7 +634,8 @@ async def _fetch_modified_embeddings() -> list[dict]:
             """
             MATCH (c:ChangeSet)-[r:MODIFIED]->(f:File)
             WHERE r.embedding IS NOT NULL AND c.occurredAt IS NOT NULL
-            RETURN c.hash AS changeset_id,
+            RETURN c.project_id AS project_id,
+                   c.hash AS changeset_id,
                    f.path AS file_path,
                    r.diffSummary AS diff_summary,
                    r.embedding AS embedding,
@@ -584,6 +645,7 @@ async def _fetch_modified_embeddings() -> list[dict]:
         rows = await result.data()
     return [
         {
+            "project_id":   r["project_id"],
             "changeset_id": r["changeset_id"],
             "file_path":    r["file_path"],
             "diff_summary": r["diff_summary"],
@@ -600,7 +662,8 @@ async def _fetch_communication_embeddings() -> list[dict]:
             """
             MATCH (comm:Communication)
             WHERE comm.embedding IS NOT NULL AND comm.occurredAt IS NOT NULL
-            RETURN comm.url AS id,
+            RETURN comm.project_id AS project_id,
+                   comm.url AS id,
                    comm.body AS body,
                    comm.embedding AS embedding,
                    comm.occurredAt AS occurred_at
@@ -609,6 +672,7 @@ async def _fetch_communication_embeddings() -> list[dict]:
         rows = await result.data()
     return [
         {
+            "project_id":  r["project_id"],
             "id":          r["id"],
             "body":        r["body"],
             "embedding":   list(r["embedding"]),
@@ -618,15 +682,16 @@ async def _fetch_communication_embeddings() -> list[dict]:
     ]
 
 
-async def _create_reference_edge(changeset_id: str, communication_id: str, confidence: float) -> None:
+async def _create_reference_edge(project_id: str, changeset_id: str, communication_id: str, confidence: float) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (c:ChangeSet {hash: $changeset_id})
-            MATCH (comm:Communication {url: $communication_id})
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_id})
+            MATCH (comm:Communication {project_id: $project_id, url: $communication_id})
             MERGE (c)-[r:REFERENCE]->(comm)
             SET r.confidence = $confidence
             """,
+            project_id=project_id,
             changeset_id=changeset_id,
             communication_id=communication_id,
             confidence=confidence,
@@ -639,20 +704,21 @@ async def _fetch_unembedded_communications() -> list[dict]:
             """
             MATCH (comm:Communication)
             WHERE comm.embedding IS NULL
-            RETURN comm.url AS id, comm.body AS body
+            RETURN comm.project_id AS project_id, comm.url AS id, comm.body AS body
             """
         )
         rows = await result.data()
-    return [{"id": r["id"], "body": r["body"]} for r in rows]
+    return [{"project_id": r["project_id"], "id": r["id"], "body": r["body"]} for r in rows]
 
 
-async def _save_communication_embedding(communication_id: str, embedding: list[float]) -> None:
+async def _save_communication_embedding(project_id: str, communication_id: str, embedding: list[float]) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (comm:Communication {url: $communication_id})
+            MATCH (comm:Communication {project_id: $project_id, url: $communication_id})
             SET comm.embedding = $embedding
             """,
+            project_id=project_id,
             communication_id=communication_id,
             embedding=embedding,
         )
@@ -684,7 +750,8 @@ async def _fetch_issue_embeddings() -> list[dict]:
             """
             MATCH (i:Issue)
             WHERE i.embedding IS NOT NULL AND i.occurredAt IS NOT NULL
-            RETURN i.jira_key AS id,
+            RETURN i.project_id AS project_id,
+                   i.jira_key AS id,
                    i.title AS title,
                    i.body AS body,
                    i.embedding AS embedding,
@@ -697,6 +764,7 @@ async def _fetch_issue_embeddings() -> list[dict]:
         rows = await result.data()
     return [
         {
+            "project_id":  r["project_id"],
             "id":          r["id"],
             "title":       r["title"] or "",
             "body":        r["body"] or "",
@@ -726,7 +794,8 @@ async def _fetch_modified_embeddings_for_issue_linking() -> list[dict]:
                 MATCH (c)-[tb:TRIGGERED_BY]->(:Issue)
                 WHERE tb.source = 'text'
               }
-            RETURN c.hash AS changeset_id,
+            RETURN c.project_id AS project_id,
+                   c.hash AS changeset_id,
                    f.path AS file_path,
                    r.diffSummary AS diff_summary,
                    r.embedding AS embedding,
@@ -736,6 +805,7 @@ async def _fetch_modified_embeddings_for_issue_linking() -> list[dict]:
         rows = await result.data()
     return [
         {
+            "project_id":   r["project_id"],
             "changeset_id": r["changeset_id"],
             "file_path":    r["file_path"],
             "diff_summary": r["diff_summary"],
@@ -747,7 +817,7 @@ async def _fetch_modified_embeddings_for_issue_linking() -> list[dict]:
 
 
 async def _create_triggered_by_semantic_edge(
-    changeset_id: str, jira_key: str, confidence: float
+    project_id: str, changeset_id: str, jira_key: str, confidence: float
 ) -> None:
     """TRIGGERED_BY (semantic): 임베딩/LLM 검증으로 발견된 연결.
 
@@ -757,13 +827,14 @@ async def _create_triggered_by_semantic_edge(
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (c:ChangeSet {hash: $changeset_id})
-            MATCH (i:Issue {jira_key: $jira_key})
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_id})
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
             MERGE (c)-[r:TRIGGERED_BY]->(i)
             WITH r
             WHERE coalesce(r.source, '') <> 'text'
             SET r.source = 'semantic', r.confidence = $confidence
             """,
+            project_id=project_id,
             changeset_id=changeset_id,
             jira_key=jira_key,
             confidence=confidence,
@@ -771,16 +842,17 @@ async def _create_triggered_by_semantic_edge(
 
 
 async def _create_discussed_in_semantic_edge(
-    jira_key: str, comm_url: str, confidence: float
+    project_id: str, jira_key: str, comm_url: str, confidence: float
 ) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (i:Issue {jira_key: $jira_key})
-            MATCH (comm:Communication {url: $comm_url})
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
             MERGE (i)-[r:DISCUSSED_IN]->(comm)
             SET r.confidence = $confidence
             """,
+            project_id=project_id,
             jira_key=jira_key,
             comm_url=comm_url,
             confidence=confidence,
@@ -807,48 +879,51 @@ def make_neo4j_issue_link_store():
 # ── ActorStore Neo4j 구현체 ───────────────────────────────────────────────
 
 
-async def _lookup_actor_by_alias(source_id: str) -> Optional[dict]:
+async def _lookup_actor_by_alias(project_id: str, source_id: str) -> Optional[dict]:
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (a:Actor)
+            MATCH (a:Actor {project_id: $project_id})
             WHERE $source_id IN a.aliases
             RETURN a.uuid AS uuid, a.name AS name,
                    a.aliases AS aliases, a.emails AS emails,
                    a.confidence AS confidence
             """,
+            project_id=project_id,
             source_id=source_id,
         )
         record = await result.single()
     return dict(record) if record else None
 
 
-async def _lookup_actor_by_email(email: str) -> Optional[dict]:
+async def _lookup_actor_by_email(project_id: str, email: str) -> Optional[dict]:
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (a:Actor)
+            MATCH (a:Actor {project_id: $project_id})
             WHERE $email IN a.emails
             RETURN a.uuid AS uuid, a.name AS name,
                    a.aliases AS aliases, a.emails AS emails,
                    a.confidence AS confidence
             """,
+            project_id=project_id,
             email=email,
         )
         record = await result.single()
     return dict(record) if record else None
 
 
-async def _lookup_actor_by_name(normalized_name: str) -> list[dict]:
+async def _lookup_actor_by_name(project_id: str, normalized_name: str) -> list[dict]:
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (a:Actor)
+            MATCH (a:Actor {project_id: $project_id})
             WHERE a.normalized_name = $normalized_name
             RETURN a.uuid AS uuid, a.name AS name,
                    a.aliases AS aliases, a.emails AS emails,
                    a.confidence AS confidence
             """,
+            project_id=project_id,
             normalized_name=normalized_name,
         )
         rows = await result.data()
@@ -906,7 +981,7 @@ async def _merge_actor(
 
 
 async def _create_actor(
-    name: str, aliases: list, emails: list, confidence: float
+    project_id: str, name: str, aliases: list, emails: list, confidence: float
 ) -> dict:
     from graph.actor_resolver import normalize_name
     actor_uuid     = str(uuid.uuid4())
@@ -916,6 +991,7 @@ async def _create_actor(
             """
             CREATE (a:Actor {
                 uuid: $uuid,
+                project_id: $project_id,
                 name: $name,
                 normalized_name: $normalized_name,
                 aliases: $aliases,
@@ -927,6 +1003,7 @@ async def _create_actor(
                    a.confidence AS confidence
             """,
             uuid=actor_uuid,
+            project_id=project_id,
             name=name,
             normalized_name=normalized,
             aliases=aliases,
@@ -944,7 +1021,8 @@ async def fetch_unfiltered_communications() -> list[dict]:
             """
             MATCH (comm:Communication)
             WHERE comm.llm_filtered = false
-            RETURN comm.url AS url, comm.body AS body,
+            RETURN comm.project_id AS project_id,
+                   comm.url AS url, comm.body AS body,
                    comm.channel AS channel,
                    comm.conversation_id AS conversation_id,
                    comm.occurredAt AS occurred_at
@@ -953,6 +1031,7 @@ async def fetch_unfiltered_communications() -> list[dict]:
         rows = await result.data()
     return [
         {
+            "project_id": r["project_id"],
             "url": r["url"],
             "body": r["body"],
             "channel": r["channel"] or "",
@@ -963,30 +1042,39 @@ async def fetch_unfiltered_communications() -> list[dict]:
     ]
 
 
-async def mark_communication_llm_filtered(url: str) -> None:
+async def mark_communication_llm_filtered(project_id: str, url: str) -> None:
     async with get_driver().session() as session:
         await session.run(
-            "MATCH (comm:Communication {url: $url}) SET comm.llm_filtered = true",
+            "MATCH (comm:Communication {project_id: $project_id, url: $url}) SET comm.llm_filtered = true",
+            project_id=project_id,
             url=url,
         )
 
 
-async def delete_communication(url: str) -> None:
+async def delete_communication(project_id: str, url: str) -> None:
     async with get_driver().session() as session:
         await session.run(
-            "MATCH (comm:Communication {url: $url}) DETACH DELETE comm",
+            "MATCH (comm:Communication {project_id: $project_id, url: $url}) DETACH DELETE comm",
+            project_id=project_id,
             url=url,
         )
 
 
-def make_neo4j_actor_store():
-    """Neo4j 기반 ActorStore 인스턴스를 반환한다."""
+def make_neo4j_actor_store(project_id: str):
+    """프로젝트 스코프 Neo4j ActorStore 인스턴스를 반환한다.
+
+    Actor 동일인 판단(이름/이메일 매칭)이 프로젝트 경계를 넘지 않도록
+    조회·생성 함수에 project_id를 바인딩한다 — 같은 사람이 두 프로젝트에
+    등장하면 프로젝트마다 별도 Actor 노드가 생긴다.
+    """
     from graph.actor_resolver import ActorStore
     return ActorStore(
-        lookup_by_alias=_lookup_actor_by_alias,
-        lookup_by_email=_lookup_actor_by_email,
-        lookup_by_name=_lookup_actor_by_name,
+        lookup_by_alias=lambda source_id: _lookup_actor_by_alias(project_id, source_id),
+        lookup_by_email=lambda email: _lookup_actor_by_email(project_id, email),
+        lookup_by_name=lambda name: _lookup_actor_by_name(project_id, name),
         lookup_activities=_lookup_actor_activities,
         merge_actor=_merge_actor,
-        create_actor=_create_actor,
+        create_actor=lambda name, aliases, emails, confidence: _create_actor(
+            project_id, name, aliases, emails, confidence
+        ),
     )
