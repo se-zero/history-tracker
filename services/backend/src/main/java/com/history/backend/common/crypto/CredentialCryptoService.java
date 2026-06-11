@@ -13,6 +13,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+// 외부 연동 자격증명 AES-256-GCM 암호화/복호화
 @Service
 public class CredentialCryptoService {
 
@@ -37,6 +38,7 @@ public class CredentialCryptoService {
         this.secureRandom = secureRandom;
     }
 
+    // 자격증명 평문 암호화
     public byte[] encrypt(String plaintext) {
         if (plaintext == null || plaintext.isBlank()) {
             throw new IllegalArgumentException("Credential plaintext must not be blank.");
@@ -49,6 +51,7 @@ public class CredentialCryptoService {
             Cipher cipher = Cipher.getInstance(CIPHER_TRANSFORMATION);
             cipher.init(Cipher.ENCRYPT_MODE, keySpec, new GCMParameterSpec(GCM_TAG_BITS, iv));
             byte[] ciphertext = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            // 복호화 시 IV를 함께 읽을 수 있도록 IV + 암호문을 단일 바이트 배열로 직렬화
             return ByteBuffer.allocate(iv.length + ciphertext.length)
                     .put(iv)
                     .put(ciphertext)
@@ -58,6 +61,7 @@ public class CredentialCryptoService {
         }
     }
 
+    // 암호화된 자격증명 복호화
     public String decrypt(byte[] encryptedCredential) {
         if (encryptedCredential == null || encryptedCredential.length < MIN_ENCRYPTED_CREDENTIAL_BYTES) {
             throw new IllegalArgumentException("Encrypted credential is invalid.");
@@ -74,10 +78,12 @@ public class CredentialCryptoService {
             cipher.init(Cipher.DECRYPT_MODE, keySpec, new GCMParameterSpec(GCM_TAG_BITS, iv));
             return new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
         } catch (GeneralSecurityException exception) {
+            // 키 불일치·데이터 변조로 인한 GCM 인증 실패는 서버 오류가 아닌 잘못된 입력으로 처리
             throw new IllegalArgumentException("Encrypted credential is invalid.", exception);
         }
     }
 
+    // 암호화 키 설정값 검증 (base64 인코딩, 디코딩 후 32바이트)
     private static byte[] decodeKey(String encodedKey) {
         if (encodedKey == null || encodedKey.isBlank()) {
             throw new IllegalArgumentException("security.credentials.key must be configured.");

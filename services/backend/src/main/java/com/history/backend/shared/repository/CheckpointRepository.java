@@ -18,6 +18,7 @@ public interface CheckpointRepository extends JpaRepository<Checkpoint, Checkpoi
 
     List<Checkpoint> findAllByProject_IdAndId_Provider(UUID projectId, IntegrationProvider provider);
 
+    // 지연 도착한 과거 cursor가 checkpoint를 되돌리지 못하도록 GREATEST로 단조 증가 보장
     @Modifying
     @Query(
             value = """

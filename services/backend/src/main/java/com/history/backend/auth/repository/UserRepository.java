@@ -19,6 +19,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findFirstByProviderAndProviderUserIdOrderByCreatedAtDesc(String provider, String providerUserId);
 
+    // purge 대상(탈퇴 후 cutoff 경과) 사용자 ID 페이지 조회
     @Query("""
             SELECT user.id
             FROM User user
@@ -30,6 +31,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             Pageable pageable
     );
 
+    // 동시 가입 경합 대비 ON CONFLICT DO NOTHING insert (생성된 경우에만 id 반환)
     @Query(value = """
             INSERT INTO users (provider, provider_user_id, email, display_name, avatar_url)
             VALUES (:provider, :providerUserId, :email, :displayName, :avatarUrl)

@@ -18,6 +18,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+// pipeline-worker 수집 진행 커서 — (project, provider, cursor_key) 복합키 공유 테이블
 @Getter
 @Entity
 @Table(name = "checkpoints")

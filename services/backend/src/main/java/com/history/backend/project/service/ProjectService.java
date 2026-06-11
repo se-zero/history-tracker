@@ -31,6 +31,7 @@ public class ProjectService {
             // flush를 강제해 unique 제약 위반을 트랜잭션 내에서 감지
             return projectRepository.saveAndFlush(new Project(owner, normalizedName, description));
         } catch (DataIntegrityViolationException exception) {
+            // 동시 생성 경합 시 unique 제약 위반을 409로 변환
             throw new ConflictException("Project name already exists.");
         }
     }
@@ -41,6 +42,7 @@ public class ProjectService {
         return projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(ownerId);
     }
 
+    // 소유 검증 포함 프로젝트 조회 — 타 모듈의 공통 접근 검증 진입점
     @Transactional(readOnly = true)
     public Project getProject(UUID ownerId, UUID projectId) {
         userService.getActiveUser(ownerId);
@@ -60,6 +62,7 @@ public class ProjectService {
         try {
             return projectRepository.saveAndFlush(project);
         } catch (DataIntegrityViolationException exception) {
+            // 동시 수정 경합 시 unique 제약 위반을 409로 변환
             throw new ConflictException("Project name already exists.");
         }
     }

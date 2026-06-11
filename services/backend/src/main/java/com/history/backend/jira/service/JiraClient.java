@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
+// Jira REST API 클라이언트 (연동 자격증명 검증용)
 @Slf4j
 @Component
 public class JiraClient {
@@ -24,6 +25,7 @@ public class JiraClient {
         this.restClient = restClient;
     }
 
+    // Jira 프로젝트 존재·자격증명 검증
     public JiraProject verifyProject(
             String baseUrl,
             String projectKey,
@@ -40,6 +42,7 @@ public class JiraClient {
                     .retrieve()
                     .body(JiraProjectResponse.class);
         } catch (RestClientResponseException exception) {
+            // Jira의 오류 응답(404 포함)은 자격증명 또는 프로젝트 지정 오류로 간주해 401 처리
             log.warn(
                     "Jira project verification failed. status={} projectKey={}",
                     exception.getStatusCode(),

@@ -16,6 +16,7 @@ import com.history.backend.github.GitHubAppProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+// GitHub App API 인증용 JWT(RS256) 서명 생성
 @Component
 public class GitHubAppJwtService {
 
@@ -46,6 +47,7 @@ public class GitHubAppJwtService {
 
         Instant now = Instant.now(clock);
         String header = base64Json(new JwtHeader("RS256", "JWT"));
+        // clock skew 대비 iat는 60초 과거로, exp는 GitHub 최대 허용(10분) 내인 9분 후로 설정
         String payload = base64Json(new JwtPayload(
                 now.minusSeconds(60).getEpochSecond(),
                 now.plusSeconds(540).getEpochSecond(),
@@ -74,7 +76,9 @@ public class GitHubAppJwtService {
         }
     }
 
+    // PEM private key 파싱 (PKCS#8·PKCS#1 RSA 형식 지원)
     private PrivateKey parsePrivateKey(String pem) throws GeneralSecurityException {
+        // 환경변수로 한 줄 주입된 PEM의 이스케이프된 개행 복원
         String normalizedPem = pem.replace("\\n", "\n");
         String keyBody = normalizedPem
                 .replace("-----BEGIN PRIVATE KEY-----", "")
@@ -89,6 +93,7 @@ public class GitHubAppJwtService {
         return KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
     }
 
+    // PKCS#1 RSA 키의 PKCS#8 DER 구조 래핑 (KeyFactory가 PKCS#8만 지원)
     private byte[] wrapPkcs1RsaPrivateKey(byte[] pkcs1) {
         byte[] version = new byte[] {0x02, 0x01, 0x00};
         byte[] algorithm = new byte[] {
@@ -101,6 +106,7 @@ public class GitHubAppJwtService {
                 version, algorithm, privateKey);
     }
 
+    // DER 가변 길이 인코딩 (128 미만 1바이트, 이상은 길이의 길이 + 빅엔디안)
     private byte[] encodeLength(int length) {
         if (length < 128) {
             return new byte[] {(byte) length};

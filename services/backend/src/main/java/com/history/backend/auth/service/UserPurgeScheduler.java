@@ -20,6 +20,7 @@ public class UserPurgeScheduler {
             int purgedCount = userPurgeService.purgeExpiredUsers();
             log.info("Purged expired deactivated users. count={}", purgedCount);
         } catch (RuntimeException exception) {
+            // 실패 로그 기록 후 재던져 스케줄러 에러 처리에 위임
             log.error("Failed to purge expired deactivated users.", exception);
             throw exception;
         }

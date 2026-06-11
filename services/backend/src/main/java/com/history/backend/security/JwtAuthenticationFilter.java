@@ -28,7 +28,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenService jwtTokenService;
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    // Bearer JWT access token이 있는 요청을 인증한다.
+    // Bearer access token 기반 요청 인증
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -58,7 +58,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    // 잘못된 토큰 응답을 공통 API 에러 형식으로 맞춘다.
+    // 공통 API 에러 형식의 401 응답 작성
     private void writeUnauthorizedResponse(HttpServletResponse response) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);

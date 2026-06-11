@@ -28,6 +28,7 @@ public class ConversationService {
     private final ConversationTitleGenerator titleGenerator;
     private final TransactionTemplate transactionTemplate;
 
+    // 대화 생성 + 첫 메시지 질의·응답 저장 (AI 질의는 트랜잭션 밖에서 수행)
     public ConversationStart createConversation(UUID userId, UUID projectId, String firstMessageContent) {
         String normalizedContent = normalizeFirstMessage(firstMessageContent);
         User user = userService.getActiveUser(userId);
@@ -92,6 +93,7 @@ public class ConversationService {
     }
 
     private String normalizeTitle(String title) {
+        // 빈 제목은 null로 저장해 제목 제거로 처리
         if (title == null || title.isBlank()) {
             return null;
         }

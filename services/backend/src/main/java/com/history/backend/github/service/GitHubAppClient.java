@@ -19,6 +19,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
+// GitHub App API 클라이언트 (App JWT / installation token 인증)
 @Component
 public class GitHubAppClient {
 
@@ -39,6 +40,7 @@ public class GitHubAppClient {
         this.restClient = restClient;
     }
 
+    // installation access token 발급 요청
     public InstallationAccessToken createInstallationAccessToken(Long installationId) {
         GitHubInstallationTokenResponse response;
         try {
@@ -50,6 +52,7 @@ public class GitHubAppClient {
                     .retrieve()
                     .body(GitHubInstallationTokenResponse.class);
         } catch (RestClientResponseException exception) {
+            // GitHub 응답 오류·통신 실패는 외부 서비스 장애로 간주해 502로 변환
             throw gitHubApiException("GitHub installation access token request failed.", exception);
         } catch (RestClientException exception) {
             throw new BadGatewayException("GitHub installation access token request failed.", exception);
@@ -64,6 +67,7 @@ public class GitHubAppClient {
         return new InstallationAccessToken(response.token(), parseExpiresAt(response.expiresAt()));
     }
 
+    // 설치 저장소 전체 조회 (100개 단위 페이지네이션, 마지막 페이지까지 반복)
     public List<GitHubRepositoryResponse> fetchInstallationRepositories(String installationAccessToken) {
         List<GitHubRepositoryResponse> repositories = new ArrayList<>();
         int page = 1;

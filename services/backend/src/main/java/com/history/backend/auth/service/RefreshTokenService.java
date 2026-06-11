@@ -34,6 +34,7 @@ public class RefreshTokenService {
         }
 
         String rawToken = generateRefreshToken();
+        // DB 유출 대비 원문 대신 hash만 저장
         refreshTokenRepository.save(new RefreshToken(
                 user,
                 sha256(rawToken),
@@ -42,6 +43,7 @@ public class RefreshTokenService {
         return rawToken;
     }
 
+    // refresh token 1회용 rotation (사용된 토큰 폐기 후 재발급)
     @Transactional
     public RefreshTokenIssue rotateRefreshToken(String rawToken) {
         RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(sha256(rawToken))
@@ -55,6 +57,7 @@ public class RefreshTokenService {
         User user = refreshToken.getUser();
         refreshTokenRepository.delete(refreshToken);
 
+        // soft-deleted user는 grace period 복구 전까지 재발급 불가
         if (user.getDeletedAt() != null) {
             throw new UnauthorizedException("User is deactivated.");
         }

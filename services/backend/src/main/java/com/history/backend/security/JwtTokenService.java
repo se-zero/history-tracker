@@ -33,14 +33,14 @@ public class JwtTokenService {
         this.objectMapper = new ObjectMapper();
     }
 
-    // 인증된 사용자에게 짧게 유효한 JWT access token을 발급한다.
+    // JWT access token 발급
     public String issueAccessToken(UUID userId) {
         Instant issuedAt = Instant.now();
         Instant expiresAt = issuedAt.plus(jwtProperties.accessTokenTtl());
         return issueToken(userId, ACCESS_TOKEN_TYPE, issuedAt, expiresAt);
     }
 
-    // access token을 검증하고 인증된 사용자 식별자를 반환한다.
+    // access token 검증 및 인증 사용자 반환
     public AuthenticatedUser validateAccessToken(String token) {
         JwtClaims claims = parseAndValidate(token);
         if (!ACCESS_TOKEN_TYPE.equals(claims.tokenType())) {
@@ -77,6 +77,7 @@ public class JwtTokenService {
         byte[] expectedSignature = BASE64_URL_DECODER.decode(sign(signingInput));
         byte[] actualSignature = decodePart(parts[2]);
 
+        // 타이밍 공격 방지를 위한 상수 시간 비교
         if (!MessageDigest.isEqual(expectedSignature, actualSignature)) {
             throw new JwtAuthenticationException("Invalid JWT signature.");
         }

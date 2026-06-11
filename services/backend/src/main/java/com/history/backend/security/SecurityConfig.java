@@ -21,7 +21,7 @@ public class SecurityConfig {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    // stateless API 보안과 공개 인증 경로를 설정한다.
+    // stateless API 보안 필터 체인 및 공개 인증 경로 설정
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
@@ -41,7 +41,7 @@ public class SecurityConfig {
                 .build();
     }
 
-    // 인증 정보가 없는 요청에 공통 JSON 에러 응답을 반환한다.
+    // 미인증 요청에 대한 공통 JSON 에러 응답 처리
     @Bean
     AuthenticationEntryPoint authenticationEntryPoint() {
         return (request, response, authException) -> {
