@@ -1,5 +1,6 @@
 package com.history.backend.conversation.service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -23,6 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class MessageService {
 
+    private static final int MAX_HISTORY_TURNS = 5;
     private static final String ERROR_TYPE_KEY = "error_type";
     private static final String AI_ENGINE_ERROR = "AI_ENGINE_ERROR";
     private static final Map<String, Object> AI_ENGINE_ERROR_METADATA = Map.of(
@@ -111,13 +113,42 @@ public class MessageService {
     }
 
     private List<AiEngineHistoryMessage> loadHistory(UUID conversationId) {
-        return messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId).stream()
-                .filter(this::isHistoryMessage)
-                .map(message -> new AiEngineHistoryMessage(
-                        message.getRole() == MessageRole.USER ? "user" : "assistant",
-                        message.getContent()
-                ))
+        List<HistoryTurn> completedTurns = completedHistoryTurns(
+                messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId)
+        );
+        int fromIndex = Math.max(0, completedTurns.size() - MAX_HISTORY_TURNS);
+        return completedTurns.subList(fromIndex, completedTurns.size()).stream()
+                .flatMap(turn -> turn.messages().stream())
                 .toList();
+    }
+
+    // 완성 턴 = 유효한 USER + 바로 뒤 유효한 ASSISTANT 쌍. fallback/blank 답변으로 끝난 턴은 제외.
+    private List<HistoryTurn> completedHistoryTurns(List<Message> messages) {
+        List<HistoryTurn> completedTurns = new ArrayList<>();
+        Message pendingUser = null;
+
+        for (Message message : messages) {
+            if (message.getRole() == MessageRole.SYSTEM) {
+                continue;
+            }
+            if (message.getRole() == MessageRole.USER) {
+                pendingUser = isHistoryMessage(message) ? message : null;
+                continue;
+            }
+            if (message.getRole() == MessageRole.ASSISTANT && pendingUser != null && isHistoryMessage(message)) {
+                completedTurns.add(new HistoryTurn(
+                        toHistoryMessage(pendingUser),
+                        toHistoryMessage(message)
+                ));
+            }
+            pendingUser = null;
+        }
+        return completedTurns;
+    }
+
+    private AiEngineHistoryMessage toHistoryMessage(Message message) {
+        String role = message.getRole() == MessageRole.USER ? "user" : "assistant";
+        return new AiEngineHistoryMessage(role, message.getContent());
     }
 
     private boolean isHistoryMessage(Message message) {
@@ -141,5 +172,14 @@ public class MessageService {
             Message userMessage,
             List<AiEngineHistoryMessage> history
     ) {
+    }
+
+    private record HistoryTurn(
+            AiEngineHistoryMessage user,
+            AiEngineHistoryMessage assistant
+    ) {
+        private List<AiEngineHistoryMessage> messages() {
+            return List.of(user, assistant);
+        }
     }
 }
