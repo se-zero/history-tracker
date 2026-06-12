@@ -294,7 +294,11 @@ def _tool_error(tool_call_id: str, message: str) -> dict:
     }
 
 
-async def run(question: str, project_context: str = "") -> tuple[str, dict | None]:
+async def run(
+    question: str,
+    project_context: str = "",
+    history: list[dict[str, str]] | None = None,
+) -> tuple[str, dict | None]:
     """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환.
 
     Tool calling이 끝난 뒤 grounded_answer Structured Output으로 한 번 더 호출해
@@ -308,7 +312,8 @@ async def run(question: str, project_context: str = "") -> tuple[str, dict | Non
     """
     messages: list = [
         {"role": "system", "content": _build_system_prompt(project_context)},
-        {"role": "user",   "content": question},
+        *(history or []),
+        {"role": "user", "content": question},
     ]
     seen_calls: set[tuple[str, str]] = set()  # (tool_name, args_json) 중복 호출 가드
 
