@@ -6,6 +6,8 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 
 ## 공통 원칙
 
+- **projectId 전파**: 모든 `NormalizedEvent`는 최상위에 `projectId`(프로젝트 UUID)를 갖고 발행된다.
+  ai-engine은 이 값을 Neo4j 노드의 `project_id`로 저장해 프로젝트 단위 그래프 격리의 기준으로 쓴다 — `projectId` 없는 이벤트는 그래프에 반영되지 않는다 (docs/graph-schema.md 「프로젝트 격리」참고).
 - **증분 수집**: checkpoint에 기록된 마지막 수집 시각 이후 데이터만 가져온다. 재시작해도 누락을 방지하고 중복 발행을 최소화한다.
 - **occurredAt 기준 checkpoint 갱신**: 수집 시각(`Instant.now()`)이 아닌 이벤트 실제 발생 시각을 기준으로 갱신한다. 발행하지 못한 이벤트가 있어도 checkpoint가 앞으로 이동하지 않아 누락이 없다.
 - **DB checkpoint 저장**: checkpoint는 DB `checkpoints` 테이블에 `(project_id, provider, cursor_key)` 단위로 저장한다. cursor 갱신 시 기존 값과 새 값 중 더 최신 시각을 저장해 checkpoint가 과거로 되돌아가지 않게 한다.

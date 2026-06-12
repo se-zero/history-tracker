@@ -27,19 +27,20 @@ async def run_slack_llm_filter(project_context: str = "") -> dict:
         logger.info("필터 대상 Communication 없음")
         return {"kept": 0, "deleted": 0}
 
-    # conversation_id로 1차 그룹핑
-    by_conv: dict[str, list[dict]] = defaultdict(list)
+    # (project_id, conversation_id)로 1차 그룹핑 — conversation_id(Slack ts)는
+    # 프로젝트 간 충돌 가능하므로 스레드 묶음이 프로젝트를 넘지 않게 한다.
+    by_conv: dict[tuple, list[dict]] = defaultdict(list)
     for comm in communications:
-        by_conv[comm["conversation_id"]].append(comm)
+        by_conv[(comm.get("project_id") or "", comm["conversation_id"])].append(comm)
 
-    threads   = {cid: msgs for cid, msgs in by_conv.items() if len(msgs) > 1}
+    threads   = {key: msgs for key, msgs in by_conv.items() if len(msgs) > 1}
     standalones = [msgs[0] for msgs in by_conv.values() if len(msgs) == 1]
 
     kept = 0
     deleted = 0
 
     # 스레드 단위 처리 (occurred_at 기준 정렬 후 LLM 호출)
-    for cid, msgs in threads.items():
+    for (project_id, cid), msgs in threads.items():
         msgs.sort(key=lambda m: m["occurred_at"] or 0)
         bodies = [m["body"] for m in msgs]
         try:
@@ -50,20 +51,20 @@ async def run_slack_llm_filter(project_context: str = "") -> dict:
 
         for msg, keep in zip(msgs, keep_flags):
             if keep:
-                await mark_communication_llm_filtered(msg["url"])
+                await mark_communication_llm_filtered(project_id, msg["url"])
                 kept += 1
             else:
-                await delete_communication(msg["url"])
+                await delete_communication(project_id, msg["url"])
                 deleted += 1
 
-    # 개별 메시지: (channel, date) 기준 2차 그룹핑
+    # 개별 메시지: (project_id, channel, date) 기준 2차 그룹핑
     by_channel_date: dict[tuple, list[dict]] = defaultdict(list)
     for msg in standalones:
         date_str = msg["occurred_at"].date().isoformat() if msg["occurred_at"] else "unknown"
-        by_channel_date[(msg["channel"], date_str)].append(msg)
+        by_channel_date[(msg.get("project_id") or "", msg["channel"], date_str)].append(msg)
 
     # 50개씩 청크해서 LLM 호출
-    for (channel, date), msgs in by_channel_date.items():
+    for (project_id, channel, date), msgs in by_channel_date.items():
         for i in range(0, len(msgs), _STANDALONE_BATCH_SIZE):
             chunk = msgs[i : i + _STANDALONE_BATCH_SIZE]
             bodies = [m["body"] for m in chunk]
@@ -77,10 +78,10 @@ async def run_slack_llm_filter(project_context: str = "") -> dict:
 
             for msg, keep in zip(chunk, keep_flags):
                 if keep:
-                    await mark_communication_llm_filtered(msg["url"])
+                    await mark_communication_llm_filtered(project_id, msg["url"])
                     kept += 1
                 else:
-                    await delete_communication(msg["url"])
+                    await delete_communication(project_id, msg["url"])
                     deleted += 1
 
     logger.info("Slack LLM 배치 필터 완료: kept=%d deleted=%d", kept, deleted)

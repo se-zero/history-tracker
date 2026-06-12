@@ -135,6 +135,7 @@ class EventPublisherTest {
 
     private NormalizedEvent buildEvent(String source) {
         return new NormalizedEvent(
+                "11111111-1111-1111-1111-111111111111",
                 "ChangeSet",
                 source,
                 Instant.now(),

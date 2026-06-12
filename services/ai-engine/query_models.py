@@ -19,5 +19,6 @@ class HistoryMessage(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str
+    project_id: str = ""
     history: list[HistoryMessage] = Field(default_factory=list)
     repo: str = ""

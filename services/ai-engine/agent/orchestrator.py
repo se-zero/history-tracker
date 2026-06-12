@@ -297,12 +297,16 @@ def _tool_error(tool_call_id: str, message: str) -> dict:
 async def run(
     question: str,
     project_context: str = "",
+    project_id: str = "",
     history: list[dict[str, str]] | None = None,
 ) -> tuple[str, dict | None]:
     """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환.
 
     Tool calling이 끝난 뒤 grounded_answer Structured Output으로 한 번 더 호출해
     LLM이 evidence 없는 합성 문장을 만들지 못하도록 강제한다.
+
+    project_id: 모든 도구 쿼리를 이 프로젝트로 스코프한다 (그래프 격리). backend가 인증된
+                사용자의 프로젝트로 주입하며, LLM은 이 값에 접근하거나 변경할 수 없다.
 
     Returns:
         (markdown_answer, structured_dict)
@@ -370,7 +374,7 @@ async def run(
             seen_calls.add(call_key)
 
             logger.info("도구 호출: %s", tool_name)
-            result_str = await execute(tool_name, args)
+            result_str = await execute(tool_name, args, project_id)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
 
             tool_message = {

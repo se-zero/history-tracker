@@ -21,7 +21,7 @@ public class SlackNormalizer {
 
     // Slack fetch 결과의 channels 배열 → Communication 이벤트 목록
     @SuppressWarnings("unchecked")
-    public List<NormalizedEvent> normalizeChannels(Map<String, Object> slackData) {
+    public List<NormalizedEvent> normalizeChannels(String projectId, Map<String, Object> slackData) {
         List<NormalizedEvent> events = new ArrayList<>();
         if (slackData == null) return events;
 
@@ -29,13 +29,13 @@ public class SlackNormalizer {
         if (channels == null) return events;
 
         for (Map<String, Object> channel : channels) {
-            events.addAll(normalizeChannel(channel));
+            events.addAll(normalizeChannel(projectId, channel));
         }
         return events;
     }
 
     @SuppressWarnings("unchecked")
-    public List<NormalizedEvent> normalizeChannel(Map<String, Object> channel) {
+    public List<NormalizedEvent> normalizeChannel(String projectId, Map<String, Object> channel) {
         List<NormalizedEvent> events = new ArrayList<>();
         if (channel == null) return events;
 
@@ -45,7 +45,7 @@ public class SlackNormalizer {
         List<Map<String, Object>> messages = (List<Map<String, Object>>) channel.get("messages");
         if (messages != null) {
             for (Map<String, Object> msg : messages) {
-                events.add(normalizeMessage(msg, channelName, channelId));
+                events.add(normalizeMessage(projectId, msg, channelName, channelId));
             }
         }
 
@@ -57,7 +57,7 @@ public class SlackNormalizer {
                 List<Map<String, Object>> replies = (List<Map<String, Object>>) thread.get("replies");
                 if (replies != null) {
                     for (Map<String, Object> reply : replies) {
-                        events.add(normalizeMessage(reply, channelName, channelId, threadTs));
+                        events.add(normalizeMessage(projectId, reply, channelName, channelId, threadTs));
                     }
                 }
             }
@@ -66,11 +66,11 @@ public class SlackNormalizer {
         return events;
     }
 
-    private NormalizedEvent normalizeMessage(Map<String, Object> msg, String channelName, String channelId) {
-        return normalizeMessage(msg, channelName, channelId, null);
+    private NormalizedEvent normalizeMessage(String projectId, Map<String, Object> msg, String channelName, String channelId) {
+        return normalizeMessage(projectId, msg, channelName, channelId, null);
     }
 
-    private NormalizedEvent normalizeMessage(Map<String, Object> msg, String channelName, String channelId, String threadTs) {
+    private NormalizedEvent normalizeMessage(String projectId, Map<String, Object> msg, String channelName, String channelId, String threadTs) {
         String userId    = (String) msg.get("user");
         String userName  = (String) msg.get("userName");
         String userEmail = (String) msg.get("userEmail");
@@ -86,6 +86,7 @@ public class SlackNormalizer {
         properties.put("created_at", null);
 
         return new NormalizedEvent(
+                projectId,
                 "Communication",
                 "SLACK",
                 tsToInstant(ts),

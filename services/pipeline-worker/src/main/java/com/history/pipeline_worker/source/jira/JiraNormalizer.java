@@ -27,7 +27,7 @@ public class JiraNormalizer {
 
     // Jira search 결과의 issues 배열 → Issue 이벤트 목록
     @SuppressWarnings("unchecked")
-    public List<NormalizedEvent> normalizeIssues(Map<String, Object> searchResult) {
+    public List<NormalizedEvent> normalizeIssues(String projectId, Map<String, Object> searchResult) {
         List<NormalizedEvent> events = new ArrayList<>();
         if (searchResult == null) return events;
 
@@ -85,6 +85,7 @@ public class JiraNormalizer {
             if (assigneeField != null) refs.put("assigneeId", (String) assigneeField.get("accountId"));
 
             events.add(new NormalizedEvent(
+                    projectId,
                     "Issue",
                     "JIRA",
                     resolveOccurredAt(updatedAt, createdAt),

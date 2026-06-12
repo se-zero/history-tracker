@@ -72,7 +72,11 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
             patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
         ):
-            await orchestrator.run("current question", "project description", history)
+            await orchestrator.run(
+                "current question",
+                "project description",
+                history=history,
+            )
 
         self.assertEqual("system", captured_exploration_messages[0]["role"])
         self.assertEqual(history, captured_exploration_messages[1:3])

@@ -74,7 +74,7 @@ public class MessageService {
             String normalizedContent,
             List<AiEngineHistoryMessage> history
     ) {
-        AiEngineQueryResult queryResult = aiEngineQueryClient.ask(normalizedContent, history);
+        AiEngineQueryResult queryResult = aiEngineQueryClient.ask(normalizedContent, projectId, history);
         return transactionTemplate.execute(status -> {
             // 트랜잭션이 분리되어 있어 질의 중 삭제됐을 수 있으므로 conversation 재조회
             Conversation conversation = findConversation(projectId, conversationId);

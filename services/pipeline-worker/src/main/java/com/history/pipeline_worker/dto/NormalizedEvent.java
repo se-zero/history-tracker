@@ -5,6 +5,9 @@ import java.util.Map;
 
 public record NormalizedEvent(
 
+        // 이벤트가 속한 프로젝트 UUID — ai-engine이 Neo4j 노드를 프로젝트 단위로 격리하는 기준
+        String projectId,
+
         String nodeType,
 
         String source,

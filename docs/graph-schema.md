@@ -1,5 +1,29 @@
 # Graph Schema — 지식 그래프 노드 & 관계 정의
 
+## 공통: 프로젝트 격리 (project_id)
+
+Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격리를 위해:
+
+- pipeline-worker가 발행하는 모든 NormalizedEvent는 최상위에 `projectId`(프로젝트 UUID)를 갖는다.
+  ai-engine은 `projectId` 없는 이벤트를 그래프에 쓰지 않고 건너뛴다.
+- 모든 도메인 노드는 `project_id` 속성을 가지며, MERGE 키는 `(project_id, 자연키)` 복합 키다.
+  `pr_number`, `path`, `jira_key` 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하기 때문.
+
+| 노드 | 복합 유니크 키 |
+|------|----------------|
+| ChangeSet | (project_id, hash) |
+| PullRequest | (project_id, pr_number) |
+| Issue | (project_id, jira_key) |
+| Communication | (project_id, url) |
+| File | (project_id, path) |
+| Actor | uuid (단일) — 단, 생성/조회는 project_id 스코프 |
+
+- 제약은 ai-engine 시작 시 `ensure_constraints()`(graph/builder.py)가 생성한다.
+- Actor 동일인 판단(alias/email/이름 매칭)도 project_id 스코프 안에서만 동작한다 —
+  같은 사람이 두 프로젝트에 등장하면 프로젝트마다 별도 Actor 노드가 생긴다.
+- 배치 작업(REFERENCE, TRIGGERED_BY/DISCUSSED_IN 시맨틱 링크, 스레드 전파, Slack LLM 필터)도
+  같은 project_id 안에서만 쌍을 비교/생성한다.
+
 ## 노드 목록
 
 ### Actor
@@ -8,6 +32,7 @@
 ```json
 {
   "uuid": "",            // 고유 식별자
+  "project_id": "",      // 소속 프로젝트 UUID — 동일인 판단은 프로젝트 경계를 넘지 않음
   "name": "",            // 표시 이름
   "normalized_name": "", // 정규화 이름 (소문자·특수문자 제거) — 동일인 스코어링에 사용
   "aliases": [""],       // source-scoped ID 목록 (예: "GITHUB:se-zero", "JIRA:123abc")
@@ -23,6 +48,7 @@ Jira 티켓.
 
 ```json
 {
+  "projectId": "",                     // 프로젝트 UUID — 노드 project_id로 저장 (격리 기준)
   "nodeType": "Issue",
   "source": "",                        // JIRA
   "occurredAt": "",                    // ISO-8601 — Jira updated 시각 기준 (변경 이력 반영); 생성만 있으면 created 사용
@@ -48,6 +74,7 @@ Slack 메시지 또는 GitHub Issue. 텍스트 기반 의사소통 단위.
 
 ```json
 {
+  "projectId": "",                     // 프로젝트 UUID — 노드 project_id로 저장 (격리 기준)
   "nodeType": "Communication",
   "source": "",                        // SLACK | GITHUB
   "occurredAt": "",                    // ISO-8601
@@ -74,6 +101,7 @@ GitHub Pull Request. 머지된 PR만 수집한다.
 
 ```json
 {
+  "projectId": "",                     // 프로젝트 UUID — 노드 project_id로 저장 (격리 기준)
   "nodeType": "PullRequest",
   "source": "",                        // GITHUB
   "occurredAt": "",                    // ISO-8601 — merged_at 기준 (fallback: created_at); properties에는 저장 안 됨
@@ -98,6 +126,7 @@ GitHub Commit. 실제 코드 변경 단위. merge commit은 제외한다.
 
 ```json
 {
+  "projectId": "",                     // 프로젝트 UUID — 노드 project_id로 저장 (격리 기준)
   "nodeType": "ChangeSet",
   "source": "",                        // GITHUB
   "occurredAt": "",                    // ISO-8601 — commit.committer.date 기준 (fallback: commit.author.date)
@@ -130,7 +159,8 @@ GitHub 저장소 내 파일.
 
 ```json
 {
-  "path": "" // 파일 경로
+  "project_id": "", // 소속 프로젝트 UUID
+  "path": ""        // 파일 경로
 }
 ```
 
