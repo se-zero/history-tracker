@@ -67,7 +67,12 @@ class ConversationServiceTest {
         });
         when(messageService.appendUserMessageInCurrentTransaction(any(Conversation.class), any()))
                 .thenReturn(userMessage);
-        when(messageService.appendAssistantMessageAfterQuery(PROJECT_ID, CONVERSATION_ID, "Why did auth change?"))
+        when(messageService.appendAssistantMessageAfterQuery(
+                PROJECT_ID,
+                CONVERSATION_ID,
+                "Why did auth change?",
+                List.of()
+        ))
                 .thenReturn(assistantMessage);
 
         ConversationStart result = service.createConversation(

@@ -8,6 +8,8 @@ import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
+import com.history.backend.conversation.domain.MessageRole;
+import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
 import com.history.backend.project.service.ProjectService;
@@ -21,9 +23,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class MessageService {
 
+    private static final String ERROR_TYPE_KEY = "error_type";
+    private static final String AI_ENGINE_ERROR = "AI_ENGINE_ERROR";
     private static final Map<String, Object> AI_ENGINE_ERROR_METADATA = Map.of(
             "fallback", true,
-            "error_type", "AI_ENGINE_ERROR"
+            ERROR_TYPE_KEY, AI_ENGINE_ERROR
     );
 
     private final MessageRepository messageRepository;
@@ -37,12 +41,20 @@ public class MessageService {
         String normalizedContent = normalizeContent(content);
         projectService.getProject(userId, projectId);
         // 느린 AI 질의 중 커넥션 점유를 피하고, 질의 실패와 무관하게 사용자 메시지를 보존
-        Message userMessage = transactionTemplate.execute(status -> {
+        PendingQuery pendingQuery = transactionTemplate.execute(status -> {
             Conversation conversation = findConversation(projectId, conversationId);
-            return appendUserMessageInCurrentTransaction(conversation, normalizedContent);
+            // history와 question의 현재 질문 중복 방지를 위한 USER 저장 전 이력 캡처
+            List<AiEngineHistoryMessage> history = loadHistory(conversationId);
+            Message userMessage = appendUserMessageInCurrentTransaction(conversation, normalizedContent);
+            return new PendingQuery(userMessage, history);
         });
-        Message assistantMessage = appendAssistantMessageAfterQuery(projectId, conversationId, normalizedContent);
-        return new MessageExchange(userMessage, assistantMessage);
+        Message assistantMessage = appendAssistantMessageAfterQuery(
+                projectId,
+                conversationId,
+                normalizedContent,
+                pendingQuery.history()
+        );
+        return new MessageExchange(pendingQuery.userMessage(), assistantMessage);
     }
 
     // 호출자 트랜잭션 안에서만 실행 (대화 저장과 메시지 저장의 원자성 보장)
@@ -54,8 +66,13 @@ public class MessageService {
     }
 
     // AI 질의(트랜잭션 밖) 후 assistant 응답 메시지 저장
-    Message appendAssistantMessageAfterQuery(UUID projectId, UUID conversationId, String normalizedContent) {
-        AiEngineQueryResult queryResult = aiEngineQueryClient.ask(normalizedContent);
+    Message appendAssistantMessageAfterQuery(
+            UUID projectId,
+            UUID conversationId,
+            String normalizedContent,
+            List<AiEngineHistoryMessage> history
+    ) {
+        AiEngineQueryResult queryResult = aiEngineQueryClient.ask(normalizedContent, history);
         return transactionTemplate.execute(status -> {
             // 트랜잭션이 분리되어 있어 질의 중 삭제됐을 수 있으므로 conversation 재조회
             Conversation conversation = findConversation(projectId, conversationId);
@@ -93,8 +110,36 @@ public class MessageService {
         return content.trim();
     }
 
+    private List<AiEngineHistoryMessage> loadHistory(UUID conversationId) {
+        return messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId).stream()
+                .filter(this::isHistoryMessage)
+                .map(message -> new AiEngineHistoryMessage(
+                        message.getRole() == MessageRole.USER ? "user" : "assistant",
+                        message.getContent()
+                ))
+                .toList();
+    }
+
+    private boolean isHistoryMessage(Message message) {
+        if (message.getRole() == MessageRole.SYSTEM || message.getContent() == null || message.getContent().isBlank()) {
+            return false;
+        }
+        return !isAiEngineError(message);
+    }
+
+    private boolean isAiEngineError(Message message) {
+        Map<String, Object> metadata = message.getMetadata();
+        return metadata != null && AI_ENGINE_ERROR.equals(metadata.get(ERROR_TYPE_KEY));
+    }
+
     // fallback 응답은 metadata로 표시해 클라이언트가 오류 응답임을 구분
     private Map<String, Object> metadataFor(AiEngineQueryResult queryResult) {
         return queryResult.fallback() ? AI_ENGINE_ERROR_METADATA : null;
+    }
+
+    private record PendingQuery(
+            Message userMessage,
+            List<AiEngineHistoryMessage> history
+    ) {
     }
 }

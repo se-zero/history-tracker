@@ -1,5 +1,8 @@
 package com.history.backend.conversation.service;
 
+import java.util.List;
+
+import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.dto.AiEngineQueryRequest;
 import com.history.backend.conversation.dto.AiEngineQueryResponse;
 import lombok.RequiredArgsConstructor;
@@ -20,12 +23,12 @@ public class AiEngineQueryClient {
     private final RestClient aiEngineRestClient;
 
     // ai-engine 질의 — 실패 시 예외 대신 fallback 답변 반환 (대화 흐름 유지)
-    public AiEngineQueryResult ask(String question) {
+    public AiEngineQueryResult ask(String question, List<AiEngineHistoryMessage> history) {
         try {
             AiEngineQueryResponse response = aiEngineRestClient.post()
                     .uri("/query")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new AiEngineQueryRequest(question))
+                    .body(new AiEngineQueryRequest(question, history))
                     .retrieve()
                     .body(AiEngineQueryResponse.class);
             String answer = normalizeAnswer(response);

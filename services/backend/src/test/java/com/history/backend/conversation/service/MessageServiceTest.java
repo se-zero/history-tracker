@@ -3,10 +3,13 @@ package com.history.backend.conversation.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,6 +19,7 @@ import com.history.backend.common.error.NotFoundException;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.domain.MessageRole;
+import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
 import com.history.backend.project.domain.Project;
@@ -23,6 +27,7 @@ import com.history.backend.project.service.ProjectService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionDefinition;
@@ -59,7 +64,14 @@ class MessageServiceTest {
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(conversation))
                 .thenReturn(Optional.of(conversation));
-        when(aiEngineQueryClient.ask("Why did auth change?"))
+        Message previousUser = Message.user(conversation, "What changed?");
+        Message previousAssistant = Message.assistant(conversation, "PR #18 changed auth.", null);
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of(previousUser, previousAssistant));
+        when(aiEngineQueryClient.ask("Why did auth change?", List.of(
+                new AiEngineHistoryMessage("user", "What changed?"),
+                new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
+        )))
                 .thenReturn(AiEngineQueryResult.success("OAuth callback changed."));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -78,6 +90,14 @@ class MessageServiceTest {
         assertThat(result.assistantMessage().getContent()).isEqualTo("OAuth callback changed.");
         assertThat(result.assistantMessage().getMetadata()).isNull();
         assertThat(conversation.getUpdatedAt()).isNotNull();
+
+        InOrder order = inOrder(messageRepository, aiEngineQueryClient);
+        order.verify(messageRepository).findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID);
+        order.verify(messageRepository).save(any(Message.class));
+        order.verify(aiEngineQueryClient).ask("Why did auth change?", List.of(
+                new AiEngineHistoryMessage("user", "What changed?"),
+                new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
+        ));
     }
 
     @Test
@@ -88,7 +108,9 @@ class MessageServiceTest {
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(conversation))
                 .thenReturn(Optional.of(conversation));
-        when(aiEngineQueryClient.ask("Why did auth change?"))
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of());
+        when(aiEngineQueryClient.ask("Why did auth change?", List.of()))
                 .thenReturn(AiEngineQueryResult.fallback("질문을 처리하는 중 오류가 발생했습니다."));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -116,6 +138,38 @@ class MessageServiceTest {
 
         assertThat(result.getContent()).isEqualTo("Question");
         assertThat(conversation.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    void addMessageExcludesSystemFallbackAndBlankMessagesFromHistory() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        Message validUser = Message.user(conversation, "What changed?");
+        Message system = Message.system(conversation, "Internal context", null);
+        Message fallback = Message.assistant(conversation, "Query failed", Map.of(
+                "fallback", true,
+                "error_type", "AI_ENGINE_ERROR"
+        ));
+        Message blank = Message.assistant(conversation, "   ", null);
+        Message validAssistant = Message.assistant(conversation, "PR #18 changed auth.", null);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of(validUser, system, fallback, blank, validAssistant));
+        when(aiEngineQueryClient.ask("Tell me more", List.of(
+                new AiEngineHistoryMessage("user", "What changed?"),
+                new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
+        ))).thenReturn(AiEngineQueryResult.success("More details"));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Tell me more");
+
+        verify(aiEngineQueryClient).ask("Tell me more", List.of(
+                new AiEngineHistoryMessage("user", "What changed?"),
+                new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
+        ));
     }
 
     @Test
