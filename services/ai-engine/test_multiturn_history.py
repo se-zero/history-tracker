@@ -49,7 +49,7 @@ class QueryRequestHistoryTest(unittest.TestCase):
 
 
 class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
-    async def test_run_places_history_between_system_and_current_question(self):
+    async def test_run_uses_history_for_tool_exploration_but_not_structured_answer(self):
         history = [
             {"role": "user", "content": "previous question"},
             {"role": "assistant", "content": "previous answer"},
@@ -57,24 +57,77 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
         response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=None, content="fallback"))]
         )
-        captured_messages = []
+        captured_exploration_messages = []
+        captured_structured_messages = []
+
+        async def capture_exploration(messages, with_tools=True):
+            captured_exploration_messages.extend(messages)
+            return response
 
         async def capture_structured(messages):
-            captured_messages.extend(messages)
+            captured_structured_messages.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
         with (
-            patch.object(orchestrator, "_call_llm", AsyncMock(return_value=response)),
+            patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
             patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
         ):
             await orchestrator.run("current question", "project description", history)
 
-        self.assertEqual("system", captured_messages[0]["role"])
-        self.assertEqual(history, captured_messages[1:3])
+        self.assertEqual("system", captured_exploration_messages[0]["role"])
+        self.assertEqual(history, captured_exploration_messages[1:3])
         self.assertEqual(
             {"role": "user", "content": "current question"},
-            captured_messages[3],
+            captured_exploration_messages[3],
         )
+        self.assertEqual(
+            [
+                captured_exploration_messages[0],
+                {"role": "user", "content": "current question"},
+            ],
+            captured_structured_messages,
+        )
+
+    async def test_structured_answer_keeps_current_turn_tool_messages(self):
+        tool_call = SimpleNamespace(
+            id="call-1",
+            function=SimpleNamespace(name="search_by_keyword", arguments='{"keyword":"PR #18"}'),
+        )
+        tool_call_message = SimpleNamespace(role="assistant", tool_calls=[tool_call], content=None)
+        completed_message = SimpleNamespace(role="assistant", tool_calls=None, content="fallback")
+        captured_structured_messages = []
+
+        async def capture_structured(messages):
+            captured_structured_messages.extend(messages)
+            return {"summary": "done", "evidence": [], "unknown_aspects": []}
+
+        with (
+            patch.object(
+                orchestrator,
+                "_call_llm",
+                AsyncMock(side_effect=[
+                    SimpleNamespace(choices=[SimpleNamespace(message=tool_call_message)]),
+                    SimpleNamespace(choices=[SimpleNamespace(message=completed_message)]),
+                ]),
+            ),
+            patch.object(orchestrator, "execute", AsyncMock(return_value='{"id":"#18"}')),
+            patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+        ):
+            await orchestrator.run(
+                "why was that PR merged?",
+                history=[
+                    {"role": "user", "content": "find the auth PR"},
+                    {"role": "assistant", "content": "It was PR #18."},
+                ],
+            )
+
+        self.assertEqual(["system", "user", "assistant", "tool"], [
+            message.role if hasattr(message, "role") else message["role"]
+            for message in captured_structured_messages
+        ])
+        self.assertNotIn("find the auth PR", str(captured_structured_messages))
+        self.assertNotIn("It was PR #18.", str(captured_structured_messages))
+        self.assertEqual('{"id":"#18"}', captured_structured_messages[-1]["content"])
 
 
 if __name__ == "__main__":

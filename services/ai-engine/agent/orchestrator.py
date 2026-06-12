@@ -213,7 +213,7 @@ async def _call_llm(messages: list, with_tools: bool = True):
 
 
 _STRUCTURED_FINAL_INSTRUCTION = (
-    "지금까지 누적된 도구 결과만 근거로, grounded_answer 스키마를 따라 최종 답변을 작성하세요. "
+    "현재 질문에서 수집한 도구 결과만 근거로, grounded_answer 스키마를 따라 최종 답변을 작성하세요. "
     "evidence[]에 등재할 수 없는 사실은 summary에 적지 마세요. "
     "그래프에서 확인되지 않은 측면이 있으면 unknown_aspects에 명시하세요."
 )
@@ -310,11 +310,19 @@ async def run(
         Structured 호출 실패 시 LLM이 마지막 iteration에서 낸 자유 텍스트로 fallback,
         이때 structured는 None.
     """
+    system_message = {"role": "system", "content": _build_system_prompt(project_context)}
+    current_question = {"role": "user", "content": question}
     messages: list = [
-        {"role": "system", "content": _build_system_prompt(project_context)},
+        system_message,
         *(history or []),
-        {"role": "user", "content": question},
+        current_question,
     ]
+    current_turn_start = len(messages) - 1
+
+    def current_turn_messages() -> list:
+        # history는 초기 조립 구간에만 존재하므로 system과 현재 질문 이후 메시지만 유지한다.
+        return [messages[0], *messages[current_turn_start:]]
+
     seen_calls: set[tuple[str, str]] = set()  # (tool_name, args_json) 중복 호출 가드
 
     for iteration in range(_MAX_ITERATIONS):
@@ -326,7 +334,7 @@ async def run(
 
         # tool_calls 없음 → 도구 탐색 종료. structured output으로 최종 답변 생성.
         if not message.tool_calls:
-            structured = await _call_llm_structured(messages)
+            structured = await _call_llm_structured(current_turn_messages())
             if structured is None:
                 # fallback: 마지막 LLM 자유 텍스트라도 반환 (할루시네이션 가드는 잃지만 응답은 제공)
                 return message.content or _FALLBACK_ANSWER, None
@@ -342,20 +350,22 @@ async def run(
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:
                 logger.warning("도구 인자 JSON 파싱 실패: %s", tool_name)
-                messages.append(_tool_error(
+                error_message = _tool_error(
                     tc.id,
                     f"{tool_name} 인자 JSON 파싱 실패. 올바른 JSON 형식으로 다시 호출하세요.",
-                ))
+                )
+                messages.append(error_message)
                 continue
 
             # 중복 호출 가드 — 같은 인자로 같은 도구를 반복 호출하면 비용/컨텍스트 낭비
             call_key = (tool_name, json.dumps(args, sort_keys=True, ensure_ascii=False))
             if call_key in seen_calls:
                 logger.info("중복 도구 호출 차단: %s args=%s", tool_name, args)
-                messages.append(_tool_error(
+                error_message = _tool_error(
                     tc.id,
                     f"{tool_name}을(를) 동일한 인자로 이미 호출했습니다. 이전 결과를 참고하거나 다른 인자/도구를 시도하세요.",
-                ))
+                )
+                messages.append(error_message)
                 continue
             seen_calls.add(call_key)
 
@@ -363,15 +373,16 @@ async def run(
             result_str = await execute(tool_name, args)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
 
-            messages.append({
+            tool_message = {
                 "role": "tool",
                 "tool_call_id": tc.id,
                 "content": result_str,
-            })
+            }
+            messages.append(tool_message)
 
     # 최대 반복 도달 → 그 시점까지의 컨텍스트로 강제 structured 답변
     logger.warning("최대 반복 횟수(%d) 도달 — structured 강제 응답", _MAX_ITERATIONS)
-    structured = await _call_llm_structured(messages)
+    structured = await _call_llm_structured(current_turn_messages())
     if structured is None:
         return _FALLBACK_ANSWER, None
     return _render_structured(structured), structured
