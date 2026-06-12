@@ -19,6 +19,7 @@ from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, c
 from graph.slack_batch_filter import run_slack_llm_filter
 from graph.consumer import start_consumer
 from graph.event_handler import handle
+from graph.overview import get_project_overview
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
 from graph.reference_builder import backfill_communication_embeddings, build_reference_edges
 
@@ -63,6 +64,19 @@ app = FastAPI(title="History Graph AI Engine", lifespan=lifespan)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/graph/overview")
+async def graph_overview(project_id: str, limit: int = 200, types: str = ""):
+    """프로젝트 그래프 개요 조회 (프론트 그래프 탐색용).
+
+    project_id로 스코프된 최근 content 노드 + 연결 Actor/File을 {nodes, edges}로 반환한다.
+    인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
+
+    types: 쉼표 구분 프론트 type 화이트리스트(예: "commit,pr,jira"). 생략 시 전체.
+    """
+    type_list = [t for t in (types.split(",") if types else []) if t.strip()] or None
+    return await get_project_overview(project_id, limit, type_list)
 
 
 @app.post("/test/ingest", tags=["test"])
