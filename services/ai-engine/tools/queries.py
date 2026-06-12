@@ -9,6 +9,13 @@ _MIN_CONFIDENCE = 0.5
 # CHILD_OF 재귀 깊이 상한. Jira epic 구조 깊이는 보통 1~2 단계.
 _CHILD_DEPTH = 5
 
+# 벡터 인덱스 over-fetch 배수.
+# db.index.vector.queryNodes는 전역 top-K만 반환하고 project_id 사전 필터가 불가능하다.
+# 단일 Neo4j에 여러 프로젝트가 섞여 있으므로, project_id 필터 후에도 충분한 후보가
+# 남도록 top_k의 배수만큼 넉넉히 가져온 뒤 후처리로 잘라낸다.
+_VECTOR_OVERFETCH = 20
+_VECTOR_OVERFETCH_CAP = 500
+
 
 def _group_communications_by_thread(comms: list[dict]) -> list[dict]:
     """flat Communication 리스트를 conversation_id 기준으로 그룹핑한다.
@@ -67,8 +74,12 @@ def _group_communications_by_thread(comms: list[dict]) -> list[dict]:
     )
 
 
-async def get_issue_context(jira_key: str) -> dict:
+async def get_issue_context(project_id: str, jira_key: str) -> dict:
     """이슈 단일 키로 직속 작업 + 자식 이슈 작업까지 모두 집계해서 반환.
+
+    진입 Issue를 project_id로 스코프한다 — jira_key는 프로젝트 간 충돌하므로 필수.
+    여기서 도달하는 ChangeSet/PR/Communication/자식 Issue는 프로젝트 내부 엣지로만
+    연결되므로(Phase A 보장) 추가 스코프 불필요.
 
     반환 구조:
       {
@@ -91,7 +102,7 @@ async def get_issue_context(jira_key: str) -> dict:
         # 1단계: 이슈 + creator + assignee
         result = await session.run(
             """
-            MATCH (i:Issue {jira_key: $jira_key})
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
             OPTIONAL MATCH (creator:Actor)-[:CREATED]->(i)
             OPTIONAL MATCH (assignee:Actor)<-[:ASSIGNED_TO]-(i)
             RETURN i.jira_key AS jira_key, i.title AS title, i.body AS body,
@@ -99,6 +110,7 @@ async def get_issue_context(jira_key: str) -> dict:
                    i.priority AS priority, toString(i.occurredAt) AS occurredAt,
                    creator.name AS creator, assignee.name AS assignee
             """,
+            project_id=project_id,
             jira_key=jira_key,
         )
         row = await result.single()
@@ -109,13 +121,14 @@ async def get_issue_context(jira_key: str) -> dict:
         # 2단계: 스코프 결정 — root + 자식 이슈 메타데이터 (root 자체는 항상 첫 항목)
         result = await session.run(
             f"""
-            MATCH (root:Issue {{jira_key: $jira_key}})
+            MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH root, collect(DISTINCT desc) AS descs
             UNWIND ([root] + descs) AS i
             WITH i WHERE i IS NOT NULL
             RETURN i.jira_key AS jira_key, i.title AS title, i.status AS status
             """,
+            project_id=project_id,
             jira_key=jira_key,
         )
         scope_issues = await result.data()  # 첫 항목이 root, 이후가 descendants
@@ -123,7 +136,7 @@ async def get_issue_context(jira_key: str) -> dict:
         # 3단계: 스코프 내 각 이슈의 커밋 + PR 일괄 조회 (jira_key 기준 grouping)
         result = await session.run(
             f"""
-            MATCH (root:Issue {{jira_key: $jira_key}})
+            MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
             UNWIND issues_raw AS i
@@ -145,6 +158,7 @@ async def get_issue_context(jira_key: str) -> dict:
                        occurredAt: toString(pr.occurredAt)
                    }}) AS pull_requests
             """,
+            project_id=project_id,
             jira_key=jira_key,
             min_conf=_MIN_CONFIDENCE,
         )
@@ -153,7 +167,7 @@ async def get_issue_context(jira_key: str) -> dict:
         # 4단계: 스코프 내 각 이슈의 논의 일괄 조회 (jira_key 기준 grouping)
         result = await session.run(
             f"""
-            MATCH (root:Issue {{jira_key: $jira_key}})
+            MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
             UNWIND issues_raw AS i
@@ -169,6 +183,7 @@ async def get_issue_context(jira_key: str) -> dict:
                        confidence: disc.confidence
                    }}) AS discussions
             """,
+            project_id=project_id,
             jira_key=jira_key,
         )
         disc_rows = {r["jira_key"]: r["discussions"] for r in await result.data()}
@@ -204,11 +219,11 @@ async def get_issue_context(jira_key: str) -> dict:
         return base
 
 
-async def get_changeset_context(hash: str) -> dict:
+async def get_changeset_context(project_id: str, hash: str) -> dict:
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (cs:ChangeSet {hash: $hash})
+            MATCH (cs:ChangeSet {project_id: $project_id, hash: $hash})
             MATCH (a:Actor)-[:AUTHORED]->(cs)
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf
@@ -236,6 +251,7 @@ async def get_changeset_context(hash: str) -> dict:
                    {pr_number: pr.pr_number, title: pr.title, url: pr.url} AS pull_request,
                    collect(DISTINCT {path: f.path, diffSummary: m.diffSummary}) AS file_changes
             """,
+            project_id=project_id,
             hash=hash,
             min_conf=_MIN_CONFIDENCE,
         )
@@ -248,12 +264,12 @@ async def get_changeset_context(hash: str) -> dict:
         return out
 
 
-async def find_expert(path_prefix: str) -> list[dict]:
+async def find_expert(project_id: str, path_prefix: str) -> list[dict]:
     async with get_driver().session() as session:
         result = await session.run(
             """
             MATCH (a:Actor)-[:AUTHORED]->(cs:ChangeSet)-[:MODIFIED]->(f:File)
-            WHERE f.path STARTS WITH $path_prefix
+            WHERE f.path STARTS WITH $path_prefix AND cs.project_id = $project_id
             WITH a, cs,
                  CASE WHEN cs.occurredAt >= datetime() - duration('P180D')
                       THEN 2 ELSE 1 END AS weight
@@ -269,6 +285,7 @@ async def find_expert(path_prefix: str) -> list[dict]:
             ORDER BY weighted_score DESC
             LIMIT 5
             """,
+            project_id=project_id,
             path_prefix=path_prefix,
         )
         rows = await result.data()
@@ -277,7 +294,7 @@ async def find_expert(path_prefix: str) -> list[dict]:
         return rows
 
 
-async def get_timeline(jira_key: str) -> list[dict]:
+async def get_timeline(project_id: str, jira_key: str) -> list[dict]:
     """이슈 생명주기 이벤트를 시간순으로 반환.
 
     각 이벤트에 명시적 event_meaning 라벨을 붙여 LLM이 occurredAt만 보고 생성/완료/머지를
@@ -291,7 +308,7 @@ async def get_timeline(jira_key: str) -> list[dict]:
         # 이슈 자체 + 연결된 커밋·PR
         result = await session.run(
             """
-            MATCH (i:Issue {jira_key: $jira_key})
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
             OPTIONAL MATCH (cs:ChangeSet)-[tb:TRIGGERED_BY]->(i)
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
@@ -318,6 +335,7 @@ async def get_timeline(jira_key: str) -> list[dict]:
                  }) AS pr_merge_events
             RETURN i, cs_events, pr_open_events, pr_merge_events
             """,
+            project_id=project_id,
             jira_key=jira_key,
             min_conf=_MIN_CONFIDENCE,
         )
@@ -354,7 +372,7 @@ async def get_timeline(jira_key: str) -> list[dict]:
         # 논의 수집 (이슈와 독립적이므로 별도 쿼리)
         result2 = await session.run(
             """
-            MATCH (i:Issue {jira_key: $jira_key})-[:DISCUSSED_IN]->(c:Communication)
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})-[:DISCUSSED_IN]->(c:Communication)
             RETURN collect(DISTINCT {
                 type: 'Communication',
                 event_meaning: 'message_posted',
@@ -363,6 +381,7 @@ async def get_timeline(jira_key: str) -> list[dict]:
                        conversation_id: c.conversation_id}
             }) AS comm_events
             """,
+            project_id=project_id,
             jira_key=jira_key,
         )
         row2 = await result2.single()
@@ -374,14 +393,15 @@ async def get_timeline(jira_key: str) -> list[dict]:
         return sorted(valid, key=lambda e: e["occurredAt"])
 
 
-async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: float = 0.30) -> list[dict]:
+async def search_by_keyword(project_id: str, embedding: list[float], top_k: int = 5, threshold: float = 0.30) -> list[dict]:
+    fetch_k = min(top_k * _VECTOR_OVERFETCH, _VECTOR_OVERFETCH_CAP)
     async with get_driver().session() as session:
-        # Communication 인덱스 검색
+        # Communication 인덱스 검색 — 전역 fetch_k 후보를 project_id로 필터하고 top_k로 자른다.
         result = await session.run(
             """
-            CALL db.index.vector.queryNodes('comm_embedding', $top_k, $embedding)
+            CALL db.index.vector.queryNodes('comm_embedding', $fetch_k, $embedding)
             YIELD node AS c, score
-            WHERE score >= $threshold
+            WHERE score >= $threshold AND c.project_id = $project_id
             OPTIONAL MATCH (cs:ChangeSet)-[:REFERENCE]->(c)
             OPTIONAL MATCH (i:Issue)-[:DISCUSSED_IN]->(c)
             RETURN 'Communication' AS type,
@@ -394,8 +414,11 @@ async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: f
                    collect(DISTINCT cs.hash) AS related_changesets,
                    collect(DISTINCT i.jira_key) AS related_issues
             ORDER BY score DESC
+            LIMIT $top_k
             """,
+            project_id=project_id,
             embedding=embedding,
+            fetch_k=fetch_k,
             top_k=top_k,
             threshold=threshold,
         )
@@ -414,12 +437,12 @@ async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: f
             deduped_comm_rows.append(r)
         comm_rows = deduped_comm_rows
 
-        # Issue 인덱스 검색
+        # Issue 인덱스 검색 — 동일하게 over-fetch 후 project_id 필터 + top_k.
         result = await session.run(
             """
-            CALL db.index.vector.queryNodes('issue_embedding', $top_k, $embedding)
+            CALL db.index.vector.queryNodes('issue_embedding', $fetch_k, $embedding)
             YIELD node AS i, score
-            WHERE score >= $threshold
+            WHERE score >= $threshold AND i.project_id = $project_id
             OPTIONAL MATCH (cs:ChangeSet)-[tb:TRIGGERED_BY]->(i)
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             RETURN 'Issue' AS type,
@@ -431,8 +454,11 @@ async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: f
                    collect(DISTINCT cs.hash) AS related_changesets,
                    collect(DISTINCT i.jira_key) AS related_issues
             ORDER BY score DESC
+            LIMIT $top_k
             """,
+            project_id=project_id,
             embedding=embedding,
+            fetch_k=fetch_k,
             top_k=top_k,
             threshold=threshold,
             min_conf=_MIN_CONFIDENCE,
@@ -446,6 +472,7 @@ async def search_by_keyword(embedding: list[float], top_k: int = 5, threshold: f
 
 
 async def get_actor_activity(
+    project_id: str,
     identifier: str,
     from_time: str | None = None,
     limit: int = 20,
@@ -454,13 +481,14 @@ async def get_actor_activity(
         # Actor 확인
         result = await session.run(
             """
-            MATCH (a:Actor)
+            MATCH (a:Actor {project_id: $project_id})
             WHERE a.name = $identifier
                OR $identifier IN a.aliases
                OR $identifier IN a.emails
             RETURN a.name AS name, a.aliases AS aliases, a.emails AS emails
             LIMIT 1
             """,
+            project_id=project_id,
             identifier=identifier,
         )
         actor_row = await result.single()
@@ -471,12 +499,13 @@ async def get_actor_activity(
         # 커밋 (최신순)
         result = await session.run(
             """
-            MATCH (a:Actor)-[:AUTHORED]->(cs:ChangeSet)
+            MATCH (a:Actor {project_id: $project_id})-[:AUTHORED]->(cs:ChangeSet)
             WHERE (a.name = $identifier OR $identifier IN a.aliases OR $identifier IN a.emails)
               AND ($from_time IS NULL OR cs.occurredAt >= datetime($from_time))
             WITH cs ORDER BY cs.occurredAt DESC
             RETURN collect(cs)[0..$limit] AS changesets_raw
             """,
+            project_id=project_id,
             identifier=identifier,
             from_time=from_time,
             limit=limit,
@@ -490,12 +519,13 @@ async def get_actor_activity(
         # PR (최신순)
         result = await session.run(
             """
-            MATCH (a:Actor)-[:AUTHORED]->(pr:PullRequest)
+            MATCH (a:Actor {project_id: $project_id})-[:AUTHORED]->(pr:PullRequest)
             WHERE (a.name = $identifier OR $identifier IN a.aliases OR $identifier IN a.emails)
               AND ($from_time IS NULL OR pr.occurredAt >= datetime($from_time))
             WITH pr ORDER BY pr.occurredAt DESC
             RETURN collect(pr)[0..$limit] AS prs_raw
             """,
+            project_id=project_id,
             identifier=identifier,
             from_time=from_time,
             limit=limit,
@@ -509,12 +539,13 @@ async def get_actor_activity(
         # 메시지 (최신순)
         result = await session.run(
             """
-            MATCH (a:Actor)-[:WROTE]->(c:Communication)
+            MATCH (a:Actor {project_id: $project_id})-[:WROTE]->(c:Communication)
             WHERE (a.name = $identifier OR $identifier IN a.aliases OR $identifier IN a.emails)
               AND ($from_time IS NULL OR c.occurredAt >= datetime($from_time))
             WITH c ORDER BY c.occurredAt DESC
             RETURN collect(c)[0..$limit] AS comms_raw
             """,
+            project_id=project_id,
             identifier=identifier,
             from_time=from_time,
             limit=limit,
@@ -528,13 +559,14 @@ async def get_actor_activity(
         # Jira 생성 / 담당
         result = await session.run(
             """
-            MATCH (a:Actor)
+            MATCH (a:Actor {project_id: $project_id})
             WHERE a.name = $identifier OR $identifier IN a.aliases OR $identifier IN a.emails
             OPTIONAL MATCH (a)-[:CREATED]->(i:Issue)
             OPTIONAL MATCH (assigned:Issue)-[:ASSIGNED_TO]->(a)
             RETURN collect(DISTINCT {jira_key: i.jira_key, title: i.title}) AS issues_created,
                    collect(DISTINCT {jira_key: assigned.jira_key, title: assigned.title}) AS issues_assigned
             """,
+            project_id=project_id,
             identifier=identifier,
         )
         row = await result.single()
@@ -548,7 +580,7 @@ async def get_actor_activity(
 _FUZZY_CANDIDATE_LIMIT = 5     # candidates 리스트에 노출할 최대 후보 수
 
 
-async def get_file_history(path: str, limit: int = 20) -> list[dict]:
+async def get_file_history(project_id: str, path: str, limit: int = 20) -> list[dict]:
     """파일 경로의 변경 이력을 최신순으로 반환한다.
 
     strict path match가 비면 다음 순서로 fuzzy fallback:
@@ -563,7 +595,7 @@ async def get_file_history(path: str, limit: int = 20) -> list[dict]:
     """
     async with get_driver().session() as session:
         # 1단계: strict
-        rows = await _fetch_file_history(session, path, limit)
+        rows = await _fetch_file_history(session, project_id, path, limit)
         if rows:
             return rows
 
@@ -571,10 +603,10 @@ async def get_file_history(path: str, limit: int = 20) -> list[dict]:
 
         # 2단계: basename ENDS WITH (동일 파일명, 다른 디렉토리 가능)
         if basename:
-            candidates = await _find_files_ending_with(session, basename, _FUZZY_CANDIDATE_LIMIT)
+            candidates = await _find_files_ending_with(session, project_id, basename, _FUZZY_CANDIDATE_LIMIT)
             if len(candidates) == 1:
                 return await _fetch_with_resolution_meta(
-                    session, candidates[0], limit, resolved_via="basename_match",
+                    session, project_id, candidates[0], limit, resolved_via="basename_match",
                 )
             if len(candidates) > 1:
                 return [{
@@ -588,10 +620,10 @@ async def get_file_history(path: str, limit: int = 20) -> list[dict]:
         # 3단계: stem 매칭 (확장자 무관 — '.py'로 호출했는데 실제 '.java'인 케이스 대응)
         stem = basename.rpartition(".")[0] or basename
         if stem:
-            candidates = await _find_files_by_stem(session, stem, _FUZZY_CANDIDATE_LIMIT)
+            candidates = await _find_files_by_stem(session, project_id, stem, _FUZZY_CANDIDATE_LIMIT)
             if len(candidates) == 1:
                 return await _fetch_with_resolution_meta(
-                    session, candidates[0], limit, resolved_via="stem_match",
+                    session, project_id, candidates[0], limit, resolved_via="stem_match",
                 )
             if len(candidates) > 1:
                 return [{
@@ -605,11 +637,11 @@ async def get_file_history(path: str, limit: int = 20) -> list[dict]:
         return [{"message": f"해당 파일 또는 비슷한 이름의 파일을 찾을 수 없습니다: {path}"}]
 
 
-async def _fetch_file_history(session, path: str, limit: int) -> list[dict]:
+async def _fetch_file_history(session, project_id: str, path: str, limit: int) -> list[dict]:
     """strict path match로 변경 이력 조회. 결과 0건이면 빈 리스트 반환."""
     result = await session.run(
         """
-        MATCH (f:File {path: $path})<-[m:MODIFIED]-(cs:ChangeSet)
+        MATCH (f:File {project_id: $project_id, path: $path})<-[m:MODIFIED]-(cs:ChangeSet)
         MATCH (a:Actor)-[:AUTHORED]->(cs)
         OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
             WHERE coalesce(tb.confidence, 1.0) >= $min_conf
@@ -628,6 +660,7 @@ async def _fetch_file_history(session, path: str, limit: int) -> list[dict]:
         ORDER BY cs.occurredAt DESC
         LIMIT $limit
         """,
+        project_id=project_id,
         path=path,
         limit=limit,
         min_conf=_MIN_CONFIDENCE,
@@ -636,13 +669,13 @@ async def _fetch_file_history(session, path: str, limit: int) -> list[dict]:
 
 
 async def _fetch_with_resolution_meta(
-    session, resolved_path: str, limit: int, resolved_via: str,
+    session, project_id: str, resolved_path: str, limit: int, resolved_via: str,
 ) -> list[dict]:
     """resolved_path로 history 조회 후 row마다 fuzzy resolution 메타를 인라인 부여.
 
     이력이 비어있어도 resolved 정보를 전달해 LLM이 다음 호출에서 정확한 경로를 사용할 수 있게 한다.
     """
-    rows = await _fetch_file_history(session, resolved_path, limit)
+    rows = await _fetch_file_history(session, project_id, resolved_path, limit)
     if not rows:
         return [{
             "message": f"파일 매칭됐으나 변경 이력 없음: {resolved_path}",
@@ -655,26 +688,27 @@ async def _fetch_with_resolution_meta(
     return rows
 
 
-async def _find_files_ending_with(session, basename: str, max_candidates: int) -> list[str]:
+async def _find_files_ending_with(session, project_id: str, basename: str, max_candidates: int) -> list[str]:
     """f.path ENDS WITH '/' + basename 또는 정확히 basename — 동일 basename 검색.
 
     경로 짧은 순서로 정렬 (root에 가까운 파일 우선 — 일반적으로 사용자가 찾는 파일이 더 위에 있음).
     """
     result = await session.run(
         """
-        MATCH (f:File)
+        MATCH (f:File {project_id: $project_id})
         WHERE f.path ENDS WITH ('/' + $basename) OR f.path = $basename
         RETURN DISTINCT f.path AS path
         ORDER BY size(path) ASC, path ASC
         LIMIT $max
         """,
+        project_id=project_id,
         basename=basename,
         max=max_candidates,
     )
     return [r["path"] for r in await result.data()]
 
 
-async def _find_files_by_stem(session, stem: str, max_candidates: int) -> list[str]:
+async def _find_files_by_stem(session, project_id: str, stem: str, max_candidates: int) -> list[str]:
     """파일명 stem이 정확히 일치 (확장자 무관).
 
     LIMIT이 정제 전 후보에 걸리면 실제 후보가 누락될 수 있으므로, Cypher에서
@@ -684,7 +718,7 @@ async def _find_files_by_stem(session, stem: str, max_candidates: int) -> list[s
         return []
     result = await session.run(
         """
-        MATCH (f:File)
+        MATCH (f:File {project_id: $project_id})
         WITH f.path AS path, last(split(f.path, '/')) AS basename
         WITH path,
              CASE
@@ -697,6 +731,7 @@ async def _find_files_by_stem(session, stem: str, max_candidates: int) -> list[s
         ORDER BY size(path) ASC, path ASC
         LIMIT $max
         """,
+        project_id=project_id,
         stem=stem,
         max=max_candidates,
     )
@@ -704,6 +739,7 @@ async def _find_files_by_stem(session, stem: str, max_candidates: int) -> list[s
 
 
 async def check_missing_context(
+    project_id: str,
     from_time: str | None = None,
     to_time: str | None = None,
     limit: int = 50,
@@ -711,7 +747,7 @@ async def check_missing_context(
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (cs:ChangeSet)
+            MATCH (cs:ChangeSet {project_id: $project_id})
             WHERE NOT EXISTS {
                 MATCH (cs)-[tb:TRIGGERED_BY]->(:Issue)
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf
@@ -729,6 +765,7 @@ async def check_missing_context(
             ORDER BY cs.occurredAt DESC
             LIMIT $limit
             """,
+            project_id=project_id,
             from_time=from_time,
             to_time=to_time,
             limit=limit,
@@ -740,11 +777,11 @@ async def check_missing_context(
         return rows
 
 
-async def inspect_actor(identifier: str) -> dict:
+async def inspect_actor(project_id: str, identifier: str) -> dict:
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (a:Actor)
+            MATCH (a:Actor {project_id: $project_id})
             WHERE a.name = $identifier
                OR $identifier IN a.aliases
                OR $identifier IN a.emails
@@ -759,6 +796,7 @@ async def inspect_actor(identifier: str) -> dict:
                    count { (a)-[:WROTE]->(:Communication) } AS message_count,
                    count { (a)-[:CREATED]->(:Issue) } AS issue_created_count
             """,
+            project_id=project_id,
             identifier=identifier,
         )
         row = await result.single()
@@ -767,11 +805,11 @@ async def inspect_actor(identifier: str) -> dict:
         return dict(row)
 
 
-async def get_conflict_context(hash: str) -> dict:
+async def get_conflict_context(project_id: str, hash: str) -> dict:
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (cs:ChangeSet {hash: $hash})
+            MATCH (cs:ChangeSet {project_id: $project_id, hash: $hash})
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
@@ -805,6 +843,7 @@ async def get_conflict_context(hash: str) -> dict:
                    }) AS pr_contexts,
                    collect(DISTINCT {path: f.path, diff_summary: m.diffSummary}) AS file_changes
             """,
+            project_id=project_id,
             hash=hash,
             min_conf=_MIN_CONFIDENCE,
         )
@@ -820,6 +859,7 @@ async def get_conflict_context(hash: str) -> dict:
 
 
 async def get_recent_activity(
+    project_id: str,
     from_time: str,
     to_time: str | None = None,
     limit: int = 30,
@@ -829,6 +869,7 @@ async def get_recent_activity(
             """
             MATCH (n)
             WHERE (n:ChangeSet OR n:PullRequest OR n:Communication OR n:Issue)
+              AND n.project_id = $project_id
               AND n.occurredAt >= datetime($from_time)
               AND ($to_time IS NULL OR n.occurredAt <= datetime($to_time))
             WITH n, labels(n)[0] AS node_type
@@ -851,6 +892,7 @@ async def get_recent_activity(
             ORDER BY occurredAt DESC
             LIMIT $limit
             """,
+            project_id=project_id,
             from_time=from_time,
             to_time=to_time,
             limit=limit,
@@ -861,11 +903,11 @@ async def get_recent_activity(
         return rows
 
 
-async def get_pr_context(pr_number: int) -> dict:
+async def get_pr_context(project_id: str, pr_number: int) -> dict:
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (pr:PullRequest {pr_number: $pr_number})
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
             OPTIONAL MATCH (author:Actor)-[:AUTHORED]->(pr)
             OPTIONAL MATCH (pr)-[:CONTAINS]->(cs:ChangeSet)
             OPTIONAL MATCH (cs_author:Actor)-[:AUTHORED]->(cs)
@@ -900,6 +942,7 @@ async def get_pr_context(pr_number: int) -> dict:
                    }) AS discussions,
                    collect(DISTINCT {path: f.path, diff_summary: m.diffSummary}) AS file_changes
             """,
+            project_id=project_id,
             pr_number=pr_number,
             min_conf=_MIN_CONFIDENCE,
         )
@@ -911,14 +954,14 @@ async def get_pr_context(pr_number: int) -> dict:
         return out
 
 
-async def get_thread_context(conversation_id: str) -> list[dict]:
+async def get_thread_context(project_id: str, conversation_id: str) -> list[dict]:
     async with get_driver().session() as session:
         # collect(DISTINCT ...) 때문에 RETURN이 aggregation으로 처리됨 →
         # ORDER BY는 RETURN의 projected alias만 참조 가능 (c.occurredAt 직접 참조 시 SyntaxError).
         # occurredAt이 ISO 문자열이라 lexicographic = chronological 정렬.
         result = await session.run(
             """
-            MATCH (c:Communication {conversation_id: $conversation_id})
+            MATCH (c:Communication {project_id: $project_id, conversation_id: $conversation_id})
             OPTIONAL MATCH (a:Actor)-[:WROTE]->(c)
             OPTIONAL MATCH (i:Issue)-[:DISCUSSED_IN]->(c)
             RETURN c.body AS body,
@@ -929,6 +972,7 @@ async def get_thread_context(conversation_id: str) -> list[dict]:
                    collect(DISTINCT {jira_key: i.jira_key, title: i.title}) AS related_issues
             ORDER BY occurredAt ASC
             """,
+            project_id=project_id,
             conversation_id=conversation_id,
         )
         rows = await result.data()

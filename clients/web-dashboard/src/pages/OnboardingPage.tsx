@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Icons } from "@/components/Icons";
 import { createProject } from "@/api/projects";
 import { Topbar } from "@/components/shell/Topbar";
+import type { Project } from "@/types/api";
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -15,6 +16,11 @@ export function OnboardingPage() {
   const mutation = useMutation({
     mutationFn: () => createProject({ name, description: description || undefined }),
     onSuccess: (project) => {
+      // 새 프로젝트를 캐시에 즉시 반영한다. invalidateQueries는 백그라운드 refetch라,
+      // navigate 직후 AppShell이 stale한 빈 목록([])을 보고 /onboarding으로 되튕기는 것을 막는다.
+      queryClient.setQueryData<Project[]>(["projects"], (prev) =>
+        prev ? [project, ...prev] : [project],
+      );
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate(`/projects/${project.id}/chat`, { replace: true });
     },

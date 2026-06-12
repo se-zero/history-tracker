@@ -59,7 +59,7 @@ class MessageServiceTest {
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(conversation))
                 .thenReturn(Optional.of(conversation));
-        when(aiEngineQueryClient.ask("Why did auth change?"))
+        when(aiEngineQueryClient.ask("Why did auth change?", PROJECT_ID))
                 .thenReturn(AiEngineQueryResult.success("OAuth callback changed."));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -88,7 +88,7 @@ class MessageServiceTest {
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(conversation))
                 .thenReturn(Optional.of(conversation));
-        when(aiEngineQueryClient.ask("Why did auth change?"))
+        when(aiEngineQueryClient.ask("Why did auth change?", PROJECT_ID))
                 .thenReturn(AiEngineQueryResult.fallback("질문을 처리하는 중 오류가 발생했습니다."));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

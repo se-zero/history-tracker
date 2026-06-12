@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class GitHubNormalizerTest {
 
+    private static final String PROJECT_ID = "11111111-1111-1111-1111-111111111111";
+
     private GitHubNormalizer normalizer;
 
     @BeforeEach
@@ -33,7 +35,7 @@ class GitHubNormalizerTest {
     @Test
     @DisplayName("빈 리스트 입력 → 빈 이벤트 목록")
     void normalizeCommits_emptyList_returnsEmpty() {
-        assertThat(normalizer.normalizeCommits(List.of())).isEmpty();
+        assertThat(normalizer.normalizeCommits(PROJECT_ID, List.of())).isEmpty();
     }
 
     @Test
@@ -42,7 +44,7 @@ class GitHubNormalizerTest {
         Map<String, Object> mergeCommit = buildCommit("sha-merge", "merge commit", "2024-01-01T00:00:00Z",
                 List.of(Map.of("sha", "p1"), Map.of("sha", "p2")));  // parent 2개
 
-        List<NormalizedEvent> events = normalizer.normalizeCommits(List.of(mergeCommit));
+        List<NormalizedEvent> events = normalizer.normalizeCommits(PROJECT_ID, List.of(mergeCommit));
 
         assertThat(events).isEmpty();
     }
@@ -53,10 +55,11 @@ class GitHubNormalizerTest {
         Map<String, Object> commit = buildCommit("abc123", "feat: add payment", "2024-03-15T10:00:00Z",
                 List.of(Map.of("sha", "parent-1")));
 
-        List<NormalizedEvent> events = normalizer.normalizeCommits(List.of(commit));
+        List<NormalizedEvent> events = normalizer.normalizeCommits(PROJECT_ID, List.of(commit));
 
         assertThat(events).hasSize(1);
         NormalizedEvent event = events.get(0);
+        assertThat(event.projectId()).isEqualTo(PROJECT_ID);
         assertThat(event.nodeType()).isEqualTo("ChangeSet");
         assertThat(event.source()).isEqualTo("GITHUB");
         assertThat(event.properties()).containsEntry("hash", "abc123");
@@ -69,7 +72,7 @@ class GitHubNormalizerTest {
         Map<String, Object> commit = buildCommit("sha1", "fix: PAYMENT-301 null pointer", "2024-03-15T10:00:00Z",
                 List.of(Map.of("sha", "p1")));
 
-        NormalizedEvent event = normalizer.normalizeCommits(List.of(commit)).get(0);
+        NormalizedEvent event = normalizer.normalizeCommits(PROJECT_ID, List.of(commit)).get(0);
 
         assertThat(event.refs()).containsEntry("jiraKey", "PAYMENT-301");
     }
@@ -81,7 +84,7 @@ class GitHubNormalizerTest {
                 List.of(Map.of("sha", "p1")));
         commit.put("prNumber", "42");
 
-        NormalizedEvent event = normalizer.normalizeCommits(List.of(commit)).get(0);
+        NormalizedEvent event = normalizer.normalizeCommits(PROJECT_ID, List.of(commit)).get(0);
 
         assertThat(event.refs()).containsEntry("prNumber", "42");
     }
@@ -95,7 +98,7 @@ class GitHubNormalizerTest {
         Map<String, Object> commitDetail = (Map<String, Object>) commit.get("commit");
         commitDetail.put("committer", Map.of("date", "2024-03-16T12:30:00Z"));
 
-        NormalizedEvent event = normalizer.normalizeCommits(List.of(commit)).get(0);
+        NormalizedEvent event = normalizer.normalizeCommits(PROJECT_ID, List.of(commit)).get(0);
 
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-16T12:30:00Z"));
         assertThat(event.properties()).doesNotContainKeys("authored_at", "committed_at");
@@ -114,7 +117,7 @@ class GitHubNormalizerTest {
         commit.put("author", null);  // GitHub 계정 null
         commit.put("parents", List.of(Map.of("sha", "p1")));
 
-        NormalizedEvent event = normalizer.normalizeCommits(List.of(commit)).get(0);
+        NormalizedEvent event = normalizer.normalizeCommits(PROJECT_ID, List.of(commit)).get(0);
 
         // login이 없으므로 name이 id 필드에 사용되어야 함
         assertThat(event.actor().id()).isEqualTo("John Doe");
@@ -134,7 +137,7 @@ class GitHubNormalizerTest {
                 List.of(Map.of("sha", "p1")));
         commit.put("files", List.of(file));
 
-        NormalizedEvent event = normalizer.normalizeCommits(List.of(commit)).get(0);
+        NormalizedEvent event = normalizer.normalizeCommits(PROJECT_ID, List.of(commit)).get(0);
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> files = (List<Map<String, Object>>) event.properties().get("files");
@@ -152,7 +155,7 @@ class GitHubNormalizerTest {
     void normalizePullRequests_normalPR_createsPullRequestEvent() {
         Map<String, Object> pr = buildPullRequest(42, "feat: new feature", "open", "main", "2024-04-01T00:00:00Z");
 
-        List<NormalizedEvent> events = normalizer.normalizePullRequests(List.of(pr));
+        List<NormalizedEvent> events = normalizer.normalizePullRequests(PROJECT_ID, List.of(pr));
 
         assertThat(events).hasSize(1);
         NormalizedEvent event = events.get(0);
@@ -168,7 +171,7 @@ class GitHubNormalizerTest {
         Map<String, Object> pr = buildPullRequest(10, "fix login", "closed", "develop", "2024-04-01T00:00:00Z");
         pr.put("body", "Implements AUTH-55 login flow");
 
-        NormalizedEvent event = normalizer.normalizePullRequests(List.of(pr)).get(0);
+        NormalizedEvent event = normalizer.normalizePullRequests(PROJECT_ID, List.of(pr)).get(0);
 
         assertThat(event.refs()).containsEntry("jiraKey", "AUTH-55");
     }
@@ -179,7 +182,7 @@ class GitHubNormalizerTest {
         Map<String, Object> pr = buildPullRequest(10, "merged PR", "closed", "main", "2024-04-01T00:00:00Z");
         pr.put("merged_at", "2024-04-05T09:00:00Z");
 
-        NormalizedEvent event = normalizer.normalizePullRequests(List.of(pr)).get(0);
+        NormalizedEvent event = normalizer.normalizePullRequests(PROJECT_ID, List.of(pr)).get(0);
 
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-04-05T09:00:00Z"));
         assertThat(event.properties()).containsEntry("created_at", "2024-04-01T00:00:00Z");
@@ -192,7 +195,7 @@ class GitHubNormalizerTest {
         Map<String, Object> pr = buildPullRequest(1, "title", "open", "main", "2024-01-01T00:00:00Z");
         pr.put("user", null);
 
-        NormalizedEvent event = normalizer.normalizePullRequests(List.of(pr)).get(0);
+        NormalizedEvent event = normalizer.normalizePullRequests(PROJECT_ID, List.of(pr)).get(0);
 
         assertThat(event.actor().id()).isNull();
         assertThat(event.actor().name()).isNull();
@@ -207,12 +210,12 @@ class GitHubNormalizerTest {
         Map<String, Object> user = (Map<String, Object>) pr.get("user");
         user.put("name", "Alice Kim");
 
-        NormalizedEvent eventWithName = normalizer.normalizePullRequests(List.of(pr)).get(0);
+        NormalizedEvent eventWithName = normalizer.normalizePullRequests(PROJECT_ID, List.of(pr)).get(0);
         assertThat(eventWithName.actor().name()).isEqualTo("Alice Kim");
 
         // name 없는 user
         Map<String, Object> pr2 = buildPullRequest(2, "title2", "open", "main", "2024-01-01T00:00:00Z");
-        NormalizedEvent eventWithoutName = normalizer.normalizePullRequests(List.of(pr2)).get(0);
+        NormalizedEvent eventWithoutName = normalizer.normalizePullRequests(PROJECT_ID, List.of(pr2)).get(0);
         assertThat(eventWithoutName.actor().name()).isEqualTo("test-user");  // login 값
     }
 
@@ -226,7 +229,7 @@ class GitHubNormalizerTest {
         Map<String, Object> item = buildIssue(1, "PR disguised as issue", null);
         item.put("pull_request", Map.of("url", "https://api.github.com/repos/..."));
 
-        List<NormalizedEvent> events = normalizer.normalizeIssues(List.of(item));
+        List<NormalizedEvent> events = normalizer.normalizeIssues(PROJECT_ID, List.of(item));
 
         assertThat(events).isEmpty();
     }
@@ -236,7 +239,7 @@ class GitHubNormalizerTest {
     void normalizeIssues_normalIssue_createsCommunicationEvent() {
         Map<String, Object> issue = buildIssue(7, "Bug report", "Some body");
 
-        List<NormalizedEvent> events = normalizer.normalizeIssues(List.of(issue));
+        List<NormalizedEvent> events = normalizer.normalizeIssues(PROJECT_ID, List.of(issue));
 
         assertThat(events).hasSize(1);
         assertThat(events.get(0).nodeType()).isEqualTo("Communication");
@@ -249,7 +252,7 @@ class GitHubNormalizerTest {
         Map<String, Object> issue = buildIssue(7, "Bug report", "Some body");
         issue.put("updated_at", "2024-03-03T12:00:00Z");
 
-        NormalizedEvent event = normalizer.normalizeIssues(List.of(issue)).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
 
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-03T12:00:00Z"));
         assertThat(event.properties()).containsEntry("created_at", "2024-03-01T00:00:00Z");
@@ -261,7 +264,7 @@ class GitHubNormalizerTest {
     void normalizeIssues_titleAndBody_combined() {
         Map<String, Object> issue = buildIssue(3, "My Title", "Detailed body");
 
-        NormalizedEvent event = normalizer.normalizeIssues(List.of(issue)).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
 
         String body = (String) event.properties().get("body");
         assertThat(body).startsWith("My Title").contains("Detailed body");
@@ -272,7 +275,7 @@ class GitHubNormalizerTest {
     void normalizeIssues_nullBody_onlyTitle() {
         Map<String, Object> issue = buildIssue(4, "Only Title", null);
 
-        NormalizedEvent event = normalizer.normalizeIssues(List.of(issue)).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
 
         assertThat(event.properties().get("body")).isEqualTo("Only Title");
     }

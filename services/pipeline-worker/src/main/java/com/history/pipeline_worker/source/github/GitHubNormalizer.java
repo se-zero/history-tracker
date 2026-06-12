@@ -20,7 +20,7 @@ public class GitHubNormalizer {
 
     // commits → ChangeSet 이벤트 목록
     @SuppressWarnings("unchecked")
-    public List<NormalizedEvent> normalizeCommits(List<Object> commits) {
+    public List<NormalizedEvent> normalizeCommits(String projectId, List<Object> commits) {
         List<NormalizedEvent> events = new ArrayList<>();
         for (Object raw : commits) {
             Map<String, Object> commit = (Map<String, Object>) raw;
@@ -69,6 +69,7 @@ public class GitHubNormalizer {
             }
 
             events.add(new NormalizedEvent(
+                    projectId,
                     "ChangeSet",
                     "GITHUB",
                     resolveInstant(committedAt, authoredAt),
@@ -82,7 +83,7 @@ public class GitHubNormalizer {
 
     // pull requests → PullRequest 이벤트 목록
     @SuppressWarnings("unchecked")
-    public List<NormalizedEvent> normalizePullRequests(List<Object> pullRequests) {
+    public List<NormalizedEvent> normalizePullRequests(String projectId, List<Object> pullRequests) {
         List<NormalizedEvent> events = new ArrayList<>();
         for (Object raw : pullRequests) {
             Map<String, Object> pr = (Map<String, Object>) raw;
@@ -105,6 +106,7 @@ public class GitHubNormalizer {
             String content = (body != null ? body : "") + " " + pr.get("title");
 
             events.add(new NormalizedEvent(
+                    projectId,
                     "PullRequest",
                     "GITHUB",
                     resolveInstant(mergedAt, createdAt),
@@ -122,7 +124,7 @@ public class GitHubNormalizer {
 
     // issues (PR 제외) → Communication 이벤트 목록
     @SuppressWarnings("unchecked")
-    public List<NormalizedEvent> normalizeIssues(List<Object> issues) {
+    public List<NormalizedEvent> normalizeIssues(String projectId, List<Object> issues) {
         List<NormalizedEvent> events = new ArrayList<>();
         for (Object raw : issues) {
             Map<String, Object> issue = (Map<String, Object>) raw;
@@ -150,6 +152,7 @@ public class GitHubNormalizer {
             String content = combinedBody;
 
             events.add(new NormalizedEvent(
+                    projectId,
                     "Communication",
                     "GITHUB",
                     resolveInstant(updatedAt, createdAt),

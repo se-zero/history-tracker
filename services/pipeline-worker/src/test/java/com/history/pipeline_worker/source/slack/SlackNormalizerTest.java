@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class SlackNormalizerTest {
 
+    private static final String PROJECT_ID = "11111111-1111-1111-1111-111111111111";
+
     private SlackNormalizer normalizer;
 
     @BeforeEach
@@ -31,19 +33,19 @@ class SlackNormalizerTest {
     @Test
     @DisplayName("null 입력 → 빈 이벤트 목록")
     void normalizeChannels_nullInput_returnsEmpty() {
-        assertThat(normalizer.normalizeChannels(null)).isEmpty();
+        assertThat(normalizer.normalizeChannels(PROJECT_ID,null)).isEmpty();
     }
 
     @Test
     @DisplayName("channels 키 없는 Map → 빈 이벤트 목록")
     void normalizeChannels_noChannelsKey_returnsEmpty() {
-        assertThat(normalizer.normalizeChannels(Map.of())).isEmpty();
+        assertThat(normalizer.normalizeChannels(PROJECT_ID,Map.of())).isEmpty();
     }
 
     @Test
     @DisplayName("channels 빈 리스트 → 빈 이벤트 목록")
     void normalizeChannels_emptyChannels_returnsEmpty() {
-        assertThat(normalizer.normalizeChannels(Map.of("channels", List.of()))).isEmpty();
+        assertThat(normalizer.normalizeChannels(PROJECT_ID,Map.of("channels", List.of()))).isEmpty();
     }
 
     // ─── 일반 메시지 변환 ────────────────────────────────────────────────────────
@@ -57,7 +59,7 @@ class SlackNormalizerTest {
         Map<String, Object> slackData = buildSlackData("general", "C001",
                 List.of(msg), null);
 
-        List<NormalizedEvent> events = normalizer.normalizeChannels(slackData);
+        List<NormalizedEvent> events = normalizer.normalizeChannels(PROJECT_ID,slackData);
 
         assertThat(events).hasSize(1);
         NormalizedEvent event = events.get(0);
@@ -77,7 +79,7 @@ class SlackNormalizerTest {
                 "Hello world", "1714000000.000000");
         Map<String, Object> channel = buildChannel("general", "C001", List.of(msg), null);
 
-        List<NormalizedEvent> events = normalizer.normalizeChannel(channel);
+        List<NormalizedEvent> events = normalizer.normalizeChannel(PROJECT_ID, channel);
 
         assertThat(events).hasSize(1);
         assertThat(events.get(0).properties()).containsEntry("channel", "general");
@@ -90,7 +92,7 @@ class SlackNormalizerTest {
         Map<String, Object> msg = buildMessage("U001", "Alice", null, "text", ts);
         Map<String, Object> slackData = buildSlackData("general", "C001", List.of(msg), null);
 
-        NormalizedEvent event = normalizer.normalizeChannels(slackData).get(0);
+        NormalizedEvent event = normalizer.normalizeChannels(PROJECT_ID,slackData).get(0);
 
         assertThat(event.properties()).containsEntry("conversation_id", ts);
     }
@@ -101,7 +103,7 @@ class SlackNormalizerTest {
         Map<String, Object> msg = buildMessage("U001", "Alice", null, "text", "1714000000.123456");
         Map<String, Object> slackData = buildSlackData("general", "C999", List.of(msg), null);
 
-        NormalizedEvent event = normalizer.normalizeChannels(slackData).get(0);
+        NormalizedEvent event = normalizer.normalizeChannels(PROJECT_ID,slackData).get(0);
 
         assertThat(event.properties().get("url").toString())
                 .isEqualTo("https://slack.com/archives/C999/p1714000000123456");
@@ -121,7 +123,7 @@ class SlackNormalizerTest {
 
         Map<String, Object> slackData = buildSlackData("dev", "C002", null, List.of(thread));
 
-        List<NormalizedEvent> events = normalizer.normalizeChannels(slackData);
+        List<NormalizedEvent> events = normalizer.normalizeChannels(PROJECT_ID,slackData);
 
         assertThat(events).hasSize(1);
         assertThat(events.get(0).properties()).containsEntry("conversation_id", threadTs);
@@ -142,7 +144,7 @@ class SlackNormalizerTest {
                 List.of(msg), List.of(thread));
 
         // 루트 1개 + reply 2개 = 총 3개
-        assertThat(normalizer.normalizeChannels(slackData)).hasSize(3);
+        assertThat(normalizer.normalizeChannels(PROJECT_ID,slackData)).hasSize(3);
     }
 
     // ─── ts → Instant 변환 ──────────────────────────────────────────────────────
@@ -155,7 +157,7 @@ class SlackNormalizerTest {
         Map<String, Object> msg = buildMessage("U001", "Alice", null, "text", ts);
         Map<String, Object> slackData = buildSlackData("general", "C001", List.of(msg), null);
 
-        Instant occurredAt = normalizer.normalizeChannels(slackData).get(0).occurredAt();
+        Instant occurredAt = normalizer.normalizeChannels(PROJECT_ID,slackData).get(0).occurredAt();
 
         assertThat(occurredAt.getEpochSecond()).isEqualTo(1714000000L);
     }
@@ -168,7 +170,7 @@ class SlackNormalizerTest {
         Map<String, Object> msg = buildMessage("U001", "Alice", null, "text", ts);
         Map<String, Object> slackData = buildSlackData("general", "C001", List.of(msg), null);
 
-        Instant occurredAt = normalizer.normalizeChannels(slackData).get(0).occurredAt();
+        Instant occurredAt = normalizer.normalizeChannels(PROJECT_ID,slackData).get(0).occurredAt();
 
         assertThat(occurredAt.getNano()).isEqualTo(500_000_000);
     }
@@ -182,7 +184,7 @@ class SlackNormalizerTest {
                 "해당 이슈는 PROJ-123 확인 바람", "1714000000.000000");
         Map<String, Object> slackData = buildSlackData("general", "C001", List.of(msg), null);
 
-        NormalizedEvent event = normalizer.normalizeChannels(slackData).get(0);
+        NormalizedEvent event = normalizer.normalizeChannels(PROJECT_ID,slackData).get(0);
 
         assertThat(event.refs()).containsEntry("jiraKey", "PROJ-123");
     }

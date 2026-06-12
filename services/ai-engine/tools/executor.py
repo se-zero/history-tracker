@@ -30,10 +30,15 @@ def _mask_args(args: dict) -> dict:
     return {k: _mask_value(v) for k, v in args.items()}
 
 
-async def execute(tool_name: str, args: dict) -> str:
-    """tool_name과 args를 받아 해당 Cypher 쿼리를 실행하고 JSON 문자열로 반환."""
+async def execute(tool_name: str, args: dict, project_id: str) -> str:
+    """tool_name과 args를 받아 해당 Cypher 쿼리를 실행하고 JSON 문자열로 반환.
+
+    project_id는 backend가 인증된 사용자의 프로젝트로 주입한 값 — 모든 쿼리가 이 값으로
+    스코프되어 다른 프로젝트 그래프를 조회하지 못한다. LLM은 project_id를 보지도 못하고
+    바꿀 수도 없다 (도구 인자에 없음).
+    """
     try:
-        result = await _dispatch(tool_name, args)
+        result = await _dispatch(tool_name, args, project_id)
     except KeyError as e:
         # 필수 인자 누락 — LLM이 다음 호출에서 교정할 수 있도록 명확히 알림
         result = {"error": f"필수 인자 누락: {e.args[0] if e.args else 'unknown'}"}
@@ -48,25 +53,29 @@ async def execute(tool_name: str, args: dict) -> str:
     return payload
 
 
-async def _dispatch(tool_name: str, args: dict) -> object:
+async def _dispatch(tool_name: str, args: dict, project_id: str) -> object:
     match tool_name:
         case "get_issue_context":
             return await queries.get_issue_context(
+                project_id=project_id,
                 jira_key=args["jira_key"],
             )
 
         case "get_changeset_context":
             return await queries.get_changeset_context(
+                project_id=project_id,
                 hash=args["hash"],
             )
 
         case "find_expert":
             return await queries.find_expert(
+                project_id=project_id,
                 path_prefix=args["path_prefix"],
             )
 
         case "get_timeline":
             return await queries.get_timeline(
+                project_id=project_id,
                 jira_key=args["jira_key"],
             )
 
@@ -74,6 +83,7 @@ async def _dispatch(tool_name: str, args: dict) -> object:
             # LLM이 keyword 문자열을 전달 → executor에서 임베딩 생성
             embedding = await embed_text(args["keyword"])
             return await queries.search_by_keyword(
+                project_id=project_id,
                 embedding=embedding,
                 top_k=args.get("top_k", 5),
                 threshold=args.get("threshold", 0.30),
@@ -81,6 +91,7 @@ async def _dispatch(tool_name: str, args: dict) -> object:
 
         case "get_actor_activity":
             return await queries.get_actor_activity(
+                project_id=project_id,
                 identifier=args["identifier"],
                 from_time=args.get("from_time"),
                 limit=args.get("limit", 20),
@@ -88,12 +99,14 @@ async def _dispatch(tool_name: str, args: dict) -> object:
 
         case "get_file_history":
             return await queries.get_file_history(
+                project_id=project_id,
                 path=args["path"],
                 limit=args.get("limit", 20),
             )
 
         case "check_missing_context":
             return await queries.check_missing_context(
+                project_id=project_id,
                 from_time=args.get("from_time"),
                 to_time=args.get("to_time"),
                 limit=args.get("limit", 50),
@@ -101,16 +114,19 @@ async def _dispatch(tool_name: str, args: dict) -> object:
 
         case "inspect_actor":
             return await queries.inspect_actor(
+                project_id=project_id,
                 identifier=args["identifier"],
             )
 
         case "get_conflict_context":
             return await queries.get_conflict_context(
+                project_id=project_id,
                 hash=args["hash"],
             )
 
         case "get_recent_activity":
             return await queries.get_recent_activity(
+                project_id=project_id,
                 from_time=args["from_time"],
                 to_time=args.get("to_time"),
                 limit=args.get("limit", 30),
@@ -118,11 +134,13 @@ async def _dispatch(tool_name: str, args: dict) -> object:
 
         case "get_pr_context":
             return await queries.get_pr_context(
+                project_id=project_id,
                 pr_number=args["pr_number"],
             )
 
         case "get_thread_context":
             return await queries.get_thread_context(
+                project_id=project_id,
                 conversation_id=args["conversation_id"],
             )
 

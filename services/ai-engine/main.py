@@ -15,10 +15,11 @@ logging.basicConfig(
 )
 
 from agent import orchestrator
-from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, clear_semantic_triggered_by, close_driver, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
+from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, clear_semantic_triggered_by, close_driver, ensure_constraints, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
 from graph.slack_batch_filter import run_slack_llm_filter
 from graph.consumer import start_consumer
 from graph.event_handler import handle
+from graph.overview import get_project_overview
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
 from graph.reference_builder import backfill_communication_embeddings, build_reference_edges
 
@@ -42,6 +43,7 @@ async def _prewarm_project_context() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_driver()  # 연결 검증 겸 초기화
+    await ensure_constraints()
     await ensure_vector_indexes()
     await _prewarm_project_context()
     task = asyncio.create_task(start_consumer())
@@ -64,9 +66,25 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/graph/overview")
+async def graph_overview(project_id: str, limit: int = 200, types: str = ""):
+    """프로젝트 그래프 개요 조회 (프론트 그래프 탐색용).
+
+    project_id로 스코프된 최근 content 노드 + 연결 Actor/File을 {nodes, edges}로 반환한다.
+    인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
+
+    types: 쉼표 구분 프론트 type 화이트리스트(예: "commit,pr,jira"). 생략 시 전체.
+    """
+    type_list = [t for t in (types.split(",") if types else []) if t.strip()] or None
+    return await get_project_overview(project_id, limit, type_list)
+
+
 @app.post("/test/ingest", tags=["test"])
 async def test_ingest(event: dict):
-    """[테스트 전용] NormalizedEvent를 RabbitMQ 없이 직접 주입한다."""
+    """[테스트 전용] NormalizedEvent를 RabbitMQ 없이 직접 주입한다.
+
+    projectId 필수 — 없는 이벤트는 그래프 격리를 위해 건너뛴다 (event_handler.handle 참고).
+    """
     await handle(event)
     return {"ok": True}
 
@@ -134,6 +152,7 @@ async def trigger_pr_jira_keys_backfill():
 
 class QueryRequest(BaseModel):
     question: str
+    project_id: str = ""  # 그래프 격리 스코프. backend가 인증된 사용자의 프로젝트로 주입.
     repo: str = ""  # "owner/repo" 형식. 도메인 컨텍스트 주입용. 없으면 컨텍스트 없이 동작.
 
 
@@ -141,18 +160,24 @@ class QueryRequest(BaseModel):
 async def query(req: QueryRequest):
     """자연어 질문을 받아 GraphRAG tool calling으로 답변을 반환한다.
 
+    project_id로 모든 그래프 쿼리가 스코프된다 — 없으면 어떤 프로젝트 노드에도 매칭되지
+    않아 빈 답변이 된다 (안전한 degradation, 크로스 프로젝트 누출 없음).
+
     응답:
       - answer: markdown 형식 답변 (Structured Output → render).
       - structured: grounded_answer 스키마 dict (summary/evidence/unknown_aspects).
         Structured 호출 실패 시 null — 이때 answer는 LLM의 자유 텍스트 fallback.
     """
+    if not req.project_id:
+        logger.warning("/query에 project_id 없음 — 그래프 조회가 비어 있게 됩니다.")
+
     project_context = ""
     if req.repo and "/" in req.repo:
         from graph.project_context import get_project_summary
         owner, repo_name = req.repo.split("/", 1)
         project_context = await asyncio.to_thread(get_project_summary, owner, repo_name) or ""
 
-    answer, structured = await orchestrator.run(req.question, project_context)
+    answer, structured = await orchestrator.run(req.question, project_context, req.project_id)
     return {"answer": answer, "structured": structured}
 
 

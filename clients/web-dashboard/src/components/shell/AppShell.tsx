@@ -90,6 +90,11 @@ export function AppShell({ children }: { children?: ReactNode }) {
   }
 
   if (projects.length === 0) {
+    // 빈 목록이지만 아직 refetch 중이면(예: 생성 직후 stale [] 캐시) 결과를 기다린다.
+    // 곧바로 /onboarding으로 보내면 방금 만든 프로젝트로의 이동이 되튕긴다.
+    if (projectsQuery.isFetching) {
+      return <StatusView tone="loading" description="프로젝트 불러오는 중…" fullPage />;
+    }
     return <Navigate to="/onboarding" replace />;
   }
 

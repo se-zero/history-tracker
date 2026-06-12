@@ -1,5 +1,7 @@
 package com.history.backend.conversation.service;
 
+import java.util.UUID;
+
 import com.history.backend.conversation.dto.AiEngineQueryRequest;
 import com.history.backend.conversation.dto.AiEngineQueryResponse;
 import lombok.RequiredArgsConstructor;
@@ -20,12 +22,13 @@ public class AiEngineQueryClient {
     private final RestClient aiEngineRestClient;
 
     // ai-engine 질의 — 실패 시 예외 대신 fallback 답변 반환 (대화 흐름 유지)
-    public AiEngineQueryResult ask(String question) {
+    // projectId로 그래프 조회가 스코프된다 (다른 프로젝트 데이터 인용 차단)
+    public AiEngineQueryResult ask(String question, UUID projectId) {
         try {
             AiEngineQueryResponse response = aiEngineRestClient.post()
                     .uri("/query")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new AiEngineQueryRequest(question))
+                    .body(new AiEngineQueryRequest(question, projectId.toString()))
                     .retrieve()
                     .body(AiEngineQueryResponse.class);
             String answer = normalizeAnswer(response);

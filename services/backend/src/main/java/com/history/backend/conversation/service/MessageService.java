@@ -55,7 +55,7 @@ public class MessageService {
 
     // AI 질의(트랜잭션 밖) 후 assistant 응답 메시지 저장
     Message appendAssistantMessageAfterQuery(UUID projectId, UUID conversationId, String normalizedContent) {
-        AiEngineQueryResult queryResult = aiEngineQueryClient.ask(normalizedContent);
+        AiEngineQueryResult queryResult = aiEngineQueryClient.ask(normalizedContent, projectId);
         return transactionTemplate.execute(status -> {
             // 트랜잭션이 분리되어 있어 질의 중 삭제됐을 수 있으므로 conversation 재조회
             Conversation conversation = findConversation(projectId, conversationId);
