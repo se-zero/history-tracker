@@ -340,7 +340,7 @@ class MessageServiceTest {
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(conversation))
                 .thenReturn(Optional.of(conversation));
-        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+        when(messageRepository.findAllFromCursor(CONVERSATION_ID, storedCursor))
                 .thenReturn(messages);
         when(aiEngineQueryClient.summarize(existingSummary, newlyOldHistory)).thenReturn(generatedSummary);
         when(conversationRepository.updateRunningSummary(
@@ -358,6 +358,43 @@ class MessageServiceTest {
 
         verify(aiEngineQueryClient).summarize(existingSummary, newlyOldHistory);
         verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary);
+    }
+
+    @Test
+    void addMessageFallsBackToFullHistoryWhenSummaryCursorIsMissing() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        UUID missingCursor = UUID.randomUUID();
+        setSummaryState(conversation, summary("existing"), missingCursor, 1L);
+        List<Message> messages = completedTurns(conversation, 2);
+        List<AiEngineHistoryMessage> expectedHistory = historyTurns(1, 2);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllFromCursor(CONVERSATION_ID, missingCursor)).thenReturn(List.of());
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(aiEngineQueryClient.ask(
+                "Current question",
+                PROJECT_ID,
+                expectedHistory,
+                List.of(),
+                summary("existing")
+        )).thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+
+        verify(messageRepository).findAllFromCursor(CONVERSATION_ID, missingCursor);
+        verify(messageRepository).findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID);
+        verify(aiEngineQueryClient).ask(
+                "Current question",
+                PROJECT_ID,
+                expectedHistory,
+                List.of(),
+                summary("existing")
+        );
     }
 
     @Test

@@ -105,6 +105,25 @@ class ConversationPersistenceTest {
     }
 
     @Test
+    void findMessagesFromSummaryCursorTime() throws InterruptedException {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
+                fixture.project(),
+                fixture.owner(),
+                "Cursor context"
+        ));
+        Message beforeCursor = messageRepository.saveAndFlush(Message.user(conversation, "Old question"));
+        Thread.sleep(5);
+        Message cursor = messageRepository.saveAndFlush(Message.assistant(conversation, "Old answer", null));
+        Thread.sleep(5);
+        Message afterCursor = messageRepository.saveAndFlush(Message.user(conversation, "Recent question"));
+
+        assertThat(messageRepository.findAllFromCursor(conversation.getId(), cursor.getId()))
+                .containsExactly(cursor, afterCursor)
+                .doesNotContain(beforeCursor);
+    }
+
+    @Test
     void metadataIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
         Conversation conversation = conversationRepository.saveAndFlush(new Conversation(

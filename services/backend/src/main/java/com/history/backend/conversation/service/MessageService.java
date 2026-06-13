@@ -134,9 +134,7 @@ public class MessageService {
 
     // AI 질의 컨텍스트와 새로 요약할 오래된 완성 턴 구성
     private QueryContext loadQueryContext(Conversation conversation) {
-        List<HistoryTurn> completedTurns = completedHistoryTurns(
-                messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversation.getId())
-        );
+        List<HistoryTurn> completedTurns = completedHistoryTurns(loadContextMessages(conversation));
         int fromIndex = Math.max(0, completedTurns.size() - MAX_HISTORY_TURNS);
         List<AiEngineHistoryMessage> history = completedTurns.subList(fromIndex, completedTurns.size()).stream()
                 .flatMap(turn -> turn.messages().stream())
@@ -148,27 +146,34 @@ public class MessageService {
         return new QueryContext(history, priorEvidence, conversation.getRunningSummary(), summaryTask);
     }
 
-    // 마지막 요약 커서(summaryThroughMessageId) 이후로 새로 밀려난 완성 턴의 요약 작업 구성
-    private SummaryTask summaryTask(Conversation conversation, List<HistoryTurn> oldTurns) {
-        int startIndex = 0;
-        UUID summaryThroughMessageId = conversation.getSummaryThroughMessageId();
-        if (summaryThroughMessageId != null) {
-            for (int index = 0; index < oldTurns.size(); index++) {
-                if (summaryThroughMessageId.equals(oldTurns.get(index).assistant().getId())) {
-                    startIndex = index + 1;
-                    break;
-                }
+    // 누적 요약 커서 이후의 AI 문맥 대상 메시지 조회
+    private List<Message> loadContextMessages(Conversation conversation) {
+        UUID cursorMessageId = conversation.getSummaryThroughMessageId();
+        if (cursorMessageId == null) {
+            return messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversation.getId());
+        }
+        List<Message> messages = messageRepository.findAllFromCursor(conversation.getId(), cursorMessageId);
+        for (int index = 0; index < messages.size(); index++) {
+            if (cursorMessageId.equals(messages.get(index).getId())) {
+                // 동일 생성 시각의 커서 이전 메시지가 다시 요약되는 것을 방지
+                return messages.subList(index, messages.size());
             }
         }
-        if (startIndex >= oldTurns.size()) {
+        // 잘못된 커서로 이후 문맥이 누락되는 것보다 전체 이력 재처리를 우선
+        log.warn("running summary 커서 메시지 조회 실패 - 전체 이력으로 진행: {}", cursorMessageId);
+        return messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversation.getId());
+    }
+
+    // 커서 이후 조회 결과에서 최근 이력 밖으로 밀려난 완성 턴의 요약 작업 구성
+    private SummaryTask summaryTask(Conversation conversation, List<HistoryTurn> oldTurns) {
+        if (oldTurns.isEmpty()) {
             return null;
         }
-        List<HistoryTurn> unsummarizedTurns = oldTurns.subList(startIndex, oldTurns.size());
-        UUID throughMessageId = unsummarizedTurns.get(unsummarizedTurns.size() - 1).assistant().getId();
+        UUID throughMessageId = oldTurns.get(oldTurns.size() - 1).assistant().getId();
         if (throughMessageId == null) {
             return null;
         }
-        List<AiEngineHistoryMessage> history = unsummarizedTurns.stream()
+        List<AiEngineHistoryMessage> history = oldTurns.stream()
                 .flatMap(turn -> turn.messages().stream())
                 .toList();
         return new SummaryTask(history, throughMessageId, conversation.getSummaryVersion());
