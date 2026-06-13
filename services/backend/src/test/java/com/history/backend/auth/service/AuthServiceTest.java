@@ -79,7 +79,9 @@ class AuthServiceTest {
         URI uri = authService.buildGitHubAuthorizeUri("foo&bar=baz");
 
         assertThat(uri.toString())
-                .startsWith("https://github.com/apps/history-tracker/installations/new")
+                .startsWith("https://github.com/login/oauth/authorize")
+                .contains("client_id=client-id")
+                .contains("redirect_uri=http://localhost/api/v1/auth/github/callback")
                 .contains("state=foo%26bar%3Dbaz");
     }
 
