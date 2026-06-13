@@ -72,6 +72,62 @@ class QueryRequestHistoryTest(unittest.TestCase):
 
 
 class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
+    async def test_run_separates_all_prior_context_from_structured_answer(self):
+        history = [
+            {"role": "user", "content": "previous question"},
+            {"role": "assistant", "content": "previous answer about PR #18"},
+        ]
+        running_summary = {
+            "summary": "HT-37 was discussed earlier.",
+            "entities": [{"type": "issue", "id": "HT-37"}],
+            "unresolved_aspects": ["deployment impact"],
+        }
+        prior_evidence = [
+            {"type": "pull_request", "id": "#18", "quote": "OAuth callback update"}
+        ]
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=None, content="fallback"))]
+        )
+        captured_exploration_messages = []
+        captured_structured_messages = []
+
+        async def capture_exploration(messages, with_tools=True):
+            captured_exploration_messages.extend(messages)
+            return response
+
+        async def capture_structured(messages):
+            captured_structured_messages.extend(messages)
+            return {"summary": "done", "evidence": [], "unknown_aspects": []}
+
+        with (
+            patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
+            patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+        ):
+            await orchestrator.run(
+                "current question",
+                history=history,
+                prior_evidence=prior_evidence,
+                running_summary=running_summary,
+            )
+
+        self.assertEqual(
+            ["system", "system", "user", "assistant", "system", "user"],
+            [message["role"] for message in captured_exploration_messages],
+        )
+        self.assertIn("HT-37 was discussed earlier.", captured_exploration_messages[1]["content"])
+        self.assertEqual(history, captured_exploration_messages[2:4])
+        self.assertIn("OAuth callback update", captured_exploration_messages[4]["content"])
+        self.assertEqual(
+            [
+                captured_exploration_messages[0],
+                {"role": "user", "content": "current question"},
+            ],
+            captured_structured_messages,
+        )
+        self.assertNotIn("HT-37 was discussed earlier.", str(captured_structured_messages))
+        self.assertNotIn("previous answer about PR #18", str(captured_structured_messages))
+        self.assertNotIn("OAuth callback update", str(captured_structured_messages))
+
     async def test_run_uses_history_for_tool_exploration_but_not_structured_answer(self):
         history = [
             {"role": "user", "content": "previous question"},

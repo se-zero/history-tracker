@@ -25,7 +25,7 @@ class AiEngineQueryClientTest {
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
 
     @Test
-    void askPostsQuestionToAiEngine() {
+    void askPostsFullConversationContextToAiEngine() {
         AiEngineQueryClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andExpect(method(HttpMethod.POST))
@@ -41,7 +41,11 @@ class AiEngineQueryClientTest {
                           "prior_evidence":[
                             {"type":"pull_request","id":"#18","quote":"OAuth callback update"}
                           ],
-                          "running_summary":null
+                          "running_summary":{
+                            "summary":"Earlier discussion covered HT-37.",
+                            "entities":[{"type":"issue","id":"HT-37"}],
+                            "unresolved_aspects":["deployment impact"]
+                          }
                         }
                         """))
                 .andRespond(withSuccess("""
@@ -58,7 +62,11 @@ class AiEngineQueryClientTest {
         AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), null);
+        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), Map.of(
+                "summary", "Earlier discussion covered HT-37.",
+                "entities", List.of(Map.of("type", "issue", "id", "HT-37")),
+                "unresolved_aspects", List.of("deployment impact")
+        ));
 
         assertThat(result.answer()).isEqualTo("OAuth callback was updated.");
         assertThat(result.fallback()).isFalse();
