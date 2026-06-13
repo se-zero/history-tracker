@@ -8,8 +8,12 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
+import com.history.backend.conversation.dto.AiEngineHistoryMessage;
+import com.history.backend.conversation.dto.AiEnginePriorEvidence;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -21,22 +25,56 @@ class AiEngineQueryClientTest {
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
 
     @Test
-    void askPostsQuestionToAiEngine() {
+    void askPostsFullConversationContextToAiEngine() {
         AiEngineQueryClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
-                        {"question":"Why did auth change?","project_id":"f4dfc513-bb7b-41f4-aaf9-46bcc18380f8"}
+                        {
+                          "question":"Why did auth change?",
+                          "project_id":"f4dfc513-bb7b-41f4-aaf9-46bcc18380f8",
+                          "history":[
+                            {"role":"user","content":"What changed?"},
+                            {"role":"assistant","content":"PR #18 changed auth."}
+                          ],
+                          "prior_evidence":[
+                            {"type":"pull_request","id":"#18","quote":"OAuth callback update"}
+                          ],
+                          "running_summary":{
+                            "summary":"Earlier discussion covered HT-37.",
+                            "entities":[{"type":"issue","id":"HT-37"}],
+                            "unresolved_aspects":["deployment impact"]
+                          }
+                        }
                         """))
                 .andRespond(withSuccess("""
-                        {"answer":"OAuth callback was updated."}
+                        {
+                          "answer":"OAuth callback was updated.",
+                          "structured":{
+                            "summary":"OAuth callback was updated.",
+                            "evidence":[],
+                            "unknown_aspects":[]
+                          }
+                        }
                         """, MediaType.APPLICATION_JSON));
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID);
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(
+                new AiEngineHistoryMessage("user", "What changed?"),
+                new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
+        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), Map.of(
+                "summary", "Earlier discussion covered HT-37.",
+                "entities", List.of(Map.of("type", "issue", "id", "HT-37")),
+                "unresolved_aspects", List.of("deployment impact")
+        ));
 
         assertThat(result.answer()).isEqualTo("OAuth callback was updated.");
         assertThat(result.fallback()).isFalse();
+        assertThat(result.structured()).isEqualTo(Map.of(
+                "summary", "OAuth callback was updated.",
+                "evidence", List.of(),
+                "unknown_aspects", List.of()
+        ));
         fixture.server.verify();
     }
 
@@ -46,7 +84,7 @@ class AiEngineQueryClientTest {
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID);
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
@@ -61,7 +99,7 @@ class AiEngineQueryClientTest {
                         {"answer":"  "}
                         """, MediaType.APPLICATION_JSON));
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID);
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
@@ -74,10 +112,54 @@ class AiEngineQueryClientTest {
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andRespond(withServerError());
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID);
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    void summarizePostsExistingSummaryAndOldHistory() {
+        AiEngineQueryClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/query/summary"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "running_summary":{
+                            "summary":"existing",
+                            "entities":[],
+                            "unresolved_aspects":[]
+                          },
+                          "history":[
+                            {"role":"user","content":"Old question"},
+                            {"role":"assistant","content":"Old answer"}
+                          ]
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {
+                          "summary":{
+                            "summary":"merged",
+                            "entities":[],
+                            "unresolved_aspects":[]
+                          }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        Map<String, Object> result = fixture.client.summarize(
+                Map.of(
+                        "summary", "existing",
+                        "entities", List.of(),
+                        "unresolved_aspects", List.of()
+                ),
+                List.of(
+                        new AiEngineHistoryMessage("user", "Old question"),
+                        new AiEngineHistoryMessage("assistant", "Old answer")
+                )
+        );
+
+        assertThat(result).containsEntry("summary", "merged");
         fixture.server.verify();
     }
 

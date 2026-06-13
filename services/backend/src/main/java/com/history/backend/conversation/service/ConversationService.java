@@ -47,7 +47,10 @@ public class ConversationService {
         Message assistantMessage = messageService.appendAssistantMessageAfterQuery(
                 projectId,
                 initialConversation.conversation().getId(),
-                normalizedContent
+                normalizedContent,
+                List.of(),
+                List.of(),
+                null
         );
         return new ConversationStart(
                 initialConversation.conversation(),

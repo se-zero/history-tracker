@@ -1,7 +1,7 @@
 # DB 스키마
 
 backend 서비스(`services/backend`)의 PostgreSQL 테이블 정의 및 관계를 기술한다.
-마이그레이션 파일: `src/main/resources/db/migration/V1~V7`
+마이그레이션 파일: `src/main/resources/db/migration/V1~V8`
 
 ---
 
@@ -46,6 +46,10 @@ erDiagram
         UUID id PK
         UUID project_id FK
         UUID user_id FK
+        jsonb running_summary
+        UUID summary_through_message_id
+        timestamptz summary_updated_at
+        bigint summary_version
     }
     messages {
         UUID id PK
@@ -198,6 +202,10 @@ AI 질의 대화 세션. 사용자가 탈퇴하면 `user_id`가 NULL로 유지�
 | `title` | TEXT | | 대화 제목 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 대화 시작 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 마지막 메시지 추가 시각 |
+| `running_summary` | JSONB | nullable | 최근 원문 이력보다 오래된 완성 대화 턴의 누적 요약 |
+| `summary_through_message_id` | UUID | nullable | 누적 요약에 마지막으로 포함된 ASSISTANT 메시지 ID |
+| `summary_updated_at` | TIMESTAMPTZ | nullable | 누적 요약 최종 갱신 시각 |
+| `summary_version` | BIGINT | NOT NULL, DEFAULT 0 | 동시 요약 갱신 충돌 감지를 위한 CAS 버전 |
 
 **인덱스**
 - `(project_id, updated_at DESC)`

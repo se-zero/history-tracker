@@ -2,6 +2,7 @@ package com.history.backend.conversation.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
 import java.util.Map;
 
 import com.history.backend.auth.domain.User;
@@ -104,6 +105,25 @@ class ConversationPersistenceTest {
     }
 
     @Test
+    void findMessagesFromSummaryCursorTime() throws InterruptedException {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
+                fixture.project(),
+                fixture.owner(),
+                "Cursor context"
+        ));
+        Message beforeCursor = messageRepository.saveAndFlush(Message.user(conversation, "Old question"));
+        Thread.sleep(5);
+        Message cursor = messageRepository.saveAndFlush(Message.assistant(conversation, "Old answer", null));
+        Thread.sleep(5);
+        Message afterCursor = messageRepository.saveAndFlush(Message.user(conversation, "Recent question"));
+
+        assertThat(messageRepository.findAllFromCursor(conversation.getId(), cursor.getId()))
+                .containsExactly(cursor, afterCursor)
+                .doesNotContain(beforeCursor);
+    }
+
+    @Test
     void metadataIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
         Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
@@ -124,6 +144,49 @@ class ConversationPersistenceTest {
         );
 
         assertThat(firstSource).isEqualTo("pr:acme/widget#42");
+    }
+
+    @Test
+    void updateRunningSummaryUsesSummaryVersionCompareAndSet() {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
+                fixture.project(),
+                fixture.owner(),
+                "Long conversation"
+        ));
+        Message assistantMessage = messageRepository.saveAndFlush(Message.assistant(
+                conversation,
+                "Old answer",
+                null
+        ));
+        Map<String, Object> summary = Map.of(
+                "summary", "Accumulated context",
+                "entities", java.util.List.of(),
+                "unresolved_aspects", java.util.List.of()
+        );
+
+        int firstUpdate = conversationRepository.updateRunningSummary(
+                conversation.getId(),
+                0L,
+                summary,
+                assistantMessage.getId(),
+                Instant.now()
+        );
+        int staleUpdate = conversationRepository.updateRunningSummary(
+                conversation.getId(),
+                0L,
+                Map.of("summary", "Stale summary"),
+                assistantMessage.getId(),
+                Instant.now()
+        );
+        Conversation updated = conversationRepository.findById(conversation.getId()).orElseThrow();
+
+        assertThat(firstUpdate).isEqualTo(1);
+        assertThat(staleUpdate).isZero();
+        assertThat(updated.getRunningSummary()).containsEntry("summary", "Accumulated context");
+        assertThat(updated.getSummaryThroughMessageId()).isEqualTo(assistantMessage.getId());
+        assertThat(updated.getSummaryUpdatedAt()).isNotNull();
+        assertThat(updated.getSummaryVersion()).isEqualTo(1L);
     }
 
     private ProjectFixture createProjectFixture() {

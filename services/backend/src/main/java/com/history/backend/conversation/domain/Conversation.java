@@ -1,6 +1,7 @@
 package com.history.backend.conversation.domain;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
@@ -18,6 +19,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Entity
@@ -46,6 +49,19 @@ public class Conversation {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "running_summary")
+    private Map<String, Object> runningSummary;
+
+    @Column(name = "summary_through_message_id")
+    private UUID summaryThroughMessageId;
+
+    @Column(name = "summary_updated_at")
+    private Instant summaryUpdatedAt;
+
+    @Column(name = "summary_version", nullable = false)
+    private long summaryVersion;
 
     public Conversation(Project project, User user, String title) {
         this.project = project;

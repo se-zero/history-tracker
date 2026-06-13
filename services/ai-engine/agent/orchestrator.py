@@ -14,6 +14,35 @@ _client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=60.0)
 _MODEL = os.environ.get("QUERY_MODEL", "gpt-4o-mini")
 _MAX_ITERATIONS = 10
 
+_RUNNING_SUMMARY_SCHEMA = {
+    "name": "running_summary",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "entities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"type": "string"},
+                        "id": {"type": "string"},
+                    },
+                    "required": ["type", "id"],
+                    "additionalProperties": False,
+                },
+            },
+            "unresolved_aspects": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "required": ["summary", "entities", "unresolved_aspects"],
+        "additionalProperties": False,
+    },
+}
+
 
 # ─── Structured Output schema — LLM 환각 방지를 위한 답변 강제 형식 ─────────────
 #
@@ -213,7 +242,7 @@ async def _call_llm(messages: list, with_tools: bool = True):
 
 
 _STRUCTURED_FINAL_INSTRUCTION = (
-    "지금까지 누적된 도구 결과만 근거로, grounded_answer 스키마를 따라 최종 답변을 작성하세요. "
+    "현재 질문에서 수집한 도구 결과만 근거로, grounded_answer 스키마를 따라 최종 답변을 작성하세요. "
     "evidence[]에 등재할 수 없는 사실은 summary에 적지 마세요. "
     "그래프에서 확인되지 않은 측면이 있으면 unknown_aspects에 명시하세요."
 )
@@ -242,6 +271,50 @@ async def _call_llm_structured(messages: list) -> dict | None:
         return json.loads(content)
     except json.JSONDecodeError:
         logger.warning("Structured 응답 JSON 파싱 실패: %s", content[:200])
+        return None
+
+
+async def summarize_history(
+    running_summary: dict | None,
+    history: list[dict[str, str]],
+) -> dict | None:
+    """기존 누적 요약에 새 대화 턴을 병합해 갱신한다."""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "대화 기억을 갱신하세요. 기존 누적 요약과 새 대화 턴을 합쳐 핵심 맥락을 보존하고, "
+                "명시적으로 등장한 코드 변경 entity와 아직 해결되지 않은 질문을 구조화하세요. "
+                "새 정보로 확인된 미해결 항목은 제거하고 추측은 추가하지 마세요."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "running_summary": running_summary,
+                    "history": history,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    try:
+        response = await asyncio.to_thread(
+            _client.chat.completions.create,
+            model=_MODEL,
+            messages=messages,
+            response_format={"type": "json_schema", "json_schema": _RUNNING_SUMMARY_SCHEMA},
+        )
+    except Exception:
+        logger.exception("Running summary LLM 호출 실패")
+        return None
+
+    content = response.choices[0].message.content or ""
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        logger.warning("Running summary JSON 파싱 실패: %s", content[:200])
         return None
 
 
@@ -294,7 +367,14 @@ def _tool_error(tool_call_id: str, message: str) -> dict:
     }
 
 
-async def run(question: str, project_context: str = "", project_id: str = "") -> tuple[str, dict | None]:
+async def run(
+    question: str,
+    project_context: str = "",
+    project_id: str = "",
+    history: list[dict[str, str]] | None = None,
+    prior_evidence: list[dict[str, str]] | None = None,
+    running_summary: dict | None = None,
+) -> tuple[str, dict | None]:
     """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환.
 
     Tool calling이 끝난 뒤 grounded_answer Structured Output으로 한 번 더 호출해
@@ -302,6 +382,8 @@ async def run(question: str, project_context: str = "", project_id: str = "") ->
 
     project_id: 모든 도구 쿼리를 이 프로젝트로 스코프한다 (그래프 격리). backend가 인증된
                 사용자의 프로젝트로 주입하며, LLM은 이 값에 접근하거나 변경할 수 없다.
+    prior_evidence: 직전 응답의 대상 식별용 압축 근거. 도구 탐색에만 사용하고 최종 근거에서는 제외한다.
+    running_summary: 최근 5턴보다 오래된 대화의 누적 요약. 탐색 맥락에만 사용하고 최종 근거에서는 제외한다.
 
     Returns:
         (markdown_answer, structured_dict)
@@ -309,10 +391,41 @@ async def run(question: str, project_context: str = "", project_id: str = "") ->
         Structured 호출 실패 시 LLM이 마지막 iteration에서 낸 자유 텍스트로 fallback,
         이때 structured는 None.
     """
+    system_message = {"role": "system", "content": _build_system_prompt(project_context)}
+    current_question = {"role": "user", "content": question}
+    running_summary_message = None
+    if running_summary:
+        running_summary_message = {
+            "role": "system",
+            "content": (
+                "오래된 대화의 누적 요약입니다. 후속 질문의 맥락과 대상을 식별하는 데만 사용하고, "
+                "현재 답변의 근거로 인용하지 마세요. 필요한 사실은 도구로 다시 조회하세요.\n"
+                + json.dumps(running_summary, ensure_ascii=False)
+            ),
+        }
+    prior_evidence_message = None
+    if prior_evidence:
+        prior_evidence_message = {
+            "role": "system",
+            "content": (
+                "이전 답변의 대상 식별 참고 정보입니다. 현재 답변의 근거로 인용하지 말고, "
+                "후속 질문의 대상을 식별한 뒤 도구로 다시 조회하세요.\n"
+                + json.dumps(prior_evidence, ensure_ascii=False)
+            ),
+        }
     messages: list = [
-        {"role": "system", "content": _build_system_prompt(project_context)},
-        {"role": "user",   "content": question},
+        system_message,
+        *([running_summary_message] if running_summary_message else []),
+        *(history or []),
+        *([prior_evidence_message] if prior_evidence_message else []),
+        current_question,
     ]
+    current_turn_start = len(messages) - 1
+
+    def current_turn_messages() -> list:
+        # 누적 요약, 이전 대화, prior evidence는 현재 질문 앞에만 있으므로 최종 근거 생성에서 제외한다.
+        return [messages[0], *messages[current_turn_start:]]
+
     seen_calls: set[tuple[str, str]] = set()  # (tool_name, args_json) 중복 호출 가드
 
     for iteration in range(_MAX_ITERATIONS):
@@ -324,7 +437,7 @@ async def run(question: str, project_context: str = "", project_id: str = "") ->
 
         # tool_calls 없음 → 도구 탐색 종료. structured output으로 최종 답변 생성.
         if not message.tool_calls:
-            structured = await _call_llm_structured(messages)
+            structured = await _call_llm_structured(current_turn_messages())
             if structured is None:
                 # fallback: 마지막 LLM 자유 텍스트라도 반환 (할루시네이션 가드는 잃지만 응답은 제공)
                 return message.content or _FALLBACK_ANSWER, None
@@ -340,20 +453,22 @@ async def run(question: str, project_context: str = "", project_id: str = "") ->
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:
                 logger.warning("도구 인자 JSON 파싱 실패: %s", tool_name)
-                messages.append(_tool_error(
+                error_message = _tool_error(
                     tc.id,
                     f"{tool_name} 인자 JSON 파싱 실패. 올바른 JSON 형식으로 다시 호출하세요.",
-                ))
+                )
+                messages.append(error_message)
                 continue
 
             # 중복 호출 가드 — 같은 인자로 같은 도구를 반복 호출하면 비용/컨텍스트 낭비
             call_key = (tool_name, json.dumps(args, sort_keys=True, ensure_ascii=False))
             if call_key in seen_calls:
                 logger.info("중복 도구 호출 차단: %s args=%s", tool_name, args)
-                messages.append(_tool_error(
+                error_message = _tool_error(
                     tc.id,
                     f"{tool_name}을(를) 동일한 인자로 이미 호출했습니다. 이전 결과를 참고하거나 다른 인자/도구를 시도하세요.",
-                ))
+                )
+                messages.append(error_message)
                 continue
             seen_calls.add(call_key)
 
@@ -361,15 +476,16 @@ async def run(question: str, project_context: str = "", project_id: str = "") ->
             result_str = await execute(tool_name, args, project_id)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
 
-            messages.append({
+            tool_message = {
                 "role": "tool",
                 "tool_call_id": tc.id,
                 "content": result_str,
-            })
+            }
+            messages.append(tool_message)
 
     # 최대 반복 도달 → 그 시점까지의 컨텍스트로 강제 structured 답변
     logger.warning("최대 반복 횟수(%d) 도달 — structured 강제 응답", _MAX_ITERATIONS)
-    structured = await _call_llm_structured(messages)
+    structured = await _call_llm_structured(current_turn_messages())
     if structured is None:
         return _FALLBACK_ANSWER, None
     return _render_structured(structured), structured

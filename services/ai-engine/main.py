@@ -22,6 +22,7 @@ from graph.event_handler import handle
 from graph.overview import get_project_overview
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
 from graph.reference_builder import backfill_communication_embeddings, build_reference_edges
+from query_models import QueryRequest, SummaryRequest
 
 logger = logging.getLogger(__name__)
 
@@ -150,12 +151,6 @@ async def trigger_pr_jira_keys_backfill():
     return await backfill_pr_jira_keys()
 
 
-class QueryRequest(BaseModel):
-    question: str
-    project_id: str = ""  # 그래프 격리 스코프. backend가 인증된 사용자의 프로젝트로 주입.
-    repo: str = ""  # "owner/repo" 형식. 도메인 컨텍스트 주입용. 없으면 컨텍스트 없이 동작.
-
-
 @app.post("/query")
 async def query(req: QueryRequest):
     """자연어 질문을 받아 GraphRAG tool calling으로 답변을 반환한다.
@@ -177,8 +172,25 @@ async def query(req: QueryRequest):
         owner, repo_name = req.repo.split("/", 1)
         project_context = await asyncio.to_thread(get_project_summary, owner, repo_name) or ""
 
-    answer, structured = await orchestrator.run(req.question, project_context, req.project_id)
+    history = [message.model_dump() for message in req.history]
+    prior_evidence = [evidence.model_dump() for evidence in req.prior_evidence]
+    answer, structured = await orchestrator.run(
+        req.question,
+        project_context,
+        project_id=req.project_id,
+        history=history,
+        prior_evidence=prior_evidence,
+        running_summary=req.running_summary,
+    )
     return {"answer": answer, "structured": structured}
+
+
+@app.post("/query/summary")
+async def summarize_query_history(req: SummaryRequest):
+    """기존 누적 요약에 새 대화 턴을 병합해 갱신한다."""
+    history = [message.model_dump() for message in req.history]
+    summary = await orchestrator.summarize_history(req.running_summary, history)
+    return {"summary": summary}
 
 
 class SlackFilterOptions(BaseModel):
