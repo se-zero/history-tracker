@@ -47,6 +47,21 @@ class QueryRequestHistoryTest(unittest.TestCase):
                 history=[{"role": "user", "content": "   "}],
             )
 
+    def test_prior_evidence_defaults_to_empty_list(self):
+        request = QueryRequest(question="current question")
+
+        self.assertEqual([], request.prior_evidence)
+
+    def test_prior_evidence_accepts_compact_entity_reference(self):
+        request = QueryRequest(
+            question="current question",
+            prior_evidence=[
+                {"type": "pull_request", "id": "#18", "quote": "OAuth callback update"}
+            ],
+        )
+
+        self.assertEqual("#18", request.prior_evidence[0].id)
+
 
 class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
     async def test_run_uses_history_for_tool_exploration_but_not_structured_answer(self):
@@ -91,6 +106,36 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             ],
             captured_structured_messages,
         )
+
+    async def test_run_uses_prior_evidence_only_for_tool_exploration(self):
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=None, content="fallback"))]
+        )
+        captured_exploration_messages = []
+        captured_structured_messages = []
+
+        async def capture_exploration(messages, with_tools=True):
+            captured_exploration_messages.extend(messages)
+            return response
+
+        async def capture_structured(messages):
+            captured_structured_messages.extend(messages)
+            return {"summary": "done", "evidence": [], "unknown_aspects": []}
+
+        with (
+            patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
+            patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+        ):
+            await orchestrator.run(
+                "tell me more about that PR",
+                prior_evidence=[
+                    {"type": "pull_request", "id": "#18", "quote": "OAuth callback update"}
+                ],
+            )
+
+        self.assertEqual("system", captured_exploration_messages[1]["role"])
+        self.assertIn('"id": "#18"', captured_exploration_messages[1]["content"])
+        self.assertNotIn("OAuth callback update", str(captured_structured_messages))
 
     async def test_structured_answer_keeps_current_turn_tool_messages(self):
         tool_call = SimpleNamespace(

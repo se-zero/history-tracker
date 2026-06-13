@@ -17,8 +17,22 @@ class HistoryMessage(BaseModel):
         return value
 
 
+class PriorEvidence(BaseModel):
+    type: Literal["commit", "pull_request", "issue", "message"]
+    id: str
+    quote: str
+
+    @field_validator("id", "quote")
+    @classmethod
+    def value_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prior evidence value must not be blank")
+        return value
+
+
 class QueryRequest(BaseModel):
     question: str
     project_id: str = ""
     history: list[HistoryMessage] = Field(default_factory=list)
+    prior_evidence: list[PriorEvidence] = Field(default_factory=list)
     repo: str = ""

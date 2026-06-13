@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.conversation.dto.AiEngineHistoryMessage;
+import com.history.backend.conversation.dto.AiEnginePriorEvidence;
 import com.history.backend.conversation.dto.AiEngineQueryRequest;
 import com.history.backend.conversation.dto.AiEngineQueryResponse;
 import lombok.RequiredArgsConstructor;
@@ -28,13 +29,14 @@ public class AiEngineQueryClient {
     public AiEngineQueryResult ask(
             String question,
             UUID projectId,
-            List<AiEngineHistoryMessage> history
+            List<AiEngineHistoryMessage> history,
+            List<AiEnginePriorEvidence> priorEvidence
     ) {
         try {
             AiEngineQueryResponse response = aiEngineRestClient.post()
                     .uri("/query")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new AiEngineQueryRequest(question, projectId.toString(), history))
+                    .body(new AiEngineQueryRequest(question, projectId.toString(), history, priorEvidence))
                     .retrieve()
                     .body(AiEngineQueryResponse.class);
             String answer = normalizeAnswer(response);

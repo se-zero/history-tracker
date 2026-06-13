@@ -71,6 +71,7 @@ class ConversationServiceTest {
                 PROJECT_ID,
                 CONVERSATION_ID,
                 "Why did auth change?",
+                List.of(),
                 List.of()
         ))
                 .thenReturn(assistantMessage);

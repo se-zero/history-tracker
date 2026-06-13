@@ -173,11 +173,13 @@ async def query(req: QueryRequest):
         project_context = await asyncio.to_thread(get_project_summary, owner, repo_name) or ""
 
     history = [message.model_dump() for message in req.history]
+    prior_evidence = [evidence.model_dump() for evidence in req.prior_evidence]
     answer, structured = await orchestrator.run(
         req.question,
         project_context,
         project_id=req.project_id,
         history=history,
+        prior_evidence=prior_evidence,
     )
     return {"answer": answer, "structured": structured}
 

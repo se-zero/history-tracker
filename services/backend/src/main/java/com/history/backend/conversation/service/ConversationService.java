@@ -48,6 +48,7 @@ public class ConversationService {
                 projectId,
                 initialConversation.conversation().getId(),
                 normalizedContent,
+                List.of(),
                 List.of()
         );
         return new ConversationStart(

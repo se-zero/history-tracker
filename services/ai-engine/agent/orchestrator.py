@@ -299,6 +299,7 @@ async def run(
     project_context: str = "",
     project_id: str = "",
     history: list[dict[str, str]] | None = None,
+    prior_evidence: list[dict[str, str]] | None = None,
 ) -> tuple[str, dict | None]:
     """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환.
 
@@ -307,6 +308,7 @@ async def run(
 
     project_id: 모든 도구 쿼리를 이 프로젝트로 스코프한다 (그래프 격리). backend가 인증된
                 사용자의 프로젝트로 주입하며, LLM은 이 값에 접근하거나 변경할 수 없다.
+    prior_evidence: 직전 응답의 대상 식별용 압축 근거. 도구 탐색에만 사용하고 최종 근거에서는 제외한다.
 
     Returns:
         (markdown_answer, structured_dict)
@@ -316,15 +318,26 @@ async def run(
     """
     system_message = {"role": "system", "content": _build_system_prompt(project_context)}
     current_question = {"role": "user", "content": question}
+    prior_evidence_message = None
+    if prior_evidence:
+        prior_evidence_message = {
+            "role": "system",
+            "content": (
+                "이전 답변의 대상 식별 참고 정보입니다. 현재 답변의 근거로 인용하지 말고, "
+                "후속 질문의 대상을 식별한 뒤 도구로 다시 조회하세요.\n"
+                + json.dumps(prior_evidence, ensure_ascii=False)
+            ),
+        }
     messages: list = [
         system_message,
         *(history or []),
+        *([prior_evidence_message] if prior_evidence_message else []),
         current_question,
     ]
     current_turn_start = len(messages) - 1
 
     def current_turn_messages() -> list:
-        # history는 초기 조립 구간에만 존재하므로 system과 현재 질문 이후 메시지만 유지한다.
+        # 이전 대화와 prior evidence는 현재 질문 앞에만 있으므로 최종 근거 생성에서 함께 제외한다.
         return [messages[0], *messages[current_turn_start:]]
 
     seen_calls: set[tuple[str, str]] = set()  # (tool_name, args_json) 중복 호출 가드
