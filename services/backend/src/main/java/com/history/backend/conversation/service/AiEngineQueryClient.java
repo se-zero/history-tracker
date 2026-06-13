@@ -41,7 +41,7 @@ public class AiEngineQueryClient {
             if (answer.isBlank()) {
                 return AiEngineQueryResult.fallback(FALLBACK_ANSWER);
             }
-            return AiEngineQueryResult.success(answer);
+            return AiEngineQueryResult.success(answer, response.structured());
         } catch (RestClientException exception) {
             log.error("ai-engine query request failed: {}", exception.getMessage());
             return AiEngineQueryResult.fallback(FALLBACK_ANSWER);

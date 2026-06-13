@@ -9,6 +9,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.conversation.dto.AiEngineHistoryMessage;
@@ -39,7 +40,14 @@ class AiEngineQueryClientTest {
                         }
                         """))
                 .andRespond(withSuccess("""
-                        {"answer":"OAuth callback was updated."}
+                        {
+                          "answer":"OAuth callback was updated.",
+                          "structured":{
+                            "summary":"OAuth callback was updated.",
+                            "evidence":[],
+                            "unknown_aspects":[]
+                          }
+                        }
                         """, MediaType.APPLICATION_JSON));
 
         AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(
@@ -49,6 +57,11 @@ class AiEngineQueryClientTest {
 
         assertThat(result.answer()).isEqualTo("OAuth callback was updated.");
         assertThat(result.fallback()).isFalse();
+        assertThat(result.structured()).isEqualTo(Map.of(
+                "summary", "OAuth callback was updated.",
+                "evidence", List.of(),
+                "unknown_aspects", List.of()
+        ));
         fixture.server.verify();
     }
 

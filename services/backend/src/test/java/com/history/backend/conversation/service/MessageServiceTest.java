@@ -72,7 +72,11 @@ class MessageServiceTest {
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
         )))
-                .thenReturn(AiEngineQueryResult.success("OAuth callback changed."));
+                .thenReturn(AiEngineQueryResult.success("OAuth callback changed.", Map.of(
+                        "summary", "OAuth callback changed.",
+                        "evidence", List.of(),
+                        "unknown_aspects", List.of()
+                )));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         MessageExchange result = service.addMessage(
@@ -88,7 +92,11 @@ class MessageServiceTest {
         assertThat(result.assistantMessage().getConversation()).isSameAs(conversation);
         assertThat(result.assistantMessage().getRole()).isEqualTo(MessageRole.ASSISTANT);
         assertThat(result.assistantMessage().getContent()).isEqualTo("OAuth callback changed.");
-        assertThat(result.assistantMessage().getMetadata()).isNull();
+        assertThat(result.assistantMessage().getMetadata()).containsEntry("structured", Map.of(
+                "summary", "OAuth callback changed.",
+                "evidence", List.of(),
+                "unknown_aspects", List.of()
+        ));
         assertThat(conversation.getUpdatedAt()).isNotNull();
 
         InOrder order = inOrder(messageRepository, aiEngineQueryClient);
@@ -161,7 +169,7 @@ class MessageServiceTest {
         when(aiEngineQueryClient.ask("Tell me more", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ))).thenReturn(AiEngineQueryResult.success("More details"));
+        ))).thenReturn(AiEngineQueryResult.success("More details", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Tell me more");
@@ -201,7 +209,7 @@ class MessageServiceTest {
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
         when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory))
-                .thenReturn(AiEngineQueryResult.success("Current answer"));
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
@@ -226,7 +234,7 @@ class MessageServiceTest {
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(List.of(failedQuestion, fallback, orphanAssistant));
         when(aiEngineQueryClient.ask("Current question", PROJECT_ID, List.of()))
-                .thenReturn(AiEngineQueryResult.success("Current answer"));
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");

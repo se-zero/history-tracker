@@ -27,6 +27,7 @@ public class MessageService {
     private static final int MAX_HISTORY_TURNS = 5;
     private static final String ERROR_TYPE_KEY = "error_type";
     private static final String AI_ENGINE_ERROR = "AI_ENGINE_ERROR";
+    private static final String STRUCTURED_KEY = "structured";
     private static final Map<String, Object> AI_ENGINE_ERROR_METADATA = Map.of(
             "fallback", true,
             ERROR_TYPE_KEY, AI_ENGINE_ERROR
@@ -163,9 +164,14 @@ public class MessageService {
         return metadata != null && AI_ENGINE_ERROR.equals(metadata.get(ERROR_TYPE_KEY));
     }
 
-    // fallback 응답은 metadata로 표시해 클라이언트가 오류 응답임을 구분
+    // AI 응답 유형별 메시지 metadata 구성
     private Map<String, Object> metadataFor(AiEngineQueryResult queryResult) {
-        return queryResult.fallback() ? AI_ENGINE_ERROR_METADATA : null;
+        if (queryResult.fallback()) {
+            return AI_ENGINE_ERROR_METADATA;
+        }
+        return queryResult.structured() == null
+                ? null
+                : Map.of(STRUCTURED_KEY, queryResult.structured());
     }
 
     private record PendingQuery(
