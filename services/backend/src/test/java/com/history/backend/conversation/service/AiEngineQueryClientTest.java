@@ -40,7 +40,8 @@ class AiEngineQueryClientTest {
                           ],
                           "prior_evidence":[
                             {"type":"pull_request","id":"#18","quote":"OAuth callback update"}
-                          ]
+                          ],
+                          "running_summary":null
                         }
                         """))
                 .andRespond(withSuccess("""
@@ -57,7 +58,7 @@ class AiEngineQueryClientTest {
         AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")));
+        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), null);
 
         assertThat(result.answer()).isEqualTo("OAuth callback was updated.");
         assertThat(result.fallback()).isFalse();
@@ -75,7 +76,7 @@ class AiEngineQueryClientTest {
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of());
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
@@ -90,7 +91,7 @@ class AiEngineQueryClientTest {
                         {"answer":"  "}
                         """, MediaType.APPLICATION_JSON));
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of());
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
@@ -103,10 +104,54 @@ class AiEngineQueryClientTest {
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andRespond(withServerError());
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of());
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    void summarizePostsExistingSummaryAndOldHistory() {
+        AiEngineQueryClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/query/summary"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "running_summary":{
+                            "summary":"existing",
+                            "entities":[],
+                            "unresolved_aspects":[]
+                          },
+                          "history":[
+                            {"role":"user","content":"Old question"},
+                            {"role":"assistant","content":"Old answer"}
+                          ]
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {
+                          "summary":{
+                            "summary":"merged",
+                            "entities":[],
+                            "unresolved_aspects":[]
+                          }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        Map<String, Object> result = fixture.client.summarize(
+                Map.of(
+                        "summary", "existing",
+                        "entities", List.of(),
+                        "unresolved_aspects", List.of()
+                ),
+                List.of(
+                        new AiEngineHistoryMessage("user", "Old question"),
+                        new AiEngineHistoryMessage("assistant", "Old answer")
+                )
+        );
+
+        assertThat(result).containsEntry("summary", "merged");
         fixture.server.verify();
     }
 

@@ -13,7 +13,7 @@ executor_module.execute = AsyncMock()
 sys.modules.setdefault("tools.executor", executor_module)
 
 from agent import orchestrator
-from query_models import QueryRequest
+from query_models import QueryRequest, SummaryRequest
 
 
 class QueryRequestHistoryTest(unittest.TestCase):
@@ -61,6 +61,14 @@ class QueryRequestHistoryTest(unittest.TestCase):
         )
 
         self.assertEqual("#18", request.prior_evidence[0].id)
+
+    def test_summary_request_accepts_existing_summary_and_history(self):
+        request = SummaryRequest(
+            running_summary={"summary": "older context", "entities": [], "unresolved_aspects": []},
+            history=[{"role": "user", "content": "old question"}],
+        )
+
+        self.assertEqual("older context", request.running_summary["summary"])
 
 
 class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
@@ -136,6 +144,53 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("system", captured_exploration_messages[1]["role"])
         self.assertIn('"id": "#18"', captured_exploration_messages[1]["content"])
         self.assertNotIn("OAuth callback update", str(captured_structured_messages))
+
+    async def test_run_uses_running_summary_only_for_tool_exploration(self):
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=None, content="fallback"))]
+        )
+        captured_exploration_messages = []
+        captured_structured_messages = []
+
+        async def capture_exploration(messages, with_tools=True):
+            captured_exploration_messages.extend(messages)
+            return response
+
+        async def capture_structured(messages):
+            captured_structured_messages.extend(messages)
+            return {"summary": "done", "evidence": [], "unknown_aspects": []}
+
+        with (
+            patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
+            patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+        ):
+            await orchestrator.run(
+                "what happened next?",
+                running_summary={
+                    "summary": "HT-37 was discussed.",
+                    "entities": [{"type": "issue", "id": "HT-37"}],
+                    "unresolved_aspects": [],
+                },
+            )
+
+        self.assertIn("HT-37 was discussed.", captured_exploration_messages[1]["content"])
+        self.assertNotIn("HT-37 was discussed.", str(captured_structured_messages))
+
+    async def test_summarize_history_merges_existing_summary_and_old_turns(self):
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"summary":"merged","entities":[],"unresolved_aspects":[]}'))]
+        )
+
+        with patch.object(orchestrator._client.chat.completions, "create", return_value=response) as create:
+            result = await orchestrator.summarize_history(
+                {"summary": "existing", "entities": [], "unresolved_aspects": []},
+                [{"role": "user", "content": "old question"}],
+            )
+
+        self.assertEqual("merged", result["summary"])
+        request_messages = create.call_args.kwargs["messages"]
+        self.assertIn("existing", request_messages[1]["content"])
+        self.assertIn("old question", request_messages[1]["content"])
 
     async def test_structured_answer_keeps_current_turn_tool_messages(self):
         tool_call = SimpleNamespace(

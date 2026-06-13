@@ -49,7 +49,8 @@ public class ConversationService {
                 initialConversation.conversation().getId(),
                 normalizedContent,
                 List.of(),
-                List.of()
+                List.of(),
+                null
         );
         return new ConversationStart(
                 initialConversation.conversation(),

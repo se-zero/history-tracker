@@ -3,11 +3,13 @@ package com.history.backend.conversation.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -85,7 +87,7 @@ class MessageServiceTest {
         when(aiEngineQueryClient.ask("Why did auth change?", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update"))))
+        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), null))
                 .thenReturn(AiEngineQueryResult.success("OAuth callback changed.", Map.of(
                         "summary", "OAuth callback changed.",
                         "evidence", List.of(),
@@ -119,7 +121,7 @@ class MessageServiceTest {
         order.verify(aiEngineQueryClient).ask("Why did auth change?", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")));
+        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), null);
     }
 
     @Test
@@ -132,7 +134,7 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(List.of());
-        when(aiEngineQueryClient.ask("Why did auth change?", PROJECT_ID, List.of(), List.of()))
+        when(aiEngineQueryClient.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null))
                 .thenReturn(AiEngineQueryResult.fallback("질문을 처리하는 중 오류가 발생했습니다."));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -183,7 +185,7 @@ class MessageServiceTest {
         when(aiEngineQueryClient.ask("Tell me more", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of())).thenReturn(AiEngineQueryResult.success("More details", null));
+        ), List.of(), null)).thenReturn(AiEngineQueryResult.success("More details", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Tell me more");
@@ -191,7 +193,7 @@ class MessageServiceTest {
         verify(aiEngineQueryClient).ask("Tell me more", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of());
+        ), List.of(), null);
     }
 
     @Test
@@ -222,13 +224,211 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of()))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of(), null))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of());
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of(), null);
+    }
+
+    @Test
+    void addMessageSummarizesTurnsOlderThanRecentFive() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        Map<String, Object> existingSummary = summary("existing");
+        Map<String, Object> generatedSummary = summary("merged");
+        setSummaryState(conversation, existingSummary, null, 2L);
+        List<Message> messages = completedTurns(conversation, 6);
+        List<AiEngineHistoryMessage> oldHistory = List.of(
+                new AiEngineHistoryMessage("user", "Question 1"),
+                new AiEngineHistoryMessage("assistant", "Answer 1")
+        );
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(2, 6);
+        UUID throughMessageId = messages.get(1).getId();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(generatedSummary);
+        when(conversationRepository.updateRunningSummary(
+                eq(CONVERSATION_ID),
+                eq(2L),
+                eq(generatedSummary),
+                eq(throughMessageId),
+                any(Instant.class)
+        ))
+                .thenReturn(1);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+
+        verify(aiEngineQueryClient).summarize(existingSummary, oldHistory);
+        verify(conversationRepository).updateRunningSummary(
+                eq(CONVERSATION_ID),
+                eq(2L),
+                eq(generatedSummary),
+                eq(throughMessageId),
+                any(Instant.class)
+        );
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary);
+    }
+
+    @Test
+    void addMessageUsesLatestSummaryWhenConditionalUpdateConflicts() {
+        MessageService service = service();
+        Conversation initialConversation = conversation();
+        Conversation latestConversation = conversation();
+        Map<String, Object> existingSummary = summary("existing");
+        Map<String, Object> generatedSummary = summary("generated by current request");
+        Map<String, Object> latestSummary = summary("stored by concurrent request");
+        setSummaryState(initialConversation, existingSummary, null, 3L);
+        setSummaryState(latestConversation, latestSummary, null, 4L);
+        List<Message> messages = completedTurns(initialConversation, 6);
+        List<AiEngineHistoryMessage> oldHistory = List.of(
+                new AiEngineHistoryMessage("user", "Question 1"),
+                new AiEngineHistoryMessage("assistant", "Answer 1")
+        );
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(2, 6);
+        UUID throughMessageId = messages.get(1).getId();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(initialConversation))
+                .thenReturn(Optional.of(latestConversation))
+                .thenReturn(Optional.of(latestConversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(generatedSummary);
+        when(conversationRepository.updateRunningSummary(
+                eq(CONVERSATION_ID),
+                eq(3L),
+                eq(generatedSummary),
+                eq(throughMessageId),
+                any(Instant.class)
+        ))
+                .thenReturn(0);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), latestSummary))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), latestSummary);
+    }
+
+    @Test
+    void addMessageSummarizesOnlyTurnsAfterStoredCursor() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        Map<String, Object> existingSummary = summary("through turn 1");
+        Map<String, Object> generatedSummary = summary("through turn 2");
+        List<Message> messages = completedTurns(conversation, 7);
+        UUID storedCursor = messages.get(1).getId();
+        UUID nextCursor = messages.get(3).getId();
+        setSummaryState(conversation, existingSummary, storedCursor, 1L);
+        List<AiEngineHistoryMessage> newlyOldHistory = List.of(
+                new AiEngineHistoryMessage("user", "Question 2"),
+                new AiEngineHistoryMessage("assistant", "Answer 2")
+        );
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(3, 7);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(aiEngineQueryClient.summarize(existingSummary, newlyOldHistory)).thenReturn(generatedSummary);
+        when(conversationRepository.updateRunningSummary(
+                eq(CONVERSATION_ID),
+                eq(1L),
+                eq(generatedSummary),
+                eq(nextCursor),
+                any(Instant.class)
+        )).thenReturn(1);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+
+        verify(aiEngineQueryClient).summarize(existingSummary, newlyOldHistory);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary);
+    }
+
+    @Test
+    void addMessageContinuesWithExistingSummaryWhenSummarizationFails() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        Map<String, Object> existingSummary = summary("existing");
+        setSummaryState(conversation, existingSummary, null, 1L);
+        List<Message> messages = completedTurns(conversation, 6);
+        List<AiEngineHistoryMessage> oldHistory = List.of(
+                new AiEngineHistoryMessage("user", "Question 1"),
+                new AiEngineHistoryMessage("assistant", "Answer 1")
+        );
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(2, 6);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(null);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary);
+    }
+
+    @Test
+    void addMessageContinuesWithExistingSummaryWhenSummaryUpdateThrows() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        Map<String, Object> existingSummary = summary("existing");
+        Map<String, Object> generatedSummary = summary("generated");
+        setSummaryState(conversation, existingSummary, null, 1L);
+        List<Message> messages = completedTurns(conversation, 6);
+        List<AiEngineHistoryMessage> oldHistory = List.of(
+                new AiEngineHistoryMessage("user", "Question 1"),
+                new AiEngineHistoryMessage("assistant", "Answer 1")
+        );
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(2, 6);
+        UUID throughMessageId = messages.get(1).getId();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(generatedSummary);
+        when(conversationRepository.updateRunningSummary(
+                eq(CONVERSATION_ID),
+                eq(1L),
+                eq(generatedSummary),
+                eq(throughMessageId),
+                any(Instant.class)
+        )).thenThrow(new RuntimeException("database unavailable"));
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MessageExchange result = service.addMessage(
+                USER_ID,
+                PROJECT_ID,
+                CONVERSATION_ID,
+                "Current question"
+        );
+
+        assertThat(result.assistantMessage().getContent()).isEqualTo("Current answer");
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary);
     }
 
     @Test
@@ -270,13 +470,13 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, expectedPriorEvidence))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, expectedPriorEvidence, null))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, expectedPriorEvidence);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, expectedPriorEvidence, null);
     }
 
     @Test
@@ -295,13 +495,13 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(List.of(failedQuestion, fallback, orphanAssistant));
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, List.of(), List.of()))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, List.of(), List.of(), null))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, List.of(), List.of());
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, List.of(), List.of(), null);
     }
 
     @Test
@@ -369,6 +569,47 @@ class MessageServiceTest {
         Conversation conversation = new Conversation(project(), user(), "Title");
         ReflectionTestUtils.setField(conversation, "id", CONVERSATION_ID);
         return conversation;
+    }
+
+    private List<Message> completedTurns(Conversation conversation, int count) {
+        List<Message> messages = new java.util.ArrayList<>();
+        for (int turn = 1; turn <= count; turn++) {
+            Message userMessage = Message.user(conversation, "Question " + turn);
+            Message assistantMessage = Message.assistant(conversation, "Answer " + turn, null);
+            ReflectionTestUtils.setField(userMessage, "id", UUID.randomUUID());
+            ReflectionTestUtils.setField(assistantMessage, "id", UUID.randomUUID());
+            messages.add(userMessage);
+            messages.add(assistantMessage);
+        }
+        return messages;
+    }
+
+    private List<AiEngineHistoryMessage> historyTurns(int from, int to) {
+        List<AiEngineHistoryMessage> history = new java.util.ArrayList<>();
+        for (int turn = from; turn <= to; turn++) {
+            history.add(new AiEngineHistoryMessage("user", "Question " + turn));
+            history.add(new AiEngineHistoryMessage("assistant", "Answer " + turn));
+        }
+        return history;
+    }
+
+    private Map<String, Object> summary(String value) {
+        return Map.of(
+                "summary", value,
+                "entities", List.of(),
+                "unresolved_aspects", List.of()
+        );
+    }
+
+    private void setSummaryState(
+            Conversation conversation,
+            Map<String, Object> runningSummary,
+            UUID throughMessageId,
+            long version
+    ) {
+        ReflectionTestUtils.setField(conversation, "runningSummary", runningSummary);
+        ReflectionTestUtils.setField(conversation, "summaryThroughMessageId", throughMessageId);
+        ReflectionTestUtils.setField(conversation, "summaryVersion", version);
     }
 
     private static class NoopTransactionManager extends AbstractPlatformTransactionManager {

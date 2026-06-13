@@ -1,12 +1,15 @@
 package com.history.backend.conversation.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.dto.AiEnginePriorEvidence;
 import com.history.backend.conversation.dto.AiEngineQueryRequest;
 import com.history.backend.conversation.dto.AiEngineQueryResponse;
+import com.history.backend.conversation.dto.AiEngineSummaryRequest;
+import com.history.backend.conversation.dto.AiEngineSummaryResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -30,13 +33,20 @@ public class AiEngineQueryClient {
             String question,
             UUID projectId,
             List<AiEngineHistoryMessage> history,
-            List<AiEnginePriorEvidence> priorEvidence
+            List<AiEnginePriorEvidence> priorEvidence,
+            Map<String, Object> runningSummary
     ) {
         try {
             AiEngineQueryResponse response = aiEngineRestClient.post()
                     .uri("/query")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new AiEngineQueryRequest(question, projectId.toString(), history, priorEvidence))
+                    .body(new AiEngineQueryRequest(
+                            question,
+                            projectId.toString(),
+                            history,
+                            priorEvidence,
+                            runningSummary
+                    ))
                     .retrieve()
                     .body(AiEngineQueryResponse.class);
             String answer = normalizeAnswer(response);
@@ -47,6 +57,25 @@ public class AiEngineQueryClient {
         } catch (RestClientException exception) {
             log.error("ai-engine query request failed: {}", exception.getMessage());
             return AiEngineQueryResult.fallback(FALLBACK_ANSWER);
+        }
+    }
+
+    //  누적 요약 갱신을 위한 ai-engine 병합 요청 (기존 요약 + 추가 대화 턴)
+    public Map<String, Object> summarize(
+            Map<String, Object> runningSummary,
+            List<AiEngineHistoryMessage> history
+    ) {
+        try {
+            AiEngineSummaryResponse response = aiEngineRestClient.post()
+                    .uri("/query/summary")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new AiEngineSummaryRequest(runningSummary, history))
+                    .retrieve()
+                    .body(AiEngineSummaryResponse.class);
+            return response == null ? null : response.summary();
+        } catch (RestClientException exception) {
+            log.warn("ai-engine summary request failed: {}", exception.getMessage());
+            return null;
         }
     }
 

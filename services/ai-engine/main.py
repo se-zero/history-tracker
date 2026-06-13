@@ -22,7 +22,7 @@ from graph.event_handler import handle
 from graph.overview import get_project_overview
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
 from graph.reference_builder import backfill_communication_embeddings, build_reference_edges
-from query_models import QueryRequest
+from query_models import QueryRequest, SummaryRequest
 
 logger = logging.getLogger(__name__)
 
@@ -180,8 +180,17 @@ async def query(req: QueryRequest):
         project_id=req.project_id,
         history=history,
         prior_evidence=prior_evidence,
+        running_summary=req.running_summary,
     )
     return {"answer": answer, "structured": structured}
+
+
+@app.post("/query/summary")
+async def summarize_query_history(req: SummaryRequest):
+    """기존 누적 요약에 새 대화 턴을 병합해 갱신한다."""
+    history = [message.model_dump() for message in req.history]
+    summary = await orchestrator.summarize_history(req.running_summary, history)
+    return {"summary": summary}
 
 
 class SlackFilterOptions(BaseModel):

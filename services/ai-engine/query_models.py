@@ -1,6 +1,6 @@
 """AI 질의 API의 요청 데이터 모델을 정의한다."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -30,9 +30,15 @@ class PriorEvidence(BaseModel):
         return value
 
 
+class SummaryRequest(BaseModel):
+    running_summary: dict[str, Any] | None = None
+    history: list[HistoryMessage]
+
+
 class QueryRequest(BaseModel):
     question: str
     project_id: str = ""
     history: list[HistoryMessage] = Field(default_factory=list)
     prior_evidence: list[PriorEvidence] = Field(default_factory=list)
+    running_summary: dict[str, Any] | None = None
     repo: str = ""

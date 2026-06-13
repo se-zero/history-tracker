@@ -1,5 +1,6 @@
 package com.history.backend.conversation.service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -16,12 +17,14 @@ import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class MessageService {
 
@@ -48,16 +51,22 @@ public class MessageService {
         PendingQuery pendingQuery = transactionTemplate.execute(status -> {
             Conversation conversation = findConversation(projectId, conversationId);
             // history와 question의 현재 질문 중복 방지를 위한 USER 저장 전 이력 캡처
-            QueryContext queryContext = loadQueryContext(conversationId);
+            QueryContext queryContext = loadQueryContext(conversation);
             Message userMessage = appendUserMessageInCurrentTransaction(conversation, normalizedContent);
             return new PendingQuery(userMessage, queryContext);
         });
+        Map<String, Object> runningSummary = refreshRunningSummary(
+                projectId,
+                conversationId,
+                pendingQuery.queryContext()
+        );
         Message assistantMessage = appendAssistantMessageAfterQuery(
                 projectId,
                 conversationId,
                 normalizedContent,
                 pendingQuery.queryContext().history(),
-                pendingQuery.queryContext().priorEvidence()
+                pendingQuery.queryContext().priorEvidence(),
+                runningSummary
         );
         return new MessageExchange(pendingQuery.userMessage(), assistantMessage);
     }
@@ -76,13 +85,15 @@ public class MessageService {
             UUID conversationId,
             String normalizedContent,
             List<AiEngineHistoryMessage> history,
-            List<AiEnginePriorEvidence> priorEvidence
+            List<AiEnginePriorEvidence> priorEvidence,
+            Map<String, Object> runningSummary
     ) {
         AiEngineQueryResult queryResult = aiEngineQueryClient.ask(
                 normalizedContent,
                 projectId,
                 history,
-                priorEvidence
+                priorEvidence,
+                runningSummary
         );
         return transactionTemplate.execute(status -> {
             // 트랜잭션이 분리되어 있어 질의 중 삭제됐을 수 있으므로 conversation 재조회
@@ -121,10 +132,10 @@ public class MessageService {
         return content.trim();
     }
 
-    // AI 질의 컨텍스트 구성 — history(최근 완성 5턴)와 prior evidence(직전 응답에서 뽑은 대상 식별 근거)
-    private QueryContext loadQueryContext(UUID conversationId) {
+    // AI 질의 컨텍스트와 새로 요약할 오래된 완성 턴 구성
+    private QueryContext loadQueryContext(Conversation conversation) {
         List<HistoryTurn> completedTurns = completedHistoryTurns(
-                messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId)
+                messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversation.getId())
         );
         int fromIndex = Math.max(0, completedTurns.size() - MAX_HISTORY_TURNS);
         List<AiEngineHistoryMessage> history = completedTurns.subList(fromIndex, completedTurns.size()).stream()
@@ -133,7 +144,70 @@ public class MessageService {
         List<AiEnginePriorEvidence> priorEvidence = completedTurns.isEmpty()
                 ? List.of()
                 : extractPriorEvidence(completedTurns.get(completedTurns.size() - 1).assistant());
-        return new QueryContext(history, priorEvidence);
+        SummaryTask summaryTask = summaryTask(conversation, completedTurns.subList(0, fromIndex));
+        return new QueryContext(history, priorEvidence, conversation.getRunningSummary(), summaryTask);
+    }
+
+    // 마지막 요약 커서(summaryThroughMessageId) 이후로 새로 밀려난 완성 턴의 요약 작업 구성
+    private SummaryTask summaryTask(Conversation conversation, List<HistoryTurn> oldTurns) {
+        int startIndex = 0;
+        UUID summaryThroughMessageId = conversation.getSummaryThroughMessageId();
+        if (summaryThroughMessageId != null) {
+            for (int index = 0; index < oldTurns.size(); index++) {
+                if (summaryThroughMessageId.equals(oldTurns.get(index).assistant().getId())) {
+                    startIndex = index + 1;
+                    break;
+                }
+            }
+        }
+        if (startIndex >= oldTurns.size()) {
+            return null;
+        }
+        List<HistoryTurn> unsummarizedTurns = oldTurns.subList(startIndex, oldTurns.size());
+        UUID throughMessageId = unsummarizedTurns.get(unsummarizedTurns.size() - 1).assistant().getId();
+        if (throughMessageId == null) {
+            return null;
+        }
+        List<AiEngineHistoryMessage> history = unsummarizedTurns.stream()
+                .flatMap(turn -> turn.messages().stream())
+                .toList();
+        return new SummaryTask(history, throughMessageId, conversation.getSummaryVersion());
+    }
+
+    // 요약 실패 또는 동시 갱신 충돌이 현재 질문 실패로 이어지지 않는 보조 문맥 갱신
+    private Map<String, Object> refreshRunningSummary(
+            UUID projectId,
+            UUID conversationId,
+            QueryContext queryContext
+    ) {
+        if (queryContext.summaryTask() == null) {
+            return queryContext.runningSummary();
+        }
+        Map<String, Object> generatedSummary = aiEngineQueryClient.summarize(
+                queryContext.runningSummary(),
+                queryContext.summaryTask().history()
+        );
+        if (generatedSummary == null) {
+            return queryContext.runningSummary();
+        }
+        try {
+            Integer updated = transactionTemplate.execute(status -> conversationRepository.updateRunningSummary(
+                    conversationId,
+                    queryContext.summaryTask().expectedVersion(),
+                    generatedSummary,
+                    queryContext.summaryTask().throughMessageId(),
+                    Instant.now()
+            ));
+            if (updated != null && updated == 1) {
+                return generatedSummary;
+            }
+            return transactionTemplate.execute(
+                    status -> findConversation(projectId, conversationId).getRunningSummary()
+            );
+        } catch (RuntimeException exception) {
+            log.warn("running summary 갱신 실패 - 기존 요약으로 진행: {}", exception.getMessage());
+            return queryContext.runningSummary();
+        }
     }
 
     // 완성 턴 = 유효한 USER + 바로 뒤 유효한 ASSISTANT 쌍. fallback/blank 답변으로 끝난 턴은 제외.
@@ -218,7 +292,16 @@ public class MessageService {
 
     private record QueryContext(
             List<AiEngineHistoryMessage> history,
-            List<AiEnginePriorEvidence> priorEvidence
+            List<AiEnginePriorEvidence> priorEvidence,
+            Map<String, Object> runningSummary,
+            SummaryTask summaryTask
+    ) {
+    }
+
+    private record SummaryTask(
+            List<AiEngineHistoryMessage> history,
+            UUID throughMessageId,
+            long expectedVersion
     ) {
     }
 
