@@ -20,6 +20,10 @@ ai:
   engine:
     url: http://localhost:8000
 
+pipeline:
+  worker:
+    url: ${PIPELINE_WORKER_URL:http://localhost:8081}
+
 security:
   credentials:
     key: ${BACKEND_CREDENTIAL_KEY:bG9jYWwtY3JlZGVudGlhbC1rZXktMzItYnl0ZXMhISE=}
