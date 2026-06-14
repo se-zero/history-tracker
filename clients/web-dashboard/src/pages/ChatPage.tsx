@@ -17,8 +17,7 @@ import type {
   User,
 } from "@/types/api";
 
-// TODO(backend): metadata에 citations / highlightNodes 가 실리면 이 가드 풀고 카드/하이라이트 렌더.
-//                현재 backend AiEngineQueryResponse가 answer만 받고 structured를 버려서 항상 비어 있음.
+// TODO(backend): highlightNodes가 실리면 그래프 하이라이트 연동. 그래프 노드 매핑은 Phase 4.
 const SUGGESTED = [
   { icon: "branch", text: "왜 이 코드가 이렇게 바뀌었어?" },
   { icon: "refactor", text: "최근 머지된 리팩토링 PR들을 정리해줘" },
@@ -148,10 +147,16 @@ function MessageItem({ message, user }: { message: Message; user: User | null })
 }
 
 function AssistantMessage({ message }: { message: Message }) {
-  const evidence = useMemo(
-    () => extractEvidence(message.metadata),
+  const structured = useMemo(
+    () => extractStructured(message.metadata),
     [message.metadata],
   );
+  // structured 응답은 summary/evidence/unknown_aspects를 카드·목록으로 분리 렌더한다.
+  // message.content는 이 구조를 풀어 쓴 markdown 텍스트라 structured가 있으면 사용하지 않는다.
+  const summary = structured?.summary ?? message.content;
+  const unknownAspects = structured?.unknownAspects ?? [];
+  const evidence = structured?.evidence ?? [];
+
   return (
     <div className="msg assistant">
       <div className="msg-avatar">
@@ -160,10 +165,17 @@ function AssistantMessage({ message }: { message: Message }) {
       <div className="msg-body">
         <div className="msg-role">History Tracker</div>
         <div className="msg-content">
-          <p style={{ whiteSpace: "pre-wrap" }}>{message.content}</p>
+          <p style={{ whiteSpace: "pre-wrap" }}>{summary}</p>
         </div>
 
-        {/* TODO(backend): evidence가 실리면 cite 카드 렌더. 그래프 노드 매핑은 Phase 4. */}
+        {unknownAspects.length > 0 && (
+          <ul className="unknown-aspects">
+            {unknownAspects.map((aspect, i) => (
+              <li key={i}>{aspect}</li>
+            ))}
+          </ul>
+        )}
+
         {evidence.length > 0 && (
           <div className="citation-cards">
             {evidence.map((e, i) => (
@@ -180,6 +192,12 @@ function AssistantMessage({ message }: { message: Message }) {
                       <>
                         <span>·</span>
                         <span>{e.author}</span>
+                      </>
+                    )}
+                    {e.occurredAt && (
+                      <>
+                        <span>·</span>
+                        <span>{e.occurredAt.slice(0, 10)}</span>
                       </>
                     )}
                   </div>
@@ -199,14 +217,26 @@ interface Evidence {
   id: string;
   quote: string;
   author: string | null;
+  occurredAt?: string;
 }
 
-function extractEvidence(metadata: MessageMetadata | null | undefined): Evidence[] {
-  if (!metadata) return [];
+interface StructuredAnswer {
+  summary?: string;
+  evidence: Evidence[];
+  unknownAspects: string[];
+}
+
+function extractStructured(metadata: MessageMetadata | null | undefined): StructuredAnswer | null {
+  if (!metadata) return null;
   const structured = metadata.structured as
-    | { evidence?: Evidence[] }
+    | { summary?: string; evidence?: Evidence[]; unknown_aspects?: string[] }
     | undefined;
-  return structured?.evidence ?? [];
+  if (!structured) return null;
+  return {
+    summary: structured.summary,
+    evidence: structured.evidence ?? [],
+    unknownAspects: structured.unknown_aspects ?? [],
+  };
 }
 
 // =============== Thinking ===============
