@@ -2,10 +2,7 @@ package com.history.pipeline_worker.pipeline;
 
 import com.history.pipeline_worker.checkpoint.CheckpointService;
 import com.history.pipeline_worker.checkpoint.ProjectCheckpointData;
-import com.history.pipeline_worker.collection.GitHubIntegration;
-import com.history.pipeline_worker.collection.JiraIntegration;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
-import com.history.pipeline_worker.collection.SlackIntegration;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.messaging.EventPublisher;
@@ -44,13 +41,13 @@ public class PipelineService {
 
     public CollectionResult collectIncremental(ProjectCollectionContext context) {
         ProjectCheckpointData checkpoints = checkpointService.loadProjectCheckpoints(context.projectId());
-        int github = normalizeGitHub(context.projectId(), toRawFetchRequest(context.github()), checkpoints.github);
+        int github = normalizeGitHub(context.projectId(), context.github().toRawFetchRequest(), checkpoints.github);
         int jira = context.jira()
-                .map(this::toRawFetchRequest)
+                .map(integration -> integration.toRawFetchRequest())
                 .map(request -> normalizeJira(context.projectId(), request, checkpoints.jira.lastScannedAt))
                 .orElse(0);
         int slack = context.slack()
-                .map(this::toRawFetchRequest)
+                .map(integration -> integration.toRawFetchRequest())
                 .map(request -> normalizeSlack(context.projectId(), request, checkpoints.slack.lastScannedAt))
                 .orElse(0);
 
@@ -200,26 +197,6 @@ public class PipelineService {
         if (candidate == null) return current;
         if (current == null || candidate.isAfter(current)) return candidate;
         return current;
-    }
-
-    private RawFetchRequest toRawFetchRequest(GitHubIntegration integration) {
-        Map<String, String> options = new HashMap<>();
-        if (integration.branch() != null && !integration.branch().isBlank()) {
-            options.put("branch", integration.branch());
-        }
-        return new RawFetchRequest(integration.credentials(), integration.repositoryFullName(), options);
-    }
-
-    private RawFetchRequest toRawFetchRequest(JiraIntegration integration) {
-        Map<String, String> options = new HashMap<>();
-        if (integration.baseUrl() != null && !integration.baseUrl().isBlank()) {
-            options.put("baseUrl", integration.baseUrl());
-        }
-        return new RawFetchRequest(integration.credentials(), integration.projectKey(), options);
-    }
-
-    private RawFetchRequest toRawFetchRequest(SlackIntegration integration) {
-        return new RawFetchRequest(integration.credentials(), null, Map.of());
     }
 
 }

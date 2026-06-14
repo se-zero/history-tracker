@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -130,6 +131,84 @@ class ProjectIntegrationServiceTest {
         assertThat(context.jira()).isEmpty();
         assertThat(context.slack()).hasValueSatisfying(slack ->
                 assertThat(slack.credentials()).isEqualTo("Bearer xoxb-slack-token"));
+    }
+
+    @Test
+    void resolveGitHubPullRequestWebhook_invalidGitHubExternalRef_propagatesConfigurationError() {
+        ProjectIntegrationRepository.IntegrationRow invalidGitHub = new ProjectIntegrationRepository.IntegrationRow(
+                PROJECT_ID,
+                "github",
+                Map.of("repository_id", 123L),
+                null,
+                GITHUB_TOKEN,
+                Instant.parse("2026-01-01T01:00:00Z")
+        );
+        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
+                .thenReturn(Optional.of(invalidGitHub));
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(invalidGitHub));
+        when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
+
+        assertThatThrownBy(() -> service.resolveGitHubPullRequestWebhook(payload()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Missing external_ref value: repository_full_name");
+    }
+
+    @Test
+    void resolveGitHub_buildsOnlyGitHubIntegrationForProject() {
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(
+                Instant.parse("2026-01-01T01:00:00Z"),
+                GITHUB_TOKEN
+        );
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(jiraRow(), github, slackRow()));
+        when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
+
+        Optional<GitHubIntegration> result = service.resolveGitHub(PROJECT_ID);
+
+        assertThat(result).hasValueSatisfying(integration -> {
+            assertThat(integration.credentials()).isEqualTo("Bearer gh-token");
+            assertThat(integration.repositoryFullName()).isEqualTo("owner/repo");
+        });
+    }
+
+    @Test
+    void resolveJira_buildsOnlyJiraIntegrationForProject() {
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(slackRow(), jiraRow()));
+        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn("jira@example.com:jira-token");
+
+        Optional<JiraIntegration> result = service.resolveJira(PROJECT_ID);
+
+        assertThat(result).hasValueSatisfying(integration -> {
+            assertThat(integration.credentials()).isEqualTo("jira@example.com:jira-token");
+            assertThat(integration.projectKey()).isEqualTo("PLAT");
+            assertThat(integration.baseUrl()).isEqualTo("https://jira.example.com");
+        });
+    }
+
+    @Test
+    void resolveSlack_buildsOnlySlackIntegrationForProject() {
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(slackRow()));
+        when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("xoxb-slack-token");
+
+        Optional<SlackIntegration> result = service.resolveSlack(PROJECT_ID);
+
+        assertThat(result).hasValueSatisfying(integration ->
+                assertThat(integration.credentials()).isEqualTo("Bearer xoxb-slack-token"));
+    }
+
+    @Test
+    void resolveGitHub_returnsEmptyWhenIntegrationIsInvalid() {
+        ProjectIntegrationRepository.IntegrationRow invalidGitHub = new ProjectIntegrationRepository.IntegrationRow(
+                PROJECT_ID,
+                "github",
+                Map.of(),
+                null,
+                GITHUB_TOKEN,
+                Instant.parse("2026-01-01T01:00:00Z")
+        );
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(invalidGitHub));
+        when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
+
+        assertThat(service.resolveGitHub(PROJECT_ID)).isEmpty();
     }
 
     private GitHubWebhookPayload payload() {
