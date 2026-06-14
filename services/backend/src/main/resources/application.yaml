@@ -20,9 +20,15 @@ ai:
   engine:
     url: http://localhost:8000
 
+pipeline:
+  worker:
+    url: ${PIPELINE_WORKER_URL:http://localhost:8081}
+
 security:
+  internal-service:
+    token: ${INTERNAL_SERVICE_TOKEN}
   credentials:
-    key: ${BACKEND_CREDENTIAL_KEY:bG9jYWwtY3JlZGVudGlhbC1rZXktMzItYnl0ZXMhISE=}
+    key: ${BACKEND_CREDENTIAL_KEY}
   jwt:
     secret: ${JWT_SECRET:local-development-jwt-secret-must-be-changed}
     access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT15M}

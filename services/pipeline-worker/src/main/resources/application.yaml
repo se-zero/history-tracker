@@ -13,8 +13,13 @@ spring:
     driver-class-name: org.postgresql.Driver
 
 security:
+  internal-service:
+    token: ${INTERNAL_SERVICE_TOKEN}
   credentials:
-    key: ${BACKEND_CREDENTIAL_KEY:bG9jYWwtY3JlZGVudGlhbC1rZXktMzItYnl0ZXMhISE=}
+    key: ${BACKEND_CREDENTIAL_KEY}
+
+backend:
+  url: ${BACKEND_URL:http://localhost:8080}
 
 server:
   port: 8081  # backend(8080)와 포트 충돌 방지

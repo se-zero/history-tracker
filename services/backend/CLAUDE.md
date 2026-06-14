@@ -12,6 +12,19 @@
 - 기능 PR마다 필요한 migration을 추가한다.
 - main에 머지된 migration 파일은 수정하지 말고 새 migration으로 변경한다.
 
+## Pipeline Worker 연동
+
+- `PipelineWorkerConfig`는 `pipeline.worker.url` 기반 `pipelineWorkerRestClient`와 connect/read timeout을 구성한다.
+- `PipelineWorkerClient`는 provider 연동 커밋 후 `/api/v1/collect/{provider}`에 `projectId`만 전달하며, 트리거 실패를 연동 성공과 분리해 로그만 남긴다.
+
+## 내부 서비스 API
+
+- `/api/v1/internal/**`는 사용자 JWT가 아니라 `X-Internal-Service-Token` 헤더로 인증한다.
+- `InternalServiceAuthenticationFilter`는 `security.internal-service.token`과 요청 헤더를 timing-safe 방식으로 비교한다.
+- `POST /api/v1/internal/github/installations/{installationId}/token`은 GitHub installation access token이 없거나 만료 임박한 경우 갱신해 DB 캐시를 보장하고 `204`를 반환한다. 토큰 평문은 응답하지 않는다.
+- backend와 pipeline-worker에는 동일한 `INTERNAL_SERVICE_TOKEN`을 배포해야 한다.
+- GitHub App private key는 backend에만 두고 pipeline-worker와 공유하지 않는다.
+
 ## 주석 규칙
 
 ### 함수 주석

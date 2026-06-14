@@ -3,6 +3,8 @@ package com.history.backend.integration.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +19,7 @@ import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
+import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.repository.IntegrationRepository;
@@ -30,7 +33,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
@@ -53,6 +55,9 @@ class IntegrationServiceTest {
     private GitHubInstallationService gitHubInstallationService;
 
     @Mock
+    private InstallationTokenService installationTokenService;
+
+    @Mock
     private CredentialCryptoService credentialCryptoService;
 
     @Mock
@@ -61,19 +66,14 @@ class IntegrationServiceTest {
     @Mock
     private JiraClient jiraClient;
 
-    private final PlatformTransactionManager transactionManager = new NoopTransactionManager();
+    @Mock
+    private PipelineWorkerClient pipelineWorkerClient;
+
+    private final NoopTransactionManager transactionManager = new NoopTransactionManager();
 
     @Test
     void listIntegrationsReturnsIntegrationsForOwnedProject() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         Project project = project();
         Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget");
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
@@ -87,15 +87,7 @@ class IntegrationServiceTest {
 
     @Test
     void disconnectIntegrationDeletesIntegrationForOwnedProject() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget");
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
@@ -108,15 +100,7 @@ class IntegrationServiceTest {
 
     @Test
     void disconnectIntegrationThrowsNotFoundWhenIntegrationMissing() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
                 .thenReturn(Optional.empty());
@@ -128,15 +112,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectGitHubRepositorySavesIntegrationForOwnedProjectAndInstallation() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         Project project = project();
         GitHubInstallation installation = installation();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
@@ -144,8 +120,19 @@ class IntegrationServiceTest {
                 .thenReturn(installation);
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return "installation-token";
+        }).when(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+                .thenAnswer(invocation -> {
+                    assertThat(transactionManager.transactionActive).isTrue();
+                    return invocation.getArgument(0);
+                });
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(pipelineWorkerClient).triggerGitHubCollection(PROJECT_ID);
 
         Integration result = service.connectGitHubRepository(
                 OWNER_ID,
@@ -160,19 +147,40 @@ class IntegrationServiceTest {
         assertThat(result.getProvider()).isEqualTo(IntegrationProvider.GITHUB);
         assertThat(result.getGitHubRepositoryId()).isEqualTo(12345L);
         assertThat(result.getGitHubRepositoryFullName()).isEqualTo("acme/widget");
+        verify(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
+        verify(pipelineWorkerClient).triggerGitHubCollection(PROJECT_ID);
+    }
+
+    @Test
+    void connectGitHubRepositoryDoesNotStartSaveTransactionWhenInstallationTokenCannotBeIssued() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(false);
+        when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
+                .thenThrow(new IllegalStateException("GitHub token issuance failed."));
+
+        assertThatThrownBy(() -> service.connectGitHubRepository(
+                OWNER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget"
+        ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("GitHub token issuance failed.");
+
+        assertThat(transactionManager.beginCount).isZero();
+        assertThat(transactionManager.rollbackCount).isZero();
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(pipelineWorkerClient, never()).triggerGitHubCollection(PROJECT_ID);
     }
 
     @Test
     void connectGitHubRepositoryRejectsDuplicateGitHubProvider() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
@@ -192,15 +200,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectGitHubRepositoryPropagatesMissingInstallationAsNotFound() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
                 .thenThrow(new NotFoundException("GitHub installation not found."));
@@ -218,15 +218,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectGitHubRepositoryConvertsUniqueConstraintViolationToConflict() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
@@ -248,15 +240,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectSlackWorkspaceEncryptsTokenAndSavesIntegrationForOwnedProject() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         Project project = project();
         byte[] encryptedCredential = new byte[] {1, 2, 3};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
@@ -267,6 +251,10 @@ class IntegrationServiceTest {
         when(credentialCryptoService.encrypt("xoxb-token")).thenReturn(encryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(pipelineWorkerClient).triggerSlackCollection(PROJECT_ID);
 
         Integration result = service.connectSlackWorkspace(
                 OWNER_ID,
@@ -280,19 +268,12 @@ class IntegrationServiceTest {
         assertThat(result.getSlackWorkspaceId()).isEqualTo("T123");
         assertThat(result.getSlackWorkspaceName()).isEqualTo("Acme");
         assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
+        verify(pipelineWorkerClient).triggerSlackCollection(PROJECT_ID);
     }
 
     @Test
     void connectSlackWorkspaceRejectsDuplicateSlackProvider() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
                 .thenReturn(true);
@@ -308,15 +289,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectSlackWorkspaceConvertsUniqueConstraintViolationToConflict() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
                 .thenReturn(false);
@@ -337,15 +310,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectJiraProjectEncryptsCredentialAndSavesIntegrationForOwnedProject() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         Project project = project();
         byte[] encryptedCredential = new byte[] {4, 5, 6};
         when(jiraClient.verifyProject(
@@ -361,6 +326,10 @@ class IntegrationServiceTest {
                 .thenReturn(false);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(pipelineWorkerClient).triggerJiraCollection(PROJECT_ID);
 
         Integration result = service.connectJiraProject(
                 OWNER_ID,
@@ -378,19 +347,12 @@ class IntegrationServiceTest {
         assertThat(result.getJiraProjectName()).isEqualTo("Project");
         assertThat(result.getJiraBaseUrl()).isEqualTo("https://93.184.216.34");
         assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
+        verify(pipelineWorkerClient).triggerJiraCollection(PROJECT_ID);
     }
 
     @Test
     void connectJiraProjectRejectsLoopbackBaseUrl() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
 
         assertThatThrownBy(() -> service.connectJiraProject(
                 OWNER_ID,
@@ -406,15 +368,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectJiraProjectRejectsHttpBaseUrl() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
 
         assertThatThrownBy(() -> service.connectJiraProject(
                 OWNER_ID,
@@ -430,15 +384,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectJiraProjectRejectsDuplicateJiraProvider() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         when(jiraClient.verifyProject(
                 "https://93.184.216.34",
                 "PROJ",
@@ -465,15 +411,7 @@ class IntegrationServiceTest {
 
     @Test
     void connectJiraProjectConvertsUniqueConstraintViolationToConflict() {
-        IntegrationService service = new IntegrationService(
-                integrationRepository,
-                projectService,
-                gitHubInstallationService,
-                credentialCryptoService,
-                slackClient,
-                jiraClient,
-                transactionManager
-        );
+        IntegrationService service = service();
         when(jiraClient.verifyProject(
                 "https://93.184.216.34",
                 "PROJ",
@@ -518,7 +456,25 @@ class IntegrationServiceTest {
         return installation;
     }
 
+    private IntegrationService service() {
+        return new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                installationTokenService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                pipelineWorkerClient,
+                transactionManager
+        );
+    }
+
     private static class NoopTransactionManager extends AbstractPlatformTransactionManager {
+
+        private int rollbackCount;
+        private int beginCount;
+        private boolean transactionActive;
 
         @Override
         protected Object doGetTransaction() {
@@ -527,14 +483,19 @@ class IntegrationServiceTest {
 
         @Override
         protected void doBegin(Object transaction, TransactionDefinition definition) {
+            beginCount++;
+            transactionActive = true;
         }
 
         @Override
         protected void doCommit(DefaultTransactionStatus status) {
+            transactionActive = false;
         }
 
         @Override
         protected void doRollback(DefaultTransactionStatus status) {
+            transactionActive = false;
+            rollbackCount++;
         }
     }
 }

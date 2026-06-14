@@ -142,6 +142,24 @@ class InstallationTokenServiceTest {
                 .hasMessage("GitHub installation not found.");
     }
 
+    @Test
+    void ensuresTokenByExternalInstallationId() {
+        InstallationTokenService service = service();
+        GitHubInstallation installation = installation();
+        byte[] encryptedToken = new byte[]{1, 2, 3};
+        installation.updateInstallationToken(encryptedToken, NOW.plusSeconds(3600));
+
+        when(gitHubInstallationRepository.findByInstallationId(98765L))
+                .thenReturn(Optional.of(installation));
+        when(gitHubInstallationRepository.findTokenCacheById(INSTALLATION_ID))
+                .thenReturn(Optional.of(tokenCache(encryptedToken, NOW.plusSeconds(3600))));
+        when(credentialCryptoService.decrypt(encryptedToken)).thenReturn("cached-token");
+
+        service.ensureInstallationAccessToken(98765L);
+
+        verify(gitHubInstallationRepository).findTokenCacheById(INSTALLATION_ID);
+    }
+
     private InstallationTokenService service() {
         return new InstallationTokenService(
                 gitHubInstallationRepository,

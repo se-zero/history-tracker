@@ -75,6 +75,15 @@ public class InstallationTokenService {
         return issuedToken.token();
     }
 
+    // 외부 GitHub installation ID 기준 유효 access token 캐시 보장
+    @Transactional
+    public void ensureInstallationAccessToken(Long installationId) {
+        UUID installationRowId = gitHubInstallationRepository.findByInstallationId(installationId)
+                .orElseThrow(() -> new NotFoundException("GitHub installation not found."))
+                .getId();
+        getInstallationAccessToken(installationRowId);
+    }
+
     private boolean hasReusableToken(GitHubInstallation installation) {
         return isReusable(
                 installation.getEncryptedInstallationToken(),

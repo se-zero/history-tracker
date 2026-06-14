@@ -7,10 +7,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -24,6 +26,7 @@ public class ProjectIntegrationService {
     private static final String GITHUB_REPOSITORY_FULL_NAME = "repository_full_name";
     private static final String JIRA_PROJECT_KEY = "project_key";
     private static final String JIRA_BASE_URL = "base_url";
+    private static final Duration GITHUB_TOKEN_REFRESH_SKEW = Duration.ofMinutes(5);
 
     private final ProjectIntegrationRepository repository;
     private final CredentialCryptoService credentialCryptoService;
@@ -47,13 +50,44 @@ public class ProjectIntegrationService {
         this.clock = clock;
     }
 
-    public Optional<ProjectCollectionContext> resolveGitHubPullRequestWebhook(GitHubWebhookPayload payload) {
-        return repository.findGitHubWebhookIntegration(
+    public GitHubWebhookIntegrationResolution resolveGitHubPullRequestWebhook(GitHubWebhookPayload payload) {
+        Optional<ProjectIntegrationRepository.IntegrationRow> githubMatch = repository.findGitHubWebhookIntegration(
                         payload.installationId(),
                         payload.repositoryId(),
                         payload.repositoryFullName()
-                )
-                .flatMap(this::buildContext);
+                );
+        if (githubMatch.isEmpty()) {
+            return GitHubWebhookIntegrationResolution.notFound();
+        }
+        if (requiresGitHubTokenRefresh(githubMatch.orElseThrow())) {
+            return GitHubWebhookIntegrationResolution.tokenRefreshRequired();
+        }
+        return buildContext(githubMatch.orElseThrow())
+                .map(GitHubWebhookIntegrationResolution::ready)
+                .orElseGet(GitHubWebhookIntegrationResolution::notFound);
+    }
+
+    public Optional<GitHubIntegration> resolveGitHub(UUID projectId) {
+        return findIntegration(projectId, PROVIDER_GITHUB)
+                .flatMap(this::buildGitHubIntegrationSafely);
+    }
+
+    public Optional<JiraIntegration> resolveJira(UUID projectId) {
+        return findIntegration(projectId, PROVIDER_JIRA)
+                .flatMap(integration -> buildOptionalIntegration(
+                        () -> buildJiraIntegration(integration),
+                        PROVIDER_JIRA,
+                        projectId.toString()
+                ));
+    }
+
+    public Optional<SlackIntegration> resolveSlack(UUID projectId) {
+        return findIntegration(projectId, PROVIDER_SLACK)
+                .flatMap(integration -> buildOptionalIntegration(
+                        () -> buildSlackIntegration(integration),
+                        PROVIDER_SLACK,
+                        projectId.toString()
+                ));
     }
 
     private Optional<ProjectCollectionContext> buildContext(ProjectIntegrationRepository.IntegrationRow githubMatch) {
@@ -91,6 +125,24 @@ public class ProjectIntegrationService {
         ));
     }
 
+    private Optional<ProjectIntegrationRepository.IntegrationRow> findIntegration(UUID projectId, String provider) {
+        return repository.findAllByProjectId(projectId).stream()
+                .filter(integration -> provider.equals(integration.provider()))
+                .findFirst();
+    }
+
+    private Optional<GitHubIntegration> buildGitHubIntegrationSafely(
+            ProjectIntegrationRepository.IntegrationRow integration
+    ) {
+        try {
+            return buildGitHubIntegration(integration);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            log.warn("Skipping invalid integration: projectId={}, provider={}",
+                    integration.projectId(), PROVIDER_GITHUB, exception);
+            return Optional.empty();
+        }
+    }
+
     private Optional<GitHubIntegration> buildGitHubIntegration(ProjectIntegrationRepository.IntegrationRow integration) {
         if (integration.encryptedInstallationToken() == null || integration.installationTokenExpiresAt() == null) {
             log.warn("GitHub installation token is not cached: projectId={}", integration.projectId());
@@ -108,6 +160,13 @@ public class ProjectIntegrationService {
                 requiredString(integration.externalRef(), GITHUB_REPOSITORY_FULL_NAME),
                 null
         ));
+    }
+
+    private boolean requiresGitHubTokenRefresh(ProjectIntegrationRepository.IntegrationRow integration) {
+        return integration.encryptedInstallationToken() == null
+                || integration.installationTokenExpiresAt() == null
+                || !integration.installationTokenExpiresAt()
+                .isAfter(Instant.now(clock).plus(GITHUB_TOKEN_REFRESH_SKEW));
     }
 
     private JiraIntegration buildJiraIntegration(ProjectIntegrationRepository.IntegrationRow integration) {
