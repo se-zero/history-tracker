@@ -2,6 +2,7 @@ package com.history.pipeline_worker.webhook;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.collection.GitHubIntegration;
+import com.history.pipeline_worker.collection.GitHubWebhookIntegrationResolution;
 import com.history.pipeline_worker.collection.JiraIntegration;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
@@ -24,6 +25,7 @@ class GitHubWebhookServiceTest {
 
     private GitHubWebhookVerifier verifier;
     private WebhookDeliveryService webhookDeliveryService;
+    private GitHubInstallationTokenClient installationTokenClient;
     private ProjectIntegrationService projectIntegrationService;
     private PipelineService pipelineService;
     private GitHubWebhookService service;
@@ -32,12 +34,14 @@ class GitHubWebhookServiceTest {
     void setUp() {
         verifier = mock(GitHubWebhookVerifier.class);
         webhookDeliveryService = mock(WebhookDeliveryService.class);
+        installationTokenClient = mock(GitHubInstallationTokenClient.class);
         projectIntegrationService = mock(ProjectIntegrationService.class);
         pipelineService = mock(PipelineService.class);
         service = new GitHubWebhookService(
                 new ObjectMapper(),
                 verifier,
                 webhookDeliveryService,
+                installationTokenClient,
                 projectIntegrationService,
                 pipelineService,
                 new SyncTaskExecutor()
@@ -52,7 +56,7 @@ class GitHubWebhookServiceTest {
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload(true, "closed"));
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.UNAUTHORIZED);
-        verifyNoInteractions(webhookDeliveryService, projectIntegrationService, pipelineService);
+        verifyNoInteractions(webhookDeliveryService, installationTokenClient, projectIntegrationService, pipelineService);
     }
 
     @Test
@@ -65,7 +69,7 @@ class GitHubWebhookServiceTest {
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.IGNORED);
-        verifyNoInteractions(webhookDeliveryService, projectIntegrationService, pipelineService);
+        verifyNoInteractions(webhookDeliveryService, installationTokenClient, projectIntegrationService, pipelineService);
     }
 
     @Test
@@ -78,7 +82,35 @@ class GitHubWebhookServiceTest {
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.IGNORED);
         verify(webhookDeliveryService, never()).tryClaim(anyString(), anyString());
-        verifyNoInteractions(projectIntegrationService, pipelineService);
+        verifyNoInteractions(installationTokenClient, projectIntegrationService, pipelineService);
+    }
+
+    @Test
+    void handle_missingInstallation_returnsNotFoundWhenTokenRefreshIsRequired() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.tokenRefreshRequired());
+        when(installationTokenClient.ensureInstallationToken(456L)).thenReturn(false);
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.NOT_FOUND);
+        verify(projectIntegrationService).resolveGitHubPullRequestWebhook(any());
+        verifyNoInteractions(webhookDeliveryService, pipelineService);
+    }
+
+    @Test
+    void handle_missingInstallationId_returnsBadRequest() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed").replace("\"installation\": { \"id\": 456 }", "\"installation\": {}");
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.BAD_REQUEST);
+        verifyNoInteractions(installationTokenClient, projectIntegrationService, webhookDeliveryService, pipelineService);
     }
 
     @Test
@@ -87,13 +119,37 @@ class GitHubWebhookServiceTest {
         String payload = payload(true, "closed");
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(Optional.empty());
+                .thenReturn(GitHubWebhookIntegrationResolution.notFound());
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.NOT_FOUND);
+        verifyNoInteractions(installationTokenClient);
         verify(webhookDeliveryService, never()).tryClaim(anyString(), anyString());
         verifyNoInteractions(pipelineService);
+    }
+
+    @Test
+    void handle_tokenRefreshRequired_refreshesAndResolvesIntegrationAgain() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext context = collectionContext();
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(
+                        GitHubWebhookIntegrationResolution.tokenRefreshRequired(),
+                        GitHubWebhookIntegrationResolution.ready(context)
+                );
+        when(installationTokenClient.ensureInstallationToken(456L)).thenReturn(true);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(pipelineService.collectIncremental(context)).thenReturn(new CollectionResult(1, 0, 0));
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
+        verify(installationTokenClient).ensureInstallationToken(456L);
+        verify(projectIntegrationService, times(2)).resolveGitHubPullRequestWebhook(any());
+        verify(pipelineService).collectIncremental(context);
     }
 
     @Test
@@ -102,7 +158,7 @@ class GitHubWebhookServiceTest {
         String payload = payload(true, "closed");
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(Optional.of(collectionContext()));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(collectionContext()));
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(false);
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
@@ -120,13 +176,14 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(Optional.of(context));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
         when(pipelineService.collectIncremental(context)).thenReturn(new CollectionResult(1, 2, 3));
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
         verify(pipelineService).collectIncremental(context);
+        verifyNoInteractions(installationTokenClient);
         verify(webhookDeliveryService).markProcessed("delivery-1");
     }
 
@@ -139,7 +196,7 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(Optional.of(context));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
         when(pipelineService.collectIncremental(context))
                 .thenThrow(new IllegalStateException("collection failed"));
 
@@ -159,6 +216,7 @@ class GitHubWebhookServiceTest {
                 new ObjectMapper(),
                 verifier,
                 webhookDeliveryService,
+                installationTokenClient,
                 projectIntegrationService,
                 pipelineService,
                 rejectingExecutor
@@ -167,7 +225,7 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(Optional.of(context));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
 
         assertThrows(RejectedExecutionException.class, () -> rejectingService.handle(headers, payload));
 

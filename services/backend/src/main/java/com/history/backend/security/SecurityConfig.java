@@ -20,6 +20,7 @@ public class SecurityConfig {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final InternalServiceAuthenticationFilter internalServiceAuthenticationFilter;
 
     // stateless API 보안 필터 체인 및 공개 인증 경로 설정
     @Bean
@@ -30,6 +31,7 @@ public class SecurityConfig {
                 .exceptionHandling(exception -> exception.authenticationEntryPoint(authenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
+                                "/api/v1/internal/**",
                                 "/api/v1/auth/github/**",
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/logout",
@@ -37,6 +39,7 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
+                .addFilterBefore(internalServiceAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }

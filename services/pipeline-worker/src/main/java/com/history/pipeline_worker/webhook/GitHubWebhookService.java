@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
+import com.history.pipeline_worker.collection.GitHubWebhookIntegrationResolution;
 import com.history.pipeline_worker.pipeline.CollectionResult;
 import com.history.pipeline_worker.pipeline.PipelineService;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +22,7 @@ public class GitHubWebhookService {
     private final ObjectMapper objectMapper;
     private final GitHubWebhookVerifier verifier;
     private final WebhookDeliveryService webhookDeliveryService;
+    private final GitHubInstallationTokenClient installationTokenClient;
     private final ProjectIntegrationService projectIntegrationService;
     private final PipelineService pipelineService;
     private final TaskExecutor taskExecutor;
@@ -29,6 +31,7 @@ public class GitHubWebhookService {
             ObjectMapper objectMapper,
             GitHubWebhookVerifier verifier,
             WebhookDeliveryService webhookDeliveryService,
+            GitHubInstallationTokenClient installationTokenClient,
             ProjectIntegrationService projectIntegrationService,
             PipelineService pipelineService,
             @Qualifier("webhookTaskExecutor") TaskExecutor taskExecutor
@@ -36,6 +39,7 @@ public class GitHubWebhookService {
         this.objectMapper = objectMapper;
         this.verifier = verifier;
         this.webhookDeliveryService = webhookDeliveryService;
+        this.installationTokenClient = installationTokenClient;
         this.projectIntegrationService = projectIntegrationService;
         this.pipelineService = pipelineService;
         this.taskExecutor = taskExecutor;
@@ -67,13 +71,22 @@ public class GitHubWebhookService {
         if (!webhook.isMergedPullRequest()) {
             return new WebhookResult(WebhookStatus.IGNORED, "not a merged pull request");
         }
+        if (webhook.installationId() == null) {
+            return new WebhookResult(WebhookStatus.BAD_REQUEST, "missing installation id");
+        }
 
-        ProjectCollectionContext collectionContext = projectIntegrationService
-                .resolveGitHubPullRequestWebhook(webhook)
-                .orElse(null);
-        if (collectionContext == null) {
+        GitHubWebhookIntegrationResolution resolution = projectIntegrationService
+                .resolveGitHubPullRequestWebhook(webhook);
+        if (resolution.status() == GitHubWebhookIntegrationResolution.Status.TOKEN_REFRESH_REQUIRED) {
+            if (!installationTokenClient.ensureInstallationToken(webhook.installationId())) {
+                return new WebhookResult(WebhookStatus.NOT_FOUND, "GitHub installation not found");
+            }
+            resolution = projectIntegrationService.resolveGitHubPullRequestWebhook(webhook);
+        }
+        if (resolution.status() != GitHubWebhookIntegrationResolution.Status.READY) {
             return new WebhookResult(WebhookStatus.NOT_FOUND, "no project integration found");
         }
+        ProjectCollectionContext collectionContext = resolution.context();
 
         if (!webhookDeliveryService.tryClaim(deliveryId, collectionContext.projectId())) {
             return new WebhookResult(WebhookStatus.DUPLICATE, "duplicate delivery");

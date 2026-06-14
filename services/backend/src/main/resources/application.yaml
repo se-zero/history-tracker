@@ -25,6 +25,8 @@ pipeline:
     url: ${PIPELINE_WORKER_URL:http://localhost:8081}
 
 security:
+  internal-service:
+    token: ${INTERNAL_SERVICE_TOKEN}
   credentials:
     key: ${BACKEND_CREDENTIAL_KEY}
   jwt:

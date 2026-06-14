@@ -45,10 +45,10 @@ class ProjectIntegrationServiceTest {
         when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn("jira@example.com:jira-token");
         when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("xoxb-slack-token");
 
-        Optional<ProjectCollectionContext> result = service.resolveGitHubPullRequestWebhook(payload());
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
-        assertThat(result).isPresent();
-        ProjectCollectionContext context = result.orElseThrow();
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.READY);
+        ProjectCollectionContext context = result.context();
         assertThat(context.projectId()).isEqualTo(PROJECT_ID.toString());
         assertThat(context.github().credentials()).isEqualTo("Bearer gh-token");
         assertThat(context.github().repositoryFullName()).isEqualTo("owner/repo");
@@ -62,18 +62,18 @@ class ProjectIntegrationServiceTest {
     }
 
     @Test
-    void resolveGitHubPullRequestWebhook_returnsEmptyWhenNoGitHubIntegrationMatches() {
+    void resolveGitHubPullRequestWebhook_returnsNotFoundWhenNoGitHubIntegrationMatches() {
         when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
                 .thenReturn(Optional.empty());
 
-        Optional<ProjectCollectionContext> result = service.resolveGitHubPullRequestWebhook(payload());
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
-        assertThat(result).isEmpty();
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.NOT_FOUND);
         verify(repository).findGitHubWebhookIntegration(456L, 123L, "owner/repo");
     }
 
     @Test
-    void resolveGitHubPullRequestWebhook_returnsEmptyWhenInstallationTokenIsMissing() {
+    void resolveGitHubPullRequestWebhook_requiresRefreshWhenInstallationTokenIsMissing() {
         ProjectIntegrationRepository.IntegrationRow github = githubRow(
                 Instant.parse("2026-01-01T01:00:00Z"),
                 null
@@ -82,13 +82,13 @@ class ProjectIntegrationServiceTest {
                 .thenReturn(Optional.of(github));
         when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(github));
 
-        Optional<ProjectCollectionContext> result = service.resolveGitHubPullRequestWebhook(payload());
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
-        assertThat(result).isEmpty();
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.TOKEN_REFRESH_REQUIRED);
     }
 
     @Test
-    void resolveGitHubPullRequestWebhook_returnsEmptyWhenInstallationTokenIsExpired() {
+    void resolveGitHubPullRequestWebhook_requiresRefreshWhenInstallationTokenIsExpired() {
         ProjectIntegrationRepository.IntegrationRow github = githubRow(
                 Instant.parse("2025-12-31T23:59:59Z"),
                 GITHUB_TOKEN
@@ -97,9 +97,23 @@ class ProjectIntegrationServiceTest {
                 .thenReturn(Optional.of(github));
         when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(github));
 
-        Optional<ProjectCollectionContext> result = service.resolveGitHubPullRequestWebhook(payload());
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
-        assertThat(result).isEmpty();
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.TOKEN_REFRESH_REQUIRED);
+    }
+
+    @Test
+    void resolveGitHubPullRequestWebhook_requiresRefreshWithinFiveMinuteSkew() {
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(
+                Instant.parse("2026-01-01T00:05:00Z"),
+                GITHUB_TOKEN
+        );
+        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
+                .thenReturn(Optional.of(github));
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.TOKEN_REFRESH_REQUIRED);
     }
 
     @Test
@@ -123,10 +137,10 @@ class ProjectIntegrationServiceTest {
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
         when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("Bearer xoxb-slack-token");
 
-        Optional<ProjectCollectionContext> result = service.resolveGitHubPullRequestWebhook(payload());
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
-        assertThat(result).isPresent();
-        ProjectCollectionContext context = result.orElseThrow();
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.READY);
+        ProjectCollectionContext context = result.context();
         assertThat(context.github().credentials()).isEqualTo("Bearer gh-token");
         assertThat(context.jira()).isEmpty();
         assertThat(context.slack()).hasValueSatisfying(slack ->
