@@ -7,9 +7,12 @@ import java.util.UUID;
 
 public record CollectTriggerRequest(
         @NotBlank
-        @Pattern(regexp = NormalizeFetchRequest.PROJECT_ID_PATTERN)
+        @Pattern(regexp = PROJECT_ID_PATTERN)
         String projectId
 ) {
+
+    private static final String PROJECT_ID_PATTERN =
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
 
     public UUID projectUuid() {
         return UUID.fromString(projectId);
