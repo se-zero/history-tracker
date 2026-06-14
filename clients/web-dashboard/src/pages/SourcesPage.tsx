@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 
 import { Icons } from "@/components/Icons";
+import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
 import { listInstallationRepositories, listInstallations } from "@/api/github";
 import {
   connectGitHubRepository,
@@ -11,6 +12,9 @@ import {
   type ConnectSlackPayload,
 } from "@/api/integrations";
 import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api";
+
+// 접힌 상태에서 보여줄 리포지토리 수 — Jira/Slack 카드와 높이를 맞추기 위함
+const REPO_PREVIEW_COUNT = 4;
 
 // TODO: 백엔드에 연결된 레포/통계 API가 생기면 교체. 지금은 디자인 자리 채우는 더미.
 const DUMMY_INGEST: Array<{ source: string; pct: number; count: string }> = [
@@ -101,6 +105,16 @@ function GitHubCard({ projectId }: { projectId: string }) {
   const connected = installations.length > 0;
   const totalRepos = repoQueries.reduce((sum, q) => sum + (q.data?.length ?? 0), 0);
 
+  const allRepoRows = installations.flatMap((inst, idx) => {
+    const repos = repoQueries[idx]?.data ?? [];
+    return repos.map((repo) => ({ installation: inst, repo }));
+  });
+  const [showAllRepos, setShowAllRepos] = useState(false);
+  const visibleRepoRows = showAllRepos
+    ? allRepoRows
+    : allRepoRows.slice(0, REPO_PREVIEW_COUNT);
+  const hiddenRepoCount = allRepoRows.length - visibleRepoRows.length;
+
   const [connectedRepoIds, setConnectedRepoIds] = useState<Set<number>>(new Set());
 
   const connectMutation = useMutation({
@@ -152,47 +166,84 @@ function GitHubCard({ projectId }: { projectId: string }) {
         <div
           style={{
             padding: "20px 0",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 10,
             textAlign: "center",
             color: "var(--fg-muted)",
             fontSize: 13,
           }}
         >
-          이 계정으로 GitHub App이 설치된 워크스페이스가 없습니다.
+          <span>이 계정으로 GitHub App이 설치된 워크스페이스가 없습니다.</span>
+          <a
+            className="btn btn-primary"
+            href={GITHUB_INSTALL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub App 연결하기
+          </a>
+          <span style={{ fontSize: 12 }}>
+            설치 후 이 페이지로 돌아와{" "}
+            <a href={GITHUB_AUTHORIZE_URL}>연결 확인</a>을 눌러주세요.
+          </span>
         </div>
       )}
 
       {connected && (
         <div className="repo-list">
-          {installations.map((inst, idx) => {
-            const repos = repoQueries[idx]?.data ?? [];
-            return repos.map((r) => {
-              const isConnected = connectedRepoIds.has(r.id);
-              const isPending =
-                connectMutation.isPending &&
-                connectMutation.variables?.repo.id === r.id;
-              return (
-                <div key={`${inst.id}-${r.id}`} className="repo-row">
-                  <span className="repo-name">{r.full_name}</span>
-                  <span className="repo-meta">{r.visibility} · — events</span>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: "3px 8px", marginLeft: 8 }}
-                    onClick={() =>
-                      connectMutation.mutate({ installation: inst, repo: r })
-                    }
-                    disabled={isPending || isConnected}
-                  >
-                    {isConnected ? "연결됨" : isPending ? "연결 중…" : "이 프로젝트에 연결"}
-                  </button>
-                </div>
-              );
-            });
+          {visibleRepoRows.map(({ installation: inst, repo: r }) => {
+            const isConnected = connectedRepoIds.has(r.id);
+            const isPending =
+              connectMutation.isPending &&
+              connectMutation.variables?.repo.id === r.id;
+            return (
+              <div key={`${inst.id}-${r.id}`} className="repo-row">
+                <span className="repo-name">{r.full_name}</span>
+                <span className="repo-meta">{r.visibility} · — events</span>
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: "3px 8px", marginLeft: 8 }}
+                  onClick={() =>
+                    connectMutation.mutate({ installation: inst, repo: r })
+                  }
+                  disabled={isPending || isConnected}
+                >
+                  {isConnected ? "연결됨" : isPending ? "연결 중…" : "이 프로젝트에 연결"}
+                </button>
+              </div>
+            );
           })}
+          {allRepoRows.length > REPO_PREVIEW_COUNT && (
+            <button
+              className="repo-toggle"
+              onClick={() => setShowAllRepos((prev) => !prev)}
+            >
+              {showAllRepos ? "접기" : `${hiddenRepoCount}개 더 보기`}
+              <Icons.ChevronDown
+                size={12}
+                style={{
+                  transform: showAllRepos ? "rotate(180deg)" : undefined,
+                }}
+              />
+            </button>
+          )}
         </div>
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
-        <button className="btn btn-ghost">앱 관리</button>
+        <a
+          className="btn btn-ghost"
+          href={GITHUB_INSTALL_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          앱 관리
+        </a>
+        <a className="btn btn-ghost" href={GITHUB_AUTHORIZE_URL}>
+          연결 확인
+        </a>
       </div>
     </div>
   );
