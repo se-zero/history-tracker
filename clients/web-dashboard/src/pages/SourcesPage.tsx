@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import axios from "axios";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Icons } from "@/components/Icons";
 import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
@@ -8,6 +9,8 @@ import {
   connectGitHubRepository,
   connectJiraProject,
   connectSlackWorkspace,
+  disconnectIntegration,
+  listIntegrations,
   type ConnectJiraPayload,
   type ConnectSlackPayload,
 } from "@/api/integrations";
@@ -115,8 +118,16 @@ function GitHubCard({ projectId }: { projectId: string }) {
     : allRepoRows.slice(0, REPO_PREVIEW_COUNT);
   const hiddenRepoCount = allRepoRows.length - visibleRepoRows.length;
 
-  const [connectedRepoIds, setConnectedRepoIds] = useState<Set<number>>(new Set());
+  const integrationsQuery = useQuery({
+    queryKey: ["integrations", projectId],
+    queryFn: () => listIntegrations(projectId),
+  });
+  const githubIntegration = integrationsQuery.data?.find((i) => i.provider === "github");
+  const connectedRepoId = githubIntegration?.metadata?.["repository_id"] as
+    | number
+    | undefined;
 
+  const queryClient = useQueryClient();
   const connectMutation = useMutation({
     mutationFn: (payload: {
       installation: GitHubInstallation;
@@ -127,10 +138,29 @@ function GitHubCard({ projectId }: { projectId: string }) {
         repositoryId: payload.repo.id,
         repositoryFullName: payload.repo.full_name,
       }),
-    onSuccess: (_int, vars) => {
-      setConnectedRepoIds((prev) => new Set(prev).add(vars.repo.id));
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
+
+  const connectErrorMessage = connectMutation.isError
+    ? axios.isAxiosError(connectMutation.error) && connectMutation.error.response?.status === 409
+      ? "이미 이 프로젝트에 연결된 GitHub 저장소가 있어요. 다른 저장소로 바꾸려면 먼저 기존 연동을 해제해 주세요."
+      : "연결에 실패했어요. 잠시 후 다시 시도해 주세요."
+    : null;
+
+  const disconnectMutation = useMutation({
+    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+    },
+  });
+
+  const handleDisconnect = (repoFullName: string) => {
+    if (!githubIntegration) return;
+    if (!window.confirm(`${repoFullName} 연동을 해제할까요?`)) return;
+    disconnectMutation.mutate(githubIntegration.id);
+  };
 
   return (
     <div className="source-card">
@@ -194,7 +224,8 @@ function GitHubCard({ projectId }: { projectId: string }) {
       {connected && (
         <div className="repo-list">
           {visibleRepoRows.map(({ installation: inst, repo: r }) => {
-            const isConnected = connectedRepoIds.has(r.id);
+            const isConnected = connectedRepoId === r.id;
+            const otherRepoConnected = connectedRepoId !== undefined && !isConnected;
             const isPending =
               connectMutation.isPending &&
               connectMutation.variables?.repo.id === r.id;
@@ -208,10 +239,26 @@ function GitHubCard({ projectId }: { projectId: string }) {
                   onClick={() =>
                     connectMutation.mutate({ installation: inst, repo: r })
                   }
-                  disabled={isPending || isConnected}
+                  disabled={isPending || isConnected || otherRepoConnected}
                 >
-                  {isConnected ? "연결됨" : isPending ? "연결 중…" : "이 프로젝트에 연결"}
+                  {isConnected
+                    ? "연결됨"
+                    : isPending
+                      ? "연결 중…"
+                      : otherRepoConnected
+                        ? "다른 저장소 연결됨"
+                        : "이 프로젝트에 연결"}
                 </button>
+                {isConnected && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: "3px 8px", marginLeft: 4, color: "var(--danger)" }}
+                    onClick={() => handleDisconnect(r.full_name)}
+                    disabled={disconnectMutation.isPending}
+                  >
+                    {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -228,6 +275,16 @@ function GitHubCard({ projectId }: { projectId: string }) {
                 }}
               />
             </button>
+          )}
+          {connectErrorMessage && (
+            <div style={{ color: "var(--danger)", fontSize: 12, padding: "8px 12px" }}>
+              {connectErrorMessage}
+            </div>
+          )}
+          {disconnectMutation.isError && (
+            <div style={{ color: "var(--danger)", fontSize: 12, padding: "8px 12px" }}>
+              연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
+            </div>
           )}
         </div>
       )}

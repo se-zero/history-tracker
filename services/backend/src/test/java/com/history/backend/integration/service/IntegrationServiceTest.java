@@ -3,8 +3,11 @@ package com.history.backend.integration.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
@@ -38,6 +41,7 @@ class IntegrationServiceTest {
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
+    private static final UUID INTEGRATION_ID = UUID.fromString("72b9c869-77f6-4b4d-b8c5-db85023ef3b8");
 
     @Mock
     private IntegrationRepository integrationRepository;
@@ -58,6 +62,69 @@ class IntegrationServiceTest {
     private JiraClient jiraClient;
 
     private final PlatformTransactionManager transactionManager = new NoopTransactionManager();
+
+    @Test
+    void listIntegrationsReturnsIntegrationsForOwnedProject() {
+        IntegrationService service = new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                transactionManager
+        );
+        Project project = project();
+        Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget");
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID))
+                .thenReturn(List.of(githubIntegration));
+
+        List<Integration> result = service.listIntegrations(OWNER_ID, PROJECT_ID);
+
+        assertThat(result).containsExactly(githubIntegration);
+    }
+
+    @Test
+    void disconnectIntegrationDeletesIntegrationForOwnedProject() {
+        IntegrationService service = new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                transactionManager
+        );
+        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget");
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(integration));
+
+        service.disconnectIntegration(OWNER_ID, PROJECT_ID, INTEGRATION_ID);
+
+        verify(integrationRepository).delete(integration);
+    }
+
+    @Test
+    void disconnectIntegrationThrowsNotFoundWhenIntegrationMissing() {
+        IntegrationService service = new IntegrationService(
+                integrationRepository,
+                projectService,
+                gitHubInstallationService,
+                credentialCryptoService,
+                slackClient,
+                jiraClient,
+                transactionManager
+        );
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.disconnectIntegration(OWNER_ID, PROJECT_ID, INTEGRATION_ID))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Integration not found.");
+    }
 
     @Test
     void connectGitHubRepositorySavesIntegrationForOwnedProjectAndInstallation() {

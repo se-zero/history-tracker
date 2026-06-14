@@ -1,16 +1,22 @@
 package com.history.backend.integration.controller;
 
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.ConflictException;
+import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.service.IntegrationService;
@@ -51,6 +57,43 @@ class IntegrationControllerTest {
     @BeforeEach
     void setUpAuthentication() {
         when(jwtTokenService.validateAccessToken(anyString())).thenReturn(new AuthenticatedUser(USER_ID));
+    }
+
+    @Test
+    void listIntegrationsReturnsIntegrationsForProject() throws Exception {
+        when(integrationService.listIntegrations(USER_ID, PROJECT_ID))
+                .thenReturn(List.of(integration()));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(INTEGRATION_ID.toString()))
+                .andExpect(jsonPath("$[0].projectId").value(PROJECT_ID.toString()))
+                .andExpect(jsonPath("$[0].provider").value("github"))
+                .andExpect(jsonPath("$[0].displayName").value("acme/widget"))
+                .andExpect(jsonPath("$[0].installationId").value(INSTALLATION_ID.toString()))
+                .andExpect(jsonPath("$[0].metadata.repository_id").value(12345))
+                .andExpect(jsonPath("$[0].metadata.repository_full_name").value("acme/widget"));
+    }
+
+    @Test
+    void disconnectIntegrationReturnsNoContent() throws Exception {
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNoContent());
+
+        verify(integrationService).disconnectIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
+    }
+
+    @Test
+    void disconnectIntegrationReturnsNotFoundWhenIntegrationMissing() throws Exception {
+        doThrow(new NotFoundException("Integration not found."))
+                .when(integrationService).disconnectIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
+
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Integration not found."));
     }
 
     @Test

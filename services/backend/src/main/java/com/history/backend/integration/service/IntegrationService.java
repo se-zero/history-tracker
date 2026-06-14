@@ -5,11 +5,13 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.BadRequestException;
+import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.integration.domain.Integration;
@@ -37,6 +39,21 @@ public class IntegrationService {
     private final SlackClient slackClient;
     private final JiraClient jiraClient;
     private final PlatformTransactionManager transactionManager;
+
+    // 프로젝트에 연동된 integration 목록 조회
+    public List<Integration> listIntegrations(UUID ownerId, UUID projectId) {
+        projectService.getProject(ownerId, projectId);
+        return integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(projectId);
+    }
+
+    // 프로젝트의 integration 연동 해제
+    @Transactional
+    public void disconnectIntegration(UUID ownerId, UUID projectId, UUID integrationId) {
+        projectService.getProject(ownerId, projectId);
+        Integration integration = integrationRepository.findByIdAndProject_Id(integrationId, projectId)
+                .orElseThrow(() -> new NotFoundException("Integration not found."));
+        integrationRepository.delete(integration);
+    }
 
     // 프로젝트에 GitHub 저장소 연동 추가
     @Transactional

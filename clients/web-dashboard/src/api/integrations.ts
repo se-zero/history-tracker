@@ -18,6 +18,18 @@ export interface ConnectSlackPayload {
   token: string;
 }
 
+export async function listIntegrations(projectId: string): Promise<Integration[]> {
+  const { data } = await api.get<Integration[]>(`/projects/${projectId}/integrations`);
+  return data;
+}
+
+export async function disconnectIntegration(
+  projectId: string,
+  integrationId: string,
+): Promise<void> {
+  await api.delete(`/projects/${projectId}/integrations/${integrationId}`);
+}
+
 export async function connectGitHubRepository(
   projectId: string,
   payload: ConnectGitHubPayload,
