@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -56,6 +57,29 @@ public class ProjectIntegrationService {
                 .flatMap(this::buildContext);
     }
 
+    public Optional<GitHubIntegration> resolveGitHub(UUID projectId) {
+        return findIntegration(projectId, PROVIDER_GITHUB)
+                .flatMap(this::buildGitHubIntegrationSafely);
+    }
+
+    public Optional<JiraIntegration> resolveJira(UUID projectId) {
+        return findIntegration(projectId, PROVIDER_JIRA)
+                .flatMap(integration -> buildOptionalIntegration(
+                        () -> buildJiraIntegration(integration),
+                        PROVIDER_JIRA,
+                        projectId.toString()
+                ));
+    }
+
+    public Optional<SlackIntegration> resolveSlack(UUID projectId) {
+        return findIntegration(projectId, PROVIDER_SLACK)
+                .flatMap(integration -> buildOptionalIntegration(
+                        () -> buildSlackIntegration(integration),
+                        PROVIDER_SLACK,
+                        projectId.toString()
+                ));
+    }
+
     private Optional<ProjectCollectionContext> buildContext(ProjectIntegrationRepository.IntegrationRow githubMatch) {
         List<ProjectIntegrationRepository.IntegrationRow> integrations = repository.findAllByProjectId(githubMatch.projectId());
         Optional<GitHubIntegration> github = Optional.empty();
@@ -89,6 +113,24 @@ public class ProjectIntegrationService {
                 jira,
                 slack
         ));
+    }
+
+    private Optional<ProjectIntegrationRepository.IntegrationRow> findIntegration(UUID projectId, String provider) {
+        return repository.findAllByProjectId(projectId).stream()
+                .filter(integration -> provider.equals(integration.provider()))
+                .findFirst();
+    }
+
+    private Optional<GitHubIntegration> buildGitHubIntegrationSafely(
+            ProjectIntegrationRepository.IntegrationRow integration
+    ) {
+        try {
+            return buildGitHubIntegration(integration);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            log.warn("Skipping invalid integration: projectId={}, provider={}",
+                    integration.projectId(), PROVIDER_GITHUB, exception);
+            return Optional.empty();
+        }
     }
 
     private Optional<GitHubIntegration> buildGitHubIntegration(ProjectIntegrationRepository.IntegrationRow integration) {

@@ -1,0 +1,86 @@
+package com.history.backend.integration.service;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.springframework.test.web.client.ExpectedCount.once;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+
+import java.util.UUID;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+
+class PipelineWorkerClientTest {
+
+    private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
+
+    @Test
+    void triggersGitHubCollection() {
+        PipelineWorkerClientFixture fixture = fixture();
+        expectCollectionTrigger(fixture.server, "github");
+
+        fixture.client.triggerGitHubCollection(PROJECT_ID);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    void triggersJiraCollection() {
+        PipelineWorkerClientFixture fixture = fixture();
+        expectCollectionTrigger(fixture.server, "jira");
+
+        fixture.client.triggerJiraCollection(PROJECT_ID);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    void triggersSlackCollection() {
+        PipelineWorkerClientFixture fixture = fixture();
+        expectCollectionTrigger(fixture.server, "slack");
+
+        fixture.client.triggerSlackCollection(PROJECT_ID);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    void swallowsPipelineWorkerFailure() {
+        PipelineWorkerClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://pipeline-worker.test/api/v1/collect/github"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withServerError());
+
+        assertThatCode(() -> fixture.client.triggerGitHubCollection(PROJECT_ID))
+                .doesNotThrowAnyException();
+        fixture.server.verify();
+    }
+
+    private void expectCollectionTrigger(MockRestServiceServer server, String provider) {
+        server.expect(once(), requestTo("https://pipeline-worker.test/api/v1/collect/" + provider))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        {"projectId":"%s"}
+                        """.formatted(PROJECT_ID)))
+                .andRespond(withStatus(HttpStatus.ACCEPTED));
+    }
+
+    private PipelineWorkerClientFixture fixture() {
+        RestClient.Builder builder = RestClient.builder()
+                .baseUrl("https://pipeline-worker.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PipelineWorkerClient client = new PipelineWorkerClient(builder.build());
+        return new PipelineWorkerClientFixture(client, server);
+    }
+
+    private record PipelineWorkerClientFixture(PipelineWorkerClient client, MockRestServiceServer server) {
+    }
+}

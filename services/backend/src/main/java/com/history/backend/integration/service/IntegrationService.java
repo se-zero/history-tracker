@@ -12,6 +12,7 @@ import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
+import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.repository.IntegrationRepository;
@@ -23,7 +24,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
@@ -33,13 +33,14 @@ public class IntegrationService {
     private final IntegrationRepository integrationRepository;
     private final ProjectService projectService;
     private final GitHubInstallationService gitHubInstallationService;
+    private final InstallationTokenService installationTokenService;
     private final CredentialCryptoService credentialCryptoService;
     private final SlackClient slackClient;
     private final JiraClient jiraClient;
+    private final PipelineWorkerClient pipelineWorkerClient;
     private final PlatformTransactionManager transactionManager;
 
     // 프로젝트에 GitHub 저장소 연동 추가
-    @Transactional
     public Integration connectGitHubRepository(
             UUID ownerId,
             UUID projectId,
@@ -50,14 +51,36 @@ public class IntegrationService {
         Project project = projectService.getProject(ownerId, projectId);
         GitHubInstallation installation = gitHubInstallationService.getInstallationForInstaller(ownerId, installationId);
         validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
+        installationTokenService.getInstallationAccessToken(installationId);
 
         String normalizedRepositoryFullName = repositoryFullName.trim();
+        // 토큰 발급 중 DB 커넥션·행 락 점유를 늘리지 않도록 연동 저장만 별도 트랜잭션으로 실행
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        Integration integration = transactionTemplate.execute(status -> saveGitHubRepository(
+                project,
+                installation,
+                projectId,
+                repositoryId,
+                normalizedRepositoryFullName
+        ));
+        pipelineWorkerClient.triggerGitHubCollection(projectId);
+        return integration;
+    }
+
+    private Integration saveGitHubRepository(
+            Project project,
+            GitHubInstallation installation,
+            UUID projectId,
+            Long repositoryId,
+            String repositoryFullName
+    ) {
+        validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
         try {
             return integrationRepository.saveAndFlush(Integration.github(
                     project,
                     installation,
                     repositoryId,
-                    normalizedRepositoryFullName
+                    repositoryFullName
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합으로 사전 중복 검사를 통과한 경우 unique 제약 위반을 409로 변환
@@ -77,12 +100,14 @@ public class IntegrationService {
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
-        return transactionTemplate.execute(status -> saveSlackWorkspace(
+        Integration integration = transactionTemplate.execute(status -> saveSlackWorkspace(
                 ownerId,
                 projectId,
                 workspace,
                 encryptedCredential
         ));
+        pipelineWorkerClient.triggerSlackCollection(projectId);
+        return integration;
     }
 
     // Jira 자격증명·프로젝트 검증 후 연동 추가
@@ -111,13 +136,15 @@ public class IntegrationService {
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
-        return transactionTemplate.execute(status -> saveJiraProject(
+        Integration integration = transactionTemplate.execute(status -> saveJiraProject(
                 ownerId,
                 projectId,
                 normalizedBaseUrl,
                 jiraProject,
                 encryptedCredential
         ));
+        pipelineWorkerClient.triggerJiraCollection(projectId);
+        return integration;
     }
 
     private Integration saveSlackWorkspace(
