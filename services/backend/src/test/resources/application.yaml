@@ -20,6 +20,8 @@ pipeline:
     url: http://localhost:8081
 
 security:
+  internal-service:
+    token: test-internal-service-token
   credentials:
     key: dGVzdC1jcmVkZW50aWFsLWtleS0zMi1ieXRlcyEhISE=
   jwt:
