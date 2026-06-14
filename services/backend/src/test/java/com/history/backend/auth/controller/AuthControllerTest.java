@@ -48,14 +48,27 @@ class AuthControllerTest {
     }
 
     @Test
+    void installGitHubAppRedirectsToGitHub() throws Exception {
+        when(authService.buildGitHubInstallUri("state-123"))
+                .thenReturn(URI.create("https://github.com/apps/history-tracker/installations/new?state=state-123"));
+
+        mockMvc.perform(get("/api/v1/auth/github/install")
+                        .queryParam("state", "state-123"))
+                .andExpect(status().isFound())
+                .andExpect(header().string(
+                        "Location",
+                        "https://github.com/apps/history-tracker/installations/new?state=state-123"
+                ));
+    }
+
+    @Test
     void callbackReturnsTokenResponse() throws Exception {
         when(authService.loginWithGitHub(any()))
                 .thenReturn(new TokenResponse("access-token", "refresh-token", "Bearer", 900));
 
         mockMvc.perform(get("/api/v1/auth/github/callback")
                         .queryParam("code", "code-123")
-                        .queryParam("state", "state-123")
-                        .queryParam("installation_id", "98765"))
+                        .queryParam("state", "state-123"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").value("access-token"))
                 .andExpect(jsonPath("$.refreshToken").value("refresh-token"))

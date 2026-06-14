@@ -86,6 +86,60 @@ class AuthServiceTest {
     }
 
     @Test
+    void buildGitHubInstallUriDerivesFromAppSlugWhenInstallationUrlNotConfigured() {
+        AuthService authService = authService();
+
+        URI uri = authService.buildGitHubInstallUri("foo&bar=baz");
+
+        assertThat(uri.toString())
+                .isEqualTo("https://github.com/apps/history-tracker/installations/new?state=foo%26bar%3Dbaz");
+    }
+
+    @Test
+    void buildGitHubInstallUriUsesConfiguredInstallationUrlWhenPresent() {
+        GitHubAppProperties properties = new GitHubAppProperties(
+                "app-id",
+                "history-tracker",
+                "",
+                "client-id",
+                "client-secret",
+                "http://localhost/api/v1/auth/github/callback",
+                "https://github.com/apps/custom-app/installations/new",
+                "https://github.com/login/oauth/authorize",
+                "https://github.com/login/oauth/access_token",
+                "https://api.github.com/user",
+                "https://api.github.com/user/installations",
+                "https://api.github.com/app/installations/{installation_id}/access_tokens",
+                "https://api.github.com/installation/repositories"
+        );
+
+        URI uri = authService(properties).buildGitHubInstallUri(null);
+
+        assertThat(uri.toString()).isEqualTo("https://github.com/apps/custom-app/installations/new");
+    }
+
+    @Test
+    void buildGitHubInstallUriThrowsWhenInstallationUrlAndAppSlugAreBlank() {
+        GitHubAppProperties properties = new GitHubAppProperties(
+                "app-id",
+                "",
+                "",
+                "client-id",
+                "client-secret",
+                "http://localhost/api/v1/auth/github/callback",
+                "",
+                "https://github.com/login/oauth/authorize",
+                "https://github.com/login/oauth/access_token",
+                "https://api.github.com/user",
+                "https://api.github.com/user/installations",
+                "https://api.github.com/app/installations/{installation_id}/access_tokens",
+                "https://api.github.com/installation/repositories"
+        );
+
+        assertThrows(IllegalStateException.class, () -> authService(properties).buildGitHubInstallUri(null));
+    }
+
+    @Test
     void loginWithGitHubIssuesTokenResponse() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
@@ -100,7 +154,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
@@ -116,35 +170,41 @@ class AuthServiceTest {
                 .thenReturn(new GitHubAccessTokenResponse(null, null, null));
 
         assertThrows(UnauthorizedException.class,
-                () -> authService.loginWithGitHub(new GitHubCallbackRequest("bad-code", null, null)));
+                () -> authService.loginWithGitHub(new GitHubCallbackRequest("bad-code", null)));
 
         verify(gitHubOAuthClient, never()).fetchUser(any());
     }
 
     @Test
-    void loginWithGitHubPersistsInstallationWhenCallbackHasInstallationId() {
+    void loginWithGitHubSyncsOwnInstallationButSkipsOtherAccounts() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
         GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
-        GitHubInstallationResponse installation = new GitHubInstallationResponse(
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
                 98765L,
-                new GitHubInstallationAccountResponse("acme", "Organization")
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        // App manager 권한으로 /user/installations에 함께 노출되는 다른 사용자의 설치 — 동기화 대상이 아님
+        GitHubInstallationResponse otherUsersInstallation = new GitHubInstallationResponse(
+                11111L,
+                new GitHubInstallationAccountResponse("teammate", "User")
         );
 
         when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
         when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
         when(gitHubOAuthClient.fetchInstallations("github-user-token"))
-                .thenReturn(new GitHubInstallationsResponse(List.of(installation)));
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation, otherUsersInstallation)));
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, 98765L));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
 
-        verify(gitHubInstallationService).upsertInstallation(user, installation);
+        verify(gitHubInstallationService).upsertInstallation(user, ownInstallation);
+        verify(gitHubInstallationService, never()).upsertInstallation(user, otherUsersInstallation);
     }
 
     @Test
@@ -176,8 +236,12 @@ class AuthServiceTest {
     }
 
     private AuthService authService() {
+        return authService(GITHUB_PROPERTIES);
+    }
+
+    private AuthService authService(GitHubAppProperties gitHubAppProperties) {
         return new AuthService(
-                GITHUB_PROPERTIES,
+                gitHubAppProperties,
                 gitHubOAuthClient,
                 gitHubInstallationService,
                 userService,
