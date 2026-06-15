@@ -11,6 +11,7 @@ import {
 } from "@/api/conversations";
 import { useAuth } from "@/auth/AuthProvider";
 import type {
+  ConversationDetail,
   Message,
   MessageMetadata,
   Project,
@@ -39,6 +40,9 @@ export function ChatPage({ project }: { project: Project }) {
 
   const messages = conversationQuery.data?.messages ?? [];
 
+  // 전송 직후 화면을 즉시 전환하기 위해 방금 보낸 메시지를 낙관적으로 들고 있는다. 응답이 오면 비운다.
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+
   const createMutation = useMutation({
     mutationFn: (firstMessage: string) =>
       createConversation(project.id, firstMessage),
@@ -48,19 +52,35 @@ export function ChatPage({ project }: { project: Project }) {
         ["conversation", project.id, detail.id],
         detail,
       );
+      setPendingMessage(null);
       navigate(`/projects/${project.id}/chat/${detail.id}`, { replace: true });
     },
+    onError: () => setPendingMessage(null),
   });
 
   const sendMutation = useMutation({
     mutationFn: (content: string) =>
       sendMessage(project.id, conversationId!, content),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["conversation", project.id, conversationId],
-      });
+    onSuccess: (exchange) => {
+      // 응답 쌍을 캐시에 바로 반영해 낙관적 메시지를 비울 때 공백이 생기지 않게 한다.
+      queryClient.setQueryData<ConversationDetail>(
+        ["conversation", project.id, conversationId],
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: [
+                  ...prev.messages,
+                  exchange.userMessage,
+                  exchange.assistantMessage,
+                ],
+              }
+            : prev,
+      );
       queryClient.invalidateQueries({ queryKey: ["conversations", project.id] });
+      setPendingMessage(null);
     },
+    onError: () => setPendingMessage(null),
   });
 
   const pending = createMutation.isPending || sendMutation.isPending;
@@ -68,6 +88,7 @@ export function ChatPage({ project }: { project: Project }) {
   const handleSend = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
+    setPendingMessage(trimmed);
     if (conversationId) {
       sendMutation.mutate(trimmed);
     } else {
@@ -78,7 +99,15 @@ export function ChatPage({ project }: { project: Project }) {
   return (
     <div className="chat-wrap">
       <div className="chat">
-        {!conversationId ? (
+        {pendingMessage !== null ? (
+          <ChatStream>
+            {messages.map((m) => (
+              <MessageItem key={m.id} message={m} user={user} />
+            ))}
+            <UserMessage content={pendingMessage} user={user} />
+            <ThinkingState />
+          </ChatStream>
+        ) : !conversationId ? (
           <ChatEmpty project={project} onPick={handleSend} />
         ) : conversationQuery.isLoading ? (
           <StatusView tone="loading" description="메시지를 불러오는 중…" />
@@ -101,7 +130,6 @@ export function ChatPage({ project }: { project: Project }) {
             {messages.map((m) => (
               <MessageItem key={m.id} message={m} user={user} />
             ))}
-            {pending && <ThinkingState />}
           </ChatStream>
         )}
         <Composer
@@ -131,19 +159,29 @@ function ChatStream({ children }: { children: React.ReactNode }) {
 
 function MessageItem({ message, user }: { message: Message; user: User | null }) {
   if (message.role === "USER") {
-    return (
-      <div className="msg user">
-        <div className="msg-avatar">{userInitials(user)}</div>
-        <div className="msg-body">
-          <div className="msg-role">{user?.displayName ?? "나"}</div>
-          <div className="msg-content">
-            <p style={{ whiteSpace: "pre-wrap" }}>{message.content}</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <UserMessage content={message.content} user={user} />;
   }
   return <AssistantMessage message={message} />;
+}
+
+function UserMessage({
+  content,
+  user,
+}: {
+  content: string;
+  user: User | null;
+}) {
+  return (
+    <div className="msg user">
+      <div className="msg-avatar">{userInitials(user)}</div>
+      <div className="msg-body">
+        <div className="msg-role">{user?.displayName ?? "나"}</div>
+        <div className="msg-content">
+          <p style={{ whiteSpace: "pre-wrap" }}>{content}</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AssistantMessage({ message }: { message: Message }) {
@@ -250,21 +288,8 @@ function ThinkingState() {
       <div className="msg-body">
         <div className="msg-role">History Tracker</div>
         <div className="thinking">
-          <svg
-            className="thinking-graph"
-            width="60"
-            height="20"
-            viewBox="0 0 60 20"
-          >
-            <line x1="10" y1="10" x2="25" y2="10" stroke="var(--edge)" />
-            <line x1="25" y1="10" x2="40" y2="10" stroke="var(--edge)" />
-            <line x1="40" y1="10" x2="55" y2="10" stroke="var(--edge)" />
-            <circle className="t-node" cx="10" cy="10" r="3.5" fill="var(--node-issue)" />
-            <circle className="t-node" cx="25" cy="10" r="3.5" fill="var(--node-slack)" />
-            <circle className="t-node" cx="40" cy="10" r="3.5" fill="var(--node-pr)" />
-            <circle className="t-node" cx="55" cy="10" r="3.5" fill="var(--node-commit)" />
-          </svg>
-          <span>그래프에서 관련 노드 탐색 중…</span>
+          <span className="spinner" />
+          <span>처리 중…</span>
         </div>
       </div>
     </div>
