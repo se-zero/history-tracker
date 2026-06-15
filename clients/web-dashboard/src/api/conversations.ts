@@ -34,6 +34,25 @@ export async function createConversation(
   return data;
 }
 
+export async function updateConversationTitle(
+  projectId: string,
+  conversationId: string,
+  title: string,
+): Promise<Conversation> {
+  const { data } = await api.patch<Conversation>(
+    `/projects/${projectId}/conversations/${conversationId}`,
+    { title },
+  );
+  return data;
+}
+
+export async function deleteConversation(
+  projectId: string,
+  conversationId: string,
+): Promise<void> {
+  await api.delete(`/projects/${projectId}/conversations/${conversationId}`);
+}
+
 export async function sendMessage(
   projectId: string,
   conversationId: string,

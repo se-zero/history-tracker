@@ -31,6 +31,11 @@ export async function exchangeGitHubCode(params: {
   return data;
 }
 
+// 회원 탈퇴 (soft delete + grace period). 호출 후 로컬 토큰을 비우고 로그인 화면으로 보낸다.
+export async function deleteAccount(): Promise<void> {
+  await api.delete("/me");
+}
+
 export async function logout(): Promise<void> {
   const refreshToken = tokenStorage.getRefresh();
   if (refreshToken) {

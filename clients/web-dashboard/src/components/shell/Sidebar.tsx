@@ -21,6 +21,8 @@ interface Props {
   activeConvoId: string | null;
   onSelectConvo: (id: string) => void;
   onNewConvo: () => void;
+  onRenameConvo: (id: string, title: string) => void;
+  onDeleteConvo: (id: string) => void;
 }
 
 function userInitials(user: User | null): string {
@@ -51,6 +53,8 @@ export function Sidebar({
   activeConvoId,
   onSelectConvo,
   onNewConvo,
+  onRenameConvo,
+  onDeleteConvo,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -102,14 +106,14 @@ export function Sidebar({
       </div>
       <div className="convo-list">
         {conversations.map((c) => (
-          <div
+          <ConvoItem
             key={c.id}
-            className={"convo-item" + (activeConvoId === c.id ? " active" : "")}
-            onClick={() => onSelectConvo(c.id)}
-          >
-            <span className="convo-title">{c.title}</span>
-            <span className="convo-time">{formatRelative(c.updatedAt)}</span>
-          </div>
+            convo={c}
+            active={activeConvoId === c.id}
+            onSelect={onSelectConvo}
+            onRename={onRenameConvo}
+            onDelete={onDeleteConvo}
+          />
         ))}
         {conversations.length === 0 && (
           <div
@@ -126,6 +130,118 @@ export function Sidebar({
       </div>
       <UserMenu user={user} />
     </aside>
+  );
+}
+
+function ConvoItem({
+  convo,
+  active,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  convo: Conversation;
+  active: boolean;
+  onSelect: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(convo.title);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [menuOpen]);
+
+  const startEdit = () => {
+    setDraft(convo.title);
+    setMenuOpen(false);
+    setEditing(true);
+  };
+
+  const commitEdit = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if (next && next !== convo.title) onRename(convo.id, next);
+  };
+
+  const handleDelete = () => {
+    setMenuOpen(false);
+    if (window.confirm(`"${convo.title}" 대화를 삭제할까요? 되돌릴 수 없어요.`)) {
+      onDelete(convo.id);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="convo-item editing">
+        <input
+          className="convo-edit-input"
+          autoFocus
+          value={draft}
+          maxLength={200}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitEdit();
+            } else if (e.key === "Escape") {
+              setEditing(false);
+            }
+          }}
+          onBlur={commitEdit}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={"convo-item" + (active ? " active" : "")}
+      onClick={() => onSelect(convo.id)}
+      ref={ref}
+    >
+      <span className="convo-title">{convo.title}</span>
+      <span className="convo-time">{formatRelative(convo.updatedAt)}</span>
+      <button
+        className="convo-menu-btn"
+        title="대화 메뉴"
+        onClick={(e) => {
+          e.stopPropagation();
+          setMenuOpen((o) => !o);
+        }}
+      >
+        <Icons.More size={14} />
+      </button>
+
+      {menuOpen && (
+        <div
+          className="project-dropdown convo-dropdown"
+          role="menu"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button className="dropdown-item" onClick={startEdit}>
+            <span className="dropdown-icon">
+              <Icons.Pencil size={13} />
+            </span>
+            <span>이름 변경</span>
+          </button>
+          <button className="dropdown-item convo-delete" onClick={handleDelete}>
+            <span className="dropdown-icon">
+              <Icons.Trash size={13} />
+            </span>
+            <span>삭제</span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
