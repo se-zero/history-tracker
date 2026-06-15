@@ -110,6 +110,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # Spring Boot가 8080을 열어 요청을 받을 수 있는지 확인 (curl/actuator 없이 bash /dev/tcp)
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
     profiles: [app]
 
   pipeline-worker:
@@ -143,7 +150,8 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     profiles: [app]
 
 volumes:
