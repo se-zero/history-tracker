@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,10 +23,13 @@ import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.jira.service.JiraClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
+import com.history.backend.shared.domain.Checkpoint;
+import com.history.backend.shared.repository.CheckpointRepository;
 import com.history.backend.slack.service.SlackClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,6 +51,9 @@ class IntegrationServiceTest {
 
     @Mock
     private IntegrationRepository integrationRepository;
+
+    @Mock
+    private CheckpointRepository checkpointRepository;
 
     @Mock
     private ProjectService projectService;
@@ -72,17 +79,43 @@ class IntegrationServiceTest {
     private final NoopTransactionManager transactionManager = new NoopTransactionManager();
 
     @Test
-    void listIntegrationsReturnsIntegrationsForOwnedProject() {
+    void listIntegrationsReturnsIntegrationsWithLatestSyncTimeForOwnedProject() {
+        IntegrationService service = service();
+        Project project = project();
+        Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget");
+        Instant syncedAt = Instant.parse("2026-06-15T03:00:00Z");
+        Checkpoint olderCheckpoint = checkpoint(project, "github/github_commits",
+                Instant.parse("2026-06-15T01:00:00Z"));
+        Checkpoint newerCheckpoint = checkpoint(project, "github/github_pull_requests", syncedAt);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID))
+                .thenReturn(List.of(githubIntegration));
+        when(checkpointRepository.findAllByProject_Id(PROJECT_ID))
+                .thenReturn(List.of(olderCheckpoint, newerCheckpoint));
+
+        List<IntegrationResponse> result = service.listIntegrations(OWNER_ID, PROJECT_ID);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).provider()).isEqualTo("github");
+        assertThat(result.get(0).displayName()).isEqualTo("acme/widget");
+        // provider별 여러 cursor_key 중 가장 최신 갱신 시각을 노출
+        assertThat(result.get(0).lastSyncedAt()).isEqualTo(syncedAt);
+    }
+
+    @Test
+    void listIntegrationsReturnsNullSyncTimeWhenNoCheckpoint() {
         IntegrationService service = service();
         Project project = project();
         Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget");
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID))
                 .thenReturn(List.of(githubIntegration));
+        when(checkpointRepository.findAllByProject_Id(PROJECT_ID)).thenReturn(List.of());
 
-        List<Integration> result = service.listIntegrations(OWNER_ID, PROJECT_ID);
+        List<IntegrationResponse> result = service.listIntegrations(OWNER_ID, PROJECT_ID);
 
-        assertThat(result).containsExactly(githubIntegration);
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).lastSyncedAt()).isNull();
     }
 
     @Test
@@ -456,9 +489,17 @@ class IntegrationServiceTest {
         return installation;
     }
 
+    private Checkpoint checkpoint(Project project, String cursorKey, Instant updatedAt) {
+        Checkpoint checkpoint = new Checkpoint(project, IntegrationProvider.GITHUB, cursorKey, updatedAt);
+        // updatedAt은 @PrePersist에서만 채워지므로 단위 테스트에서는 직접 주입
+        ReflectionTestUtils.setField(checkpoint, "updatedAt", updatedAt);
+        return checkpoint;
+    }
+
     private IntegrationService service() {
         return new IntegrationService(
                 integrationRepository,
+                checkpointRepository,
                 projectService,
                 gitHubInstallationService,
                 installationTokenService,

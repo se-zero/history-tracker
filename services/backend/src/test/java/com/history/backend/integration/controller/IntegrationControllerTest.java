@@ -19,6 +19,7 @@ import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.integration.domain.Integration;
+import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.project.domain.Project;
 import com.history.backend.security.AuthenticatedUser;
@@ -44,6 +45,7 @@ class IntegrationControllerTest {
     private static final UUID INTEGRATION_ID = UUID.fromString("72b9c869-77f6-4b4d-b8c5-db85023ef3b8");
     private static final Instant CREATED_AT = Instant.parse("2026-05-19T01:00:00Z");
     private static final Instant UPDATED_AT = Instant.parse("2026-05-19T02:00:00Z");
+    private static final Instant SYNCED_AT = Instant.parse("2026-06-15T03:00:00Z");
 
     @Autowired
     private MockMvc mockMvc;
@@ -62,7 +64,7 @@ class IntegrationControllerTest {
     @Test
     void listIntegrationsReturnsIntegrationsForProject() throws Exception {
         when(integrationService.listIntegrations(USER_ID, PROJECT_ID))
-                .thenReturn(List.of(integration()));
+                .thenReturn(List.of(IntegrationResponse.from(integration(), SYNCED_AT)));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/integrations", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
@@ -73,7 +75,8 @@ class IntegrationControllerTest {
                 .andExpect(jsonPath("$[0].displayName").value("acme/widget"))
                 .andExpect(jsonPath("$[0].installationId").value(INSTALLATION_ID.toString()))
                 .andExpect(jsonPath("$[0].metadata.repository_id").value(12345))
-                .andExpect(jsonPath("$[0].metadata.repository_full_name").value("acme/widget"));
+                .andExpect(jsonPath("$[0].metadata.repository_full_name").value("acme/widget"))
+                .andExpect(jsonPath("$[0].lastSyncedAt").value("2026-06-15T03:00:00Z"));
     }
 
     @Test

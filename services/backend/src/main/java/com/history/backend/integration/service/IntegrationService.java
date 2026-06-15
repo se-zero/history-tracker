@@ -5,7 +5,10 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
@@ -17,10 +20,13 @@ import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.jira.service.JiraClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
+import com.history.backend.shared.domain.Checkpoint;
+import com.history.backend.shared.repository.CheckpointRepository;
 import com.history.backend.slack.service.SlackClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -34,6 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class IntegrationService {
 
     private final IntegrationRepository integrationRepository;
+    private final CheckpointRepository checkpointRepository;
     private final ProjectService projectService;
     private final GitHubInstallationService gitHubInstallationService;
     private final InstallationTokenService installationTokenService;
@@ -43,10 +50,27 @@ public class IntegrationService {
     private final PipelineWorkerClient pipelineWorkerClient;
     private final PlatformTransactionManager transactionManager;
 
-    // 프로젝트에 연동된 integration 목록 조회
-    public List<Integration> listIntegrations(UUID ownerId, UUID projectId) {
+    // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
+    public List<IntegrationResponse> listIntegrations(UUID ownerId, UUID projectId) {
         projectService.getProject(ownerId, projectId);
-        return integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(projectId);
+        Map<IntegrationProvider, Instant> lastSyncedByProvider = latestSyncByProvider(projectId);
+        return integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(projectId).stream()
+                .map(integration -> IntegrationResponse.from(
+                        integration,
+                        lastSyncedByProvider.get(integration.getProvider())))
+                .toList();
+    }
+
+    // checkpoint는 provider당 여러 cursor_key를 가지므로 provider별 최신 갱신 시각을 마지막 수집 시각으로 사용
+    private Map<IntegrationProvider, Instant> latestSyncByProvider(UUID projectId) {
+        Map<IntegrationProvider, Instant> latest = new EnumMap<>(IntegrationProvider.class);
+        for (Checkpoint checkpoint : checkpointRepository.findAllByProject_Id(projectId)) {
+            latest.merge(
+                    checkpoint.getProvider(),
+                    checkpoint.getUpdatedAt(),
+                    (existing, candidate) -> candidate.isAfter(existing) ? candidate : existing);
+        }
+        return latest;
     }
 
     // 프로젝트의 integration 연동 해제

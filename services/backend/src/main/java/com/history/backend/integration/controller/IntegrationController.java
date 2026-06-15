@@ -34,9 +34,7 @@ public class IntegrationController {
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @PathVariable UUID projectId
     ) {
-        return integrationService.listIntegrations(authenticatedUser.id(), projectId).stream()
-                .map(IntegrationResponse::from)
-                .toList();
+        return integrationService.listIntegrations(authenticatedUser.id(), projectId);
     }
 
     @DeleteMapping("/{integrationId}")

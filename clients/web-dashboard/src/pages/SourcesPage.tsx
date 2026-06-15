@@ -19,14 +19,20 @@ import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api"
 // 접힌 상태에서 보여줄 리포지토리 수 — Jira/Slack 카드와 높이를 맞추기 위함
 const REPO_PREVIEW_COUNT = 4;
 
-// TODO: 백엔드에 연결된 레포/통계 API가 생기면 교체. 지금은 디자인 자리 채우는 더미.
-const DUMMY_INGEST: Array<{ source: string; pct: number; count: string }> = [
-  { source: "GitHub · payments", pct: 100, count: "8,102 / 8,102" },
-  { source: "GitHub · billing-worker", pct: 100, count: "3,210 / 3,210" },
-  { source: "GitHub · merchant-portal", pct: 78, count: "4,400 / 5,640" },
-  { source: "Jira · PAY", pct: 100, count: "549 / 549" },
-  { source: "Slack · #payments-eng", pct: 100, count: "12,800 / 12,800" },
-];
+const PROVIDER_LABELS: Record<string, string> = {
+  github: "GitHub",
+  jira: "Jira",
+  slack: "Slack",
+};
+
+function formatSyncedAt(iso: string | null): string {
+  if (!iso) return "아직 수집 전";
+  try {
+    return new Date(iso).toLocaleString("ko-KR");
+  } catch {
+    return iso;
+  }
+}
 
 export function SourcesPage({ project }: { project: Project }) {
   return (
@@ -53,36 +59,55 @@ export function SourcesPage({ project }: { project: Project }) {
         <SlackCard projectId={project.id} />
       </div>
 
-      <div className="ingest-card">
-        <div className="ingest-head">
-          <Icons.Sparkle size={14} className="muted" />
-          <h4>수집 진행상황</h4>
+      <IngestStatus projectId={project.id} />
+    </div>
+  );
+}
+
+// =========================================================
+// 수집 진행상황 — 연동별 마지막 수집 시각
+// =========================================================
+
+function IngestStatus({ projectId }: { projectId: string }) {
+  const integrationsQuery = useQuery({
+    queryKey: ["integrations", projectId],
+    queryFn: () => listIntegrations(projectId),
+  });
+  const integrations = integrationsQuery.data ?? [];
+
+  return (
+    <div className="ingest-card">
+      <div className="ingest-head">
+        <Icons.Sparkle size={14} className="muted" />
+        <h4>수집 진행상황</h4>
+        {integrations.length > 0 && (
           <span className="muted" style={{ fontSize: 12 }}>
-            · {DUMMY_INGEST.length}개 파이프라인 (더미)
+            · {integrations.length}개 연동
           </span>
-          <div style={{ flex: 1 }} />
-          <button className="btn btn-ghost" style={{ padding: "5px 10px" }}>
-            <Icons.Refactor size={12} /> 다시 동기화
-          </button>
-        </div>
-        {DUMMY_INGEST.map((row, i) => (
-          <div key={i} className="ingest-row">
-            <div className="ingest-source">{row.source}</div>
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: row.pct + "%" }} />
-            </div>
-            <div className="ingest-count">{row.count}</div>
-            <div
-              className="ingest-status"
-              style={{
-                color: row.pct === 100 ? "var(--success)" : "var(--fg-muted)",
-              }}
-            >
-              {row.pct === 100 ? "완료" : row.pct + "%"}
-            </div>
-          </div>
-        ))}
+        )}
       </div>
+
+      {integrationsQuery.isLoading && (
+        <div style={{ padding: "12px 0", color: "var(--fg-muted)", fontSize: 13 }}>
+          불러오는 중…
+        </div>
+      )}
+
+      {!integrationsQuery.isLoading && integrations.length === 0 && (
+        <div style={{ padding: "12px 0", color: "var(--fg-muted)", fontSize: 13 }}>
+          연결된 데이터 소스가 없습니다.
+        </div>
+      )}
+
+      {integrations.map((integration) => (
+        <div key={integration.id} className="ingest-row">
+          <div className="ingest-source">
+            {PROVIDER_LABELS[integration.provider] ?? integration.provider}
+            {integration.displayName ? ` · ${integration.displayName}` : ""}
+          </div>
+          <div className="ingest-count">{formatSyncedAt(integration.lastSyncedAt)}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -320,12 +345,14 @@ function JiraCard({ projectId }: { projectId: string }) {
   });
   const [connected, setConnected] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: () => connectJiraProject(projectId, form),
     onSuccess: (integration) => {
       setConnected(integration.displayName ?? form.projectKey);
       setOpen(false);
       setForm({ baseUrl: "", projectKey: "", email: "", apiToken: "" });
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
 
@@ -432,12 +459,14 @@ function SlackCard({ projectId }: { projectId: string }) {
   const [form, setForm] = useState<ConnectSlackPayload>({ token: "" });
   const [connected, setConnected] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: () => connectSlackWorkspace(projectId, form),
     onSuccess: (integration) => {
       setConnected(integration.displayName ?? "워크스페이스");
       setOpen(false);
       setForm({ token: "" });
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
 
