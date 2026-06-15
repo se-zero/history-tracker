@@ -42,6 +42,16 @@ export function ChatPage({ project }: { project: Project }) {
 
   // 전송 직후 화면을 즉시 전환하기 위해 방금 보낸 메시지를 낙관적으로 들고 있는다. 응답이 오면 비운다.
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sendError, setSendError] = useState(false);
+
+  // 전송 실패 시 친 내용이 사라지지 않도록 입력창에 복구하고 에러를 표시한다.
+  // 그 사이 새로 입력한 내용이 있으면 덮어쓰지 않는다.
+  const restoreOnError = (failedText: string) => {
+    setPendingMessage(null);
+    setDraft((current) => (current.trim() ? current : failedText));
+    setSendError(true);
+  };
 
   const createMutation = useMutation({
     mutationFn: (firstMessage: string) =>
@@ -55,7 +65,7 @@ export function ChatPage({ project }: { project: Project }) {
       setPendingMessage(null);
       navigate(`/projects/${project.id}/chat/${detail.id}`, { replace: true });
     },
-    onError: () => setPendingMessage(null),
+    onError: (_error, firstMessage) => restoreOnError(firstMessage),
   });
 
   const sendMutation = useMutation({
@@ -80,7 +90,7 @@ export function ChatPage({ project }: { project: Project }) {
       queryClient.invalidateQueries({ queryKey: ["conversations", project.id] });
       setPendingMessage(null);
     },
-    onError: () => setPendingMessage(null),
+    onError: (_error, content) => restoreOnError(content),
   });
 
   const pending = createMutation.isPending || sendMutation.isPending;
@@ -88,12 +98,19 @@ export function ChatPage({ project }: { project: Project }) {
   const handleSend = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
+    setSendError(false);
     setPendingMessage(trimmed);
+    setDraft(""); // 입력은 즉시 비우되, 실패하면 restoreOnError로 되돌린다
     if (conversationId) {
       sendMutation.mutate(trimmed);
     } else {
       createMutation.mutate(trimmed);
     }
+  };
+
+  const handleDraftChange = (value: string) => {
+    setDraft(value);
+    if (sendError) setSendError(false);
   };
 
   return (
@@ -134,9 +151,16 @@ export function ChatPage({ project }: { project: Project }) {
         )}
         <Composer
           project={project}
+          value={draft}
+          onChange={handleDraftChange}
+          onSubmit={() => handleSend(draft)}
           disabled={pending}
-          onSend={handleSend}
           showThinkingHint={pending}
+          error={
+            sendError
+              ? "전송에 실패했어요. 입력을 그대로 두었으니 다시 시도해 주세요."
+              : null
+          }
         />
       </div>
     </div>
@@ -343,39 +367,47 @@ function ChatEmpty({
 
 function Composer({
   project,
+  value,
+  onChange,
+  onSubmit,
   disabled,
-  onSend,
   showThinkingHint,
+  error,
 }: {
   project: Project;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
   disabled: boolean;
-  onSend: (text: string) => void;
   showThinkingHint: boolean;
+  error?: string | null;
 }) {
-  const [draft, setDraft] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
-
-  const submit = () => {
-    onSend(draft);
-    setDraft("");
-  };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit();
+      onSubmit();
     }
   };
 
   return (
     <div className="composer">
       <div className="composer-inner">
+        {error && (
+          <div
+            role="alert"
+            style={{ color: "var(--danger)", fontSize: 12, marginBottom: 6 }}
+          >
+            {error}
+          </div>
+        )}
         <div className="composer-box">
           <textarea
             ref={taRef}
             placeholder={`${project.name}에 무엇이든 물어보세요. Shift+Enter로 줄바꿈`}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKey}
             rows={1}
             disabled={disabled}
@@ -384,8 +416,8 @@ function Composer({
             <div className="spacer" />
             <button
               className="btn btn-primary"
-              onClick={submit}
-              disabled={disabled || !draft.trim()}
+              onClick={onSubmit}
+              disabled={disabled || !value.trim()}
               style={{ padding: "6px 10px" }}
             >
               <Icons.Send size={13} />

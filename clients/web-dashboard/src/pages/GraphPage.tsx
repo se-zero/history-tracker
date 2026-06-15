@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import { GraphVis } from "@/components/graph/GraphVis";
 import { NodeDetail } from "@/components/graph/NodeDetail";
-import { Icons } from "@/components/Icons";
 import { StatusView } from "@/components/StatusView";
 import { getProjectGraph } from "@/api/graph";
 import type { Project } from "@/types/api";
@@ -39,9 +38,6 @@ export function GraphPage({ project }: { project: Project }) {
             {data.nodes.length} 노드 · {data.edges.length} 연결
           </span>
         )}
-        <button className="btn btn-ghost">
-          <Icons.Filter size={13} /> 필터
-        </button>
       </div>
       <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
         {graphQuery.isLoading ? (

@@ -72,6 +72,8 @@ function IngestStatus({ projectId }: { projectId: string }) {
   const integrationsQuery = useQuery({
     queryKey: ["integrations", projectId],
     queryFn: () => listIntegrations(projectId),
+    // 백그라운드 수집이 진행되는 동안 마지막 수집 시각을 1분마다 갱신
+    refetchInterval: 60000,
   });
   const integrations = integrationsQuery.data ?? [];
 
@@ -343,18 +345,37 @@ function JiraCard({ projectId }: { projectId: string }) {
     email: "",
     apiToken: "",
   });
-  const [connected, setConnected] = useState<string | null>(null);
-
   const queryClient = useQueryClient();
+  // 연결 상태는 로컬 state가 아니라 서버 연동 목록에서 도출 — 새로고침해도 유지된다.
+  const integrationsQuery = useQuery({
+    queryKey: ["integrations", projectId],
+    queryFn: () => listIntegrations(projectId),
+  });
+  const jiraIntegration = integrationsQuery.data?.find((i) => i.provider === "jira");
+  const connected = Boolean(jiraIntegration);
+  const connectedName = jiraIntegration?.displayName ?? "Jira";
+
   const mutation = useMutation({
     mutationFn: () => connectJiraProject(projectId, form),
-    onSuccess: (integration) => {
-      setConnected(integration.displayName ?? form.projectKey);
+    onSuccess: () => {
       setOpen(false);
       setForm({ baseUrl: "", projectKey: "", email: "", apiToken: "" });
       queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
+
+  const disconnectMutation = useMutation({
+    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+    },
+  });
+
+  const handleDisconnect = () => {
+    if (!jiraIntegration) return;
+    if (!window.confirm(`Jira(${connectedName}) 연동을 해제할까요?`)) return;
+    disconnectMutation.mutate(jiraIntegration.id);
+  };
 
   return (
     <div className="source-card">
@@ -362,7 +383,7 @@ function JiraCard({ projectId }: { projectId: string }) {
         <div className="src-logo jira">J</div>
         <div style={{ flex: 1 }}>
           <h4>Jira</h4>
-          <div className="src-sub">{connected ?? "선택 사항"}</div>
+          <div className="src-sub">{connected ? connectedName : "선택 사항"}</div>
         </div>
         <span className={"badge " + (connected ? "success" : "")}>
           <span className="dot" />
@@ -428,6 +449,12 @@ function JiraCard({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {disconnectMutation.isError && (
+        <div style={{ color: "var(--danger)", fontSize: 12 }}>
+          연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
         <button
           className={"btn " + (connected ? "" : "btn-primary")}
@@ -440,10 +467,21 @@ function JiraCard({ projectId }: { projectId: string }) {
         >
           {mutation.isPending ? "연결 중…" : open ? "연결" : connected ? "재연결" : "Jira 연결"}
         </button>
-        {open && (
+        {open ? (
           <button className="btn btn-ghost" onClick={() => setOpen(false)}>
             취소
           </button>
+        ) : (
+          connected && (
+            <button
+              className="btn btn-ghost"
+              style={{ color: "var(--danger)" }}
+              onClick={handleDisconnect}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
+            </button>
+          )
         )}
       </div>
     </div>
@@ -457,18 +495,37 @@ function JiraCard({ projectId }: { projectId: string }) {
 function SlackCard({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ConnectSlackPayload>({ token: "" });
-  const [connected, setConnected] = useState<string | null>(null);
-
   const queryClient = useQueryClient();
+  // 연결 상태는 로컬 state가 아니라 서버 연동 목록에서 도출 — 새로고침해도 유지된다.
+  const integrationsQuery = useQuery({
+    queryKey: ["integrations", projectId],
+    queryFn: () => listIntegrations(projectId),
+  });
+  const slackIntegration = integrationsQuery.data?.find((i) => i.provider === "slack");
+  const connected = Boolean(slackIntegration);
+  const connectedName = slackIntegration?.displayName ?? "워크스페이스";
+
   const mutation = useMutation({
     mutationFn: () => connectSlackWorkspace(projectId, form),
-    onSuccess: (integration) => {
-      setConnected(integration.displayName ?? "워크스페이스");
+    onSuccess: () => {
       setOpen(false);
       setForm({ token: "" });
       queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
+
+  const disconnectMutation = useMutation({
+    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+    },
+  });
+
+  const handleDisconnect = () => {
+    if (!slackIntegration) return;
+    if (!window.confirm(`Slack(${connectedName}) 연동을 해제할까요?`)) return;
+    disconnectMutation.mutate(slackIntegration.id);
+  };
 
   return (
     <div className="source-card">
@@ -476,7 +533,9 @@ function SlackCard({ projectId }: { projectId: string }) {
         <div className="src-logo slack">S</div>
         <div style={{ flex: 1 }}>
           <h4>Slack</h4>
-          <div className="src-sub">{connected ?? "선택 사항 · 토론 맥락을 추가"}</div>
+          <div className="src-sub">
+            {connected ? connectedName : "선택 사항 · 토론 맥락을 추가"}
+          </div>
         </div>
         <span className={"badge " + (connected ? "success" : "")}>
           <span className="dot" />
@@ -526,6 +585,12 @@ function SlackCard({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {disconnectMutation.isError && (
+        <div style={{ color: "var(--danger)", fontSize: 12 }}>
+          연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
         <button
           className={"btn " + (connected ? "" : "btn-primary")}
@@ -547,10 +612,21 @@ function SlackCard({ projectId }: { projectId: string }) {
                 ? "재연결"
                 : "Slack 연결"}
         </button>
-        {open && (
+        {open ? (
           <button className="btn btn-ghost" onClick={() => setOpen(false)}>
             취소
           </button>
+        ) : (
+          connected && (
+            <button
+              className="btn btn-ghost"
+              style={{ color: "var(--danger)" }}
+              onClick={handleDisconnect}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
+            </button>
+          )
         )}
       </div>
     </div>
