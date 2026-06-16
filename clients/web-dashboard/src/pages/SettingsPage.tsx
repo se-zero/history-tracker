@@ -102,7 +102,7 @@ export function SettingsPage({ project }: { project: Project }) {
               value={name}
               maxLength={200}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Payments Platform"
+              placeholder="예: Payments Platform"
             />
           </div>
           <div className="field">
@@ -111,7 +111,7 @@ export function SettingsPage({ project }: { project: Project }) {
               value={description}
               maxLength={2000}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="결제 도메인 전반(주문, 정산, 환불)"
+              placeholder="예: 결제 도메인 전반(주문, 정산, 환불)"
             />
           </div>
           {updateMutation.isError && (

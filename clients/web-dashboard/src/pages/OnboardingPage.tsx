@@ -146,7 +146,7 @@ function CreateProjectStep({
             autoFocus
             value={name}
             onChange={(e) => onName(e.target.value)}
-            placeholder="Payments Platform"
+            placeholder="예: Payments Platform"
           />
         </div>
         <div className="field">
@@ -154,7 +154,7 @@ function CreateProjectStep({
           <input
             value={description}
             onChange={(e) => onDescription(e.target.value)}
-            placeholder="결제 도메인 전반(주문, 정산, 환불)"
+            placeholder="예: 결제 도메인 전반(주문, 정산, 환불)"
           />
         </div>
         {error && (
