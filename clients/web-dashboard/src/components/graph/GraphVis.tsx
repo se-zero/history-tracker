@@ -23,6 +23,7 @@ interface Props {
   highlighted?: Iterable<string> | null;
   selectedId?: string | null;
   onSelect?: (node: GraphNode) => void;
+  onBackgroundClick?: () => void;
   showLegend?: boolean;
   showControls?: boolean;
   showFilters?: boolean;
@@ -104,6 +105,7 @@ export function GraphVis({
   highlighted,
   selectedId,
   onSelect,
+  onBackgroundClick,
   showLegend = true,
   showControls = true,
   showFilters = true,
@@ -117,6 +119,8 @@ export function GraphVis({
   const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(
     null,
   );
+  // 팬(드래그) 후 발생하는 click과 순수 클릭을 구분 — 드래그였으면 선택 해제하지 않는다
+  const draggedRef = useRef(false);
   const [hover, setHover] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<Set<GraphNodeType> | null>(
     null,
@@ -176,18 +180,28 @@ export function GraphVis({
 
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
+    draggedRef.current = false;
     panRef.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
   };
   const onMouseMove = (e: React.MouseEvent) => {
     if (!panRef.current) return;
+    const dx = e.clientX - panRef.current.x;
+    const dy = e.clientY - panRef.current.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) draggedRef.current = true;
     setView((v) => ({
       ...v,
-      tx: panRef.current!.tx + (e.clientX - panRef.current!.x),
-      ty: panRef.current!.ty + (e.clientY - panRef.current!.y),
+      tx: panRef.current!.tx + dx,
+      ty: panRef.current!.ty + dy,
     }));
   };
   const onMouseUp = () => {
     panRef.current = null;
+  };
+
+  // 빈 캔버스 클릭 시 선택 해제 (노드 클릭은 stopPropagation으로 여기 도달하지 않음)
+  const onCanvasClick = () => {
+    if (draggedRef.current) return;
+    onBackgroundClick?.();
   };
 
   const zoom = (factor: number) =>
@@ -218,7 +232,11 @@ export function GraphVis({
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseUp}
     >
-      <svg className="graph-canvas" viewBox={`0 0 ${size.w} ${size.h}`}>
+      <svg
+        className="graph-canvas"
+        viewBox={`0 0 ${size.w} ${size.h}`}
+        onClick={onCanvasClick}
+      >
         <defs>
           <pattern
             id="ht-grid"
