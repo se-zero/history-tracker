@@ -82,7 +82,7 @@ class IntegrationServiceTest {
     void listIntegrationsReturnsIntegrationsWithLatestSyncTimeForOwnedProject() {
         IntegrationService service = service();
         Project project = project();
-        Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget");
+        Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget", "main");
         Instant syncedAt = Instant.parse("2026-06-15T03:00:00Z");
         Checkpoint olderCheckpoint = checkpoint(project, "github/github_commits",
                 Instant.parse("2026-06-15T01:00:00Z"));
@@ -106,7 +106,7 @@ class IntegrationServiceTest {
     void listIntegrationsReturnsNullSyncTimeWhenNoCheckpoint() {
         IntegrationService service = service();
         Project project = project();
-        Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget");
+        Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget", "main");
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID))
                 .thenReturn(List.of(githubIntegration));
@@ -121,7 +121,7 @@ class IntegrationServiceTest {
     @Test
     void disconnectIntegrationDeletesIntegrationForOwnedProject() {
         IntegrationService service = service();
-        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget");
+        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget", "main");
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(integration));
@@ -172,7 +172,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "  acme/widget  "
+                "  acme/widget  ",
+                "  main  "
         );
 
         assertThat(result.getProject()).isSameAs(project);
@@ -180,6 +181,7 @@ class IntegrationServiceTest {
         assertThat(result.getProvider()).isEqualTo(IntegrationProvider.GITHUB);
         assertThat(result.getGitHubRepositoryId()).isEqualTo(12345L);
         assertThat(result.getGitHubRepositoryFullName()).isEqualTo("acme/widget");
+        assertThat(result.getGitHubBranch()).isEqualTo("main");
         verify(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
         verify(pipelineWorkerClient).triggerGitHubCollection(PROJECT_ID);
     }
@@ -200,7 +202,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("GitHub token issuance failed.");
@@ -225,7 +228,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("GitHub integration already exists.");
@@ -243,7 +247,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("GitHub installation not found.");
@@ -265,7 +270,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("GitHub integration already exists.");

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
+import { BranchSelect } from "@/components/BranchSelect";
 import { Icons } from "@/components/Icons";
 import { createProject } from "@/api/projects";
 import { listInstallationRepositories, listInstallations } from "@/api/github";
@@ -205,15 +206,21 @@ function ConnectGitHubStep({
     return repos.map((repo) => ({ installation: inst, repo }));
   });
 
+  // 연결하려고 선택한 저장소(브랜치 선택 단계)
+  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
+  const [branch, setBranch] = useState("");
+
   const connectMutation = useMutation({
     mutationFn: (payload: {
       installation: GitHubInstallation;
       repo: GitHubRepository;
+      branch: string;
     }) =>
       connectGitHubRepository(project.id, {
         installationId: payload.installation.id,
         repositoryId: payload.repo.id,
         repositoryFullName: payload.repo.full_name,
+        branch: payload.branch,
       }),
     onSuccess: () => {
       // 연결 시 초기 수집이 트리거된다. 연동 캐시를 비우고 프로젝트로 이동.
@@ -221,6 +228,11 @@ function ConnectGitHubStep({
       onDone();
     },
   });
+
+  const startBranchSelect = (repo: GitHubRepository) => {
+    setSelectedRepoId(repo.id);
+    setBranch(repo.default_branch);
+  };
 
   const connected = installations.length > 0;
   const reposLoading = repoQueries.some((q) => q.isLoading);
@@ -263,21 +275,55 @@ function ConnectGitHubStep({
         ) : (
           <div className="repo-list" style={{ maxHeight: 320, overflowY: "auto" }}>
             {repoRows.map(({ installation, repo }) => {
+              const isSelected = selectedRepoId === repo.id;
               const isPending =
                 connectMutation.isPending &&
                 connectMutation.variables?.repo.id === repo.id;
               return (
                 <div key={`${installation.id}-${repo.id}`} className="repo-row">
                   <span className="repo-name">{repo.full_name}</span>
-                  <span className="repo-meta">{repo.visibility}</span>
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: "3px 10px", marginLeft: 8 }}
-                    onClick={() => connectMutation.mutate({ installation, repo })}
-                    disabled={connectMutation.isPending}
-                  >
-                    {isPending ? "연결 중…" : "이 저장소 연결"}
-                  </button>
+                  {isSelected ? (
+                    <>
+                      <BranchSelect
+                        installationId={installation.id}
+                        owner={repo.owner}
+                        repo={repo.name}
+                        value={branch}
+                        onChange={setBranch}
+                        disabled={isPending}
+                      />
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: "3px 10px", marginLeft: 8 }}
+                        onClick={() =>
+                          connectMutation.mutate({ installation, repo, branch })
+                        }
+                        disabled={isPending || !branch}
+                      >
+                        {isPending ? "연결 중…" : "연결"}
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: "3px 10px", marginLeft: 4 }}
+                        onClick={() => setSelectedRepoId(null)}
+                        disabled={isPending}
+                      >
+                        취소
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="repo-meta">{repo.visibility}</span>
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: "3px 10px", marginLeft: 8 }}
+                        onClick={() => startBranchSelect(repo)}
+                        disabled={connectMutation.isPending}
+                      >
+                        이 저장소 연결
+                      </button>
+                    </>
+                  )}
                 </div>
               );
             })}

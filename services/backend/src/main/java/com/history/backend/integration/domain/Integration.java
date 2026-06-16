@@ -35,6 +35,7 @@ public class Integration {
 
     public static final String GITHUB_REPOSITORY_ID = "repository_id";
     public static final String GITHUB_REPOSITORY_FULL_NAME = "repository_full_name";
+    public static final String GITHUB_BRANCH = "branch";
     public static final String SLACK_WORKSPACE_ID = "workspace_id";
     public static final String SLACK_WORKSPACE_NAME = "workspace_name";
     public static final String JIRA_PROJECT_KEY = "project_key";
@@ -75,15 +76,19 @@ public class Integration {
             Project project,
             GitHubInstallation installation,
             Long repositoryId,
-            String repositoryFullName
+            String repositoryFullName,
+            String branch
     ) {
+        Map<String, Object> externalRef = new HashMap<>();
+        externalRef.put(GITHUB_REPOSITORY_ID, repositoryId);
+        externalRef.put(GITHUB_REPOSITORY_FULL_NAME, repositoryFullName);
+        if (branch != null && !branch.isBlank()) {
+            externalRef.put(GITHUB_BRANCH, branch);
+        }
         return new Integration(
                 project,
                 IntegrationProvider.GITHUB,
-                Map.of(
-                        GITHUB_REPOSITORY_ID, repositoryId,
-                        GITHUB_REPOSITORY_FULL_NAME, repositoryFullName
-                ),
+                Map.copyOf(externalRef),
                 installation,
                 null
         );
@@ -166,6 +171,11 @@ public class Integration {
 
     public String getGitHubRepositoryFullName() {
         return getRequiredString(GITHUB_REPOSITORY_FULL_NAME, "GitHub repository_full_name");
+    }
+
+    public String getGitHubBranch() {
+        Object branch = externalRef.get(GITHUB_BRANCH);
+        return branch instanceof String value ? value : null;
     }
 
     public String getSlackWorkspaceId() {

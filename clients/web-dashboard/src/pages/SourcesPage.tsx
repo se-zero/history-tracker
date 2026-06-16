@@ -2,6 +2,7 @@ import { useState } from "react";
 import axios from "axios";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { BranchSelect } from "@/components/BranchSelect";
 import { Icons } from "@/components/Icons";
 import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
 import { listInstallationRepositories, listInstallations } from "@/api/github";
@@ -153,22 +154,37 @@ function GitHubCard({ projectId }: { projectId: string }) {
   const connectedRepoId = githubIntegration?.metadata?.["repository_id"] as
     | number
     | undefined;
+  const connectedBranch = githubIntegration?.metadata?.["branch"] as
+    | string
+    | undefined;
+
+  // 연결하려고 선택한 저장소(브랜치 선택 단계)
+  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
+  const [branch, setBranch] = useState("");
 
   const queryClient = useQueryClient();
   const connectMutation = useMutation({
     mutationFn: (payload: {
       installation: GitHubInstallation;
       repo: GitHubRepository;
+      branch: string;
     }) =>
       connectGitHubRepository(projectId, {
         installationId: payload.installation.id,
         repositoryId: payload.repo.id,
         repositoryFullName: payload.repo.full_name,
+        branch: payload.branch,
       }),
     onSuccess: () => {
+      setSelectedRepoId(null);
       queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
+
+  const startBranchSelect = (repo: GitHubRepository) => {
+    setSelectedRepoId(repo.id);
+    setBranch(repo.default_branch);
+  };
 
   const connectErrorMessage = connectMutation.isError
     ? axios.isAxiosError(connectMutation.error) && connectMutation.error.response?.status === 409
@@ -253,38 +269,71 @@ function GitHubCard({ projectId }: { projectId: string }) {
           {visibleRepoRows.map(({ installation: inst, repo: r }) => {
             const isConnected = connectedRepoId === r.id;
             const otherRepoConnected = connectedRepoId !== undefined && !isConnected;
+            const isSelected = selectedRepoId === r.id;
             const isPending =
               connectMutation.isPending &&
               connectMutation.variables?.repo.id === r.id;
             return (
               <div key={`${inst.id}-${r.id}`} className="repo-row">
                 <span className="repo-name">{r.full_name}</span>
-                <span className="repo-meta">{r.visibility} · — events</span>
-                <button
-                  className="btn btn-ghost"
-                  style={{ padding: "3px 8px", marginLeft: 8 }}
-                  onClick={() =>
-                    connectMutation.mutate({ installation: inst, repo: r })
-                  }
-                  disabled={isPending || isConnected || otherRepoConnected}
-                >
-                  {isConnected
-                    ? "연결됨"
-                    : isPending
-                      ? "연결 중…"
-                      : otherRepoConnected
-                        ? "다른 저장소 연결됨"
-                        : "이 프로젝트에 연결"}
-                </button>
-                {isConnected && (
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: "3px 8px", marginLeft: 4, color: "var(--danger)" }}
-                    onClick={() => handleDisconnect(r.full_name)}
-                    disabled={disconnectMutation.isPending}
-                  >
-                    {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
-                  </button>
+                {isConnected ? (
+                  <>
+                    <span className="repo-meta">
+                      {connectedBranch ? `branch: ${connectedBranch}` : r.visibility}
+                    </span>
+                    <span style={{ fontSize: 12, color: "var(--success)", marginLeft: 8 }}>
+                      연결됨
+                    </span>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: "3px 8px", marginLeft: 4, color: "var(--danger)" }}
+                      onClick={() => handleDisconnect(r.full_name)}
+                      disabled={disconnectMutation.isPending}
+                    >
+                      {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
+                    </button>
+                  </>
+                ) : isSelected ? (
+                  <>
+                    <BranchSelect
+                      installationId={inst.id}
+                      owner={r.owner}
+                      repo={r.name}
+                      value={branch}
+                      onChange={setBranch}
+                      disabled={isPending}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      style={{ padding: "3px 8px", marginLeft: 8 }}
+                      onClick={() =>
+                        connectMutation.mutate({ installation: inst, repo: r, branch })
+                      }
+                      disabled={isPending || !branch}
+                    >
+                      {isPending ? "연결 중…" : "연결"}
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: "3px 8px", marginLeft: 4 }}
+                      onClick={() => setSelectedRepoId(null)}
+                      disabled={isPending}
+                    >
+                      취소
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="repo-meta">{r.visibility}</span>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: "3px 8px", marginLeft: 8 }}
+                      onClick={() => startBranchSelect(r)}
+                      disabled={otherRepoConnected}
+                    >
+                      {otherRepoConnected ? "다른 저장소 연결됨" : "이 프로젝트에 연결"}
+                    </button>
+                  </>
                 )}
               </div>
             );

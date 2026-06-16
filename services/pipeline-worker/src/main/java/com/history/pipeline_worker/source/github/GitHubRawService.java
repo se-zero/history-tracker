@@ -75,9 +75,11 @@ public class GitHubRawService {
     }
 
     public GitHubPage fetchMergedPullRequestPage(GitHubFetchContext context, int page) {
+        // base 브랜치로 필터링 — 지정 브랜치를 타겟으로 한 PR만 수집(미지정 시 전체 브랜치)
+        String baseParam = context.branch() != null ? "&base=" + context.branch() : "";
         GitHubPage closedPullRequests = fetchPageAfterCheckpoint(
                 context.auth(),
-                "/repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=" + PER_PAGE,
+                "/repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=" + PER_PAGE + baseParam,
                 context.owner(),
                 context.repo(),
                 context.checkpoint().pullRequestsScannedAt,

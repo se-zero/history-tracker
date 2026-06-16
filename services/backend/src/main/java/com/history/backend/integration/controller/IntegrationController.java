@@ -59,7 +59,8 @@ public class IntegrationController {
                 projectId,
                 request.installationId(),
                 request.repositoryId(),
-                request.repositoryFullName()
+                request.repositoryFullName(),
+                request.branch()
         ));
     }
 

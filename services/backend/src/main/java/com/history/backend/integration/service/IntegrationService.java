@@ -88,7 +88,8 @@ public class IntegrationService {
             UUID projectId,
             UUID installationId,
             Long repositoryId,
-            String repositoryFullName
+            String repositoryFullName,
+            String branch
     ) {
         Project project = projectService.getProject(ownerId, projectId);
         GitHubInstallation installation = gitHubInstallationService.getInstallationForInstaller(ownerId, installationId);
@@ -96,6 +97,7 @@ public class IntegrationService {
         installationTokenService.getInstallationAccessToken(installationId);
 
         String normalizedRepositoryFullName = repositoryFullName.trim();
+        String normalizedBranch = branch.trim();
         // 토큰 발급 중 DB 커넥션·행 락 점유를 늘리지 않도록 연동 저장만 별도 트랜잭션으로 실행
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Integration integration = transactionTemplate.execute(status -> saveGitHubRepository(
@@ -103,7 +105,8 @@ public class IntegrationService {
                 installation,
                 projectId,
                 repositoryId,
-                normalizedRepositoryFullName
+                normalizedRepositoryFullName,
+                normalizedBranch
         ));
         pipelineWorkerClient.triggerGitHubCollection(projectId);
         return integration;
@@ -114,7 +117,8 @@ public class IntegrationService {
             GitHubInstallation installation,
             UUID projectId,
             Long repositoryId,
-            String repositoryFullName
+            String repositoryFullName,
+            String branch
     ) {
         validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
         try {
@@ -122,7 +126,8 @@ public class IntegrationService {
                     project,
                     installation,
                     repositoryId,
-                    repositoryFullName
+                    repositoryFullName,
+                    branch
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합으로 사전 중복 검사를 통과한 경우 unique 제약 위반을 409로 변환

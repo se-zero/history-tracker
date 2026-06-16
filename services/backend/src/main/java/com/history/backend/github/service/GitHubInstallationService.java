@@ -75,4 +75,15 @@ public class GitHubInstallationService {
                 .map(RepositoryResponse::from)
                 .toList();
     }
+
+    public List<String> findRepositoryBranches(
+            UUID installerId,
+            UUID installationId,
+            String owner,
+            String repo
+    ) {
+        GitHubInstallation installation = getInstallationForInstaller(installerId, installationId);
+        String installationAccessToken = installationTokenService.getInstallationAccessToken(installation.getId());
+        return gitHubAppClient.fetchRepositoryBranches(installationAccessToken, owner, repo);
+    }
 }

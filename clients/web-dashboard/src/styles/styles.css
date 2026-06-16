@@ -1106,6 +1106,15 @@ a { color: inherit; text-decoration: none; }
 .repo-row:last-child { border-bottom: none; }
 .repo-row .repo-name { flex: 1; font-family: var(--font-mono); }
 .repo-row .repo-meta { color: var(--fg-subtle); font-size: 11px; font-family: var(--font-mono); }
+.branch-select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  max-width: 170px;
+}
 
 .repo-toggle {
   display: flex; align-items: center; justify-content: center;

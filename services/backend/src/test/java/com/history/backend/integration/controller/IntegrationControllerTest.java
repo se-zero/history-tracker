@@ -106,7 +106,8 @@ class IntegrationControllerTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         )).thenReturn(integration());
 
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
@@ -116,7 +117,8 @@ class IntegrationControllerTest {
                                 {
                                   "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
                                   "repository_id": 12345,
-                                  "repository_full_name": "acme/widget"
+                                  "repository_full_name": "acme/widget",
+                                  "branch": "main"
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -127,6 +129,7 @@ class IntegrationControllerTest {
                 .andExpect(jsonPath("$.installationId").value(INSTALLATION_ID.toString()))
                 .andExpect(jsonPath("$.metadata.repository_id").value(12345))
                 .andExpect(jsonPath("$.metadata.repository_full_name").value("acme/widget"))
+                .andExpect(jsonPath("$.metadata.branch").value("main"))
                 .andExpect(jsonPath("$.externalRef").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
                 .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
@@ -256,7 +259,8 @@ class IntegrationControllerTest {
                                 {
                                   "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
                                   "repository_id": 12345,
-                                  "repository_full_name": "acme/platform/widget"
+                                  "repository_full_name": "acme/platform/widget",
+                                  "branch": "main"
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -271,7 +275,8 @@ class IntegrationControllerTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         )).thenThrow(new ConflictException("GitHub integration already exists."));
 
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
@@ -281,7 +286,8 @@ class IntegrationControllerTest {
                                 {
                                   "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
                                   "repository_id": 12345,
-                                  "repository_full_name": "acme/widget"
+                                  "repository_full_name": "acme/widget",
+                                  "branch": "main"
                                 }
                                 """))
                 .andExpect(status().isConflict())
@@ -359,7 +365,7 @@ class IntegrationControllerTest {
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", owner);
         ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
 
-        Integration integration = Integration.github(project, installation, 12345L, "acme/widget");
+        Integration integration = Integration.github(project, installation, 12345L, "acme/widget", "main");
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);

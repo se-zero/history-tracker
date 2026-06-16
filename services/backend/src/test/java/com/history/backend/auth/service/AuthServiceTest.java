@@ -48,7 +48,8 @@ class AuthServiceTest {
             "https://api.github.com/user",
             "https://api.github.com/user/installations",
             "https://api.github.com/app/installations/{installation_id}/access_tokens",
-            "https://api.github.com/installation/repositories"
+            "https://api.github.com/installation/repositories",
+            "https://api.github.com/repos/{owner}/{repo}/branches"
     );
 
     private static final JwtProperties JWT_PROPERTIES = new JwtProperties(
@@ -110,7 +111,8 @@ class AuthServiceTest {
                 "https://api.github.com/user",
                 "https://api.github.com/user/installations",
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
-                "https://api.github.com/installation/repositories"
+                "https://api.github.com/installation/repositories",
+                "https://api.github.com/repos/{owner}/{repo}/branches"
         );
 
         URI uri = authService(properties).buildGitHubInstallUri(null);
@@ -133,7 +135,8 @@ class AuthServiceTest {
                 "https://api.github.com/user",
                 "https://api.github.com/user/installations",
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
-                "https://api.github.com/installation/repositories"
+                "https://api.github.com/installation/repositories",
+                "https://api.github.com/repos/{owner}/{repo}/branches"
         );
 
         assertThrows(IllegalStateException.class, () -> authService(properties).buildGitHubInstallUri(null));

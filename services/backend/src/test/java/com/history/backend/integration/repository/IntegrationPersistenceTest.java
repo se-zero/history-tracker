@@ -71,7 +71,8 @@ class IntegrationPersistenceTest {
                 fixture.project(),
                 fixture.installation(),
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ));
 
         Optional<Integration> result = integrationRepository.findByProject_IdAndProvider(
@@ -151,7 +152,8 @@ class IntegrationPersistenceTest {
                 fixture.project(),
                 fixture.installation(),
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ));
 
         String provider = jdbcTemplate.queryForObject(
@@ -170,7 +172,8 @@ class IntegrationPersistenceTest {
                 fixture.project(),
                 fixture.installation(),
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ));
 
         String repositoryFullName = jdbcTemplate.queryForObject(
@@ -230,7 +233,7 @@ class IntegrationPersistenceTest {
     @Test
     void githubRepositoryIdFailsWhenExternalRefIsMissingRepositoryId() {
         ProjectFixture fixture = createProjectFixture();
-        Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget");
+        Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget", "main");
         ReflectionTestUtils.setField(integration, "externalRef", Map.of(
                 Integration.GITHUB_REPOSITORY_FULL_NAME, "acme/widget"
         ));
@@ -243,7 +246,7 @@ class IntegrationPersistenceTest {
     @Test
     void githubRepositoryIdFailsWhenExternalRefUsesUnexpectedType() {
         ProjectFixture fixture = createProjectFixture();
-        Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget");
+        Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget", "main");
         ReflectionTestUtils.setField(integration, "externalRef", Map.of(
                 Integration.GITHUB_REPOSITORY_ID, "12345",
                 Integration.GITHUB_REPOSITORY_FULL_NAME, "acme/widget"

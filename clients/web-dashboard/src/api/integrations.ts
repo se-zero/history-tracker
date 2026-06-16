@@ -5,6 +5,7 @@ export interface ConnectGitHubPayload {
   installationId: string;
   repositoryId: number;
   repositoryFullName: string;
+  branch: string;
 }
 
 export interface ConnectJiraPayload {
@@ -40,6 +41,7 @@ export async function connectGitHubRepository(
       installation_id: payload.installationId,
       repository_id: payload.repositoryId,
       repository_full_name: payload.repositoryFullName,
+      branch: payload.branch,
     },
   );
   return data;
