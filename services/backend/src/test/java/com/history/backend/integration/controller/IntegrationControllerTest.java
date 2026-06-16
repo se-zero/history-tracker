@@ -1,18 +1,25 @@
 package com.history.backend.integration.controller;
 
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.ConflictException;
+import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.integration.domain.Integration;
+import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.project.domain.Project;
 import com.history.backend.security.AuthenticatedUser;
@@ -38,6 +45,7 @@ class IntegrationControllerTest {
     private static final UUID INTEGRATION_ID = UUID.fromString("72b9c869-77f6-4b4d-b8c5-db85023ef3b8");
     private static final Instant CREATED_AT = Instant.parse("2026-05-19T01:00:00Z");
     private static final Instant UPDATED_AT = Instant.parse("2026-05-19T02:00:00Z");
+    private static final Instant SYNCED_AT = Instant.parse("2026-06-15T03:00:00Z");
 
     @Autowired
     private MockMvc mockMvc;
@@ -54,13 +62,52 @@ class IntegrationControllerTest {
     }
 
     @Test
+    void listIntegrationsReturnsIntegrationsForProject() throws Exception {
+        when(integrationService.listIntegrations(USER_ID, PROJECT_ID))
+                .thenReturn(List.of(IntegrationResponse.from(integration(), SYNCED_AT)));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(INTEGRATION_ID.toString()))
+                .andExpect(jsonPath("$[0].projectId").value(PROJECT_ID.toString()))
+                .andExpect(jsonPath("$[0].provider").value("github"))
+                .andExpect(jsonPath("$[0].displayName").value("acme/widget"))
+                .andExpect(jsonPath("$[0].installationId").value(INSTALLATION_ID.toString()))
+                .andExpect(jsonPath("$[0].metadata.repository_id").value(12345))
+                .andExpect(jsonPath("$[0].metadata.repository_full_name").value("acme/widget"))
+                .andExpect(jsonPath("$[0].lastSyncedAt").value("2026-06-15T03:00:00Z"));
+    }
+
+    @Test
+    void disconnectIntegrationReturnsNoContent() throws Exception {
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNoContent());
+
+        verify(integrationService).disconnectIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
+    }
+
+    @Test
+    void disconnectIntegrationReturnsNotFoundWhenIntegrationMissing() throws Exception {
+        doThrow(new NotFoundException("Integration not found."))
+                .when(integrationService).disconnectIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
+
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Integration not found."));
+    }
+
+    @Test
     void connectGitHubRepositoryReturnsCreatedIntegration() throws Exception {
         when(integrationService.connectGitHubRepository(
                 USER_ID,
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         )).thenReturn(integration());
 
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
@@ -70,7 +117,8 @@ class IntegrationControllerTest {
                                 {
                                   "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
                                   "repository_id": 12345,
-                                  "repository_full_name": "acme/widget"
+                                  "repository_full_name": "acme/widget",
+                                  "branch": "main"
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -81,6 +129,7 @@ class IntegrationControllerTest {
                 .andExpect(jsonPath("$.installationId").value(INSTALLATION_ID.toString()))
                 .andExpect(jsonPath("$.metadata.repository_id").value(12345))
                 .andExpect(jsonPath("$.metadata.repository_full_name").value("acme/widget"))
+                .andExpect(jsonPath("$.metadata.branch").value("main"))
                 .andExpect(jsonPath("$.externalRef").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
                 .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
@@ -210,7 +259,8 @@ class IntegrationControllerTest {
                                 {
                                   "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
                                   "repository_id": 12345,
-                                  "repository_full_name": "acme/platform/widget"
+                                  "repository_full_name": "acme/platform/widget",
+                                  "branch": "main"
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -225,7 +275,8 @@ class IntegrationControllerTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         )).thenThrow(new ConflictException("GitHub integration already exists."));
 
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
@@ -235,7 +286,8 @@ class IntegrationControllerTest {
                                 {
                                   "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
                                   "repository_id": 12345,
-                                  "repository_full_name": "acme/widget"
+                                  "repository_full_name": "acme/widget",
+                                  "branch": "main"
                                 }
                                 """))
                 .andExpect(status().isConflict())
@@ -313,7 +365,7 @@ class IntegrationControllerTest {
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", owner);
         ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
 
-        Integration integration = Integration.github(project, installation, 12345L, "acme/widget");
+        Integration integration = Integration.github(project, installation, 12345L, "acme/widget", "main");
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);

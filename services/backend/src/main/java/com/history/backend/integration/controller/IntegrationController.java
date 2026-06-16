@@ -1,5 +1,6 @@
 package com.history.backend.integration.controller;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.integration.dto.ConnectGitHubIntegrationRequest;
@@ -12,6 +13,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,6 +29,24 @@ public class IntegrationController {
 
     private final IntegrationService integrationService;
 
+    @GetMapping
+    public List<IntegrationResponse> listIntegrations(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId
+    ) {
+        return integrationService.listIntegrations(authenticatedUser.id(), projectId);
+    }
+
+    @DeleteMapping("/{integrationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void disconnectIntegration(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @PathVariable UUID integrationId
+    ) {
+        integrationService.disconnectIntegration(authenticatedUser.id(), projectId, integrationId);
+    }
+
     @PostMapping("/github")
     @ResponseStatus(HttpStatus.CREATED)
     public IntegrationResponse connectGitHubRepository(
@@ -38,7 +59,8 @@ public class IntegrationController {
                 projectId,
                 request.installationId(),
                 request.repositoryId(),
-                request.repositoryFullName()
+                request.repositoryFullName(),
+                request.branch()
         ));
     }
 

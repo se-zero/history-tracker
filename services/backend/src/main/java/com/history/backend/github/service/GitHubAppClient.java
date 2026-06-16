@@ -7,6 +7,7 @@ import java.time.format.DateTimeParseException;
 
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.GitHubAppProperties;
+import com.history.backend.github.dto.GitHubBranchResponse;
 import com.history.backend.github.dto.GitHubInstallationTokenResponse;
 import com.history.backend.github.dto.GitHubRepositoriesResponse;
 import com.history.backend.github.dto.GitHubRepositoryResponse;
@@ -24,6 +25,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class GitHubAppClient {
 
     private static final int REPOSITORIES_PER_PAGE = 100;
+    private static final int BRANCHES_PER_PAGE = 100;
 
     private final GitHubAppProperties properties;
     private final GitHubAppJwtService gitHubAppJwtService;
@@ -115,6 +117,62 @@ public class GitHubAppClient {
                 .queryParam("per_page", REPOSITORIES_PER_PAGE)
                 .queryParam("page", page)
                 .build()
+                .toUriString();
+    }
+
+    // 저장소 브랜치 전체 조회 (100개 단위 페이지네이션)
+    public List<String> fetchRepositoryBranches(String installationAccessToken, String owner, String repo) {
+        List<String> branches = new ArrayList<>();
+        int page = 1;
+        while (true) {
+            List<GitHubBranchResponse> pageBranches = fetchRepositoryBranchPage(
+                    installationAccessToken,
+                    owner,
+                    repo,
+                    page
+            );
+            for (GitHubBranchResponse branch : pageBranches) {
+                if (branch.name() != null) {
+                    branches.add(branch.name());
+                }
+            }
+            if (pageBranches.size() < BRANCHES_PER_PAGE) {
+                return branches;
+            }
+            page++;
+        }
+    }
+
+    private List<GitHubBranchResponse> fetchRepositoryBranchPage(
+            String installationAccessToken,
+            String owner,
+            String repo,
+            int page
+    ) {
+        GitHubBranchResponse[] response;
+        try {
+            response = restClient
+                    .get()
+                    .uri(branchPageUri(owner, repo, page))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + installationAccessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(GitHubBranchResponse[].class);
+        } catch (RestClientResponseException exception) {
+            throw gitHubApiException("GitHub branch list request failed.", exception);
+        } catch (RestClientException exception) {
+            throw new BadGatewayException("GitHub branch list request failed.", exception);
+        }
+
+        return response == null ? List.of() : List.of(response);
+    }
+
+    private String branchPageUri(String owner, String repo, int page) {
+        return UriComponentsBuilder.fromUriString(properties.repositoryBranchesUrl())
+                .queryParam("per_page", BRANCHES_PER_PAGE)
+                .queryParam("page", page)
+                .buildAndExpand(owner, repo)
                 .toUriString();
     }
 

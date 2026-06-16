@@ -35,13 +35,20 @@ public class AuthController {
                 .build();
     }
 
+    @GetMapping("/github/install")
+    public ResponseEntity<Void> installGitHubApp(@RequestParam(required = false) String state) {
+        URI redirectUri = authService.buildGitHubInstallUri(state);
+        return ResponseEntity.status(302)
+                .location(redirectUri)
+                .build();
+    }
+
     @GetMapping("/github/callback")
     public ResponseEntity<TokenResponse> handleGitHubCallback(
             @RequestParam @NotBlank String code,
-            @RequestParam(required = false) String state,
-            @RequestParam(name = "installation_id", required = false) Long installationId
+            @RequestParam(required = false) String state
     ) {
-        return ResponseEntity.ok(authService.loginWithGitHub(new GitHubCallbackRequest(code, state, installationId)));
+        return ResponseEntity.ok(authService.loginWithGitHub(new GitHubCallbackRequest(code, state)));
     }
 
     @PostMapping("/refresh")

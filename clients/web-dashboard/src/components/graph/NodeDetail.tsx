@@ -31,16 +31,13 @@ export function NodeDetail({ node, onClose, onAddToChat }: Props) {
       >
         {node.source}
       </div>
-      <div className="nd-actions">
-        {onAddToChat && (
+      {onAddToChat && (
+        <div className="nd-actions">
           <button className="btn" onClick={() => onAddToChat(node)}>
             <Icons.Plus size={13} /> 채팅에 추가
           </button>
-        )}
-        <button className="btn btn-ghost">
-          <Icons.ExternalLink size={13} /> 원본 열기
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

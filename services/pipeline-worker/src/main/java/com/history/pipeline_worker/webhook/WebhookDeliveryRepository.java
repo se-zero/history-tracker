@@ -5,6 +5,8 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 @Repository
@@ -28,7 +30,7 @@ public class WebhookDeliveryRepository {
         int inserted = jdbcTemplate.update(sql, new MapSqlParameterSource()
                 .addValue("deliveryId", deliveryId)
                 .addValue("projectId", projectId)
-                .addValue("now", Instant.now()));
+                .addValue("now", OffsetDateTime.now(ZoneOffset.UTC)));
         return inserted == 1;
     }
 
@@ -43,7 +45,7 @@ public class WebhookDeliveryRepository {
 
         return jdbcTemplate.update(sql, new MapSqlParameterSource()
                 .addValue("deliveryId", deliveryId)
-                .addValue("now", Instant.now()));
+                .addValue("now", OffsetDateTime.now(ZoneOffset.UTC)));
     }
 
     public int markFailed(String deliveryId, String lastError) {
@@ -58,7 +60,7 @@ public class WebhookDeliveryRepository {
         return jdbcTemplate.update(sql, new MapSqlParameterSource()
                 .addValue("deliveryId", deliveryId)
                 .addValue("lastError", lastError)
-                .addValue("now", Instant.now()));
+                .addValue("now", OffsetDateTime.now(ZoneOffset.UTC)));
     }
 
     public int releaseClaim(String deliveryId) {
@@ -83,8 +85,8 @@ public class WebhookDeliveryRepository {
                 """;
 
         return jdbcTemplate.update(sql, new MapSqlParameterSource()
-                .addValue("staleBefore", staleBefore)
+                .addValue("staleBefore", OffsetDateTime.ofInstant(staleBefore, ZoneOffset.UTC))
                 .addValue("lastError", lastError)
-                .addValue("now", Instant.now()));
+                .addValue("now", OffsetDateTime.now(ZoneOffset.UTC)));
     }
 }

@@ -92,6 +92,7 @@ services:
       DB_USERNAME: history_tracker
       DB_PASSWORD: ${POSTGRES_PASSWORD:-history_tracker}
       AI_ENGINE_URL: http://ai-engine:8000
+      PIPELINE_WORKER_URL: ${PIPELINE_WORKER_URL:-http://pipeline-worker:8081}
 
       # 보안 키
       JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-must-be-changed}
@@ -109,6 +110,37 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # Spring Boot가 8080을 열어 요청을 받을 수 있는지 확인 (curl/actuator 없이 bash /dev/tcp)
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    profiles: [app]
+
+  pipeline-worker:
+    build:
+      context: ../../services/pipeline-worker
+    container_name: history-tracker-pipeline-worker
+    ports:
+      - "8081:8081"
+    environment:
+      # 컨테이너 네트워크 hostname으로 override
+      SPRING_RABBITMQ_HOST: rabbitmq
+      PIPELINE_WORKER_DATASOURCE_URL: jdbc:postgresql://postgres:5432/history_tracker
+      PIPELINE_WORKER_DATASOURCE_USERNAME: history_tracker
+      PIPELINE_WORKER_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-history_tracker}
+      BACKEND_URL: http://backend:8080
+
+      # backend와 동일한 값을 공유해야 함 (토큰 검증 / credential 복호화)
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
+      BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     profiles: [app]
 
   web-dashboard:
@@ -118,7 +150,8 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     profiles: [app]
 
 volumes:

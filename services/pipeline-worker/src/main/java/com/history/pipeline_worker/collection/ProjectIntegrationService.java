@@ -24,6 +24,7 @@ public class ProjectIntegrationService {
     private static final String PROVIDER_SLACK = "slack";
 
     private static final String GITHUB_REPOSITORY_FULL_NAME = "repository_full_name";
+    private static final String GITHUB_BRANCH = "branch";
     private static final String JIRA_PROJECT_KEY = "project_key";
     private static final String JIRA_BASE_URL = "base_url";
     private static final Duration GITHUB_TOKEN_REFRESH_SKEW = Duration.ofMinutes(5);
@@ -158,7 +159,7 @@ public class ProjectIntegrationService {
         return Optional.of(new GitHubIntegration(
                 bearer(token),
                 requiredString(integration.externalRef(), GITHUB_REPOSITORY_FULL_NAME),
-                null
+                optionalString(integration.externalRef(), GITHUB_BRANCH)
         ));
     }
 
@@ -204,6 +205,12 @@ public class ProjectIntegrationService {
             return text;
         }
         throw new IllegalStateException("Missing external_ref value: " + key);
+    }
+
+    // branch는 과거 연동에는 없을 수 있어 선택값으로 읽는다 (null이면 기본 브랜치 수집)
+    private String optionalString(Map<String, Object> externalRef, String key) {
+        Object value = externalRef.get(key);
+        return value instanceof String text && !text.isBlank() ? text : null;
     }
 
     private String bearer(String token) {

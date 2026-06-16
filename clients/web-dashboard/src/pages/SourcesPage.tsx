@@ -1,25 +1,39 @@
 import { useState } from "react";
-import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import axios from "axios";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { BranchSelect } from "@/components/BranchSelect";
 import { Icons } from "@/components/Icons";
+import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
 import { listInstallationRepositories, listInstallations } from "@/api/github";
 import {
   connectGitHubRepository,
   connectJiraProject,
   connectSlackWorkspace,
+  disconnectIntegration,
+  listIntegrations,
   type ConnectJiraPayload,
   type ConnectSlackPayload,
 } from "@/api/integrations";
 import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api";
 
-// TODO: 백엔드에 연결된 레포/통계 API가 생기면 교체. 지금은 디자인 자리 채우는 더미.
-const DUMMY_INGEST: Array<{ source: string; pct: number; count: string }> = [
-  { source: "GitHub · payments", pct: 100, count: "8,102 / 8,102" },
-  { source: "GitHub · billing-worker", pct: 100, count: "3,210 / 3,210" },
-  { source: "GitHub · merchant-portal", pct: 78, count: "4,400 / 5,640" },
-  { source: "Jira · PAY", pct: 100, count: "549 / 549" },
-  { source: "Slack · #payments-eng", pct: 100, count: "12,800 / 12,800" },
-];
+// 접힌 상태에서 보여줄 리포지토리 수 — Jira/Slack 카드와 높이를 맞추기 위함
+const REPO_PREVIEW_COUNT = 4;
+
+const PROVIDER_LABELS: Record<string, string> = {
+  github: "GitHub",
+  jira: "Jira",
+  slack: "Slack",
+};
+
+function formatSyncedAt(iso: string | null): string {
+  if (!iso) return "아직 수집 전";
+  try {
+    return new Date(iso).toLocaleString("ko-KR");
+  } catch {
+    return iso;
+  }
+}
 
 export function SourcesPage({ project }: { project: Project }) {
   return (
@@ -46,36 +60,57 @@ export function SourcesPage({ project }: { project: Project }) {
         <SlackCard projectId={project.id} />
       </div>
 
-      <div className="ingest-card">
-        <div className="ingest-head">
-          <Icons.Sparkle size={14} className="muted" />
-          <h4>수집 진행상황</h4>
+      <IngestStatus projectId={project.id} />
+    </div>
+  );
+}
+
+// =========================================================
+// 수집 진행상황 — 연동별 마지막 수집 시각
+// =========================================================
+
+function IngestStatus({ projectId }: { projectId: string }) {
+  const integrationsQuery = useQuery({
+    queryKey: ["integrations", projectId],
+    queryFn: () => listIntegrations(projectId),
+    // 백그라운드 수집이 진행되는 동안 마지막 수집 시각을 1분마다 갱신
+    refetchInterval: 60000,
+  });
+  const integrations = integrationsQuery.data ?? [];
+
+  return (
+    <div className="ingest-card">
+      <div className="ingest-head">
+        <Icons.Sparkle size={14} className="muted" />
+        <h4>수집 진행상황</h4>
+        {integrations.length > 0 && (
           <span className="muted" style={{ fontSize: 12 }}>
-            · {DUMMY_INGEST.length}개 파이프라인 (더미)
+            · {integrations.length}개 연동
           </span>
-          <div style={{ flex: 1 }} />
-          <button className="btn btn-ghost" style={{ padding: "5px 10px" }}>
-            <Icons.Refactor size={12} /> 다시 동기화
-          </button>
-        </div>
-        {DUMMY_INGEST.map((row, i) => (
-          <div key={i} className="ingest-row">
-            <div className="ingest-source">{row.source}</div>
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: row.pct + "%" }} />
-            </div>
-            <div className="ingest-count">{row.count}</div>
-            <div
-              className="ingest-status"
-              style={{
-                color: row.pct === 100 ? "var(--success)" : "var(--fg-muted)",
-              }}
-            >
-              {row.pct === 100 ? "완료" : row.pct + "%"}
-            </div>
-          </div>
-        ))}
+        )}
       </div>
+
+      {integrationsQuery.isLoading && (
+        <div style={{ padding: "12px 0", color: "var(--fg-muted)", fontSize: 13 }}>
+          불러오는 중…
+        </div>
+      )}
+
+      {!integrationsQuery.isLoading && integrations.length === 0 && (
+        <div style={{ padding: "12px 0", color: "var(--fg-muted)", fontSize: 13 }}>
+          연결된 데이터 소스가 없습니다.
+        </div>
+      )}
+
+      {integrations.map((integration) => (
+        <div key={integration.id} className="ingest-row">
+          <div className="ingest-source">
+            {PROVIDER_LABELS[integration.provider] ?? integration.provider}
+            {integration.displayName ? ` · ${integration.displayName}` : ""}
+          </div>
+          <div className="ingest-count">{formatSyncedAt(integration.lastSyncedAt)}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -101,22 +136,74 @@ function GitHubCard({ projectId }: { projectId: string }) {
   const connected = installations.length > 0;
   const totalRepos = repoQueries.reduce((sum, q) => sum + (q.data?.length ?? 0), 0);
 
-  const [connectedRepoIds, setConnectedRepoIds] = useState<Set<number>>(new Set());
+  const allRepoRows = installations.flatMap((inst, idx) => {
+    const repos = repoQueries[idx]?.data ?? [];
+    return repos.map((repo) => ({ installation: inst, repo }));
+  });
+  const [showAllRepos, setShowAllRepos] = useState(false);
+  const visibleRepoRows = showAllRepos
+    ? allRepoRows
+    : allRepoRows.slice(0, REPO_PREVIEW_COUNT);
+  const hiddenRepoCount = allRepoRows.length - visibleRepoRows.length;
 
+  const integrationsQuery = useQuery({
+    queryKey: ["integrations", projectId],
+    queryFn: () => listIntegrations(projectId),
+  });
+  const githubIntegration = integrationsQuery.data?.find((i) => i.provider === "github");
+  const connectedRepoId = githubIntegration?.metadata?.["repository_id"] as
+    | number
+    | undefined;
+  const connectedBranch = githubIntegration?.metadata?.["branch"] as
+    | string
+    | undefined;
+
+  // 연결하려고 선택한 저장소(브랜치 선택 단계)
+  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
+  const [branch, setBranch] = useState("");
+
+  const queryClient = useQueryClient();
   const connectMutation = useMutation({
     mutationFn: (payload: {
       installation: GitHubInstallation;
       repo: GitHubRepository;
+      branch: string;
     }) =>
       connectGitHubRepository(projectId, {
         installationId: payload.installation.id,
         repositoryId: payload.repo.id,
         repositoryFullName: payload.repo.full_name,
+        branch: payload.branch,
       }),
-    onSuccess: (_int, vars) => {
-      setConnectedRepoIds((prev) => new Set(prev).add(vars.repo.id));
+    onSuccess: () => {
+      setSelectedRepoId(null);
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
+
+  const startBranchSelect = (repo: GitHubRepository) => {
+    setSelectedRepoId(repo.id);
+    setBranch(repo.default_branch);
+  };
+
+  const connectErrorMessage = connectMutation.isError
+    ? axios.isAxiosError(connectMutation.error) && connectMutation.error.response?.status === 409
+      ? "이미 이 프로젝트에 연결된 GitHub 저장소가 있어요. 다른 저장소로 바꾸려면 먼저 기존 연동을 해제해 주세요."
+      : "연결에 실패했어요. 잠시 후 다시 시도해 주세요."
+    : null;
+
+  const disconnectMutation = useMutation({
+    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+    },
+  });
+
+  const handleDisconnect = (repoFullName: string) => {
+    if (!githubIntegration) return;
+    if (!window.confirm(`${repoFullName} 연동을 해제할까요?`)) return;
+    disconnectMutation.mutate(githubIntegration.id);
+  };
 
   return (
     <div className="source-card">
@@ -152,47 +239,144 @@ function GitHubCard({ projectId }: { projectId: string }) {
         <div
           style={{
             padding: "20px 0",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 10,
             textAlign: "center",
             color: "var(--fg-muted)",
             fontSize: 13,
           }}
         >
-          이 계정으로 GitHub App이 설치된 워크스페이스가 없습니다.
+          <span>이 계정으로 GitHub App이 설치된 워크스페이스가 없습니다.</span>
+          <a
+            className="btn btn-primary"
+            href={GITHUB_INSTALL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub App 연결하기
+          </a>
+          <span style={{ fontSize: 12 }}>
+            설치 후 이 페이지로 돌아와{" "}
+            <a href={GITHUB_AUTHORIZE_URL}>연결 확인</a>을 눌러주세요.
+          </span>
         </div>
       )}
 
       {connected && (
         <div className="repo-list">
-          {installations.map((inst, idx) => {
-            const repos = repoQueries[idx]?.data ?? [];
-            return repos.map((r) => {
-              const isConnected = connectedRepoIds.has(r.id);
-              const isPending =
-                connectMutation.isPending &&
-                connectMutation.variables?.repo.id === r.id;
-              return (
-                <div key={`${inst.id}-${r.id}`} className="repo-row">
-                  <span className="repo-name">{r.full_name}</span>
-                  <span className="repo-meta">{r.visibility} · — events</span>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: "3px 8px", marginLeft: 8 }}
-                    onClick={() =>
-                      connectMutation.mutate({ installation: inst, repo: r })
-                    }
-                    disabled={isPending || isConnected}
-                  >
-                    {isConnected ? "연결됨" : isPending ? "연결 중…" : "이 프로젝트에 연결"}
-                  </button>
-                </div>
-              );
-            });
+          {visibleRepoRows.map(({ installation: inst, repo: r }) => {
+            const isConnected = connectedRepoId === r.id;
+            const otherRepoConnected = connectedRepoId !== undefined && !isConnected;
+            const isSelected = selectedRepoId === r.id;
+            const isPending =
+              connectMutation.isPending &&
+              connectMutation.variables?.repo.id === r.id;
+            return (
+              <div key={`${inst.id}-${r.id}`} className="repo-row">
+                <span className="repo-name">{r.full_name}</span>
+                {isConnected ? (
+                  <>
+                    <span className="repo-meta">
+                      {connectedBranch ? `branch: ${connectedBranch}` : r.visibility}
+                    </span>
+                    <span style={{ fontSize: 12, color: "var(--success)", marginLeft: 8 }}>
+                      연결됨
+                    </span>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: "3px 8px", marginLeft: 4, color: "var(--danger)" }}
+                      onClick={() => handleDisconnect(r.full_name)}
+                      disabled={disconnectMutation.isPending}
+                    >
+                      {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
+                    </button>
+                  </>
+                ) : isSelected ? (
+                  <>
+                    <BranchSelect
+                      installationId={inst.id}
+                      owner={r.owner}
+                      repo={r.name}
+                      value={branch}
+                      onChange={setBranch}
+                      disabled={isPending}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      style={{ padding: "3px 8px", marginLeft: 8 }}
+                      onClick={() =>
+                        connectMutation.mutate({ installation: inst, repo: r, branch })
+                      }
+                      disabled={isPending || !branch}
+                    >
+                      {isPending ? "연결 중…" : "연결"}
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: "3px 8px", marginLeft: 4 }}
+                      onClick={() => setSelectedRepoId(null)}
+                      disabled={isPending}
+                    >
+                      취소
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="repo-meta">{r.visibility}</span>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: "3px 8px", marginLeft: 8 }}
+                      onClick={() => startBranchSelect(r)}
+                      disabled={otherRepoConnected}
+                    >
+                      {otherRepoConnected ? "다른 저장소 연결됨" : "이 프로젝트에 연결"}
+                    </button>
+                  </>
+                )}
+              </div>
+            );
           })}
+          {allRepoRows.length > REPO_PREVIEW_COUNT && (
+            <button
+              className="repo-toggle"
+              onClick={() => setShowAllRepos((prev) => !prev)}
+            >
+              {showAllRepos ? "접기" : `${hiddenRepoCount}개 더 보기`}
+              <Icons.ChevronDown
+                size={12}
+                style={{
+                  transform: showAllRepos ? "rotate(180deg)" : undefined,
+                }}
+              />
+            </button>
+          )}
+          {connectErrorMessage && (
+            <div style={{ color: "var(--danger)", fontSize: 12, padding: "8px 12px" }}>
+              {connectErrorMessage}
+            </div>
+          )}
+          {disconnectMutation.isError && (
+            <div style={{ color: "var(--danger)", fontSize: 12, padding: "8px 12px" }}>
+              연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
+            </div>
+          )}
         </div>
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
-        <button className="btn btn-ghost">앱 관리</button>
+        <a
+          className="btn btn-ghost"
+          href={GITHUB_INSTALL_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          앱 관리
+        </a>
+        <a className="btn btn-ghost" href={GITHUB_AUTHORIZE_URL}>
+          연결 확인
+        </a>
       </div>
     </div>
   );
@@ -210,16 +394,37 @@ function JiraCard({ projectId }: { projectId: string }) {
     email: "",
     apiToken: "",
   });
-  const [connected, setConnected] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  // 연결 상태는 로컬 state가 아니라 서버 연동 목록에서 도출 — 새로고침해도 유지된다.
+  const integrationsQuery = useQuery({
+    queryKey: ["integrations", projectId],
+    queryFn: () => listIntegrations(projectId),
+  });
+  const jiraIntegration = integrationsQuery.data?.find((i) => i.provider === "jira");
+  const connected = Boolean(jiraIntegration);
+  const connectedName = jiraIntegration?.displayName ?? "Jira";
 
   const mutation = useMutation({
     mutationFn: () => connectJiraProject(projectId, form),
-    onSuccess: (integration) => {
-      setConnected(integration.displayName ?? form.projectKey);
+    onSuccess: () => {
       setOpen(false);
       setForm({ baseUrl: "", projectKey: "", email: "", apiToken: "" });
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
+
+  const disconnectMutation = useMutation({
+    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+    },
+  });
+
+  const handleDisconnect = () => {
+    if (!jiraIntegration) return;
+    if (!window.confirm(`Jira(${connectedName}) 연동을 해제할까요?`)) return;
+    disconnectMutation.mutate(jiraIntegration.id);
+  };
 
   return (
     <div className="source-card">
@@ -227,7 +432,7 @@ function JiraCard({ projectId }: { projectId: string }) {
         <div className="src-logo jira">J</div>
         <div style={{ flex: 1 }}>
           <h4>Jira</h4>
-          <div className="src-sub">{connected ?? "선택 사항"}</div>
+          <div className="src-sub">{connected ? connectedName : "선택 사항"}</div>
         </div>
         <span className={"badge " + (connected ? "success" : "")}>
           <span className="dot" />
@@ -293,6 +498,12 @@ function JiraCard({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {disconnectMutation.isError && (
+        <div style={{ color: "var(--danger)", fontSize: 12 }}>
+          연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
         <button
           className={"btn " + (connected ? "" : "btn-primary")}
@@ -305,10 +516,21 @@ function JiraCard({ projectId }: { projectId: string }) {
         >
           {mutation.isPending ? "연결 중…" : open ? "연결" : connected ? "재연결" : "Jira 연결"}
         </button>
-        {open && (
+        {open ? (
           <button className="btn btn-ghost" onClick={() => setOpen(false)}>
             취소
           </button>
+        ) : (
+          connected && (
+            <button
+              className="btn btn-ghost"
+              style={{ color: "var(--danger)" }}
+              onClick={handleDisconnect}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
+            </button>
+          )
         )}
       </div>
     </div>
@@ -322,16 +544,37 @@ function JiraCard({ projectId }: { projectId: string }) {
 function SlackCard({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ConnectSlackPayload>({ token: "" });
-  const [connected, setConnected] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  // 연결 상태는 로컬 state가 아니라 서버 연동 목록에서 도출 — 새로고침해도 유지된다.
+  const integrationsQuery = useQuery({
+    queryKey: ["integrations", projectId],
+    queryFn: () => listIntegrations(projectId),
+  });
+  const slackIntegration = integrationsQuery.data?.find((i) => i.provider === "slack");
+  const connected = Boolean(slackIntegration);
+  const connectedName = slackIntegration?.displayName ?? "워크스페이스";
 
   const mutation = useMutation({
     mutationFn: () => connectSlackWorkspace(projectId, form),
-    onSuccess: (integration) => {
-      setConnected(integration.displayName ?? "워크스페이스");
+    onSuccess: () => {
       setOpen(false);
       setForm({ token: "" });
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
     },
   });
+
+  const disconnectMutation = useMutation({
+    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+    },
+  });
+
+  const handleDisconnect = () => {
+    if (!slackIntegration) return;
+    if (!window.confirm(`Slack(${connectedName}) 연동을 해제할까요?`)) return;
+    disconnectMutation.mutate(slackIntegration.id);
+  };
 
   return (
     <div className="source-card">
@@ -339,7 +582,9 @@ function SlackCard({ projectId }: { projectId: string }) {
         <div className="src-logo slack">S</div>
         <div style={{ flex: 1 }}>
           <h4>Slack</h4>
-          <div className="src-sub">{connected ?? "선택 사항 · 토론 맥락을 추가"}</div>
+          <div className="src-sub">
+            {connected ? connectedName : "선택 사항 · 토론 맥락을 추가"}
+          </div>
         </div>
         <span className={"badge " + (connected ? "success" : "")}>
           <span className="dot" />
@@ -389,6 +634,12 @@ function SlackCard({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {disconnectMutation.isError && (
+        <div style={{ color: "var(--danger)", fontSize: 12 }}>
+          연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
         <button
           className={"btn " + (connected ? "" : "btn-primary")}
@@ -410,10 +661,21 @@ function SlackCard({ projectId }: { projectId: string }) {
                 ? "재연결"
                 : "Slack 연결"}
         </button>
-        {open && (
+        {open ? (
           <button className="btn btn-ghost" onClick={() => setOpen(false)}>
             취소
           </button>
+        ) : (
+          connected && (
+            <button
+              className="btn btn-ghost"
+              style={{ color: "var(--danger)" }}
+              onClick={handleDisconnect}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
+            </button>
+          )
         )}
       </div>
     </div>

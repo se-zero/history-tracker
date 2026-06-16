@@ -5,25 +5,34 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.time.Instant;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.BadRequestException;
+import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.jira.service.JiraClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
+import com.history.backend.shared.domain.Checkpoint;
+import com.history.backend.shared.repository.CheckpointRepository;
 import com.history.backend.slack.service.SlackClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
@@ -31,6 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class IntegrationService {
 
     private final IntegrationRepository integrationRepository;
+    private final CheckpointRepository checkpointRepository;
     private final ProjectService projectService;
     private final GitHubInstallationService gitHubInstallationService;
     private final InstallationTokenService installationTokenService;
@@ -40,13 +50,46 @@ public class IntegrationService {
     private final PipelineWorkerClient pipelineWorkerClient;
     private final PlatformTransactionManager transactionManager;
 
+    // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
+    public List<IntegrationResponse> listIntegrations(UUID ownerId, UUID projectId) {
+        projectService.getProject(ownerId, projectId);
+        Map<IntegrationProvider, Instant> lastSyncedByProvider = latestSyncByProvider(projectId);
+        return integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(projectId).stream()
+                .map(integration -> IntegrationResponse.from(
+                        integration,
+                        lastSyncedByProvider.get(integration.getProvider())))
+                .toList();
+    }
+
+    // checkpoint는 provider당 여러 cursor_key를 가지므로 provider별 최신 갱신 시각을 마지막 수집 시각으로 사용
+    private Map<IntegrationProvider, Instant> latestSyncByProvider(UUID projectId) {
+        Map<IntegrationProvider, Instant> latest = new EnumMap<>(IntegrationProvider.class);
+        for (Checkpoint checkpoint : checkpointRepository.findAllByProject_Id(projectId)) {
+            latest.merge(
+                    checkpoint.getProvider(),
+                    checkpoint.getUpdatedAt(),
+                    (existing, candidate) -> candidate.isAfter(existing) ? candidate : existing);
+        }
+        return latest;
+    }
+
+    // 프로젝트의 integration 연동 해제
+    @Transactional
+    public void disconnectIntegration(UUID ownerId, UUID projectId, UUID integrationId) {
+        projectService.getProject(ownerId, projectId);
+        Integration integration = integrationRepository.findByIdAndProject_Id(integrationId, projectId)
+                .orElseThrow(() -> new NotFoundException("Integration not found."));
+        integrationRepository.delete(integration);
+    }
+
     // 프로젝트에 GitHub 저장소 연동 추가
     public Integration connectGitHubRepository(
             UUID ownerId,
             UUID projectId,
             UUID installationId,
             Long repositoryId,
-            String repositoryFullName
+            String repositoryFullName,
+            String branch
     ) {
         Project project = projectService.getProject(ownerId, projectId);
         GitHubInstallation installation = gitHubInstallationService.getInstallationForInstaller(ownerId, installationId);
@@ -54,6 +97,7 @@ public class IntegrationService {
         installationTokenService.getInstallationAccessToken(installationId);
 
         String normalizedRepositoryFullName = repositoryFullName.trim();
+        String normalizedBranch = branch.trim();
         // 토큰 발급 중 DB 커넥션·행 락 점유를 늘리지 않도록 연동 저장만 별도 트랜잭션으로 실행
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Integration integration = transactionTemplate.execute(status -> saveGitHubRepository(
@@ -61,7 +105,8 @@ public class IntegrationService {
                 installation,
                 projectId,
                 repositoryId,
-                normalizedRepositoryFullName
+                normalizedRepositoryFullName,
+                normalizedBranch
         ));
         pipelineWorkerClient.triggerGitHubCollection(projectId);
         return integration;
@@ -72,7 +117,8 @@ public class IntegrationService {
             GitHubInstallation installation,
             UUID projectId,
             Long repositoryId,
-            String repositoryFullName
+            String repositoryFullName,
+            String branch
     ) {
         validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
         try {
@@ -80,7 +126,8 @@ public class IntegrationService {
                     project,
                     installation,
                     repositoryId,
-                    repositoryFullName
+                    repositoryFullName,
+                    branch
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합으로 사전 중복 검사를 통과한 경우 unique 제약 위반을 409로 변환

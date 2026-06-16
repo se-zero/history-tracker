@@ -8,6 +8,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
@@ -20,10 +23,13 @@ import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.jira.service.JiraClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
+import com.history.backend.shared.domain.Checkpoint;
+import com.history.backend.shared.repository.CheckpointRepository;
 import com.history.backend.slack.service.SlackClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,9 +47,13 @@ class IntegrationServiceTest {
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
+    private static final UUID INTEGRATION_ID = UUID.fromString("72b9c869-77f6-4b4d-b8c5-db85023ef3b8");
 
     @Mock
     private IntegrationRepository integrationRepository;
+
+    @Mock
+    private CheckpointRepository checkpointRepository;
 
     @Mock
     private ProjectService projectService;
@@ -67,6 +77,71 @@ class IntegrationServiceTest {
     private PipelineWorkerClient pipelineWorkerClient;
 
     private final NoopTransactionManager transactionManager = new NoopTransactionManager();
+
+    @Test
+    void listIntegrationsReturnsIntegrationsWithLatestSyncTimeForOwnedProject() {
+        IntegrationService service = service();
+        Project project = project();
+        Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget", "main");
+        Instant syncedAt = Instant.parse("2026-06-15T03:00:00Z");
+        Checkpoint olderCheckpoint = checkpoint(project, "github/github_commits",
+                Instant.parse("2026-06-15T01:00:00Z"));
+        Checkpoint newerCheckpoint = checkpoint(project, "github/github_pull_requests", syncedAt);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID))
+                .thenReturn(List.of(githubIntegration));
+        when(checkpointRepository.findAllByProject_Id(PROJECT_ID))
+                .thenReturn(List.of(olderCheckpoint, newerCheckpoint));
+
+        List<IntegrationResponse> result = service.listIntegrations(OWNER_ID, PROJECT_ID);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).provider()).isEqualTo("github");
+        assertThat(result.get(0).displayName()).isEqualTo("acme/widget");
+        // provider별 여러 cursor_key 중 가장 최신 갱신 시각을 노출
+        assertThat(result.get(0).lastSyncedAt()).isEqualTo(syncedAt);
+    }
+
+    @Test
+    void listIntegrationsReturnsNullSyncTimeWhenNoCheckpoint() {
+        IntegrationService service = service();
+        Project project = project();
+        Integration githubIntegration = Integration.github(project, installation(), 12345L, "acme/widget", "main");
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID))
+                .thenReturn(List.of(githubIntegration));
+        when(checkpointRepository.findAllByProject_Id(PROJECT_ID)).thenReturn(List.of());
+
+        List<IntegrationResponse> result = service.listIntegrations(OWNER_ID, PROJECT_ID);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).lastSyncedAt()).isNull();
+    }
+
+    @Test
+    void disconnectIntegrationDeletesIntegrationForOwnedProject() {
+        IntegrationService service = service();
+        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget", "main");
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(integration));
+
+        service.disconnectIntegration(OWNER_ID, PROJECT_ID, INTEGRATION_ID);
+
+        verify(integrationRepository).delete(integration);
+    }
+
+    @Test
+    void disconnectIntegrationThrowsNotFoundWhenIntegrationMissing() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.disconnectIntegration(OWNER_ID, PROJECT_ID, INTEGRATION_ID))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Integration not found.");
+    }
 
     @Test
     void connectGitHubRepositorySavesIntegrationForOwnedProjectAndInstallation() {
@@ -97,7 +172,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "  acme/widget  "
+                "  acme/widget  ",
+                "  main  "
         );
 
         assertThat(result.getProject()).isSameAs(project);
@@ -105,6 +181,7 @@ class IntegrationServiceTest {
         assertThat(result.getProvider()).isEqualTo(IntegrationProvider.GITHUB);
         assertThat(result.getGitHubRepositoryId()).isEqualTo(12345L);
         assertThat(result.getGitHubRepositoryFullName()).isEqualTo("acme/widget");
+        assertThat(result.getGitHubBranch()).isEqualTo("main");
         verify(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
         verify(pipelineWorkerClient).triggerGitHubCollection(PROJECT_ID);
     }
@@ -125,7 +202,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("GitHub token issuance failed.");
@@ -150,7 +228,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("GitHub integration already exists.");
@@ -168,7 +247,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("GitHub installation not found.");
@@ -190,7 +270,8 @@ class IntegrationServiceTest {
                 PROJECT_ID,
                 INSTALLATION_ID,
                 12345L,
-                "acme/widget"
+                "acme/widget",
+                "main"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("GitHub integration already exists.");
@@ -414,9 +495,17 @@ class IntegrationServiceTest {
         return installation;
     }
 
+    private Checkpoint checkpoint(Project project, String cursorKey, Instant updatedAt) {
+        Checkpoint checkpoint = new Checkpoint(project, IntegrationProvider.GITHUB, cursorKey, updatedAt);
+        // updatedAt은 @PrePersist에서만 채워지므로 단위 테스트에서는 직접 주입
+        ReflectionTestUtils.setField(checkpoint, "updatedAt", updatedAt);
+        return checkpoint;
+    }
+
     private IntegrationService service() {
         return new IntegrationService(
                 integrationRepository,
+                checkpointRepository,
                 projectService,
                 gitHubInstallationService,
                 installationTokenService,

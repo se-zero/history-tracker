@@ -33,4 +33,19 @@ public class GitHubInstallationController {
     ) {
         return gitHubInstallationService.findRepositories(authenticatedUser.id(), installationId);
     }
+
+    @GetMapping("/{installationId}/repositories/{owner}/{repo}/branches")
+    public List<String> listRepositoryBranches(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID installationId,
+            @PathVariable String owner,
+            @PathVariable String repo
+    ) {
+        return gitHubInstallationService.findRepositoryBranches(
+                authenticatedUser.id(),
+                installationId,
+                owner,
+                repo
+        );
+    }
 }

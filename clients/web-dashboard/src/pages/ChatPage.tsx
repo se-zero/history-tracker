@@ -11,14 +11,14 @@ import {
 } from "@/api/conversations";
 import { useAuth } from "@/auth/AuthProvider";
 import type {
+  ConversationDetail,
   Message,
   MessageMetadata,
   Project,
   User,
 } from "@/types/api";
 
-// TODO(backend): metadata에 citations / highlightNodes 가 실리면 이 가드 풀고 카드/하이라이트 렌더.
-//                현재 backend AiEngineQueryResponse가 answer만 받고 structured를 버려서 항상 비어 있음.
+// TODO(backend): highlightNodes가 실리면 그래프 하이라이트 연동. 그래프 노드 매핑은 Phase 4.
 const SUGGESTED = [
   { icon: "branch", text: "왜 이 코드가 이렇게 바뀌었어?" },
   { icon: "refactor", text: "최근 머지된 리팩토링 PR들을 정리해줘" },
@@ -40,6 +40,19 @@ export function ChatPage({ project }: { project: Project }) {
 
   const messages = conversationQuery.data?.messages ?? [];
 
+  // 전송 직후 화면을 즉시 전환하기 위해 방금 보낸 메시지를 낙관적으로 들고 있는다. 응답이 오면 비운다.
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sendError, setSendError] = useState(false);
+
+  // 전송 실패 시 친 내용이 사라지지 않도록 입력창에 복구하고 에러를 표시한다.
+  // 그 사이 새로 입력한 내용이 있으면 덮어쓰지 않는다.
+  const restoreOnError = (failedText: string) => {
+    setPendingMessage(null);
+    setDraft((current) => (current.trim() ? current : failedText));
+    setSendError(true);
+  };
+
   const createMutation = useMutation({
     mutationFn: (firstMessage: string) =>
       createConversation(project.id, firstMessage),
@@ -49,19 +62,35 @@ export function ChatPage({ project }: { project: Project }) {
         ["conversation", project.id, detail.id],
         detail,
       );
+      setPendingMessage(null);
       navigate(`/projects/${project.id}/chat/${detail.id}`, { replace: true });
     },
+    onError: (_error, firstMessage) => restoreOnError(firstMessage),
   });
 
   const sendMutation = useMutation({
     mutationFn: (content: string) =>
       sendMessage(project.id, conversationId!, content),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["conversation", project.id, conversationId],
-      });
+    onSuccess: (exchange) => {
+      // 응답 쌍을 캐시에 바로 반영해 낙관적 메시지를 비울 때 공백이 생기지 않게 한다.
+      queryClient.setQueryData<ConversationDetail>(
+        ["conversation", project.id, conversationId],
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: [
+                  ...prev.messages,
+                  exchange.userMessage,
+                  exchange.assistantMessage,
+                ],
+              }
+            : prev,
+      );
       queryClient.invalidateQueries({ queryKey: ["conversations", project.id] });
+      setPendingMessage(null);
     },
+    onError: (_error, content) => restoreOnError(content),
   });
 
   const pending = createMutation.isPending || sendMutation.isPending;
@@ -69,6 +98,9 @@ export function ChatPage({ project }: { project: Project }) {
   const handleSend = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
+    setSendError(false);
+    setPendingMessage(trimmed);
+    setDraft(""); // 입력은 즉시 비우되, 실패하면 restoreOnError로 되돌린다
     if (conversationId) {
       sendMutation.mutate(trimmed);
     } else {
@@ -76,10 +108,23 @@ export function ChatPage({ project }: { project: Project }) {
     }
   };
 
+  const handleDraftChange = (value: string) => {
+    setDraft(value);
+    if (sendError) setSendError(false);
+  };
+
   return (
     <div className="chat-wrap">
       <div className="chat">
-        {!conversationId ? (
+        {pendingMessage !== null ? (
+          <ChatStream>
+            {messages.map((m) => (
+              <MessageItem key={m.id} message={m} user={user} />
+            ))}
+            <UserMessage content={pendingMessage} user={user} />
+            <ThinkingState />
+          </ChatStream>
+        ) : !conversationId ? (
           <ChatEmpty project={project} onPick={handleSend} />
         ) : conversationQuery.isLoading ? (
           <StatusView tone="loading" description="메시지를 불러오는 중…" />
@@ -102,14 +147,20 @@ export function ChatPage({ project }: { project: Project }) {
             {messages.map((m) => (
               <MessageItem key={m.id} message={m} user={user} />
             ))}
-            {pending && <ThinkingState />}
           </ChatStream>
         )}
         <Composer
           project={project}
+          value={draft}
+          onChange={handleDraftChange}
+          onSubmit={() => handleSend(draft)}
           disabled={pending}
-          onSend={handleSend}
           showThinkingHint={pending}
+          error={
+            sendError
+              ? "전송에 실패했어요. 입력을 그대로 두었으니 다시 시도해 주세요."
+              : null
+          }
         />
       </div>
     </div>
@@ -132,26 +183,42 @@ function ChatStream({ children }: { children: React.ReactNode }) {
 
 function MessageItem({ message, user }: { message: Message; user: User | null }) {
   if (message.role === "USER") {
-    return (
-      <div className="msg user">
-        <div className="msg-avatar">{userInitials(user)}</div>
-        <div className="msg-body">
-          <div className="msg-role">{user?.displayName ?? "나"}</div>
-          <div className="msg-content">
-            <p style={{ whiteSpace: "pre-wrap" }}>{message.content}</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <UserMessage content={message.content} user={user} />;
   }
   return <AssistantMessage message={message} />;
 }
 
+function UserMessage({
+  content,
+  user,
+}: {
+  content: string;
+  user: User | null;
+}) {
+  return (
+    <div className="msg user">
+      <div className="msg-avatar">{userInitials(user)}</div>
+      <div className="msg-body">
+        <div className="msg-role">{user?.displayName ?? "나"}</div>
+        <div className="msg-content">
+          <p style={{ whiteSpace: "pre-wrap" }}>{content}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AssistantMessage({ message }: { message: Message }) {
-  const evidence = useMemo(
-    () => extractEvidence(message.metadata),
+  const structured = useMemo(
+    () => extractStructured(message.metadata),
     [message.metadata],
   );
+  // structured 응답은 summary/evidence/unknown_aspects를 카드·목록으로 분리 렌더한다.
+  // message.content는 이 구조를 풀어 쓴 markdown 텍스트라 structured가 있으면 사용하지 않는다.
+  const summary = structured?.summary ?? message.content;
+  const unknownAspects = structured?.unknownAspects ?? [];
+  const evidence = structured?.evidence ?? [];
+
   return (
     <div className="msg assistant">
       <div className="msg-avatar">
@@ -160,10 +227,17 @@ function AssistantMessage({ message }: { message: Message }) {
       <div className="msg-body">
         <div className="msg-role">History Tracker</div>
         <div className="msg-content">
-          <p style={{ whiteSpace: "pre-wrap" }}>{message.content}</p>
+          <p style={{ whiteSpace: "pre-wrap" }}>{summary}</p>
         </div>
 
-        {/* TODO(backend): evidence가 실리면 cite 카드 렌더. 그래프 노드 매핑은 Phase 4. */}
+        {unknownAspects.length > 0 && (
+          <ul className="unknown-aspects">
+            {unknownAspects.map((aspect, i) => (
+              <li key={i}>{aspect}</li>
+            ))}
+          </ul>
+        )}
+
         {evidence.length > 0 && (
           <div className="citation-cards">
             {evidence.map((e, i) => (
@@ -180,6 +254,12 @@ function AssistantMessage({ message }: { message: Message }) {
                       <>
                         <span>·</span>
                         <span>{e.author}</span>
+                      </>
+                    )}
+                    {e.occurredAt && (
+                      <>
+                        <span>·</span>
+                        <span>{e.occurredAt.slice(0, 10)}</span>
                       </>
                     )}
                   </div>
@@ -199,14 +279,26 @@ interface Evidence {
   id: string;
   quote: string;
   author: string | null;
+  occurredAt?: string;
 }
 
-function extractEvidence(metadata: MessageMetadata | null | undefined): Evidence[] {
-  if (!metadata) return [];
+interface StructuredAnswer {
+  summary?: string;
+  evidence: Evidence[];
+  unknownAspects: string[];
+}
+
+function extractStructured(metadata: MessageMetadata | null | undefined): StructuredAnswer | null {
+  if (!metadata) return null;
   const structured = metadata.structured as
-    | { evidence?: Evidence[] }
+    | { summary?: string; evidence?: Evidence[]; unknown_aspects?: string[] }
     | undefined;
-  return structured?.evidence ?? [];
+  if (!structured) return null;
+  return {
+    summary: structured.summary,
+    evidence: structured.evidence ?? [],
+    unknownAspects: structured.unknown_aspects ?? [],
+  };
 }
 
 // =============== Thinking ===============
@@ -220,21 +312,8 @@ function ThinkingState() {
       <div className="msg-body">
         <div className="msg-role">History Tracker</div>
         <div className="thinking">
-          <svg
-            className="thinking-graph"
-            width="60"
-            height="20"
-            viewBox="0 0 60 20"
-          >
-            <line x1="10" y1="10" x2="25" y2="10" stroke="var(--edge)" />
-            <line x1="25" y1="10" x2="40" y2="10" stroke="var(--edge)" />
-            <line x1="40" y1="10" x2="55" y2="10" stroke="var(--edge)" />
-            <circle className="t-node" cx="10" cy="10" r="3.5" fill="var(--node-issue)" />
-            <circle className="t-node" cx="25" cy="10" r="3.5" fill="var(--node-slack)" />
-            <circle className="t-node" cx="40" cy="10" r="3.5" fill="var(--node-pr)" />
-            <circle className="t-node" cx="55" cy="10" r="3.5" fill="var(--node-commit)" />
-          </svg>
-          <span>그래프에서 관련 노드 탐색 중…</span>
+          <span className="spinner" />
+          <span>처리 중…</span>
         </div>
       </div>
     </div>
@@ -288,39 +367,47 @@ function ChatEmpty({
 
 function Composer({
   project,
+  value,
+  onChange,
+  onSubmit,
   disabled,
-  onSend,
   showThinkingHint,
+  error,
 }: {
   project: Project;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
   disabled: boolean;
-  onSend: (text: string) => void;
   showThinkingHint: boolean;
+  error?: string | null;
 }) {
-  const [draft, setDraft] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
-
-  const submit = () => {
-    onSend(draft);
-    setDraft("");
-  };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit();
+      onSubmit();
     }
   };
 
   return (
     <div className="composer">
       <div className="composer-inner">
+        {error && (
+          <div
+            role="alert"
+            style={{ color: "var(--danger)", fontSize: 12, marginBottom: 6 }}
+          >
+            {error}
+          </div>
+        )}
         <div className="composer-box">
           <textarea
             ref={taRef}
             placeholder={`${project.name}에 무엇이든 물어보세요. Shift+Enter로 줄바꿈`}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKey}
             rows={1}
             disabled={disabled}
@@ -329,8 +416,8 @@ function Composer({
             <div className="spacer" />
             <button
               className="btn btn-primary"
-              onClick={submit}
-              disabled={disabled || !draft.trim()}
+              onClick={onSubmit}
+              disabled={disabled || !value.trim()}
               style={{ padding: "6px 10px" }}
             >
               <Icons.Send size={13} />

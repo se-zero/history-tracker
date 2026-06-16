@@ -23,6 +23,10 @@ public record ConnectGitHubIntegrationRequest(
         @NotBlank
         @Size(max = 255)
         @Pattern(regexp = "^[^/\\s]+/[^/\\s]+$", message = "must be 'owner/repo'")
-        String repositoryFullName
+        String repositoryFullName,
+
+        @NotBlank
+        @Size(max = 255)
+        String branch
 ) {
 }

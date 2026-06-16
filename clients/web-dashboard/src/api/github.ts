@@ -14,3 +14,14 @@ export async function listInstallationRepositories(
   );
   return data;
 }
+
+export async function listRepositoryBranches(
+  installationId: string,
+  owner: string,
+  repo: string,
+): Promise<string[]> {
+  const { data } = await api.get<string[]>(
+    `/github/installations/${installationId}/repositories/${owner}/${repo}/branches`,
+  );
+  return data;
+}

@@ -15,10 +15,16 @@ public record IntegrationResponse(
         Map<String, Object> metadata,
         UUID installationId,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        // 마지막으로 새 데이터를 수집한 시각 (checkpoint 갱신 시각). 수집 이력이 없으면 null.
+        Instant lastSyncedAt
 ) {
 
     public static IntegrationResponse from(Integration integration) {
+        return from(integration, null);
+    }
+
+    public static IntegrationResponse from(Integration integration, Instant lastSyncedAt) {
         return new IntegrationResponse(
                 integration.getId(),
                 integration.getProject().getId(),
@@ -27,7 +33,8 @@ public record IntegrationResponse(
                 integration.getExternalRef(),
                 integration.getInstallation() == null ? null : integration.getInstallation().getId(),
                 integration.getCreatedAt(),
-                integration.getUpdatedAt()
+                integration.getUpdatedAt(),
+                lastSyncedAt
         );
     }
 

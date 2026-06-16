@@ -6,6 +6,8 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -46,12 +48,13 @@ public class CheckpointRepository {
                               END
                 """;
 
+        // PG JDBC는 java.time.Instant의 SQL 타입을 추론하지 못하므로 timestamptz에 매핑되는 OffsetDateTime(UTC)으로 변환
         return jdbcTemplate.update(sql, new MapSqlParameterSource()
                 .addValue("projectId", projectId)
                 .addValue("provider", provider)
                 .addValue("cursorKey", cursorKey)
-                .addValue("cursorValue", cursorValue)
-                .addValue("updatedAt", Instant.now()));
+                .addValue("cursorValue", OffsetDateTime.ofInstant(cursorValue, ZoneOffset.UTC))
+                .addValue("updatedAt", OffsetDateTime.now(ZoneOffset.UTC)));
     }
 
     private RowMapper<CheckpointRow> checkpointRowMapper() {

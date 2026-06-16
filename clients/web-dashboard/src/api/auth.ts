@@ -6,6 +6,11 @@ export const GITHUB_AUTHORIZE_URL = `${
   import.meta.env.VITE_API_BASE_URL ?? "/api/v1"
 }/auth/github/authorize`;
 
+// 이미 OAuth 동의를 마친 사용자도 설치/리포지토리 선택 UI를 다시 띄우기 위한 GitHub App install URL.
+export const GITHUB_INSTALL_URL = `${
+  import.meta.env.VITE_API_BASE_URL ?? "/api/v1"
+}/auth/github/install`;
+
 export async function fetchMe(): Promise<User> {
   const { data } = await api.get<User>("/me");
   return data;
@@ -24,6 +29,11 @@ export async function exchangeGitHubCode(params: {
     },
   });
   return data;
+}
+
+// 회원 탈퇴 (soft delete + grace period). 호출 후 로컬 토큰을 비우고 로그인 화면으로 보낸다.
+export async function deleteAccount(): Promise<void> {
+  await api.delete("/me");
 }
 
 export async function logout(): Promise<void> {

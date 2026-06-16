@@ -57,6 +57,12 @@ export const Icons = {
     </>,
   ),
   Plus: makeIcon(<path d="M8 3v10M3 8h10" />),
+  Pencil: makeIcon(
+    <>
+      <path d="M10.5 2.5l3 3" />
+      <path d="M3 13l1-3 7.5-7.5 2 2L6 12l-3 1z" />
+    </>,
+  ),
   Send: makeIcon(<path d="M2 8 14 2.5 11 14l-3-5-6-1z" />),
   Search: makeIcon(
     <>

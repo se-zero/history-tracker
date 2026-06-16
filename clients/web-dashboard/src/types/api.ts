@@ -84,4 +84,6 @@ export interface Integration {
   installationId: string | null;
   createdAt: string;
   updatedAt: string;
+  // 마지막으로 새 데이터를 수집한 시각. 수집 이력이 없으면 null.
+  lastSyncedAt: string | null;
 }
