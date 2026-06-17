@@ -43,9 +43,24 @@ async def _prewarm_project_context() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    get_driver()  # 연결 검증 겸 초기화
-    await ensure_constraints()
-    await ensure_vector_indexes()
+    async def _init_neo4j_with_retry(max_retries: int = 10, retry_interval: float = 1.0) -> None:
+        """Neo4j 초기화를 재시도하며 수행 (health check보다 견고함)."""
+        for attempt in range(1, max_retries + 1):
+            try:
+                get_driver()  # 연결 검증 겸 초기화
+                await ensure_constraints()
+                await ensure_vector_indexes()
+                logger.info("Neo4j 초기화 완료 (시도 %d/%d)", attempt, max_retries)
+                return
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning("Neo4j 초기화 실패 (시도 %d/%d), %d초 후 재시도: %s", attempt, max_retries, retry_interval, e)
+                    await asyncio.sleep(retry_interval)
+                else:
+                    logger.error("Neo4j 초기화 실패 (최대 재시도 횟수 초과)")
+                    raise
+
+    await _init_neo4j_with_retry()
     await _prewarm_project_context()
     task = asyncio.create_task(start_consumer())
     try:
