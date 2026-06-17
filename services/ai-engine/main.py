@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 
 from agent import orchestrator
-from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, clear_semantic_triggered_by, close_driver, ensure_constraints, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
+from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, clear_semantic_triggered_by, close_driver, delete_project_graph, ensure_constraints, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
 from graph.slack_batch_filter import run_slack_llm_filter
 from graph.consumer import start_consumer
 from graph.event_handler import handle
@@ -43,9 +43,24 @@ async def _prewarm_project_context() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    get_driver()  # 연결 검증 겸 초기화
-    await ensure_constraints()
-    await ensure_vector_indexes()
+    async def _init_neo4j_with_retry(max_retries: int = 10, retry_interval: float = 1.0) -> None:
+        """Neo4j 초기화를 재시도하며 수행 (health check보다 견고함)."""
+        for attempt in range(1, max_retries + 1):
+            try:
+                get_driver()  # 연결 검증 겸 초기화
+                await ensure_constraints()
+                await ensure_vector_indexes()
+                logger.info("Neo4j 초기화 완료 (시도 %d/%d)", attempt, max_retries)
+                return
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning("Neo4j 초기화 실패 (시도 %d/%d), %d초 후 재시도: %s", attempt, max_retries, retry_interval, e)
+                    await asyncio.sleep(retry_interval)
+                else:
+                    logger.error("Neo4j 초기화 실패 (최대 재시도 횟수 초과)")
+                    raise
+
+    await _init_neo4j_with_retry()
     await _prewarm_project_context()
     task = asyncio.create_task(start_consumer())
     try:
@@ -78,6 +93,17 @@ async def graph_overview(project_id: str, limit: int = 200, types: str = ""):
     """
     type_list = [t for t in (types.split(",") if types else []) if t.strip()] or None
     return await get_project_overview(project_id, limit, type_list)
+
+
+@app.delete("/graph/projects/{project_id}")
+async def delete_project_graph_endpoint(project_id: str):
+    """프로젝트의 Neo4j 서브그래프 전체를 삭제한다 (Actor 포함).
+
+    backend의 프로젝트 삭제에서 호출하는 cascade. 인가는 backend가 담당 — ai-engine은
+    backend가 넘긴 project_id를 신뢰하는 내부 서비스다. 멱등 — 없는 project_id면 deleted=0.
+    """
+    deleted = await delete_project_graph(project_id)
+    return {"deleted": deleted}
 
 
 @app.post("/test/ingest", tags=["test"])

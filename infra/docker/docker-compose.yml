@@ -32,7 +32,7 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     healthcheck:
-      test: ["CMD", "neo4j", "status"]
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/7687' && echo 0 || echo 1"]
       interval: 10s
       timeout: 5s
       retries: 5

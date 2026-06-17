@@ -8,6 +8,7 @@ import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.repository.ProjectRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class ProjectService {
 
     private final ProjectRepository projectRepository;
     private final UserService userService;
+    private final AiEngineGraphClient aiEngineGraphClient;
 
     @Transactional
     public Project createProject(UUID ownerId, String name, String description) {
@@ -67,12 +69,18 @@ public class ProjectService {
         }
     }
 
-    @Transactional
+    // 외부 HTTP 호출(그래프 삭제)을 트랜잭션 밖에 둔다 — @Transactional이면 검증 read가 잡은 JDBC
+    // 커넥션을 호출 내내 점유해(대형 그래프 삭제는 수 초) HikariCP pool이 고갈된다. 그래프를 먼저
+    // 지우는 건 멱등이라서다: RDB delete가 뒤에서 실패해도 재시도 시 그래프 삭제가 no-op(0)으로
+    // 통과하고 RDB만 마저 지워 복구된다 (원자적 보장은 아님 — 재시도로 수렴).
     public void deleteProject(UUID ownerId, UUID projectId) {
         userService.getActiveUser(ownerId);
-        Project project = findProject(projectId);
+        // owner를 함께 로딩 — 트랜잭션 밖이라 lazy owner가 detached되므로 소유권 검증 전에 fetch join
+        Project project = projectRepository.findByIdWithOwner(projectId)
+                .orElseThrow(() -> new NotFoundException("Project not found."));
         validateOwner(project, ownerId);
-        projectRepository.delete(project);
+        aiEngineGraphClient.deleteProjectGraph(projectId);
+        projectRepository.deleteById(projectId);
     }
 
     private Project findProject(UUID projectId) {
