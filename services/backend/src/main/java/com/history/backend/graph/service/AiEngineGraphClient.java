@@ -42,6 +42,20 @@ public class AiEngineGraphClient {
         }
     }
 
+    // 프로젝트 그래프 삭제 — ai-engine에 project_id 서브그래프 삭제 요청 (멱등)
+    public void deleteProjectGraph(UUID projectId) {
+        try {
+            aiEngineRestClient.delete()
+                    .uri("/graph/projects/{projectId}", projectId)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException exception) {
+            log.error("ai-engine project graph delete failed: projectId={}, {}",
+                    projectId, exception.getMessage());
+            throw new BadGatewayException("Failed to delete project graph.");
+        }
+    }
+
     // ai-engine이 빈 본문/누락 필드를 줘도 프론트는 항상 nodes/edges 배열을 받도록 보정
     private GraphResponse normalize(GraphResponse response) {
         if (response == null) {

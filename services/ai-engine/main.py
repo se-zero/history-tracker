@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 
 from agent import orchestrator
-from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, clear_semantic_triggered_by, close_driver, ensure_constraints, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
+from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, clear_semantic_triggered_by, close_driver, delete_project_graph, ensure_constraints, ensure_vector_indexes, get_driver, make_neo4j_issue_link_store, make_neo4j_reference_store, propagate_thread_discussed_in
 from graph.slack_batch_filter import run_slack_llm_filter
 from graph.consumer import start_consumer
 from graph.event_handler import handle
@@ -78,6 +78,17 @@ async def graph_overview(project_id: str, limit: int = 200, types: str = ""):
     """
     type_list = [t for t in (types.split(",") if types else []) if t.strip()] or None
     return await get_project_overview(project_id, limit, type_list)
+
+
+@app.delete("/graph/projects/{project_id}")
+async def delete_project_graph_endpoint(project_id: str):
+    """프로젝트의 Neo4j 서브그래프 전체를 삭제한다 (Actor 포함).
+
+    backend의 프로젝트 삭제에서 호출하는 cascade. 인가는 backend가 담당 — ai-engine은
+    backend가 넘긴 project_id를 신뢰하는 내부 서비스다. 멱등 — 없는 project_id면 deleted=0.
+    """
+    deleted = await delete_project_graph(project_id)
+    return {"deleted": deleted}
 
 
 @app.post("/test/ingest", tags=["test"])

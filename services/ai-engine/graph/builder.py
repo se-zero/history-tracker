@@ -608,6 +608,37 @@ async def clear_semantic_triggered_by() -> int:
     return deleted
 
 
+async def delete_project_graph(project_id: str, batch_size: int = 10_000) -> int:
+    """해당 project_id의 모든 노드(Actor 포함)와 관계를 삭제한다.
+
+    프로젝트 삭제 시 backend가 호출하는 cascade. 모든 도메인 노드뿐 아니라 Actor도
+    project_id로 스코프되므로(상단 MERGE/CREATE 참고) 프로젝트 서브그래프 전체가 제거되고
+    다른 프로젝트는 건드리지 않는다. 멱등 — 없는/빈 project_id면 0 반환.
+
+    수개월 수집된 대형 프로젝트는 수만 노드·수십만 관계를 가질 수 있어, 단일 트랜잭션으로
+    DETACH DELETE하면 tx timeout 또는 힙 부족이 발생한다. CALL { } IN TRANSACTIONS로
+    배치 커밋해 메모리 상한을 피한다 — 중간 실패해도 멱등 재시도로 나머지를 마저 지운다.
+
+    Returns:
+        삭제된 노드 수.
+    """
+    if not project_id:
+        return 0
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (n {project_id: $project_id})
+            CALL (n) { DETACH DELETE n } IN TRANSACTIONS OF $batch_size ROWS
+            """,
+            project_id=project_id,
+            batch_size=batch_size,
+        )
+        summary = await result.consume()
+        deleted = summary.counters.nodes_deleted
+    logger.info("프로젝트 그래프 삭제 완료: project=%s, nodes=%d", project_id, deleted)
+    return deleted
+
+
 async def link_issue_to_assignee(project_id: str, jira_key: str, assignee_id: str) -> None:
     """ASSIGNED_TO: Issue assignee 존재 시. JIRA source-scoped alias로 Actor 조회."""
     async with get_driver().session() as session:
