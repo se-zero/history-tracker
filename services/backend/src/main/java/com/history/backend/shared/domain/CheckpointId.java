@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.integration.domain.IntegrationProviderConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Embeddable;
@@ -21,7 +22,7 @@ public class CheckpointId implements Serializable {
     private UUID projectId;
 
     @Column(nullable = false)
-    @Convert(converter = CheckpointProviderConverter.class)
+    @Convert(converter = IntegrationProviderConverter.class)
     private IntegrationProvider provider;
 
     @Column(name = "cursor_key", nullable = false)
