@@ -46,10 +46,12 @@ public class AiEngineGraphClient {
     // 후처리(Layer 4) 시퀀스 수동 트리거 — 소스 간 시맨틱 엣지를 즉시 재구축한다.
     // ai-engine /graph/build는 현재 전 프로젝트를 도는 idempotent 배치다(project 스코프는 향후).
     // 빌드가 O(n²)라 응답까지 시간이 걸릴 수 있어 호출이 블로킹된다.
-    public GraphBuildResponse triggerBuild() {
+    public GraphBuildResponse triggerBuild(boolean verify) {
         try {
             return aiEngineRestClient.post()
-                    .uri("/graph/build")
+                    .uri(uriBuilder -> uriBuilder.path("/graph/build")
+                            .queryParam("verify", verify)
+                            .build())
                     .retrieve()
                     .body(GraphBuildResponse.class);
         } catch (RestClientException exception) {

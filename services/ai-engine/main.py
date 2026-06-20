@@ -123,16 +123,20 @@ async def test_ingest(event: dict):
 
 
 @app.post("/graph/build")
-async def trigger_graph_build():
+async def trigger_graph_build(verify: bool = False):
     """후처리(Layer 4) 시퀀스를 즉시 1회 실행한다.
 
     backfill → TRIGGERED_BY/DISCUSSED_IN → REFERENCE → 스레드 전파 순으로
     소스 간 시맨틱 엣지를 구축한다. 평소엔 수집 큐가 잠잠해지면 디바운스 루프
     (postprocess.start_debounce_loop)가 자동 호출하며, 이 엔드포인트는 디바운스를
-    기다리지 않는 수동/운영 트리거다 (향후 프론트 '그래프 재구축' 버튼의 연결점).
+    기다리지 않는 수동/운영 트리거다 ('그래프 재구축' 버튼의 연결점).
     모든 단계 idempotent — _build_lock으로 디바운스 루프와 직렬화된다.
+
+    verify=false (기본): 방안 A — 임베딩 유사도만 (빠름, LLM 비용 없음).
+    verify=true:         방안 D — 시맨틱 엣지 clear 후 LLM 검증으로 재구축
+                         (false positive 감소, 호출당 LLM 비용). '정밀 재구축' 버튼용.
     """
-    return await run_postprocess_sequence()
+    return await run_postprocess_sequence(verify=verify)
 
 
 @app.post("/reference/build")

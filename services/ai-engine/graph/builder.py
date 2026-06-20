@@ -608,6 +608,30 @@ async def clear_semantic_triggered_by() -> int:
     return deleted
 
 
+async def clear_semantic_discussed_in() -> int:
+    """시맨틱 DISCUSSED_IN(방안 A/D 산물)을 일괄 삭제한다.
+
+    시맨틱 엣지만 r.confidence가 설정되므로 이를 기준으로 구분한다.
+    refs 텍스트(link_issue_to_communication)·스레드 전파 엣지는 confidence가 없어 보존된다.
+    방안 D(LLM 검증) 재구축 전에 A의 결과를 비워 false positive가 섞이지 않게 하는 용도.
+
+    Returns:
+        삭제된 엣지 수.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH ()-[r:DISCUSSED_IN]->()
+            WHERE r.confidence IS NOT NULL
+            DELETE r
+            """
+        )
+        summary = await result.consume()
+        deleted = summary.counters.relationships_deleted
+    logger.info("시맨틱 DISCUSSED_IN 엣지 삭제 완료: %d개", deleted)
+    return deleted
+
+
 async def delete_project_graph(project_id: str, batch_size: int = 10_000) -> int:
     """해당 project_id의 모든 노드(Actor 포함)와 관계를 삭제한다.
 

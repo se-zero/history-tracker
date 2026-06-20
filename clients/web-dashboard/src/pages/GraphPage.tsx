@@ -17,8 +17,9 @@ export function GraphPage({ project }: { project: Project }) {
   });
 
   // 재구축 완료 후 그래프를 다시 불러와 새로 생긴 연결을 반영한다.
+  // verify=false: 방안 A(임베딩, 빠름) / verify=true: 방안 D(LLM 검증, 느림·비용).
   const rebuild = useMutation({
-    mutationFn: () => rebuildProjectGraph(project.id),
+    mutationFn: (verify: boolean) => rebuildProjectGraph(project.id, verify),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["graph", project.id] });
     },
@@ -62,11 +63,32 @@ export function GraphPage({ project }: { project: Project }) {
         <button
           className="btn"
           style={{ marginLeft: 12 }}
-          onClick={() => rebuild.mutate()}
+          onClick={() => rebuild.mutate(false)}
           disabled={rebuild.isPending}
-          title="수집된 데이터로 소스 간 연결(Jira·GitHub·Slack)을 다시 계산합니다"
+          title="수집된 데이터로 소스 간 연결을 임베딩 유사도로 다시 계산합니다 (빠름)"
         >
-          {rebuild.isPending ? "재구축 중…" : "그래프 재구축"}
+          {rebuild.isPending && rebuild.variables === false
+            ? "재구축 중…"
+            : "그래프 재구축"}
+        </button>
+        <button
+          className="btn"
+          style={{ marginLeft: 8 }}
+          onClick={() => {
+            if (
+              window.confirm(
+                "LLM 검증으로 정밀 재구축할까요?\n기존 시맨틱 연결을 비우고 LLM이 후보를 검증해 다시 만듭니다. 시간과 비용이 더 듭니다.",
+              )
+            ) {
+              rebuild.mutate(true);
+            }
+          }}
+          disabled={rebuild.isPending}
+          title="LLM이 후보를 검증해 잘못된 연결을 거릅니다 (느림·LLM 비용)"
+        >
+          {rebuild.isPending && rebuild.variables === true
+            ? "정밀 재구축 중…"
+            : "정밀 재구축 (LLM)"}
         </button>
       </div>
       <div style={{ flex: 1, position: "relative", minHeight: 0 }}>

@@ -40,38 +40,53 @@ def mark_dirty() -> None:
     _dirty = True
 
 
-async def run_postprocess_sequence() -> dict:
+async def run_postprocess_sequence(verify: bool = False) -> dict:
     """후처리(Layer 4) 시퀀스를 순서대로 1회 실행한다.
+
+    verify=False: 방안 A — 임베딩 유사도만 (LLM 비용 없음). 디바운스 자동 빌드 기본값.
+    verify=True:  방안 D — 시맨틱 엣지를 비운 뒤 임베딩 후보 + LLM 검증으로 재구축.
+                  A의 false positive가 남지 않도록 clear가 선행한다. 호출당 LLM 비용 발생.
+                  수동 '정밀 재구축'에서만 사용.
 
     순서:
       0. Slack LLM 노이즈 필터 (llm_filtered=False인 신규 Slack 메시지만, 증분) — 링크 전에
          노이즈를 먼저 제거해 backfill/링크 대상에 끼지 않게 한다
+      0.5(verify만). 시맨틱 TRIGGERED_BY/DISCUSSED_IN clear — A의 결과를 비우고 D로 재구축
       1. 임베딩 누락 Communication 보정 (이후 비교 대상에 포함되도록)
       2. TRIGGERED_BY + DISCUSSED_IN 시맨틱 링크 (GitHub↔Jira, Jira↔Slack)
       3. REFERENCE 시맨틱 링크 (GitHub↔Slack/GitHub이슈)
       4. DISCUSSED_IN 스레드 전파 (2에서 만든 엣지를 같은 스레드로 확장)
 
     모든 단계가 idempotent. 동시 실행은 _build_lock으로 직렬화한다.
-    (향후 수동 버튼 엔드포인트도 이 함수를 호출하면 디바운스 루프와 안전하게 공존)
 
     수동/자동 어느 경로로 실행되든 _last_build_at을 갱신한다 — 수동 빌드 직후
     디바운스가 곧바로 또 돌지 않도록 쿨다운 기준점을 공유한다.
     """
     global _last_build_at
     from graph.builder import (
+        clear_semantic_discussed_in,
+        clear_semantic_triggered_by,
         make_neo4j_issue_link_store,
         make_neo4j_reference_store,
         propagate_thread_discussed_in,
-    )
-    from graph.issue_linker import (
-        build_issue_changeset_links,
-        build_issue_communication_links,
     )
     from graph.reference_builder import (
         backfill_communication_embeddings,
         build_reference_edges,
     )
     from graph.slack_batch_filter import run_slack_llm_filter
+
+    # verify에 따라 방안 A(임베딩만) 또는 방안 D(LLM 검증) 링커를 고른다.
+    if verify:
+        from graph.issue_verifier import (
+            build_issue_changeset_links_verified as build_triggered_by,
+            build_issue_communication_links_verified as build_discussed_in,
+        )
+    else:
+        from graph.issue_linker import (
+            build_issue_changeset_links as build_triggered_by,
+            build_issue_communication_links as build_discussed_in,
+        )
 
     async with _build_lock:
         ref_store = make_neo4j_reference_store()
@@ -86,12 +101,18 @@ async def run_postprocess_sequence() -> dict:
             logger.exception("Slack LLM 필터 실패 — 링크 단계는 계속 진행")
             slack = {"kept": 0, "deleted": 0}
 
+        # 0.5) 방안 D: A가 남긴 시맨틱 엣지를 먼저 비운다 — D의 정밀도가 A의
+        # false positive로 희석되지 않도록. text(refs)·스레드 전파 엣지는 보존된다.
+        if verify:
+            await clear_semantic_triggered_by()
+            await clear_semantic_discussed_in()
+
         results = {
             "slack_kept":        slack["kept"],
             "slack_deleted":     slack["deleted"],
             "backfilled":        await backfill_communication_embeddings(ref_store),
-            "triggered_by":      await build_issue_changeset_links(link_store),
-            "discussed_in":      await build_issue_communication_links(link_store),
+            "triggered_by":      await build_triggered_by(link_store),
+            "discussed_in":      await build_discussed_in(link_store),
             "reference":         await build_reference_edges(ref_store),
             "thread_propagated": await propagate_thread_discussed_in(),
         }

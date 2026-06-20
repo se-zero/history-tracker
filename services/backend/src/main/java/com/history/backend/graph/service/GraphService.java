@@ -23,9 +23,10 @@ public class GraphService {
     }
 
     // 소유권 검증 후 ai-engine 후처리 빌드를 트리거한다 — 소스 간 시맨틱 엣지 재구축.
-    // 현재 ai-engine 빌드는 전 프로젝트 대상이라 projectId는 인가 게이트 용도다.
-    public GraphBuildResponse buildProjectGraph(UUID ownerId, UUID projectId) {
+    // verify=true면 방안 D(LLM 검증). 현재 ai-engine 빌드는 전 프로젝트 대상이라
+    // projectId는 인가 게이트 용도다.
+    public GraphBuildResponse buildProjectGraph(UUID ownerId, UUID projectId, boolean verify) {
         projectService.getProject(ownerId, projectId);
-        return aiEngineGraphClient.triggerBuild();
+        return aiEngineGraphClient.triggerBuild(verify);
     }
 }

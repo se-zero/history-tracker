@@ -35,8 +35,9 @@ public class GraphController {
     @PostMapping("/build")
     public GraphBuildResponse buildProjectGraph(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID projectId
+            @PathVariable UUID projectId,
+            @RequestParam(defaultValue = "false") boolean verify
     ) {
-        return graphService.buildProjectGraph(authenticatedUser.id(), projectId);
+        return graphService.buildProjectGraph(authenticatedUser.id(), projectId, verify);
     }
 }
