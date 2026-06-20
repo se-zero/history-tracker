@@ -10,6 +10,8 @@ cd services/pipeline-worker
 ./gradlew build
 ```
 
+전체 스택(postgres·rabbitmq 등 의존 포함)은 `infra/docker`의 docker-compose로 기동한다. 자세한 절차는 루트 `CLAUDE.md`를 참고한다.
+
 ## 패키지 구조
 
 | 패키지 | 역할 |
@@ -29,45 +31,13 @@ cd services/pipeline-worker
 | `dto` | 요청/응답/event DTO. |
 | `util` | 일반 유틸. |
 
-## 주요 클래스
-
-| 클래스 | 역할 |
-|--------|------|
-| `CollectionTriggerController` | `/api/v1/collect/{provider}` provider별 초기 수집 트리거 endpoint. |
-| `RawDataController` | `/api/v1/raw/*` 디버그용 raw 샘플 endpoint. |
-| `GitHubWebhookController` | GitHub webhook 수신 endpoint. |
-| `PipelineService` | GitHub/Jira/Slack 증분 수집 실행. |
-| `ProjectCollectionContext` | projectId와 provider별 수집 설정을 묶은 context. |
-| `ProjectIntegrationService` | DB의 project/integration 정보를 조회해 webhook 수집 context와 GitHub token freshness 상태 또는 provider별 단일 연동을 resolve한다. |
-| `ProjectIntegrationRepository` | `projects`, `integrations`, `github_installations` 테이블 SQL 접근을 담당한다. |
-| `CollectionTriggerService` | project/provider 연동을 조회하고 `webhookTaskExecutor`에서 단일 provider 초기 수집을 실행한다. |
-| `GitHubWebhookIntegrationResolution` | webhook 연동 조회 결과를 `READY`, `TOKEN_REFRESH_REQUIRED`, `NOT_FOUND`로 구분한다. |
-| `GitHubInstallationTokenClient` | 토큰 갱신이 필요한 경우에만 backend 내부 API를 호출하고 갱신된 DB token을 다시 읽게 한다. |
-| `GitHubWebhookService` | webhook 검증 이후 merged PR 필터, token freshness 확인, project context 조회, delivery claim, 비동기 수집 트리거. |
-| `GitHubWebhookVerifier` | `X-Hub-Signature-256` HMAC-SHA256 검증. |
-| `WebhookDeliveryService` | DB 기반 webhook delivery claim, 처리 상태 갱신, stale `IN_PROGRESS` 정리를 담당한다. |
-| `WebhookDeliveryRepository` | `webhook_deliveries` 테이블 SQL 접근을 담당한다. |
-| `CollectTriggerRequest` | `/api/v1/collect/{provider}` 요청 DTO. `projectId` UUID를 필수로 받는다. |
-| `RawFetchRequest` | `/api/v1/raw/*` 요청 DTO. checkpoint 없이 샘플 fetch에 사용한다. |
-| `*RawService` | provider별 외부 API raw 데이터 수집. |
-| `*Normalizer` | raw 데이터를 `NormalizedEvent`로 변환. |
-| `*RateLimiter` | provider별 API 요청 속도 제한. |
-| `EventPublisher` | `NormalizedEvent`를 RabbitMQ에 발행. |
-| `CheckpointService` | DB 기반 project/provider/cursor_key checkpoint snapshot 조회와 cursor 갱신을 담당한다. |
-| `CheckpointRepository` | `checkpoints` 테이블 SQL 접근을 담당한다. |
-| `CredentialCryptoService` | DB에 암호화 저장된 provider credential을 `security.credentials.key`로 복호화한다. |
-
 ## Endpoint
 
-| Endpoint | 용도 | 응답 |
-|----------|------|------|
-| `POST /api/v1/webhook/github` | GitHub PR merge webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거. | `202`, `200`, `400`, `401`, `404`, `500` |
-| `POST /api/v1/collect/{provider}` | backend 연동 완료 후 `github`, `jira`, `slack` 중 단일 provider 초기 수집을 비동기로 요청 | `202`, `400`, `404`, `500` |
-| `POST /api/v1/raw/github` | `RawFetchRequest` 기반 GitHub raw 디버그, 타입별 1페이지 샘플. DB checkpoint를 사용하지 않는다. | raw payload |
-| `POST /api/v1/raw/jira` | `RawFetchRequest` 기반 Jira raw 디버그, 기본 1페이지 샘플. DB checkpoint를 사용하지 않는다. | raw payload |
-| `POST /api/v1/raw/slack` | `RawFetchRequest` 기반 Slack raw 디버그, 첫 채널 1페이지 샘플. DB checkpoint를 사용하지 않는다. | raw payload |
+진입점별 상세 동작은 아래 흐름 다이어그램을 참고한다.
 
-`RawFetchRequest`는 `credentials`, `projectKey`, `options`만 받으며 디버그 샘플 확인 용도다.
+- `POST /api/v1/webhook/github` — GitHub webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거.
+- `POST /api/v1/collect/{provider}` — backend 연동 완료 후 `github`/`jira`/`slack` 중 단일 provider 초기 수집을 비동기로 요청(`202` 반환, 완료를 기다리지 않음).
+- `POST /api/v1/raw/{provider}` — 디버그용 raw 샘플(1페이지). DB checkpoint를 사용하지 않으며 전체 수집 용도가 아니다.
 
 ## 초기 수집 트리거 흐름
 
@@ -108,7 +78,6 @@ backend에 installation이 없으면 `404`, backend 호출 실패 또는 token �
 Jira/Slack 연동은 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
 `webhookTaskExecutor`가 작업을 받을 수 없으면 `IN_PROGRESS` claim을 해제해 GitHub 재시도가 다시 claim할 수 있게 한다.
 애플리케이션 시작 시 `app.webhook.delivery.stale-in-progress-timeout`보다 오래된 `IN_PROGRESS` delivery는 `FAILED`로 정리한다.
-상세 계획은 `docs/db-transition-plan.md`를 참고한다.
 
 ## RabbitMQ 라우팅
 
@@ -172,4 +141,5 @@ GitHub App private key는 pipeline-worker에 설정하지 않는다. token 발�
 - provider별 API 호출/정규화/rate limit은 `source.{provider}` 패키지 안에서 처리한다.
 - GitHub merge commit은 `GitHubNormalizer`에서 필터링한다.
 - GitHub PR 수집은 `/pulls?state=closed` + 클라이언트 `merged_at != null` 필터 방식이다.
+- GitHub 수집은 integration에 브랜치가 지정되면 해당 단일 브랜치로 스코프한다: PR은 `base={branch}`(타겟 브랜치 기준), commit은 `sha={branch}` 파라미터로 제한한다. 브랜치 미지정이면 전체 브랜치를 수집한다.
 - `/api/v1/raw/*` endpoint는 디버그용 샘플이다. 전체 수집 용도로 사용하지 않는다.
