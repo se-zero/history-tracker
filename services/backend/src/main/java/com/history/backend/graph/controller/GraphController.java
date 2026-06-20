@@ -2,6 +2,7 @@ package com.history.backend.graph.controller;
 
 import java.util.UUID;
 
+import com.history.backend.graph.dto.GraphBuildResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.service.GraphService;
 import com.history.backend.security.AuthenticatedUser;
@@ -9,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,5 +30,13 @@ public class GraphController {
             @RequestParam(required = false) String types
     ) {
         return graphService.getProjectGraph(authenticatedUser.id(), projectId, limit, types);
+    }
+
+    @PostMapping("/build")
+    public GraphBuildResponse buildProjectGraph(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId
+    ) {
+        return graphService.buildProjectGraph(authenticatedUser.id(), projectId);
     }
 }

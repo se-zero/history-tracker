@@ -44,6 +44,8 @@ async def run_postprocess_sequence() -> dict:
     """후처리(Layer 4) 시퀀스를 순서대로 1회 실행한다.
 
     순서:
+      0. Slack LLM 노이즈 필터 (llm_filtered=False인 신규 Slack 메시지만, 증분) — 링크 전에
+         노이즈를 먼저 제거해 backfill/링크 대상에 끼지 않게 한다
       1. 임베딩 누락 Communication 보정 (이후 비교 대상에 포함되도록)
       2. TRIGGERED_BY + DISCUSSED_IN 시맨틱 링크 (GitHub↔Jira, Jira↔Slack)
       3. REFERENCE 시맨틱 링크 (GitHub↔Slack/GitHub이슈)
@@ -69,12 +71,24 @@ async def run_postprocess_sequence() -> dict:
         backfill_communication_embeddings,
         build_reference_edges,
     )
+    from graph.slack_batch_filter import run_slack_llm_filter
 
     async with _build_lock:
         ref_store = make_neo4j_reference_store()
         link_store = make_neo4j_issue_link_store()
 
+        # 0) Slack 노이즈 정제 — 신규 Slack 메시지만 LLM을 거친다(llm_filtered로 증분).
+        # 링크보다 먼저 돌려 노이즈가 backfill/링크 대상에 끼지 않게 한다.
+        # 실패해도 링크 단계는 진행 — 연결이 더 중요해 격리한다 (project_context는 배치라 생략).
+        try:
+            slack = await run_slack_llm_filter()
+        except Exception:
+            logger.exception("Slack LLM 필터 실패 — 링크 단계는 계속 진행")
+            slack = {"kept": 0, "deleted": 0}
+
         results = {
+            "slack_kept":        slack["kept"],
+            "slack_deleted":     slack["deleted"],
             "backfilled":        await backfill_communication_embeddings(ref_store),
             "triggered_by":      await build_issue_changeset_links(link_store),
             "discussed_in":      await build_issue_communication_links(link_store),

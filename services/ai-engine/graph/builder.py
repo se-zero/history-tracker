@@ -1046,12 +1046,16 @@ async def _create_actor(
 
 
 async def fetch_unfiltered_communications() -> list[dict]:
-    """llm_filtered=False인 Communication 노드를 배치 필터용으로 조회한다."""
+    """LLM 필터 미적용(llm_filtered=False) Slack Communication을 배치 필터용으로 조회한다.
+
+    source='SLACK'로 스코프 — GitHub 이슈(source='GITHUB')도 Communication이고 수집 시
+    llm_filtered=False로 들어오지만, 이는 Slack 노이즈 필터(삭제) 대상이 아니다.
+    """
     async with get_driver().session() as session:
         result = await session.run(
             """
             MATCH (comm:Communication)
-            WHERE comm.llm_filtered = false
+            WHERE comm.llm_filtered = false AND comm.source = 'SLACK'
             RETURN comm.project_id AS project_id,
                    comm.url AS url, comm.body AS body,
                    comm.channel AS channel,

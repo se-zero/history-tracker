@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.BadGatewayException;
+import com.history.backend.graph.dto.GraphBuildResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,21 @@ public class AiEngineGraphClient {
         } catch (RestClientException exception) {
             log.error("ai-engine graph overview request failed: {}", exception.getMessage());
             throw new BadGatewayException("Failed to load project graph.");
+        }
+    }
+
+    // 후처리(Layer 4) 시퀀스 수동 트리거 — 소스 간 시맨틱 엣지를 즉시 재구축한다.
+    // ai-engine /graph/build는 현재 전 프로젝트를 도는 idempotent 배치다(project 스코프는 향후).
+    // 빌드가 O(n²)라 응답까지 시간이 걸릴 수 있어 호출이 블로킹된다.
+    public GraphBuildResponse triggerBuild() {
+        try {
+            return aiEngineRestClient.post()
+                    .uri("/graph/build")
+                    .retrieve()
+                    .body(GraphBuildResponse.class);
+        } catch (RestClientException exception) {
+            log.error("ai-engine graph build request failed: {}", exception.getMessage());
+            throw new BadGatewayException("Failed to rebuild project graph.");
         }
     }
 
