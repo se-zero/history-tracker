@@ -6,6 +6,7 @@ import os
 import aio_pika
 
 from graph.event_handler import handle
+from graph.postprocess import mark_dirty
 
 logger = logging.getLogger(__name__)
 
@@ -73,3 +74,6 @@ async def _process_message(message: aio_pika.abc.AbstractIncomingMessage) -> Non
     # 이벤트 처리: 일시 실패는 예외를 그대로 raise → aio-pika가 nack 처리
     async with message.process(requeue=False):
         await handle(event)
+        # 처리 성공 — 후처리(시맨틱 링크) 디바운스 타이머 갱신.
+        # 큐가 잠잠해지면 start_debounce_loop가 Layer 4 시퀀스를 1회 실행한다.
+        mark_dirty()

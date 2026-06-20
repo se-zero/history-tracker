@@ -19,6 +19,7 @@ from graph.builder import backfill_pr_jira_keys, backfill_triggered_by_source, c
 from graph.slack_batch_filter import run_slack_llm_filter
 from graph.consumer import start_consumer
 from graph.event_handler import handle
+from graph.postprocess import run_postprocess_sequence, start_debounce_loop
 from graph.overview import get_project_overview
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
 from graph.reference_builder import backfill_communication_embeddings, build_reference_edges
@@ -62,15 +63,20 @@ async def lifespan(app: FastAPI):
 
     await _init_neo4j_with_retry()
     await _prewarm_project_context()
-    task = asyncio.create_task(start_consumer())
+    tasks = [
+        asyncio.create_task(start_consumer()),
+        asyncio.create_task(start_debounce_loop()),
+    ]
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await close_driver()
 
 
@@ -114,6 +120,19 @@ async def test_ingest(event: dict):
     """
     await handle(event)
     return {"ok": True}
+
+
+@app.post("/graph/build")
+async def trigger_graph_build():
+    """후처리(Layer 4) 시퀀스를 즉시 1회 실행한다.
+
+    backfill → TRIGGERED_BY/DISCUSSED_IN → REFERENCE → 스레드 전파 순으로
+    소스 간 시맨틱 엣지를 구축한다. 평소엔 수집 큐가 잠잠해지면 디바운스 루프
+    (postprocess.start_debounce_loop)가 자동 호출하며, 이 엔드포인트는 디바운스를
+    기다리지 않는 수동/운영 트리거다 (향후 프론트 '그래프 재구축' 버튼의 연결점).
+    모든 단계 idempotent — _build_lock으로 디바운스 루프와 직렬화된다.
+    """
+    return await run_postprocess_sequence()
 
 
 @app.post("/reference/build")
