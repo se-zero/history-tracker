@@ -5,7 +5,7 @@
 그래프 노드/엣지에 임베딩 벡터를 저장해 두 가지 목적에 사용한다.
 
 1. **REFERENCE 엣지 자동 생성 (Layer 4)** — `MODIFIED.diffSummary` ↔ `Communication.body` 코사인 유사도가 임계값 이상인 쌍을 자동으로 연결
-2. **미래 시맨틱 연결** — `Issue.title + body` 임베딩을 저장해두면 나중에 DISCUSSED_IN / TRIGGERED_BY 엣지를 refs 없이도 생성 가능
+2. **쿼리 시 시맨틱 검색** — `Communication.body`·`Issue.title+body` 임베딩으로 자연어 질문에 대한 시맨틱 검색을 수행한다 (`comm_embedding`·`issue_embedding` 벡터 인덱스). refs 없이 DISCUSSED_IN / TRIGGERED_BY 엣지를 생성하는 것은 향후 과제로 남아 있다.
 
 ---
 
@@ -30,9 +30,9 @@
 
 | 노드/엣지 | 대상 텍스트 | 저장 위치 | 용도 |
 |-----------|------------|---------|------|
-| `Communication` 노드 | `body` | `Communication.embedding` | REFERENCE 엣지 생성 |
-| `MODIFIED` 엣지 | LLM이 생성한 `diffSummary` | `MODIFIED.embedding` | REFERENCE 엣지 생성 |
-| `Issue` 노드 | `title + "\n\n" + body` | `Issue.embedding` | 미래 DISCUSSED_IN / TRIGGERED_BY 시맨틱 연결 |
+| `Communication` 노드 | `body` | `Communication.embedding` | REFERENCE 엣지 생성 + 쿼리 시맨틱 검색 (`comm_embedding` 인덱스) |
+| `MODIFIED` 엣지 | LLM이 생성한 `diffSummary` | `MODIFIED.embedding` | REFERENCE 엣지 생성 (벡터 인덱스 없음 — 브루트포스 비교) |
+| `Issue` 노드 | `title + "\n\n" + body` | `Issue.embedding` | 쿼리 시맨틱 검색 (`issue_embedding` 인덱스); refs 없는 시맨틱 엣지 생성은 향후 |
 
 > `MODIFIED` 엣지에는 `diffSummary`(사람이 읽는 텍스트)와 `embedding`(벡터)이 **둘 다** 저장된다.
 > LLM은 임베딩 벡터가 아닌 원본 텍스트를 읽고 답변을 생성한다.
@@ -106,25 +106,31 @@ O(M × n × D)
   D = 벡터 차원 (1536)
 ```
 
-### 개선 — Neo4j Vector Index (Neo4j 연동 시 적용 예정)
+### 개선 방향 — Neo4j Vector Index
 
-Neo4j 5.x의 HNSW 기반 벡터 인덱스를 사용하면 Python 루프 없이 DB 안에서 처리된다.
+Neo4j 5.x HNSW 벡터 인덱스(`comm_embedding`, `issue_embedding`)는 **이미 생성·사용 중**이다 — 기동 시 `ensure_vector_indexes()`가 생성하고, 용도는 **쿼리 시 시맨틱 검색**이다 (`tools/queries.py`가 `db.index.vector.queryNodes`로 Communication/Issue를 검색). 다만 **REFERENCE 엣지 배치 빌더(`reference_builder.py`)는 이 인덱스를 쓰지 않고 여전히 브루트포스 + 시간 윈도우**다.
+
+> **project_id 후필터 (over-fetch)**: `db.index.vector.queryNodes`는 전역 top-K만 반환하고 project_id 사전 필터가 불가능하다. 단일 Neo4j에 여러 프로젝트가 섞여 있으므로, `top_k`의 배수만큼 넉넉히 가져온 뒤 `project_id`로 후필터해 잘라낸다.
 
 ```cypher
--- 인덱스 생성 (최초 1회)
-CREATE VECTOR INDEX comm_embedding
+-- 인덱스 정의 (기동 시 ensure_vector_indexes()가 생성)
+CREATE VECTOR INDEX comm_embedding IF NOT EXISTS
 FOR (c:Communication) ON (c.embedding)
 OPTIONS { indexConfig: {
   `vector.dimensions`: 1536,
   `vector.similarity_function`: 'cosine'
 }}
+```
 
--- REFERENCE 엣지 생성 쿼리
+REFERENCE 엣지 빌더도 vector index로 옮기면 Python 루프 없이 DB 안에서 처리할 수 있으나 **아직 미채택**이다. 도입 시 예시:
+
+```cypher
+-- REFERENCE 엣지 생성 쿼리 (미채택 향후안)
 MATCH (cs:ChangeSet)-[m:MODIFIED]->(f:File)
 WHERE m.embedding IS NOT NULL
 CALL db.index.vector.queryNodes('comm_embedding', 10, m.embedding)
 YIELD node AS comm, score
-WHERE score >= 0.30
+WHERE score >= 0.30 AND comm.project_id = cs.project_id
 MERGE (cs)-[r:REFERENCE]->(comm)
 SET r.confidence = score
 ```
@@ -132,7 +138,7 @@ SET r.confidence = score
 | 방법 | 시간복잡도 | 설명 |
 |------|-----------|------|
 | 브루트포스 | O(M × N) | 전체 쌍 비교 |
-| 시간 윈도우 + 브루트포스 | O(M × n) | 5일 이내 쌍만 비교 (현재) |
-| Neo4j Vector Index (HNSW) | O(M × log N) | DB 내부 근사 탐색 (예정) |
+| 시간 윈도우 + 브루트포스 | O(M × n) | 5일 이내 쌍만 비교 (현재 REFERENCE 빌더) |
+| Neo4j Vector Index (HNSW) | O(M × log N) | DB 내부 근사 탐색 (쿼리 검색엔 적용, REFERENCE 빌더엔 미적용) |
 
 > HNSW는 근사 알고리즘이므로 극히 드물게 유사한 쌍을 놓칠 수 있으나, 이 프로젝트 특성상 허용 가능한 수준.

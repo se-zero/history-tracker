@@ -1,6 +1,16 @@
+## 실행 명령어
+
+```bash
+cd services/backend
+./gradlew bootRun
+./gradlew test
+./gradlew test --tests "패키지.클래스명"
+./gradlew build
+```
+
 ## 패키지 구조
 
-패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation` 아래에 `controller/service/repository/domain/dto`를 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
+패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시하고, `jira`는 Jira 연동 검증용 client/dto만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
 
 ## 규칙 및 주의사항
 
@@ -16,6 +26,22 @@
 
 - `PipelineWorkerConfig`는 `pipeline.worker.url` 기반 `pipelineWorkerRestClient`와 connect/read timeout을 구성한다.
 - `PipelineWorkerClient`는 provider 연동 커밋 후 `/api/v1/collect/{provider}`에 `projectId`만 전달하며, 트리거 실패를 연동 성공과 분리해 로그만 남긴다.
+
+## AI Engine 연동
+
+- `AiEngineConfig`는 `ai.engine.url` 기반 `aiEngineRestClient`를 구성한다.
+- 그래프 데이터의 단일 소유자는 ai-engine(Neo4j)다. backend는 인가를 통과시킨 뒤 조회·삭제를 프록시만 한다.
+  - `AiEngineGraphClient`: `GET /graph/overview`(`project_id` 스코프), `DELETE /graph/projects/{projectId}`(프로젝트 삭제 시 그래프 cascade, 멱등), `triggerBuild` → `POST /graph/build?verify=`(Layer 4 시맨틱 엣지 수동 재구축, `GraphBuildResponse`). ai-engine 호출 실패는 `BadGatewayException`(502)으로 변환한다.
+  - 그래프 재구축은 `POST /api/v1/projects/{projectId}/graph/build?verify=`로 노출한다(`GraphService.buildProjectGraph`). `verify=true`면 방안 D(LLM 검증). 현재 ai-engine 빌드는 전 프로젝트 대상 idempotent 배치라 `projectId`는 인가 게이트 용도이며, O(n²) 빌드라 응답까지 블로킹된다.
+  - `AiEngineQueryClient`: 대화 질의 `POST /query`, 누적 요약 갱신 `POST /query/summary`. 질의 실패 시 예외 대신 fallback 답변을 반환해 대화 흐름을 유지한다.
+- 모든 ai-engine 호출은 `projectId`로 스코프해 다른 프로젝트 데이터 인용을 차단한다.
+
+## 대화(conversation) 처리
+
+- `MessageService.addMessage`는 트랜잭션을 2단계로 분리한다: (1) 사용자 메시지 저장, (2) ai-engine 질의(트랜잭션 밖) 후 assistant 응답 저장. 느린 AI 질의 중 DB 커넥션 점유를 피하고, 질의 실패와 무관하게 사용자 메시지를 보존하기 위함이다.
+- 최근 `MAX_HISTORY_TURNS`(5) 완성 턴만 history로 ai-engine에 전달하고, 그보다 오래된 턴은 running summary로 누적 압축한다. fallback/blank로 끝난 턴은 history·요약에서 제외한다.
+- running summary 갱신은 version 기반 낙관적 충돌 처리로, 실패하거나 충돌해도 현재 질문 응답을 막지 않는다.
+- 직전 정상 응답의 `structured.evidence`에서 후속 질문 대상 식별용 prior evidence를 추출해 함께 전달한다.
 
 ## 내부 서비스 API
 

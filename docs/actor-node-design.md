@@ -13,14 +13,19 @@ Actor 노드는 GitHub·Jira·Slack의 사용자를 하나의 노드로 통합�
 
 ```json
 {
-  "name": "",           // 표시 이름 (가장 신뢰도 높은 소스 기준)
-  "aliases": [""],      // 소스별 원본 ID 목록 (예: "GITHUB:john-doe", "JIRA:557058:abc")
-  "emails": [""],       // 확인된 모든 이메일 목록 (복수 허용)
-  "confidence": 1.0     // alias 통합 신뢰도 (LLM 판단 케이스에만 < 1.0)
+  "uuid": "",            // 노드 식별자 (UUID) — 모든 관계 연결의 기준키
+  "project_id": "",      // 프로젝트 스코프 — 동일인 판단은 프로젝트 경계를 넘지 않는다
+  "name": "",            // 표시 이름 (가장 신뢰도 높은 소스 기준)
+  "normalized_name": "", // 이름 정규화 결과 — Step 2 후보 조회 키
+  "aliases": [""],       // 소스별 원본 ID 목록 (예: "GITHUB:john-doe", "JIRA:557058:abc")
+  "emails": [""],        // 확인된 모든 이메일 목록 (복수 허용)
+  "confidence": 1.0      // alias 통합 신뢰도 (LLM 판단 케이스에만 < 1.0)
 }
 ```
 
 `emails`를 배열로 설계하는 이유: 같은 사람이 GitHub엔 개인 이메일, Jira·Slack엔 회사 이메일을 쓸 수 있으며, 로컬파트까지 완전히 다를 수 있기 때문이다.
+
+**프로젝트 스코프**: Actor 노드는 `project_id`로 스코프된다. 동일 인물이 두 프로젝트에 등장하면 프로젝트마다 별도 Actor 노드가 생성되며, 동일인 판단(alias/email/name 매칭)은 같은 프로젝트 안에서만 이뤄진다. ActorStore는 `make_neo4j_actor_store(project_id)`로 project_id를 바인딩해 주입된다.
 
 ```
 GitHub:  johndoe@gmail.com    (개인 이메일)
@@ -39,20 +44,9 @@ Slack:   jdoe@company.com     (회사 이메일)
 | `pipeline-worker` | `ActorDto`에 email 추가, 각 소스 API에서 email 수집 |
 | `ai-engine` | RabbitMQ 소비 → Actor 동일인 판단 파이프라인 → Neo4j MERGE |
 
-## 현재 구현 상태
+## ActorStore 인터페이스
 
-| 파일 | 상태 | 내용 |
-|------|------|------|
-| `services/ai-engine/graph/actor_resolver.py` | ✓ 완료 | Step 0~4 파이프라인 로직. `ActorStore` 인터페이스로 Neo4j 분리 |
-| `services/ai-engine/graph/actor_llm.py` | ✓ 완료 | Step 3 LLM 판단. `asyncio.to_thread()`로 비동기 래핑 |
-| `services/ai-engine/graph/consumer.py` | ✓ 완료 | RabbitMQ 소비자 |
-| `services/ai-engine/graph/event_handler.py` | △ 뼈대 | nodeType별 분기만 존재, `resolve_actor()` 연결 미완 |
-| Neo4j ActorStore 구현체 | ✗ 미구현 | `ActorStore` 인터페이스의 실제 Neo4j 쿼리 구현 필요 |
-
-### ActorStore 인터페이스
-
-`actor_resolver.py`는 Neo4j를 직접 호출하지 않고 아래 인터페이스를 주입받는다.
-Neo4j 구현체 작성 시 이 6개 메서드를 모두 구현해야 한다.
+`actor_resolver.py`는 Neo4j를 직접 호출하지 않고 아래 인터페이스(`ActorStore`)를 주입받아, 테스트 시 mock으로 교체 가능하게 분리돼 있다. 실제 Neo4j 구현체는 `builder.py`의 `make_neo4j_actor_store(project_id)`가 제공한다.
 
 ```python
 @dataclass
@@ -63,16 +57,6 @@ class ActorStore:
     lookup_activities:  Callable[[dict], Awaitable[list[dict]]]      # 최근 활동 10개
     merge_actor:        Callable[[dict, str, Optional[str], float], Awaitable[None]]
     create_actor:       Callable[[str, list, list, float], Awaitable[dict]]
-```
-
-### 테스트
-
-```bash
-# actor_llm.py 단독 테스트 (Neo4j 없이)
-cd services/ai-engine
-OPENAI_API_KEY=sk-... python test_actor_llm.py ../../test_actor_cases.json
-# 입력: existing_actor(수동 작성) + new_actor(실제 이벤트 데이터)
-# 출력: test_actor_cases_results.json
 ```
 
 ---
@@ -94,7 +78,7 @@ Step 4: 신규 Actor 노드 생성    → 판단 불가 시 fallback
 source-scoped ID (예: `GITHUB:john-doe`)가 이미 어떤 Actor의 aliases에 있으면 즉시 반환.
 
 ```cypher
-MATCH (a:Actor)
+MATCH (a:Actor {project_id: $project_id})
 WHERE $source_id IN a.aliases
 RETURN a
 ```
@@ -107,8 +91,8 @@ RETURN a
 pipeline-worker가 가져온 email이 기존 Actor의 `emails` 배열과 교집합이 있는지 확인.
 
 ```cypher
-MATCH (a:Actor)
-WHERE ANY(e IN a.emails WHERE e = $new_email)
+MATCH (a:Actor {project_id: $project_id})
+WHERE $new_email IN a.emails
 RETURN a
 ```
 
@@ -132,13 +116,13 @@ def normalize_name(name: str) -> str:
 
 ```python
 score = 0.5  # 이름 정규화 매칭 (lookup_by_name 조건이므로 항상 적용)
-score += SequenceMatcher(None, new_localpart, candidate_localpart).ratio() * 0.5
-# 이메일 로컬파트 유사도를 비율 그대로 반영 (최대 +0.5)
-# 도메인(@company.com 등)은 식별력이 낮아 제외
-
-if score >= 0.4:  # Step 3으로 (LLM 최종 확인)
-if score < 0.4:   # Step 4로 (신규 노드 생성)
+score += best_localpart_ratio * 0.3   # 이메일 로컬파트 유사도(SequenceMatcher 최댓값), 최대 +0.3
+score += 0.2 if 이메일_도메인_일치 else 0.0   # 같은 도메인 = 동일 조직 신호
+# new_email이 없거나 후보에 email이 없으면 base 0.5만 적용
 ```
+
+후보를 점수 내림차순으로 정렬해 **상위 `_MAX_LLM_CANDIDATES`(3)명**을 Step 3(LLM)에 차례로 넘긴다.
+점수가 `0.4` 미만인 후보를 만나면 루프를 중단하고, MERGE되는 후보가 없으면 Step 4(신규 생성)로 간다.
 
 ### Step 3 — LLM 다중 신호 판단 (활동 맥락 포함)
 
@@ -149,59 +133,25 @@ Step 2에서 판단이 애매한 케이스. **이름·이메일뿐만 아니라 
 **Neo4j에서 기존 Actor 활동 조회**:
 
 ```cypher
-MATCH (a:Actor)-[:AUTHORED|WROTE|CREATED]->(n)
-WHERE $candidate_actor_id IN a.aliases
-RETURN n.message, n.title, n.body
+MATCH (a:Actor {uuid: $actor_uuid})-[:AUTHORED|WROTE|CREATED]->(n)
+WHERE n.occurredAt IS NOT NULL
+RETURN labels(n)[0] AS nodeType, n.source, n.title, n.message, n.body, n.channel, n.occurredAt
 ORDER BY n.occurredAt DESC
 LIMIT 10
 ```
 
-**LLM 프롬프트 구조**:
+**LLM에 제공하는 신호** (실제 프롬프트 전문·few-shot 예시는 `actor_llm.py._build_prompt` 참고):
 
-```python
-prompt = f"""
-다음 두 사용자가 동일인인지 판단해주세요.
+- 두 사용자의 이름·이메일·플랫폼(aliases)
+- 기존 Actor의 최근 활동 10건(날짜·소스·채널·제목/본문) + 신규 이벤트 내용
+- 판단 기준(중요도 순): ① 이름 표기 변형(한/영, 성·이름 역전, 닉네임/대소문자/구분자 차이) ② 이메일 로컬파트 유사도·동일 도메인 ③ 활동 시기·도메인·기술 스택 겹침(시간이 가까울수록 강한 신호) ④ 같은 생태계(회사 도메인·채널·레포)
+- 한국 이름 동명이인 주의: 둘 이상의 독립 신호가 일치하지 않으면 confidence를 낮추도록 지시
+- 응답: `{same_person, confidence, key_signals, reason}` JSON (`response_format=json_object`, `temperature=0`)
 
-[사용자 A — 기존 등록된 Actor]
-- 이름: {existing_actor.name}
-- 이메일들: {existing_actor.emails}
-- 플랫폼: {existing_actor.aliases}
-- 최근 활동 내용:
-  · [GITHUB 커밋] "fix: 결제 서비스 낙관적 락 적용"
-  · [GITHUB PR]   "payment service 동시성 리팩토링"
-  · [SLACK]       "내일 결제 API 배포 예정입니다"
+→ `same_person=true` AND `confidence ≥ 0.9`: MERGE, Actor의 `confidence` 필드에 저장  
+→ 미달: 다음 후보로, 모두 미달이면 Step 4 (신규 노드 생성)
 
-[사용자 B — 신규 이벤트의 Actor]
-- 이름: {new_actor.name}
-- 이메일: {new_email or "없음"}
-- 플랫폼: {new_event.source}
-- 이번 이벤트 내용:
-  · [{new_event.source} {new_event.nodeType}]
-    제목: {current_event_content['title'] or '없음'}
-    본문: {current_event_content['body'] or '없음'}
-
-판단 기준 (중요도 순):
-1. 이름의 한/영 표기 변형, 성/이름 순서 역전, 닉네임 패턴 (john-doe↔john_doe, 대소문자, 구분자 차이 포함)
-2. 이메일 로컬파트 유사도
-3. 활동 내용의 도메인·기술 스택·관심사가 겹치는가
-4. 같은 플랫폼 생태계(회사 도메인, 같은 채널/레포)에 속하는가
-
-활동 내용이 없거나 너무 일반적이면 이름·이메일 신호에만 의존하고 confidence를 낮게 설정해주세요.
-
-JSON으로 응답:
-{{
-  "same_person": true/false,
-  "confidence": 0.0~1.0,
-  "key_signals": ["활동 도메인 일치", "이메일 로컬파트 유사"],
-  "reason": "..."
-}}
-"""
-```
-
-→ confidence ≥ 0.85: MERGE, Actor의 `confidence` 필드에 저장  
-→ confidence < 0.85: Step 4 (신규 노드 생성)
-
-> **닭-달걀 문제**: 기존 Actor에 활동 내용이 없으면 이름·이메일만으로 판단하며 confidence가 낮게 나오는 것이 정상이다. 이 경우 각각 별도 노드를 생성하고, 이후 이벤트가 쌓이면 배치 재판단이 가능하다.
+> **닭-달걀 문제**: 기존 Actor에 활동 내용이 없으면 이름·이메일만으로 판단하며 confidence가 낮게 나오는 것이 정상이다. 이 경우 각각 별도 Actor 노드로 생성된다.
 
 LLM 호출은 **"처음 보는 actor"에게만** 발생한다. 이후 같은 actor.id는 Step 0에서 종료.
 
@@ -211,9 +161,12 @@ LLM 호출은 **"처음 보는 actor"에게만** 발생한다. 이후 같은 act
 
 ```cypher
 CREATE (a:Actor {
+  uuid: $uuid,                       // 신규 생성 UUID
+  project_id: $project_id,
   name: $name,
-  emails: [$email],      // email이 null이면 빈 배열 []
-  aliases: [$source_id], // "GITHUB:john-doe"
+  normalized_name: $normalized_name, // normalize_name($name)
+  aliases: [$source_id],             // "GITHUB:john-doe"
+  emails: [$email],                  // email이 null이면 빈 배열 []
   confidence: 1.0
 })
 ```

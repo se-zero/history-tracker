@@ -11,7 +11,7 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 - **증분 수집**: checkpoint에 기록된 마지막 수집 시각 이후 데이터만 가져온다. 재시작해도 누락을 방지하고 중복 발행을 최소화한다.
 - **occurredAt 기준 checkpoint 갱신**: 수집 시각(`Instant.now()`)이 아닌 이벤트 실제 발생 시각을 기준으로 갱신한다. 발행하지 못한 이벤트가 있어도 checkpoint가 앞으로 이동하지 않아 누락이 없다.
 - **DB checkpoint 저장**: checkpoint는 DB `checkpoints` 테이블에 `(project_id, provider, cursor_key)` 단위로 저장한다. cursor 갱신 시 기존 값과 새 값 중 더 최신 시각을 저장해 checkpoint가 과거로 되돌아가지 않게 한다.
-- **manual/webhook 동일 checkpoint 사용**: webhook 수집은 `ProjectCollectionContext.projectId`, 수동 normalize endpoint는 요청의 `projectId`로 같은 DB checkpoint를 조회하고 갱신한다.
+- **webhook/초기수집 동일 checkpoint 사용**: webhook 수집과 초기 수집 트리거(`POST /api/v1/collect/{provider}`)는 모두 `ProjectCollectionContext.projectId`로 같은 DB checkpoint를 조회하고 갱신한다. (수동 normalize endpoint는 제거됨)
 - **raw endpoint는 샘플 전용**: `/api/v1/raw/*` endpoint는 필드 확인용 1페이지 샘플이며 DB checkpoint를 조회하거나 갱신하지 않는다.
 
 ---
@@ -27,6 +27,8 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 | Issue | `GET /repos/{owner}/{repo}/issues?state=all` | `github/github_issues` |
 
 타입별 checkpoint가 독립적이라 재시작 시 완료된 타입은 건너뛴다. 코드 내부에서는 GitHub checkpoint snapshot을 `commitsScannedAt`, `pullRequestsScannedAt`, `issuesScannedAt` 필드로 다룬다.
+
+**브랜치 스코프**: integration에 브랜치가 지정되면 해당 단일 브랜치로 수집을 제한한다 — PR은 `&base={branch}`(타겟 브랜치 기준), commit은 `&sha={branch}`. 브랜치 미지정 시 전체 브랜치를 수집한다. (브랜치는 `RawFetchRequest.options["branch"]`로 전달된다.)
 
 ### 페이지네이션
 
@@ -44,6 +46,8 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 
 각 PR에 속한 커밋 목록은 `/pulls/{pr}/commits`로 추가 수집해 `prNumber` 매핑을 구성한다 (PR당 1회 호출).
 각 커밋의 변경 파일 목록(`files`)은 `/commits/{sha}`로 추가 수집한다 (커밋당 1회 호출).
+
+**User 프로필 보강**: PR·Issue의 `user` 객체에는 email·name이 없어 `/users/{login}`을 호출해 보강한다 (login별 캐시, 고유 login당 1회). Actor 동일인 판단의 email 신호가 여기서 채워진다.
 
 PR 페이지는 먼저 발행하지만, `pullRequestsScannedAt` checkpoint는 commit 페이지 처리가 끝난 뒤 갱신한다.
 commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다음 실행에서 PR 페이지를 다시 읽고 `sha → prNumber` 매핑을 재구성할 수 있다.
@@ -92,13 +96,9 @@ GitHub `/issues` API는 PR도 반환한다. `GitHubNormalizer`에서 `pull_reque
 - **문제**: PR 데이터를 이슈 엔드포인트에서도 받아오지만 정규화 시 폐기 → 불필요한 데이터 전송.
 - **방법 선택 이유**: GitHub API에 `is_issue=true` 같은 서버사이드 필터가 없다. API 특성상 불가피.
 
-#### GitHub normalize 경로의 메모리 누적
+#### GitHub — 실행 중 유지 데이터
 
-normalize 경로는 PR, commit, issue를 페이지 단위로 처리한다.
-
-- **동작**: normalize 응답은 `202 {"queued": N}`이며, 내부에서도 raw 전체와 `NormalizedEvent` 전체를 한 번에 누적하지 않는다.
-- **남는 데이터**: PR-commit 관계 보강을 위해 실행 동안 `sha → prNumber` 맵은 유지한다. 이 맵은 PR raw 전체보다 작고 commit `refs.prNumber` 보강에 필요하다.
-- **raw endpoint**: `/api/v1/raw/github`는 필드 확인용 샘플로 동작하며 PR/commit/issue 1페이지만 반환한다.
+PR, commit, issue를 페이지 단위로 처리해 raw·`NormalizedEvent` 전체를 한 번에 누적하지 않는다. 다만 PR-commit 관계 보강을 위해 `sha → prNumber` 맵은 실행 동안 유지한다 (PR raw 전체보다 작고 commit `refs.prNumber` 보강에 필요).
 
 ## Jira
 
@@ -210,13 +210,9 @@ Slack checkpoint는 `checkpoints` 테이블에서 `provider=slack`, `cursor_key=
 - **문제**: 채널 메시지가 수만 건인 경우 checkpoint 시각에 도달할 때까지 수십 페이지를 API로 가져온다. 대형 워크스페이스에서 수집 시간과 API 호출량이 선형 증가하며 현실적으로 수 시간이 걸릴 수 있다. 더 심각한 문제는 **조기 종료 로직이 없다**는 점 — checkpoint 이전 메시지가 나와도 루프가 계속 돌아 채널 전체 히스토리를 끝까지 받아온다.
 - **방법 선택 이유**: `threadCandidates` 수집을 위해 checkpoint 이전 메시지도 `latest_reply` 체크가 필요하다. 단순히 `oldest` 파라미터를 추가하면 오래된 스레드에 달린 새 reply를 놓친다.
 
-#### Slack normalize 경로의 메모리 누적
+#### Slack — 실행 중 유지 데이터
 
-normalize 경로는 채널의 history page 단위로 처리한다.
-
-- **동작**: normalize 응답은 `202 {"queued": N}`이며, 내부에서도 workspace 전체 raw와 `NormalizedEvent` 전체를 한 번에 누적하지 않는다.
-- **남는 데이터**: `users.list` 결과인 user map과 `conversations.list` 결과인 채널 목록은 실행 동안 유지한다.
-- **raw endpoint**: `/api/v1/raw/slack`은 필드 확인용 샘플로 동작하며 첫 채널의 history 1페이지와 해당 page의 thread replies만 반환한다.
+채널의 history page 단위로 처리해 workspace 전체 raw·`NormalizedEvent`를 한 번에 누적하지 않는다. 다만 `users.list` 결과인 user map과 `conversations.list` 결과인 채널 목록은 실행 동안 유지한다.
 
 #### User map 전체 수집 — 매 실행마다 반복
 

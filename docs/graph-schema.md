@@ -61,7 +61,8 @@ Jira 티켓.
     "issue_type": "",                  // Task | Bug | Story ...
     "priority": "",                    // 우선순위 (예: Medium)
     "assignee": "",                    // 담당자 이름
-    "created_at": ""                   // 티켓 최초 생성 시각 (ISO-8601); occurredAt이 updated 기준이므로 보존
+    "created_at": "",                  // 티켓 최초 생성 시각 (ISO-8601); occurredAt이 updated 기준이므로 보존
+    "closed_at": ""                    // 종료 시각 (ISO-8601, terminal status일 때만 전달) → 노드 closedAt 저장. TRIGGERED_BY 비대칭 윈도우 계산에 사용
   },
   "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "parentJiraKey": "HT-1", "assigneeId": "abc123" }
 }
@@ -115,7 +116,7 @@ GitHub Pull Request. 머지된 PR만 수집한다.
     "created_at": "",                  // PR 최초 생성 시각 (ISO-8601)
     "url": ""                          // PR 링크
   },
-  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
+  "refs": {}                            // 예: { "jiraKeys": ["PAYMENT-301", "HT-7"] } — 제목/본문에서 추출. 이벤트 처리 시 pr.jira_keys 노드 속성으로 저장되어, 그 PR의 CONTAINS 커밋에 text TRIGGERED_BY 전파에 사용
 }
 ```
 
@@ -179,12 +180,12 @@ GitHub 저장소 내 파일.
 | `WROTE` | `(Actor)→(Communication)` | — | Actor가 메시지/이슈를 작성 |
 | `AUTHORED` | `(Actor)→(PullRequest)`, `(Actor)→(ChangeSet)` | — | Actor가 PR/commit을 생성 |
 | `ASSIGNED_TO` | `(Issue)→(Actor)` | — | Jira 이슈의 담당자 |
-| `DISCUSSED_IN` | `(Issue)→(Communication)` | — | Jira 이슈가 특정 대화에서 언급됨 (`refs.jiraKey` 또는 `시간` 기반) |
+| `DISCUSSED_IN` | `(Issue)→(Communication)` | `confidence: Float` (시맨틱 엣지만) | 이슈가 대화에서 언급됨. text(`refs.jiraKey`)·스레드 전파 엣지는 속성 없음, 시맨틱 엣지만 confidence 부여 |
 | `CHILD_OF` | `(Issue)→(Issue)` | — | 이슈 계층 구조 (Sub-task → Parent). `refs.parentJiraKey` 기반 |
 | `CHILD_OF` | `(ChangeSet)→(ChangeSet)` _(미구현)_ | — | 커밋 계층 구조 — 현재 미구현 |
-| `TRIGGERED_BY` | `(ChangeSet)→(Issue)` | — | 이슈에 대한 커밋 |
+| `TRIGGERED_BY` | `(ChangeSet)→(Issue)` | `source: String (text\|semantic)`, `confidence: Float` | 이슈에 대한 커밋. text=1.0 고정, semantic=코사인 유사도. text가 semantic보다 우선 |
 | `CONTAINS` | `(PullRequest)→(ChangeSet)` | — | PR에 포함된 커밋 |
-| `MODIFIED` | `(ChangeSet)→(File)` | `diffSummary: String` | 커밋이 파일을 변경. LLM이 생성한 diff 요약문의 임베딩 포함 |
+| `MODIFIED` | `(ChangeSet)→(File)` | `diffSummary: String`, `embedding: Float[]` | 커밋이 파일을 변경. LLM이 생성한 diff 요약문과 그 임베딩 저장 |
 | `REFERENCE` | `(ChangeSet)→(Communication)` | `confidence: Float (0-1)` | 벡터 유사도 기반 의미적 연결. `diffSummary`와 `body` 임베딩 코사인 유사도가 임계값 이상일 때 생성 |
 | `DESCRIBED_IN` | `(Issue)→(Document)` | — | _(미래)_ Actor가 문서에 기술됨 |
 
@@ -239,128 +240,67 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | Layer 1 | `CREATED` / `WROTE` / `AUTHORED` | 모든 이벤트 | `actor` 필드 |
 | Layer 2 | `CHILD_OF` (Issue) | `refs.parentJiraKey` 존재 시 | Issue의 refs (Jira Sub-task → Parent) |
 | Layer 2 | `ASSIGNED_TO` | `refs.assigneeId` 존재 시 | Issue의 refs (Jira 담당자 ID) |
-| Layer 2 | `DISCUSSED_IN` | `refs.jiraKey` 존재 시 | Communication의 refs |
-| Layer 2 | `TRIGGERED_BY` | `refs.jiraKey` 존재 시 | ChangeSet의 refs |
+| Layer 2 | `DISCUSSED_IN` (text) | `refs.jiraKey` 존재 시 | Communication의 refs |
+| Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.jiraKey`, 또는 PR `jira_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
 | Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary; 임베딩은 MODIFIED 엣지 속성으로 저장 |
 | Layer 4 | `REFERENCE` | 배치 처리 | `MODIFIED.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.30 (기본값), 시간 범위 ±5일 |
-| Layer 4 | `DISCUSSED_IN` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.40 (기본값), 시간 범위 ±30일 |
-| Layer 4 | `TRIGGERED_BY` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ 0.40 (기본값), 시간 범위 ±30일 |
+| Layer 4 | `DISCUSSED_IN` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.40 (기본값), 시간 범위 ±30일 대칭 |
+| Layer 4 | `TRIGGERED_BY` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ 0.55 (기본값). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행중이면 now]`, ChangeSet당 top-1, text 엣지 있는 커밋은 제외 |
 
 > **순서 보장**: Layer 2에서 참조 대상 노드가 아직 없으면 PK만 가진 stub 노드를 생성하고,
 > 해당 이벤트가 도착하면 Layer 1에서 properties를 채움.
 
 ---
 
-## 문제: refs 의존도
+## Layer 4 — 시맨틱 링크 (구현된 생성 방식)
 
-refs(jiraKey, prNumber)는 텍스트 패턴 매칭으로만 추출된다. 개발자가 커밋 메시지나 Slack 메시지에 Jira key / PR 번호를 명시하지 않으면 refs는 비어 있다. **대부분의 데이터에서 refs는 존재하지 않을 가능성이 높다.**
+refs(`jiraKey`/`prNumber`)는 커밋·메시지에 명시될 때만 텍스트로 추출되어 자주 비어 있다. 이를 보완해 Issue 연결을 아래 방식으로 생성한다. 모든 배치 비교는 같은 `project_id` 안에서만 수행한다.
 
-refs에 의존하는 관계인 `DISCUSSED_IN`, `TRIGGERED_BY`, `CONTAINS`는 대부분 생성되지 않아 **Issue가 고립된 노드로 남을 위험**이 있다.
+### DISCUSSED_IN (Issue → Communication)
 
-| 관계 | refs 없을 때 |
-|------|-------------|
-| `DISCUSSED_IN` (Issue ↔ Communication) | 연결 불가 |
-| `TRIGGERED_BY` (ChangeSet ↔ Issue) | 연결 불가 |
-| `CONTAINS` (PullRequest ↔ ChangeSet) | GitHub API(`/pulls/{pr}/commits`)로 구축 — refs 없어도 연결 가능 |
-| `MODIFIED` (ChangeSet → File) | 항상 가능 |
-| `REFERENCE` (ChangeSet → Communication) | 항상 가능 (시맨틱) |
+1. **text** — Communication `refs.jiraKey`로 직접 연결 (`link_issue_to_communication`, 속성 없음)
+2. **스레드 전파** — 같은 `conversation_id` 스레드에 DISCUSSED_IN이 하나라도 있으면 스레드 전체로 전파 (`propagate_thread_discussed_in`, 속성 없음)
+3. **시맨틱** — `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ `discussed_in_threshold`(기본 0.40), ±30일 대칭 윈도우. `confidence` 속성 부여 (`build_issue_communication_links`)
 
----
+### TRIGGERED_BY (ChangeSet → Issue)
 
-## 해결 방안
+1. **text** — ChangeSet `refs.jiraKey`, 그리고 PR 제목/본문의 `jira_keys`를 그 PR이 머지한 CONTAINS 커밋들에 전파. `source='text'`, `confidence=1.0` (`link_changeset_to_issue`, `link_pr_changesets_to_issues`)
+2. **시맨틱** — `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ `triggered_by_threshold`(기본 0.55). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행 중이면 now]`, ChangeSet당 top-1만 유지, text 엣지가 이미 있는 커밋은 제외(text 우선). `source='semantic'`, `confidence=점수` (`build_issue_changeset_links`)
 
-### 방안 A — 시맨틱 유사도 (Layer 4 확장) ✅ 구현됨
+### 실행 트리거 — 자동(디바운스) + 수동
 
-Layer 4의 임베딩 방식을 Issue 연결에도 적용한다.
+위 시맨틱 빌더들은 노드 쌍을 전수 비교하는 O(n²) 배치라 이벤트마다 돌릴 수 없다. `postprocess.py`가 오케스트레이션한다.
 
-```
-Issue.embedding  ↔  Communication.embedding        → DISCUSSED_IN  (기본 threshold: 0.40, 시간 범위: ±30일)
-Issue.embedding  ↔  MODIFIED.embedding (diffSummary)  → TRIGGERED_BY  (기본 threshold: 0.40, 시간 범위: ±30일)
-```
+- **자동(유휴 디바운스)**: consumer가 이벤트 처리마다 `mark_dirty()`를 호출하고, `start_debounce_loop`(lifespan 태스크)가 수집 큐가 `GRAPH_BUILD_DEBOUNCE_SECONDS`(기본 30초) 이상 잠잠해지면 후처리 시퀀스를 1회 실행한다. 수집은 webhook 포함 증분이라 "완료 시점"이 없으므로 유휴 감지로 트리거한다. `GRAPH_BUILD_MIN_INTERVAL_SECONDS`(기본 300초) 쿨다운으로 버스트 시 과다 재스캔을 막는다.
+- **수동**: `POST /graph/build?verify=`로 디바운스를 기다리지 않고 즉시 실행한다(웹 대시보드 '그래프 재구축' 버튼의 연결점). backend는 `POST /api/v1/projects/{projectId}/graph/build`로 프록시한다.
 
-유사도 ≥ threshold인 쌍에 엣지 생성. threshold는 `POST /issue-links/build` 요청 시 조정 가능.
+두 경로는 `_build_lock`으로 직렬화되며 모든 단계가 idempotent다.
 
-- 장점: 추가 데이터 불필요, 범용
-- 단점: 도메인 용어가 겹치면 false positive 발생
+**시퀀스 순서** (`run_postprocess_sequence`):
+0. Slack LLM 노이즈 필터 (`llm_filtered=false`인 신규 Slack 메시지만, 증분) — 링크 전에 노이즈 제거
+0.5. (verify=true만) 시맨틱 TRIGGERED_BY/DISCUSSED_IN clear — A의 결과를 비우고 D로 재구축
+1. 임베딩 누락 Communication 보정 (`backfill_communication_embeddings`)
+2. TRIGGERED_BY + DISCUSSED_IN 시맨틱 링크
+3. REFERENCE 시맨틱 링크
+4. DISCUSSED_IN 스레드 전파
 
----
+### LLM 검증 (방안 A vs D)
 
-### 방안 B — 시맨틱 + 시간 + Actor 조합 - 보류
+방안 구분은 `verify` 플래그(= `/graph/build`의 `verify`, `/issue-links/build`의 `llm_verify`)로 정한다.
 
-유사도에 시간·Actor 신호를 AND 조건으로 추가해 정밀도를 높인다.
+- **방안 A** (`verify=false`, 디바운스 자동 빌드 기본값): 임베딩 유사도만 사용. 빠르고 LLM 비용 없음.
+- **방안 D** (`verify=true`): 기존 시맨틱 엣지를 먼저 비우고(`clear_semantic_triggered_by`/`clear_semantic_discussed_in` — text·스레드 전파 엣지는 confidence가 없어 보존), 시맨틱 유사도로 상위 후보를 선별한 뒤 LLM이 실제 텍스트를 읽고 관련 여부를 재판정한다(`issue_verifier`). 임베딩만으로 생기는 false positive(도메인 용어 중복 등)를 줄이지만 호출당 LLM 비용이 든다. 수동 '정밀 재구축'에서만 사용.
 
-```
-조건 1: 유사도 ≥ threshold
-조건 2: occurredAt이 Issue 활성 기간 내 (생성 ~ 완료)
-조건 3: 같은 Actor 또는 팀 내 collaborator
-```
+### API — `POST /issue-links/build` (하위 단계 직접 호출)
 
-만족하는 조건 수에 따라 confidence를 다르게 부여할 수도 있다.
+오케스트레이션 없이 Issue 링크 단계만 직접 부르는 저수준 엔드포인트. 위 `/graph/build`는 이 단계를 포함한 전체 시퀀스를 돌린다.
 
-- 장점: A 단독보다 false positive 감소
-- 단점: Actor가 여러 이슈를 동시 진행 중이면 여전히 노이즈 존재
-
----
-
-### 방안 C — 스레드 전파 (Communication 특화) ✅ 구현됨
-
-Communication은 `conversation_id`로 스레드가 묶여 있다. 스레드 내 하나의 메시지에만 refs가 있어도 그 스레드 전체에 같은 Issue 연결을 전파한다.
-
-```
-thread (conversation_id: "1773799131")
-  ├── "PAYMENT-301 확인했어요"   ← refs.jiraKey 있음 → DISCUSSED_IN 생성
-  ├── "PR 내일 올릴게요"          ← refs 없음 → 스레드 전파로 DISCUSSED_IN 생성
-  └── "고마워요!"                 ← refs 없음 → 스레드 전파로 DISCUSSED_IN 생성
-```
-
-- 장점: 비용 없음, refs가 극히 일부만 있어도 커버리지 향상
-- 단점: Communication에만 적용 가능
-
----
-
-### 방안 D — 2단계: 임베딩 후보 선별 → LLM 검증 ✅ 구현됨
-
-방안 A와 동일하게 임베딩 유사도로 시작하지만, 유사도를 **최종 판단**으로 쓰지 않고 **후보 선별 도구**로만 사용한다. 최종 판단은 LLM이 실제 텍스트를 읽고 내린다.
-
-방안 A의 한계: 임베딩 유사도는 도메인 용어가 겹치면 내용이 달라도 높은 점수가 나온다.
-
-```
-Issue.title:          "낙관적 락으로 교체 필요"
-ChangeSet.diffSummary: "비관적 락 방식의 문제점 발견, 추가 조사 필요"
-→ 임베딩 유사도 높음 (락/낙관/비관 용어 겹침)
-→ 하지만 Issue는 해결책, ChangeSet은 문제 발견 단계 — 실제로는 무관할 수 있음
-→ 방안 A: 엣지 생성 (false positive)
-→ 방안 D: LLM이 내용을 읽고 "관련 없음" 판단 → 엣지 미생성
-```
-
-```
-Stage 1 (저비용): 임베딩 유사도로 상위 K개 후보 쌍 선별  ← 방안 A와 동일
-Stage 2 (LLM):   후보 쌍의 실제 텍스트를 읽고 관련 여부 판단 → confidence 부여
-```
-
-LLM은 문맥, 부정, 인과관계를 이해할 수 있어 임베딩이 놓치는 false positive를 걸러낸다.
-
-- 장점: 방안 A보다 높은 정확도, 전체 N×M을 LLM에 돌리지 않아 비용 절감
-- 단점: Stage 1에서 놓친 후보(false negative)는 Stage 2에서 회복 불가
-
-**사용법**: `POST /issue-links/build` 요청 시 옵션으로 제어. 코드 수정 불필요.
-
-```json
-{
-  "llm_verify": true,      // false(기본): 방안 A, true: 방안 D
-  "threshold": 0.40,       // 임베딩 유사도 최소값 (후보 선별 기준)
-  "top_k": 5,              // Issue당 LLM에 넘길 최대 후보 수 (비용 제어)
-  "llm_threshold": 0.7     // LLM confidence 최소값 (엣지 생성 기준)
-}
-```
-
----
-
-### 클로드 권장 조합
-
-| 연결 | 권장 방안 |
-|------|-----------|
-| Issue ↔ Communication | 방안 C (스레드 전파) + 방안 A (시맨틱) |
-| Issue ↔ ChangeSet | 방안 A (시맨틱) 또는 방안 D (정확도 우선) |
-| 정확도 우선 | 방안 D (2단계 LLM 검증) 선택 적용 |
+| 파라미터 | 기본값 | 설명 |
+|----------|--------|------|
+| `triggered_by_threshold` | `0.55` | TRIGGERED_BY 임베딩 유사도 최소값 |
+| `discussed_in_threshold` | `0.40` | DISCUSSED_IN 임베딩 유사도 최소값 |
+| `llm_verify` | `false` | true면 임베딩 후보를 LLM이 재검증 |
+| `top_k` | `5` | LLM 검증 시 Issue당 후보 수 (비용 제어) |
+| `llm_threshold` | `0.7` | LLM confidence 최소값 (엣지 생성 기준) |
+| `repo` | `""` | `"owner/repo"` — LLM 검증 시 도메인 컨텍스트 주입용 |

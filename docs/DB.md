@@ -155,6 +155,7 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 메타데이터 변경 시각 |
 
 **인덱스**
+- `(owner_id)`
 - UNIQUE `(owner_id, lower(name))` — 같은 사용자 내 프로젝트명 중복 불가
 
 ---
@@ -223,7 +224,7 @@ AI 질의 대화 세션. 사용자가 탈퇴하면 `user_id`가 NULL로 유지�
 | `conversation_id` | UUID | NOT NULL, FK → `conversations.id` CASCADE | 메시지가 속한 대화 |
 | `role` | TEXT | NOT NULL, CHECK IN (`USER`, `ASSISTANT`, `SYSTEM`) | 작성자 종류 |
 | `content` | TEXT | NOT NULL | 메시지 본문 |
-| `metadata` | JSONB | nullable | ASSISTANT 응답 부가정보 (source_nodes, tokens, latency_ms 등) |
+| `metadata` | JSONB | nullable | ASSISTANT 응답 부가정보 — `structured`(요약·`evidence` 근거) 또는 질의 실패 마커(`fallback`, `error_type`) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 메시지 생성 시각 |
 
 **인덱스**
