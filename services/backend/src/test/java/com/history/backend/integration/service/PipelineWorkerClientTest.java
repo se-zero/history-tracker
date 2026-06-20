@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import java.util.UUID;
 
+import com.history.backend.integration.domain.IntegrationProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -26,7 +27,7 @@ class PipelineWorkerClientTest {
         PipelineWorkerClientFixture fixture = fixture();
         expectCollectionTrigger(fixture.server, "github");
 
-        fixture.client.triggerGitHubCollection(PROJECT_ID);
+        fixture.client.triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID);
 
         fixture.server.verify();
     }
@@ -36,7 +37,7 @@ class PipelineWorkerClientTest {
         PipelineWorkerClientFixture fixture = fixture();
         expectCollectionTrigger(fixture.server, "jira");
 
-        fixture.client.triggerJiraCollection(PROJECT_ID);
+        fixture.client.triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
 
         fixture.server.verify();
     }
@@ -46,7 +47,7 @@ class PipelineWorkerClientTest {
         PipelineWorkerClientFixture fixture = fixture();
         expectCollectionTrigger(fixture.server, "slack");
 
-        fixture.client.triggerSlackCollection(PROJECT_ID);
+        fixture.client.triggerCollection(IntegrationProvider.SLACK, PROJECT_ID);
 
         fixture.server.verify();
     }
@@ -58,7 +59,7 @@ class PipelineWorkerClientTest {
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withServerError());
 
-        assertThatCode(() -> fixture.client.triggerGitHubCollection(PROJECT_ID))
+        assertThatCode(() -> fixture.client.triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID))
                 .doesNotThrowAnyException();
         fixture.server.verify();
     }

@@ -165,7 +165,7 @@ class IntegrationServiceTest {
         doAnswer(invocation -> {
             assertThat(transactionManager.transactionActive).isFalse();
             return null;
-        }).when(pipelineWorkerClient).triggerGitHubCollection(PROJECT_ID);
+        }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID);
 
         Integration result = service.connectGitHubRepository(
                 OWNER_ID,
@@ -183,7 +183,7 @@ class IntegrationServiceTest {
         assertThat(result.getGitHubRepositoryFullName()).isEqualTo("acme/widget");
         assertThat(result.getGitHubBranch()).isEqualTo("main");
         verify(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
-        verify(pipelineWorkerClient).triggerGitHubCollection(PROJECT_ID);
+        verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID);
     }
 
     @Test
@@ -211,7 +211,7 @@ class IntegrationServiceTest {
         assertThat(transactionManager.beginCount).isZero();
         assertThat(transactionManager.rollbackCount).isZero();
         verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
-        verify(pipelineWorkerClient, never()).triggerGitHubCollection(PROJECT_ID);
+        verify(pipelineWorkerClient, never()).triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID);
     }
 
     @Test
@@ -293,7 +293,7 @@ class IntegrationServiceTest {
         doAnswer(invocation -> {
             assertThat(transactionManager.transactionActive).isFalse();
             return null;
-        }).when(pipelineWorkerClient).triggerSlackCollection(PROJECT_ID);
+        }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.SLACK, PROJECT_ID);
 
         Integration result = service.connectSlackWorkspace(
                 OWNER_ID,
@@ -307,7 +307,7 @@ class IntegrationServiceTest {
         assertThat(result.getSlackWorkspaceId()).isEqualTo("T123");
         assertThat(result.getSlackWorkspaceName()).isEqualTo("Acme");
         assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
-        verify(pipelineWorkerClient).triggerSlackCollection(PROJECT_ID);
+        verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.SLACK, PROJECT_ID);
     }
 
     @Test
@@ -368,7 +368,7 @@ class IntegrationServiceTest {
         doAnswer(invocation -> {
             assertThat(transactionManager.transactionActive).isFalse();
             return null;
-        }).when(pipelineWorkerClient).triggerJiraCollection(PROJECT_ID);
+        }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
 
         Integration result = service.connectJiraProject(
                 OWNER_ID,
@@ -386,7 +386,7 @@ class IntegrationServiceTest {
         assertThat(result.getJiraProjectName()).isEqualTo("Project");
         assertThat(result.getJiraBaseUrl()).isEqualTo("https://93.184.216.34");
         assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
-        verify(pipelineWorkerClient).triggerJiraCollection(PROJECT_ID);
+        verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
     }
 
     @Test

@@ -108,7 +108,7 @@ public class IntegrationService {
                 normalizedRepositoryFullName,
                 normalizedBranch
         ));
-        pipelineWorkerClient.triggerGitHubCollection(projectId);
+        pipelineWorkerClient.triggerCollection(IntegrationProvider.GITHUB, projectId);
         return integration;
     }
 
@@ -153,7 +153,7 @@ public class IntegrationService {
                 workspace,
                 encryptedCredential
         ));
-        pipelineWorkerClient.triggerSlackCollection(projectId);
+        pipelineWorkerClient.triggerCollection(IntegrationProvider.SLACK, projectId);
         return integration;
     }
 
@@ -190,7 +190,7 @@ public class IntegrationService {
                 jiraProject,
                 encryptedCredential
         ));
-        pipelineWorkerClient.triggerJiraCollection(projectId);
+        pipelineWorkerClient.triggerCollection(IntegrationProvider.JIRA, projectId);
         return integration;
     }
 
