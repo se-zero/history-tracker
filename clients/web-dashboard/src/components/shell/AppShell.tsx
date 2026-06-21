@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { Sidebar } from "./Sidebar";
@@ -7,11 +7,12 @@ import { Topbar } from "./Topbar";
 import { StatusView } from "@/components/StatusView";
 import {
   deleteConversation,
-  listConversations,
   updateConversationTitle,
 } from "@/api/conversations";
-import { listProjects } from "@/api/projects";
 import { useAuth } from "@/auth/AuthProvider";
+import { queryKeys } from "@/hooks/queryKeys";
+import { useConversations } from "@/hooks/useConversations";
+import { useProjects } from "@/hooks/useProjects";
 import type { Project } from "@/types/api";
 
 type Route = "chat" | "sources" | "graph" | "settings";
@@ -41,11 +42,6 @@ interface ShellContext {
   project: Project;
 }
 
-export function shellContext(): ShellContext {
-  // placeholder so that useOutletContext can be typed in pages later
-  throw new Error("shellContext() must not be called directly");
-}
-
 export function AppShell({ children }: { children?: ReactNode }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -54,24 +50,17 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const queryClient = useQueryClient();
   const projectId = params.projectId;
 
-  const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: listProjects,
-  });
+  const projectsQuery = useProjects();
 
-  const conversationsQuery = useQuery({
-    queryKey: ["conversations", projectId],
-    queryFn: () => listConversations(projectId!),
-    enabled: Boolean(projectId),
-  });
+  const conversationsQuery = useConversations(projectId);
 
   const renameConvoMutation = useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) =>
       updateConversationTitle(projectId!, id, title),
     onSuccess: (updated) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", projectId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations(projectId) });
       queryClient.invalidateQueries({
-        queryKey: ["conversation", projectId, updated.id],
+        queryKey: queryKeys.conversation(projectId, updated.id),
       });
     },
   });
@@ -79,8 +68,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const deleteConvoMutation = useMutation({
     mutationFn: (id: string) => deleteConversation(projectId!, id),
     onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", projectId] });
-      queryClient.removeQueries({ queryKey: ["conversation", projectId, id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations(projectId) });
+      queryClient.removeQueries({ queryKey: queryKeys.conversation(projectId, id) });
     },
   });
 

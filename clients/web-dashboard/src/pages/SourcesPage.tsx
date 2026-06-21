@@ -1,20 +1,27 @@
 import { useState } from "react";
 import axios from "axios";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { BranchSelect } from "@/components/BranchSelect";
 import { Icons } from "@/components/Icons";
+import { Field } from "@/components/ui/Field";
+import { InlineError } from "@/components/ui/InlineError";
+import { MonoChip } from "@/components/ui/MonoChip";
 import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
-import { listInstallationRepositories, listInstallations } from "@/api/github";
 import {
   connectGitHubRepository,
   connectJiraProject,
   connectSlackWorkspace,
-  disconnectIntegration,
-  listIntegrations,
   type ConnectJiraPayload,
   type ConnectSlackPayload,
 } from "@/api/integrations";
+import { queryKeys } from "@/hooks/queryKeys";
+import { useGithubRepoRows } from "@/hooks/useGithub";
+import {
+  useDisconnectIntegration,
+  useIntegrations,
+} from "@/hooks/useIntegrations";
+import { formatDateTime } from "@/lib/format";
 import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api";
 
 // 접힌 상태에서 보여줄 리포지토리 수 — Jira/Slack 카드와 높이를 맞추기 위함
@@ -27,12 +34,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 function formatSyncedAt(iso: string | null): string {
-  if (!iso) return "아직 수집 전";
-  try {
-    return new Date(iso).toLocaleString("ko-KR");
-  } catch {
-    return iso;
-  }
+  return iso ? formatDateTime(iso) : "아직 수집 전";
 }
 
 export function SourcesPage({ project }: { project: Project }) {
@@ -40,17 +42,7 @@ export function SourcesPage({ project }: { project: Project }) {
     <div className="sources-page">
       <h1 className="page-title">데이터 소스</h1>
       <p className="page-sub">
-        <span
-          className="mono"
-          style={{
-            background: "var(--surface-2)",
-            padding: "1px 6px",
-            borderRadius: 4,
-            fontSize: 12,
-          }}
-        >
-          {project.name}
-        </span>{" "}
+        <MonoChip>{project.name}</MonoChip>{" "}
         · 코드와 의사결정의 원본이 모이는 곳. GitHub은 필수, Jira와 Slack은 선택.
       </p>
 
@@ -70,12 +62,8 @@ export function SourcesPage({ project }: { project: Project }) {
 // =========================================================
 
 function IngestStatus({ projectId }: { projectId: string }) {
-  const integrationsQuery = useQuery({
-    queryKey: ["integrations", projectId],
-    queryFn: () => listIntegrations(projectId),
-    // 백그라운드 수집이 진행되는 동안 마지막 수집 시각을 1분마다 갱신
-    refetchInterval: 60000,
-  });
+  // 백그라운드 수집이 진행되는 동안 마지막 수집 시각을 1분마다 갱신
+  const integrationsQuery = useIntegrations(projectId, { refetchInterval: 60000 });
   const integrations = integrationsQuery.data ?? [];
 
   return (
@@ -120,36 +108,17 @@ function IngestStatus({ projectId }: { projectId: string }) {
 // =========================================================
 
 function GitHubCard({ projectId }: { projectId: string }) {
-  const installationsQuery = useQuery({
-    queryKey: ["github", "installations"],
-    queryFn: listInstallations,
-  });
-  const installations = installationsQuery.data ?? [];
-
-  const repoQueries = useQueries({
-    queries: installations.map((inst) => ({
-      queryKey: ["github", "installations", inst.id, "repositories"],
-      queryFn: () => listInstallationRepositories(inst.id),
-    })),
-  });
-
+  const { installationsQuery, installations, rows: allRepoRows, totalRepos } =
+    useGithubRepoRows();
   const connected = installations.length > 0;
-  const totalRepos = repoQueries.reduce((sum, q) => sum + (q.data?.length ?? 0), 0);
 
-  const allRepoRows = installations.flatMap((inst, idx) => {
-    const repos = repoQueries[idx]?.data ?? [];
-    return repos.map((repo) => ({ installation: inst, repo }));
-  });
   const [showAllRepos, setShowAllRepos] = useState(false);
   const visibleRepoRows = showAllRepos
     ? allRepoRows
     : allRepoRows.slice(0, REPO_PREVIEW_COUNT);
   const hiddenRepoCount = allRepoRows.length - visibleRepoRows.length;
 
-  const integrationsQuery = useQuery({
-    queryKey: ["integrations", projectId],
-    queryFn: () => listIntegrations(projectId),
-  });
+  const integrationsQuery = useIntegrations(projectId);
   const githubIntegration = integrationsQuery.data?.find((i) => i.provider === "github");
   const connectedRepoId = githubIntegration?.metadata?.["repository_id"] as
     | number
@@ -177,7 +146,7 @@ function GitHubCard({ projectId }: { projectId: string }) {
       }),
     onSuccess: () => {
       setSelectedRepoId(null);
-      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations(projectId) });
     },
   });
 
@@ -192,12 +161,7 @@ function GitHubCard({ projectId }: { projectId: string }) {
       : "연결에 실패했어요. 잠시 후 다시 시도해 주세요."
     : null;
 
-  const disconnectMutation = useMutation({
-    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
-    },
-  });
+  const disconnectMutation = useDisconnectIntegration(projectId);
 
   const handleDisconnect = (repoFullName: string) => {
     if (!githubIntegration) return;
@@ -353,14 +317,14 @@ function GitHubCard({ projectId }: { projectId: string }) {
             </button>
           )}
           {connectErrorMessage && (
-            <div style={{ color: "var(--danger)", fontSize: 12, padding: "8px 12px" }}>
+            <InlineError style={{ padding: "8px 12px" }}>
               {connectErrorMessage}
-            </div>
+            </InlineError>
           )}
           {disconnectMutation.isError && (
-            <div style={{ color: "var(--danger)", fontSize: 12, padding: "8px 12px" }}>
+            <InlineError style={{ padding: "8px 12px" }}>
               연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
-            </div>
+            </InlineError>
           )}
         </div>
       )}
@@ -396,10 +360,7 @@ function JiraCard({ projectId }: { projectId: string }) {
   });
   const queryClient = useQueryClient();
   // 연결 상태는 로컬 state가 아니라 서버 연동 목록에서 도출 — 새로고침해도 유지된다.
-  const integrationsQuery = useQuery({
-    queryKey: ["integrations", projectId],
-    queryFn: () => listIntegrations(projectId),
-  });
+  const integrationsQuery = useIntegrations(projectId);
   const jiraIntegration = integrationsQuery.data?.find((i) => i.provider === "jira");
   const connected = Boolean(jiraIntegration);
   const connectedName = jiraIntegration?.displayName ?? "Jira";
@@ -409,16 +370,11 @@ function JiraCard({ projectId }: { projectId: string }) {
     onSuccess: () => {
       setOpen(false);
       setForm({ baseUrl: "", projectKey: "", email: "", apiToken: "" });
-      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations(projectId) });
     },
   });
 
-  const disconnectMutation = useMutation({
-    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
-    },
-  });
+  const disconnectMutation = useDisconnectIntegration(projectId);
 
   const handleDisconnect = () => {
     if (!jiraIntegration) return;
@@ -455,16 +411,14 @@ function JiraCard({ projectId }: { projectId: string }) {
 
       {open && (
         <div className="connect-form">
-          <div className="field">
-            <label>Base URL</label>
+          <Field label="Base URL">
             <input
               placeholder="https://acme.atlassian.net"
               value={form.baseUrl}
               onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
             />
-          </div>
-          <div className="field">
-            <label>프로젝트 키</label>
+          </Field>
+          <Field label="프로젝트 키">
             <input
               placeholder="AUTH"
               value={form.projectKey}
@@ -472,36 +426,29 @@ function JiraCard({ projectId }: { projectId: string }) {
                 setForm({ ...form, projectKey: e.target.value.toUpperCase() })
               }
             />
-          </div>
-          <div className="field">
-            <label>계정 이메일</label>
+          </Field>
+          <Field label="계정 이메일">
             <input
               placeholder="you@acme.com"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
-          </div>
-          <div className="field">
-            <label>API Token</label>
+          </Field>
+          <Field label="API Token" hint="Atlassian → 계정 설정 → API 토큰에서 발급">
             <input
               type="password"
               value={form.apiToken}
               onChange={(e) => setForm({ ...form, apiToken: e.target.value })}
             />
-            <span className="hint">Atlassian → 계정 설정 → API 토큰에서 발급</span>
-          </div>
+          </Field>
           {mutation.isError && (
-            <div style={{ color: "var(--danger)", fontSize: 12 }}>
-              연결에 실패했어요. 입력 값을 확인해 주세요.
-            </div>
+            <InlineError>연결에 실패했어요. 입력 값을 확인해 주세요.</InlineError>
           )}
         </div>
       )}
 
       {disconnectMutation.isError && (
-        <div style={{ color: "var(--danger)", fontSize: 12 }}>
-          연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
-        </div>
+        <InlineError>연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.</InlineError>
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
@@ -546,10 +493,7 @@ function SlackCard({ projectId }: { projectId: string }) {
   const [form, setForm] = useState<ConnectSlackPayload>({ token: "" });
   const queryClient = useQueryClient();
   // 연결 상태는 로컬 state가 아니라 서버 연동 목록에서 도출 — 새로고침해도 유지된다.
-  const integrationsQuery = useQuery({
-    queryKey: ["integrations", projectId],
-    queryFn: () => listIntegrations(projectId),
-  });
+  const integrationsQuery = useIntegrations(projectId);
   const slackIntegration = integrationsQuery.data?.find((i) => i.provider === "slack");
   const connected = Boolean(slackIntegration);
   const connectedName = slackIntegration?.displayName ?? "워크스페이스";
@@ -559,16 +503,11 @@ function SlackCard({ projectId }: { projectId: string }) {
     onSuccess: () => {
       setOpen(false);
       setForm({ token: "" });
-      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations(projectId) });
     },
   });
 
-  const disconnectMutation = useMutation({
-    mutationFn: (integrationId: string) => disconnectIntegration(projectId, integrationId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integrations", projectId] });
-    },
-  });
+  const disconnectMutation = useDisconnectIntegration(projectId);
 
   const handleDisconnect = () => {
     if (!slackIntegration) return;
@@ -607,19 +546,22 @@ function SlackCard({ projectId }: { projectId: string }) {
 
       {open && (
         <div className="connect-form">
-          <div className="field">
-            <label>User OAuth Token (xoxp-)</label>
+          <Field
+            label="User OAuth Token (xoxp-)"
+            hint={
+              <>
+                Slack 앱 관리 → OAuth & Permissions → <strong>User OAuth Token</strong>{" "}
+                발급. Bot Token(xoxb-)은 사용할 수 없습니다.
+              </>
+            }
+          >
             <input
               type="password"
               placeholder="xoxp-..."
               value={form.token}
               onChange={(e) => setForm({ token: e.target.value.trim() })}
             />
-            <span className="hint">
-              Slack 앱 관리 → OAuth & Permissions → <strong>User OAuth Token</strong>{" "}
-              발급. Bot Token(xoxb-)은 사용할 수 없습니다.
-            </span>
-          </div>
+          </Field>
           {form.token && !form.token.startsWith("xoxp-") && (
             <div style={{ color: "var(--warning)", fontSize: 12 }}>
               User OAuth Token은 <code>xoxp-</code>로 시작해야 합니다. Bot Token
@@ -627,17 +569,13 @@ function SlackCard({ projectId }: { projectId: string }) {
             </div>
           )}
           {mutation.isError && (
-            <div style={{ color: "var(--danger)", fontSize: 12 }}>
-              연결에 실패했어요. 토큰을 확인해 주세요.
-            </div>
+            <InlineError>연결에 실패했어요. 토큰을 확인해 주세요.</InlineError>
           )}
         </div>
       )}
 
       {disconnectMutation.isError && (
-        <div style={{ color: "var(--danger)", fontSize: 12 }}>
-          연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
-        </div>
+        <InlineError>연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.</InlineError>
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>

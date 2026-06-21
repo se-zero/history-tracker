@@ -3,9 +3,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { Icons } from "@/components/Icons";
+import { Field } from "@/components/ui/Field";
+import { InlineError } from "@/components/ui/InlineError";
+import { MonoChip } from "@/components/ui/MonoChip";
 import { deleteAccount } from "@/api/auth";
 import { deleteProject, updateProject } from "@/api/projects";
 import { useAuth } from "@/auth/AuthProvider";
+import { queryKeys } from "@/hooks/queryKeys";
+import { formatDateTime } from "@/lib/format";
 import type { Project } from "@/types/api";
 
 export function SettingsPage({ project }: { project: Project }) {
@@ -33,17 +38,17 @@ export function SettingsPage({ project }: { project: Project }) {
         description: description.trim() || undefined,
       }),
     onSuccess: (updated) => {
-      queryClient.setQueryData(["projects"], (prev: Project[] | undefined) =>
+      queryClient.setQueryData(queryKeys.projects(), (prev: Project[] | undefined) =>
         prev?.map((p) => (p.id === updated.id ? updated : p)),
       );
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects() });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteProject(project.id),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projects() });
       navigate("/", { replace: true });
     },
   });
@@ -72,17 +77,7 @@ export function SettingsPage({ project }: { project: Project }) {
     <div className="sources-page">
       <h1 className="page-title">설정</h1>
       <p className="page-sub">
-        <span
-          className="mono"
-          style={{
-            background: "var(--surface-2)",
-            padding: "1px 6px",
-            borderRadius: 4,
-            fontSize: 12,
-          }}
-        >
-          {project.name}
-        </span>{" "}
+        <MonoChip>{project.name}</MonoChip>{" "}
         · 프로젝트 정보 수정과 삭제.
       </p>
 
@@ -96,28 +91,24 @@ export function SettingsPage({ project }: { project: Project }) {
         </div>
 
         <div className="connect-form" style={{ display: "block" }}>
-          <div className="field">
-            <label>이름</label>
+          <Field label="이름">
             <input
               value={name}
               maxLength={200}
               onChange={(e) => setName(e.target.value)}
               placeholder="예: Payments Platform"
             />
-          </div>
-          <div className="field">
-            <label>설명 (선택)</label>
+          </Field>
+          <Field label="설명 (선택)">
             <input
               value={description}
               maxLength={2000}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="예: 결제 도메인 전반(주문, 정산, 환불)"
             />
-          </div>
+          </Field>
           {updateMutation.isError && (
-            <div style={{ color: "var(--danger)", fontSize: 12 }}>
-              저장에 실패했어요. 다시 시도해 주세요.
-            </div>
+            <InlineError>저장에 실패했어요. 다시 시도해 주세요.</InlineError>
           )}
           {updateMutation.isSuccess && !dirty && (
             <div style={{ color: "var(--success)", fontSize: 12 }}>
@@ -158,8 +149,8 @@ export function SettingsPage({ project }: { project: Project }) {
         </div>
         <MetaRow label="프로젝트 ID" value={project.id} mono />
         <MetaRow label="소유자 ID" value={project.ownerId} mono />
-        <MetaRow label="생성일" value={formatDate(project.createdAt)} />
-        <MetaRow label="최근 수정" value={formatDate(project.updatedAt)} />
+        <MetaRow label="생성일" value={formatDateTime(project.createdAt)} />
+        <MetaRow label="최근 수정" value={formatDateTime(project.updatedAt)} />
       </section>
 
       {/* ─── 위험 영역 ─── */}
@@ -177,24 +168,25 @@ export function SettingsPage({ project }: { project: Project }) {
         </div>
 
         <div className="connect-form" style={{ display: "block" }}>
-          <div className="field">
-            <label>
-              확인을 위해 프로젝트 이름{" "}
-              <span className="mono" style={{ color: "var(--danger)" }}>
-                {project.name}
-              </span>
-              을 입력하세요
-            </label>
+          <Field
+            label={
+              <>
+                확인을 위해 프로젝트 이름{" "}
+                <span className="mono" style={{ color: "var(--danger)" }}>
+                  {project.name}
+                </span>
+                을 입력하세요
+              </>
+            }
+          >
             <input
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}
               placeholder={project.name}
             />
-          </div>
+          </Field>
           {deleteMutation.isError && (
-            <div style={{ color: "var(--danger)", fontSize: 12 }}>
-              삭제에 실패했어요. 다시 시도해 주세요.
-            </div>
+            <InlineError>삭제에 실패했어요. 다시 시도해 주세요.</InlineError>
           )}
         </div>
 
@@ -231,25 +223,26 @@ export function SettingsPage({ project }: { project: Project }) {
         </div>
 
         <div className="connect-form" style={{ display: "block" }}>
-          <div className="field">
-            <label>
-              확인을 위해 계정 이메일{" "}
-              <span className="mono" style={{ color: "var(--danger)" }}>
-                {user?.email ?? "(이메일 없음)"}
-              </span>
-              을 입력하세요
-            </label>
+          <Field
+            label={
+              <>
+                확인을 위해 계정 이메일{" "}
+                <span className="mono" style={{ color: "var(--danger)" }}>
+                  {user?.email ?? "(이메일 없음)"}
+                </span>
+                을 입력하세요
+              </>
+            }
+          >
             <input
               value={withdrawEmail}
               onChange={(e) => setWithdrawEmail(e.target.value)}
               placeholder={user?.email ?? ""}
               autoComplete="off"
             />
-          </div>
+          </Field>
           {withdrawMutation.isError && (
-            <div style={{ color: "var(--danger)", fontSize: 12 }}>
-              탈퇴 처리에 실패했어요. 다시 시도해 주세요.
-            </div>
+            <InlineError>탈퇴 처리에 실패했어요. 다시 시도해 주세요.</InlineError>
           )}
         </div>
 
@@ -302,12 +295,4 @@ function MetaRow({
       </span>
     </div>
   );
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("ko-KR");
-  } catch {
-    return iso;
-  }
 }

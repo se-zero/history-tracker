@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { Icons } from "@/components/Icons";
 import { StatusView } from "@/components/StatusView";
-import {
-  createConversation,
-  getConversation,
-  sendMessage,
-} from "@/api/conversations";
+import { InlineError } from "@/components/ui/InlineError";
+import { createConversation, sendMessage } from "@/api/conversations";
 import { useAuth } from "@/auth/AuthProvider";
+import { queryKeys } from "@/hooks/queryKeys";
+import { useConversation } from "@/hooks/useConversations";
+import { userInitials } from "@/lib/format";
 import type {
   ConversationDetail,
   Message,
@@ -32,11 +32,7 @@ export function ChatPage({ project }: { project: Project }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  const conversationQuery = useQuery({
-    queryKey: ["conversation", project.id, conversationId],
-    queryFn: () => getConversation(project.id, conversationId!),
-    enabled: Boolean(conversationId),
-  });
+  const conversationQuery = useConversation(project.id, conversationId);
 
   const messages = conversationQuery.data?.messages ?? [];
 
@@ -57,9 +53,11 @@ export function ChatPage({ project }: { project: Project }) {
     mutationFn: (firstMessage: string) =>
       createConversation(project.id, firstMessage),
     onSuccess: (detail) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", project.id] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations(project.id),
+      });
       queryClient.setQueryData(
-        ["conversation", project.id, detail.id],
+        queryKeys.conversation(project.id, detail.id),
         detail,
       );
       setPendingMessage(null);
@@ -74,7 +72,7 @@ export function ChatPage({ project }: { project: Project }) {
     onSuccess: (exchange) => {
       // 응답 쌍을 캐시에 바로 반영해 낙관적 메시지를 비울 때 공백이 생기지 않게 한다.
       queryClient.setQueryData<ConversationDetail>(
-        ["conversation", project.id, conversationId],
+        queryKeys.conversation(project.id, conversationId),
         (prev) =>
           prev
             ? {
@@ -87,7 +85,9 @@ export function ChatPage({ project }: { project: Project }) {
               }
             : prev,
       );
-      queryClient.invalidateQueries({ queryKey: ["conversations", project.id] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations(project.id),
+      });
       setPendingMessage(null);
     },
     onError: (_error, content) => restoreOnError(content),
@@ -395,12 +395,9 @@ function Composer({
     <div className="composer">
       <div className="composer-inner">
         {error && (
-          <div
-            role="alert"
-            style={{ color: "var(--danger)", fontSize: 12, marginBottom: 6 }}
-          >
+          <InlineError role="alert" style={{ marginBottom: 6 }}>
             {error}
-          </div>
+          </InlineError>
         )}
         <div className="composer-box">
           <textarea
@@ -437,11 +434,4 @@ function Composer({
       </div>
     </div>
   );
-}
-
-function userInitials(user: User | null): string {
-  if (!user?.displayName) return "?";
-  const tokens = user.displayName.trim().split(/\s+/);
-  if (tokens.length === 1) return tokens[0].slice(0, 2).toUpperCase();
-  return (tokens[0][0] + tokens[tokens.length - 1][0]).toUpperCase();
 }

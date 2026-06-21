@@ -1,27 +1,26 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { GraphVis } from "@/components/graph/GraphVis";
 import { NodeDetail } from "@/components/graph/NodeDetail";
 import { StatusView } from "@/components/StatusView";
-import { getProjectGraph, rebuildProjectGraph } from "@/api/graph";
+import { rebuildProjectGraph } from "@/api/graph";
+import { queryKeys } from "@/hooks/queryKeys";
+import { useGraph } from "@/hooks/useGraph";
 import type { Project } from "@/types/api";
 
 export function GraphPage({ project }: { project: Project }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const graphQuery = useQuery({
-    queryKey: ["graph", project.id],
-    queryFn: () => getProjectGraph(project.id),
-  });
+  const graphQuery = useGraph(project.id);
 
   // 재구축 완료 후 그래프를 다시 불러와 새로 생긴 연결을 반영한다.
   // verify=false: 방안 A(임베딩, 빠름) / verify=true: 방안 D(LLM 검증, 느림·비용).
   const rebuild = useMutation({
     mutationFn: (verify: boolean) => rebuildProjectGraph(project.id, verify),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["graph", project.id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.graph(project.id) });
     },
   });
 
