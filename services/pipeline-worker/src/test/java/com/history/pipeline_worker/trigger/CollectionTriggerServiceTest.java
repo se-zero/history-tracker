@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.trigger;
 
+import com.history.pipeline_worker.collection.CollectionProvider;
 import com.history.pipeline_worker.collection.GitHubIntegration;
 import com.history.pipeline_worker.collection.JiraIntegration;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;

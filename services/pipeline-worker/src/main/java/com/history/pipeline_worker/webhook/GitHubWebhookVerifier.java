@@ -19,6 +19,7 @@ public class GitHubWebhookVerifier {
         this.secret = secret;
     }
 
+    // GitHub webhook HMAC-SHA256 서명 검증 (X-Hub-Signature-256)
     public boolean verify(String payload, String signatureHeader) {
         if (secret == null || secret.isBlank()) {
             return false;
@@ -35,6 +36,7 @@ public class GitHubWebhookVerifier {
             return false;
         }
 
+        // 타이밍 공격 방지: 길이·내용에 따라 조기 종료하지 않는 상수 시간 비교
         return MessageDigest.isEqual(expected, actual);
     }
 

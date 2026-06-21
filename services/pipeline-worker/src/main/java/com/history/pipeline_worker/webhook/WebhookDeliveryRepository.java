@@ -18,6 +18,7 @@ public class WebhookDeliveryRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    // delivery_id PK + ON CONFLICT DO NOTHING 기반 원자적 claim — GitHub 재전송·동시 수신 시 insert 성공 1건만 수집 (중복 수집 방지)
     public boolean tryClaim(String deliveryId, UUID projectId) {
         String sql = """
                 INSERT INTO webhook_deliveries (

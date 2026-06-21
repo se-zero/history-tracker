@@ -19,10 +19,6 @@ import java.util.function.Supplier;
 @Service
 public class ProjectIntegrationService {
 
-    private static final String PROVIDER_GITHUB = "github";
-    private static final String PROVIDER_JIRA = "jira";
-    private static final String PROVIDER_SLACK = "slack";
-
     private static final String GITHUB_REPOSITORY_FULL_NAME = "repository_full_name";
     private static final String GITHUB_BRANCH = "branch";
     private static final String JIRA_PROJECT_KEY = "project_key";
@@ -69,24 +65,24 @@ public class ProjectIntegrationService {
     }
 
     public Optional<GitHubIntegration> resolveGitHub(UUID projectId) {
-        return findIntegration(projectId, PROVIDER_GITHUB)
+        return findIntegration(projectId, CollectionProvider.GITHUB)
                 .flatMap(this::buildGitHubIntegrationSafely);
     }
 
     public Optional<JiraIntegration> resolveJira(UUID projectId) {
-        return findIntegration(projectId, PROVIDER_JIRA)
+        return findIntegration(projectId, CollectionProvider.JIRA)
                 .flatMap(integration -> buildOptionalIntegration(
                         () -> buildJiraIntegration(integration),
-                        PROVIDER_JIRA,
+                        CollectionProvider.JIRA.value(),
                         projectId.toString()
                 ));
     }
 
     public Optional<SlackIntegration> resolveSlack(UUID projectId) {
-        return findIntegration(projectId, PROVIDER_SLACK)
+        return findIntegration(projectId, CollectionProvider.SLACK)
                 .flatMap(integration -> buildOptionalIntegration(
                         () -> buildSlackIntegration(integration),
-                        PROVIDER_SLACK,
+                        CollectionProvider.SLACK.value(),
                         projectId.toString()
                 ));
     }
@@ -98,20 +94,24 @@ public class ProjectIntegrationService {
         Optional<SlackIntegration> slack = Optional.empty();
 
         for (ProjectIntegrationRepository.IntegrationRow integration : integrations) {
-            switch (integration.provider()) {
-                case PROVIDER_GITHUB -> github = buildGitHubIntegration(integration);
-                case PROVIDER_JIRA -> jira = buildOptionalIntegration(
-                        () -> buildJiraIntegration(integration),
-                        PROVIDER_JIRA,
-                        integration.projectId().toString()
-                );
-                case PROVIDER_SLACK -> slack = buildOptionalIntegration(
-                        () -> buildSlackIntegration(integration),
-                        PROVIDER_SLACK,
-                        integration.projectId().toString()
-                );
-                default -> log.warn("Unsupported integration provider: projectId={}, provider={}",
+            CollectionProvider provider = CollectionProvider.find(integration.provider()).orElse(null);
+            if (provider == null) {
+                log.warn("Unsupported integration provider: projectId={}, provider={}",
                         integration.projectId(), integration.provider());
+                continue;
+            }
+            switch (provider) {
+                case GITHUB -> github = buildGitHubIntegration(integration);
+                case JIRA -> jira = buildOptionalIntegration(
+                        () -> buildJiraIntegration(integration),
+                        provider.value(),
+                        integration.projectId().toString()
+                );
+                case SLACK -> slack = buildOptionalIntegration(
+                        () -> buildSlackIntegration(integration),
+                        provider.value(),
+                        integration.projectId().toString()
+                );
             }
         }
 
@@ -126,9 +126,9 @@ public class ProjectIntegrationService {
         ));
     }
 
-    private Optional<ProjectIntegrationRepository.IntegrationRow> findIntegration(UUID projectId, String provider) {
+    private Optional<ProjectIntegrationRepository.IntegrationRow> findIntegration(UUID projectId, CollectionProvider provider) {
         return repository.findAllByProjectId(projectId).stream()
-                .filter(integration -> provider.equals(integration.provider()))
+                .filter(integration -> provider.value().equals(integration.provider()))
                 .findFirst();
     }
 
@@ -139,7 +139,7 @@ public class ProjectIntegrationService {
             return buildGitHubIntegration(integration);
         } catch (IllegalArgumentException | IllegalStateException exception) {
             log.warn("Skipping invalid integration: projectId={}, provider={}",
-                    integration.projectId(), PROVIDER_GITHUB, exception);
+                    integration.projectId(), CollectionProvider.GITHUB.value(), exception);
             return Optional.empty();
         }
     }

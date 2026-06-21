@@ -13,6 +13,8 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+// project integration credential AES-256-GCM 암복호화
+// backend가 동일 키(BACKEND_CREDENTIAL_KEY)로 암호화한 값 복호화 — 저장 포맷(IV 12B ‖ ciphertext+tag)은 backend와 바이트 호환 필수
 @Service
 public class CredentialCryptoService {
 

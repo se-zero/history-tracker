@@ -95,6 +95,7 @@ public class GitHubWebhookService {
         try {
             taskExecutor.execute(() -> runCollection(deliveryId, collectionContext));
         } catch (RejectedExecutionException e) {
+            // executor 포화로 큐잉 실패 시 claim 해제 — GitHub 재전송의 재claim 허용 (FAILED로 굳히지 않음)
             webhookDeliveryService.releaseClaim(deliveryId);
             throw e;
         } catch (RuntimeException e) {
