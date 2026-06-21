@@ -17,6 +17,7 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.RefreshTokenRepository;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.security.JwtProperties;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -25,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("RefreshTokenService: 갱신 토큰 발급·교체·폐기")
 class RefreshTokenServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -33,6 +35,7 @@ class RefreshTokenServiceTest {
     private RefreshTokenRepository refreshTokenRepository;
 
     @Test
+    @DisplayName("갱신 토큰 발급 시 hash만 저장")
     void issueRefreshTokenStoresOnlyHash() {
         RefreshTokenService service = refreshTokenService();
         User user = user();
@@ -46,6 +49,7 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    @DisplayName("탈퇴 사용자에게 갱신 토큰 발급 거부")
     void issueRefreshTokenRejectsDeletedUser() {
         RefreshTokenService service = refreshTokenService();
         User user = user();
@@ -56,6 +60,7 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    @DisplayName("갱신 토큰 교체 시 기존 토큰 폐기 후 신규 발급")
     void rotateRefreshTokenDeletesOldTokenAndIssuesNewToken() {
         RefreshTokenService service = refreshTokenService();
         RefreshToken oldToken = new RefreshToken(user(), new byte[]{1, 2, 3}, Instant.now().plusSeconds(60));
@@ -70,6 +75,7 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    @DisplayName("유효하지 않은 갱신 토큰 교체 거부")
     void rotateRefreshTokenRejectsInvalidToken() {
         RefreshTokenService service = refreshTokenService();
         when(refreshTokenRepository.findByTokenHash(any())).thenReturn(Optional.empty());
@@ -78,6 +84,7 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    @DisplayName("만료 갱신 토큰 폐기 후 교체 거부")
     void rotateRefreshTokenDeletesExpiredTokenAndRejectsIt() {
         RefreshTokenService service = refreshTokenService();
         RefreshToken expiredToken = new RefreshToken(user(), new byte[]{1, 2, 3}, Instant.now().minusSeconds(1));
@@ -88,6 +95,7 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    @DisplayName("탈퇴 사용자 갱신 토큰 폐기 후 교체 거부")
     void rotateRefreshTokenDeletesTokenAndRejectsDeletedUser() {
         RefreshTokenService service = refreshTokenService();
         User user = user();
@@ -101,6 +109,7 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    @DisplayName("갱신 토큰 폐기 성공")
     void revokeRefreshTokenDeletesTokenWhenItExists() {
         RefreshTokenService service = refreshTokenService();
         RefreshToken refreshToken = new RefreshToken(user(), new byte[]{1, 2, 3}, Instant.now().plusSeconds(60));
@@ -112,6 +121,7 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    @DisplayName("사용자의 모든 갱신 토큰 일괄 폐기")
     void revokeAllRefreshTokensDeletesTokensByUserId() {
         RefreshTokenService service = refreshTokenService();
         User user = user();

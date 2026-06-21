@@ -23,6 +23,7 @@ import com.history.backend.project.service.ProjectService;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +36,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@DisplayName("ProjectController: 프로젝트 HTTP API")
 class ProjectControllerTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -57,6 +59,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("프로젝트 생성 → 201 Created 반환")
     void createProjectReturnsCreatedProject() throws Exception {
         when(projectService.createProject(USER_ID, "History Tracker", "GraphRAG backend"))
                 .thenReturn(project("History Tracker", "GraphRAG backend"));
@@ -80,6 +83,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("프로젝트 목록 조회 → 현재 사용자 프로젝트 반환")
     void listProjectsReturnsCurrentUserProjects() throws Exception {
         when(projectService.findProjects(USER_ID))
                 .thenReturn(List.of(project("History Tracker", "GraphRAG backend")));
@@ -92,6 +96,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("프로젝트 단건 조회 → 200 OK 반환")
     void getProjectReturnsProject() throws Exception {
         when(projectService.getProject(USER_ID, PROJECT_ID))
                 .thenReturn(project("History Tracker", null));
@@ -104,6 +109,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("프로젝트 수정 → 수정된 프로젝트 반환")
     void updateProjectReturnsUpdatedProject() throws Exception {
         when(projectService.updateProject(USER_ID, PROJECT_ID, "History Tracker API", "Backend API"))
                 .thenReturn(project("History Tracker API", "Backend API"));
@@ -123,6 +129,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("프로젝트 삭제 → 204 No Content 반환")
     void deleteProjectReturnsNoContent() throws Exception {
         mockMvc.perform(delete("/api/v1/projects/{projectId}", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
@@ -132,6 +139,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("액세스 토큰 없으면 401 Unauthorized 반환")
     void rejectMissingAccessToken() throws Exception {
         mockMvc.perform(get("/api/v1/projects"))
                 .andExpect(status().isUnauthorized())
@@ -140,6 +148,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 프로젝트 조회 → 404 Not Found 반환")
     void getProjectReturnsNotFoundWhenProjectDoesNotExist() throws Exception {
         when(projectService.getProject(USER_ID, PROJECT_ID))
                 .thenThrow(new NotFoundException("Project not found."));
@@ -151,6 +160,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("소유자가 다른 프로젝트 수정 → 403 Forbidden 반환")
     void updateProjectReturnsForbiddenWhenOwnerDoesNotMatch() throws Exception {
         when(projectService.updateProject(USER_ID, PROJECT_ID, "History Tracker API", null))
                 .thenThrow(new ForbiddenException("Project access denied."));
@@ -166,6 +176,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("빈 이름으로 프로젝트 수정 → 400 Bad Request 반환")
     void updateProjectRejectsBlankName() throws Exception {
         mockMvc.perform(put("/api/v1/projects/{projectId}", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -182,6 +193,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("중복된 이름으로 프로젝트 수정 → 409 Conflict 반환")
     void updateProjectReturnsConflictWhenNameAlreadyExists() throws Exception {
         when(projectService.updateProject(USER_ID, PROJECT_ID, "History Tracker API", null))
                 .thenThrow(new ConflictException("Project name already exists."));
@@ -197,6 +209,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("빈 이름으로 프로젝트 생성 → 400 Bad Request 반환")
     void createProjectRejectsBlankName() throws Exception {
         mockMvc.perform(post("/api/v1/projects")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -213,6 +226,7 @@ class ProjectControllerTest {
     }
 
     @Test
+    @DisplayName("중복된 이름으로 프로젝트 생성 → 409 Conflict 반환")
     void createProjectReturnsConflictWhenNameAlreadyExists() throws Exception {
         when(projectService.createProject(USER_ID, "History Tracker", null))
                 .thenThrow(new ConflictException("Project name already exists."));

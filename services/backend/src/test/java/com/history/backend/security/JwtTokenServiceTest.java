@@ -6,13 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.time.Duration;
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("JwtTokenService: JWT 토큰 발급·검증")
 class JwtTokenServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("1f337cd1-cb32-4a9e-8d95-0cc656c974f8");
 
     @Test
+    @DisplayName("액세스 토큰 발급 후 검증 성공")
     void issueAndValidateAccessToken() {
         JwtTokenService tokenService = tokenService(Duration.ofMinutes(15));
 
@@ -23,6 +26,7 @@ class JwtTokenServiceTest {
     }
 
     @Test
+    @DisplayName("변조된 토큰 검증 실패")
     void rejectTamperedToken() {
         JwtTokenService tokenService = tokenService(Duration.ofMinutes(15));
         String token = tokenService.issueAccessToken(USER_ID);
@@ -35,6 +39,7 @@ class JwtTokenServiceTest {
     }
 
     @Test
+    @DisplayName("만료된 액세스 토큰 검증 실패")
     void rejectExpiredAccessToken() {
         JwtTokenService tokenService = tokenService(Duration.ofSeconds(-1));
         String token = tokenService.issueAccessToken(USER_ID);

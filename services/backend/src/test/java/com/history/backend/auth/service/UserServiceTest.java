@@ -16,12 +16,14 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.dto.GitHubUserResponse;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("UserService: 사용자 생성·조회·탈퇴")
 class UserServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -33,6 +35,7 @@ class UserServiceTest {
     private RefreshTokenService refreshTokenService;
 
     @Test
+    @DisplayName("동시 삽입 충돌 시 재조회로 사용자 반환")
     void upsertGitHubUserReloadsUserWhenConcurrentInsertWins() {
         UserService userService = userService();
         GitHubUserResponse gitHubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
@@ -52,6 +55,7 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("유예 기간 내 soft-deleted 사용자 복구")
     void upsertGitHubUserRestoresDeletedUserWithinGracePeriod() {
         UserService userService = userService();
         GitHubUserResponse gitHubUser = new GitHubUserResponse(
@@ -78,6 +82,7 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("유예 기간 초과 soft-deleted 사용자 → 신규 사용자 생성")
     void upsertGitHubUserCreatesNewUserWhenDeletedUserIsPastGracePeriod() {
         UserService userService = userService();
         GitHubUserResponse gitHubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
@@ -106,6 +111,7 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("사용자 탈퇴 시 soft delete 및 갱신 토큰 일괄 폐기")
     void deactivateUserSoftDeletesActiveUserAndRevokesRefreshTokens() {
         UserService userService = userService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
@@ -118,6 +124,7 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("탈퇴·미존재 사용자 탈퇴 요청 거부")
     void deactivateUserRejectsDeletedOrMissingUser() {
         UserService userService = userService();
         when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.empty());

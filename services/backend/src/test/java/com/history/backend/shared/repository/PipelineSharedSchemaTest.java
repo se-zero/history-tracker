@@ -7,6 +7,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -24,6 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("webhook_deliveries/checkpoints 테이블: DB 스키마 제약 조건")
 class PipelineSharedSchemaTest {
 
     @Container
@@ -44,6 +46,7 @@ class PipelineSharedSchemaTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
+    @DisplayName("프로젝트 없이 webhook delivery 생성 가능")
     void webhookDeliveryCanBeClaimedWithoutProject() {
         UUID deliveryId = insertWebhookDelivery("delivery-1", null, "IN_PROGRESS");
 
@@ -51,6 +54,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("delivery_id 유니크 제약")
     void webhookDeliveryIdIsUnique() {
         UUID ownerId = insertUser("owner@example.com");
         UUID projectId = insertProject(ownerId);
@@ -61,6 +65,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("webhook delivery status 허용되지 않는 값 거부")
     void webhookDeliveryStatusRejectsUnexpectedValue() {
         UUID ownerId = insertUser("owner2@example.com");
         UUID projectId = insertProject(ownerId);
@@ -70,6 +75,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("프로젝트 삭제 시 webhook delivery cascade 삭제")
     void deletingProjectCascadesWebhookDeliveries() {
         UUID ownerId = insertUser("owner3@example.com");
         UUID projectId = insertProject(ownerId);
@@ -86,6 +92,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("프로젝트·provider·cursor_key로 체크포인트 저장 가능")
     void checkpointCanBeSavedPerProjectProviderAndCursorKey() {
         UUID ownerId = insertUser("owner4@example.com");
         UUID projectId = insertProject(ownerId);
@@ -101,6 +108,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("복합 PK 중복 삽입 거부")
     void checkpointCompositePrimaryKeyRejectsDuplicateCursor() {
         UUID ownerId = insertUser("owner5@example.com");
         UUID projectId = insertProject(ownerId);
@@ -115,6 +123,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("다른 프로젝트에서 동일 cursor_key 사용 가능")
     void sameCursorKeyCanBeUsedForDifferentProjects() {
         UUID firstOwnerId = insertUser("owner6@example.com");
         UUID secondOwnerId = insertUser("owner7@example.com");
@@ -133,6 +142,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("checkpoints provider 허용되지 않는 값 거부")
     void checkpointProviderRejectsUnexpectedValue() {
         UUID ownerId = insertUser("owner8@example.com");
         UUID projectId = insertProject(ownerId);
@@ -146,6 +156,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("프로젝트 삭제 시 체크포인트 cascade 삭제")
     void deletingProjectCascadesCheckpoints() {
         UUID ownerId = insertUser("owner9@example.com");
         UUID projectId = insertProject(ownerId);

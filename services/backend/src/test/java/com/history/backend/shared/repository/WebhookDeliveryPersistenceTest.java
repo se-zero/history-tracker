@@ -12,6 +12,7 @@ import com.history.backend.project.repository.ProjectRepository;
 import com.history.backend.shared.domain.WebhookDelivery;
 import com.history.backend.shared.domain.WebhookDeliveryStatus;
 import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -30,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("WebhookDeliveryRepository: webhook delivery JPA 퍼시스턴스")
 class WebhookDeliveryPersistenceTest {
 
     @Container
@@ -62,6 +64,7 @@ class WebhookDeliveryPersistenceTest {
     private EntityManager entityManager;
 
     @Test
+    @DisplayName("IN_PROGRESS delivery 저장 후 조회 성공")
     void saveAndFindClaimedDelivery() {
         Project project = createProject();
         WebhookDelivery delivery = webhookDeliveryRepository.saveAndFlush(WebhookDelivery.claimed(
@@ -81,6 +84,7 @@ class WebhookDeliveryPersistenceTest {
     }
 
     @Test
+    @DisplayName("첫 번째 claim만 삽입, 중복은 무시")
     void tryClaimInsertsOnlyFirstDelivery() {
         Project project = createProject();
 
@@ -97,6 +101,7 @@ class WebhookDeliveryPersistenceTest {
     }
 
     @Test
+    @DisplayName("project 없이 claim 가능")
     void tryClaimAllowsMissingProject() {
         int inserted = webhookDeliveryRepository.tryClaim("delivery-3", null);
 
@@ -106,6 +111,7 @@ class WebhookDeliveryPersistenceTest {
     }
 
     @Test
+    @DisplayName("markProcessed 시 오류 초기화 및 PROCESSED 상태 변경")
     void markProcessedClearsLastErrorAndUpdatesStatus() {
         Project project = createProject();
         WebhookDelivery delivery = webhookDeliveryRepository.saveAndFlush(WebhookDelivery.claimed(
@@ -124,6 +130,7 @@ class WebhookDeliveryPersistenceTest {
     }
 
     @Test
+    @DisplayName("markFailed 시 오류 메시지 저장 및 FAILED 상태 변경")
     void markFailedStoresLastError() {
         Project project = createProject();
         WebhookDelivery delivery = webhookDeliveryRepository.saveAndFlush(WebhookDelivery.claimed(
@@ -140,6 +147,7 @@ class WebhookDeliveryPersistenceTest {
     }
 
     @Test
+    @DisplayName("상태 변경 시 updated_at 갱신")
     void updatingStatusRefreshesUpdatedAt() {
         Project project = createProject();
         WebhookDelivery delivery = webhookDeliveryRepository.saveAndFlush(WebhookDelivery.claimed(
@@ -155,6 +163,7 @@ class WebhookDeliveryPersistenceTest {
     }
 
     @Test
+    @DisplayName("프로젝트 삭제 시 webhook delivery cascade 삭제")
     void deletingProjectCascadesWebhookDelivery() {
         Project project = createProject();
         WebhookDelivery delivery = webhookDeliveryRepository.saveAndFlush(WebhookDelivery.claimed(

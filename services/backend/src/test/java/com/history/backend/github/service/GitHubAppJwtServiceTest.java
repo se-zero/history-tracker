@@ -16,13 +16,16 @@ import java.util.Base64;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.backend.github.GitHubAppProperties;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("GitHubAppJwtService: GitHub App JWT 생성")
 class GitHubAppJwtServiceTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
+    @DisplayName("GitHub App 페이로드로 JWT 서명 생성")
     void createJwtSignsGitHubAppPayload() throws Exception {
         KeyPair keyPair = generateKeyPair();
         GitHubAppJwtService service = new GitHubAppJwtService(
@@ -47,6 +50,7 @@ class GitHubAppJwtServiceTest {
     }
 
     @Test
+    @DisplayName("PKCS#1 PEM 개인키로 JWT 생성 지원")
     void createJwtSupportsPkcs1PrivateKeyPem() throws Exception {
         KeyPair keyPair = generateKeyPair();
         GitHubAppJwtService service = new GitHubAppJwtService(

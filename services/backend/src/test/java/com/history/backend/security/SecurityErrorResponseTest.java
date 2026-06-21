@@ -1,5 +1,6 @@
 package com.history.backend.security;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,12 +15,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@DisplayName("Spring Security: 인증·검증 오류 응답 형식")
 class SecurityErrorResponseTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @Test
+    @DisplayName("액세스 토큰 없으면 401 표준 오류 응답 반환")
     void rejectMissingAccessTokenWithErrorResponse() throws Exception {
         mockMvc.perform(post("/api/v1/projects/f4dfc513-bb7b-41f4-aaf9-46bcc18380f8/conversations")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -33,6 +36,7 @@ class SecurityErrorResponseTest {
     }
 
     @Test
+    @DisplayName("빈 GitHub 콜백 코드 → 400 표준 오류 응답 반환")
     void rejectBlankGitHubCallbackCodeWithErrorResponse() throws Exception {
         mockMvc.perform(get("/api/v1/auth/github/callback")
                         .queryParam("code", ""))

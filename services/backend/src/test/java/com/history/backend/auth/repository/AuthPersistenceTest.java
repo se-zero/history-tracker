@@ -10,6 +10,7 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.repository.GitHubInstallationRepository;
 import org.springframework.data.domain.PageRequest;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -28,6 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("UserRepository/RefreshTokenRepository: 인증 JPA 퍼시스턴스")
 class AuthPersistenceTest {
 
     @Container
@@ -58,6 +60,7 @@ class AuthPersistenceTest {
 
     // 운영 PostgreSQL migration 기준으로 Repository 매핑을 검증한다.
     @Test
+    @DisplayName("User/RefreshToken/GitHubInstallation 저장 후 조회 성공")
     void saveAndFindAuthFoundationEntities() {
         User user = userRepository.save(new User(
                 "github",
@@ -94,6 +97,7 @@ class AuthPersistenceTest {
 
     // soft-deleted user를 위한 운영 partial unique index를 검증한다.
     @Test
+    @DisplayName("soft delete 후 동일 OAuth ID로 재가입 가능")
     void allowSameOAuthIdentityAfterSoftDelete() {
         User deletedUser = userRepository.saveAndFlush(new User(
                 "github",
@@ -118,6 +122,7 @@ class AuthPersistenceTest {
 
     // 운영 CITEXT email 비교 규칙을 검증한다.
     @Test
+    @DisplayName("email 비교는 대소문자 무시 CITEXT 사용")
     void emailUsesCaseInsensitiveCitextComparison() {
         userRepository.saveAndFlush(new User(
                 "github",
@@ -137,6 +142,7 @@ class AuthPersistenceTest {
     }
 
     @Test
+    @DisplayName("퍼지 대상 조회 시 만료된 soft-deleted 사용자만 반환")
     void findPurgeCandidateIdsReturnsExpiredDeletedUsersOnly() {
         User expiredDeletedUser = userRepository.save(new User(
                 "github",
@@ -173,6 +179,7 @@ class AuthPersistenceTest {
     }
 
     @Test
+    @DisplayName("users 테이블 deleted_at 퍼지 인덱스 존재")
     void usersDeletedAtPurgeIndexExists() {
         String indexDefinition = jdbcTemplate.queryForObject(
                 """

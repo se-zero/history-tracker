@@ -11,12 +11,14 @@ import com.history.backend.github.dto.InstallationResponse;
 import com.history.backend.github.dto.RepositoryResponse;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.security.AuthenticatedUser;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("GitHubInstallationController: GitHub 설치 정보 조회")
 class GitHubInstallationControllerTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -26,6 +28,7 @@ class GitHubInstallationControllerTest {
     private GitHubInstallationService gitHubInstallationService;
 
     @Test
+    @DisplayName("현재 사용자 설치 목록 반환")
     void listInstallationsReturnsCurrentUserInstallations() {
         List<InstallationResponse> response = List.of(new InstallationResponse(
                 INSTALLATION_ROW_ID,
@@ -43,6 +46,7 @@ class GitHubInstallationControllerTest {
     }
 
     @Test
+    @DisplayName("설치 ID에 해당하는 리포지토리 목록 반환")
     void listRepositoriesReturnsInstallationRepositories() {
         List<RepositoryResponse> response = List.of(new RepositoryResponse(
                 12345L,

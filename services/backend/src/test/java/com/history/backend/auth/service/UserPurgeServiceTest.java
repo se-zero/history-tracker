@@ -13,6 +13,7 @@ import java.util.UUID;
 
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.auth.repository.UserRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +24,7 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("UserPurgeService: 만료 사용자 배치 퍼지")
 class UserPurgeServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-06-04T00:00:00Z");
@@ -37,6 +39,7 @@ class UserPurgeServiceTest {
     private TransactionTemplate transactionTemplate;
 
     @Test
+    @DisplayName("만료 사용자 배치 단위로 전체 삭제")
     void purgeExpiredUsersDeletesAllCandidatesInBatches() {
         UserPurgeService service = userPurgeService(2);
         when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
@@ -55,6 +58,7 @@ class UserPurgeServiceTest {
     }
 
     @Test
+    @DisplayName("배치 크기를 페이지 크기로 사용")
     void purgeExpiredUsersUsesBatchSizeAsPageSize() {
         UserPurgeService service = userPurgeService(100);
         when(transactionTemplate.execute(any())).thenAnswer(invocation -> {

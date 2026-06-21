@@ -14,6 +14,7 @@ import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.repository.ProjectRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -33,6 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("IntegrationRepository: 연동 JPA 퍼시스턴스")
 class IntegrationPersistenceTest {
 
     @Container
@@ -65,6 +67,7 @@ class IntegrationPersistenceTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
+    @DisplayName("GitHub 연동 저장 후 조회 성공")
     void saveAndFindGitHubIntegration() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = integrationRepository.saveAndFlush(Integration.github(
@@ -96,6 +99,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("Slack 연동 저장 후 조회 성공")
     void saveAndFindSlackIntegration() {
         ProjectFixture fixture = createProjectFixture();
         byte[] encryptedCredential = new byte[] {10, 20, 30};
@@ -120,6 +124,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("Jira 연동 저장 후 조회 성공")
     void saveAndFindJiraIntegration() {
         ProjectFixture fixture = createProjectFixture();
         byte[] encryptedCredential = new byte[] {40, 50, 60};
@@ -146,6 +151,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("provider는 소문자로 DB에 저장")
     void providerIsStoredAsLowercaseDatabaseValue() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = integrationRepository.saveAndFlush(Integration.github(
@@ -166,6 +172,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("GitHub external_ref는 JSONB로 저장")
     void externalRefIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = integrationRepository.saveAndFlush(Integration.github(
@@ -186,6 +193,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("Slack external_ref는 JSONB로 저장")
     void slackExternalRefIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = integrationRepository.saveAndFlush(Integration.slack(
@@ -205,6 +213,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("Jira external_ref는 JSONB로 저장")
     void jiraExternalRefIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = integrationRepository.saveAndFlush(Integration.jira(
@@ -231,6 +240,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("GitHub repository_id 누락 시 IllegalStateException")
     void githubRepositoryIdFailsWhenExternalRefIsMissingRepositoryId() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget", "main");
@@ -244,6 +254,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("GitHub repository_id 타입 불일치 시 IllegalStateException")
     void githubRepositoryIdFailsWhenExternalRefUsesUnexpectedType() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = Integration.github(fixture.project(), fixture.installation(), 12345L, "acme/widget", "main");
@@ -258,6 +269,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("Slack workspace_id 누락 시 IllegalStateException")
     void slackWorkspaceIdFailsWhenExternalRefIsMissingWorkspaceId() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = Integration.slack(fixture.project(), "T123", "Acme", new byte[] {1, 2, 3});
@@ -271,6 +283,7 @@ class IntegrationPersistenceTest {
     }
 
     @Test
+    @DisplayName("Jira base_url 타입 불일치 시 IllegalStateException")
     void jiraBaseUrlFailsWhenExternalRefUsesUnexpectedType() {
         ProjectFixture fixture = createProjectFixture();
         Integration integration = Integration.jira(

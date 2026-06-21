@@ -14,17 +14,20 @@ import java.util.UUID;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.graph.dto.GraphResponse;
 import org.hamcrest.Matchers;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+@DisplayName("AiEngineGraphClient: ai-engine 그래프 HTTP 클라이언트")
 class AiEngineGraphClientTest {
 
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
 
     @Test
+    @DisplayName("쿼리 파라미터로 스코프된 그래프 개요 조회")
     void fetchesOverviewWithScopedQueryParams() {
         AiEngineGraphClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/overview")))
@@ -52,6 +55,7 @@ class AiEngineGraphClientTest {
     }
 
     @Test
+    @DisplayName("선택 파라미터 null 시 URL에서 생략")
     void omitsOptionalParamsWhenNull() {
         AiEngineGraphClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/graph/overview?project_id=" + PROJECT_ID))
@@ -68,6 +72,7 @@ class AiEngineGraphClientTest {
     }
 
     @Test
+    @DisplayName("ai-engine 오류 시 BadGatewayException 발생")
     void throwsBadGatewayWhenAiEngineFails() {
         AiEngineGraphClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/overview")))

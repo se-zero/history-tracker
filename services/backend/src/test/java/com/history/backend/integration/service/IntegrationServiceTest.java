@@ -31,6 +31,7 @@ import com.history.backend.project.service.ProjectService;
 import com.history.backend.shared.domain.Checkpoint;
 import com.history.backend.shared.repository.CheckpointRepository;
 import com.history.backend.slack.service.SlackClient;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -43,6 +44,7 @@ import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("IntegrationService: 연동 생성·조회·해제")
 class IntegrationServiceTest {
 
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -80,6 +82,7 @@ class IntegrationServiceTest {
     private final NoopTransactionManager transactionManager = new NoopTransactionManager();
 
     @Test
+    @DisplayName("소유 프로젝트 연동 목록에 최신 동기화 시각 포함")
     void listIntegrationsReturnsIntegrationsWithLatestSyncTimeForOwnedProject() {
         IntegrationService service = service();
         Project project = project();
@@ -104,6 +107,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("체크포인트 없으면 동기화 시각 null 반환")
     void listIntegrationsReturnsNullSyncTimeWhenNoCheckpoint() {
         IntegrationService service = service();
         Project project = project();
@@ -120,6 +124,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("소유 프로젝트의 연동 해제 성공")
     void disconnectIntegrationDeletesIntegrationForOwnedProject() {
         IntegrationService service = service();
         Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget", "main");
@@ -133,6 +138,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 연동 해제 시 NotFoundException")
     void disconnectIntegrationThrowsNotFoundWhenIntegrationMissing() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -145,6 +151,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("소유 프로젝트·설치에 GitHub 연동 저장 성공")
     void connectGitHubRepositorySavesIntegrationForOwnedProjectAndInstallation() {
         IntegrationService service = service();
         Project project = project();
@@ -188,6 +195,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("설치 토큰 발급 실패 시 저장 트랜잭션 시작하지 않음")
     void connectGitHubRepositoryDoesNotStartSaveTransactionWhenInstallationTokenCannotBeIssued() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -216,6 +224,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("중복 GitHub 연동 거부")
     void connectGitHubRepositoryRejectsDuplicateGitHubProvider() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -237,6 +246,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 설치 정보를 NotFoundException으로 전파")
     void connectGitHubRepositoryPropagatesMissingInstallationAsNotFound() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -256,6 +266,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("GitHub 연동 시 유니크 제약 위반을 ConflictException으로 변환")
     void connectGitHubRepositoryConvertsUniqueConstraintViolationToConflict() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -279,6 +290,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("Slack 토큰 암호화 후 소유 프로젝트에 연동 저장")
     void connectSlackWorkspaceEncryptsTokenAndSavesIntegrationForOwnedProject() {
         IntegrationService service = service();
         Project project = project();
@@ -312,6 +324,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("중복 Slack 연동 거부")
     void connectSlackWorkspaceRejectsDuplicateSlackProvider() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -328,6 +341,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("Slack 연동 시 유니크 제약 위반을 ConflictException으로 변환")
     void connectSlackWorkspaceConvertsUniqueConstraintViolationToConflict() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -349,6 +363,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("Jira 자격 증명 암호화 후 소유 프로젝트에 연동 저장")
     void connectJiraProjectEncryptsCredentialAndSavesIntegrationForOwnedProject() {
         IntegrationService service = service();
         Project project = project();
@@ -391,6 +406,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("루프백 base URL로 Jira 연동 거부")
     void connectJiraProjectRejectsLoopbackBaseUrl() {
         IntegrationService service = service();
 
@@ -407,6 +423,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("HTTP base URL로 Jira 연동 거부")
     void connectJiraProjectRejectsHttpBaseUrl() {
         IntegrationService service = service();
 
@@ -423,6 +440,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("중복 Jira 연동 거부")
     void connectJiraProjectRejectsDuplicateJiraProvider() {
         IntegrationService service = service();
         when(jiraClient.verifyProject(
@@ -450,6 +468,7 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("Jira 연동 시 유니크 제약 위반을 ConflictException으로 변환")
     void connectJiraProjectConvertsUniqueConstraintViolationToConflict() {
         IntegrationService service = service();
         when(jiraClient.verifyProject(
