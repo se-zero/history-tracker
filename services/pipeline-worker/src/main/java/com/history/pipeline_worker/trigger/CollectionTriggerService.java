@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.trigger;
 
+import com.history.pipeline_worker.collection.CollectionProvider;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.pipeline.PipelineService;
 import lombok.extern.slf4j.Slf4j;

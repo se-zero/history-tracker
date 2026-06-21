@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.checkpoint;
 
+import com.history.pipeline_worker.collection.CollectionProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -7,10 +8,6 @@ import java.util.UUID;
 
 @Service
 public class CheckpointService {
-
-    private static final String PROVIDER_GITHUB = "github";
-    private static final String PROVIDER_JIRA = "jira";
-    private static final String PROVIDER_SLACK = "slack";
 
     private static final String GITHUB_COMMITS = "github_commits";
     private static final String GITHUB_PULL_REQUESTS = "github_pull_requests";
@@ -34,23 +31,23 @@ public class CheckpointService {
     }
 
     public void updateGitHubCommits(String projectId, Instant scannedAt) {
-        update(projectId, PROVIDER_GITHUB, GITHUB_COMMITS, scannedAt);
+        update(projectId, CollectionProvider.GITHUB.value(), GITHUB_COMMITS, scannedAt);
     }
 
     public void updateGitHubPullRequests(String projectId, Instant scannedAt) {
-        update(projectId, PROVIDER_GITHUB, GITHUB_PULL_REQUESTS, scannedAt);
+        update(projectId, CollectionProvider.GITHUB.value(), GITHUB_PULL_REQUESTS, scannedAt);
     }
 
     public void updateGitHubIssues(String projectId, Instant scannedAt) {
-        update(projectId, PROVIDER_GITHUB, GITHUB_ISSUES, scannedAt);
+        update(projectId, CollectionProvider.GITHUB.value(), GITHUB_ISSUES, scannedAt);
     }
 
     public void updateJira(String projectId, Instant scannedAt) {
-        update(projectId, PROVIDER_JIRA, JIRA_UPDATED, scannedAt);
+        update(projectId, CollectionProvider.JIRA.value(), JIRA_UPDATED, scannedAt);
     }
 
     public void updateSlack(String projectId, Instant scannedAt) {
-        update(projectId, PROVIDER_SLACK, SLACK_MESSAGES, scannedAt);
+        update(projectId, CollectionProvider.SLACK.value(), SLACK_MESSAGES, scannedAt);
     }
 
     private void update(String projectId, String provider, String cursorKey, Instant cursorValue) {
@@ -60,13 +57,15 @@ public class CheckpointService {
     }
 
     private void apply(ProjectCheckpointData data, CheckpointRepository.CheckpointRow row) {
-        switch (row.provider()) {
-            case PROVIDER_GITHUB -> applyGitHub(data.github, row);
-            case PROVIDER_JIRA -> data.jira.lastScannedAt = row.cursorValue();
-            case PROVIDER_SLACK -> data.slack.lastScannedAt = row.cursorValue();
-            default -> {
-                // Unknown providers are ignored so new DB rows do not break older workers.
-            }
+        // Unknown providers are ignored so new DB rows do not break older workers.
+        CollectionProvider provider = CollectionProvider.find(row.provider()).orElse(null);
+        if (provider == null) {
+            return;
+        }
+        switch (provider) {
+            case GITHUB -> applyGitHub(data.github, row);
+            case JIRA -> data.jira.lastScannedAt = row.cursorValue();
+            case SLACK -> data.slack.lastScannedAt = row.cursorValue();
         }
     }
 

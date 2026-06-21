@@ -1,7 +1,7 @@
 package com.history.pipeline_worker.controller;
 
+import com.history.pipeline_worker.collection.CollectionProvider;
 import com.history.pipeline_worker.dto.CollectTriggerRequest;
-import com.history.pipeline_worker.trigger.CollectionProvider;
 import com.history.pipeline_worker.trigger.CollectionTriggerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

@@ -1,6 +1,6 @@
 package com.history.pipeline_worker.controller;
 
-import com.history.pipeline_worker.trigger.CollectionProvider;
+import com.history.pipeline_worker.collection.CollectionProvider;
 import com.history.pipeline_worker.trigger.CollectionTriggerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
