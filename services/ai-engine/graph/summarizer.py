@@ -1,10 +1,8 @@
 import logging
-import os
-from openai import OpenAI
+
+from openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
-
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=30.0)
 
 _MAX_DIFF_CHARS = 20000
 
@@ -46,7 +44,7 @@ def summarize_diff(path: str, diff: str, additions: int = 0, deletions: int = 0,
         return _size_placeholder(path, additions, deletions, message)
 
     try:
-        response = client.chat.completions.create(
+        response = get_openai_client().chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},

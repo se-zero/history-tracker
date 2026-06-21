@@ -78,6 +78,7 @@ cd infra/docker
 
 - `services/backend/CLAUDE.md` — 패키지 구조, 외부 연동, migration, 주석 규칙
 - `services/pipeline-worker/CLAUDE.md` — 패키지 구조, 수집/웹훅 흐름, checkpoint, 설정
+- `services/ai-engine/CLAUDE.md` — 패키지 구조, 실행/테스트, facade·OpenAI 클라이언트 규칙
 
 공통(Spring 서비스):
 - 패키지는 기능 단위로 나누고 `controller` / `service` / `repository` / `domain` / `config`를 둔다.

@@ -12,11 +12,9 @@
 import asyncio
 import json
 import logging
-import os
 from datetime import timedelta
-from typing import Optional
 
-from openai import OpenAI
+from openai_client import get_openai_client
 
 from graph.embedder import cosine_similarity
 from graph.issue_linker import (
@@ -34,15 +32,6 @@ DEFAULT_TOP_K = 5
 DEFAULT_LLM_THRESHOLD = 0.7
 
 _MAX_TEXT_LEN = 800
-
-_client: Optional[OpenAI] = None
-
-
-def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=30.0)
-    return _client
 
 
 def _truncate(text: str) -> str:
@@ -75,7 +64,7 @@ def _verify_pair(
         f"confidence는 0.0~1.0 (1.0: 직접 관련, 0.5: 간접 관련, 0.0: 무관)"
     )
     try:
-        resp = _get_client().chat.completions.create(
+        resp = get_openai_client().chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},

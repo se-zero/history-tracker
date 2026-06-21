@@ -3,11 +3,10 @@ import logging
 import os
 
 import httpx
-from openai import OpenAI
+
+from openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
-
-_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=30.0)
 
 # (owner, repo) → 요약 결과 캐시. None은 "요약 불가" 캐시값.
 _summary_cache: dict[tuple[str, str], str | None] = {}
@@ -65,7 +64,7 @@ def _summarize(readme: str) -> str | None:
         readme = readme[:_MAX_README_CHARS]
 
     try:
-        response = _client.chat.completions.create(
+        response = get_openai_client().chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": _SUMMARIZE_PROMPT},

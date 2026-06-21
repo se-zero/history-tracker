@@ -1,13 +1,10 @@
 import asyncio
 import json
 import logging
-import os
 
-from openai import OpenAI
+from openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
-
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 SYSTEM_PROMPT = """\
 당신은 협업 툴 데이터를 분석하는 전문가입니다.
@@ -60,7 +57,7 @@ def _call_llm(prompt: str) -> str | None:
     API 실패 시 None 반환 — 이벤트 처리가 단일 호출 실패로 중단되지 않도록.
     """
     try:
-        response = client.chat.completions.create(
+        response = get_openai_client().chat.completions.create(
             model="gpt-4o-mini",
             response_format={"type": "json_object"},
             messages=[

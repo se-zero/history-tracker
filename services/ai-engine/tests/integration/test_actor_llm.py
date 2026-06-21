@@ -44,4 +44,5 @@ async def main():
     print(f"\n저장 완료: {output_path}")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

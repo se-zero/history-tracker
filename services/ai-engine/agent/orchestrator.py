@@ -3,14 +3,12 @@ import json
 import logging
 import os
 
-from openai import OpenAI
-
+from openai_client import get_openai_client
 from tools.definitions import TOOLS
 from tools.executor import execute
 
 logger = logging.getLogger(__name__)
 
-_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=60.0)
 _MODEL = os.environ.get("QUERY_MODEL", "gpt-4o-mini")
 _MAX_ITERATIONS = 10
 
@@ -235,7 +233,7 @@ async def _call_llm(messages: list, with_tools: bool = True):
         kwargs["tools"]       = TOOLS
         kwargs["tool_choice"] = "auto"
     try:
-        return await asyncio.to_thread(_client.chat.completions.create, **kwargs)
+        return await asyncio.to_thread(get_openai_client().chat.completions.create, **kwargs)
     except Exception:
         logger.exception("LLM 호출 실패")
         return None
@@ -257,7 +255,7 @@ async def _call_llm_structured(messages: list) -> dict | None:
     final_messages = messages + [{"role": "user", "content": _STRUCTURED_FINAL_INSTRUCTION}]
     try:
         response = await asyncio.to_thread(
-            _client.chat.completions.create,
+            get_openai_client().chat.completions.create,
             model=_MODEL,
             messages=final_messages,
             response_format={"type": "json_schema", "json_schema": _GROUNDED_ANSWER_SCHEMA},
@@ -301,7 +299,7 @@ async def summarize_history(
     ]
     try:
         response = await asyncio.to_thread(
-            _client.chat.completions.create,
+            get_openai_client().chat.completions.create,
             model=_MODEL,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": _RUNNING_SUMMARY_SCHEMA},

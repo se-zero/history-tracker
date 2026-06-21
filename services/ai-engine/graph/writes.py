@@ -1,0 +1,353 @@
+"""
+NormalizedEvent 단위 그래프 쓰기 — upsert + 참조 엣지 (수집 쓰기 경로).
+
+각 함수는 NormalizedEvent 하나에 대응하는 원자적 쓰기 단위.
+- Layer 1: AUTHORED / WROTE / CREATED 엣지 (actor + node MERGE)
+- Layer 2: TRIGGERED_BY / CONTAINS / DISCUSSED_IN / CHILD_OF / ASSIGNED_TO 엣지 (refs 기반, stub 허용)
+- Layer 3: MODIFIED 엣지 (ChangeSet -> File, diffSummary + embedding)
+"""
+
+from typing import Optional
+
+from graph.driver import get_driver
+
+
+# ── Layer 1 + Layer 3 upserts ─────────────────────────────────────────────
+
+
+async def upsert_changeset(
+    *,
+    project_id: str,
+    hash: str,
+    message: str,
+    occurred_at: str,
+    source: str,
+    actor_uuid: str,
+) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (a:Actor {uuid: $actor_uuid})
+            MERGE (c:ChangeSet {project_id: $project_id, hash: $hash})
+            SET c.message = $message,
+                c.occurredAt = datetime($occurred_at),
+                c.source = $source
+            MERGE (a)-[:AUTHORED]->(c)
+            """,
+            actor_uuid=actor_uuid,
+            project_id=project_id,
+            hash=hash,
+            message=message,
+            occurred_at=occurred_at,
+            source=source,
+        )
+
+
+async def upsert_file_with_modified_edge(
+    *,
+    project_id: str,
+    changeset_hash: str,
+    file_path: str,
+    diff_summary: str,
+    embedding: list[float],
+) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MERGE (f:File {project_id: $project_id, path: $file_path})
+            WITH f
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+            MERGE (c)-[r:MODIFIED]->(f)
+            SET r.diffSummary = $diff_summary,
+                r.embedding = $embedding
+            """,
+            project_id=project_id,
+            file_path=file_path,
+            changeset_hash=changeset_hash,
+            diff_summary=diff_summary,
+            embedding=embedding,
+        )
+
+
+async def upsert_pull_request(
+    *,
+    project_id: str,
+    pr_number: int,
+    title: str,
+    body: str,
+    state: str,
+    base_branch: str,
+    url: str,
+    occurred_at: Optional[str],
+    created_at: Optional[str],
+    source: str,
+    actor_uuid: str,
+    jira_keys: Optional[list[str]] = None,
+) -> None:
+    """PullRequest 노드 upsert.
+
+    jira_keys:
+      PR 제목/본문에서 추출한 다중 Jira 키. 그 PR이 머지한 모든 ChangeSet에 동일 키로
+      text TRIGGERED_BY를 전파하는 데 사용된다 (link_pr_changesets_to_issues).
+      None이면 기존 pr.jira_keys 값을 보존, 명시되면 갱신.
+    """
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (a:Actor {uuid: $actor_uuid})
+            MERGE (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            SET pr.title = $title,
+                pr.body = $body,
+                pr.state = $state,
+                pr.base_branch = $base_branch,
+                pr.url = $url,
+                pr.occurredAt = CASE WHEN $occurred_at IS NOT NULL THEN datetime($occurred_at) ELSE null END,
+                pr.createdAt  = CASE WHEN $created_at  IS NOT NULL THEN datetime($created_at)  ELSE null END,
+                pr.jira_keys  = CASE WHEN $jira_keys   IS NOT NULL THEN $jira_keys              ELSE pr.jira_keys END,
+                pr.source = $source
+            MERGE (a)-[:AUTHORED]->(pr)
+            """,
+            actor_uuid=actor_uuid,
+            project_id=project_id,
+            pr_number=pr_number,
+            title=title,
+            body=body,
+            state=state,
+            base_branch=base_branch,
+            url=url,
+            occurred_at=occurred_at,
+            created_at=created_at,
+            jira_keys=jira_keys,
+            source=source,
+        )
+
+
+async def upsert_issue(
+    *,
+    project_id: str,
+    jira_key: str,
+    title: str,
+    body: str,
+    status: str,
+    issue_type: str,
+    priority: str,
+    assignee: str,
+    occurred_at: str,
+    created_at: Optional[str],
+    closed_at: Optional[str] = None,
+    source: str,
+    actor_uuid: str,
+    embedding: list[float],
+) -> None:
+    """Issue 노드 upsert.
+
+    closed_at 정책 (status-aware):
+      - closed_at 값 있음                            → 그 값으로 덮어씀
+      - closed_at 값 없음(None) + status가 TERMINAL → 기존 i.closedAt 보존
+        (pipeline-worker가 아직 closed_at을 안 보내는 마이그레이션 단계 안전망)
+      - closed_at 값 없음(None) + status가 non-TERMINAL → null 로 클리어
+        (재오픈된 이슈가 비대칭 시간 윈도우 계산에서 오래된 종료 시각을 쓰지 않도록 함)
+
+    createdAt 정책: 원래대로 — 값 있으면 SET, 없으면 null (이벤트 소스가 항상 보내는 게 정상).
+    """
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (a:Actor {uuid: $actor_uuid})
+            MERGE (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            SET i.title = $title,
+                i.body = $body,
+                i.status = $status,
+                i.issue_type = $issue_type,
+                i.priority = $priority,
+                i.assignee = $assignee,
+                i.occurredAt = datetime($occurred_at),
+                i.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
+                i.closedAt   = CASE
+                                  WHEN $closed_at IS NOT NULL THEN datetime($closed_at)
+                                  WHEN $status IN ['완료', 'Done', 'Closed', 'Resolved', '해결됨'] THEN i.closedAt
+                                  ELSE null
+                               END,
+                i.source = $source,
+                i.embedding = $embedding
+            MERGE (a)-[:CREATED]->(i)
+            """,
+            actor_uuid=actor_uuid,
+            project_id=project_id,
+            jira_key=jira_key,
+            title=title,
+            body=body,
+            status=status,
+            issue_type=issue_type,
+            priority=priority,
+            assignee=assignee,
+            occurred_at=occurred_at,
+            created_at=created_at,
+            closed_at=closed_at,
+            source=source,
+            embedding=embedding,
+        )
+
+
+async def upsert_communication(
+    *,
+    project_id: str,
+    url: str,
+    body: str,
+    channel: str,
+    conversation_id: str,
+    occurred_at: str,
+    created_at: Optional[str],
+    source: str,
+    actor_uuid: str,
+    embedding: list[float],
+    llm_filtered: bool = False,
+) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (a:Actor {uuid: $actor_uuid})
+            MERGE (comm:Communication {project_id: $project_id, url: $url})
+            SET comm.body = $body,
+                comm.channel = $channel,
+                comm.conversation_id = $conversation_id,
+                comm.occurredAt = datetime($occurred_at),
+                comm.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
+                comm.source = $source,
+                comm.embedding = $embedding,
+                comm.llm_filtered = $llm_filtered
+            MERGE (a)-[:WROTE]->(comm)
+            """,
+            actor_uuid=actor_uuid,
+            project_id=project_id,
+            url=url,
+            body=body,
+            channel=channel,
+            conversation_id=conversation_id,
+            occurred_at=occurred_at,
+            created_at=created_at,
+            source=source,
+            embedding=embedding,
+            llm_filtered=llm_filtered,
+        )
+
+
+# ── Layer 2 ref 엣지 ──────────────────────────────────────────────────────
+# 참조 대상 노드가 아직 없으면 MERGE로 stub 생성 후 실제 이벤트 도착 시 SET으로 채워짐
+
+
+async def link_changeset_to_issue(project_id: str, changeset_hash: str, jira_key: str) -> None:
+    """TRIGGERED_BY (text): ChangeSet refs.jiraKey 존재 시.
+
+    명시적 텍스트 참조이므로 source='text', confidence=1.0으로 고정한다.
+    같은 (changeset, issue) 쌍에 시맨틱 엣지가 먼저 만들어져 있어도 텍스트가 우선이므로 덮어쓴다.
+    """
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MERGE (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            WITH i
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
+            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            SET r.source = 'text', r.confidence = 1.0
+            """,
+            project_id=project_id,
+            jira_key=jira_key,
+            hash=changeset_hash,
+        )
+
+
+async def link_pr_to_changeset(project_id: str, pr_number: int, changeset_hash: str) -> None:
+    """CONTAINS: ChangeSet refs.prNumber 존재 시. 머지된 PR 노드가 없으면 생성하지 않음."""
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
+            MERGE (pr)-[:CONTAINS]->(c)
+            """,
+            project_id=project_id,
+            hash=changeset_hash,
+            pr_number=pr_number,
+        )
+
+
+async def link_pr_changesets_to_issues(project_id: str, pr_number: int) -> int:
+    """TRIGGERED_BY (text) 전파: PR.jira_keys에 등록된 각 Jira 키를 그 PR이 머지한
+    모든 ChangeSet에 동일하게 연결한다.
+
+    호출 시점:
+      - PR 이벤트 처리 직후 (PR.jira_keys 갱신 직후 — 기존 CONTAINS 커밋에 전파)
+      - ChangeSet 이벤트 처리 중 link_pr_to_changeset 직후 (PR이 먼저 도착했으면 새 커밋이 즉시 전파됨)
+
+    PR.jira_keys가 비어있거나 CONTAINS 커밋이 없으면 noop. 모든 절은 MERGE/SET 기반이라 idempotent.
+
+    Returns:
+        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            WHERE pr.jira_keys IS NOT NULL AND size(pr.jira_keys) > 0
+            UNWIND pr.jira_keys AS jira_key
+            MERGE (i:Issue {project_id: $project_id, jira_key: jira_key})
+            WITH pr, i
+            MATCH (pr)-[:CONTAINS]->(c:ChangeSet)
+            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            SET r.source = 'text', r.confidence = 1.0
+            RETURN count(r) AS n
+            """,
+            project_id=project_id,
+            pr_number=pr_number,
+        )
+        row = await result.single()
+        return row["n"] if row else 0
+
+
+async def link_issue_to_communication(project_id: str, jira_key: str, comm_url: str) -> None:
+    """DISCUSSED_IN: Communication refs.jiraKey 존재 시"""
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MERGE (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            WITH i
+            MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
+            MERGE (i)-[:DISCUSSED_IN]->(comm)
+            """,
+            project_id=project_id,
+            jira_key=jira_key,
+            comm_url=comm_url,
+        )
+
+
+async def link_issue_to_parent(project_id: str, child_key: str, parent_key: str) -> None:
+    """CHILD_OF: Issue Jira parent 필드 존재 시"""
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MERGE (parent:Issue {project_id: $project_id, jira_key: $parent_key})
+            WITH parent
+            MERGE (child:Issue {project_id: $project_id, jira_key: $child_key})
+            MERGE (child)-[:CHILD_OF]->(parent)
+            """,
+            project_id=project_id,
+            parent_key=parent_key,
+            child_key=child_key,
+        )
+
+async def link_issue_to_assignee(project_id: str, jira_key: str, assignee_id: str) -> None:
+    """ASSIGNED_TO: Issue assignee 존재 시. JIRA source-scoped alias로 Actor 조회."""
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (a:Actor {project_id: $project_id})
+            WHERE $scoped_alias IN a.aliases
+            WITH a
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            MERGE (i)-[:ASSIGNED_TO]->(a)
+            """,
+            project_id=project_id,
+            jira_key=jira_key,
+            scoped_alias=f"JIRA:{assignee_id}",
+        )

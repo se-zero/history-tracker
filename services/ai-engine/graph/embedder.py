@@ -1,13 +1,11 @@
 import asyncio
 import logging
 import math
-import os
 
-from openai import OpenAI
+from openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
 
-_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=30.0)
 _MODEL = "text-embedding-3-small"
 _BATCH_CHUNK_SIZE = 200  # OpenAI Embedding API 호출당 입력 수 상한 (요청당 토큰 한도 회피)
 
@@ -67,7 +65,7 @@ def _call_embed(texts: list[str], model: str) -> list[list[float]]:
     실패 시 빈 리스트 반환 — 호출자가 빈 벡터로 처리해 이벤트 처리 흐름이 끊기지 않도록.
     """
     try:
-        response = _client.embeddings.create(model=model, input=texts)
+        response = get_openai_client().embeddings.create(model=model, input=texts)
         return [item.embedding for item in response.data]
     except Exception:
         logger.exception("Embedding API 호출 실패 (input %d개)", len(texts))
