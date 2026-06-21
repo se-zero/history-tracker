@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GraphVis } from "@/components/graph/GraphVis";
 import { NodeDetail } from "@/components/graph/NodeDetail";
 import { StatusView } from "@/components/StatusView";
+import { Topbar } from "@/components/shell/Topbar";
 import { rebuildProjectGraph } from "@/api/graph";
 import { queryKeys } from "@/hooks/queryKeys";
 import { useGraph } from "@/hooks/useGraph";
@@ -39,57 +40,56 @@ export function GraphPage({ project }: { project: Project }) {
         flexDirection: "column",
       }}
     >
-      <div className="topbar" style={{ borderBottom: "1px solid var(--border)" }}>
-        <div className="crumbs">
-          <span>{project.name}</span>
-          <span className="sep">/</span>
-          <span className="current">그래프 탐색</span>
-        </div>
-        <div className="topbar-spacer" />
-        {data && (
-          <span className="muted" style={{ fontSize: 12 }}>
-            {data.nodes.length} 노드 · {data.edges.length} 연결
-          </span>
-        )}
-        {rebuild.isSuccess && (
-          <span className="muted" style={{ fontSize: 12 }}>
-            ✓ 연결 {builtEdges}개 생성
-          </span>
-        )}
-        {rebuild.isError && (
-          <span style={{ fontSize: 12, color: "#e5484d" }}>재구축 실패</span>
-        )}
-        <button
-          className="btn"
-          style={{ marginLeft: 12 }}
-          onClick={() => rebuild.mutate(false)}
-          disabled={rebuild.isPending}
-          title="수집된 데이터로 소스 간 연결을 임베딩 유사도로 다시 계산합니다 (빠름)"
-        >
-          {rebuild.isPending && rebuild.variables === false
-            ? "재구축 중…"
-            : "그래프 재구축"}
-        </button>
-        <button
-          className="btn"
-          style={{ marginLeft: 8 }}
-          onClick={() => {
-            if (
-              window.confirm(
-                "LLM 검증으로 정밀 재구축할까요?\n기존 시맨틱 연결을 비우고 LLM이 후보를 검증해 다시 만듭니다. 시간과 비용이 더 듭니다.",
-              )
-            ) {
-              rebuild.mutate(true);
-            }
-          }}
-          disabled={rebuild.isPending}
-          title="LLM이 후보를 검증해 잘못된 연결을 거릅니다 (느림·LLM 비용)"
-        >
-          {rebuild.isPending && rebuild.variables === true
-            ? "정밀 재구축 중…"
-            : "정밀 재구축 (LLM)"}
-        </button>
-      </div>
+      <Topbar
+        crumbs={[project.name, "그래프 탐색"]}
+        right={
+          <>
+            {data && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                {data.nodes.length} 노드 · {data.edges.length} 연결
+              </span>
+            )}
+            {rebuild.isSuccess && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                ✓ 연결 {builtEdges}개 생성
+              </span>
+            )}
+            {rebuild.isError && (
+              <span style={{ fontSize: 12, color: "#e5484d" }}>재구축 실패</span>
+            )}
+            <button
+              className="btn"
+              style={{ marginLeft: 12 }}
+              onClick={() => rebuild.mutate(false)}
+              disabled={rebuild.isPending}
+              title="수집된 데이터로 소스 간 연결을 임베딩 유사도로 다시 계산합니다 (빠름)"
+            >
+              {rebuild.isPending && rebuild.variables === false
+                ? "재구축 중…"
+                : "그래프 재구축"}
+            </button>
+            <button
+              className="btn"
+              style={{ marginLeft: 8 }}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "LLM 검증으로 정밀 재구축할까요?\n기존 시맨틱 연결을 비우고 LLM이 후보를 검증해 다시 만듭니다. 시간과 비용이 더 듭니다.",
+                  )
+                ) {
+                  rebuild.mutate(true);
+                }
+              }}
+              disabled={rebuild.isPending}
+              title="LLM이 후보를 검증해 잘못된 연결을 거릅니다 (느림·LLM 비용)"
+            >
+              {rebuild.isPending && rebuild.variables === true
+                ? "정밀 재구축 중…"
+                : "정밀 재구축 (LLM)"}
+            </button>
+          </>
+        }
+      />
       <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
         {graphQuery.isLoading ? (
           <StatusView tone="loading" description="그래프를 불러오는 중…" />
