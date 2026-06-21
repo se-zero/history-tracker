@@ -13,6 +13,7 @@ import java.util.UUID;
 import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.project.service.ProjectService;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -21,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("GraphService: 그래프 조회 서비스")
 class GraphServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -36,6 +38,7 @@ class GraphServiceTest {
     private GraphService graphService;
 
     @Test
+    @DisplayName("소유권 확인 후 그래프 조회")
     void fetchesGraphAfterOwnershipCheck() {
         GraphResponse expected = new GraphResponse(List.of(), List.of());
         when(aiEngineGraphClient.fetchOverview(PROJECT_ID, 50, "commit")).thenReturn(expected);
@@ -50,6 +53,7 @@ class GraphServiceTest {
     }
 
     @Test
+    @DisplayName("소유권 검증 실패 시 ai-engine 호출 차단")
     void doesNotCallAiEngineWhenOwnershipCheckFails() {
         doThrow(new ForbiddenException("Project access denied."))
                 .when(projectService).getProject(USER_ID, PROJECT_ID);

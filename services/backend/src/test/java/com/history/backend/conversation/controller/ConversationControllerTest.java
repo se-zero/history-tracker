@@ -28,6 +28,7 @@ import com.history.backend.project.domain.Project;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +41,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@DisplayName("ConversationController: 대화 HTTP API")
 class ConversationControllerTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -68,6 +70,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("대화 생성 → 201 Created 및 초기 메시지 반환")
     void createConversationReturnsConversationAndInitialMessages() throws Exception {
         Conversation conversation = conversation("Why did auth change?");
         Message userMessage = userMessage(conversation, "Why did auth change?");
@@ -95,6 +98,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("대화 목록 조회 → 프로젝트 대화 반환")
     void listConversationsReturnsProjectConversations() throws Exception {
         when(conversationService.findConversations(USER_ID, PROJECT_ID))
                 .thenReturn(List.of(conversation("Auth changes")));
@@ -109,6 +113,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("대화 단건 조회 → 대화와 메시지 반환")
     void getConversationReturnsConversationAndMessages() throws Exception {
         Conversation conversation = conversation("Auth changes");
         when(conversationService.getConversationDetail(USER_ID, PROJECT_ID, CONVERSATION_ID))
@@ -132,6 +137,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("대화 제목 수정 → 수정된 대화 반환")
     void updateConversationReturnsUpdatedConversation() throws Exception {
         when(conversationService.updateTitle(USER_ID, PROJECT_ID, CONVERSATION_ID, "New title"))
                 .thenReturn(conversation("New title"));
@@ -150,6 +156,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("대화 삭제 → 204 No Content 반환")
     void deleteConversationReturnsNoContent() throws Exception {
         mockMvc.perform(delete(
                         "/api/v1/projects/{projectId}/conversations/{conversationId}",
@@ -162,6 +169,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("메시지 생성 → 사용자·보조자 메시지 반환")
     void createMessageReturnsUserAndAssistantMessages() throws Exception {
         Conversation conversation = conversation("Auth changes");
         when(messageService.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "What changed?"))
@@ -187,6 +195,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("메시지 목록 조회 → 대화 메시지 반환")
     void listMessagesReturnsConversationMessages() throws Exception {
         Conversation conversation = conversation("Auth changes");
         when(messageService.findMessages(USER_ID, PROJECT_ID, CONVERSATION_ID))
@@ -203,6 +212,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("빈 메시지로 대화 생성 → 400 Bad Request 반환")
     void createConversationRejectsBlankMessage() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/conversations", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -216,6 +226,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("빈 내용으로 메시지 생성 → 400 Bad Request 반환")
     void createMessageRejectsBlankContent() throws Exception {
         mockMvc.perform(post(
                         "/api/v1/projects/{projectId}/conversations/{conversationId}/messages",
@@ -232,6 +243,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 대화 조회 → 404 Not Found 반환")
     void getConversationReturnsNotFound() throws Exception {
         when(conversationService.getConversationDetail(USER_ID, PROJECT_ID, CONVERSATION_ID))
                 .thenThrow(new NotFoundException("Conversation not found."));
@@ -246,6 +258,7 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("액세스 토큰 없으면 401 Unauthorized 반환")
     void rejectMissingAccessToken() throws Exception {
         mockMvc.perform(get("/api/v1/projects/{projectId}/conversations", PROJECT_ID))
                 .andExpect(status().isUnauthorized())

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -23,6 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("projects 테이블: DB 스키마 제약 조건")
 class ProjectSchemaTest {
 
     @Container
@@ -43,6 +45,7 @@ class ProjectSchemaTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
+    @DisplayName("동일 소유자 프로젝트명 대소문자 무시 유니크 제약")
     void projectNameIsUniquePerActiveOwnerIgnoringCase() {
         UUID ownerId = insertUser("owner@example.com");
         insertProject(ownerId, "History Tracker", null);
@@ -52,6 +55,7 @@ class ProjectSchemaTest {
     }
 
     @Test
+    @DisplayName("하드 삭제 후 동일 프로젝트명 재사용 가능")
     void projectNameCanBeReusedAfterHardDelete() {
         UUID ownerId = insertUser("owner2@example.com");
         UUID projectId = insertProject(ownerId, "History Tracker", null);
@@ -63,6 +67,7 @@ class ProjectSchemaTest {
     }
 
     @Test
+    @DisplayName("다른 소유자는 동일 프로젝트명 사용 가능")
     void differentOwnersCanUseSameProjectName() {
         UUID firstOwnerId = insertUser("first@example.com");
         UUID secondOwnerId = insertUser("second@example.com");

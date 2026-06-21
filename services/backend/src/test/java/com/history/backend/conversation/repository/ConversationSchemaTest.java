@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -22,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("conversations/messages 테이블: DB 스키마 제약 조건")
 class ConversationSchemaTest {
 
     @Container
@@ -42,6 +44,7 @@ class ConversationSchemaTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
+    @DisplayName("프로젝트·사용자로 대화 생성 가능")
     void conversationCanBeCreatedForProjectAndUser() {
         UUID ownerId = insertUser("owner@example.com");
         UUID projectId = insertProject(ownerId);
@@ -52,6 +55,7 @@ class ConversationSchemaTest {
     }
 
     @Test
+    @DisplayName("프로젝트 삭제 시 대화·메시지 cascade 삭제")
     void deletingProjectCascadesConversationsAndMessages() {
         UUID ownerId = insertUser("owner2@example.com");
         UUID projectId = insertProject(ownerId);
@@ -75,6 +79,7 @@ class ConversationSchemaTest {
     }
 
     @Test
+    @DisplayName("사용자 삭제 시 대화의 user_id는 null로 유지")
     void deletingUserSetsConversationUserToNull() {
         UUID ownerId = insertUser("owner3@example.com");
         UUID viewerId = insertUser("viewer3@example.com");
@@ -92,6 +97,7 @@ class ConversationSchemaTest {
     }
 
     @Test
+    @DisplayName("대화 삭제 시 메시지 cascade 삭제")
     void deletingConversationCascadesMessages() {
         UUID ownerId = insertUser("owner4@example.com");
         UUID projectId = insertProject(ownerId);
@@ -109,6 +115,7 @@ class ConversationSchemaTest {
     }
 
     @Test
+    @DisplayName("messages 테이블 role 컬럼 허용되지 않는 값 거부")
     void messageRoleRejectsUnexpectedValue() {
         UUID ownerId = insertUser("owner5@example.com");
         UUID projectId = insertProject(ownerId);

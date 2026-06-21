@@ -22,6 +22,7 @@ import com.history.backend.common.error.NotFoundException;
 import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.repository.ProjectRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -31,6 +32,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("ProjectService: 프로젝트 생성·조회·수정·삭제")
 class ProjectServiceTest {
 
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -47,6 +49,7 @@ class ProjectServiceTest {
     private AiEngineGraphClient aiEngineGraphClient;
 
     @Test
+    @DisplayName("활성 소유자로 프로젝트 생성 성공")
     void createProjectSavesProjectForActiveOwner() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         User owner = user(OWNER_ID);
@@ -63,6 +66,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("프로젝트 이름 앞뒤 공백 제거 후 검증·저장")
     void createProjectTrimsNameBeforeValidationAndSave() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         User owner = user(OWNER_ID);
@@ -77,6 +81,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("소유자 내 중복 이름으로 프로젝트 생성 거부")
     void createProjectRejectsDuplicateActiveNameForOwner() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
@@ -89,6 +94,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("유니크 제약 위반을 ConflictException으로 변환")
     void createProjectConvertsUniqueConstraintViolationToConflict() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
@@ -103,6 +109,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("다른 소유자의 프로젝트 조회 거부")
     void getProjectRejectsDifferentOwner() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -115,6 +122,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 프로젝트 조회 거부")
     void getProjectRejectsMissingProject() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
@@ -126,6 +134,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("프로젝트 이름 동일로 수정 허용")
     void updateProjectAllowsSameName() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -145,6 +154,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("사용 가능한 이름으로 프로젝트 상세 변경")
     void updateProjectChangesDetailsWhenNameIsAvailable() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -164,6 +174,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("수정 시 이름 앞뒤 공백 제거 후 검증·저장")
     void updateProjectTrimsNameBeforeValidationAndSave() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -182,6 +193,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("중복 이름으로 프로젝트 수정 거부")
     void updateProjectRejectsDuplicateName() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -199,6 +211,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("다른 소유자의 프로젝트 수정 거부")
     void updateProjectRejectsDifferentOwner() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -211,6 +224,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("수정 시 유니크 제약 위반을 ConflictException으로 변환")
     void updateProjectConvertsUniqueConstraintViolationToConflict() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -230,6 +244,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("프로젝트 삭제 시 그래프 삭제 후 RDB 삭제")
     void deleteProjectDeletesGraphBeforeRepository() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -245,6 +260,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("그래프 삭제 실패 시 RDB 보존")
     void deleteProjectKeepsRepositoryWhenGraphDeleteFails() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -261,6 +277,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("다른 소유자의 프로젝트 삭제 거부")
     void deleteProjectRejectsDifferentOwner() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
@@ -273,6 +290,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 프로젝트 삭제 거부")
     void deleteProjectRejectsMissingProject() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
@@ -288,6 +306,7 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("활성 소유자의 프로젝트 목록 반환")
     void findProjectsReturnsActiveOwnerProjects() {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);

@@ -20,6 +20,7 @@ import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubRepositoryOwnerResponse;
 import com.history.backend.github.dto.GitHubRepositoryResponse;
 import com.history.backend.github.repository.GitHubInstallationRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -27,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("GitHubInstallationService: GitHub App 설치 관리")
 class GitHubInstallationServiceTest {
 
     @Mock
@@ -45,6 +47,7 @@ class GitHubInstallationServiceTest {
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
 
     @Test
+    @DisplayName("동시 삽입 충돌 시 재조회로 설치 정보 반환")
     void upsertInstallationReloadsInstallationWhenConcurrentInsertWins() {
         GitHubInstallationService service = service();
         User installer = new User("github", "12345", "octocat@example.com", "Octocat", null);
@@ -67,6 +70,7 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
+    @DisplayName("설치자가 소유한 설치 정보 반환")
     void getInstallationForInstallerReturnsOwnedInstallation() {
         GitHubInstallationService service = service();
         User installer = installer();
@@ -81,6 +85,7 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
+    @DisplayName("활성 사용자의 설치 목록 조회")
     void findInstallationsRequiresActiveInstaller() {
         GitHubInstallationService service = service();
         User installer = installer();
@@ -96,6 +101,7 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
+    @DisplayName("탈퇴 사용자의 설치 목록 조회 거부")
     void findInstallationsRejectsDeletedInstaller() {
         GitHubInstallationService service = service();
         when(userService.getActiveUser(INSTALLER_ID))
@@ -108,6 +114,7 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 설치 조회 시 NotFoundException")
     void getInstallationForInstallerRejectsMissingInstallation() {
         GitHubInstallationService service = service();
         when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer());
@@ -120,6 +127,7 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
+    @DisplayName("소유한 설치의 리포지토리 목록 반환")
     void findRepositoriesReturnsRepositoriesForOwnedInstallation() {
         GitHubInstallationService service = service();
         User installer = installer();
@@ -151,6 +159,7 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
+    @DisplayName("탈퇴 사용자의 리포지토리 조회 거부")
     void findRepositoriesRejectsDeletedInstaller() {
         GitHubInstallationService service = service();
         when(userService.getActiveUser(INSTALLER_ID))

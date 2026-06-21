@@ -18,6 +18,7 @@ import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.repository.GitHubInstallationRepository;
 import com.history.backend.github.repository.InstallationTokenCacheView;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -25,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("InstallationTokenService: GitHub installation 액세스 토큰 캐시·갱신")
 class InstallationTokenServiceTest {
 
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
@@ -41,6 +43,7 @@ class InstallationTokenServiceTest {
     private CredentialCryptoService credentialCryptoService;
 
     @Test
+    @DisplayName("갱신 유예 시간 이후 만료 시 캐시 토큰 반환")
     void returnsCachedTokenWhenExpiryIsBeyondRefreshSkew() {
         InstallationTokenService service = service();
         GitHubInstallation installation = installation();
@@ -61,6 +64,7 @@ class InstallationTokenServiceTest {
     }
 
     @Test
+    @DisplayName("캐시 없을 때 토큰 갱신")
     void refreshesTokenWhenCacheIsMissing() {
         InstallationTokenService service = service();
         GitHubInstallation installation = installation();
@@ -84,6 +88,7 @@ class InstallationTokenServiceTest {
     }
 
     @Test
+    @DisplayName("갱신 유예 시간 내 만료 시 토큰 갱신")
     void refreshesTokenWhenExpiryIsInsideRefreshSkew() {
         InstallationTokenService service = service();
         GitHubInstallation installation = installation();
@@ -110,6 +115,7 @@ class InstallationTokenServiceTest {
     }
 
     @Test
+    @DisplayName("잠금 후 다른 트랜잭션이 갱신한 토큰 재사용")
     void reusesTokenRefreshedByAnotherTransactionAfterLock() {
         InstallationTokenService service = service();
         GitHubInstallation staleInstallation = installation();
@@ -132,6 +138,7 @@ class InstallationTokenServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 installation 조회 시 NotFoundException")
     void rejectsMissingInstallation() {
         InstallationTokenService service = service();
         when(gitHubInstallationRepository.findTokenCacheById(INSTALLATION_ID))
@@ -143,6 +150,7 @@ class InstallationTokenServiceTest {
     }
 
     @Test
+    @DisplayName("외부 installation ID로 토큰 확보 성공")
     void ensuresTokenByExternalInstallationId() {
         InstallationTokenService service = service();
         GitHubInstallation installation = installation();

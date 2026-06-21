@@ -14,6 +14,7 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.github.domain.GitHubInstallation;
 import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -35,6 +36,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("GitHubInstallationRepository: 설치 토큰 캐시 JPA 퍼시스턴스")
 class GitHubInstallationTokenPersistenceTest {
 
     @Container
@@ -67,6 +69,7 @@ class GitHubInstallationTokenPersistenceTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
+    @DisplayName("설치 토큰 저장 후 캐시 조회 성공")
     void saveAndFindInstallationTokenCache() {
         GitHubInstallation installation = createInstallation();
         byte[] encryptedToken = new byte[]{1, 2, 3, 4};
@@ -89,6 +92,7 @@ class GitHubInstallationTokenPersistenceTest {
     }
 
     @Test
+    @DisplayName("SELECT FOR UPDATE가 트랜잭션 커밋까지 행 잠금 유지")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void findByIdForUpdateHoldsRowLockUntilTransactionCommit() throws Exception {
         UUID installationId = transactionTemplate().execute(status -> createInstallation().getId());

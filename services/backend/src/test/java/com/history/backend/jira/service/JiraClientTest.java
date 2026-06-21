@@ -11,15 +11,18 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+@DisplayName("JiraClient: Jira REST API 호출")
 class JiraClientTest {
 
     @Test
+    @DisplayName("Jira 프로젝트 검증 성공 → 프로젝트 정보 반환")
     void verifyProjectReturnsProjectInformation() {
         JiraClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://example.atlassian.net/rest/api/3/project/PROJ"))
@@ -49,6 +52,7 @@ class JiraClientTest {
     }
 
     @Test
+    @DisplayName("HTTP 오류 응답 → UnauthorizedException 발생")
     void verifyProjectRejectsHttpErrorResponse() {
         JiraClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://example.atlassian.net/rest/api/3/project/PROJ"))
@@ -66,6 +70,7 @@ class JiraClientTest {
     }
 
     @Test
+    @DisplayName("프로젝트 정보 누락 응답 → BadGatewayException 발생")
     void verifyProjectRejectsMissingProjectInformation() {
         JiraClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://example.atlassian.net/rest/api/3/project/PROJ"))

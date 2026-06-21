@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -22,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("integrations 테이블: DB 스키마 제약 조건")
 class IntegrationSchemaTest {
 
     @Container
@@ -42,6 +44,7 @@ class IntegrationSchemaTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
+    @DisplayName("GitHub 연동은 installation 필수, encrypted_credential 불필요")
     void githubIntegrationRequiresInstallationWithoutCredential() {
         UUID ownerId = insertUser("owner@example.com");
         UUID projectId = insertProject(ownerId);
@@ -53,6 +56,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("GitHub 연동은 installation 없으면 거부")
     void githubIntegrationRejectsMissingInstallation() {
         UUID ownerId = insertUser("owner2@example.com");
         UUID projectId = insertProject(ownerId);
@@ -70,6 +74,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("Slack 연동은 encrypted_credential 필수, installation 불필요")
     void slackIntegrationRequiresEncryptedCredentialWithoutInstallation() {
         UUID ownerId = insertUser("owner3@example.com");
         UUID projectId = insertProject(ownerId);
@@ -92,6 +97,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("Slack 연동에 installation 참조 시 거부")
     void slackIntegrationRejectsInstallationReference() {
         UUID ownerId = insertUser("owner4@example.com");
         UUID projectId = insertProject(ownerId);
@@ -114,6 +120,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("Jira 연동은 encrypted_credential 필수, installation 불필요")
     void jiraIntegrationRequiresEncryptedCredentialWithoutInstallation() {
         UUID ownerId = insertUser("owner8@example.com");
         UUID projectId = insertProject(ownerId);
@@ -136,6 +143,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("Jira 연동은 encrypted_credential 없으면 거부")
     void jiraIntegrationRejectsMissingEncryptedCredential() {
         UUID ownerId = insertUser("owner9@example.com");
         UUID projectId = insertProject(ownerId);
@@ -153,6 +161,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("프로젝트별 provider 유니크 제약")
     void providerIsUniquePerProject() {
         UUID ownerId = insertUser("owner5@example.com");
         UUID projectId = insertProject(ownerId);
@@ -164,6 +173,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("프로젝트 삭제 시 연동 cascade 삭제")
     void deletingProjectCascadesIntegrations() {
         UUID ownerId = insertUser("owner6@example.com");
         UUID projectId = insertProject(ownerId);
@@ -181,6 +191,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("GitHub installation 삭제 시 GitHub 연동 cascade 삭제")
     void deletingReferencedInstallationCascadesGitHubIntegrations() {
         UUID ownerId = insertUser("owner7@example.com");
         UUID projectId = insertProject(ownerId);
@@ -198,6 +209,7 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("사용자 삭제 시 프로젝트·연동·installation cascade 삭제")
     void deletingUserCascadesOwnedProjectsIntegrationsAndInstallations() {
         UUID ownerId = insertUser("owner10@example.com");
         UUID projectId = insertProject(ownerId);

@@ -26,6 +26,7 @@ import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -33,6 +34,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("AuthService: GitHub OAuth 로그인·토큰 갱신·로그아웃")
 class AuthServiceTest {
 
     private static final GitHubAppProperties GITHUB_PROPERTIES = new GitHubAppProperties(
@@ -74,6 +76,7 @@ class AuthServiceTest {
     private JwtTokenService jwtTokenService;
 
     @Test
+    @DisplayName("GitHub OAuth authorize URI 생성")
     void buildGitHubAuthorizeUri() {
         AuthService authService = authService();
 
@@ -87,6 +90,7 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("installation URL 미설정 시 app slug로 설치 URI 생성")
     void buildGitHubInstallUriDerivesFromAppSlugWhenInstallationUrlNotConfigured() {
         AuthService authService = authService();
 
@@ -97,6 +101,7 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("installation URL 설정 시 설정된 URL 사용")
     void buildGitHubInstallUriUsesConfiguredInstallationUrlWhenPresent() {
         GitHubAppProperties properties = new GitHubAppProperties(
                 "app-id",
@@ -121,6 +126,7 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("installation URL·app slug 모두 미설정 시 예외 발생")
     void buildGitHubInstallUriThrowsWhenInstallationUrlAndAppSlugAreBlank() {
         GitHubAppProperties properties = new GitHubAppProperties(
                 "app-id",
@@ -143,6 +149,7 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("GitHub 로그인 시 토큰 응답 발급")
     void loginWithGitHubIssuesTokenResponse() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
@@ -167,6 +174,7 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("유효하지 않은 GitHub 코드로 로그인 거부")
     void loginWithGitHubRejectsInvalidGitHubCode() {
         AuthService authService = authService();
         when(gitHubOAuthClient.exchangeCode("bad-code"))
@@ -179,6 +187,7 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("로그인 시 자신의 installation만 동기화하고 타인 것은 무시")
     void loginWithGitHubSyncsOwnInstallationButSkipsOtherAccounts() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
@@ -211,6 +220,7 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("토큰 갱신 시 갱신 토큰 교체 후 액세스 토큰 발급")
     void refreshRotatesRefreshTokenAndIssuesAccessToken() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
@@ -230,6 +240,7 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("로그아웃 시 갱신 토큰 폐기")
     void logoutRevokesRefreshToken() {
         AuthService authService = authService();
 

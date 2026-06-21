@@ -12,15 +12,18 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.slack.SlackProperties;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+@DisplayName("SlackClient: Slack API 호출")
 class SlackClientTest {
 
     @Test
+    @DisplayName("Slack 토큰 검증 성공 → 워크스페이스 정보 반환")
     void verifyTokenReturnsWorkspaceFromAuthTest() {
         SlackClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://slack.test/api/auth.test"))
@@ -42,6 +45,7 @@ class SlackClientTest {
     }
 
     @Test
+    @DisplayName("Slack ok:false 응답 → UnauthorizedException 발생")
     void verifyTokenRejectsSlackErrorResponse() {
         SlackClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://slack.test/api/auth.test"))
@@ -59,6 +63,7 @@ class SlackClientTest {
     }
 
     @Test
+    @DisplayName("HTTP 오류 응답 → UnauthorizedException 발생")
     void verifyTokenRejectsHttpErrorResponse() {
         SlackClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://slack.test/api/auth.test"))
@@ -71,6 +76,7 @@ class SlackClientTest {
     }
 
     @Test
+    @DisplayName("워크스페이스 정보 누락 응답 → BadGatewayException 발생")
     void verifyTokenRejectsMissingWorkspaceInformation() {
         SlackClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://slack.test/api/auth.test"))

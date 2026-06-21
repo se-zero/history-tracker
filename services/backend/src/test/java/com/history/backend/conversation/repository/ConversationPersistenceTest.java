@@ -12,6 +12,7 @@ import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.domain.MessageRole;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.repository.ProjectRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -30,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("ConversationRepository/MessageRepository: 대화·메시지 JPA 퍼시스턴스")
 class ConversationPersistenceTest {
 
     @Container
@@ -62,6 +64,7 @@ class ConversationPersistenceTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
+    @DisplayName("대화 저장 후 조회 성공")
     void saveAndFindConversation() {
         ProjectFixture fixture = createProjectFixture();
         Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
@@ -78,6 +81,7 @@ class ConversationPersistenceTest {
     }
 
     @Test
+    @DisplayName("메시지 저장 후 생성 순서로 조회")
     void saveAndFindMessagesInCreatedOrder() throws InterruptedException {
         ProjectFixture fixture = createProjectFixture();
         Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
@@ -105,6 +109,7 @@ class ConversationPersistenceTest {
     }
 
     @Test
+    @DisplayName("요약 커서 이후 메시지만 조회")
     void findMessagesFromSummaryCursorTime() throws InterruptedException {
         ProjectFixture fixture = createProjectFixture();
         Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
@@ -124,6 +129,7 @@ class ConversationPersistenceTest {
     }
 
     @Test
+    @DisplayName("메시지 metadata는 JSONB로 저장")
     void metadataIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
         Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
@@ -147,6 +153,7 @@ class ConversationPersistenceTest {
     }
 
     @Test
+    @DisplayName("running summary 갱신 시 version CAS(Compare-And-Set) 적용")
     void updateRunningSummaryUsesSummaryVersionCompareAndSet() {
         ProjectFixture fixture = createProjectFixture();
         Conversation conversation = conversationRepository.saveAndFlush(new Conversation(

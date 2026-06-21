@@ -14,17 +14,20 @@ import java.util.UUID;
 
 import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.dto.AiEnginePriorEvidence;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+@DisplayName("AiEngineQueryClient: ai-engine 질의 HTTP 클라이언트")
 class AiEngineQueryClientTest {
 
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
 
     @Test
+    @DisplayName("대화 전체 컨텍스트를 ai-engine에 POST")
     void askPostsFullConversationContextToAiEngine() {
         AiEngineQueryClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
@@ -79,6 +82,7 @@ class AiEngineQueryClientTest {
     }
 
     @Test
+    @DisplayName("응답 본문 없을 때 fallback 반환")
     void askReturnsFallbackWhenResponseBodyIsMissing() {
         AiEngineQueryClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
@@ -92,6 +96,7 @@ class AiEngineQueryClientTest {
     }
 
     @Test
+    @DisplayName("answer 공백일 때 fallback 반환")
     void askReturnsFallbackWhenAnswerIsBlank() {
         AiEngineQueryClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
@@ -107,6 +112,7 @@ class AiEngineQueryClientTest {
     }
 
     @Test
+    @DisplayName("ai-engine 오류 시 fallback 반환")
     void askReturnsFallbackWhenAiEngineFails() {
         AiEngineQueryClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
@@ -120,6 +126,7 @@ class AiEngineQueryClientTest {
     }
 
     @Test
+    @DisplayName("기존 요약과 이전 히스토리를 ai-engine에 POST하여 누적 요약 갱신")
     void summarizePostsExistingSummaryAndOldHistory() {
         AiEngineQueryClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query/summary"))

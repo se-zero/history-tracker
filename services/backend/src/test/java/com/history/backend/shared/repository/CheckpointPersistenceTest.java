@@ -13,6 +13,7 @@ import com.history.backend.project.repository.ProjectRepository;
 import com.history.backend.shared.domain.Checkpoint;
 import com.history.backend.shared.domain.CheckpointId;
 import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -31,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Transactional
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
+@DisplayName("CheckpointRepository: 체크포인트 JPA 퍼시스턴스")
 class CheckpointPersistenceTest {
 
     @Container
@@ -63,6 +65,7 @@ class CheckpointPersistenceTest {
     private EntityManager entityManager;
 
     @Test
+    @DisplayName("체크포인트 저장 후 조회 성공")
     void saveAndFindCheckpoint() {
         Project project = createProject();
         Checkpoint checkpoint = checkpointRepository.saveAndFlush(new Checkpoint(
@@ -87,6 +90,7 @@ class CheckpointPersistenceTest {
     }
 
     @Test
+    @DisplayName("복합키로 체크포인트 조회 성공")
     void findByCheckpointId() {
         Project project = createProject();
         Checkpoint checkpoint = checkpointRepository.saveAndFlush(new Checkpoint(
@@ -106,6 +110,7 @@ class CheckpointPersistenceTest {
     }
 
     @Test
+    @DisplayName("프로젝트·provider별 체크포인트 전체 조회")
     void findAllByProjectAndProvider() {
         Project project = createProject();
         checkpointRepository.save(new Checkpoint(
@@ -137,6 +142,7 @@ class CheckpointPersistenceTest {
     }
 
     @Test
+    @DisplayName("provider는 소문자로 DB에 저장")
     void providerIsStoredAsLowercaseDatabaseValue() {
         Project project = createProject();
         checkpointRepository.saveAndFlush(new Checkpoint(
@@ -161,6 +167,7 @@ class CheckpointPersistenceTest {
     }
 
     @Test
+    @DisplayName("cursor_value 업데이트 성공")
     void updateCursorValueChangesCursorValue() {
         Project project = createProject();
         Checkpoint checkpoint = checkpointRepository.saveAndFlush(new Checkpoint(
@@ -177,6 +184,7 @@ class CheckpointPersistenceTest {
     }
 
     @Test
+    @DisplayName("신규 체크포인트 upsert 삽입")
     void upsertCursorInsertsNewCheckpoint() {
         Project project = createProject();
 
@@ -198,6 +206,7 @@ class CheckpointPersistenceTest {
     }
 
     @Test
+    @DisplayName("기존 체크포인트 upsert 갱신")
     void upsertCursorUpdatesExistingCheckpoint() {
         Project project = createProject();
         checkpointRepository.upsertCursor(
@@ -225,6 +234,7 @@ class CheckpointPersistenceTest {
     }
 
     @Test
+    @DisplayName("과거 시각으로 upsert 시 기존 값 유지")
     void upsertCursorIgnoresOlderCheckpoint() {
         Project project = createProject();
         checkpointRepository.upsertCursor(
@@ -254,6 +264,7 @@ class CheckpointPersistenceTest {
     }
 
     @Test
+    @DisplayName("프로젝트 삭제 시 체크포인트 cascade 삭제")
     void deletingProjectCascadesCheckpoints() {
         Project project = createProject();
         checkpointRepository.saveAndFlush(new Checkpoint(

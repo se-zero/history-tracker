@@ -15,6 +15,7 @@ import java.util.List;
 
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.GitHubAppProperties;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -25,12 +26,14 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("GitHubAppClient: GitHub App REST API 클라이언트")
 class GitHubAppClientTest {
 
     @Mock
     private GitHubAppJwtService gitHubAppJwtService;
 
     @Test
+    @DisplayName("App JWT로 installation 액세스 토큰 요청")
     void createInstallationAccessTokenRequestsTokenWithAppJwt() {
         GitHubAppClientFixture fixture = fixture();
         when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
@@ -52,6 +55,7 @@ class GitHubAppClientTest {
     }
 
     @Test
+    @DisplayName("빈 토큰 응답 시 예외 발생")
     void createInstallationAccessTokenRejectsEmptyTokenResponse() {
         GitHubAppClientFixture fixture = fixture();
         when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
@@ -70,6 +74,7 @@ class GitHubAppClientTest {
     }
 
     @Test
+    @DisplayName("빈 만료 시각 응답 시 예외 발생")
     void createInstallationAccessTokenRejectsEmptyExpiryResponse() {
         GitHubAppClientFixture fixture = fixture();
         when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
@@ -88,6 +93,7 @@ class GitHubAppClientTest {
     }
 
     @Test
+    @DisplayName("유효하지 않은 만료 시각 응답 시 예외 발생")
     void createInstallationAccessTokenRejectsInvalidExpiryResponse() {
         GitHubAppClientFixture fixture = fixture();
         when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
@@ -106,6 +112,7 @@ class GitHubAppClientTest {
     }
 
     @Test
+    @DisplayName("GitHub 오류 응답을 BadGatewayException으로 변환")
     void createInstallationAccessTokenWrapsGitHubErrors() {
         GitHubAppClientFixture fixture = fixture();
         when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
@@ -120,6 +127,7 @@ class GitHubAppClientTest {
     }
 
     @Test
+    @DisplayName("단일 부분 페이지 리포지토리 반환")
     void fetchInstallationRepositoriesReturnsSinglePartialPage() {
         GitHubAppClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=100&page=1"))
@@ -135,6 +143,7 @@ class GitHubAppClientTest {
     }
 
     @Test
+    @DisplayName("부분 페이지까지 모든 페이지 조회")
     void fetchInstallationRepositoriesFetchesUntilPartialPage() {
         GitHubAppClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=100&page=1"))
@@ -149,6 +158,7 @@ class GitHubAppClientTest {
     }
 
     @Test
+    @DisplayName("리포지토리 조회 중 GitHub 오류를 BadGatewayException으로 변환")
     void fetchInstallationRepositoriesWrapsGitHubErrors() {
         GitHubAppClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=100&page=1"))

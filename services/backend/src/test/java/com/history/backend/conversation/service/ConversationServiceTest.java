@@ -19,6 +19,7 @@ import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -30,6 +31,7 @@ import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("ConversationService: 대화 생성·조회·수정·삭제")
 class ConversationServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -52,6 +54,7 @@ class ConversationServiceTest {
     private final TransactionTemplate transactionTemplate = new TransactionTemplate(new NoopTransactionManager());
 
     @Test
+    @DisplayName("대화 생성 시 대화와 첫 메시지 교환 저장")
     void createConversationSavesConversationAndFirstMessageExchange() {
         ConversationService service = service();
         User user = user();
@@ -91,6 +94,7 @@ class ConversationServiceTest {
     }
 
     @Test
+    @DisplayName("빈 첫 메시지로 대화 생성 거부")
     void createConversationRejectsBlankFirstMessage() {
         ConversationService service = service();
 
@@ -102,6 +106,7 @@ class ConversationServiceTest {
     }
 
     @Test
+    @DisplayName("대화 목록 조회 시 프로젝트 접근 권한 검증")
     void findConversationsValidatesProjectAccess() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Title");
@@ -115,6 +120,7 @@ class ConversationServiceTest {
     }
 
     @Test
+    @DisplayName("대화 상세 조회 시 대화와 메시지 반환")
     void getConversationDetailReturnsConversationAndMessages() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Title");
@@ -132,6 +138,7 @@ class ConversationServiceTest {
     }
 
     @Test
+    @DisplayName("대화 제목 수정 시 양 끝 공백 제거")
     void updateTitleTrimsTitle() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Old title");
@@ -145,6 +152,7 @@ class ConversationServiceTest {
     }
 
     @Test
+    @DisplayName("빈 값으로 대화 제목 초기화 허용")
     void updateTitleAllowsClearingTitle() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Old title");
@@ -158,6 +166,7 @@ class ConversationServiceTest {
     }
 
     @Test
+    @DisplayName("프로젝트 내 대화 삭제")
     void deleteConversationDeletesConversationForProject() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Title");

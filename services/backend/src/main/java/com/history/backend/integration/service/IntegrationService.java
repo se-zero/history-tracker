@@ -31,7 +31,6 @@ import com.history.backend.slack.service.SlackClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -48,7 +47,7 @@ public class IntegrationService {
     private final SlackClient slackClient;
     private final JiraClient jiraClient;
     private final PipelineWorkerClient pipelineWorkerClient;
-    private final PlatformTransactionManager transactionManager;
+    private final TransactionTemplate transactionTemplate;
 
     // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
     public List<IntegrationResponse> listIntegrations(UUID ownerId, UUID projectId) {
@@ -99,7 +98,6 @@ public class IntegrationService {
         String normalizedRepositoryFullName = repositoryFullName.trim();
         String normalizedBranch = branch.trim();
         // 토큰 발급 중 DB 커넥션·행 락 점유를 늘리지 않도록 연동 저장만 별도 트랜잭션으로 실행
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Integration integration = transactionTemplate.execute(status -> saveGitHubRepository(
                 project,
                 installation,
@@ -108,7 +106,7 @@ public class IntegrationService {
                 normalizedRepositoryFullName,
                 normalizedBranch
         ));
-        pipelineWorkerClient.triggerGitHubCollection(projectId);
+        pipelineWorkerClient.triggerCollection(IntegrationProvider.GITHUB, projectId);
         return integration;
     }
 
@@ -131,7 +129,7 @@ public class IntegrationService {
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합으로 사전 중복 검사를 통과한 경우 unique 제약 위반을 409로 변환
-            throw new ConflictException("GitHub integration already exists.");
+            throw integrationAlreadyExists(IntegrationProvider.GITHUB);
         }
     }
 
@@ -146,14 +144,13 @@ public class IntegrationService {
         byte[] encryptedCredential = credentialCryptoService.encrypt(normalizedToken);
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Integration integration = transactionTemplate.execute(status -> saveSlackWorkspace(
                 ownerId,
                 projectId,
                 workspace,
                 encryptedCredential
         ));
-        pipelineWorkerClient.triggerSlackCollection(projectId);
+        pipelineWorkerClient.triggerCollection(IntegrationProvider.SLACK, projectId);
         return integration;
     }
 
@@ -182,7 +179,6 @@ public class IntegrationService {
         );
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Integration integration = transactionTemplate.execute(status -> saveJiraProject(
                 ownerId,
                 projectId,
@@ -190,7 +186,7 @@ public class IntegrationService {
                 jiraProject,
                 encryptedCredential
         ));
-        pipelineWorkerClient.triggerJiraCollection(projectId);
+        pipelineWorkerClient.triggerCollection(IntegrationProvider.JIRA, projectId);
         return integration;
     }
 
@@ -212,7 +208,7 @@ public class IntegrationService {
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
-            throw new ConflictException("Slack integration already exists.");
+            throw integrationAlreadyExists(IntegrationProvider.SLACK);
         }
     }
 
@@ -236,7 +232,7 @@ public class IntegrationService {
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
-            throw new ConflictException("Jira integration already exists.");
+            throw integrationAlreadyExists(IntegrationProvider.JIRA);
         }
     }
 
@@ -299,15 +295,11 @@ public class IntegrationService {
     // 프로젝트당 provider별 1개 연동 제한 검증
     private void validateProviderAvailable(UUID projectId, IntegrationProvider provider) {
         if (integrationRepository.existsByProject_IdAndProvider(projectId, provider)) {
-            throw new ConflictException(providerDisplayName(provider) + " integration already exists.");
+            throw integrationAlreadyExists(provider);
         }
     }
 
-    private String providerDisplayName(IntegrationProvider provider) {
-        return switch (provider) {
-            case GITHUB -> "GitHub";
-            case SLACK -> "Slack";
-            case JIRA -> "Jira";
-        };
+    private ConflictException integrationAlreadyExists(IntegrationProvider provider) {
+        return new ConflictException(provider.displayName() + " integration already exists.");
     }
 }

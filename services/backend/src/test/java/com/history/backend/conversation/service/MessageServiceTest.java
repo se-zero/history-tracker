@@ -27,6 +27,7 @@ import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -39,6 +40,7 @@ import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("MessageService: 메시지 추가·히스토리·요약 관리")
 class MessageServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -60,6 +62,7 @@ class MessageServiceTest {
     private final TransactionTemplate transactionTemplate = new TransactionTemplate(new NoopTransactionManager());
 
     @Test
+    @DisplayName("메시지 추가 시 사용자·보조자 메시지 저장")
     void addMessageSavesUserAndAssistantMessages() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -125,6 +128,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("ai-engine 실패 시 fallback 보조자 메시지 저장")
     void addMessageStoresFallbackAssistantMessageWhenAiEngineFails() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -153,6 +157,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("사용자 메시지 저장 시 대화 updated_at 갱신")
     void appendUserMessageTouchesConversation() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -165,6 +170,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("system·fallback·빈 메시지는 히스토리에서 제외")
     void addMessageExcludesSystemFallbackAndBlankMessagesFromHistory() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -197,6 +203,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("최근 5개 완성 턴만 히스토리로 전송")
     void addMessageSendsOnlyFiveMostRecentCompletedTurns() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -234,6 +241,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("최근 5개 이전 턴은 running summary로 압축")
     void addMessageSummarizesTurnsOlderThanRecentFive() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -280,6 +288,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("요약 갱신 충돌 시 최신 저장 요약 사용")
     void addMessageUsesLatestSummaryWhenConditionalUpdateConflicts() {
         MessageService service = service();
         Conversation initialConversation = conversation();
@@ -322,6 +331,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("저장된 커서 이후 턴만 추가 요약")
     void addMessageSummarizesOnlyTurnsAfterStoredCursor() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -361,6 +371,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("요약 커서 누락 시 전체 히스토리 폴백")
     void addMessageFallsBackToFullHistoryWhenSummaryCursorIsMissing() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -398,6 +409,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("요약 생성 실패 시 기존 요약 유지하고 계속 진행")
     void addMessageContinuesWithExistingSummaryWhenSummarizationFails() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -426,6 +438,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("요약 갱신 예외 시 기존 요약 유지하고 계속 진행")
     void addMessageContinuesWithExistingSummaryWhenSummaryUpdateThrows() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -469,6 +482,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("prior evidence는 최신 완성 턴의 보조자 메시지에서만 추출")
     void addMessageSendsPriorEvidenceOnlyFromLatestCompletedTurn() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -517,6 +531,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("fallback 보조자 메시지로 완성된 턴은 히스토리에서 제외")
     void addMessageExcludesTurnCompletedByFallbackAnswer() {
         MessageService service = service();
         Conversation conversation = conversation();
@@ -542,6 +557,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("빈 메시지 내용으로 추가 거부")
     void addMessageRejectsBlankContent() {
         MessageService service = service();
 
@@ -553,6 +569,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 대화에 메시지 추가 거부")
     void addMessageRejectsMissingConversation() {
         MessageService service = service();
         when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
@@ -565,6 +582,7 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("메시지 조회 시 프로젝트·대화 접근 권한 검증")
     void findMessagesValidatesProjectAndConversation() {
         MessageService service = service();
         Conversation conversation = conversation();

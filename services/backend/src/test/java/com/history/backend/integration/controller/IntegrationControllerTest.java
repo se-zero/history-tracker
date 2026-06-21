@@ -25,6 +25,7 @@ import com.history.backend.project.domain.Project;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -37,6 +38,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@DisplayName("IntegrationController: 연동 HTTP API")
 class IntegrationControllerTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -62,6 +64,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("프로젝트 연동 목록 조회")
     void listIntegrationsReturnsIntegrationsForProject() throws Exception {
         when(integrationService.listIntegrations(USER_ID, PROJECT_ID))
                 .thenReturn(List.of(IntegrationResponse.from(integration(), SYNCED_AT)));
@@ -80,6 +83,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("연동 해제 → 204 No Content 반환")
     void disconnectIntegrationReturnsNoContent() throws Exception {
         mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
@@ -89,6 +93,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 연동 해제 → 404 Not Found 반환")
     void disconnectIntegrationReturnsNotFoundWhenIntegrationMissing() throws Exception {
         doThrow(new NotFoundException("Integration not found."))
                 .when(integrationService).disconnectIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
@@ -100,6 +105,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("GitHub 리포지토리 연동 → 201 Created 반환")
     void connectGitHubRepositoryReturnsCreatedIntegration() throws Exception {
         when(integrationService.connectGitHubRepository(
                 USER_ID,
@@ -136,6 +142,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("Slack 워크스페이스 연동 → 201 Created 반환")
     void connectSlackWorkspaceReturnsCreatedIntegration() throws Exception {
         when(integrationService.connectSlackWorkspace(
                 USER_ID,
@@ -166,6 +173,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("Jira 프로젝트 연동 → 201 Created 반환")
     void connectJiraProjectReturnsCreatedIntegration() throws Exception {
         when(integrationService.connectJiraProject(
                 USER_ID,
@@ -204,6 +212,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("유효하지 않은 GitHub 연동 요청 → 400 Bad Request 반환")
     void connectGitHubRepositoryRejectsInvalidRequest() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -220,6 +229,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("유효하지 않은 Slack 연동 요청 → 400 Bad Request 반환")
     void connectSlackWorkspaceRejectsInvalidRequest() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -234,6 +244,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("유효하지 않은 Jira 연동 요청 → 400 Bad Request 반환")
     void connectJiraProjectRejectsInvalidRequest() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -251,6 +262,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("잘못된 형식의 GitHub 리포지토리 이름 거부")
     void connectGitHubRepositoryRejectsInvalidRepositoryFullNameFormat() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
@@ -269,6 +281,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("이미 연동된 GitHub 리포지토리 → 409 Conflict 반환")
     void connectGitHubRepositoryReturnsConflictWhenAlreadyConnected() throws Exception {
         when(integrationService.connectGitHubRepository(
                 USER_ID,
@@ -295,6 +308,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("이미 연동된 Slack 워크스페이스 → 409 Conflict 반환")
     void connectSlackWorkspaceReturnsConflictWhenAlreadyConnected() throws Exception {
         when(integrationService.connectSlackWorkspace(
                 USER_ID,
@@ -315,6 +329,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("이미 연동된 Jira 프로젝트 → 409 Conflict 반환")
     void connectJiraProjectReturnsConflictWhenAlreadyConnected() throws Exception {
         when(integrationService.connectJiraProject(
                 USER_ID,
@@ -341,6 +356,7 @@ class IntegrationControllerTest {
     }
 
     @Test
+    @DisplayName("액세스 토큰 없으면 401 Unauthorized 반환")
     void rejectMissingAccessToken() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
                         .contentType(MediaType.APPLICATION_JSON)

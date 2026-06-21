@@ -19,6 +19,7 @@ import com.history.backend.graph.service.GraphService;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,6 +30,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@DisplayName("GraphController: 그래프 HTTP API")
 class GraphControllerTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -49,6 +51,7 @@ class GraphControllerTest {
     }
 
     @Test
+    @DisplayName("필터 파라미터와 함께 프로젝트 그래프 반환")
     void returnsProjectGraphWithForwardedFilters() throws Exception {
         GraphResponse graph = new GraphResponse(
                 List.of(new GraphNodeResponse("n1", "commit", "feat: x", "abc1234", "github", "body")),
@@ -70,6 +73,7 @@ class GraphControllerTest {
     }
 
     @Test
+    @DisplayName("선택 파라미터 미전달 시 null 기본값 사용")
     void defaultsOptionalParamsToNull() throws Exception {
         when(graphService.getProjectGraph(eq(USER_ID), eq(PROJECT_ID), isNull(), isNull()))
                 .thenReturn(GraphResponse.empty());
@@ -84,6 +88,7 @@ class GraphControllerTest {
     }
 
     @Test
+    @DisplayName("소유자가 아닌 경우 403 Forbidden 전파")
     void propagatesForbiddenWhenNotOwner() throws Exception {
         when(graphService.getProjectGraph(USER_ID, PROJECT_ID, null, null))
                 .thenThrow(new ForbiddenException("Project access denied."));
@@ -94,6 +99,7 @@ class GraphControllerTest {
     }
 
     @Test
+    @DisplayName("미인증 요청 거부 → 401 Unauthorized")
     void rejectsUnauthenticatedRequest() throws Exception {
         mockMvc.perform(get("/api/v1/projects/{projectId}/graph", PROJECT_ID))
                 .andExpect(status().isUnauthorized());
