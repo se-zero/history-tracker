@@ -131,7 +131,7 @@ public class IntegrationService {
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합으로 사전 중복 검사를 통과한 경우 unique 제약 위반을 409로 변환
-            throw new ConflictException("GitHub integration already exists.");
+            throw integrationAlreadyExists(IntegrationProvider.GITHUB);
         }
     }
 
@@ -212,7 +212,7 @@ public class IntegrationService {
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
-            throw new ConflictException("Slack integration already exists.");
+            throw integrationAlreadyExists(IntegrationProvider.SLACK);
         }
     }
 
@@ -236,7 +236,7 @@ public class IntegrationService {
             ));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
-            throw new ConflictException("Jira integration already exists.");
+            throw integrationAlreadyExists(IntegrationProvider.JIRA);
         }
     }
 
@@ -299,15 +299,11 @@ public class IntegrationService {
     // 프로젝트당 provider별 1개 연동 제한 검증
     private void validateProviderAvailable(UUID projectId, IntegrationProvider provider) {
         if (integrationRepository.existsByProject_IdAndProvider(projectId, provider)) {
-            throw new ConflictException(providerDisplayName(provider) + " integration already exists.");
+            throw integrationAlreadyExists(provider);
         }
     }
 
-    private String providerDisplayName(IntegrationProvider provider) {
-        return switch (provider) {
-            case GITHUB -> "GitHub";
-            case SLACK -> "Slack";
-            case JIRA -> "Jira";
-        };
+    private ConflictException integrationAlreadyExists(IntegrationProvider provider) {
+        return new ConflictException(provider.displayName() + " integration already exists.");
     }
 }

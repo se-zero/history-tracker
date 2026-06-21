@@ -3,18 +3,24 @@ package com.history.backend.integration.domain;
 import java.util.Arrays;
 
 public enum IntegrationProvider {
-    GITHUB("github"),
-    SLACK("slack"),
-    JIRA("jira");
+    GITHUB("github", "GitHub"),
+    SLACK("slack", "Slack"),
+    JIRA("jira", "Jira");
 
     private final String value;
+    private final String displayName;
 
-    IntegrationProvider(String value) {
+    IntegrationProvider(String value, String displayName) {
         this.value = value;
+        this.displayName = displayName;
     }
 
     public String value() {
         return value;
+    }
+
+    public String displayName() {
+        return displayName;
     }
 
     public static IntegrationProvider fromValue(String value) {
