@@ -40,6 +40,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @ExtendWith(MockitoExtension.class)
 class IntegrationServiceTest {
@@ -513,7 +514,7 @@ class IntegrationServiceTest {
                 slackClient,
                 jiraClient,
                 pipelineWorkerClient,
-                transactionManager
+                new TransactionTemplate(transactionManager)
         );
     }
 

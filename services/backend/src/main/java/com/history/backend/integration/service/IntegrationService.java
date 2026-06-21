@@ -31,7 +31,6 @@ import com.history.backend.slack.service.SlackClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -48,7 +47,7 @@ public class IntegrationService {
     private final SlackClient slackClient;
     private final JiraClient jiraClient;
     private final PipelineWorkerClient pipelineWorkerClient;
-    private final PlatformTransactionManager transactionManager;
+    private final TransactionTemplate transactionTemplate;
 
     // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
     public List<IntegrationResponse> listIntegrations(UUID ownerId, UUID projectId) {
@@ -99,7 +98,6 @@ public class IntegrationService {
         String normalizedRepositoryFullName = repositoryFullName.trim();
         String normalizedBranch = branch.trim();
         // 토큰 발급 중 DB 커넥션·행 락 점유를 늘리지 않도록 연동 저장만 별도 트랜잭션으로 실행
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Integration integration = transactionTemplate.execute(status -> saveGitHubRepository(
                 project,
                 installation,
@@ -146,7 +144,6 @@ public class IntegrationService {
         byte[] encryptedCredential = credentialCryptoService.encrypt(normalizedToken);
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Integration integration = transactionTemplate.execute(status -> saveSlackWorkspace(
                 ownerId,
                 projectId,
@@ -182,7 +179,6 @@ public class IntegrationService {
         );
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         Integration integration = transactionTemplate.execute(status -> saveJiraProject(
                 ownerId,
                 projectId,
