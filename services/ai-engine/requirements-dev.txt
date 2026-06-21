@@ -1,0 +1,3 @@
+# Test/dev-only dependencies (not bundled into the runtime image).
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+pytest>=8.3,<10
