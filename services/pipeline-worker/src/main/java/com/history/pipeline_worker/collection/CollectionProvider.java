@@ -18,7 +18,7 @@ public enum CollectionProvider {
         return value;
     }
 
-    // 미지원 provider는 무시해야 하는 DB row 처리용 (구버전 worker 호환)
+    // provider 문자열 → enum 조회 (미지원이면 Optional.empty())
     public static Optional<CollectionProvider> find(String value) {
         return Arrays.stream(values())
                 .filter(provider -> provider.value.equals(value))

@@ -57,7 +57,7 @@ public class CheckpointService {
     }
 
     private void apply(ProjectCheckpointData data, CheckpointRepository.CheckpointRow row) {
-        // Unknown providers are ignored so new DB rows do not break older workers.
+        // 미지원 provider row 건너뜀 — 예외 대신 무시
         CollectionProvider provider = CollectionProvider.find(row.provider()).orElse(null);
         if (provider == null) {
             return;
@@ -75,7 +75,7 @@ public class CheckpointService {
             case GITHUB_PULL_REQUESTS -> github.pullRequestsScannedAt = row.cursorValue();
             case GITHUB_ISSUES -> github.issuesScannedAt = row.cursorValue();
             default -> {
-                // Unknown cursor keys are ignored so new DB rows do not break older workers.
+                // 미지원 cursor key 건너뜀 — 예외 대신 무시
             }
         }
     }
