@@ -1,17 +1,9 @@
 import { useMemo, type ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { StatusView } from "@/components/StatusView";
-import {
-  deleteConversation,
-  updateConversationTitle,
-} from "@/api/conversations";
-import { useAuth } from "@/auth/AuthProvider";
-import { queryKeys } from "@/hooks/queryKeys";
-import { useConversations } from "@/hooks/useConversations";
 import { useProjects } from "@/hooks/useProjects";
 import type { Project } from "@/types/api";
 
@@ -43,35 +35,12 @@ interface ShellContext {
 }
 
 export function AppShell({ children }: { children?: ReactNode }) {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
-  const queryClient = useQueryClient();
   const projectId = params.projectId;
 
   const projectsQuery = useProjects();
-
-  const conversationsQuery = useConversations(projectId);
-
-  const renameConvoMutation = useMutation({
-    mutationFn: ({ id, title }: { id: string; title: string }) =>
-      updateConversationTitle(projectId!, id, title),
-    onSuccess: (updated) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations(projectId) });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.conversation(projectId, updated.id),
-      });
-    },
-  });
-
-  const deleteConvoMutation = useMutation({
-    mutationFn: (id: string) => deleteConversation(projectId!, id),
-    onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations(projectId) });
-      queryClient.removeQueries({ queryKey: queryKeys.conversation(projectId, id) });
-    },
-  });
 
   const projects = projectsQuery.data ?? [];
   const project = useMemo(
@@ -125,47 +94,15 @@ export function AppShell({ children }: { children?: ReactNode }) {
     navigate(`/projects/${id}/${route}`);
   };
 
-  const handleSelectConvo = (cid: string) => {
-    navigate(`/projects/${project.id}/chat/${cid}`);
-  };
-
-  const handleNewConvo = () => {
-    navigate(`/projects/${project.id}/chat`);
-  };
-
-  const activeConvoId = params.conversationId ?? null;
-
-  const handleRenameConvo = (id: string, title: string) => {
-    renameConvoMutation.mutate({ id, title });
-  };
-
-  const handleDeleteConvo = (id: string) => {
-    deleteConvoMutation.mutate(id, {
-      onSuccess: () => {
-        // 현재 보고 있던 대화를 지우면 빈 채팅 화면으로 이동
-        if (activeConvoId === id) {
-          navigate(`/projects/${project.id}/chat`, { replace: true });
-        }
-      },
-    });
-  };
-
   return (
     <div className="app">
       <Sidebar
         route={route}
         onRouteChange={handleRouteChange}
-        user={user}
         project={project}
         projects={projects}
         onSwitchProject={handleSwitchProject}
         onNewProject={() => navigate("/onboarding")}
-        conversations={conversationsQuery.data ?? []}
-        activeConvoId={activeConvoId}
-        onSelectConvo={handleSelectConvo}
-        onNewConvo={handleNewConvo}
-        onRenameConvo={handleRenameConvo}
-        onDeleteConvo={handleDeleteConvo}
       />
       <div className="main">
         {route !== "graph" && <Topbar crumbs={crumbsFor(project, route)} />}
