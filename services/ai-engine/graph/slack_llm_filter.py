@@ -1,9 +1,6 @@
 import json
-import os
 
-from openai import OpenAI
-
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+from openai_client import get_openai_client
 
 _SHARED_CRITERIA = """\
 보존 기준 (다음 중 하나라도 해당되면 보존):
@@ -87,7 +84,7 @@ def filter_messages(messages: list[str], project_context: str = "", is_thread: b
 
     numbered = "\n".join(f"[{i}] {msg}" for i, msg in enumerate(messages))
 
-    response = client.chat.completions.create(
+    response = get_openai_client().chat.completions.create(
         model="gpt-4o-mini",
         response_format={"type": "json_object"},
         messages=[

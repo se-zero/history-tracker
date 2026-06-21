@@ -13,6 +13,7 @@ executor_module.execute = AsyncMock()
 sys.modules.setdefault("tools.executor", executor_module)
 
 from agent import orchestrator
+from openai_client import get_openai_client
 from query_models import QueryRequest, SummaryRequest
 
 
@@ -237,7 +238,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"summary":"merged","entities":[],"unresolved_aspects":[]}'))]
         )
 
-        with patch.object(orchestrator._client.chat.completions, "create", return_value=response) as create:
+        with patch.object(get_openai_client().chat.completions, "create", return_value=response) as create:
             result = await orchestrator.summarize_history(
                 {"summary": "existing", "entities": [], "unresolved_aspects": []},
                 [{"role": "user", "content": "old question"}],
