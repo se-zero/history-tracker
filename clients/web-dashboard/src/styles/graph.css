@@ -1,0 +1,163 @@
+/* ============================================================
+   Side graph panel
+   ============================================================ */
+.side-panel {
+  border-left: 1px solid var(--border);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.side-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  min-height: 52px;
+}
+.side-head h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.side-head .spacer { flex: 1; }
+.side-body { flex: 1; min-height: 0; position: relative; }
+
+/* ============================================================
+   Inline mini-graph (variant B)
+   ============================================================ */
+.mini-graph {
+  margin-top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.mini-graph-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.mini-graph-head .label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mini-graph-body { height: 220px; position: relative; }
+
+/* ============================================================
+   Full-screen overlay (variant C)
+   ============================================================ */
+.overlay-backdrop {
+  position: absolute; inset: 0;
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  backdrop-filter: blur(6px);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+.overlay-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.overlay-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.overlay-search {
+  flex: 1;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--fg-muted);
+  font-size: 13px;
+  max-width: 420px;
+}
+.overlay-search input {
+  border: none; background: transparent; outline: none;
+  flex: 1; color: var(--fg); font-size: 13px;
+}
+
+/* ============================================================
+   Graph (SVG) component
+   ============================================================ */
+.graph-canvas { width: 100%; height: 100%; display: block; }
+.graph-wrap { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.graph-legend {
+  position: absolute; left: 16px; bottom: 16px;
+  display: flex; flex-direction: column; gap: 4px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  font-size: 11.5px;
+  backdrop-filter: blur(4px);
+  z-index: 4;
+}
+.legend-row { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+.graph-controls {
+  position: absolute; right: 16px; top: 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 4px;
+  z-index: 4;
+}
+.graph-filters {
+  position: absolute; left: 16px; top: 16px;
+  display: flex; gap: 6px;
+  flex-wrap: wrap;
+  max-width: 60%;
+  z-index: 4;
+}
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--fg-muted);
+  backdrop-filter: blur(4px);
+}
+.filter-chip.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.filter-chip .ch-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+.node-detail {
+  position: absolute; right: 16px; bottom: 16px; top: 64px;
+  width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+  padding: 14px;
+  z-index: 5;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.node-detail .nd-head { display: flex; align-items: flex-start; gap: 10px; }
+.node-detail .nd-icon { width: 28px; height: 28px; border-radius: var(--r-sm); display: grid; place-items: center; color: white; font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; }
+.node-detail .nd-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
+.node-detail .nd-meta { font-size: 11px; color: var(--fg-subtle); margin-top: 2px; font-family: var(--font-mono); }
+.node-detail .nd-snippet {
+  font-size: 12.5px; color: var(--fg-muted); line-height: 1.55;
+  padding: 10px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+}
+.nd-actions { display: flex; gap: 6px; margin-top: 4px; }
+
+/* SVG graph styles */
+.gnode-circle { stroke: var(--node-stroke); stroke-width: 2; transition: filter 0.15s, r 0.15s; cursor: pointer; }
+.gnode-circle.dim { opacity: 0.25; }
+.gnode-circle.hot { filter: drop-shadow(0 0 8px currentColor); }
+.gnode-label { font-family: var(--font-mono); font-size: 9.5px; fill: var(--fg-muted); pointer-events: none; }
+.gnode-label.dim { opacity: 0.2; }
+.gedge { stroke: var(--edge); stroke-width: 1; fill: none; transition: stroke 0.15s, opacity 0.15s; }
+.gedge.dim { opacity: 0.15; }
+.gedge.hot { stroke: var(--edge-active); stroke-width: 1.5; }

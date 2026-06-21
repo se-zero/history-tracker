@@ -1,0 +1,19 @@
+/* 외부 폰트 — @import 규칙은 다른 모든 규칙보다 먼저 와야 하므로 진입점 최상단에 둔다. */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+/* 아래 순서는 원본 styles.css의 cascade 순서를 그대로 보존한다. */
+@import "./tokens.css";
+@import "./base.css";
+@import "./app-shell.css";
+@import "./sidebar.css";
+@import "./main.css";
+@import "./buttons.css";
+@import "./cards.css";
+@import "./login.css";
+@import "./onboarding.css";
+@import "./chat.css";
+@import "./graph.css";
+@import "./sources.css";
+@import "./settings.css";
+@import "./misc.css";

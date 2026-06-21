@@ -1,0 +1,118 @@
+/* ============================================================
+   Sources page
+   ============================================================ */
+.sources-page { padding: 32px 40px; max-width: 1100px; }
+.page-title { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.02em; }
+.page-sub { color: var(--fg-muted); margin: 0 0 28px; font-size: 14px; }
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 32px;
+}
+.source-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.source-card .src-head { display: flex; align-items: center; gap: 12px; }
+.src-logo {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: grid; place-items: center;
+  color: white;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.src-logo.gh { background: var(--fg); color: var(--bg); }
+.src-logo.jira { background: var(--node-pr); }
+.src-logo.slack { background: var(--node-slack); }
+.source-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; }
+.source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; font-family: var(--font-mono); }
+
+.repo-list {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.repo-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.repo-row:last-child { border-bottom: none; }
+.repo-row .repo-name { flex: 1; font-family: var(--font-mono); }
+.repo-row .repo-meta { color: var(--fg-subtle); font-size: 11px; font-family: var(--font-mono); }
+.branch-select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  max-width: 170px;
+}
+
+.repo-toggle {
+  display: flex; align-items: center; justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--fg-muted);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.repo-toggle:hover { background: var(--surface-3); color: var(--fg); }
+
+.connect-form {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+}
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 11.5px; font-weight: 600; color: var(--fg-muted); letter-spacing: 0.02em; }
+.field input {
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--fg);
+  outline: none;
+  font-family: var(--font-mono);
+}
+.field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent); }
+.field .hint { font-size: 11px; color: var(--fg-subtle); }
+
+.ingest-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+}
+.ingest-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.ingest-head h4 { margin: 0; font-size: 14px; font-weight: 600; }
+.ingest-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.ingest-row:first-of-type { border-top: none; }
+.ingest-source { font-weight: 550; }
+.ingest-count { font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted); text-align: right; }

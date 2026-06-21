@@ -1,0 +1,75 @@
+/* ============================================================
+   Login
+   ============================================================ */
+.login-page {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  background:
+    radial-gradient(80% 60% at 50% -10%, color-mix(in oklab, var(--primary) 14%, transparent) 0%, transparent 60%),
+    var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+.login-bg-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(circle at 50% 40%, black, transparent 70%);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.login-card {
+  position: relative;
+  width: 380px;
+  padding: 36px 32px 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.logo {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.logo-mark {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background:
+    conic-gradient(from 220deg at 50% 50%,
+      var(--node-commit), var(--node-pr), var(--node-issue),
+      var(--node-slack), var(--node-jira), var(--node-actor), var(--node-commit));
+  position: relative;
+}
+.logo-mark::after {
+  content: "";
+  position: absolute; inset: 6px;
+  background: var(--surface);
+  border-radius: 4px;
+}
+.logo-mark::before {
+  content: "";
+  position: absolute; inset: 11px;
+  background: var(--fg);
+  border-radius: 1.5px;
+  z-index: 1;
+}
+.login-card h1 { font-size: 22px; font-weight: 600; margin: 22px 0 8px; letter-spacing: -0.02em; }
+.login-card .tagline { color: var(--fg-muted); font-size: 13.5px; margin: 0 0 26px; }
+.gh-btn {
+  width: 100%;
+  padding: 11px 14px;
+  background: var(--fg);
+  color: var(--bg);
+  border: 1px solid var(--fg);
+  border-radius: var(--r-md);
+  font-weight: 550;
+  font-size: 14px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.gh-btn:hover { opacity: 0.9; }
+.login-foot { margin-top: 16px; font-size: 11.5px; color: var(--fg-subtle); }

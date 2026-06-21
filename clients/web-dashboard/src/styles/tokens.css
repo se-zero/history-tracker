@@ -1,0 +1,110 @@
+/* ============================================================
+   History Tracker — Design Tokens
+   ============================================================ */
+
+:root {
+  /* type */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* radii */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-full: 999px;
+
+  /* spacing rhythm */
+  --gutter: 16px;
+
+  /* node hues (shared chroma/lightness, hue varied) */
+  --node-c: 0.13;
+  --node-l: 0.62;
+  --node-commit:   oklch(0.62 0.13 150);   /* green */
+  --node-pr:       oklch(0.62 0.13 250);   /* blue */
+  --node-issue:    oklch(0.65 0.14  45);   /* orange */
+  --node-slack:    oklch(0.62 0.13 305);   /* purple */
+  --node-jira:     oklch(0.70 0.13  85);   /* amber */
+  --node-actor:    oklch(0.66 0.14 350);   /* pink */
+  --node-code:     oklch(0.65 0.02 250);   /* gray */
+
+  --primary-hue: 250;
+}
+
+/* light theme */
+[data-theme="light"] {
+  --bg:           oklch(0.99 0.003 250);
+  --surface:      oklch(1    0     250);
+  --surface-2:    oklch(0.975 0.004 250);
+  --surface-3:    oklch(0.955 0.005 250);
+  --border:       oklch(0.92 0.006 250);
+  --border-strong:oklch(0.85 0.008 250);
+
+  --fg:           oklch(0.19 0.012 250);
+  --fg-muted:     oklch(0.45 0.012 250);
+  --fg-subtle:    oklch(0.60 0.010 250);
+  --fg-inverse:   oklch(0.99 0.003 250);
+
+  --primary:      oklch(0.55 0.18 var(--primary-hue));
+  --primary-hover:oklch(0.50 0.20 var(--primary-hue));
+  --primary-soft: oklch(0.95 0.04 var(--primary-hue));
+  --primary-fg:   oklch(0.99 0.003 250);
+
+  --success:      oklch(0.62 0.15 150);
+  --warning:      oklch(0.70 0.15  75);
+  --danger:       oklch(0.58 0.20  25);
+
+  --shadow-sm:  0 1px 2px rgb(15 23 42 / 0.04), 0 0 0 1px rgb(15 23 42 / 0.03);
+  --shadow-md:  0 4px 12px rgb(15 23 42 / 0.06), 0 0 0 1px rgb(15 23 42 / 0.04);
+  --shadow-lg:  0 16px 40px rgb(15 23 42 / 0.10), 0 0 0 1px rgb(15 23 42 / 0.04);
+
+  --node-stroke: oklch(0.99 0.003 250);
+  --edge:        oklch(0.84 0.008 250);
+  --edge-active: oklch(0.55 0.18 var(--primary-hue));
+}
+
+[data-theme="dark"] {
+  --bg:           oklch(0.16 0.012 250);
+  --surface:      oklch(0.195 0.012 250);
+  --surface-2:    oklch(0.225 0.014 250);
+  --surface-3:    oklch(0.265 0.014 250);
+  --border:       oklch(0.30 0.012 250);
+  --border-strong:oklch(0.38 0.012 250);
+
+  --fg:           oklch(0.97 0.005 250);
+  --fg-muted:     oklch(0.70 0.012 250);
+  --fg-subtle:    oklch(0.55 0.012 250);
+  --fg-inverse:   oklch(0.16 0.012 250);
+
+  --primary:      oklch(0.72 0.18 var(--primary-hue));
+  --primary-hover:oklch(0.78 0.18 var(--primary-hue));
+  --primary-soft: oklch(0.30 0.08 var(--primary-hue));
+  --primary-fg:   oklch(0.14 0.02 var(--primary-hue));
+
+  --success:      oklch(0.72 0.15 150);
+  --warning:      oklch(0.80 0.15  85);
+  --danger:       oklch(0.70 0.18  25);
+
+  --shadow-sm:  0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-md:  0 4px 12px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-lg:  0 16px 40px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.05);
+
+  --node-stroke: oklch(0.16 0.012 250);
+  --edge:        oklch(0.36 0.012 250);
+  --edge-active: oklch(0.72 0.18 var(--primary-hue));
+
+  /* slightly brighter nodes for dark */
+  --node-commit:   oklch(0.72 0.14 150);
+  --node-pr:       oklch(0.72 0.14 250);
+  --node-issue:    oklch(0.74 0.14  45);
+  --node-slack:    oklch(0.72 0.14 305);
+  --node-jira:     oklch(0.80 0.14  85);
+  --node-actor:    oklch(0.76 0.15 350);
+  --node-code:     oklch(0.75 0.02 250);
+}
+
+/* density */
+[data-density="compact"] { --gutter: 12px; }
+[data-density="comfortable"] { --gutter: 20px; }

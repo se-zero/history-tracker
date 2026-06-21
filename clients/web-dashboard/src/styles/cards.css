@@ -1,0 +1,22 @@
+/* ===== Cards / surfaces ===== */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px;
+}
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-size: 11.5px;
+  font-weight: 550;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--fg-muted);
+}
+.badge.success { color: var(--success); border-color: color-mix(in oklab, var(--success) 30%, var(--border)); background: color-mix(in oklab, var(--success) 8%, transparent); }
+.badge.warning { color: var(--warning); border-color: color-mix(in oklab, var(--warning) 30%, var(--border)); background: color-mix(in oklab, var(--warning) 8%, transparent); }
+.badge.danger  { color: var(--danger);  border-color: color-mix(in oklab, var(--danger) 30%, var(--border));  background: color-mix(in oklab, var(--danger) 8%, transparent); }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
