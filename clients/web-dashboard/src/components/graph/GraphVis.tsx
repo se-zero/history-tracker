@@ -117,14 +117,18 @@ export function GraphVis({
     panRef.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
   };
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!panRef.current) return;
-    const dx = e.clientX - panRef.current.x;
-    const dy = e.clientY - panRef.current.y;
+    // ref를 미리 값으로 잡아 둔다. setView 업데이터는 React가 나중에 실행하는데,
+    // 그 사이 mouseup/leave로 panRef.current가 null이 되면 업데이터 안에서
+    // 다시 읽을 때 null 역참조로 터지기 때문이다.
+    const pan = panRef.current;
+    if (!pan) return;
+    const dx = e.clientX - pan.x;
+    const dy = e.clientY - pan.y;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) draggedRef.current = true;
     setView((v) => ({
       ...v,
-      tx: panRef.current!.tx + dx,
-      ty: panRef.current!.ty + dy,
+      tx: pan.tx + dx,
+      ty: pan.ty + dy,
     }));
   };
   const onMouseUp = () => {
