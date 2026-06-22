@@ -1,6 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-
-import { listRepositoryBranches } from "@/api/github";
+import { useGithubBranches } from "@/hooks/useGithub";
 
 // 저장소 브랜치 선택 드롭다운. 연결 시점에만 마운트되어 해당 저장소의 브랜치를 lazy 로드한다.
 export function BranchSelect({
@@ -18,10 +16,7 @@ export function BranchSelect({
   onChange: (branch: string) => void;
   disabled?: boolean;
 }) {
-  const branchesQuery = useQuery({
-    queryKey: ["github", "branches", installationId, owner, repo],
-    queryFn: () => listRepositoryBranches(installationId, owner, repo),
-  });
+  const branchesQuery = useGithubBranches(installationId, owner, repo);
   const branches = branchesQuery.data ?? [];
   // 기본 브랜치(value)가 목록에 없거나 로딩 중일 때도 선택값이 비지 않도록 포함
   const options =

@@ -1,15 +1,7 @@
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  type SimulationLinkDatum,
-  type SimulationNodeDatum,
-} from "d3-force";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Icons } from "@/components/Icons";
+import { fitTo, runSimulation, type Positioned } from "@/lib/graphLayout";
 import {
   NODE_TYPE_INFO,
   type GraphEdge,
@@ -32,71 +24,12 @@ interface Props {
   nodeTypeColors?: boolean;
 }
 
-type SimNode = SimulationNodeDatum & GraphNode;
-type SimLink = SimulationLinkDatum<SimNode>;
-
-interface Positioned extends GraphNode {
-  px: number;
-  py: number;
-}
-
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
 }
 
 function truncate(s: string, n: number) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
-}
-
-function runSimulation(nodes: GraphNode[], edges: GraphEdge[]): SimNode[] {
-  const simNodes: SimNode[] = nodes.map((n) => ({ ...n }));
-  const idx = new Map(simNodes.map((n) => [n.id, n]));
-  const simLinks: SimLink[] = edges
-    .filter(([a, b]) => idx.has(a) && idx.has(b))
-    .map(([a, b]) => ({ source: a, target: b }));
-  const sim = forceSimulation<SimNode>(simNodes)
-    .force(
-      "link",
-      forceLink<SimNode, SimLink>(simLinks)
-        .id((d) => d.id)
-        .distance(90)
-        .strength(0.6),
-    )
-    .force("charge", forceManyBody<SimNode>().strength(-260))
-    .force("center", forceCenter(0, 0))
-    .force("collide", forceCollide<SimNode>(28))
-    .stop();
-  for (let i = 0; i < 320; i++) sim.tick();
-  return simNodes;
-}
-
-function fitTo(
-  simNodes: SimNode[],
-  width: number,
-  height: number,
-  pad: number,
-): Positioned[] {
-  if (simNodes.length === 0) return [];
-  const xs = simNodes.map((n) => n.x ?? 0);
-  const ys = simNodes.map((n) => n.y ?? 0);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const spanX = Math.max(maxX - minX, 1);
-  const spanY = Math.max(maxY - minY, 1);
-  const innerW = Math.max(width - pad * 2, 1);
-  const innerH = Math.max(height - pad * 2, 1);
-  return simNodes.map((n) => ({
-    id: n.id,
-    type: n.type,
-    title: n.title,
-    meta: n.meta,
-    source: n.source,
-    snippet: n.snippet,
-    px: pad + (((n.x ?? 0) - minX) / spanX) * innerW,
-    py: pad + (((n.y ?? 0) - minY) / spanY) * innerH,
-  }));
 }
 
 export function GraphVis({
@@ -184,14 +117,18 @@ export function GraphVis({
     panRef.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
   };
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!panRef.current) return;
-    const dx = e.clientX - panRef.current.x;
-    const dy = e.clientY - panRef.current.y;
+    // ref를 미리 값으로 잡아 둔다. setView 업데이터는 React가 나중에 실행하는데,
+    // 그 사이 mouseup/leave로 panRef.current가 null이 되면 업데이터 안에서
+    // 다시 읽을 때 null 역참조로 터지기 때문이다.
+    const pan = panRef.current;
+    if (!pan) return;
+    const dx = e.clientX - pan.x;
+    const dy = e.clientY - pan.y;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) draggedRef.current = true;
     setView((v) => ({
       ...v,
-      tx: panRef.current!.tx + dx,
-      ty: panRef.current!.ty + dy,
+      tx: pan.tx + dx,
+      ty: pan.ty + dy,
     }));
   };
   const onMouseUp = () => {

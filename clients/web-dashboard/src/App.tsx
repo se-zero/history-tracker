@@ -1,11 +1,10 @@
 import { Navigate, Route, Routes, useOutletContext } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 
 import { AppShell } from "@/components/shell/AppShell";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { StatusView } from "@/components/StatusView";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
-import { listProjects } from "@/api/projects";
+import { useProjects } from "@/hooks/useProjects";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { GraphPage } from "@/pages/GraphPage";
@@ -103,11 +102,7 @@ function DemoGraphRoute() {
 
 function RootRedirect() {
   const { status } = useAuth();
-  const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: listProjects,
-    enabled: status === "authenticated",
-  });
+  const projectsQuery = useProjects({ enabled: status === "authenticated" });
 
   if (status === "loading") {
     return <StatusView tone="loading" description="세션 확인 중…" fullPage />;

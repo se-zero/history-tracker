@@ -1,30 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { Icons } from "@/components/Icons";
 import { StatusView } from "@/components/StatusView";
-import {
-  createConversation,
-  getConversation,
-  sendMessage,
-} from "@/api/conversations";
+import { ChatEmpty } from "@/components/chat/ChatEmpty";
+import { ChatStream } from "@/components/chat/ChatStream";
+import { Composer } from "@/components/chat/Composer";
+import { MessageItem, UserMessage } from "@/components/chat/Message";
+import { ThinkingState } from "@/components/chat/ThinkingState";
+import { createConversation, sendMessage } from "@/api/conversations";
 import { useAuth } from "@/auth/AuthProvider";
-import type {
-  ConversationDetail,
-  Message,
-  MessageMetadata,
-  Project,
-  User,
-} from "@/types/api";
-
-// TODO(backend): highlightNodes가 실리면 그래프 하이라이트 연동. 그래프 노드 매핑은 Phase 4.
-const SUGGESTED = [
-  { icon: "branch", text: "왜 이 코드가 이렇게 바뀌었어?" },
-  { icon: "refactor", text: "최근 머지된 리팩토링 PR들을 정리해줘" },
-  { icon: "fire", text: "지난 분기 가장 논쟁이 많았던 PR은?" },
-  { icon: "people", text: "이 도메인을 가장 잘 아는 사람은?" },
-] as const;
+import { queryKeys } from "@/hooks/queryKeys";
+import { useConversation } from "@/hooks/useConversations";
+import type { ConversationDetail, Project } from "@/types/api";
 
 export function ChatPage({ project }: { project: Project }) {
   const { conversationId } = useParams();
@@ -32,11 +20,7 @@ export function ChatPage({ project }: { project: Project }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  const conversationQuery = useQuery({
-    queryKey: ["conversation", project.id, conversationId],
-    queryFn: () => getConversation(project.id, conversationId!),
-    enabled: Boolean(conversationId),
-  });
+  const conversationQuery = useConversation(project.id, conversationId);
 
   const messages = conversationQuery.data?.messages ?? [];
 
@@ -57,9 +41,11 @@ export function ChatPage({ project }: { project: Project }) {
     mutationFn: (firstMessage: string) =>
       createConversation(project.id, firstMessage),
     onSuccess: (detail) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations", project.id] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations(project.id),
+      });
       queryClient.setQueryData(
-        ["conversation", project.id, detail.id],
+        queryKeys.conversation(project.id, detail.id),
         detail,
       );
       setPendingMessage(null);
@@ -74,7 +60,7 @@ export function ChatPage({ project }: { project: Project }) {
     onSuccess: (exchange) => {
       // 응답 쌍을 캐시에 바로 반영해 낙관적 메시지를 비울 때 공백이 생기지 않게 한다.
       queryClient.setQueryData<ConversationDetail>(
-        ["conversation", project.id, conversationId],
+        queryKeys.conversation(project.id, conversationId),
         (prev) =>
           prev
             ? {
@@ -87,7 +73,9 @@ export function ChatPage({ project }: { project: Project }) {
               }
             : prev,
       );
-      queryClient.invalidateQueries({ queryKey: ["conversations", project.id] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.conversations(project.id),
+      });
       setPendingMessage(null);
     },
     onError: (_error, content) => restoreOnError(content),
@@ -165,283 +153,4 @@ export function ChatPage({ project }: { project: Project }) {
       </div>
     </div>
   );
-}
-
-function ChatStream({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [children]);
-  return (
-    <div className="chat-stream" ref={ref}>
-      <div className="chat-inner">{children}</div>
-    </div>
-  );
-}
-
-// =============== Message ===============
-
-function MessageItem({ message, user }: { message: Message; user: User | null }) {
-  if (message.role === "USER") {
-    return <UserMessage content={message.content} user={user} />;
-  }
-  return <AssistantMessage message={message} />;
-}
-
-function UserMessage({
-  content,
-  user,
-}: {
-  content: string;
-  user: User | null;
-}) {
-  return (
-    <div className="msg user">
-      <div className="msg-avatar">{userInitials(user)}</div>
-      <div className="msg-body">
-        <div className="msg-role">{user?.displayName ?? "나"}</div>
-        <div className="msg-content">
-          <p style={{ whiteSpace: "pre-wrap" }}>{content}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AssistantMessage({ message }: { message: Message }) {
-  const structured = useMemo(
-    () => extractStructured(message.metadata),
-    [message.metadata],
-  );
-  // structured 응답은 summary/evidence/unknown_aspects를 카드·목록으로 분리 렌더한다.
-  // message.content는 이 구조를 풀어 쓴 markdown 텍스트라 structured가 있으면 사용하지 않는다.
-  const summary = structured?.summary ?? message.content;
-  const unknownAspects = structured?.unknownAspects ?? [];
-  const evidence = structured?.evidence ?? [];
-
-  return (
-    <div className="msg assistant">
-      <div className="msg-avatar">
-        <Icons.Sparkle size={14} />
-      </div>
-      <div className="msg-body">
-        <div className="msg-role">History Tracker</div>
-        <div className="msg-content">
-          <p style={{ whiteSpace: "pre-wrap" }}>{summary}</p>
-        </div>
-
-        {unknownAspects.length > 0 && (
-          <ul className="unknown-aspects">
-            {unknownAspects.map((aspect, i) => (
-              <li key={i}>{aspect}</li>
-            ))}
-          </ul>
-        )}
-
-        {evidence.length > 0 && (
-          <div className="citation-cards">
-            {evidence.map((e, i) => (
-              <div key={i} className="cite-card" style={{ cursor: "default" }}>
-                <span className="cite-idx">#{i + 1}</span>
-                <span className="cite-body">
-                  <div className="cite-meta">
-                    <span>{e.type}</span>
-                    <span>·</span>
-                    <span className="mono" style={{ fontSize: 10.5 }}>
-                      {e.id}
-                    </span>
-                    {e.author && (
-                      <>
-                        <span>·</span>
-                        <span>{e.author}</span>
-                      </>
-                    )}
-                    {e.occurredAt && (
-                      <>
-                        <span>·</span>
-                        <span>{e.occurredAt.slice(0, 10)}</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="cite-snippet">{e.quote}</div>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-interface Evidence {
-  type: string;
-  id: string;
-  quote: string;
-  author: string | null;
-  occurredAt?: string;
-}
-
-interface StructuredAnswer {
-  summary?: string;
-  evidence: Evidence[];
-  unknownAspects: string[];
-}
-
-function extractStructured(metadata: MessageMetadata | null | undefined): StructuredAnswer | null {
-  if (!metadata) return null;
-  const structured = metadata.structured as
-    | { summary?: string; evidence?: Evidence[]; unknown_aspects?: string[] }
-    | undefined;
-  if (!structured) return null;
-  return {
-    summary: structured.summary,
-    evidence: structured.evidence ?? [],
-    unknownAspects: structured.unknown_aspects ?? [],
-  };
-}
-
-// =============== Thinking ===============
-
-function ThinkingState() {
-  return (
-    <div className="msg assistant">
-      <div className="msg-avatar">
-        <Icons.Sparkle size={14} />
-      </div>
-      <div className="msg-body">
-        <div className="msg-role">History Tracker</div>
-        <div className="thinking">
-          <span className="spinner" />
-          <span>처리 중…</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// =============== Empty ===============
-
-function ChatEmpty({
-  project,
-  onPick,
-}: {
-  project: Project;
-  onPick: (text: string) => void;
-}) {
-  const iconMap = {
-    branch: Icons.Branch,
-    refactor: Icons.Refactor,
-    fire: Icons.Fire,
-    people: Icons.People,
-  } as const;
-  return (
-    <div className="chat-empty">
-      <span className="logo-mark" />
-      <h2>무엇을 알아볼까요?</h2>
-      <p>
-        {project.name}에 대해 아래 추천 질문으로 시작하거나, 직접 자연어로 물어보세요.
-      </p>
-      <div className="suggest-grid">
-        {SUGGESTED.map((s, i) => {
-          const Ic = iconMap[s.icon];
-          return (
-            <button
-              key={i}
-              className="suggest-card"
-              onClick={() => onPick(s.text)}
-            >
-              <span className="sg-icon">
-                <Ic size={14} />
-              </span>
-              <span>{s.text}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// =============== Composer ===============
-
-function Composer({
-  project,
-  value,
-  onChange,
-  onSubmit,
-  disabled,
-  showThinkingHint,
-  error,
-}: {
-  project: Project;
-  value: string;
-  onChange: (value: string) => void;
-  onSubmit: () => void;
-  disabled: boolean;
-  showThinkingHint: boolean;
-  error?: string | null;
-}) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
-
-  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      onSubmit();
-    }
-  };
-
-  return (
-    <div className="composer">
-      <div className="composer-inner">
-        {error && (
-          <div
-            role="alert"
-            style={{ color: "var(--danger)", fontSize: 12, marginBottom: 6 }}
-          >
-            {error}
-          </div>
-        )}
-        <div className="composer-box">
-          <textarea
-            ref={taRef}
-            placeholder={`${project.name}에 무엇이든 물어보세요. Shift+Enter로 줄바꿈`}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={onKey}
-            rows={1}
-            disabled={disabled}
-          />
-          <div className="composer-actions">
-            <div className="spacer" />
-            <button
-              className="btn btn-primary"
-              onClick={onSubmit}
-              disabled={disabled || !value.trim()}
-              style={{ padding: "6px 10px" }}
-            >
-              <Icons.Send size={13} />
-              <span style={{ fontSize: 12 }}>전송</span>
-            </button>
-          </div>
-        </div>
-        <div className="composer-foot">
-          <span>
-            <span className="kbd">Enter</span> 전송
-          </span>
-          <span>
-            <span className="kbd">Shift</span>+<span className="kbd">Enter</span> 줄바꿈
-          </span>
-          {showThinkingHint && <span>응답을 생성 중…</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function userInitials(user: User | null): string {
-  if (!user?.displayName) return "?";
-  const tokens = user.displayName.trim().split(/\s+/);
-  if (tokens.length === 1) return tokens[0].slice(0, 2).toUpperCase();
-  return (tokens[0][0] + tokens[tokens.length - 1][0]).toUpperCase();
 }

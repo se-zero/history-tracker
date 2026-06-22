@@ -1,27 +1,19 @@
 import { useState } from "react";
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { BranchSelect } from "@/components/BranchSelect";
 import { Icons } from "@/components/Icons";
+import { Field } from "@/components/ui/Field";
+import { InlineError } from "@/components/ui/InlineError";
+import { MonoChip } from "@/components/ui/MonoChip";
 import { createProject } from "@/api/projects";
-import { listInstallationRepositories, listInstallations } from "@/api/github";
 import { connectGitHubRepository } from "@/api/integrations";
 import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
 import { Topbar } from "@/components/shell/Topbar";
+import { queryKeys } from "@/hooks/queryKeys";
+import { useGithubRepoRows } from "@/hooks/useGithub";
 import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api";
-
-const NAME_CHIP: React.CSSProperties = {
-  background: "var(--surface-2)",
-  padding: "1px 6px",
-  borderRadius: 4,
-  fontSize: 12,
-};
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -36,10 +28,10 @@ export function OnboardingPage() {
     onSuccess: (project) => {
       // 새 프로젝트를 캐시에 즉시 반영한다. 이후 chat 이동 시 AppShell이 stale한 빈 목록을
       // 보고 /onboarding으로 되튕기는 것을 막는다.
-      queryClient.setQueryData<Project[]>(["projects"], (prev) =>
+      queryClient.setQueryData<Project[]>(queryKeys.projects(), (prev) =>
         prev ? [project, ...prev] : [project],
       );
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects() });
       setCreatedProject(project);
     },
   });
@@ -140,27 +132,23 @@ function CreateProjectStep({
           margin: "32px auto 0",
         }}
       >
-        <div className="field">
-          <label>프로젝트 이름</label>
+        <Field label="프로젝트 이름">
           <input
             autoFocus
             value={name}
             onChange={(e) => onName(e.target.value)}
             placeholder="예: Payments Platform"
           />
-        </div>
-        <div className="field">
-          <label>설명 (선택)</label>
+        </Field>
+        <Field label="설명 (선택)">
           <input
             value={description}
             onChange={(e) => onDescription(e.target.value)}
             placeholder="예: 결제 도메인 전반(주문, 정산, 환불)"
           />
-        </div>
+        </Field>
         {error && (
-          <div style={{ color: "var(--danger)", fontSize: 12 }}>
-            프로젝트를 만들지 못했어요. 다시 시도해 주세요.
-          </div>
+          <InlineError>프로젝트를 만들지 못했어요. 다시 시도해 주세요.</InlineError>
         )}
         <button
           type="submit"
@@ -188,23 +176,12 @@ function ConnectGitHubStep({
 }) {
   const queryClient = useQueryClient();
 
-  const installationsQuery = useQuery({
-    queryKey: ["github", "installations"],
-    queryFn: listInstallations,
-  });
-  const installations = installationsQuery.data ?? [];
-
-  const repoQueries = useQueries({
-    queries: installations.map((inst) => ({
-      queryKey: ["github", "installations", inst.id, "repositories"],
-      queryFn: () => listInstallationRepositories(inst.id),
-    })),
-  });
-
-  const repoRows = installations.flatMap((inst, idx) => {
-    const repos = repoQueries[idx]?.data ?? [];
-    return repos.map((repo) => ({ installation: inst, repo }));
-  });
+  const {
+    installationsQuery,
+    installations,
+    rows: repoRows,
+    reposLoading,
+  } = useGithubRepoRows();
 
   // 연결하려고 선택한 저장소(브랜치 선택 단계)
   const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
@@ -224,7 +201,9 @@ function ConnectGitHubStep({
       }),
     onSuccess: () => {
       // 연결 시 초기 수집이 트리거된다. 연동 캐시를 비우고 프로젝트로 이동.
-      queryClient.invalidateQueries({ queryKey: ["integrations", project.id] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.integrations(project.id),
+      });
       onDone();
     },
   });
@@ -235,16 +214,13 @@ function ConnectGitHubStep({
   };
 
   const connected = installations.length > 0;
-  const reposLoading = repoQueries.some((q) => q.isLoading);
 
   return (
     <>
       <StepIndicator step={2} />
       <h1>GitHub 저장소 연결</h1>
       <p className="lead">
-        <span className="mono" style={NAME_CHIP}>
-          {project.name}
-        </span>{" "}
+        <MonoChip>{project.name}</MonoChip>{" "}
         · 분석할 저장소를 선택하세요. GitHub은 필수예요.
       </p>
 
@@ -331,9 +307,9 @@ function ConnectGitHubStep({
         )}
 
         {connectMutation.isError && (
-          <div style={{ color: "var(--danger)", fontSize: 12, marginTop: 10 }}>
+          <InlineError style={{ marginTop: 10 }}>
             연결에 실패했어요. 잠시 후 다시 시도해 주세요.
-          </div>
+          </InlineError>
         )}
 
         <div
