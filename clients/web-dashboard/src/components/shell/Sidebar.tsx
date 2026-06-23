@@ -9,7 +9,7 @@ import { ConversationList } from "./ConversationList";
 import { userInitials } from "@/lib/format";
 import type { Project, User } from "@/types/api";
 
-type Route = "chat" | "sources" | "graph" | "settings";
+type Route = "chat" | "sources" | "graph" | "settings" | "account";
 
 interface Props {
   route: Route;
@@ -45,7 +45,6 @@ export function Sidebar({
           projects={projects}
           onSwitch={onSwitchProject}
           onNewProject={onNewProject}
-          onOpenSettings={() => onRouteChange("settings")}
         />
       </div>
       <div className="sidebar-divider" />
@@ -73,19 +72,19 @@ export function Sidebar({
         />
         <NavItem
           icon={<Icons.Settings />}
-          label="설정"
+          label="현재 프로젝트 설정"
           active={route === "settings"}
           onClick={() => onRouteChange("settings")}
         />
       </div>
       <div className="sidebar-divider" />
       {project && <ConversationList projectId={project.id} />}
-      <UserMenu />
+      <UserMenu onOpenAccount={() => onRouteChange("account")} />
     </aside>
   );
 }
 
-function UserMenu() {
+function UserMenu({ onOpenAccount }: { onOpenAccount: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -148,6 +147,18 @@ function UserMenu() {
             <span>{theme === "dark" ? "Light 모드로" : "Dark 모드로"}</span>
           </button>
           <div className="dropdown-divider" />
+          <button
+            className="dropdown-item"
+            onClick={() => {
+              onOpenAccount();
+              setOpen(false);
+            }}
+          >
+            <span className="dropdown-icon">
+              <Icons.People size={13} />
+            </span>
+            <span>계정 설정</span>
+          </button>
           <button className="dropdown-item" onClick={handleLogout}>
             <span className="dropdown-icon">
               <Icons.ArrowRight size={13} />

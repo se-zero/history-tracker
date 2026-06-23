@@ -7,7 +7,6 @@ import { MonoChip } from "@/components/ui/MonoChip";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { updateProject } from "@/api/projects";
 import { queryKeys } from "@/hooks/queryKeys";
-import { formatDateTime } from "@/lib/format";
 import type { Project } from "@/types/api";
 
 export function SettingsPage({ project }: { project: Project }) {
@@ -107,52 +106,7 @@ export function SettingsPage({ project }: { project: Project }) {
         </div>
       </section>
 
-      {/* ─── 메타 정보 ─── */}
-      <section className="source-card" style={{ marginBottom: 16 }}>
-        <div className="src-head">
-          <div style={{ flex: 1 }}>
-            <h4>식별자</h4>
-            <div className="src-sub">읽기 전용.</div>
-          </div>
-        </div>
-        <MetaRow label="프로젝트 ID" value={project.id} mono />
-        <MetaRow label="소유자 ID" value={project.ownerId} mono />
-        <MetaRow label="생성일" value={formatDateTime(project.createdAt)} />
-        <MetaRow label="최근 수정" value={formatDateTime(project.updatedAt)} />
-      </section>
-
       <DangerZone project={project} />
-    </div>
-  );
-}
-
-function MetaRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "8px 0",
-        borderBottom: "1px solid var(--border)",
-        fontSize: 13,
-      }}
-    >
-      <span style={{ color: "var(--fg-muted)" }}>{label}</span>
-      <span
-        className={mono ? "mono" : undefined}
-        style={{ fontSize: mono ? 12 : 13 }}
-      >
-        {value}
-      </span>
     </div>
   );
 }

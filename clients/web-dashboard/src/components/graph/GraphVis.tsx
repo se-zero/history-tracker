@@ -76,8 +76,22 @@ export function GraphVis({
     if (!el) return;
     const handler = (e: WheelEvent) => {
       e.preventDefault();
+      // 커서의 wrap 기준 좌표 = SVG 좌표(viewBox가 wrap 크기와 1:1).
+      const rect = el.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
-      setView((v) => ({ ...v, k: clamp(v.k * factor, 0.4, 2.5) }));
+      setView((v) => {
+        const k = clamp(v.k * factor, 0.4, 2.5);
+        // screen = t + k·graph 이므로, 커서 아래 지점을 고정하려면
+        // 줌 비율만큼 변환을 보정한다. (clamp로 k가 안 바뀌면 ratio=1 → 변화 없음)
+        const ratio = k / v.k;
+        return {
+          k,
+          tx: cx - ratio * (cx - v.tx),
+          ty: cy - ratio * (cy - v.ty),
+        };
+      });
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);

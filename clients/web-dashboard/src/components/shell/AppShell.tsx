@@ -7,12 +7,13 @@ import { StatusView } from "@/components/StatusView";
 import { useProjects } from "@/hooks/useProjects";
 import type { Project } from "@/types/api";
 
-type Route = "chat" | "sources" | "graph" | "settings";
+type Route = "chat" | "sources" | "graph" | "settings" | "account";
 
 function routeFromPath(pathname: string): Route {
   if (pathname.endsWith("/sources")) return "sources";
   if (pathname.endsWith("/graph")) return "graph";
   if (pathname.endsWith("/settings")) return "settings";
+  if (pathname.endsWith("/account")) return "account";
   return "chat";
 }
 
@@ -24,6 +25,9 @@ function crumbsFor(project: Project, route: Route): string[] {
       return [project.name, "그래프 탐색"];
     case "settings":
       return [project.name, "설정"];
+    case "account":
+      // 계정 설정은 프로젝트 단위가 아니라 계정 단위라 프로젝트명을 붙이지 않는다.
+      return ["계정 설정"];
     case "chat":
     default:
       return [project.name, "대화"];

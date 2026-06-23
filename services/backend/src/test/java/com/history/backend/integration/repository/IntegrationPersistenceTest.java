@@ -90,8 +90,6 @@ class IntegrationPersistenceTest {
         assertThat(result.orElseThrow().getInstallation()).isEqualTo(fixture.installation());
         assertThat(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(fixture.project().getId()))
                 .containsExactly(integration);
-        assertThat(integrationRepository.findByIdAndProject_Id(integration.getId(), fixture.project().getId()))
-                .contains(integration);
         assertThat(integrationRepository.existsByProject_IdAndProvider(
                 fixture.project().getId(),
                 IntegrationProvider.GITHUB

@@ -9,7 +9,6 @@ interface Props {
   projects: Project[];
   onSwitch: (id: string) => void;
   onNewProject: () => void;
-  onOpenSettings: () => void;
 }
 
 export function ProjectSwitcher({
@@ -17,7 +16,6 @@ export function ProjectSwitcher({
   projects,
   onSwitch,
   onNewProject,
-  onOpenSettings,
 }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -88,18 +86,6 @@ export function ProjectSwitcher({
             </button>
           ))}
           <div className="dropdown-divider" />
-          <button
-            className="dropdown-item"
-            onClick={() => {
-              onOpenSettings();
-              setOpen(false);
-            }}
-          >
-            <span className="dropdown-icon">
-              <Icons.Settings size={13} />
-            </span>
-            <span>현재 프로젝트 설정</span>
-          </button>
           <button
             className="dropdown-item"
             onClick={() => {
