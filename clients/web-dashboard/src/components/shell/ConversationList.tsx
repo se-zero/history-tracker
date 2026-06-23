@@ -113,10 +113,16 @@ function ConvoItem({
     setEditing(true);
   };
 
+  // 저장은 Enter로 명시 확정할 때만. blur·Escape는 취소(원복)해 의도치 않은 이름 변경을 막는다.
   const commitEdit = () => {
     setEditing(false);
     const next = draft.trim();
     if (next && next !== convo.title) onRename(convo.id, next);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setDraft(convo.title);
   };
 
   const handleDelete = () => {
@@ -140,10 +146,11 @@ function ConvoItem({
               e.preventDefault();
               commitEdit();
             } else if (e.key === "Escape") {
-              setEditing(false);
+              e.preventDefault();
+              cancelEdit();
             }
           }}
-          onBlur={commitEdit}
+          onBlur={cancelEdit}
         />
       </div>
     );

@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { InlineError } from "@/components/ui/InlineError";
 import { queryKeys } from "@/hooks/queryKeys";
-import { useDisconnectIntegration, useIntegrations } from "@/hooks/useIntegrations";
+import { useIntegrations } from "@/hooks/useIntegrations";
 
 // 토큰 입력형 연동 카드(Jira·Slack 공용 셸). 연결 상태는 서버 연동 목록에서 도출하고,
 // 폼 본문만 renderForm으로 주입받는다 — 두 카드의 ~95% 동일하던 흐름을 하나로 합쳤다.
@@ -56,14 +56,6 @@ export function TokenIntegrationCard<TForm>({
     },
   });
 
-  const disconnectMutation = useDisconnectIntegration(projectId);
-
-  const handleDisconnect = () => {
-    if (!integration) return;
-    if (!window.confirm(`${title}(${connectedName}) 연동을 해제할까요?`)) return;
-    disconnectMutation.mutate(integration.id);
-  };
-
   return (
     <div className="source-card">
       <div className="src-head">
@@ -98,10 +90,6 @@ export function TokenIntegrationCard<TForm>({
         </div>
       )}
 
-      {disconnectMutation.isError && (
-        <InlineError>연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.</InlineError>
-      )}
-
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
         <button
           className={"btn " + (connected ? "" : "btn-primary")}
@@ -122,21 +110,10 @@ export function TokenIntegrationCard<TForm>({
                 ? "재연결"
                 : `${title} 연결`}
         </button>
-        {open ? (
+        {open && (
           <button className="btn btn-ghost" onClick={() => setOpen(false)}>
             취소
           </button>
-        ) : (
-          connected && (
-            <button
-              className="btn btn-ghost"
-              style={{ color: "var(--danger)" }}
-              onClick={handleDisconnect}
-              disabled={disconnectMutation.isPending}
-            >
-              {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
-            </button>
-          )
         )}
       </div>
     </div>

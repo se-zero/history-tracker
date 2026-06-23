@@ -14,7 +14,6 @@ import java.util.UUID;
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.BadRequestException;
-import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
@@ -31,7 +30,6 @@ import com.history.backend.slack.service.SlackClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
@@ -70,15 +68,6 @@ public class IntegrationService {
                     (existing, candidate) -> candidate.isAfter(existing) ? candidate : existing);
         }
         return latest;
-    }
-
-    // 프로젝트의 integration 연동 해제
-    @Transactional
-    public void disconnectIntegration(UUID ownerId, UUID projectId, UUID integrationId) {
-        projectService.getProject(ownerId, projectId);
-        Integration integration = integrationRepository.findByIdAndProject_Id(integrationId, projectId)
-                .orElseThrow(() -> new NotFoundException("Integration not found."));
-        integrationRepository.delete(integration);
     }
 
     // 프로젝트에 GitHub 저장소 연동 추가

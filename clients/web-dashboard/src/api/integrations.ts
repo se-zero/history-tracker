@@ -24,13 +24,6 @@ export async function listIntegrations(projectId: string): Promise<Integration[]
   return data;
 }
 
-export async function disconnectIntegration(
-  projectId: string,
-  integrationId: string,
-): Promise<void> {
-  await api.delete(`/projects/${projectId}/integrations/${integrationId}`);
-}
-
 export async function connectGitHubRepository(
   projectId: string,
   payload: ConnectGitHubPayload,

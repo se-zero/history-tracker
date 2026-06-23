@@ -14,7 +14,5 @@ public interface IntegrationRepository extends JpaRepository<Integration, UUID> 
 
     Optional<Integration> findByProject_IdAndProvider(UUID projectId, IntegrationProvider provider);
 
-    Optional<Integration> findByIdAndProject_Id(UUID integrationId, UUID projectId);
-
     boolean existsByProject_IdAndProvider(UUID projectId, IntegrationProvider provider);
 }

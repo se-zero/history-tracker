@@ -10,7 +10,6 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
@@ -50,7 +49,6 @@ class IntegrationServiceTest {
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
-    private static final UUID INTEGRATION_ID = UUID.fromString("72b9c869-77f6-4b4d-b8c5-db85023ef3b8");
 
     @Mock
     private IntegrationRepository integrationRepository;
@@ -121,33 +119,6 @@ class IntegrationServiceTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).lastSyncedAt()).isNull();
-    }
-
-    @Test
-    @DisplayName("소유 프로젝트의 연동 해제 성공")
-    void disconnectIntegrationDeletesIntegrationForOwnedProject() {
-        IntegrationService service = service();
-        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget", "main");
-        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
-                .thenReturn(Optional.of(integration));
-
-        service.disconnectIntegration(OWNER_ID, PROJECT_ID, INTEGRATION_ID);
-
-        verify(integrationRepository).delete(integration);
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 연동 해제 시 NotFoundException")
-    void disconnectIntegrationThrowsNotFoundWhenIntegrationMissing() {
-        IntegrationService service = service();
-        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(integrationRepository.findByIdAndProject_Id(INTEGRATION_ID, PROJECT_ID))
-                .thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.disconnectIntegration(OWNER_ID, PROJECT_ID, INTEGRATION_ID))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessage("Integration not found.");
     }
 
     @Test

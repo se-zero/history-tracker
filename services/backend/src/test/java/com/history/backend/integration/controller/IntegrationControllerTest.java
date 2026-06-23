@@ -1,10 +1,7 @@
 package com.history.backend.integration.controller;
 
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -16,7 +13,6 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.ConflictException;
-import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.dto.IntegrationResponse;
@@ -80,28 +76,6 @@ class IntegrationControllerTest {
                 .andExpect(jsonPath("$[0].metadata.repository_id").value(12345))
                 .andExpect(jsonPath("$[0].metadata.repository_full_name").value("acme/widget"))
                 .andExpect(jsonPath("$[0].lastSyncedAt").value("2026-06-15T03:00:00Z"));
-    }
-
-    @Test
-    @DisplayName("연동 해제 → 204 No Content 반환")
-    void disconnectIntegrationReturnsNoContent() throws Exception {
-        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
-                .andExpect(status().isNoContent());
-
-        verify(integrationService).disconnectIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 연동 해제 → 404 Not Found 반환")
-    void disconnectIntegrationReturnsNotFoundWhenIntegrationMissing() throws Exception {
-        doThrow(new NotFoundException("Integration not found."))
-                .when(integrationService).disconnectIntegration(USER_ID, PROJECT_ID, INTEGRATION_ID);
-
-        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/{integrationId}", PROJECT_ID, INTEGRATION_ID)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.message").value("Integration not found."));
     }
 
     @Test

@@ -5,6 +5,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { StatusView } from "@/components/StatusView";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import { useProjects } from "@/hooks/useProjects";
+import { AccountPage } from "@/pages/AccountPage";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { GraphPage } from "@/pages/GraphPage";
@@ -46,6 +47,10 @@ function GraphRoute() {
 function SettingsRoute() {
   return <SettingsPage project={useProject()} />;
 }
+// 계정 설정은 프로젝트 컨텍스트를 쓰지 않는다(계정 단위).
+function AccountRoute() {
+  return <AccountPage />;
+}
 
 export default function App() {
   return (
@@ -76,6 +81,7 @@ export default function App() {
             <Route path="sources" element={<SourcesRoute />} />
             <Route path="graph" element={<GraphRoute />} />
             <Route path="settings" element={<SettingsRoute />} />
+            <Route path="account" element={<AccountRoute />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
           <Route path="/demo/graph" element={<DemoGraphRoute />} />

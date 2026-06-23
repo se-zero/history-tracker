@@ -42,5 +42,5 @@ export const NODE_TYPE_INFO: Record<
   slack: { label: "Slack", cssVar: "var(--node-slack)" },
   jira: { label: "Jira", cssVar: "var(--node-jira)" },
   actor: { label: "Person", cssVar: "var(--node-actor)" },
-  code: { label: "Code", cssVar: "var(--node-code)" },
+  code: { label: "File", cssVar: "var(--node-code)" },
 };

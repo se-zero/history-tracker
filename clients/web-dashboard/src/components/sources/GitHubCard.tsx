@@ -9,7 +9,7 @@ import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
 import { connectGitHubRepository } from "@/api/integrations";
 import { queryKeys } from "@/hooks/queryKeys";
 import { useGithubRepoRows } from "@/hooks/useGithub";
-import { useDisconnectIntegration, useIntegrations } from "@/hooks/useIntegrations";
+import { useIntegrations } from "@/hooks/useIntegrations";
 import type { GitHubInstallation, GitHubRepository } from "@/types/api";
 
 // 접힌 상태에서 보여줄 리포지토리 수 — Jira/Slack 카드와 높이를 맞추기 위함
@@ -20,12 +20,6 @@ export function GitHubCard({ projectId }: { projectId: string }) {
     useGithubRepoRows();
   const connected = installations.length > 0;
 
-  const [showAllRepos, setShowAllRepos] = useState(false);
-  const visibleRepoRows = showAllRepos
-    ? allRepoRows
-    : allRepoRows.slice(0, REPO_PREVIEW_COUNT);
-  const hiddenRepoCount = allRepoRows.length - visibleRepoRows.length;
-
   const integrationsQuery = useIntegrations(projectId);
   const githubIntegration = integrationsQuery.data?.find((i) => i.provider === "github");
   const connectedRepoId = githubIntegration?.metadata?.["repository_id"] as
@@ -34,6 +28,18 @@ export function GitHubCard({ projectId }: { projectId: string }) {
   const connectedBranch = githubIntegration?.metadata?.["branch"] as
     | string
     | undefined;
+
+  const [showAllRepos, setShowAllRepos] = useState(false);
+  // 프로젝트에 레포가 연결돼 있으면 그 레포만 노출한다 — 다른 레포로 바꾸려면 먼저 해제해야 해서
+  // 나머지 목록은 의미가 없다. (연결 정보는 있으나 설치 목록에서 사라진 예외엔 전체로 폴백.)
+  const connectedRow = allRepoRows.find(({ repo }) => repo.id === connectedRepoId);
+  const onlyConnected = connectedRepoId !== undefined && !!connectedRow;
+  const baseRepoRows = onlyConnected ? [connectedRow!] : allRepoRows;
+  const visibleRepoRows =
+    onlyConnected || showAllRepos
+      ? baseRepoRows
+      : baseRepoRows.slice(0, REPO_PREVIEW_COUNT);
+  const hiddenRepoCount = baseRepoRows.length - visibleRepoRows.length;
 
   // 연결하려고 선택한 저장소(브랜치 선택 단계)
   const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
@@ -65,17 +71,9 @@ export function GitHubCard({ projectId }: { projectId: string }) {
 
   const connectErrorMessage = connectMutation.isError
     ? axios.isAxiosError(connectMutation.error) && connectMutation.error.response?.status === 409
-      ? "이미 이 프로젝트에 연결된 GitHub 저장소가 있어요. 다른 저장소로 바꾸려면 먼저 기존 연동을 해제해 주세요."
+      ? "이미 이 프로젝트에 연결된 GitHub 저장소가 있어요."
       : "연결에 실패했어요. 잠시 후 다시 시도해 주세요."
     : null;
-
-  const disconnectMutation = useDisconnectIntegration(projectId);
-
-  const handleDisconnect = (repoFullName: string) => {
-    if (!githubIntegration) return;
-    if (!window.confirm(`${repoFullName} 연동을 해제할까요?`)) return;
-    disconnectMutation.mutate(githubIntegration.id);
-  };
 
   return (
     <div className="source-card">
@@ -156,14 +154,6 @@ export function GitHubCard({ projectId }: { projectId: string }) {
                     <span style={{ fontSize: 12, color: "var(--success)", marginLeft: 8 }}>
                       연결됨
                     </span>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: "3px 8px", marginLeft: 4, color: "var(--danger)" }}
-                      onClick={() => handleDisconnect(r.full_name)}
-                      disabled={disconnectMutation.isPending}
-                    >
-                      {disconnectMutation.isPending ? "해제 중…" : "연결 해제"}
-                    </button>
                   </>
                 ) : isSelected ? (
                   <>
@@ -210,7 +200,7 @@ export function GitHubCard({ projectId }: { projectId: string }) {
               </div>
             );
           })}
-          {allRepoRows.length > REPO_PREVIEW_COUNT && (
+          {baseRepoRows.length > REPO_PREVIEW_COUNT && (
             <button
               className="repo-toggle"
               onClick={() => setShowAllRepos((prev) => !prev)}
@@ -227,11 +217,6 @@ export function GitHubCard({ projectId }: { projectId: string }) {
           {connectErrorMessage && (
             <InlineError style={{ padding: "8px 12px" }}>
               {connectErrorMessage}
-            </InlineError>
-          )}
-          {disconnectMutation.isError && (
-            <InlineError style={{ padding: "8px 12px" }}>
-              연결 해제에 실패했어요. 잠시 후 다시 시도해 주세요.
             </InlineError>
           )}
         </div>
