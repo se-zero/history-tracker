@@ -33,6 +33,23 @@ _dirty: bool = False
 _build_lock = asyncio.Lock()  # 디바운스 루프와 (향후) 수동 트리거의 동시 실행 방지
 
 
+def _memoize_async(fetch):
+    """인자 없는 async fetch의 결과를 캐시해 1회만 실행되게 한다 (per-시퀀스 스코프).
+
+    한 후처리 시퀀스 안에서 여러 빌더가 같은 임베딩 집합을 각자 다시 조회하는
+    중복 로드를 막는다. 시퀀스 동안 노드 임베딩은 변하지 않으므로(엣지만 추가됨)
+    캐시는 안전하다. 시퀀스마다 새 wrapper를 만들어 빌드 간 stale 캐시를 방지한다.
+    """
+    cache: dict[str, object] = {}
+
+    async def cached():
+        if "value" not in cache:
+            cache["value"] = await fetch()
+        return cache["value"]
+
+    return cached
+
+
 def mark_dirty() -> None:
     """이벤트 처리 직후 호출 — 후처리가 필요한 새 데이터가 들어왔음을 표시한다."""
     global _last_event_at, _dirty
@@ -91,6 +108,18 @@ async def run_postprocess_sequence(verify: bool = False) -> dict:
     async with _build_lock:
         ref_store = make_neo4j_reference_store()
         link_store = make_neo4j_issue_link_store()
+
+        # 같은 시퀀스 안에서 동일 임베딩을 두 번 읽지 않도록 공유 메모이즈한다.
+        #   - issue 임베딩: triggered_by·discussed_in 두 빌더가 동일 쿼리로 읽음
+        #   - communication 임베딩: discussed_in·reference 두 빌더가 동일 쿼리로 읽음
+        #     (comm 메모이즈는 backfill 이후 첫 호출되므로 보정된 임베딩까지 반영됨)
+        # modified 임베딩은 issue-linking용(text TRIGGERED_BY 제외)과 reference용(전체)이
+        # 서로 다른 쿼리라 공유 대상이 아니다 — 각자 1회 그대로 둔다.
+        shared_issue_fetch = _memoize_async(link_store.fetch_issue_embeddings)
+        shared_comm_fetch = _memoize_async(ref_store.fetch_communication_embeddings)
+        link_store.fetch_issue_embeddings = shared_issue_fetch
+        link_store.fetch_communication_embeddings = shared_comm_fetch
+        ref_store.fetch_communication_embeddings = shared_comm_fetch
 
         # 0) Slack 노이즈 정제 — 신규 Slack 메시지만 LLM을 거친다(llm_filtered로 증분).
         # 링크보다 먼저 돌려 노이즈가 backfill/링크 대상에 끼지 않게 한다.
