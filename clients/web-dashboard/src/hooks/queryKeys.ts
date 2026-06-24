@@ -15,4 +15,6 @@ export const queryKeys = {
   githubBranches: (installationId: string, owner: string, repo: string) =>
     ["github", "branches", installationId, owner, repo] as const,
   graph: (projectId: string) => ["graph", projectId] as const,
+  graphBuildStatus: (projectId: string) =>
+    ["graph", projectId, "buildStatus"] as const,
 };

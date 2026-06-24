@@ -1,35 +1,37 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { GraphVis } from "@/components/graph/GraphVis";
 import { NodeDetail } from "@/components/graph/NodeDetail";
 import { StatusView } from "@/components/StatusView";
 import { Topbar } from "@/components/shell/Topbar";
-import { rebuildProjectGraph } from "@/api/graph";
-import { queryKeys } from "@/hooks/queryKeys";
-import { useGraph } from "@/hooks/useGraph";
+import { useGraph, useGraphBuildStatus, useRebuildGraph } from "@/hooks/useGraph";
 import type { Project } from "@/types/api";
 
 export function GraphPage({ project }: { project: Project }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const queryClient = useQueryClient();
 
   const graphQuery = useGraph(project.id);
+  // 페이지는 프로젝트의 현재 빌드 상태를 그대로 반영한다(개인 프로젝트라 빌드 주인은 항상 본인).
+  // 진입 시 상태를 조회하고 running이면 폴링·진행표시가 재개된다(다른 탭에서 떠나 있어도).
+  const buildStatus = useGraphBuildStatus(project.id);
 
-  // 재구축 완료 후 그래프를 다시 불러와 새로 생긴 연결을 반영한다.
+  // 트리거(202)는 즉시 반환되고, 완료는 buildStatus 폴링으로 확인한다.
   // verify=false: 방안 A(임베딩, 빠름) / verify=true: 방안 D(LLM 검증, 느림·비용).
-  const rebuild = useMutation({
-    mutationFn: (verify: boolean) => rebuildProjectGraph(project.id, verify),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.graph(project.id) });
-    },
-  });
+  const rebuild = useRebuildGraph(project.id);
 
   const data = graphQuery.data;
-  const built = rebuild.data;
-  const builtEdges = built
-    ? built.triggered_by + built.discussed_in + built.reference + built.thread_propagated
+  const status = buildStatus.data;
+
+  const building = rebuild.isPending || status?.state === "running";
+  // 진행 중 라벨 구분: 폴링 중이면 status.verify, 트리거 직후 짧은 구간엔 mutate variables.
+  const buildingVerify =
+    status?.state === "running" ? status.verify : rebuild.variables;
+
+  const succeeded = status?.state === "succeeded" ? status.result : null;
+  const builtEdges = succeeded
+    ? succeeded.triggered_by + succeeded.discussed_in + succeeded.reference + succeeded.thread_propagated
     : 0;
+  const failed = rebuild.isError || status?.state === "failed";
 
   return (
     <div
@@ -49,22 +51,22 @@ export function GraphPage({ project }: { project: Project }) {
                 {data.nodes.length} 노드 · {data.edges.length} 연결
               </span>
             )}
-            {rebuild.isSuccess && (
+            {succeeded && (
               <span className="muted" style={{ fontSize: 12 }}>
                 ✓ 연결 {builtEdges}개 생성
               </span>
             )}
-            {rebuild.isError && (
+            {failed && (
               <span style={{ fontSize: 12, color: "#e5484d" }}>재구축 실패</span>
             )}
             <button
               className="btn"
               style={{ marginLeft: 12 }}
               onClick={() => rebuild.mutate(false)}
-              disabled={rebuild.isPending}
+              disabled={building}
               title="수집된 데이터로 소스 간 연결을 임베딩 유사도로 다시 계산합니다 (빠름)"
             >
-              {rebuild.isPending && rebuild.variables === false
+              {building && buildingVerify === false
                 ? "재구축 중…"
                 : "그래프 재구축"}
             </button>
@@ -80,10 +82,10 @@ export function GraphPage({ project }: { project: Project }) {
                   rebuild.mutate(true);
                 }
               }}
-              disabled={rebuild.isPending}
+              disabled={building}
               title="LLM이 후보를 검증해 잘못된 연결을 거릅니다 (느림·LLM 비용)"
             >
-              {rebuild.isPending && rebuild.variables === true
+              {building && buildingVerify === true
                 ? "정밀 재구축 중…"
                 : "정밀 재구축 (LLM)"}
             </button>
