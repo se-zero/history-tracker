@@ -4,8 +4,6 @@ REFERENCE 엣지 빌드, 일회성 마이그레이션, Slack 배치 필터, 이�
 모두 운영자가 명시적으로 호출하는 비공개 경로 (정기 read 트래픽 아님).
 """
 
-import asyncio
-
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -109,7 +107,7 @@ async def trigger_slack_filter(options: SlackFilterOptions = SlackFilterOptions(
     if options.repo and "/" in options.repo:
         from graph.project_context import get_project_summary
         owner, repo_name = options.repo.split("/", 1)
-        project_context = await asyncio.to_thread(get_project_summary, owner, repo_name)
+        project_context = await get_project_summary(owner, repo_name)
 
     result = await run_slack_llm_filter(project_context)
     return result
@@ -143,7 +141,7 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
         if options.repo and "/" in options.repo:
             from graph.project_context import get_project_summary
             owner, repo_name = options.repo.split("/", 1)
-            project_context = await asyncio.to_thread(get_project_summary, owner, repo_name) or ""
+            project_context = await get_project_summary(owner, repo_name) or ""
 
         triggered_by = await build_issue_changeset_links_verified(
             store, options.triggered_by_threshold, options.top_k, options.llm_threshold, project_context,

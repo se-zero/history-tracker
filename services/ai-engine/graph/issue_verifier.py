@@ -9,12 +9,11 @@
            confidence ≥ llm_threshold 인 쌍에만 엣지 생성
 """
 
-import asyncio
 import json
 import logging
 from datetime import timedelta
 
-from openai_client import get_openai_client
+from openai_client import Priority, chat_completion
 
 from graph.embedder import cosine_similarity
 from graph.issue_linker import (
@@ -38,7 +37,7 @@ def _truncate(text: str) -> str:
     return text[:_MAX_TEXT_LEN] + "..." if len(text) > _MAX_TEXT_LEN else text
 
 
-def _verify_pair(
+async def _verify_pair(
     issue_title: str,
     issue_body: str,
     target_type: str,
@@ -64,7 +63,8 @@ def _verify_pair(
         f"confidence는 0.0~1.0 (1.0: 직접 관련, 0.5: 간접 관련, 0.0: 무관)"
     )
     try:
-        resp = get_openai_client().chat.completions.create(
+        resp = await chat_completion(
+            priority=Priority.BACKGROUND,
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
@@ -130,8 +130,8 @@ async def build_issue_changeset_links_verified(
 
             # Stage 2: LLM 검증 → top-1로 누적
             for _, mod in candidates[:top_k]:
-                confidence = await asyncio.to_thread(
-                    _verify_pair, issue_title, issue_body, "커밋 변경 요약",
+                confidence = await _verify_pair(
+                    issue_title, issue_body, "커밋 변경 요약",
                     mod.get("diff_summary", ""), project_context,
                 )
                 if confidence < llm_threshold:
@@ -198,8 +198,8 @@ async def build_issue_communication_links_verified(
 
             # Stage 2: LLM 검증
             for _, comm in candidates[:top_k]:
-                confidence = await asyncio.to_thread(
-                    _verify_pair, issue_title, issue_body, "Slack 메시지",
+                confidence = await _verify_pair(
+                    issue_title, issue_body, "Slack 메시지",
                     comm.get("body", ""), project_context,
                 )
                 if confidence >= llm_threshold:

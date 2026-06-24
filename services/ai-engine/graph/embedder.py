@@ -1,8 +1,7 @@
-import asyncio
 import logging
 import math
 
-from openai_client import get_openai_client
+from openai_client import Priority, embed
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +14,7 @@ async def embed_text(text: str) -> list[float]:
     문장/문단 전체를 하나의 벡터로 변환. 빈 텍스트나 호출 실패 시 빈 리스트 반환."""
     if not text or not text.strip():
         return []
-    vectors = await asyncio.to_thread(_call_embed, [text], _MODEL)
+    vectors = await _call_embed([text], _MODEL)
     return vectors[0] if vectors else []
 
 
@@ -38,7 +37,7 @@ async def embed_batch(texts: list[str]) -> list[list[float]]:
     for offset in range(0, len(non_empty), _BATCH_CHUNK_SIZE):
         chunk = non_empty[offset : offset + _BATCH_CHUNK_SIZE]
         chunk_indices = indices[offset : offset + _BATCH_CHUNK_SIZE]
-        vectors = await asyncio.to_thread(_call_embed, chunk, _MODEL)
+        vectors = await _call_embed(chunk, _MODEL)
         if not vectors:
             logger.warning("embed_batch 청크 실패 (offset=%d, size=%d) — 빈 벡터로 채움", offset, len(chunk))
             continue
@@ -60,12 +59,12 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def _call_embed(texts: list[str], model: str) -> list[list[float]]:
-    """OpenAI Embeddings API 동기 호출. asyncio.to_thread()로 감싸서 사용.
+async def _call_embed(texts: list[str], model: str) -> list[list[float]]:
+    """OpenAI Embeddings API 호출 (rate-limited 게이트웨이 경유).
     실패 시 빈 리스트 반환 — 호출자가 빈 벡터로 처리해 이벤트 처리 흐름이 끊기지 않도록.
     """
     try:
-        response = get_openai_client().embeddings.create(model=model, input=texts)
+        response = await embed(model=model, input=texts, priority=Priority.BACKGROUND)
         return [item.embedding for item in response.data]
     except Exception:
         logger.exception("Embedding API 호출 실패 (input %d개)", len(texts))

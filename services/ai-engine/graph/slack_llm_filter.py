@@ -1,6 +1,6 @@
 import json
 
-from openai_client import get_openai_client
+from openai_client import Priority, chat_completion
 
 _SHARED_CRITERIA = """\
 보존 기준 (다음 중 하나라도 해당되면 보존):
@@ -73,7 +73,7 @@ def build_prompt(project_context: str, is_thread: bool) -> str:
     return template.format(project_context=context, shared_criteria=_SHARED_CRITERIA)
 
 
-def filter_messages(messages: list[str], project_context: str = "", is_thread: bool = False) -> list[bool]:
+async def filter_messages(messages: list[str], project_context: str = "", is_thread: bool = False) -> list[bool]:
     """
     messages: 메시지 body 문자열 리스트
     is_thread: True면 스레드 맥락 고려 프롬프트 사용
@@ -84,7 +84,8 @@ def filter_messages(messages: list[str], project_context: str = "", is_thread: b
 
     numbered = "\n".join(f"[{i}] {msg}" for i, msg in enumerate(messages))
 
-    response = get_openai_client().chat.completions.create(
+    response = await chat_completion(
+        priority=Priority.BACKGROUND,
         model="gpt-4o-mini",
         response_format={"type": "json_object"},
         messages=[

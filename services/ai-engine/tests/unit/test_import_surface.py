@@ -23,6 +23,7 @@ MODULES = [
     "main",
     "openai_client",
     "query_models",
+    "rate_limiter",
     "agent.orchestrator",
     "graph.actor_llm",
     "graph.actor_resolver",

@@ -1,9 +1,8 @@
-import asyncio
 import json
 import logging
 import os
 
-from openai_client import get_openai_client
+from openai_client import Priority, chat_completion
 from tools.definitions import TOOLS
 from tools.executor import execute
 
@@ -233,7 +232,7 @@ async def _call_llm(messages: list, with_tools: bool = True):
         kwargs["tools"]       = TOOLS
         kwargs["tool_choice"] = "auto"
     try:
-        return await asyncio.to_thread(get_openai_client().chat.completions.create, **kwargs)
+        return await chat_completion(priority=Priority.INTERACTIVE, **kwargs)
     except Exception:
         logger.exception("LLM 호출 실패")
         return None
@@ -254,8 +253,8 @@ async def _call_llm_structured(messages: list) -> dict | None:
     """
     final_messages = messages + [{"role": "user", "content": _STRUCTURED_FINAL_INSTRUCTION}]
     try:
-        response = await asyncio.to_thread(
-            get_openai_client().chat.completions.create,
+        response = await chat_completion(
+            priority=Priority.INTERACTIVE,
             model=_MODEL,
             messages=final_messages,
             response_format={"type": "json_schema", "json_schema": _GROUNDED_ANSWER_SCHEMA},
@@ -298,8 +297,8 @@ async def summarize_history(
         },
     ]
     try:
-        response = await asyncio.to_thread(
-            get_openai_client().chat.completions.create,
+        response = await chat_completion(
+            priority=Priority.INTERACTIVE,
             model=_MODEL,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": _RUNNING_SUMMARY_SCHEMA},

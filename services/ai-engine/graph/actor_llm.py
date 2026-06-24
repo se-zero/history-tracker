@@ -1,8 +1,7 @@
-import asyncio
 import json
 import logging
 
-from openai_client import get_openai_client
+from openai_client import Priority, chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +41,7 @@ async def judge_same_person(
         호출/파싱 실패 시 _FAILED_RESULT 반환 (same_person=False).
     """
     prompt = _build_prompt(existing_actor, activities, new_actor, source, event)
-    raw = await asyncio.to_thread(_call_llm, prompt)
+    raw = await _call_llm(prompt)
     if raw is None:
         return dict(_FAILED_RESULT)
     try:
@@ -52,12 +51,13 @@ async def judge_same_person(
         return dict(_FAILED_RESULT)
 
 
-def _call_llm(prompt: str) -> str | None:
-    """OpenAI API 동기 호출. asyncio.to_thread()로 감싸서 사용.
+async def _call_llm(prompt: str) -> str | None:
+    """OpenAI API 호출 (rate-limited 게이트웨이 경유).
     API 실패 시 None 반환 — 이벤트 처리가 단일 호출 실패로 중단되지 않도록.
     """
     try:
-        response = get_openai_client().chat.completions.create(
+        response = await chat_completion(
+            priority=Priority.BACKGROUND,
             model="gpt-4o-mini",
             response_format={"type": "json_object"},
             messages=[
