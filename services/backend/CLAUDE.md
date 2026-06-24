@@ -29,7 +29,9 @@ cd services/backend
 
 ## AI Engine 연동
 
-- `AiEngineConfig`는 `ai.engine.url` 기반 `aiEngineRestClient`를 구성한다.
+- `AiEngineConfig`는 `ai.engine.url` 기반 `aiEngineRestClient`와 connect(3s)/read(60s) timeout을 구성한다.
+  timeout이 없으면 ai-engine hang 시 Tomcat 스레드가 무한 점유돼 fallback/502가 작동하지 못한다.
+  빌드는 비동기 202라 짧고, read(60s)는 LLM tool-calling 질의(/query)를 위한 여유다.
 - 그래프 데이터의 단일 소유자는 ai-engine(Neo4j)다. backend는 인가를 통과시킨 뒤 조회·삭제를 프록시만 한다.
   - `AiEngineGraphClient`: `GET /graph/overview`(`project_id` 스코프), `DELETE /graph/projects/{projectId}`(프로젝트 삭제 시 그래프 cascade, 멱등), `triggerBuild` → `POST /graph/build?project_id=&verify=`(Layer 4 빌드를 프로젝트 단위로 트리거, 202 + `GraphBuildStatusResponse`), `fetchBuildStatus` → `GET /graph/build/status?project_id=`(빌드 상태 폴링). ai-engine 호출 실패는 `BadGatewayException`(502)으로 변환한다.
   - 그래프 재구축은 `POST /api/v1/projects/{projectId}/graph/build?verify=`(202)로 노출한다(`GraphService.buildProjectGraph`). `verify=true`면 방안 D(LLM 검증). ai-engine 빌드가 프로젝트 단위 비동기라 `projectId`는 인가 게이트이자 실제 빌드 대상이고, 트리거는 즉시 202로 반환된 뒤 `GET .../graph/build/status`(`GraphService.getBuildStatus`)로 완료를 폴링한다.
