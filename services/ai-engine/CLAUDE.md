@@ -64,7 +64,7 @@ conftest.py        pytest 부트스트랩 (OPENAI_API_KEY shim)
 
 routers/           HTTP 엔드포인트 (APIRouter, prefix 없이 전체 경로 명시)
   query.py           /query, /query/summary            — 공개 read API
-  graph.py           /graph/overview, /graph/projects/{id}, /graph/build
+  graph.py           /graph/overview, /graph/projects/{id}, /graph/build(202·비동기), /graph/build/status
   admin.py           /reference/*, /migrations/*, /slack/filter, /issue-links/build, /test/ingest — 일회성 운영 트리거
 
 agent/
@@ -81,7 +81,10 @@ tools/             LLM tool-calling
 graph/             Neo4j 그래프 구축 + 수집
   consumer.py        RabbitMQ consumer
   event_handler.py   NormalizedEvent → 그래프 쓰기 (수집 진입점)
-  postprocess.py     디바운스 후처리(Layer 4) 시퀀스
+  postprocess.py     per-project 후처리(Layer 4) 빌드 + 디바운스. 빌드는 프로젝트 단위 비동기
+                     (POST /graph/build는 202 후 백그라운드 태스크, GET /graph/build/status 폴링).
+                     같은 프로젝트는 coalesce, 다른 프로젝트는 _build_semaphore(MAX_CONCURRENCY)로 제한.
+                     상태/dirty는 in-process — 수평 확장 시 공유 저장소로 교체 필요
   builder.py         facade — 아래 분해 모듈의 공개 심볼 re-export (하위 호환)
     driver.py            드라이버 수명주기 (get_driver/close_driver)
     schema.py            벡터 인덱스·유니크 제약 부트스트랩

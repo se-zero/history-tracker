@@ -9,20 +9,20 @@ from graph.driver import get_driver
 # ── ReferenceStore Neo4j 구현체 ───────────────────────────────────────────
 
 
-async def _fetch_modified_embeddings() -> list[dict]:
+async def _fetch_modified_embeddings(project_id: str | None = None) -> list[dict]:
+    query = """
+        MATCH (c:ChangeSet)-[r:MODIFIED]->(f:File)
+        WHERE r.embedding IS NOT NULL AND c.occurredAt IS NOT NULL
+        __PROJECT_FILTER__
+        RETURN c.project_id AS project_id,
+               c.hash AS changeset_id,
+               f.path AS file_path,
+               r.diffSummary AS diff_summary,
+               r.embedding AS embedding,
+               c.occurredAt AS occurred_at
+    """.replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (c:ChangeSet)-[r:MODIFIED]->(f:File)
-            WHERE r.embedding IS NOT NULL AND c.occurredAt IS NOT NULL
-            RETURN c.project_id AS project_id,
-                   c.hash AS changeset_id,
-                   f.path AS file_path,
-                   r.diffSummary AS diff_summary,
-                   r.embedding AS embedding,
-                   c.occurredAt AS occurred_at
-            """
-        )
+        result = await session.run(query, project_id=project_id)
         rows = await result.data()
     return [
         {
@@ -37,19 +37,19 @@ async def _fetch_modified_embeddings() -> list[dict]:
     ]
 
 
-async def _fetch_communication_embeddings() -> list[dict]:
+async def _fetch_communication_embeddings(project_id: str | None = None) -> list[dict]:
+    query = """
+        MATCH (comm:Communication)
+        WHERE comm.embedding IS NOT NULL AND comm.occurredAt IS NOT NULL
+        __PROJECT_FILTER__
+        RETURN comm.project_id AS project_id,
+               comm.url AS id,
+               comm.body AS body,
+               comm.embedding AS embedding,
+               comm.occurredAt AS occurred_at
+    """.replace("__PROJECT_FILTER__", "AND comm.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (comm:Communication)
-            WHERE comm.embedding IS NOT NULL AND comm.occurredAt IS NOT NULL
-            RETURN comm.project_id AS project_id,
-                   comm.url AS id,
-                   comm.body AS body,
-                   comm.embedding AS embedding,
-                   comm.occurredAt AS occurred_at
-            """
-        )
+        result = await session.run(query, project_id=project_id)
         rows = await result.data()
     return [
         {
@@ -79,15 +79,15 @@ async def _create_reference_edge(project_id: str, changeset_id: str, communicati
         )
 
 
-async def _fetch_unembedded_communications() -> list[dict]:
+async def _fetch_unembedded_communications(project_id: str | None = None) -> list[dict]:
+    query = """
+        MATCH (comm:Communication)
+        WHERE comm.embedding IS NULL
+        __PROJECT_FILTER__
+        RETURN comm.project_id AS project_id, comm.url AS id, comm.body AS body
+    """.replace("__PROJECT_FILTER__", "AND comm.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (comm:Communication)
-            WHERE comm.embedding IS NULL
-            RETURN comm.project_id AS project_id, comm.url AS id, comm.body AS body
-            """
-        )
+        result = await session.run(query, project_id=project_id)
         rows = await result.data()
     return [{"project_id": r["project_id"], "id": r["id"], "body": r["body"]} for r in rows]
 
@@ -105,13 +105,17 @@ async def _save_communication_embedding(project_id: str, communication_id: str, 
         )
 
 
-def make_neo4j_reference_store():
-    """Neo4j 기반 ReferenceStore 인스턴스를 반환한다."""
+def make_neo4j_reference_store(project_id: str | None = None):
+    """Neo4j 기반 ReferenceStore 인스턴스를 반환한다.
+
+    project_id를 주면 fetch가 그 프로젝트 노드만 조회한다(per-project 빌드).
+    None이면 전체 프로젝트를 조회한다(운영 일괄 트리거 — 기존 동작).
+    """
     from graph.reference_builder import ReferenceStore
     return ReferenceStore(
-        fetch_modified_embeddings=_fetch_modified_embeddings,
-        fetch_communication_embeddings=_fetch_communication_embeddings,
+        fetch_modified_embeddings=lambda: _fetch_modified_embeddings(project_id),
+        fetch_communication_embeddings=lambda: _fetch_communication_embeddings(project_id),
         create_reference_edge=_create_reference_edge,
-        fetch_unembedded_communications=_fetch_unembedded_communications,
+        fetch_unembedded_communications=lambda: _fetch_unembedded_communications(project_id),
         save_communication_embedding=_save_communication_embedding,
     )

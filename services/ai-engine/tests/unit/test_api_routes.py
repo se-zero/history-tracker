@@ -11,6 +11,7 @@ import main
 
 EXPECTED_ROUTES = {
     ("DELETE", "/graph/projects/{project_id}"),
+    ("GET", "/graph/build/status"),
     ("GET", "/graph/overview"),
     ("GET", "/health"),
     ("POST", "/graph/build"),

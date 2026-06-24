@@ -6,24 +6,25 @@ graph.slack_batch_filter가 미필터 메시지를 가져와 필터 결과를 �
 from graph.driver import get_driver
 
 
-async def fetch_unfiltered_communications() -> list[dict]:
+async def fetch_unfiltered_communications(project_id: str | None = None) -> list[dict]:
     """LLM 필터 미적용(llm_filtered=False) Slack Communication을 배치 필터용으로 조회한다.
 
     source='SLACK'로 스코프 — GitHub 이슈(source='GITHUB')도 Communication이고 수집 시
     llm_filtered=False로 들어오지만, 이는 Slack 노이즈 필터(삭제) 대상이 아니다.
+    project_id를 주면 그 프로젝트 메시지만 조회한다(per-project 빌드).
     """
+    query = """
+        MATCH (comm:Communication)
+        WHERE comm.llm_filtered = false AND comm.source = 'SLACK'
+        __PROJECT_FILTER__
+        RETURN comm.project_id AS project_id,
+               comm.url AS url, comm.body AS body,
+               comm.channel AS channel,
+               comm.conversation_id AS conversation_id,
+               comm.occurredAt AS occurred_at
+    """.replace("__PROJECT_FILTER__", "AND comm.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (comm:Communication)
-            WHERE comm.llm_filtered = false AND comm.source = 'SLACK'
-            RETURN comm.project_id AS project_id,
-                   comm.url AS url, comm.body AS body,
-                   comm.channel AS channel,
-                   comm.conversation_id AS conversation_id,
-                   comm.occurredAt AS occurred_at
-            """
-        )
+        result = await session.run(query, project_id=project_id)
         rows = await result.data()
     return [
         {
