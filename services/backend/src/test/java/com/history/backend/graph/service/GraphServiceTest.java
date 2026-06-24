@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.ForbiddenException;
+import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.project.service.ProjectService;
 import org.junit.jupiter.api.DisplayName;
@@ -62,6 +63,61 @@ class GraphServiceTest {
                 .isInstanceOf(ForbiddenException.class);
 
         // 인가 실패 시 ai-engine에 절대 요청이 가면 안 된다 (데이터 누출 차단)
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("소유권 확인 후 빌드 트리거 (projectId가 실제 빌드 인자)")
+    void triggersBuildAfterOwnershipCheck() {
+        GraphBuildStatusResponse expected =
+                new GraphBuildStatusResponse("running", true, "2026-06-24T00:00:00+00:00", null, null);
+        when(aiEngineGraphClient.triggerBuild(PROJECT_ID, true)).thenReturn(expected);
+
+        GraphBuildStatusResponse result = graphService.buildProjectGraph(USER_ID, PROJECT_ID, true);
+
+        assertThat(result).isSameAs(expected);
+        // 소유권 검증이 빌드 트리거보다 먼저 일어나야 한다
+        InOrder inOrder = inOrder(projectService, aiEngineGraphClient);
+        inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).triggerBuild(PROJECT_ID, true);
+    }
+
+    @Test
+    @DisplayName("빌드 트리거 — 소유권 검증 실패 시 ai-engine 미호출")
+    void doesNotTriggerBuildWhenOwnershipCheckFails() {
+        doThrow(new ForbiddenException("Project access denied."))
+                .when(projectService).getProject(USER_ID, PROJECT_ID);
+
+        assertThatThrownBy(() -> graphService.buildProjectGraph(USER_ID, PROJECT_ID, false))
+                .isInstanceOf(ForbiddenException.class);
+
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("소유권 확인 후 빌드 상태 조회")
+    void fetchesBuildStatusAfterOwnershipCheck() {
+        GraphBuildStatusResponse expected =
+                new GraphBuildStatusResponse("idle", null, null, null, null);
+        when(aiEngineGraphClient.fetchBuildStatus(PROJECT_ID)).thenReturn(expected);
+
+        GraphBuildStatusResponse result = graphService.getBuildStatus(USER_ID, PROJECT_ID);
+
+        assertThat(result).isSameAs(expected);
+        InOrder inOrder = inOrder(projectService, aiEngineGraphClient);
+        inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).fetchBuildStatus(PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("빌드 상태 조회 — 소유권 검증 실패 시 ai-engine 미호출")
+    void doesNotFetchStatusWhenOwnershipCheckFails() {
+        doThrow(new ForbiddenException("Project access denied."))
+                .when(projectService).getProject(USER_ID, PROJECT_ID);
+
+        assertThatThrownBy(() -> graphService.getBuildStatus(USER_ID, PROJECT_ID))
+                .isInstanceOf(ForbiddenException.class);
+
         verifyNoInteractions(aiEngineGraphClient);
     }
 }
