@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import sys
@@ -34,7 +35,7 @@ if __name__ == "__main__":
             deletions = file.get("deletions", 0) or 0
             print(f"  처리 중: {path}")
             try:
-                summary = summarize_diff(path, diff, additions, deletions, message)
+                summary = asyncio.run(summarize_diff(path, diff, additions, deletions, message))
                 print(f"  [{path}] → {summary[:80]}..." if len(summary) > 80 else f"  [{path}] → {summary}")
             except Exception as e:
                 print(f"  [ERROR] {path}: {e}")

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -13,6 +14,8 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.ForbiddenException;
+import com.history.backend.graph.dto.GraphBuildResponse;
+import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphNodeResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.service.GraphService;
@@ -102,6 +105,73 @@ class GraphControllerTest {
     @DisplayName("미인증 요청 거부 → 401 Unauthorized")
     void rejectsUnauthenticatedRequest() throws Exception {
         mockMvc.perform(get("/api/v1/projects/{projectId}/graph", PROJECT_ID))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("빌드 트리거 → 202 Accepted, 상태 본문 반환")
+    void triggersBuildReturns202() throws Exception {
+        GraphBuildStatusResponse buildStatus =
+                new GraphBuildStatusResponse("running", true, "2026-06-24T00:00:00+00:00", null, null);
+        when(graphService.buildProjectGraph(USER_ID, PROJECT_ID, true)).thenReturn(buildStatus);
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/graph/build", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .param("verify", "true"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.state").value("running"))
+                .andExpect(jsonPath("$.verify").value(true))
+                .andExpect(jsonPath("$.started_at").value("2026-06-24T00:00:00+00:00"));
+
+        verify(graphService).buildProjectGraph(USER_ID, PROJECT_ID, true);
+    }
+
+    @Test
+    @DisplayName("빌드 트리거 — verify 미전달 시 기본 false")
+    void triggersBuildDefaultsVerifyFalse() throws Exception {
+        when(graphService.buildProjectGraph(USER_ID, PROJECT_ID, false))
+                .thenReturn(new GraphBuildStatusResponse("running", false, "2026-06-24T00:00:00+00:00", null, null));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/graph/build", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isAccepted());
+
+        verify(graphService).buildProjectGraph(USER_ID, PROJECT_ID, false);
+    }
+
+    @Test
+    @DisplayName("빌드 상태 조회 → 200, succeeded면 result 카운트 포함")
+    void returnsBuildStatus() throws Exception {
+        GraphBuildStatusResponse buildStatus = new GraphBuildStatusResponse(
+                "succeeded", false, "2026-06-24T00:00:00+00:00",
+                new GraphBuildResponse(1, 2, 3, 4, 5), null);
+        when(graphService.getBuildStatus(USER_ID, PROJECT_ID)).thenReturn(buildStatus);
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/build/status", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("succeeded"))
+                .andExpect(jsonPath("$.result.triggered_by").value(2))
+                .andExpect(jsonPath("$.result.thread_propagated").value(5));
+
+        verify(graphService).getBuildStatus(USER_ID, PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("빌드 트리거 — 소유자가 아니면 403 Forbidden 전파")
+    void propagatesForbiddenOnBuild() throws Exception {
+        when(graphService.buildProjectGraph(USER_ID, PROJECT_ID, false))
+                .thenThrow(new ForbiddenException("Project access denied."));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/graph/build", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("빌드 상태 조회 — 미인증 요청 거부 → 401 Unauthorized")
+    void rejectsUnauthenticatedBuildStatus() throws Exception {
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/build/status", PROJECT_ID))
                 .andExpect(status().isUnauthorized());
     }
 }

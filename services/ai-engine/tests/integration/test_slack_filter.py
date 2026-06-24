@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import sys
@@ -23,7 +24,7 @@ if __name__ == "__main__":
             from graph.project_context import get_project_summary
             owner, repo_name = repo.split("/", 1)
             print(f"\n[프로젝트 컨텍스트 로드 중] {owner}/{repo_name}")
-            project_context = get_project_summary(owner, repo_name) or ""
+            project_context = asyncio.run(get_project_summary(owner, repo_name)) or ""
             print(f"[컨텍스트]\n{project_context}\n")
         else:
             print("[경고] --repo=owner/repo 또는 GITHUB_REPO 환경변수가 없어 기본 컨텍스트 사용")
@@ -76,7 +77,7 @@ if __name__ == "__main__":
         bodies = [e.get("properties", {}).get("body", "") for e in thread_events]
         print(f"\n  [LLM 판단 중] 스레드 {cid} ({len(bodies)}개 메시지)")
         try:
-            keep_flags = filter_messages(bodies, project_context=project_context)
+            keep_flags = asyncio.run(filter_messages(bodies, project_context=project_context))
             for event, keep, body in zip(thread_events, keep_flags, bodies):
                 if keep:
                     llm_kept.append(event)

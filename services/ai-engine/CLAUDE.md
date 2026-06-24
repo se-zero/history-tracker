@@ -64,7 +64,7 @@ conftest.py        pytest 부트스트랩 (OPENAI_API_KEY shim)
 
 routers/           HTTP 엔드포인트 (APIRouter, prefix 없이 전체 경로 명시)
   query.py           /query, /query/summary            — 공개 read API
-  graph.py           /graph/overview, /graph/projects/{id}, /graph/build
+  graph.py           /graph/overview, /graph/projects/{id}, /graph/build(202·비동기), /graph/build/status
   admin.py           /reference/*, /migrations/*, /slack/filter, /issue-links/build, /test/ingest — 일회성 운영 트리거
 
 agent/
@@ -81,7 +81,10 @@ tools/             LLM tool-calling
 graph/             Neo4j 그래프 구축 + 수집
   consumer.py        RabbitMQ consumer
   event_handler.py   NormalizedEvent → 그래프 쓰기 (수집 진입점)
-  postprocess.py     디바운스 후처리(Layer 4) 시퀀스
+  postprocess.py     per-project 후처리(Layer 4) 빌드 + 디바운스. 빌드는 프로젝트 단위 비동기
+                     (POST /graph/build는 202 후 백그라운드 태스크, GET /graph/build/status 폴링).
+                     같은 프로젝트는 coalesce, 다른 프로젝트는 _build_semaphore(MAX_CONCURRENCY)로 제한.
+                     상태/dirty는 in-process — 수평 확장 시 공유 저장소로 교체 필요
   builder.py         facade — 아래 분해 모듈의 공개 심볼 re-export (하위 호환)
     driver.py            드라이버 수명주기 (get_driver/close_driver)
     schema.py            벡터 인덱스·유니크 제약 부트스트랩
@@ -105,6 +108,10 @@ graph/             Neo4j 그래프 구축 + 수집
   import한다 — facade를 경유하면 순환 import가 생긴다.
 - **OpenAI 클라이언트는 `openai_client.get_openai_client()`만 사용**한다. 모듈 레벨에서 `OpenAI(...)`를 직접
   생성하지 않는다 (중복·import 시점 키 강제 방지).
+- **chat/embedding 호출은 게이트웨이(`openai_client.chat_completion` / `openai_client.embed`)로** 한다.
+  `client.chat.completions.create()`를 직접 호출하지 않는다 — 게이트웨이가 `rate_limiter`로 RPM·TPM을
+  페이싱하고 우선순위(`Priority.INTERACTIVE` 질의 / `Priority.BACKGROUND` 수집·빌드)를 적용한다.
+  한도는 env(`OPENAI_RPM_CHAT`/`OPENAI_TPM_CHAT`/`OPENAI_RPM_EMBED`/`OPENAI_TPM_EMBED`)로 외부화돼 있다.
 - **import 시점 부작용 금지**: 모듈 최상단에서 네트워크 호출, 클라이언트 생성, `os.environ["X"]` 하드 subscript를
   하지 않는다 — 오프라인 import(테스트 포함)가 가능해야 한다. 설정은 함수 호출 시점에 lazy하게 읽는다.
 - **HTTP 엔드포인트는 `routers/`에** 추가한다. `main.py`는 부트스트랩(lifespan·라우터 include)만 둔다.

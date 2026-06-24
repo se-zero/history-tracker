@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.BadGatewayException;
-import com.history.backend.graph.dto.GraphBuildResponse;
+import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,20 +43,36 @@ public class AiEngineGraphClient {
         }
     }
 
-    // 후처리(Layer 4) 시퀀스 수동 트리거 — 소스 간 시맨틱 엣지를 즉시 재구축한다.
-    // ai-engine /graph/build는 현재 전 프로젝트를 도는 idempotent 배치다(project 스코프는 향후).
-    // 빌드가 O(n²)라 응답까지 시간이 걸릴 수 있어 호출이 블로킹된다.
-    public GraphBuildResponse triggerBuild(boolean verify) {
+    // 후처리(Layer 4) 빌드를 프로젝트 단위로 트리거 — ai-engine이 백그라운드로 실행하고 202 + 현재 상태를 반환한다.
+    // 길게 걸리는 빌드를 동기 블로킹하지 않으므로, 진행 상황은 fetchBuildStatus로 폴링한다.
+    public GraphBuildStatusResponse triggerBuild(UUID projectId, boolean verify) {
         try {
             return aiEngineRestClient.post()
                     .uri(uriBuilder -> uriBuilder.path("/graph/build")
+                            .queryParam("project_id", projectId)
                             .queryParam("verify", verify)
                             .build())
                     .retrieve()
-                    .body(GraphBuildResponse.class);
+                    .body(GraphBuildStatusResponse.class);
         } catch (RestClientException exception) {
-            log.error("ai-engine graph build request failed: {}", exception.getMessage());
+            log.error("ai-engine graph build request failed: projectId={}, {}", projectId, exception.getMessage());
             throw new BadGatewayException("Failed to rebuild project graph.");
+        }
+    }
+
+    // 프로젝트의 현재 빌드 상태 조회 — 트리거(202) 후 완료까지 폴링한다.
+    public GraphBuildStatusResponse fetchBuildStatus(UUID projectId) {
+        try {
+            return aiEngineRestClient.get()
+                    .uri(uriBuilder -> uriBuilder.path("/graph/build/status")
+                            .queryParam("project_id", projectId)
+                            .build())
+                    .retrieve()
+                    .body(GraphBuildStatusResponse.class);
+        } catch (RestClientException exception) {
+            log.error("ai-engine graph build status request failed: projectId={}, {}",
+                    projectId, exception.getMessage());
+            throw new BadGatewayException("Failed to load graph build status.");
         }
     }
 

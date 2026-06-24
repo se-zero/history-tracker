@@ -13,24 +13,25 @@ from graph.writes import link_pr_changesets_to_issues
 logger = logging.getLogger(__name__)
 
 
-async def propagate_thread_discussed_in() -> int:
+async def propagate_thread_discussed_in(project_id: str | None = None) -> int:
     """방안 C — 스레드 전파: conversation_id로 묶인 스레드 내 하나의 Communication이
     DISCUSSED_IN을 가지면 같은 스레드의 나머지 Communication에도 전파.
 
     conversation_id(Slack ts 등)는 프로젝트 간 충돌 가능 — 같은 project_id 안에서만 전파한다.
+    project_id를 주면 그 프로젝트 스레드만 전파한다(per-project 빌드).
     """
+    query = """
+        MATCH (i:Issue)-[:DISCUSSED_IN]->(seed:Communication)
+        WHERE seed.conversation_id IS NOT NULL AND seed.conversation_id <> ''
+        __PROJECT_FILTER__
+        WITH i, seed
+        MATCH (other:Communication {project_id: seed.project_id, conversation_id: seed.conversation_id})
+        WHERE NOT (i)-[:DISCUSSED_IN]->(other)
+        MERGE (i)-[:DISCUSSED_IN]->(other)
+        RETURN count(*) AS created
+    """.replace("__PROJECT_FILTER__", "AND seed.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (i:Issue)-[:DISCUSSED_IN]->(seed:Communication)
-            WHERE seed.conversation_id IS NOT NULL AND seed.conversation_id <> ''
-            WITH i, seed
-            MATCH (other:Communication {project_id: seed.project_id, conversation_id: seed.conversation_id})
-            WHERE NOT (i)-[:DISCUSSED_IN]->(other)
-            MERGE (i)-[:DISCUSSED_IN]->(other)
-            RETURN count(*) AS created
-            """
-        )
+        result = await session.run(query, project_id=project_id)
         record = await result.single()
         return record["created"] if record else 0
 
@@ -168,11 +169,12 @@ async def backfill_pr_jira_keys() -> dict:
     }
 
 
-async def clear_semantic_triggered_by() -> int:
+async def clear_semantic_triggered_by(project_id: str | None = None) -> int:
     """source='semantic'인 TRIGGERED_BY 엣지를 일괄 삭제한다.
 
     용도: 정책(threshold/window/top-1) 변경 후 시맨틱 결과를 깨끗하게 재구축하고 싶을 때.
     텍스트 매칭(source='text')은 보존되므로 명시 참조는 손상되지 않는다.
+    project_id를 주면 그 프로젝트 엣지만 삭제한다(per-project 정밀 재구축).
 
     선행 조건:
       backfill_triggered_by_source가 한 번이라도 실행되어 모든 엣지에 source가 라벨링되어 있어야 한다.
@@ -181,38 +183,41 @@ async def clear_semantic_triggered_by() -> int:
     Returns:
         삭제된 엣지 수.
     """
+    # TRIGGERED_BY는 항상 ChangeSet→Issue라 c:ChangeSet 바인딩은 () 와 동치이며, project_id 스코프를 건다.
+    query = """
+        MATCH (c:ChangeSet)-[r:TRIGGERED_BY]->()
+        WHERE r.source = 'semantic'
+        __PROJECT_FILTER__
+        DELETE r
+    """.replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH ()-[r:TRIGGERED_BY]->()
-            WHERE r.source = 'semantic'
-            DELETE r
-            """
-        )
+        result = await session.run(query, project_id=project_id)
         summary = await result.consume()
         deleted = summary.counters.relationships_deleted
     logger.info("시맨틱 TRIGGERED_BY 엣지 삭제 완료: %d개", deleted)
     return deleted
 
 
-async def clear_semantic_discussed_in() -> int:
+async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
     """시맨틱 DISCUSSED_IN(방안 A/D 산물)을 일괄 삭제한다.
 
     시맨틱 엣지만 r.confidence가 설정되므로 이를 기준으로 구분한다.
     refs 텍스트(link_issue_to_communication)·스레드 전파 엣지는 confidence가 없어 보존된다.
     방안 D(LLM 검증) 재구축 전에 A의 결과를 비워 false positive가 섞이지 않게 하는 용도.
+    project_id를 주면 그 프로젝트 엣지만 삭제한다(per-project 정밀 재구축).
 
     Returns:
         삭제된 엣지 수.
     """
+    # DISCUSSED_IN은 항상 Issue→Communication이라 i:Issue 바인딩은 () 와 동치이며, project_id 스코프를 건다.
+    query = """
+        MATCH (i:Issue)-[r:DISCUSSED_IN]->()
+        WHERE r.confidence IS NOT NULL
+        __PROJECT_FILTER__
+        DELETE r
+    """.replace("__PROJECT_FILTER__", "AND i.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH ()-[r:DISCUSSED_IN]->()
-            WHERE r.confidence IS NOT NULL
-            DELETE r
-            """
-        )
+        result = await session.run(query, project_id=project_id)
         summary = await result.consume()
         deleted = summary.counters.relationships_deleted
     logger.info("시맨틱 DISCUSSED_IN 엣지 삭제 완료: %d개", deleted)

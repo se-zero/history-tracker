@@ -95,7 +95,7 @@ async def _handle_changeset(event: dict) -> None:
         additions = file.get("additions", 0)
         deletions = file.get("deletions", 0)
         try:
-            diff_summary = await asyncio.to_thread(summarize_diff, path, diff, additions, deletions, message)
+            diff_summary = await summarize_diff(path, diff, additions, deletions, message)
             embedding    = await embed_text(diff_summary)
             await builder.upsert_file_with_modified_edge(
                 project_id=project_id,

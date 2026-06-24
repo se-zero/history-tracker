@@ -1,6 +1,6 @@
 import logging
 
-from openai_client import get_openai_client
+from openai_client import Priority, chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ def _size_placeholder(path: str, additions: int, deletions: int, message: str) -
     return f"[수정] `{path}` — {additions}줄 추가, {deletions}줄 제거 (diff 크기 초과, 커밋: \"{message}\")"
 
 
-def summarize_diff(path: str, diff: str, additions: int = 0, deletions: int = 0, message: str = "") -> str:
+async def summarize_diff(path: str, diff: str, additions: int = 0, deletions: int = 0, message: str = "") -> str:
     if not diff or not diff.strip():
         if additions or deletions:
             return _size_placeholder(path, additions, deletions, message)
@@ -44,7 +44,8 @@ def summarize_diff(path: str, diff: str, additions: int = 0, deletions: int = 0,
         return _size_placeholder(path, additions, deletions, message)
 
     try:
-        response = get_openai_client().chat.completions.create(
+        response = await chat_completion(
+            priority=Priority.BACKGROUND,
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},

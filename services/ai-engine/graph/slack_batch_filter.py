@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections import defaultdict
 
@@ -14,15 +13,17 @@ logger = logging.getLogger(__name__)
 _STANDALONE_BATCH_SIZE = 50
 
 
-async def run_slack_llm_filter(project_context: str = "") -> dict:
+async def run_slack_llm_filter(project_context: str = "", project_id: str | None = None) -> dict:
     """Neo4j의 llm_filtered=False Communication에 LLM 필터를 일괄 적용한다.
 
     - 스레드(conversation_id 공유 2개 이상): 스레드 단위로 LLM 1회 호출
     - 개별 메시지: (channel, date) 기준 그룹핑 후 50개씩 LLM 호출
 
+    project_id를 주면 그 프로젝트 메시지만 필터한다(per-project 빌드).
+
     반환: {"kept": int, "deleted": int}
     """
-    communications = await fetch_unfiltered_communications()
+    communications = await fetch_unfiltered_communications(project_id)
     if not communications:
         logger.info("필터 대상 Communication 없음")
         return {"kept": 0, "deleted": 0}
@@ -44,7 +45,7 @@ async def run_slack_llm_filter(project_context: str = "") -> dict:
         msgs.sort(key=lambda m: m["occurred_at"] or 0)
         bodies = [m["body"] for m in msgs]
         try:
-            keep_flags = await asyncio.to_thread(filter_messages, bodies, project_context, True)
+            keep_flags = await filter_messages(bodies, project_context, True)
         except Exception:
             logger.exception("스레드 LLM 필터 실패, 전체 보존: conversation_id=%s", cid)
             keep_flags = [True] * len(msgs)
@@ -69,7 +70,7 @@ async def run_slack_llm_filter(project_context: str = "") -> dict:
             chunk = msgs[i : i + _STANDALONE_BATCH_SIZE]
             bodies = [m["body"] for m in chunk]
             try:
-                keep_flags = await asyncio.to_thread(filter_messages, bodies, project_context)
+                keep_flags = await filter_messages(bodies, project_context)
             except Exception:
                 logger.exception(
                     "개별 메시지 LLM 필터 실패, 전체 보존: channel=%s date=%s", channel, date

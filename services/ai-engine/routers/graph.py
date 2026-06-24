@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from graph.builder import delete_project_graph
 from graph.overview import get_project_overview
-from graph.postprocess import run_postprocess_sequence
+from graph.postprocess import get_build_status, trigger_build
 
 router = APIRouter()
 
@@ -33,18 +33,27 @@ async def delete_project_graph_endpoint(project_id: str):
     return {"deleted": deleted}
 
 
-@router.post("/graph/build")
-async def trigger_graph_build(verify: bool = False):
-    """후처리(Layer 4) 시퀀스를 즉시 1회 실행한다.
+@router.post("/graph/build", status_code=202)
+async def trigger_graph_build(project_id: str, verify: bool = False):
+    """해당 프로젝트의 후처리(Layer 4) 빌드를 백그라운드로 시작하고 즉시 202를 반환한다.
 
-    backfill → TRIGGERED_BY/DISCUSSED_IN → REFERENCE → 스레드 전파 순으로
-    소스 간 시맨틱 엣지를 구축한다. 평소엔 수집 큐가 잠잠해지면 디바운스 루프
-    (postprocess.start_debounce_loop)가 자동 호출하며, 이 엔드포인트는 디바운스를
-    기다리지 않는 수동/운영 트리거다 ('그래프 재구축' 버튼의 연결점).
-    모든 단계 idempotent — _build_lock으로 디바운스 루프와 직렬화된다.
+    빌드는 길게는 수 분 걸리므로 동기로 블로킹하지 않는다. 백그라운드 태스크로 실행하고
+    현재 상태(state=running/...)를 반환한다 — 진행 상황은 GET /graph/build/status로 폴링한다.
+    같은 프로젝트가 이미 빌드 중이면 새로 시작하지 않고 진행 중 상태를 반환한다(coalesce).
+    인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
 
     verify=false (기본): 방안 A — 임베딩 유사도만 (빠름, LLM 비용 없음).
     verify=true:         방안 D — 시맨틱 엣지 clear 후 LLM 검증으로 재구축
                          (false positive 감소, 호출당 LLM 비용). '정밀 재구축' 버튼용.
     """
-    return await run_postprocess_sequence(verify=verify)
+    return trigger_build(project_id, verify)
+
+
+@router.get("/graph/build/status")
+async def graph_build_status(project_id: str):
+    """프로젝트의 현재 빌드 상태를 반환한다 (POST /graph/build 후 폴링용).
+
+    state: idle(빌드 이력 없음) | running | succeeded | failed.
+    succeeded면 result에 단계별 카운트, failed면 error에 사유가 담긴다.
+    """
+    return get_build_status(project_id)

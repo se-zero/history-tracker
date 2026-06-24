@@ -33,7 +33,7 @@ async def _prewarm_project_context() -> None:
         return
     owner, repo_name = repo.split("/", 1)
     from graph.project_context import get_project_summary
-    summary = await asyncio.to_thread(get_project_summary, owner, repo_name)
+    summary = await get_project_summary(owner, repo_name)
     logger.info("프로젝트 컨텍스트 pre-warm 완료: %s/%s loaded=%s", owner, repo_name, summary is not None)
 
 
