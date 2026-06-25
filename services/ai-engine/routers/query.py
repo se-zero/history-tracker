@@ -1,11 +1,11 @@
 """질의 API — 자연어 질문 응답 + 대화 요약 (공개 read 경로)."""
 
-import asyncio
 import logging
 
 from fastapi import APIRouter
 
 from agent import orchestrator
+from openai_client import Priority
 from query_models import QueryRequest, SummaryRequest
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ async def query(req: QueryRequest):
     if req.repo and "/" in req.repo:
         from graph.project_context import get_project_summary
         owner, repo_name = req.repo.split("/", 1)
-        project_context = await asyncio.to_thread(get_project_summary, owner, repo_name) or ""
+        project_context = await get_project_summary(owner, repo_name, priority=Priority.INTERACTIVE) or ""
 
     history = [message.model_dump() for message in req.history]
     prior_evidence = [evidence.model_dump() for evidence in req.prior_evidence]

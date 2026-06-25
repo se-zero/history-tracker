@@ -161,6 +161,7 @@ async def _process_event(item: object) -> None:
     message, event = item  # type: ignore[misc]
     async with message.process(requeue=False):
         await handle(event)
-        # 처리 성공 — 후처리(시맨틱 링크) 디바운스 타이머 갱신.
-        # 큐가 잠잠해지면 start_debounce_loop가 Layer 4 시퀀스를 1회 실행한다.
-        mark_dirty()
+        # 처리 성공 — 해당 프로젝트의 후처리(시맨틱 링크) 디바운스 타이머 갱신.
+        # 그 프로젝트 큐가 잠잠해지면 start_debounce_loop가 Layer 4 시퀀스를 1회 실행한다.
+        # projectId 없는 이벤트는 handle에서 이미 건너뛰며, mark_dirty도 빈 값을 무시한다.
+        mark_dirty(event.get("projectId") or "")

@@ -73,6 +73,12 @@ services:
       GITHUB_REPO: ${GITHUB_REPO:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       QUERY_MODEL: ${QUERY_MODEL:-gpt-4o-mini}
+      # OpenAI rate limiter — Tier 변경 시 이 값들만 수정 (코드 불변). 기본값 = Tier 1.
+      OPENAI_RPM_CHAT: ${OPENAI_RPM_CHAT:-500}
+      OPENAI_TPM_CHAT: ${OPENAI_TPM_CHAT:-200000}
+      OPENAI_RPM_EMBED: ${OPENAI_RPM_EMBED:-3000}
+      OPENAI_TPM_EMBED: ${OPENAI_TPM_EMBED:-1000000}
+      OPENAI_MAX_RETRIES: ${OPENAI_MAX_RETRIES:-3}
     depends_on:
       neo4j:
         condition: service_healthy

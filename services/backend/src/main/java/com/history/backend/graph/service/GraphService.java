@@ -2,7 +2,7 @@ package com.history.backend.graph.service;
 
 import java.util.UUID;
 
-import com.history.backend.graph.dto.GraphBuildResponse;
+import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
@@ -22,11 +22,17 @@ public class GraphService {
         return aiEngineGraphClient.fetchOverview(projectId, limit, types);
     }
 
-    // 소유권 검증 후 ai-engine 후처리 빌드를 트리거한다 — 소스 간 시맨틱 엣지 재구축.
-    // verify=true면 방안 D(LLM 검증). 현재 ai-engine 빌드는 전 프로젝트 대상이라
-    // projectId는 인가 게이트 용도다.
-    public GraphBuildResponse buildProjectGraph(UUID ownerId, UUID projectId, boolean verify) {
+    // 소유권 검증 후 ai-engine 후처리 빌드를 프로젝트 단위로 트리거한다 — 소스 간 시맨틱 엣지 재구축.
+    // verify=true면 방안 D(LLM 검증). projectId가 인가 게이트이자 실제 빌드 대상이며,
+    // 빌드는 비동기(202)라 완료는 getBuildStatus 폴링으로 확인한다.
+    public GraphBuildStatusResponse buildProjectGraph(UUID ownerId, UUID projectId, boolean verify) {
         projectService.getProject(ownerId, projectId);
-        return aiEngineGraphClient.triggerBuild(verify);
+        return aiEngineGraphClient.triggerBuild(projectId, verify);
+    }
+
+    // 소유권 검증 후 프로젝트의 빌드 상태를 조회한다 (트리거 후 폴링).
+    public GraphBuildStatusResponse getBuildStatus(UUID ownerId, UUID projectId) {
+        projectService.getProject(ownerId, projectId);
+        return aiEngineGraphClient.fetchBuildStatus(projectId);
     }
 }

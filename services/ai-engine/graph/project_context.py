@@ -1,10 +1,11 @@
+import asyncio
 import base64
 import logging
 import os
 
 import httpx
 
-from openai_client import get_openai_client
+from openai_client import Priority, chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -58,13 +59,14 @@ def _is_null_response(text: str) -> bool:
     return len(stripped) <= 30 and stripped.startswith("null")
 
 
-def _summarize(readme: str) -> str | None:
+async def _summarize(readme: str, priority: Priority) -> str | None:
     if len(readme) > _MAX_README_CHARS:
         logger.info("README 크기 초과 (%d자), 앞 %d자만 사용", len(readme), _MAX_README_CHARS)
         readme = readme[:_MAX_README_CHARS]
 
     try:
-        response = get_openai_client().chat.completions.create(
+        response = await chat_completion(
+            priority=priority,
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": _SUMMARIZE_PROMPT},
@@ -80,8 +82,11 @@ def _summarize(readme: str) -> str | None:
     return None if _is_null_response(result) else result
 
 
-def get_project_summary(owner: str, repo: str) -> str | None:
+async def get_project_summary(owner: str, repo: str, *, priority: Priority = Priority.BACKGROUND) -> str | None:
     """README를 가져와 LLM으로 요약한 프로젝트 설명 반환. (owner, repo) 단위로 캐시.
+
+    priority: 라이브 질의 경로(캐시 미스 시 사용자가 대기)는 INTERACTIVE,
+              pre-warm·운영 트리거는 BACKGROUND(기본).
 
     Returns:
         요약 문자열, 또는 README가 없거나 의미 없는 경우 None
@@ -92,13 +97,14 @@ def get_project_summary(owner: str, repo: str) -> str | None:
 
     summary: str | None = None
     try:
-        readme = _fetch_readme(owner, repo)
+        # _fetch_readme는 동기 httpx 호출이라 이벤트 루프를 막지 않게 to_thread로 분리.
+        readme = await asyncio.to_thread(_fetch_readme, owner, repo)
         if readme is None:
             logger.info("README 없음: %s/%s", owner, repo)
         elif len(readme.strip()) < _MIN_README_LENGTH:
             logger.info("README 너무 짧음 (%d자): %s/%s", len(readme.strip()), owner, repo)
         else:
-            summary = _summarize(readme)
+            summary = await _summarize(readme, priority)
             if summary is None:
                 logger.info("README 내용 불충분 또는 요약 실패: %s/%s", owner, repo)
             else:
