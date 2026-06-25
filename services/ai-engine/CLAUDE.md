@@ -24,6 +24,11 @@ uvicorn main:app --reload --port 8000
 필요 환경변수: `OPENAI_API_KEY`(필수), `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD`, `RABBITMQ_URL`,
 `QUERY_MODEL`(선택, 기본 `gpt-4o-mini`), `GITHUB_REPO`/`GITHUB_TOKEN`(선택, 프로젝트 컨텍스트 pre-warm용).
 
+수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `1` = 완전 직렬, 현 동작), `INGEST_PREFETCH`(기본 = 동시성 값).
+consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호), project 간은
+`INGEST_MAX_CONCURRENCY`까지 동시 처리한다. **1보다 올리려면 선제 rate limiter와 Actor 생성 멱등화(ActorAlias)가
+선행되어야 한다** — 미선행 시 OpenAI rate limit(특히 Tier 1)에서 429·품질 저하, 동시 Actor 중복 생성 위험.
+
 ## 테스트
 
 테스트는 두 계층으로 나뉜다.
