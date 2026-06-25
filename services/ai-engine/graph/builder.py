@@ -45,6 +45,7 @@ from graph.writes import (
     upsert_changeset,
     upsert_communication,
     upsert_file_with_modified_edge,
+    upsert_files_with_modified_edges,
     upsert_issue,
     upsert_pull_request,
 )
@@ -58,6 +59,7 @@ __all__ = [
     # writes (upsert)
     "upsert_changeset",
     "upsert_file_with_modified_edge",
+    "upsert_files_with_modified_edges",
     "upsert_pull_request",
     "upsert_issue",
     "upsert_communication",

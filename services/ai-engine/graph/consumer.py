@@ -16,11 +16,12 @@ EXCHANGE_NAME = "history.exchange"
 QUEUE_NAME    = "history.events"
 
 # 수집 동시성. project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호),
-# project 간은 이 값까지 동시 처리한다. 기본 1 = 현재와 동일한 완전 직렬(안전).
-# 1보다 올리려면 선제 rate limiter와 Actor 생성 멱등화(ActorAlias)가 선행되어야 한다.
-INGEST_MAX_CONCURRENCY = max(1, int(os.environ.get("INGEST_MAX_CONCURRENCY", "1")))
+# project 간은 이 값까지 동시 처리한다. 기본 4 — 선결조건(rate_limiter의 OpenAI 페이싱,
+# Actor 멱등화 ActorAlias, 이벤트당 fan-out 축소 #2/#6)이 모두 충족돼 활성화됐다.
+# OpenAI 호출은 rate_limiter가 RPM·TPM으로 페이싱하므로 올려도 Tier 한도를 넘지 않는다.
+INGEST_MAX_CONCURRENCY = max(1, int(os.environ.get("INGEST_MAX_CONCURRENCY", "4")))
 # RabbitMQ prefetch(미ack 상한) = 백프레셔. 동시성만큼은 받아둬야 워커가 놀지 않는다.
-# 미설정 시 동시성과 동일하게 둔다 (기본 1 → 현재 동작 그대로).
+# 미설정 시 동시성과 동일하게 둔다.
 INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH", str(INGEST_MAX_CONCURRENCY))))
 
 

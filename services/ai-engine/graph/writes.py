@@ -69,6 +69,40 @@ async def upsert_file_with_modified_edge(
         )
 
 
+async def upsert_files_with_modified_edges(
+    *,
+    project_id: str,
+    changeset_hash: str,
+    files: list[dict],
+) -> None:
+    """한 ChangeSet의 파일 여러 개를 UNWIND로 한 번에 upsert한다 (#6 배치).
+
+    files: [{"file_path": str, "diff_summary": str, "embedding": list[float]}, ...]
+
+    파일별 단건 호출(세션 N번) 대비:
+      - Neo4j 세션·왕복을 N→1로 줄인다.
+      - 같은 ChangeSet 노드(c)에 대한 동시 MERGE 락 경합을 없앤다(한 트랜잭션 내 직렬).
+    ChangeSet은 호출 전 upsert_changeset으로 이미 존재한다고 가정한다(없으면 no-op).
+    빈 목록이면 no-op.
+    """
+    if not files:
+        return
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+            UNWIND $files AS file
+            MERGE (f:File {project_id: $project_id, path: file.file_path})
+            MERGE (c)-[r:MODIFIED]->(f)
+            SET r.diffSummary = file.diff_summary,
+                r.embedding   = file.embedding
+            """,
+            project_id=project_id,
+            changeset_hash=changeset_hash,
+            files=files,
+        )
+
+
 async def upsert_pull_request(
     *,
     project_id: str,
