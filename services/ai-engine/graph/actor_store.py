@@ -13,11 +13,12 @@ from graph.driver import get_driver
 
 
 async def _lookup_actor_by_alias(project_id: str, source_id: str) -> Optional[dict]:
+    """ActorAlias 인덱스로 O(1) 조회 — 배열 멤버십 스캔(WHERE x IN a.aliases) 대신.
+    매 이벤트의 Step 0에서 호출되므로 인덱스 조회가 기여자 수와 무관하게 일정 비용이다."""
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})
-            WHERE $source_id IN a.aliases
+            MATCH (al:ActorAlias {project_id: $project_id, source_id: $source_id})-[:ALIAS_OF]->(a:Actor)
             RETURN a.uuid AS uuid, a.name AS name,
                    a.aliases AS aliases, a.emails AS emails,
                    a.confidence AS confidence
@@ -105,6 +106,9 @@ async def _merge_actor(
                                  THEN a.emails
                                  ELSE a.emails + $new_email END,
                 a.confidence = $confidence
+            // 새 alias도 ActorAlias 인덱스 노드로 연결 — Step 0 조회가 이 actor를 찾도록.
+            MERGE (al:ActorAlias {project_id: a.project_id, source_id: $new_alias})
+            MERGE (al)-[:ALIAS_OF]->(a)
             """,
             actor_uuid=actor.get("uuid"),
             new_alias=new_alias,
@@ -116,21 +120,36 @@ async def _merge_actor(
 async def _create_actor(
     project_id: str, name: str, aliases: list, emails: list, confidence: float
 ) -> dict:
+    """신규 Actor를 생성하되 ActorAlias로 멱등화한다.
+
+    resolve_actor는 alias 1개(source_id)와 함께 호출한다. 그 alias로 ActorAlias를
+    MERGE하고, alias가 아직 어떤 Actor에도 안 붙어 있을 때만 Actor를 새로 만든다.
+    (project_id, source_id) 유니크 제약이 동시 MERGE를 직렬화하므로, 같은 alias로
+    동시에 들어온 두 이벤트 중 하나만 Actor를 만들고 둘 다 같은 Actor를 돌려받는다
+    — #1 동시 수집의 중복 Actor 생성 race를 막는다.
+    """
     from graph.actor_resolver import normalize_name
     actor_uuid     = str(uuid.uuid4())
     normalized     = normalize_name(name)
+    primary_alias  = aliases[0] if aliases else None
     async with get_driver().session() as session:
         result = await session.run(
             """
-            CREATE (a:Actor {
-                uuid: $uuid,
-                project_id: $project_id,
-                name: $name,
-                normalized_name: $normalized_name,
-                aliases: $aliases,
-                emails: $emails,
-                confidence: $confidence
-            })
+            MERGE (al:ActorAlias {project_id: $project_id, source_id: $primary_alias})
+            FOREACH (_ IN CASE WHEN NOT EXISTS { (al)-[:ALIAS_OF]->(:Actor) } THEN [1] ELSE [] END |
+                CREATE (a:Actor {
+                    uuid: $uuid,
+                    project_id: $project_id,
+                    name: $name,
+                    normalized_name: $normalized_name,
+                    aliases: $aliases,
+                    emails: $emails,
+                    confidence: $confidence
+                })
+                MERGE (al)-[:ALIAS_OF]->(a)
+            )
+            WITH al
+            MATCH (al)-[:ALIAS_OF]->(a:Actor)
             RETURN a.uuid AS uuid, a.name AS name,
                    a.aliases AS aliases, a.emails AS emails,
                    a.confidence AS confidence
@@ -142,6 +161,7 @@ async def _create_actor(
             aliases=aliases,
             emails=emails,
             confidence=confidence,
+            primary_alias=primary_alias,
         )
         record = await result.single()
     return dict(record)

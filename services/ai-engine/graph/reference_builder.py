@@ -19,7 +19,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable
 
-from graph.embedder import cosine_similarity, embed_batch
+import numpy as np
+
+from graph.embedder import embed_batch, similarity_matrix
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +99,7 @@ async def build_reference_edges(
         logger.info("REFERENCE 엣지 생성 스킵: modified=%d, comm=%d", len(modified_list), len(comm_list))
         return 0
 
-    window = timedelta(days=TIME_WINDOW_DAYS)
+    window_s = timedelta(days=TIME_WINDOW_DAYS).total_seconds()
 
     # 같은 프로젝트 안에서만 비교 — 다른 프로젝트의 커밋과 메시지가 의미상 비슷해도
     # 엣지를 만들면 안 된다 (그래프 격리 위반).
@@ -107,21 +109,33 @@ async def build_reference_edges(
     created = 0
     for project_id, mods in mods_by_project.items():
         comms = comms_by_project.get(project_id, [])
-        for mod in mods:
-            mod_vec = mod["embedding"]
-            mod_time = mod["occurred_at"]
-            for comm in comms:
-                # 시간 윈도우 필터: 5일 이상 차이나는 쌍은 비교 스킵
-                if abs(mod_time - comm["occurred_at"]) > window:
-                    continue
-                score = cosine_similarity(mod_vec, comm["embedding"])
-                if score >= threshold:
-                    await store.create_reference_edge(project_id, mod["changeset_id"], comm["id"], score)
-                    created += 1
-                    logger.debug(
-                        "REFERENCE 생성: changeset=%s comm=%s score=%.3f",
-                        mod["changeset_id"], comm["id"], score,
-                    )
+        # 빈 임베딩은 제외 — 유사도 0이라 어차피 임계값 미달이고, 행렬화도 깨진다
+        p_mods  = [m for m in mods if m.get("embedding")]
+        p_comms = [c for c in comms if c.get("embedding")]
+        if not p_mods or not p_comms:
+            continue
+
+        # 전체 쌍 코사인 유사도를 numpy로 일괄 계산 (MODIFIED × communications)
+        sim = similarity_matrix(
+            [m["embedding"] for m in p_mods],
+            [c["embedding"] for c in p_comms],
+        )
+
+        # 시간 윈도우(5일) 마스크 + 임계값. 통과한 모든 쌍에 엣지 생성.
+        mod_ts  = np.array([m["occurred_at"].timestamp() for m in p_mods])
+        comm_ts = np.array([c["occurred_at"].timestamp() for c in p_comms])
+        in_window = np.abs(mod_ts[:, None] - comm_ts[None, :]) <= window_s
+        valid = in_window & (sim >= threshold)
+
+        for i, j in np.argwhere(valid):
+            i, j = int(i), int(j)
+            score = float(sim[i, j])
+            await store.create_reference_edge(project_id, p_mods[i]["changeset_id"], p_comms[j]["id"], score)
+            created += 1
+            logger.debug(
+                "REFERENCE 생성: changeset=%s comm=%s score=%.3f",
+                p_mods[i]["changeset_id"], p_comms[j]["id"], score,
+            )
 
     logger.info("REFERENCE 엣지 생성 완료: %d개 (threshold=%.2f)", created, threshold)
     return created

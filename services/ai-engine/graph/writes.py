@@ -69,6 +69,40 @@ async def upsert_file_with_modified_edge(
         )
 
 
+async def upsert_files_with_modified_edges(
+    *,
+    project_id: str,
+    changeset_hash: str,
+    files: list[dict],
+) -> None:
+    """한 ChangeSet의 파일 여러 개를 UNWIND로 한 번에 upsert한다 (#6 배치).
+
+    files: [{"file_path": str, "diff_summary": str, "embedding": list[float]}, ...]
+
+    파일별 단건 호출(세션 N번) 대비:
+      - Neo4j 세션·왕복을 N→1로 줄인다.
+      - 같은 ChangeSet 노드(c)에 대한 동시 MERGE 락 경합을 없앤다(한 트랜잭션 내 직렬).
+    ChangeSet은 호출 전 upsert_changeset으로 이미 존재한다고 가정한다(없으면 no-op).
+    빈 목록이면 no-op.
+    """
+    if not files:
+        return
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+            UNWIND $files AS file
+            MERGE (f:File {project_id: $project_id, path: file.file_path})
+            MERGE (c)-[r:MODIFIED]->(f)
+            SET r.diffSummary = file.diff_summary,
+                r.embedding   = file.embedding
+            """,
+            project_id=project_id,
+            changeset_hash=changeset_hash,
+            files=files,
+        )
+
+
 async def upsert_pull_request(
     *,
     project_id: str,
@@ -270,6 +304,39 @@ async def link_pr_to_changeset(project_id: str, pr_number: int, changeset_hash: 
             hash=changeset_hash,
             pr_number=pr_number,
         )
+
+
+async def link_changeset_to_pr_issues(project_id: str, pr_number: int, changeset_hash: str) -> int:
+    """TRIGGERED_BY (text) 전파 — 단건: PR.jira_keys를 '이 커밋 하나'에만 연결한다.
+
+    커밋이 올 때마다 PR 전체 커밋에 재전파하면(link_pr_changesets_to_issues) 커밋 k에서
+    ~k개에 다시 걸려 1+2+…+N = O(N²)가 된다. 커밋 경로에서는 그 커밋 하나만 연결해
+    O(N)으로 만든다. PR 전체 전파는 PR 도착 시(_handle_pull_request)에만 1회 수행한다.
+
+    PR.jira_keys가 비었거나 (pr)-[:CONTAINS]->(이 커밋)이 아직 없으면 noop.
+    모든 절은 MERGE/SET이라 idempotent.
+
+    Returns:
+        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            WHERE pr.jira_keys IS NOT NULL AND size(pr.jira_keys) > 0
+            MATCH (pr)-[:CONTAINS]->(c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+            UNWIND pr.jira_keys AS jira_key
+            MERGE (i:Issue {project_id: $project_id, jira_key: jira_key})
+            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            SET r.source = 'text', r.confidence = 1.0
+            RETURN count(r) AS n
+            """,
+            project_id=project_id,
+            pr_number=pr_number,
+            changeset_hash=changeset_hash,
+        )
+        row = await result.single()
+        return row["n"] if row else 0
 
 
 async def link_pr_changesets_to_issues(project_id: str, pr_number: int) -> int:

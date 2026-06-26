@@ -4,6 +4,7 @@ import re
 from datetime import date, datetime
 
 from graph.embedder import embed_text
+from openai_client import Priority
 from tools import queries
 
 logger = logging.getLogger(__name__)
@@ -80,8 +81,9 @@ async def _dispatch(tool_name: str, args: dict, project_id: str) -> object:
             )
 
         case "search_by_keyword":
-            # LLM이 keyword 문자열을 전달 → executor에서 임베딩 생성
-            embedding = await embed_text(args["keyword"])
+            # LLM이 keyword 문자열을 전달 → executor에서 임베딩 생성.
+            # 질의 경로이므로 INTERACTIVE — 수집 임베딩보다 먼저 처리돼 질의 latency를 보호한다.
+            embedding = await embed_text(args["keyword"], priority=Priority.INTERACTIVE)
             return await queries.search_by_keyword(
                 project_id=project_id,
                 embedding=embedding,

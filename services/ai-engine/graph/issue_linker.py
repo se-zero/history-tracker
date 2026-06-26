@@ -25,7 +25,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
-from graph.embedder import cosine_similarity
+import numpy as np
+
+from graph.embedder import similarity_matrix
 
 logger = logging.getLogger(__name__)
 
@@ -150,23 +152,39 @@ async def build_issue_changeset_links(
 
     for project_id, project_issues in issues_by_project.items():
         project_mods = mods_by_project.get(project_id, [])
-        for issue in project_issues:
-            issue_vec = issue["embedding"]
-            start, end = _compute_issue_window(issue)
+        # 빈 임베딩은 제외 — 유사도 0이라 어차피 임계값 미달이고, 행렬화도 깨진다
+        p_issues = [it for it in project_issues if it.get("embedding")]
+        p_mods   = [m for m in project_mods if m.get("embedding")]
+        if not p_issues or not p_mods:
+            continue
 
-            for mod in project_mods:
-                mod_time = mod["occurred_at"]
-                if mod_time < start or mod_time > end:
-                    continue
+        # 전체 쌍 코사인 유사도를 numpy로 일괄 계산 (issues × changesets)
+        sim = similarity_matrix(
+            [it["embedding"] for it in p_issues],
+            [m["embedding"] for m in p_mods],
+        )
 
-                score = cosine_similarity(issue_vec, mod["embedding"])
-                if score < threshold:
-                    continue
+        # 비대칭 시간 윈도우 마스크 — issue마다 [start, end] 안의 changeset만 허용
+        windows = [_compute_issue_window(it) for it in p_issues]
+        starts  = np.array([w[0].timestamp() for w in windows])
+        ends    = np.array([w[1].timestamp() for w in windows])
+        mod_ts  = np.array([m["occurred_at"].timestamp() for m in p_mods])
+        in_window = (mod_ts[None, :] >= starts[:, None]) & (mod_ts[None, :] <= ends[:, None])
 
-                cs_key  = (project_id, mod["changeset_id"])
-                current = best_per_cs.get(cs_key)
-                if current is None or score > current[1]:
-                    best_per_cs[cs_key] = (issue["id"], score)
+        # 윈도우·임계값을 통과한 쌍만 남기고, changeset(열)별 top-1 issue를 고른다
+        valid = in_window & (sim >= threshold)
+        sim_valid = np.where(valid, sim, -np.inf)
+        best_issue_idx = sim_valid.argmax(axis=0)  # 각 changeset의 최고 유사 issue
+        best_score     = sim_valid.max(axis=0)
+
+        for j, mod in enumerate(p_mods):
+            score = float(best_score[j])
+            if score < threshold:      # -inf 포함 (유효 매칭 없음)
+                continue
+            cs_key  = (project_id, mod["changeset_id"])
+            current = best_per_cs.get(cs_key)
+            if current is None or score > current[1]:
+                best_per_cs[cs_key] = (p_issues[int(best_issue_idx[j])]["id"], score)
 
     created = 0
     for (project_id, cs_id), (jira_key, confidence) in best_per_cs.items():
@@ -200,7 +218,7 @@ async def build_issue_communication_links(
         logger.info("DISCUSSED_IN 생성 스킵: issues=%d, comms=%d", len(issues), len(comms))
         return 0
 
-    window = timedelta(days=TIME_WINDOW_DAYS)
+    window_s = timedelta(days=TIME_WINDOW_DAYS).total_seconds()
 
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
     issues_by_project = _group_by_project(issues)
@@ -209,20 +227,31 @@ async def build_issue_communication_links(
     created = 0
     for project_id, project_issues in issues_by_project.items():
         project_comms = comms_by_project.get(project_id, [])
-        for issue in project_issues:
-            issue_vec  = issue["embedding"]
-            issue_time = issue["occurred_at"]
+        # 빈 임베딩은 제외 — 유사도 0이라 어차피 임계값 미달이고, 행렬화도 깨진다
+        p_issues = [it for it in project_issues if it.get("embedding")]
+        p_comms  = [c for c in project_comms if c.get("embedding")]
+        if not p_issues or not p_comms:
+            continue
 
-            for comm in project_comms:
-                if abs(issue_time - comm["occurred_at"]) > window:
-                    continue
+        # 전체 쌍 코사인 유사도를 numpy로 일괄 계산 (issues × communications)
+        sim = similarity_matrix(
+            [it["embedding"] for it in p_issues],
+            [c["embedding"] for c in p_comms],
+        )
 
-                score = cosine_similarity(issue_vec, comm["embedding"])
-                if score >= threshold:
-                    await store.create_discussed_in_edge(project_id, issue["id"], comm["id"], confidence=score)
-                    created += 1
-                    logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f",
-                                 issue["id"], comm["id"], score)
+        # 대칭 시간 윈도우 마스크 + 임계값. top-1 없이 통과한 모든 쌍에 엣지 생성.
+        issue_ts = np.array([it["occurred_at"].timestamp() for it in p_issues])
+        comm_ts  = np.array([c["occurred_at"].timestamp() for c in p_comms])
+        in_window = np.abs(issue_ts[:, None] - comm_ts[None, :]) <= window_s
+        valid = in_window & (sim >= threshold)
+
+        for i, j in np.argwhere(valid):
+            i, j = int(i), int(j)
+            score = float(sim[i, j])
+            await store.create_discussed_in_edge(project_id, p_issues[i]["id"], p_comms[j]["id"], confidence=score)
+            created += 1
+            logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f",
+                         p_issues[i]["id"], p_comms[j]["id"], score)
 
     logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f)", created, threshold)
     return created

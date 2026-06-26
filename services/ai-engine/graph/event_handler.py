@@ -4,7 +4,7 @@ import logging
 from graph import builder
 from graph.actor_resolver import resolve_actor
 from graph.builder import make_neo4j_actor_store
-from graph.embedder import embed_text
+from graph.embedder import embed_batch, embed_text
 from graph.path_filter import should_skip
 from graph.slack_filter import should_skip_slack
 from graph.summarizer import summarize_diff
@@ -81,34 +81,45 @@ async def _handle_changeset(event: dict) -> None:
     if refs.get("prNumber"):
         pr_num = int(refs["prNumber"])
         await builder.link_pr_to_changeset(project_id, pr_num, hash_)
-        # CONTAINS 직후 PR.jira_keys 전파를 다시 호출 — PR이 이미 jira_keys와 함께 도착했다면
-        # 이 새 ChangeSet도 같은 이슈에 text TRIGGERED_BY로 연결된다 (idempotent).
-        # PR이 아직 안 도착했으면 PR의 _handle_pull_request에서 처리됨.
-        await builder.link_pr_changesets_to_issues(project_id, pr_num)
+        # PR이 이미 jira_keys와 함께 도착했다면 이 커밋 '하나만' 같은 이슈에 text TRIGGERED_BY로 연결.
+        # 커밋마다 PR 전체에 재전파하면 O(N²)라, 전체 전파는 PR 도착 시(_handle_pull_request)에만 한다.
+        # PR이 아직 안 도착했으면(CONTAINS 없음) noop — PR 도착 시 전체 전파가 처리한다.
+        await builder.link_changeset_to_pr_issues(project_id, pr_num, hash_)
 
-    # Layer 3: 파일별 diff 요약 + 임베딩 → MODIFIED 엣지 (병렬 처리)
+    # Layer 3: 파일별 diff 요약 → 배치 임베딩 → UNWIND 배치 upsert (#2/#6)
+    #   1) 요약: 입력만의 함수라 파일별 동시(gather) — LLM N콜은 불가피(파일별 요약 필수)
+    #   2) 임베딩: 요약 N개를 embed_batch로 1콜 (단건 N콜 대비 요청·rate-limit 절감)
+    #   3) 저장: UNWIND로 세션 1번 (단건 N세션·락 경합 제거)
     files = [f for f in (props.get("files") or []) if not should_skip(f.get("path", ""))]
 
-    async def process_file(file: dict) -> None:
-        path      = file.get("path", "")
-        diff      = file.get("diff", "")
-        additions = file.get("additions", 0)
-        deletions = file.get("deletions", 0)
+    async def summarize_file(file: dict) -> tuple[str, str] | None:
+        path = file.get("path", "")
         try:
-            diff_summary = await summarize_diff(path, diff, additions, deletions, message)
-            embedding    = await embed_text(diff_summary)
-            await builder.upsert_file_with_modified_edge(
-                project_id=project_id,
-                changeset_hash=hash_,
-                file_path=path,
-                diff_summary=diff_summary,
-                embedding=embedding,
+            summary = await summarize_diff(
+                path, file.get("diff", ""), file.get("additions", 0), file.get("deletions", 0), message,
             )
-            logger.debug("ChangeSet 파일 처리 완료: path=%s", path)
+            return (path, summary)
         except Exception:
-            logger.exception("ChangeSet 파일 처리 실패 (건너뜀): hash=%s path=%s", hash_, path)
+            logger.exception("ChangeSet 파일 요약 실패 (건너뜀): hash=%s path=%s", hash_, path)
+            return None
 
-    await asyncio.gather(*[process_file(f) for f in files])
+    summarized = [r for r in await asyncio.gather(*[summarize_file(f) for f in files]) if r is not None]
+    if not summarized:
+        return
+
+    # 임베딩·저장 실패는 이벤트 전체를 실패시키지 않는다(노드·Layer 2는 이미 기록됨).
+    try:
+        embeddings = await embed_batch([summary for _, summary in summarized])
+        file_rows = [
+            {"file_path": path, "diff_summary": summary, "embedding": embedding}
+            for (path, summary), embedding in zip(summarized, embeddings)
+        ]
+        await builder.upsert_files_with_modified_edges(
+            project_id=project_id, changeset_hash=hash_, files=file_rows,
+        )
+        logger.debug("ChangeSet 파일 %d개 배치 처리 완료: hash=%s", len(file_rows), hash_)
+    except Exception:
+        logger.exception("ChangeSet 파일 배치 임베딩/저장 실패 (건너뜀): hash=%s", hash_)
 
 
 async def _handle_pull_request(event: dict) -> None:

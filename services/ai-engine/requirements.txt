@@ -5,3 +5,4 @@ tiktoken==0.8.0
 python-dotenv==1.1.0
 aio-pika==9.4.3
 neo4j==5.28.1
+numpy==2.5.0

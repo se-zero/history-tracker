@@ -25,6 +25,7 @@ from graph.communication_store import (
 from graph.driver import close_driver, get_driver
 from graph.issue_link_store import make_neo4j_issue_link_store
 from graph.maintenance import (
+    backfill_actor_aliases,
     backfill_pr_jira_keys,
     backfill_triggered_by_source,
     clear_semantic_discussed_in,
@@ -36,6 +37,7 @@ from graph.reference_store import make_neo4j_reference_store
 from graph.schema import ensure_constraints, ensure_vector_indexes
 from graph.writes import (
     link_changeset_to_issue,
+    link_changeset_to_pr_issues,
     link_issue_to_assignee,
     link_issue_to_communication,
     link_issue_to_parent,
@@ -44,6 +46,7 @@ from graph.writes import (
     upsert_changeset,
     upsert_communication,
     upsert_file_with_modified_edge,
+    upsert_files_with_modified_edges,
     upsert_issue,
     upsert_pull_request,
 )
@@ -57,11 +60,13 @@ __all__ = [
     # writes (upsert)
     "upsert_changeset",
     "upsert_file_with_modified_edge",
+    "upsert_files_with_modified_edges",
     "upsert_pull_request",
     "upsert_issue",
     "upsert_communication",
     # writes (link)
     "link_changeset_to_issue",
+    "link_changeset_to_pr_issues",
     "link_pr_to_changeset",
     "link_pr_changesets_to_issues",
     "link_issue_to_communication",
@@ -71,6 +76,7 @@ __all__ = [
     "propagate_thread_discussed_in",
     "backfill_triggered_by_source",
     "backfill_pr_jira_keys",
+    "backfill_actor_aliases",
     "clear_semantic_triggered_by",
     "clear_semantic_discussed_in",
     "delete_project_graph",

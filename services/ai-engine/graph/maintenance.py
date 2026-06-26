@@ -169,6 +169,37 @@ async def backfill_pr_jira_keys() -> dict:
     }
 
 
+async def backfill_actor_aliases() -> dict:
+    """기존 Actor.aliases 배열에서 ActorAlias 인덱스 노드를 백필한다 (A: alias 노드 도입).
+
+    Step 0 alias 조회가 배열 스캔 대신 (ActorAlias)-[:ALIAS_OF]->(Actor) 인덱스를 쓰려면,
+    구버전에 만들어진 Actor의 aliases 원소마다 ActorAlias 노드/엣지가 있어야 한다.
+    그게 없으면 기존 actor의 이벤트가 Step 0에서 안 잡혀 중복 Actor가 생길 수 있으므로,
+    신규 코드 배포 직후(컨슈머 가동 전) 1회 실행해야 한다 — main.lifespan에서 호출한다.
+
+    Idempotent — MERGE 기반이라 매 기동마다 돌려도 이미 연결된 alias는 no-op.
+
+    Returns:
+        {"actors_scanned": N, "aliases_linked": M}
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Actor)
+            WHERE a.aliases IS NOT NULL AND a.project_id IS NOT NULL
+            UNWIND a.aliases AS sid
+            MERGE (al:ActorAlias {project_id: a.project_id, source_id: sid})
+            MERGE (al)-[:ALIAS_OF]->(a)
+            RETURN count(DISTINCT a) AS actors, count(*) AS links
+            """
+        )
+        row = await result.single()
+    actors = row["actors"] if row else 0
+    links = row["links"] if row else 0
+    logger.info("ActorAlias 백필 완료: actors=%d, aliases_linked=%d", actors, links)
+    return {"actors_scanned": actors, "aliases_linked": links}
+
+
 async def clear_semantic_triggered_by(project_id: str | None = None) -> int:
     """source='semantic'인 TRIGGERED_BY 엣지를 일괄 삭제한다.
 
