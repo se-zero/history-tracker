@@ -306,6 +306,39 @@ async def link_pr_to_changeset(project_id: str, pr_number: int, changeset_hash: 
         )
 
 
+async def link_changeset_to_pr_issues(project_id: str, pr_number: int, changeset_hash: str) -> int:
+    """TRIGGERED_BY (text) 전파 — 단건: PR.jira_keys를 '이 커밋 하나'에만 연결한다.
+
+    커밋이 올 때마다 PR 전체 커밋에 재전파하면(link_pr_changesets_to_issues) 커밋 k에서
+    ~k개에 다시 걸려 1+2+…+N = O(N²)가 된다. 커밋 경로에서는 그 커밋 하나만 연결해
+    O(N)으로 만든다. PR 전체 전파는 PR 도착 시(_handle_pull_request)에만 1회 수행한다.
+
+    PR.jira_keys가 비었거나 (pr)-[:CONTAINS]->(이 커밋)이 아직 없으면 noop.
+    모든 절은 MERGE/SET이라 idempotent.
+
+    Returns:
+        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            WHERE pr.jira_keys IS NOT NULL AND size(pr.jira_keys) > 0
+            MATCH (pr)-[:CONTAINS]->(c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+            UNWIND pr.jira_keys AS jira_key
+            MERGE (i:Issue {project_id: $project_id, jira_key: jira_key})
+            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            SET r.source = 'text', r.confidence = 1.0
+            RETURN count(r) AS n
+            """,
+            project_id=project_id,
+            pr_number=pr_number,
+            changeset_hash=changeset_hash,
+        )
+        row = await result.single()
+        return row["n"] if row else 0
+
+
 async def link_pr_changesets_to_issues(project_id: str, pr_number: int) -> int:
     """TRIGGERED_BY (text) 전파: PR.jira_keys에 등록된 각 Jira 키를 그 PR이 머지한
     모든 ChangeSet에 동일하게 연결한다.

@@ -37,6 +37,7 @@ from graph.reference_store import make_neo4j_reference_store
 from graph.schema import ensure_constraints, ensure_vector_indexes
 from graph.writes import (
     link_changeset_to_issue,
+    link_changeset_to_pr_issues,
     link_issue_to_assignee,
     link_issue_to_communication,
     link_issue_to_parent,
@@ -65,6 +66,7 @@ __all__ = [
     "upsert_communication",
     # writes (link)
     "link_changeset_to_issue",
+    "link_changeset_to_pr_issues",
     "link_pr_to_changeset",
     "link_pr_changesets_to_issues",
     "link_issue_to_communication",

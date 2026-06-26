@@ -81,10 +81,10 @@ async def _handle_changeset(event: dict) -> None:
     if refs.get("prNumber"):
         pr_num = int(refs["prNumber"])
         await builder.link_pr_to_changeset(project_id, pr_num, hash_)
-        # CONTAINS 직후 PR.jira_keys 전파를 다시 호출 — PR이 이미 jira_keys와 함께 도착했다면
-        # 이 새 ChangeSet도 같은 이슈에 text TRIGGERED_BY로 연결된다 (idempotent).
-        # PR이 아직 안 도착했으면 PR의 _handle_pull_request에서 처리됨.
-        await builder.link_pr_changesets_to_issues(project_id, pr_num)
+        # PR이 이미 jira_keys와 함께 도착했다면 이 커밋 '하나만' 같은 이슈에 text TRIGGERED_BY로 연결.
+        # 커밋마다 PR 전체에 재전파하면 O(N²)라, 전체 전파는 PR 도착 시(_handle_pull_request)에만 한다.
+        # PR이 아직 안 도착했으면(CONTAINS 없음) noop — PR 도착 시 전체 전파가 처리한다.
+        await builder.link_changeset_to_pr_issues(project_id, pr_num, hash_)
 
     # Layer 3: 파일별 diff 요약 → 배치 임베딩 → UNWIND 배치 upsert (#2/#6)
     #   1) 요약: 입력만의 함수라 파일별 동시(gather) — LLM N콜은 불가피(파일별 요약 필수)
