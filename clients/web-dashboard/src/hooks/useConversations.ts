@@ -1,19 +1,56 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import {
   deleteConversation,
   getConversation,
   listConversations,
+  listOlderMessages,
   updateConversationTitle,
 } from "@/api/conversations";
+import type { ConversationDetail } from "@/types/api";
 import { queryKeys } from "./queryKeys";
 
-// 프로젝트의 대화 목록. projectId가 없으면(라우트 전환 중) 돌지 않는다.
+// 프로젝트의 대화 목록(커서 무한 스크롤). select로 펼쳐 컴포넌트는 평면 배열만 본다.
+// projectId가 없으면(라우트 전환 중) 돌지 않는다.
 export function useConversations(projectId: string | undefined) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: queryKeys.conversations(projectId),
-    queryFn: () => listConversations(projectId!),
+    queryFn: ({ pageParam }) => listConversations(projectId!, pageParam),
     enabled: Boolean(projectId),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
+}
+
+// 위로 스크롤 시 더 오래된 메시지를 불러와 상세 캐시의 앞쪽에 prepend한다.
+export function useLoadOlderMessages(
+  projectId: string,
+  conversationId: string | undefined,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (before: string) =>
+      listOlderMessages(projectId, conversationId!, before),
+    onSuccess: (page) => {
+      queryClient.setQueryData<ConversationDetail>(
+        queryKeys.conversation(projectId, conversationId),
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: [...page.items, ...prev.messages],
+                hasMoreMessages: page.hasMore,
+                oldestCursor: page.nextCursor,
+              }
+            : prev,
+      );
+    },
   });
 }
 

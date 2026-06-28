@@ -51,6 +51,20 @@ export interface MessageMetadata {
 
 export interface ConversationDetail extends Conversation {
   messages: Message[];
+  // 최신 페이지 기준 더 오래된 메시지 존재 여부와, 그보다 older를 불러올 커서
+  hasMoreMessages: boolean;
+  oldestCursor: string | null;
+}
+
+export interface ConversationPage {
+  items: Conversation[];
+  nextCursor: string | null;
+}
+
+export interface MessagePage {
+  items: Message[];
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 export interface MessageExchange {

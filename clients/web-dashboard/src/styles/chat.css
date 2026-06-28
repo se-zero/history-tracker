@@ -14,10 +14,43 @@
   min-height: 0;
   background: var(--bg);
 }
+.chat-stream-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .chat-stream {
   flex: 1;
   overflow-y: auto;
   padding: 28px 0;
+  /* older prepend 시 브라우저 자동 스크롤 보정을 끄고 ChatStream의 수동 보정만 적용(이중 보정 방지) */
+  overflow-anchor: none;
+}
+.chat-top-sentinel {
+  height: 1px;
+}
+/* older 로딩·실패 표시는 스크롤 컨테이너 밖 absolute로 띄워 scrollHeight(위치 보정 기준)에 영향을 주지 않는다 */
+.chat-older-spinner,
+.chat-older-error {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  font-size: 12px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+.chat-older-spinner {
+  color: var(--fg-muted);
+}
+.chat-older-error {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 .chat-inner {
   max-width: 760px;

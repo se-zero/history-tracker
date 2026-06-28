@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -11,7 +11,10 @@ import { ThinkingState } from "@/components/chat/ThinkingState";
 import { createConversation, sendMessage } from "@/api/conversations";
 import { useAuth } from "@/auth/AuthProvider";
 import { queryKeys } from "@/hooks/queryKeys";
-import { useConversation } from "@/hooks/useConversations";
+import {
+  useConversation,
+  useLoadOlderMessages,
+} from "@/hooks/useConversations";
 import type { ConversationDetail, Project } from "@/types/api";
 
 export function ChatPage({ project }: { project: Project }) {
@@ -21,8 +24,26 @@ export function ChatPage({ project }: { project: Project }) {
   const { user } = useAuth();
 
   const conversationQuery = useConversation(project.id, conversationId);
+  const detail = conversationQuery.data;
+  const messages = detail?.messages ?? [];
 
-  const messages = conversationQuery.data?.messages ?? [];
+  const loadOlder = useLoadOlderMessages(project.id, conversationId);
+
+  // onReachTop을 안정적인 콜백으로 유지(observer 재구독 방지). 최신 값은 ref로 읽는다.
+  // loadingRef: isPending은 리렌더 후에야 갱신돼, 첫 mutate 직후 짧은 창에 sentinel이 다시
+  // 발화하면 같은 커서로 중복 로드된다. 동기 플래그로 그 창을 막는다.
+  const loadingRef = useRef(false);
+  const reachTopRef = useRef<() => void>(() => {});
+  reachTopRef.current = () => {
+    if (loadingRef.current || !detail?.hasMoreMessages || !detail.oldestCursor) return;
+    loadingRef.current = true;
+    loadOlder.mutate(detail.oldestCursor, {
+      onSettled: () => {
+        loadingRef.current = false;
+      },
+    });
+  };
+  const handleReachTop = useCallback(() => reachTopRef.current(), []);
 
   // 전송 직후 화면을 즉시 전환하기 위해 방금 보낸 메시지를 낙관적으로 들고 있는다. 응답이 오면 비운다.
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
@@ -40,16 +61,16 @@ export function ChatPage({ project }: { project: Project }) {
   const createMutation = useMutation({
     mutationFn: (firstMessage: string) =>
       createConversation(project.id, firstMessage),
-    onSuccess: (detail) => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations(project.id),
       });
       queryClient.setQueryData(
-        queryKeys.conversation(project.id, detail.id),
-        detail,
+        queryKeys.conversation(project.id, created.id),
+        created,
       );
       setPendingMessage(null);
-      navigate(`/projects/${project.id}/chat/${detail.id}`, { replace: true });
+      navigate(`/projects/${project.id}/chat/${created.id}`, { replace: true });
     },
     onError: (_error, firstMessage) => restoreOnError(firstMessage),
   });
@@ -101,11 +122,20 @@ export function ChatPage({ project }: { project: Project }) {
     if (sendError) setSendError(false);
   };
 
+  const streamProps = {
+    conversationId,
+    messages,
+    pending: pendingMessage !== null,
+    isLoadingOlder: loadOlder.isPending,
+    olderError: loadOlder.isError,
+    onReachTop: handleReachTop,
+  };
+
   return (
     <div className="chat-wrap">
       <div className="chat">
         {pendingMessage !== null ? (
-          <ChatStream>
+          <ChatStream {...streamProps}>
             {messages.map((m) => (
               <MessageItem key={m.id} message={m} user={user} />
             ))}
@@ -131,7 +161,7 @@ export function ChatPage({ project }: { project: Project }) {
             }
           />
         ) : (
-          <ChatStream>
+          <ChatStream {...streamProps}>
             {messages.map((m) => (
               <MessageItem key={m.id} message={m} user={user} />
             ))}
