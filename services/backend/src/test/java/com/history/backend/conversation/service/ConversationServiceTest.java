@@ -3,10 +3,13 @@ package com.history.backend.conversation.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +19,7 @@ import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
+import com.history.backend.conversation.dto.Cursor;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
@@ -24,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
@@ -106,35 +111,70 @@ class ConversationServiceTest {
     }
 
     @Test
-    @DisplayName("대화 목록 조회 시 프로젝트 접근 권한 검증")
-    void findConversationsValidatesProjectAccess() {
+    @DisplayName("대화 목록 첫 페이지 조회 시 프로젝트 접근 권한 검증")
+    void findConversationsPageValidatesProjectAccess() {
         ConversationService service = service();
-        Conversation conversation = conversation(project(), user(), "Title");
+        List<Conversation> rows = conversations(3);
         when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
-        when(conversationRepository.findAllByProject_IdOrderByUpdatedAtDesc(PROJECT_ID))
-                .thenReturn(List.of(conversation));
+        when(conversationRepository.findFirstPageByProject(eq(PROJECT_ID), any(Pageable.class)))
+                .thenReturn(rows);
 
-        List<Conversation> result = service.findConversations(USER_ID, PROJECT_ID);
+        ConversationPage result = service.findConversationsPage(USER_ID, PROJECT_ID, null);
 
-        assertThat(result).containsExactly(conversation);
+        assertThat(result.items()).containsExactlyElementsOf(rows);
+        assertThat(result.nextCursor()).isNull();
     }
 
     @Test
-    @DisplayName("대화 상세 조회 시 대화와 메시지 반환")
-    void getConversationDetailReturnsConversationAndMessages() {
+    @DisplayName("첫 페이지가 페이지 크기를 초과하면 hasMore 절단 후 nextCursor 설정")
+    void findConversationsPageTruncatesAndSetsNextCursorWhenOverPageSize() {
+        ConversationService service = service();
+        List<Conversation> rows = conversations(21); // CONVERSATION_PAGE_SIZE(20) + 1
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findFirstPageByProject(eq(PROJECT_ID), any(Pageable.class)))
+                .thenReturn(rows);
+
+        ConversationPage result = service.findConversationsPage(USER_ID, PROJECT_ID, null);
+
+        assertThat(result.items()).containsExactlyElementsOf(rows.subList(0, 20));
+        assertThat(result.nextCursor()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("커서가 주어지면 커서 이전(older) 대화 페이지 조회")
+    void findConversationsPageUsesCursorWhenProvided() {
+        ConversationService service = service();
+        Conversation conversation = conversations(1).get(0);
+        String cursor = new Cursor(Instant.parse("2026-05-23T01:00:00Z"), CONVERSATION_ID).encode();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findPageByProjectBefore(
+                eq(PROJECT_ID), any(Instant.class), any(UUID.class), any(Pageable.class)))
+                .thenReturn(List.of(conversation));
+
+        ConversationPage result = service.findConversationsPage(USER_ID, PROJECT_ID, cursor);
+
+        assertThat(result.items()).containsExactly(conversation);
+        verify(conversationRepository).findPageByProjectBefore(
+                eq(PROJECT_ID), any(Instant.class), any(UUID.class), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("대화 상세 조회 시 대화와 최신 메시지 페이지 반환")
+    void getConversationDetailReturnsConversationAndMessagePage() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Title");
         Message message = Message.user(conversation, "Question");
         when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(conversation));
-        when(messageService.findMessagesInCurrentTransaction(CONVERSATION_ID))
-                .thenReturn(List.of(message));
+        when(messageService.findMessagePageInCurrentTransaction(CONVERSATION_ID, null))
+                .thenReturn(new MessagePage(List.of(message), false, null));
 
         ConversationDetail result = service.getConversationDetail(USER_ID, PROJECT_ID, CONVERSATION_ID);
 
         assertThat(result.conversation()).isSameAs(conversation);
-        assertThat(result.messages()).containsExactly(message);
+        assertThat(result.messages().items()).containsExactly(message);
+        assertThat(result.messages().hasMore()).isFalse();
     }
 
     @Test
@@ -206,6 +246,18 @@ class ConversationServiceTest {
         Conversation conversation = new Conversation(project, user, title);
         ReflectionTestUtils.setField(conversation, "id", CONVERSATION_ID);
         return conversation;
+    }
+
+    private List<Conversation> conversations(int count) {
+        List<Conversation> conversations = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            Conversation conversation = new Conversation(project(), user(), "Title " + index);
+            ReflectionTestUtils.setField(conversation, "id", UUID.randomUUID());
+            ReflectionTestUtils.setField(
+                    conversation, "updatedAt", Instant.parse("2026-05-23T01:00:00Z").plusSeconds(index));
+            conversations.add(conversation);
+        }
+        return conversations;
     }
 
     private static class NoopTransactionManager extends AbstractPlatformTransactionManager {

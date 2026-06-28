@@ -12,6 +12,8 @@ cd services/backend
 
 패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시하고, `jira`는 Jira 연동 검증용 client/dto만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
 
+`dto`에는 직렬화 경계 타입(프론트 요청·응답, ai-engine 클라이언트 DTO, opaque 커서)만 두고 필드에 도메인 엔티티를 노출하지 않는다(엔티티는 `from()` 매핑 파라미터로만 받는다). 도메인 엔티티를 필드로 담는 서비스 반환·중간 타입(예: `ConversationStart`, `ConversationPage`, `ConversationDetail`)은 `service`에 둔다.
+
 ## 규칙 및 주의사항
 
 - 다른 기능의 Repository를 직접 주입하지 말고 Service를 통해 접근한다.

@@ -19,8 +19,10 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
-import com.history.backend.conversation.service.ConversationService;
 import com.history.backend.conversation.service.ConversationDetail;
+import com.history.backend.conversation.service.ConversationPage;
+import com.history.backend.conversation.service.MessagePage;
+import com.history.backend.conversation.service.ConversationService;
 import com.history.backend.conversation.service.ConversationStart;
 import com.history.backend.conversation.service.MessageExchange;
 import com.history.backend.conversation.service.MessageService;
@@ -98,18 +100,31 @@ class ConversationControllerTest {
     }
 
     @Test
-    @DisplayName("대화 목록 조회 → 프로젝트 대화 반환")
-    void listConversationsReturnsProjectConversations() throws Exception {
-        when(conversationService.findConversations(USER_ID, PROJECT_ID))
-                .thenReturn(List.of(conversation("Auth changes")));
+    @DisplayName("대화 목록 조회 → 프로젝트 대화 페이지 반환")
+    void listConversationsReturnsConversationPage() throws Exception {
+        when(conversationService.findConversationsPage(USER_ID, PROJECT_ID, null))
+                .thenReturn(new ConversationPage(List.of(conversation("Auth changes")), "next-cursor"));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/conversations", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(CONVERSATION_ID.toString()))
-                .andExpect(jsonPath("$[0].title").value("Auth changes"))
-                .andExpect(jsonPath("$[0].createdAt").value("2026-05-23T01:00:00Z"))
-                .andExpect(jsonPath("$[0].updatedAt").value("2026-05-23T01:01:00Z"));
+                .andExpect(jsonPath("$.items[0].id").value(CONVERSATION_ID.toString()))
+                .andExpect(jsonPath("$.items[0].title").value("Auth changes"))
+                .andExpect(jsonPath("$.items[0].updatedAt").value("2026-05-23T01:01:00Z"))
+                .andExpect(jsonPath("$.nextCursor").value("next-cursor"));
+    }
+
+    @Test
+    @DisplayName("대화 목록 조회 시 cursor 쿼리 파라미터 전달")
+    void listConversationsPassesCursorParam() throws Exception {
+        when(conversationService.findConversationsPage(USER_ID, PROJECT_ID, "abc"))
+                .thenReturn(new ConversationPage(List.of(), null));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/conversations", PROJECT_ID)
+                        .param("cursor", "abc")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
     }
 
     @Test
@@ -119,9 +134,13 @@ class ConversationControllerTest {
         when(conversationService.getConversationDetail(USER_ID, PROJECT_ID, CONVERSATION_ID))
                 .thenReturn(new ConversationDetail(
                         conversation,
-                        List.of(
-                        userMessage(conversation, "What changed?"),
-                        assistantMessage(conversation, "OAuth callback changed.", Map.of("fallback", true))
+                        new MessagePage(
+                                List.of(
+                                        userMessage(conversation, "What changed?"),
+                                        assistantMessage(conversation, "OAuth callback changed.", Map.of("fallback", true))
+                                ),
+                                true,
+                                "older-cursor"
                         )
                 ));
 
@@ -133,7 +152,9 @@ class ConversationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(CONVERSATION_ID.toString()))
                 .andExpect(jsonPath("$.messages[0].role").value("USER"))
-                .andExpect(jsonPath("$.messages[1].metadata.fallback").value(true));
+                .andExpect(jsonPath("$.messages[1].metadata.fallback").value(true))
+                .andExpect(jsonPath("$.hasMoreMessages").value(true))
+                .andExpect(jsonPath("$.oldestCursor").value("older-cursor"));
     }
 
     @Test
@@ -195,11 +216,11 @@ class ConversationControllerTest {
     }
 
     @Test
-    @DisplayName("메시지 목록 조회 → 대화 메시지 반환")
-    void listMessagesReturnsConversationMessages() throws Exception {
+    @DisplayName("메시지 목록 조회 → 메시지 페이지 반환")
+    void listMessagesReturnsMessagePage() throws Exception {
         Conversation conversation = conversation("Auth changes");
-        when(messageService.findMessages(USER_ID, PROJECT_ID, CONVERSATION_ID))
-                .thenReturn(List.of(userMessage(conversation, "What changed?")));
+        when(messageService.findMessagesPage(USER_ID, PROJECT_ID, CONVERSATION_ID, null))
+                .thenReturn(new MessagePage(List.of(userMessage(conversation, "What changed?")), false, null));
 
         mockMvc.perform(get(
                         "/api/v1/projects/{projectId}/conversations/{conversationId}/messages",
@@ -207,8 +228,24 @@ class ConversationControllerTest {
                         CONVERSATION_ID
                 ).header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(USER_MESSAGE_ID.toString()))
-                .andExpect(jsonPath("$[0].conversationId").value(CONVERSATION_ID.toString()));
+                .andExpect(jsonPath("$.items[0].id").value(USER_MESSAGE_ID.toString()))
+                .andExpect(jsonPath("$.items[0].conversationId").value(CONVERSATION_ID.toString()))
+                .andExpect(jsonPath("$.hasMore").value(false));
+    }
+
+    @Test
+    @DisplayName("메시지 목록 조회 시 before 커서 파라미터 전달")
+    void listMessagesPassesBeforeParam() throws Exception {
+        when(messageService.findMessagesPage(USER_ID, PROJECT_ID, CONVERSATION_ID, "cur"))
+                .thenReturn(new MessagePage(List.of(), false, null));
+
+        mockMvc.perform(get(
+                        "/api/v1/projects/{projectId}/conversations/{conversationId}/messages",
+                        PROJECT_ID,
+                        CONVERSATION_ID
+                ).param("before", "cur").header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
     }
 
     @Test

@@ -9,10 +9,13 @@ import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
+import com.history.backend.conversation.dto.Cursor;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -20,6 +23,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 @RequiredArgsConstructor
 public class ConversationService {
+
+    private static final int CONVERSATION_PAGE_SIZE = 20;
 
     private final ConversationRepository conversationRepository;
     private final ProjectService projectService;
@@ -59,20 +64,38 @@ public class ConversationService {
         );
     }
 
+    // 표시용 대화 목록 페이지 — cursor 없으면 첫 페이지, 있으면 (updatedAt, id) 커서 이전 older 페이지
     @Transactional(readOnly = true)
-    public List<Conversation> findConversations(UUID userId, UUID projectId) {
+    public ConversationPage findConversationsPage(UUID userId, UUID projectId, String cursor) {
         projectService.getProject(userId, projectId);
-        return conversationRepository.findAllByProject_IdOrderByUpdatedAtDesc(projectId);
+        // limit+1로 조회해 다음 페이지 존재 여부를 별도 count 없이 판정
+        Pageable limit = PageRequest.of(0, CONVERSATION_PAGE_SIZE + 1);
+        List<Conversation> rows = cursor == null
+                ? conversationRepository.findFirstPageByProject(projectId, limit)
+                : conversationsBefore(projectId, cursor, limit);
+        boolean hasMore = rows.size() > CONVERSATION_PAGE_SIZE;
+        List<Conversation> page = hasMore ? rows.subList(0, CONVERSATION_PAGE_SIZE) : rows;
+        String nextCursor = hasMore
+                ? cursorOf(page.get(page.size() - 1))
+                : null;
+        return new ConversationPage(page, nextCursor);
     }
 
     @Transactional(readOnly = true)
     public ConversationDetail getConversationDetail(UUID userId, UUID projectId, UUID conversationId) {
         projectService.getProject(userId, projectId);
         Conversation conversation = findConversation(projectId, conversationId);
-        return new ConversationDetail(
-                conversation,
-                messageService.findMessagesInCurrentTransaction(conversationId)
-        );
+        MessagePage messages = messageService.findMessagePageInCurrentTransaction(conversationId, null);
+        return new ConversationDetail(conversation, messages);
+    }
+
+    private List<Conversation> conversationsBefore(UUID projectId, String cursor, Pageable limit) {
+        Cursor decoded = Cursor.decode(cursor);
+        return conversationRepository.findPageByProjectBefore(projectId, decoded.timestamp(), decoded.id(), limit);
+    }
+
+    private String cursorOf(Conversation conversation) {
+        return new Cursor(conversation.getUpdatedAt(), conversation.getId()).encode();
     }
 
     @Transactional

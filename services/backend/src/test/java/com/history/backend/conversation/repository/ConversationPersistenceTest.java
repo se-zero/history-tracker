@@ -3,6 +3,8 @@ package com.history.backend.conversation.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 
 import com.history.backend.auth.domain.User;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -75,7 +78,7 @@ class ConversationPersistenceTest {
 
         assertThat(conversationRepository.findByIdAndProject_Id(conversation.getId(), fixture.project().getId()))
                 .contains(conversation);
-        assertThat(conversationRepository.findAllByProject_IdOrderByUpdatedAtDesc(fixture.project().getId()))
+        assertThat(conversationRepository.findFirstPageByProject(fixture.project().getId(), PageRequest.of(0, 20)))
                 .containsExactly(conversation);
         assertThat(conversation.belongsToProject(fixture.project().getId())).isTrue();
     }
@@ -126,6 +129,110 @@ class ConversationPersistenceTest {
         assertThat(messageRepository.findAllFromCursor(conversation.getId(), cursor.getId()))
                 .containsExactly(cursor, afterCursor)
                 .doesNotContain(beforeCursor);
+    }
+
+    @Test
+    @DisplayName("최신 메시지 페이지는 createdAt·id 역순으로 개수 제한 조회")
+    void findLatestReturnsMostRecentMessagesLimited() throws InterruptedException {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
+                fixture.project(),
+                fixture.owner(),
+                "Latest page"
+        ));
+        messageRepository.saveAndFlush(Message.user(conversation, "first"));
+        Thread.sleep(5);
+        Message second = messageRepository.saveAndFlush(Message.assistant(conversation, "second", null));
+        Thread.sleep(5);
+        Message third = messageRepository.saveAndFlush(Message.user(conversation, "third"));
+
+        assertThat(messageRepository.findLatest(conversation.getId(), PageRequest.of(0, 2)))
+                .containsExactly(third, second);
+    }
+
+    @Test
+    @DisplayName("커서 이전(older) 메시지만 createdAt·id 역순으로 조회")
+    void findOlderBeforeReturnsMessagesBeforeCursor() throws InterruptedException {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
+                fixture.project(),
+                fixture.owner(),
+                "Older page"
+        ));
+        Message first = messageRepository.saveAndFlush(Message.user(conversation, "first"));
+        Thread.sleep(5);
+        Message second = messageRepository.saveAndFlush(Message.assistant(conversation, "second", null));
+        Thread.sleep(5);
+        Message third = messageRepository.saveAndFlush(Message.user(conversation, "third"));
+
+        assertThat(messageRepository.findOlderBefore(
+                conversation.getId(), third.getCreatedAt(), third.getId(), PageRequest.of(0, 10)))
+                .containsExactly(second, first)
+                .doesNotContain(third);
+    }
+
+    @Test
+    @DisplayName("동일 createdAt에서는 id로 tiebreak해 커서 경계 중복·누락 방지")
+    void findOlderBeforeTiebreaksOnIdAtSameTimestamp() {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation conversation = conversationRepository.saveAndFlush(new Conversation(
+                fixture.project(),
+                fixture.owner(),
+                "Ties"
+        ));
+        messageRepository.saveAndFlush(Message.user(conversation, "a"));
+        messageRepository.saveAndFlush(Message.user(conversation, "b"));
+        // 두 메시지의 created_at을 동일하게 만들어 id tiebreak를 강제 검증
+        Instant sameTime = Instant.parse("2026-05-23T01:00:00Z");
+        jdbcTemplate.update(
+                "UPDATE messages SET created_at = ? WHERE conversation_id = ?",
+                sameTime.atOffset(ZoneOffset.UTC),
+                conversation.getId()
+        );
+
+        // Postgres uuid 정렬은 Java UUID 정렬과 다를 수 있어, DB 정렬 결과로 큰/작은 id를 정한다
+        List<Message> newestFirst = messageRepository.findLatest(conversation.getId(), PageRequest.of(0, 10));
+        Message larger = newestFirst.get(0);
+        Message smaller = newestFirst.get(1);
+
+        assertThat(messageRepository.findOlderBefore(
+                conversation.getId(), sameTime, larger.getId(), PageRequest.of(0, 10)))
+                .containsExactly(smaller);
+    }
+
+    @Test
+    @DisplayName("대화 첫 페이지는 updatedAt·id 역순으로 개수 제한 조회")
+    void findFirstPageByProjectReturnsMostRecentlyUpdatedLimited() throws InterruptedException {
+        ProjectFixture fixture = createProjectFixture();
+        conversationRepository.saveAndFlush(new Conversation(fixture.project(), fixture.owner(), "first"));
+        Thread.sleep(5);
+        Conversation second = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "second"));
+        Thread.sleep(5);
+        Conversation third = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "third"));
+
+        assertThat(conversationRepository.findFirstPageByProject(fixture.project().getId(), PageRequest.of(0, 2)))
+                .containsExactly(third, second);
+    }
+
+    @Test
+    @DisplayName("커서 이전(older) 대화만 updatedAt·id 역순으로 조회")
+    void findPageByProjectBeforeReturnsConversationsBeforeCursor() throws InterruptedException {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation first = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "first"));
+        Thread.sleep(5);
+        Conversation second = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "second"));
+        Thread.sleep(5);
+        Conversation third = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "third"));
+
+        assertThat(conversationRepository.findPageByProjectBefore(
+                fixture.project().getId(), third.getUpdatedAt(), third.getId(), PageRequest.of(0, 10)))
+                .containsExactly(second, first)
+                .doesNotContain(third);
     }
 
     @Test
