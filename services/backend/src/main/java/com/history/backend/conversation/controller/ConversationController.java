@@ -1,14 +1,14 @@
 package com.history.backend.conversation.controller;
 
-import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.conversation.dto.ConversationDetailResponse;
+import com.history.backend.conversation.dto.ConversationPageResponse;
 import com.history.backend.conversation.dto.ConversationResponse;
 import com.history.backend.conversation.dto.CreateConversationRequest;
 import com.history.backend.conversation.dto.CreateMessageRequest;
 import com.history.backend.conversation.dto.MessageExchangeResponse;
-import com.history.backend.conversation.dto.MessageResponse;
+import com.history.backend.conversation.dto.MessagePageResponse;
 import com.history.backend.conversation.dto.UpdateConversationRequest;
 import com.history.backend.conversation.service.ConversationService;
 import com.history.backend.conversation.service.MessageService;
@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -50,13 +51,14 @@ public class ConversationController {
     }
 
     @GetMapping
-    public List<ConversationResponse> listConversations(
+    public ConversationPageResponse listConversations(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID projectId
+            @PathVariable UUID projectId,
+            @RequestParam(required = false) String cursor
     ) {
-        return conversationService.findConversations(authenticatedUser.id(), projectId).stream()
-                .map(ConversationResponse::from)
-                .toList();
+        return ConversationPageResponse.from(
+                conversationService.findConversationsPage(authenticatedUser.id(), projectId, cursor)
+        );
     }
 
     @GetMapping("/{conversationId}")
@@ -112,13 +114,14 @@ public class ConversationController {
     }
 
     @GetMapping("/{conversationId}/messages")
-    public List<MessageResponse> listMessages(
+    public MessagePageResponse listMessages(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @PathVariable UUID projectId,
-            @PathVariable UUID conversationId
+            @PathVariable UUID conversationId,
+            @RequestParam(required = false) String before
     ) {
-        return messageService.findMessages(authenticatedUser.id(), projectId, conversationId).stream()
-                .map(MessageResponse::from)
-                .toList();
+        return MessagePageResponse.from(
+                messageService.findMessagesPage(authenticatedUser.id(), projectId, conversationId, before)
+        );
     }
 }

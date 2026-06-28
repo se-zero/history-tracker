@@ -16,10 +16,17 @@ public record ConversationDetailResponse(
         String title,
         Instant createdAt,
         Instant updatedAt,
-        List<MessageResponse> messages
+        List<MessageResponse> messages,
+        boolean hasMoreMessages,
+        String oldestCursor
 ) {
 
-    public static ConversationDetailResponse from(Conversation conversation, List<Message> messages) {
+    public static ConversationDetailResponse from(
+            Conversation conversation,
+            List<Message> messages,
+            boolean hasMoreMessages,
+            String oldestCursor
+    ) {
         return new ConversationDetailResponse(
                 conversation.getId(),
                 conversation.getProject().getId(),
@@ -29,18 +36,27 @@ public record ConversationDetailResponse(
                 conversation.getUpdatedAt(),
                 messages.stream()
                         .map(MessageResponse::from)
-                        .toList()
+                        .toList(),
+                hasMoreMessages,
+                oldestCursor
         );
     }
 
     public static ConversationDetailResponse from(ConversationStart conversationStart) {
         return from(
                 conversationStart.conversation(),
-                List.of(conversationStart.userMessage(), conversationStart.assistantMessage())
+                List.of(conversationStart.userMessage(), conversationStart.assistantMessage()),
+                false,
+                null
         );
     }
 
     public static ConversationDetailResponse from(ConversationDetail conversationDetail) {
-        return from(conversationDetail.conversation(), conversationDetail.messages());
+        return from(
+                conversationDetail.conversation(),
+                conversationDetail.messages().items(),
+                conversationDetail.messages().hasMore(),
+                conversationDetail.messages().nextCursor()
+        );
     }
 }

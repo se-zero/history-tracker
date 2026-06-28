@@ -59,10 +59,10 @@ class MessageServiceTransactionTest {
     }
 
     @Test
-    @DisplayName("기존 트랜잭션 없이 메시지 조회 시 IllegalTransactionStateException")
+    @DisplayName("기존 트랜잭션 없이 메시지 페이지 조회 시 IllegalTransactionStateException")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void findMessagesInCurrentTransactionRequiresExistingTransaction() {
-        assertThatThrownBy(() -> messageService.findMessagesInCurrentTransaction(CONVERSATION_ID))
+    void findMessagePageInCurrentTransactionRequiresExistingTransaction() {
+        assertThatThrownBy(() -> messageService.findMessagePageInCurrentTransaction(CONVERSATION_ID, null))
                 .isInstanceOf(IllegalTransactionStateException.class);
     }
 }

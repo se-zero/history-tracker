@@ -23,6 +23,7 @@ import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.domain.MessageRole;
 import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.dto.AiEnginePriorEvidence;
+import com.history.backend.conversation.dto.Cursor;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
 import com.history.backend.project.domain.Project;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
@@ -582,20 +584,67 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("메시지 조회 시 프로젝트·대화 접근 권한 검증")
-    void findMessagesValidatesProjectAndConversation() {
+    @DisplayName("메시지 페이지 조회 시 접근 권한 검증 후 최신순을 오름차순으로 반환")
+    void findMessagesPageValidatesAccessAndReturnsAscending() {
         MessageService service = service();
         Conversation conversation = conversation();
-        Message message = Message.user(conversation, "Question");
+        Message older = Message.user(conversation, "older");
+        Message newer = Message.assistant(conversation, "newer", null);
         when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(conversation));
-        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+        // 리포지토리는 최신순(newer, older) 반환 → 표시용은 오름차순(older, newer)
+        when(messageRepository.findLatest(eq(CONVERSATION_ID), any(Pageable.class)))
+                .thenReturn(List.of(newer, older));
+
+        MessagePage result = service.findMessagesPage(USER_ID, PROJECT_ID, CONVERSATION_ID, null);
+
+        assertThat(result.items()).containsExactly(older, newer);
+        assertThat(result.hasMore()).isFalse();
+        assertThat(result.nextCursor()).isNull();
+    }
+
+    @Test
+    @DisplayName("페이지 크기를 초과하면 절단 후 가장 오래된 메시지 커서를 nextCursor로 설정")
+    void findMessagesPageTruncatesAndSetsNextCursorWhenOverPageSize() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        // 리포지토리는 최신순으로 MESSAGE_PAGE_SIZE(30) + 1개 반환
+        List<Message> newestFirst = messages(conversation, 31);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findLatest(eq(CONVERSATION_ID), any(Pageable.class)))
+                .thenReturn(newestFirst);
+
+        MessagePage result = service.findMessagesPage(USER_ID, PROJECT_ID, CONVERSATION_ID, null);
+
+        assertThat(result.items()).hasSize(30);
+        assertThat(result.hasMore()).isTrue();
+        assertThat(result.nextCursor()).isNotNull();
+        // 최신순 앞 30개를 뒤집으므로 가장 오래된(30번째 최신) 메시지가 첫 항목
+        assertThat(result.items().get(0)).isSameAs(newestFirst.get(29));
+    }
+
+    @Test
+    @DisplayName("before 커서가 주어지면 커서 이전(older) 메시지 페이지 조회")
+    void findMessagesPageUsesBeforeCursorWhenProvided() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        Message message = Message.user(conversation, "older");
+        String before = new Cursor(Instant.parse("2026-05-23T01:00:00Z"), CONVERSATION_ID).encode();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findOlderBefore(
+                eq(CONVERSATION_ID), any(Instant.class), any(UUID.class), any(Pageable.class)))
                 .thenReturn(List.of(message));
 
-        List<Message> result = service.findMessages(USER_ID, PROJECT_ID, CONVERSATION_ID);
+        MessagePage result = service.findMessagesPage(USER_ID, PROJECT_ID, CONVERSATION_ID, before);
 
-        assertThat(result).containsExactly(message);
+        assertThat(result.items()).containsExactly(message);
+        verify(messageRepository).findOlderBefore(
+                eq(CONVERSATION_ID), any(Instant.class), any(UUID.class), any(Pageable.class));
     }
 
     private MessageService service() {
@@ -624,6 +673,18 @@ class MessageServiceTest {
         Conversation conversation = new Conversation(project(), user(), "Title");
         ReflectionTestUtils.setField(conversation, "id", CONVERSATION_ID);
         return conversation;
+    }
+
+    private List<Message> messages(Conversation conversation, int count) {
+        List<Message> messages = new java.util.ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            Message message = Message.user(conversation, "m" + index);
+            ReflectionTestUtils.setField(message, "id", UUID.randomUUID());
+            ReflectionTestUtils.setField(
+                    message, "createdAt", Instant.parse("2026-05-23T01:00:00Z").plusSeconds(index));
+            messages.add(message);
+        }
+        return messages;
     }
 
     private List<Message> completedTurns(Conversation conversation, int count) {

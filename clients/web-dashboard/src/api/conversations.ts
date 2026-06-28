@@ -2,12 +2,31 @@ import { api } from "./client";
 import type {
   Conversation,
   ConversationDetail,
+  ConversationPage,
   MessageExchange,
+  MessagePage,
 } from "@/types/api";
 
-export async function listConversations(projectId: string): Promise<Conversation[]> {
-  const { data } = await api.get<Conversation[]>(
+export async function listConversations(
+  projectId: string,
+  cursor?: string,
+): Promise<ConversationPage> {
+  const { data } = await api.get<ConversationPage>(
     `/projects/${projectId}/conversations`,
+    { params: cursor ? { cursor } : undefined },
+  );
+  return data;
+}
+
+// 위로 스크롤 시 호출 — 주어진 커서보다 더 오래된 메시지 한 페이지(오름차순)
+export async function listOlderMessages(
+  projectId: string,
+  conversationId: string,
+  before: string,
+): Promise<MessagePage> {
+  const { data } = await api.get<MessagePage>(
+    `/projects/${projectId}/conversations/${conversationId}/messages`,
+    { params: { before } },
   );
   return data;
 }

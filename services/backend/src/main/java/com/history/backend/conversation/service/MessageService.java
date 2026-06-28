@@ -2,6 +2,7 @@ package com.history.backend.conversation.service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -13,11 +14,14 @@ import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.domain.MessageRole;
 import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.dto.AiEnginePriorEvidence;
+import com.history.backend.conversation.dto.Cursor;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class MessageService {
 
     private static final int MAX_HISTORY_TURNS = 5;
+    private static final int MESSAGE_PAGE_SIZE = 30;
     private static final String ERROR_TYPE_KEY = "error_type";
     private static final String AI_ENGINE_ERROR = "AI_ENGINE_ERROR";
     private static final String STRUCTURED_KEY = "structured";
@@ -108,16 +113,35 @@ public class MessageService {
         });
     }
 
+    // 표시용 메시지 페이지 — before 없으면 최신 N개, 있으면 커서 이전 older N개 (오름차순)
     @Transactional(readOnly = true)
-    public List<Message> findMessages(UUID userId, UUID projectId, UUID conversationId) {
+    public MessagePage findMessagesPage(UUID userId, UUID projectId, UUID conversationId, String before) {
         projectService.getProject(userId, projectId);
         findConversation(projectId, conversationId);
-        return findMessagesInCurrentTransaction(conversationId);
+        return findMessagePageInCurrentTransaction(conversationId, before);
     }
 
+    // 호출자 트랜잭션 안에서 실행 (ConversationService 대화 상세 조회와 공유)
     @Transactional(readOnly = true, propagation = Propagation.MANDATORY)
-    public List<Message> findMessagesInCurrentTransaction(UUID conversationId) {
-        return messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(conversationId);
+    public MessagePage findMessagePageInCurrentTransaction(UUID conversationId, String before) {
+        // limit+1로 조회해 추가 older 페이지 존재 여부(hasMore)를 별도 count 없이 판정
+        Pageable limit = PageRequest.of(0, MESSAGE_PAGE_SIZE + 1);
+        List<Message> newestFirst = before == null
+                ? messageRepository.findLatest(conversationId, limit)
+                : olderMessagesBefore(conversationId, before, limit);
+        boolean hasMore = newestFirst.size() > MESSAGE_PAGE_SIZE;
+        List<Message> page = hasMore ? newestFirst.subList(0, MESSAGE_PAGE_SIZE) : newestFirst;
+        List<Message> ascending = new ArrayList<>(page);
+        Collections.reverse(ascending);
+        String nextCursor = hasMore
+                ? new Cursor(ascending.get(0).getCreatedAt(), ascending.get(0).getId()).encode()
+                : null;
+        return new MessagePage(ascending, hasMore, nextCursor);
+    }
+
+    private List<Message> olderMessagesBefore(UUID conversationId, String before, Pageable limit) {
+        Cursor cursor = Cursor.decode(before);
+        return messageRepository.findOlderBefore(conversationId, cursor.timestamp(), cursor.id(), limit);
     }
 
     private Conversation findConversation(UUID projectId, UUID conversationId) {

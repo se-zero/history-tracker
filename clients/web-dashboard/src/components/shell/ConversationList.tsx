@@ -18,8 +18,28 @@ export function ConversationList({ projectId }: { projectId: string }) {
 
   const conversationsQuery = useConversations(projectId);
   const conversations = conversationsQuery.data ?? [];
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = conversationsQuery;
   const renameMutation = useRenameConversation(projectId);
   const deleteMutation = useDeleteConversation(projectId);
+
+  // 목록 하단 sentinel이 보이면 다음 페이지를 로드한다(아래로 무한 스크롤).
+  const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = listRef.current;
+    const target = sentinelRef.current;
+    if (!root || !target) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { root, rootMargin: "120px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const handleSelect = (id: string) => {
     navigate(`/projects/${projectId}/chat/${id}`);
@@ -52,7 +72,7 @@ export function ConversationList({ projectId }: { projectId: string }) {
           <Icons.Plus size={13} />
         </button>
       </div>
-      <div className="convo-list">
+      <div className="convo-list" ref={listRef}>
         {conversations.map((c) => (
           <ConvoItem
             key={c.id}
@@ -75,6 +95,7 @@ export function ConversationList({ projectId }: { projectId: string }) {
             아직 대화가 없습니다.
           </div>
         )}
+        <div ref={sentinelRef} aria-hidden className="convo-sentinel" />
       </div>
     </>
   );
