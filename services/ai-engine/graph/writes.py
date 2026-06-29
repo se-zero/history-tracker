@@ -242,14 +242,17 @@ async def upsert_communication(
             """
             MATCH (a:Actor {uuid: $actor_uuid})
             MERGE (comm:Communication {project_id: $project_id, url: $url})
+            // llm_filtered는 노이즈 필터의 판정 결과다. 전체 재수집으로 같은 메시지가
+            // 재-MERGE될 때 무조건 SET하면 keep(true) 판정을 false로 덮어 재필터·삭제될 수
+            // 있으므로 생성 시에만 초기화하고, 기존 노드는 판정을 보존한다.
+            ON CREATE SET comm.llm_filtered = $llm_filtered
             SET comm.body = $body,
                 comm.channel = $channel,
                 comm.conversation_id = $conversation_id,
                 comm.occurredAt = datetime($occurred_at),
                 comm.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
                 comm.source = $source,
-                comm.embedding = $embedding,
-                comm.llm_filtered = $llm_filtered
+                comm.embedding = $embedding
             MERGE (a)-[:WROTE]->(comm)
             """,
             actor_uuid=actor_uuid,
