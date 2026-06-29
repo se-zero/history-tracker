@@ -1,12 +1,24 @@
-"""그래프 API — 개요 조회, 프로젝트 그래프 삭제, 후처리(Layer 4) 수동 트리거."""
+"""그래프 API — 개요 조회, 관련 서브그래프 조회, 프로젝트 그래프 삭제, 후처리(Layer 4) 수동 트리거."""
 
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 
 from graph.builder import delete_project_graph
-from graph.overview import get_project_overview
+from graph.overview import get_evidence_subgraph, get_project_overview
 from graph.postprocess import get_build_status, trigger_build
 
 router = APIRouter()
+
+
+# 답변 evidence 1건 — 도메인 키 참조. type은 lenient(str)로 받아 미지 타입은 resolve에서 무시.
+class EvidenceRef(BaseModel):
+    type: str = ""
+    id: str = ""
+
+
+class SubgraphRequest(BaseModel):
+    project_id: str = ""
+    evidence: list[EvidenceRef] = Field(default_factory=list)
 
 
 @router.get("/graph/overview")
@@ -20,6 +32,18 @@ async def graph_overview(project_id: str, limit: int = 200, types: str = ""):
     """
     type_list = [t for t in (types.split(",") if types else []) if t.strip()] or None
     return await get_project_overview(project_id, limit, type_list)
+
+
+@router.post("/graph/subgraph")
+async def graph_subgraph(req: SubgraphRequest):
+    """답변 evidence(도메인 키)로 관련 서브그래프를 조회한다 (대화 화면 그래프 패널용).
+
+    evidence가 가리키는 노드(commit/PR/issue/message) + 1홉 이웃을 project_id 스코프로
+    {nodes, edges, seeds}로 반환한다. seeds는 입력 evidence 순서의 노드 id(인용 카드 매핑용).
+    인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
+    """
+    evidence = [e.model_dump() for e in req.evidence]
+    return await get_evidence_subgraph(req.project_id, evidence)
 
 
 @router.delete("/graph/projects/{project_id}")

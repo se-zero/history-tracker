@@ -15,6 +15,7 @@ EXPECTED_ROUTES = {
     ("GET", "/graph/overview"),
     ("GET", "/health"),
     ("POST", "/graph/build"),
+    ("POST", "/graph/subgraph"),
     ("POST", "/issue-links/build"),
     ("POST", "/migrations/clear-semantic-triggered-by"),
     ("POST", "/migrations/pr-jira-keys"),

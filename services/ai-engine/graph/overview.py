@@ -1,7 +1,9 @@
 """
-프로젝트 그래프 조회 (read-only overview).
+프로젝트 그래프 조회 (read-only).
 
-프론트엔드 그래프 탐색 화면이 쓰는 `{nodes, edges}` 페이로드를 만든다.
+두 가지 읽기 페이로드를 만든다 — 모두 `{nodes, edges}`(서브그래프는 `seeds` 추가):
+  - get_project_overview: 그래프 탐색 화면용 최근 활동 개요.
+  - get_evidence_subgraph: 대화 답변 evidence가 가리키는 관련 서브그래프(그래프 패널용).
 모든 Cypher는 project_id로 스코프되어 다른 프로젝트의 노드/엣지를 절대 반환하지 않는다.
 
 주의:
@@ -39,6 +41,26 @@ _ALL_CONTENT_PRED = "n:ChangeSet OR n:PullRequest OR n:Issue OR n:Communication"
 _EXPANSION_LABELS = {"actor": "nb:Actor", "code": "nb:File"}
 _ALL_EXPANSION_PRED = "nb:Actor OR nb:File"
 
+# _to_graph_node 변환에 필요한 스칼라 필드 — overview/subgraph 쿼리가 공유한다.
+# embedding은 절대 포함하지 않는다(스칼라만 명시).
+_NODE_RETURN_FIELDS = """elementId(n)        AS id,
+       labels(n)[0]        AS label,
+       coalesce(n.source, '') AS source,
+       n.hash              AS hash,
+       n.message           AS message,
+       n.pr_number         AS pr_number,
+       n.title             AS title,
+       n.body              AS body,
+       n.jira_key          AS jira_key,
+       n.status            AS status,
+       n.url               AS url,
+       n.channel           AS channel,
+       n.conversation_id   AS conversation_id,
+       n.name              AS name,
+       n.aliases           AS aliases,
+       n.path              AS path,
+       toString(n.occurredAt) AS occurred_at"""
+
 
 def _node_query(content_pred: str, neighbor_pred: str) -> str:
     """content/이웃 선택 술어를 끼운 노드 조회 Cypher를 만든다.
@@ -61,23 +83,7 @@ CALL (content) {{
 WITH content + neighbors AS nodes
 UNWIND nodes AS n
 WITH DISTINCT n
-RETURN elementId(n)        AS id,
-       labels(n)[0]        AS label,
-       coalesce(n.source, '') AS source,
-       n.hash              AS hash,
-       n.message           AS message,
-       n.pr_number         AS pr_number,
-       n.title             AS title,
-       n.body              AS body,
-       n.jira_key          AS jira_key,
-       n.status            AS status,
-       n.url               AS url,
-       n.channel           AS channel,
-       n.conversation_id   AS conversation_id,
-       n.name              AS name,
-       n.aliases           AS aliases,
-       n.path              AS path,
-       toString(n.occurredAt) AS occurred_at
+RETURN {_NODE_RETURN_FIELDS}
 """
 
 
@@ -270,3 +276,154 @@ async def get_project_overview(
         project_id, len(nodes), len(edges), limit, types or "all",
     )
     return {"nodes": nodes, "edges": edges}
+
+
+# ── 답변 evidence → 관련 서브그래프 ────────────────────────────────────────────
+# 채팅 답변의 evidence는 도메인 키로 노드를 가리킨다(commit→hash 앞 7자, pull_request→
+# "#번호", issue→jira_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로
+# 둘을 잇는 공통 키가 없다 — 여기서 도메인 키로 노드를 resolve해 서브그래프를 만든다.
+
+# 시드 노드(evidence가 가리키는 노드) + 1홉 이웃을 모으고, 그 집합 내부 엣지만 수집한다.
+# 빈 파라미터 리스트는 각 술어를 false로 만들어 안전하다(any(... IN [])=false, x IN []=false).
+_SUBGRAPH_QUERY = f"""
+MATCH (n)
+WHERE n.project_id = $project_id
+  AND (
+    (n:ChangeSet AND any(p IN $commit_prefixes WHERE n.hash STARTS WITH p))
+    OR (n:PullRequest AND n.pr_number IN $pr_numbers)
+    OR (n:Issue AND n.jira_key IN $jira_keys)
+    OR (n:Communication AND n.conversation_id IN $conv_ids)
+  )
+WITH collect(n) AS seeds
+CALL (seeds) {{
+    UNWIND seeds AS s
+    OPTIONAL MATCH (s)--(nb)
+    WHERE nb.project_id = $project_id
+    RETURN collect(DISTINCT nb) AS neighbors
+}}
+WITH seeds + neighbors AS nodes
+UNWIND nodes AS n
+WITH DISTINCT n
+RETURN {_NODE_RETURN_FIELDS}
+"""
+
+
+def _normalize_evidence(item: dict) -> tuple[str, str] | None:
+    """evidence 1건을 (type, 조회 키)로 정규화한다 — group/resolve가 공유하는 단일 규칙.
+
+    빈 id·미지 타입·숫자 아닌 PR 번호는 무효로 None. 파싱 규칙을 한 곳에 모아, 한쪽만 바뀌어
+    "group은 수집했는데 resolve는 못 찾는" drift가 생기는 걸 구조적으로 막는다.
+    pull_request는 "#42"/"42"를 숫자 문자열 "42"로, 나머지는 strip한 id를 그대로 키로 쓴다.
+    """
+    etype = (item.get("type") or "").strip()
+    eid = (item.get("id") or "").strip()
+    if not eid:
+        return None
+    if etype == "commit":
+        return ("commit", eid)
+    if etype == "pull_request":
+        num = eid.lstrip("#").strip()
+        return ("pull_request", num) if num.isdigit() else None
+    if etype == "issue":
+        return ("issue", eid)
+    if etype == "message":
+        return ("message", eid)
+    return None
+
+
+def _group_evidence_keys(evidence: list[dict]) -> dict:
+    """evidence를 타입별 조회 키로 그룹핑한다 (PR은 int로 — Neo4j pr_number가 int)."""
+    keys: dict = {
+        "commit_prefixes": [],
+        "pr_numbers": [],
+        "jira_keys": [],
+        "conv_ids": [],
+    }
+    for item in evidence:
+        norm = _normalize_evidence(item)
+        if not norm:
+            continue
+        etype, key = norm
+        if etype == "commit":
+            keys["commit_prefixes"].append(key)
+        elif etype == "pull_request":
+            keys["pr_numbers"].append(int(key))
+        elif etype == "issue":
+            keys["jira_keys"].append(key)
+        elif etype == "message":
+            keys["conv_ids"].append(key)
+    return keys
+
+
+def _resolve_seed_ids(evidence: list[dict], node_rows: list[dict]) -> list[str | None]:
+    """조회된 노드 행을 evidence 순서대로 elementId에 정렬한다(미해석은 None).
+
+    인용 카드 #i ↔ 그래프 노드 매핑용. 이웃 노드 행은 라벨이 안 맞아 자연히 무시된다.
+    """
+    seeds: list[str | None] = []
+    for item in evidence:
+        norm = _normalize_evidence(item)
+        match: str | None = None
+        if norm:
+            etype, key = norm
+            if etype == "commit":
+                match = next(
+                    (r["id"] for r in node_rows
+                     if r.get("label") == "ChangeSet" and (r.get("hash") or "").startswith(key)),
+                    None,
+                )
+            elif etype == "pull_request":
+                match = next(
+                    (r["id"] for r in node_rows
+                     if r.get("label") == "PullRequest" and str(r.get("pr_number")) == key),
+                    None,
+                )
+            elif etype == "issue":
+                match = next(
+                    (r["id"] for r in node_rows
+                     if r.get("label") == "Issue" and r.get("jira_key") == key),
+                    None,
+                )
+            elif etype == "message":
+                match = next(
+                    (r["id"] for r in node_rows
+                     if r.get("label") == "Communication" and r.get("conversation_id") == key),
+                    None,
+                )
+        seeds.append(match)
+    return seeds
+
+
+async def get_evidence_subgraph(project_id: str, evidence: list[dict]) -> dict:
+    """답변 evidence가 가리키는 노드 + 1홉 이웃을 {nodes, edges, seeds}로 반환한다.
+
+    seeds는 입력 evidence 순서에 정렬된 노드 elementId 배열(미해석은 None) — 인용 카드 ↔ 노드 매핑용.
+    전부 project_id로 스코프된다. evidence가 없거나 해석 가능한 키가 하나도 없으면 빈 결과.
+    """
+    if not project_id or not evidence:
+        return {"nodes": [], "edges": [], "seeds": [None] * len(evidence)}
+
+    keys = _group_evidence_keys(evidence)
+    if not any(keys.values()):
+        return {"nodes": [], "edges": [], "seeds": [None] * len(evidence)}
+
+    async with get_driver().session() as session:
+        node_result = await session.run(_SUBGRAPH_QUERY, project_id=project_id, **keys)
+        node_rows = await node_result.data()
+
+        if not node_rows:
+            return {"nodes": [], "edges": [], "seeds": [None] * len(evidence)}
+
+        ids = [r["id"] for r in node_rows]
+        edge_result = await session.run(_EDGE_QUERY, ids=ids)
+        edge_rows = await edge_result.data()
+
+    nodes = [_to_graph_node(r) for r in node_rows]
+    edges = [[r["source"], r["target"]] for r in edge_rows]
+    seeds = _resolve_seed_ids(evidence, node_rows)
+
+    logger.info(
+        "subgraph project=%s evidence=%d nodes=%d edges=%d",
+        project_id, len(evidence), len(nodes), len(edges),
+    )
+    return {"nodes": nodes, "edges": edges, "seeds": seeds}
