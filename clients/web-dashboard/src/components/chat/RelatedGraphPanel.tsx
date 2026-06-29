@@ -14,6 +14,7 @@ interface Props {
   emphasizedId: string | null;
   onSelectNode: (id: string | null) => void;
   onAddToChat: (node: GraphNode) => void;
+  onResizeStart: (e: React.PointerEvent) => void;
   onClose: () => void;
 }
 
@@ -28,6 +29,7 @@ export function RelatedGraphPanel({
   emphasizedId,
   onSelectNode,
   onAddToChat,
+  onResizeStart,
   onClose,
 }: Props) {
   // seeds(evidence가 해석된 노드)는 강조, 1홉 이웃은 흐리게. 해석된 시드가 없으면 강조하지 않는다.
@@ -39,6 +41,13 @@ export function RelatedGraphPanel({
 
   return (
     <aside className="side-panel">
+      <div
+        className="panel-resizer"
+        onPointerDown={onResizeStart}
+        role="separator"
+        aria-orientation="vertical"
+        title="너비 조절"
+      />
       <div className="side-panel-head">
         <span>관련 그래프</span>
         <button className="icon-btn" onClick={onClose} title="패널 닫기">
@@ -72,6 +81,7 @@ export function RelatedGraphPanel({
               showLegend={false}
               showFilters={false}
               showControls
+              showFit={false}
               compact
             />
             {selectedNode && (

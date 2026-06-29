@@ -25,6 +25,12 @@ import { useMessageSubgraph } from "@/hooks/useGraph";
 import type { ConversationDetail, Message, Project } from "@/types/api";
 import type { GraphNode } from "@/types/graph";
 
+// 관련 그래프 패널 너비 한계(px). 채팅 영역이 너무 좁아지지 않게 드래그 시 동적 상한도 적용한다.
+const MIN_PANEL_W = 280;
+const MAX_PANEL_W = 680;
+const clampPanelWidth = (w: number) =>
+  Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, w));
+
 export function ChatPage({ project }: { project: Project }) {
   const { conversationId } = useParams();
   const navigate = useNavigate();
@@ -65,6 +71,15 @@ export function ChatPage({ project }: { project: Project }) {
   useEffect(() => {
     localStorage.setItem("chat:graphPanel", panelOpen ? "1" : "0");
   }, [panelOpen]);
+  // 패널 너비도 사용자 선호라 영속한다. 드래그 중엔 transition을 꺼 끊김을 없앤다.
+  const [panelWidth, setPanelWidth] = useState(() =>
+    clampPanelWidth(Number(localStorage.getItem("chat:graphPanelWidth")) || 360),
+  );
+  const [resizing, setResizing] = useState(false);
+  const chatWrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    localStorage.setItem("chat:graphPanelWidth", String(panelWidth));
+  }, [panelWidth]);
   // 화면 최상단에 보이는 답변(ChatStream이 통지) + 그 그래프에서 선택된 노드.
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -133,6 +148,32 @@ export function ChatPage({ project }: { project: Project }) {
 
   const handleAddToChat = (node: GraphNode) => {
     setDraft((d) => (d.trim() ? d + " " + node.title : node.title));
+  };
+
+  // 패널 왼쪽 핸들 드래그로 너비 조절 — wrap 오른쪽 끝 기준으로 너비를 계산한다.
+  // 채팅 영역이 360px 미만으로 좁아지지 않게 드래그 시작 시점에 상한을 정한다.
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const wrap = chatWrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const wrapRight = rect.right;
+    const maxW = Math.max(MIN_PANEL_W, Math.min(MAX_PANEL_W, rect.width - 360));
+    setResizing(true);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    const onMove = (ev: PointerEvent) => {
+      setPanelWidth(Math.min(maxW, Math.max(MIN_PANEL_W, wrapRight - ev.clientX)));
+    };
+    const onUp = () => {
+      setResizing(false);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   // 패널이 열리면 모든 답변 카드에 연동 정보를 내려준다(hover로 전환·강조).
@@ -237,7 +278,18 @@ export function ChatPage({ project }: { project: Project }) {
   };
 
   return (
-    <div className={"chat-wrap" + (showPanel ? " with-panel" : "")}>
+    <div
+      ref={chatWrapRef}
+      className={"chat-wrap" + (showPanel ? " with-panel" : "")}
+      style={
+        showPanel
+          ? {
+              gridTemplateColumns: `1fr ${panelWidth}px`,
+              transition: resizing ? "none" : undefined,
+            }
+          : undefined
+      }
+    >
       {conversationId && !panelOpen && (
         <button
           className="graph-toggle"
@@ -299,6 +351,7 @@ export function ChatPage({ project }: { project: Project }) {
           emphasizedId={hoveredNodeId}
           onSelectNode={setSelectedNodeId}
           onAddToChat={handleAddToChat}
+          onResizeStart={startResize}
           onClose={() => setPanelOpen(false)}
         />
       )}

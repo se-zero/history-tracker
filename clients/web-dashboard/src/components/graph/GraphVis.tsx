@@ -20,6 +20,7 @@ interface Props {
   onBackgroundClick?: () => void;
   showLegend?: boolean;
   showControls?: boolean;
+  showFit?: boolean;
   showFilters?: boolean;
   compact?: boolean;
   showLabels?: boolean;
@@ -44,6 +45,7 @@ export function GraphVis({
   onBackgroundClick,
   showLegend = true,
   showControls = true,
+  showFit = true,
   showFilters = true,
   compact = false,
   showLabels = true,
@@ -341,9 +343,11 @@ export function GraphVis({
           <button className="icon-btn" title="Zoom out" onClick={() => zoom(0.83)}>
             <Icons.ZoomOut />
           </button>
-          <button className="icon-btn" title="Fit" onClick={fit}>
-            <Icons.Fit />
-          </button>
+          {showFit && (
+            <button className="icon-btn" title="Fit" onClick={fit}>
+              <Icons.Fit />
+            </button>
+          )}
         </div>
       )}
 
