@@ -1,12 +1,18 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { Icons } from "@/components/Icons";
 import { StatusView } from "@/components/StatusView";
 import { ChatEmpty } from "@/components/chat/ChatEmpty";
 import { ChatStream } from "@/components/chat/ChatStream";
 import { Composer } from "@/components/chat/Composer";
-import { MessageItem, UserMessage } from "@/components/chat/Message";
+import {
+  MessageItem,
+  UserMessage,
+  type CitationLink,
+} from "@/components/chat/Message";
+import { RelatedGraphPanel } from "@/components/chat/RelatedGraphPanel";
 import { ThinkingState } from "@/components/chat/ThinkingState";
 import { createConversation, sendMessage } from "@/api/conversations";
 import { useAuth } from "@/auth/AuthProvider";
@@ -15,7 +21,9 @@ import {
   useConversation,
   useLoadOlderMessages,
 } from "@/hooks/useConversations";
-import type { ConversationDetail, Project } from "@/types/api";
+import { useMessageSubgraph } from "@/hooks/useGraph";
+import type { ConversationDetail, Message, Project } from "@/types/api";
+import type { GraphNode } from "@/types/graph";
 
 export function ChatPage({ project }: { project: Project }) {
   const { conversationId } = useParams();
@@ -49,6 +57,48 @@ export function ChatPage({ project }: { project: Project }) {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState(false);
+
+  // 관련 그래프 패널 — 열림 여부는 사용자 선호라 localStorage에 영속한다.
+  const [panelOpen, setPanelOpen] = useState(
+    () => localStorage.getItem("chat:graphPanel") === "1",
+  );
+  useEffect(() => {
+    localStorage.setItem("chat:graphPanel", panelOpen ? "1" : "0");
+  }, [panelOpen]);
+  // 화면 최상단에 보이는 답변(ChatStream이 통지) + 그 그래프에서 선택된 노드.
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // 활성 답변이 바뀌면 이전 답변 그래프의 노드 선택을 비운다.
+  useEffect(() => setSelectedNodeId(null), [activeMessageId]);
+
+  const showPanel = panelOpen && !!conversationId;
+  const activeMessage = useMemo(
+    () =>
+      messages.find((m) => m.id === activeMessageId && m.role === "ASSISTANT") ??
+      null,
+    [messages, activeMessageId],
+  );
+  // 인용 카드(seeds)와 패널이 같은 결과를 공유해야 하므로 조회는 페이지에서 한 번만 한다.
+  const subgraphQuery = useMessageSubgraph(project.id, showPanel ? activeMessage : null);
+
+  const handleAddToChat = (node: GraphNode) => {
+    setDraft((d) => (d.trim() ? d + " " + node.title : node.title));
+  };
+
+  // 패널이 열린 활성 답변에만 인용 카드 ↔ 노드 연동 정보를 내려준다.
+  const citationFor = (m: Message): CitationLink | undefined =>
+    showPanel && m.id === activeMessageId && m.role === "ASSISTANT"
+      ? {
+          seeds: subgraphQuery.data?.seeds ?? [],
+          selectedNodeId,
+          onSelectNode: setSelectedNodeId,
+        }
+      : undefined;
+
+  const renderMessages = () =>
+    messages.map((m) => (
+      <MessageItem key={m.id} message={m} user={user} citation={citationFor(m)} />
+    ));
 
   // 전송 실패 시 친 내용이 사라지지 않도록 입력창에 복구하고 에러를 표시한다.
   // 그 사이 새로 입력한 내용이 있으면 덮어쓰지 않는다.
@@ -129,16 +179,24 @@ export function ChatPage({ project }: { project: Project }) {
     isLoadingOlder: loadOlder.isPending,
     olderError: loadOlder.isError,
     onReachTop: handleReachTop,
+    onActiveMessageChange: setActiveMessageId,
   };
 
   return (
-    <div className="chat-wrap">
+    <div className={"chat-wrap" + (showPanel ? " with-panel" : "")}>
+      {conversationId && !panelOpen && (
+        <button
+          className="graph-toggle"
+          onClick={() => setPanelOpen(true)}
+          title="관련 그래프 보기"
+        >
+          <Icons.Graph size={15} /> 관련 그래프
+        </button>
+      )}
       <div className="chat">
         {pendingMessage !== null ? (
           <ChatStream {...streamProps}>
-            {messages.map((m) => (
-              <MessageItem key={m.id} message={m} user={user} />
-            ))}
+            {renderMessages()}
             <UserMessage content={pendingMessage} user={user} />
             <ThinkingState />
           </ChatStream>
@@ -161,11 +219,7 @@ export function ChatPage({ project }: { project: Project }) {
             }
           />
         ) : (
-          <ChatStream {...streamProps}>
-            {messages.map((m) => (
-              <MessageItem key={m.id} message={m} user={user} />
-            ))}
-          </ChatStream>
+          <ChatStream {...streamProps}>{renderMessages()}</ChatStream>
         )}
         <Composer
           project={project}
@@ -181,6 +235,18 @@ export function ChatPage({ project }: { project: Project }) {
           }
         />
       </div>
+      {showPanel && (
+        <RelatedGraphPanel
+          data={subgraphQuery.data}
+          isLoading={subgraphQuery.isLoading}
+          isError={subgraphQuery.isError}
+          onRetry={() => subgraphQuery.refetch()}
+          selectedNodeId={selectedNodeId}
+          onSelectNode={setSelectedNodeId}
+          onAddToChat={handleAddToChat}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
     </div>
   );
 }

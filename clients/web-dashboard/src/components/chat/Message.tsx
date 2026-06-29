@@ -5,11 +5,26 @@ import { userInitials } from "@/lib/format";
 import type { Message, User } from "@/types/api";
 import { extractStructured } from "./messageStructured";
 
-export function MessageItem({ message, user }: { message: Message; user: User | null }) {
+// 그래프 패널이 열린 활성 답변에만 주어진다 — 인용 카드 i ↔ seeds[i] 노드 양방향 연동.
+export interface CitationLink {
+  seeds: (string | null)[];
+  selectedNodeId: string | null;
+  onSelectNode: (id: string | null) => void;
+}
+
+export function MessageItem({
+  message,
+  user,
+  citation,
+}: {
+  message: Message;
+  user: User | null;
+  citation?: CitationLink;
+}) {
   if (message.role === "USER") {
     return <UserMessage content={message.content} user={user} />;
   }
-  return <AssistantMessage message={message} />;
+  return <AssistantMessage message={message} citation={citation} />;
 }
 
 export function UserMessage({
@@ -32,7 +47,13 @@ export function UserMessage({
   );
 }
 
-function AssistantMessage({ message }: { message: Message }) {
+function AssistantMessage({
+  message,
+  citation,
+}: {
+  message: Message;
+  citation?: CitationLink;
+}) {
   const structured = useMemo(
     () => extractStructured(message.metadata),
     [message.metadata],
@@ -44,7 +65,7 @@ function AssistantMessage({ message }: { message: Message }) {
   const evidence = structured?.evidence ?? [];
 
   return (
-    <div className="msg assistant">
+    <div className="msg assistant" data-role="ASSISTANT" data-message-id={message.id}>
       <div className="msg-avatar">
         <Icons.Sparkle size={14} />
       </div>
@@ -64,8 +85,18 @@ function AssistantMessage({ message }: { message: Message }) {
 
         {evidence.length > 0 && (
           <div className="citation-cards">
-            {evidence.map((e, i) => (
-              <div key={i} className="cite-card" style={{ cursor: "default" }}>
+            {evidence.map((e, i) => {
+              // 패널이 열린 활성 답변에서, 해당 evidence가 그래프 노드로 해석된 경우에만 클릭 연동.
+              const nodeId = citation?.seeds[i] ?? null;
+              const linked = nodeId != null;
+              const selected = linked && nodeId === citation!.selectedNodeId;
+              return (
+              <div
+                key={i}
+                className={"cite-card" + (selected ? " selected" : "")}
+                style={{ cursor: linked ? "pointer" : "default" }}
+                onClick={linked ? () => citation!.onSelectNode(nodeId) : undefined}
+              >
                 <span className="cite-idx">#{i + 1}</span>
                 <span className="cite-body">
                   <div className="cite-meta">
@@ -90,7 +121,8 @@ function AssistantMessage({ message }: { message: Message }) {
                   <div className="cite-snippet">{e.quote}</div>
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

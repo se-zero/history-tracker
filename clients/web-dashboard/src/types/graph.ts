@@ -23,6 +23,12 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
+// 답변 evidence 관련 서브그래프 — GraphData에 seeds를 더한다.
+// seeds는 입력 evidence 순서에 정렬된 시드 노드 id(미해석은 null) — 인용 카드 ↔ 노드 매핑용.
+export interface SubgraphData extends GraphData {
+  seeds: (string | null)[];
+}
+
 // 후처리 단계별 생성/갱신된 엣지 수 — 빌드 상태가 succeeded일 때 채워진다.
 export interface GraphBuildResult {
   backfilled: number;

@@ -5,7 +5,77 @@
   display: grid;
   grid-template-columns: 1fr;
   flex: 1; min-height: 0;
+  position: relative;
   transition: grid-template-columns 0.3s ease;
+}
+.chat-wrap.with-panel { grid-template-columns: 1fr 360px; }
+
+/* 관련 그래프 토글 — 패널이 닫혔을 때만 우상단에 띄운다 */
+.graph-toggle {
+  position: absolute;
+  top: 12px; right: 16px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.graph-toggle:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+/* 관련 그래프 사이드 패널 */
+.side-panel {
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.side-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.side-panel-body {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.side-panel-empty,
+.side-panel-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+/* 좁은 패널에 맞춰 NodeDetail 오버레이를 가장자리 여백만 남기고 채운다 */
+.side-panel .node-detail {
+  top: 12px; right: 12px; bottom: 12px; left: 12px;
+  width: auto;
 }
 .chat {
   display: flex;
@@ -157,6 +227,11 @@
   align-items: flex-start;
 }
 .cite-card:hover { background: var(--surface-2); border-color: var(--border-strong); }
+/* 그래프에서 대응 노드가 선택되면 인용 카드를 강조(역방향 연동) */
+.cite-card.selected {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
 .cite-card .cite-idx {
   font-family: var(--font-mono);
   font-size: 10.5px;

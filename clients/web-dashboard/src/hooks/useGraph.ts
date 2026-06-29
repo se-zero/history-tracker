@@ -1,17 +1,39 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   getGraphBuildStatus,
+  getMessageSubgraph,
   getProjectGraph,
   rebuildProjectGraph,
 } from "@/api/graph";
+import { extractStructured } from "@/components/chat/messageStructured";
+import type { Message } from "@/types/api";
 import { queryKeys } from "./queryKeys";
 
 export function useGraph(projectId: string) {
   return useQuery({
     queryKey: queryKeys.graph(projectId),
     queryFn: () => getProjectGraph(projectId),
+  });
+}
+
+// 답변의 evidence를 {type, id}로 추린다 — 인용 카드 렌더와 동일한 순서를 유지한다.
+function evidenceRefs(message: Message | null): Array<{ type: string; id: string }> {
+  if (!message) return [];
+  const structured = extractStructured(message.metadata);
+  return (structured?.evidence ?? []).map((e) => ({ type: e.type, id: e.id }));
+}
+
+// 활성 답변(메시지)의 관련 서브그래프 — 메시지별 결과는 불변이라 길게 캐시한다.
+// evidence가 없으면 호출하지 않는다(enabled). seeds는 evidence 순서에 정렬돼 인용 카드와 매핑된다.
+export function useMessageSubgraph(projectId: string, message: Message | null) {
+  const evidence = useMemo(() => evidenceRefs(message), [message]);
+  return useQuery({
+    queryKey: queryKeys.graphSubgraph(projectId, message?.id ?? "none"),
+    queryFn: () => getMessageSubgraph(projectId, evidence),
+    enabled: evidence.length > 0,
+    staleTime: Infinity,
   });
 }
 
