@@ -4,10 +4,14 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.BadGatewayException;
+import com.history.backend.graph.dto.AiEngineSubgraphRequest;
+import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
+import com.history.backend.graph.dto.GraphSubgraphResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -40,6 +44,26 @@ public class AiEngineGraphClient {
         } catch (RestClientException exception) {
             log.error("ai-engine graph overview request failed: {}", exception.getMessage());
             throw new BadGatewayException("Failed to load project graph.");
+        }
+    }
+
+    // 답변 evidence(도메인 키)로 관련 서브그래프 조회 — ai-engine이 노드 resolve + 1홉 확장을 수행한다.
+    public GraphSubgraphResponse fetchSubgraph(UUID projectId, List<EvidenceRef> evidence) {
+        try {
+            GraphSubgraphResponse response = aiEngineRestClient.post()
+                    .uri("/graph/subgraph")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new AiEngineSubgraphRequest(
+                            projectId.toString(),
+                            evidence == null ? List.of() : evidence
+                    ))
+                    .retrieve()
+                    .body(GraphSubgraphResponse.class);
+            return normalize(response);
+        } catch (RestClientException exception) {
+            log.error("ai-engine graph subgraph request failed: projectId={}, {}",
+                    projectId, exception.getMessage());
+            throw new BadGatewayException("Failed to load related subgraph.");
         }
     }
 
@@ -98,6 +122,18 @@ public class AiEngineGraphClient {
         return new GraphResponse(
                 response.nodes() == null ? List.of() : response.nodes(),
                 response.edges() == null ? List.of() : response.edges()
+        );
+    }
+
+    // 누락 필드 보정 — seeds의 개별 null(미해석 evidence)은 보존하고, 필드 전체 누락만 빈 배열로 채운다
+    private GraphSubgraphResponse normalize(GraphSubgraphResponse response) {
+        if (response == null) {
+            return GraphSubgraphResponse.empty();
+        }
+        return new GraphSubgraphResponse(
+                response.nodes() == null ? List.of() : response.nodes(),
+                response.edges() == null ? List.of() : response.edges(),
+                response.seeds() == null ? List.of() : response.seeds()
         );
     }
 }

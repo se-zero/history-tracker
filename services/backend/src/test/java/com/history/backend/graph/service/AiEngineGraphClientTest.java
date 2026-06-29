@@ -3,6 +3,7 @@ package com.history.backend.graph.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -10,11 +11,14 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.BadGatewayException;
+import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
+import com.history.backend.graph.dto.GraphSubgraphResponse;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -152,6 +156,66 @@ class AiEngineGraphClientTest {
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> fixture.client.fetchBuildStatus(PROJECT_ID))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("서브그래프 조회 — project_id·evidence 본문으로 POST, nodes/edges/seeds 반환")
+    void fetchesSubgraphWithEvidenceBody() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/graph/subgraph"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.project_id").value(PROJECT_ID.toString()))
+                .andExpect(jsonPath("$.evidence[0].type").value("commit"))
+                .andExpect(jsonPath("$.evidence[0].id").value("abc1234"))
+                .andRespond(withSuccess("""
+                        {
+                          "nodes": [
+                            {"id":"n1","type":"commit","title":"feat: x","meta":"abc1234",
+                             "source":"github","snippet":"body"}
+                          ],
+                          "edges": [["n1","n2"]],
+                          "seeds": ["n1", null]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        GraphSubgraphResponse result =
+                fixture.client.fetchSubgraph(PROJECT_ID, List.of(new EvidenceRef("commit", "abc1234")));
+
+        assertThat(result.nodes()).hasSize(1);
+        assertThat(result.nodes().get(0).id()).isEqualTo("n1");
+        assertThat(result.edges()).containsExactly(List.of("n1", "n2"));
+        // seeds는 evidence 순서 정렬 — 미해석 위치는 null로 유지된다
+        assertThat(result.seeds()).containsExactly("n1", null);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("서브그래프 조회 — 빈 본문 응답도 nodes/edges/seeds 빈 배열로 보정")
+    void normalizesNullSubgraphFields() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/graph/subgraph"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        GraphSubgraphResponse result =
+                fixture.client.fetchSubgraph(PROJECT_ID, List.of(new EvidenceRef("issue", "HT-1")));
+
+        assertThat(result.nodes()).isEmpty();
+        assertThat(result.edges()).isEmpty();
+        assertThat(result.seeds()).isEmpty();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("서브그래프 조회 실패 시 BadGatewayException 발생")
+    void throwsBadGatewayWhenSubgraphFails() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/graph/subgraph"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.fetchSubgraph(PROJECT_ID, List.of(new EvidenceRef("commit", "abc1234"))))
                 .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }

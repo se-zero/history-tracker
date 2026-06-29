@@ -1,5 +1,6 @@
 package com.history.backend.graph.controller;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -14,10 +15,13 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.ForbiddenException;
+import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphBuildResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphNodeResponse;
 import com.history.backend.graph.dto.GraphResponse;
+import com.history.backend.graph.dto.GraphSubgraphResponse;
+import com.history.backend.graph.dto.SubgraphRequest;
 import com.history.backend.graph.service.GraphService;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
@@ -28,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -105,6 +110,51 @@ class GraphControllerTest {
     @DisplayName("미인증 요청 거부 → 401 Unauthorized")
     void rejectsUnauthenticatedRequest() throws Exception {
         mockMvc.perform(get("/api/v1/projects/{projectId}/graph", PROJECT_ID))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("evidence 본문으로 서브그래프 반환 (nodes/edges/seeds)")
+    void returnsSubgraphForEvidence() throws Exception {
+        SubgraphRequest request = new SubgraphRequest(List.of(new EvidenceRef("commit", "abc1234")));
+        GraphSubgraphResponse subgraph = new GraphSubgraphResponse(
+                List.of(new GraphNodeResponse("n1", "commit", "feat: x", "abc1234", "github", "body")),
+                List.of(List.of("n1", "n2")),
+                List.of("n1")
+        );
+        when(graphService.getSubgraph(USER_ID, PROJECT_ID, request)).thenReturn(subgraph);
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/graph/subgraph", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"evidence\":[{\"type\":\"commit\",\"id\":\"abc1234\"}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nodes[0].id").value("n1"))
+                .andExpect(jsonPath("$.edges[0][0]").value("n1"))
+                .andExpect(jsonPath("$.seeds[0]").value("n1"));
+
+        verify(graphService).getSubgraph(USER_ID, PROJECT_ID, request);
+    }
+
+    @Test
+    @DisplayName("서브그래프 — 소유자가 아니면 403 Forbidden 전파")
+    void propagatesForbiddenOnSubgraph() throws Exception {
+        when(graphService.getSubgraph(eq(USER_ID), eq(PROJECT_ID), any(SubgraphRequest.class)))
+                .thenThrow(new ForbiddenException("Project access denied."));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/graph/subgraph", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"evidence\":[{\"type\":\"commit\",\"id\":\"abc1234\"}]}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("서브그래프 — 미인증 요청 거부 → 401 Unauthorized")
+    void rejectsUnauthenticatedSubgraph() throws Exception {
+        mockMvc.perform(post("/api/v1/projects/{projectId}/graph/subgraph", PROJECT_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"evidence\":[]}"))
                 .andExpect(status().isUnauthorized());
     }
 

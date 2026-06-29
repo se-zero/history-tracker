@@ -11,8 +11,11 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.ForbiddenException;
+import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
+import com.history.backend.graph.dto.GraphSubgraphResponse;
+import com.history.backend.graph.dto.SubgraphRequest;
 import com.history.backend.project.service.ProjectService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,6 +66,35 @@ class GraphServiceTest {
                 .isInstanceOf(ForbiddenException.class);
 
         // 인가 실패 시 ai-engine에 절대 요청이 가면 안 된다 (데이터 누출 차단)
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("소유권 확인 후 evidence 서브그래프 조회")
+    void fetchesSubgraphAfterOwnershipCheck() {
+        SubgraphRequest request = new SubgraphRequest(List.of(new EvidenceRef("commit", "abc1234")));
+        GraphSubgraphResponse expected = GraphSubgraphResponse.empty();
+        when(aiEngineGraphClient.fetchSubgraph(PROJECT_ID, request.evidence())).thenReturn(expected);
+
+        GraphSubgraphResponse result = graphService.getSubgraph(USER_ID, PROJECT_ID, request);
+
+        assertThat(result).isSameAs(expected);
+        // 소유권 검증이 ai-engine 호출보다 먼저 일어나야 한다
+        InOrder inOrder = inOrder(projectService, aiEngineGraphClient);
+        inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).fetchSubgraph(PROJECT_ID, request.evidence());
+    }
+
+    @Test
+    @DisplayName("서브그래프 조회 — 소유권 검증 실패 시 ai-engine 미호출")
+    void doesNotFetchSubgraphWhenOwnershipCheckFails() {
+        doThrow(new ForbiddenException("Project access denied."))
+                .when(projectService).getProject(USER_ID, PROJECT_ID);
+
+        SubgraphRequest request = new SubgraphRequest(List.of(new EvidenceRef("commit", "abc1234")));
+        assertThatThrownBy(() -> graphService.getSubgraph(USER_ID, PROJECT_ID, request))
+                .isInstanceOf(ForbiddenException.class);
+
         verifyNoInteractions(aiEngineGraphClient);
     }
 
