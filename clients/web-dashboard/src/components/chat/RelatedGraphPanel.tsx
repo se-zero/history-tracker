@@ -13,6 +13,7 @@ interface Props {
   // 인용 카드 hover로 강조할 노드 (선택과 별개 — NodeDetail은 열지 않고 시각 강조만).
   emphasizedId: string | null;
   onSelectNode: (id: string | null) => void;
+  onHoverNode: (id: string | null) => void;
   onAddToChat: (node: GraphNode) => void;
   onResizeStart: (e: React.PointerEvent) => void;
   onClose: () => void;
@@ -28,6 +29,7 @@ export function RelatedGraphPanel({
   selectedNodeId,
   emphasizedId,
   onSelectNode,
+  onHoverNode,
   onAddToChat,
   onResizeStart,
   onClose,
@@ -76,7 +78,8 @@ export function RelatedGraphPanel({
               highlighted={seedIds.length > 0 ? seedIds : null}
               selectedId={selectedNodeId}
               emphasizedId={emphasizedId}
-              onSelect={(n) => onSelectNode(n.id)}
+              onSelect={(n) => onSelectNode(n.id === selectedNodeId ? null : n.id)}
+              onHoverNode={onHoverNode}
               onBackgroundClick={() => onSelectNode(null)}
               showLegend={false}
               showFilters={false}

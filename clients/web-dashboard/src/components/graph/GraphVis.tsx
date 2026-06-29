@@ -17,6 +17,8 @@ interface Props {
   // 외부(인용 카드 hover)에서 강조할 노드 — selected보다 크게 부각해 다른 시드와 구분한다.
   emphasizedId?: string | null;
   onSelect?: (node: GraphNode) => void;
+  // 노드 hover를 외부에 알린다 — 대응 인용 카드를 역방향으로 강조하기 위함.
+  onHoverNode?: (id: string | null) => void;
   onBackgroundClick?: () => void;
   showLegend?: boolean;
   showControls?: boolean;
@@ -42,6 +44,7 @@ export function GraphVis({
   selectedId,
   emphasizedId,
   onSelect,
+  onHoverNode,
   onBackgroundClick,
   showLegend = true,
   showControls = true,
@@ -271,8 +274,14 @@ export function GraphVis({
             return (
               <g
                 key={n.id}
-                onMouseEnter={() => setHover(n.id)}
-                onMouseLeave={() => setHover(null)}
+                onMouseEnter={() => {
+                  setHover(n.id);
+                  onHoverNode?.(n.id);
+                }}
+                onMouseLeave={() => {
+                  setHover(null);
+                  onHoverNode?.(null);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelect?.(n);

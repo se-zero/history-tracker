@@ -258,6 +258,11 @@
   border-color: var(--primary);
   background: var(--primary-soft);
 }
+/* 그래프에서 노드를 hover하면 대응 카드를 카드 hover와 동일하게 강조 */
+.cite-card.emphasized {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
 .cite-card .cite-idx {
   font-family: var(--font-mono);
   font-size: 10.5px;

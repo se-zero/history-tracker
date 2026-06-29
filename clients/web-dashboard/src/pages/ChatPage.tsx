@@ -89,6 +89,11 @@ export function ChatPage({ project }: { project: Project }) {
     messageId: string;
     index: number;
   } | null>(null);
+  // 닫힌 패널/다른 답변 카드를 클릭하면, 그 답변의 서브그래프가 로드된 뒤 노드 정보를 연다.
+  const [pendingSelect, setPendingSelect] = useState<{
+    messageId: string;
+    index: number;
+  } | null>(null);
   // 비활성 답변 카드 hover 시 그래프 전환을 살짝 늦춰 스쳐 지나가는 오발동을 막는다.
   const hoverTimer = useRef<number | null>(null);
   // 활성 답변이 바뀌면 이전 답변 그래프의 노드 선택을 비운다.
@@ -130,6 +135,19 @@ export function ChatPage({ project }: { project: Project }) {
     setPendingHover(null);
     setHoveredNodeId(null);
   };
+  // 카드 클릭: 패널이 열린 현재 답변의 해석된 노드면 정보↔그래프 토글, 그 외(닫힘/다른 답변)는
+  // 패널을 열고 그 답변으로 전환한 뒤 로드되면 노드 정보를 연다.
+  const handleCardClick = (messageId: string, index: number) => {
+    if (panelOpen && messageId === activeMessageId) {
+      const nodeId = subgraphQuery.data?.seeds[index] ?? null;
+      if (nodeId == null) return;
+      setSelectedNodeId(nodeId === selectedNodeId ? null : nodeId);
+      return;
+    }
+    if (!panelOpen) setPanelOpen(true);
+    setActiveMessageId(messageId);
+    setPendingSelect({ messageId, index });
+  };
   // 강조 대상 답변의 서브그래프가 준비되면(전환 직후 로딩 포함) 해당 시드 노드를 강조한다.
   useEffect(() => {
     if (!pendingHover || pendingHover.messageId !== activeMessageId) return;
@@ -138,6 +156,14 @@ export function ChatPage({ project }: { project: Project }) {
     setHoveredNodeId(data.seeds[pendingHover.index] ?? null);
     setPendingHover(null);
   }, [pendingHover, activeMessageId, subgraphQuery.data]);
+  // 클릭으로 연 답변의 서브그래프가 준비되면 해당 노드 정보(NodeDetail)를 연다.
+  useEffect(() => {
+    if (!pendingSelect || pendingSelect.messageId !== activeMessageId) return;
+    const data = subgraphQuery.data;
+    if (!data) return;
+    setSelectedNodeId(data.seeds[pendingSelect.index] ?? null);
+    setPendingSelect(null);
+  }, [pendingSelect, activeMessageId, subgraphQuery.data]);
   // 언마운트 시 전환 타이머 정리.
   useEffect(
     () => () => {
@@ -176,15 +202,17 @@ export function ChatPage({ project }: { project: Project }) {
     window.addEventListener("pointerup", onUp);
   };
 
-  // 패널이 열리면 모든 답변 카드에 연동 정보를 내려준다(hover로 전환·강조).
-  // seeds·클릭 연동은 활성 답변일 때만 채워진다.
+  // 대화가 있으면 모든 답변 카드에 연동 정보를 내려준다 — 패널이 닫혀 있어도 카드 클릭으로 열 수 있게.
+  // seeds·hover 강조는 패널이 열린 활성 답변일 때만 의미가 있다.
   const citationFor = (m: Message): CitationLink | undefined =>
-    showPanel && m.role === "ASSISTANT"
+    conversationId && m.role === "ASSISTANT"
       ? {
+          panelOpen,
           isActive: m.id === activeMessageId,
           seeds: m.id === activeMessageId ? subgraphQuery.data?.seeds ?? [] : [],
           selectedNodeId,
-          onSelectNode: setSelectedNodeId,
+          hoveredNodeId: m.id === activeMessageId ? hoveredNodeId : null,
+          onCardClick: (index) => handleCardClick(m.id, index),
           onHoverCard: (index) => handleCardHover(m.id, index),
           onLeaveCard: handleCardLeave,
         }
@@ -350,6 +378,7 @@ export function ChatPage({ project }: { project: Project }) {
           selectedNodeId={selectedNodeId}
           emphasizedId={hoveredNodeId}
           onSelectNode={setSelectedNodeId}
+          onHoverNode={setHoveredNodeId}
           onAddToChat={handleAddToChat}
           onResizeStart={startResize}
           onClose={() => setPanelOpen(false)}
