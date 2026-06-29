@@ -10,6 +10,8 @@ interface Props {
   isError: boolean;
   onRetry: () => void;
   selectedNodeId: string | null;
+  // 인용 카드 hover로 강조할 노드 (선택과 별개 — NodeDetail은 열지 않고 시각 강조만).
+  emphasizedId: string | null;
   onSelectNode: (id: string | null) => void;
   onAddToChat: (node: GraphNode) => void;
   onClose: () => void;
@@ -23,6 +25,7 @@ export function RelatedGraphPanel({
   isError,
   onRetry,
   selectedNodeId,
+  emphasizedId,
   onSelectNode,
   onAddToChat,
   onClose,
@@ -63,6 +66,7 @@ export function RelatedGraphPanel({
               edges={data!.edges}
               highlighted={seedIds.length > 0 ? seedIds : null}
               selectedId={selectedNodeId}
+              emphasizedId={emphasizedId}
               onSelect={(n) => onSelectNode(n.id)}
               onBackgroundClick={() => onSelectNode(null)}
               showLegend={false}

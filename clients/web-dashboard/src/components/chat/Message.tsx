@@ -5,11 +5,16 @@ import { userInitials } from "@/lib/format";
 import type { Message, User } from "@/types/api";
 import { extractStructured } from "./messageStructured";
 
-// 그래프 패널이 열린 활성 답변에만 주어진다 — 인용 카드 i ↔ seeds[i] 노드 양방향 연동.
+// 그래프 패널이 열렸을 때 모든 답변 카드에 주어진다.
+// - 카드 hover: onHoverCard로 ChatPage가 그래프를 그 답변으로 전환(비활성)하거나 노드를 강조(활성)한다.
+// - 활성 답변일 때만 seeds가 채워져 클릭(NodeDetail)·선택 연동이 활성화된다.
 export interface CitationLink {
+  isActive: boolean;
   seeds: (string | null)[];
   selectedNodeId: string | null;
   onSelectNode: (id: string | null) => void;
+  onHoverCard: (index: number) => void;
+  onLeaveCard: () => void;
 }
 
 export function MessageItem({
@@ -86,8 +91,8 @@ function AssistantMessage({
         {evidence.length > 0 && (
           <div className="citation-cards">
             {evidence.map((e, i) => {
-              // 패널이 열린 활성 답변에서, 해당 evidence가 그래프 노드로 해석된 경우에만 클릭 연동.
-              const nodeId = citation?.seeds[i] ?? null;
+              // 클릭(NodeDetail)·선택은 활성 답변에서 노드로 해석된 evidence만. hover는 패널이 열린 모든 카드에서 가능.
+              const nodeId = citation?.isActive ? citation.seeds[i] ?? null : null;
               const linked = nodeId != null;
               const selected = linked && nodeId === citation!.selectedNodeId;
               return (
@@ -95,6 +100,8 @@ function AssistantMessage({
                 key={i}
                 className={"cite-card" + (selected ? " selected" : "")}
                 style={{ cursor: linked ? "pointer" : "default" }}
+                onMouseEnter={citation ? () => citation.onHoverCard(i) : undefined}
+                onMouseLeave={citation ? () => citation.onLeaveCard() : undefined}
                 onClick={linked ? () => citation!.onSelectNode(nodeId) : undefined}
               >
                 <span className="cite-idx">#{i + 1}</span>

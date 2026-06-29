@@ -68,6 +68,14 @@ export function ChatPage({ project }: { project: Project }) {
   // 화면 최상단에 보이는 답변(ChatStream이 통지) + 그 그래프에서 선택된 노드.
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // 인용 카드 hover로 강조 중인 노드, 그리고 그 강조를 어느 답변의 어느 카드에서 요청했는지.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [pendingHover, setPendingHover] = useState<{
+    messageId: string;
+    index: number;
+  } | null>(null);
+  // 비활성 답변 카드 hover 시 그래프 전환을 살짝 늦춰 스쳐 지나가는 오발동을 막는다.
+  const hoverTimer = useRef<number | null>(null);
   // 활성 답변이 바뀌면 이전 답변 그래프의 노드 선택을 비운다.
   useEffect(() => setSelectedNodeId(null), [activeMessageId]);
 
@@ -81,17 +89,63 @@ export function ChatPage({ project }: { project: Project }) {
   // 인용 카드(seeds)와 패널이 같은 결과를 공유해야 하므로 조회는 페이지에서 한 번만 한다.
   const subgraphQuery = useMessageSubgraph(project.id, showPanel ? activeMessage : null);
 
+  // 카드 hover: 활성 답변이면 바로 강조, 아니면 인텐트 딜레이 후 그 답변으로 전환한다.
+  // 어느 쪽이든 pendingHover로 표시해 두고, 그 답변의 서브그래프가 준비되면 노드 강조로 해석한다.
+  const handleCardHover = (messageId: string, index: number) => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    if (messageId === activeMessageId) {
+      setPendingHover({ messageId, index });
+    } else {
+      hoverTimer.current = window.setTimeout(() => {
+        hoverTimer.current = null;
+        setActiveMessageId(messageId); // 그래프를 이 답변으로 전환(치워도 유지됨)
+        setPendingHover({ messageId, index });
+      }, 200);
+    }
+  };
+  // 마우스를 치우면 강조만 해제하고 전환된 그래프는 유지한다. 아직 안 뜬 전환 타이머는 취소.
+  const handleCardLeave = () => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setPendingHover(null);
+    setHoveredNodeId(null);
+  };
+  // 강조 대상 답변의 서브그래프가 준비되면(전환 직후 로딩 포함) 해당 시드 노드를 강조한다.
+  useEffect(() => {
+    if (!pendingHover || pendingHover.messageId !== activeMessageId) return;
+    const data = subgraphQuery.data;
+    if (!data) return;
+    setHoveredNodeId(data.seeds[pendingHover.index] ?? null);
+    setPendingHover(null);
+  }, [pendingHover, activeMessageId, subgraphQuery.data]);
+  // 언마운트 시 전환 타이머 정리.
+  useEffect(
+    () => () => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    },
+    [],
+  );
+
   const handleAddToChat = (node: GraphNode) => {
     setDraft((d) => (d.trim() ? d + " " + node.title : node.title));
   };
 
-  // 패널이 열린 활성 답변에만 인용 카드 ↔ 노드 연동 정보를 내려준다.
+  // 패널이 열리면 모든 답변 카드에 연동 정보를 내려준다(hover로 전환·강조).
+  // seeds·클릭 연동은 활성 답변일 때만 채워진다.
   const citationFor = (m: Message): CitationLink | undefined =>
-    showPanel && m.id === activeMessageId && m.role === "ASSISTANT"
+    showPanel && m.role === "ASSISTANT"
       ? {
-          seeds: subgraphQuery.data?.seeds ?? [],
+          isActive: m.id === activeMessageId,
+          seeds: m.id === activeMessageId ? subgraphQuery.data?.seeds ?? [] : [],
           selectedNodeId,
           onSelectNode: setSelectedNodeId,
+          onHoverCard: (index) => handleCardHover(m.id, index),
+          onLeaveCard: handleCardLeave,
         }
       : undefined;
 
@@ -242,6 +296,7 @@ export function ChatPage({ project }: { project: Project }) {
           isError={subgraphQuery.isError}
           onRetry={() => subgraphQuery.refetch()}
           selectedNodeId={selectedNodeId}
+          emphasizedId={hoveredNodeId}
           onSelectNode={setSelectedNodeId}
           onAddToChat={handleAddToChat}
           onClose={() => setPanelOpen(false)}

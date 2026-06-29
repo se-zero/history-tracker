@@ -81,6 +81,14 @@ export function ChatStream({
       if (activeId === null && els.length > 0) {
         activeId = els[els.length - 1].dataset.messageId ?? null;
       }
+      // 바닥까지 내렸을 땐 가장 최근 답변을 활성으로 둔다 — 짧은 답변이 한 화면에 여러 개
+      // 보여도 마지막 화면 분량은 상단까지 끌어올릴 수 없어 "최상단" 기준으론 도달 못 하기 때문.
+      if (
+        els.length > 0 &&
+        root.scrollTop + root.clientHeight >= root.scrollHeight - 8
+      ) {
+        activeId = els[els.length - 1].dataset.messageId ?? null;
+      }
       if (activeId !== activeIdRef.current) {
         activeIdRef.current = activeId;
         onActiveMessageChange(activeId);
