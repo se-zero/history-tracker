@@ -13,6 +13,7 @@
 
 import logging
 import os
+import re
 
 from graph.builder import get_driver
 
@@ -292,7 +293,10 @@ WHERE n.project_id = $project_id
     (n:ChangeSet AND any(p IN $commit_prefixes WHERE n.hash STARTS WITH p))
     OR (n:PullRequest AND n.pr_number IN $pr_numbers)
     OR (n:Issue AND n.jira_key IN $jira_keys)
-    OR (n:Communication AND n.conversation_id IN $conv_ids)
+    OR (n:Communication AND (
+        replace(n.conversation_id, '.', '') IN $conv_ids
+        OR split(coalesce(n.url, ''), '/p')[-1] IN $conv_ids
+    ))
   )
 WITH collect(n) AS seeds
 CALL (seeds) {{
@@ -308,12 +312,28 @@ RETURN {_NODE_RETURN_FIELDS}
 """
 
 
+def _slack_ts_key(raw: str) -> str:
+    """Slack 메시지 식별자를 비교용 정규형(숫자만)으로 환원한다.
+
+    LLM이 conversation_id 대신 퍼머링크(.../p<숫자>)나 점 없는 ts를 evidence.id에 넣는
+    경우가 많아, 형식을 흡수해 저장된 conversation_id(점 제거형)와 맞춘다. 퍼머링크면
+    마지막 '/p' 뒤를, 그 외에는 점 제거 후 앞쪽 숫자열만 취한다(숫자 없으면 "").
+    """
+    s = raw.strip()
+    if "/p" in s:
+        s = s.rsplit("/p", 1)[-1]
+    s = s.replace(".", "")
+    m = re.match(r"\d+", s)
+    return m.group(0) if m else ""
+
+
 def _normalize_evidence(item: dict) -> tuple[str, str] | None:
     """evidence 1건을 (type, 조회 키)로 정규화한다 — group/resolve가 공유하는 단일 규칙.
 
-    빈 id·미지 타입·숫자 아닌 PR 번호는 무효로 None. 파싱 규칙을 한 곳에 모아, 한쪽만 바뀌어
-    "group은 수집했는데 resolve는 못 찾는" drift가 생기는 걸 구조적으로 막는다.
-    pull_request는 "#42"/"42"를 숫자 문자열 "42"로, 나머지는 strip한 id를 그대로 키로 쓴다.
+    빈 id·미지 타입·숫자 아닌 PR 번호·숫자로 환원 안 되는 message는 무효로 None. 파싱 규칙을
+    한 곳에 모아, 한쪽만 바뀌어 "group은 수집했는데 resolve는 못 찾는" drift를 구조적으로 막는다.
+    pull_request는 "#42"/"42"를 "42"로, message는 ts/퍼머링크/점없는 ts를 숫자 정규형으로,
+    나머지는 strip한 id를 그대로 키로 쓴다.
     """
     etype = (item.get("type") or "").strip()
     eid = (item.get("id") or "").strip()
@@ -327,7 +347,8 @@ def _normalize_evidence(item: dict) -> tuple[str, str] | None:
     if etype == "issue":
         return ("issue", eid)
     if etype == "message":
-        return ("message", eid)
+        key = _slack_ts_key(eid)
+        return ("message", key) if key else None
     return None
 
 
@@ -385,9 +406,16 @@ def _resolve_seed_ids(evidence: list[dict], node_rows: list[dict]) -> list[str |
                     None,
                 )
             elif etype == "message":
+                # conversation_id(스레드 ts)뿐 아니라 url의 자기 ts(/p 뒤)와도 매칭한다 —
+                # 답글은 conversation_id가 부모 ts라, LLM이 답글 자기 ts/퍼머링크를 인용하면
+                # url로만 잡힌다.
                 match = next(
                     (r["id"] for r in node_rows
-                     if r.get("label") == "Communication" and r.get("conversation_id") == key),
+                     if r.get("label") == "Communication"
+                     and key in {
+                         (r.get("conversation_id") or "").replace(".", ""),
+                         _slack_ts_key(r.get("url") or ""),
+                     }),
                     None,
                 )
         seeds.append(match)
