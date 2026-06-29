@@ -26,6 +26,7 @@ public class GitHubWebhookService {
     private final ProjectIntegrationService projectIntegrationService;
     private final PipelineService pipelineService;
     private final TaskExecutor taskExecutor;
+    private final ProjectCollectionSerializer collectionSerializer;
 
     public GitHubWebhookService(
             ObjectMapper objectMapper,
@@ -34,7 +35,8 @@ public class GitHubWebhookService {
             GitHubInstallationTokenClient installationTokenClient,
             ProjectIntegrationService projectIntegrationService,
             PipelineService pipelineService,
-            @Qualifier("webhookTaskExecutor") TaskExecutor taskExecutor
+            @Qualifier("webhookTaskExecutor") TaskExecutor taskExecutor,
+            ProjectCollectionSerializer collectionSerializer
     ) {
         this.objectMapper = objectMapper;
         this.verifier = verifier;
@@ -43,6 +45,7 @@ public class GitHubWebhookService {
         this.projectIntegrationService = projectIntegrationService;
         this.pipelineService = pipelineService;
         this.taskExecutor = taskExecutor;
+        this.collectionSerializer = collectionSerializer;
     }
 
     public WebhookResult handle(HttpHeaders headers, String payload) {
@@ -96,6 +99,9 @@ public class GitHubWebhookService {
             taskExecutor.execute(() -> runCollection(deliveryId, collectionContext));
         } catch (RejectedExecutionException e) {
             // executor 포화로 큐잉 실패 시 claim 해제 — GitHub 재전송의 재claim 허용 (FAILED로 굳히지 않음)
+            // 반복 발생 시 P-2 2단계(webhook 동시성 증가) 신호 — webhook 풀 큐(capacity) 초과
+            log.warn("webhook executor 포화로 수집 거부(큐 용량 초과): deliveryId={}, projectId={}",
+                    deliveryId, collectionContext.projectId());
             webhookDeliveryService.releaseClaim(deliveryId);
             throw e;
         } catch (RuntimeException e) {
@@ -132,7 +138,10 @@ public class GitHubWebhookService {
 
     private void runCollection(String deliveryId, ProjectCollectionContext context) {
         try {
-            CollectionResult result = pipelineService.collectIncremental(context);
+            // 같은 프로젝트의 동시 수집을 직렬화 — webhook 풀 동시성>1에서 중복 풀스캔 방지
+            CollectionResult result = collectionSerializer.callExclusively(
+                    context.projectId(),
+                    () -> pipelineService.collectIncremental(context));
             webhookDeliveryService.markProcessed(deliveryId);
             log.info("Webhook-triggered collection completed: deliveryId={}, projectId={}, github={}, jira={}, slack={}",
                     deliveryId, context.projectId(), result.github(), result.jira(), result.slack());

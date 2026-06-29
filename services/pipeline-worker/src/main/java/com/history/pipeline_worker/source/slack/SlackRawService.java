@@ -6,11 +6,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -33,13 +35,21 @@ public class SlackRawService {
     private final WebClient webClient;
     private final SlackRateLimiter rateLimiter;
 
+    // auth(워크스페이스 토큰)별 users.list 결과 캐시 — webhook 수집마다 전체 멤버 재조회 방지
+    private final Map<String, CachedUserMap> userMapCache = new ConcurrentHashMap<>();
+    private final Duration userMapCacheTtl;
+
+    private record CachedUserMap(Map<String, UserInfo> userMap, Instant fetchedAt) {}
+
     public SlackRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.slack.base-url}") String baseUrl,
-            SlackRateLimiter rateLimiter
+            SlackRateLimiter rateLimiter,
+            @Value("${app.slack.user-map-cache-ttl:5m}") Duration userMapCacheTtl
     ) {
         this.webClient = webClientBuilder.baseUrl(baseUrl).build();
         this.rateLimiter = rateLimiter;
+        this.userMapCacheTtl = userMapCacheTtl;
     }
 
     public Map<String, Object> fetchSample(RawFetchRequest request) {
@@ -67,7 +77,18 @@ public class SlackRawService {
 
     public SlackFetchContext prepareFetchContext(RawFetchRequest request, Instant lastScannedAt) {
         String auth = request.credentials();
-        return new SlackFetchContext(auth, lastScannedAt, fetchUserMap(auth));
+        return new SlackFetchContext(auth, lastScannedAt, cachedUserMap(auth));
+    }
+
+    /** auth별 userMap을 TTL 동안 재사용. 만료/미존재면 users.list 재조회 후 캐시 갱신. */
+    private Map<String, UserInfo> cachedUserMap(String auth) {
+        CachedUserMap cached = userMapCache.get(auth);
+        if (cached != null && Duration.between(cached.fetchedAt(), Instant.now()).compareTo(userMapCacheTtl) < 0) {
+            return cached.userMap();
+        }
+        Map<String, UserInfo> userMap = fetchUserMap(auth);
+        userMapCache.put(auth, new CachedUserMap(userMap, Instant.now()));
+        return userMap;
     }
 
     public List<Object> fetchChannels(SlackFetchContext context) {

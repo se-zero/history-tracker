@@ -6,6 +6,8 @@ spring:
     port: 5672
     username: guest
     password: guest
+    publisher-confirm-type: correlated  # CorrelationData별 broker ack/nack 수신 (EventPublisher 유실 감지)
+    publisher-returns: true             # mandatory 발행 + 라우팅 실패 시 메시지 반환
   datasource:
     url: ${PIPELINE_WORKER_DATASOURCE_URL:jdbc:postgresql://localhost:5432/history_tracker}
     username: ${PIPELINE_WORKER_DATASOURCE_USERNAME:history}
@@ -34,6 +36,7 @@ app:
     max-pages-per-run: 50
   slack:
     base-url: https://slack.com/api
+    user-map-cache-ttl: 5m  # users.list 결과 캐시 TTL. webhook 수집마다 전체 멤버 재조회 방지(0 = 캐시 비활성).
 
   rabbitmq:
     exchange: history.exchange
@@ -41,14 +44,22 @@ app:
     routing-key-github: event.github
     routing-key-jira: event.jira
     routing-key-slack: event.slack
+    publish-confirm-timeout-ms: 10000   # 한 배치 발행의 broker confirm 대기 한도. 초과 시 수집 실패 처리(재발행)
 
   webhook:
     github:
       secret: ""  # GitHub webhook secret. X-Hub-Signature-256 검증에 사용.
     executor:
+      pool-size: 4              # webhook 동시 처리 수. 동일 프로젝트는 collection-lock으로 직렬화됨.
       await-termination-seconds: 300
+    collection-lock-stripes: 32  # 프로젝트 단위 수집 직렬화 lock stripe 수
     delivery:
       stale-in-progress-timeout: 10m
+  collection:
+    executor:
+      pool-size: 3              # 초기 수집 전용 풀. provider(github/jira/slack)별 병렬 실행 허용.
+      queue-capacity: 100
+      await-termination-seconds: 300
   rate-limit:
     github:
       default-delay-ms: 300

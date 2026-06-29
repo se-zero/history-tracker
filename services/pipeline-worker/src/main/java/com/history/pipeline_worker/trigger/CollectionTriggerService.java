@@ -23,11 +23,12 @@ public class CollectionTriggerService {
     public CollectionTriggerService(
             ProjectIntegrationService projectIntegrationService,
             PipelineService pipelineService,
-            @Qualifier("webhookTaskExecutor") TaskExecutor taskExecutor
+            @Qualifier("collectionTaskExecutor") TaskExecutor taskExecutor
     ) {
         this.projectIntegrationService = projectIntegrationService;
         this.pipelineService = pipelineService;
-        // 초기 수집과 webhook이 현재 같은 용량 제한을 공유한다. 부하가 분리되면 전용 executor로 교체한다.
+        // 장기 실행되는 초기 수집은 webhook 증분 수집과 풀을 분리한다(collectionTaskExecutor).
+        // webhook 유실 방지를 위해 초기 수집이 webhook 풀을 점유하지 못하게 한다.
         this.taskExecutor = taskExecutor;
     }
 

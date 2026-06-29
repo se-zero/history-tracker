@@ -10,8 +10,10 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,7 +37,8 @@ class SlackRawServiceTest {
         SlackRawService service = new SlackRawService(
                 webClientBuilder,
                 "https://slack.example",
-                new SlackRateLimiter(0, 0, 0)
+                new SlackRateLimiter(0, 0, 0),
+                Duration.ofMinutes(5)
         );
 
         Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", null, Map.of()));
@@ -53,6 +56,48 @@ class SlackRawServiceTest {
         assertThat(replies.get(0)).containsEntry("ts", "1700000100.000000")
                 .containsEntry("userName", "Alice");
         assertThat(repliesQuery.get()).doesNotContain("oldest=");
+    }
+
+    @Test
+    @DisplayName("TTL 내 재호출은 users.list를 재조회하지 않고 캐시를 재사용한다")
+    void cachesUserMapWithinTtl() {
+        AtomicInteger usersListCalls = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    if ("/users.list".equals(request.url().getPath())) {
+                        usersListCalls.incrementAndGet();
+                    }
+                    return Mono.just(jsonResponse(responseFor(request)));
+                });
+        SlackRawService service = new SlackRawService(
+                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ofMinutes(5));
+        RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
+
+        service.prepareFetchContext(request, null);
+        service.prepareFetchContext(request, null);
+
+        assertThat(usersListCalls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("TTL=0이면 캐시가 비활성화되어 매번 users.list를 재조회한다")
+    void refetchesUserMapWhenTtlZero() {
+        AtomicInteger usersListCalls = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    if ("/users.list".equals(request.url().getPath())) {
+                        usersListCalls.incrementAndGet();
+                    }
+                    return Mono.just(jsonResponse(responseFor(request)));
+                });
+        SlackRawService service = new SlackRawService(
+                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ZERO);
+        RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
+
+        service.prepareFetchContext(request, null);
+        service.prepareFetchContext(request, null);
+
+        assertThat(usersListCalls.get()).isEqualTo(2);
     }
 
     private ClientResponse jsonResponse(String body) {

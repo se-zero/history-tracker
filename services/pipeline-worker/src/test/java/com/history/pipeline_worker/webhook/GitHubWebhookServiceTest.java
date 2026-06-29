@@ -44,7 +44,8 @@ class GitHubWebhookServiceTest {
                 installationTokenClient,
                 projectIntegrationService,
                 pipelineService,
-                new SyncTaskExecutor()
+                new SyncTaskExecutor(),
+                new ProjectCollectionSerializer(8)
         );
     }
 
@@ -219,7 +220,8 @@ class GitHubWebhookServiceTest {
                 installationTokenClient,
                 projectIntegrationService,
                 pipelineService,
-                rejectingExecutor
+                rejectingExecutor,
+                new ProjectCollectionSerializer(8)
         );
 
         when(verifier.verify(payload, "sig")).thenReturn(true);

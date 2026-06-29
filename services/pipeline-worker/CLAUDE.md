@@ -45,7 +45,7 @@ cd services/pipeline-worker
 backend integration connect commit
   -> POST /api/v1/collect/{provider} {projectId}
   -> ProjectIntegrationService로 해당 provider 연동 조회·credential 복호화
-  -> webhookTaskExecutor에서 비동기 실행
+  -> collectionTaskExecutor에서 비동기 실행 (webhook 풀과 분리된 초기 수집 전용 풀)
   -> PipelineService.normalize{Provider}(...)
   -> RabbitMQ publish
   -> DB checkpoint 갱신
@@ -78,6 +78,7 @@ backend에 installation이 없으면 `404`, backend 호출 실패 또는 token �
 Jira/Slack 연동은 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
 `webhookTaskExecutor`가 작업을 받을 수 없으면 `IN_PROGRESS` claim을 해제해 GitHub 재시도가 다시 claim할 수 있게 한다.
 애플리케이션 시작 시 `app.webhook.delivery.stale-in-progress-timeout`보다 오래된 `IN_PROGRESS` delivery는 `FAILED`로 정리한다.
+`webhookTaskExecutor`는 `app.webhook.executor.pool-size`(기본 4)로 여러 프로젝트 webhook을 병렬 처리한다. 단 동일 프로젝트의 동시 수집은 `ProjectCollectionSerializer`(project id striped lock)가 직렬화해 같은 구간 중복 풀스캔을 막는다. 초기 수집(`collectionTaskExecutor`)은 provider별 병렬이 의도라 직렬화 대상이 아니다.
 
 ## RabbitMQ 라우팅
 
@@ -89,11 +90,15 @@ Jira/Slack 연동은 선택 항목이므로 credential 또는 external_ref가 �
 
 Exchange: `history.exchange` / Queue: `history.events`
 
+발행은 publisher confirm으로 검증한다. `EventPublisher`가 메시지를 일괄 전송한 뒤 `CorrelationData`별 broker ack/return을 모아 대기하고, 한 건이라도 nack·라우팅 실패(unroutable)·타임아웃이면 `EventPublishException`을 던진다. 그러면 `PipelineService`가 해당 checkpoint를 전진시키지 않아(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)을 막고 다음 수집에서 재발행한다. 이를 위해 연결은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿은 `mandatory=true`로 설정한다. confirm 대기 한도는 `app.rabbitmq.publish-confirm-timeout-ms`.
+
 ## Rate Limiting
 
 - **GitHub**: 기본 300ms 고정 딜레이. `X-RateLimit-Remaining`이 임계값 이하이면 `X-RateLimit-Reset`까지 대기.
 - **Slack**: endpoint별 고정 딜레이 (`conversations.list` / `history` / `replies`).
 - **Jira**: 호출당 200ms 고정 딜레이.
+
+Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비싸므로(Tier 2, 페이지당 3s), auth별로 `app.slack.user-map-cache-ttl`(기본 5m) 동안 캐시해 실행 간 재사용한다. 트레이드오프: TTL 윈도우 안에 가입한 신규 멤버의 메시지는 그 동안 `userName`/`userEmail` 보강 없이 수집될 수 있으며, ai-engine의 Actor 보정이 backstop이다. 정합성을 더 조이려면 TTL을 줄이거나(0=비활성) miss-refresh로 발전시킨다.
 
 ## Checkpoint
 
@@ -121,6 +126,7 @@ Exchange: `history.exchange` / Queue: `history.events`
 - rate limit 값
 - GitHub webhook secret
 - webhook executor 종료 대기 시간
+- 초기 수집 executor 풀 크기·큐·종료 대기 시간 (`app.collection.executor.*`)
 - stale `IN_PROGRESS` webhook delivery 정리 기준 시간
 
 사용자/프로젝트별 credential은 `application.yaml`에 두지 않는다. DB의 project integration 정보에서 조회하고 `security.credentials.key`로 복호화한다.
