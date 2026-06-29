@@ -59,6 +59,9 @@ public class RabbitMqConfig {
                                           MessageConverter messageConverter) {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
         template.setMessageConverter(messageConverter);
+        // 라우팅 실패(unroutable) 메시지를 broker가 반환하게 한다.
+        // publisher-returns가 켜진 연결과 함께 동작해 EventPublisher가 CorrelationData.getReturned()로 유실을 감지한다.
+        template.setMandatory(true);
         return template;
     }
 }
