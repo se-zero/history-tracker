@@ -1,8 +1,26 @@
 import { api } from "./client";
-import type { GraphBuildResult, GraphBuildStatus, GraphData } from "@/types/graph";
+import type {
+  GraphBuildResult,
+  GraphBuildStatus,
+  GraphData,
+  SubgraphData,
+} from "@/types/graph";
 
 export async function getProjectGraph(projectId: string): Promise<GraphData> {
   const { data } = await api.get<GraphData>(`/projects/${projectId}/graph`);
+  return data;
+}
+
+// 답변 evidence(도메인 키)로 관련 서브그래프를 조회한다 (대화 화면 그래프 패널용).
+// 응답 nodes/edges/seeds는 이미 camelCase 형태라 별도 매핑이 필요 없다.
+export async function getMessageSubgraph(
+  projectId: string,
+  evidence: Array<{ type: string; id: string }>,
+): Promise<SubgraphData> {
+  const { data } = await api.post<SubgraphData>(
+    `/projects/${projectId}/graph/subgraph`,
+    { evidence },
+  );
   return data;
 }
 

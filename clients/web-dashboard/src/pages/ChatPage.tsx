@@ -1,12 +1,18 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { Icons } from "@/components/Icons";
 import { StatusView } from "@/components/StatusView";
 import { ChatEmpty } from "@/components/chat/ChatEmpty";
 import { ChatStream } from "@/components/chat/ChatStream";
 import { Composer } from "@/components/chat/Composer";
-import { MessageItem, UserMessage } from "@/components/chat/Message";
+import {
+  MessageItem,
+  UserMessage,
+  type CitationLink,
+} from "@/components/chat/Message";
+import { RelatedGraphPanel } from "@/components/chat/RelatedGraphPanel";
 import { ThinkingState } from "@/components/chat/ThinkingState";
 import { createConversation, sendMessage } from "@/api/conversations";
 import { useAuth } from "@/auth/AuthProvider";
@@ -15,7 +21,15 @@ import {
   useConversation,
   useLoadOlderMessages,
 } from "@/hooks/useConversations";
-import type { ConversationDetail, Project } from "@/types/api";
+import { useMessageSubgraph } from "@/hooks/useGraph";
+import type { ConversationDetail, Message, Project } from "@/types/api";
+import type { GraphNode } from "@/types/graph";
+
+// 관련 그래프 패널 너비 한계(px). 채팅 영역이 너무 좁아지지 않게 드래그 시 동적 상한도 적용한다.
+const MIN_PANEL_W = 280;
+const MAX_PANEL_W = 680;
+const clampPanelWidth = (w: number) =>
+  Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, w));
 
 export function ChatPage({ project }: { project: Project }) {
   const { conversationId } = useParams();
@@ -49,6 +63,165 @@ export function ChatPage({ project }: { project: Project }) {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState(false);
+
+  // 관련 그래프 패널 — 열림 여부는 사용자 선호라 localStorage에 영속한다.
+  const [panelOpen, setPanelOpen] = useState(
+    () => localStorage.getItem("chat:graphPanel") === "1",
+  );
+  useEffect(() => {
+    localStorage.setItem("chat:graphPanel", panelOpen ? "1" : "0");
+  }, [panelOpen]);
+  // 패널 너비도 사용자 선호라 영속한다. 드래그 중엔 transition을 꺼 끊김을 없앤다.
+  const [panelWidth, setPanelWidth] = useState(() =>
+    clampPanelWidth(Number(localStorage.getItem("chat:graphPanelWidth")) || 360),
+  );
+  const [resizing, setResizing] = useState(false);
+  const chatWrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    localStorage.setItem("chat:graphPanelWidth", String(panelWidth));
+  }, [panelWidth]);
+  // 화면 최상단에 보이는 답변(ChatStream이 통지) + 그 그래프에서 선택된 노드.
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // 인용 카드 hover로 강조 중인 노드, 그리고 그 강조를 어느 답변의 어느 카드에서 요청했는지.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [pendingHover, setPendingHover] = useState<{
+    messageId: string;
+    index: number;
+  } | null>(null);
+  // 닫힌 패널/다른 답변 카드를 클릭하면, 그 답변의 서브그래프가 로드된 뒤 노드 정보를 연다.
+  const [pendingSelect, setPendingSelect] = useState<{
+    messageId: string;
+    index: number;
+  } | null>(null);
+  // 비활성 답변 카드 hover 시 그래프 전환을 살짝 늦춰 스쳐 지나가는 오발동을 막는다.
+  const hoverTimer = useRef<number | null>(null);
+  // 활성 답변이 바뀌면 이전 답변 그래프의 노드 선택을 비운다.
+  useEffect(() => setSelectedNodeId(null), [activeMessageId]);
+
+  const showPanel = panelOpen && !!conversationId;
+  const activeMessage = useMemo(
+    () =>
+      messages.find((m) => m.id === activeMessageId && m.role === "ASSISTANT") ??
+      null,
+    [messages, activeMessageId],
+  );
+  // 인용 카드(seeds)와 패널이 같은 결과를 공유해야 하므로 조회는 페이지에서 한 번만 한다.
+  const subgraphQuery = useMessageSubgraph(project.id, showPanel ? activeMessage : null);
+
+  // 카드 hover: 활성 답변이면 바로 강조, 아니면 인텐트 딜레이 후 그 답변으로 전환한다.
+  // 어느 쪽이든 pendingHover로 표시해 두고, 그 답변의 서브그래프가 준비되면 노드 강조로 해석한다.
+  const handleCardHover = (messageId: string, index: number) => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    if (messageId === activeMessageId) {
+      setPendingHover({ messageId, index });
+    } else {
+      hoverTimer.current = window.setTimeout(() => {
+        hoverTimer.current = null;
+        setActiveMessageId(messageId); // 그래프를 이 답변으로 전환(치워도 유지됨)
+        setPendingHover({ messageId, index });
+      }, 200);
+    }
+  };
+  // 마우스를 치우면 강조만 해제하고 전환된 그래프는 유지한다. 아직 안 뜬 전환 타이머는 취소.
+  const handleCardLeave = () => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setPendingHover(null);
+    setHoveredNodeId(null);
+  };
+  // 카드 클릭: 패널이 열린 현재 답변의 해석된 노드면 정보↔그래프 토글, 그 외(닫힘/다른 답변)는
+  // 패널을 열고 그 답변으로 전환한 뒤 로드되면 노드 정보를 연다.
+  const handleCardClick = (messageId: string, index: number) => {
+    if (panelOpen && messageId === activeMessageId) {
+      const nodeId = subgraphQuery.data?.seeds[index] ?? null;
+      if (nodeId == null) return;
+      setSelectedNodeId(nodeId === selectedNodeId ? null : nodeId);
+      return;
+    }
+    if (!panelOpen) setPanelOpen(true);
+    setActiveMessageId(messageId);
+    setPendingSelect({ messageId, index });
+  };
+  // 강조 대상 답변의 서브그래프가 준비되면(전환 직후 로딩 포함) 해당 시드 노드를 강조한다.
+  useEffect(() => {
+    if (!pendingHover || pendingHover.messageId !== activeMessageId) return;
+    const data = subgraphQuery.data;
+    if (!data) return;
+    setHoveredNodeId(data.seeds[pendingHover.index] ?? null);
+    setPendingHover(null);
+  }, [pendingHover, activeMessageId, subgraphQuery.data]);
+  // 클릭으로 연 답변의 서브그래프가 준비되면 해당 노드 정보(NodeDetail)를 연다.
+  useEffect(() => {
+    if (!pendingSelect || pendingSelect.messageId !== activeMessageId) return;
+    const data = subgraphQuery.data;
+    if (!data) return;
+    setSelectedNodeId(data.seeds[pendingSelect.index] ?? null);
+    setPendingSelect(null);
+  }, [pendingSelect, activeMessageId, subgraphQuery.data]);
+  // 언마운트 시 전환 타이머 정리.
+  useEffect(
+    () => () => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    },
+    [],
+  );
+
+  const handleAddToChat = (node: GraphNode) => {
+    setDraft((d) => (d.trim() ? d + " " + node.title : node.title));
+  };
+
+  // 패널 왼쪽 핸들 드래그로 너비 조절 — wrap 오른쪽 끝 기준으로 너비를 계산한다.
+  // 채팅 영역이 360px 미만으로 좁아지지 않게 드래그 시작 시점에 상한을 정한다.
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const wrap = chatWrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const wrapRight = rect.right;
+    const maxW = Math.max(MIN_PANEL_W, Math.min(MAX_PANEL_W, rect.width - 360));
+    setResizing(true);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    const onMove = (ev: PointerEvent) => {
+      setPanelWidth(Math.min(maxW, Math.max(MIN_PANEL_W, wrapRight - ev.clientX)));
+    };
+    const onUp = () => {
+      setResizing(false);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  // 대화가 있으면 모든 답변 카드에 연동 정보를 내려준다 — 패널이 닫혀 있어도 카드 클릭으로 열 수 있게.
+  // seeds·hover 강조는 패널이 열린 활성 답변일 때만 의미가 있다.
+  const citationFor = (m: Message): CitationLink | undefined =>
+    conversationId && m.role === "ASSISTANT"
+      ? {
+          panelOpen,
+          isActive: m.id === activeMessageId,
+          seeds: m.id === activeMessageId ? subgraphQuery.data?.seeds ?? [] : [],
+          selectedNodeId,
+          hoveredNodeId: m.id === activeMessageId ? hoveredNodeId : null,
+          onCardClick: (index) => handleCardClick(m.id, index),
+          onHoverCard: (index) => handleCardHover(m.id, index),
+          onLeaveCard: handleCardLeave,
+        }
+      : undefined;
+
+  const renderMessages = () =>
+    messages.map((m) => (
+      <MessageItem key={m.id} message={m} user={user} citation={citationFor(m)} />
+    ));
 
   // 전송 실패 시 친 내용이 사라지지 않도록 입력창에 복구하고 에러를 표시한다.
   // 그 사이 새로 입력한 내용이 있으면 덮어쓰지 않는다.
@@ -129,16 +302,35 @@ export function ChatPage({ project }: { project: Project }) {
     isLoadingOlder: loadOlder.isPending,
     olderError: loadOlder.isError,
     onReachTop: handleReachTop,
+    onActiveMessageChange: setActiveMessageId,
   };
 
   return (
-    <div className="chat-wrap">
+    <div
+      ref={chatWrapRef}
+      className={"chat-wrap" + (showPanel ? " with-panel" : "")}
+      style={
+        showPanel
+          ? {
+              gridTemplateColumns: `1fr ${panelWidth}px`,
+              transition: resizing ? "none" : undefined,
+            }
+          : undefined
+      }
+    >
+      {conversationId && !panelOpen && (
+        <button
+          className="graph-toggle"
+          onClick={() => setPanelOpen(true)}
+          title="관련 그래프 보기"
+        >
+          <Icons.Graph size={15} /> 관련 그래프
+        </button>
+      )}
       <div className="chat">
         {pendingMessage !== null ? (
           <ChatStream {...streamProps}>
-            {messages.map((m) => (
-              <MessageItem key={m.id} message={m} user={user} />
-            ))}
+            {renderMessages()}
             <UserMessage content={pendingMessage} user={user} />
             <ThinkingState />
           </ChatStream>
@@ -161,11 +353,7 @@ export function ChatPage({ project }: { project: Project }) {
             }
           />
         ) : (
-          <ChatStream {...streamProps}>
-            {messages.map((m) => (
-              <MessageItem key={m.id} message={m} user={user} />
-            ))}
-          </ChatStream>
+          <ChatStream {...streamProps}>{renderMessages()}</ChatStream>
         )}
         <Composer
           project={project}
@@ -181,6 +369,21 @@ export function ChatPage({ project }: { project: Project }) {
           }
         />
       </div>
+      {showPanel && (
+        <RelatedGraphPanel
+          data={subgraphQuery.data}
+          isLoading={subgraphQuery.isLoading}
+          isError={subgraphQuery.isError}
+          onRetry={() => subgraphQuery.refetch()}
+          selectedNodeId={selectedNodeId}
+          emphasizedId={hoveredNodeId}
+          onSelectNode={setSelectedNodeId}
+          onHoverNode={setHoveredNodeId}
+          onAddToChat={handleAddToChat}
+          onResizeStart={startResize}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
     </div>
   );
 }

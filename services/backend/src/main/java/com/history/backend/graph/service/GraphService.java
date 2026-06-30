@@ -4,6 +4,8 @@ import java.util.UUID;
 
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
+import com.history.backend.graph.dto.GraphSubgraphResponse;
+import com.history.backend.graph.dto.SubgraphRequest;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,12 @@ public class GraphService {
     public GraphResponse getProjectGraph(UUID ownerId, UUID projectId, Integer limit, String types) {
         projectService.getProject(ownerId, projectId);
         return aiEngineGraphClient.fetchOverview(projectId, limit, types);
+    }
+
+    // 소유권 검증 후 답변 evidence가 가리키는 관련 서브그래프를 ai-engine에서 조회한다 (대화 화면 그래프 패널용).
+    public GraphSubgraphResponse getSubgraph(UUID ownerId, UUID projectId, SubgraphRequest request) {
+        projectService.getProject(ownerId, projectId);
+        return aiEngineGraphClient.fetchSubgraph(projectId, request.evidence());
     }
 
     // 소유권 검증 후 ai-engine 후처리 빌드를 프로젝트 단위로 트리거한다 — 소스 간 시맨틱 엣지 재구축.

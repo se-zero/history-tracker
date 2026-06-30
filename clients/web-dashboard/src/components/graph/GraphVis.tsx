@@ -14,10 +14,15 @@ interface Props {
   edges: GraphEdge[];
   highlighted?: Iterable<string> | null;
   selectedId?: string | null;
+  // 외부(인용 카드 hover)에서 강조할 노드 — selected보다 크게 부각해 다른 시드와 구분한다.
+  emphasizedId?: string | null;
   onSelect?: (node: GraphNode) => void;
+  // 노드 hover를 외부에 알린다 — 대응 인용 카드를 역방향으로 강조하기 위함.
+  onHoverNode?: (id: string | null) => void;
   onBackgroundClick?: () => void;
   showLegend?: boolean;
   showControls?: boolean;
+  showFit?: boolean;
   showFilters?: boolean;
   compact?: boolean;
   showLabels?: boolean;
@@ -37,10 +42,13 @@ export function GraphVis({
   edges,
   highlighted,
   selectedId,
+  emphasizedId,
   onSelect,
+  onHoverNode,
   onBackgroundClick,
   showLegend = true,
   showControls = true,
+  showFit = true,
   showFilters = true,
   compact = false,
   showLabels = true,
@@ -238,14 +246,22 @@ export function GraphVis({
           {positioned.filter(isAllowed).map((n) => {
             const isHi = !!hi && hi.has(n.id);
             const isSel = selectedId === n.id;
-            const isHover = hover === n.id;
+            const isEmph = !!emphasizedId && emphasizedId === n.id;
+            const isHover = hover === n.id || isEmph;
             const cls = ["gnode-circle"];
             if (hi && !isHi) cls.push("dim");
             if (isHi || isSel || isHover) cls.push("hot");
             const fill = nodeTypeColors
               ? NODE_TYPE_INFO[n.type].cssVar
               : "var(--node-code)";
-            const r = isSel ? rSel : isHi || isHover ? rBase + 2 : rBase;
+            // 카드 hover 강조는 selected보다 한 단계 더 키워 다른 시드 사이에서 또렷하게 한다.
+            const r = isEmph
+              ? rSel + 2
+              : isSel
+                ? rSel
+                : isHi || isHover
+                  ? rBase + 2
+                  : rBase;
             let anchor: "start" | "middle" | "end" = "middle";
             let dx = 0;
             if (n.px < 90) {
@@ -258,8 +274,14 @@ export function GraphVis({
             return (
               <g
                 key={n.id}
-                onMouseEnter={() => setHover(n.id)}
-                onMouseLeave={() => setHover(null)}
+                onMouseEnter={() => {
+                  setHover(n.id);
+                  onHoverNode?.(n.id);
+                }}
+                onMouseLeave={() => {
+                  setHover(null);
+                  onHoverNode?.(null);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelect?.(n);
@@ -330,9 +352,11 @@ export function GraphVis({
           <button className="icon-btn" title="Zoom out" onClick={() => zoom(0.83)}>
             <Icons.ZoomOut />
           </button>
-          <button className="icon-btn" title="Fit" onClick={fit}>
-            <Icons.Fit />
-          </button>
+          {showFit && (
+            <button className="icon-btn" title="Fit" onClick={fit}>
+              <Icons.Fit />
+            </button>
+          )}
         </div>
       )}
 
