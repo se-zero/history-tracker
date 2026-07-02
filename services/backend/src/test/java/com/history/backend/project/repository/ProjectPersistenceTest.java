@@ -2,6 +2,8 @@ package com.history.backend.project.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
+
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.project.domain.Project;
@@ -53,7 +55,7 @@ class ProjectPersistenceTest {
         Project project = projectRepository.save(new Project(owner, "History Tracker", "GraphRAG backend"));
 
         assertThat(projectRepository.findById(project.getId())).contains(project);
-        assertThat(projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(owner.getId()))
+        assertThat(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(owner.getId()))
                 .containsExactly(project);
         assertThat(projectRepository.existsByOwnerIdAndNameIgnoreCase(
                 owner.getId(),
@@ -70,12 +72,28 @@ class ProjectPersistenceTest {
         projectRepository.flush();
 
         assertThat(projectRepository.findById(project.getId())).isEmpty();
-        assertThat(projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(owner.getId()))
+        assertThat(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(owner.getId()))
                 .isEmpty();
         assertThat(projectRepository.existsByOwnerIdAndNameIgnoreCase(
                 owner.getId(),
                 "History Tracker"
         )).isFalse();
+    }
+
+    @Test
+    @DisplayName("sortOrder 오름차순 정렬 + 소유자 내 최대값 조회")
+    void findsProjectsBySortOrderAndMax() {
+        User owner = userRepository.save(new User("github", "2005", "owner5@example.com", "Owner", null));
+        Project first = new Project(owner, "First", null);
+        first.updateSortOrder(1);
+        Project second = new Project(owner, "Second", null);
+        second.updateSortOrder(0);
+        projectRepository.saveAll(List.of(first, second));
+        projectRepository.flush();
+
+        assertThat(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(owner.getId()))
+                .containsExactly(second, first);
+        assertThat(projectRepository.findMaxSortOrderByOwnerId(owner.getId())).isEqualTo(1);
     }
 
     @Test

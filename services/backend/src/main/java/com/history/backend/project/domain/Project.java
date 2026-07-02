@@ -40,6 +40,10 @@ public class Project {
     @Column
     private String description;
 
+    // 소유자 단위 수동 정렬 순서(오름차순). 생성 시 목록 끝에 배치되며 드래그로 재정렬한다.
+    @Column(name = "sort_order", nullable = false)
+    private int sortOrder;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -59,6 +63,10 @@ public class Project {
     public void updateDetails(String name, String description) {
         this.name = name;
         this.description = description;
+    }
+
+    public void updateSortOrder(int sortOrder) {
+        this.sortOrder = sortOrder;
     }
 
     @PrePersist
