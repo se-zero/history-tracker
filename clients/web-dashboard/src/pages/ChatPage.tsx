@@ -60,7 +60,12 @@ export function ChatPage({ project }: { project: Project }) {
   const handleReachTop = useCallback(() => reachTopRef.current(), []);
 
   // 전송 직후 화면을 즉시 전환하기 위해 방금 보낸 메시지를 낙관적으로 들고 있는다. 응답이 오면 비운다.
-  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  // 어느 대화에 속한 낙관적 메시지인지 함께 들고 있어, 응답 대기 중 다른 대화로 이동해도
+  // 그 대화에 스피너/입력 거품이 새어 보이지 않게 한다(새 대화는 conversationId가 undefined).
+  const [pendingMessage, setPendingMessage] = useState<{
+    conversationId: string | undefined;
+    text: string;
+  } | null>(null);
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState(false);
 
@@ -249,30 +254,33 @@ export function ChatPage({ project }: { project: Project }) {
   });
 
   const sendMutation = useMutation({
-    mutationFn: (content: string) =>
-      sendMessage(project.id, conversationId!, content),
-    onSuccess: (exchange) => {
+    // 대화 id를 변수로 함께 넘긴다 — 응답 대기 중 다른 대화로 이동해 conversationId가 바뀌어도
+    // 응답이 원래 대화의 캐시에 정확히 반영되도록(엉뚱한 대화에 답변이 끼는 것 방지).
+    mutationFn: ({ cid, content }: { cid: string; content: string }) =>
+      sendMessage(project.id, cid, content),
+    onSuccess: (exchange, { cid }) => {
       // 응답 쌍을 캐시에 바로 반영해 낙관적 메시지를 비울 때 공백이 생기지 않게 한다.
+      // 응답 대기 중 다른 대화를 다녀오면 그 사이 이 대화 상세가 refetch되어 서버 메시지가
+      // 이미 들어와 있을 수 있다. id로 중복을 걸러 같은 메시지가 두 번 붙는 것을 막는다.
       queryClient.setQueryData<ConversationDetail>(
-        queryKeys.conversation(project.id, conversationId),
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                messages: [
-                  ...prev.messages,
-                  exchange.userMessage,
-                  exchange.assistantMessage,
-                ],
-              }
-            : prev,
+        queryKeys.conversation(project.id, cid),
+        (prev) => {
+          if (!prev) return prev;
+          const existing = new Set(prev.messages.map((m) => m.id));
+          const added = [exchange.userMessage, exchange.assistantMessage].filter(
+            (m) => !existing.has(m.id),
+          );
+          return added.length
+            ? { ...prev, messages: [...prev.messages, ...added] }
+            : prev;
+        },
       );
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversations(project.id),
       });
       setPendingMessage(null);
     },
-    onError: (_error, content) => restoreOnError(content),
+    onError: (_error, { content }) => restoreOnError(content),
   });
 
   const pending = createMutation.isPending || sendMutation.isPending;
@@ -281,10 +289,10 @@ export function ChatPage({ project }: { project: Project }) {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
     setSendError(false);
-    setPendingMessage(trimmed);
+    setPendingMessage({ conversationId, text: trimmed });
     setDraft(""); // 입력은 즉시 비우되, 실패하면 restoreOnError로 되돌린다
     if (conversationId) {
-      sendMutation.mutate(trimmed);
+      sendMutation.mutate({ cid: conversationId, content: trimmed });
     } else {
       createMutation.mutate(trimmed);
     }
@@ -295,10 +303,15 @@ export function ChatPage({ project }: { project: Project }) {
     if (sendError) setSendError(false);
   };
 
+  // 낙관적 메시지는 그것이 속한 대화를 보고 있을 때만 렌더한다 — 응답 대기 중 다른 대화로
+  // 이동해도 스피너/입력 거품이 그 대화에 새어 보이지 않게 한다.
+  const showPending =
+    pendingMessage !== null && pendingMessage.conversationId === conversationId;
+
   const streamProps = {
     conversationId,
     messages,
-    pending: pendingMessage !== null,
+    pending: showPending,
     isLoadingOlder: loadOlder.isPending,
     olderError: loadOlder.isError,
     onReachTop: handleReachTop,
@@ -328,10 +341,10 @@ export function ChatPage({ project }: { project: Project }) {
         </button>
       )}
       <div className="chat">
-        {pendingMessage !== null ? (
+        {showPending ? (
           <ChatStream {...streamProps}>
             {renderMessages()}
-            <UserMessage content={pendingMessage} user={user} />
+            <UserMessage content={pendingMessage!.text} user={user} />
             <ThinkingState />
           </ChatStream>
         ) : !conversationId ? (
