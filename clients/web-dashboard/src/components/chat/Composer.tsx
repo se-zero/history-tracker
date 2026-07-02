@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 import { Icons } from "@/components/Icons";
 import { InlineError } from "@/components/ui/InlineError";
@@ -22,6 +22,14 @@ export function Composer({
   error?: string | null;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // 입력 내용에 맞춰 높이를 늘린다(ChatGPT처럼). max-height(200px)를 넘으면 CSS가 스크롤 처리.
+  useLayoutEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [value]);
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {

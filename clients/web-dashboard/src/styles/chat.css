@@ -345,6 +345,7 @@
   line-height: 1.55;
   max-height: 200px;
   min-height: 22px;
+  overflow-y: auto;
 }
 .composer-box textarea::placeholder { color: var(--fg-subtle); }
 .composer-actions {
