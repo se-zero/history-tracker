@@ -208,6 +208,75 @@
 }
 .msg-content p { margin: 0 0 10px; }
 .msg-content p:last-child { margin-bottom: 0; }
+
+/* assistant 응답 markdown 렌더링 */
+.msg-content.markdown > :first-child { margin-top: 0; }
+.msg-content.markdown > :last-child { margin-bottom: 0; }
+.msg-content.markdown h1,
+.msg-content.markdown h2,
+.msg-content.markdown h3,
+.msg-content.markdown h4 {
+  margin: 18px 0 8px;
+  line-height: 1.35;
+  font-weight: 650;
+}
+.msg-content.markdown h1 { font-size: 1.3em; }
+.msg-content.markdown h2 { font-size: 1.18em; }
+.msg-content.markdown h3 { font-size: 1.06em; }
+.msg-content.markdown h4 { font-size: 1em; }
+.msg-content.markdown ul,
+.msg-content.markdown ol { margin: 0 0 10px; padding-left: 22px; }
+.msg-content.markdown li { margin: 3px 0; }
+.msg-content.markdown li > p { margin: 0; }
+.msg-content.markdown a { color: var(--primary); text-decoration: underline; }
+.msg-content.markdown strong { font-weight: 650; }
+.msg-content.markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  padding: 1px 5px;
+}
+.msg-content.markdown pre {
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow-x: auto;
+}
+.msg-content.markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.86em;
+}
+.msg-content.markdown blockquote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--fg-muted);
+}
+.msg-content.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+.msg-content.markdown table {
+  border-collapse: collapse;
+  margin: 0 0 10px;
+  font-size: 0.95em;
+  display: block;
+  overflow-x: auto;
+}
+.msg-content.markdown th,
+.msg-content.markdown td {
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  text-align: left;
+}
+.msg-content.markdown th { background: var(--surface-2); font-weight: 600; }
 .msg-content .cite {
   display: inline-flex;
   align-items: center;
