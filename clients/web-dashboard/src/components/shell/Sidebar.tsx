@@ -18,6 +18,7 @@ interface Props {
   projects: Project[];
   onSwitchProject: (id: string) => void;
   onNewProject: () => void;
+  onReorderProjects: (orderedIds: string[]) => void;
 }
 
 function userHandle(user: User | null): string {
@@ -36,6 +37,7 @@ export function Sidebar({
   projects,
   onSwitchProject,
   onNewProject,
+  onReorderProjects,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -45,6 +47,7 @@ export function Sidebar({
           projects={projects}
           onSwitch={onSwitchProject}
           onNewProject={onNewProject}
+          onReorder={onReorderProjects}
         />
       </div>
       <div className="sidebar-divider" />
