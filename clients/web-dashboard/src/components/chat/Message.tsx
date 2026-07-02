@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Icons } from "@/components/Icons";
 import { userInitials } from "@/lib/format";
@@ -80,8 +82,9 @@ function AssistantMessage({
       </div>
       <div className="msg-body">
         <div className="msg-role">History Tracker</div>
-        <div className="msg-content">
-          <p style={{ whiteSpace: "pre-wrap" }}>{summary}</p>
+        {/* assistant 응답은 markdown으로 렌더링한다(유저 메시지는 원문 그대로 pre-wrap 유지). */}
+        <div className="msg-content markdown">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
         </div>
 
         {unknownAspects.length > 0 && (
