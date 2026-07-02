@@ -30,8 +30,10 @@ RETRY_QUEUE   = "history.events.retry"      # x-message-ttl 만료 후 메인으
 DLQ_QUEUE     = "history.events.dlq"         # 재시도 소진분 파킹 (replay 대상)
 PARKING_QUEUE = "history.events.parking"     # malformed(JSON 파싱 실패) 전용 inspect 큐 (replay 미대상)
 RETRY_ROUTING_KEY = "event.retry"            # retry 만료 시 메인 exchange로 되돌리는 라우팅 키(event.# 매칭)
-RETRY_MAX      = max(0, int(os.environ.get("INGEST_RETRY_MAX", "3")))
-RETRY_DELAY_MS = max(0, int(os.environ.get("INGEST_RETRY_DELAY_MS", "30000")))
+# 고정 간격 재시도. 기본 3분 × 20회 ≈ 1시간 창 — Neo4j 재기동·짧은 배포·OpenAI 일시 장애를
+# 무인 복구하고, 그보다 긴 장애만 DLQ로 넘겨 사람이 보게 한다. 수집은 배경 작업이라 분 단위 지연은 무해.
+RETRY_MAX      = max(0, int(os.environ.get("INGEST_RETRY_MAX", "20")))
+RETRY_DELAY_MS = max(0, int(os.environ.get("INGEST_RETRY_DELAY_MS", "180000")))
 
 
 class _PartitionedDispatcher:
