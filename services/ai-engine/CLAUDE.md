@@ -30,6 +30,14 @@ consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·�
 ActorAlias, 이벤트당 fan-out 축소)이 충족돼 기본 활성화됐다. OpenAI 호출은 rate_limiter가 페이싱하므로
 동시성을 올려도 Tier 한도를 넘지 않는다(429·품질 저하 없음). 부하·환경에 따라 env로 조절한다.
 
+수집 실패 안전망(재시도 → DLQ): consumer의 `handle()`이 실패한 이벤트를 조용히 버리지 않는다.
+발행 측(pipeline-worker)은 이미 checkpoint를 넘긴 상태라 소비 실패는 재수집으로 복구되지 않기 때문이다.
+실패하면 지연 재시도 큐 `history.events.retry`로 보내 `INGEST_RETRY_DELAY_MS`(기본 `180000`, 3분) 뒤 다시
+소비하고, 최대 `INGEST_RETRY_MAX`(기본 `20`)회 재시도한다(총 재시도 창 ≈ 1시간). 소진되면 `history.events.dlq`에 보관(파킹)했다가,
+장애 해소 후 admin `POST /dlq/replay`로 정상 파이프라인에 재투입한다(개수 조회는 `GET /dlq/stats`).
+JSON 파싱 실패(malformed)는 재시도·replay가 무의미하므로 DLQ가 아닌 별도 inspect 큐
+`history.events.parking`으로 보낸다(운영자 수동 확인용). 재발행은 소비 채널과 분리된 별도 채널에서 한다.
+
 ## 테스트
 
 테스트는 두 계층으로 나뉜다.

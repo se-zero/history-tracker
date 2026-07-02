@@ -4,6 +4,7 @@ REFERENCE 엣지 빌드, 일회성 마이그레이션, Slack 배치 필터, 이�
 모두 운영자가 명시적으로 호출하는 비공개 경로 (정기 read 트래픽 아님).
 """
 
+import aio_pika
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -14,6 +15,13 @@ from graph.builder import (
     make_neo4j_issue_link_store,
     make_neo4j_reference_store,
     propagate_thread_discussed_in,
+)
+from graph.consumer import (
+    DLQ_QUEUE,
+    EXCHANGE_NAME,
+    PARKING_QUEUE,
+    RABBITMQ_URL,
+    RETRY_ROUTING_KEY,
 )
 from graph.event_handler import handle
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
@@ -153,3 +161,58 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
         triggered_by = await build_issue_changeset_links(store, threshold=options.triggered_by_threshold)
         discussed_in = await build_issue_communication_links(store, threshold=options.discussed_in_threshold)
     return {"triggered_by": triggered_by, "discussed_in": discussed_in}
+
+
+class DlqReplayOptions(BaseModel):
+    max_messages: int = 100  # 한 번에 재투입할 최대 건수
+
+
+@router.get("/dlq/stats", tags=["dlq"])
+async def dlq_stats():
+    """DLQ와 parking 큐에 쌓인 메시지 수를 반환한다(운영 점검용).
+
+    parking(malformed)을 함께 노출해 손상 메시지 유입을 바로 알아챌 수 있게 한다.
+    """
+    connection = await aio_pika.connect_robust(RABBITMQ_URL)
+    async with connection:
+        channel = await connection.channel()
+        dlq = await channel.declare_queue(DLQ_QUEUE, durable=True, passive=True)
+        parking = await channel.declare_queue(PARKING_QUEUE, durable=True, passive=True)
+        return {
+            "dlq": dlq.declaration_result.message_count,
+            "parking": parking.declaration_result.message_count,
+        }
+
+
+@router.post("/dlq/replay", tags=["dlq"])
+async def dlq_replay(options: DlqReplayOptions = DlqReplayOptions()):
+    """DLQ에 파킹된 메시지를 최대 max_messages건 꺼내 정상 파이프라인으로 재투입한다.
+
+    장애(예: Neo4j 다운) 해소 후 호출. history.exchange에 event.retry(⊂ event.#)로 재발행하며
+    x-retry-count를 리셋(미설정)해 재시도 예산을 새로 준다.
+    parking 큐(malformed)는 재투입해도 다시 실패하므로 **건드리지 않는다**.
+    각 메시지는 재발행 성공 시에만 ack(=DLQ에서 제거)하고, 실패하면 requeue돼 DLQ에 남는다.
+    """
+    connection = await aio_pika.connect_robust(RABBITMQ_URL)
+    async with connection:
+        channel = await connection.channel()
+        exchange = await channel.declare_exchange(
+            EXCHANGE_NAME, aio_pika.ExchangeType.TOPIC, durable=True
+        )
+        dlq = await channel.declare_queue(DLQ_QUEUE, durable=True, passive=True)
+
+        replayed = 0
+        while replayed < options.max_messages:
+            message = await dlq.get(fail=False)
+            if message is None:
+                break
+            async with message.process(requeue=True):
+                await exchange.publish(
+                    aio_pika.Message(
+                        body=message.body,
+                        delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                    ),
+                    routing_key=RETRY_ROUTING_KEY,
+                )
+            replayed += 1
+    return {"replayed": replayed}
