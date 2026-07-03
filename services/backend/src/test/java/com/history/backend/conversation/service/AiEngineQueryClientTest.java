@@ -14,6 +14,7 @@ import java.util.UUID;
 
 import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.dto.AiEnginePriorEvidence;
+import com.history.backend.graph.dto.EvidenceRef;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -48,7 +49,8 @@ class AiEngineQueryClientTest {
                             "summary":"Earlier discussion covered HT-37.",
                             "entities":[{"type":"issue","id":"HT-37"}],
                             "unresolved_aspects":["deployment impact"]
-                          }
+                          },
+                          "focus_evidence":[{"type":"commit","id":"abc1234def"}]
                         }
                         """))
                 .andRespond(withSuccess("""
@@ -69,7 +71,7 @@ class AiEngineQueryClientTest {
                 "summary", "Earlier discussion covered HT-37.",
                 "entities", List.of(Map.of("type", "issue", "id", "HT-37")),
                 "unresolved_aspects", List.of("deployment impact")
-        ));
+        ), List.of(new EvidenceRef("commit", "abc1234def")));
 
         assertThat(result.answer()).isEqualTo("OAuth callback was updated.");
         assertThat(result.fallback()).isFalse();
@@ -88,7 +90,7 @@ class AiEngineQueryClientTest {
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of());
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
@@ -104,7 +106,7 @@ class AiEngineQueryClientTest {
                         {"answer":"  "}
                         """, MediaType.APPLICATION_JSON));
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of());
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
@@ -118,7 +120,7 @@ class AiEngineQueryClientTest {
         fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
                 .andRespond(withServerError());
 
-        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null);
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of());
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();

@@ -36,6 +36,7 @@ async def query(req: QueryRequest):
 
     history = [message.model_dump() for message in req.history]
     prior_evidence = [evidence.model_dump() for evidence in req.prior_evidence]
+    focus_evidence = [evidence.model_dump() for evidence in req.focus_evidence]
     answer, structured = await orchestrator.run(
         req.question,
         project_context,
@@ -43,6 +44,7 @@ async def query(req: QueryRequest):
         history=history,
         prior_evidence=prior_evidence,
         running_summary=req.running_summary,
+        focus_evidence=focus_evidence,
     )
     return {"answer": answer, "structured": structured}
 

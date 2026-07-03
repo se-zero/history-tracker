@@ -18,6 +18,7 @@ import com.history.backend.conversation.dto.AiEnginePriorEvidence;
 import com.history.backend.conversation.dto.Cursor;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
+import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,7 +51,14 @@ public class MessageService {
     private final TransactionTemplate transactionTemplate;
 
     // 사용자 메시지 저장 → AI 질의 → 응답 저장 (트랜잭션 2단계 분리)
-    public MessageExchange addMessage(UUID userId, UUID projectId, UUID conversationId, String content) {
+    // focusEvidence: 관련 그래프에서 지정한 focus 노드. 현재 턴 한정이라 history/영속화에 넣지 않고 질의로만 전달.
+    public MessageExchange addMessage(
+            UUID userId,
+            UUID projectId,
+            UUID conversationId,
+            String content,
+            List<EvidenceRef> focusEvidence
+    ) {
         String normalizedContent = normalizeContent(content);
         projectService.getProject(userId, projectId);
         // 느린 AI 질의 중 커넥션 점유를 피하고, 질의 실패와 무관하게 사용자 메시지를 보존
@@ -72,7 +80,8 @@ public class MessageService {
                 normalizedContent,
                 pendingQuery.queryContext().history(),
                 pendingQuery.queryContext().priorEvidence(),
-                runningSummary
+                runningSummary,
+                focusEvidence
         );
         return new MessageExchange(pendingQuery.userMessage(), assistantMessage);
     }
@@ -92,14 +101,16 @@ public class MessageService {
             String normalizedContent,
             List<AiEngineHistoryMessage> history,
             List<AiEnginePriorEvidence> priorEvidence,
-            Map<String, Object> runningSummary
+            Map<String, Object> runningSummary,
+            List<EvidenceRef> focusEvidence
     ) {
         AiEngineQueryResult queryResult = aiEngineQueryClient.ask(
                 normalizedContent,
                 projectId,
                 history,
                 priorEvidence,
-                runningSummary
+                runningSummary,
+                focusEvidence
         );
         return transactionTemplate.execute(status -> {
             // 트랜잭션이 분리되어 있어 질의 중 삭제됐을 수 있으므로 conversation 재조회

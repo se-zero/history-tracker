@@ -60,7 +60,8 @@ public class ConversationService {
                 normalizedContent,
                 List.of(),
                 List.of(),
-                null
+                null,
+                List.of()
         );
         return new ConversationStart(
                 initialConversation.conversation(),

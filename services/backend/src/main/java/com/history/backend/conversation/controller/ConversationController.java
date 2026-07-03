@@ -122,7 +122,8 @@ public class ConversationController {
                 authenticatedUser.id(),
                 projectId,
                 conversationId,
-                request.content()
+                request.content(),
+                request.focusEvidence()
         ));
     }
 

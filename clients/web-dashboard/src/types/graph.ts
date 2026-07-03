@@ -24,6 +24,13 @@ export interface GraphNode {
   ref?: NodeRef | null;
 }
 
+// 입력창에 첨부된 focus 노드 — 전송 시 ref만 focus_evidence로 보내고, label/nodeType은 칩 표시용.
+export type AttachedNode = {
+  ref: NodeRef;
+  label: string;
+  nodeType: GraphNodeType;
+};
+
 export type GraphEdge = [string, string];
 
 export interface GraphData {

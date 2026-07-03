@@ -27,6 +27,7 @@ import com.history.backend.conversation.service.ConversationService;
 import com.history.backend.conversation.service.ConversationStart;
 import com.history.backend.conversation.service.MessageExchange;
 import com.history.backend.conversation.service.MessageService;
+import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.project.domain.Project;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
@@ -218,7 +219,7 @@ class ConversationControllerTest {
     @DisplayName("메시지 생성 → 사용자·보조자 메시지 반환")
     void createMessageReturnsUserAndAssistantMessages() throws Exception {
         Conversation conversation = conversation("Auth changes");
-        when(messageService.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "What changed?"))
+        when(messageService.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "What changed?", null))
                 .thenReturn(new MessageExchange(
                         userMessage(conversation, "What changed?"),
                         assistantMessage(conversation, "OAuth callback changed.", null)
@@ -238,6 +239,41 @@ class ConversationControllerTest {
                 .andExpect(jsonPath("$.userMessage.content").value("What changed?"))
                 .andExpect(jsonPath("$.assistantMessage.role").value("ASSISTANT"))
                 .andExpect(jsonPath("$.assistantMessage.content").value("OAuth callback changed."));
+    }
+
+    @Test
+    @DisplayName("focus evidence 포함 메시지 생성 → 파싱해 서비스로 전달")
+    void createMessageForwardsFocusEvidence() throws Exception {
+        Conversation conversation = conversation("Auth changes");
+        when(messageService.addMessage(
+                USER_ID,
+                PROJECT_ID,
+                CONVERSATION_ID,
+                "Why this commit?",
+                List.of(new EvidenceRef("commit", "abc1234def"))
+        )).thenReturn(new MessageExchange(
+                userMessage(conversation, "Why this commit?"),
+                assistantMessage(conversation, "Because of X.", null)
+        ));
+
+        mockMvc.perform(post(
+                        "/api/v1/projects/{projectId}/conversations/{conversationId}/messages",
+                        PROJECT_ID,
+                        CONVERSATION_ID
+                ).header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"content":"Why this commit?","focusEvidence":[{"type":"commit","id":"abc1234def"}]}
+                                """))
+                .andExpect(status().isCreated());
+
+        verify(messageService).addMessage(
+                USER_ID,
+                PROJECT_ID,
+                CONVERSATION_ID,
+                "Why this commit?",
+                List.of(new EvidenceRef("commit", "abc1234def"))
+        );
     }
 
     @Test

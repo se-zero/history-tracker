@@ -2,7 +2,9 @@ import { useLayoutEffect, useRef } from "react";
 
 import { Icons } from "@/components/Icons";
 import { InlineError } from "@/components/ui/InlineError";
+import { MonoChip } from "@/components/ui/MonoChip";
 import type { Project } from "@/types/api";
+import { NODE_TYPE_INFO, type AttachedNode, type NodeRef } from "@/types/graph";
 
 export function Composer({
   project,
@@ -13,6 +15,8 @@ export function Composer({
   showThinkingHint,
   error,
   notice,
+  attachedNodes,
+  onRemoveNode,
 }: {
   project: Project;
   value: string;
@@ -23,6 +27,9 @@ export function Composer({
   error?: string | null;
   // 중립 톤 안내(차단 사유 등) — 에러(InlineError)와 구분되는 정보성 배너
   notice?: string | null;
+  // 관련 그래프에서 첨부한 focus 노드 칩. 텍스트 없이 노드만으로도 전송할 수 있다.
+  attachedNodes: AttachedNode[];
+  onRemoveNode: (ref: NodeRef) => void;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -38,6 +45,12 @@ export function Composer({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
+      return;
+    }
+    // 입력이 비어 있을 때 Backspace → 마지막 첨부 노드 제거 (칩 입력 관행)
+    if (e.key === "Backspace" && value === "" && attachedNodes.length > 0) {
+      e.preventDefault();
+      onRemoveNode(attachedNodes[attachedNodes.length - 1].ref);
     }
   };
 
@@ -51,6 +64,30 @@ export function Composer({
         )}
         {notice && <div className="composer-notice">{notice}</div>}
         <div className="composer-box">
+          {attachedNodes.length > 0 && (
+            <div className="composer-chips">
+              {attachedNodes.map((n) => (
+                <MonoChip
+                  key={`${n.ref.type}:${n.ref.id}`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                >
+                  <span
+                    className="composer-chip-dot"
+                    style={{ background: NODE_TYPE_INFO[n.nodeType].cssVar }}
+                  />
+                  <span className="composer-chip-label">{n.label}</span>
+                  <button
+                    type="button"
+                    className="composer-chip-x"
+                    onClick={() => onRemoveNode(n.ref)}
+                    aria-label="첨부 제거"
+                  >
+                    <Icons.X size={11} />
+                  </button>
+                </MonoChip>
+              ))}
+            </div>
+          )}
           <textarea
             ref={taRef}
             placeholder={`${project.name}에 무엇이든 물어보세요. Shift+Enter로 줄바꿈`}
@@ -65,7 +102,7 @@ export function Composer({
             <button
               className="btn btn-primary"
               onClick={onSubmit}
-              disabled={disabled || !value.trim()}
+              disabled={disabled || (!value.trim() && attachedNodes.length === 0)}
               style={{ padding: "6px 10px" }}
             >
               <Icons.Send size={13} />
