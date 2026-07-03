@@ -1,4 +1,4 @@
-"""Neo4j 스키마 부트스트랩 — 벡터 인덱스와 (project_id, 자연키) 복합 유니크 제약."""
+"""Neo4j 스키마 부트스트랩 — 벡터/full-text 인덱스와 (project_id, 자연키) 복합 유니크 제약."""
 
 import logging
 
@@ -31,6 +31,29 @@ async def ensure_vector_indexes() -> None:
             """
         )
     logger.info("벡터 인덱스 확인 완료 (comm_embedding, issue_embedding)")
+
+
+async def ensure_fulltext_index() -> None:
+    """통합 검색용 node_search full-text 인덱스를 생성한다. 이미 존재하면 무시.
+
+    analyzer 'cjk': 한글을 bigram으로 토큰화해 substring처럼 매치되게 한다
+    (기본 standard analyzer는 공백 단위라 한글 부분 일치가 안 됨). 영문은 소문자화 토큰.
+    검색 기능이 붙기 전 버전의 Neo4j/설정에서 생성이 실패해도 수집·질의는 무관하므로
+    부트를 막지 않는다 — 이 경우 /graph/search만 실패한다.
+    """
+    try:
+        async with get_driver().session() as session:
+            await session.run(
+                """
+                CREATE FULLTEXT INDEX node_search IF NOT EXISTS
+                FOR (n:ChangeSet|PullRequest|Issue|Communication|Actor|File)
+                ON EACH [n.title, n.message, n.body, n.name, n.aliases, n.path, n.jira_key]
+                OPTIONS { indexConfig: { `fulltext.analyzer`: 'cjk' } }
+                """
+            )
+        logger.info("full-text 인덱스 확인 완료 (node_search)")
+    except Exception:
+        logger.warning("full-text 인덱스 생성 실패 — /graph/search 비활성", exc_info=True)
 
 
 # 프로젝트 격리의 핵심 — 모든 도메인 노드는 (project_id, 자연키) 복합 유니크.
