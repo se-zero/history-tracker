@@ -23,6 +23,8 @@ class _ResetStateMixin:
         postprocess._dirty.clear()
         postprocess._last_build_at.clear()
         postprocess._last_event_at.clear()
+        postprocess._ever_built.clear()
+        postprocess._manual_build_running.clear()
         postprocess._build_semaphore = None
 
 
@@ -131,6 +133,64 @@ class TriggerBuildTest(_ResetStateMixin, unittest.TestCase):
         status = postprocess.trigger_build("p1", verify=True)         # verify가 달라도 coalesce
         self.assertEqual(status["state"], "running")
         self.assertEqual(postprocess._build_tasks, set())             # 새 태스크를 만들지 않음
+
+
+class GraphActivityTest(_ResetStateMixin, unittest.TestCase):
+    """프론트 채팅 게이팅용 get_graph_activity 상태 판정 (idle/collecting/building)."""
+
+    def test_no_activity_is_idle(self):
+        # 이벤트도 빌드도 없는 프로젝트
+        self.assertEqual(postprocess.get_graph_activity("p1"), "idle")
+
+    def test_initial_collection_is_collecting(self):
+        # 최초 이벤트 유입, 아직 한 번도 빌드 성공 안 함 → collecting
+        postprocess.mark_dirty("p1")
+        self.assertNotIn("p1", postprocess._ever_built)
+        self.assertEqual(postprocess.get_graph_activity("p1"), "collecting")
+
+    def test_after_first_build_success_is_idle(self):
+        # _execute_build 성공이 _ever_built를 세우고, 그 후 (dirty 흔적이 남아도) idle
+        async def fake_sequence(project_id, verify):
+            return {"triggered_by": 1}
+
+        postprocess.mark_dirty("p1")                       # 최초 수집 흔적
+        postprocess.mark_build_running("p1", verify=False)
+        with patch.object(postprocess, "run_postprocess_sequence", fake_sequence):
+            asyncio.run(postprocess._execute_build("p1", verify=False))
+
+        self.assertIn("p1", postprocess._ever_built)
+        self.assertEqual(postprocess.get_graph_activity("p1"), "idle")
+
+    def test_webhook_increment_after_built_stays_idle(self):
+        # 첫 빌드 성공 이후 웹훅 이벤트로 dirty가 다시 서도 collecting으로 오인하지 않는다
+        postprocess._ever_built.add("p1")
+        postprocess.mark_dirty("p1")                       # 웹훅 증분
+        self.assertEqual(postprocess.get_graph_activity("p1"), "idle")
+
+    def test_auto_maintenance_build_stays_idle(self):
+        # 이미 구축된 프로젝트의 자동 유지보수 빌드(is_build_running=true, 수동 아님) → idle
+        postprocess._ever_built.add("p1")
+        postprocess.mark_build_running("p1", verify=False)   # 자동 빌드 running
+        self.assertNotIn("p1", postprocess._manual_build_running)
+        self.assertEqual(postprocess.get_graph_activity("p1"), "idle")
+
+    def test_manual_rebuild_is_building_then_idle(self):
+        # 수동 재구축(trigger_build) 실행 중 → building, 성공 후 → idle
+        async def fake_sequence(project_id, verify):
+            await asyncio.sleep(0)                          # 태스크가 즉시 끝나지 않게 양보
+            return {"reference": 1}
+
+        async def scenario():
+            with patch.object(postprocess, "run_postprocess_sequence", fake_sequence):
+                postprocess.trigger_build("p1", verify=False)
+                during = postprocess.get_graph_activity("p1")   # 태스크 실행 전 — 수동 플래그 선다
+                await asyncio.gather(*postprocess._build_tasks)  # 백그라운드 완료 대기
+                after = postprocess.get_graph_activity("p1")
+            return during, after
+
+        during, after = asyncio.run(scenario())
+        self.assertEqual(during, "building")
+        self.assertEqual(after, "idle")                    # 성공 → _ever_built 서고 _manual_build_running 비워짐
 
 
 if __name__ == "__main__":
