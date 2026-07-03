@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import { GraphVis } from "@/components/graph/GraphVis";
 import { NodeDetail } from "@/components/graph/NodeDetail";
@@ -6,9 +7,19 @@ import { StatusView } from "@/components/StatusView";
 import { Topbar } from "@/components/shell/Topbar";
 import { useGraph, useGraphBuildStatus, useRebuildGraph } from "@/hooks/useGraph";
 import type { Project } from "@/types/api";
+import type { GraphNode } from "@/types/graph";
 
 export function GraphPage({ project }: { project: Project }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // 통합 검색에서 노드를 골라 넘어온 경우 — 검색은 그래프 전체를 뒤지므로
+  // overview(최근 top-N)에 없는 노드일 수 있어, 상세 표시용 노드 데이터를 state로 받는다.
+  const location = useLocation();
+  const searchNode =
+    (location.state as { searchNode?: GraphNode } | null)?.searchNode ?? null;
+  useEffect(() => {
+    if (searchNode) setSelectedId(searchNode.id);
+  }, [searchNode]);
 
   const graphQuery = useGraph(project.id);
   // 페이지는 프로젝트의 현재 빌드 상태를 그대로 반영한다(개인 프로젝트라 빌드 주인은 항상 본인).
@@ -126,7 +137,10 @@ export function GraphPage({ project }: { project: Project }) {
             />
             {selectedId && (
               <NodeDetail
-                node={data.nodes.find((n) => n.id === selectedId) ?? null}
+                node={
+                  data.nodes.find((n) => n.id === selectedId) ??
+                  (searchNode?.id === selectedId ? searchNode : null)
+                }
                 onClose={() => setSelectedId(null)}
               />
             )}

@@ -3,9 +3,22 @@ import type {
   Conversation,
   ConversationDetail,
   ConversationPage,
+  ConversationSearchItem,
   MessageExchange,
   MessagePage,
 } from "@/types/api";
+
+// 통합 검색 — 제목·메시지 본문 부분 일치 대화 (updatedAt 역순, 매치 스니펫 포함)
+export async function searchConversations(
+  projectId: string,
+  q: string,
+): Promise<ConversationSearchItem[]> {
+  const { data } = await api.get<{ items: ConversationSearchItem[] }>(
+    `/projects/${projectId}/conversations/search`,
+    { params: { q } },
+  );
+  return data.items;
+}
 
 export async function listConversations(
   projectId: string,

@@ -33,7 +33,7 @@ src/
 
   hooks/            React Query 캡슐화 레이어 (컴포넌트는 여기로만 서버 상태 접근)
     queryKeys.ts      중앙 키 팩토리 — 모든 queryKey의 단일 출처
-    useProjects · useConversations · useIntegrations · useGithub · useGraph
+    useProjects · useConversations · useIntegrations · useGithub · useGraph · useSearch
 
   components/
     ui/             프리미티브 — MonoChip · InlineError · Field
@@ -42,6 +42,7 @@ src/
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
     graph/          GraphVis(d3-force SVG) · NodeDetail
+    search/         SearchDialog — ⌘K 통합 검색(대화 + 그래프 노드, AppShell에서 마운트)
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로

@@ -19,7 +19,13 @@ interface Props {
   onSwitchProject: (id: string) => void;
   onNewProject: () => void;
   onReorderProjects: (orderedIds: string[]) => void;
+  onOpenSearch: () => void;
 }
+
+// 단축키 힌트 표기 — Mac은 ⌘K, 그 외는 Ctrl+K
+const SEARCH_SHORTCUT_LABEL = navigator.userAgent.includes("Mac")
+  ? "⌘K"
+  : "Ctrl+K";
 
 function userHandle(user: User | null): string {
   if (!user) return "@unknown";
@@ -38,6 +44,7 @@ export function Sidebar({
   onSwitchProject,
   onNewProject,
   onReorderProjects,
+  onOpenSearch,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -55,6 +62,13 @@ export function Sidebar({
         className="sidebar-section"
         style={{ display: "flex", flexDirection: "column", gap: 2 }}
       >
+        <div className="nav-item" onClick={onOpenSearch}>
+          <span className="nav-icon">
+            <Icons.Search />
+          </span>
+          검색
+          <span className="nav-shortcut mono">{SEARCH_SHORTCUT_LABEL}</span>
+        </div>
         <NavItem
           icon={<Icons.Chat />}
           label="대화"
