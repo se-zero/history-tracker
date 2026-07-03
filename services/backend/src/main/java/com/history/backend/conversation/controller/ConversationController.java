@@ -5,6 +5,7 @@ import java.util.UUID;
 import com.history.backend.conversation.dto.ConversationDetailResponse;
 import com.history.backend.conversation.dto.ConversationPageResponse;
 import com.history.backend.conversation.dto.ConversationResponse;
+import com.history.backend.conversation.dto.ConversationSearchResponse;
 import com.history.backend.conversation.dto.CreateConversationRequest;
 import com.history.backend.conversation.dto.CreateMessageRequest;
 import com.history.backend.conversation.dto.MessageExchangeResponse;
@@ -58,6 +59,18 @@ public class ConversationController {
     ) {
         return ConversationPageResponse.from(
                 conversationService.findConversationsPage(authenticatedUser.id(), projectId, cursor)
+        );
+    }
+
+    // 통합 검색 — 제목·메시지 본문 부분 일치 대화 (리터럴 "search"가 "/{conversationId}"보다 우선 매칭된다)
+    @GetMapping("/search")
+    public ConversationSearchResponse searchConversations(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @RequestParam String q
+    ) {
+        return ConversationSearchResponse.from(
+                conversationService.searchConversations(authenticatedUser.id(), projectId, q)
         );
     }
 

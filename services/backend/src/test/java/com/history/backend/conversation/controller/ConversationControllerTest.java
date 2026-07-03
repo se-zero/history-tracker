@@ -21,6 +21,7 @@ import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.service.ConversationDetail;
 import com.history.backend.conversation.service.ConversationPage;
+import com.history.backend.conversation.service.ConversationSearchResult;
 import com.history.backend.conversation.service.MessagePage;
 import com.history.backend.conversation.service.ConversationService;
 import com.history.backend.conversation.service.ConversationStart;
@@ -125,6 +126,30 @@ class ConversationControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items").isEmpty());
+    }
+
+    @Test
+    @DisplayName("통합 검색 → 매치 대화·스니펫 목록 반환")
+    void searchConversationsReturnsMatchesWithSnippets() throws Exception {
+        when(conversationService.searchConversations(USER_ID, PROJECT_ID, "인증"))
+                .thenReturn(List.of(new ConversationSearchResult(conversation("인증 정리"), "…JWT 인증 흐름…")));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/conversations/search", PROJECT_ID)
+                        .param("q", "인증")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(CONVERSATION_ID.toString()))
+                .andExpect(jsonPath("$.items[0].title").value("인증 정리"))
+                .andExpect(jsonPath("$.items[0].snippet").value("…JWT 인증 흐름…"))
+                .andExpect(jsonPath("$.items[0].updatedAt").value("2026-05-23T01:01:00Z"));
+    }
+
+    @Test
+    @DisplayName("통합 검색 — q 미전달 시 400 Bad Request")
+    void rejectsSearchWithoutQuery() throws Exception {
+        mockMvc.perform(get("/api/v1/projects/{projectId}/conversations/search", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

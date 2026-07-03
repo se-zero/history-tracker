@@ -236,6 +236,64 @@ class ConversationPersistenceTest {
     }
 
     @Test
+    @DisplayName("통합 검색 — 제목·메시지 본문 매치 대화를 updatedAt 역순 조회, 타 프로젝트 제외")
+    void searchPageByProjectMatchesTitleOrMessageContent() throws InterruptedException {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation titleMatch = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "인증 토큰 정리"));
+        Thread.sleep(5);
+        Conversation contentMatch = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "Other topic"));
+        messageRepository.saveAndFlush(Message.user(contentMatch, "JWT 인증 흐름이 왜 바뀌었지?"));
+        conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "Deployment"));
+        // 같은 검색어라도 다른 프로젝트의 대화는 절대 나오면 안 된다
+        ProjectFixture otherFixture = createProjectFixture();
+        conversationRepository.saveAndFlush(
+                new Conversation(otherFixture.project(), otherFixture.owner(), "인증 다른 프로젝트"));
+
+        assertThat(conversationRepository.searchPageByProject(
+                fixture.project().getId(), "%인증%", PageRequest.of(0, 10)))
+                .containsExactly(contentMatch, titleMatch);
+    }
+
+    @Test
+    @DisplayName("통합 검색 — LIKE 와일드카드는 escape('!')로 리터럴 매치")
+    void searchPageByProjectEscapesLikeWildcards() {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation literalPercent = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "coverage 100% goal"));
+        conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "coverage 1000 goal"));
+
+        // '!%'는 리터럴 %만 매치해야 한다 ("1000"이 와일드카드 %에 걸리면 안 됨)
+        assertThat(conversationRepository.searchPageByProject(
+                fixture.project().getId(), "%100!%%", PageRequest.of(0, 10)))
+                .containsExactly(literalPercent);
+    }
+
+    @Test
+    @DisplayName("통합 검색 스니펫 — 대화별 가장 최근 '매치' 메시지 1건만 반환")
+    void findLatestMatchPerConversationReturnsSingleLatestMatch() throws InterruptedException {
+        ProjectFixture fixture = createProjectFixture();
+        Conversation conversation = conversationRepository.saveAndFlush(
+                new Conversation(fixture.project(), fixture.owner(), "Auth"));
+        messageRepository.saveAndFlush(Message.user(conversation, "인증 첫 질문"));
+        Thread.sleep(5);
+        messageRepository.saveAndFlush(Message.assistant(conversation, "인증 최근 답변", null));
+        Thread.sleep(5);
+        // 더 최신이지만 매치되지 않는 메시지 — 필터가 랭킹보다 먼저 적용돼야 한다
+        messageRepository.saveAndFlush(Message.user(conversation, "무관한 주제"));
+
+        List<MessageRepository.MessageMatchRow> rows = messageRepository.findLatestMatchPerConversation(
+                List.of(conversation.getId()), "%인증%");
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getConversationId()).isEqualTo(conversation.getId());
+        assertThat(rows.get(0).getContent()).isEqualTo("인증 최근 답변");
+    }
+
+    @Test
     @DisplayName("메시지 metadata는 JSONB로 저장")
     void metadataIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();

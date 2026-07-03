@@ -4,12 +4,28 @@ import type {
   GraphBuildResult,
   GraphBuildStatus,
   GraphData,
+  GraphNode,
   SubgraphData,
 } from "@/types/graph";
 
 export async function getProjectGraph(projectId: string): Promise<GraphData> {
   const { data } = await api.get<GraphData>(`/projects/${projectId}/graph`);
   return data;
+}
+
+// 통합 검색 — full-text 인덱스로 프로젝트 그래프 전체에서 노드 검색.
+// overview가 최근 활동 top-N만 내리는 것과 달리 전체를 대상으로 하므로,
+// 반환된 노드가 그래프 화면에 로드돼 있지 않을 수 있다.
+export async function searchGraphNodes(
+  projectId: string,
+  q: string,
+  limit?: number,
+): Promise<GraphNode[]> {
+  const { data } = await api.get<{ nodes: GraphNode[] }>(
+    `/projects/${projectId}/graph/search`,
+    { params: limit ? { q, limit } : { q } },
+  );
+  return data.nodes;
 }
 
 // 답변 evidence(도메인 키)로 관련 서브그래프를 조회한다 (대화 화면 그래프 패널용).

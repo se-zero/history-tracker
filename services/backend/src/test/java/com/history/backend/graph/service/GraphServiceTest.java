@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -15,6 +16,7 @@ import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
+import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.SubgraphRequest;
 import com.history.backend.project.service.ProjectService;
@@ -67,6 +69,44 @@ class GraphServiceTest {
                 .isInstanceOf(ForbiddenException.class);
 
         // 인가 실패 시 ai-engine에 절대 요청이 가면 안 된다 (데이터 누출 차단)
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("소유권 확인 후 노드 검색 (질의는 trim해 전달)")
+    void searchesNodesAfterOwnershipCheck() {
+        GraphSearchResponse expected = GraphSearchResponse.empty();
+        when(aiEngineGraphClient.searchNodes(PROJECT_ID, "auth", 20)).thenReturn(expected);
+
+        GraphSearchResponse result = graphService.searchNodes(USER_ID, PROJECT_ID, " auth ", 20);
+
+        assertThat(result).isSameAs(expected);
+        // 소유권 검증이 ai-engine 호출보다 먼저 일어나야 한다
+        InOrder inOrder = inOrder(projectService, aiEngineGraphClient);
+        inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).searchNodes(PROJECT_ID, "auth", 20);
+    }
+
+    @Test
+    @DisplayName("노드 검색 — 빈 질의는 ai-engine 왕복 없이 빈 결과")
+    void returnsEmptySearchWithoutAiEngineCallForBlankQuery() {
+        GraphSearchResponse result = graphService.searchNodes(USER_ID, PROJECT_ID, "  ", null);
+
+        assertThat(result.nodes()).isEmpty();
+        // 빈 질의여도 인가 게이트는 통과해야 한다
+        verify(projectService).getProject(USER_ID, PROJECT_ID);
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("노드 검색 — 소유권 검증 실패 시 ai-engine 미호출")
+    void doesNotSearchWhenOwnershipCheckFails() {
+        doThrow(new ForbiddenException("Project access denied."))
+                .when(projectService).getProject(USER_ID, PROJECT_ID);
+
+        assertThatThrownBy(() -> graphService.searchNodes(USER_ID, PROJECT_ID, "auth", null))
+                .isInstanceOf(ForbiddenException.class);
+
         verifyNoInteractions(aiEngineGraphClient);
     }
 

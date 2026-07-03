@@ -78,7 +78,7 @@ conftest.py        pytest 부트스트랩 (OPENAI_API_KEY shim)
 
 routers/           HTTP 엔드포인트 (APIRouter, prefix 없이 전체 경로 명시)
   query.py           /query, /query/summary            — 공개 read API
-  graph.py           /graph/overview, /graph/projects/{id}, /graph/build(202·비동기), /graph/build/status
+  graph.py           /graph/overview, /graph/search, /graph/projects/{id}, /graph/build(202·비동기), /graph/build/status
   admin.py           /reference/*, /migrations/*, /slack/filter, /issue-links/build, /test/ingest — 일회성 운영 트리거
 
 agent/
@@ -101,7 +101,7 @@ graph/             Neo4j 그래프 구축 + 수집
                      상태/dirty는 in-process — 수평 확장 시 공유 저장소로 교체 필요
   builder.py         facade — 아래 분해 모듈의 공개 심볼 re-export (하위 호환)
     driver.py            드라이버 수명주기 (get_driver/close_driver)
-    schema.py            벡터 인덱스·유니크 제약 부트스트랩
+    schema.py            벡터/full-text 인덱스·유니크 제약 부트스트랩
     writes.py            NormalizedEvent 단위 upsert/link (수집 쓰기 경로)
     maintenance.py       백필·마이그레이션·정리·프로젝트 삭제
     reference_store.py   REFERENCE 엣지용 ReferenceStore 어댑터
@@ -112,7 +112,7 @@ graph/             Neo4j 그래프 구축 + 수집
   reference_builder.py / issue_linker.py / issue_verifier.py   시맨틱 링크 빌더(방안 A/D)
   actor_resolver.py / actor_llm.py                             Actor 동일인 판단
   slack_filter.py / slack_llm_filter.py / slack_batch_filter.py  Slack 노이즈 필터
-  summarizer.py / path_filter.py / project_context.py / overview.py
+  summarizer.py / path_filter.py / project_context.py / overview.py / search.py
 ```
 
 ## 코딩 규칙

@@ -139,6 +139,11 @@
 .nav-item.active { background: var(--surface-3); color: var(--fg); }
 .nav-item .nav-icon { color: var(--fg-subtle); display: inline-flex; }
 .nav-item.active .nav-icon { color: var(--primary); }
+.nav-item .nav-shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--fg-subtle);
+}
 
 .sidebar-label {
   font-size: 10.5px;

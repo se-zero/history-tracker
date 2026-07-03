@@ -1,0 +1,3 @@
+-- prod V10은 pg_trgm 확장 + trigram GIN 인덱스를 만든다.
+-- H2는 pg_trgm/GIN을 지원하지 않고 인덱스는 JPA validate 대상도 아니므로 비워둔다
+-- (버전 번호 동기화용 파일). 실제 인덱스 동작은 ConversationPersistenceTest(Testcontainers)가 검증한다.

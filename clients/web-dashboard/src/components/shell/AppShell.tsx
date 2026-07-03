@@ -1,8 +1,9 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { SearchDialog } from "@/components/search/SearchDialog";
 import { StatusView } from "@/components/StatusView";
 import { useProjects, useReorderProjects } from "@/hooks/useProjects";
 import type { Project } from "@/types/api";
@@ -46,6 +47,19 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
   const projectsQuery = useProjects();
   const reorderProjects = useReorderProjects();
+
+  // 통합 검색(⌘K/Ctrl+K) — 다이얼로그는 열릴 때만 마운트해 입력 상태를 매번 초기화한다
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const projects = projectsQuery.data ?? [];
   const project = useMemo(
@@ -109,11 +123,15 @@ export function AppShell({ children }: { children?: ReactNode }) {
         onSwitchProject={handleSwitchProject}
         onNewProject={() => navigate("/onboarding")}
         onReorderProjects={(orderedIds) => reorderProjects.mutate(orderedIds)}
+        onOpenSearch={() => setSearchOpen(true)}
       />
       <div className="main">
         {route !== "graph" && <Topbar crumbs={crumbsFor(project, route)} />}
         {children ?? <Outlet context={{ project } satisfies ShellContext} />}
       </div>
+      {searchOpen && (
+        <SearchDialog project={project} onClose={() => setSearchOpen(false)} />
+      )}
     </div>
   );
 }

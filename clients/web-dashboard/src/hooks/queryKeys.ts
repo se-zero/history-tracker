@@ -21,4 +21,8 @@ export const queryKeys = {
     ["graph", projectId, "activity"] as const,
   graphSubgraph: (projectId: string, messageId: string) =>
     ["graph", projectId, "subgraph", messageId] as const,
+  searchConversations: (projectId: string, q: string) =>
+    ["search", projectId, "conversations", q] as const,
+  searchNodes: (projectId: string, q: string) =>
+    ["search", projectId, "nodes", q] as const,
 };

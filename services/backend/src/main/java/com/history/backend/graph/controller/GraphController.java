@@ -5,6 +5,7 @@ import java.util.UUID;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
+import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.SubgraphRequest;
 import com.history.backend.graph.service.GraphService;
@@ -36,6 +37,17 @@ public class GraphController {
             @RequestParam(required = false) String types
     ) {
         return graphService.getProjectGraph(authenticatedUser.id(), projectId, limit, types);
+    }
+
+    // 통합 검색 — 프로젝트 그래프 전체에서 노드 키워드 검색 (ai-engine full-text 프록시)
+    @GetMapping("/search")
+    public GraphSearchResponse searchProjectGraph(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @RequestParam String q,
+            @RequestParam(required = false) Integer limit
+    ) {
+        return graphService.searchNodes(authenticatedUser.id(), projectId, q, limit);
     }
 
     @PostMapping("/subgraph")

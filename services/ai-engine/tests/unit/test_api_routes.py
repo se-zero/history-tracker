@@ -15,6 +15,7 @@ EXPECTED_ROUTES = {
     ("GET", "/graph/activity"),
     ("GET", "/graph/build/status"),
     ("GET", "/graph/overview"),
+    ("GET", "/graph/search"),
     ("GET", "/health"),
     ("POST", "/dlq/replay"),
     ("POST", "/graph/build"),
