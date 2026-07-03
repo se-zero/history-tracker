@@ -64,7 +64,9 @@ class GraphControllerTest {
     @DisplayName("필터 파라미터와 함께 프로젝트 그래프 반환")
     void returnsProjectGraphWithForwardedFilters() throws Exception {
         GraphResponse graph = new GraphResponse(
-                List.of(new GraphNodeResponse("n1", "commit", "feat: x", "abc1234", "github", "body")),
+                List.of(new GraphNodeResponse(
+                        "n1", "commit", "feat: x", "abc1234", "github", "body",
+                        new EvidenceRef("commit", "abc1234def"))),
                 List.of(List.of("n1", "n2"))
         );
         when(graphService.getProjectGraph(USER_ID, PROJECT_ID, 50, "commit,pr")).thenReturn(graph);
@@ -119,7 +121,9 @@ class GraphControllerTest {
     @DisplayName("노드 검색 — q·limit 전달 후 nodes 반환")
     void searchesProjectGraphNodes() throws Exception {
         GraphSearchResponse response = new GraphSearchResponse(
-                List.of(new GraphNodeResponse("n1", "commit", "feat: 인증", "abc1234", "github", "snippet")));
+                List.of(new GraphNodeResponse(
+                        "n1", "commit", "feat: 인증", "abc1234", "github", "snippet",
+                        new EvidenceRef("commit", "abc1234def"))));
         when(graphService.searchNodes(USER_ID, PROJECT_ID, "인증", 20)).thenReturn(response);
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/graph/search", PROJECT_ID)
@@ -154,7 +158,9 @@ class GraphControllerTest {
     void returnsSubgraphForEvidence() throws Exception {
         SubgraphRequest request = new SubgraphRequest(List.of(new EvidenceRef("commit", "abc1234")));
         GraphSubgraphResponse subgraph = new GraphSubgraphResponse(
-                List.of(new GraphNodeResponse("n1", "commit", "feat: x", "abc1234", "github", "body")),
+                List.of(new GraphNodeResponse(
+                        "n1", "commit", "feat: x", "abc1234", "github", "body",
+                        new EvidenceRef("commit", "abc1234def"))),
                 List.of(List.of("n1", "n2")),
                 List.of("n1")
         );
@@ -166,6 +172,8 @@ class GraphControllerTest {
                         .content("{\"evidence\":[{\"type\":\"commit\",\"id\":\"abc1234\"}]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nodes[0].id").value("n1"))
+                .andExpect(jsonPath("$.nodes[0].ref.type").value("commit"))
+                .andExpect(jsonPath("$.nodes[0].ref.id").value("abc1234def"))
                 .andExpect(jsonPath("$.edges[0][0]").value("n1"))
                 .andExpect(jsonPath("$.seeds[0]").value("n1"));
 
