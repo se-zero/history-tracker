@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -36,6 +37,9 @@ public class MessageService {
 
     private static final int MAX_HISTORY_TURNS = 5;
     private static final int MESSAGE_PAGE_SIZE = 30;
+    // focus 노드는 user 입력이 그대로 ai-engine system 메시지에 실리므로 경계에서 방어한다.
+    private static final Set<String> ALLOWED_FOCUS_TYPES = Set.of("commit", "pull_request", "issue", "message");
+    private static final int MAX_FOCUS_ID_LENGTH = 200;
     private static final String ERROR_TYPE_KEY = "error_type";
     private static final String AI_ENGINE_ERROR = "AI_ENGINE_ERROR";
     private static final String STRUCTURED_KEY = "structured";
@@ -81,7 +85,7 @@ public class MessageService {
                 pendingQuery.queryContext().history(),
                 pendingQuery.queryContext().priorEvidence(),
                 runningSummary,
-                focusEvidence
+                sanitizeFocusEvidence(focusEvidence)
         );
         return new MessageExchange(pendingQuery.userMessage(), assistantMessage);
     }
@@ -179,6 +183,22 @@ public class MessageService {
             throw new BadRequestException("Message content is required.");
         }
         return content.trim();
+    }
+
+    // focus 노드 경계 방어 — user 입력이 ai-engine system 메시지에 실리므로 알 수 없는 type·빈/과길이 id를
+    // 걸러낸다(프롬프트 오염·토큰 폭증·pydantic 422 fallback 방지). 개수 상한은 요청 검증(@Size)이 담당.
+    private List<EvidenceRef> sanitizeFocusEvidence(List<EvidenceRef> focusEvidence) {
+        if (focusEvidence == null || focusEvidence.isEmpty()) {
+            return List.of();
+        }
+        return focusEvidence.stream()
+                .filter(ref -> ref != null
+                        && ref.type() != null  // Set.of(...).contains(null)은 false가 아니라 NPE를 던진다
+                        && ALLOWED_FOCUS_TYPES.contains(ref.type())
+                        && ref.id() != null
+                        && !ref.id().isBlank()
+                        && ref.id().length() <= MAX_FOCUS_ID_LENGTH)
+                .toList();
     }
 
     // AI 질의 컨텍스트와 새로 요약할 오래된 완성 턴 구성

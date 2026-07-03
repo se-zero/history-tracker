@@ -341,6 +341,28 @@ class ConversationControllerTest {
     }
 
     @Test
+    @DisplayName("focus evidence 11개 이상이면 400 Bad Request (@Size(max=10))")
+    void createMessageRejectsTooManyFocusEvidence() throws Exception {
+        StringBuilder items = new StringBuilder();
+        for (int i = 1; i <= 11; i++) {
+            if (i > 1) items.append(",");
+            items.append("{\"type\":\"commit\",\"id\":\"c").append(i).append("\"}");
+        }
+        String body = "{\"content\":\"Q\",\"focusEvidence\":[" + items + "]}";
+
+        mockMvc.perform(post(
+                        "/api/v1/projects/{projectId}/conversations/{conversationId}/messages",
+                        PROJECT_ID,
+                        CONVERSATION_ID
+                ).header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed."))
+                .andExpect(jsonPath("$.fields[0].field").value("focusEvidence"));
+    }
+
+    @Test
     @DisplayName("존재하지 않는 대화 조회 → 404 Not Found 반환")
     void getConversationReturnsNotFound() throws Exception {
         when(conversationService.getConversationDetail(USER_ID, PROJECT_ID, CONVERSATION_ID))

@@ -183,6 +183,35 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("focus evidence 중 무효 항목(알 수 없는 type·빈/과길이 id)은 걸러내고 전달")
+    void addMessageFiltersInvalidFocusEvidence() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        EvidenceRef valid = new EvidenceRef("commit", "abc1234def");
+        List<EvidenceRef> focusEvidence = List.of(
+                valid,
+                new EvidenceRef("weird", "x"),          // 알 수 없는 type
+                new EvidenceRef("issue", " "),           // 빈 id
+                new EvidenceRef("commit", "a".repeat(201)), // 과길이 id
+                new EvidenceRef(null, "x"),              // type null (Set.of.contains(null) → NPE 방어)
+                new EvidenceRef("commit", null)          // id null
+        );
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of());
+        when(aiEngineQueryClient.ask("Q", PROJECT_ID, List.of(), List.of(), null, List.of(valid)))
+                .thenReturn(AiEngineQueryResult.success("A", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Q", focusEvidence);
+
+        verify(aiEngineQueryClient).ask("Q", PROJECT_ID, List.of(), List.of(), null, List.of(valid));
+    }
+
+    @Test
     @DisplayName("사용자 메시지 저장 시 대화 updated_at 갱신")
     void appendUserMessageTouchesConversation() {
         MessageService service = service();

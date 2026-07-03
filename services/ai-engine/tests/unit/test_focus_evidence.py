@@ -105,6 +105,58 @@ class OrchestratorFocusEvidenceTest(unittest.IsolatedAsyncioTestCase):
             [m["role"] for m in captured_structured_messages],
         )
 
+    async def test_focus_prior_history_together_grounding_contract(self):
+        # 핵심 계약: history·prior_evidence는 탐색에만 쓰고 근거(structured)에서 제외,
+        # focus_evidence는 현재 턴에 두어 근거에 포함 — 셋이 함께 있을 때가 진짜 시나리오.
+        history = [
+            {"role": "user", "content": "이전 질문"},
+            {"role": "assistant", "content": "이전 답변 PR #18"},
+        ]
+        prior_evidence = [{"type": "pull_request", "id": "#18", "quote": "OAuth callback update"}]
+        focus_evidence = [{"type": "commit", "id": "abc1234def5678"}]
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=None, content="fallback"))]
+        )
+        captured_exploration = []
+        captured_structured = []
+
+        async def capture_exploration(messages, with_tools=True):
+            captured_exploration.extend(messages)
+            return response
+
+        async def capture_structured(messages):
+            captured_structured.extend(messages)
+            return {"summary": "done", "evidence": [], "unknown_aspects": []}
+
+        with (
+            patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
+            patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+        ):
+            await orchestrator.run(
+                "이 커밋 왜 바뀜?",
+                history=history,
+                prior_evidence=prior_evidence,
+                focus_evidence=focus_evidence,
+            )
+
+        # 탐색: system → history(user,assistant) → prior(system) → focus(system) → 현재 질문(user)
+        self.assertEqual(
+            ["system", "user", "assistant", "system", "system", "user"],
+            [m["role"] for m in captured_exploration],
+        )
+        # 탐색엔 prior·focus 모두 포함
+        self.assertIn("OAuth callback update", str(captured_exploration))
+        self.assertIn("abc1234def5678", str(captured_exploration))
+
+        # 근거(structured): focus는 포함, prior·history는 제외
+        self.assertEqual(
+            ["system", "system", "user"],
+            [m["role"] for m in captured_structured],
+        )
+        self.assertIn("abc1234def5678", str(captured_structured))
+        self.assertNotIn("OAuth callback update", str(captured_structured))
+        self.assertNotIn("이전 답변 PR #18", str(captured_structured))
+
 
 if __name__ == "__main__":
     unittest.main()

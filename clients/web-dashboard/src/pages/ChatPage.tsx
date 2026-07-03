@@ -73,6 +73,8 @@ export function ChatPage({ project }: { project: Project }) {
   const [draft, setDraft] = useState("");
   // 관련 그래프에서 첨부한 focus 노드 칩. 전송 시 ref만 focus_evidence로 실어 보낸다.
   const [attachedNodes, setAttachedNodes] = useState<AttachedNode[]>([]);
+  // 칩은 특정 대화의 답변 그래프에서 나온 것 — 대화를 옮기면(라우트 전환으로 리마운트되지 않으므로) 비운다.
+  useEffect(() => setAttachedNodes([]), [conversationId]);
   const [sendError, setSendError] = useState(false);
 
   // 관련 그래프 패널 — 열림 여부는 사용자 선호라 localStorage에 영속한다.
