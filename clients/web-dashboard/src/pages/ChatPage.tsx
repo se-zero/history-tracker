@@ -74,7 +74,11 @@ export function ChatPage({ project }: { project: Project }) {
   // 관련 그래프에서 첨부한 focus 노드 칩. 전송 시 ref만 focus_evidence로 실어 보낸다.
   const [attachedNodes, setAttachedNodes] = useState<AttachedNode[]>([]);
   // 칩은 특정 대화의 답변 그래프에서 나온 것 — 대화를 옮기면(라우트 전환으로 리마운트되지 않으므로) 비운다.
-  useEffect(() => setAttachedNodes([]), [conversationId]);
+  // 이미 비어 있으면 같은 참조를 반환해 마운트 시·빈 상태에서의 불필요한 리렌더를 건너뛴다.
+  useEffect(
+    () => setAttachedNodes((prev) => (prev.length ? [] : prev)),
+    [conversationId],
+  );
   const [sendError, setSendError] = useState(false);
 
   // 관련 그래프 패널 — 열림 여부는 사용자 선호라 localStorage에 영속한다.
@@ -254,9 +258,16 @@ export function ChatPage({ project }: { project: Project }) {
     ));
 
   // 전송 실패 시 친 내용·첨부 노드가 사라지지 않도록 복구하고 에러를 표시한다.
+  // 단, 응답 대기 중 다른 대화로 이동했으면(originCid ≠ 현재) 그 대화에 원래 대화의
+  // 입력·에러를 흘리지 않는다 — pendingMessage 스코프와 동일한 규칙(이 경우 복구는 생략).
   // 그 사이 새로 입력/첨부한 내용이 있으면 덮어쓰지 않는다.
-  const restoreOnError = (failedText: string, attached: AttachedNode[] = []) => {
+  const restoreOnError = (
+    originCid: string | undefined,
+    failedText: string,
+    attached: AttachedNode[] = [],
+  ) => {
     setPendingMessage(null);
+    if (originCid !== conversationId) return;
     setDraft((current) => (current.trim() ? current : failedText));
     if (attached.length) {
       setAttachedNodes((current) => (current.length ? current : attached));
@@ -278,7 +289,8 @@ export function ChatPage({ project }: { project: Project }) {
       setPendingMessage(null);
       navigate(`/projects/${project.id}/chat/${created.id}`, { replace: true });
     },
-    onError: (_error, firstMessage) => restoreOnError(firstMessage),
+    // 신규 대화 경로의 origin은 대화 없음(undefined) — 그 화면을 벗어났으면 복구하지 않는다.
+    onError: (_error, firstMessage) => restoreOnError(undefined, firstMessage),
   });
 
   const sendMutation = useMutation({
@@ -324,8 +336,8 @@ export function ChatPage({ project }: { project: Project }) {
       });
       setPendingMessage(null);
     },
-    onError: (_error, { restoreText, attached }) =>
-      restoreOnError(restoreText, attached),
+    onError: (_error, { restoreText, attached, cid }) =>
+      restoreOnError(cid, restoreText, attached),
   });
 
   const pending = createMutation.isPending || sendMutation.isPending;
