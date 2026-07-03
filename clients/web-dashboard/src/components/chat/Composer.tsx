@@ -12,6 +12,7 @@ export function Composer({
   disabled,
   showThinkingHint,
   error,
+  notice,
 }: {
   project: Project;
   value: string;
@@ -20,6 +21,8 @@ export function Composer({
   disabled: boolean;
   showThinkingHint: boolean;
   error?: string | null;
+  // 중립 톤 안내(차단 사유 등) — 에러(InlineError)와 구분되는 정보성 배너
+  notice?: string | null;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -46,6 +49,7 @@ export function Composer({
             {error}
           </InlineError>
         )}
+        {notice && <div className="composer-notice">{notice}</div>}
         <div className="composer-box">
           <textarea
             ref={taRef}

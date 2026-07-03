@@ -12,9 +12,11 @@ const SUGGESTED = [
 export function ChatEmpty({
   project,
   onPick,
+  disabled,
 }: {
   project: Project;
   onPick: (text: string) => void;
+  disabled?: boolean;
 }) {
   const iconMap = {
     branch: Icons.Branch,
@@ -37,6 +39,7 @@ export function ChatEmpty({
               key={i}
               className="suggest-card"
               onClick={() => onPick(s.text)}
+              disabled={disabled}
             >
               <span className="sg-icon">
                 <Ic size={14} />

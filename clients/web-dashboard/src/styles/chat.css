@@ -430,6 +430,18 @@
   text-align: center;
   display: flex; justify-content: center; gap: 12px;
 }
+/* 중립 톤 안내 배너 — 채팅 차단 사유(연동 없음·구축중) 안내. 에러(InlineError)와 구분되는 정보성 */
+.composer-notice {
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  text-align: center;
+}
 
 /* empty state */
 .chat-empty {
