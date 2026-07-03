@@ -51,6 +51,14 @@ export interface GraphBuildStatus {
   error: string | null;
 }
 
+// GET /projects/{id}/graph/activity 응답 — 프론트 채팅 게이팅용.
+// build/status와 별개 신호다: 최초 수집중(collecting)·수동 재구축중(building)이면 질문을 막는다.
+export type GraphActivityState = "idle" | "collecting" | "building";
+
+export interface GraphActivity {
+  state: GraphActivityState;
+}
+
 export const NODE_TYPE_INFO: Record<
   GraphNodeType,
   { label: string; cssVar: string }

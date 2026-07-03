@@ -5,9 +5,9 @@ from pydantic import BaseModel, Field
 
 from graph.builder import delete_project_graph
 from graph.overview import get_evidence_subgraph, get_project_overview
-from graph.postprocess import get_build_status, trigger_build
 from graph.search import DEFAULT_LIMIT as SEARCH_DEFAULT_LIMIT
 from graph.search import search_nodes
+from graph.postprocess import get_build_status, get_graph_activity, trigger_build
 
 router = APIRouter()
 
@@ -94,3 +94,14 @@ async def graph_build_status(project_id: str):
     succeeded면 result에 단계별 카운트, failed면 error에 사유가 담긴다.
     """
     return get_build_status(project_id)
+
+
+@router.get("/graph/activity")
+async def graph_activity(project_id: str):
+    """프로젝트의 그래프 활동 상태를 반환한다 (프론트 채팅 게이팅용, 읽기 전용).
+
+    state: idle | collecting(최초 수집중) | building(수동 재구축중).
+    프론트는 idle이 아니면 질문을 막는다. 판정 로직은 postprocess.get_graph_activity 참고.
+    build/status와 별개 신호다 — 재구축 버튼 UI 계약은 이 라우트가 건드리지 않는다.
+    """
+    return {"state": get_graph_activity(project_id)}

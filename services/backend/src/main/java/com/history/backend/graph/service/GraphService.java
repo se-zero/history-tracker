@@ -2,6 +2,7 @@ package com.history.backend.graph.service;
 
 import java.util.UUID;
 
+import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSearchResponse;
@@ -52,5 +53,11 @@ public class GraphService {
     public GraphBuildStatusResponse getBuildStatus(UUID ownerId, UUID projectId) {
         projectService.getProject(ownerId, projectId);
         return aiEngineGraphClient.fetchBuildStatus(projectId);
+    }
+
+    // 소유권 검증 후 프로젝트의 그래프 활동 상태를 조회한다 (프론트 채팅 게이팅용).
+    public GraphActivityResponse getGraphActivity(UUID ownerId, UUID projectId) {
+        projectService.getProject(ownerId, projectId);
+        return aiEngineGraphClient.fetchGraphActivity(projectId);
     }
 }

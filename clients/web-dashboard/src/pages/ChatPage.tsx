@@ -21,7 +21,8 @@ import {
   useConversation,
   useLoadOlderMessages,
 } from "@/hooks/useConversations";
-import { useMessageSubgraph } from "@/hooks/useGraph";
+import { useGraph, useGraphActivity, useMessageSubgraph } from "@/hooks/useGraph";
+import { useIntegrations } from "@/hooks/useIntegrations";
 import type { ConversationDetail, Message, Project } from "@/types/api";
 import type { GraphNode } from "@/types/graph";
 
@@ -285,9 +286,49 @@ export function ChatPage({ project }: { project: Project }) {
 
   const pending = createMutation.isPending || sendMutation.isPending;
 
+  // 채팅 게이팅 — 연동이 없거나(응답 불가·API 낭비) 그래프가 구축 중이면(답변 신뢰도 낮음) 질문을 막는다.
+  // 차단 강제는 프론트에서만 한다(백엔드 게이트 없음). 세 신호를 우선순위로 합친다:
+  //   1) 연동 없음  2) 노드 없음(연동은 있으나 데이터 아직 없음) 또는 활동중(최초 수집/수동 재구축)
+  const integrationsQuery = useIntegrations(project.id);
+  const graphQuery = useGraph(project.id);
+  const activityQuery = useGraphActivity(project.id);
+  const chatBlock = useMemo<"no-integration" | "building" | "loading" | null>(() => {
+    // 세 신호 중 하나라도 최초 로딩 중이면 아직 판정할 수 없다 — 그 사이 낭비성 질문이
+    // 새어나가지 않게 조용히 차단한다(배너 없음). isLoading은 최초 1회만 true라 폴링엔 영향 없음.
+    if (
+      integrationsQuery.isLoading ||
+      graphQuery.isLoading ||
+      activityQuery.isLoading
+    ) {
+      return "loading";
+    }
+    if (integrationsQuery.data && integrationsQuery.data.length === 0) {
+      return "no-integration";
+    }
+    const nodes = graphQuery.data?.nodes;
+    const activity = activityQuery.data?.state;
+    if ((nodes && nodes.length === 0) || (activity && activity !== "idle")) {
+      return "building";
+    }
+    return null;
+  }, [
+    integrationsQuery.isLoading,
+    integrationsQuery.data,
+    graphQuery.isLoading,
+    graphQuery.data,
+    activityQuery.isLoading,
+    activityQuery.data,
+  ]);
+  const blockNotice =
+    chatBlock === "no-integration"
+      ? "소스가 아직 연결되지 않았어요. 먼저 소스를 연결하면 질문할 수 있어요."
+      : chatBlock === "building"
+        ? "그래프를 만드는 중이에요. 준비되면 자동으로 질문할 수 있어요."
+        : null;
+
   const handleSend = (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || pending) return;
+    if (!trimmed || pending || chatBlock) return;
     setSendError(false);
     setPendingMessage({ conversationId, text: trimmed });
     setDraft(""); // 입력은 즉시 비우되, 실패하면 restoreOnError로 되돌린다
@@ -348,7 +389,11 @@ export function ChatPage({ project }: { project: Project }) {
             <ThinkingState />
           </ChatStream>
         ) : !conversationId ? (
-          <ChatEmpty project={project} onPick={handleSend} />
+          <ChatEmpty
+            project={project}
+            onPick={handleSend}
+            disabled={chatBlock !== null}
+          />
         ) : conversationQuery.isLoading ? (
           <StatusView tone="loading" description="메시지를 불러오는 중…" />
         ) : conversationQuery.isError ? (
@@ -373,13 +418,14 @@ export function ChatPage({ project }: { project: Project }) {
           value={draft}
           onChange={handleDraftChange}
           onSubmit={() => handleSend(draft)}
-          disabled={pending}
+          disabled={pending || chatBlock !== null}
           showThinkingHint={pending}
           error={
-            sendError
-              ? "전송에 실패했어요. 입력을 그대로 두었으니 다시 시도해 주세요."
-              : null
+            chatBlock || !sendError
+              ? null
+              : "전송에 실패했어요. 입력을 그대로 두었으니 다시 시도해 주세요."
           }
+          notice={blockNotice}
         />
       </div>
       {showPanel && (

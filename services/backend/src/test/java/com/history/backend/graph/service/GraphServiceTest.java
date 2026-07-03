@@ -13,6 +13,7 @@ import java.util.UUID;
 
 import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.graph.dto.EvidenceRef;
+import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSearchResponse;
@@ -188,6 +189,32 @@ class GraphServiceTest {
                 .when(projectService).getProject(USER_ID, PROJECT_ID);
 
         assertThatThrownBy(() -> graphService.getBuildStatus(USER_ID, PROJECT_ID))
+                .isInstanceOf(ForbiddenException.class);
+
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("소유권 확인 후 그래프 활동 상태 조회")
+    void fetchesGraphActivityAfterOwnershipCheck() {
+        GraphActivityResponse expected = new GraphActivityResponse("collecting");
+        when(aiEngineGraphClient.fetchGraphActivity(PROJECT_ID)).thenReturn(expected);
+
+        GraphActivityResponse result = graphService.getGraphActivity(USER_ID, PROJECT_ID);
+
+        assertThat(result).isSameAs(expected);
+        InOrder inOrder = inOrder(projectService, aiEngineGraphClient);
+        inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).fetchGraphActivity(PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("그래프 활동 상태 조회 — 소유권 검증 실패 시 ai-engine 미호출")
+    void doesNotFetchActivityWhenOwnershipCheckFails() {
+        doThrow(new ForbiddenException("Project access denied."))
+                .when(projectService).getProject(USER_ID, PROJECT_ID);
+
+        assertThatThrownBy(() -> graphService.getGraphActivity(USER_ID, PROJECT_ID))
                 .isInstanceOf(ForbiddenException.class);
 
         verifyNoInteractions(aiEngineGraphClient);

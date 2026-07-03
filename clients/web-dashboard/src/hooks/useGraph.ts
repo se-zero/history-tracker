@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  getGraphActivity,
   getGraphBuildStatus,
   getMessageSubgraph,
   getProjectGraph,
@@ -9,6 +10,7 @@ import {
 } from "@/api/graph";
 import { extractStructured } from "@/components/chat/messageStructured";
 import type { Message } from "@/types/api";
+import type { GraphActivityState } from "@/types/graph";
 import { queryKeys } from "./queryKeys";
 
 export function useGraph(projectId: string) {
@@ -58,6 +60,33 @@ export function useGraphBuildStatus(projectId: string) {
       data.startedAt !== lastInvalidatedRef.current
     ) {
       lastInvalidatedRef.current = data.startedAt;
+      queryClient.invalidateQueries({ queryKey: queryKeys.graph(projectId) });
+    }
+  }, [query.data, projectId, queryClient]);
+
+  return query;
+}
+
+// 그래프 활동 상태 — 프론트 채팅 게이팅용(최초 수집중/수동 재구축중이면 질문 차단).
+// 활동 중(idle 아님)엔 5초, idle이면 15초로 폴링해 새 활동을 감지한다.
+// 활동중→idle 전이 시 그래프 쿼리를 무효화해 새로 쌓인 노드 수를 반영한다(게이트 자동 해제).
+export function useGraphActivity(projectId: string) {
+  const queryClient = useQueryClient();
+  const prevStateRef = useRef<GraphActivityState | null>(null);
+
+  const query = useQuery({
+    queryKey: queryKeys.graphActivity(projectId),
+    queryFn: () => getGraphActivity(projectId),
+    refetchInterval: (q) =>
+      q.state.data && q.state.data.state !== "idle" ? 5000 : 15000,
+  });
+
+  useEffect(() => {
+    const state = query.data?.state;
+    if (!state) return;
+    const prev = prevStateRef.current;
+    prevStateRef.current = state;
+    if (prev && prev !== "idle" && state === "idle") {
       queryClient.invalidateQueries({ queryKey: queryKeys.graph(projectId) });
     }
   }, [query.data, projectId, queryClient]);

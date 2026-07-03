@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type {
+  GraphActivity,
   GraphBuildResult,
   GraphBuildStatus,
   GraphData,
@@ -82,4 +83,14 @@ export async function getGraphBuildStatus(
     `/projects/${projectId}/graph/build/status`,
   );
   return toBuildStatus(data);
+}
+
+// 프로젝트의 그래프 활동 상태 조회 (프론트 채팅 게이팅용). state는 이미 camelCase라 매핑 불필요.
+export async function getGraphActivity(
+  projectId: string,
+): Promise<GraphActivity> {
+  const { data } = await api.get<GraphActivity>(
+    `/projects/${projectId}/graph/activity`,
+  );
+  return data;
 }

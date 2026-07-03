@@ -16,6 +16,7 @@ import java.util.UUID;
 
 import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.graph.dto.EvidenceRef;
+import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphNodeResponse;
@@ -257,6 +258,38 @@ class GraphControllerTest {
     @DisplayName("빌드 상태 조회 — 미인증 요청 거부 → 401 Unauthorized")
     void rejectsUnauthenticatedBuildStatus() throws Exception {
         mockMvc.perform(get("/api/v1/projects/{projectId}/graph/build/status", PROJECT_ID))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("그래프 활동 상태 조회 → 200, state 반환")
+    void returnsGraphActivity() throws Exception {
+        when(graphService.getGraphActivity(USER_ID, PROJECT_ID))
+                .thenReturn(new GraphActivityResponse("collecting"));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/activity", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("collecting"));
+
+        verify(graphService).getGraphActivity(USER_ID, PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("그래프 활동 상태 조회 — 소유자가 아니면 403 Forbidden 전파")
+    void propagatesForbiddenOnGraphActivity() throws Exception {
+        when(graphService.getGraphActivity(USER_ID, PROJECT_ID))
+                .thenThrow(new ForbiddenException("Project access denied."));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/activity", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("그래프 활동 상태 조회 — 미인증 요청 거부 → 401 Unauthorized")
+    void rejectsUnauthenticatedGraphActivity() throws Exception {
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/activity", PROJECT_ID))
                 .andExpect(status().isUnauthorized());
     }
 }

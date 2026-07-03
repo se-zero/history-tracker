@@ -37,12 +37,17 @@ CHECK_INTERVAL_SECONDS = float(os.environ.get("GRAPH_BUILD_CHECK_INTERVAL_SECOND
 MIN_BUILD_INTERVAL_SECONDS = float(os.environ.get("GRAPH_BUILD_MIN_INTERVAL_SECONDS", "300"))
 # 동시에 진행 가능한 빌드 수 상한 — 여러 프로젝트가 동시에 재구축돼도 부하를 제한한다.
 MAX_CONCURRENCY = max(1, int(os.environ.get("GRAPH_BUILD_MAX_CONCURRENCY", "2")))
+# 채팅 게이팅용 — 마지막 이벤트 이후 이 시간(초) 안이면 "최초 수집중"으로 본다(디바운스 30s + 여유).
+# 이벤트가 멈춰 빌드가 시작되기 전 디바운스 갭까지 collecting을 유지한다.
+GRAPH_ACTIVITY_WINDOW_SECONDS = float(os.environ.get("GRAPH_ACTIVITY_WINDOW_SECONDS", "45"))
 
 _last_event_at: dict[str, float] = {}    # project_id -> 마지막 이벤트 monotonic 시각
 _last_build_at: dict[str, float] = {}    # project_id -> 마지막 빌드 완료 monotonic 시각
 _dirty: set[str] = set()                 # 후처리가 필요한 project_id 집합
 _build_status: dict[str, dict] = {}      # project_id -> 빌드 상태(state/verify/started_at/result/error)
 _build_tasks: set[asyncio.Task] = set()  # create_task 참조 보관 (GC로 태스크가 중간에 사라지지 않게)
+_ever_built: set[str] = set()            # Layer-4 빌드를 한 번이라도 성공시킨 project_id (단조 — 최초 수집 종료 표시)
+_manual_build_running: set[str] = set()  # POST /graph/build(재구축 버튼)로 시작돼 실행 중인 project_id
 
 # 이벤트 루프 밖(import 시점)에서 만들면 루프에 묶일 수 있어 첫 사용 시점에 lazy 생성한다.
 _build_semaphore: asyncio.Semaphore | None = None
@@ -120,6 +125,35 @@ def mark_dirty(project_id: str) -> None:
         return
     _last_event_at[project_id] = time.monotonic()
     _dirty.add(project_id)
+
+
+# ── graph activity (프론트 채팅 게이팅용 읽기 전용 신호) ──────────────────────
+#
+# 이 함수가 "최초 수집중 vs 웹훅 증분"을 구분하는 교체 이음새다. 다중 인스턴스로 갈 때
+# 내부 소스(_ever_built/_manual_build_running/_dirty/_last_event_at/_build_status)만
+# 공유 저장소로 바꾸면 라우터/백엔드/프론트는 무변경이다.
+
+
+def get_graph_activity(project_id: str) -> str:
+    """프로젝트의 현재 그래프 활동 상태를 반환한다 (프론트 채팅 게이팅용).
+
+    building   — 사용자가 "재구축" 버튼으로 직접 트리거한 빌드가 실행 중.
+                 웹훅발 자동 유지보수 빌드는 여기 해당하지 않는다.
+    collecting — 아직 한 번도 빌드에 성공하지 않은(=_ever_built 없는) 프로젝트에
+                 이벤트가 흐르거나 빌드가 도는 최초 수집 구간.
+    idle       — 그 외. 이미 구축된 프로젝트의 웹훅 증분·자동 유지보수 빌드도 포함.
+
+    먼저 맞는 조건이 우선한다 (building > collecting > idle).
+    """
+    if project_id in _manual_build_running:
+        return "building"
+    if project_id not in _ever_built and (
+        is_build_running(project_id)
+        or project_id in _dirty
+        or time.monotonic() - _last_event_at.get(project_id, 0.0) < GRAPH_ACTIVITY_WINDOW_SECONDS
+    ):
+        return "collecting"
+    return "idle"
 
 
 # ── 빌드 실행 ──────────────────────────────────────────────────────────────
@@ -230,6 +264,7 @@ async def _execute_build(project_id: str, verify: bool, *, requeue_on_failure: b
             "state": "succeeded", "verify": verify,
             "started_at": started_at, "result": result, "error": None,
         }
+        _ever_built.add(project_id)  # 최초 수집 종료 표시 — 이후 웹훅 증분은 "collecting"을 만들지 않는다 (트리거 출처 무관)
         logger.info("그래프 후처리 완료: project=%s result=%s", project_id, result)
         return True
     except Exception as e:
@@ -244,6 +279,7 @@ async def _execute_build(project_id: str, verify: bool, *, requeue_on_failure: b
         return False
     finally:
         _last_build_at[project_id] = time.monotonic()
+        _manual_build_running.discard(project_id)  # 수동 빌드였다면 해제 (자동 빌드엔 애초에 없어 no-op)
 
 
 def _spawn_tracked(coro) -> None:
@@ -262,6 +298,7 @@ def trigger_build(project_id: str, verify: bool) -> dict:
     이미 빌드 중이면 새로 시작하지 않고 진행 중인 상태를 반환한다(coalesce).
     """
     if _try_start_build(project_id, verify):
+        _manual_build_running.add(project_id)  # 수동 트리거만 표시 — 채팅 게이팅 "building"용 (자동 디바운스 빌드는 제외)
         _spawn_tracked(_execute_build(project_id, verify))
     return get_build_status(project_id)
 

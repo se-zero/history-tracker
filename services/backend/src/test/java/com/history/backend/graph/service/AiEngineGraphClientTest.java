@@ -16,6 +16,7 @@ import java.util.UUID;
 
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.graph.dto.EvidenceRef;
+import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSearchResponse;
@@ -205,6 +206,33 @@ class AiEngineGraphClientTest {
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> fixture.client.fetchBuildStatus(PROJECT_ID))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("그래프 활동 상태 조회 — project_id 쿼리로 GET, state 반환")
+    void fetchesGraphActivity() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/activity")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(queryParam("project_id", PROJECT_ID.toString()))
+                .andRespond(withSuccess("{\"state\":\"collecting\"}", MediaType.APPLICATION_JSON));
+
+        GraphActivityResponse result = fixture.client.fetchGraphActivity(PROJECT_ID);
+
+        assertThat(result.state()).isEqualTo("collecting");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("그래프 활동 상태 조회 실패 시 BadGatewayException 발생")
+    void throwsBadGatewayWhenActivityFails() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/activity")))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.fetchGraphActivity(PROJECT_ID))
                 .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
