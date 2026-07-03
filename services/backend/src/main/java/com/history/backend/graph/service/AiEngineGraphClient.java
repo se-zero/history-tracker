@@ -6,6 +6,7 @@ import java.util.UUID;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.graph.dto.AiEngineSubgraphRequest;
 import com.history.backend.graph.dto.EvidenceRef;
+import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
@@ -97,6 +98,22 @@ public class AiEngineGraphClient {
             log.error("ai-engine graph build status request failed: projectId={}, {}",
                     projectId, exception.getMessage());
             throw new BadGatewayException("Failed to load graph build status.");
+        }
+    }
+
+    // 프로젝트 그래프 활동 상태 조회 — 프론트 채팅 게이팅용 (idle|collecting|building)
+    public GraphActivityResponse fetchGraphActivity(UUID projectId) {
+        try {
+            return aiEngineRestClient.get()
+                    .uri(uriBuilder -> uriBuilder.path("/graph/activity")
+                            .queryParam("project_id", projectId)
+                            .build())
+                    .retrieve()
+                    .body(GraphActivityResponse.class);
+        } catch (RestClientException exception) {
+            log.error("ai-engine graph activity request failed: projectId={}, {}",
+                    projectId, exception.getMessage());
+            throw new BadGatewayException("Failed to load graph activity.");
         }
     }
 

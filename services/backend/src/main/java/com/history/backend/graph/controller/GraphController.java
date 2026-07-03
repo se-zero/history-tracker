@@ -2,6 +2,7 @@ package com.history.backend.graph.controller;
 
 import java.util.UUID;
 
+import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
@@ -62,5 +63,13 @@ public class GraphController {
             @PathVariable UUID projectId
     ) {
         return graphService.getBuildStatus(authenticatedUser.id(), projectId);
+    }
+
+    @GetMapping("/activity")
+    public GraphActivityResponse getGraphActivity(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId
+    ) {
+        return graphService.getGraphActivity(authenticatedUser.id(), projectId);
     }
 }
