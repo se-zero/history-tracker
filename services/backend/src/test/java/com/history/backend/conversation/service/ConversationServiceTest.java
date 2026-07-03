@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -203,6 +204,73 @@ class ConversationServiceTest {
         Conversation result = service.updateTitle(USER_ID, PROJECT_ID, CONVERSATION_ID, " ");
 
         assertThat(result.getTitle()).isNull();
+    }
+
+    @Test
+    @DisplayName("통합 검색 — 이스케이프된 패턴으로 조회 후 한 줄 스니펫과 함께 반환")
+    void searchConversationsBuildsEscapedPatternAndSnippets() {
+        ConversationService service = service();
+        Conversation conversation = conversation(project(), user(), "Auth 정리");
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.searchPageByProject(eq(PROJECT_ID), eq("%100!%%"), any(Pageable.class)))
+                .thenReturn(List.of(conversation));
+        when(messageService.findLatestMatchedContents(List.of(CONVERSATION_ID), "%100!%%"))
+                .thenReturn(Map.of(CONVERSATION_ID, "커버리지  100%\n달성 계획"));
+
+        List<ConversationSearchResult> results = service.searchConversations(USER_ID, PROJECT_ID, " 100% ");
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).conversation()).isSameAs(conversation);
+        // 개행·연속 공백은 한 줄로 접힌다
+        assertThat(results.get(0).snippet()).isEqualTo("커버리지 100% 달성 계획");
+    }
+
+    @Test
+    @DisplayName("통합 검색 — 제목만 매치한 대화는 스니펫 없이 반환")
+    void searchConversationsReturnsNullSnippetForTitleOnlyMatch() {
+        ConversationService service = service();
+        Conversation conversation = conversation(project(), user(), "인증 정리");
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.searchPageByProject(eq(PROJECT_ID), eq("%인증%"), any(Pageable.class)))
+                .thenReturn(List.of(conversation));
+        when(messageService.findLatestMatchedContents(List.of(CONVERSATION_ID), "%인증%"))
+                .thenReturn(Map.of());
+
+        List<ConversationSearchResult> results = service.searchConversations(USER_ID, PROJECT_ID, "인증");
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).snippet()).isNull();
+    }
+
+    @Test
+    @DisplayName("통합 검색 — 긴 본문은 매치 주변만 발췌하고 앞뒤 말줄임")
+    void searchConversationsTruncatesSnippetAroundMatch() {
+        ConversationService service = service();
+        Conversation conversation = conversation(project(), user(), "Long");
+        String longContent = "a".repeat(100) + "인증" + "b".repeat(300);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.searchPageByProject(eq(PROJECT_ID), eq("%인증%"), any(Pageable.class)))
+                .thenReturn(List.of(conversation));
+        when(messageService.findLatestMatchedContents(List.of(CONVERSATION_ID), "%인증%"))
+                .thenReturn(Map.of(CONVERSATION_ID, longContent));
+
+        List<ConversationSearchResult> results = service.searchConversations(USER_ID, PROJECT_ID, "인증");
+
+        String snippet = results.get(0).snippet();
+        assertThat(snippet).startsWith("…").endsWith("…").contains("인증");
+        // 말줄임 2자 + 발췌 최대 길이(160)
+        assertThat(snippet).hasSize(162);
+    }
+
+    @Test
+    @DisplayName("통합 검색 — 빈 검색어는 저장소 조회 없이 빈 결과")
+    void searchConversationsReturnsEmptyForBlankQuery() {
+        ConversationService service = service();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+
+        assertThat(service.searchConversations(USER_ID, PROJECT_ID, "  ")).isEmpty();
+
+        verifyNoInteractions(conversationRepository, messageService);
     }
 
     @Test

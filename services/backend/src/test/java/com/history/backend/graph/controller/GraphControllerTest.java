@@ -20,6 +20,7 @@ import com.history.backend.graph.dto.GraphBuildResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphNodeResponse;
 import com.history.backend.graph.dto.GraphResponse;
+import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.SubgraphRequest;
 import com.history.backend.graph.service.GraphService;
@@ -110,6 +111,40 @@ class GraphControllerTest {
     @DisplayName("미인증 요청 거부 → 401 Unauthorized")
     void rejectsUnauthenticatedRequest() throws Exception {
         mockMvc.perform(get("/api/v1/projects/{projectId}/graph", PROJECT_ID))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("노드 검색 — q·limit 전달 후 nodes 반환")
+    void searchesProjectGraphNodes() throws Exception {
+        GraphSearchResponse response = new GraphSearchResponse(
+                List.of(new GraphNodeResponse("n1", "commit", "feat: 인증", "abc1234", "github", "snippet")));
+        when(graphService.searchNodes(USER_ID, PROJECT_ID, "인증", 20)).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/search", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .param("q", "인증")
+                        .param("limit", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nodes[0].id").value("n1"))
+                .andExpect(jsonPath("$.nodes[0].title").value("feat: 인증"));
+
+        verify(graphService).searchNodes(USER_ID, PROJECT_ID, "인증", 20);
+    }
+
+    @Test
+    @DisplayName("노드 검색 — q 미전달 시 400 Bad Request")
+    void rejectsSearchWithoutQuery() throws Exception {
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/search", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("노드 검색 — 미인증 요청 거부 → 401 Unauthorized")
+    void rejectsUnauthenticatedSearch() throws Exception {
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/search", PROJECT_ID)
+                        .param("q", "auth"))
                 .andExpect(status().isUnauthorized());
     }
 

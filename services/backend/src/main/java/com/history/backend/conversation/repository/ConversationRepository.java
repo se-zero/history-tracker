@@ -42,6 +42,27 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
 
     Optional<Conversation> findByIdAndProject_Id(UUID id, UUID projectId);
 
+    // 통합 검색 — 제목 또는 메시지 본문이 매치되는 대화 (updatedAt·id 역순, Pageable로 개수 제한).
+    // pattern은 서비스가 소문자화·와일드카드 이스케이프('!')·양쪽 % 처리를 끝낸 LIKE 패턴이다.
+    @Query("""
+            SELECT conversation
+            FROM Conversation conversation
+            WHERE conversation.project.id = :projectId
+              AND (LOWER(conversation.title) LIKE :pattern ESCAPE '!'
+                   OR EXISTS (
+                       SELECT 1
+                       FROM Message message
+                       WHERE message.conversation = conversation
+                         AND LOWER(message.content) LIKE :pattern ESCAPE '!'
+                   ))
+            ORDER BY conversation.updatedAt DESC, conversation.id DESC
+            """)
+    List<Conversation> searchPageByProject(
+            @Param("projectId") UUID projectId,
+            @Param("pattern") String pattern,
+            Pageable pageable
+    );
+
     // 요약 전용 버전 비교를 통한 동시 갱신 충돌 방지
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

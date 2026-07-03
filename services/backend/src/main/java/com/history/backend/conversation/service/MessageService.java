@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
@@ -142,6 +143,19 @@ public class MessageService {
     private List<Message> olderMessagesBefore(UUID conversationId, String before, Pageable limit) {
         Cursor cursor = Cursor.decode(before);
         return messageRepository.findOlderBefore(conversationId, cursor.timestamp(), cursor.id(), limit);
+    }
+
+    // 통합 검색 스니펫용 — 대화별 가장 최근 매치 메시지 본문 (호출자 트랜잭션과 공유)
+    @Transactional(readOnly = true, propagation = Propagation.MANDATORY)
+    public Map<UUID, String> findLatestMatchedContents(List<UUID> conversationIds, String pattern) {
+        if (conversationIds.isEmpty()) {
+            return Map.of();
+        }
+        return messageRepository.findLatestMatchPerConversation(conversationIds, pattern).stream()
+                .collect(Collectors.toMap(
+                        MessageRepository.MessageMatchRow::getConversationId,
+                        MessageRepository.MessageMatchRow::getContent
+                ));
     }
 
     private Conversation findConversation(UUID projectId, UUID conversationId) {
