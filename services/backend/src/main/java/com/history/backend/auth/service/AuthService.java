@@ -46,7 +46,10 @@ public class AuthService {
 
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(gitHubAppProperties.authorizeUrl())
                 .queryParam("client_id", gitHubAppProperties.clientId())
-                .queryParam("redirect_uri", gitHubAppProperties.redirectUri());
+                .queryParam("redirect_uri", gitHubAppProperties.redirectUri())
+                // 브라우저에 GitHub 세션이 남아 있으면 이미 승인한 사용자는 계정 선택 없이 자동
+                // 리다이렉트된다. 로그아웃 후 다른 계정으로 로그인할 수 있도록 계정 선택 화면을 강제한다.
+                .queryParam("prompt", "select_account");
 
         if (state != null && !state.isBlank()) {
             builder.queryParam("state", state);

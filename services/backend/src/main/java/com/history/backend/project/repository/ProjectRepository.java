@@ -11,7 +11,11 @@ import org.springframework.data.repository.query.Param;
 
 public interface ProjectRepository extends JpaRepository<Project, UUID> {
 
-    List<Project> findAllByOwner_IdOrderByCreatedAtDesc(UUID ownerId);
+    List<Project> findAllByOwner_IdOrderBySortOrderAsc(UUID ownerId);
+
+    // 새 프로젝트를 목록 끝에 배치하기 위한 소유자 내 최대 정렬값 (없으면 -1 → 첫 프로젝트는 0)
+    @Query("SELECT COALESCE(MAX(project.sortOrder), -1) FROM Project project WHERE project.owner.id = :ownerId")
+    int findMaxSortOrderByOwnerId(@Param("ownerId") UUID ownerId);
 
     // owner를 fetch join — 트랜잭션 밖(open-in-view=false)에서 소유권을 검증하는 deleteProject용.
     // lazy owner가 detached 프록시로 남아 non-ID 필드 접근 시 터지는 LazyInitializationException 차단.

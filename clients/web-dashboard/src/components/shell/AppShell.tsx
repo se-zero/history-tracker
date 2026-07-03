@@ -4,7 +4,7 @@ import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-rou
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { StatusView } from "@/components/StatusView";
-import { useProjects } from "@/hooks/useProjects";
+import { useProjects, useReorderProjects } from "@/hooks/useProjects";
 import type { Project } from "@/types/api";
 
 type Route = "chat" | "sources" | "graph" | "settings" | "account";
@@ -45,6 +45,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const projectId = params.projectId;
 
   const projectsQuery = useProjects();
+  const reorderProjects = useReorderProjects();
 
   const projects = projectsQuery.data ?? [];
   const project = useMemo(
@@ -107,6 +108,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
         projects={projects}
         onSwitchProject={handleSwitchProject}
         onNewProject={() => navigate("/onboarding")}
+        onReorderProjects={(orderedIds) => reorderProjects.mutate(orderedIds)}
       />
       <div className="main">
         {route !== "graph" && <Topbar crumbs={crumbsFor(project, route)} />}

@@ -1,7 +1,7 @@
 # DB 스키마
 
 backend 서비스(`services/backend`)의 PostgreSQL 테이블 정의 및 관계를 기술한다.
-마이그레이션 파일: `src/main/resources/db/migration/V1~V8`
+마이그레이션 파일: `src/main/resources/db/migration/V1~V9`
 
 ---
 
@@ -34,6 +34,7 @@ erDiagram
         UUID id PK
         UUID owner_id FK
         string name
+        int sort_order
     }
     integrations {
         UUID id PK
@@ -151,11 +152,13 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 | `owner_id` | UUID | NOT NULL, FK → `users.id` CASCADE | 프로젝트 소유자 |
 | `name` | TEXT | NOT NULL | 프로젝트 표시 이름 |
 | `description` | TEXT | | 프로젝트 설명 |
+| `sort_order` | INTEGER | NOT NULL, DEFAULT 0 | 소유자 단위 수동 정렬 순서(오름차순). 드래그로 재정렬, 신규는 목록 끝 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 프로젝트 생성 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 메타데이터 변경 시각 |
 
 **인덱스**
 - `(owner_id)`
+- `(owner_id, sort_order)` — 소유자 프로젝트를 정렬 순서로 조회
 - UNIQUE `(owner_id, lower(name))` — 같은 사용자 내 프로젝트명 중복 불가
 
 ---

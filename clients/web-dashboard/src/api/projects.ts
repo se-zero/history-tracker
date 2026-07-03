@@ -11,6 +11,12 @@ export async function getProject(projectId: string): Promise<Project> {
   return data;
 }
 
+// 드래그로 바뀐 프로젝트 순서를 저장한다. 재정렬된 전체 목록을 돌려받는다.
+export async function reorderProjects(orderedIds: string[]): Promise<Project[]> {
+  const { data } = await api.patch<Project[]>("/projects/order", { orderedIds });
+  return data;
+}
+
 export async function createProject(payload: {
   name: string;
   description?: string;

@@ -3,6 +3,7 @@ package com.history.backend.project.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -311,12 +312,53 @@ class ProjectServiceTest {
         ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
         Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
         when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
-        when(projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(OWNER_ID))
+        when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
                 .thenReturn(List.of(project));
 
         List<Project> result = service.findProjects(OWNER_ID);
 
         assertThat(result).containsExactly(project);
+    }
+
+    @Test
+    @DisplayName("드래그 순서대로 sortOrder 재채번 후 정렬된 목록 반환")
+    void reorderProjectsAssignsSortOrderByRequestedSequence() {
+        ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
+        UUID idA = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID idB = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID idC = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        Project a = project(idA, OWNER_ID, "A", null);
+        Project b = project(idB, OWNER_ID, "B", null);
+        Project c = project(idC, OWNER_ID, "C", null);
+        when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
+        // 저장소는 항상 sortOrder 오름차순으로 준다고 가정
+        when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
+                .thenReturn(new java.util.ArrayList<>(List.of(a, b, c)));
+
+        List<Project> result = service.reorderProjects(OWNER_ID, List.of(idC, idA, idB));
+
+        assertThat(result).containsExactly(c, a, b);
+        assertThat(c.getSortOrder()).isEqualTo(0);
+        assertThat(a.getSortOrder()).isEqualTo(1);
+        assertThat(b.getSortOrder()).isEqualTo(2);
+        verify(projectRepository).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("타 사용자·미존재 id 포함 순서 변경 거부")
+    void reorderProjectsRejectsUnknownId() {
+        ProjectService service = new ProjectService(projectRepository, userService, aiEngineGraphClient);
+        UUID idA = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID unknown = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        Project a = project(idA, OWNER_ID, "A", null);
+        when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
+        when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
+                .thenReturn(new java.util.ArrayList<>(List.of(a)));
+
+        assertThatThrownBy(() -> service.reorderProjects(OWNER_ID, List.of(idA, unknown)))
+                .isInstanceOf(NotFoundException.class);
+
+        verify(projectRepository, never()).saveAll(anyList());
     }
 
     private User user(UUID id) {

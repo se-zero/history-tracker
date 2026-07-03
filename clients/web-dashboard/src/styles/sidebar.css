@@ -73,7 +73,33 @@
   font-weight: 500;
 }
 .dropdown-item:hover { background: var(--surface-2); }
-.dropdown-item.project { padding: 8px; }
+.dropdown-item.project { padding: 8px; cursor: grab; }
+.dropdown-item.project:active { cursor: grabbing; }
+
+/* 프로젝트 목록: 개수가 많으면 스크롤 (전환창 크기 제한) */
+.project-dropdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 264px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 드래그로 순서 변경 */
+.dropdown-item.project.dragging { opacity: 0.45; }
+.dropdown-item.project.drag-over { box-shadow: inset 0 0 0 1.5px var(--primary); }
+.dropdown-item .drag-handle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin: 0 -2px;
+  color: var(--fg-subtle);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.dropdown-item.project:hover .drag-handle,
+.dropdown-item.project.dragging .drag-handle { opacity: 1; }
 .dropdown-item.selected { background: var(--surface-2); }
 .dropdown-item .check { margin-left: auto; color: var(--primary); flex-shrink: 0; }
 .dropdown-item .dropdown-icon {

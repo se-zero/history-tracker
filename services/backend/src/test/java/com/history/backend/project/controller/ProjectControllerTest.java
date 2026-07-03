@@ -2,9 +2,12 @@ package com.history.backend.project.controller;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -93,6 +96,35 @@ class ProjectControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(PROJECT_ID.toString()))
                 .andExpect(jsonPath("$[0].name").value("History Tracker"));
+    }
+
+    @Test
+    @DisplayName("프로젝트 순서 변경 → 재정렬된 목록 반환")
+    void reorderProjectsReturnsReorderedList() throws Exception {
+        when(projectService.reorderProjects(eq(USER_ID), anyList()))
+                .thenReturn(List.of(project("History Tracker", "GraphRAG backend")));
+
+        mockMvc.perform(patch("/api/v1/projects/order")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"orderedIds": ["f4dfc513-bb7b-41f4-aaf9-46bcc18380f8"]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(PROJECT_ID.toString()));
+    }
+
+    @Test
+    @DisplayName("빈 orderedIds로 순서 변경 → 400 Bad Request 반환")
+    void reorderProjectsRejectsEmptyList() throws Exception {
+        mockMvc.perform(patch("/api/v1/projects/order")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"orderedIds": []}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fields[0].field").value("orderedIds"));
     }
 
     @Test

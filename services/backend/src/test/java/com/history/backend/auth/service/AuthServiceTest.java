@@ -86,7 +86,9 @@ class AuthServiceTest {
                 .startsWith("https://github.com/login/oauth/authorize")
                 .contains("client_id=client-id")
                 .contains("redirect_uri=http://localhost/api/v1/auth/github/callback")
-                .contains("state=foo%26bar%3Dbaz");
+                .contains("state=foo%26bar%3Dbaz")
+                // 로그인 시 계정 선택 화면 강제 — 세션 남은 계정으로 자동 로그인되지 않도록
+                .contains("prompt=select_account");
     }
 
     @Test

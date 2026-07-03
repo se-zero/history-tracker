@@ -1,6 +1,9 @@
 package com.history.backend.project.service;
 
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
@@ -29,9 +32,12 @@ public class ProjectService {
         User owner = userService.getActiveUser(ownerId);
         String normalizedName = name.trim();
         validateNameAvailable(ownerId, normalizedName);
+        Project project = new Project(owner, normalizedName, description);
+        // 새 프로젝트는 소유자 목록 맨 끝에 배치한다.
+        project.updateSortOrder(projectRepository.findMaxSortOrderByOwnerId(ownerId) + 1);
         try {
             // flush를 강제해 unique 제약 위반을 트랜잭션 내에서 감지
-            return projectRepository.saveAndFlush(new Project(owner, normalizedName, description));
+            return projectRepository.saveAndFlush(project);
         } catch (DataIntegrityViolationException exception) {
             // 동시 생성 경합 시 unique 제약 위반을 409로 변환
             throw new ConflictException("Project name already exists.");
@@ -41,7 +47,41 @@ public class ProjectService {
     @Transactional(readOnly = true)
     public List<Project> findProjects(UUID ownerId) {
         userService.getActiveUser(ownerId);
-        return projectRepository.findAllByOwner_IdOrderByCreatedAtDesc(ownerId);
+        return projectRepository.findAllByOwner_IdOrderBySortOrderAsc(ownerId);
+    }
+
+    // 드래그로 바뀐 순서를 저장한다. orderedIds 순서대로 0부터 재채번한다.
+    @Transactional
+    public List<Project> reorderProjects(UUID ownerId, List<UUID> orderedIds) {
+        userService.getActiveUser(ownerId);
+        List<Project> projects = projectRepository.findAllByOwner_IdOrderBySortOrderAsc(ownerId);
+        Map<UUID, Project> byId = new HashMap<>();
+        for (Project project : projects) {
+            byId.put(project.getId(), project);
+        }
+
+        int position = 0;
+        for (UUID id : orderedIds) {
+            Project project = byId.remove(id);
+            // 타 사용자·미존재 id는 거부. 중복 id는 이미 제거돼 무시된다.
+            if (project == null) {
+                if (projects.stream().noneMatch(p -> p.getId().equals(id))) {
+                    throw new NotFoundException("Project not found: " + id);
+                }
+                continue;
+            }
+            project.updateSortOrder(position++);
+        }
+        // 요청에 빠진 프로젝트(동시 생성 등)는 기존 순서를 유지하며 뒤에 붙인다.
+        for (Project project : projects) {
+            if (byId.containsKey(project.getId())) {
+                project.updateSortOrder(position++);
+            }
+        }
+
+        projectRepository.saveAll(projects);
+        projects.sort(Comparator.comparingInt(Project::getSortOrder));
+        return projects;
     }
 
     // 소유 검증 포함 프로젝트 조회 — 타 모듈의 공통 접근 검증 진입점
