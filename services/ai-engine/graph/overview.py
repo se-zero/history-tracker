@@ -141,6 +141,11 @@ def _date_part(occurred_at: str | None) -> str:
     return occurred_at[:10]
 
 
+def _node_ref(node_type: str, node_id: str | None) -> dict | None:
+    # focus 질의용 도메인 키 — 질의 도구가 요구하는 정확한 키를 노드에 실어 보낸다(없으면 None).
+    return {"type": node_type, "id": node_id} if node_id else None
+
+
 def _to_graph_node(row: dict) -> dict:
     """Neo4j 행을 프론트 GraphNode({id, type, title, meta, source, snippet})로 변환한다."""
     label = row["label"]
@@ -154,16 +159,20 @@ def _to_graph_node(row: dict) -> dict:
             "meta": (row.get("hash") or "")[:7],
             "source": "github",
             "snippet": _truncate(row.get("message")),
+            # ref엔 전체 해시 — get_changeset_context는 정확 매칭이라 [:7] 프리픽스로는 조회 실패.
+            "ref": _node_ref("commit", row.get("hash")),
         }
 
     if label == "PullRequest":
+        pr_number = row.get("pr_number")
         return {
             "id": row["id"],
             "type": "pr",
             "title": row.get("title") or "(no title)",
-            "meta": f"PR #{row.get('pr_number')}" if row.get("pr_number") is not None else "PR",
+            "meta": f"PR #{pr_number}" if pr_number is not None else "PR",
             "source": "github",
             "snippet": _truncate(row.get("body")),
+            "ref": _node_ref("pull_request", str(pr_number) if pr_number is not None else None),
         }
 
     if label == "Issue":
@@ -174,6 +183,7 @@ def _to_graph_node(row: dict) -> dict:
             "meta": row.get("jira_key") or "",
             "source": "jira",
             "snippet": _truncate(row.get("body")),
+            "ref": _node_ref("issue", row.get("jira_key")),
         }
 
     if label == "Communication":
@@ -189,6 +199,8 @@ def _to_graph_node(row: dict) -> dict:
                 "meta": f"Issue #{row['conversation_id']}" if row.get("conversation_id") else "issue",
                 "source": "github",
                 "snippet": _truncate(row.get("body")),
+                # GitHub Issue·Slack 모두 message 도구(get_thread_context) 대상 — conversation_id로 조회.
+                "ref": _node_ref("message", row.get("conversation_id")),
             }
         return {
             "id": row["id"],
@@ -197,6 +209,8 @@ def _to_graph_node(row: dict) -> dict:
             "meta": " · ".join(p for p in (channel, date) if p),
             "source": "slack",
             "snippet": _truncate(row.get("body")),
+            # meta엔 conversation_id가 없어 텍스트로는 못 가리키므로 ref로 표면화한다.
+            "ref": _node_ref("message", row.get("conversation_id")),
         }
 
     if label == "Actor":
@@ -208,6 +222,7 @@ def _to_graph_node(row: dict) -> dict:
             "meta": aliases[0] if aliases else "",
             "source": "people",
             "snippet": _truncate(", ".join(aliases)),
+            "ref": None,
         }
 
     if label == "File":
@@ -219,6 +234,7 @@ def _to_graph_node(row: dict) -> dict:
             "meta": path,
             "source": "github",
             "snippet": path,
+            "ref": None,
         }
 
     # 알 수 없는 라벨 — 방어적으로 최소 정보만.
@@ -230,6 +246,7 @@ def _to_graph_node(row: dict) -> dict:
         "meta": "",
         "source": (row.get("source") or "").lower(),
         "snippet": "",
+        "ref": None,
     }
 
 

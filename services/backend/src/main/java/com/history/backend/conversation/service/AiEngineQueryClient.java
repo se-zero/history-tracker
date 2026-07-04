@@ -10,6 +10,7 @@ import com.history.backend.conversation.dto.AiEngineQueryRequest;
 import com.history.backend.conversation.dto.AiEngineQueryResponse;
 import com.history.backend.conversation.dto.AiEngineSummaryRequest;
 import com.history.backend.conversation.dto.AiEngineSummaryResponse;
+import com.history.backend.graph.dto.EvidenceRef;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -34,7 +35,8 @@ public class AiEngineQueryClient {
             UUID projectId,
             List<AiEngineHistoryMessage> history,
             List<AiEnginePriorEvidence> priorEvidence,
-            Map<String, Object> runningSummary
+            Map<String, Object> runningSummary,
+            List<EvidenceRef> focusEvidence
     ) {
         try {
             AiEngineQueryResponse response = aiEngineRestClient.post()
@@ -45,7 +47,8 @@ public class AiEngineQueryClient {
                             projectId.toString(),
                             history,
                             priorEvidence,
-                            runningSummary
+                            runningSummary,
+                            focusEvidence == null ? List.of() : focusEvidence
                     ))
                     .retrieve()
                     .body(AiEngineQueryResponse.class);

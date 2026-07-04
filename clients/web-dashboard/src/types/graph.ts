@@ -7,6 +7,13 @@ export type GraphNodeType =
   | "actor"
   | "code";
 
+// focus 질의로 노드를 가리키는 도메인 키 — ai-engine 도구/evidence 어휘(프론트 GraphNodeType과 다름).
+// 질의 도구 대상이 아닌 노드(actor/code)는 ref 없음(null) → 텍스트 폴백 처리.
+export type NodeRef = {
+  type: "commit" | "pull_request" | "issue" | "message";
+  id: string;
+};
+
 export interface GraphNode {
   id: string;
   type: GraphNodeType;
@@ -14,7 +21,15 @@ export interface GraphNode {
   meta: string;
   source: string;
   snippet: string;
+  ref?: NodeRef | null;
 }
+
+// 입력창에 첨부된 focus 노드 — 전송 시 ref만 focus_evidence로 보내고, label/nodeType은 칩 표시용.
+export type AttachedNode = {
+  ref: NodeRef;
+  label: string;
+  nodeType: GraphNodeType;
+};
 
 export type GraphEdge = [string, string];
 

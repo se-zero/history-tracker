@@ -1,14 +1,17 @@
 """evidence → 서브그래프 변환의 순수 헬퍼 단위 테스트 (오프라인).
 
 Neo4j 없이 도는 부분만 검증한다 — evidence를 타입별 키로 그룹핑하는
-`_group_evidence_keys`와, 조회된 노드 행을 evidence 순서대로 elementId에
-정렬하는 `_resolve_seed_ids`. 실제 Cypher resolve는 live Neo4j(integration) 영역.
+`_group_evidence_keys`, 조회된 노드 행을 evidence 순서대로 elementId에
+정렬하는 `_resolve_seed_ids`, 그리고 노드 행을 프론트 GraphNode로 변환하며
+focus 질의용 `ref`(도메인 키)를 방출하는 `_to_graph_node`. 실제 Cypher resolve는
+live Neo4j(integration) 영역.
 """
 
 from graph.overview import (
     _group_evidence_keys,
     _normalize_evidence,
     _resolve_seed_ids,
+    _to_graph_node,
 )
 
 
@@ -128,3 +131,47 @@ def test_resolve_seed_ids_unresolved_is_none():
         {"type": "commit", "id": "abc1234"},
     ]
     assert _resolve_seed_ids(evidence, rows) == [None, "n1"]
+
+
+def test_to_graph_node_ref_carries_query_key():
+    # commit ref는 전체 해시 — get_changeset_context 정확 매칭용(meta의 [:7] 프리픽스와 구분).
+    commit = _to_graph_node(
+        {"id": "n1", "label": "ChangeSet", "hash": "abc1234def5678", "message": "fix"}
+    )
+    assert commit["ref"] == {"type": "commit", "id": "abc1234def5678"}
+    assert commit["meta"] == "abc1234"
+
+    pr = _to_graph_node({"id": "n2", "label": "PullRequest", "pr_number": 42, "title": "t"})
+    assert pr["ref"] == {"type": "pull_request", "id": "42"}
+
+    issue = _to_graph_node({"id": "n3", "label": "Issue", "jira_key": "HT-37", "title": "t"})
+    assert issue["ref"] == {"type": "issue", "id": "HT-37"}
+
+    # GitHub Issue Communication → message 도구 대상, conversation_id를 실어 보낸다.
+    gh = _to_graph_node(
+        {"id": "n4", "label": "Communication", "source": "GITHUB", "conversation_id": "77", "body": "b"}
+    )
+    assert gh["ref"] == {"type": "message", "id": "77"}
+
+    # Slack Communication → conversation_id는 meta엔 없지만 ref로 표면화된다.
+    slack = _to_graph_node(
+        {"id": "n5", "label": "Communication", "source": "SLACK",
+         "conversation_id": "1700000000.123", "channel": "dev"}
+    )
+    assert slack["ref"] == {"type": "message", "id": "1700000000.123"}
+
+
+def test_to_graph_node_ref_none_for_non_query_targets():
+    # actor/file은 질의 도구 대상이 아니라 ref 없음 — 프론트가 텍스트 폴백으로 처리한다.
+    actor = _to_graph_node({"id": "n6", "label": "Actor", "name": "me"})
+    assert actor["ref"] is None
+    file = _to_graph_node({"id": "n7", "label": "File", "path": "src/a.py"})
+    assert file["ref"] is None
+
+
+def test_to_graph_node_ref_none_when_key_missing():
+    # 도메인 키가 없는 비정상 노드는 ref None — 잘못된 focus 타깃을 만들지 않는다.
+    pr = _to_graph_node({"id": "n8", "label": "PullRequest"})
+    assert pr["ref"] is None
+    slack = _to_graph_node({"id": "n9", "label": "Communication", "source": "SLACK"})
+    assert slack["ref"] is None

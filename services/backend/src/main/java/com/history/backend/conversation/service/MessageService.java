@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -18,6 +19,7 @@ import com.history.backend.conversation.dto.AiEnginePriorEvidence;
 import com.history.backend.conversation.dto.Cursor;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
+import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +37,9 @@ public class MessageService {
 
     private static final int MAX_HISTORY_TURNS = 5;
     private static final int MESSAGE_PAGE_SIZE = 30;
+    // focus 노드는 user 입력이 그대로 ai-engine system 메시지에 실리므로 경계에서 방어한다.
+    private static final Set<String> ALLOWED_FOCUS_TYPES = Set.of("commit", "pull_request", "issue", "message");
+    private static final int MAX_FOCUS_ID_LENGTH = 200;
     private static final String ERROR_TYPE_KEY = "error_type";
     private static final String AI_ENGINE_ERROR = "AI_ENGINE_ERROR";
     private static final String STRUCTURED_KEY = "structured";
@@ -50,7 +55,14 @@ public class MessageService {
     private final TransactionTemplate transactionTemplate;
 
     // 사용자 메시지 저장 → AI 질의 → 응답 저장 (트랜잭션 2단계 분리)
-    public MessageExchange addMessage(UUID userId, UUID projectId, UUID conversationId, String content) {
+    // focusEvidence: 관련 그래프에서 지정한 focus 노드. 현재 턴 한정이라 history/영속화에 넣지 않고 질의로만 전달.
+    public MessageExchange addMessage(
+            UUID userId,
+            UUID projectId,
+            UUID conversationId,
+            String content,
+            List<EvidenceRef> focusEvidence
+    ) {
         String normalizedContent = normalizeContent(content);
         projectService.getProject(userId, projectId);
         // 느린 AI 질의 중 커넥션 점유를 피하고, 질의 실패와 무관하게 사용자 메시지를 보존
@@ -72,7 +84,8 @@ public class MessageService {
                 normalizedContent,
                 pendingQuery.queryContext().history(),
                 pendingQuery.queryContext().priorEvidence(),
-                runningSummary
+                runningSummary,
+                sanitizeFocusEvidence(focusEvidence)
         );
         return new MessageExchange(pendingQuery.userMessage(), assistantMessage);
     }
@@ -92,14 +105,16 @@ public class MessageService {
             String normalizedContent,
             List<AiEngineHistoryMessage> history,
             List<AiEnginePriorEvidence> priorEvidence,
-            Map<String, Object> runningSummary
+            Map<String, Object> runningSummary,
+            List<EvidenceRef> focusEvidence
     ) {
         AiEngineQueryResult queryResult = aiEngineQueryClient.ask(
                 normalizedContent,
                 projectId,
                 history,
                 priorEvidence,
-                runningSummary
+                runningSummary,
+                focusEvidence
         );
         return transactionTemplate.execute(status -> {
             // 트랜잭션이 분리되어 있어 질의 중 삭제됐을 수 있으므로 conversation 재조회
@@ -168,6 +183,22 @@ public class MessageService {
             throw new BadRequestException("Message content is required.");
         }
         return content.trim();
+    }
+
+    // focus 노드 경계 방어 — user 입력이 ai-engine system 메시지에 실리므로 알 수 없는 type·빈/과길이 id를
+    // 걸러낸다(프롬프트 오염·토큰 폭증·pydantic 422 fallback 방지). 개수 상한은 요청 검증(@Size)이 담당.
+    private List<EvidenceRef> sanitizeFocusEvidence(List<EvidenceRef> focusEvidence) {
+        if (focusEvidence == null || focusEvidence.isEmpty()) {
+            return List.of();
+        }
+        return focusEvidence.stream()
+                .filter(ref -> ref != null
+                        && ref.type() != null  // Set.of(...).contains(null)은 false가 아니라 NPE를 던진다
+                        && ALLOWED_FOCUS_TYPES.contains(ref.type())
+                        && ref.id() != null
+                        && !ref.id().isBlank()
+                        && ref.id().length() <= MAX_FOCUS_ID_LENGTH)
+                .toList();
     }
 
     // AI 질의 컨텍스트와 새로 요약할 오래된 완성 턴 구성

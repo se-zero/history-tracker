@@ -26,6 +26,7 @@ import com.history.backend.conversation.dto.AiEnginePriorEvidence;
 import com.history.backend.conversation.dto.Cursor;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
+import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import org.junit.jupiter.api.DisplayName;
@@ -92,7 +93,7 @@ class MessageServiceTest {
         when(aiEngineQueryClient.ask("Why did auth change?", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), null))
+        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success("OAuth callback changed.", Map.of(
                         "summary", "OAuth callback changed.",
                         "evidence", List.of(),
@@ -104,7 +105,8 @@ class MessageServiceTest {
                 USER_ID,
                 PROJECT_ID,
                 CONVERSATION_ID,
-                "  Why did auth change?  "
+                "  Why did auth change?  ",
+                List.of()
         );
 
         assertThat(result.userMessage().getConversation()).isSameAs(conversation);
@@ -126,7 +128,7 @@ class MessageServiceTest {
         order.verify(aiEngineQueryClient).ask("Why did auth change?", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), null);
+        ), List.of(new AiEnginePriorEvidence("pull_request", "#18", "OAuth callback update")), null, List.of());
     }
 
     @Test
@@ -140,7 +142,7 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(List.of());
-        when(aiEngineQueryClient.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null))
+        when(aiEngineQueryClient.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.fallback("질문을 처리하는 중 오류가 발생했습니다."));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -148,7 +150,8 @@ class MessageServiceTest {
                 USER_ID,
                 PROJECT_ID,
                 CONVERSATION_ID,
-                "Why did auth change?"
+                "Why did auth change?",
+                List.of()
         );
 
         assertThat(result.userMessage().getContent()).isEqualTo("Why did auth change?");
@@ -156,6 +159,56 @@ class MessageServiceTest {
         assertThat(result.assistantMessage().getMetadata())
                 .containsEntry("fallback", true)
                 .containsEntry("error_type", "AI_ENGINE_ERROR");
+    }
+
+    @Test
+    @DisplayName("focus evidence를 ai-engine 질의로 전달")
+    void addMessageForwardsFocusEvidenceToAiEngine() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        List<EvidenceRef> focusEvidence = List.of(new EvidenceRef("commit", "abc1234def"));
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of());
+        when(aiEngineQueryClient.ask("Why this commit?", PROJECT_ID, List.of(), List.of(), null, focusEvidence))
+                .thenReturn(AiEngineQueryResult.success("Because of the commit.", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Why this commit?", focusEvidence);
+
+        verify(aiEngineQueryClient).ask("Why this commit?", PROJECT_ID, List.of(), List.of(), null, focusEvidence);
+    }
+
+    @Test
+    @DisplayName("focus evidence 중 무효 항목(알 수 없는 type·빈/과길이 id)은 걸러내고 전달")
+    void addMessageFiltersInvalidFocusEvidence() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        EvidenceRef valid = new EvidenceRef("commit", "abc1234def");
+        List<EvidenceRef> focusEvidence = List.of(
+                valid,
+                new EvidenceRef("weird", "x"),          // 알 수 없는 type
+                new EvidenceRef("issue", " "),           // 빈 id
+                new EvidenceRef("commit", "a".repeat(201)), // 과길이 id
+                new EvidenceRef(null, "x"),              // type null (Set.of.contains(null) → NPE 방어)
+                new EvidenceRef("commit", null)          // id null
+        );
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of());
+        when(aiEngineQueryClient.ask("Q", PROJECT_ID, List.of(), List.of(), null, List.of(valid)))
+                .thenReturn(AiEngineQueryResult.success("A", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Q", focusEvidence);
+
+        verify(aiEngineQueryClient).ask("Q", PROJECT_ID, List.of(), List.of(), null, List.of(valid));
     }
 
     @Test
@@ -193,15 +246,15 @@ class MessageServiceTest {
         when(aiEngineQueryClient.ask("Tell me more", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of(), null)).thenReturn(AiEngineQueryResult.success("More details", null));
+        ), List.of(), null, List.of())).thenReturn(AiEngineQueryResult.success("More details", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Tell me more");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Tell me more", List.of());
 
         verify(aiEngineQueryClient).ask("Tell me more", PROJECT_ID, List.of(
                 new AiEngineHistoryMessage("user", "What changed?"),
                 new AiEngineHistoryMessage("assistant", "PR #18 changed auth.")
-        ), List.of(), null);
+        ), List.of(), null, List.of());
     }
 
     @Test
@@ -233,13 +286,13 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of(), null))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of(), null);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of());
     }
 
     @Test
@@ -272,11 +325,11 @@ class MessageServiceTest {
                 any(Instant.class)
         ))
                 .thenReturn(1);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
         verify(aiEngineQueryClient).summarize(existingSummary, oldHistory);
         verify(conversationRepository).updateRunningSummary(
@@ -286,7 +339,7 @@ class MessageServiceTest {
                 eq(throughMessageId),
                 any(Instant.class)
         );
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary, List.of());
     }
 
     @Test
@@ -323,13 +376,13 @@ class MessageServiceTest {
                 any(Instant.class)
         ))
                 .thenReturn(0);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), latestSummary))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), latestSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), latestSummary);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), latestSummary, List.of());
     }
 
     @Test
@@ -362,14 +415,14 @@ class MessageServiceTest {
                 eq(nextCursor),
                 any(Instant.class)
         )).thenReturn(1);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
         verify(aiEngineQueryClient).summarize(existingSummary, newlyOldHistory);
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary, List.of());
     }
 
     @Test
@@ -393,11 +446,12 @@ class MessageServiceTest {
                 PROJECT_ID,
                 expectedHistory,
                 List.of(),
-                summary("existing")
+                summary("existing"),
+                List.of()
         )).thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
         verify(messageRepository).findAllFromCursor(CONVERSATION_ID, missingCursor);
         verify(messageRepository).findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID);
@@ -406,7 +460,8 @@ class MessageServiceTest {
                 PROJECT_ID,
                 expectedHistory,
                 List.of(),
-                summary("existing")
+                summary("existing"),
+                List.of()
         );
     }
 
@@ -430,13 +485,13 @@ class MessageServiceTest {
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
         when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(null);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
     }
 
     @Test
@@ -468,7 +523,7 @@ class MessageServiceTest {
                 eq(throughMessageId),
                 any(Instant.class)
         )).thenThrow(new RuntimeException("database unavailable"));
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -476,11 +531,12 @@ class MessageServiceTest {
                 USER_ID,
                 PROJECT_ID,
                 CONVERSATION_ID,
-                "Current question"
+                "Current question",
+                List.of()
         );
 
         assertThat(result.assistantMessage().getContent()).isEqualTo("Current answer");
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
     }
 
     @Test
@@ -523,13 +579,13 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, expectedPriorEvidence, null))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, expectedPriorEvidence, null, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, expectedPriorEvidence, null);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, expectedPriorEvidence, null, List.of());
     }
 
     @Test
@@ -549,13 +605,13 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(List.of(failedQuestion, fallback, orphanAssistant));
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, List.of(), List.of(), null))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question");
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, List.of(), List.of(), null);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, List.of(), List.of(), null, List.of());
     }
 
     @Test
@@ -563,7 +619,7 @@ class MessageServiceTest {
     void addMessageRejectsBlankContent() {
         MessageService service = service();
 
-        assertThatThrownBy(() -> service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, " "))
+        assertThatThrownBy(() -> service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, " ", List.of()))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Message content is required.");
 
@@ -578,7 +634,7 @@ class MessageServiceTest {
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Question"))
+        assertThatThrownBy(() -> service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Question", List.of()))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("Conversation not found.");
     }

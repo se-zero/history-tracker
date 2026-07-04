@@ -30,6 +30,13 @@ class PriorEvidence(BaseModel):
         return value
 
 
+# 사용자가 관련 그래프에서 지정한 focus 노드의 도메인 키. 노드 투영이 방출한 ref를 그대로 받는다.
+# PriorEvidence와 달리 관대하게(quote 없음, blank 허용) 둔다 — 프론트 ref가 어긋나도 422로 막지 않는다.
+class FocusEvidence(BaseModel):
+    type: str = ""
+    id: str = ""
+
+
 class SummaryRequest(BaseModel):
     running_summary: dict[str, Any] | None = None
     history: list[HistoryMessage]
@@ -40,5 +47,6 @@ class QueryRequest(BaseModel):
     project_id: str = ""
     history: list[HistoryMessage] = Field(default_factory=list)
     prior_evidence: list[PriorEvidence] = Field(default_factory=list)
+    focus_evidence: list[FocusEvidence] = Field(default_factory=list)
     running_summary: dict[str, Any] | None = None
     repo: str = ""

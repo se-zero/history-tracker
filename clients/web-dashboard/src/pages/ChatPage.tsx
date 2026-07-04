@@ -24,13 +24,16 @@ import {
 import { useGraph, useGraphActivity, useMessageSubgraph } from "@/hooks/useGraph";
 import { useIntegrations } from "@/hooks/useIntegrations";
 import type { ConversationDetail, Message, Project } from "@/types/api";
-import type { GraphNode } from "@/types/graph";
+import type { AttachedNode, GraphNode, NodeRef } from "@/types/graph";
 
 // 관련 그래프 패널 너비 한계(px). 채팅 영역이 너무 좁아지지 않게 드래그 시 동적 상한도 적용한다.
 const MIN_PANEL_W = 280;
 const MAX_PANEL_W = 680;
 const clampPanelWidth = (w: number) =>
   Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, w));
+
+// node-only 전송(칩만 있고 텍스트 없음) 시 채울 기본 질문 — 백엔드 content가 @NotBlank라 빈 값 불가.
+const NODE_ONLY_QUESTION = "첨부한 항목에 대해 설명해줘.";
 
 export function ChatPage({ project }: { project: Project }) {
   const { conversationId } = useParams();
@@ -68,6 +71,14 @@ export function ChatPage({ project }: { project: Project }) {
     text: string;
   } | null>(null);
   const [draft, setDraft] = useState("");
+  // 관련 그래프에서 첨부한 focus 노드 칩. 전송 시 ref만 focus_evidence로 실어 보낸다.
+  const [attachedNodes, setAttachedNodes] = useState<AttachedNode[]>([]);
+  // 칩은 특정 대화의 답변 그래프에서 나온 것 — 대화를 옮기면(라우트 전환으로 리마운트되지 않으므로) 비운다.
+  // 이미 비어 있으면 같은 참조를 반환해 마운트 시·빈 상태에서의 불필요한 리렌더를 건너뛴다.
+  useEffect(
+    () => setAttachedNodes((prev) => (prev.length ? [] : prev)),
+    [conversationId],
+  );
   const [sendError, setSendError] = useState(false);
 
   // 관련 그래프 패널 — 열림 여부는 사용자 선호라 localStorage에 영속한다.
@@ -179,7 +190,24 @@ export function ChatPage({ project }: { project: Project }) {
   );
 
   const handleAddToChat = (node: GraphNode) => {
-    setDraft((d) => (d.trim() ? d + " " + node.title : node.title));
+    const ref = node.ref;
+    if (ref) {
+      // 질의 도구 대상 노드 → 칩으로 첨부(ref로 dedupe). 근거 고정은 focus_evidence로 전달된다.
+      setAttachedNodes((nodes) =>
+        nodes.some((n) => n.ref.type === ref.type && n.ref.id === ref.id)
+          ? nodes
+          : [...nodes, { ref, label: node.title, nodeType: node.type }],
+      );
+    } else {
+      // actor/code 등 ref 없는 노드는 텍스트 폴백 — 제목을 입력창에 삽입.
+      setDraft((d) => (d.trim() ? d + " " + node.title : node.title));
+    }
+  };
+
+  const handleRemoveNode = (ref: NodeRef) => {
+    setAttachedNodes((nodes) =>
+      nodes.filter((n) => !(n.ref.type === ref.type && n.ref.id === ref.id)),
+    );
   };
 
   // 패널 왼쪽 핸들 드래그로 너비 조절 — wrap 오른쪽 끝 기준으로 너비를 계산한다.
@@ -229,11 +257,21 @@ export function ChatPage({ project }: { project: Project }) {
       <MessageItem key={m.id} message={m} user={user} citation={citationFor(m)} />
     ));
 
-  // 전송 실패 시 친 내용이 사라지지 않도록 입력창에 복구하고 에러를 표시한다.
-  // 그 사이 새로 입력한 내용이 있으면 덮어쓰지 않는다.
-  const restoreOnError = (failedText: string) => {
+  // 전송 실패 시 친 내용·첨부 노드가 사라지지 않도록 복구하고 에러를 표시한다.
+  // 단, 응답 대기 중 다른 대화로 이동했으면(originCid ≠ 현재) 그 대화에 원래 대화의
+  // 입력·에러를 흘리지 않는다 — pendingMessage 스코프와 동일한 규칙(이 경우 복구는 생략).
+  // 그 사이 새로 입력/첨부한 내용이 있으면 덮어쓰지 않는다.
+  const restoreOnError = (
+    originCid: string | undefined,
+    failedText: string,
+    attached: AttachedNode[] = [],
+  ) => {
     setPendingMessage(null);
+    if (originCid !== conversationId) return;
     setDraft((current) => (current.trim() ? current : failedText));
+    if (attached.length) {
+      setAttachedNodes((current) => (current.length ? current : attached));
+    }
     setSendError(true);
   };
 
@@ -251,14 +289,31 @@ export function ChatPage({ project }: { project: Project }) {
       setPendingMessage(null);
       navigate(`/projects/${project.id}/chat/${created.id}`, { replace: true });
     },
-    onError: (_error, firstMessage) => restoreOnError(firstMessage),
+    // 신규 대화 경로의 origin은 대화 없음(undefined) — 그 화면을 벗어났으면 복구하지 않는다.
+    onError: (_error, firstMessage) => restoreOnError(undefined, firstMessage),
   });
 
   const sendMutation = useMutation({
     // 대화 id를 변수로 함께 넘긴다 — 응답 대기 중 다른 대화로 이동해 conversationId가 바뀌어도
     // 응답이 원래 대화의 캐시에 정확히 반영되도록(엉뚱한 대화에 답변이 끼는 것 방지).
-    mutationFn: ({ cid, content }: { cid: string; content: string }) =>
-      sendMessage(project.id, cid, content),
+    // attached/restoreText는 전송 실패 시 칩·입력 복구용(요청 본문엔 focusEvidence만 실린다).
+    mutationFn: ({
+      cid,
+      content,
+      focusEvidence,
+    }: {
+      cid: string;
+      content: string;
+      focusEvidence: NodeRef[];
+      attached: AttachedNode[];
+      restoreText: string;
+    }) =>
+      sendMessage(
+        project.id,
+        cid,
+        content,
+        focusEvidence.length ? focusEvidence : undefined,
+      ),
     onSuccess: (exchange, { cid }) => {
       // 응답 쌍을 캐시에 바로 반영해 낙관적 메시지를 비울 때 공백이 생기지 않게 한다.
       // 응답 대기 중 다른 대화를 다녀오면 그 사이 이 대화 상세가 refetch되어 서버 메시지가
@@ -281,7 +336,8 @@ export function ChatPage({ project }: { project: Project }) {
       });
       setPendingMessage(null);
     },
-    onError: (_error, { content }) => restoreOnError(content),
+    onError: (_error, { restoreText, attached, cid }) =>
+      restoreOnError(cid, restoreText, attached),
   });
 
   const pending = createMutation.isPending || sendMutation.isPending;
@@ -328,14 +384,27 @@ export function ChatPage({ project }: { project: Project }) {
 
   const handleSend = (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || pending || chatBlock) return;
+    const attached = attachedNodes;
+    // 텍스트가 비어도 첨부 노드가 있으면 전송한다(노드만으로 질문).
+    if ((!trimmed && attached.length === 0) || pending || chatBlock) return;
+    // node-only면 기본 질문으로 채운다 — 백엔드 content는 @NotBlank.
+    const content = trimmed || NODE_ONLY_QUESTION;
     setSendError(false);
-    setPendingMessage({ conversationId, text: trimmed });
-    setDraft(""); // 입력은 즉시 비우되, 실패하면 restoreOnError로 되돌린다
+    setPendingMessage({ conversationId, text: content });
+    // 입력·칩은 즉시 비우되, 실패하면 restoreOnError로 되돌린다.
+    setDraft("");
+    setAttachedNodes([]);
     if (conversationId) {
-      sendMutation.mutate({ cid: conversationId, content: trimmed });
+      sendMutation.mutate({
+        cid: conversationId,
+        content,
+        focusEvidence: attached.map((n) => n.ref),
+        attached,
+        restoreText: trimmed,
+      });
     } else {
-      createMutation.mutate(trimmed);
+      // 신규 대화(첫 메시지)는 패널이 없어 첨부 노드가 없다.
+      createMutation.mutate(content);
     }
   };
 
@@ -426,6 +495,8 @@ export function ChatPage({ project }: { project: Project }) {
               : "전송에 실패했어요. 입력을 그대로 두었으니 다시 시도해 주세요."
           }
           notice={blockNotice}
+          attachedNodes={attachedNodes}
+          onRemoveNode={handleRemoveNode}
         />
       </div>
       {showPanel && (

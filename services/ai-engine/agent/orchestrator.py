@@ -371,6 +371,7 @@ async def run(
     history: list[dict[str, str]] | None = None,
     prior_evidence: list[dict[str, str]] | None = None,
     running_summary: dict | None = None,
+    focus_evidence: list[dict] | None = None,
 ) -> tuple[str, dict | None]:
     """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환.
 
@@ -381,6 +382,8 @@ async def run(
                 사용자의 프로젝트로 주입하며, LLM은 이 값에 접근하거나 변경할 수 없다.
     prior_evidence: 직전 응답의 대상 식별용 압축 근거. 도구 탐색에만 사용하고 최종 근거에서는 제외한다.
     running_summary: 최근 5턴보다 오래된 대화의 누적 요약. 탐색 맥락에만 사용하고 최종 근거에서는 제외한다.
+    focus_evidence: 사용자가 관련 그래프에서 지정한 노드({type, id}). prior_evidence와 반대로
+                    현재 턴에 두어 최종 근거까지 살리고, 유형별 도구로 먼저 조회하도록 지시한다.
 
     Returns:
         (markdown_answer, structured_dict)
@@ -410,14 +413,31 @@ async def run(
                 + json.dumps(prior_evidence, ensure_ascii=False)
             ),
         }
+    focus_evidence_message = None
+    if focus_evidence:
+        focus_evidence_message = {
+            "role": "system",
+            "content": (
+                "사용자가 아래 그래프 노드를 명시적으로 지정해 질문하고 있습니다. 이 노드를 답변의 "
+                "핵심 대상으로 삼고, 각 노드의 전체 컨텍스트를 해당 도구로 먼저 조회한 뒤"
+                "(commit→get_changeset_context, pull_request→get_pr_context, "
+                "issue→get_issue_context, message→get_thread_context) 그 결과에 근거해 답하세요. "
+                "지정된 노드를 무시하거나 다른 대상으로 대체하지 마세요.\n"
+                + json.dumps(focus_evidence, ensure_ascii=False)
+            ),
+        }
     messages: list = [
         system_message,
         *([running_summary_message] if running_summary_message else []),
         *(history or []),
         *([prior_evidence_message] if prior_evidence_message else []),
-        current_question,
     ]
-    current_turn_start = len(messages) - 1
+    # focus 지시는 현재 턴에 둔다 — prior_evidence와 달리 최종 structured 답변까지 살아남아야
+    # 지정 노드를 근거로 고정한다. current_turn_start를 focus 앞에 잡아 "지시 → 질문" 순으로 포함한다.
+    current_turn_start = len(messages)
+    if focus_evidence_message:
+        messages.append(focus_evidence_message)
+    messages.append(current_question)
 
     def current_turn_messages() -> list:
         # 누적 요약, 이전 대화, prior evidence는 현재 질문 앞에만 있으므로 최종 근거 생성에서 제외한다.

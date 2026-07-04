@@ -82,7 +82,8 @@ class ConversationServiceTest {
                 "Why did auth change?",
                 List.of(),
                 List.of(),
-                null
+                null,
+                List.of()
         ))
                 .thenReturn(assistantMessage);
 
