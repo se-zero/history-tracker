@@ -33,3 +33,8 @@ docker-compose.override.yml
 # ── 테스트 / 로컬 데이터 ────────────────────────────────────────
 normalized_*.json
 *_summarized.json
+
+# ── 측정용 그래프 스냅샷 / 로컬 백업 (파일은 직접 전달로 공유) ────
+eval/snapshots/
+.neo4j-backup/
+infra/docker/graph-swap.sh

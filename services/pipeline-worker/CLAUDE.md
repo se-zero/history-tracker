@@ -27,6 +27,7 @@ cd services/pipeline-worker
 | `normalizer` | 여러 source가 공유하는 정규화 보조 유틸. 현재 `RefsExtractor` 유지. |
 | `checkpoint` | DB `checkpoints` 테이블 기반 checkpoint 조회/갱신 경계. |
 | `messaging` | RabbitMQ publish. |
+| `common` | 전역 공유 코드. 현재 `common.crypto`(integration credential 복호화)만 있다. |
 | `config` | Spring/RabbitMQ/WebClient/webhook executor 설정. |
 | `dto` | 요청/응답/event DTO. |
 | `util` | 일반 유틸. |
