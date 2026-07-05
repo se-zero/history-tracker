@@ -39,14 +39,14 @@ src/
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
     sources/        GitHubCard · TokenIntegrationCard(Jira·Slack 공용) · JiraCard · SlackCard · IngestStatus
-    chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · messageStructured
+    chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
     graph/          GraphVis(d3-force SVG) · NodeDetail
     search/         SearchDialog — ⌘K 통합 검색(대화 + 그래프 노드, AppShell에서 마운트)
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
-    Login · Onboarding · Chat · Sources · Settings · Graph · AuthCallback · NotFound
+    Login · Onboarding · Chat · Sources · Settings · Account · Graph · AuthCallback · NotFound
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
   auth/             AuthProvider(세션 상태) · tokenStorage(localStorage)

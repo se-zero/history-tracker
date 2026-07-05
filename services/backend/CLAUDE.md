@@ -10,7 +10,7 @@ cd services/backend
 
 ## 패키지 구조
 
-패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시하고, `jira`는 Jira 연동 검증용 client/dto만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
+패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시하고, `jira`·`slack`은 연동 검증용 client(config/service/dto)만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
 
 `dto`에는 직렬화 경계 타입(프론트 요청·응답, ai-engine 클라이언트 DTO, opaque 커서)만 두고 필드에 도메인 엔티티를 노출하지 않는다(엔티티는 `from()` 매핑 파라미터로만 받는다). 도메인 엔티티를 필드로 담는 서비스 반환·중간 타입(예: `ConversationStart`, `ConversationPage`, `ConversationDetail`)은 `service`에 둔다.
 
@@ -35,9 +35,9 @@ cd services/backend
   timeout이 없으면 ai-engine hang 시 Tomcat 스레드가 무한 점유돼 fallback/502가 작동하지 못한다.
   빌드는 비동기 202라 짧고, read(60s)는 LLM tool-calling 질의(/query)를 위한 여유다.
 - 그래프 데이터의 단일 소유자는 ai-engine(Neo4j)다. backend는 인가를 통과시킨 뒤 조회·삭제를 프록시만 한다.
-  - `AiEngineGraphClient`: `GET /graph/overview`(`project_id` 스코프), `searchNodes` → `GET /graph/search`(full-text 노드 키워드 검색 — 통합 검색용, overview의 최근 top-N 제한과 무관하게 그래프 전체 검색), `fetchSubgraph` → `POST /graph/subgraph`(답변 evidence 도메인 키로 관련 서브그래프 조회 — 대화 화면 그래프 패널용, body `{project_id, evidence}`, `{nodes, edges, seeds}` 반환), `DELETE /graph/projects/{projectId}`(프로젝트 삭제 시 그래프 cascade, 멱등), `triggerBuild` → `POST /graph/build?project_id=&verify=`(Layer 4 빌드를 프로젝트 단위로 트리거, 202 + `GraphBuildStatusResponse`), `fetchBuildStatus` → `GET /graph/build/status?project_id=`(빌드 상태 폴링). ai-engine 호출 실패는 `BadGatewayException`(502)으로 변환한다.
-  - 그래프 재구축은 `POST /api/v1/projects/{projectId}/graph/build?verify=`(202)로 노출한다(`GraphService.buildProjectGraph`). `verify=true`면 방안 D(LLM 검증). ai-engine 빌드가 프로젝트 단위 비동기라 `projectId`는 인가 게이트이자 실제 빌드 대상이고, 트리거는 즉시 202로 반환된 뒤 `GET .../graph/build/status`(`GraphService.getBuildStatus`)로 완료를 폴링한다.
-  - `AiEngineQueryClient`: 대화 질의 `POST /query`, 누적 요약 갱신 `POST /query/summary`. 질의 실패 시 예외 대신 fallback 답변을 반환해 대화 흐름을 유지한다.
+  - 엔드포인트 계약의 단일 출처는 `AiEngineGraphClient`(그래프 조회·빌드·삭제)와 `AiEngineQueryClient`(질의·요약) 코드다 — 메서드 목록을 여기에 중복 기재하지 않는다.
+  - ai-engine 호출 실패는 `BadGatewayException`(502)으로 변환한다. 단 대화 질의(`AiEngineQueryClient`)는 예외 대신 fallback 답변을 반환해 대화 흐름을 유지한다.
+  - 그래프 재구축은 비동기다: `POST /api/v1/projects/{projectId}/graph/build?verify=`가 즉시 202를 반환하고, `GET .../graph/build/status`로 완료를 폴링한다. `projectId`는 인가 게이트이자 실제 빌드 대상이다. `verify=false`(기본)는 임베딩 유사도만으로 시맨틱 엣지를 만들고, `verify=true`는 임베딩으로 후보를 선별한 뒤 LLM이 텍스트를 검증해 재구축한다(비용↑ 정확도↑).
 - 모든 ai-engine 호출은 `projectId`로 스코프해 다른 프로젝트 데이터 인용을 차단한다.
 
 ## 대화(conversation) 처리

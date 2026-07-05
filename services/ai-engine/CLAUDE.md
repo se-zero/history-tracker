@@ -26,8 +26,7 @@ uvicorn main:app --reload --port 8000
 
 수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_PREFETCH`(기본 = 동시성 값).
 consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호), project 간은
-`INGEST_MAX_CONCURRENCY`까지 동시 처리한다. 선결조건(rate_limiter의 OpenAI RPM·TPM 페이싱, Actor 멱등화
-ActorAlias, 이벤트당 fan-out 축소)이 충족돼 기본 활성화됐다. OpenAI 호출은 rate_limiter가 페이싱하므로
+`INGEST_MAX_CONCURRENCY`까지 동시 처리한다. OpenAI 호출은 rate_limiter가 페이싱하므로
 동시성을 올려도 Tier 한도를 넘지 않는다(429·품질 저하 없음). 부하·환경에 따라 env로 조절한다.
 
 수집 실패 안전망(재시도 → DLQ): consumer의 `handle()`이 실패한 이벤트를 조용히 버리지 않는다.
@@ -51,12 +50,16 @@ CI·리팩토링 안전망.
 python -m pytest        # = tests/unit 만 실행 (pytest.ini의 testpaths)
 ```
 
+갱신 의무가 붙은 안전망 2개만 여기서 설명한다.
+
 - `test_import_surface.py` — 모든 1st-party 모듈이 import 되는지 + `graph.builder`/`tools.queries`/
   `agent.orchestrator`가 외부에서 쓰는 공개 심볼을 그대로 노출하는지 검증. **모듈 분해 리팩토링의 안전망.**
   모듈/공개 심볼을 추가·이동하면 이 파일의 목록도 함께 갱신한다.
 - `test_api_routes.py` — `main.app`에 등록된 (method, path) 집합이 변하지 않았는지 검증. **HTTP 계약 가드.**
   라우트를 의도적으로 추가/변경/삭제할 때만 `EXPECTED_ROUTES`를 갱신한다.
-- `test_multiturn_history.py` — 멀티턴 히스토리/요약 동작 단위 테스트 (LLM 모킹).
+
+그 외 도메인별 단위 테스트(멀티턴 히스토리, consumer 재시도, rate limiter 등)는 여기에 열거하지
+않는다 — `tests/unit/`을 직접 본다.
 
 ### `tests/integration/` — 실인프라 필요 (기본 실행 제외)
 
@@ -77,9 +80,11 @@ query_models.py    요청/응답 Pydantic 모델 (QueryRequest, SummaryRequest)
 conftest.py        pytest 부트스트랩 (OPENAI_API_KEY shim)
 
 routers/           HTTP 엔드포인트 (APIRouter, prefix 없이 전체 경로 명시)
-  query.py           /query, /query/summary            — 공개 read API
-  graph.py           /graph/overview, /graph/search, /graph/projects/{id}, /graph/build(202·비동기), /graph/build/status
-  admin.py           /reference/*, /migrations/*, /slack/filter, /issue-links/build, /test/ingest — 일회성 운영 트리거
+  query.py           질의 — 공개 read API
+  graph.py           그래프 조회·검색·서브그래프·삭제·빌드(202 비동기)·활동 조회
+  admin.py           일회성 운영 트리거 (reference·migrations·slack 필터·issue-links·DLQ)
+                     ※ 전체 라우트 계약의 단일 출처는 tests/unit/test_api_routes.py의 EXPECTED_ROUTES —
+                       개별 경로를 여기에 열거하지 않는다
 
 agent/
   orchestrator.py    GraphRAG tool-calling 에이전트 루프 + 답변 Structured Output
