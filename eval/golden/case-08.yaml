@@ -1,0 +1,39 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-08
+question: "PR #8에서 구현한 Slack 2단계 필터링 파이프라인을 설명해줘"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+# 질문이 PR #8을 직접 지목 → PR + 트리거 이슈 HT-22 + 2단계 필터링 구현 커밋이 핵심.
+expected_evidence_ids:
+- "pull_request:#8"                 # 질문이 직접 지목한 PR (Slack 2단계 필터링 파이프라인 구현)
+- "issue:HT-22"                     # 트리거 이슈 'Slack 데이터 전처리' (커밋 TRIGGERED_BY 경로로 연결)
+- "commit:79dcae4"                  # 핵심: 룰 기반 1차 + LLM 기반 2차 필터 구현 (slack_filter.py, slack_llm_filter.py)
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "commit:8b025ea"                  # chore: .gitignore에 checkpoint.json 추가 (부차적)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정) — 커밋 메시지에 실제 있는 내용만
+expected_facts:
+- "1차는 룰 기반 필터(slack_filter.py)로 이모지·시스템 메시지·URL/멘션 전용 등 메시지를 제거한다"
+- "2차는 LLM 기반 필터(slack_llm_filter.py, GPT-4o-mini)로 잡담을 제거하며 스레드 단위로 처리한다"
+- "규칙 기반 1차 → LLM 기반 2차 순서로 노이즈를 단계적으로 걸러 Slack 데이터를 전처리한다 (HT-22)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # HT-22에 DISCUSSED_IN 연결됐으나 이 필터링 파이프라인과 무관한 슬랙
+    - "message:1778129329.547519"  # assignee refs·SlackNormalizer URL 수정 논의 — normalizer 이슈, 필터링 파이프라인 아님
+    - "message:1777430711.997189"  # '프롬프트에 프로젝트 설명 추가한거 pr 날렸어' 공지 — 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "필터 기준·설계가 슬랙 논의를 통해 결정됐다 — HT-22에 연결된 슬랙은 normalizer 수정·프롬프트 공지뿐 이 파이프라인 논의 없음"
+
+# 케이스별 기계 채점 (2단계 흐름 서술 검증)
+rule_checks:
+- "summary가 룰 기반 1차와 LLM 기반 2차를 모두 서술하고 한 단계만 언급하지 않음"

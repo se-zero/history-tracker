@@ -1,0 +1,55 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [신원 분리 결함 테스트 — case-18의 정세영 판] 정세영은 그래프에서 3개 노드로 쪼개져 있다:
+#   - eed9fb88 (GitHub 신원) = 커밋 194·PR 36, 이슈 0
+#   - 028bad52 (Jira 신원)   = 이슈 40, 커밋·PR 0
+#   - 4131fe65 (빈 노드)     = 0/0/0 (dangling)
+#   세 노드가 ALIAS_OF로 연결 안 됨(Actor 동일인 판단 실패). 어느 이름으로 물어도 시스템은
+#   반쪽(커밋만 또는 이슈만)만 답한다. 정답에 '코드(PR)'와 '담당 이슈'를 모두 넣어 신원 통합
+#   여부를 잰다. ※Actor 동일인 판단을 고칠 때까지 낮게 나오는 게 정상 — 그 결함을 측정한다.
+id: case-01
+question: "정세영이 작성한 커밋·PR과 담당한 이슈를 함께 정리해줘"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+# 코드 측(정세영 AUTHORED PR)과 이슈 측(정세영 담당) 양쪽 대표 작업. 한 신원만 해석하면 절반을 놓친다.
+expected_evidence_ids:
+# --- 코드 측 (정세영 AUTHORED PR) — "정세영"으로 조회 시 현재 도달 불가 ---
+- "pull_request:#4"                # RabbitMQ 기반 API fetch 수집 전략 (HT-21)
+- "pull_request:#9"                # Actor 동일인 판단 파이프라인 (HT-23)
+- "pull_request:#21"               # GitHub auth 기반 구축 (HT-45)
+- "pull_request:#34"               # 멀티턴 session memory (HT-69)
+# --- 이슈 측 (정세영 담당) ---
+- "issue:HT-21"                    # RabbitMQ를 통한 데이터 전달 구현
+- "issue:HT-23"                    # Actor 노드 생성
+- "issue:HT-25"                    # pipeline-worker 리팩토링 및 로직 개선
+- "issue:HT-69"                    # 질의-응답 방식 멀티턴으로 변경
+
+# 인용해도 감점하지 않는 추가 근거 (그의 다른 대표 작업 — 양쪽 신원)
+acceptable_evidence_ids:
+- "pull_request:#12"               # pipeline-worker (HT-25)
+- "pull_request:#47"               # per-project 그래프 빌드 비동기화 (HT-95)
+- "pull_request:#52"               # 수집 실패 재시도·DLQ 안전망 (HT-100)
+- "issue:HT-37"                    # 웹훅 기능 생성
+- "issue:HT-95"                    # 그래프 빌드 비동기화 + rate limiter
+- "issue:HT-100"                   # RabbitMQ DLQ 작업
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정) — 양쪽 신원의 작업이 모두 담겨야 한다.
+# 시스템이 한 노드만 해석하면 아래 둘 중 하나는 충족 불가 → 신원 분리 결함이 사실 정답률로 드러남.
+expected_facts:
+- "코드(GitHub) 측: RabbitMQ 수집·Actor 동일인 판단·GitHub auth·멀티턴 session memory·DLQ 등 backend/파이프라인 커밋·PR을 작성했다"
+- "이슈(Jira) 측: 데이터 수집·Actor·pipeline-worker 리팩토링·멀티턴·backend 등 광범위한 이슈를 담당했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []   # 인용되면 안 되는 근거 (현재 특정 오연결 노드 미확인 — 비움)
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "정세영이 작성한 커밋·PR은 없다 / 정세영은 이슈만 담당했다 (신원 분리로 유발되는 거짓 결론)"
+    - "서준수 등 다른 사람의 작업을 정세영 것으로 귀속"
+
+# 케이스별 기계 채점 (신원 통합 검증 — 핵심)
+rule_checks:
+- "evidence에 pull_request(코드 작업)와 issue(담당 이슈)가 모두 1건 이상 존재 — 한쪽만 있으면 정세영 신원(코드/이슈 노드) 미통합 노출"
+- "summary가 정세영의 커밋/PR 작업과 담당 이슈를 모두 서술한다"

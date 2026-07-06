@@ -1,0 +1,63 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-02
+question: "HT-44 'backend 기능 구현'은 어떤 하위 작업들로 나뉘어 진행됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+# 질문이 "어떤 하위 작업들로 나뉘어 진행됐어" → 하위 이슈(descendants) 열거가 곧 정답.
+# recall이 곧 descendants 순회 성공 여부를 잰다 (case-2/HT-3 실패모드 가드).
+# 아래 9개 모두 CHILD_OF HT-44 로 그래프에서 확인됨.
+expected_evidence_ids:
+- "issue:HT-44"                    # 부모 이슈
+- "issue:HT-45"                    # 하위: GitHub OAuth 구현
+- "issue:HT-51"                    # 하위: 프로젝트 관리 API 구현
+- "issue:HT-53"                    # 하위: github 레포 연결 구현
+- "issue:HT-54"                    # 하위: jira,slack 연결 구현
+- "issue:HT-55"                    # 하위: 질의 응답 api 구현
+- "issue:HT-57"                    # 하위: pipeline 공유 DB 작업
+- "issue:HT-58"                    # 하위: pipeline 코드 backend DB 연동
+- "issue:HT-59"                    # 하위: GitHub installation token 관리작업
+- "issue:HT-61"                    # 하위: 사용자 계정 탈퇴 복구 작업
+
+# 인용해도 감점하지 않는 추가 근거 (각 하위작업 구현 컨테이너 PR — 인용 좋지만 필수 아님)
+# 각 PR은 CONTAINS→커밋→TRIGGERED_BY 경로로 해당 하위이슈와 1:1 매핑됨.
+acceptable_evidence_ids:
+- "pull_request:#21"               # HT-45 GitHub 인증 기반 구현 PR
+- "pull_request:#22"               # HT-51 프로젝트 관리 구현 PR
+- "pull_request:#23"               # HT-53 GitHub 연동 구현 PR
+- "pull_request:#24"               # HT-54 Jira·Slack 선택 연동 구현 PR
+- "pull_request:#26"               # HT-55 질의응답(conversations) 구현 PR
+- "pull_request:#27"               # HT-57 pipeline 공유 테이블 구현 PR
+- "pull_request:#28"               # HT-58 pipeline-worker DB 전환 PR
+- "pull_request:#29"               # HT-59 installation token 캐시 PR
+- "pull_request:#31"               # HT-61 사용자 탈퇴/복구(lifecycle) PR
+
+# summary에 담겨야 할 핵심 사실 (하위작업 제목 기반) — 문구 검증 후 확정
+expected_facts:
+- "GitHub OAuth 인증 기반을 구현했다 (HT-45)"
+- "프로젝트 관리 API를 구현했다 (HT-51)"
+- "GitHub 레포 연결을 구현했다 (HT-53)"
+- "Jira·Slack 연동을 구현했다 (HT-54)"
+- "질의응답 API를 구현했다 (HT-55)"
+- "pipeline 공유 DB 작업과 pipeline-worker의 backend DB 연동을 했다 (HT-57·HT-58)"
+- "GitHub installation token 관리와 사용자 계정 탈퇴·복구를 구현했다 (HT-59·HT-61)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # 하위이슈에 오연결된 무관한 슬랙 (내용 확인 후 조정)
+    - "message:1777026036.599589"  # 캡스톤디자인 확인서·교수님 이메일·과제 개요 — 완전 무관 (HT-54·55에 false-positive DISCUSSED_IN)
+    - "message:1782286987.165039"  # ai-engine 호출 타임아웃·OpenAI RPM/TPM 한도 — 6월 성능작업, backend 기능구현 무관 (HT-57 오연결)
+    - "message:1782194759.806139"  # 처리속도·효율성 병목·ai-engine 조사 — 무관 (HT-57·58 오연결)
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "HT-44에 하위 작업이 없다 / 연결이 없다는 결론 — 실제론 9개 하위 이슈로 나뉨"
+    - "근거 없는 하위 작업을 지어내기 (그래프에 존재하지 않는 backend 기능 항목)"
+
+# 케이스별 기계 채점 (descendants 순회 검증 — 핵심)
+rule_checks:
+- "summary가 하위 이슈 HT-45·51·53·54·55·57·58·59·61을 열거하고 '하위 작업/연결 없음'류 결론이 없음"
