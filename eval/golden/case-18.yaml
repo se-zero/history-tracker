@@ -1,0 +1,55 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [신원 분리 결함 테스트] 서준수는 그래프에서 두 노드로 쪼개져 있다:
+#   - "JunsuSeo" (GitHub 신원) = 커밋 103·PR 20, 이슈 0
+#   - "서준수"   (Jira 신원)   = 이슈 55, 커밋·PR 0
+#   두 노드가 ALIAS_OF로 연결 안 됨(Actor 동일인 판단 실패). 따라서 어느 이름으로 물어도
+#   시스템은 반쪽(커밋만 또는 이슈만)만 답한다. 이 케이스는 정답에 '코드(PR)'와 '담당 이슈'를
+#   모두 넣어, 시스템이 두 신원을 통합하는지(못 하면 recall 절반 실패)를 잰다.
+#   ※ Actor 동일인 판단을 고칠 때까지 이 케이스는 낮게 나오는 게 정상 — 그 결함을 측정하는 장치다.
+id: case-18
+question: "서준수가 작성한 커밋·PR과 담당한 이슈를 함께 정리해줘"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+# 코드 측(JunsuSeo PR)과 이슈 측(서준수 담당) 양쪽의 대표 작업. 한 신원만 해석하면 절반을 놓친다.
+expected_evidence_ids:
+# --- 코드 측 (JunsuSeo AUTHORED PR) — "서준수"로 조회 시 현재 도달 불가 ---
+- "pull_request:#8"                # Slack 2단계 필터링 파이프라인
+- "pull_request:#19"               # GraphRAG tool-calling 자연어 질의
+- "pull_request:#30"               # web dashboard 신규 구현 + 풀스택 Docker
+- "pull_request:#43"               # ai-engine 거대 모듈 분해 리팩토링
+# --- 이슈 측 (서준수 담당) ---
+- "issue:HT-26"                    # 그래프 생성
+- "issue:HT-46"                    # GraphRAG 답변 품질 개선
+- "issue:HT-96"                    # pipeline-worker 최적화
+- "issue:HT-89"                    # 프론트엔드 리팩토링
+
+# 인용해도 감점하지 않는 추가 근거 (그의 다른 대표 작업 — 양쪽 신원)
+acceptable_evidence_ids:
+- "pull_request:#25"               # GraphRAG 쿼리 품질 개선
+- "pull_request:#33"               # 프로젝트 단위 그래프 격리 + 조회 API
+- "pull_request:#50"               # pipeline-worker 수집 처리량·유실 방지
+- "issue:HT-33"                    # Tool 생성
+- "issue:HT-60"                    # 프론트엔드 생성
+- "issue:HT-64"                    # 그래프 조회 API 생성
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정) — 양쪽 신원의 작업이 모두 담겨야 한다.
+# 시스템이 한 노드만 해석하면 아래 둘 중 하나는 충족 불가 → 신원 분리 결함이 사실 정답률로 드러남.
+expected_facts:
+- "코드(GitHub) 측: Slack 필터링·GraphRAG tool·web dashboard·ai-engine 리팩토링 등 풀스택 커밋/PR을 작성했다"
+- "이슈(Jira) 측: 그래프 생성·GraphRAG 품질 개선·pipeline-worker 최적화·프론트엔드 등 광범위한 이슈를 담당했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []   # 인용되면 안 되는 근거 (현재 특정 오연결 노드 미확인 — 비움)
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "서준수가 작성한 커밋·PR은 없다 / 서준수는 이슈만 담당했다 (신원 분리로 유발되는 거짓 결론)"
+    - "정세영 등 다른 사람의 작업을 서준수 것으로 귀속"
+
+# 케이스별 기계 채점 (신원 통합 검증 — 핵심)
+rule_checks:
+- "evidence에 pull_request(코드 작업)와 issue(담당 이슈)가 모두 1건 이상 존재 — 한쪽만 있으면 JunsuSeo↔서준수 신원 미통합 노출"
+- "summary가 서준수의 커밋/PR 작업과 담당 이슈를 모두 서술한다"

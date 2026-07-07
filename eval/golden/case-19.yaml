@@ -1,0 +1,41 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-19
+question: "'그래프 구축 중 대화 차단'(HT-101) 기능은 왜 필요했어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+expected_evidence_ids:
+- "issue:HT-101"                   # 부모 이슈 — 본문에 '왜 필요한지'(근거 없음·API 낭비) 명시. 핵심 근거
+- "commit:9f307d7"                 # ai-engine 그래프 활동 상태 API — 게이팅 신호(idle|collecting|building)
+- "commit:90f7572"                 # web-dashboard 채팅 게이팅 — 실제 차단 강제(연동 없음·구축중)
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "commit:9c67566"                 # backend 그래프 활동 상태 프록시
+- "pull_request:#55"               # 구현 PR (컨테이너, Feat/chat gating)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "프로젝트가 아직 수집되지 않은 상태에서는 답변할 근거(그래프 데이터)가 없어서 질문을 막아야 한다(HT-101 본문)"
+- "그래프 구축 중에는 답변 품질이 떨어지는데도 OpenAI API만 낭비되므로 그 동안 대화를 차단한다(HT-101 본문)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # 인용되면 안 되는 근거 (HT-101에 오연결된 무관한 슬랙 — false-positive DISCUSSED_IN)
+    - "message:1781356896.027259"  # 금요일 전 작업 분담 정리 — 채팅 게이팅 무관
+    - "message:1781533811.868749"  # 깃허브 브랜치 수집·redis 도입 논의 — 무관
+    - "message:1782286987.165039"  # 타임아웃·rate limit(RPM/TPM) — 무관
+    - "message:1783143134.172379"  # 배포 준비·테스트셋 논의 — 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "'그래프 구축 중 대화 차단' 도입을 슬랙에서 논의·결정했다 — 실제론 회의에서 결정, 슬랙 논의 없음(지어내면 감점)"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "summary가 HT-101 본문의 이유(수집 전=근거 없음 / 구축 중=답변 질 하락·API 낭비)를 issue:HT-101 근거로 제시"
+- "summary가 슬랙 논의를 언급하면 type: message evidence가 1건 이상 존재"

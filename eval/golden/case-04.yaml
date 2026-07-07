@@ -1,0 +1,51 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-04
+question: "HT-69에서 질의-응답 방식을 멀티턴으로 바꾼 이유와 변경 내용은?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+expected_evidence_ids: 
+- "issue:HT-69"                    # 부모 이슈 (본문에 배경·목표 명시)
+- "message:1781224211.716939"      # 6/12 멀티턴 도입 배경 슬랙 논의 (그래프에 있고 HT-69에 DISCUSSED_IN 연결됨)
+- "commit:3e1d00e"                 # AI 엔진 멀티턴 이력 입력 지원
+- "commit:c4d98c7"                 # backend에서 이전 대화 이력 전달
+- "commit:5a5100e"                 # 대화 이력 최근 5턴으로 제한
+- "commit:5add145"                 # 근거는 현재 질의 도구결과로만 (할루시네이션 방지 — 목표 핵심)
+- "commit:5715fca"                 # 구조화 응답을 메시지 메타데이터에 저장
+- "commit:7ee48b6"                 # 후속 질문 해석용 이전 근거 전달
+- "commit:8cdb0cc"                 # 긴 대화용 누적 요약 저장·전달
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "issue:HT-72"                    # 하위: 베이스라인 (인용 무방, 필수 아님 — 커밋이 실질 근거)
+- "issue:HT-73"                    # 하위: 후속질문 맥락강화
+- "issue:HT-74"                    # 하위: 긴 대화 누적요약
+- "pull_request:#34"               # 구현 PR (컨테이너)
+- "commit:139e917"                 # perf: 누적요약 커서 기반 조회 최적화
+- "commit:d0d9093"                 # test: 멀티턴 문맥 회귀 검증
+- "commit:577b0c9"                 # test: 실패지점 수정
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정) — 초안, 문구 검증 후 확정
+expected_facts:
+- "기존 단일 질의-응답이라 이전 대화 맥락을 기억 못 해, '그 PR 더 설명해줘' 같은 후속 질문을 직전 맥락 없이 처리했다(변경 이유)"
+- "대화 이력을 질의 맥락으로 활용하되, 답변의 사실 근거는 현재 질의에서 수집한 도구 결과로만 한정해 할루시네이션을 방지한다"
+- "긴 대화는 누적 요약을 저장·전달해 대응한다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # 인용되면 안 되는 근거 (HT-69 하위이슈에 오연결된 무관한 슬랙 스레드)
+    - "message:1782191866.823469"  # 비용·보고서·테스트횟수 논의 — 멀티턴 무관 (false-positive DISCUSSED_IN)
+    - "message:1782286987.165039"  # 타임아웃·rate limit(RPM/TPM) — 무관
+    - "message:1782194759.806139"  # 처리속도·효율성 병목 — 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "mem0 같은 세션 간 영구/장기기억을 도입했다 — 실제론 한 대화 세션 내로 한정(슬랙에서 mem0 보류 결정)"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "summary가 슬랙 논의를 언급하면 type: message evidence가 1건 이상 존재"

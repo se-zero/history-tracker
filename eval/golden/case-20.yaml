@@ -1,0 +1,39 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-20
+question: "RabbitMQ DLQ 작업(HT-100)은 어떤 문제 때문에 도입됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+expected_evidence_ids:
+- "issue:HT-100"                   # 도입 이유(문제)가 본문 [배경]에 명시된 핵심 근거
+- "commit:caa50b3"                 # 대표 구현: 수집 실패 재시도·DLQ 안전망 추가 (ai-engine)
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "commit:0d17156"                 # 재시도 기본 창 확대 3분×20회(≈1시간) 후속 fix
+- "pull_request:#52"               # 구현 컨테이너 PR (commits CONTAINS, 이슈 직접엣지는 없음)
+- "message:1782984155.354279"      # "DLQ 작업 PR 날렸어" 알림 — DLQ 관련이나 도입 이유 논의는 아님(인용 무방)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "ai-engine consumer가 이벤트 처리(handle)에 실패하면 메시지를 재시도 없이 버려, 소비 단계 실패가 조용한 유실로 이어졌다(도입 이유)"
+- "발행 측은 이미 checkpoint를 넘겨서 재수집으로 복구가 불가능해 이 유실이 치명적이었다"
+- "그래서 처리 실패 시 지연 재시도 후 소진되면 DLQ에 보관하는 안전망을 추가하고, malformed 메시지는 inspect 큐로 분리했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # 인용되면 안 되는 근거 (HT-100에 오연결된 무관한 슬랙 스레드)
+    - "message:1782286987.165039"  # OpenAI rate limit(RPM/TPM)·타임아웃 논의 — DLQ 무관 (false-positive DISCUSSED_IN)
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "DLQ 도입 이유가 슬랙에서 논의됐다 — 실제론 회의에서 결정, 관련 슬랙 논의는 없음(PR 알림 한 건뿐)"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "summary가 DLQ 도입 이유(소비 실패의 조용한 유실·재수집 복구 불가)를 HT-100 본문 근거로 제시"
+- "summary가 슬랙 논의를 언급하면 type: message evidence가 1건 이상 존재"

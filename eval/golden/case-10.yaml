@@ -1,0 +1,65 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-10
+question: "services/ai-engine/agent/orchestrator.py는 어떤 이슈·작업 때문에 바뀌어 왔어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+# 파일 변경 이력 질문 → 정답은 get_file_history: orchestrator.py를 실제 MODIFIED한
+# 커밋 + 그 커밋이 TRIGGERED_BY한 이슈. search_by_keyword로 파일을 언급만 한 노드를
+# 끌어오면 안 된다 (query-quality-issues.md 케이스6 도구선택 오류 가드).
+# recall = 파일을 실제 바꾼 커밋/이슈 순회 성공 여부.
+expected_evidence_ids:
+- "commit:9ef0504"                 # tool-calling GraphRAG 에이전트 최초 구현 (HT-33)
+- "commit:e2e220f"                 # 안정성 개선·프로젝트 컨텍스트 주입 (HT-43)
+- "commit:bb8f920"                 # Slack 응답 스레드 경계 보존 (HT-48)
+- "commit:2913ee2"                 # Structured Output 환각 차단 (HT-49)
+- "commit:8e0e895"                 # 검색 fallback — 파일 fuzzy·모호질문 (HT-50)
+- "commit:3e1d00e"                 # 멀티턴 대화 이력 입력 지원 (HT-69)
+- "commit:5add145"                 # 현재 질의 도구결과만 근거 사용 (HT-69)
+- "commit:7ee48b6"                 # 후속 질문 해석용 이전 근거 전달 (HT-69)
+- "commit:8cdb0cc"                 # 긴 대화 누적 요약 저장·전달 (HT-69)
+- "commit:0a41ada"                 # 채팅 질의 경로 프로젝트 단위 스코프 (HT-68)
+- "commit:022907a"                 # 그래프 노드 focus 질의 실어보내기 (HT-105)
+- "issue:HT-33"                    # Tool 생성 (tool-calling 도입 계기)
+- "issue:HT-43"                    # 질문 관련 프롬프트·기능 수정
+- "issue:HT-48"                    # 쿼리 결과 후처리·스레드 경계 보존
+- "issue:HT-49"                    # LLM 환각 방지 — Structured Output
+- "issue:HT-50"                    # 검색 fallback — 파일 fuzzy 매칭
+- "issue:HT-69"                    # 질의-응답 멀티턴 전환
+- "issue:HT-68"                    # 배치/질의 스코핑
+- "issue:HT-105"                   # 응답 관련그래프 노드 후속질문
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+# 파일을 바꾸긴 했으나 인프라·플러밍 성격(클라이언트 통합·레이트리미터)이라 부차.
+acceptable_evidence_ids:
+- "commit:51febd9"                 # OpenAI 클라이언트 lazy 팩토리 통합 (HT-86, 리팩토링)
+- "commit:84b83f9"                 # OpenAI RPM·TPM rate limiter 게이트웨이 (HT-95)
+- "issue:HT-86"                    # ai-engine 리팩토링
+- "issue:HT-95"                    # rate limiter + 타임아웃
+- "message:1781224211.716939"      # 멀티턴 도입 배경 슬랙 논의 (HT-69에 DISCUSSED_IN, 정보성)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정) — 커밋 메시지 근거, 문구 검증 후 확정
+expected_facts:
+- "GraphRAG 자연어 질문을 처리하는 tool-calling 에이전트 루프로 처음 구현됐다 (9ef0504)"
+- "Structured Output(grounded_answer 스키마)을 강제해 근거 없는 환각 문장을 차단하도록 바뀌었다 (HT-49)"
+- "멀티턴 대화 이력을 입력받되 답변 근거는 현재 질의의 도구 결과로만 한정하도록 바뀌었다 (HT-69)"
+- "채팅 질의 경로를 프로젝트 단위로 스코프하도록 project_id 필터가 추가됐다 (HT-68)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # 대상 이슈에 DISCUSSED_IN으로 걸렸으나 파일 변경과 무관한 슬랙 (false-positive)
+    - "message:1782191866.823469"  # 비용·보고서·테스트횟수 논의 — orchestrator 변경과 무관
+    - "message:1782102320.056619"  # 소스 연결해제·그래프 UI 줌 — 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "orchestrator.py를 단순 언급만 하고 실제로 바꾸지 않은 이슈까지 변경 원인으로 제시한다"
+
+# 케이스별 기계 채점 (get_file_history vs search_by_keyword 구분 — 핵심)
+rule_checks:
+- "summary가 orchestrator.py를 실제 변경한 커밋과 그 연결 이슈를 근거로 제시하며, 파일을 단순 언급만 한 이슈로 대체하지 않는다"
+- "evidence에 orchestrator.py를 MODIFIED한 커밋(commit:9ef0504·2913ee2·3e1d00e 등)이 1건 이상 존재한다"

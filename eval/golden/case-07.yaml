@@ -1,0 +1,53 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-07
+question: "PR #20 '그래프 생성 파이프라인 안정성 개선'은 어떤 문제들을 해결했어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+# 질문이 "어떤 문제들을 해결했어" → PR #20이 고친 각 영역의 fix 커밋 + 문제영역 이슈가 정답.
+# PR→이슈 직접 TRIGGERED_BY는 없음(빈 엣지). PR CONTAINS 커밋 → 커밋 TRIGGERED_BY 이슈 경로로만 연결됨.
+# 8개 커밋 전부가 HT-38·40·41·42·43 5개 이슈에 fan-out 연결되나, 커밋 메시지는 각자 한 영역만 다룸.
+expected_evidence_ids:
+- "issue:HT-38"                    # 부모: 그래프 생성 파이프라인 안정성 종합 개선
+- "issue:HT-40"                    # 하위: 슬랙 파이프라인 수정
+- "issue:HT-41"                    # 하위: 깃허브 파이프라인 수정
+- "issue:HT-42"                    # 하위: 그래프 생성 및 후처리 분야 수정
+- "issue:HT-43"                    # 하위: 질문 관련 프롬프트 및 기능 수정
+- "commit:b5ad923"                 # HT-40 Slack 룰필터 실시간 연결 + LLM 배치필터 신규(전량저장 문제 해결)
+- "commit:d50ecaa"                 # HT-40 Slack LLM 필터 프롬프트 스레드/개별 분리 + JSON 파싱 안정화
+- "commit:d9978e2"                 # HT-41 GitHub 요약 try/except·placeholder(파일 누락 방지) + 봇 커밋 제외
+- "commit:8ca21a9"                 # HT-42 Actor 동일인 판단 안정화(JSON·폴백·Top-3 평가·confidence 상향)
+- "commit:9d92b00"                 # HT-42 project_context 안정화 + issue_verifier 도메인 컨텍스트 주입
+- "commit:e2e220f"                 # HT-43 GraphRAG/임베딩 안정성(timeout·try/except·배치 청크) + 컨텍스트 주입
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "pull_request:#20"               # 대상 PR (컨테이너)
+- "commit:a27e9b3"                 # chore: 환경변수·로깅 레벨 조정 (부차적)
+- "commit:9dc945c"                 # GitHub 이벤트 처리에 commit/issue checkpoint 추가 (한줄, 부차적)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정) — 초안, 커밋 메시지 기반
+expected_facts:
+- "슬랙 메시지가 필터 없이 전량 Neo4j에 저장되던 문제를 룰 기반 필터 실시간 연결 + LLM 배치 필터로 해결했다 (HT-40)"
+- "GitHub LLM 요약 실패 시 파일이 그래프에서 누락되던 문제를 try/except·placeholder로 방지하고, 봇(dependabot 등) 커밋을 제외해 그래프 오염을 막았다 (HT-41)"
+- "Actor 동일인 판단을 JSON 포맷·API 폴백·Top-3 후보 반복 평가·confidence 상향으로 안정화해 false positive를 줄였다 (HT-42)"
+- "GraphRAG/임베딩에 OpenAI timeout·try/except·임베딩 배치 청크 분할을 넣고 프로젝트 컨텍스트를 주입해 안정성을 개선했다 (HT-43)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # HT-38 및 하위이슈에 오연결된, PR#20 안정성 개선과 무관한 슬랙 (fan-out DISCUSSED_IN)
+    - "message:1780206867.542399"  # 5/31 깃허브 로그인 access token JSON 노출·502 디버깅 — 프론트/인증, 무관
+    - "message:1781356896.027259"  # 6/13 프론트 오류 수정·역할 분담 논의 — 무관
+    - "message:1779517512.912909"  # 5/23 "사용자 질의응답 api pr 날렸어" — 다른 기능 공지, 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "PR #20의 안정성 개선 방안이 슬랙 논의로 설계·결정됐다 — 실제 슬랙엔 '그래프 수정한거도 pr 날렸어'류 공지뿐 문제 논의 없음"
+
+# 케이스별 기계 채점 (다영역 fix 커버리지 검증)
+rule_checks:
+- "summary가 슬랙·GitHub·Actor·GraphRAG(임베딩) 안정성 개선 중 3개 이상 영역을 언급"

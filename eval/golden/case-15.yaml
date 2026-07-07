@@ -1,0 +1,41 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-15
+question: "깃허브 수집에서 브랜치 입력 처리에 대해 어떤 논의가 있었어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+#   스레드 구조: 6/15 14:30(UTC) '깃허브 PR 관련' 공지가 root(그래프에 노드로는 미저장,
+#   conversation_id=루트 ts만 존재), 그 reply로 6/16 브랜치 입력 처리 논의가 이어짐.
+#   reply 메시지의 m.ts는 모두 NULL이라 개별 ts 노출이 없어 aliases 불필요.
+expected_evidence_ids:
+- "message:1781533811.868749"      # 브랜치 입력 처리 논의 스레드 (root=6/15 공지, reply=6/16 논의). HT-81에 DISCUSSED_IN 연결
+- "issue:HT-81"                    # '브랜치 선택 기능 추가' 이슈 (논의의 대상 기능)
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids: []        # 관련 브랜치 수정 커밋은 그래프에 미수집 (스레드에 "커밋 올렸어"만 언급)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "깃허브 수집은 수집할 브랜치를 입력받고, null이면 main 브랜치가 수집된다"
+- "PR은 코드상 브랜치 입력을 받게 돼있지 않아 모든 브랜치의 PR을 전부 가져와, 노드/그래프가 제대로 만들어지지 않는 문제가 있다"
+- "해결안으로 프론트에서 레포 연결 시 브랜치 하나만 선택하게 하고, 생성된 프로젝트는 브랜치 변경을 막자는 의견이 나왔다"
+- "백엔드는 커밋·PR·이슈 API에 DTO로 브랜치명까지 받아 DB에 저장하는 방향으로 논의됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # HT-81에 DISCUSSED_IN으로 붙었지만 브랜치 '입력 처리' 논의와 무관한 스레드
+    - "message:1779170187.956139"  # 5/19 프로젝트당 레포 1개 연결 결정 — 레포 연결 설계지 브랜치 입력 처리 아님
+    - "message:1782102320.056619"  # 6/22~23 그래프 확대/축소·데이터소스 연결 해제 논의 — 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "브랜치 입력 처리를 위해 Redis를 도입하기로 결정했다 — 같은 스레드의 캐시/Redis 언급은 브랜치와 무관하며 '잠깐 미뤄둘게'로 보류됨"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "message evidence id가 conversation_id(스레드 루트 ts)이며 reply 개별 ts를 쓰지 않음"
+- "summary가 논의 내용을 제시하면 type: message evidence가 1건 이상 존재"
