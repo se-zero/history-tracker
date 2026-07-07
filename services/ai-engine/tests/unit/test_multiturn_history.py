@@ -96,7 +96,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages.extend(messages)
             return response
 
-        async def capture_structured(messages):
+        async def capture_structured(messages, debug=None):
             captured_structured_messages.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
@@ -144,7 +144,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages.extend(messages)
             return response
 
-        async def capture_structured(messages):
+        async def capture_structured(messages, debug=None):
             captured_structured_messages.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
@@ -183,7 +183,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages.extend(messages)
             return response
 
-        async def capture_structured(messages):
+        async def capture_structured(messages, debug=None):
             captured_structured_messages.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
@@ -213,7 +213,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages.extend(messages)
             return response
 
-        async def capture_structured(messages):
+        async def capture_structured(messages, debug=None):
             captured_structured_messages.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
@@ -258,7 +258,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
         completed_message = SimpleNamespace(role="assistant", tool_calls=None, content="fallback")
         captured_structured_messages = []
 
-        async def capture_structured(messages):
+        async def capture_structured(messages, debug=None):
             captured_structured_messages.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
