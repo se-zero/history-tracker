@@ -245,7 +245,32 @@ _STRUCTURED_FINAL_INSTRUCTION = (
 )
 
 
-async def _call_llm_structured(messages: list) -> dict | None:
+def _record_usage(debug: dict | None, response) -> None:
+    """debug가 주어지면 LLM 응답의 usage를 합산 누적한다 (eval 러너의 질의당 비용 기록용)."""
+    if debug is None or response is None:
+        return
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return
+    acc = debug.setdefault(
+        "usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "llm_calls": 0}
+    )
+    acc["prompt_tokens"] += getattr(usage, "prompt_tokens", 0) or 0
+    acc["completion_tokens"] += getattr(usage, "completion_tokens", 0) or 0
+    acc["total_tokens"] += getattr(usage, "total_tokens", 0) or 0
+    acc["llm_calls"] += 1
+
+
+def _record_tool_call(debug: dict | None, name: str, arguments, status: str, result: str | None) -> None:
+    """debug가 주어지면 도구 호출 시도를 트랜스크립트로 기록한다 (파싱 실패·중복 차단 포함)."""
+    if debug is None:
+        return
+    debug.setdefault("tool_calls", []).append(
+        {"name": name, "arguments": arguments, "status": status, "result": result}
+    )
+
+
+async def _call_llm_structured(messages: list, debug: dict | None = None) -> dict | None:
     """tool calling이 끝난 뒤 최종 답변을 grounded_answer 스키마로 강제 생성.
 
     response_format=json_schema(strict=True)이라 LLM이 스키마 밖 자유 텍스트를 만들 수 없다.
@@ -262,6 +287,7 @@ async def _call_llm_structured(messages: list) -> dict | None:
     except Exception:
         logger.exception("Structured LLM 호출 실패")
         return None
+    _record_usage(debug, response)
 
     content = response.choices[0].message.content or ""
     try:
@@ -372,6 +398,7 @@ async def run(
     prior_evidence: list[dict[str, str]] | None = None,
     running_summary: dict | None = None,
     focus_evidence: list[dict] | None = None,
+    debug: dict | None = None,
 ) -> tuple[str, dict | None]:
     """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환.
 
@@ -384,6 +411,8 @@ async def run(
     running_summary: 최근 5턴보다 오래된 대화의 누적 요약. 탐색 맥락에만 사용하고 최종 근거에서는 제외한다.
     focus_evidence: 사용자가 관련 그래프에서 지정한 노드({type, id}). prior_evidence와 반대로
                     현재 턴에 두어 최종 근거까지 살리고, 유형별 도구로 먼저 조회하도록 지시한다.
+    debug: eval 러너용 수집 dict. 주어지면 LLM usage 합산과 도구 호출 트랜스크립트를 여기에
+           누적한다 (반환 계약은 불변 — 관측 전용, 답변 생성에 영향 없음).
 
     Returns:
         (markdown_answer, structured_dict)
@@ -449,12 +478,13 @@ async def run(
         response = await _call_llm(messages, with_tools=True)
         if response is None:
             return _LLM_FAILURE_ANSWER, None
+        _record_usage(debug, response)
 
         message = response.choices[0].message
 
         # tool_calls 없음 → 도구 탐색 종료. structured output으로 최종 답변 생성.
         if not message.tool_calls:
-            structured = await _call_llm_structured(current_turn_messages())
+            structured = await _call_llm_structured(current_turn_messages(), debug=debug)
             if structured is None:
                 # fallback: 마지막 LLM 자유 텍스트라도 반환 (할루시네이션 가드는 잃지만 응답은 제공)
                 return message.content or _FALLBACK_ANSWER, None
@@ -470,6 +500,7 @@ async def run(
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:
                 logger.warning("도구 인자 JSON 파싱 실패: %s", tool_name)
+                _record_tool_call(debug, tool_name, tc.function.arguments, "args_parse_error", None)
                 error_message = _tool_error(
                     tc.id,
                     f"{tool_name} 인자 JSON 파싱 실패. 올바른 JSON 형식으로 다시 호출하세요.",
@@ -481,6 +512,7 @@ async def run(
             call_key = (tool_name, json.dumps(args, sort_keys=True, ensure_ascii=False))
             if call_key in seen_calls:
                 logger.info("중복 도구 호출 차단: %s args=%s", tool_name, args)
+                _record_tool_call(debug, tool_name, args, "duplicate", None)
                 error_message = _tool_error(
                     tc.id,
                     f"{tool_name}을(를) 동일한 인자로 이미 호출했습니다. 이전 결과를 참고하거나 다른 인자/도구를 시도하세요.",
@@ -492,6 +524,7 @@ async def run(
             logger.info("도구 호출: %s", tool_name)
             result_str = await execute(tool_name, args, project_id)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
+            _record_tool_call(debug, tool_name, args, "ok", result_str)
 
             tool_message = {
                 "role": "tool",
@@ -502,7 +535,7 @@ async def run(
 
     # 최대 반복 도달 → 그 시점까지의 컨텍스트로 강제 structured 답변
     logger.warning("최대 반복 횟수(%d) 도달 — structured 강제 응답", _MAX_ITERATIONS)
-    structured = await _call_llm_structured(current_turn_messages())
+    structured = await _call_llm_structured(current_turn_messages(), debug=debug)
     if structured is None:
         return _FALLBACK_ANSWER, None
     return _render_structured(structured), structured

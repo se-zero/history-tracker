@@ -24,6 +24,8 @@ async def query(req: QueryRequest):
       - answer: markdown 형식 답변 (Structured Output → render).
       - structured: grounded_answer 스키마 dict (summary/evidence/unknown_aspects).
         Structured 호출 실패 시 null — 이때 answer는 LLM의 자유 텍스트 fallback.
+      - debug: include_debug=true일 때만 — 토큰 usage 합산 + 도구 호출 트랜스크립트
+        (eval 러너용 관측 데이터, 답변 생성에는 영향 없음).
     """
     if not req.project_id:
         logger.warning("/query에 project_id 없음 — 그래프 조회가 비어 있게 됩니다.")
@@ -37,6 +39,7 @@ async def query(req: QueryRequest):
     history = [message.model_dump() for message in req.history]
     prior_evidence = [evidence.model_dump() for evidence in req.prior_evidence]
     focus_evidence = [evidence.model_dump() for evidence in req.focus_evidence]
+    debug: dict | None = {} if req.include_debug else None
     answer, structured = await orchestrator.run(
         req.question,
         project_context,
@@ -45,8 +48,12 @@ async def query(req: QueryRequest):
         prior_evidence=prior_evidence,
         running_summary=req.running_summary,
         focus_evidence=focus_evidence,
+        debug=debug,
     )
-    return {"answer": answer, "structured": structured}
+    body = {"answer": answer, "structured": structured}
+    if debug is not None:
+        body["debug"] = debug
+    return body
 
 
 @router.post("/query/summary")

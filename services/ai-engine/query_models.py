@@ -50,3 +50,5 @@ class QueryRequest(BaseModel):
     focus_evidence: list[FocusEvidence] = Field(default_factory=list)
     running_summary: dict[str, Any] | None = None
     repo: str = ""
+    # eval 러너용 — true면 응답에 debug(토큰 usage 합산·도구 호출 트랜스크립트)를 붙인다.
+    include_debug: bool = False
