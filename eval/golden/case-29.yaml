@@ -1,0 +1,36 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [2소스(GitHub↔Jira) — 이슈→커밋] HT-99(PR #53 단일이슈) → 커밋 3개. refs 기반 확실.
+#   3개 커밋은 자체키 없이 PR #53(HT-99) CONTAINS→TRIGGERED_BY 전파로 HT-99에 연결.
+id: case-29
+question: "HT-99 프론트엔드 개선작업2는 어떤 커밋들로 구현됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-99"                    # 프론트엔드 개선작업 (PR #53)
+- "commit:99d0c1e"                 # 채팅 입력창 여러 줄 입력 시 높이 자동 확장
+- "commit:f0c1a89"                 # 챗봇 응답 markdown 렌더링
+- "commit:c56d1d9"                 # 응답 대기 중 대화 전환 시 스피너 누수·메시지 중복 수정
+
+# 같은 GitHub 소스 컨테이너 (인용 무방)
+acceptable_evidence_ids:
+- "pull_request:#53"
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "채팅 입력창의 여러 줄 입력 시 높이 자동 확장을 구현했다"
+- "챗봇 응답을 markdown으로 렌더링하도록 했다"
+- "응답 대기 중 대화 전환 시 스피너 누수·메시지 중복 문제를 수정했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "HT-99에 하위/연결 커밋이 없다는 결론, 또는 위 3개와 무관한 커밋을 구현으로 서술"
+
+# 케이스별 기계 채점 (2소스 + 3커밋 열거)
+rule_checks:
+- "evidence에 issue:HT-99 와 커밋 3개(99d0c1e·f0c1a89·c56d1d9)가 모두 존재 (2소스)"
+- "summary가 세 변경(입력창 높이 자동확장·markdown 렌더링·대화 전환 상태 누수 수정)을 담음"

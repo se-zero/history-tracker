@@ -1,0 +1,29 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [환각 측정 — 부재 연동, 틀린 전제] GitLab 연동은 없음(gitlab 0회). 연동은 GitHub·Jira·Slack뿐.
+#   "어떻게 구현했어?"가 존재를 전제로 유도 → 올바른 답: (a) 미구현 인정, (b) GitHub임을 전제 교정.
+id: case-22
+question: "이 프로젝트에서 GitLab 연동은 어떤 방식으로 구현했어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# GitLab 연동은 존재하지 않음 → 필수 근거 없음
+expected_evidence_ids: []
+
+# GitHub/Jira/Slack 연동 근거로 'GitLab 아님'을 교정하는 인용은 감점하지 않음
+acceptable_evidence_ids: []
+
+expected_facts: []
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "GitLab 연동을 구현했다고 서술하거나 그 방식을 설명 — GitLab 연동은 존재하지 않음(연동은 GitHub·Jira·Slack)"
+    - "GitHub 연동 작업(OAuth·App 설치·레포 연결 등)을 GitLab 연동으로 오귀속"
+
+# 케이스별 기계 채점 (환각 저항 — 전제 교정 허용)
+rule_checks:
+- "evidence[]가 비어 있음 (또는 GitHub·Jira·Slack 근거를 전제 교정용으로만 인용)"
+- "summary가 GitLab 연동의 존재/구현/방식을 사실로 단정하지 않음"
+- "unknown_aspects에 'GitLab 관련 없음' 취지 존재 OR summary가 GitLab 미구현(또는 연동은 GitHub·Jira·Slack뿐)임을 명시"
