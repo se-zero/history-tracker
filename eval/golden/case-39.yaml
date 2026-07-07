@@ -1,0 +1,36 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [3소스(Jira+Slack+GitHub) — 배경+구현] 수집 실패 유실 방지(DLQ) = HT-100.
+#   배경은 HT-100 본문, Slack 1782984155(DLQ 작업 PR 공지) → PR #52. 단일이슈 PR.
+#   (cf. case-33은 같은 작업의 '슬랙 논의 한계'를 다룸 — 이 케이스는 배경+구현 초점)
+id: case-39
+question: "수집 실패 시 유실 방지(DLQ) 작업의 배경과 구현은?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-100"                   # Jira: 배경(consumer 실패 시 조용한 유실)이 본문에 상세
+- "message:1782984155.354279"     # Slack: "Rabbitmq DLQ 작업 pr 날렸어" (+ approve/머지완료)
+- "pull_request:#52"              # GitHub: 수집 실패 재시도·DLQ 안전망 추가
+
+# PR #52 소속 커밋 (인용 무방)
+acceptable_evidence_ids:
+- "commit:caa50b3"                 # 수집 실패 재시도·DLQ 안전망 추가
+- "commit:0d17156"                 # 재시도 기본 창 확대 3분×20회(≈1시간)
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "consumer가 처리 실패 이벤트를 재시도 없이 버려 조용한 유실이 생기던 문제가 배경이다 (발행 측은 checkpoint를 넘겨 재수집 복구 불가)"
+- "재시도 큐와 DLQ 안전망을 추가해 해결했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "유실 배경을 빼고 단순 기능 추가로만 서술하거나, 무관한 작업으로 귀속"
+
+# 케이스별 기계 채점 (3소스 + 배경/해결)
+rule_checks:
+- "evidence에 issue, message, (pull_request 또는 commit)이 모두 존재 (3소스)"
+- "summary가 실패 이벤트 유실 배경과 재시도/DLQ 해결책을 함께 담음"

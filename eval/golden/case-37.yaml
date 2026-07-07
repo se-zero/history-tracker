@@ -1,0 +1,34 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [3소스(Jira+Slack+GitHub) — 왜+구현+공유] Actor 동일인 판단 = HT-23.
+#   Slack 1776502635(작업 PR 공지) → 이슈 HT-23(왜: 동일인 판단 필요) → PR #9 → 커밋. 단일이슈 PR.
+id: case-37
+question: "Actor 동일인 판단 기능은 왜 필요했고 어떻게 구현·공유됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-23"                    # Jira: Actor 노드 생성 (왜: 플랫폼별 다른 신원)
+- "message:1776502635.925409"     # Slack: "Actor 노드 판단 작업 pr 날렸어" (+ approve/머지완료)
+- "pull_request:#9"               # GitHub: Actor identity resolution
+- "commit:6c64bca"               # GitHub: Actor 동일인 판단 파이프라인 구현
+- "commit:c55f38f"               # GitHub: 소스별 email 수집 및 ActorDto 전달
+
+acceptable_evidence_ids: []
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "같은 사람이 플랫폼마다 다른 ID·이름·이메일을 써서, 동일인을 판단해 Actor 노드를 만드는 작업이다"
+- "LLM 기반 동일인 판단 파이프라인으로 구현됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "동일인 판단의 필요성(왜)을 빼고 단순 노드 생성으로만 서술하거나, 무관한 작업으로 귀속"
+
+# 케이스별 기계 채점 (3소스 + 왜/구현)
+rule_checks:
+- "evidence에 issue, message, (pull_request 또는 commit)이 모두 존재 (3소스)"
+- "summary가 동일인 판단의 필요성(플랫폼별 다른 신원)과 LLM 파이프라인 구현을 함께 담음"

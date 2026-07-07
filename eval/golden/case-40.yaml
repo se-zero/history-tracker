@@ -1,0 +1,43 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [3소스(Jira+Slack+GitHub) — 왜+과정] 브랜치 선택 기능. '왜'가 Slack에만 있는 케이스.
+#   왜: 브랜치 옵션이 테스트용이었고, 브랜치 입력 시 main만 수집되는데 PR은 모든 브랜치를
+#   수집하던 불일치 → Slack 1781533811에서 발견·결정 → 이슈 HT-81 → 커밋 5bf6bcd.
+#   과정 근거로 초기 '테스트용' 브랜치 옵션 커밋(e6eeb98·8a2657a)까지 acceptable.
+id: case-40
+question: "프로젝트를 선택할 때 브랜치를 선택할 수 있게 하는 기능은 왜 만든거고 그 과정에 대해서 설명해줘."
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-81"                    # Jira: 브랜치 선택 기능 추가 (프론트/백엔드 요구)
+- "message:1781533811.868749"     # Slack: 브랜치 수집 불일치 발견 + 프론트/백엔드 결정 (배경=왜)
+- "commit:5bf6bcd"               # GitHub: GitHub 수집을 선택한 단일 브랜치로 스코프 (HT-81)
+- "pull_request:#37"             # GitHub: 5bf6bcd를 담은 프론트 완성 PR (HT-70)
+
+# 인용 무방 (컨테이너 이슈 + '테스트용' 브랜치 옵션 원형 커밋 = 과정)
+acceptable_evidence_ids:
+- "issue:HT-70"                    # PR #37 참조 이슈 (프론트 완성 컨테이너)
+- "commit:e6eeb98"                 # 초기 GitHub 브랜치 수집 옵션 추가 (Slack이 말한 '테스트용' 원형)
+- "commit:8a2657a"                 # GitHub branch 옵션 테스트
+
+# summary에 담겨야 할 핵심 사실 (왜 + 과정)
+expected_facts:
+- "기존 GitHub 수집의 브랜치 옵션은 테스트용으로만 있었고, 브랜치를 입력하면 main만 수집되지만 PR은 모든 브랜치를 수집하는 불일치가 있었던 것이 배경이다(왜)"
+- "결정: 프론트엔드에서 레포지토리 연결 시 브랜치 하나만 선택하게 하고, 생성된 프로젝트는 브랜치를 변경하지 못하게 한다"
+- "백엔드는 커밋·PR·이슈 API에서 DTO로 브랜치명을 받아 DB에 저장하고, GitHub 수집을 선택한 단일 브랜치로 스코프한다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # '브랜치' 키워드만 겹치는 무관한 스레드 (keyword collision)
+    - "message:1778329685.720139"  # "make-graph 브랜치 pr 날렸어" — git 작업 브랜치, 무관
+    - "message:1777615886.638969"  # "작업중인 브랜치에선 md파일..." — 노드 속성 수정, 무관
+  facts:
+    - "브랜치 선택 기능의 배경/이유가 그래프에서 확인되지 않는다는 결론 — 실제론 Slack 1781533811에 불일치 발견·결정이 있음"
+
+# 케이스별 기계 채점 (3소스 + 왜/과정)
+rule_checks:
+- "evidence에 issue, message, (pull_request 또는 commit)이 모두 존재 (3소스)"
+- "evidence의 message에 1781533811.868749 이 포함 (make-graph 등 다른 '브랜치' 스레드가 아님)"
+- "summary가 '왜'(브랜치 수집 불일치/테스트용 옵션)와 '과정'(프론트 단일 선택·변경 불가, 백엔드 DTO 저장)을 함께 담음"

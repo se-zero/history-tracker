@@ -1,0 +1,29 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [환각 측정 — 존재하지 않는 이슈] HT-170은 그래프에 없음(이슈는 HT-1~105, 문자열 등장 0회).
+#   정답 = 근거 없음/모른다고 인정. 위험: HT-17·HT-70·HT-100 등 prefix 유사 이슈로 오인·조작.
+id: case-21
+question: "HT-170에 대해서 설명해주고 관련된 슬랙 논의와 깃헙 내용을 알려줘"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 존재하지 않는 이슈 → 인용할 근거 없음 (evidence[]는 비어야 함)
+expected_evidence_ids: []
+
+acceptable_evidence_ids: []
+
+# 긍정 서술할 사실 없음
+expected_facts: []
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []   # 특정 오연결 노드 예측 불가 — 핵심은 evidence[]가 비는 것(rule_check로 검사)
+  facts:
+    - "HT-170의 내용이나 관련 슬랙·깃헙을 있는 것처럼 서술 — HT-170은 존재하지 않음(이슈는 HT-1~105)"
+    - "HT-17·HT-70·HT-100 등 다른 이슈를 HT-170으로 오인해 설명 (prefix 혼동)"
+
+# 케이스별 기계 채점 (환각 저항)
+rule_checks:
+- "evidence[]가 비어 있음 (관련 근거 없음)"
+- "unknown_aspects에 'HT-170 관련 항목을 찾지 못함' 취지 존재 OR summary가 관련 내용 없음을 명시"
+- "summary가 HT-170의 구체 내용을 사실로 단정하지 않음"

@@ -1,0 +1,36 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [3소스(Jira+Slack+GitHub) — 배경+구현] 체인: Slack "Rabbitmq 적용한 코드 pr 날렸어"(04-08)
+#   → PR #4(HT-21, 단일이슈) → 커밋. 세 소스가 한 작업으로 확실히 묶임(날짜·주제 일치).
+id: case-34
+question: "RabbitMQ를 통한 데이터 전달 구현은 어떻게 진행됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-21"                    # Jira
+- "message:1775657675.707839"     # Slack: "Rabbitmq 적용한 코드 pr 날렸어"
+- "pull_request:#4"               # GitHub
+
+# PR #4 소속 핵심 커밋 (인용 무방, 필수 아님)
+acceptable_evidence_ids:
+- "commit:7b41a21"                 # RabbitMQ 설정, Publisher 구현
+- "commit:693fdfd"                 # 인프라 설정 (RabbitMQ)
+- "commit:596d327"                 # Rate Limiter 구현
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "RabbitMQ Publisher와 설정을 구현해 수집 데이터를 전달하는 작업이다"
+- "Rate Limiter와 checkpoint 적용이 함께 이뤄졌다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "RabbitMQ가 아닌 다른 메시지 브로커(Kafka 등)로 구현했다고 서술"
+
+# 케이스별 기계 채점 (3소스)
+rule_checks:
+- "evidence에 issue, message, (pull_request 또는 commit)이 모두 존재 (3소스)"
+- "summary가 RabbitMQ 기반 데이터 전달 구현(Publisher·설정·checkpoint·rate limiter)을 담음"

@@ -1,0 +1,35 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [2소스(Jira↔Slack)] 연동 연결 시 수집 트리거 = HT-75 / PR#35.
+#   Slack 1781439419(수집 트리거 pr 날렸어) → 이슈 HT-75(각 integration 연결 시 수집 트리거).
+id: case-33
+question: "각 연동(GitHub·Jira·Slack) 연결 시 수집을 트리거하는 작업은 어떤 지라 항목이고 슬랙에서 어떻게 공유됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts)
+expected_evidence_ids:
+- "issue:HT-75"                    # 각 integration 연결 시 pipeline-worker 수집 트리거
+- "message:1781439419.344509"     # Slack: "Pipeline worker 수집 트리거 pr 날렸어"
+
+# 인용 무방 (구현 컨테이너/커밋)
+acceptable_evidence_ids:
+- "pull_request:#35"               # Feat/connect collection trigger
+- "commit:06b338c"                # pipeline worker 수집 트리거 클라이언트 추가
+- "commit:0b9d030"                # provider별 초기 수집 트리거 엔드포인트 추가
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "각 integration(GitHub·Jira·Slack) 연결 시 pipeline-worker의 수집을 트리거하는 로직을 구현한 작업이다 (HT-75)"
+- "슬랙에서 'Pipeline worker 수집 트리거 pr 날렸어'로 공유·머지됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "수집 트리거 작업을 HT-75가 아닌 다른 이슈로 귀속하거나, 무관한 슬랙 스레드로 서술"
+
+# 케이스별 기계 채점 (2소스)
+rule_checks:
+- "evidence에 issue:HT-75 와 message(슬랙)가 함께 존재 (2소스)"
+- "summary가 연동 연결 시 수집 트리거 작업과 슬랙 공유를 담음"

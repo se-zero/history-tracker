@@ -1,0 +1,33 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [단일소스(GitHub) — 커밋 내용] 커밋 메시지 + 코드 diff 요약만. 다른 소스(이슈/슬랙) 불포함.
+#   8ca1eb6은 자체 jiraKey 없음(PR #18 소속). 질문은 이 커밋의 변경사항에 한정.
+id: case-25
+question: "8ca1eb6 커밋의 변경사항에 대해서 알려줘."
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 단일 커밋 근거. commit -> hash 앞 7자.
+# (full: 8ca1eb6c26034f375ce1e85888a100274834fbf2)
+expected_evidence_ids:
+- "commit:8ca1eb6"                 # feat: GitHub PR 머지 웹훅 수집 트리거 추가
+
+# 같은 GitHub 소스라 인용 무방 (필수 아님)
+acceptable_evidence_ids:
+- "pull_request:#18"               # 이 커밋을 담은 PR
+
+# summary에 담겨야 할 핵심 사실 (커밋 메시지 + diff 요약)
+expected_facts:
+- "GitHub PR 머지 웹훅을 받아 수집을 트리거하는 기능을 추가했다"
+- "웹훅 검증(GitHubWebhookVerifier)과 WebhookDeliveryStore 저장, 관련 테스트가 포함됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "이 커밋과 무관한 다른 커밋·이슈·슬랙 내용을 이 커밋의 변경사항으로 끌어와 서술"
+
+# 케이스별 기계 채점 (단일소스 + 메시지·diff 모두)
+rule_checks:
+- "evidence에 issue·message 근거가 없음 (commit/pull_request만 — 단일 GitHub 소스)"
+- "summary가 커밋 메시지와 코드 diff 요약(무엇을 바꿨는지)을 모두 담음"
