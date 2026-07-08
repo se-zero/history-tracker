@@ -342,3 +342,88 @@ descendants 평탄화       → 사실 정답률 +11%p
 
 이 로그가 있으면 "무엇이 얼마나 효과 있었는지"를 근거를 갖고 말할 수 있고,
 효과 없는 조치를 빠르게 되돌릴 수 있다.
+
+---
+
+## 엣지 레벨 eval 실행 흐름 (실무 가이드)
+
+위 설계를 실제로 어떻게 돌리는지의 절차. 파일은 `eval/`에 있고 ai-engine venv로 실행한다.
+
+### 산출물
+
+| 파일 | 역할 |
+|------|------|
+| `eval/sample_edges.py` | 그래프의 시맨틱 엣지를 층화 샘플링 → 라벨 YAML 생성 (정답셋 만들 때 씀) |
+| `eval/edge_labels/precision-YYYY-MM-DD.yaml` | 라벨셋(정답지). 각 쌍에 양쪽 노드 원문 인라인 + `label`(relevant/irrelevant/unsure) |
+| `eval/edge_eval.py` | 라벨셋 대비 현재 그래프의 엣지 precision 계산 (반복 실행) |
+| `eval/results/edge-YYYY-MM-DD.json` | 실행 결과(precision 수치). 실행마다 날짜별로 쌓여 시계열이 됨 |
+
+precision·recall 지표의 정의와 라벨 설계 원리는 위 "엣지 레벨 eval" 섹션 참고.
+라벨 파일(`eval/edge_labels/`)은 정답지로 git에 버전 관리한다 — 특정 그래프 스냅샷 기준이므로,
+대상 스냅샷(`eval/snapshots/graph-YYYY-MM-DD.dump`)과 실행 결과(`eval/results/`)는 로컬 전용이다.
+
+### 최초 1회 — 정답셋 만들기
+
+```bash
+# 1. 시맨틱 엣지를 층화 샘플링해 라벨 파일 생성 (label 칸은 비어 있음)
+services/ai-engine/.venv/Scripts/python.exe eval/sample_edges.py \
+    --per-type 25 --out eval/edge_labels/precision-2026-07-05.yaml
+
+# 2. 파일을 열어 각 쌍의 src/dst 원문을 읽고 label 칸을 직접 채운다
+#    relevant / irrelevant / unsure (판정 = 두 노드가 실제로 의미적으로 관련 있는가)
+```
+
+- 샘플러는 seed 고정이라 같은 그래프에서 항상 같은 쌍을 뽑는다(재현 가능).
+- **주의: 라벨을 채운 파일에 같은 `--out`으로 재실행하면 label이 다시 비워진다.** 정답셋은 한 번 만들어 두고 재사용한다.
+
+### 반복 — 그래프 개선 루프
+
+빌더(임계값·시맨틱 엣지 로직·임베딩 등)를 바꿀 때마다 도는 사이클. **한 번에 하나만 바꾼다.**
+
+```
+① 빌더 하나 변경  →  ② 그래프 재구축  →  ③ edge_eval 실행  →  ④ baseline과 비교  →  ⑤ 채택/롤백
+```
+
+**② 그래프 재구축** — 변경 종류에 따라 두 갈래:
+
+- **임계값·시맨틱 엣지 빌더만 변경**(대부분): 노드·임베딩은 그대로 두고 엣지만 다시 계산.
+  ai-engine 재시작 후 `verify=true`로 시맨틱 엣지를 비우고 재구축한다.
+  ```bash
+  curl -X POST "http://localhost:8000/graph/build?project_id=<PROJECT_ID>&verify=true"
+  curl "http://localhost:8000/graph/build/status?project_id=<PROJECT_ID>"   # 완료까지 폴링
+  ```
+- **임베딩 모델·노드 생성 등 상류 변경**: 원천 이벤트 스냅샷(`eval/snapshots/events-*.jsonl`)을
+  `/test/ingest`로 재주입 후 빌드해야 한다(선행 작업 C-1 재생 스크립트). 임계값 튜닝 단계에선 불필요.
+
+**③ edge_eval 실행**:
+
+```bash
+services/ai-engine/.venv/Scripts/python.exe eval/edge_eval.py
+# → 콘솔에 전체·타입별·버킷별 precision 출력 + eval/results/edge-<오늘>.json 저장
+```
+
+**④ 비교**: 새 결과 JSON의 precision을 baseline(이전 실행 JSON)과 대조.
+버킷별 수치를 보면 "임계값을 어디로 올리면 precision이 얼마 오르나"가 그대로 보인다.
+
+**⑤ 채택/롤백**: 노이즈 플로어를 넘는 개선이면 유지, 아니면 되돌리고 다음 조치로.
+
+### edge_eval이 하는 일 (내부 동작)
+
+라벨된 각 쌍이 **현재 그래프에 엣지로 존재하는지** 질의해(노드 쌍 + 타입 기준) 다음을 집계한다.
+
+- 존재 + relevant → 정답 / 존재 + irrelevant → false positive → `precision = relevant / (relevant+irrelevant)`
+- 그래프에 없음(라벨했지만 사라진 쌍) → `vanished`로 분리 집계(분모 제외).
+- 정답지(라벨)는 고정, 매번 바뀐 그래프만 새로 질의 → 같은 자로 잰 비교가 된다.
+
+### 정답셋 유지 규율
+
+- **정답지·seed는 고정한다.** 자가 바뀌면 점수 변화가 그래프 개선인지 채점 기준 변화인지 구분 불가.
+- **새 엣지가 생기는 변경**(임계값 인하·임베딩 교체 등)일 때만 라벨을 추가한다. 임계값 상향은
+  엣지가 줄기만 하므로 라벨 추가가 필요 없다. 추가할 때도 기존 라벨은 그대로 두고 **새 쌍만** 채운다
+  (`sample_edges.py`를 다른 경로로 뽑아 새 쌍만 기존 파일에 옮긴다).
+
+### recall (미구현)
+
+`eval/edge_eval.py`의 `grade_recall()`은 스텁이다. recall 골든 쌍(`eval/edge_labels/recall-*.yaml`)이
+준비되면 이를 구현하고 `edge_eval.py --recall <파일>`로 precision과 함께 계산한다. recall 골든 쌍은
+그래프가 아니라 **사람이 원천 데이터를 보고** 만든다(위 "연결됐어야 하는 쌍" 참고).
