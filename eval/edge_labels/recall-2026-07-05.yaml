@@ -1,0 +1,239 @@
+# 엣지 레벨 eval — recall 골든 쌍 (docs/measurement-plan.md B)
+# "연결됐어야 하는 쌍"의 정답 목록. edge_eval.py --recall 이 이 파일의 쌍이
+# 현재 그래프에 실제 엣지로 존재하는 비율(recall)을 계산한다.
+#
+# 작성 규칙 (edge_eval.py의 edge_exists() 질의와 맞춰야 함):
+# - REFERENCE   : src = 커밋 해시 앞 7자,  dst = 스레드 루트 conversation_id
+# - DISCUSSED_IN: src = 이슈 jira_key,    dst = 스레드 루트 conversation_id
+# - TRIGGERED_BY: src = 커밋 해시 앞 7자,  dst = 이슈 jira_key
+#   ⚠ TRIGGERED_BY는 semantic 엣지만 인정된다 (r.source='semantic').
+#     커밋 메시지에 HT-xx가 명시된 쌍은 키 매칭으로 연결되므로 넣지 말 것 — 영원한 miss가 된다.
+# - id에 "commit:" 같은 접두사를 붙이지 않는다 (precision 라벨셋과 동일한 bare id).
+# - conversation_id는 반드시 문자열로 quote ('1781600092.933319').
+#   리플라이 ts는 적을 필요 없다 — 스레드 내 모든 메시지가 같은 conversation_id를 가져
+#   루트 ts 하나로 스레드 전체가 매치된다.
+# - note에 연결 근거(당시 정황)를 적는다 — 검수자가 그래프를 안 뒤져도 판단 가능한 수준으로.
+# - 명백한 쌍만 넣는다. 애매하면 버린다. 이 판정은 그래프와 독립적인 정답지이므로
+#   빌더가 바뀌어도 유지하고, 쌍은 추가만 한다 (precision 라벨셋과 같은 원칙).
+graph_snapshot: graph-2026-07-05.dump
+pairs:
+- edge_type: REFERENCE
+  src: {type: commit, id: f29ca87}          # feat: 프로젝트 삭제 시 Neo4j 그래프 cascade 삭제 (2026-06-17, PR #38 / HT-83)
+  dst: {type: message, id: '1781600092.933319'}
+  note: >
+    2026-06-16 정세영이 슬랙에서 "프로젝트를 지우면 backend db는 지워지지만 neo4j까지
+    지우는 코드는 없어서 노드들이 고아데이터로 남는다"는 문제를 발견·공유하고 본인이
+    작업하겠다고 선언. 다음 날 같은 작성자가 그 문제를 고치는 커밋(f29ca87)을 올리고
+    같은 스레드 리플라이("이 작업 pr 날렸어")로 알림. 이 스레드가 이 커밋의 직접적 배경.
+  author: junsu
+
+  # ※ 스냅샷 occurredAt은 UTC. 아래 시각·정황은 KST(+9) 기준.
+- edge_type: REFERENCE
+  src: {type: commit, id: 057422a}          # feat: ActorDto에 email 필드 추가 (2026-04-15 오후 2:58 KST, 정세영)
+  dst: {type: message, id: '1776180884.595899'}
+  note: >
+    Actor 노드 생성 파이프라인 설계 피드백 스레드. 흐름(전부 4/15 KST): 정세영이 새벽
+    0:34에 노션 설계를 공유(이메일을 동일인 판단 신호로 쓰는 설계 포함)하며 피드백 요청 →
+    당일 오후 2:58 그 설계대로 ActorDto에 email 필드를 추가한 이 커밋 → 저녁 7:48 서준수가
+    "슬랙에서는 이메일을 안주는 것 같은데 받을 방법이 있나?"를 묻고 8:03 정세영이 슬랙
+    email:read 스코프·지라 이메일 방법을 답함. 즉 설계→구현→리뷰가 한 스레드에 담겨 있어
+    이 스레드가 커밋의 직접 배경. 슬랙은 "이메일 받는 방법", 커밋은 "ActorDto email 필드"라
+    어휘가 달라 임베딩이 놓치기 쉬운 케이스.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: c55f38f}          # feat: 소스별 email 수집 및 ActorDto에 전달 (2026-04-15 오후 4:25 KST, 정세영)
+  dst: {type: message, id: '1776180884.595899'}
+  note: >
+    위 057422a와 같은 스레드(Actor 파이프라인 이메일 수집)의 후속 구현 커밋(4/15 오후 4:25
+    KST). ActorDto email 필드 추가(057422a)에 이어, 소스별로 실제 email을 수집해 ActorDto로
+    전달한다 — 스레드에서 오간 슬랙 email:read·지라 이메일 수집 논의를 구현한 것.
+    한 스레드가 두 커밋의 배경이 되는 사건의 커밋 측 두 번째 쌍.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: fa5686d}          # feat: Slack LLM 필터에 GitHub README 기반 프로젝트 컨텍스트 주입 (2026-04-29 오전 11:32 KST)
+  dst: {type: message, id: '1777430711.997189'}
+  note: >
+    Slack LLM 필터에 프로젝트 컨텍스트(README 요약)를 주입해 프롬프트에 프로젝트 설명을
+    동적 삽입한 커밋(4/29 오전 11:32 KST). 13분 뒤 서준수가 같은 작업을 "프롬프트에 프로젝트
+    설명 추가한거 pr 날렸어"로 알린 스레드(오전 11:45)와 정세영의 "Approve 했어"(오후 12:47).
+    커밋 메시지와 슬랙이 "프롬프트에 프로젝트 설명"으로 어휘가 거의 같아 임베딩이 쉽게 잡을
+    쌍 — 회귀 감지 기반용. (커밋 author JunsuSeo = Slack 서준수, 동일인.)
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: bff2648}          # fix: GitHub integration 개별 삭제 API 제거 (2026-05-19 오후 3:07 KST, 정세영)
+  dst: {type: message, id: '1779170187.956139'}
+  note: >
+    "프로젝트 하나당 GitHub 레포 하나만 연결" 설계 결정 스레드(5/19 KST). 정세영이 오후
+    2:56에 "프로젝트 하나당 깃허브 레포 하나만 연결가능하게 하는거 어떻게 생각해?"를 제안,
+    서준수가 오후 3:02 "일단 하나로 하자"로 확정. 5분 뒤 오후 3:07에 이 커밋이 그 결정을
+    반영 — GitHub integration 개별 삭제 API를 제거하고 커밋 메시지에 사유를 "프로젝트 하나당
+    레포 하나이기 때문에 필요 없음"으로 명시했다. 슬랙 결정 → 직후 커밋의 인과가 분명한 쌍.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: 50d434c}          # chore(env): infra/docker/.env 한 파일로 통합 (2026-05-31 오후 6:21 KST, 서준수)
+  dst: {type: message, id: '1780206867.542399'}
+  note: >
+    프론트엔드 PR 리뷰 스레드(5/31 KST)에서 파생된 env 설정 통합 작업. 서준수가 오후 4:02
+    "env도 한군데로 모으는게 낫겠지?"를 제안하고 오후 4:06 "env도 작업해서 커밋 올리면
+    알려줄게"로 약속 → 오후 6:21 "커밋 올렸어". 이 커밋(50d434c, 오후 6:21 KST)이 정확히
+    그것 — ai-engine/.env·backend/setenv.sh 의존을 없애고 infra/docker/.env 한 파일로 통합.
+    "커밋 올렸어" 시각과 커밋 시각이 일치. 슬랙 "env 한군데로" ↔ 커밋 ".env 한 파일로 통합"
+    으로 어휘도 맞아 임베딩이 쉽게 잡을 쌍.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: dd44be2}          # feat: 프로젝트 그래프 조회 API 추가 (HT-66) (2026-06-12 오후 6:52 KST, 서준수)
+  dst: {type: message, id: '1781158602.670189'}
+  note: >
+    "작업 선언 → 다음 날 구현" 쌍. 서준수가 6/11 오후 3:16 "내가 그래프 조회하는 api
+    만들어볼게"로 선언 → 다음 날 그 API를 두 커밋으로 구현했고, 이 커밋(dd44be2)이 그중
+    ai-engine 측 — GET /graph/overview 엔드포인트를 추가한다(project_id 스코프 GraphData 반환).
+    슬랙 "그래프 조회하는 api" ↔ 커밋 "그래프 조회 API 추가"로 어휘 일치.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: f4a27e4}          # feat: 프로젝트 그래프 조회 API + 인가 게이트 추가 (HT-67) (2026-06-12 오후 8:06 KST, 서준수)
+  dst: {type: message, id: '1781158602.670189'}
+  note: >
+    위 dd44be2와 같은 선언("내가 그래프 조회하는 api 만들어볼게", 6/11)의 backend 측 구현.
+    backend GET /api/v1/projects/{projectId}/graph를 추가 — 소유권 인가 게이트 후 ai-engine
+    /graph/overview를 프록시한다. 한 선언이 ai-engine/backend 두 커밋으로 갈린 사건의 두 번째 쌍.
+  author: junsu
+
+# 멀티턴 대화 memory 결정 스레드(1781224211.716939) → 세 커밋. perf 최적화(139e917)·
+# 테스트(d0d9093)는 논의와 의미가 멀어 제외 — 핵심 구현 3개만.
+- edge_type: REFERENCE
+  src: {type: commit, id: 5715fca}          # feat: AI 구조화 응답을 메시지 메타데이터에 저장 (2026-06-13 오전 11:53 KST, 정세영)
+  dst: {type: message, id: '1781224211.716939'}
+  note: >
+    "한 대화 세션 안에서 이전 대화 맥락 기억" 결정 스레드(6/12 KST). 정세영이 "AI가 이전
+    대화기록 참고 안 하고 답하는데 LLM처럼 기억하게 바꾸자"를 제안, mem0(장기기억) 대신
+    "우선 한 세션 안에서 이전 맥락 알 수 있게 작업해볼게"로 확정. 다음 날 세 커밋으로 구현했고,
+    이 커밋(5715fca)은 그 토대 — AI 구조화 응답을 메시지 메타데이터에 저장해 이후 되불러올 수
+    있게 한다. 슬랙은 "이전 대화 기억", 커밋은 "응답 메타데이터 저장"이라 어휘가 달라 임베딩이
+    놓치기 쉬운 쪽.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: 7ee48b6}          # feat: 후속 질문 해석을 위한 이전 근거 정보 전달 (2026-06-13 오후 12:28 KST, 정세영)
+  dst: {type: message, id: '1781224211.716939'}
+  note: >
+    위 스레드(세션 내 대화 맥락 기억)의 핵심 구현. 스레드에서 정세영이 "과거 대화 맥락을
+    포함시켜서 같이 넘기는 방법"을 언급했는데, 이 커밋이 바로 그것 — 후속 질문 해석 시
+    이전 근거 정보를 함께 전달한다. 한 스레드 → 세 커밋 사건의 두 번째 쌍.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: 8cdb0cc}          # feat: 긴 대화를 위한 누적 요약 저장 및 전달 (2026-06-13 오후 1:39 KST, 정세영)
+  dst: {type: message, id: '1781224211.716939'}
+  note: >
+    위 스레드의 세 번째 구현 커밋. 긴 대화에서 세션 내 맥락을 유지하는 누적 요약을 저장·전달 —
+    스레드가 논의한 "세션 안 대화 맥락 기억"의 장대화 대응 기법. 슬랙 "이전 대화 맥락" ↔
+    커밋 "누적 요약"으로 어휘가 달라 임베딩이 놓치기 쉬운 쪽. 한 스레드 → 세 커밋 사건의 세 번째 쌍.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: 0a2a367}          # docs: CLAUDE.md 최신화 (2026-06-20 오후 7:28 KST, 정세영)
+  dst: {type: message, id: '1781925043.152779'}
+  note: >
+    문서 최신화 작업 선언 스레드(6/20 KST). 정세영이 "CLAUDE.md랑 docs 문서들 최신화
+    시켜도 될까?"(오후 12:10)를 제안, 서준수 동의 → "이 작업 할게"(오후 6:25) → 오후 7:28
+    이 커밋(CLAUDE.md 최신화) 포함 두 커밋 → 오후 7:30 "최신화한거 pr 날렸어". 커밋 시각이
+    "pr 날렸어" 직전. 슬랙 "CLAUDE.md 최신화" ↔ 커밋 "CLAUDE.md 최신화"로 어휘 일치.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: cbea6c1}          # docs: 문서 최신화 (2026-06-20 오후 7:28 KST, 정세영)
+  dst: {type: message, id: '1781925043.152779'}
+  note: >
+    위 0a2a367와 같은 선언(문서 최신화, 6/20)의 두 번째 커밋 — docs 문서 전반 최신화.
+    스레드의 "docs 문서들 최신화"에 직접 대응. 한 선언이 CLAUDE.md·docs 두 커밋으로 갈린
+    사건의 두 번째 쌍.
+  author: junsu
+
+- edge_type: REFERENCE
+  src: {type: commit, id: 9e7a753}          # feat: LLM 기반 diff 요약 파이프라인 구현 (2026-04-09 오후 8:14 KST, 서준수)
+  dst: {type: message, id: '1775734002.878479'}
+  note: >
+    LLM diff 요약 작업 PR 알림 스레드(4/9 KST). 서준수가 오후 8:26 "llm 요약하는거 pr 날렸어" —
+    12분 전 오후 8:14 이 커밋(9e7a753, LLM 기반 diff 요약 파이프라인 구현). 슬랙 "llm 요약" ↔
+    커밋 "LLM diff 요약 파이프라인"으로 어휘가 맞는 쉬운 쌍.
+  author: junsu
+
+# ── DISCUSSED_IN (이슈 ↔ Slack) ──────────────────────────────────────────────
+# 선정 기준: 스레드의 *핵심 주제*가 이슈의 *작업 내용*과 일치할 것. 이슈 키가 본문에
+# 있어도 예시 인용·PR 알림이면 제외한다(그건 논의가 아니라 부수 참조 — 과연결의 원천).
+- edge_type: DISCUSSED_IN
+  src: {type: issue, id: HT-69}             # 질의-응답 방식 멀티턴으로 변경
+  dst: {type: message, id: '1781224211.716939'}
+  note: >
+    멀티턴 대화 memory 결정 스레드(6/12 KST)가 HT-69의 작업을 그대로 논의. 스레드 첫마디
+    "AI가 이전 대화기록 참고 안 하고 답하는데 LLM처럼 기억하게 바꾸는 거 어때?"가 HT-69 배경
+    ("기존 채팅은 단일 질의-응답이라 이전 대화 맥락을 기억하지 못한다")과 일치하고, 스레드의
+    결정("한 세션 안에서 이전 맥락 알 수 있게")이 HT-69 제목("멀티턴으로 변경")과 맞는다.
+    키 언급이 아니라 핵심 주제 일치. (세부 구현 HT-72/73/74는 다음 날 커밋들 담당 — 스레드는
+    우산 결정이라 우산 이슈 HT-69에 귀속.)
+  author: junsu
+
+- edge_type: DISCUSSED_IN
+  src: {type: issue, id: HT-23}             # Actor 노드 생성 (동일인 판단)
+  dst: {type: message, id: '1776180884.595899'}
+  note: >
+    Actor 파이프라인 설계 스레드(4/15 KST, 이메일 REFERENCE 쌍의 그 스레드)가 HT-23을 논의.
+    스레드 루트 "노션에 actor node 생성 파이프라인 적어놨는데 피드백 부탁"이 HT-23("Actor 노드
+    생성 — 같은 사람이 플랫폼마다 다른 ID·이름·이메일을 써서 동일인 판단")의 작업과 일치.
+    스레드의 이메일 수집 하위 논의도 HT-23의 동일인 판단 신호에 관한 것. 핵심 주제 일치.
+  author: junsu
+
+- edge_type: DISCUSSED_IN
+  src: {type: issue, id: HT-83}             # 프로젝트 삭제 시 Neo4j 그래프 cascade 삭제
+  dst: {type: message, id: '1781600092.933319'}
+  note: >
+    cascade 삭제 스레드(6/16 KST, f29ca87 REFERENCE 쌍의 그 스레드)가 HT-83을 거의 축자
+    수준으로 논의. 스레드 "프로젝트를 지우면 backend db는 지워지지만 neo4j까지 지우는 코드가
+    없어서 노드들이 고아데이터로 남는다"가 HT-83 배경 "프로젝트를 삭제해도 Neo4j 그래프
+    데이터가 정리되지 않아 고아 노드가 누적됨"과 사실상 동일. 문제 발견 → 작업 선언까지 담긴
+    강한 DISCUSSED_IN.
+  author: junsu
+
+- edge_type: DISCUSSED_IN
+  src: {type: issue, id: HT-53}             # github 레포 연결 구현 (github app을 통한 repo 연결)
+  dst: {type: message, id: '1779170187.956139'}
+  note: >
+    "프로젝트 하나당 레포 하나" 설계 결정 스레드(5/19 KST, bff2648 REFERENCE 쌍의 그 스레드)가
+    HT-53의 repo 연결 설계를 논의. 정세영 "프로젝트 하나당 깃허브 레포 하나만 연결가능하게 하는
+    거 어때?" → 서준수 "일단 하나로 하자"로 repo 연결 모델을 확정 — HT-53("github 레포 연결
+    구현")의 작업. (경쟁 후보 HT-79는 "레포 선택 UI"라 UI 사안이고 이 스레드는 모델 결정이라
+    HT-53이 맞음. 단 HT-83만큼 축자적이진 않은 설계-논의 매치.)
+  author: junsu
+
+- edge_type: DISCUSSED_IN
+  src: {type: issue, id: HT-93}             # 프론트엔드 개선 작업 (그래프 탐색 UX 등)
+  dst: {type: message, id: '1782102320.056619'}
+  note: >
+    프론트 개선 논의 스레드(6/22 KST)가 HT-93을 거의 축자로 담음. 서준수 "프론트쪽에 필요한
+    기능이나 오류, ui/ux 개선할 거 있어?"에 정세영이 "그래프 탐색 페이지에서 마우스 휠 확대/축소
+    시 마우스 커서 위치 기준 확대/축소, 그래프 탐색 탭 필터 중 code 명칭 애매" 등을 나열했고,
+    HT-93 본문("마우스 휠 확대/축소 시 커서 위치 기준 확대 축소, 필터 code 명칭 변경")이 그 목록과
+    사실상 동일. 스레드가 곧 HT-93이 만들어진 자리. (경쟁 후보 HT-99는 Shift Enter·마크다운 등
+    다른 프론트 항목이라 이 스레드와 무관 — HT-93이 명확.)
+  author: junsu
+
+# ── TRIGGERED_BY (커밋 → 이슈, semantic만) ───────────────────────────────────
+# ⚠ 채점기는 r.source='semantic'만 인정한다. 커밋 메시지 OR 그 커밋의 PR 제목에 이슈 키가
+# 있으면 text TRIGGERED_BY가 붙고, 그 커밋은 시맨틱 매칭에서 제외된다(issue_linker.py) →
+# 채점기엔 영원한 miss. 따라서 커밋·PR 어디에도 키가 없는 쌍만 넣는다.
+- edge_type: TRIGGERED_BY
+  src: {type: commit, id: 60d2d92}          # feat: 기본적인 도커 설정 작성 및 gitignore 생성 (PR #1, 키 없음)
+  dst: {type: issue, id: HT-6}              # 인프라 (docker 인프라 세팅 - PR#1)
+  note: >
+    도커 인프라 구축 커밋(60d2d92)이 HT-6("인프라 — docker 인프라 세팅")을 구현. 커밋 메시지에도
+    PR #1 제목("Feature/infra")에도 HT 키가 없어 text TRIGGERED_BY가 안 붙고 시맨틱 매칭 대상이
+    된다(채점기가 인정하는 유일 경로). HT-6 본문이 "PR#1"을 직접 가리켜 귀속도 확실. 내용도
+    "도커 설정" ↔ "docker 인프라 세팅"으로 일치. ※경미한 리스크: 인프라 파일이 path_filter로
+    걸러져 MODIFIED 임베딩이 없으면 시맨틱 매칭이 기계적으로 불가 — 채점 시 확인 필요.
+  author: junsu
