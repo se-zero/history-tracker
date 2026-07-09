@@ -8,8 +8,8 @@
 - precision (구현 완료): precision-*.yaml의 라벨된 쌍이 현재 그래프에 엣지로 존재하는지 질의해,
   존재하는 것들 중 relevant 비율을 낸다(전체·타입별·버킷별). unsure는 분모 제외.
   라벨했지만 현재 그래프에 없는 쌍(vanished)은 별도 집계한다.
-- recall (미구현 — 팀원 이어서 작성): recall-*.yaml의 "연결됐어야 하는 쌍"이 그래프에 존재하는 비율.
-  grade_recall() 스텁 참고. 공유 헬퍼 edge_exists()를 그대로 쓰면 된다.
+- recall (구현 완료): recall-*.yaml의 "연결됐어야 하는 쌍"이 현재 그래프에 엣지로 존재하는
+  비율(전체·타입별). miss(존재해야 하는데 없음)가 그래프 개선의 타깃 신호다. edge_exists() 공용.
 
 실행 (ai-engine venv 사용):
     services/ai-engine/.venv/Scripts/python.exe eval/edge_eval.py
@@ -122,25 +122,54 @@ def grade_precision(session, pid, edges):
     }
 
 
-# ─── recall (미구현 — 팀원 이어서 작성) ─────────────────────────────────────────
+# ─── recall (구현 완료) ────────────────────────────────────────────────────────
 
 
 def grade_recall(session, pid, pairs):
-    """recall: "연결됐어야 하는 쌍" 중 그래프에 실제 엣지가 존재하는 비율.
+    """recall: "연결됐어야 하는 쌍"(recall-*.yaml) 중 현재 그래프에 실제 엣지가 존재하는 비율.
 
-    TODO(팀원): recall-*.yaml 스키마 확정 후 아래를 구현한다. 각 쌍은 아래 형태를 가정한다:
-        {edge_type: REFERENCE|DISCUSSED_IN|TRIGGERED_BY,
-         src: {type, id}, dst: {type, id}, note: "..."}
-    구현 뼈대:
-        hits, misses = [], []
-        for p in pairs:
-            conf = edge_exists(session, pid, p["edge_type"], p["src"]["id"], p["dst"]["id"])
-            (hits if conf is not None else misses).append(...)
-        recall = len(hits) / len(pairs)
-    반환은 grade_precision과 같은 결(overall/by_type + hits/misses 목록)로 맞춘다.
-    엣지 존재 질의는 위 edge_exists()를 그대로 재사용하면 된다.
+    각 쌍은 {edge_type, src:{type,id}, dst:{type,id}, note}. edge_exists()로 존재를 질의해
+    hit/miss로 나눈다(전체·타입별). precision과 달리 miss는 분모에서 빼지 않는다 —
+    "연결됐어야 하는데 그래프에 없음"이 곧 recall이 재려는 신호다. edge_type 미지원이나
+    src/dst id 누락 쌍만 무효로 분리한다(분모 제외).
     """
-    raise NotImplementedError("recall 미구현 — recall 골든 쌍 스키마 확정 후 팀원이 작성")
+    def new_bins():
+        return {"hits": [], "misses": []}
+
+    overall = new_bins()
+    by_type = {}
+    invalid = []
+
+    for p in pairs:
+        edge_type = p.get("edge_type")
+        src = (p.get("src") or {}).get("id")
+        dst = (p.get("dst") or {}).get("id")
+        tag = f"{edge_type} {src}->{dst}"
+        if edge_type not in EXISTS_Q or not src or not dst:
+            invalid.append(tag)
+            continue
+        conf = edge_exists(session, pid, edge_type, src, dst)
+        if conf is None:
+            record, key = tag, "misses"
+        else:
+            record, key = f"{tag} (conf={conf:.3f})", "hits"
+        overall[key].append(record)
+        by_type.setdefault(edge_type, new_bins())[key].append(record)
+
+    def summarize(bins):
+        h, m = len(bins["hits"]), len(bins["misses"])
+        total = h + m
+        return {"recall": round(h / total, 4) if total else None,
+                "hits": h, "misses": m, "total": total}
+
+    return {
+        "overall": summarize(overall),
+        "by_type": {t: summarize(b) for t, b in sorted(by_type.items())},
+        "miss_list": overall["misses"],   # 연결됐어야 하는데 없는 쌍 = 그래프 개선 타깃
+        "hit_list": overall["hits"],
+        "invalid": invalid,               # edge_type 미지원 또는 src/dst id 누락
+        "pairs_total": len(pairs),
+    }
 
 
 # ─── main ─────────────────────────────────────────────────────────────────────
@@ -167,11 +196,27 @@ def _print_precision(prec):
         print(f"⚠ 허용값 아닌 라벨 {len(prec['invalid_labels'])}개: {prec['invalid_labels'][:5]}")
 
 
+def _print_recall(rec):
+    o = rec["overall"]
+    print(f"\n=== RECALL (그래프에 존재 / 연결됐어야 하는 쌍) ===")
+    print(f"전체: {o['recall']}  (hit {o['hits']} / miss {o['misses']} / total {o['total']})")
+    print("타입별:")
+    for t, c in rec["by_type"].items():
+        print(f"  {t:13} {c['recall']}  (hit {c['hits']} / miss {c['misses']})")
+    if rec["miss_list"]:
+        print(f"미스(연결됐어야 하는데 없음) {len(rec['miss_list'])}개:")
+        for m in rec["miss_list"]:
+            print(f"  - {m}")
+    if rec["invalid"]:
+        print(f"⚠ 무효 쌍(edge_type 미지원/id 누락) {len(rec['invalid'])}개: {rec['invalid']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--precision", default=os.path.join(EVAL_DIR, "edge_labels", "precision-2026-07-05.yaml"),
                         help="precision 라벨 파일")
-    parser.add_argument("--recall", help="recall 골든 쌍 파일 (있으면 recall도 계산 — 현재 미구현)")
+    parser.add_argument("--recall", default=os.path.join(EVAL_DIR, "edge_labels", "recall-2026-07-05.yaml"),
+                        help="recall 골든 쌍 파일 (연결됐어야 하는 쌍). 파일 없으면 recall 스킵")
     parser.add_argument("--project-id", help="생략 시 자동 감지")
     parser.add_argument("--out", help="결과 JSON 경로 (생략 시 eval/results/edge-<오늘>.json)")
     args = parser.parse_args()
@@ -186,13 +231,16 @@ def main():
         precision = grade_precision(session, pid, prec_doc.get("edges") or [])
 
         recall = None
-        if args.recall:
-            try:
-                recall = grade_recall(session, pid, (_load(args.recall) or {}).get("pairs") or [])
-            except NotImplementedError as ex:
-                print(f"recall: {ex}")
+        if args.recall and os.path.exists(args.recall):
+            recall_doc = _load(args.recall) or {}
+            if recall_doc.get("graph_snapshot") and prec_doc.get("graph_snapshot") \
+                    and recall_doc["graph_snapshot"] != prec_doc["graph_snapshot"]:
+                print("⚠ recall/precision 파일의 graph_snapshot 불일치 — 같은 스냅샷인지 확인")
+            recall = grade_recall(session, pid, recall_doc.get("pairs") or [])
 
     _print_precision(precision)
+    if recall is not None:
+        _print_recall(recall)
 
     result = {
         "meta": {
@@ -203,7 +251,7 @@ def main():
             "run_at": datetime.datetime.now().isoformat(timespec="seconds"),
         },
         "precision": precision,
-        "recall": recall,   # 미구현이면 null
+        "recall": recall,   # recall 파일 없으면 null
     }
     out = args.out or os.path.join(EVAL_DIR, "results", f"edge-{datetime.date.today()}.json")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
