@@ -36,6 +36,5 @@ normalized_*.json
 
 # ── 측정용 그래프 스냅샷 / 로컬 백업 (파일은 직접 전달로 공유) ────
 eval/snapshots/
-eval/results/
 .neo4j-backup/
 infra/docker/graph-swap.sh
