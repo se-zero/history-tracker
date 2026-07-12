@@ -28,4 +28,6 @@
 
 | 날짜 | 조치 | 결과 | 델타 | 채택 |
 |---|---|---|---|---|
-| | | | | |
+| 2026-07-12 | 엣지 baseline 재측정 — Phase 0 정비(REF confidence max 집계·DI source 표식·clear 도구) 후 표준 체인 재구축, 현행 파라미터 0.55/0.40/0.30 | `results/edge-2026-07-12.json` | precision 0.383(쌍 집합 불변이라 이전과 동일)·recall 0.85 첫 기록, vanished 0 | — (기준점) |
+
+
