@@ -19,6 +19,9 @@ async def propagate_thread_discussed_in(project_id: str | None = None) -> int:
 
     conversation_id(Slack ts 등)는 프로젝트 간 충돌 가능 — 같은 project_id 안에서만 전파한다.
     project_id를 주면 그 프로젝트 스레드만 전파한다(per-project 빌드).
+
+    복사본에는 source='propagated' 표식을 남긴다 — 표식이 없으면 clear가 시맨틱 원본만 지우고
+    복사본은 스레드에 그대로 남아, 다음 빌드의 전파가 지워진 원본까지 되살린다(오탐이 불사신이 됨).
     """
     query = """
         MATCH (i:Issue)-[:DISCUSSED_IN]->(seed:Communication)
@@ -27,7 +30,8 @@ async def propagate_thread_discussed_in(project_id: str | None = None) -> int:
         WITH i, seed
         MATCH (other:Communication {project_id: seed.project_id, conversation_id: seed.conversation_id})
         WHERE NOT (i)-[:DISCUSSED_IN]->(other)
-        MERGE (i)-[:DISCUSSED_IN]->(other)
+        MERGE (i)-[r:DISCUSSED_IN]->(other)
+        SET r.source = 'propagated'
         RETURN count(*) AS created
     """.replace("__PROJECT_FILTER__", "AND seed.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
@@ -93,6 +97,85 @@ async def backfill_triggered_by_source() -> dict:
         "text_backfilled": text_backfilled,
         "semantic_backfilled": semantic_backfilled,
         "promoted_to_text": promoted,
+    }
+
+
+async def backfill_discussed_in_source() -> dict:
+    """기존 DISCUSSED_IN 엣지에 source 표식을 채우는 일회성 마이그레이션.
+
+    DISCUSSED_IN은 세 경로로 생긴다 — 텍스트 참조(link_issue_to_communication),
+    시맨틱 매칭(issue_linker/issue_verifier), 스레드 전파(propagate_thread_discussed_in).
+    표식이 도입되기 전 엣지는 셋을 구분할 수 없어 clear가 시맨틱만 골라 지울 수 없다.
+
+    분류 기준 (backfill_triggered_by_source 선례와 동일한 순서):
+      - confidence IS NULL + 메시지 본문에 jira_key 포함 → source='text'   (명시적 참조)
+      - confidence IS NULL + 그 외                        → source='propagated' (스레드 복사본)
+      - confidence IS NOT NULL                            → source='semantic'
+      - 위가 끝난 뒤, 본문에 jira_key가 들어있는 시맨틱 엣지는 실제로는 텍스트 참조인데
+        가드 없던 시맨틱 빌더가 confidence를 덮어쓴 것이므로 'text'로 승격하고 confidence를 제거한다
+        (남겨두면 clear가 시맨틱으로 오인해 삭제한다).
+
+    모든 절은 idempotent. 재실행해도 안전.
+    반환: 단계별 갱신 카운트.
+    """
+    async with get_driver().session() as session:
+        # 1) confidence 없음 + 본문이 jira_key를 직접 언급 → 텍스트 참조
+        result = await session.run(
+            """
+            MATCH (i:Issue)-[r:DISCUSSED_IN]->(comm:Communication)
+            WHERE r.source IS NULL AND r.confidence IS NULL
+              AND comm.body IS NOT NULL AND comm.body CONTAINS i.jira_key
+            SET r.source = 'text'
+            RETURN count(r) AS n
+            """
+        )
+        text_backfilled = (await result.single())["n"]
+
+        # 2) confidence 없음 + 언급도 없음 → 스레드 전파 복사본
+        result = await session.run(
+            """
+            MATCH ()-[r:DISCUSSED_IN]->()
+            WHERE r.source IS NULL AND r.confidence IS NULL
+            SET r.source = 'propagated'
+            RETURN count(r) AS n
+            """
+        )
+        propagated_backfilled = (await result.single())["n"]
+
+        # 3) confidence 있음 → 시맨틱 산물
+        result = await session.run(
+            """
+            MATCH ()-[r:DISCUSSED_IN]->()
+            WHERE r.source IS NULL AND r.confidence IS NOT NULL
+            SET r.source = 'semantic'
+            RETURN count(r) AS n
+            """
+        )
+        semantic_backfilled = (await result.single())["n"]
+
+        # 4) 본문에 jira_key가 있는 시맨틱 엣지를 텍스트로 승격 (confidence 오염 복구)
+        result = await session.run(
+            """
+            MATCH (i:Issue)-[r:DISCUSSED_IN]->(comm:Communication)
+            WHERE r.source = 'semantic'
+              AND comm.body IS NOT NULL
+              AND comm.body CONTAINS i.jira_key
+            SET r.source = 'text'
+            REMOVE r.confidence
+            RETURN count(r) AS n
+            """
+        )
+        promoted = (await result.single())["n"]
+
+    logger.info(
+        "DISCUSSED_IN source 백필 완료: text=%d, propagated=%d, semantic=%d, promoted=%d",
+        text_backfilled, propagated_backfilled, semantic_backfilled, promoted,
+    )
+    return {
+        "text_backfilled":       text_backfilled,
+        "propagated_backfilled": propagated_backfilled,
+        "semantic_backfilled":   semantic_backfilled,
+        "promoted_to_text":      promoted,
     }
 
 
@@ -230,11 +313,18 @@ async def clear_semantic_triggered_by(project_id: str | None = None) -> int:
 
 
 async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
-    """시맨틱 DISCUSSED_IN(방안 A/D 산물)을 일괄 삭제한다.
+    """시맨틱 DISCUSSED_IN(방안 A/D 산물)과 그 스레드 전파 복사본을 일괄 삭제한다.
 
-    시맨틱 엣지만 r.confidence가 설정되므로 이를 기준으로 구분한다.
-    refs 텍스트(link_issue_to_communication)·스레드 전파 엣지는 confidence가 없어 보존된다.
-    방안 D(LLM 검증) 재구축 전에 A의 결과를 비워 false positive가 섞이지 않게 하는 용도.
+    전파 복사본(source='propagated')도 함께 지운다 — 시맨틱 원본만 지우면 복사본이 스레드에
+    남고, 다음 빌드의 재전파가 지워진 원본까지 복원해 오탐이 사라지지 않는다. 재구축 시퀀스
+    마지막에 propagate_thread_discussed_in이 다시 돌아 정상 전파는 복구되므로 손실이 없다.
+
+    source='text'(메시지가 jira_key를 직접 언급)는 어떤 경우에도 보존한다 — 수집 시점에만
+    생기는 엣지라 지우면 복구되지 않는다. confidence 조건은 표식 도입 이전(백필 미실행)
+    그래프에서도 시맨틱을 잡기 위한 fallback이다.
+
+    용도: 정책(threshold/window/top-k) 변경 후 시맨틱 결과를 깨끗하게 재구축하고 싶을 때,
+    그리고 방안 D(LLM 검증) 재구축 전에 A의 false positive를 비울 때.
     project_id를 주면 그 프로젝트 엣지만 삭제한다(per-project 정밀 재구축).
 
     Returns:
@@ -243,7 +333,8 @@ async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
     # DISCUSSED_IN은 항상 Issue→Communication이라 i:Issue 바인딩은 () 와 동치이며, project_id 스코프를 건다.
     query = """
         MATCH (i:Issue)-[r:DISCUSSED_IN]->()
-        WHERE r.confidence IS NOT NULL
+        WHERE (r.source IN ['semantic', 'propagated'] OR r.confidence IS NOT NULL)
+          AND coalesce(r.source, '') <> 'text'
         __PROJECT_FILTER__
         DELETE r
     """.replace("__PROJECT_FILTER__", "AND i.project_id = $project_id" if project_id else "")
@@ -252,6 +343,30 @@ async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
         summary = await result.consume()
         deleted = summary.counters.relationships_deleted
     logger.info("시맨틱 DISCUSSED_IN 엣지 삭제 완료: %d개", deleted)
+    return deleted
+
+
+async def clear_reference(project_id: str | None = None) -> int:
+    """REFERENCE 엣지를 일괄 삭제한다.
+
+    REFERENCE는 텍스트 참조 경로가 없어 전부 시맨틱(임베딩 유사도) 산물이므로 조건 없이 지운다.
+    임계값·top-k 정책을 바꾼 뒤 깨끗한 그래프에서 build_reference_edges를 다시 돌리기 위한 지우개.
+    project_id를 주면 그 프로젝트 엣지만 삭제한다(per-project 재구축).
+
+    Returns:
+        삭제된 엣지 수.
+    """
+    # REFERENCE는 항상 ChangeSet→Communication이라 c:ChangeSet 바인딩으로 project_id 스코프를 건다.
+    query = """
+        MATCH (c:ChangeSet)-[r:REFERENCE]->()
+        __PROJECT_FILTER__
+        DELETE r
+    """.replace("__PROJECT_FILTER__", "WHERE c.project_id = $project_id" if project_id else "")
+    async with get_driver().session() as session:
+        result = await session.run(query, project_id=project_id)
+        summary = await result.consume()
+        deleted = summary.counters.relationships_deleted
+    logger.info("REFERENCE 엣지 삭제 완료: %d개", deleted)
     return deleted
 
 

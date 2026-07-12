@@ -376,14 +376,25 @@ async def link_pr_changesets_to_issues(project_id: str, pr_number: int) -> int:
 
 
 async def link_issue_to_communication(project_id: str, jira_key: str, comm_url: str) -> None:
-    """DISCUSSED_IN: Communication refs.jiraKey 존재 시"""
+    """DISCUSSED_IN: Communication refs.jiraKey 존재 시.
+
+    명시적 텍스트 참조이므로 source='text'로 고정한다 — 시맨틱 재구축(clear)이 이 엣지를
+    지우지 않게 하는 표식이다. confidence는 부여하지 않는다: DISCUSSED_IN에서 confidence는
+    시맨틱 엣지의 유사도 점수를 뜻하며, 채점(eval)이 그 유무로 시맨틱을 판별한다.
+
+    같은 쌍에 시맨틱 엣지가 먼저 있었다면 텍스트가 우선이므로 덮어쓰되, 남아 있던 유사도
+    점수는 REMOVE로 지운다 — 안 지우면 'text' 표식 때문에 clear·백필이 둘 다 건너뛰어
+    잔존 confidence가 영구히 남고, 채점이 이 엣지를 시맨틱으로 오인한다.
+    """
     async with get_driver().session() as session:
         await session.run(
             """
             MERGE (i:Issue {project_id: $project_id, jira_key: $jira_key})
             WITH i
             MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
-            MERGE (i)-[:DISCUSSED_IN]->(comm)
+            MERGE (i)-[r:DISCUSSED_IN]->(comm)
+            SET r.source = 'text'
+            REMOVE r.confidence
             """,
             project_id=project_id,
             jira_key=jira_key,

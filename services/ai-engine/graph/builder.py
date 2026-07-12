@@ -26,8 +26,10 @@ from graph.driver import close_driver, get_driver
 from graph.issue_link_store import make_neo4j_issue_link_store
 from graph.maintenance import (
     backfill_actor_aliases,
+    backfill_discussed_in_source,
     backfill_pr_jira_keys,
     backfill_triggered_by_source,
+    clear_reference,
     clear_semantic_discussed_in,
     clear_semantic_triggered_by,
     delete_project_graph,
@@ -76,10 +78,12 @@ __all__ = [
     # maintenance / migrations
     "propagate_thread_discussed_in",
     "backfill_triggered_by_source",
+    "backfill_discussed_in_source",
     "backfill_pr_jira_keys",
     "backfill_actor_aliases",
     "clear_semantic_triggered_by",
     "clear_semantic_discussed_in",
+    "clear_reference",
     "delete_project_graph",
     # store factories
     "make_neo4j_reference_store",

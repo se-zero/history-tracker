@@ -308,11 +308,32 @@ pairs:
 2. **그래프를 재구축한다.** 변경 종류에 따라 두 갈래다.
 
    **(a) 임계값·시맨틱 엣지 빌더만 바꾼 경우** (대부분) — 노드·임베딩은 그대로 두고 엣지만 재계산.
-   ai-engine 재기동 후 `verify=true`로 시맨틱 엣지를 비우고 다시 빌드한다.
+   ai-engine 재기동 후, 아래 **표준 체인**을 순서대로 호출한다. 지우개(clear) 3개로 이전 빌드의
+   시맨틱 엣지를 비우고, 임계값을 파라미터로 주입해 다시 긋는다 — 코드 수정·재배포 없이 스윕할 수 있다.
    ```bash
-   curl -X POST "http://localhost:8000/graph/build?project_id=<PROJECT_ID>&verify=true"
-   curl "http://localhost:8000/graph/build/status?project_id=<PROJECT_ID>"   # 완료까지 폴링
+   BASE=http://localhost:8000
+   PID=<PROJECT_ID>
+
+   # 0) 최초 1회 — 기존 엣지에 source 표식이 없으면 clear가 시맨틱만 골라 지울 수 없다
+   curl -X POST "$BASE/migrations/triggered-by-source"
+   curl -X POST "$BASE/migrations/discussed-in-source"
+
+   # 1) 지우고
+   curl -X POST "$BASE/migrations/clear-semantic-triggered-by?project_id=$PID"
+   curl -X POST "$BASE/migrations/clear-semantic-discussed-in?project_id=$PID"
+   curl -X POST "$BASE/migrations/clear-reference?project_id=$PID"
+
+   # 2) 새 파라미터로 다시 긋는다 (임계값은 스윕 대상)
+   curl -X POST "$BASE/reference/backfill"
+   curl -X POST "$BASE/issue-links/build" -H 'Content-Type: application/json' \
+        -d '{"triggered_by_threshold": 0.55, "discussed_in_threshold": 0.40}'
+   curl -X POST "$BASE/reference/build?threshold=0.30"
+   curl -X POST "$BASE/reference/propagate-threads"
    ```
+   > **`POST /graph/build?verify=true`를 쓰지 않는다.** `verify`는 clear 스위치가 아니라 **빌더 선택**
+   > 파라미터다 — `true`면 링커가 방안 D(LLM 검증)로 바뀌어, 튜닝 대상인 방안 A(임베딩)를 측정하지 못한다.
+   > 게다가 LLM 판정은 빌드마다 달라져 비결정적이다. 위 체인은 LLM을 타지 않아 결정적이므로
+   > 전후 차이가 곧 변경의 효과다.
 
    **(b) 임베딩 모델·노드 생성 등 상류를 바꾼 경우** — 원천 이벤트 스냅샷
    (`eval/snapshots/events-*.jsonl`)을 `/test/ingest`로 재주입한 뒤 빌드해야 한다.

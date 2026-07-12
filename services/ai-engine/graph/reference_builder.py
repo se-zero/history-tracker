@@ -121,20 +121,29 @@ async def build_reference_edges(
             [c["embedding"] for c in p_comms],
         )
 
-        # 시간 윈도우(5일) 마스크 + 임계값. 통과한 모든 쌍에 엣지 생성.
+        # 시간 윈도우(5일) 마스크 + 임계값.
         mod_ts  = np.array([m["occurred_at"].timestamp() for m in p_mods])
         comm_ts = np.array([c["occurred_at"].timestamp() for c in p_comms])
         in_window = np.abs(mod_ts[:, None] - comm_ts[None, :]) <= window_s
         valid = in_window & (sim >= threshold)
 
+        # 비교 단위는 파일(MODIFIED)이지만 엣지는 커밋 단위다 — 한 커밋의 여러 파일이 같은
+        # 메시지에 매칭되면 같은 엣지에 파일별 점수를 덮어써 "마지막에 계산된 값"이 남는다.
+        # 쌍의 대표값은 파일 중 최고 점수이므로 (changeset, communication)별 max로 집계한 뒤 1회 생성.
+        best_per_pair: dict[tuple[str, str], float] = {}
         for i, j in np.argwhere(valid):
             i, j = int(i), int(j)
+            pair = (p_mods[i]["changeset_id"], p_comms[j]["id"])
             score = float(sim[i, j])
-            await store.create_reference_edge(project_id, p_mods[i]["changeset_id"], p_comms[j]["id"], score)
+            if score > best_per_pair.get(pair, -1.0):
+                best_per_pair[pair] = score
+
+        for (changeset_id, comm_id), score in best_per_pair.items():
+            await store.create_reference_edge(project_id, changeset_id, comm_id, score)
             created += 1
             logger.debug(
                 "REFERENCE 생성: changeset=%s comm=%s score=%.3f",
-                p_mods[i]["changeset_id"], p_comms[j]["id"], score,
+                changeset_id, comm_id, score,
             )
 
     logger.info("REFERENCE 엣지 생성 완료: %d개 (threshold=%.2f)", created, threshold)

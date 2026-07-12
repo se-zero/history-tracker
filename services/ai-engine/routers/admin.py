@@ -9,8 +9,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from graph.builder import (
+    backfill_discussed_in_source,
     backfill_pr_jira_keys,
     backfill_triggered_by_source,
+    clear_reference,
+    clear_semantic_discussed_in,
     clear_semantic_triggered_by,
     make_neo4j_issue_link_store,
     make_neo4j_reference_store,
@@ -25,7 +28,11 @@ from graph.consumer import (
 )
 from graph.event_handler import handle
 from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
-from graph.reference_builder import backfill_communication_embeddings, build_reference_edges
+from graph.reference_builder import (
+    DEFAULT_THRESHOLD as REFERENCE_DEFAULT_THRESHOLD,
+    backfill_communication_embeddings,
+    build_reference_edges,
+)
 from graph.slack_batch_filter import run_slack_llm_filter
 
 router = APIRouter()
@@ -42,10 +49,14 @@ async def test_ingest(event: dict):
 
 
 @router.post("/reference/build")
-async def trigger_reference_build():
-    """REFERENCE 엣지 배치 생성. 임베딩이 충분히 쌓인 뒤 수동 호출."""
+async def trigger_reference_build(threshold: float = REFERENCE_DEFAULT_THRESHOLD):
+    """REFERENCE 엣지 배치 생성. 임베딩이 충분히 쌓인 뒤 수동 호출.
+
+    threshold: 엣지 생성 최소 유사도. 코드 수정 없이 임계값을 스윕하기 위한 파라미터
+    (측정 루프용 — 확정된 값은 reference_builder.DEFAULT_THRESHOLD에 반영한다).
+    """
     store = make_neo4j_reference_store()
-    created = await build_reference_edges(store)
+    created = await build_reference_edges(store, threshold=threshold)
     return {"created": created}
 
 
@@ -74,9 +85,20 @@ async def trigger_triggered_by_source_backfill():
     return await backfill_triggered_by_source()
 
 
+@router.post("/migrations/discussed-in-source")
+async def trigger_discussed_in_source_backfill():
+    """기존 DISCUSSED_IN 엣지에 source(text/semantic/propagated) 표식을 채우는 일회성 마이그레이션.
+
+    표식이 없으면 clear가 시맨틱·전파 엣지만 골라 지울 수 없다(텍스트까지 지우거나, 전파
+    복사본이 남아 오탐이 되살아난다). clear-semantic-discussed-in보다 먼저 1회 실행한다.
+    Idempotent — 재실행해도 안전.
+    """
+    return await backfill_discussed_in_source()
+
+
 @router.post("/migrations/clear-semantic-triggered-by")
-async def trigger_clear_semantic_triggered_by():
-    """source='semantic'인 TRIGGERED_BY 엣지를 모두 삭제한다.
+async def trigger_clear_semantic_triggered_by(project_id: str | None = None):
+    """source='semantic'인 TRIGGERED_BY 엣지를 삭제한다. project_id를 주면 그 프로젝트만.
 
     threshold/window/top-1 정책이 변경된 뒤 깨끗한 그래프에서 시맨틱 링크를 재구축하고 싶을 때 사용.
     텍스트(refs/PR 전파) 엣지는 보존되어 명시 참조는 손상되지 않는다.
@@ -87,7 +109,29 @@ async def trigger_clear_semantic_triggered_by():
       3. POST /migrations/pr-jira-keys              (기존 PR에 jira_keys 백필 + 전파)
       4. POST /issue-links/build                     (새 정책으로 시맨틱 재구축)
     """
-    deleted = await clear_semantic_triggered_by()
+    deleted = await clear_semantic_triggered_by(project_id)
+    return {"deleted": deleted}
+
+
+@router.post("/migrations/clear-semantic-discussed-in")
+async def trigger_clear_semantic_discussed_in(project_id: str | None = None):
+    """시맨틱 DISCUSSED_IN과 그 스레드 전파 복사본을 삭제한다. project_id를 주면 그 프로젝트만.
+
+    텍스트(source='text') 엣지는 보존된다. 선행 조건: /migrations/discussed-in-source가
+    한 번이라도 실행돼 모든 엣지에 source가 라벨링되어 있어야 전파 복사본까지 정리된다.
+    """
+    deleted = await clear_semantic_discussed_in(project_id)
+    return {"deleted": deleted}
+
+
+@router.post("/migrations/clear-reference")
+async def trigger_clear_reference(project_id: str | None = None):
+    """REFERENCE 엣지를 삭제한다. project_id를 주면 그 프로젝트만.
+
+    REFERENCE는 텍스트 경로가 없어 전부 시맨틱 산물이라 조건 없이 전량 삭제한다.
+    임계값을 바꿔 재구축(POST /reference/build?threshold=...)하기 전에 호출한다.
+    """
+    deleted = await clear_reference(project_id)
     return {"deleted": deleted}
 
 
