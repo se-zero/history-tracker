@@ -116,13 +116,21 @@ async def _create_triggered_by_semantic_edge(
 async def _create_discussed_in_semantic_edge(
     project_id: str, jira_key: str, comm_url: str, confidence: float
 ) -> None:
+    """DISCUSSED_IN (semantic): 임베딩/LLM 검증으로 발견된 연결.
+
+    source='text' 인 엣지(메시지가 jira_key를 직접 언급)는 이미 확정된 참조이므로
+    시맨틱 결과가 덮어쓰지 못하게 가드한다 — 덮어쓰면 confidence가 붙어 시맨틱으로 오인되고
+    clear_semantic_discussed_in에 삭제된다(텍스트 엣지는 수집 시점에만 생겨 복구 불가).
+    """
     async with get_driver().session() as session:
         await session.run(
             """
             MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
             MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
             MERGE (i)-[r:DISCUSSED_IN]->(comm)
-            SET r.confidence = $confidence
+            WITH r
+            WHERE coalesce(r.source, '') <> 'text'
+            SET r.source = 'semantic', r.confidence = $confidence
             """,
             project_id=project_id,
             jira_key=jira_key,

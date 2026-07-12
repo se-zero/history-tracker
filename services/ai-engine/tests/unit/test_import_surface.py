@@ -84,6 +84,8 @@ BUILDER_PUBLIC = [
     "backfill_actor_aliases",
     "backfill_pr_jira_keys",
     "backfill_triggered_by_source",
+    "backfill_discussed_in_source",
+    "clear_reference",
     "clear_semantic_triggered_by",
     "clear_semantic_discussed_in",
     "propagate_thread_discussed_in",
