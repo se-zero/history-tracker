@@ -27,9 +27,14 @@ from graph.consumer import (
     RETRY_ROUTING_KEY,
 )
 from graph.event_handler import handle
-from graph.issue_linker import build_issue_changeset_links, build_issue_communication_links
+from graph.issue_linker import (
+    DEFAULT_DISCUSSED_IN_MARGIN as DISCUSSED_IN_DEFAULT_MARGIN,
+    build_issue_changeset_links,
+    build_issue_communication_links,
+)
 from graph.reference_builder import (
     DEFAULT_THRESHOLD as REFERENCE_DEFAULT_THRESHOLD,
+    DEFAULT_TOP_K as REFERENCE_DEFAULT_TOP_K,
     backfill_communication_embeddings,
     build_reference_edges,
 )
@@ -49,14 +54,19 @@ async def test_ingest(event: dict):
 
 
 @router.post("/reference/build")
-async def trigger_reference_build(threshold: float = REFERENCE_DEFAULT_THRESHOLD):
+async def trigger_reference_build(
+    threshold: float = REFERENCE_DEFAULT_THRESHOLD,
+    top_k: int = REFERENCE_DEFAULT_TOP_K,
+):
     """REFERENCE 엣지 배치 생성. 임베딩이 충분히 쌓인 뒤 수동 호출.
 
-    threshold: 엣지 생성 최소 유사도. 코드 수정 없이 임계값을 스윕하기 위한 파라미터
-    (측정 루프용 — 확정된 값은 reference_builder.DEFAULT_THRESHOLD에 반영한다).
+    threshold: 엣지 생성 최소 유사도.
+    top_k:     커밋당 유지할 최대 스레드 수 (fan-out 컷).
+    둘 다 코드 수정 없이 스윕하기 위한 파라미터다 (측정 루프용 — 확정된 값은
+    reference_builder의 DEFAULT_THRESHOLD·DEFAULT_TOP_K에 반영한다).
     """
     store = make_neo4j_reference_store()
-    created = await build_reference_edges(store, threshold=threshold)
+    created = await build_reference_edges(store, threshold=threshold, top_k=top_k)
     return {"created": created}
 
 
@@ -170,6 +180,8 @@ class IssueLinkOptions(BaseModel):
     triggered_by_threshold: float = 0.55
     # DISCUSSED_IN 시맨틱 매칭 임계값 (스레드 보존은 쿼리 단에서 처리하므로 기존값 유지)
     discussed_in_threshold: float = 0.40
+    # DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차 (방안 A 전용)
+    discussed_in_margin: float = DISCUSSED_IN_DEFAULT_MARGIN
     llm_verify: bool = False
     top_k: int = 5
     llm_threshold: float = 0.7
@@ -203,7 +215,9 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
         )
     else:
         triggered_by = await build_issue_changeset_links(store, threshold=options.triggered_by_threshold)
-        discussed_in = await build_issue_communication_links(store, threshold=options.discussed_in_threshold)
+        discussed_in = await build_issue_communication_links(
+            store, threshold=options.discussed_in_threshold, margin=options.discussed_in_margin,
+        )
     return {"triggered_by": triggered_by, "discussed_in": discussed_in}
 
 

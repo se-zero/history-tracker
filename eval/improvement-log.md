@@ -31,6 +31,7 @@
 | 2026-07-12 | 엣지 baseline 재측정 — Phase 0 정비(REF confidence max 집계·DI source 표식·clear 도구) 후 표준 체인 재구축, 현행 파라미터 0.55/0.40/0.30 | `results/edge-2026-07-12.json` | precision 0.383(쌍 집합 불변이라 이전과 동일)·recall 0.85 첫 기록, vanished 0 | — (기준점) |
 | 2026-07-13 | REFERENCE 임계값 0.30→0.40 | `results/edge-2026-07-13-ref040.json` | precision 0.383→0.436 (REFERENCE 0.375→0.500)이나 recall 0.85→0.50 (REFERENCE 골든 12/14→5/14) | X — precision은 오르지만 recall이 그 두 배로 무너진다 |
 | 2026-07-13 | DISCUSSED_IN 임계값 0.40→0.50 | `results/edge-2026-07-13-di050.json` | precision 0.383→0.45 (DI 0.391→0.563, 0.40대 버킷 제거)이나 recall 0.85→0.75 (DI 골든 5/5→3/5, HT-53 0.437·HT-69 0.439 손실) | X — 올바른 연결 2개를 잃는 대가가 precision 이득보다 크다. 두 스레드 모두 이슈 키 언급이 없어 시맨틱 엣지가 유일한 연결이었음(텍스트 엣지로 살아남지 못함)을 확인 (0.55는 정답을 하나 더 잃어 측정 없이 기각) |
+| 2026-07-13 | fan-out 컷 — REFERENCE는 커밋당 상위 4개 스레드, DISCUSSED_IN은 이슈별 최고점−0.10 마진. 둘 다 자르는 단위는 메시지가 아니라 스레드 | `results/edge-2026-07-13-topk4-margin010.json` | precision 0.383→0.421 (REFERENCE 0.375→0.444, DISCUSSED_IN 0.391→0.400), recall 0.85 유지(골든 miss 목록 baseline과 동일), 엣지 REFERENCE 2214→1476·DISCUSSED_IN 560→314. **vanished 9쌍(무관 7·관련 2)** — 라벨된 진짜 연결도 2개 잘렸다: REFERENCE d835125→1781946322…(conf 0.320, 자기 커밋에서 4위 밖), DISCUSSED_IN HT-64→1781268987…(conf 0.558, 이슈 최고점과 0.10 초과 격차) | O — 절대 점수가 아닌 상대 순위로 자르니 점수가 낮은 진짜 연결(0.32~0.45)이 대부분 살아남는다(임계값 상향은 그걸 죽였다). 다만 손실 0이 아니다: 잘린 라벨 쌍의 무관:관련이 7:2로 baseline 분포(62% 무관)보다 낫다는 것이 채택 근거이고, 관련 2쌍 손실은 감수한 비용이다 |
 
 
 

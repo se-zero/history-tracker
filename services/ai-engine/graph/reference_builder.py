@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_THRESHOLD = 0.30
 TIME_WINDOW_DAYS = 5
+# 커밋당 유지할 최대 스레드 수 (fan-out 컷). 커밋의 배경 논의는 팀 규모와 무관하게 원래 소수라
+# 고정 개수가 정당하다. 골든 쌍의 진짜 스레드는 커밋 기준 1~4위(스레드 단위)에 들어온다.
+DEFAULT_TOP_K = 4
 
 
 def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
@@ -51,8 +54,9 @@ class ReferenceStore:
     fetch_communication_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 Communication 노드 반환.
     Returns:
-        [{"project_id": str, "id": str, "body": str,
+        [{"project_id": str, "id": str, "conversation_id": str | None, "body": str,
           "embedding": list[float], "occurred_at": datetime}, ...]
+        conversation_id는 top-k 스레드 컷의 그룹 키다 (없으면 그 메시지가 곧 스레드).
     """
 
     create_reference_edge: Callable[[str, str, str, float], Awaitable[None]]
@@ -82,12 +86,16 @@ class ReferenceStore:
 async def build_reference_edges(
     store: ReferenceStore,
     threshold: float = DEFAULT_THRESHOLD,
+    top_k: int = DEFAULT_TOP_K,
 ) -> int:
     """MODIFIED.embedding ↔ Communication.embedding 코사인 유사도로 REFERENCE 엣지 생성.
 
     Args:
         store:     Neo4j 접근 인터페이스
-        threshold: 엣지 생성 최소 유사도 (기본 0.75)
+        threshold: 엣지 생성 최소 유사도
+        top_k:     커밋당 유지할 최대 스레드 수 (fan-out 컷). 자르는 단위가 메시지가 아니라
+                   스레드인 이유 — 수다스러운 스레드 하나가 k칸을 독식하면 다른 스레드의
+                   진짜 배경 논의가 밀려난다.
 
     Returns:
         생성(또는 갱신)된 REFERENCE 엣지 수
@@ -138,7 +146,22 @@ async def build_reference_edges(
             if score > best_per_pair.get(pair, -1.0):
                 best_per_pair[pair] = score
 
+        # fan-out 컷 — 커밋당 상위 top_k개 스레드만 남긴다. 스레드의 대표값은 그 안의 최고 점수.
+        thread_of = {c["id"]: (c.get("conversation_id") or c["id"]) for c in p_comms}
+        thread_best: dict[str, dict[str, float]] = defaultdict(dict)
         for (changeset_id, comm_id), score in best_per_pair.items():
+            threads = thread_best[changeset_id]
+            thread = thread_of[comm_id]
+            if score > threads.get(thread, -1.0):
+                threads[thread] = score
+        kept_threads = {
+            changeset_id: {t for t, _ in sorted(threads.items(), key=lambda x: -x[1])[:top_k]}
+            for changeset_id, threads in thread_best.items()
+        }
+
+        for (changeset_id, comm_id), score in best_per_pair.items():
+            if thread_of[comm_id] not in kept_threads[changeset_id]:
+                continue
             await store.create_reference_edge(project_id, changeset_id, comm_id, score)
             created += 1
             logger.debug(
@@ -146,7 +169,7 @@ async def build_reference_edges(
                 changeset_id, comm_id, score,
             )
 
-    logger.info("REFERENCE 엣지 생성 완료: %d개 (threshold=%.2f)", created, threshold)
+    logger.info("REFERENCE 엣지 생성 완료: %d개 (threshold=%.2f, top_k=%d)", created, threshold, top_k)
     return created
 
 

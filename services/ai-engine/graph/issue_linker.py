@@ -46,6 +46,12 @@ DISCUSSED_IN_THRESHOLD = 0.40
 # 외부 코드 호환용 alias (issue_verifier 등에서 사용). 신규 코드는 위 두 상수를 직접 참조.
 DEFAULT_THRESHOLD = DISCUSSED_IN_THRESHOLD
 
+# DISCUSSED_IN fan-out 컷 — 이슈의 최고점 스레드와 이 폭 안에 드는 스레드만 유지한다.
+# 개수(top-k)가 아니라 상대 거리로 자르는 이유: 이슈의 논의 스레드 수는 팀 활동량에 비례해서
+# "이슈당 n개"라는 가정을 배포 제품에 박을 수 없다. 마진은 진짜 논의가 몇 개든 최고점 근처에
+# 모이기만 하면 전부 살린다.
+DEFAULT_DISCUSSED_IN_MARGIN = 0.10
+
 TIME_WINDOW_DAYS = 30                              # DISCUSSED_IN 대칭 윈도우용 (변경 없음)
 ISSUE_PRE_BUFFER_DAYS  = 1                         # createdAt 이전 허용 (사전 작업)
 ISSUE_POST_BUFFER_DAYS = 3                         # closedAt 이후 허용 (마무리 커밋)
@@ -99,7 +105,9 @@ class IssueLinkStore:
     fetch_communication_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 Communication 노드 반환.
     Returns:
-        [{"project_id": str, "id": str (url), "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "id": str (url), "conversation_id": str | None,
+          "embedding": list[float], "occurred_at": datetime}, ...]
+        conversation_id는 DISCUSSED_IN 마진 컷의 그룹 키다 (없으면 그 메시지가 곧 스레드).
     """
 
     create_triggered_by_edge: Callable[[str, str, str, float], Awaitable[None]]
@@ -203,10 +211,18 @@ async def build_issue_changeset_links(
 async def build_issue_communication_links(
     store: IssueLinkStore,
     threshold: float = DISCUSSED_IN_THRESHOLD,
+    margin: float = DEFAULT_DISCUSSED_IN_MARGIN,
 ) -> int:
     """Issue.embedding ↔ Communication.embedding 유사도로 DISCUSSED_IN 엣지 생성.
 
     DISCUSSED_IN은 TRIGGERED_BY와 달리 대칭 윈도우 + 별도 임계값 사용 (스코프 분리).
+
+    Args:
+        store:     Neo4j 접근 인터페이스
+        threshold: 엣지 생성 최소 유사도 (바닥선)
+        margin:    이슈별 fan-out 컷 — 그 이슈의 최고점 스레드와 이 폭 안에 드는 스레드만 유지.
+                   스레드의 대표값은 그 안의 최고 점수다 (수다스러운 스레드가 자리를 독식하지
+                   않도록 메시지가 아니라 스레드 단위로 비교).
 
     Returns:
         생성(또는 갱신)된 DISCUSSED_IN 엣지 수
@@ -239,19 +255,37 @@ async def build_issue_communication_links(
             [c["embedding"] for c in p_comms],
         )
 
-        # 대칭 시간 윈도우 마스크 + 임계값. top-1 없이 통과한 모든 쌍에 엣지 생성.
+        # 대칭 시간 윈도우 마스크 + 바닥 임계값.
         issue_ts = np.array([it["occurred_at"].timestamp() for it in p_issues])
         comm_ts  = np.array([c["occurred_at"].timestamp() for c in p_comms])
         in_window = np.abs(issue_ts[:, None] - comm_ts[None, :]) <= window_s
         valid = in_window & (sim >= threshold)
 
+        # fan-out 컷 — 이슈별로 스레드 최고점을 구하고, 최고점 − margin 안에 드는 스레드만 남긴다.
+        thread_of = {c["id"]: (c.get("conversation_id") or c["id"]) for c in p_comms}
+        thread_best: dict[int, dict[str, float]] = defaultdict(dict)
         for i, j in np.argwhere(valid):
             i, j = int(i), int(j)
+            threads = thread_best[i]
+            thread = thread_of[p_comms[j]["id"]]
+            score = float(sim[i, j])
+            if score > threads.get(thread, -1.0):
+                threads[thread] = score
+        kept_threads = {}
+        for i, threads in thread_best.items():
+            cut = max(threads.values()) - margin
+            kept_threads[i] = {t for t, s in threads.items() if s >= cut}
+
+        for i, j in np.argwhere(valid):
+            i, j = int(i), int(j)
+            if thread_of[p_comms[j]["id"]] not in kept_threads[i]:
+                continue
             score = float(sim[i, j])
             await store.create_discussed_in_edge(project_id, p_issues[i]["id"], p_comms[j]["id"], confidence=score)
             created += 1
             logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f",
                          p_issues[i]["id"], p_comms[j]["id"], score)
 
-    logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f)", created, threshold)
+    logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f, margin=%.2f)",
+                created, threshold, margin)
     return created
