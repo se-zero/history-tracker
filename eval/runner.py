@@ -9,6 +9,7 @@ eval/results/<UTC타임스탬프>/ 아래에 저장하고, 채점은 grader.py�
     services/ai-engine/.venv/Scripts/python.exe eval/runner.py --project-id <uuid>
     옵션: --base-url(기본 http://localhost:8000) --runs(기본 3)
           --cases case-03,case-21  --graph-snapshot/--events-snapshot(기록용 라벨)
+          --model-label gpt-4o-mini(기록용 답변 모델 라벨)
 """
 
 import argparse
@@ -80,6 +81,7 @@ def main():
     parser.add_argument("--cases", help="쉼표 구분 케이스 필터 (예: case-03,case-21)")
     parser.add_argument("--graph-snapshot", default="", help="기록용 그래프 스냅샷 라벨 (예: graph-2026-07-05.dump)")
     parser.add_argument("--events-snapshot", default="", help="기록용 원천 스냅샷 라벨 (예: events-2026-07-05.jsonl)")
+    parser.add_argument("--model-label", default="", help="기록용 답변 모델 라벨 — ai-engine의 QUERY_MODEL과 일치시킨다 (예: gpt-4o-mini)")
     parser.add_argument("--timeout", type=float, default=180.0)
     args = parser.parse_args()
 
@@ -114,6 +116,7 @@ def main():
         "graph_snapshot": args.graph_snapshot,
         "events_snapshot": args.events_snapshot,
         "project_id": pid,
+        "query_model": args.model_label,
         "base_url": args.base_url,
         "runs_per_case": args.runs,
         "cases": [os.path.splitext(os.path.basename(p))[0] for p in case_files],
