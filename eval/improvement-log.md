@@ -29,5 +29,9 @@
 | 날짜 | 조치 | 결과 | 델타 | 채택 |
 |---|---|---|---|---|
 | 2026-07-12 | 엣지 baseline 재측정 — Phase 0 정비(REF confidence max 집계·DI source 표식·clear 도구) 후 표준 체인 재구축, 현행 파라미터 0.55/0.40/0.30 | `results/edge-2026-07-12.json` | precision 0.383(쌍 집합 불변이라 이전과 동일)·recall 0.85 첫 기록, vanished 0 | — (기준점) |
+| 2026-07-13 | REFERENCE 임계값 0.30→0.40 | `results/edge-2026-07-13-ref040.json` | precision 0.383→0.436 (REFERENCE 0.375→0.500)이나 recall 0.85→0.50 (REFERENCE 골든 12/14→5/14) | X — precision은 오르지만 recall이 그 두 배로 무너진다 |
+| 2026-07-13 | DISCUSSED_IN 임계값 0.40→0.50 | `results/edge-2026-07-13-di050.json` | precision 0.383→0.45 (DI 0.391→0.563, 0.40대 버킷 제거)이나 recall 0.85→0.75 (DI 골든 5/5→3/5, HT-53 0.437·HT-69 0.439 손실) | X — 올바른 연결 2개를 잃는 대가가 precision 이득보다 크다. 두 스레드 모두 이슈 키 언급이 없어 시맨틱 엣지가 유일한 연결이었음(텍스트 엣지로 살아남지 못함)을 확인 (0.55는 정답을 하나 더 잃어 측정 없이 기각) |
+
+
 
 
