@@ -8,8 +8,19 @@ from tools.executor import execute
 
 logger = logging.getLogger(__name__)
 
-_MODEL = os.environ.get("QUERY_MODEL", "gpt-4o-mini")
+_MODEL = os.environ.get("QUERY_MODEL", "gpt-5.4-mini")
+# reasoning 모델 전용 노브 (minimal/low/medium/high). 빈 값이면 API 기본값을 따른다.
+# eval 스윕용 — 코드 수정 없이 env로 주입한다 (docs/measurement.md의 임계값 주입과 같은 방식).
+_REASONING_EFFORT = os.environ.get("QUERY_REASONING_EFFORT", "")
 _MAX_ITERATIONS = 10
+
+
+def _model_kwargs() -> dict:
+    """chat_completion에 넘길 모델 공통 kwargs — reasoning_effort는 설정된 경우에만 포함."""
+    kwargs = {"model": _MODEL}
+    if _REASONING_EFFORT:
+        kwargs["reasoning_effort"] = _REASONING_EFFORT
+    return kwargs
 
 _RUNNING_SUMMARY_SCHEMA = {
     "name": "running_summary",
@@ -227,7 +238,7 @@ def _build_system_prompt(project_context: str = "") -> str:
 
 async def _call_llm(messages: list, with_tools: bool = True):
     """OpenAI tool calling 호출. 실패 시 None 반환."""
-    kwargs = {"model": _MODEL, "messages": messages}
+    kwargs = {**_model_kwargs(), "messages": messages}
     if with_tools:
         kwargs["tools"]       = TOOLS
         kwargs["tool_choice"] = "auto"
@@ -280,7 +291,7 @@ async def _call_llm_structured(messages: list, debug: dict | None = None) -> dic
     try:
         response = await chat_completion(
             priority=Priority.INTERACTIVE,
-            model=_MODEL,
+            **_model_kwargs(),
             messages=final_messages,
             response_format={"type": "json_schema", "json_schema": _GROUNDED_ANSWER_SCHEMA},
         )
@@ -325,7 +336,7 @@ async def summarize_history(
     try:
         response = await chat_completion(
             priority=Priority.INTERACTIVE,
-            model=_MODEL,
+            **_model_kwargs(),
             messages=messages,
             response_format={"type": "json_schema", "json_schema": _RUNNING_SUMMARY_SCHEMA},
         )

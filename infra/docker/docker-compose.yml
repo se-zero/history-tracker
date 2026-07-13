@@ -72,7 +72,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GITHUB_REPO: ${GITHUB_REPO:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      QUERY_MODEL: ${QUERY_MODEL:-gpt-4o-mini}
+      QUERY_MODEL: ${QUERY_MODEL:-gpt-5.4-mini}
+      QUERY_REASONING_EFFORT: ${QUERY_REASONING_EFFORT:-}
       # OpenAI rate limiter — Tier 변경 시 이 값들만 수정 (코드 불변). 기본값 = Tier 1.
       OPENAI_RPM_CHAT: ${OPENAI_RPM_CHAT:-500}
       OPENAI_TPM_CHAT: ${OPENAI_TPM_CHAT:-200000}
