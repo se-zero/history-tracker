@@ -165,10 +165,14 @@ def main():
                     n_evidence = len(structured["evidence"]) if structured else "-"
                     n_tools = len(debug.get("tool_calls") or [])
                     tokens = (debug.get("usage") or {}).get("total_tokens", "-")
+                    # structured=null은 LLM 실패가 빈 답변으로 degrade된 것 — 측정 무효이므로
+                    # 실패로 집계해 exit code에 반영한다 (점수에 조용히 섞이는 것 방지)
+                    if structured is None:
+                        failures += 1
                     print(
                         f"{case_id} run-{run_no}: evidence={n_evidence} tools={n_tools} "
                         f"tokens={tokens} ({record['latency_s']}s)"
-                        + ("  [structured=null]" if structured is None else "")
+                        + ("  [structured=null → 실패 집계]" if structured is None else "")
                     )
 
     print(f"\n완료 — 실패 {failures}건. 채점: grader.py {out_dir}")

@@ -77,13 +77,14 @@ eval 러너도 HTTP 실패만 세므로 **"실패 0건"으로 집계**된다.
 
 ### 할 일
 
-- [ ] `agent/orchestrator.py`: 복구 불가능한 클라이언트 오류(4xx `BadRequestError` 등)는
-      삼키지 말고 전파한다 — 일시 오류(429·5xx·타임아웃)와 구분해서 처리
-- [ ] `routers/query.py`: LLM 호출 실패 시 200 대신 5xx 또는 명시적 오류 필드 반환 검토
-      (backend 프록시·프론트 채팅의 오류 처리 계약 확인 필요)
-- [ ] `eval/runner.py`: `structured=null` 응답을 실패로 집계하고 exit code에 반영
-      (무효 측정이 조용히 점수에 섞이는 것 방지)
+- [x] `agent/orchestrator.py`: 회복 불가 4xx(400/401/403/404/422)는 전파, 일시 오류(429·5xx·연결)는
+      기존 degrade 유지 — `_is_unrecoverable()` (2026-07-14)
+- [x] `routers/query.py`: 전파된 `APIStatusError`를 502 + 명시적 detail로 반환 (/query, /query/summary).
+      reasoning_effort=low 재현 시나리오로 검증 — 이전 200+빈답변 → 현재 502 (2026-07-14)
+- [x] `eval/runner.py`: `structured=null`을 실패로 집계하고 exit code 반영 (2026-07-14)
 - [ ] (선택) LLM 오류율을 메트릭/헬스에 노출해 운영 중 조기 감지
+- [ ] backend 프록시·web-dashboard가 502 응답을 사용자에게 어떻게 보여줄지 확인
+      (현재는 backend가 5xx를 그대로 전달한다고 가정 — 프론트 오류 UX 검토는 별도)
 
 ---
 

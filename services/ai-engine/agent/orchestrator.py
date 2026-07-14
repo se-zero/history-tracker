@@ -225,6 +225,16 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 _FALLBACK_ANSWER = "답변을 생성하지 못했습니다."
 _LLM_FAILURE_ANSWER = "AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
 
+# 재시도로 회복되지 않는 클라이언트 오류(모델명 오타·미지원 파라미터·인증 실패 등).
+# 이걸 삼키면 HTTP 200 + 빈 답변으로 위장돼 운영·eval 양쪽에서 조용한 장애가 된다
+# (실례: QUERY_REASONING_EFFORT=low 설정 시 400이 로그에만 남고 9/9 질의가 빈 답변).
+# 일시 오류(429·5xx·타임아웃)는 기존대로 삼키고 재시도 안내 답변으로 degrade한다.
+_UNRECOVERABLE_STATUS = {400, 401, 403, 404, 422}
+
+
+def _is_unrecoverable(exc: Exception) -> bool:
+    return getattr(exc, "status_code", None) in _UNRECOVERABLE_STATUS
+
 
 def _build_system_prompt(project_context: str = "") -> str:
     """프로젝트 컨텍스트가 있으면 시스템 프롬프트 상단에 도메인 정보를 주입한다."""
@@ -245,7 +255,9 @@ async def _call_llm(messages: list, with_tools: bool = True):
         kwargs["tool_choice"] = "auto"
     try:
         return await chat_completion(priority=Priority.INTERACTIVE, **kwargs)
-    except Exception:
+    except Exception as exc:
+        if _is_unrecoverable(exc):
+            raise
         logger.exception("LLM 호출 실패")
         return None
 
@@ -296,7 +308,9 @@ async def _call_llm_structured(messages: list, debug: dict | None = None) -> dic
             messages=final_messages,
             response_format={"type": "json_schema", "json_schema": _GROUNDED_ANSWER_SCHEMA},
         )
-    except Exception:
+    except Exception as exc:
+        if _is_unrecoverable(exc):
+            raise
         logger.exception("Structured LLM 호출 실패")
         return None
     _record_usage(debug, response)
@@ -341,7 +355,9 @@ async def summarize_history(
             messages=messages,
             response_format={"type": "json_schema", "json_schema": _RUNNING_SUMMARY_SCHEMA},
         )
-    except Exception:
+    except Exception as exc:
+        if _is_unrecoverable(exc):
+            raise
         logger.exception("Running summary LLM 호출 실패")
         return None
 
