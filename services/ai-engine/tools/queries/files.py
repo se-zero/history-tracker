@@ -4,6 +4,7 @@ from tools.queries._common import _MIN_CONFIDENCE, get_driver
 
 
 _FUZZY_CANDIDATE_LIMIT = 5     # candidates 리스트에 노출할 최대 후보 수
+_DIFF_SUMMARY_MAX_CHARS = 300  # 행당 diffSummary 상한 — executor 결과 상한(8000자)에 이력 행이 잘려나가는 것 방지
 
 
 async def get_file_history(project_id: str, path: str, limit: int = 20) -> list[dict]:
@@ -68,21 +69,27 @@ async def _fetch_file_history(session, project_id: str, path: str, limit: int) -
     result = await session.run(
         """
         MATCH (f:File {project_id: $project_id, path: $path})<-[m:MODIFIED]-(cs:ChangeSet)
-        MATCH (a:Actor)-[:AUTHORED]->(cs)
+        OPTIONAL MATCH (a:Actor)-[:AUTHORED]->(cs)
         OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
             WHERE coalesce(tb.confidence, 1.0) >= $min_conf
         OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
+        // 커밋당 1행으로 집계 — 이슈 링크·PR이 여러 개면 행이 곱으로 불어나
+        // (같은 diffSummary 반복 + executor 상한에 오래된 커밋이 밀려남: case-27)
+        WITH cs, m, a,
+             collect(DISTINCT CASE WHEN i IS NOT NULL THEN {
+                 jira_key: i.jira_key, title: i.title,
+                 confidence: tb.confidence, source: tb.source
+             } END) AS issue_links,
+             collect(DISTINCT CASE WHEN pr IS NOT NULL THEN {
+                 pr_number: pr.pr_number, url: pr.url
+             } END) AS pr_links
         RETURN cs.hash AS hash,
                cs.message AS message,
                toString(cs.occurredAt) AS occurredAt,
                a.name AS author,
                m.diffSummary AS diff_summary,
-               i.jira_key AS jira_key,
-               i.title AS issue_title,
-               tb.confidence AS issue_link_confidence,
-               tb.source     AS issue_link_source,
-               pr.pr_number AS pr_number,
-               pr.url AS pr_url
+               [x IN issue_links WHERE x IS NOT NULL] AS issues,
+               [x IN pr_links WHERE x IS NOT NULL] AS prs
         ORDER BY cs.occurredAt DESC
         LIMIT $limit
         """,
@@ -91,7 +98,14 @@ async def _fetch_file_history(session, project_id: str, path: str, limit: int) -
         limit=limit,
         min_conf=_MIN_CONFIDENCE,
     )
-    return await result.data()
+    rows = await result.data()
+    # diffSummary가 행당 수천 자면 오래된 행이 executor 상한에 통째로 밀려난다 —
+    # 이력 질문의 핵심은 커밋 나열·방향이므로 요약은 앞부분만 남긴다
+    for row in rows:
+        ds = row.get("diff_summary")
+        if isinstance(ds, str) and len(ds) > _DIFF_SUMMARY_MAX_CHARS:
+            row["diff_summary"] = ds[:_DIFF_SUMMARY_MAX_CHARS] + " …(생략)"
+    return rows
 
 
 async def _fetch_with_resolution_meta(

@@ -164,8 +164,9 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 | `path` | string | ✔ | — | 파일 경로 (예: `src/auth/token.py`) |
 | `limit` | integer | | 20 | 최대 반환 커밋 수 |
 
-- 정상 항목: `hash`, `message`, `author`, `diff_summary`, 연결 이슈(`jira_key`/`issue_title` +
-  `issue_link_confidence`/`issue_link_source`), `pr_number`/`pr_url`.
+- 정상 항목: 커밋당 1행 — `hash`, `message`, `author`, `diff_summary`(행당 300자 컷),
+  `issues[]`(각 `jira_key`/`title`/`confidence`/`source`), `prs[]`(각 `pr_number`/`url`).
+  이슈·PR 링크가 여러 개여도 행이 곱으로 불어나지 않는다.
 - **경로 fuzzy fallback**: strict 매칭이 0건이면 ① basename(`.../token.py`) ENDS WITH →
   ② stem(확장자 무관, `token`) 순으로 후보를 찾는다.
   - 후보 **정확히 1개** → 그 파일 이력을 반환하되 각 row에 `_resolved_via`(`basename_match` |
