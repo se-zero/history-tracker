@@ -29,6 +29,8 @@ from graph.consumer import (
 from graph.event_handler import handle
 from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN as DISCUSSED_IN_DEFAULT_MARGIN,
+    DISCUSSED_IN_POST_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_POST_DAYS,
+    DISCUSSED_IN_PRE_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_PRE_DAYS,
     build_issue_changeset_links,
     build_issue_communication_links,
 )
@@ -182,6 +184,10 @@ class IssueLinkOptions(BaseModel):
     discussed_in_threshold: float = 0.40
     # DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차 (방안 A 전용)
     discussed_in_margin: float = DISCUSSED_IN_DEFAULT_MARGIN
+    # DISCUSSED_IN 시간 윈도우 — 이슈 생애(생성~종료) 앞뒤로 며칠까지 후보로 볼지 (방안 A 전용).
+    # 코드 수정 없이 스윕하기 위한 파라미터. 확정된 값은 issue_linker 상수에 반영한다.
+    discussed_in_pre_days: int = DISCUSSED_IN_DEFAULT_PRE_DAYS
+    discussed_in_post_days: int = DISCUSSED_IN_DEFAULT_POST_DAYS
     llm_verify: bool = False
     top_k: int = 5
     llm_threshold: float = 0.7
@@ -216,7 +222,11 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
     else:
         triggered_by = await build_issue_changeset_links(store, threshold=options.triggered_by_threshold)
         discussed_in = await build_issue_communication_links(
-            store, threshold=options.discussed_in_threshold, margin=options.discussed_in_margin,
+            store,
+            threshold=options.discussed_in_threshold,
+            margin=options.discussed_in_margin,
+            pre_days=options.discussed_in_pre_days,
+            post_days=options.discussed_in_post_days,
         )
     return {"triggered_by": triggered_by, "discussed_in": discussed_in}
 
