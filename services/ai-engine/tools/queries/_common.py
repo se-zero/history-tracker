@@ -1,12 +1,15 @@
 """tools.queries 공용 — 모든 쿼리 모듈이 공유하는 드라이버/상수/헬퍼."""
 
+import os
+
 from graph.driver import get_driver
 
 
-# TRIGGERED_BY 엣지 노이즈 컷오프.
-# 텍스트 매칭은 항상 1.0이므로 항상 통과. 시맨틱은 0.5 미만이면 응답에서 제외.
-# (issue_linker 자체 생성 임계값은 0.40이라 0.40~0.49 구간이 응답 단에서 마저 차단됨)
-_MIN_CONFIDENCE = 0.5
+# 시맨틱 엣지 노이즈 컷오프 (도구 응답 단의 소비 임계값).
+# 텍스트 매칭은 항상 1.0이므로 항상 통과. 시맨틱은 이 값 미만이면 응답에서 제외.
+# (issue_linker 자체 생성 임계값은 0.40이라 기본값 0.5에서는 0.40~0.49 구간이 응답 단에서 마저 차단됨)
+# eval 스윕용으로 env 외부화 — 시스템 프롬프트의 임계값 안내 문구도 이 값으로 렌더링된다.
+_MIN_CONFIDENCE = float(os.environ.get("TOOLS_MIN_CONFIDENCE", "0.5"))
 
 def _group_communications_by_thread(comms: list[dict]) -> list[dict]:
     """flat Communication 리스트를 conversation_id 기준으로 그룹핑한다.

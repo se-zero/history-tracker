@@ -5,6 +5,7 @@ import os
 from openai_client import Priority, chat_completion
 from tools.definitions import TOOLS
 from tools.executor import execute
+from tools.queries._common import _MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 
@@ -154,8 +155,8 @@ GitHub(커밋, PR), Jira(이슈), Slack(메시지) 데이터가 Neo4j 지식 그
 - 도구 결과에 없는 내용은 절대 추측하거나 지어내지 마세요. 그래프에 근거가 없는 측면은
   unknown_aspects[]에 명시하고, summary에 일반론·추정으로 채우지 마세요.
 - 여러 출처(Jira, Slack, PR)가 서로 다른 이유를 설명하면 각 관점을 구분해 제시하세요.
-- 연결 confidence가 0.5~0.7 구간인 항목을 인용할 때는 summary에서 "유사도 기반 추정" 등으로 명시하세요.
-  0.5 미만 엣지는 쿼리 단에서 이미 차단되어 도구 결과에 없습니다.
+- 연결 confidence가 __MIN_CONF__~0.7 구간인 항목을 인용할 때는 summary에서 "유사도 기반 추정" 등으로 명시하세요.
+  __MIN_CONF__ 미만 엣지는 쿼리 단에서 이미 차단되어 도구 결과에 없습니다.
 - summary, unknown_aspects, evidence[*].quote 모두 한국어로 작성하세요 (단, 원문이 영어/코드면 그대로 인용).
 
 [그래프 타임스탬프 의미 사전 — 필드명을 추정으로 해석하지 말 것]
@@ -219,7 +220,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - 사람 활동 조회: get_actor_activity
 - 컨텍스트 없는 커밋: check_missing_context
 - 여러 출처 비교: get_conflict_context
-"""
+""".replace("__MIN_CONF__", f"{_MIN_CONFIDENCE:g}")
 
 _FALLBACK_ANSWER = "답변을 생성하지 못했습니다."
 _LLM_FAILURE_ANSWER = "AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
