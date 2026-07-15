@@ -326,7 +326,7 @@ pairs:
    # 2) 새 파라미터로 다시 긋는다 (임계값은 스윕 대상)
    curl -X POST "$BASE/reference/backfill"
    curl -X POST "$BASE/issue-links/build" -H 'Content-Type: application/json' \
-        -d '{"triggered_by_threshold": 0.55, "discussed_in_threshold": 0.40}'
+        -d '{"triggered_by_threshold": 0.30, "discussed_in_threshold": 0.40}'
    curl -X POST "$BASE/reference/build?threshold=0.30"
    curl -X POST "$BASE/reference/propagate-threads"
    ```

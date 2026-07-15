@@ -31,6 +31,7 @@ from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN as DISCUSSED_IN_DEFAULT_MARGIN,
     DISCUSSED_IN_POST_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_POST_DAYS,
     DISCUSSED_IN_PRE_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_PRE_DAYS,
+    TRIGGERED_BY_THRESHOLD as TRIGGERED_BY_DEFAULT_THRESHOLD,
     build_issue_changeset_links,
     build_issue_communication_links,
 )
@@ -178,8 +179,8 @@ async def trigger_slack_filter(options: SlackFilterOptions = SlackFilterOptions(
 
 
 class IssueLinkOptions(BaseModel):
-    # TRIGGERED_BY 시맨틱 매칭 임계값 (정밀도 우선 — 0.55 권장)
-    triggered_by_threshold: float = 0.55
+    # TRIGGERED_BY 시맨틱 매칭 임계값 (기본값 근거는 issue_linker 상수 주석 참고)
+    triggered_by_threshold: float = TRIGGERED_BY_DEFAULT_THRESHOLD
     # DISCUSSED_IN 시맨틱 매칭 임계값 (스레드 보존은 쿼리 단에서 처리하므로 기존값 유지)
     discussed_in_threshold: float = 0.40
     # DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차 (방안 A 전용)

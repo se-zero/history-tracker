@@ -20,7 +20,9 @@ from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN,
     DISCUSSED_IN_POST_BUFFER_DAYS,
     DISCUSSED_IN_PRE_BUFFER_DAYS,
+    TRIGGERED_BY_THRESHOLD,
     IssueLinkStore,
+    build_issue_changeset_links,
     build_issue_communication_links,
 )
 
@@ -336,6 +338,56 @@ class DiscussedInIssueLifetimeWindowTest(unittest.TestCase):
         asyncio.run(build_issue_communication_links(fake.as_store(), threshold=0.4, margin=0.10))
 
         self.assertEqual(fake.linked_comms(), {"in"})
+
+
+class TriggeredByDefaultThresholdTest(unittest.TestCase):
+    """TRIGGERED_BY 기본 임계값 — 무링크 커밋 풀 전용의 낮은 값."""
+
+    @staticmethod
+    def _mod(cs_id, embedding, occurred_at=NOW, project_id="p1"):
+        return {
+            "project_id": project_id,
+            "changeset_id": cs_id,
+            "file_path": "src/a.py",
+            "diff_summary": "",
+            "embedding": embedding,
+            "occurred_at": occurred_at,
+        }
+
+    def test_default_threshold_catches_low_scoring_true_links(self):
+        # 후보는 text 링크가 전혀 없는 커밋뿐(store fetch에서 제외)이라 풀이 작고,
+        # 진짜 연결은 diff 요약↔이슈의 어휘 차이로 0.30~0.38에 깔려 있다 — 0.55는 전멸시켰다.
+        self.assertEqual(TRIGGERED_BY_THRESHOLD, 0.30)
+
+        created: list[tuple[str, str, str, float]] = []
+
+        async def fetch_issues():
+            return [_issue("HT-6")]
+
+        async def fetch_mods():
+            return [
+                self._mod("cs-golden", _vec(0.33)),   # 골든 쌍 점수대 — 기본값에서 살아야 한다
+                self._mod("cs-below", _vec(0.29)),    # 바닥 아래 — 잘려야 한다
+            ]
+
+        async def create_tb(project_id, cs_id, jira_key, confidence):
+            created.append((project_id, cs_id, jira_key, confidence))
+
+        async def unsupported(*args, **kwargs):
+            raise AssertionError("이 테스트에서 호출되지 않아야 한다")
+
+        store = IssueLinkStore(
+            fetch_issue_embeddings=fetch_issues,
+            fetch_modified_embeddings=fetch_mods,
+            fetch_communication_embeddings=unsupported,
+            create_triggered_by_edge=create_tb,
+            create_discussed_in_edge=unsupported,
+        )
+
+        asyncio.run(build_issue_changeset_links(store))
+
+        self.assertEqual([(cs, key) for _, cs, key, _ in created],
+                         [("cs-golden", "HT-6")])
 
 
 if __name__ == "__main__":

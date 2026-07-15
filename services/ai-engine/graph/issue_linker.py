@@ -12,7 +12,8 @@ Issue와 ChangeSet / Communication을 연결한다.
   Issue / ChangeSet / Communication 임베딩이 충분히 쌓인 뒤 실행.
 
 정밀도 정책 (TRIGGERED_BY):
-  - 임계값: 0.55 (false positive 감소)
+  - 임계값: 0.30 — 후보가 text 링크 없는 커밋뿐이라 풀이 작고, 진짜 연결은
+    diff 요약↔이슈의 어휘 차이로 0.3대에 깔려 있다 (상수 주석 참고)
   - 시간 윈도우: 비대칭 — [createdAt - 1d, closedAt(+3d 유예) or now]
     이슈 종료 후 작성된 커밋은 사실상 그 이슈의 작업이 아니므로 차단
   - ChangeSet당 top-1 매칭만 유지: 같은 커밋이 여러 이슈에 동시 연결되지 않음
@@ -39,8 +40,12 @@ def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
         grouped[row.get("project_id") or ""].append(row)
     return grouped
 
-# TRIGGERED_BY 시맨틱 매칭 임계값 — 정밀도 우선
-TRIGGERED_BY_THRESHOLD = 0.55
+# TRIGGERED_BY 시맨틱 매칭 임계값. 후보가 "text 링크가 하나도 없는 커밋"뿐이라(store fetch에서
+# 제외) 풀이 작고, 진짜 연결은 diff 요약↔이슈의 어휘 차이로 0.30~0.38에 깔려 있다 — 0.55는
+# 시맨틱 엣지를 0개로 전멸시켰다. 전제: 커밋에 이슈 키를 적는 관행이 있는 팀일수록 무링크 풀이
+# 작아 안전하다. 키 관행이 없는 팀은 모든 커밋이 후보가 되므로 이 값이 낮을수록 노이즈가 커진다
+# (admin 파라미터 triggered_by_threshold로 재배포 없이 조정 가능).
+TRIGGERED_BY_THRESHOLD = 0.30
 # DISCUSSED_IN은 별도 — 기존 값 유지 (스레드 그룹핑은 하위 2 쿼리 단에서 처리)
 DISCUSSED_IN_THRESHOLD = 0.40
 # 외부 코드 호환용 alias (issue_verifier 등에서 사용). 신규 코드는 위 두 상수를 직접 참조.
