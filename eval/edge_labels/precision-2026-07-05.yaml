@@ -2957,3 +2957,232 @@ edges:
         author: 서준수
   label: irrelevant
   note: null
+# ── TRIGGERED_BY (커밋 → 이슈, semantic) — #5 임계값 인하로 새로 생긴 10쌍 (2026-07-15 라벨) ──
+- edge_type: TRIGGERED_BY
+  confidence: 0.446
+  bucket: 0.40+
+  src:
+    type: commit
+    id: 8e800d4
+    body:
+      hash: 8e800d4cc4ce5d86ca0781a78c13cc631c12c644
+      message: 'docs: ClAUDE.md 파일 생성'
+      files:
+      - services/pipeline-worker/CLAUDE.md
+      - CLAUDE.md
+  dst:
+    type: issue
+    id: HT-22
+    body:
+      key: HT-22
+      title: Slack 데이터 전처리
+      body: 'slack의 잡담 제거 1단계: 규칙 기반 제거 2단계: LLM 기반 제거 스레드 단위로 노드 생성 개선점: 프롬프트에 README.md 기반 요약 추가해서 LLM에
+        주는 프롬프트에 프로젝트에 관한 설명 추가(04/29/2026)'
+      status: 완료
+  label: irrelevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.4439
+  bucket: 0.40+
+  src:
+    type: commit
+    id: 5d520ed
+    body:
+      hash: 5d520edaa2b7cfb7b22be77a2eb1991a0a6b2cd4
+      message: 'docs: md파일 업데이트'
+      files:
+      - docs/graph-schema.md
+      - CLAUDE.md
+  dst:
+    type: issue
+    id: HT-22
+    body:
+      key: HT-22
+      title: Slack 데이터 전처리
+      body: 'slack의 잡담 제거 1단계: 규칙 기반 제거 2단계: LLM 기반 제거 스레드 단위로 노드 생성 개선점: 프롬프트에 README.md 기반 요약 추가해서 LLM에
+        주는 프롬프트에 프로젝트에 관한 설명 추가(04/29/2026)'
+      status: 완료
+  label: irrelevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.4301
+  bucket: 0.40+
+  src:
+    type: commit
+    id: b1739b7
+    body:
+      hash: b1739b7478cbedbfeaf83ad3996f4421240e8553
+      message: 'docs: 서비스 CLAUDE.md 갱신'
+      files:
+      - services/backend/CLAUDE.md
+      - clients/web-dashboard/CLAUDE.md
+      - services/pipeline-worker/CLAUDE.md
+      - services/ai-engine/CLAUDE.md
+  dst:
+    type: issue
+    id: HT-100
+    body:
+      key: HT-100
+      title: Rabbitmq DLQ 작업
+      body: '[배경]   ai-engine consumer가 이벤트 처리(handle)에 실패하면 메시지를 재시도 없이 버려,   소비 단계 실패가 조용한 유실로 이어짐 (발행
+        측은 이미 checkpoint를 넘겨 재수집으로 복구 불가).   [작업] 처리 실패 시 지연 재시도 후, 소진되면 DLQ에 보관하는 안전망 추가 파싱 실패(malformed)
+        메시지는 별도 inspect 큐로 분리 DLQ 현황 조회 / 재투입(replay) 운영 엔드포인트 추가'
+      status: 완료
+  label: irrelevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.3831
+  bucket: 0.35-0.40
+  src:
+    type: commit
+    id: 3635e09
+    body:
+      hash: 3635e0904db39b75c752d2c234c3730e15672465
+      message: 'docs: GraphRAG 품질 측정 계획'
+      files:
+      - docs/measurement-plan.md
+      - .gitignore
+  dst:
+    type: issue
+    id: HT-56
+    body:
+      key: HT-56
+      title: 품질 개선 v2
+      body: 프롬프트 규칙 추가, 시스템 프롬프트 개선 도구 응답 보완 그래프 연결 구조 확인 임베딩 유사도 말고 다른 방법 고려 모델 교체 고려 (4o-mini to 4o
+        | 4.1)
+      status: 진행 중
+  label: relevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.3787
+  bucket: 0.35-0.40
+  src:
+    type: commit
+    id: 312e162
+    body:
+      hash: 312e162510f2e73fbab76838a1c7dda9025b85a8
+      message: 'fix: 슬랙 URL 딥링크로 변경'
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/normalizer/SlackNormalizer.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/normalizer/SlackNormalizerTest.java
+  dst:
+    type: issue
+    id: HT-29
+    body:
+      key: HT-29
+      title: 슬랙 데이터로 생성
+      body: slack 관련 pipeline-worker 수정 요청 슬랙 데이터로 그래프 생성 2026/05/08 완료
+      status: 완료
+  label: relevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.3588
+  bucket: 0.35-0.40
+  src:
+    type: commit
+    id: b07f699
+    body:
+      hash: b07f6990aaa3ca67ca2f460dd5b227627917633c
+      message: 'fix: graph schema docs 최신화 업데이트'
+      files:
+      - docs/graph-schema.md
+  dst:
+    type: issue
+    id: HT-36
+    body:
+      key: HT-36
+      title: 전체 테스트
+      body: '테스트 완료(그래프 생성 시 문제점의 수정사항도 반영 완료) 상세정보: 노션 문서  '
+      status: 완료
+  label: relevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.3263
+  bucket: 0.30-0.35
+  src:
+    type: commit
+    id: 60d2d92
+    body:
+      hash: 60d2d927cb67b6b0f36a9c25f25332c2a23f4a0d
+      message: 'feat: 기본적인 도커 설정 작성 및 gitignore 생성'
+      files:
+      - .gitignore
+      - infra/docker/docker-compose.yml
+      - infra/docker/.gitkeep
+  dst:
+    type: issue
+    id: HT-6
+    body:
+      key: HT-6
+      title: 인프라
+      body: 'docker 인프라 세팅 -  PR#1  '
+      status: 완료
+  label: relevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.3163
+  bucket: 0.30-0.35
+  src:
+    type: commit
+    id: 93fc48a
+    body:
+      hash: 93fc48acce66aae6366a0a34a0ad1b755fc97bf6
+      message: 'feat: 지라 정규화 필드에 body 추가'
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/normalizer/JiraNormalizer.java
+  dst:
+    type: issue
+    id: HT-22
+    body:
+      key: HT-22
+      title: Slack 데이터 전처리
+      body: 'slack의 잡담 제거 1단계: 규칙 기반 제거 2단계: LLM 기반 제거 스레드 단위로 노드 생성 개선점: 프롬프트에 README.md 기반 요약 추가해서 LLM에
+        주는 프롬프트에 프로젝트에 관한 설명 추가(04/29/2026)'
+      status: 완료
+  label: irrelevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.3035
+  bucket: 0.30-0.35
+  src:
+    type: commit
+    id: da56f8e
+    body:
+      hash: da56f8ece94e004ae962c719f99809e5b8255af6
+      message: 'feat: 지식그래프 시스템 기초 작성'
+      files:
+      - services/ai-engine/main.py
+      - services/ai-engine/requirements.txt
+      - services/ai-engine/Dockerfile
+  dst:
+    type: issue
+    id: HT-3
+    body:
+      key: HT-3
+      title: 파이프라인 구축
+      body: GitHub, Slack, Jira에서 제공하는 데이터를 활용하기 위한 각 플랫폼의 API 응답을 JSON 형태로 수집하고 구조 분석
+      status: 완료
+  label: irrelevant
+  note: null
+- edge_type: TRIGGERED_BY
+  confidence: 0.3
+  bucket: 0.30-0.35
+  src:
+    type: commit
+    id: f278b41
+    body:
+      hash: f278b41e1113331b0c4131b84801009ef9098d95
+      message: 'feat: jira refs에 assigneeId 추가'
+      files:
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/normalizer/JiraNormalizerTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/normalizer/JiraNormalizer.java
+  dst:
+    type: issue
+    id: HT-29
+    body:
+      key: HT-29
+      title: 슬랙 데이터로 생성
+      body: slack 관련 pipeline-worker 수정 요청 슬랙 데이터로 그래프 생성 2026/05/08 완료
+      status: 완료
+  label: relevant
+  note: null

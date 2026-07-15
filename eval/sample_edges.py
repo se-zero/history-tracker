@@ -6,9 +6,10 @@
 매길 수 있는 YAML을 만든다. 라벨은 엣지 id가 아니라 "노드 쌍 + 타입"으로 저장한다 —
 빌더를 고쳐 엣지가 사라지거나 다시 생겨도 같은 쌍을 재평가할 수 있어야 하기 때문이다.
 
-대상 타입: REFERENCE(ChangeSet→Communication), DISCUSSED_IN 시맨틱(Issue→Communication).
-  시맨틱 판별: REFERENCE는 전부 시맨틱 / DISCUSSED_IN은 confidence 있는 것만(text·스레드전파는 속성 없음).
-  TRIGGERED_BY 시맨틱은 현재 스냅샷에 0개라 제외된다(source='text'만 존재).
+대상 타입: REFERENCE(ChangeSet→Communication), DISCUSSED_IN 시맨틱(Issue→Communication),
+  TRIGGERED_BY 시맨틱(ChangeSet→Issue).
+  시맨틱 판별: REFERENCE는 전부 시맨틱 / DISCUSSED_IN·TRIGGERED_BY는 source='semantic'인 것만
+  (text·스레드전파 엣지는 제외). 임계값 인하 전 스냅샷에는 TRIGGERED_BY 시맨틱이 0개였다.
 
 실행 (ai-engine venv 사용):
     services/ai-engine/.venv/Scripts/python.exe eval/sample_edges.py --count-only
@@ -63,6 +64,18 @@ EDGE_SPECS = {
         "src_type": "issue",
         "dst_type": "message",
         "buckets": [(0.40, 0.50), (0.50, 0.70), (0.70, 1.01)],
+    },
+    "TRIGGERED_BY": {
+        "query": (
+            "MATCH (c:ChangeSet {project_id:$pid})-[r:TRIGGERED_BY]->(i:Issue) "
+            "WHERE r.source='semantic' "
+            "RETURN left(c.hash,7) AS src_id, i.jira_key AS dst_id, r.confidence AS confidence"
+        ),
+        "src_type": "commit",
+        "dst_type": "issue",
+        # 버킷 경계를 임계값 스윕 포인트(0.30/0.35/0.40)에 맞춘다 — 버킷별 precision이 곧
+        # "이 임계값이었다면 남았을 엣지"의 정밀도가 되어 스윕 평가에 바로 쓰인다.
+        "buckets": [(0.30, 0.35), (0.35, 0.40), (0.40, 1.01)],
     },
 }
 
