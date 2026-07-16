@@ -44,6 +44,7 @@ async def _fetch_communication_embeddings(project_id: str | None = None) -> list
         __PROJECT_FILTER__
         RETURN comm.project_id AS project_id,
                comm.url AS id,
+               comm.conversation_id AS conversation_id,
                comm.body AS body,
                comm.embedding AS embedding,
                comm.occurredAt AS occurred_at
@@ -53,11 +54,12 @@ async def _fetch_communication_embeddings(project_id: str | None = None) -> list
         rows = await result.data()
     return [
         {
-            "project_id":  r["project_id"],
-            "id":          r["id"],
-            "body":        r["body"],
-            "embedding":   list(r["embedding"]),
-            "occurred_at": r["occurred_at"].to_native(),
+            "project_id":      r["project_id"],
+            "id":              r["id"],
+            "conversation_id": r["conversation_id"],
+            "body":            r["body"],
+            "embedding":       list(r["embedding"]),
+            "occurred_at":     r["occurred_at"].to_native(),
         }
         for r in rows
     ]
