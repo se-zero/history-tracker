@@ -3186,3 +3186,2410 @@ edges:
       status: 완료
   label: relevant
   note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4979
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-93
+    body:
+      key: HT-93
+      title: 프론트엔드 개선 작업
+      body: 그래프 탐색 페이지에서 마우스 휠 확대/축소 할때 마우스 커서가 위치한 지점을 기준으로 확대 축소 그래프 탐색 탭 필터중 code는 명칭 변경 필요 (실제로 코드
+        diff에 관한 내용은 노드가 아닌 MODIFIED 엣지에 들어가기 때문) (실제로 그래프에 뜨는 노드는 파일임) 데이터 소스 탭에서 연결된 integration(github,
+        jira, slack)들은 연결 해제 기능을 제공하지 않음(api 없음) -> 프론트에서 연결 해제 제거, 깃허브 레포는 연결된 것만 뜨게 수정 설정 탭의 식별자는 삭재
+        (필요없음) 프로필의 ... 버튼 누르면 현재 light모드와 로그아웃만 있는데 계정 설정탭을 만들어 회원 탈퇴 기능을 옮김 프로젝트를 누르면 '현재 프로젝트 설정 '이
+        있는데 왼쪽 탭에 있는 설정과 같아 한쪽을 제거 대화 이름변경 버그 수정
+      status: 완료
+  dst:
+    type: message
+    id: '1781925043.152779'
+    body:
+      conversation_id: '1781925043.152779'
+      messages:
+      - body: |-
+          Claude.md랑 docs문서들 최신화 시키려고 하는데, 특히 tools.md는 너무 길어가지고 cotext 문서용으로 바꾸려면 많이 수정해야할거같더라고
+          문서들 내가 다 최신화 시켜도 될까?
+        occurred_at: '2026-06-20T03:10:43.152779Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 그럼 일단 주말동안 파이프라인 연결 먼저 하고 문서작업, 리팩토링 할까?
+        occurred_at: '2026-06-20T03:27:50.233579Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 이 작업 할게
+        occurred_at: '2026-06-20T09:25:41.313609Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 최신화한거 pr 날렸어
+        occurred_at: '2026-06-20T10:30:08.281739Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4951
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-77
+    body:
+      key: HT-77
+      title: 수집 진행상황 수정
+      body: 데이터 동기화 시점으로 변경 백엔드에서의 pipeline-worker의 수집을 트리거하는 api 연결
+      status: 완료
+  dst:
+    type: message
+    id: '1781503641.993609'
+    body:
+      conversation_id: '1781503641.993609'
+      messages:
+      - body: 지금 프론트에 데이터소스 - 수집 진행상황이 있는데 이거 계속 둘까? 이거 api도 없고 기능 만들려면 좀 걸릴 거 같은데
+        occurred_at: '2026-06-15T06:07:21.993609Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 수집 진행상황은 기준잡기고 어렵고 구현하기도 까다로울거 같긴한데
+        occurred_at: '2026-06-15T06:08:53.775319Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 동기화 일자만 둘까?
+        occurred_at: '2026-06-15T06:10:14.018129Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 동기화 일자만 두는거 괜찮은거 같아
+        occurred_at: '2026-06-15T06:10:48.659089Z'
+        channel: 프로젝트
+        author: 정세영
+  label: relevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4877
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-84
+    body:
+      key: HT-84
+      title: 그래프 생성 파이프라인 수정
+      body: 웹서비스에서 그래프 생성 단계 중 build 파이프라인이 작동하지 않는 문제 수정 그래프 수동 재구축 버튼 추가 Slack LLM 필터 자동 연결 그래프 수동 재구축
+        버튼 추가
+      status: 완료
+  dst:
+    type: message
+    id: '1781533811.868749'
+    body:
+      conversation_id: '1781533811.868749'
+      messages:
+      - body: 실행해봤는데 깃허브 수집은 수집할 브랜치를 입력받게 되어있는데 null이면 main브랜치가 수집되고 pr은 코드상에서 브랜치 입력받게 안해놔서 모든 브랜치의
+          pr을 전부 가져오더라고
+        occurred_at: '2026-06-16T00:16:43.635259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래서 노드가 제대로 수집이 안되서 그래프가 잘 안만들어지는데 이부분 작업 필요해보이네
+        occurred_at: '2026-06-16T00:17:56.714539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 선택할 수 있게 할까?
+        occurred_at: '2026-06-16T00:18:53.083469Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 프론트에서는 레포지토리 연결할때 브랜치 하나만 선택할 수 있게하고 생성된 프로젝트에 대해서는 브랜치 변경이 안되게 하는게 좋을거같고
+        occurred_at: '2026-06-16T00:19:45.411539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 백엔드에서는 커밋, pr, 이슈 api에 dto로 브랜치 명까지 받아서 db에 저장해야할거 같아
+        occurred_at: '2026-06-16T00:20:42.340209Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 리드미 주입할때 주입하고 캐시를 파일로 하는데 이러면 사람들이 늘어나면 관리가 어려워질거 같아서
+        occurred_at: '2026-06-16T00:24:37.668259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 다시 알아보니깐 파일이 아니라 RAM에 저장하는거고 재시작 시 손실, 메모리, 다중 인스턴스 미공유 측면에서 문제점이 있어서 방식을 바꾸는게 나은데, 가장 추천하는게
+          redis 도입인것 같아.
+        occurred_at: '2026-06-16T00:45:31.515399Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 금요일 전에 끝내야 하는거 위주로 찾아서 먼저 작업하는게 좋을거같아서 저 작업은 잠깐 미뤄둘게
+        occurred_at: '2026-06-16T00:46:07.279679Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 일단 브랜치 부분은 수정해서 커밋 올렸어
+        occurred_at: '2026-06-16T07:27:38.799809Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4847
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-99
+    body:
+      key: HT-99
+      title: 프론트엔드 개선작업
+      body: '질문 쓸때 Shift Enter 누르면 위에 쓴 내용이 안보임 -> 대화창이 커져야 함 (chatGPT처럼) 응답에 마크다운 적용 안되고 있어서 수정 필요 질문
+        응답 대기중에 다른 채팅창으로 이동히면 ui 이상: 돌아가는게 다른 채팅창에도 적용이 됨 '
+      status: 완료
+  dst:
+    type: message
+    id: '1782650084.848469'
+    body:
+      conversation_id: '1782650084.848469'
+      messages:
+      - body: Backend 대화랑 메세지 페이지네이션적용한거 pr 날렸어
+        occurred_at: '2026-06-28T12:34:44.848469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: Pipeline은 개선이라고 표기한거 다 하고 있는거야?
+        occurred_at: '2026-06-28T14:06:19.375699Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 7번은 보류하고 나머지는 하고 있어
+        occurred_at: '2026-06-28T14:08:56.667669Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 7번도 하는게 좋을까?
+        occurred_at: '2026-06-28T14:09:33.956719Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아니면 그래프쪽 api 같은 미구현된 거 만드는거
+        occurred_at: '2026-06-28T14:12:18.694489Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그래프쪽 미구현 api가 어떤거 어떤거 있지?
+        occurred_at: '2026-06-28T14:12:56.538229Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프면 ai-engine쪽?
+        occurred_at: '2026-06-28T14:14:57.864009Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그 llm 답변에 노드들 하이라이트 되는거?
+        occurred_at: '2026-06-28T14:17:40.336359Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 이거 프론트 초안이었는데 여기서 오른쪽에 뜨는거?
+        occurred_at: '2026-06-28T14:19:47.733029Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 이거 맞아
+        occurred_at: '2026-06-28T14:23:25.626879Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아직 프론트에서도 구현이 안된거 같기는 한데
+        occurred_at: '2026-06-28T14:23:45.415149Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 오키 그럼 이거 프론트랑 같이 해서 작업 해볼게
+        occurred_at: '2026-06-28T14:24:15.807689Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4845
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-30
+    body:
+      key: HT-30
+      title: 그래프 생성 파이프라인
+      body: 그래프 생성은 완료, LLM 테스트는 아직 못함. 그래프가 제대로 만들어졌는지도 확인이 필요함.
+      status: 완료
+  dst:
+    type: message
+    id: '1778586053.322069'
+    body:
+      conversation_id: '1778586053.322069'
+      messages:
+      - body: tool pr 날렸어 그리고 노션에 테스트 결과 문서에 정리해놨어
+        occurred_at: '2026-05-12T11:40:53.322069Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 테스트 결과보니깐 괜찮게 나온거 같아 보이네
+        occurred_at: '2026-05-12T12:59:21.356869Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프 생성방안 후보들 적어놓았던거 이젠 확정해서 코드 짜가지고 수정하면 좋을거 같아서
+        occurred_at: '2026-05-12T13:16:58.220329Z'
+        channel: 프로젝트
+        author: 정세영
+  label: unsure
+  note: HT-30 이후 tool 작업과 테스트 작업을 한 후에 결과를 공유한 대화라서 아예 관련이 없지는 않다. 
+- edge_type: DISCUSSED_IN
+  confidence: 0.4778
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-95
+    body:
+      key: HT-95
+      title: 그래프 빌드 비동기화 + OpenAI rate limiter + ai-engine timeout 작업
+      body: 문제 그래프 빌드가 동기로 길게 블로킹돼 짧은 timeout을 걸 수 없음  그래프 빌드 상태·락이 전역이라 멀티프로젝트에 부적합 빌드·수집·질의가 같은 OpenAI
+        한도를 공유해 429 위험  → 그래프 구축을 멀티 프로젝트에서 per-project로 변경,  OpenAI rate limiter 도입, ai-engine 호출 timeout
+        설정
+      status: 완료
+  dst:
+    type: message
+    id: '1782102320.056619'
+    body:
+      conversation_id: '1782102320.056619'
+      messages:
+      - body: |-
+          1. 그래프 탐색 페이지에서 마우스 휠 확대/축소 할때 마우스 커서가 위치한 지점을 기준으로 확대 축소가 되면 좋을 것 같음
+          2. 그래프 탐색 탭 필터중 code는 명칭이 애매한것 같음 (실제로 코드 diff에 관한 내용은 노드가 아닌 MODIFIED 엣지에 들어가기 때문) (실제로 그래프에 뜨는 노드는 파일임)
+          3. 데이터 소스 탭에서 연결된 integration(github, jira, slack)들은 연결 해제 기능을 제공하지 않음(api 없음) -&gt; 프론트에서 연결 해제 제거, 깃허브 레포는 연결된 것만 뜨게 바꾸면 좋을 것 같음
+          4. 설정 탭의 식별자는 필요 없어보임
+          5. 프로필의 ... 버튼 누르면 현재 light모드와 로그아웃만 있는데 계정 설정탭을 만들어 회원 탈퇴 기능을 옮기는게 좋을 것 같음
+          6. 프로젝트를 누르면 '현재 프로젝트 설정 '이 있는데 왼쪽 탭에 있는 설정과 같음. 한쪽을 제거하는게 좋아 보임
+        occurred_at: '2026-06-22T06:45:54.688479Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 내가 데이터 소스 연결 해제 기능을 백엔드에 만들어 놓았더라고
+        occurred_at: '2026-06-23T05:08:12.922469Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 우선 깃허브레포 연결 해제에 대해서는 프로젝트 하나당 레포 하나가 무조건 연결되어있는게 맞고, 깃허브 레포를 해제하고 다른걸 연결하는 비용보다 새로운 프로덱트를
+          생성하는게 효율적이여서 없어야 하는게 맞고
+        occurred_at: '2026-06-23T05:10:50.819409Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 슬랙 지라 연결 해제 기능은 있어도 되고 없어도 될거같은데
+        occurred_at: '2026-06-23T05:11:54.669209Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그러네 그럼 프로젝트 삭제할 때는 어차피 연동이 끊끼는거지?
+        occurred_at: '2026-06-23T05:12:44.731689Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 슬랙 지라를 어떻게 할지게 따라 결정하면 될거같아
+        occurred_at: '2026-06-23T05:13:20.597949Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4739
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-56
+    body:
+      key: HT-56
+      title: 품질 개선 v2
+      body: 프롬프트 규칙 추가, 시스템 프롬프트 개선 도구 응답 보완 그래프 연결 구조 확인 임베딩 유사도 말고 다른 방법 고려 모델 교체 고려 (4o-mini to 4o
+        | 4.1)
+      status: 진행 중
+  dst:
+    type: message
+    id: '1783143134.172379'
+    body:
+      conversation_id: '1783143134.172379'
+      messages:
+      - body: |-
+          회의 때 노션에 정한 작업은 다 한거 같은데, 이제 남은게 내 생각엔 성능 향상이랑 배포 준비인거 같아
+          그래서 배포준비(redis 포함)전에 성능을 올릴 차례인거 같은데
+          그래프 구축, 응답 퀄리티 개선 작업 전에 지금 상태에서 테스트 케이스를 만들어 측정한 다음 개선작업이 진행될때마다 얼마나 향상되었는지 기록하는게 좋을거 같아
+        occurred_at: '2026-07-04T05:32:14.172379Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 관련해서 작성해놓은 md 파일이 있는데 노션에 올려둘테니까 한번 읽어보고 의견 부탁할게
+        occurred_at: '2026-07-04T05:32:47.449469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: |-
+          그래프만 같으면 서로 테스트 가능하니깐 이렇게 하는게 나을거 같아
+          1. A가 그래프를 구축하고 덤프파일로 B에게 공유
+          2. B는 공유받은 덤프파일을 로드 (빌드X)
+          3. 각자 테스트 가능
+          4. 그래프 연결 로직을 바꿔서 그 그래프를 채택하기로 확정을 하게되면 A가 다시 덤프파일로 공유
+          5. B는 새로받은 덤프파일을 로드해서 이어서 테스트
+        occurred_at: '2026-07-05T02:17:41.049589Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: |-
+          그리고 테스트 셋은 둘이 같이 만들면 될거같아
+          • e2e 골든셋(질의 품질용) 40개
+          • 엣지 라벨셋 (그래프 개선용)
+              ◦ precision 라벨(그린 엣지가 맞나) 50~100개
+                  ▪︎ B-1 precision: 그래프에 실제로 있는 엣지를 놓고 "이거 맞아?"를 잰다 → 항목은 현재 그래프에 존재하는 엣지
+              ◦ recall 골든 쌍(연결됐어야 할 걸 놓쳤나) 10~20쌍
+                  ▪︎ B-2 recall: 사람이 아는 "연결됐어야 할 쌍"을 놓고 "그래프가 이걸 만들었나?"를 잰다 → 항목은 그래프에 없을 수도 있는 기대값
+        occurred_at: '2026-07-05T02:20:22.459299Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프 새로 만들어야 되나
+        occurred_at: '2026-07-05T04:52:34.810519Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그래프 연결 개선을 위한 원천 데이터 스냅샷"(NormalizedEvent 셋)도 같이 준비해놔야 할거같아.
+        occurred_at: '2026-07-05T07:28:54.894949Z'
+        channel: 프로젝트
+        author: 정세영
+  label: relevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4585
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-90
+    body:
+      key: HT-90
+      title: 그래프 페이지 오류 수정
+      body: ''
+      status: 완료
+  dst:
+    type: message
+    id: '1781925043.152779'
+    body:
+      conversation_id: '1781925043.152779'
+      messages:
+      - body: |-
+          Claude.md랑 docs문서들 최신화 시키려고 하는데, 특히 tools.md는 너무 길어가지고 cotext 문서용으로 바꾸려면 많이 수정해야할거같더라고
+          문서들 내가 다 최신화 시켜도 될까?
+        occurred_at: '2026-06-20T03:10:43.152779Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 그럼 일단 주말동안 파이프라인 연결 먼저 하고 문서작업, 리팩토링 할까?
+        occurred_at: '2026-06-20T03:27:50.233579Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 이 작업 할게
+        occurred_at: '2026-06-20T09:25:41.313609Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 최신화한거 pr 날렸어
+        occurred_at: '2026-06-20T10:30:08.281739Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4565
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-103
+    body:
+      key: HT-103
+      title: 프로젝트 전환 기능
+      body: '프로젝트 전환 창 개수 제한, 스크롤 방식으로 변경, 순서 변경기능: 프로젝트 선택창 크기 제한하고 스크롤 가능하세 수정, 순서 바꿀 수 있게-노션처럼 → 백엔드,
+        db도 수정 필요'
+      status: 완료
+  dst:
+    type: message
+    id: '1783143134.172379'
+    body:
+      conversation_id: '1783143134.172379'
+      messages:
+      - body: |-
+          회의 때 노션에 정한 작업은 다 한거 같은데, 이제 남은게 내 생각엔 성능 향상이랑 배포 준비인거 같아
+          그래서 배포준비(redis 포함)전에 성능을 올릴 차례인거 같은데
+          그래프 구축, 응답 퀄리티 개선 작업 전에 지금 상태에서 테스트 케이스를 만들어 측정한 다음 개선작업이 진행될때마다 얼마나 향상되었는지 기록하는게 좋을거 같아
+        occurred_at: '2026-07-04T05:32:14.172379Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 관련해서 작성해놓은 md 파일이 있는데 노션에 올려둘테니까 한번 읽어보고 의견 부탁할게
+        occurred_at: '2026-07-04T05:32:47.449469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: |-
+          그래프만 같으면 서로 테스트 가능하니깐 이렇게 하는게 나을거 같아
+          1. A가 그래프를 구축하고 덤프파일로 B에게 공유
+          2. B는 공유받은 덤프파일을 로드 (빌드X)
+          3. 각자 테스트 가능
+          4. 그래프 연결 로직을 바꿔서 그 그래프를 채택하기로 확정을 하게되면 A가 다시 덤프파일로 공유
+          5. B는 새로받은 덤프파일을 로드해서 이어서 테스트
+        occurred_at: '2026-07-05T02:17:41.049589Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: |-
+          그리고 테스트 셋은 둘이 같이 만들면 될거같아
+          • e2e 골든셋(질의 품질용) 40개
+          • 엣지 라벨셋 (그래프 개선용)
+              ◦ precision 라벨(그린 엣지가 맞나) 50~100개
+                  ▪︎ B-1 precision: 그래프에 실제로 있는 엣지를 놓고 "이거 맞아?"를 잰다 → 항목은 현재 그래프에 존재하는 엣지
+              ◦ recall 골든 쌍(연결됐어야 할 걸 놓쳤나) 10~20쌍
+                  ▪︎ B-2 recall: 사람이 아는 "연결됐어야 할 쌍"을 놓고 "그래프가 이걸 만들었나?"를 잰다 → 항목은 그래프에 없을 수도 있는 기대값
+        occurred_at: '2026-07-05T02:20:22.459299Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프 새로 만들어야 되나
+        occurred_at: '2026-07-05T04:52:34.810519Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그래프 연결 개선을 위한 원천 데이터 스냅샷"(NormalizedEvent 셋)도 같이 준비해놔야 할거같아.
+        occurred_at: '2026-07-05T07:28:54.894949Z'
+        channel: 프로젝트
+        author: 정세영
+  label: unsure
+  note: HT-103 작업 이후 결과를 공유하며 다음 작업에 대한 대화라서 아예 관련이 없지는 않다.
+- edge_type: DISCUSSED_IN
+  confidence: 0.4545
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-90
+    body:
+      key: HT-90
+      title: 그래프 페이지 오류 수정
+      body: ''
+      status: 완료
+  dst:
+    type: message
+    id: '1781760314.473099'
+    body:
+      conversation_id: '1781760314.473099'
+      messages:
+      - body: |-
+          음 내생각엔 안되었을떈
+          1~3주차까지 계속 성능 향상 시키고
+          4~7 주차에 데이터 소스 확장하고
+          8~12 주차에 데이터 소스 확장한거에 따른 그래프 성능 향상?
+        occurred_at: '2026-06-18T05:44:26.113379Z'
+        channel: 일반
+        author: 정세영
+      - body: 오키 그 방향으로 작성해볼게
+        occurred_at: '2026-06-18T05:55:39.702659Z'
+        channel: 일반
+        author: 서준수
+      - body: 응 그냥 로그인은 건너뛰고 페이지 기능들만 좀 소개하면 될듯
+        occurred_at: '2026-06-18T06:04:41.903079Z'
+        channel: 일반
+        author: 서준수
+      - body: 그냥 planB는 없앨까? 적어놓으니까 딱히 뭐 없어보이기는 하네
+        occurred_at: '2026-06-18T06:39:58.355799Z'
+        channel: 일반
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4437
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-99
+    body:
+      key: HT-99
+      title: 프론트엔드 개선작업
+      body: '질문 쓸때 Shift Enter 누르면 위에 쓴 내용이 안보임 -> 대화창이 커져야 함 (chatGPT처럼) 응답에 마크다운 적용 안되고 있어서 수정 필요 질문
+        응답 대기중에 다른 채팅창으로 이동히면 ui 이상: 돌아가는게 다른 채팅창에도 적용이 됨 '
+      status: 완료
+  dst:
+    type: message
+    id: '1783143134.172379'
+    body:
+      conversation_id: '1783143134.172379'
+      messages:
+      - body: |-
+          회의 때 노션에 정한 작업은 다 한거 같은데, 이제 남은게 내 생각엔 성능 향상이랑 배포 준비인거 같아
+          그래서 배포준비(redis 포함)전에 성능을 올릴 차례인거 같은데
+          그래프 구축, 응답 퀄리티 개선 작업 전에 지금 상태에서 테스트 케이스를 만들어 측정한 다음 개선작업이 진행될때마다 얼마나 향상되었는지 기록하는게 좋을거 같아
+        occurred_at: '2026-07-04T05:32:14.172379Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 관련해서 작성해놓은 md 파일이 있는데 노션에 올려둘테니까 한번 읽어보고 의견 부탁할게
+        occurred_at: '2026-07-04T05:32:47.449469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: |-
+          그래프만 같으면 서로 테스트 가능하니깐 이렇게 하는게 나을거 같아
+          1. A가 그래프를 구축하고 덤프파일로 B에게 공유
+          2. B는 공유받은 덤프파일을 로드 (빌드X)
+          3. 각자 테스트 가능
+          4. 그래프 연결 로직을 바꿔서 그 그래프를 채택하기로 확정을 하게되면 A가 다시 덤프파일로 공유
+          5. B는 새로받은 덤프파일을 로드해서 이어서 테스트
+        occurred_at: '2026-07-05T02:17:41.049589Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: |-
+          그리고 테스트 셋은 둘이 같이 만들면 될거같아
+          • e2e 골든셋(질의 품질용) 40개
+          • 엣지 라벨셋 (그래프 개선용)
+              ◦ precision 라벨(그린 엣지가 맞나) 50~100개
+                  ▪︎ B-1 precision: 그래프에 실제로 있는 엣지를 놓고 "이거 맞아?"를 잰다 → 항목은 현재 그래프에 존재하는 엣지
+              ◦ recall 골든 쌍(연결됐어야 할 걸 놓쳤나) 10~20쌍
+                  ▪︎ B-2 recall: 사람이 아는 "연결됐어야 할 쌍"을 놓고 "그래프가 이걸 만들었나?"를 잰다 → 항목은 그래프에 없을 수도 있는 기대값
+        occurred_at: '2026-07-05T02:20:22.459299Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프 새로 만들어야 되나
+        occurred_at: '2026-07-05T04:52:34.810519Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그래프 연결 개선을 위한 원천 데이터 스냅샷"(NormalizedEvent 셋)도 같이 준비해놔야 할거같아.
+        occurred_at: '2026-07-05T07:28:54.894949Z'
+        channel: 프로젝트
+        author: 정세영
+  label: unsure
+  note: HT-99 작업 이후 결과를 공유하며 다음 작업에 대한 대화라서 아예 관련이 없지는 않다.
+- edge_type: DISCUSSED_IN
+  confidence: 0.4408
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-56
+    body:
+      key: HT-56
+      title: 품질 개선 v2
+      body: 프롬프트 규칙 추가, 시스템 프롬프트 개선 도구 응답 보완 그래프 연결 구조 확인 임베딩 유사도 말고 다른 방법 고려 모델 교체 고려 (4o-mini to 4o
+        | 4.1)
+      status: 진행 중
+  dst:
+    type: message
+    id: '1782650084.848469'
+    body:
+      conversation_id: '1782650084.848469'
+      messages:
+      - body: Backend 대화랑 메세지 페이지네이션적용한거 pr 날렸어
+        occurred_at: '2026-06-28T12:34:44.848469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: Pipeline은 개선이라고 표기한거 다 하고 있는거야?
+        occurred_at: '2026-06-28T14:06:19.375699Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 7번은 보류하고 나머지는 하고 있어
+        occurred_at: '2026-06-28T14:08:56.667669Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 7번도 하는게 좋을까?
+        occurred_at: '2026-06-28T14:09:33.956719Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아니면 그래프쪽 api 같은 미구현된 거 만드는거
+        occurred_at: '2026-06-28T14:12:18.694489Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그래프쪽 미구현 api가 어떤거 어떤거 있지?
+        occurred_at: '2026-06-28T14:12:56.538229Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프면 ai-engine쪽?
+        occurred_at: '2026-06-28T14:14:57.864009Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그 llm 답변에 노드들 하이라이트 되는거?
+        occurred_at: '2026-06-28T14:17:40.336359Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 이거 프론트 초안이었는데 여기서 오른쪽에 뜨는거?
+        occurred_at: '2026-06-28T14:19:47.733029Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 이거 맞아
+        occurred_at: '2026-06-28T14:23:25.626879Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아직 프론트에서도 구현이 안된거 같기는 한데
+        occurred_at: '2026-06-28T14:23:45.415149Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 오키 그럼 이거 프론트랑 같이 해서 작업 해볼게
+        occurred_at: '2026-06-28T14:24:15.807689Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.44
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-22
+    body:
+      key: HT-22
+      title: Slack 데이터 전처리
+      body: 'slack의 잡담 제거 1단계: 규칙 기반 제거 2단계: LLM 기반 제거 스레드 단위로 노드 생성 개선점: 프롬프트에 README.md 기반 요약 추가해서 LLM에
+        주는 프롬프트에 프로젝트에 관한 설명 추가(04/29/2026)'
+      status: 완료
+  dst:
+    type: message
+    id: '1777615886.638969'
+    body:
+      conversation_id: '1777615886.638969'
+      messages:
+      - body: 지식그래프 데이터 수정된 부분이 PullRequest 노드에서 “created_at”이 추가된거였었나?
+        occurred_at: '2026-05-01T06:11:26.638969Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: issue, communication, PullRequest 노드에 created_at 생겼고, 공통필드인 occuredAt이 각 노드마다 의미가 달라
+        occurred_at: '2026-05-01T06:14:25.657999Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: issue는 update시간이고, communication에선 슬랙의 전송시간이랑 깃허브의 issue의 update시간, PullRequest에선 머지된 시간,
+          ChangeSet에선 커밋된 시간
+        occurred_at: '2026-05-01T06:16:00.613259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 작업중인 브랜치에선 md파일에 노드 속성같은거 전부 수정시켜놨는데 먼저 머지시킬까?
+        occurred_at: '2026-05-01T06:17:30.026689Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 일단 머지하면 좋을 것 같긴 해
+        occurred_at: '2026-05-01T06:21:54.791849Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4297
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-92
+    body:
+      key: HT-92
+      title: 문서 작업
+      body: backend API 시스템 전체 API 로컬 개발 환경 / 온보딩 가이드 외부 연동 셋업 가이드 아키텍처 개요 위 5개 문서 작성
+      status: 완료
+  dst:
+    type: message
+    id: '1782286987.165039'
+    body:
+      conversation_id: '1782286987.165039'
+      messages:
+      - body: |-
+          backend에서 ai-engine 호출 타임아웃 설정 작업하고있는데, 스레드 풀 관리때문에 그래프 구축하는 것을 비동기로 전환이 필요해서 알아보다가 현재 그래프 구축, 재구축이 전역으로 관리되고 있어서 한사람이 재구축 함수를 호출하면 그사람의 모든 프로젝트 그리고 다른사람의 모든 프로젝트까지 그래프를 재구축 하고 있더라고
+          이거 수정이 필요할거 같은데 내가 같이 작업할까?
+        occurred_at: '2026-06-24T07:43:07.165039Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: openai api 호출에 rate limit 때문에 동시에 처리하는게 좀 걸리는데 llm 호출쪽은 지금이 낫지 않을까?
+        occurred_at: '2026-06-24T08:48:08.076109Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 우선 한도량 고려해서 처리할 수 있는 방법 찾아보고 해볼게
+        occurred_at: '2026-06-24T10:18:07.608509Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: Openai 호출을 관리하는 파일을 확장해서 실제 한도(RPM과 TPM)에 맞춰서 호출하게 하면 될거같아
+        occurred_at: '2026-06-24T10:40:40.628889Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 토큰을 추정해야 하겠네 한번 해볼게
+        occurred_at: '2026-06-24T12:12:21.102659Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아 그럼 일단 llm 말고 다른 부분부터 작업할게
+        occurred_at: '2026-06-24T13:15:02.632039Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4236
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-43
+    body:
+      key: HT-43
+      title: 질문 관련 프롬프트 및 기능 수정
+      body: ''
+      status: 완료
+  dst:
+    type: message
+    id: '1778586053.322069'
+    body:
+      conversation_id: '1778586053.322069'
+      messages:
+      - body: tool pr 날렸어 그리고 노션에 테스트 결과 문서에 정리해놨어
+        occurred_at: '2026-05-12T11:40:53.322069Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 테스트 결과보니깐 괜찮게 나온거 같아 보이네
+        occurred_at: '2026-05-12T12:59:21.356869Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프 생성방안 후보들 적어놓았던거 이젠 확정해서 코드 짜가지고 수정하면 좋을거 같아서
+        occurred_at: '2026-05-12T13:16:58.220329Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4214
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-90
+    body:
+      key: HT-90
+      title: 그래프 페이지 오류 수정
+      body: ''
+      status: 완료
+  dst:
+    type: message
+    id: '1782194759.806139'
+    body:
+      conversation_id: '1782194759.806139'
+      messages:
+      - body: 클로드한테 처리 속도·효율성 병목지점 찾아달라고 하고 하나씩 살펴보고 결정란을 채워 넣었는데
+        occurred_at: '2026-06-23T06:06:29.516279Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: backend와 pipeline-worker부분은 내가 작업한게 많아서 잘 채워넣은 반면에 ai-engine쪽은 그렇게 코드를 짠 배경이나 맥락, 트레이드오프
+          같은걸 정확하게는 몰라서 나름대로 조사해보고 결정란을 채워넣어봤어
+        occurred_at: '2026-06-23T06:07:44.531499Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래서 특히 ai-engine쪽을 자세히 확인해줬으면 좋을거 같고
+        occurred_at: '2026-06-23T06:09:55.386829Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 우선 난 문서의 결정란에 개선이라고 표시해놓은 부분중에서 backend 먼저 작업을 해볼까하는데
+        occurred_at: '2026-06-23T06:11:09.392509Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 일단 수정하는것도 괜찮을 것 같은데 나는 ai-engine 자세히 한번 봐볼게
+        occurred_at: '2026-06-23T09:51:48.261049Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4186
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-29
+    body:
+      key: HT-29
+      title: 슬랙 데이터로 생성
+      body: slack 관련 pipeline-worker 수정 요청 슬랙 데이터로 그래프 생성 2026/05/08 완료
+      status: 완료
+  dst:
+    type: message
+    id: '1778165442.394199'
+    body:
+      conversation_id: '1778165442.394199'
+      messages:
+      - body: 발표를 나눠서 할거면 슬랙 필터 수정을 파이프라인 개선 후로 둬야 진행중을 마무리로 할수있을거같긴해
+        occurred_at: '2026-05-07T14:50:42.394199Z'
+        channel: 일반
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4176
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-68
+    body:
+      key: HT-68
+      title: 기존 배치/질의 스코핑
+      body: '채팅  /query :  tools/queries.py 의 모든 Cypher에 project_id 필터. 벡터 인덱스는 사전 필터가 안 되므로 over-fetch
+        후  WHERE n.project_id = ...  후처리. backend  MessageService  →  AiEngineQueryClient.ask() 에 projectId
+        전달 필요 — 이건 그래프 API와 별개로  지금도 존재하는 데이터 누출 경로 라 함께 처리해야 합니다'
+      status: 완료
+  dst:
+    type: message
+    id: '1781356896.027259'
+    body:
+      conversation_id: '1781356896.027259'
+      messages:
+      - body: |-
+          금요일 전까지 작업해야할거를 현재 완성되어있는 api들 기준으로 정리해봤는데
+
+          백엔드에서는
+          • 각 integration(깃허브 지라 슬랙)연결시 pipeline-worker의 수집을 트리거 하는 로직 필요
+          • webhook github app에 등록
+          • 암호화 키 하드코딩 제거
+          프론트에서는
+          • 아직 연결 안된 api (회원탈퇴, 채팅 제목 수정, 채팅 삭제, 그래프 조회) 연결
+          • 프로젝트 생성시 깃허브 레포 선택 UI 필요
+          • 채팅 ui 질문은 오른쪽에 응답은 왼쪽에 배치
+          • 백엔드에서의 pipeline-worker의 수집을 트리거하는 api 연결
+        occurred_at: '2026-06-13T13:26:41.222399Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 이정도 인거 같은데 나눠서 역할을 나눠야 할거 같아서
+        occurred_at: '2026-06-13T13:29:38.934299Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 더 필요한 작업 있어보여?
+        occurred_at: '2026-06-13T13:31:43.879479Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 나 지금 프론트 오류 있는거 좀 수정하고 있었는데
+        occurred_at: '2026-06-13T15:24:11.545729Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 써준 프론트 작업은 내가 할게
+        occurred_at: '2026-06-13T15:25:00.793879Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4169
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-97
+    body:
+      key: HT-97
+      title: conversation, message 페이지네이션 적용
+      body: Conversation과 message 수가 늘어나면 처음 데이터를 가져올때 비용이 늘어난 수만큼 선형으로 증가하게된다. 따라서 페이지 네이션을 적용해 필요할때(스크롤을
+        통해) 추가 로딩을 하는 방식으로 바꾼다.
+      status: 완료
+  dst:
+    type: message
+    id: '1782286987.165039'
+    body:
+      conversation_id: '1782286987.165039'
+      messages:
+      - body: |-
+          backend에서 ai-engine 호출 타임아웃 설정 작업하고있는데, 스레드 풀 관리때문에 그래프 구축하는 것을 비동기로 전환이 필요해서 알아보다가 현재 그래프 구축, 재구축이 전역으로 관리되고 있어서 한사람이 재구축 함수를 호출하면 그사람의 모든 프로젝트 그리고 다른사람의 모든 프로젝트까지 그래프를 재구축 하고 있더라고
+          이거 수정이 필요할거 같은데 내가 같이 작업할까?
+        occurred_at: '2026-06-24T07:43:07.165039Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: openai api 호출에 rate limit 때문에 동시에 처리하는게 좀 걸리는데 llm 호출쪽은 지금이 낫지 않을까?
+        occurred_at: '2026-06-24T08:48:08.076109Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 우선 한도량 고려해서 처리할 수 있는 방법 찾아보고 해볼게
+        occurred_at: '2026-06-24T10:18:07.608509Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: Openai 호출을 관리하는 파일을 확장해서 실제 한도(RPM과 TPM)에 맞춰서 호출하게 하면 될거같아
+        occurred_at: '2026-06-24T10:40:40.628889Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 토큰을 추정해야 하겠네 한번 해볼게
+        occurred_at: '2026-06-24T12:12:21.102659Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아 그럼 일단 llm 말고 다른 부분부터 작업할게
+        occurred_at: '2026-06-24T13:15:02.632039Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.409
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-22
+    body:
+      key: HT-22
+      title: Slack 데이터 전처리
+      body: 'slack의 잡담 제거 1단계: 규칙 기반 제거 2단계: LLM 기반 제거 스레드 단위로 노드 생성 개선점: 프롬프트에 README.md 기반 요약 추가해서 LLM에
+        주는 프롬프트에 프로젝트에 관한 설명 추가(04/29/2026)'
+      status: 완료
+  dst:
+    type: message
+    id: '1777026036.599589'
+    body:
+      conversation_id: '1777026036.599589'
+      messages:
+      - body: 본 과제는 GitHub, Jira, Slack 등에 분산된 협업 데이터를 수집하여 데이터 간의 의미적 관계를 명시하는 지식 그래프를 구축합니다. 이를 바탕으로
+          GraphRAG 기반 AI 추론 엔진을 적용해, 단순한 조회를 넘어 사용자의 자연어 질의에 따라 코드 변경의 맥락과 의사결정 배경을 자동으로 설명하는 시스템을 구현합니다.
+        occurred_at: '2026-04-24T13:13:23.127649Z'
+        channel: 일반
+        author: 서준수
+      - body: 일단 캡스톤디자인 교과목 고도화 확인서 작성해서 월요일에 교수님한테 이메일 보내고 화요일에 과사무실 가서 도장 받아야 할 것 같아
+        occurred_at: '2026-04-24T13:51:00.049469Z'
+        channel: 일반
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4078
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-59
+    body:
+      key: HT-59
+      title: GitHub installation token 관리작업
+      body: nstallationTokenService , token 암호화 저장/갱신, 만료 5분 전 재발급, 동시성 제어 작업
+      status: 완료
+  dst:
+    type: message
+    id: '1779967008.121469'
+    body:
+      conversation_id: '1779967008.121469'
+      messages:
+      - body: pipeline-worker 체크포인트랑 웹훅 backend DB에 연결하는 작업 pr 날렸어
+        occurred_at: '2026-05-28T11:16:48.121469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: curl로 api 호출 할때 이제 BD에 저장된 프로젝트 UUID까지 넣어야해서, 기존처럼 api키만 넣고 호출하는 테스트는 안될거야
+        occurred_at: '2026-05-28T11:18:22.280109Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4037
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-103
+    body:
+      key: HT-103
+      title: 프로젝트 전환 기능
+      body: '프로젝트 전환 창 개수 제한, 스크롤 방식으로 변경, 순서 변경기능: 프로젝트 선택창 크기 제한하고 스크롤 가능하세 수정, 순서 바꿀 수 있게-노션처럼 → 백엔드,
+        db도 수정 필요'
+      status: 완료
+  dst:
+    type: message
+    id: '1782650084.848469'
+    body:
+      conversation_id: '1782650084.848469'
+      messages:
+      - body: Backend 대화랑 메세지 페이지네이션적용한거 pr 날렸어
+        occurred_at: '2026-06-28T12:34:44.848469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: Pipeline은 개선이라고 표기한거 다 하고 있는거야?
+        occurred_at: '2026-06-28T14:06:19.375699Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 7번은 보류하고 나머지는 하고 있어
+        occurred_at: '2026-06-28T14:08:56.667669Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 7번도 하는게 좋을까?
+        occurred_at: '2026-06-28T14:09:33.956719Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아니면 그래프쪽 api 같은 미구현된 거 만드는거
+        occurred_at: '2026-06-28T14:12:18.694489Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그래프쪽 미구현 api가 어떤거 어떤거 있지?
+        occurred_at: '2026-06-28T14:12:56.538229Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프면 ai-engine쪽?
+        occurred_at: '2026-06-28T14:14:57.864009Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그 llm 답변에 노드들 하이라이트 되는거?
+        occurred_at: '2026-06-28T14:17:40.336359Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 이거 프론트 초안이었는데 여기서 오른쪽에 뜨는거?
+        occurred_at: '2026-06-28T14:19:47.733029Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 이거 맞아
+        occurred_at: '2026-06-28T14:23:25.626879Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아직 프론트에서도 구현이 안된거 같기는 한데
+        occurred_at: '2026-06-28T14:23:45.415149Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 오키 그럼 이거 프론트랑 같이 해서 작업 해볼게
+        occurred_at: '2026-06-28T14:24:15.807689Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.402
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-92
+    body:
+      key: HT-92
+      title: 문서 작업
+      body: backend API 시스템 전체 API 로컬 개발 환경 / 온보딩 가이드 외부 연동 셋업 가이드 아키텍처 개요 위 5개 문서 작성
+      status: 완료
+  dst:
+    type: message
+    id: '1782617831.578529'
+    body:
+      conversation_id: '1782617831.578529'
+      messages:
+      - body: 혹시 pipeline 부분 작업하고 있어?
+        occurred_at: '2026-06-28T03:37:11.578529Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그럼 내가 pipeline쪽 해볼게
+        occurred_at: '2026-06-28T04:00:42.653019Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: DISCUSSED_IN
+  confidence: 0.4009
+  bucket: 0.40-0.50
+  src:
+    type: issue
+    id: HT-56
+    body:
+      key: HT-56
+      title: 품질 개선 v2
+      body: 프롬프트 규칙 추가, 시스템 프롬프트 개선 도구 응답 보완 그래프 연결 구조 확인 임베딩 유사도 말고 다른 방법 고려 모델 교체 고려 (4o-mini to 4o
+        | 4.1)
+      status: 진행 중
+  dst:
+    type: message
+    id: '1781832528.978749'
+    body:
+      conversation_id: '1781832528.978749'
+      messages:
+      - body: 혹시 2개로 나뉜 그래프에서 임베딩 벡터 한번 확인해줄 수 있어?
+        occurred_at: '2026-06-19T01:28:48.978749Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 확인해봤는데 임베딩 유사도 측정해서 reference edge 생성하는 로직이 호출되는곳이 아예 없어서 그랬던거였어
+        occurred_at: '2026-06-19T02:26:00.423589Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: api는 있어서 수동으로 호출 하니깐 나뉜거 없이 전부 연결됐어
+        occurred_at: '2026-06-19T02:27:10.455689Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 파이프라인 연결해야겠네
+        occurred_at: '2026-06-19T02:28:33.557929Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3533
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: e166f84
+    body:
+      hash: e166f848063cc86bddc6925f689a17467d2b0bc6
+      message: |-
+        fix: 기동 직후 /api 요청 502 방지
+
+        backend가 부팅을 마치기 전 nginx가 프록시해 connection refused(502)가
+        발생하던 문제 해결.
+
+        - backend healthcheck 추가(8080 포트 확인), web-dashboard가
+          service_healthy 조건을 기다리도록 변경
+        - nginx가 docker 내장 resolver로 backend를 주기적 재해석하도록
+          변경해 backend 재시작 후 IP 변경에도 대응
+      files:
+      - infra/docker/docker-compose.yml
+      - clients/web-dashboard/nginx.conf
+  dst:
+    type: message
+    id: '1781832528.978749'
+    body:
+      conversation_id: '1781832528.978749'
+      messages:
+      - body: 혹시 2개로 나뉜 그래프에서 임베딩 벡터 한번 확인해줄 수 있어?
+        occurred_at: '2026-06-19T01:28:48.978749Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 확인해봤는데 임베딩 유사도 측정해서 reference edge 생성하는 로직이 호출되는곳이 아예 없어서 그랬던거였어
+        occurred_at: '2026-06-19T02:26:00.423589Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: api는 있어서 수동으로 호출 하니깐 나뉜거 없이 전부 연결됐어
+        occurred_at: '2026-06-19T02:27:10.455689Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 파이프라인 연결해야겠네
+        occurred_at: '2026-06-19T02:28:33.557929Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3815
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 36cacb9
+    body:
+      hash: 36cacb9945196b20abed6184bf239f1722766b7a
+      message: |-
+        feat: 프로젝트 연동 목록 조회 및 연결 해제 기능 추가
+
+        - GET /api/v1/projects/{projectId}/integrations 추가로 연동 목록 조회 지원
+        - DELETE /api/v1/projects/{projectId}/integrations/{integrationId} 추가로 연동 해제 지원 (미존재 시 404)
+        - SourcesPage의 GitHub 연결 상태를 서버 데이터 기반으로 동기화하고, 연결/해제 실패 시 에러 메시지와 "연결 해제" 버튼(확인 다이얼로그 포함)을 노출
+      files:
+      - services/backend/src/main/java/com/history/backend/integration/service/IntegrationService.java
+      - services/backend/src/test/java/com/history/backend/integration/controller/IntegrationControllerTest.java
+      - clients/web-dashboard/src/api/integrations.ts
+      - services/backend/src/test/java/com/history/backend/integration/service/IntegrationServiceTest.java
+      - clients/web-dashboard/src/pages/SourcesPage.tsx
+      - services/backend/src/main/java/com/history/backend/integration/controller/IntegrationController.java
+  dst:
+    type: message
+    id: '1781533811.868749'
+    body:
+      conversation_id: '1781533811.868749'
+      messages:
+      - body: 실행해봤는데 깃허브 수집은 수집할 브랜치를 입력받게 되어있는데 null이면 main브랜치가 수집되고 pr은 코드상에서 브랜치 입력받게 안해놔서 모든 브랜치의
+          pr을 전부 가져오더라고
+        occurred_at: '2026-06-16T00:16:43.635259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래서 노드가 제대로 수집이 안되서 그래프가 잘 안만들어지는데 이부분 작업 필요해보이네
+        occurred_at: '2026-06-16T00:17:56.714539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 선택할 수 있게 할까?
+        occurred_at: '2026-06-16T00:18:53.083469Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 프론트에서는 레포지토리 연결할때 브랜치 하나만 선택할 수 있게하고 생성된 프로젝트에 대해서는 브랜치 변경이 안되게 하는게 좋을거같고
+        occurred_at: '2026-06-16T00:19:45.411539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 백엔드에서는 커밋, pr, 이슈 api에 dto로 브랜치 명까지 받아서 db에 저장해야할거 같아
+        occurred_at: '2026-06-16T00:20:42.340209Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 리드미 주입할때 주입하고 캐시를 파일로 하는데 이러면 사람들이 늘어나면 관리가 어려워질거 같아서
+        occurred_at: '2026-06-16T00:24:37.668259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 다시 알아보니깐 파일이 아니라 RAM에 저장하는거고 재시작 시 손실, 메모리, 다중 인스턴스 미공유 측면에서 문제점이 있어서 방식을 바꾸는게 나은데, 가장 추천하는게
+          redis 도입인것 같아.
+        occurred_at: '2026-06-16T00:45:31.515399Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 금요일 전에 끝내야 하는거 위주로 찾아서 먼저 작업하는게 좋을거같아서 저 작업은 잠깐 미뤄둘게
+        occurred_at: '2026-06-16T00:46:07.279679Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 일단 브랜치 부분은 수정해서 커밋 올렸어
+        occurred_at: '2026-06-16T07:27:38.799809Z'
+        channel: 프로젝트
+        author: 서준수
+  label: relevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3741
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 0b9d030
+    body:
+      hash: 0b9d030a86cad9cfef096e06c5e0f42284e13920
+      message: 'feat: provider별 초기 수집 트리거 엔드포인트 추가'
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/collection/JiraIntegration.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/collection/ProjectIntegrationServiceTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/dto/NormalizeFetchRequest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/pipeline/PipelineService.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/collection/GitHubIntegration.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/controller/CollectionTriggerControllerTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/trigger/CollectionTriggerService.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/controller/CollectionTriggerController.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/collection/ProjectIntegrationService.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/trigger/CollectionTriggerServiceTest.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/dto/CollectTriggerRequestTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/trigger/CollectionProvider.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/collection/SlackIntegration.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/dto/CollectTriggerRequest.java
+  dst:
+    type: message
+    id: '1781600092.933319'
+    body:
+      conversation_id: '1781600092.933319'
+      messages:
+      - body: |-
+          실제로 실행시켜보면서 발견한건데 프로젝트를 지우면 backend db는 지워지지만 neo4j까지 지우는 코드는 없어서 노드들이 고아데이터로 남아있더라고.
+          이부분 작업해볼게
+        occurred_at: '2026-06-16T08:54:52.933319Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 이 작업 pr 날렸어
+        occurred_at: '2026-06-17T05:18:32.623089Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3889
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 6bd3c7f
+    body:
+      hash: 6bd3c7f22755a59bf2a952c1bf32bb19b7104e8a
+      message: |-
+        feat: 프로젝트 전환창 크기 제한·스크롤·드래그 순서 변경 (web-dashboard)
+
+        프로젝트 선택 목록에 크기 제한(스크롤) + 노션식 드래그 순서 변경.
+        - 순서 변경은 낙관적 업데이트(즉시 반영, 실패 시 롤백)
+        - 그립 핸들은 hover 시 노출, 드래그 직후 오클릭 방지
+      files:
+      - clients/web-dashboard/src/hooks/useProjects.ts
+      - clients/web-dashboard/src/components/shell/Sidebar.tsx
+      - clients/web-dashboard/src/styles/sidebar.css
+      - clients/web-dashboard/src/components/shell/AppShell.tsx
+      - clients/web-dashboard/src/api/projects.ts
+      - clients/web-dashboard/src/components/Icons.tsx
+      - clients/web-dashboard/src/components/shell/ProjectSwitcher.tsx
+  dst:
+    type: message
+    id: '1783238894.462559'
+    body:
+      conversation_id: '1783238894.462559'
+      messages:
+      - body: 덤프파일이랑 원천 데이터 스냅샷은 용량때문에 계속 커밋하게 되면 깃허브가 무거워진다고 해서 gitignore에 추가했어
+        occurred_at: '2026-07-05T08:09:34.487919Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: eval/snapshots/ 폴더 만들어서 여기에 두고 각자 가지고 있으면 될거같아
+        occurred_at: '2026-07-05T08:09:55.067699Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 오늘 받은 덤프파일은 오늘 날자로 붙여서 md 파일의 명칭 컨벤션에 따라서 아까 받은 덤프파일은 eval/snapshots/graph-2026-07-05.dump
+          이렇게 할게
+        occurred_at: '2026-07-05T08:12:14.961279Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 생각해보니까 이거 최신거로 새로 만드는게 좋을 것 같아서
+        occurred_at: '2026-07-05T08:25:28.830699Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 다시 만들어서 보내줄게
+        occurred_at: '2026-07-05T08:25:35.117479Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3514
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 63affb3
+    body:
+      hash: 63affb346e1565df6600ff15f5acfd9a4570db90
+      message: 'feat: 탈퇴 사용자 purge 스케줄러 추가'
+      files:
+      - services/backend/src/main/java/com/history/backend/auth/service/UserPurgeService.java
+      - services/backend/src/main/java/com/history/backend/auth/repository/UserRepository.java
+      - services/backend/src/test/resources/application.yaml
+      - services/backend/src/main/java/com/history/backend/auth/service/UserPurgeScheduler.java
+      - services/backend/src/test/java/com/history/backend/auth/service/UserPurgeServiceTest.java
+      - services/backend/src/test/java/com/history/backend/auth/service/UserPurgeSchedulerTest.java
+      - services/backend/src/main/java/com/history/backend/auth/UserPurgeProperties.java
+      - services/backend/src/main/java/com/history/backend/BackendApplication.java
+      - services/backend/src/main/resources/application.yaml
+      - services/backend/src/test/java/com/history/backend/auth/UserPurgePropertiesTest.java
+      - services/backend/src/main/java/com/history/backend/config/PropertiesConfig.java
+      - services/backend/src/test/java/com/history/backend/auth/repository/AuthPersistenceTest.java
+  dst:
+    type: message
+    id: '1780206867.542399'
+    body:
+      conversation_id: '1780206867.542399'
+      messages:
+      - body: 응 backend 폴더 안에 있으면 매번 export 안해도 되게 하려고
+        occurred_at: '2026-05-31T06:42:09.655839Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: infra/docker 폴더에 env파일에 빈칸값 넣어놓은 다음 따로 export 하던지 아님 setenv파일을 만들던지 해야하는거지?
+        occurred_at: '2026-05-31T06:44:20.578549Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 깃허브로 로그인하기 하면 access token이 json으로  화면에 뜨는데 현재 이렇게 뜨는게 맞는거야?
+        occurred_at: '2026-05-31T07:13:43.016769Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그것도 해봤는데 어쩔땐 502뜨고 어쩔땐 access토큰 뜨고 그래
+        occurred_at: '2026-05-31T07:15:38.129109Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 시크릿 키값 문자열 치환때문에 안됐던거였네
+        occurred_at: '2026-05-31T07:31:02.048929Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 실행시켜서 확인해봤는데 현재 로그인, 프로젝트 생성(생성과 동시에 깃허브 레포 연결은 아직), 채팅 이렇게 구현되어있는거지?
+        occurred_at: '2026-05-31T07:35:20.485909Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3063
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 5ac4f4e
+    body:
+      hash: 5ac4f4eea5f86a89b03b5bec5b7ddde8920a7270
+      message: 'feat: 자격 증명 AES-GCM 암호화 기반 추가'
+      files:
+      - services/backend/src/main/java/com/history/backend/common/crypto/CredentialCryptoService.java
+      - services/backend/src/test/java/com/history/backend/common/crypto/CredentialCryptoServiceTest.java
+      - services/backend/src/test/resources/application.yaml
+      - services/backend/src/main/resources/application.yaml
+      - services/backend/src/main/java/com/history/backend/common/crypto/CredentialCryptoProperties.java
+      - services/backend/src/main/java/com/history/backend/config/PropertiesConfig.java
+  dst:
+    type: message
+    id: '1779372787.760439'
+    body:
+      conversation_id: '1779372787.760439'
+      messages:
+      - body: 혹지 5페이지에 "자연어 질문들" 처럼 2페이지에 "백엔드 진행사항" 으로 넣어줄수있어?
+        occurred_at: '2026-05-21T14:17:01.971149Z'
+        channel: 일반
+        author: 정세영
+      - body: 수정하려했는데 수정권한이 없다고 떠서
+        occurred_at: '2026-05-21T14:17:29.892609Z'
+        channel: 일반
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3569
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 3e1d00e
+    body:
+      hash: 3e1d00e99548fc17c5d422a73ad1936aee0aa38c
+      message: 'feat: AI 엔진 멀티턴 대화 이력 입력 지원'
+      files:
+      - services/ai-engine/query_models.py
+      - services/ai-engine/test_multiturn_history.py
+      - services/ai-engine/main.py
+      - services/ai-engine/agent/orchestrator.py
+  dst:
+    type: message
+    id: '1781533811.868749'
+    body:
+      conversation_id: '1781533811.868749'
+      messages:
+      - body: 실행해봤는데 깃허브 수집은 수집할 브랜치를 입력받게 되어있는데 null이면 main브랜치가 수집되고 pr은 코드상에서 브랜치 입력받게 안해놔서 모든 브랜치의
+          pr을 전부 가져오더라고
+        occurred_at: '2026-06-16T00:16:43.635259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래서 노드가 제대로 수집이 안되서 그래프가 잘 안만들어지는데 이부분 작업 필요해보이네
+        occurred_at: '2026-06-16T00:17:56.714539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 선택할 수 있게 할까?
+        occurred_at: '2026-06-16T00:18:53.083469Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 프론트에서는 레포지토리 연결할때 브랜치 하나만 선택할 수 있게하고 생성된 프로젝트에 대해서는 브랜치 변경이 안되게 하는게 좋을거같고
+        occurred_at: '2026-06-16T00:19:45.411539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 백엔드에서는 커밋, pr, 이슈 api에 dto로 브랜치 명까지 받아서 db에 저장해야할거 같아
+        occurred_at: '2026-06-16T00:20:42.340209Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 리드미 주입할때 주입하고 캐시를 파일로 하는데 이러면 사람들이 늘어나면 관리가 어려워질거 같아서
+        occurred_at: '2026-06-16T00:24:37.668259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 다시 알아보니깐 파일이 아니라 RAM에 저장하는거고 재시작 시 손실, 메모리, 다중 인스턴스 미공유 측면에서 문제점이 있어서 방식을 바꾸는게 나은데, 가장 추천하는게
+          redis 도입인것 같아.
+        occurred_at: '2026-06-16T00:45:31.515399Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 금요일 전에 끝내야 하는거 위주로 찾아서 먼저 작업하는게 좋을거같아서 저 작업은 잠깐 미뤄둘게
+        occurred_at: '2026-06-16T00:46:07.279679Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 일단 브랜치 부분은 수정해서 커밋 올렸어
+        occurred_at: '2026-06-16T07:27:38.799809Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3384
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 312e162
+    body:
+      hash: 312e162510f2e73fbab76838a1c7dda9025b85a8
+      message: 'fix: 슬랙 URL 딥링크로 변경'
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/normalizer/SlackNormalizer.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/normalizer/SlackNormalizerTest.java
+  dst:
+    type: message
+    id: '1778329685.720139'
+    body:
+      conversation_id: '1778329685.720139'
+      messages:
+      - body: make-graph 브랜치 pr 날렸어
+        occurred_at: '2026-05-09T12:28:05.720139Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 노션 10주차 회의록에 액터 노드 병합 테스트 결과 작성해놨는데 한번 확인해줘
+        occurred_at: '2026-05-09T12:31:07.484449Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 병합 안된건 너무 달라서 안되는게 맞는거 같긴해서 어쩔 수 없는거 같아
+        occurred_at: '2026-05-10T06:35:49.219679Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 동명이인 구별하려고하기로 했었어서 이름 같은걸로만으로는 안될거야
+        occurred_at: '2026-05-10T07:28:45.742599Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 이름 같은때는 사용자 입력을 따로 받게 해야할듯
+        occurred_at: '2026-05-10T07:28:56.400409Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 나중에 액터 수동 병합 기능 만들면 되겠다
+        occurred_at: '2026-05-10T09:37:13.047589Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3772
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: f1e5fdd
+    body:
+      hash: f1e5fdd34f4743b2ec16845cd9d6cfa34b6df3f3
+      message: |-
+        perf: 수집 consumer를 project 파티셔닝 + 제한 동시성으로 재설계
+
+        prefetch=1 완전 직렬을 project별 FIFO 워커 + 전역 세마포어로 교체.
+        project 내부 직렬(순서·race 보호) + project 간 INGEST_MAX_CONCURRENCY 동시.
+        기본 동시성=1로 현 동작 유지 — 상향은 리미터·Actor 멱등화 선행.
+      files:
+      - services/ai-engine/graph/consumer.py
+      - services/ai-engine/CLAUDE.md
+  dst:
+    type: message
+    id: '1782451627.362269'
+    body:
+      conversation_id: '1782451627.362269'
+      messages:
+      - body: |-
+          Rise에서 부재중 와있는데 아마 계정 2차인증 때문일수도 있을거 같아서
+          계정 2차인증 가능할때 연락 주면 rise에 다시 전화 걸어볼게
+        occurred_at: '2026-06-26T05:27:07.362269Z'
+        channel: 일반
+        author: 정세영
+      - body: 근데 이게 최대 100달러까지밖에 충전이 안된다고 그래서
+        occurred_at: '2026-06-26T05:39:38.031059Z'
+        channel: 일반
+        author: 정세영
+      - body: 뭔가 기준이 openai 내부적으로 있다는데 뭔지 잘 모르겠네
+        occurred_at: '2026-06-26T05:44:15.478679Z'
+        channel: 일반
+        author: 서준수
+      - body: 견적서 낸거는 방금 충전한 금액으로 맞춰서 rise쪽에서 다시 수정해주겠다고 했고 우선 1차 신청은 이렇게 마무리될거같아
+        occurred_at: '2026-06-26T05:49:10.388539Z'
+        channel: 일반
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4056
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: ffa5f88
+    body:
+      hash: ffa5f88c7586d79d6d219025bf36cb1b8b69990d
+      message: 'refactor: 미사용 수동 수집 엔드포인트 제거'
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/dto/CollectTriggerRequest.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/PipelineWorkerApplicationTests.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/dto/QueuedResponse.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/dto/NormalizeFetchRequestTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/dto/NormalizeFetchRequest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/controller/PipelineController.java
+  dst:
+    type: message
+    id: '1781533811.868749'
+    body:
+      conversation_id: '1781533811.868749'
+      messages:
+      - body: 실행해봤는데 깃허브 수집은 수집할 브랜치를 입력받게 되어있는데 null이면 main브랜치가 수집되고 pr은 코드상에서 브랜치 입력받게 안해놔서 모든 브랜치의
+          pr을 전부 가져오더라고
+        occurred_at: '2026-06-16T00:16:43.635259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래서 노드가 제대로 수집이 안되서 그래프가 잘 안만들어지는데 이부분 작업 필요해보이네
+        occurred_at: '2026-06-16T00:17:56.714539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 선택할 수 있게 할까?
+        occurred_at: '2026-06-16T00:18:53.083469Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 프론트에서는 레포지토리 연결할때 브랜치 하나만 선택할 수 있게하고 생성된 프로젝트에 대해서는 브랜치 변경이 안되게 하는게 좋을거같고
+        occurred_at: '2026-06-16T00:19:45.411539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 백엔드에서는 커밋, pr, 이슈 api에 dto로 브랜치 명까지 받아서 db에 저장해야할거 같아
+        occurred_at: '2026-06-16T00:20:42.340209Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 리드미 주입할때 주입하고 캐시를 파일로 하는데 이러면 사람들이 늘어나면 관리가 어려워질거 같아서
+        occurred_at: '2026-06-16T00:24:37.668259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 다시 알아보니깐 파일이 아니라 RAM에 저장하는거고 재시작 시 손실, 메모리, 다중 인스턴스 미공유 측면에서 문제점이 있어서 방식을 바꾸는게 나은데, 가장 추천하는게
+          redis 도입인것 같아.
+        occurred_at: '2026-06-16T00:45:31.515399Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 금요일 전에 끝내야 하는거 위주로 찾아서 먼저 작업하는게 좋을거같아서 저 작업은 잠깐 미뤄둘게
+        occurred_at: '2026-06-16T00:46:07.279679Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 일단 브랜치 부분은 수정해서 커밋 올렸어
+        occurred_at: '2026-06-16T07:27:38.799809Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4161
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: caa50b3
+    body:
+      hash: caa50b3458c7474c5756a31cf0d1110d3ede957e
+      message: |-
+        feat: 수집 실패 재시도·DLQ 안전망 추가 (ai-engine)
+
+          consumer의 handle() 실패 메시지를 requeue=False로 조용히 버리던 것을,
+          지연 재시도 후 DLQ 파킹으로 보존하도록 변경한다. 발행 측(pipeline-worker)은
+          이미 checkpoint를 넘긴 상태라 소비 실패는 재수집으로 복구되지 않기 때문이다.
+
+          - handle() 실패 → history.events.retry(TTL, 기본 30s)로 재발행해 최대
+            INGEST_RETRY_MAX(기본 3)회 재시도, 소진 시 history.events.dlq에 파킹
+          - JSON 파싱 실패(malformed)는 재시도 무의미 → 별도 inspect 큐
+            history.events.parking으로 분리(replay 미대상)
+          - 재발행은 소비 채널과 분리된 별도 채널에서 수행(채널 오류 격리)
+          - 재발행 실패 시 원본 미ack → 브로커 재배달로 유실 방지
+          - admin: GET /dlq/stats(dlq·parking 개수), POST /dlq/replay(DLQ만 재투입)
+          - env: INGEST_RETRY_MAX, INGEST_RETRY_DELAY_MS
+          - 기존 history.events 메인 큐·pipeline-worker는 변경 없음
+      files:
+      - services/ai-engine/tests/unit/test_consumer_retry.py
+      - services/ai-engine/CLAUDE.md
+      - services/ai-engine/graph/consumer.py
+      - services/ai-engine/routers/admin.py
+      - services/ai-engine/tests/unit/test_api_routes.py
+  dst:
+    type: message
+    id: '1783238894.462559'
+    body:
+      conversation_id: '1783238894.462559'
+      messages:
+      - body: 덤프파일이랑 원천 데이터 스냅샷은 용량때문에 계속 커밋하게 되면 깃허브가 무거워진다고 해서 gitignore에 추가했어
+        occurred_at: '2026-07-05T08:09:34.487919Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: eval/snapshots/ 폴더 만들어서 여기에 두고 각자 가지고 있으면 될거같아
+        occurred_at: '2026-07-05T08:09:55.067699Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 오늘 받은 덤프파일은 오늘 날자로 붙여서 md 파일의 명칭 컨벤션에 따라서 아까 받은 덤프파일은 eval/snapshots/graph-2026-07-05.dump
+          이렇게 할게
+        occurred_at: '2026-07-05T08:12:14.961279Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 생각해보니까 이거 최신거로 새로 만드는게 좋을 것 같아서
+        occurred_at: '2026-07-05T08:25:28.830699Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 다시 만들어서 보내줄게
+        occurred_at: '2026-07-05T08:25:35.117479Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4103
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: 051ad05
+    body:
+      hash: 051ad05451c29d695299cf44bbd20e4e484cfc67
+      message: 'feat: handle loading state for projects in AppShell and update cache on project creation
+        in OnboardingPage (HT-71)'
+      files:
+      - clients/web-dashboard/src/pages/OnboardingPage.tsx
+      - clients/web-dashboard/src/components/shell/AppShell.tsx
+  dst:
+    type: message
+    id: '1781600092.933319'
+    body:
+      conversation_id: '1781600092.933319'
+      messages:
+      - body: |-
+          실제로 실행시켜보면서 발견한건데 프로젝트를 지우면 backend db는 지워지지만 neo4j까지 지우는 코드는 없어서 노드들이 고아데이터로 남아있더라고.
+          이부분 작업해볼게
+        occurred_at: '2026-06-16T08:54:52.933319Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 이 작업 pr 날렸어
+        occurred_at: '2026-06-17T05:18:32.623089Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4008
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: d58e361
+    body:
+      hash: d58e361f97fc6dc37bb84f4b4b2f61ed1a708933
+      message: |-
+        perf: 수집 동시성 활성화 (INGEST_MAX_CONCURRENCY 기본 4)
+
+        선결조건이 모두 충족돼 project 간 병렬 수집을 기본 활성화한다:
+        rate_limiter의 OpenAI RPM·TPM 페이싱, Actor 멱등화(ActorAlias),
+        이벤트당 fan-out 축소(#2/#6). 리미터가 Tier 한도를 보호하므로 안전.
+      files:
+      - services/ai-engine/graph/event_handler.py
+      - services/ai-engine/graph/builder.py
+      - services/ai-engine/CLAUDE.md
+      - services/ai-engine/graph/writes.py
+      - services/ai-engine/graph/consumer.py
+  dst:
+    type: message
+    id: '1781925043.152779'
+    body:
+      conversation_id: '1781925043.152779'
+      messages:
+      - body: |-
+          Claude.md랑 docs문서들 최신화 시키려고 하는데, 특히 tools.md는 너무 길어가지고 cotext 문서용으로 바꾸려면 많이 수정해야할거같더라고
+          문서들 내가 다 최신화 시켜도 될까?
+        occurred_at: '2026-06-20T03:10:43.152779Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 그럼 일단 주말동안 파이프라인 연결 먼저 하고 문서작업, 리팩토링 할까?
+        occurred_at: '2026-06-20T03:27:50.233579Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 이 작업 할게
+        occurred_at: '2026-06-20T09:25:41.313609Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 최신화한거 pr 날렸어
+        occurred_at: '2026-06-20T10:30:08.281739Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4375
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: 9b91ae7
+    body:
+      hash: 9b91ae7885ac6da4f718663ef3b3672d2d5d8606
+      message: |-
+        feat: 그래프 페이지 실제 API 연동
+
+        - 더미 그래프 데이터를 GET /projects/{id}/graph 호출로 교체
+        - 로딩/에러/빈 상태에 StatusView 적용 (에러 시 재시도 버튼)
+        - 안 쓰는 mocks/graph.ts 삭제
+      files:
+      - clients/web-dashboard/src/mocks/graph.ts
+      - clients/web-dashboard/src/api/graph.ts
+      - clients/web-dashboard/src/pages/GraphPage.tsx
+  dst:
+    type: message
+    id: '1781224211.716939'
+    body:
+      conversation_id: '1781224211.716939'
+      messages:
+      - body: ai한테 질문 하는거 이전 대화기록에 대해서는 참고 안하고 대답하게 구현되어있는데, 이거 LLM처럼 이전 대화 내용 기억하게 바꾸는거 어떻게 생각해?
+        occurred_at: '2026-06-12T00:30:11.716939Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 현재는 방금 보낸 질문에 대해서만 apt한테 넘기고 있어가지고
+        occurred_at: '2026-06-12T00:32:59.448109Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 과거 대화했던 맥락을 포함시켜서 같이 넘기는 방법을 생각했었어
+        occurred_at: '2026-06-12T00:33:27.203189Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: mem0이 뭔지 찾아보니깐 모든 대화 세션에 적용되는 장기기억 같은거네. 이것도 있으면 좋을거 같아 보이네
+        occurred_at: '2026-06-12T00:43:11.378819Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 우선은 mem0 보다 한 대화 세션 안에서 이전 대화 맥락을 알 수 있게 작업해볼게
+        occurred_at: '2026-06-12T00:44:35.601609Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4092
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: 01cab41
+    body:
+      hash: 01cab410e0bb5497d77341ed19fe760fc571cc06
+      message: 'docs: 주석 추가'
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/checkpoint/CheckpointService.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/GitHubWebhookService.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/common/crypto/CredentialCryptoService.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/WebhookDeliveryRepository.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/GitHubWebhookVerifier.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/collection/CollectionProvider.java
+  dst:
+    type: message
+    id: '1782102320.056619'
+    body:
+      conversation_id: '1782102320.056619'
+      messages:
+      - body: |-
+          1. 그래프 탐색 페이지에서 마우스 휠 확대/축소 할때 마우스 커서가 위치한 지점을 기준으로 확대 축소가 되면 좋을 것 같음
+          2. 그래프 탐색 탭 필터중 code는 명칭이 애매한것 같음 (실제로 코드 diff에 관한 내용은 노드가 아닌 MODIFIED 엣지에 들어가기 때문) (실제로 그래프에 뜨는 노드는 파일임)
+          3. 데이터 소스 탭에서 연결된 integration(github, jira, slack)들은 연결 해제 기능을 제공하지 않음(api 없음) -&gt; 프론트에서 연결 해제 제거, 깃허브 레포는 연결된 것만 뜨게 바꾸면 좋을 것 같음
+          4. 설정 탭의 식별자는 필요 없어보임
+          5. 프로필의 ... 버튼 누르면 현재 light모드와 로그아웃만 있는데 계정 설정탭을 만들어 회원 탈퇴 기능을 옮기는게 좋을 것 같음
+          6. 프로젝트를 누르면 '현재 프로젝트 설정 '이 있는데 왼쪽 탭에 있는 설정과 같음. 한쪽을 제거하는게 좋아 보임
+        occurred_at: '2026-06-22T06:45:54.688479Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 내가 데이터 소스 연결 해제 기능을 백엔드에 만들어 놓았더라고
+        occurred_at: '2026-06-23T05:08:12.922469Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 우선 깃허브레포 연결 해제에 대해서는 프로젝트 하나당 레포 하나가 무조건 연결되어있는게 맞고, 깃허브 레포를 해제하고 다른걸 연결하는 비용보다 새로운 프로덱트를
+          생성하는게 효율적이여서 없어야 하는게 맞고
+        occurred_at: '2026-06-23T05:10:50.819409Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 슬랙 지라 연결 해제 기능은 있어도 되고 없어도 될거같은데
+        occurred_at: '2026-06-23T05:11:54.669209Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그러네 그럼 프로젝트 삭제할 때는 어차피 연동이 끊끼는거지?
+        occurred_at: '2026-06-23T05:12:44.731689Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 슬랙 지라를 어떻게 할지게 따라 결정하면 될거같아
+        occurred_at: '2026-06-23T05:13:20.597949Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4587
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: 01cab41
+    body:
+      hash: 01cab410e0bb5497d77341ed19fe760fc571cc06
+      message: 'docs: 주석 추가'
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/checkpoint/CheckpointService.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/GitHubWebhookService.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/common/crypto/CredentialCryptoService.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/WebhookDeliveryRepository.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/GitHubWebhookVerifier.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/collection/CollectionProvider.java
+  dst:
+    type: message
+    id: '1781533811.868749'
+    body:
+      conversation_id: '1781533811.868749'
+      messages:
+      - body: 실행해봤는데 깃허브 수집은 수집할 브랜치를 입력받게 되어있는데 null이면 main브랜치가 수집되고 pr은 코드상에서 브랜치 입력받게 안해놔서 모든 브랜치의
+          pr을 전부 가져오더라고
+        occurred_at: '2026-06-16T00:16:43.635259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래서 노드가 제대로 수집이 안되서 그래프가 잘 안만들어지는데 이부분 작업 필요해보이네
+        occurred_at: '2026-06-16T00:17:56.714539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 선택할 수 있게 할까?
+        occurred_at: '2026-06-16T00:18:53.083469Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 프론트에서는 레포지토리 연결할때 브랜치 하나만 선택할 수 있게하고 생성된 프로젝트에 대해서는 브랜치 변경이 안되게 하는게 좋을거같고
+        occurred_at: '2026-06-16T00:19:45.411539Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 백엔드에서는 커밋, pr, 이슈 api에 dto로 브랜치 명까지 받아서 db에 저장해야할거 같아
+        occurred_at: '2026-06-16T00:20:42.340209Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 리드미 주입할때 주입하고 캐시를 파일로 하는데 이러면 사람들이 늘어나면 관리가 어려워질거 같아서
+        occurred_at: '2026-06-16T00:24:37.668259Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 다시 알아보니깐 파일이 아니라 RAM에 저장하는거고 재시작 시 손실, 메모리, 다중 인스턴스 미공유 측면에서 문제점이 있어서 방식을 바꾸는게 나은데, 가장 추천하는게
+          redis 도입인것 같아.
+        occurred_at: '2026-06-16T00:45:31.515399Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 금요일 전에 끝내야 하는거 위주로 찾아서 먼저 작업하는게 좋을거같아서 저 작업은 잠깐 미뤄둘게
+        occurred_at: '2026-06-16T00:46:07.279679Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 일단 브랜치 부분은 수정해서 커밋 올렸어
+        occurred_at: '2026-06-16T07:27:38.799809Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4517
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: f570da7
+    body:
+      hash: f570da77073c51c72b6b6a9d8b359b27699ca22d
+      message: |-
+        feat: 그래프 빌드를 per-project 비동기로 전환 (202 + 상태 폴링)
+
+          POST /graph/build를 동기 블로킹(최대 수 분)에서 백그라운드 태스크로 바꾸고
+          202와 함께 현재 빌드 상태를 반환한다. 진행 상황은 GET /graph/build/status로 폴링한다.
+
+          - 빌드를 프로젝트 단위로 스코프: run_postprocess_sequence(project_id, verify).
+            store fetch(reference/issue_link/communication)와 clear_semantic_*·스레드 전파
+            쿼리에 project_id 필터를 추가. 빌더는 이미 _group_by_project라 시그니처는 그대로 둔다
+            (단일 프로젝트 데이터 → 단일 그룹). 필터를 안 주면(None) 전체 조회 — 운영 트리거 호환.
+          - per-project 빌드 상태(idle/running/succeeded/failed)와 동시성:
+            같은 프로젝트는 coalesce, 다른 프로젝트는 동시 허용하되 세마포어(MAX_CONCURRENCY,
+            기본 2)로 전체 동시 빌드 수를 제한. OpenAI 호출은 단계 1 limiter가 페이싱한다.
+          - 디바운스를 per-project화: mark_dirty(project_id) + dirty set. 자동/수동 빌드가
+            같은 상태 머신을 공유해 같은 프로젝트 중복 빌드를 막는다.
+          - 상태/dirty/세마포어는 in-process — 수평 확장 시 공유 저장소+분산 락으로 교체 필요.
+      files:
+      - services/ai-engine/graph/slack_batch_filter.py
+      - services/ai-engine/graph/communication_store.py
+      - services/ai-engine/routers/graph.py
+      - services/ai-engine/CLAUDE.md
+      - services/ai-engine/graph/consumer.py
+      - services/ai-engine/graph/maintenance.py
+      - services/ai-engine/graph/postprocess.py
+      - services/ai-engine/graph/reference_store.py
+      - services/ai-engine/tests/unit/test_api_routes.py
+      - services/ai-engine/tests/unit/test_postprocess_status.py
+      - services/ai-engine/graph/issue_link_store.py
+  dst:
+    type: message
+    id: '1782194759.806139'
+    body:
+      conversation_id: '1782194759.806139'
+      messages:
+      - body: 클로드한테 처리 속도·효율성 병목지점 찾아달라고 하고 하나씩 살펴보고 결정란을 채워 넣었는데
+        occurred_at: '2026-06-23T06:06:29.516279Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: backend와 pipeline-worker부분은 내가 작업한게 많아서 잘 채워넣은 반면에 ai-engine쪽은 그렇게 코드를 짠 배경이나 맥락, 트레이드오프
+          같은걸 정확하게는 몰라서 나름대로 조사해보고 결정란을 채워넣어봤어
+        occurred_at: '2026-06-23T06:07:44.531499Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래서 특히 ai-engine쪽을 자세히 확인해줬으면 좋을거 같고
+        occurred_at: '2026-06-23T06:09:55.386829Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 우선 난 문서의 결정란에 개선이라고 표시해놓은 부분중에서 backend 먼저 작업을 해볼까하는데
+        occurred_at: '2026-06-23T06:11:09.392509Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 일단 수정하는것도 괜찮을 것 같은데 나는 ai-engine 자세히 한번 봐볼게
+        occurred_at: '2026-06-23T09:51:48.261049Z'
+        channel: 프로젝트
+        author: 서준수
+  label: relevant
+  note: 채워 놓은 결정란중 한 작업임.
+- edge_type: REFERENCE
+  confidence: 0.5021
+  bucket: 0.50+
+  src:
+    type: commit
+    id: 460a3b2
+    body:
+      hash: 460a3b261ff7d5a054d76aa192f3732da407bb78
+      message: |-
+        perf: webhook 수집 처리량·유실 방지 개선 (풀 분리·publisher confirm·Slack 캐시)
+
+        webhook 증분 수집 경로의 처리량과 데이터 유실 위험을 함께 개선한다.
+
+        - executor 풀 분리 + 동시성/직렬화: 초기 수집 전용 collectionTaskExecutor(pool=3)를 분리해
+          장기 초기 수집이 webhook 풀을 굶기지 않게 하고, webhookTaskExecutor를 pool-size 1→4로 올려
+          여러 프로젝트 webhook을 병렬 처리한다. 동일 프로젝트 동시 수집은 ProjectCollectionSerializer
+          (project id striped lock)로 직렬화해 중복 풀스캔을 막는다. (P-2)
+        - RabbitMQ publisher confirm: EventPublisher가 배치 발행 후 CorrelationData별 ack/return을 대기하고
+          nack·unroutable·timeout 시 EventPublishException으로 checkpoint 전진을 막아 조용한 유실(영구 빈칸)을
+          방지한다 (publisher-confirm-type=correlated, publisher-returns=true, template mandatory=true). (P-3)
+        - Slack users.list TTL 캐시: fetchUserMap을 auth별로 app.slack.user-map-cache-ttl(기본 5m) 동안 캐시해
+          webhook 수집마다 전체 멤버를 재조회하던 헛조회를 제거한다. (P-7)
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/ProjectCollectionSerializer.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/messaging/EventPublishException.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/config/WebhookTaskConfig.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/webhook/GitHubWebhookServiceTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/config/TaskExecutorConfig.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/GitHubWebhookService.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/messaging/EventPublisherTest.java
+      - services/pipeline-worker/src/main/resources/application.yaml
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/config/RabbitMqConfig.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/trigger/CollectionTriggerService.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/webhook/ProjectCollectionSerializerTest.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/source/slack/SlackRawServiceTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/source/slack/SlackRawService.java
+      - services/pipeline-worker/CLAUDE.md
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/messaging/EventPublisher.java
+  dst:
+    type: message
+    id: '1783143134.172379'
+    body:
+      conversation_id: '1783143134.172379'
+      messages:
+      - body: |-
+          회의 때 노션에 정한 작업은 다 한거 같은데, 이제 남은게 내 생각엔 성능 향상이랑 배포 준비인거 같아
+          그래서 배포준비(redis 포함)전에 성능을 올릴 차례인거 같은데
+          그래프 구축, 응답 퀄리티 개선 작업 전에 지금 상태에서 테스트 케이스를 만들어 측정한 다음 개선작업이 진행될때마다 얼마나 향상되었는지 기록하는게 좋을거 같아
+        occurred_at: '2026-07-04T05:32:14.172379Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 관련해서 작성해놓은 md 파일이 있는데 노션에 올려둘테니까 한번 읽어보고 의견 부탁할게
+        occurred_at: '2026-07-04T05:32:47.449469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: |-
+          그래프만 같으면 서로 테스트 가능하니깐 이렇게 하는게 나을거 같아
+          1. A가 그래프를 구축하고 덤프파일로 B에게 공유
+          2. B는 공유받은 덤프파일을 로드 (빌드X)
+          3. 각자 테스트 가능
+          4. 그래프 연결 로직을 바꿔서 그 그래프를 채택하기로 확정을 하게되면 A가 다시 덤프파일로 공유
+          5. B는 새로받은 덤프파일을 로드해서 이어서 테스트
+        occurred_at: '2026-07-05T02:17:41.049589Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: |-
+          그리고 테스트 셋은 둘이 같이 만들면 될거같아
+          • e2e 골든셋(질의 품질용) 40개
+          • 엣지 라벨셋 (그래프 개선용)
+              ◦ precision 라벨(그린 엣지가 맞나) 50~100개
+                  ▪︎ B-1 precision: 그래프에 실제로 있는 엣지를 놓고 "이거 맞아?"를 잰다 → 항목은 현재 그래프에 존재하는 엣지
+              ◦ recall 골든 쌍(연결됐어야 할 걸 놓쳤나) 10~20쌍
+                  ▪︎ B-2 recall: 사람이 아는 "연결됐어야 할 쌍"을 놓고 "그래프가 이걸 만들었나?"를 잰다 → 항목은 그래프에 없을 수도 있는 기대값
+        occurred_at: '2026-07-05T02:20:22.459299Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프 새로 만들어야 되나
+        occurred_at: '2026-07-05T04:52:34.810519Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그래프 연결 개선을 위한 원천 데이터 스냅샷"(NormalizedEvent 셋)도 같이 준비해놔야 할거같아.
+        occurred_at: '2026-07-05T07:28:54.894949Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.353
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 47ff488
+    body:
+      hash: 47ff488e1cc4ae540fef99ef78f8ed210733dd2f
+      message: |-
+        feat: 그래프 노드에 focus 질의용 도메인 키(ref) 부여
+
+          채팅 답변의 관련 그래프에서 노드를 지정해 후속 질문할 때 에이전트가 그 노드를
+          근거로 삼으려면, 사람이 읽는 title이 아니라 질의 도구가 요구하는 정확한 도메인
+          키가 필요하다. 노드 투영 단일 지점(_to_graph_node)에서 ref: {type, id}
+          (commit|pull_request|issue|message 어휘)를 방출한다.
+
+          - commit은 meta의 [:7] 프리픽스가 아닌 전체 해시를 실어 get_changeset_context
+            정확 매칭을 보장한다.
+          - slack·github issue는 meta에 없던 conversation_id를 ref로 표면화한다.
+          - actor/file 등 질의 도구 대상이 아닌 노드는 ref=null(텍스트 폴백).
+
+          overview·subgraph·search가 공유하는 seam이라 세 경로에 자동 전파되고,
+          backend GraphNodeResponse는 신규 타입 없이 EvidenceRef를 재사용해 왕복한다.
+      files:
+      - services/backend/src/test/java/com/history/backend/graph/controller/GraphControllerTest.java
+      - services/ai-engine/tests/unit/test_overview_subgraph.py
+      - clients/web-dashboard/src/types/graph.ts
+      - services/ai-engine/graph/overview.py
+      - services/backend/src/main/java/com/history/backend/graph/dto/GraphNodeResponse.java
+  dst:
+    type: message
+    id: '1782650084.848469'
+    body:
+      conversation_id: '1782650084.848469'
+      messages:
+      - body: Backend 대화랑 메세지 페이지네이션적용한거 pr 날렸어
+        occurred_at: '2026-06-28T12:34:44.848469Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: Pipeline은 개선이라고 표기한거 다 하고 있는거야?
+        occurred_at: '2026-06-28T14:06:19.375699Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 7번은 보류하고 나머지는 하고 있어
+        occurred_at: '2026-06-28T14:08:56.667669Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 7번도 하는게 좋을까?
+        occurred_at: '2026-06-28T14:09:33.956719Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아니면 그래프쪽 api 같은 미구현된 거 만드는거
+        occurred_at: '2026-06-28T14:12:18.694489Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그래프쪽 미구현 api가 어떤거 어떤거 있지?
+        occurred_at: '2026-06-28T14:12:56.538229Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그래프면 ai-engine쪽?
+        occurred_at: '2026-06-28T14:14:57.864009Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 그 llm 답변에 노드들 하이라이트 되는거?
+        occurred_at: '2026-06-28T14:17:40.336359Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 이거 프론트 초안이었는데 여기서 오른쪽에 뜨는거?
+        occurred_at: '2026-06-28T14:19:47.733029Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 응 이거 맞아
+        occurred_at: '2026-06-28T14:23:25.626879Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아직 프론트에서도 구현이 안된거 같기는 한데
+        occurred_at: '2026-06-28T14:23:45.415149Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 오키 그럼 이거 프론트랑 같이 해서 작업 해볼게
+        occurred_at: '2026-06-28T14:24:15.807689Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3412
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 4b8d8c0
+    body:
+      hash: 4b8d8c03ab660976a9e39de82b9c6a2da602a3f2
+      message: |-
+        fix: 대화 이름 변경이 blur·Escape로 의도치 않게 저장되던 문제 수정
+
+        이름 변경 입력칸은 기존 제목으로 prefill되는데 onBlur=저장이라,
+        포커스만 잃어도(다른 대화 클릭 등) 끼어든 텍스트가 그대로 저장됐다.
+        Escape도 draft를 안 비워 '취소'가 저장으로 이어졌다.
+
+        - 저장은 Enter 확정에서만
+        - blur·Escape는 취소(draft 원복) 처리
+      files:
+      - clients/web-dashboard/src/components/shell/ConversationList.tsx
+  dst:
+    type: message
+    id: '1782286987.165039'
+    body:
+      conversation_id: '1782286987.165039'
+      messages:
+      - body: |-
+          backend에서 ai-engine 호출 타임아웃 설정 작업하고있는데, 스레드 풀 관리때문에 그래프 구축하는 것을 비동기로 전환이 필요해서 알아보다가 현재 그래프 구축, 재구축이 전역으로 관리되고 있어서 한사람이 재구축 함수를 호출하면 그사람의 모든 프로젝트 그리고 다른사람의 모든 프로젝트까지 그래프를 재구축 하고 있더라고
+          이거 수정이 필요할거 같은데 내가 같이 작업할까?
+        occurred_at: '2026-06-24T07:43:07.165039Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: openai api 호출에 rate limit 때문에 동시에 처리하는게 좀 걸리는데 llm 호출쪽은 지금이 낫지 않을까?
+        occurred_at: '2026-06-24T08:48:08.076109Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 우선 한도량 고려해서 처리할 수 있는 방법 찾아보고 해볼게
+        occurred_at: '2026-06-24T10:18:07.608509Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: Openai 호출을 관리하는 파일을 확장해서 실제 한도(RPM과 TPM)에 맞춰서 호출하게 하면 될거같아
+        occurred_at: '2026-06-24T10:40:40.628889Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 토큰을 추정해야 하겠네 한번 해볼게
+        occurred_at: '2026-06-24T12:12:21.102659Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아 그럼 일단 llm 말고 다른 부분부터 작업할게
+        occurred_at: '2026-06-24T13:15:02.632039Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3231
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 962a29d
+    body:
+      hash: 962a29df3c05017597b5d2ac6ca2d6b312ad9562
+      message: 'docs: CLAUDE.md 주석 규칙 추가 작성'
+      files:
+      - services/backend/CLAUDE.md
+  dst:
+    type: message
+    id: '1781224211.716939'
+    body:
+      conversation_id: '1781224211.716939'
+      messages:
+      - body: ai한테 질문 하는거 이전 대화기록에 대해서는 참고 안하고 대답하게 구현되어있는데, 이거 LLM처럼 이전 대화 내용 기억하게 바꾸는거 어떻게 생각해?
+        occurred_at: '2026-06-12T00:30:11.716939Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 현재는 방금 보낸 질문에 대해서만 apt한테 넘기고 있어가지고
+        occurred_at: '2026-06-12T00:32:59.448109Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 과거 대화했던 맥락을 포함시켜서 같이 넘기는 방법을 생각했었어
+        occurred_at: '2026-06-12T00:33:27.203189Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: mem0이 뭔지 찾아보니깐 모든 대화 세션에 적용되는 장기기억 같은거네. 이것도 있으면 좋을거 같아 보이네
+        occurred_at: '2026-06-12T00:43:11.378819Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 우선은 mem0 보다 한 대화 세션 안에서 이전 대화 맥락을 알 수 있게 작업해볼게
+        occurred_at: '2026-06-12T00:44:35.601609Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3137
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: ac24718
+    body:
+      hash: ac247181224bb042a55bf4df51bcfa4f3350e1e3
+      message: 'feat: 파일별 additions/deletions 정규화 데이터에 포함'
+      files:
+      - services/pipeline-worker/gradlew
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/normalizer/GitHubNormalizer.java
+  dst:
+    type: message
+    id: '1775978966.443389'
+    body:
+      conversation_id: '1775978966.443389'
+      messages:
+      - body: 방안 B는 동일인이 동시간대에 여러 이슈에 속해있는 경우 때문에 별로일 것 같은데
+        occurred_at: '2026-04-12T09:26:05.240289Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 그리고 C는 일단 해보는게 좋을 것 같아
+        occurred_at: '2026-04-12T09:27:42.269749Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 지금 문제가 issue &lt;-&gt; communication, issue &lt;-&gt; ChangeSet을 연결하는거인데
+        occurred_at: '2026-04-12T10:53:06.873109Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: C는 issue &lt;-&gt; ChangeSet 연결을 해결 못해주긴해
+        occurred_at: '2026-04-12T10:53:21.121319Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.3218
+  bucket: 0.30-0.40
+  src:
+    type: commit
+    id: 083e0a9
+    body:
+      hash: 083e0a97228420be266301901c25c1f4d5af1bc8
+      message: |-
+        fix(test): V7 테스트 마이그레이션을 H2 호환으로 수정 (HT-67)
+
+        부분 인덱스(WHERE deleted_at IS NOT NULL)를 H2가 거부해 모든 backend
+        @SpringBootTest의 컨텍스트 로딩이 실패하던 문제를 해결한다. 운영(Postgres)
+        마이그레이션은 그대로 두고, 테스트 카피만 전체 인덱스로 대체한다
+        (인덱스 술어는 ddl-auto validate 대상이 아님).
+      files:
+      - services/backend/src/test/resources/db/test-migration/V7__index_user_purge_candidates.sql
+  dst:
+    type: message
+    id: '1781503641.993609'
+    body:
+      conversation_id: '1781503641.993609'
+      messages:
+      - body: 지금 프론트에 데이터소스 - 수집 진행상황이 있는데 이거 계속 둘까? 이거 api도 없고 기능 만들려면 좀 걸릴 거 같은데
+        occurred_at: '2026-06-15T06:07:21.993609Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 수집 진행상황은 기준잡기고 어렵고 구현하기도 까다로울거 같긴한데
+        occurred_at: '2026-06-15T06:08:53.775319Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 동기화 일자만 둘까?
+        occurred_at: '2026-06-15T06:10:14.018129Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 동기화 일자만 두는거 괜찮은거 같아
+        occurred_at: '2026-06-15T06:10:48.659089Z'
+        channel: 프로젝트
+        author: 정세영
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4045
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: 9ef0504
+    body:
+      hash: 9ef0504aaa6aa3233f6db167006256c72ec7a503
+      message: |-
+        feat: 자연어 질문 처리를 위한 GraphRAG tool calling 구현
+
+        - tools/definitions.py: 검증 시나리오 기반 13개 도구 OpenAI Function schema 정의
+        - tools/queries.py: 도구별 Neo4j Cypher async 함수 구현
+        - tools/executor.py: tool name + args를 받아 Cypher 실행 후 JSON 반환
+          - search_by_keyword는 executor에서 임베딩 생성 후 벡터 인덱스 조회
+        - agent/orchestrator.py: LLM tool calling 루프 (최대 10회, gpt-4o-mini)
+        - main.py: POST /query 엔드포인트 추가
+      files:
+      - services/ai-engine/tools/executor.py
+      - services/ai-engine/agent/__init__.py
+      - services/ai-engine/tools/__init__.py
+      - services/ai-engine/agent/orchestrator.py
+      - services/ai-engine/tools/definitions.py
+      - services/ai-engine/main.py
+      - services/ai-engine/tools/queries.py
+  dst:
+    type: message
+    id: '1778329685.720139'
+    body:
+      conversation_id: '1778329685.720139'
+      messages:
+      - body: make-graph 브랜치 pr 날렸어
+        occurred_at: '2026-05-09T12:28:05.720139Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 노션 10주차 회의록에 액터 노드 병합 테스트 결과 작성해놨는데 한번 확인해줘
+        occurred_at: '2026-05-09T12:31:07.484449Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 병합 안된건 너무 달라서 안되는게 맞는거 같긴해서 어쩔 수 없는거 같아
+        occurred_at: '2026-05-10T06:35:49.219679Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 동명이인 구별하려고하기로 했었어서 이름 같은걸로만으로는 안될거야
+        occurred_at: '2026-05-10T07:28:45.742599Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 이름 같은때는 사용자 입력을 따로 받게 해야할듯
+        occurred_at: '2026-05-10T07:28:56.400409Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 나중에 액터 수동 병합 기능 만들면 되겠다
+        occurred_at: '2026-05-10T09:37:13.047589Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
+- edge_type: REFERENCE
+  confidence: 0.4664
+  bucket: 0.40-0.50
+  src:
+    type: commit
+    id: 460a3b2
+    body:
+      hash: 460a3b261ff7d5a054d76aa192f3732da407bb78
+      message: |-
+        perf: webhook 수집 처리량·유실 방지 개선 (풀 분리·publisher confirm·Slack 캐시)
+
+        webhook 증분 수집 경로의 처리량과 데이터 유실 위험을 함께 개선한다.
+
+        - executor 풀 분리 + 동시성/직렬화: 초기 수집 전용 collectionTaskExecutor(pool=3)를 분리해
+          장기 초기 수집이 webhook 풀을 굶기지 않게 하고, webhookTaskExecutor를 pool-size 1→4로 올려
+          여러 프로젝트 webhook을 병렬 처리한다. 동일 프로젝트 동시 수집은 ProjectCollectionSerializer
+          (project id striped lock)로 직렬화해 중복 풀스캔을 막는다. (P-2)
+        - RabbitMQ publisher confirm: EventPublisher가 배치 발행 후 CorrelationData별 ack/return을 대기하고
+          nack·unroutable·timeout 시 EventPublishException으로 checkpoint 전진을 막아 조용한 유실(영구 빈칸)을
+          방지한다 (publisher-confirm-type=correlated, publisher-returns=true, template mandatory=true). (P-3)
+        - Slack users.list TTL 캐시: fetchUserMap을 auth별로 app.slack.user-map-cache-ttl(기본 5m) 동안 캐시해
+          webhook 수집마다 전체 멤버를 재조회하던 헛조회를 제거한다. (P-7)
+      files:
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/ProjectCollectionSerializer.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/messaging/EventPublishException.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/config/WebhookTaskConfig.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/webhook/GitHubWebhookServiceTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/config/TaskExecutorConfig.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/webhook/GitHubWebhookService.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/messaging/EventPublisherTest.java
+      - services/pipeline-worker/src/main/resources/application.yaml
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/config/RabbitMqConfig.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/trigger/CollectionTriggerService.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/webhook/ProjectCollectionSerializerTest.java
+      - services/pipeline-worker/src/test/java/com/history/pipeline_worker/source/slack/SlackRawServiceTest.java
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/source/slack/SlackRawService.java
+      - services/pipeline-worker/CLAUDE.md
+      - services/pipeline-worker/src/main/java/com/history/pipeline_worker/messaging/EventPublisher.java
+  dst:
+    type: message
+    id: '1782286987.165039'
+    body:
+      conversation_id: '1782286987.165039'
+      messages:
+      - body: |-
+          backend에서 ai-engine 호출 타임아웃 설정 작업하고있는데, 스레드 풀 관리때문에 그래프 구축하는 것을 비동기로 전환이 필요해서 알아보다가 현재 그래프 구축, 재구축이 전역으로 관리되고 있어서 한사람이 재구축 함수를 호출하면 그사람의 모든 프로젝트 그리고 다른사람의 모든 프로젝트까지 그래프를 재구축 하고 있더라고
+          이거 수정이 필요할거 같은데 내가 같이 작업할까?
+        occurred_at: '2026-06-24T07:43:07.165039Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: openai api 호출에 rate limit 때문에 동시에 처리하는게 좀 걸리는데 llm 호출쪽은 지금이 낫지 않을까?
+        occurred_at: '2026-06-24T08:48:08.076109Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 우선 한도량 고려해서 처리할 수 있는 방법 찾아보고 해볼게
+        occurred_at: '2026-06-24T10:18:07.608509Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: Openai 호출을 관리하는 파일을 확장해서 실제 한도(RPM과 TPM)에 맞춰서 호출하게 하면 될거같아
+        occurred_at: '2026-06-24T10:40:40.628889Z'
+        channel: 프로젝트
+        author: 정세영
+      - body: 토큰을 추정해야 하겠네 한번 해볼게
+        occurred_at: '2026-06-24T12:12:21.102659Z'
+        channel: 프로젝트
+        author: 서준수
+      - body: 아 그럼 일단 llm 말고 다른 부분부터 작업할게
+        occurred_at: '2026-06-24T13:15:02.632039Z'
+        channel: 프로젝트
+        author: 서준수
+  label: irrelevant
+  note: null
