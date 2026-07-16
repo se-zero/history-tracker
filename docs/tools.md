@@ -157,20 +157,32 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 
 ### 7. `get_file_history`
 
-파일의 변경 이력을 최신순으로 반환한다.
+파일의 변경 이력을 **질문 관련도 기반 2계층**(`detail`/`context`)으로 반환한다.
+executor가 사용자 질문을 임베딩해 넘기면, 각 커밋의 `MODIFIED.embedding`과의 코사인
+유사도로 재랭킹한다(질문 없거나 임베딩 실패 시 최신순 폴백).
 
 | 파라미터 | 타입 | 필수 | 기본 | 설명 |
 |---------|------|------|------|------|
 | `path` | string | ✔ | — | 파일 경로 (예: `src/auth/token.py`) |
-| `limit` | integer | | 20 | 최대 반환 커밋 수 |
+| `limit` | integer | | (전체) | 관련도 산정 대상 커밋 상한. 보통 지정 불필요 |
 
-- 정상 항목: 커밋당 1행 — `hash`, `message`, `author`, `diff_summary`(행당 300자 컷),
-  `issues[]`(각 `jira_key`/`title`/`confidence`/`source`), `prs[]`(각 `pr_number`/`url`).
-  이슈·PR 링크가 여러 개여도 행이 곱으로 불어나지 않는다.
+- 반환 구조: `{path, total_commits, ranked_by, detail[], context[], _note}`.
+  - `detail[]` — **인용 대상**. 관련도 상위 커밋을 바이트 예산(`FILE_HISTORY_DETAIL_BUDGET`,
+    기본 6500자)이 되는 만큼 담는다. 커밋당 1행 — `hash`, `message`(400자 컷), `author`,
+    `diff_summary`(300자 컷), `issues[]`(`jira_key`/`title`/`confidence`/`source`),
+    `prs[]`(`pr_number`/`url`), `relevance`(랭킹 시). 이슈·PR 링크가 여러 개여도 행이 곱으로 불어나지 않는다.
+  - `context[]` — 나머지 이력의 **시간순 개요 stub**(`hash`/`occurredAt`/`title`/`issues[jira_key]`,
+    본문 없음). 전체 흐름 파악·드릴다운용. context 커밋을 인용하려면 그 hash로 `get_changeset_context`를
+    호출해 본문을 조회한 뒤 인용한다(stub 요약만으로 quote 생성 금지).
+  - **다 담아도 예산에 맞는 파일은 전량 `detail`**(구 동작 = 전량 인용 유지 → 나열형 recall 보존),
+    예산을 넘는 파일만 관련도 상위를 `detail`로 올리고 나머지를 `context`로 내린다.
+  - `ranked_by`: `relevance`(질문 임베딩 있음) 또는 `recency`(폴백).
+  - 관련 노브(env): `FILE_HISTORY_DETAIL_BUDGET`/`FILE_HISTORY_DETAIL_MAX`/`FILE_HISTORY_CONTEXT_CAP`/
+    `FILE_HISTORY_MAX_COMMITS` — eval 스윕용.
 - **경로 fuzzy fallback**: strict 매칭이 0건이면 ① basename(`.../token.py`) ENDS WITH →
   ② stem(확장자 무관, `token`) 순으로 후보를 찾는다.
-  - 후보 **정확히 1개** → 그 파일 이력을 반환하되 각 row에 `_resolved_via`(`basename_match` |
-    `stem_match`) / `_resolved_path` 메타를 인라인 부여. **evidence에는 LLM이 추정한 path가 아니라
+  - 후보 **정확히 1개** → 그 파일 이력(2계층)을 반환하되 결과에 `_resolved_via`(`basename_match` |
+    `stem_match`) / `_resolved_path`를 부여. **evidence에는 LLM이 추정한 path가 아니라
     `_resolved_path`를 써야 한다.**
   - 후보 **2개 이상** → `[{message, candidates: [...]}]` 단건 반환. LLM이 candidates 중 정확한
     경로로 재호출.

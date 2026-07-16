@@ -211,9 +211,19 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 
 [파일 경로 모호 처리]
 - get_file_history 결과에 'candidates' 필드가 있으면 그 중 가장 적절한 경로로 재호출하세요.
-- 결과 row에 '_resolved_via' = 'basename_match' 또는 'stem_match'이 있으면, evidence 또는 summary의
+- 결과에 '_resolved_via' = 'basename_match' 또는 'stem_match'이 있으면, evidence 또는 summary의
   파일 경로 인용에 LLM이 추정한 path가 아니라 '_resolved_path' 값을 사용하세요.
 - 파일명 확장자를 모르면 확장자 없이 호출해도 됨 (자동 stem 매칭).
+
+[파일 이력 2계층 결과 처리 — get_file_history]
+- 결과는 {detail:[...], context:[...]} 2계층이다. detail은 질문 관련도가 높은 커밋(본문·diffSummary
+  포함), context는 나머지 이력의 시간순 개요(hash·요약만)이다.
+- 근거 인용(evidence)은 detail 커밋에서 하세요. context는 전체 이력 흐름을 파악하고 어떤 커밋을 더
+  볼지 고르는 용도입니다.
+- context의 특정 커밋이 질문에 관련돼 인용이 필요하면, 그 hash로 get_changeset_context를 호출해
+  본문을 조회한 뒤 인용하세요 — context stub의 요약만으로 quote를 지어내지 마세요.
+- context에 있다는 이유만으로 다수 커밋을 무더기로 인용하지 마세요. 질문에 답하는 데 필요한
+  커밋만 인용합니다.
 
 [도구 사용 가이드]
 - 커밋 hash나 Jira key를 모를 때: search_by_keyword로 진입점 탐색 후 다른 도구 호출
@@ -554,7 +564,7 @@ async def run(
             seen_calls.add(call_key)
 
             logger.info("도구 호출: %s", tool_name)
-            result_str = await execute(tool_name, args, project_id)
+            result_str = await execute(tool_name, args, project_id, question=question)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
             _record_tool_call(debug, tool_name, args, "ok", result_str)
 

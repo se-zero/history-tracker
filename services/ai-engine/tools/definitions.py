@@ -147,12 +147,14 @@ TOOLS = [
         "function": {
             "name": "get_file_history",
             "description": (
-                "특정 파일의 변경 이력을 최신순으로 반환한다. "
-                "각 커밋마다 diffSummary, 연결 Jira 이슈, PR을 포함. "
-                "'auth.py가 어떻게 변해왔는지' 파악할 때 사용. "
+                "특정 파일의 변경 이력을 2계층으로 반환한다: detail(질문 관련도 상위 커밋 — "
+                "message·diffSummary·연결 이슈/PR 포함, 인용 대상)과 context(나머지 이력의 시간순 "
+                "개요 — hash·요약만). 관련 있는 옛 커밋도 최신순 컷에 밀리지 않고 detail로 올라온다. "
+                "'auth.py가 어떻게 변해왔는지' 파악할 때 사용. 인용은 detail에서, context 커밋을 "
+                "인용하려면 그 hash로 get_changeset_context를 호출해 본문을 조회한 뒤 인용. "
                 "strict path match가 비면 자동으로 basename → stem 순서로 fuzzy fallback 수행. "
-                "다수 후보가 매칭되면 단건 응답 {message, candidates}을 반환 — candidates 중 정확한 경로로 재호출. "
-                "단일 fuzzy 매칭이면 각 row에 _resolved_via / _resolved_path 메타가 인라인 부여되어, "
+                "다수 후보가 매칭되면 {message, candidates}을 반환 — candidates 중 정확한 경로로 재호출. "
+                "단일 fuzzy 매칭이면 결과에 _resolved_via / _resolved_path가 부여되어, "
                 "evidence에는 LLM이 추정한 path가 아닌 _resolved_path를 사용해야 함."
             ),
             "parameters": {
@@ -164,8 +166,7 @@ TOOLS = [
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "최대 반환 커밋 수 (기본 20)",
-                        "default": 20,
+                        "description": "관련도 산정 대상 커밋 상한 (미지정 시 전체 이력). 보통 지정 불필요.",
                     },
                 },
                 "required": ["path"],

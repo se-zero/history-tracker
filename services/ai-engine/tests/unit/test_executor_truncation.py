@@ -53,6 +53,46 @@ class TruncatePayloadTest(unittest.TestCase):
         out = _truncate_payload(rows, json.dumps(rows, ensure_ascii=False))
         self.assertIn("잘렸습니다", out)
 
+    def test_file_history_dict_trims_context_and_keeps_detail(self):
+        # get_file_history 2계층 dict — 상한 초과 시 개요(context) stub부터 줄이고
+        # detail(인용 대상)은 보존, JSON 유효성과 축약 고지를 유지해야 한다.
+        result = {
+            "path": "src/x.py",
+            "detail": [{"hash": "d0", "message": "m", "diff_summary": "s"}],
+            "context": [{"hash": f"{i:04d}", "title": "t" * 80} for i in range(400)],
+        }
+        payload = json.dumps(result, ensure_ascii=False)
+        self.assertGreater(len(payload), _MAX_RESULT_CHARS)
+
+        out = _truncate_payload(result, payload)
+
+        self.assertLessEqual(len(out), _MAX_RESULT_CHARS)
+        parsed = json.loads(out)  # 파싱 실패하면 문자열 컷이 일어난 것
+        self.assertEqual(parsed["detail"], result["detail"])   # 인용 대상 보존
+        self.assertLess(len(parsed["context"]), 400)           # 개요는 줄어듦
+        self.assertIn("context_truncated", parsed)
+        self.assertIn("축약", parsed["context_truncated"])
+
+    def test_file_history_dict_trims_detail_when_detail_alone_exceeds(self):
+        # detail(인용 대상)만으로 상한을 넘겨도 문자열 컷(JSON 파손) 대신 행 단위로 줄이고
+        # 최소 1건은 남긴다 — 오래된 커밋 증발을 JSON 파손으로 숨기던 case-27 재발 방지.
+        result = {
+            "path": "src/x.py",
+            "detail": [{"hash": f"{i:02d}", "message": "m" * 900, "diff_summary": "d" * 300}
+                       for i in range(8)],
+            "context": [],
+        }
+        payload = json.dumps(result, ensure_ascii=False)
+        self.assertGreater(len(payload), _MAX_RESULT_CHARS)
+
+        out = _truncate_payload(result, payload)
+
+        self.assertLessEqual(len(out), _MAX_RESULT_CHARS)
+        parsed = json.loads(out)  # 파싱 실패하면 JSON이 깨진 것
+        self.assertGreaterEqual(len(parsed["detail"]), 1)      # 최소 1건 보존
+        self.assertLess(len(parsed["detail"]), 8)              # 일부는 줄어듦
+        self.assertIn("detail_truncated", parsed)
+
 
 if __name__ == "__main__":
     unittest.main()
