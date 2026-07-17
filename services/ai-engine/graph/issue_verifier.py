@@ -11,14 +11,13 @@
 
 import json
 import logging
-from datetime import timedelta
-
 from openai_client import Priority, chat_completion
 
 from graph.embedder import cosine_similarity
 from graph.issue_linker import (
+    DISCUSSED_IN_POST_BUFFER_DAYS,
+    DISCUSSED_IN_PRE_BUFFER_DAYS,
     DISCUSSED_IN_THRESHOLD,
-    TIME_WINDOW_DAYS,
     TRIGGERED_BY_THRESHOLD,
     IssueLinkStore,
     _compute_issue_window,
@@ -172,7 +171,6 @@ async def build_issue_communication_links_verified(
         logger.info("DISCUSSED_IN(D) 생성 스킵: issues=%d, comms=%d", len(issues), len(comms))
         return 0
 
-    window  = timedelta(days=TIME_WINDOW_DAYS)
     created = 0
 
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
@@ -183,15 +181,17 @@ async def build_issue_communication_links_verified(
         project_comms = comms_by_project.get(project_id, [])
         for issue in project_issues:
             issue_vec   = issue["embedding"]
-            issue_time  = issue["occurred_at"]
             issue_title = issue.get("title", "")
             issue_body  = issue.get("body", "")
+            start, end  = _compute_issue_window(
+                issue, DISCUSSED_IN_PRE_BUFFER_DAYS, DISCUSSED_IN_POST_BUFFER_DAYS
+            )
 
-            # Stage 1: 시간 윈도우 + 유사도 필터 → Issue당 top_k 후보
+            # Stage 1: 이슈 생애 윈도우 + 유사도 필터 → Issue당 top_k 후보
             candidates = [
                 (cosine_similarity(issue_vec, comm["embedding"]), comm)
                 for comm in project_comms
-                if abs(issue_time - comm["occurred_at"]) <= window
+                if start <= comm["occurred_at"] <= end
                 and cosine_similarity(issue_vec, comm["embedding"]) >= threshold
             ]
             candidates.sort(key=lambda x: x[0], reverse=True)

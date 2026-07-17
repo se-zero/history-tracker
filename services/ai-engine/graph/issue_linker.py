@@ -12,7 +12,8 @@ Issue와 ChangeSet / Communication을 연결한다.
   Issue / ChangeSet / Communication 임베딩이 충분히 쌓인 뒤 실행.
 
 정밀도 정책 (TRIGGERED_BY):
-  - 임계값: 0.55 (false positive 감소)
+  - 임계값: 0.30 — 후보가 text 링크 없는 커밋뿐이라 풀이 작고, 진짜 연결은
+    diff 요약↔이슈의 어휘 차이로 0.3대에 깔려 있다 (상수 주석 참고)
   - 시간 윈도우: 비대칭 — [createdAt - 1d, closedAt(+3d 유예) or now]
     이슈 종료 후 작성된 커밋은 사실상 그 이슈의 작업이 아니므로 차단
   - ChangeSet당 top-1 매칭만 유지: 같은 커밋이 여러 이슈에 동시 연결되지 않음
@@ -39,40 +40,62 @@ def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
         grouped[row.get("project_id") or ""].append(row)
     return grouped
 
-# TRIGGERED_BY 시맨틱 매칭 임계값 — 정밀도 우선
-TRIGGERED_BY_THRESHOLD = 0.55
+# TRIGGERED_BY 시맨틱 매칭 임계값. 후보가 "text 링크가 하나도 없는 커밋"뿐이라(store fetch에서
+# 제외) 풀이 작고, 진짜 연결은 diff 요약↔이슈의 어휘 차이로 0.30~0.38에 깔려 있다 — 0.55는
+# 시맨틱 엣지를 0개로 전멸시켰다. 전제: 커밋에 이슈 키를 적는 관행이 있는 팀일수록 무링크 풀이
+# 작아 안전하다. 키 관행이 없는 팀은 모든 커밋이 후보가 되므로 이 값이 낮을수록 노이즈가 커진다
+# (admin 파라미터 triggered_by_threshold로 재배포 없이 조정 가능).
+TRIGGERED_BY_THRESHOLD = 0.30
 # DISCUSSED_IN은 별도 — 기존 값 유지 (스레드 그룹핑은 하위 2 쿼리 단에서 처리)
 DISCUSSED_IN_THRESHOLD = 0.40
 # 외부 코드 호환용 alias (issue_verifier 등에서 사용). 신규 코드는 위 두 상수를 직접 참조.
 DEFAULT_THRESHOLD = DISCUSSED_IN_THRESHOLD
 
-TIME_WINDOW_DAYS = 30                              # DISCUSSED_IN 대칭 윈도우용 (변경 없음)
+# DISCUSSED_IN fan-out 컷 — 이슈의 최고점 스레드와 이 폭 안에 드는 스레드만 유지한다.
+# 개수(top-k)가 아니라 상대 거리로 자르는 이유: 이슈의 논의 스레드 수는 팀 활동량에 비례해서
+# "이슈당 n개"라는 가정을 배포 제품에 박을 수 없다. 마진은 진짜 논의가 몇 개든 최고점 근처에
+# 모이기만 하면 전부 살린다.
+DEFAULT_DISCUSSED_IN_MARGIN = 0.10
+
 ISSUE_PRE_BUFFER_DAYS  = 1                         # createdAt 이전 허용 (사전 작업)
 ISSUE_POST_BUFFER_DAYS = 3                         # closedAt 이후 허용 (마무리 커밋)
+
+# DISCUSSED_IN은 커밋(TRIGGERED_BY)보다 앞쪽 버퍼가 넓다 — 대화는 이슈를 파기 전에 먼저
+# 오가는 게 흔하다("이거 티켓 파자"). 4일인 이유: 경계가 타임스탬프 비교라 3일이면 가장 흔한
+# "주말 전 논의 → 주초 이슈 생성"(금→월)이 시각에 따라 잘린다. 반대로 뒤쪽은 좁게 유지한다:
+# 이슈가 끝난 뒤의 대화는 대부분 다음 작업 얘기라 노이즈다.
+DISCUSSED_IN_PRE_BUFFER_DAYS  = 4
+DISCUSSED_IN_POST_BUFFER_DAYS = 3
 
 TERMINAL_STATUSES = {"완료", "Done", "Closed", "Resolved", "해결됨"}
 
 
-def _compute_issue_window(issue: dict) -> tuple[datetime, datetime]:
+def _compute_issue_window(
+    issue: dict,
+    pre_days: int = ISSUE_PRE_BUFFER_DAYS,
+    post_days: int = ISSUE_POST_BUFFER_DAYS,
+) -> tuple[datetime, datetime]:
     """이슈의 작업 가능 시간 범위 [start, end] 를 비대칭으로 계산.
 
-    start: createdAt(or occurredAt) - ISSUE_PRE_BUFFER_DAYS
-    end:   closedAt + ISSUE_POST_BUFFER_DAYS  (closedAt이 명시되어 있을 때)
-           or occurredAt + ISSUE_POST_BUFFER_DAYS  (status가 terminal일 때 fallback)
+    start: createdAt(or occurredAt) - pre_days
+    end:   closedAt + post_days  (closedAt이 명시되어 있을 때)
+           or occurredAt + post_days  (status가 terminal일 때 fallback)
            or now (그 외 — 진행 중인 이슈)
+
+    버퍼는 호출자가 정한다 — 커밋과 대화는 이슈 생애 대비 분포가 다르다 (위 상수 참고).
     """
     occurred = issue["occurred_at"]
     created  = issue.get("created_at") or occurred
     closed   = issue.get("closed_at")
     status   = issue.get("status")
 
-    start = created - timedelta(days=ISSUE_PRE_BUFFER_DAYS)
+    start = created - timedelta(days=pre_days)
 
     if closed is not None:
-        end = closed + timedelta(days=ISSUE_POST_BUFFER_DAYS)
+        end = closed + timedelta(days=post_days)
     elif status in TERMINAL_STATUSES:
         # pipeline-worker가 closedAt을 아직 안 보내는 경우 fallback
-        end = occurred + timedelta(days=ISSUE_POST_BUFFER_DAYS)
+        end = occurred + timedelta(days=post_days)
     else:
         # 진행 중인 이슈는 상한 없음
         end = datetime.now(timezone.utc)
@@ -99,7 +122,9 @@ class IssueLinkStore:
     fetch_communication_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 Communication 노드 반환.
     Returns:
-        [{"project_id": str, "id": str (url), "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "id": str (url), "conversation_id": str | None,
+          "embedding": list[float], "occurred_at": datetime}, ...]
+        conversation_id는 DISCUSSED_IN 마진 컷의 그룹 키다 (없으면 그 메시지가 곧 스레드).
     """
 
     create_triggered_by_edge: Callable[[str, str, str, float], Awaitable[None]]
@@ -203,10 +228,22 @@ async def build_issue_changeset_links(
 async def build_issue_communication_links(
     store: IssueLinkStore,
     threshold: float = DISCUSSED_IN_THRESHOLD,
+    margin: float = DEFAULT_DISCUSSED_IN_MARGIN,
+    pre_days: int = DISCUSSED_IN_PRE_BUFFER_DAYS,
+    post_days: int = DISCUSSED_IN_POST_BUFFER_DAYS,
 ) -> int:
     """Issue.embedding ↔ Communication.embedding 유사도로 DISCUSSED_IN 엣지 생성.
 
-    DISCUSSED_IN은 TRIGGERED_BY와 달리 대칭 윈도우 + 별도 임계값 사용 (스코프 분리).
+    TRIGGERED_BY와 같은 이슈 생애 윈도우를 쓰되 버퍼·임계값은 따로 둔다 (스코프 분리).
+
+    Args:
+        store:     Neo4j 접근 인터페이스
+        threshold: 엣지 생성 최소 유사도 (바닥선)
+        margin:    이슈별 fan-out 컷 — 그 이슈의 최고점 스레드와 이 폭 안에 드는 스레드만 유지.
+                   스레드의 대표값은 그 안의 최고 점수다 (수다스러운 스레드가 자리를 독식하지
+                   않도록 메시지가 아니라 스레드 단위로 비교).
+        pre_days:  이슈 생성 이전 몇 일까지 후보로 볼지
+        post_days: 이슈 종료 이후 몇 일까지 후보로 볼지
 
     Returns:
         생성(또는 갱신)된 DISCUSSED_IN 엣지 수
@@ -217,8 +254,6 @@ async def build_issue_communication_links(
     if not issues or not comms:
         logger.info("DISCUSSED_IN 생성 스킵: issues=%d, comms=%d", len(issues), len(comms))
         return 0
-
-    window_s = timedelta(days=TIME_WINDOW_DAYS).total_seconds()
 
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
     issues_by_project = _group_by_project(issues)
@@ -239,19 +274,39 @@ async def build_issue_communication_links(
             [c["embedding"] for c in p_comms],
         )
 
-        # 대칭 시간 윈도우 마스크 + 임계값. top-1 없이 통과한 모든 쌍에 엣지 생성.
-        issue_ts = np.array([it["occurred_at"].timestamp() for it in p_issues])
+        # 이슈 생애 윈도우 마스크 + 바닥 임계값.
+        windows  = [_compute_issue_window(it, pre_days, post_days) for it in p_issues]
+        starts   = np.array([w[0].timestamp() for w in windows])
+        ends     = np.array([w[1].timestamp() for w in windows])
         comm_ts  = np.array([c["occurred_at"].timestamp() for c in p_comms])
-        in_window = np.abs(issue_ts[:, None] - comm_ts[None, :]) <= window_s
+        in_window = (comm_ts[None, :] >= starts[:, None]) & (comm_ts[None, :] <= ends[:, None])
         valid = in_window & (sim >= threshold)
+
+        # fan-out 컷 — 이슈별로 스레드 최고점을 구하고, 최고점 − margin 안에 드는 스레드만 남긴다.
+        thread_of = {c["id"]: (c.get("conversation_id") or c["id"]) for c in p_comms}
+        thread_best: dict[int, dict[str, float]] = defaultdict(dict)
+        for i, j in np.argwhere(valid):
+            i, j = int(i), int(j)
+            threads = thread_best[i]
+            thread = thread_of[p_comms[j]["id"]]
+            score = float(sim[i, j])
+            if score > threads.get(thread, -1.0):
+                threads[thread] = score
+        kept_threads = {}
+        for i, threads in thread_best.items():
+            cut = max(threads.values()) - margin
+            kept_threads[i] = {t for t, s in threads.items() if s >= cut}
 
         for i, j in np.argwhere(valid):
             i, j = int(i), int(j)
+            if thread_of[p_comms[j]["id"]] not in kept_threads[i]:
+                continue
             score = float(sim[i, j])
             await store.create_discussed_in_edge(project_id, p_issues[i]["id"], p_comms[j]["id"], confidence=score)
             created += 1
             logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f",
                          p_issues[i]["id"], p_comms[j]["id"], score)
 
-    logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f)", created, threshold)
+    logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f, margin=%.2f, window=-%dd/+%dd)",
+                created, threshold, margin, pre_days, post_days)
     return created
