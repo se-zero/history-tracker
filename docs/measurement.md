@@ -143,15 +143,21 @@ rule_checks:
 | `eval/validate_golden.py` | 골든셋의 모든 evidence id가 스냅샷 그래프의 실제 노드로 해석되는지 사전 검증 |
 | `eval/runner.py` | 골든셋 질문을 `/query`에 케이스당 N회 던지고 응답을 저장 (채점 안 함) |
 | `eval/grader.py` | 저장된 응답을 채점 — 기계 채점 + LLM judge → `scores.json` |
+| `eval/compare.py` | 두 `scores.json`의 paired 비교 — 집계·케이스별 델타를 노이즈 플로어로 판정, 측정 장치 차이 경고 |
 | `eval/graph_lookup.py` | 공용 헬퍼 — Neo4j 접속, project_id 자동 감지, evidence 원문 조회, id 포맷 규칙 |
-| `eval/tests/test_grader_mechanical.py` | 채점기의 기계 채점 로직 단위 테스트 (Neo4j 없이 실행) |
+| `eval/tests/` | 채점기·비교기 순수 로직 단위 테스트 (Neo4j 없이 실행) |
 
 **러너와 채점기를 분리한 이유**: 응답을 파일로 남겨두면 채점 로직을 고쳐도 **재실행 없이
 재채점**할 수 있고, 회귀 원인 진단에 트랜스크립트(도구 호출 목록·토큰)를 다시 쓸 수 있다.
 
 `runner.py`는 backend를 거치지 않고 ai-engine `/query`를 직접 호출한다 — ai-engine의 품질만
-격리해서 재기 위해서다. 실행마다 `{날짜, git 커밋, 골든셋 버전, 스냅샷 라벨, 그래프 구조 지표,
-토큰 비용}`을 `meta.json`에 기록한다. 이 시계열이 개선 이력의 증거가 된다.
+격리해서 재기 위해서다. 실행마다 `{날짜, git 커밋(+dirty 여부), 골든셋 버전, 스냅샷 라벨,
+그래프 구조 지표, 토큰 비용}`을 `meta.json`에 기록한다. 이 시계열이 개선 이력의 증거가 된다.
+
+답변 모델·노브 설정은 수동 라벨이 아니라 **엔진 실측값**으로 기록한다 — 러너가
+`GET /query/config`로 ai-engine 프로세스에 실제 적용된 설정(QUERY_MODEL·reasoning_effort·
+TOOLS_MIN_CONFIDENCE·FILE_HISTORY_*)을 조회해 `meta.engine_config`에 남기고, `--model-label`과
+어긋나면 경고한다. "라벨과 실제가 다른" 무효 런(예: reasoning_effort 사고)을 기록 단계에서 막는다.
 
 ### 3.4 수행 절차
 
@@ -179,9 +185,14 @@ rule_checks:
    → 확인: 콘솔 마지막 줄의 집계 지표와 `<run-id>/scores.json`.
    기계 채점만 보려면 `--skip-judge` (LLM 비용 0).
 
-5. **이전 실행과 비교한다.** `scores.json`의 `aggregate`를 직전 baseline과 대조한다.
-   집계 평균만 보지 말고 **케이스별 점수도 함께 본다** — 집계만 보면 5개 좋아지고 5개 나빠진
-   상쇄를 놓친다.
+5. **이전 실행과 비교한다.**
+   ```bash
+   python eval/compare.py eval/results/<baseline-run-id> eval/results/<candidate-run-id>
+   ```
+   집계 델타 + **케이스별 짝지은 판정**(노이즈 플로어 초과만 개선/악화)을 출력한다 —
+   집계만 보면 5개 좋아지고 5개 나빠진 상쇄를 놓친다. 골든셋 버전·스냅샷·모델·judge가
+   다르면 "측정 장치 차이"로 경고한다 (그 경우 델타를 시스템 효과로 읽지 말 것 —
+   골든 버전이 다르면 한쪽을 재채점해 자를 맞춘다).
 
 6. **채택 또는 롤백한다.** 델타가 노이즈 플로어(6장)를 넘으면 채택하고,
    무엇을 바꿔서 무엇이 몇 %p 움직였는지 기록한다. 넘지 못하면 되돌리고 다음 조치로 간다.

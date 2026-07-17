@@ -66,6 +66,33 @@ async def query(req: QueryRequest):
     return body
 
 
+@router.get("/query/config")
+async def query_config():
+    """질의 경로에 실제 적용 중인 설정을 반환한다 (eval 러너의 meta.json 실측 기록용).
+
+    env를 다시 읽지 않고 각 모듈이 import 시점에 확정한 값을 그대로 노출한다 —
+    "환경변수는 바꿨는데 재기동을 안 한" 상태에서도 실제 동작 값이 기록되게.
+    수동 라벨(--model-label)과 실제 설정이 어긋난 무효 런을 방지한다
+    (실례: QUERY_REASONING_EFFORT=low 사고 — docs/query-followups.md 2번).
+    """
+    from agent.orchestrator import _MAX_ITERATIONS, _MODEL, _REASONING_EFFORT
+    from tools.queries._common import _MIN_CONFIDENCE
+    from tools.queries.files import _CONTEXT_CAP, _DETAIL_BUDGET, _DETAIL_K_MAX, _MAX_COMMITS
+
+    return {
+        "query_model": _MODEL,
+        "reasoning_effort": _REASONING_EFFORT,  # 빈 문자열 = 파라미터 미전송(API 기본값)
+        "max_iterations": _MAX_ITERATIONS,
+        "tools_min_confidence": _MIN_CONFIDENCE,
+        "file_history": {
+            "detail_budget": _DETAIL_BUDGET,
+            "detail_max": _DETAIL_K_MAX,
+            "context_cap": _CONTEXT_CAP,
+            "max_commits": _MAX_COMMITS,
+        },
+    }
+
+
 @router.post("/query/summary")
 async def summarize_query_history(req: SummaryRequest):
     """기존 누적 요약에 새 대화 턴을 병합해 갱신한다."""
