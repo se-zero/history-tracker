@@ -1,9 +1,13 @@
 """파일 변경 이력 조회 — strict 매칭 + fuzzy path fallback + 관련도 기반 2계층 반환."""
 
-import json
 import os
 
-from tools.queries._common import _MIN_CONFIDENCE, get_driver
+from tools.queries._common import (
+    _MIN_CONFIDENCE,
+    _detail_count_for_budget as _budget_count,
+    _priority_order,
+    get_driver,
+)
 
 
 _FUZZY_CANDIDATE_LIMIT = 5      # candidates 리스트에 노출할 최대 후보 수
@@ -100,36 +104,9 @@ async def get_file_history(
 # ─── 2계층 분할 (순수 함수 — Neo4j 없이 단위 테스트 가능) ────────────────────────
 
 
-def _priority_order(rows: list[dict], ranked: bool) -> list[dict]:
-    """detail에 채울 우선순위 — ranked면 relevance desc, 아니면 최신순(Cypher 정렬 유지)."""
-    if not ranked:
-        return rows  # Cypher가 이미 최신순(desc)으로 반환
-    return sorted(
-        rows,
-        key=lambda r: (
-            r["relevance"] if r.get("relevance") is not None else -1.0,
-            r.get("occurredAt") or "",
-        ),
-        reverse=True,
-    )
-
-
 def _detail_count_for_budget(rows: list[dict], ranked: bool, budget_chars: int, k_max: int) -> int:
-    """detail에 담을 행 수 — 우선순위 순으로 직렬화 크기를 누적하며 예산 안에서 최대한 채운다.
-
-    다 담아도 예산에 맞으면 전량(=구 동작, 나열형 recall 보존), 넘치면 예산까지만.
-    최소 1건은 보장하고 k_max로 하드 상한을 둔다.
-    """
-    used, k = 0, 0
-    for r in _priority_order(rows, ranked):
-        if k >= k_max:
-            break
-        size = len(json.dumps(_detail_row(r, ranked), ensure_ascii=False, default=str))
-        if k > 0 and used + size > budget_chars:
-            break
-        used += size
-        k += 1
-    return max(k, 1) if rows else 0
+    """공용 예산 채움(_common)의 file_history 렌더러 바인딩 — 단위 테스트가 이 이름을 쓴다."""
+    return _budget_count(rows, ranked, budget_chars, k_max, _detail_row)
 
 
 def _split_tiers(

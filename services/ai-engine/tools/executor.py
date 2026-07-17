@@ -141,6 +141,16 @@ def _trim_tiered_dict(result: dict) -> str | None:
     return None
 
 
+async def _question_embedding(question: str) -> list[float] | None:
+    """질문 관련도 재랭킹용 임베딩 — 질문 없거나 임베딩 실패 시 None(호출부 최신순 폴백).
+
+    search_by_keyword의 키워드 임베딩과 같은 경로로 INTERACTIVE 우선순위(질의 latency 보호).
+    """
+    if not question or not question.strip():
+        return None
+    return await embed_text(question, priority=Priority.INTERACTIVE) or None
+
+
 async def _dispatch(tool_name: str, args: dict, project_id: str, question: str = "") -> object:
     match tool_name:
         case "get_issue_context":
@@ -179,23 +189,20 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
             )
 
         case "get_actor_activity":
+            # limit은 의도적으로 전달하지 않는다 — 조회 창은 서버 정책(ACTOR_ACTIVITY_MAX)이
+            # 결정하고, LLM이 지어낸 limit 인자가 창을 옛 컷(20)으로 되돌리지 못하게 한다
             return await queries.get_actor_activity(
                 project_id=project_id,
                 identifier=args["identifier"],
                 from_time=args.get("from_time"),
-                limit=args.get("limit", 20),
+                question_embedding=await _question_embedding(question),
             )
 
         case "get_file_history":
-            # 질문 임베딩으로 이력을 관련도 재랭킹 (question 없거나 임베딩 실패 시 최신순 폴백).
-            # search_by_keyword와 동일하게 INTERACTIVE — 질의 latency 보호.
-            q_embedding = None
-            if question and question.strip():
-                q_embedding = await embed_text(question, priority=Priority.INTERACTIVE) or None
             return await queries.get_file_history(
                 project_id=project_id,
                 path=args["path"],
-                question_embedding=q_embedding,
+                question_embedding=await _question_embedding(question),
                 limit=args.get("limit"),
             )
 

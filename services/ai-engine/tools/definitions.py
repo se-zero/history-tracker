@@ -117,7 +117,12 @@ TOOLS = [
         "function": {
             "name": "get_actor_activity",
             "description": (
-                "특정 사람의 커밋, PR, Slack 메시지, Jira 이슈 활동을 조회한다. "
+                "특정 사람의 커밋, PR, Slack 메시지, Jira 이슈 활동을 2계층으로 조회한다: "
+                "detail(본문 포함 인용 대상 — 커밋·PR은 최신순, 메시지는 질문 관련도순)과 "
+                "context(나머지 활동의 시간순 개요 — 본문 없음). 각 항목은 kind 필드로 구분. "
+                "인용은 detail에서, context 항목을 인용하려면 kind별 상세 도구"
+                "(commit→get_changeset_context, message→get_thread_context, "
+                "pull_request→get_pr_context)로 본문을 조회한 뒤 인용. "
                 "이름, GitHub login, 이메일 중 하나로 검색 가능. "
                 "'junsu가 이번 주에 뭐 했어?' 같은 질문에 사용."
             ),
@@ -132,11 +137,8 @@ TOOLS = [
                         "type": "string",
                         "description": "조회 시작 시각 ISO-8601 (예: 2026-05-01T00:00:00Z). 생략하면 전체 조회.",
                     },
-                    "limit": {
-                        "type": "integer",
-                        "description": "항목당 최대 반환 수 (기본 20)",
-                        "default": 20,
-                    },
+                    # limit은 의도적으로 스키마에 없다 — LLM이 습관적으로 20을 넣어
+                    # 조회 창을 옛 컷 크기로 되돌리는 것을 봉인 (detail 크기는 서버 예산이 결정)
                 },
                 "required": ["identifier"],
             },

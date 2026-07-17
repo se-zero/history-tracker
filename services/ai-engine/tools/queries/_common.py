@@ -1,8 +1,54 @@
 """tools.queries 공용 — 모든 쿼리 모듈이 공유하는 드라이버/상수/헬퍼."""
 
+import json
 import os
+from collections.abc import Callable
 
 from graph.driver import get_driver
+
+
+# ─── 2계층(detail/context) 반환 공용 헬퍼 ──────────────────────────────────────
+# get_file_history에서 시작한 반환 정책 — detail(본문 포함 인용 대상)은 바이트 예산만큼
+# 채우고 나머지는 stub 개요로 내린다. get_actor_activity 등 리스트 컷 도구가 공유한다.
+
+
+def _priority_order(rows: list[dict], ranked: bool) -> list[dict]:
+    """detail에 채울 우선순위 — ranked면 relevance desc(동점은 최신순), 아니면 입력 순서 유지."""
+    if not ranked:
+        return rows  # 호출부 쿼리가 이미 최신순(desc)으로 반환
+    return sorted(
+        rows,
+        key=lambda r: (
+            r["relevance"] if r.get("relevance") is not None else -1.0,
+            r.get("occurredAt") or "",
+        ),
+        reverse=True,
+    )
+
+
+def _detail_count_for_budget(
+    rows: list[dict],
+    ranked: bool,
+    budget_chars: int,
+    k_max: int,
+    render: Callable[[dict, bool], dict],
+) -> int:
+    """detail에 담을 행 수 — 우선순위 순으로 직렬화 크기를 누적하며 예산 안에서 최대한 채운다.
+
+    다 담아도 예산에 맞으면 전량(=구 동작, 나열형 recall 보존), 넘치면 예산까지만.
+    최소 1건은 보장하고 k_max로 하드 상한을 둔다. render는 실제 detail 행 렌더러 —
+    예산 산정과 실제 반환이 같은 모양이어야 크기 계산이 정확하다.
+    """
+    used, k = 0, 0
+    for r in _priority_order(rows, ranked):
+        if k >= k_max:
+            break
+        size = len(json.dumps(render(r, ranked), ensure_ascii=False, default=str))
+        if k > 0 and used + size > budget_chars:
+            break
+        used += size
+        k += 1
+    return max(k, 1) if rows else 0
 
 
 # 시맨틱 엣지 노이즈 컷오프 (도구 응답 단의 소비 임계값).
