@@ -27,10 +27,16 @@ _DETAIL_K_MAX = int(os.environ.get("FILE_HISTORY_DETAIL_MAX", "30"))        # de
 _CONTEXT_CAP = int(os.environ.get("FILE_HISTORY_CONTEXT_CAP", "40"))
 _MAX_COMMITS = int(os.environ.get("FILE_HISTORY_MAX_COMMITS", "200"))       # 관련도 산정 대상 상한(최신순)
 
+# 인용 앵커 문구 — 2계층 전환 풀 런(2026-07-17)에서 모델이 행의 이슈 키를 따라
+# get_issue_context로 피벗해 커밋 대신 이슈만 인용하는 회귀(case-10)가 확인됐다.
+# 파일 변경의 직접 증거는 커밋이므로, 결과 자체에 앵커 규칙을 명시한다.
 _TIER_NOTE = (
     "detail=질문과 관련도가 높은 커밋(본문·diffSummary 포함, 인용 대상). "
     "context=나머지 이력의 시간순 개요(hash·요약만). context 커밋을 근거로 인용하려면 "
-    "get_changeset_context로 본문을 조회한 뒤 인용하세요."
+    "get_changeset_context로 본문을 조회한 뒤 인용하세요. "
+    "이 결과의 인용 앵커는 파일을 실제 변경한 커밋입니다 — 각 행의 issues는 그 커밋에 "
+    "연결된 이슈이므로, 이슈·작업 배경을 서술할 때도 근거에서 해당 커밋을 빼지 마세요 "
+    "(이슈만 인용하면 파일 변경의 직접 증거가 없는 답이 됩니다)."
 )
 
 
