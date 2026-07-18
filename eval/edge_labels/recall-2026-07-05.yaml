@@ -237,3 +237,24 @@ pairs:
     "도커 설정" ↔ "docker 인프라 세팅"으로 일치. ※경미한 리스크: 인프라 파일이 path_filter로
     걸러져 MODIFIED 임베딩이 없으면 시맨틱 매칭이 기계적으로 불가 — 채점 시 확인 필요.
   author: junsu
+
+# ── 2026-07-18 보충: TB 골든 (무링크 커밋 풀 재조사) ──
+- edge_type: TRIGGERED_BY
+  src: {type: commit, id: da56f8e}          # feat: 지식그래프 시스템 기초 작성 (2026-03-23)
+  dst: {type: issue, id: HT-1}
+  note: >
+    작성자 확인으로 연결 유지 — HT-1에서 이어진 작업 (구체 경위 기록 없음).
+    ※구조적 miss: 커밋(3/23)이 이슈 종료(3/15)+3일 생애 윈도우 밖이라 모드·임계값과
+    무관하게 현행 빌더로는 연결 불가. 유사도도 0.199(diff)/0.296(메시지)로 낮아 윈도우를
+    넓혀도 임계값에 걸린다. 시간 윈도우 한계 사례로 보존 — recall 상한을 깎는 역할.
+  author: seyeong
+
+
+- edge_type: TRIGGERED_BY
+  src: {type: commit, id: 312e162}          # fix: 슬랙 URL 딥링크로 변경 (2026-05-07)
+  dst: {type: issue, id: HT-29}
+  note: >
+    HT-29 작업에서 슬랙 URL을 딥링크로 변경해야하는 필요성을 느껴서 팀원에게 수정 요청함.
+  author: seyeong
+
+
