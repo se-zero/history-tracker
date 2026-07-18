@@ -8,6 +8,9 @@ Actor 동일인 판단 파이프라인.
   Step 3: LLM 다중 신호     → confidence ≥ 0.85 → MERGE, 미달 → Step 4
   Step 4: 신규 Actor 생성   → 판단 불가 시 fallback
 
+수동 distinct 결정(docs/actor-manual-merge.md)이 금지한 Actor는 Step 1 매칭과
+Step 2 후보에서 제외된다 — 수동 결정이 자동 판단을 이긴다.
+
 Neo4j 직접 호출 없이 ActorStore 인터페이스로 주입받아 테스트 가능하게 설계.
 """
 
@@ -64,6 +67,12 @@ class ActorStore:
         aliases:    source-scoped alias 목록 (예: ['GITHUB:se-zero'])
         emails:     확인된 이메일 목록 (없으면 [])
         confidence: 통합 신뢰도 (새 노드 생성 시 1.0)
+    """
+
+    lookup_vetoes: Optional[Callable[[str], Awaitable[list[str]]]] = None
+    """수동 distinct 결정으로 이 source_id와 병합이 금지된 Actor uuid 목록.
+    None이면 결정 저장소 없음(기존 mock/호출부 호환) — 거부 없이 동작한다.
+    설계: docs/actor-manual-merge.md
     """
 
 
@@ -138,21 +147,35 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
         logger.debug("[Step 0] alias 매칭: %s → Actor(%s)", source_id, existing.get("name"))
         return existing
 
+    # ── 수동 분리 결정(veto) 조회 ─────────────────────────────────────────
+    # distinct 결정이 금지한 Actor로는 Step 1/3의 자동 병합을 하지 않는다
+    # (수동 결정이 자동 판단을 이긴다 — docs/actor-manual-merge.md)
+    vetoed: set = set()
+    if store.lookup_vetoes:
+        vetoed = set(await store.lookup_vetoes(source_id) or [])
+
     # ── Step 1: email 정확 매칭 ───────────────────────────────────────────
     # pipeline-worker가 가져온 email이 기존 Actor의 emails 배열에 있으면 동일인
     if email:
         existing = await store.lookup_by_email(email)
         if existing:
-            logger.info(
-                "[Step 1] email 매칭: %s → Actor(%s), alias 추가: %s",
-                email, existing.get("name"), source_id,
-            )
-            await store.merge_actor(existing, source_id, email, 1.0)
-            return existing
+            if existing.get("uuid") in vetoed:
+                logger.info(
+                    "[Step 1] email 매칭이 수동 분리 결정으로 차단됨: %s ↛ Actor(%s)",
+                    source_id, existing.get("name"),
+                )
+            else:
+                logger.info(
+                    "[Step 1] email 매칭: %s → Actor(%s), alias 추가: %s",
+                    email, existing.get("name"), source_id,
+                )
+                await store.merge_actor(existing, source_id, email, 1.0)
+                return existing
 
     # ── Step 2: 이름 정규화 + email 교차 스코어링 ─────────────────────────
     normalized_new_name = normalize_name(name)
     candidates = await store.lookup_by_name(normalized_new_name)
+    candidates = [c for c in candidates if c.get("uuid") not in vetoed]
 
     if candidates:
         scored = sorted(
