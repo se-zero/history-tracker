@@ -227,6 +227,17 @@ def main():
         pid = args.project_id or prec_doc.get("project_id") or detect_project_id(session)
         if prec_doc.get("project_id") and prec_doc["project_id"] != pid:
             print(f"⚠ 라벨 파일 project_id({prec_doc['project_id']}) != 대상({pid}) — 스냅샷 확인 필요")
+        # 라벨 파일에 박힌 pid가 이 그래프에 없으면(같은 데이터라도 수집 경로가 다르면 uuid가
+        # 다르다) 전 쌍이 조용히 vanished/miss로 채점된다 — 무효 측정이므로 즉시 중단한다.
+        node_count = session.run(
+            "MATCH (n {project_id:$pid}) RETURN count(n) AS c", pid=pid
+        ).single()["c"]
+        if node_count == 0:
+            sys.exit(
+                f"project_id {pid} 노드가 현재 그래프에 0개 — 라벨 파일의 pid가 이 그래프와 "
+                "다릅니다 (수집 경로가 다르면 uuid가 달라짐). --project-id로 현재 그래프의 "
+                "pid를 지정하세요."
+            )
 
         precision = grade_precision(session, pid, prec_doc.get("edges") or [])
 

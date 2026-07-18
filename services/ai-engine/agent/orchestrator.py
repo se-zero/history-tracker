@@ -5,11 +5,23 @@ import os
 from openai_client import Priority, chat_completion
 from tools.definitions import TOOLS
 from tools.executor import execute
+from tools.queries._common import _MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 
-_MODEL = os.environ.get("QUERY_MODEL", "gpt-4o-mini")
+_MODEL = os.environ.get("QUERY_MODEL", "gpt-5.4-mini")
+# reasoning 모델 전용 노브 (minimal/low/medium/high). 빈 값이면 API 기본값을 따른다.
+# eval 스윕용 — 코드 수정 없이 env로 주입한다 (docs/measurement.md의 임계값 주입과 같은 방식).
+_REASONING_EFFORT = os.environ.get("QUERY_REASONING_EFFORT", "")
 _MAX_ITERATIONS = 10
+
+
+def _model_kwargs() -> dict:
+    """chat_completion에 넘길 모델 공통 kwargs — reasoning_effort는 설정된 경우에만 포함."""
+    kwargs = {"model": _MODEL}
+    if _REASONING_EFFORT:
+        kwargs["reasoning_effort"] = _REASONING_EFFORT
+    return kwargs
 
 _RUNNING_SUMMARY_SCHEMA = {
     "name": "running_summary",
@@ -143,8 +155,8 @@ GitHub(커밋, PR), Jira(이슈), Slack(메시지) 데이터가 Neo4j 지식 그
 - 도구 결과에 없는 내용은 절대 추측하거나 지어내지 마세요. 그래프에 근거가 없는 측면은
   unknown_aspects[]에 명시하고, summary에 일반론·추정으로 채우지 마세요.
 - 여러 출처(Jira, Slack, PR)가 서로 다른 이유를 설명하면 각 관점을 구분해 제시하세요.
-- 연결 confidence가 0.5~0.7 구간인 항목을 인용할 때는 summary에서 "유사도 기반 추정" 등으로 명시하세요.
-  0.5 미만 엣지는 쿼리 단에서 이미 차단되어 도구 결과에 없습니다.
+- 연결 confidence가 __MIN_CONF__~0.7 구간인 항목을 인용할 때는 summary에서 "유사도 기반 추정" 등으로 명시하세요.
+  __MIN_CONF__ 미만 엣지는 쿼리 단에서 이미 차단되어 도구 결과에 없습니다.
 - summary, unknown_aspects, evidence[*].quote 모두 한국어로 작성하세요 (단, 원문이 영어/코드면 그대로 인용).
 
 [그래프 타임스탬프 의미 사전 — 필드명을 추정으로 해석하지 말 것]
@@ -182,6 +194,10 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - evidence[*].event_meaning은 위 [타임스탬프 의미 사전]의 enum 값만 사용.
 - "왜", "배경", "이유" 류 질문에 명확한 근거(이슈 본문 / 슬랙 메시지)가 없으면
   unknown_aspects에 명시하고, summary에서 일반론으로 채우지 마세요.
+- 근거가 이유·배경을 직접 명시하지 않고 시사만 한다면, 단정형("~때문이다", "~하기 위해서였다")
+  으로 쓰지 말고 추론임을 드러내세요 — 어떤 근거에서의 추론인지 밝히고 "~로 보인다" 수준으로
+  서술하며, 확정 근거가 없다는 점은 unknown_aspects에 명시하세요. 추론 자체는 가치 있는
+  답변입니다. 금지되는 것은 근거 없는 창작과 근거 이상의 확신입니다.
 
 [모호한 질문 처리 절차]
 질문에 구체적 entity(jira_key / commit hash / PR # / 파일 경로)가 없으면 다음을 순서대로 시도:
@@ -195,9 +211,25 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 
 [파일 경로 모호 처리]
 - get_file_history 결과에 'candidates' 필드가 있으면 그 중 가장 적절한 경로로 재호출하세요.
-- 결과 row에 '_resolved_via' = 'basename_match' 또는 'stem_match'이 있으면, evidence 또는 summary의
+- 결과에 '_resolved_via' = 'basename_match' 또는 'stem_match'이 있으면, evidence 또는 summary의
   파일 경로 인용에 LLM이 추정한 path가 아니라 '_resolved_path' 값을 사용하세요.
 - 파일명 확장자를 모르면 확장자 없이 호출해도 됨 (자동 stem 매칭).
+
+[2계층 결과 처리 — get_file_history · get_actor_activity]
+- 이 도구들의 결과는 {detail:[...], context:[...]} 2계층이다. detail은 본문 포함(인용 대상),
+  context는 나머지 항목의 시간순 개요 stub(본문 없음)이다.
+- 근거 인용(evidence)은 detail 항목에서 하세요. context는 전체 흐름을 파악하고 어떤 항목을 더
+  볼지 고르는 용도입니다.
+- context의 특정 항목이 질문에 관련돼 인용이 필요하면, 그 항목의 상세 도구로 본문을 조회한 뒤
+  인용하세요 — commit은 hash로 get_changeset_context, message는 conversation_id로
+  get_thread_context, pull_request는 pr_number로 get_pr_context. stub의 제목만으로 quote를
+  지어내지 마세요.
+- context에 있다는 이유만으로 다수 항목을 무더기로 인용하지 마세요. 질문에 답하는 데 필요한
+  항목만 인용합니다.
+- 파일 이력 질문(get_file_history로 답하는 질문)의 인용 앵커는 **파일을 실제 변경한 커밋**입니다.
+  detail 행의 issues는 그 커밋에 연결된 이슈이므로 배경 서술에 활용하되, 이슈를 인용할 때도
+  해당 커밋을 근거에서 빼지 마세요 — 이슈·메시지만 인용하면 파일이 실제로 그 작업으로
+  변경됐다는 직접 증거가 없는 답이 됩니다.
 
 [도구 사용 가이드]
 - 커밋 hash나 Jira key를 모를 때: search_by_keyword로 진입점 탐색 후 다른 도구 호출
@@ -208,10 +240,20 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - 사람 활동 조회: get_actor_activity
 - 컨텍스트 없는 커밋: check_missing_context
 - 여러 출처 비교: get_conflict_context
-"""
+""".replace("__MIN_CONF__", f"{_MIN_CONFIDENCE:g}")
 
 _FALLBACK_ANSWER = "답변을 생성하지 못했습니다."
 _LLM_FAILURE_ANSWER = "AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+
+# 재시도로 회복되지 않는 클라이언트 오류(모델명 오타·미지원 파라미터·인증 실패 등).
+# 이걸 삼키면 HTTP 200 + 빈 답변으로 위장돼 운영·eval 양쪽에서 조용한 장애가 된다
+# (실례: QUERY_REASONING_EFFORT=low 설정 시 400이 로그에만 남고 9/9 질의가 빈 답변).
+# 일시 오류(429·5xx·타임아웃)는 기존대로 삼키고 재시도 안내 답변으로 degrade한다.
+_UNRECOVERABLE_STATUS = {400, 401, 403, 404, 422}
+
+
+def _is_unrecoverable(exc: Exception) -> bool:
+    return getattr(exc, "status_code", None) in _UNRECOVERABLE_STATUS
 
 
 def _build_system_prompt(project_context: str = "") -> str:
@@ -227,13 +269,15 @@ def _build_system_prompt(project_context: str = "") -> str:
 
 async def _call_llm(messages: list, with_tools: bool = True):
     """OpenAI tool calling 호출. 실패 시 None 반환."""
-    kwargs = {"model": _MODEL, "messages": messages}
+    kwargs = {**_model_kwargs(), "messages": messages}
     if with_tools:
         kwargs["tools"]       = TOOLS
         kwargs["tool_choice"] = "auto"
     try:
         return await chat_completion(priority=Priority.INTERACTIVE, **kwargs)
-    except Exception:
+    except Exception as exc:
+        if _is_unrecoverable(exc):
+            raise
         logger.exception("LLM 호출 실패")
         return None
 
@@ -280,11 +324,13 @@ async def _call_llm_structured(messages: list, debug: dict | None = None) -> dic
     try:
         response = await chat_completion(
             priority=Priority.INTERACTIVE,
-            model=_MODEL,
+            **_model_kwargs(),
             messages=final_messages,
             response_format={"type": "json_schema", "json_schema": _GROUNDED_ANSWER_SCHEMA},
         )
-    except Exception:
+    except Exception as exc:
+        if _is_unrecoverable(exc):
+            raise
         logger.exception("Structured LLM 호출 실패")
         return None
     _record_usage(debug, response)
@@ -325,11 +371,13 @@ async def summarize_history(
     try:
         response = await chat_completion(
             priority=Priority.INTERACTIVE,
-            model=_MODEL,
+            **_model_kwargs(),
             messages=messages,
             response_format={"type": "json_schema", "json_schema": _RUNNING_SUMMARY_SCHEMA},
         )
-    except Exception:
+    except Exception as exc:
+        if _is_unrecoverable(exc):
+            raise
         logger.exception("Running summary LLM 호출 실패")
         return None
 
@@ -522,7 +570,7 @@ async def run(
             seen_calls.add(call_key)
 
             logger.info("도구 호출: %s", tool_name)
-            result_str = await execute(tool_name, args, project_id)
+            result_str = await execute(tool_name, args, project_id, question=question)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
             _record_tool_call(debug, tool_name, args, "ok", result_str)
 

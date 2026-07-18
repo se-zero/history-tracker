@@ -258,3 +258,15 @@ pairs:
   author: seyeong
 
 
+# ── DISCUSSED_IN (이슈 → 스레드) ─────────────────────────────────────────────
+- edge_type: DISCUSSED_IN
+  src: {type: issue, id: HT-75}             # 각 integration 연결 시 pipeline-worker 수집 트리거
+  dst: {type: message, id: '1781439419.344509'}
+  note: >
+    각 연동(GitHub·Jira·Slack) 연결 시 pipeline-worker 수집을 트리거하는 작업(HT-75, PR #35)을
+    정세영이 슬랙 "Pipeline worker 수집 트리거 pr 날렸어" 스레드로 공유하고 같은 스레드에서
+    머지까지 확인. 이 스레드가 HT-75 구현·공유의 직접 근거이며, e2e 골든 case-33이 이 연결을
+    요구한다. ※2026-07-14 기준 그래프에 시맨틱 엣지 존재(conf 0.698) 확인 — 누락 등록이 아니라
+    회귀 가드 목적: DISCUSSED_IN 소비·생성 임계값을 0.7 이상으로 올리면 이 연결이 끊겨
+    case-33 근거가 사라진다 (2026-07-14 e2e 진단에서 발견).
+  author: junsu

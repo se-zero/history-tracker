@@ -28,6 +28,7 @@ EXPECTED_ROUTES = {
     ("POST", "/migrations/discussed-in-source"),
     ("POST", "/migrations/pr-jira-keys"),
     ("POST", "/migrations/triggered-by-source"),
+    ("GET", "/query/config"),
     ("POST", "/query"),
     ("POST", "/query/summary"),
     ("POST", "/reference/backfill"),

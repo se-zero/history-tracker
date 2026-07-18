@@ -9,6 +9,7 @@ eval/results/<UTC타임스탬프>/ 아래에 저장하고, 채점은 grader.py�
     services/ai-engine/.venv/Scripts/python.exe eval/runner.py --project-id <uuid>
     옵션: --base-url(기본 http://localhost:8000) --runs(기본 3)
           --cases case-03,case-21  --graph-snapshot/--events-snapshot(기록용 라벨)
+          --model-label gpt-4o-mini(기록용 답변 모델 라벨)
 """
 
 import argparse
@@ -54,6 +55,36 @@ def git_commit_hash() -> str:
         return "unknown"
 
 
+def git_dirty() -> bool | None:
+    """워킹트리에 미커밋 변경이 있는지 — 커밋 해시만 믿고 '순정 HEAD 측정'으로 오독하는 것 방지.
+
+    (실례: 서술 규칙 실험은 미커밋 프롬프트 수정 상태로 러너를 돌렸다 — improvement-log 2026-07-15)
+    """
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, cwd=EVAL_DIR, check=True
+        ).stdout.strip()
+        return bool(out)
+    except Exception:
+        return None
+
+
+def fetch_engine_config(client: httpx.Client, base_url: str) -> dict | None:
+    """ai-engine의 실제 적용 설정을 조회한다 (GET /query/config).
+
+    수동 라벨이 아니라 엔진 프로세스에 실제로 적용된 값을 meta.json에 남긴다 —
+    라벨과 실제가 어긋난 무효 런(예: QUERY_REASONING_EFFORT 사고) 방지.
+    구버전 엔진(엔드포인트 없음)이면 None을 기록하고 경고만 남긴다.
+    """
+    try:
+        resp = client.get(f"{base_url}/query/config")
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:
+        print(f"경고: /query/config 조회 실패 ({exc!r}) — engine_config 없이 기록합니다.")
+        return None
+
+
 def graph_structure_metrics(pid: str) -> dict:
     """재구축 빌드 편차 가시화용 구조 지표 — 노드 라벨/관계 타입별 카운트."""
     with open_driver() as driver:
@@ -80,6 +111,7 @@ def main():
     parser.add_argument("--cases", help="쉼표 구분 케이스 필터 (예: case-03,case-21)")
     parser.add_argument("--graph-snapshot", default="", help="기록용 그래프 스냅샷 라벨 (예: graph-2026-07-05.dump)")
     parser.add_argument("--events-snapshot", default="", help="기록용 원천 스냅샷 라벨 (예: events-2026-07-05.jsonl)")
+    parser.add_argument("--model-label", default="", help="답변 모델 라벨 폴백 — 엔진 /query/config 실측이 우선이고, 실측 불가(구버전 엔진)일 때만 사용. 실측과 다르면 경고")
     parser.add_argument("--timeout", type=float, default=180.0)
     args = parser.parse_args()
 
@@ -106,26 +138,45 @@ def main():
     responses_dir = os.path.join(out_dir, "responses")
     os.makedirs(responses_dir)
 
-    meta = {
-        "run_id": run_id,
-        "date": datetime.now(timezone.utc).isoformat(),
-        "git_commit": git_commit_hash(),
-        "golden_version": version,
-        "graph_snapshot": args.graph_snapshot,
-        "events_snapshot": args.events_snapshot,
-        "project_id": pid,
-        "base_url": args.base_url,
-        "runs_per_case": args.runs,
-        "cases": [os.path.splitext(os.path.basename(p))[0] for p in case_files],
-        "graph_structure": graph_structure_metrics(pid),
-    }
-    with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
-    print(f"결과 디렉터리: {out_dir}")
-    print(f"golden_version={version}  git={meta['git_commit'][:8]}  케이스 {len(case_files)}개 × {args.runs}회\n")
-
     failures = 0
     with httpx.Client(timeout=args.timeout) as client:
+        engine_config = fetch_engine_config(client, args.base_url)
+
+        # 수동 라벨과 엔진 실측이 어긋나면 즉시 알린다 — 어긋난 채 진행하면 무효 런.
+        engine_model = (engine_config or {}).get("query_model")
+        if args.model_label and engine_model and args.model_label != engine_model:
+            print(
+                f"경고: --model-label={args.model_label} ≠ 엔진 실제 QUERY_MODEL={engine_model} "
+                f"— meta.query_model은 엔진 실측값으로 기록합니다."
+            )
+
+        dirty = git_dirty()
+        meta = {
+            "run_id": run_id,
+            "date": datetime.now(timezone.utc).isoformat(),
+            "git_commit": git_commit_hash(),
+            "git_dirty": dirty,  # true = 미커밋 변경 포함 상태에서 측정됨
+            "golden_version": version,
+            "graph_snapshot": args.graph_snapshot,
+            "events_snapshot": args.events_snapshot,
+            "project_id": pid,
+            # 엔진 실측값 우선, 실측 불가(구버전 엔진)일 때만 수동 라벨로 폴백
+            "query_model": engine_model or args.model_label,
+            "engine_config": engine_config,
+            "base_url": args.base_url,
+            "runs_per_case": args.runs,
+            "cases": [os.path.splitext(os.path.basename(p))[0] for p in case_files],
+            "graph_structure": graph_structure_metrics(pid),
+        }
+        with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+        print(f"결과 디렉터리: {out_dir}")
+        print(
+            f"golden_version={version}  git={meta['git_commit'][:8]}"
+            + (" (dirty)" if dirty else "")
+            + f"  model={meta['query_model'] or '?'}  케이스 {len(case_files)}개 × {args.runs}회\n"
+        )
+
         for path in case_files:
             with open(path, encoding="utf-8") as f:
                 case = yaml.safe_load(f)
@@ -162,10 +213,14 @@ def main():
                     n_evidence = len(structured["evidence"]) if structured else "-"
                     n_tools = len(debug.get("tool_calls") or [])
                     tokens = (debug.get("usage") or {}).get("total_tokens", "-")
+                    # structured=null은 LLM 실패가 빈 답변으로 degrade된 것 — 측정 무효이므로
+                    # 실패로 집계해 exit code에 반영한다 (점수에 조용히 섞이는 것 방지)
+                    if structured is None:
+                        failures += 1
                     print(
                         f"{case_id} run-{run_no}: evidence={n_evidence} tools={n_tools} "
                         f"tokens={tokens} ({record['latency_s']}s)"
-                        + ("  [structured=null]" if structured is None else "")
+                        + ("  [structured=null → 실패 집계]" if structured is None else "")
                     )
 
     print(f"\n완료 — 실패 {failures}건. 채점: grader.py {out_dir}")
