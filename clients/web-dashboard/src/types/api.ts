@@ -109,3 +109,24 @@ export interface Integration {
   // 마지막으로 새 데이터를 수집한 시각. 수집 이력이 없으면 null.
   lastSyncedAt: string | null;
 }
+
+// 하나의 사람으로 통합된 소스별 신원. aliases는 "GITHUB:login" 같은 안정 식별자다.
+export interface Actor {
+  uuid: string;
+  name: string;
+  aliases: string[];
+  emails: string[];
+  confidence: number;
+  activityCount: number;
+}
+
+// 수동 병합(same)·분리(distinct) 이력. same만 스냅샷을 이용해 병합 취소할 수 있다.
+export interface ActorDecision {
+  decisionId: string;
+  kind: "same" | "distinct";
+  aliasesA: string[];
+  aliasesB: string[];
+  canonicalUuid: string | null;
+  note: string;
+  decidedAt: string;
+}

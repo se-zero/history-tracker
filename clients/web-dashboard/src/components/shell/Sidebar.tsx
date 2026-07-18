@@ -9,7 +9,7 @@ import { ConversationList } from "./ConversationList";
 import { userInitials } from "@/lib/format";
 import type { Project, User } from "@/types/api";
 
-type Route = "chat" | "sources" | "graph" | "settings" | "account";
+type Route = "chat" | "sources" | "actors" | "graph" | "settings" | "account";
 
 interface Props {
   route: Route;
@@ -80,6 +80,12 @@ export function Sidebar({
           label="데이터 소스"
           active={route === "sources"}
           onClick={() => onRouteChange("sources")}
+        />
+        <NavItem
+          icon={<Icons.People />}
+          label="액터"
+          active={route === "actors"}
+          onClick={() => onRouteChange("actors")}
         />
         <NavItem
           icon={<Icons.Graph />}
