@@ -31,15 +31,18 @@ def _mask_args(args: dict) -> dict:
     return {k: _mask_value(v) for k, v in args.items()}
 
 
-async def execute(tool_name: str, args: dict, project_id: str) -> str:
+async def execute(tool_name: str, args: dict, project_id: str, question: str = "") -> str:
     """tool_name과 args를 받아 해당 Cypher 쿼리를 실행하고 JSON 문자열로 반환.
 
     project_id는 backend가 인증된 사용자의 프로젝트로 주입한 값 — 모든 쿼리가 이 값으로
     스코프되어 다른 프로젝트 그래프를 조회하지 못한다. LLM은 project_id를 보지도 못하고
     바꿀 수도 없다 (도구 인자에 없음).
+
+    question은 사용자 원 질문 — get_file_history가 이력을 질문 관련도로 재랭킹할 때 쓴다
+    (executor에서 임베딩; search_by_keyword의 키워드 임베딩과 같은 경로).
     """
     try:
-        result = await _dispatch(tool_name, args, project_id)
+        result = await _dispatch(tool_name, args, project_id, question)
     except KeyError as e:
         # 필수 인자 누락 — LLM이 다음 호출에서 교정할 수 있도록 명확히 알림
         result = {"error": f"필수 인자 누락: {e.args[0] if e.args else 'unknown'}"}
@@ -50,11 +53,105 @@ async def execute(tool_name: str, args: dict, project_id: str) -> str:
 
     payload = json.dumps(result, ensure_ascii=False, default=_json_default)
     if len(payload) > _MAX_RESULT_CHARS:
-        payload = payload[:_MAX_RESULT_CHARS] + " ...[결과가 잘렸습니다. limit을 줄이거나 더 좁은 범위로 다시 호출하세요.]"
+        payload = _truncate_payload(result, payload)
     return payload
 
 
-async def _dispatch(tool_name: str, args: dict, project_id: str) -> object:
+def _truncate_payload(result, payload: str) -> str:
+    """상한 초과 결과를 자른다.
+
+    list면 행 단위로 줄여 JSON을 깨뜨리지 않고, 몇 건이 생략됐는지 마커 원소로 알린다 —
+    문자열 중간을 자르면 JSON이 파손되고 뒤쪽 행이 증발한 사실이 숨겨져, LLM이 "이게
+    전부"라고 믿게 된다(case-27: 파일 이력의 오래된 커밋 누락). 정렬 방향과 무관하게
+    "뒷부분 생략"만 사실로 알리고, 재호출 방법은 범위 축소로 안내한다(limit 축소 안내는
+    최신순 결과에서 잘린 옛 행을 영영 못 보게 하는 역효과가 있었다).
+    """
+    if isinstance(result, list) and len(result) > 1:
+        total = len(result)
+        kept = list(result)
+        while len(kept) > 1:
+            kept.pop()
+            marker = {
+                "_truncated": (
+                    f"전체 {total}건 중 앞 {len(kept)}건만 표시 — 뒷부분 {total - len(kept)}건 생략. "
+                    "나머지가 필요하면 from_time/to_time 등으로 범위를 좁혀 다시 호출하세요."
+                )
+            }
+            candidate = json.dumps(kept + [marker], ensure_ascii=False, default=_json_default)
+            if len(candidate) <= _MAX_RESULT_CHARS:
+                return candidate
+        # 한 행만으로도 상한 초과 — 어쩔 수 없이 문자열 컷 (아래 dict 경로와 동일)
+    # get_file_history 등 detail/context 계층 dict — 문자열 컷(JSON 파손)으로 떨어뜨리지 않고
+    # 개요(context)부터, 그래도 넘치면 인용 대상(detail)까지 행 단위로 줄인다. 문자열 중간
+    # 컷은 JSON을 깨고 오래된 행 증발을 숨긴다(case-27) — 이 dict는 항상 유효 JSON을 보장.
+    if isinstance(result, dict) and (
+        isinstance(result.get("context"), list) or isinstance(result.get("detail"), list)
+    ):
+        trimmed = _trim_tiered_dict(result)
+        if trimmed is not None:
+            return trimmed
+    return payload[:_MAX_RESULT_CHARS] + " ...[결과 뒷부분이 잘렸습니다 — JSON이 불완전할 수 있습니다. 더 좁은 범위로 다시 호출하세요.]"
+
+
+def _trim_tiered_dict(result: dict) -> str | None:
+    """detail/context 계층 dict를 상한 이하로 줄인다 — 항상 유효 JSON 반환.
+
+    개요(context)를 먼저 비우고, 그래도 초과하면 인용 대상(detail)을 뒤에서 줄이되
+    최소 1건은 남긴다(조용한 전멸 방지). 1건 detail로도 초과하면 None(호출부가 문자열 컷).
+    줄인 사실은 *_truncated 필드로 고지한다.
+    """
+    def dumps(obj) -> str:
+        return json.dumps(obj, ensure_ascii=False, default=_json_default)
+
+    work = dict(result)
+
+    ctx = work.get("context")
+    if isinstance(ctx, list) and ctx:
+        full = len(ctx)
+        kept = list(ctx)
+        while True:
+            work["context"] = kept
+            if len(kept) < full:
+                work["context_truncated"] = (
+                    f"context 개요 {full}건 중 앞 {len(kept)}건만 표시 — 상한 초과로 "
+                    f"{full - len(kept)}건 축약. 필요하면 get_changeset_context로 개별 조회."
+                )
+            candidate = dumps(work)
+            if len(candidate) <= _MAX_RESULT_CHARS:
+                return candidate
+            if not kept:
+                break
+            kept.pop()
+
+    det = work.get("detail")
+    if isinstance(det, list) and len(det) > 1:
+        full = len(det)
+        kept = list(det)
+        while len(kept) > 1:
+            kept.pop()
+            work["detail"] = kept
+            work["detail_truncated"] = (
+                f"detail {full}건 중 앞 {len(kept)}건만 표시 — 상한 초과로 {full - len(kept)}건 축약. "
+                f"나머지는 context 개요 또는 get_changeset_context로 확인."
+            )
+            candidate = dumps(work)
+            if len(candidate) <= _MAX_RESULT_CHARS:
+                return candidate
+
+    return None
+
+
+async def _question_embedding(question: str) -> list[float] | None:
+    """질문 관련도 재랭킹용 임베딩 — 질문 없거나 임베딩 실패 시 None(호출부 최신순 폴백).
+
+    search_by_keyword의 키워드 임베딩과 같은 경로로 INTERACTIVE 우선순위(질의 latency 보호).
+    """
+    if not question or not question.strip():
+        return None
+    return await embed_text(question, priority=Priority.INTERACTIVE) or None
+
+
+async def _dispatch(tool_name: str, args: dict, project_id: str, question: str = "") -> object:
     match tool_name:
         case "get_issue_context":
             return await queries.get_issue_context(
@@ -92,18 +189,21 @@ async def _dispatch(tool_name: str, args: dict, project_id: str) -> object:
             )
 
         case "get_actor_activity":
+            # limit은 의도적으로 전달하지 않는다 — 조회 창은 서버 정책(ACTOR_ACTIVITY_MAX)이
+            # 결정하고, LLM이 지어낸 limit 인자가 창을 옛 컷(20)으로 되돌리지 못하게 한다
             return await queries.get_actor_activity(
                 project_id=project_id,
                 identifier=args["identifier"],
                 from_time=args.get("from_time"),
-                limit=args.get("limit", 20),
+                question_embedding=await _question_embedding(question),
             )
 
         case "get_file_history":
             return await queries.get_file_history(
                 project_id=project_id,
                 path=args["path"],
-                limit=args.get("limit", 20),
+                question_embedding=await _question_embedding(question),
+                limit=args.get("limit"),
             )
 
         case "check_missing_context":

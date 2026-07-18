@@ -141,35 +141,61 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 
 ### 6. `get_actor_activity`
 
-한 사람의 커밋·PR·메시지·이슈 활동을 조회한다.
+한 사람의 커밋·PR·메시지·이슈 활동을 **2계층**(`detail`/`context`)으로 조회한다.
 
 | 파라미터 | 타입 | 필수 | 기본 | 설명 |
 |---------|------|------|------|------|
 | `identifier` | string | ✔ | — | 이름, alias(GitHub login 등), 또는 이메일 중 하나 |
 | `from_time` | string | | (전체) | 조회 시작 시각 ISO-8601. 생략 시 전체 |
-| `limit` | integer | | 20 | **항목 종류별** 최대 반환 수 |
+
+`limit`은 의도적으로 스키마에 없다 — LLM이 습관적으로 20을 넣어 조회 창을 옛 컷 크기로
+되돌리는 것을 봉인 (조회 창은 서버 정책 `ACTOR_ACTIVITY_MAX`, 기본 100/카테고리).
 
 - **alias/email 통합 매칭**: `a.name = identifier OR identifier IN a.aliases OR identifier IN a.emails`.
   Identity Resolution으로 통합된 Actor를 단일 식별자로 찾는다.
-- 반환: `name`/`aliases`/`emails` + `changesets`/`pull_requests`/`communications`(각 최신순 limit개) +
-  `issues_created`/`issues_assigned`.
+- 반환 구조: `name`/`aliases`/`emails` + `totals` + `ranked_by` + `detail[]`/`context[]` +
+  `issues_created`/`issues_assigned`(+`*_total`/`*_older_keys`) + `_note`.
+  - `detail[]` — **인용 대상**(kind 필드로 commit/pull_request/message 구분). 카테고리별 바이트
+    예산(`ACTOR_ACTIVITY_DETAIL_BUDGET`, 기본 4000자를 45/35/20%로 배분)만큼 채우고 시간순 병합.
+    커밋·PR은 최신순, **메시지는 질문 임베딩×Communication 임베딩 관련도순**으로 승격(질문
+    없으면 최신순 폴백, `relevance` 포함).
+  - `context[]` — 나머지 활동의 시간순 stub(식별자·제목만, 본문 없음). 인용하려면 kind별 상세
+    도구(commit→`get_changeset_context`, message→`get_thread_context`, pull_request→`get_pr_context`)로
+    본문 조회 후 인용. 상한 `ACTOR_ACTIVITY_CONTEXT_CAP`(기본 15).
+  - `totals` — 카테고리별 조회 건수. **조회 상한 도달 시 `"100+ (…)"` 문자열** — 모델이 캡된
+    수치를 절대 수치로 단정하는 것 방지.
+  - `issues_created`/`issues_assigned` — 최근(번호 큰) 순 `ACTOR_ACTIVITY_ISSUES_CAP`(기본 20)개
+    {jira_key, title(40자)}. 잘린 오래된 이슈는 `*_older_keys`에 key 전체를 노출(드릴다운 가능).
 - **종료 시각(`to`/`to_time`) 파라미터는 없다** — `from_time` 이후 전체.
 
 ### 7. `get_file_history`
 
-파일의 변경 이력을 최신순으로 반환한다.
+파일의 변경 이력을 **질문 관련도 기반 2계층**(`detail`/`context`)으로 반환한다.
+executor가 사용자 질문을 임베딩해 넘기면, 각 커밋의 `MODIFIED.embedding`과의 코사인
+유사도로 재랭킹한다(질문 없거나 임베딩 실패 시 최신순 폴백).
 
 | 파라미터 | 타입 | 필수 | 기본 | 설명 |
 |---------|------|------|------|------|
 | `path` | string | ✔ | — | 파일 경로 (예: `src/auth/token.py`) |
-| `limit` | integer | | 20 | 최대 반환 커밋 수 |
+| `limit` | integer | | (전체) | 관련도 산정 대상 커밋 상한. 보통 지정 불필요 |
 
-- 정상 항목: `hash`, `message`, `author`, `diff_summary`, 연결 이슈(`jira_key`/`issue_title` +
-  `issue_link_confidence`/`issue_link_source`), `pr_number`/`pr_url`.
+- 반환 구조: `{path, total_commits, ranked_by, detail[], context[], _note}`.
+  - `detail[]` — **인용 대상**. 관련도 상위 커밋을 바이트 예산(`FILE_HISTORY_DETAIL_BUDGET`,
+    기본 6500자)이 되는 만큼 담는다. 커밋당 1행 — `hash`, `message`(400자 컷), `author`,
+    `diff_summary`(300자 컷), `issues[]`(`jira_key`/`title`/`confidence`/`source`),
+    `prs[]`(`pr_number`/`url`), `relevance`(랭킹 시). 이슈·PR 링크가 여러 개여도 행이 곱으로 불어나지 않는다.
+  - `context[]` — 나머지 이력의 **시간순 개요 stub**(`hash`/`occurredAt`/`title`/`issues[jira_key]`,
+    본문 없음). 전체 흐름 파악·드릴다운용. context 커밋을 인용하려면 그 hash로 `get_changeset_context`를
+    호출해 본문을 조회한 뒤 인용한다(stub 요약만으로 quote 생성 금지).
+  - **다 담아도 예산에 맞는 파일은 전량 `detail`**(구 동작 = 전량 인용 유지 → 나열형 recall 보존),
+    예산을 넘는 파일만 관련도 상위를 `detail`로 올리고 나머지를 `context`로 내린다.
+  - `ranked_by`: `relevance`(질문 임베딩 있음) 또는 `recency`(폴백).
+  - 관련 노브(env): `FILE_HISTORY_DETAIL_BUDGET`/`FILE_HISTORY_DETAIL_MAX`/`FILE_HISTORY_CONTEXT_CAP`/
+    `FILE_HISTORY_MAX_COMMITS` — eval 스윕용.
 - **경로 fuzzy fallback**: strict 매칭이 0건이면 ① basename(`.../token.py`) ENDS WITH →
   ② stem(확장자 무관, `token`) 순으로 후보를 찾는다.
-  - 후보 **정확히 1개** → 그 파일 이력을 반환하되 각 row에 `_resolved_via`(`basename_match` |
-    `stem_match`) / `_resolved_path` 메타를 인라인 부여. **evidence에는 LLM이 추정한 path가 아니라
+  - 후보 **정확히 1개** → 그 파일 이력(2계층)을 반환하되 결과에 `_resolved_via`(`basename_match` |
+    `stem_match`) / `_resolved_path`를 부여. **evidence에는 LLM이 추정한 path가 아니라
     `_resolved_path`를 써야 한다.**
   - 후보 **2개 이상** → `[{message, candidates: [...]}]` 단건 반환. LLM이 candidates 중 정확한
     경로로 재호출.

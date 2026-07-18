@@ -2,7 +2,8 @@
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from openai import APIStatusError
 
 from agent import orchestrator
 from openai_client import Priority
@@ -40,25 +41,68 @@ async def query(req: QueryRequest):
     prior_evidence = [evidence.model_dump() for evidence in req.prior_evidence]
     focus_evidence = [evidence.model_dump() for evidence in req.focus_evidence]
     debug: dict | None = {} if req.include_debug else None
-    answer, structured = await orchestrator.run(
-        req.question,
-        project_context,
-        project_id=req.project_id,
-        history=history,
-        prior_evidence=prior_evidence,
-        running_summary=req.running_summary,
-        focus_evidence=focus_evidence,
-        debug=debug,
-    )
+    try:
+        answer, structured = await orchestrator.run(
+            req.question,
+            project_context,
+            project_id=req.project_id,
+            history=history,
+            prior_evidence=prior_evidence,
+            running_summary=req.running_summary,
+            focus_evidence=focus_evidence,
+            debug=debug,
+        )
+    except APIStatusError as exc:
+        # orchestrator가 전파한 회복 불가 클라이언트 오류(4xx) — 200+빈 답변으로 위장하지
+        # 않고 명시적 오류로 반환한다 (모델명·파라미터 설정 오류의 조기 발견).
+        logger.error("LLM 클라이언트 오류로 질의 실패 (status=%s): %s", exc.status_code, exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM 호출이 설정 오류로 실패했습니다 (upstream {exc.status_code}). 모델·파라미터 설정을 확인하세요.",
+        ) from exc
     body = {"answer": answer, "structured": structured}
     if debug is not None:
         body["debug"] = debug
     return body
 
 
+@router.get("/query/config")
+async def query_config():
+    """질의 경로에 실제 적용 중인 설정을 반환한다 (eval 러너의 meta.json 실측 기록용).
+
+    env를 다시 읽지 않고 각 모듈이 import 시점에 확정한 값을 그대로 노출한다 —
+    "환경변수는 바꿨는데 재기동을 안 한" 상태에서도 실제 동작 값이 기록되게.
+    수동 라벨(--model-label)과 실제 설정이 어긋난 무효 런을 방지한다
+    (실례: QUERY_REASONING_EFFORT=low 사고 — docs/query-followups.md 2번).
+    """
+    from agent.orchestrator import _MAX_ITERATIONS, _MODEL, _REASONING_EFFORT
+    from tools.queries._common import _MIN_CONFIDENCE
+    from tools.queries.files import _CONTEXT_CAP, _DETAIL_BUDGET, _DETAIL_K_MAX, _MAX_COMMITS
+
+    return {
+        "query_model": _MODEL,
+        "reasoning_effort": _REASONING_EFFORT,  # 빈 문자열 = 파라미터 미전송(API 기본값)
+        "max_iterations": _MAX_ITERATIONS,
+        "tools_min_confidence": _MIN_CONFIDENCE,
+        "file_history": {
+            "detail_budget": _DETAIL_BUDGET,
+            "detail_max": _DETAIL_K_MAX,
+            "context_cap": _CONTEXT_CAP,
+            "max_commits": _MAX_COMMITS,
+        },
+    }
+
+
 @router.post("/query/summary")
 async def summarize_query_history(req: SummaryRequest):
     """기존 누적 요약에 새 대화 턴을 병합해 갱신한다."""
     history = [message.model_dump() for message in req.history]
-    summary = await orchestrator.summarize_history(req.running_summary, history)
+    try:
+        summary = await orchestrator.summarize_history(req.running_summary, history)
+    except APIStatusError as exc:
+        logger.error("LLM 클라이언트 오류로 요약 실패 (status=%s): %s", exc.status_code, exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM 호출이 설정 오류로 실패했습니다 (upstream {exc.status_code}). 모델·파라미터 설정을 확인하세요.",
+        ) from exc
     return {"summary": summary}
