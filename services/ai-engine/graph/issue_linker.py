@@ -46,6 +46,10 @@ def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
 # 작아 안전하다. 키 관행이 없는 팀은 모든 커밋이 후보가 되므로 이 값이 낮을수록 노이즈가 커진다
 # (admin 파라미터 triggered_by_threshold로 재배포 없이 조정 가능).
 TRIGGERED_BY_THRESHOLD = 0.30
+# TRIGGERED_BY 메시지 비교 방식 기본값 — REFERENCE와 동일하게 쌍별 max 주입으로 통일.
+# 골든 측정에선 off가 근소 우위였지만 그 차이가 전부 응답 confidence 필터(0.5) 미만 구간이라
+# 답변 레벨에선 동점 — 커밋 메시지가 이슈의 자연어와 어휘가 맞는 일반 배포 기준으로 max를 택했다.
+TRIGGERED_BY_MESSAGE_MODE = "max"
 # DISCUSSED_IN은 별도 — 기존 값 유지 (스레드 그룹핑은 하위 2 쿼리 단에서 처리)
 DISCUSSED_IN_THRESHOLD = 0.40
 # 외부 코드 호환용 alias (issue_verifier 등에서 사용). 신규 코드는 위 두 상수를 직접 참조.
@@ -145,10 +149,19 @@ class IssueLinkStore:
         confidence: 코사인 유사도 (0~1)
     """
 
+    fetch_changeset_message_embeddings: Callable[[], Awaitable[list[dict]]]
+    """embedding(커밋 메시지)이 있는 ChangeSet 노드 반환 — TRIGGERED_BY의 메시지 비교 열.
+    fetch_modified_embeddings와 같은 제외 규칙(text TRIGGERED_BY 보유 커밋 제외)을 적용해야
+    한다 — 아니면 무링크 풀 전제(정밀도 필터)가 메시지 열에서 무너진다.
+    Returns:
+        [{"project_id": str, "changeset_id": str, "embedding": list[float], "occurred_at": datetime}, ...]
+    """
+
 
 async def build_issue_changeset_links(
     store: IssueLinkStore,
     threshold: float = TRIGGERED_BY_THRESHOLD,
+    message_mode: str = TRIGGERED_BY_MESSAGE_MODE,
 ) -> int:
     """Issue.embedding ↔ MODIFIED.embedding 유사도로 TRIGGERED_BY 엣지 생성.
 
@@ -158,19 +171,30 @@ async def build_issue_changeset_links(
       - store.fetch_modified_embeddings는 text TRIGGERED_BY가 이미 있는 ChangeSet을 제외해서
         반환한다고 가정 (텍스트 hard-link 우선)
 
+    message_mode: 커밋 메시지 임베딩(ChangeSet.embedding)을 비교 열에 넣는 방식.
+        max  — 기본: 메시지 행을 파일 행에 추가, changeset별 top-1 집계가 같은 키로
+               병합해 diff·메시지 중 최고점을 취한다
+        off  — 파일(diff) 임베딩만 비교 (도입 전 동작, 측정 재현용)
+        only — 메시지 임베딩만 비교 (diff는 fetch하지 않음)
+
     Returns:
         생성(또는 갱신)된 TRIGGERED_BY 엣지 수
     """
-    issues   = await store.fetch_issue_embeddings()
-    modified = await store.fetch_modified_embeddings()
+    if message_mode not in ("off", "max", "only"):
+        raise ValueError(f"지원하지 않는 message_mode: {message_mode!r} (off/max/only)")
 
-    if not issues or not modified:
-        logger.info("TRIGGERED_BY 생성 스킵: issues=%d, modified=%d", len(issues), len(modified))
+    issues   = await store.fetch_issue_embeddings()
+    modified = [] if message_mode == "only" else await store.fetch_modified_embeddings()
+    messages = [] if message_mode == "off" else await store.fetch_changeset_message_embeddings()
+    candidates = modified + messages
+
+    if not issues or not candidates:
+        logger.info("TRIGGERED_BY 생성 스킵: issues=%d, candidates=%d", len(issues), len(candidates))
         return 0
 
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
     issues_by_project = _group_by_project(issues)
-    mods_by_project   = _group_by_project(modified)
+    mods_by_project   = _group_by_project(candidates)
 
     # (project_id, changeset_id) → (best_jira_key, best_score) — top-1 보장
     best_per_cs: dict[tuple[str, str], tuple[str, float]] = {}
@@ -219,8 +243,8 @@ async def build_issue_changeset_links(
                      cs_id, jira_key, confidence)
 
     logger.info(
-        "TRIGGERED_BY 엣지 생성 완료: %d개 (threshold=%.2f, scope=%d issues × %d changesets)",
-        created, threshold, len(issues), len(modified),
+        "TRIGGERED_BY 엣지 생성 완료: %d개 (threshold=%.2f, message_mode=%s, scope=%d issues × %d rows)",
+        created, threshold, message_mode, len(issues), len(candidates),
     )
     return created
 

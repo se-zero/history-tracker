@@ -31,13 +31,16 @@ from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN as DISCUSSED_IN_DEFAULT_MARGIN,
     DISCUSSED_IN_POST_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_POST_DAYS,
     DISCUSSED_IN_PRE_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_PRE_DAYS,
+    TRIGGERED_BY_MESSAGE_MODE as TRIGGERED_BY_DEFAULT_MESSAGE_MODE,
     TRIGGERED_BY_THRESHOLD as TRIGGERED_BY_DEFAULT_THRESHOLD,
     build_issue_changeset_links,
     build_issue_communication_links,
 )
 from graph.reference_builder import (
+    DEFAULT_MESSAGE_MODE as REFERENCE_DEFAULT_MESSAGE_MODE,
     DEFAULT_THRESHOLD as REFERENCE_DEFAULT_THRESHOLD,
     DEFAULT_TOP_K as REFERENCE_DEFAULT_TOP_K,
+    backfill_changeset_message_embeddings,
     backfill_communication_embeddings,
     build_reference_edges,
 )
@@ -60,16 +63,18 @@ async def test_ingest(event: dict):
 async def trigger_reference_build(
     threshold: float = REFERENCE_DEFAULT_THRESHOLD,
     top_k: int = REFERENCE_DEFAULT_TOP_K,
+    message_mode: str = REFERENCE_DEFAULT_MESSAGE_MODE,
 ):
     """REFERENCE 엣지 배치 생성. 임베딩이 충분히 쌓인 뒤 수동 호출.
 
-    threshold: 엣지 생성 최소 유사도.
-    top_k:     커밋당 유지할 최대 스레드 수 (fan-out 컷).
-    둘 다 코드 수정 없이 스윕하기 위한 파라미터다 (측정 루프용 — 확정된 값은
-    reference_builder의 DEFAULT_THRESHOLD·DEFAULT_TOP_K에 반영한다).
+    threshold:    엣지 생성 최소 유사도.
+    top_k:        커밋당 유지할 최대 스레드 수 (fan-out 컷).
+    message_mode: 커밋 메시지 임베딩 비교 방식 (off/max/only — reference_builder 참고).
+    모두 코드 수정 없이 스윕하기 위한 파라미터다 (측정 루프용 — 확정된 값은
+    reference_builder의 상수/기본값에 반영한다).
     """
     store = make_neo4j_reference_store()
-    created = await build_reference_edges(store, threshold=threshold, top_k=top_k)
+    created = await build_reference_edges(store, threshold=threshold, top_k=top_k, message_mode=message_mode)
     return {"created": created}
 
 
@@ -86,6 +91,18 @@ async def trigger_thread_propagation():
     """방안 C — 스레드 전파: DISCUSSED_IN 엣지를 같은 conversation_id 내 전체 메시지로 전파."""
     created = await propagate_thread_discussed_in()
     return {"created": created}
+
+
+@router.post("/migrations/changeset-embeddings")
+async def trigger_changeset_embeddings_backfill(project_id: str | None = None):
+    """message는 있는데 embedding이 없는 ChangeSet 노드 일괄 임베딩 보정.
+
+    커밋 메시지 임베딩 도입 이전에 수집된 노드를 이벤트 재주입 없이 채우는 백필.
+    project_id를 주면 그 프로젝트만. Idempotent — 이미 채워진 노드는 건너뜀.
+    """
+    store = make_neo4j_reference_store(project_id)
+    saved = await backfill_changeset_message_embeddings(store)
+    return {"saved": saved}
 
 
 @router.post("/migrations/triggered-by-source")
@@ -181,6 +198,8 @@ async def trigger_slack_filter(options: SlackFilterOptions = SlackFilterOptions(
 class IssueLinkOptions(BaseModel):
     # TRIGGERED_BY 시맨틱 매칭 임계값 (기본값 근거는 issue_linker 상수 주석 참고)
     triggered_by_threshold: float = TRIGGERED_BY_DEFAULT_THRESHOLD
+    # TRIGGERED_BY 커밋 메시지 임베딩 비교 방식 (off/max/only — issue_linker 참고, 방안 A 전용)
+    triggered_by_message_mode: str = TRIGGERED_BY_DEFAULT_MESSAGE_MODE
     # DISCUSSED_IN 시맨틱 매칭 임계값 (스레드 보존은 쿼리 단에서 처리하므로 기존값 유지)
     discussed_in_threshold: float = 0.40
     # DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차 (방안 A 전용)
@@ -221,7 +240,11 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
             store, options.discussed_in_threshold, options.top_k, options.llm_threshold, project_context,
         )
     else:
-        triggered_by = await build_issue_changeset_links(store, threshold=options.triggered_by_threshold)
+        triggered_by = await build_issue_changeset_links(
+            store,
+            threshold=options.triggered_by_threshold,
+            message_mode=options.triggered_by_message_mode,
+        )
         discussed_in = await build_issue_communication_links(
             store,
             threshold=options.discussed_in_threshold,

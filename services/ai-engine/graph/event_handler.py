@@ -66,6 +66,10 @@ async def _handle_changeset(event: dict) -> None:
 
     resolved = await resolve_actor(actor, source, make_neo4j_actor_store(project_id), event)
 
+    # 커밋 메시지 임베딩 — 이슈·Slack과 어휘가 가장 잘 맞는 텍스트라 시맨틱 링커의 비교 대상이 된다.
+    # 실패 시 빈 리스트 → upsert가 기존 값을 보존하고, backfill이 나중에 채운다.
+    message_embedding = await embed_text(message)
+
     await builder.upsert_changeset(
         project_id=project_id,
         hash=hash_,
@@ -73,6 +77,7 @@ async def _handle_changeset(event: dict) -> None:
         occurred_at=occurred_at,
         source=source,
         actor_uuid=resolved["uuid"],
+        embedding=message_embedding,
     )
 
     # Layer 2: refs 기반 엣지

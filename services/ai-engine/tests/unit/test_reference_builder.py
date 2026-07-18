@@ -9,8 +9,16 @@ import asyncio
 import math
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
-from graph.reference_builder import DEFAULT_TOP_K, ReferenceStore, build_reference_edges
+from graph.reference_builder import (
+    DEFAULT_MESSAGE_MODE,
+    DEFAULT_THRESHOLD,
+    DEFAULT_TOP_K,
+    ReferenceStore,
+    backfill_changeset_message_embeddings,
+    build_reference_edges,
+)
 
 NOW = datetime(2026, 7, 1, tzinfo=timezone.utc)
 
@@ -42,20 +50,38 @@ def _comm(comm_id, embedding, project_id="p1", occurred_at=NOW, conversation_id=
     }
 
 
+def _message_row(changeset_id, embedding, project_id="p1", occurred_at=NOW):
+    """커밋 메시지 임베딩 행 — 파일(diff) 행과 달리 커밋당 1개다."""
+    return {
+        "project_id": project_id,
+        "changeset_id": changeset_id,
+        "embedding": embedding,
+        "occurred_at": occurred_at,
+    }
+
+
 class _FakeStore:
     """ReferenceStore 콜백 대역 — create_reference_edge 호출을 그대로 기록한다."""
 
-    def __init__(self, modified, comms):
+    def __init__(self, modified, comms, messages=None):
         self.modified = modified
         self.comms = comms
+        self.messages = messages or []
         self.created: list[tuple[str, str, str, float]] = []
+        self.fetched_modified = False
+        self.fetched_messages = False
 
     def as_store(self) -> ReferenceStore:
         async def fetch_modified():
+            self.fetched_modified = True
             return self.modified
 
         async def fetch_comms():
             return self.comms
+
+        async def fetch_messages():
+            self.fetched_messages = True
+            return self.messages
 
         async def create_edge(project_id, changeset_id, comm_id, confidence):
             self.created.append((project_id, changeset_id, comm_id, confidence))
@@ -69,6 +95,9 @@ class _FakeStore:
             create_reference_edge=create_edge,
             fetch_unembedded_communications=unsupported,
             save_communication_embedding=unsupported,
+            fetch_unembedded_changeset_messages=unsupported,
+            save_changeset_message_embedding=unsupported,
+            fetch_changeset_message_embeddings=fetch_messages,
         )
 
 
@@ -206,7 +235,7 @@ class TopKThreadCapTest(unittest.TestCase):
         self.assertEqual({(cs, comm) for _, cs, comm, _ in fake.created}, {("c1", "m1"), ("c2", "m1")})
 
     def test_default_top_k_is_applied(self):
-        # 파라미터를 안 주면 DEFAULT_TOP_K(=4)가 적용된다 — 무제한이 아니다
+        # 파라미터를 안 주면 DEFAULT_TOP_K(=5)가 적용된다 — 무제한이 아니다
         fake = _FakeStore(
             modified=[_modified("c1", "a.py", [1.0, 0.0])],
             comms=[_comm(f"m{i}", _vec(0.9 - i * 0.05), conversation_id=f"t{i}") for i in range(6)],
@@ -214,8 +243,8 @@ class TopKThreadCapTest(unittest.TestCase):
 
         created = asyncio.run(build_reference_edges(fake.as_store(), threshold=0.3))
 
-        self.assertEqual(DEFAULT_TOP_K, 4)
-        self.assertEqual(created, 4)
+        self.assertEqual(DEFAULT_TOP_K, 5)
+        self.assertEqual(created, 5)
 
     def test_missing_conversation_id_falls_back_to_message_as_own_thread(self):
         # conversation_id가 없는 노드(스레드 없는 소스)는 각자 독립 스레드로 센다
@@ -266,6 +295,233 @@ class FilterRegressionTest(unittest.TestCase):
         created = asyncio.run(build_reference_edges(fake.as_store(), threshold=0.3))
 
         self.assertEqual(created, 0)
+
+
+class MessageEmbeddingModeTest(unittest.TestCase):
+    """message_mode — 커밋 메시지 임베딩을 비교 대상에 넣는 두 설계(max/only)와 현행(off).
+
+    max: 메시지 행이 파일 행들과 같은 (changeset, comm) 쌍으로 합류 — 기존 쌍별 max 집계가
+         "diff와 메시지 중 최고점"을 자연스럽게 만든다.
+    only: 파일(diff) 행을 아예 쓰지 않고 메시지 행만 비교한다.
+    """
+
+    def test_off_mode_does_not_fetch_message_embeddings(self):
+        # off는 메시지 임베딩 도입 전 동작 그대로 — 조회조차 하지 않는다 (측정 재현용)
+        fake = _FakeStore(
+            modified=[_modified("c1", "a.py", [1.0, 0.0])],
+            comms=[_comm("m1", [1.0, 0.0])],
+            messages=[_message_row("c1", [1.0, 0.0])],
+        )
+
+        created = asyncio.run(
+            build_reference_edges(fake.as_store(), threshold=0.3, message_mode="off")
+        )
+
+        self.assertFalse(fake.fetched_messages)
+        self.assertEqual(created, 1)
+
+    def test_max_mode_takes_best_of_diff_and_message(self):
+        fake = _FakeStore(
+            modified=[_modified("c1", "a.py", _vec(0.5))],
+            comms=[_comm("m1", [1.0, 0.0])],
+            messages=[_message_row("c1", _vec(0.9))],
+        )
+
+        created = asyncio.run(
+            build_reference_edges(fake.as_store(), threshold=0.3, message_mode="max")
+        )
+
+        self.assertEqual(created, 1)   # 쌍당 1개 — 메시지 행이 별도 엣지를 만들지 않는다
+        self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
+
+    def test_max_mode_diff_wins_when_higher(self):
+        fake = _FakeStore(
+            modified=[_modified("c1", "a.py", _vec(0.9))],
+            comms=[_comm("m1", [1.0, 0.0])],
+            messages=[_message_row("c1", _vec(0.5))],
+        )
+
+        asyncio.run(build_reference_edges(fake.as_store(), threshold=0.3, message_mode="max"))
+
+        self.assertEqual(len(fake.created), 1)
+        self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
+
+    def test_max_mode_covers_commits_without_diff_embeddings(self):
+        # 파일이 전부 스킵돼 MODIFIED 임베딩이 없는 커밋도 메시지로는 후보가 된다 (후보 풀 확장)
+        fake = _FakeStore(
+            modified=[],
+            comms=[_comm("m1", [1.0, 0.0])],
+            messages=[_message_row("c2", _vec(0.9))],
+        )
+
+        created = asyncio.run(
+            build_reference_edges(fake.as_store(), threshold=0.3, message_mode="max")
+        )
+
+        self.assertEqual(created, 1)
+        self.assertEqual(fake.created[0][1], "c2")
+
+    def test_only_mode_ignores_diff_embeddings(self):
+        # diff가 아무리 높아도 only 모드에선 메시지 점수로만 판단 — diff는 fetch조차 하지 않는다
+        fake = _FakeStore(
+            modified=[_modified("c1", "a.py", _vec(0.95))],
+            comms=[_comm("m1", [1.0, 0.0])],
+            messages=[_message_row("c1", _vec(0.4))],
+        )
+
+        created = asyncio.run(
+            build_reference_edges(fake.as_store(), threshold=0.5, message_mode="only")
+        )
+
+        self.assertEqual(created, 0)
+        self.assertFalse(fake.fetched_modified)
+
+    def test_only_mode_message_above_threshold_creates_edge(self):
+        fake = _FakeStore(
+            modified=[],
+            comms=[_comm("m1", [1.0, 0.0])],
+            messages=[_message_row("c1", _vec(0.9))],
+        )
+
+        created = asyncio.run(
+            build_reference_edges(fake.as_store(), threshold=0.5, message_mode="only")
+        )
+
+        self.assertEqual(created, 1)
+        self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
+
+    def test_message_row_outside_time_window_is_skipped(self):
+        # 메시지 행에도 기존 ±5일 윈도우가 그대로 적용된다
+        fake = _FakeStore(
+            modified=[],
+            comms=[_comm("m1", [1.0, 0.0], occurred_at=NOW + timedelta(days=6))],
+            messages=[_message_row("c1", [1.0, 0.0])],
+        )
+
+        created = asyncio.run(
+            build_reference_edges(fake.as_store(), threshold=0.3, message_mode="only")
+        )
+
+        self.assertEqual(created, 0)
+
+    def test_invalid_mode_raises(self):
+        fake = _FakeStore(modified=[], comms=[], messages=[])
+
+        with self.assertRaises(ValueError):
+            asyncio.run(build_reference_edges(fake.as_store(), message_mode="diff"))
+
+
+class AdoptedDefaultsTest(unittest.TestCase):
+    """기본값 = 채택 운영점 (max · top_k 5 · threshold 0.39).
+
+    postprocess 자동 빌드는 인자 없이 호출하므로, 측정으로 확정한 구성과 코드 기본값이
+    같아야 프로덕션이 측정과 동일하게 돈다 — 그 일치를 박는 계약 테스트.
+    """
+
+    def test_default_constants_are_adopted_operating_point(self):
+        self.assertEqual(DEFAULT_MESSAGE_MODE, "max")
+        self.assertEqual(DEFAULT_TOP_K, 5)
+        self.assertAlmostEqual(DEFAULT_THRESHOLD, 0.39)
+
+    def test_default_call_uses_message_rows(self):
+        # diff(0.2)는 임계값 밑, 메시지(0.9)는 위 — 인자 없는 기본 호출이 메시지 행으로 엣지를 만든다
+        fake = _FakeStore(
+            modified=[_modified("c1", "a.py", _vec(0.2))],
+            comms=[_comm("m1", [1.0, 0.0])],
+            messages=[_message_row("c1", _vec(0.9))],
+        )
+
+        created = asyncio.run(build_reference_edges(fake.as_store()))
+
+        self.assertTrue(fake.fetched_messages)
+        self.assertEqual(created, 1)
+        self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
+
+    def test_default_threshold_cuts_between_030_and_039(self):
+        # 0.30~0.39 구간은 재조정 측정에서 노이즈만 남았다 — 새 기본 임계값이 잘라야 한다
+        fake = _FakeStore(
+            modified=[],
+            comms=[_comm("m1", [1.0, 0.0])],
+            messages=[_message_row("c1", _vec(0.35))],
+        )
+
+        created = asyncio.run(build_reference_edges(fake.as_store()))
+
+        self.assertEqual(created, 0)
+
+
+class ChangesetMessageBackfillTest(unittest.TestCase):
+    """backfill_changeset_message_embeddings — message는 있는데 embedding이 없는 ChangeSet 보정.
+
+    communication 백필과 같은 계약: 빈 벡터(임베딩 실패)는 저장하지 않고,
+    보정 대상이 없으면 임베딩 API를 호출하지 않는다.
+    """
+
+    def _store(self, nodes):
+        saved: list[tuple[str, str, list[float]]] = []
+
+        async def fetch_unembedded():
+            return nodes
+
+        async def save(project_id, changeset_id, embedding):
+            saved.append((project_id, changeset_id, embedding))
+
+        async def unsupported(*args):
+            raise AssertionError("이 테스트에서 호출되지 않아야 한다")
+
+        store = ReferenceStore(
+            fetch_modified_embeddings=unsupported,
+            fetch_communication_embeddings=unsupported,
+            create_reference_edge=unsupported,
+            fetch_unembedded_communications=unsupported,
+            save_communication_embedding=unsupported,
+            fetch_unembedded_changeset_messages=fetch_unembedded,
+            save_changeset_message_embedding=save,
+            fetch_changeset_message_embeddings=unsupported,
+        )
+        return store, saved
+
+    def test_embeds_and_saves_missing_message_embeddings(self):
+        store, saved = self._store([
+            {"project_id": "p1", "id": "c1", "message": "feat: 로그인 수정"},
+            {"project_id": "p1", "id": "c2", "message": "docs: 문서 최신화"},
+        ])
+
+        with mock.patch(
+            "graph.reference_builder.embed_batch",
+            new=mock.AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]]),
+        ) as embed:
+            count = asyncio.run(backfill_changeset_message_embeddings(store))
+
+        embed.assert_awaited_once_with(["feat: 로그인 수정", "docs: 문서 최신화"])
+        self.assertEqual(count, 2)
+        self.assertEqual(saved, [("p1", "c1", [0.1, 0.2]), ("p1", "c2", [0.3, 0.4])])
+
+    def test_failed_embedding_is_not_saved(self):
+        # 배치 중 일부만 임베딩이 실패(빈 벡터)하면 그 노드만 건너뛴다
+        store, saved = self._store([
+            {"project_id": "p1", "id": "c1", "message": "feat: A"},
+            {"project_id": "p1", "id": "c2", "message": "feat: B"},
+        ])
+
+        with mock.patch(
+            "graph.reference_builder.embed_batch",
+            new=mock.AsyncMock(return_value=[[0.5, 0.5], []]),
+        ):
+            count = asyncio.run(backfill_changeset_message_embeddings(store))
+
+        self.assertEqual(count, 1)
+        self.assertEqual(saved, [("p1", "c1", [0.5, 0.5])])
+
+    def test_noop_when_nothing_to_backfill(self):
+        store, saved = self._store([])
+
+        with mock.patch("graph.reference_builder.embed_batch", new=mock.AsyncMock()) as embed:
+            count = asyncio.run(backfill_changeset_message_embeddings(store))
+
+        embed.assert_not_awaited()
+        self.assertEqual(count, 0)
+        self.assertEqual(saved, [])
 
 
 if __name__ == "__main__":

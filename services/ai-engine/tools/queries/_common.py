@@ -5,7 +5,7 @@ from graph.driver import get_driver
 
 # TRIGGERED_BY 엣지 노이즈 컷오프.
 # 텍스트 매칭은 항상 1.0이므로 항상 통과. 시맨틱은 0.5 미만이면 응답에서 제외.
-# (issue_linker 자체 생성 임계값은 0.40이라 0.40~0.49 구간이 응답 단에서 마저 차단됨)
+# (issue_linker 자체 생성 임계값은 0.30이라 0.30~0.49 구간이 응답 단에서 마저 차단됨)
 _MIN_CONFIDENCE = 0.5
 
 def _group_communications_by_thread(comms: list[dict]) -> list[dict]:
