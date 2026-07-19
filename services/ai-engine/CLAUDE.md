@@ -116,6 +116,7 @@ graph/             Neo4j 그래프 구축 + 수집
   embedder.py        임베딩 생성
   reference_builder.py / issue_linker.py / issue_verifier.py   시맨틱 링크 빌더(방안 A/D)
   actor_resolver.py / actor_llm.py                             Actor 동일인 판단
+  actor_admin.py     Actor 수동 병합·복원·분리 (운영 쓰기 경로, docs/actor-manual-merge.md)
   slack_filter.py / slack_llm_filter.py / slack_batch_filter.py  Slack 노이즈 필터
   summarizer.py / path_filter.py / project_context.py / overview.py / search.py
 ```

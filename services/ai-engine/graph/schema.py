@@ -69,6 +69,8 @@ _UNIQUE_CONSTRAINTS: list[tuple[str, str, list[str]]] = [
     # ActorAlias: (project_id, source_id) 유니크 — Step 0 alias 조회를 배열 스캔 대신
     # 인덱스로 O(1) 처리하고, 동시 수집 시 같은 alias의 중복 Actor 생성을 MERGE로 막는다.
     ("actor_alias_project_source",  "ActorAlias",    ["project_id", "source_id"]),
+    # ActorDecision: 수동 병합·분리 결정 (docs/actor-manual-merge.md)
+    ("actor_decision_id",           "ActorDecision", ["decision_id"]),
 ]
 
 

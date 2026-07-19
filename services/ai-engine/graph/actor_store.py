@@ -92,6 +92,30 @@ async def _lookup_actor_activities(actor: dict) -> list[dict]:
     ]
 
 
+async def _lookup_veto_uuids(project_id: str, source_id: str) -> list[str]:
+    """수동 distinct 결정에서 이 source_id의 반대편 alias를 가진 Actor uuid 목록.
+
+    resolve_actor가 Step 1 매칭·Step 2 후보에서 이 Actor들을 제외한다
+    (수동 결정이 자동 병합을 이긴다 — docs/actor-manual-merge.md).
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (d:ActorDecision {project_id: $project_id, kind: 'distinct'})
+            WHERE $source_id IN d.aliases_a OR $source_id IN d.aliases_b
+            WITH CASE WHEN $source_id IN d.aliases_a
+                 THEN d.aliases_b ELSE d.aliases_a END AS opposing
+            UNWIND opposing AS opp
+            MATCH (al:ActorAlias {project_id: $project_id, source_id: opp})-[:ALIAS_OF]->(x:Actor)
+            RETURN collect(DISTINCT x.uuid) AS uuids
+            """,
+            project_id=project_id,
+            source_id=source_id,
+        )
+        record = await result.single()
+    return list(record["uuids"]) if record else []
+
+
 async def _merge_actor(
     actor: dict, new_alias: str, new_email: Optional[str], confidence: float
 ) -> None:
@@ -183,4 +207,5 @@ def make_neo4j_actor_store(project_id: str):
         create_actor=lambda name, aliases, emails, confidence: _create_actor(
             project_id, name, aliases, emails, confidence
         ),
+        lookup_vetoes=lambda source_id: _lookup_veto_uuids(project_id, source_id),
     )

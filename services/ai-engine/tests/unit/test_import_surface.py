@@ -25,6 +25,7 @@ MODULES = [
     "query_models",
     "rate_limiter",
     "agent.orchestrator",
+    "graph.actor_admin",
     "graph.actor_llm",
     "graph.actor_resolver",
     "graph.actor_store",

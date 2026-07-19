@@ -8,10 +8,11 @@ import { StatusView } from "@/components/StatusView";
 import { useProjects, useReorderProjects } from "@/hooks/useProjects";
 import type { Project } from "@/types/api";
 
-type Route = "chat" | "sources" | "graph" | "settings" | "account";
+type Route = "chat" | "sources" | "actors" | "graph" | "settings" | "account";
 
 function routeFromPath(pathname: string): Route {
   if (pathname.endsWith("/sources")) return "sources";
+  if (pathname.endsWith("/actors")) return "actors";
   if (pathname.endsWith("/graph")) return "graph";
   if (pathname.endsWith("/settings")) return "settings";
   if (pathname.endsWith("/account")) return "account";
@@ -22,6 +23,8 @@ function crumbsFor(project: Project, route: Route): string[] {
   switch (route) {
     case "sources":
       return [project.name, "데이터 소스"];
+    case "actors":
+      return [project.name, "액터"];
     case "graph":
       return [project.name, "그래프 탐색"];
     case "settings":
@@ -135,4 +138,3 @@ export function AppShell({ children }: { children?: ReactNode }) {
     </div>
   );
 }
-

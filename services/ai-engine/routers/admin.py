@@ -5,9 +5,17 @@ REFERENCE 엣지 빌드, 일회성 마이그레이션, Slack 배치 필터, 이�
 """
 
 import aio_pika
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from graph.actor_admin import (
+    delete_decision,
+    list_decisions,
+    merge_actors,
+    rename_actor,
+    split_alias,
+    unmerge_actors,
+)
 from graph.builder import (
     backfill_discussed_in_source,
     backfill_pr_jira_keys,
@@ -230,6 +238,100 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
             post_days=options.discussed_in_post_days,
         )
     return {"triggered_by": triggered_by, "discussed_in": discussed_in}
+
+
+class ActorMergeRequest(BaseModel):
+    project_id: str
+    source_uuid: str  # 합칠 두 노드 중 하나 (병합 후 삭제)
+    target_uuid: str  # 합칠 두 노드 중 통합 대상 (유지)
+    name: str = ""    # 합친 뒤 표시 이름 (생략 시 target 이름 유지)
+    note: str = ""
+
+
+class ActorUnmergeRequest(BaseModel):
+    project_id: str
+    decision_id: str  # kind='same' 병합 결정
+
+
+class ActorSplitRequest(BaseModel):
+    project_id: str
+    actor_uuid: str
+    source_ids: list[str]  # 분리할 alias 목록 (예: ["GITHUB:se-zero"])
+    name: str = ""  # 새 Actor 표시 이름 (생략 시 alias에서 유도)
+
+
+class ActorRenameRequest(BaseModel):
+    project_id: str
+    actor_uuid: str
+    name: str
+
+
+@router.post("/actors/merge", tags=["actors"])
+async def trigger_actor_merge(req: ActorMergeRequest):
+    """Actor 수동 병합 — 두 노드를 같은 사람으로 합치고 표시 이름을 정한다.
+
+    스냅샷·merged_from 표식을 남겨 /actors/unmerge로 복원 가능하다.
+    설계: docs/actor-manual-merge.md
+    """
+    try:
+        return await merge_actors(
+            req.project_id, req.source_uuid, req.target_uuid, req.name, req.note
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/actors/rename", tags=["actors"])
+async def trigger_actor_rename(req: ActorRenameRequest):
+    """Actor 표시 이름 변경 — 수동 관리 화면에서 canonical 이름을 정리한다."""
+    try:
+        return await rename_actor(req.project_id, req.actor_uuid, req.name)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/actors/unmerge", tags=["actors"])
+async def trigger_actor_unmerge(req: ActorUnmergeRequest):
+    """수동 병합 취소 — same 결정의 스냅샷으로 정확히 복원하고 distinct 결정을 남긴다."""
+    try:
+        return await unmerge_actors(req.project_id, req.decision_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/actors/split", tags=["actors"])
+async def trigger_actor_split(req: ActorSplitRequest):
+    """자동 병합 교정 — Actor에서 alias 일부를 새 Actor로 분리하고 distinct 결정을 남긴다."""
+    try:
+        return await split_alias(req.project_id, req.actor_uuid, req.source_ids, req.name)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/actors/decisions", tags=["actors"])
+async def actor_decisions(project_id: str):
+    """수동 결정 이력 — 감사 및 unmerge/철회 대상 조회용."""
+    return {"decisions": await list_decisions(project_id)}
+
+
+@router.delete("/actors/decisions/{decision_id}", tags=["actors"])
+async def revoke_actor_decision(decision_id: str, project_id: str):
+    """distinct 결정 철회 — 자동 파이프라인의 재병합을 다시 허용한다.
+
+    same 결정은 삭제 불가(복원 데이터 보유) — unmerge로만 해소한다.
+    """
+    deleted = await delete_decision(project_id, decision_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"distinct 결정 없음: {decision_id}")
+    return {"deleted": deleted}
 
 
 class DlqReplayOptions(BaseModel):

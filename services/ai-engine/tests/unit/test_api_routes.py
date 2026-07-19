@@ -10,9 +10,16 @@ from fastapi.routing import APIRoute
 import main
 
 EXPECTED_ROUTES = {
+    ("DELETE", "/actors/decisions/{decision_id}"),
     ("DELETE", "/graph/projects/{project_id}"),
+    ("GET", "/actors/decisions"),
     ("GET", "/dlq/stats"),
     ("GET", "/graph/activity"),
+    ("GET", "/graph/actors"),
+    ("POST", "/actors/merge"),
+    ("POST", "/actors/rename"),
+    ("POST", "/actors/split"),
+    ("POST", "/actors/unmerge"),
     ("GET", "/graph/build/status"),
     ("GET", "/graph/overview"),
     ("GET", "/graph/search"),

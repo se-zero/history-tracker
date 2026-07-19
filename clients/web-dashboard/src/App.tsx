@@ -6,6 +6,7 @@ import { StatusView } from "@/components/StatusView";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import { useProjects } from "@/hooks/useProjects";
 import { AccountPage } from "@/pages/AccountPage";
+import { ActorsPage } from "@/pages/ActorsPage";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { GraphPage } from "@/pages/GraphPage";
@@ -40,6 +41,9 @@ function ChatRoute() {
 }
 function SourcesRoute() {
   return <SourcesPage project={useProject()} />;
+}
+function ActorsRoute() {
+  return <ActorsPage project={useProject()} />;
 }
 function GraphRoute() {
   return <GraphPage project={useProject()} />;
@@ -79,6 +83,7 @@ export default function App() {
             <Route path="chat" element={<ChatRoute />} />
             <Route path="chat/:conversationId" element={<ChatRoute />} />
             <Route path="sources" element={<SourcesRoute />} />
+            <Route path="actors" element={<ActorsRoute />} />
             <Route path="graph" element={<GraphRoute />} />
             <Route path="settings" element={<SettingsRoute />} />
             <Route path="account" element={<AccountRoute />} />

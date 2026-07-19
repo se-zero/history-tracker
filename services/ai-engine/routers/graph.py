@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from graph.actor_admin import list_actors
 from graph.builder import delete_project_graph
 from graph.overview import get_evidence_subgraph, get_project_overview
 from graph.search import DEFAULT_LIMIT as SEARCH_DEFAULT_LIMIT
@@ -57,6 +58,16 @@ async def graph_subgraph(req: SubgraphRequest):
     """
     evidence = [e.model_dump() for e in req.evidence]
     return await get_evidence_subgraph(req.project_id, evidence)
+
+
+@router.get("/graph/actors")
+async def graph_actors(project_id: str):
+    """프로젝트 Actor 목록 + 활동 수 (액터 관리 UI용).
+
+    수동 병합/분리 대상 선택을 위해 aliases·emails·confidence를 함께 반환한다.
+    인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
+    """
+    return {"actors": await list_actors(project_id)}
 
 
 @router.delete("/graph/projects/{project_id}")
