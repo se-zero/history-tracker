@@ -104,6 +104,7 @@ async def _fetch_changeset_message_embeddings_for_issue_linking(project_id: str 
           }
         RETURN c.project_id AS project_id,
                c.hash AS changeset_id,
+               c.message AS message,
                c.embedding AS embedding,
                c.occurredAt AS occurred_at
     """.replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
@@ -114,6 +115,7 @@ async def _fetch_changeset_message_embeddings_for_issue_linking(project_id: str 
         {
             "project_id":   r["project_id"],
             "changeset_id": r["changeset_id"],
+            "message":      r["message"] or "",
             "embedding":    list(r["embedding"]),
             "occurred_at":  r["occurred_at"].to_native(),
         }

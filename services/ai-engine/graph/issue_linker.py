@@ -154,49 +154,35 @@ class IssueLinkStore:
     fetch_modified_embeddings와 같은 제외 규칙(text TRIGGERED_BY 보유 커밋 제외)을 적용해야
     한다 — 아니면 무링크 풀 전제(정밀도 필터)가 메시지 열에서 무너진다.
     Returns:
-        [{"project_id": str, "changeset_id": str, "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "changeset_id": str, "message": str, "embedding": list[float],
+          "occurred_at": datetime}, ...]
+        message는 원문이다 — 방안 D가 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
     """
 
 
-async def build_issue_changeset_links(
-    store: IssueLinkStore,
+def select_triggered_by_pairs(
+    issues: list[dict],
+    candidate_rows: list[dict],
     threshold: float = TRIGGERED_BY_THRESHOLD,
-    message_mode: str = TRIGGERED_BY_MESSAGE_MODE,
-) -> int:
-    """Issue.embedding ↔ MODIFIED.embedding 유사도로 TRIGGERED_BY 엣지 생성.
+) -> list[tuple[str, str, str, float]]:
+    """방안 A의 TRIGGERED_BY 후보 선별 — 비대칭 윈도우·임계값·커밋당 top-1.
 
-    정책:
-      - 비대칭 시간 윈도우: 이슈 종료 후 +3일까지만 허용 (`_compute_issue_window`)
-      - ChangeSet당 top-1 매칭만 저장: 한 커밋이 여러 이슈로 분산되지 않음
-      - store.fetch_modified_embeddings는 text TRIGGERED_BY가 이미 있는 ChangeSet을 제외해서
-        반환한다고 가정 (텍스트 hard-link 우선)
+    엣지 생성과 분리된 순수 함수다 (분리 이유는 select_reference_pairs 참고).
 
-    message_mode: 커밋 메시지 임베딩(ChangeSet.embedding)을 비교 열에 넣는 방식.
-        max  — 기본: 메시지 행을 파일 행에 추가, changeset별 top-1 집계가 같은 키로
-               병합해 diff·메시지 중 최고점을 취한다
-        off  — 파일(diff) 임베딩만 비교 (도입 전 동작, 측정 재현용)
-        only — 메시지 임베딩만 비교 (diff는 fetch하지 않음)
+    Args:
+        issues:         Issue 행 (임베딩 + 윈도우 계산용 메타)
+        candidate_rows: 비교 열 (파일 diff 행 + 커밋 메시지 행 — message_mode에 따라 호출자가 구성)
+        threshold:      엣지 생성 최소 유사도
 
     Returns:
-        생성(또는 갱신)된 TRIGGERED_BY 엣지 수
+        [(project_id, changeset_id, jira_key, score), ...]
     """
-    if message_mode not in ("off", "max", "only"):
-        raise ValueError(f"지원하지 않는 message_mode: {message_mode!r} (off/max/only)")
-
-    issues   = await store.fetch_issue_embeddings()
-    modified = [] if message_mode == "only" else await store.fetch_modified_embeddings()
-    messages = [] if message_mode == "off" else await store.fetch_changeset_message_embeddings()
-    candidates = modified + messages
-
-    if not issues or not candidates:
-        logger.info("TRIGGERED_BY 생성 스킵: issues=%d, candidates=%d", len(issues), len(candidates))
-        return 0
-
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
     issues_by_project = _group_by_project(issues)
-    mods_by_project   = _group_by_project(candidates)
+    mods_by_project   = _group_by_project(candidate_rows)
 
-    # (project_id, changeset_id) → (best_jira_key, best_score) — top-1 보장
+    # (project_id, changeset_id) → (best_jira_key, best_score) — top-1 보장.
+    # 같은 커밋의 diff 행과 메시지 행이 같은 키로 병합돼 쌍별 max가 된다(message_mode=max).
     best_per_cs: dict[tuple[str, str], tuple[str, float]] = {}
 
     for project_id, project_issues in issues_by_project.items():
@@ -235,8 +221,50 @@ async def build_issue_changeset_links(
             if current is None or score > current[1]:
                 best_per_cs[cs_key] = (p_issues[int(best_issue_idx[j])]["id"], score)
 
+    return [
+        (project_id, cs_id, jira_key, score)
+        for (project_id, cs_id), (jira_key, score) in best_per_cs.items()
+    ]
+
+
+async def build_issue_changeset_links(
+    store: IssueLinkStore,
+    threshold: float = TRIGGERED_BY_THRESHOLD,
+    message_mode: str = TRIGGERED_BY_MESSAGE_MODE,
+) -> int:
+    """Issue.embedding ↔ MODIFIED.embedding 유사도로 TRIGGERED_BY 엣지 생성.
+
+    정책:
+      - 비대칭 시간 윈도우: 이슈 종료 후 +3일까지만 허용 (`_compute_issue_window`)
+      - ChangeSet당 top-1 매칭만 저장: 한 커밋이 여러 이슈로 분산되지 않음
+      - store.fetch_modified_embeddings는 text TRIGGERED_BY가 이미 있는 ChangeSet을 제외해서
+        반환한다고 가정 (텍스트 hard-link 우선)
+
+    message_mode: 커밋 메시지 임베딩(ChangeSet.embedding)을 비교 열에 넣는 방식.
+        max  — 기본: 메시지 행을 파일 행에 추가, changeset별 top-1 집계가 같은 키로
+               병합해 diff·메시지 중 최고점을 취한다
+        off  — 파일(diff) 임베딩만 비교 (도입 전 동작, 측정 재현용)
+        only — 메시지 임베딩만 비교 (diff는 fetch하지 않음)
+
+    Returns:
+        생성(또는 갱신)된 TRIGGERED_BY 엣지 수
+    """
+    if message_mode not in ("off", "max", "only"):
+        raise ValueError(f"지원하지 않는 message_mode: {message_mode!r} (off/max/only)")
+
+    issues   = await store.fetch_issue_embeddings()
+    modified = [] if message_mode == "only" else await store.fetch_modified_embeddings()
+    messages = [] if message_mode == "off" else await store.fetch_changeset_message_embeddings()
+    candidates = modified + messages
+
+    if not issues or not candidates:
+        logger.info("TRIGGERED_BY 생성 스킵: issues=%d, candidates=%d", len(issues), len(candidates))
+        return 0
+
     created = 0
-    for (project_id, cs_id), (jira_key, confidence) in best_per_cs.items():
+    for project_id, cs_id, jira_key, confidence in select_triggered_by_pairs(
+        issues, candidates, threshold
+    ):
         await store.create_triggered_by_edge(project_id, cs_id, jira_key, confidence)
         created += 1
         logger.debug("TRIGGERED_BY 생성: changeset=%s issue=%s score=%.3f",
@@ -249,41 +277,26 @@ async def build_issue_changeset_links(
     return created
 
 
-async def build_issue_communication_links(
-    store: IssueLinkStore,
+def select_discussed_in_pairs(
+    issues: list[dict],
+    comms: list[dict],
     threshold: float = DISCUSSED_IN_THRESHOLD,
     margin: float = DEFAULT_DISCUSSED_IN_MARGIN,
     pre_days: int = DISCUSSED_IN_PRE_BUFFER_DAYS,
     post_days: int = DISCUSSED_IN_POST_BUFFER_DAYS,
-) -> int:
-    """Issue.embedding ↔ Communication.embedding 유사도로 DISCUSSED_IN 엣지 생성.
+) -> list[tuple[str, str, str, float]]:
+    """방안 A의 DISCUSSED_IN 후보 선별 — 이슈 생애 윈도우·임계값·스레드 마진 컷.
 
-    TRIGGERED_BY와 같은 이슈 생애 윈도우를 쓰되 버퍼·임계값은 따로 둔다 (스코프 분리).
-
-    Args:
-        store:     Neo4j 접근 인터페이스
-        threshold: 엣지 생성 최소 유사도 (바닥선)
-        margin:    이슈별 fan-out 컷 — 그 이슈의 최고점 스레드와 이 폭 안에 드는 스레드만 유지.
-                   스레드의 대표값은 그 안의 최고 점수다 (수다스러운 스레드가 자리를 독식하지
-                   않도록 메시지가 아니라 스레드 단위로 비교).
-        pre_days:  이슈 생성 이전 몇 일까지 후보로 볼지
-        post_days: 이슈 종료 이후 몇 일까지 후보로 볼지
+    엣지 생성과 분리된 순수 함수다 (분리 이유는 select_reference_pairs 참고).
 
     Returns:
-        생성(또는 갱신)된 DISCUSSED_IN 엣지 수
+        [(project_id, jira_key, communication_id, score), ...]
     """
-    issues = await store.fetch_issue_embeddings()
-    comms  = await store.fetch_communication_embeddings()
-
-    if not issues or not comms:
-        logger.info("DISCUSSED_IN 생성 스킵: issues=%d, comms=%d", len(issues), len(comms))
-        return 0
-
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
     issues_by_project = _group_by_project(issues)
     comms_by_project  = _group_by_project(comms)
 
-    created = 0
+    selected: list[tuple[str, str, str, float]] = []
     for project_id, project_issues in issues_by_project.items():
         project_comms = comms_by_project.get(project_id, [])
         # 빈 임베딩은 제외 — 유사도 0이라 어차피 임계값 미달이고, 행렬화도 깨진다
@@ -325,11 +338,48 @@ async def build_issue_communication_links(
             i, j = int(i), int(j)
             if thread_of[p_comms[j]["id"]] not in kept_threads[i]:
                 continue
-            score = float(sim[i, j])
-            await store.create_discussed_in_edge(project_id, p_issues[i]["id"], p_comms[j]["id"], confidence=score)
-            created += 1
-            logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f",
-                         p_issues[i]["id"], p_comms[j]["id"], score)
+            selected.append((project_id, p_issues[i]["id"], p_comms[j]["id"], float(sim[i, j])))
+
+    return selected
+
+
+async def build_issue_communication_links(
+    store: IssueLinkStore,
+    threshold: float = DISCUSSED_IN_THRESHOLD,
+    margin: float = DEFAULT_DISCUSSED_IN_MARGIN,
+    pre_days: int = DISCUSSED_IN_PRE_BUFFER_DAYS,
+    post_days: int = DISCUSSED_IN_POST_BUFFER_DAYS,
+) -> int:
+    """Issue.embedding ↔ Communication.embedding 유사도로 DISCUSSED_IN 엣지 생성.
+
+    TRIGGERED_BY와 같은 이슈 생애 윈도우를 쓰되 버퍼·임계값은 따로 둔다 (스코프 분리).
+
+    Args:
+        store:     Neo4j 접근 인터페이스
+        threshold: 엣지 생성 최소 유사도 (바닥선)
+        margin:    이슈별 fan-out 컷 — 그 이슈의 최고점 스레드와 이 폭 안에 드는 스레드만 유지.
+                   스레드의 대표값은 그 안의 최고 점수다 (수다스러운 스레드가 자리를 독식하지
+                   않도록 메시지가 아니라 스레드 단위로 비교).
+        pre_days:  이슈 생성 이전 몇 일까지 후보로 볼지
+        post_days: 이슈 종료 이후 몇 일까지 후보로 볼지
+
+    Returns:
+        생성(또는 갱신)된 DISCUSSED_IN 엣지 수
+    """
+    issues = await store.fetch_issue_embeddings()
+    comms  = await store.fetch_communication_embeddings()
+
+    if not issues or not comms:
+        logger.info("DISCUSSED_IN 생성 스킵: issues=%d, comms=%d", len(issues), len(comms))
+        return 0
+
+    created = 0
+    for project_id, jira_key, comm_id, score in select_discussed_in_pairs(
+        issues, comms, threshold, margin, pre_days, post_days
+    ):
+        await store.create_discussed_in_edge(project_id, jira_key, comm_id, confidence=score)
+        created += 1
+        logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f", jira_key, comm_id, score)
 
     logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f, margin=%.2f, window=-%dd/+%dd)",
                 created, threshold, margin, pre_days, post_days)

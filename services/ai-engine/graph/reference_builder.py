@@ -106,45 +106,33 @@ class ReferenceStore:
     fetch_changeset_message_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding(커밋 메시지)이 있는 모든 ChangeSet 노드 반환 — REFERENCE의 메시지 비교 행.
     Returns:
-        [{"project_id": str, "changeset_id": str, "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "changeset_id": str, "message": str, "embedding": list[float],
+          "occurred_at": datetime}, ...]
+        message는 원문이다 — 방안 D가 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
     """
 
 
-async def build_reference_edges(
-    store: ReferenceStore,
+def select_reference_pairs(
+    candidate_rows: list[dict],
+    comm_list: list[dict],
     threshold: float = DEFAULT_THRESHOLD,
     top_k: int = DEFAULT_TOP_K,
-    message_mode: str = DEFAULT_MESSAGE_MODE,
-) -> int:
-    """MODIFIED.embedding ↔ Communication.embedding 코사인 유사도로 REFERENCE 엣지 생성.
+) -> list[tuple[str, str, str, float]]:
+    """방안 A의 REFERENCE 후보 선별 — 시간 윈도우·임계값·쌍별 max·스레드 fan-out 컷.
+
+    엣지 생성과 분리된 순수 함수다. 방안 A(build_reference_edges)와 방안 D 변형 2(LLM 검수)가
+    같은 Stage 1을 쓰게 하려고 뽑았다 — 변형이 갈리는 지점을 "선별 이후"로 한정해야
+    측정 델타를 변형에 귀속할 수 있다.
 
     Args:
-        store:     Neo4j 접근 인터페이스
-        threshold: 엣지 생성 최소 유사도
-        top_k:     커밋당 유지할 최대 스레드 수 (fan-out 컷). 자르는 단위가 메시지가 아니라
-                   스레드인 이유 — 수다스러운 스레드 하나가 k칸을 독식하면 다른 스레드의
-                   진짜 배경 논의가 밀려난다.
-        message_mode: 커밋 메시지 임베딩(ChangeSet.embedding)을 비교 행에 넣는 방식.
-                   max  — 기본: 메시지 행을 파일 행에 추가, 기존 쌍별 max 집계가
-                          diff·메시지 중 최고점을 취한다
-                   off  — 파일(diff) 임베딩만 비교 (도입 전 동작, 측정 재현용)
-                   only — 메시지 임베딩만 비교 (diff는 fetch하지 않음)
+        candidate_rows: 비교 행 (파일 diff 행 + 커밋 메시지 행 — message_mode에 따라 호출자가 구성)
+        comm_list:      Communication 행
+        threshold:      엣지 생성 최소 유사도
+        top_k:          커밋당 유지할 최대 스레드 수 (fan-out 컷)
 
     Returns:
-        생성(또는 갱신)된 REFERENCE 엣지 수
+        [(project_id, changeset_id, communication_id, score), ...]
     """
-    if message_mode not in ("off", "max", "only"):
-        raise ValueError(f"지원하지 않는 message_mode: {message_mode!r} (off/max/only)")
-
-    modified_list = [] if message_mode == "only" else await store.fetch_modified_embeddings()
-    message_list = [] if message_mode == "off" else await store.fetch_changeset_message_embeddings()
-    candidate_rows = modified_list + message_list
-    comm_list = await store.fetch_communication_embeddings()
-
-    if not candidate_rows or not comm_list:
-        logger.info("REFERENCE 엣지 생성 스킵: candidates=%d, comm=%d", len(candidate_rows), len(comm_list))
-        return 0
-
     window_s = timedelta(days=TIME_WINDOW_DAYS).total_seconds()
 
     # 같은 프로젝트 안에서만 비교 — 다른 프로젝트의 커밋과 메시지가 의미상 비슷해도
@@ -152,7 +140,7 @@ async def build_reference_edges(
     mods_by_project = _group_by_project(candidate_rows)
     comms_by_project = _group_by_project(comm_list)
 
-    created = 0
+    selected: list[tuple[str, str, str, float]] = []
     for project_id, mods in mods_by_project.items():
         comms = comms_by_project.get(project_id, [])
         # 빈 임베딩은 제외 — 유사도 0이라 어차피 임계값 미달이고, 행렬화도 깨진다
@@ -200,12 +188,56 @@ async def build_reference_edges(
         for (changeset_id, comm_id), score in best_per_pair.items():
             if thread_of[comm_id] not in kept_threads[changeset_id]:
                 continue
-            await store.create_reference_edge(project_id, changeset_id, comm_id, score)
-            created += 1
-            logger.debug(
-                "REFERENCE 생성: changeset=%s comm=%s score=%.3f",
-                changeset_id, comm_id, score,
-            )
+            selected.append((project_id, changeset_id, comm_id, score))
+
+    return selected
+
+
+async def build_reference_edges(
+    store: ReferenceStore,
+    threshold: float = DEFAULT_THRESHOLD,
+    top_k: int = DEFAULT_TOP_K,
+    message_mode: str = DEFAULT_MESSAGE_MODE,
+) -> int:
+    """MODIFIED.embedding ↔ Communication.embedding 코사인 유사도로 REFERENCE 엣지 생성.
+
+    Args:
+        store:     Neo4j 접근 인터페이스
+        threshold: 엣지 생성 최소 유사도
+        top_k:     커밋당 유지할 최대 스레드 수 (fan-out 컷). 자르는 단위가 메시지가 아니라
+                   스레드인 이유 — 수다스러운 스레드 하나가 k칸을 독식하면 다른 스레드의
+                   진짜 배경 논의가 밀려난다.
+        message_mode: 커밋 메시지 임베딩(ChangeSet.embedding)을 비교 행에 넣는 방식.
+                   max  — 기본: 메시지 행을 파일 행에 추가, 기존 쌍별 max 집계가
+                          diff·메시지 중 최고점을 취한다
+                   off  — 파일(diff) 임베딩만 비교 (도입 전 동작, 측정 재현용)
+                   only — 메시지 임베딩만 비교 (diff는 fetch하지 않음)
+
+    Returns:
+        생성(또는 갱신)된 REFERENCE 엣지 수
+    """
+    if message_mode not in ("off", "max", "only"):
+        raise ValueError(f"지원하지 않는 message_mode: {message_mode!r} (off/max/only)")
+
+    modified_list = [] if message_mode == "only" else await store.fetch_modified_embeddings()
+    message_list = [] if message_mode == "off" else await store.fetch_changeset_message_embeddings()
+    candidate_rows = modified_list + message_list
+    comm_list = await store.fetch_communication_embeddings()
+
+    if not candidate_rows or not comm_list:
+        logger.info("REFERENCE 엣지 생성 스킵: candidates=%d, comm=%d", len(candidate_rows), len(comm_list))
+        return 0
+
+    created = 0
+    for project_id, changeset_id, comm_id, score in select_reference_pairs(
+        candidate_rows, comm_list, threshold, top_k
+    ):
+        await store.create_reference_edge(project_id, changeset_id, comm_id, score)
+        created += 1
+        logger.debug(
+            "REFERENCE 생성: changeset=%s comm=%s score=%.3f",
+            changeset_id, comm_id, score,
+        )
 
     logger.info("REFERENCE 엣지 생성 완료: %d개 (threshold=%.2f, top_k=%d, message_mode=%s)",
                 created, threshold, top_k, message_mode)
