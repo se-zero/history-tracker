@@ -1,0 +1,55 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement.md 참고.
+# [시간축 — 사람 스코프 + 기간] 한 사람의 활동을 기간으로 잘라 시간순 조회.
+#   get_actor_activity는 from_time만 있고 to_time이 없어 '4월만'을 자를 수 없다.
+#   서준수 2026-04 = 25 이벤트. 같은 달 정세영은 RabbitMQ·Rate Limiter 작업(다른 축)이라
+#   스코프가 새면 오염 검사에 걸린다.
+id: case-42
+question: "서준수가 2026년 4월에 어떤 작업들을 했어? 시간순으로 알려줘."
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# 4월 활동의 3개 축(LLM 요약 / Slack 필터링 / 프로젝트 컨텍스트 주입)의 대표 근거.
+expected_evidence_ids:
+- "commit:9e7a753"               # 2026-04-09 LLM 기반 diff 요약 파이프라인 구현
+- "pull_request:#5"              # 2026-04-09 Feat/llm summery (9e7a753 포함)
+- "issue:HT-22"                  # Slack 데이터 전처리 — 4/11 생성, 4/29 완료
+- "commit:79dcae4"               # 2026-04-17 Slack 룰 기반 + LLM 2단계 필터링 구현
+- "pull_request:#8"              # 2026-04-17 Slack 2단계 필터링 파이프라인 PR
+
+# 인용 무방 — 서준수의 4월 나머지 활동
+acceptable_evidence_ids:
+- "issue:HT-19"                  # LLM 요약 테스트 (4/1 생성, 4/9 완료)
+- "issue:HT-20"                  # 예시 탐색 (시장조사)
+- "issue:HT-26"                  # 그래프 생성 (4/29 생성)
+- "issue:HT-6"                   # 인프라 (4/29 완료)
+- "commit:ac24718"               # 파일별 additions/deletions 정규화 데이터에 포함
+- "commit:9f6f493"               # 로컬 테스트 데이터 gitignore
+- "commit:8b025ea"               # .gitignore에 checkpoint.json 추가
+- "commit:fa5686d"               # Slack LLM 필터에 README 기반 프로젝트 컨텍스트 주입
+- "pull_request:#11"             # 프로젝트 컨텍스트 주입 PR (HT-22)
+- "message:1777430711.997189"    # "프롬프트에 프로젝트 설명 추가한거 pr 날렸어"
+- "message:1776952023.070729"    # actor 노드 내용 논의
+- "message:1777026036.599589"    # 과제 설명 / 행정 일정 공유
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "4월 9일 LLM 기반 diff 요약 파이프라인을 구현하고 PR #5로 머지했다 (HT-19 LLM 요약 테스트)"
+- "4월 17일 Slack 메시지를 룰 기반 1차 + LLM 기반 2차로 거르는 필터링을 구현하고 PR #8로 머지했다 (HT-22)"
+- "4월 29일 Slack LLM 필터에 GitHub README 기반 프로젝트 컨텍스트를 주입하고(PR #11) HT-22를 완료했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # 같은 4월이지만 정세영의 작업 (사람 스코프가 새면 인용됨)
+    - "commit:693fdfd"           # 정세영 4/6 인프라 설정 (RabbitMQ)
+    - "commit:596d327"           # 정세영 4/6 Rate Limiter 구현
+    - "commit:abc5562"           # 정세영 4/6 checkpoint 구현
+  facts:
+    - "서준수가 4월에 RabbitMQ·Rate Limiter·checkpoint를 구현했다 — 해당 커밋 작성자는 정세영이다"
+
+# 케이스별 기계 채점 (시간축 — 스코프 격리 + 순서)
+rule_checks:
+- "summary가 LLM 요약(4/9) → Slack 2단계 필터링(4/17) → 프로젝트 컨텍스트 주입(4/29) 순서를 유지"
+- "summary가 2026년 4월 범위 밖의 작업을 서준수의 4월 활동으로 서술하지 않음"
+- "evidence의 커밋이 모두 서준수가 작성한 것 (정세영 커밋 혼입 없음)"

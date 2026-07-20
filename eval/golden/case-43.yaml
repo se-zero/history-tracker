@@ -1,0 +1,53 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement.md 참고.
+# [시간축 — 이슈 스코프 회귀 가드] get_timeline의 현행(jira_key) 경로가 스코프 일반화 후에도
+#   그대로 동작하는지 지킨다. 동시에 시간 라벨 정확도의 강한 판별기다 —
+#   이 이슈는 구현이 티켓보다 먼저다: 커밋 5/15 07:16~5/16 10:56, PR #21 머지 5/16 11:07,
+#   그런데 HT-45 생성은 5/16 19:47, 완료는 5/17 16:56.
+#   createdAt/closedAt을 분리하지 않거나 occurredAt만 보면 이 역전을 반드시 틀린다
+#   (docs/query-quality-issues.md 문제 2·3의 실패 패턴).
+id: case-43
+question: "GitHub OAuth 구현(HT-45)은 어떤 순서로 진행됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-45"                  # GitHub OAuth 구현 — 생성 5/16 19:47, 완료 5/17 16:56
+- "commit:2fa078f"               # 2026-05-15T14:05 GitHub OAuth 로그인 구현 (핵심)
+- "commit:ed9bfc7"               # 2026-05-16T03:49 GitHub OAuth 로그인 구현 (이어짐)
+- "pull_request:#21"             # Feat/auth GitHub foundation — 5/16 10:52 open, 11:07 merge
+- "message:1778928805.320969"    # 2026-05-16T10:53 "깃허브 Oauth기능 구현한거 pr 날렸어"
+
+# 인용 무방 — PR #21에 함께 담긴 나머지 커밋 (구현 과정 서술용)
+acceptable_evidence_ids:
+- "commit:ed377ca"               # docs: CLAUDE.md 작성
+- "commit:a0ea8bb"               # 백엔드 영속성 및 마이그레이션 기반 설정
+- "commit:1777fef"               # 인증 및 GitHub 설치 스키마 추가
+- "commit:f661fca"               # JWT 인증 기반 추가
+- "commit:7ab4bdf"               # GitHub App 설치 정보 저장 및 조회 구현
+- "commit:6882ce1"               # 인증 토큰 갱신 및 사용자 API 구현
+- "commit:07eee4a"               # 인증 및 GitHub 기반 흐름 테스트 보강
+- "commit:c7a2580"               # PostgreSQL 런타임 실행 오류 수정
+- "commit:ad77061"               # 인증 동시성 및 OAuth 검증 보강
+- "commit:6b993e0"               # backend 폴더 작업 순서 계획
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "구현 커밋은 2026년 5월 15일부터 16일 사이에 이뤄졌고, PR #21은 5월 16일에 열려 같은 날 머지됐다"
+- "HT-45 이슈는 2026년 5월 16일 저녁(19:47)에 생성되어 5월 17일에 완료됐다 — 즉 구현·머지가 티켓 생성보다 앞섰다"
+- "JWT 인증 기반과 GitHub App 설치 정보 저장·조회를 포함한 인증 기반 작업이 함께 진행됐다"
+- "5월 16일 슬랙에 '깃허브 Oauth기능 구현한거 pr 날렸어'로 공유됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  facts:
+    - "HT-45 이슈가 생성된 뒤에 구현 커밋이 작성됐다 — 실제로는 커밋(5/15~16)과 PR 머지(5/16 11:07)가 이슈 생성(5/16 19:47)보다 앞선다"
+    - "HT-45가 5월 16일에 완료(closed)됐다 — 5월 16일은 생성일이고 완료는 5월 17일이다"
+    - "PR #21이 이슈 완료 이후에 머지됐다"
+
+# 케이스별 기계 채점 (시간 라벨 분리 — 문제 2·3 회귀 가드)
+rule_checks:
+- "summary가 HT-45의 생성 시각(5/16)과 완료 시각(5/17)을 각각 올바른 의미로 서술하고 뒤바꾸지 않음"
+- "summary가 커밋·PR이 이슈 생성보다 앞섰다는 시간 관계를 역전시켜 서술하지 않음"
+- "evidence에 issue, commit, pull_request가 모두 존재"
