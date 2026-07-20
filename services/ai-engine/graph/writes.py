@@ -23,7 +23,14 @@ async def upsert_changeset(
     occurred_at: str,
     source: str,
     actor_uuid: str,
+    embedding: list[float],
 ) -> None:
+    """ChangeSet 노드 upsert.
+
+    embedding은 커밋 메시지의 임베딩. 임베딩 실패 시 빈 리스트가 오는데,
+    그때는 기존 c.embedding을 보존한다 — 재수집이 정상 임베딩을 지우지 않도록.
+    (구멍은 backfill_changeset_message_embeddings가 채운다.)
+    """
     async with get_driver().session() as session:
         await session.run(
             """
@@ -31,7 +38,8 @@ async def upsert_changeset(
             MERGE (c:ChangeSet {project_id: $project_id, hash: $hash})
             SET c.message = $message,
                 c.occurredAt = datetime($occurred_at),
-                c.source = $source
+                c.source = $source,
+                c.embedding = CASE WHEN size($embedding) > 0 THEN $embedding ELSE c.embedding END
             MERGE (a)-[:AUTHORED]->(c)
             """,
             actor_uuid=actor_uuid,
@@ -40,6 +48,7 @@ async def upsert_changeset(
             message=message,
             occurred_at=occurred_at,
             source=source,
+            embedding=embedding,
         )
 
 

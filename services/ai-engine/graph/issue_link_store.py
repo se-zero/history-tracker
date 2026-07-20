@@ -88,6 +88,41 @@ async def _fetch_modified_embeddings_for_issue_linking(project_id: str | None = 
     ]
 
 
+async def _fetch_changeset_message_embeddings_for_issue_linking(project_id: str | None = None) -> list[dict]:
+    """이슈 시맨틱 연결용 커밋 메시지 임베딩 — text TRIGGERED_BY 보유 커밋은 동일하게 제외.
+
+    파일(diff) fetch와 제외 규칙을 맞추지 않으면 무링크 풀 전제(정밀도 필터)가
+    메시지 비교 열에서 무너진다.
+    """
+    query = """
+        MATCH (c:ChangeSet)
+        WHERE c.embedding IS NOT NULL AND c.occurredAt IS NOT NULL
+          __PROJECT_FILTER__
+          AND NOT EXISTS {
+            MATCH (c)-[tb:TRIGGERED_BY]->(:Issue)
+            WHERE tb.source = 'text'
+          }
+        RETURN c.project_id AS project_id,
+               c.hash AS changeset_id,
+               c.message AS message,
+               c.embedding AS embedding,
+               c.occurredAt AS occurred_at
+    """.replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
+    async with get_driver().session() as session:
+        result = await session.run(query, project_id=project_id)
+        rows = await result.data()
+    return [
+        {
+            "project_id":   r["project_id"],
+            "changeset_id": r["changeset_id"],
+            "message":      r["message"] or "",
+            "embedding":    list(r["embedding"]),
+            "occurred_at":  r["occurred_at"].to_native(),
+        }
+        for r in rows
+    ]
+
+
 async def _create_triggered_by_semantic_edge(
     project_id: str, changeset_id: str, jira_key: str, confidence: float
 ) -> None:
@@ -156,4 +191,5 @@ def make_neo4j_issue_link_store(project_id: str | None = None):
         fetch_communication_embeddings=lambda: _fetch_communication_embeddings(project_id),
         create_triggered_by_edge=_create_triggered_by_semantic_edge,
         create_discussed_in_edge=_create_discussed_in_semantic_edge,
+        fetch_changeset_message_embeddings=lambda: _fetch_changeset_message_embeddings_for_issue_linking(project_id),
     )

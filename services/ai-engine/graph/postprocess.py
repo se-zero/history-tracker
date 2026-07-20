@@ -162,15 +162,21 @@ def get_graph_activity(project_id: str) -> str:
 async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dict:
     """project_id에 한정해 후처리(Layer 4) 시퀀스를 순서대로 1회 실행한다.
 
-    verify=False: 방안 A — 임베딩 유사도만 (LLM 비용 없음). 디바운스 자동 빌드 기본값.
-    verify=True:  방안 D — 시맨틱 엣지를 비운 뒤 임베딩 후보 + LLM 검증으로 재구축.
-                  A의 false positive가 남지 않도록 clear가 선행한다. 호출당 LLM 비용 발생.
-                  수동 '정밀 재구축'에서만 사용.
+    verify=False: 임베딩 유사도만 (LLM 비용 없음). 디바운스 자동 빌드 기본값.
+    verify=True:  시맨틱 엣지를 비운 뒤 LLM이 개입하는 빌더로 재구축한다. 단일 방식이 아니라
+                  엣지 타입별로 채택된 방식이 다르다 (비교 측정 결과):
+                    TRIGGERED_BY — 추천형: 임계값을 낮춰 후보를 넓게 잡고 LLM이 최종 선택
+                    DISCUSSED_IN — 필터형: 임베딩이 확정한 쌍만 검수해 미달이면 만들지 않음
+                    REFERENCE    — 필터형: 위와 동일
+                  임베딩 전용 빌드의 false positive가 남지 않도록 clear가 선행한다.
+                  호출당 LLM 비용 발생. 수동 '정밀 재구축'에서만 사용.
 
     순서:
       0. Slack LLM 노이즈 필터 (llm_filtered=False인 신규 Slack 메시지만, 증분) — 링크 전에
          노이즈를 먼저 제거해 backfill/링크 대상에 끼지 않게 한다
-      0.5(verify만). 시맨틱 TRIGGERED_BY/DISCUSSED_IN clear — A의 결과를 비우고 D로 재구축
+      0.5(verify만). 시맨틱 TRIGGERED_BY/DISCUSSED_IN + REFERENCE clear — 임베딩 전용 빌드의
+         결과를 비우고 재구축한다. 필터형은 "만들지 않는" 방식이라 삭제 동작이 없어서,
+         clear가 없으면 이전 엣지가 남아 필터가 아무 효과도 내지 못한다
       1. 임베딩 누락 Communication 보정 (이후 비교 대상에 포함되도록)
       2. TRIGGERED_BY + DISCUSSED_IN 시맨틱 링크 (GitHub↔Jira, Jira↔Slack)
       3. REFERENCE 시맨틱 링크 (GitHub↔Slack/GitHub이슈)
@@ -180,29 +186,30 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
     (_execute_build / 디바운스 루프)가 담당한다 — 이 함수는 순수 시퀀스다.
     """
     from graph.builder import (
+        clear_reference,
         clear_semantic_discussed_in,
         clear_semantic_triggered_by,
         make_neo4j_issue_link_store,
         make_neo4j_reference_store,
         propagate_thread_discussed_in,
     )
-    from graph.reference_builder import (
-        backfill_communication_embeddings,
-        build_reference_edges,
-    )
+    from graph.reference_builder import backfill_communication_embeddings
     from graph.slack_batch_filter import run_slack_llm_filter
 
-    # verify에 따라 방안 A(임베딩만) 또는 방안 D(LLM 검증) 링커를 고른다.
+    # verify에 따라 임베딩 전용 빌더 또는 LLM이 개입하는 빌더를 고른다.
+    # verify=True는 엣지 타입별로 채택 방식이 다르다 (TB=추천형, DI·REF=필터형).
     if verify:
         from graph.issue_verifier import (
             build_issue_changeset_links_verified as build_triggered_by,
-            build_issue_communication_links_verified as build_discussed_in,
+            build_issue_communication_links_filtered as build_discussed_in,
         )
+        from graph.reference_verifier import build_reference_edges_filtered as build_reference
     else:
         from graph.issue_linker import (
             build_issue_changeset_links as build_triggered_by,
             build_issue_communication_links as build_discussed_in,
         )
+        from graph.reference_builder import build_reference_edges as build_reference
 
     ref_store = make_neo4j_reference_store(project_id)
     link_store = make_neo4j_issue_link_store(project_id)
@@ -228,11 +235,14 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
         logger.exception("Slack LLM 필터 실패 — 링크 단계는 계속 진행 (project=%s)", project_id)
         slack = {"kept": 0, "deleted": 0}
 
-    # 0.5) 방안 D: A가 남긴 시맨틱 엣지를 먼저 비운다 — D의 정밀도가 A의
-    # false positive로 희석되지 않도록. text(refs)·스레드 전파 엣지는 보존된다.
+    # 0.5) 정밀 재구축: 임베딩 전용 빌드가 남긴 엣지를 먼저 비운다 — LLM 판정의 정밀도가
+    # 이전 false positive로 희석되지 않도록. text(refs)·스레드 전파 엣지는 보존된다.
+    # REFERENCE는 필터형이라 "만들지 않을" 뿐 지우지는 못한다 — 여기서 비우지 않으면
+    # 이전 엣지가 그대로 남아 필터가 아무 효과도 내지 못한다.
     if verify:
         await clear_semantic_triggered_by(project_id)
         await clear_semantic_discussed_in(project_id)
+        await clear_reference(project_id)
 
     results = {
         "slack_kept":        slack["kept"],
@@ -240,7 +250,7 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
         "backfilled":        await backfill_communication_embeddings(ref_store),
         "triggered_by":      await build_triggered_by(link_store),
         "discussed_in":      await build_discussed_in(link_store),
-        "reference":         await build_reference_edges(ref_store),
+        "reference":         await build_reference(ref_store),
         "thread_propagated": await propagate_thread_discussed_in(project_id),
     }
     return results
@@ -269,6 +279,15 @@ async def _execute_build(project_id: str, verify: bool, *, requeue_on_failure: b
         return True
     except Exception as e:
         logger.exception("그래프 후처리 실패: project=%s", project_id)
+        if verify:
+            # 정밀 재구축은 0.5단계에서 시맨틱 엣지를 먼저 비운다 — 그 뒤(빌더 단계)에 실패하면
+            # 엣지가 비워진 채로 남는다. 구조를 바꾸지 않고 복구 경로만 로그로 안내한다.
+            logger.error(
+                "정밀 재구축 실패 — 시맨틱 엣지(TRIGGERED_BY·DISCUSSED_IN·REFERENCE)가 비워진 채로 "
+                "남았을 수 있다. POST /graph/build?project_id=%s (verify=false)로 재구축하면 "
+                "임베딩 유사도 엣지가 복구된다.",
+                project_id,
+            )
         _build_status[project_id] = {
             "state": "failed", "verify": verify,
             "started_at": started_at, "result": None, "error": str(e),

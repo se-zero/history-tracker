@@ -342,7 +342,7 @@ pairs:
    curl -X POST "$BASE/reference/propagate-threads"
    ```
    > **`POST /graph/build?verify=true`를 쓰지 않는다.** `verify`는 clear 스위치가 아니라 **빌더 선택**
-   > 파라미터다 — `true`면 링커가 방안 D(LLM 검증)로 바뀌어, 튜닝 대상인 방안 A(임베딩)를 측정하지 못한다.
+   > 파라미터다 — `true`면 링커가 수동 정밀 구축(LLM 검수)으로 바뀌어, 튜닝 대상인 자동구축(임베딩)을 측정하지 못한다.
    > 게다가 LLM 판정은 빌드마다 달라져 비결정적이다. 위 체인은 LLM을 타지 않아 결정적이므로
    > 전후 차이가 곧 변경의 효과다.
 

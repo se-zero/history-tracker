@@ -223,6 +223,19 @@ pairs:
     다른 프론트 항목이라 이 스레드와 무관 — HT-93이 명확.)
   author: junsu
 
+# ── DISCUSSED_IN (이슈 → 스레드) ─────────────────────────────────────────────
+- edge_type: DISCUSSED_IN
+  src: {type: issue, id: HT-75}             # 각 integration 연결 시 pipeline-worker 수집 트리거
+  dst: {type: message, id: '1781439419.344509'}
+  note: >
+    각 연동(GitHub·Jira·Slack) 연결 시 pipeline-worker 수집을 트리거하는 작업(HT-75, PR #35)을
+    정세영이 슬랙 "Pipeline worker 수집 트리거 pr 날렸어" 스레드로 공유하고 같은 스레드에서
+    머지까지 확인. 이 스레드가 HT-75 구현·공유의 직접 근거이며, e2e 골든 case-33이 이 연결을
+    요구한다. ※2026-07-14 기준 그래프에 시맨틱 엣지 존재(conf 0.698) 확인 — 누락 등록이 아니라
+    회귀 가드 목적: DISCUSSED_IN 소비·생성 임계값을 0.7 이상으로 올리면 이 연결이 끊겨
+    case-33 근거가 사라진다 (2026-07-14 e2e 진단에서 발견).
+  author: junsu
+
 # ── TRIGGERED_BY (커밋 → 이슈, semantic만) ───────────────────────────────────
 # ⚠ 채점기는 r.source='semantic'만 인정한다. 커밋 메시지 OR 그 커밋의 PR 제목에 이슈 키가
 # 있으면 text TRIGGERED_BY가 붙고, 그 커밋은 시맨틱 매칭에서 제외된다(issue_linker.py) →
@@ -238,15 +251,24 @@ pairs:
     걸러져 MODIFIED 임베딩이 없으면 시맨틱 매칭이 기계적으로 불가 — 채점 시 확인 필요.
   author: junsu
 
-# ── DISCUSSED_IN (이슈 → 스레드) ─────────────────────────────────────────────
-- edge_type: DISCUSSED_IN
-  src: {type: issue, id: HT-75}             # 각 integration 연결 시 pipeline-worker 수집 트리거
-  dst: {type: message, id: '1781439419.344509'}
+# ── 2026-07-18 보충: TB 골든 (무링크 커밋 풀 재조사) ──
+- edge_type: TRIGGERED_BY
+  src: {type: commit, id: da56f8e}          # feat: 지식그래프 시스템 기초 작성 (2026-03-23)
+  dst: {type: issue, id: HT-1}
   note: >
-    각 연동(GitHub·Jira·Slack) 연결 시 pipeline-worker 수집을 트리거하는 작업(HT-75, PR #35)을
-    정세영이 슬랙 "Pipeline worker 수집 트리거 pr 날렸어" 스레드로 공유하고 같은 스레드에서
-    머지까지 확인. 이 스레드가 HT-75 구현·공유의 직접 근거이며, e2e 골든 case-33이 이 연결을
-    요구한다. ※2026-07-14 기준 그래프에 시맨틱 엣지 존재(conf 0.698) 확인 — 누락 등록이 아니라
-    회귀 가드 목적: DISCUSSED_IN 소비·생성 임계값을 0.7 이상으로 올리면 이 연결이 끊겨
-    case-33 근거가 사라진다 (2026-07-14 e2e 진단에서 발견).
-  author: junsu
+    작성자 확인으로 연결 유지 — HT-1에서 이어진 작업 (구체 경위 기록 없음).
+    ※구조적 miss: 커밋(3/23)이 이슈 종료(3/15)+3일 생애 윈도우 밖이라 모드·임계값과
+    무관하게 현행 빌더로는 연결 불가. 유사도도 0.199(diff)/0.296(메시지)로 낮아 윈도우를
+    넓혀도 임계값에 걸린다. 시간 윈도우 한계 사례로 보존 — recall 상한을 깎는 역할.
+  author: seyeong
+
+
+- edge_type: TRIGGERED_BY
+  src: {type: commit, id: 312e162}          # fix: 슬랙 URL 딥링크로 변경 (2026-05-07)
+  dst: {type: issue, id: HT-29}
+  note: >
+    HT-29 작업에서 슬랙 URL을 딥링크로 변경해야하는 필요성을 느껴서 팀원에게 수정 요청함.
+  author: seyeong
+
+
+

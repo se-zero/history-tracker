@@ -20,6 +20,7 @@ from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN,
     DISCUSSED_IN_POST_BUFFER_DAYS,
     DISCUSSED_IN_PRE_BUFFER_DAYS,
+    TRIGGERED_BY_MESSAGE_MODE,
     TRIGGERED_BY_THRESHOLD,
     IssueLinkStore,
     build_issue_changeset_links,
@@ -93,6 +94,7 @@ class _FakeStore:
             fetch_communication_embeddings=fetch_comms,
             create_triggered_by_edge=unsupported,
             create_discussed_in_edge=create_discussed_in,
+            fetch_changeset_message_embeddings=unsupported,
         )
 
     def linked_comms(self) -> set[str]:
@@ -376,18 +378,204 @@ class TriggeredByDefaultThresholdTest(unittest.TestCase):
         async def unsupported(*args, **kwargs):
             raise AssertionError("이 테스트에서 호출되지 않아야 한다")
 
+        async def fetch_no_messages():
+            # 기본 모드(max)가 메시지 열도 fetch하지만, 이 테스트는 diff 행의 임계값만 본다
+            return []
+
         store = IssueLinkStore(
             fetch_issue_embeddings=fetch_issues,
             fetch_modified_embeddings=fetch_mods,
             fetch_communication_embeddings=unsupported,
             create_triggered_by_edge=create_tb,
             create_discussed_in_edge=unsupported,
+            fetch_changeset_message_embeddings=fetch_no_messages,
         )
 
         asyncio.run(build_issue_changeset_links(store))
 
         self.assertEqual([(cs, key) for _, cs, key, _ in created],
                          [("cs-golden", "HT-6")])
+
+
+def _message_row(changeset_id, embedding, project_id="p1", occurred_at=NOW):
+    """커밋 메시지 임베딩 행 — 파일(diff) 행과 달리 커밋당 1개다."""
+    return {
+        "project_id": project_id,
+        "changeset_id": changeset_id,
+        "embedding": embedding,
+        "occurred_at": occurred_at,
+    }
+
+
+class _FakeTbStore:
+    """TRIGGERED_BY용 IssueLinkStore 대역 — create_triggered_by_edge 호출을 기록한다."""
+
+    def __init__(self, issues, mods, messages=None):
+        self.issues = issues
+        self.mods = mods
+        self.messages = messages or []
+        self.created: list[tuple[str, str, str, float]] = []
+        self.fetched_mods = False
+        self.fetched_messages = False
+
+    def as_store(self) -> IssueLinkStore:
+        async def fetch_issues():
+            return self.issues
+
+        async def fetch_mods():
+            self.fetched_mods = True
+            return self.mods
+
+        async def fetch_messages():
+            self.fetched_messages = True
+            return self.messages
+
+        async def create_tb(project_id, cs_id, jira_key, confidence):
+            self.created.append((project_id, cs_id, jira_key, confidence))
+
+        async def unsupported(*args, **kwargs):
+            raise AssertionError("이 테스트에서 호출되지 않아야 한다")
+
+        return IssueLinkStore(
+            fetch_issue_embeddings=fetch_issues,
+            fetch_modified_embeddings=fetch_mods,
+            fetch_communication_embeddings=unsupported,
+            create_triggered_by_edge=create_tb,
+            create_discussed_in_edge=unsupported,
+            fetch_changeset_message_embeddings=fetch_messages,
+        )
+
+
+class TriggeredByMessageModeTest(unittest.TestCase):
+    """TRIGGERED_BY의 message_mode — 커밋 메시지 임베딩을 비교 열에 넣는 두 설계(max/only)와 현행(off)."""
+
+    @staticmethod
+    def _mod(cs_id, embedding, occurred_at=NOW, project_id="p1"):
+        return {
+            "project_id": project_id,
+            "changeset_id": cs_id,
+            "file_path": "src/a.py",
+            "diff_summary": "",
+            "embedding": embedding,
+            "occurred_at": occurred_at,
+        }
+
+    def test_off_mode_does_not_fetch_message_embeddings(self):
+        # off는 메시지 임베딩 도입 전 동작 그대로 — 조회조차 하지 않는다 (측정 재현용)
+        fake = _FakeTbStore(
+            issues=[_issue("HT-1")],
+            mods=[self._mod("c1", _vec(0.9))],
+            messages=[_message_row("c1", _vec(0.9))],
+        )
+
+        created = asyncio.run(
+            build_issue_changeset_links(fake.as_store(), threshold=0.3, message_mode="off")
+        )
+
+        self.assertFalse(fake.fetched_messages)
+        self.assertEqual(created, 1)
+
+    def test_max_mode_merges_message_and_diff_into_single_top1(self):
+        # 같은 커밋의 diff 열(0.5)과 메시지 열(0.9)이 top-1 집계에서 같은 키로 병합 —
+        # 엣지는 1개, confidence는 둘 중 최고점
+        fake = _FakeTbStore(
+            issues=[_issue("HT-1")],
+            mods=[self._mod("c1", _vec(0.5))],
+            messages=[_message_row("c1", _vec(0.9))],
+        )
+
+        created = asyncio.run(
+            build_issue_changeset_links(fake.as_store(), threshold=0.3, message_mode="max")
+        )
+
+        self.assertEqual(created, 1)
+        self.assertEqual(fake.created[0][1], "c1")
+        self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
+
+    def test_max_mode_covers_commits_without_diff_embeddings(self):
+        # MODIFIED 임베딩이 없는 커밋(파일 전부 스킵)도 메시지로는 후보가 된다 (후보 풀 확장)
+        fake = _FakeTbStore(
+            issues=[_issue("HT-1")],
+            mods=[],
+            messages=[_message_row("c1", _vec(0.9))],
+        )
+
+        created = asyncio.run(
+            build_issue_changeset_links(fake.as_store(), threshold=0.3, message_mode="max")
+        )
+
+        self.assertEqual(created, 1)
+
+    def test_only_mode_ignores_diff_embeddings(self):
+        # diff가 아무리 높아도 only 모드에선 메시지 점수로만 판단 — diff는 fetch조차 하지 않는다
+        fake = _FakeTbStore(
+            issues=[_issue("HT-1")],
+            mods=[self._mod("c1", _vec(0.95))],
+            messages=[_message_row("c1", _vec(0.4))],
+        )
+
+        created = asyncio.run(
+            build_issue_changeset_links(fake.as_store(), threshold=0.5, message_mode="only")
+        )
+
+        self.assertEqual(created, 0)
+        self.assertFalse(fake.fetched_mods)
+
+    def test_message_row_respects_issue_window(self):
+        # 이슈 종료(+3d 유예) 후의 커밋은 메시지 점수가 높아도 후보가 아니다
+        fake = _FakeTbStore(
+            issues=[_issue("HT-1", created_at=NOW, closed_at=NOW)],
+            mods=[],
+            messages=[_message_row("c1", _vec(0.9), occurred_at=NOW + timedelta(days=10))],
+        )
+
+        created = asyncio.run(
+            build_issue_changeset_links(fake.as_store(), threshold=0.3, message_mode="only")
+        )
+
+        self.assertEqual(created, 0)
+
+    def test_invalid_mode_raises(self):
+        fake = _FakeTbStore(issues=[], mods=[], messages=[])
+
+        with self.assertRaises(ValueError):
+            asyncio.run(build_issue_changeset_links(fake.as_store(), message_mode="diff"))
+
+
+class TriggeredByAdoptedDefaultsTest(unittest.TestCase):
+    """기본값 = 채택 구성 (message_mode max, 임계값은 0.30 유지).
+
+    postprocess 자동 빌드는 인자 없이 호출하므로, 측정으로 확정한 구성과 코드 기본값이
+    같아야 프로덕션이 측정과 동일하게 돈다 — 그 일치를 박는 계약 테스트.
+    """
+
+    @staticmethod
+    def _mod(cs_id, embedding, occurred_at=NOW, project_id="p1"):
+        return {
+            "project_id": project_id,
+            "changeset_id": cs_id,
+            "file_path": "src/a.py",
+            "diff_summary": "",
+            "embedding": embedding,
+            "occurred_at": occurred_at,
+        }
+
+    def test_default_message_mode_is_max(self):
+        self.assertEqual(TRIGGERED_BY_MESSAGE_MODE, "max")
+
+    def test_default_call_uses_message_rows(self):
+        # diff(0.2)는 임계값 밑, 메시지(0.9)는 위 — 인자 없는 기본 호출이 메시지 열로 top-1을 만든다
+        fake = _FakeTbStore(
+            issues=[_issue("HT-1")],
+            mods=[self._mod("c1", _vec(0.2))],
+            messages=[_message_row("c1", _vec(0.9))],
+        )
+
+        created = asyncio.run(build_issue_changeset_links(fake.as_store()))
+
+        self.assertTrue(fake.fetched_messages)
+        self.assertEqual(created, 1)
+        self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
 
 
 if __name__ == "__main__":

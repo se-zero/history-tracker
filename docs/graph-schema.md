@@ -279,28 +279,38 @@ refs(`jiraKey`/`prNumber`)는 커밋·메시지에 명시될 때만 텍스트로
 
 **시퀀스 순서** (`run_postprocess_sequence`):
 0. Slack LLM 노이즈 필터 (`llm_filtered=false`인 신규 Slack 메시지만, 증분) — 링크 전에 노이즈 제거
-0.5. (verify=true만) 시맨틱 TRIGGERED_BY/DISCUSSED_IN clear — A의 결과를 비우고 D로 재구축
+0.5. (verify=true만) 시맨틱 TRIGGERED_BY/DISCUSSED_IN clear + REFERENCE clear — 임베딩 유사도로 만든 결과를 비우고 재구축. REFERENCE까지 비우는 건 필터형이 "만들지 않을" 뿐 기존 엣지를 지우지는 못하기 때문이다 — clear가 없으면 이전 빌드의 엣지가 그대로 남아 필터가 무력화된다
 1. 임베딩 누락 Communication 보정 (`backfill_communication_embeddings`)
 2. TRIGGERED_BY + DISCUSSED_IN 시맨틱 링크
 3. REFERENCE 시맨틱 링크
 4. DISCUSSED_IN 스레드 전파
 
-### LLM 검증 (방안 A vs D)
+### LLM 검수 (자동구축 vs 수동 정밀 구축)
 
-방안 구분은 `verify` 플래그(= `/graph/build`의 `verify`, `/issue-links/build`의 `llm_verify`)로 정한다.
+구분은 `/graph/build`의 `verify` 플래그 하나로 정한다.
 
-- **방안 A** (`verify=false`, 디바운스 자동 빌드 기본값): 임베딩 유사도만 사용. 빠르고 LLM 비용 없음.
-- **방안 D** (`verify=true`): 기존 시맨틱 엣지를 먼저 비우고(`clear_semantic_triggered_by`/`clear_semantic_discussed_in` — text·스레드 전파 엣지는 confidence가 없어 보존), 시맨틱 유사도로 상위 후보를 선별한 뒤 LLM이 실제 텍스트를 읽고 관련 여부를 재판정한다(`issue_verifier`). 임베딩만으로 생기는 false positive(도메인 용어 중복 등)를 줄이지만 호출당 LLM 비용이 든다. 수동 '정밀 재구축'에서만 사용.
+- **자동구축** (`verify=false`, 디바운스 자동 빌드 기본값): 임베딩 유사도만 사용. 빠르고 LLM 비용 없음. 수동 '그래프 재구축' 버튼도 이 경로를 쓴다 — 트리거가 수동일 뿐 방식은 같다.
+- **수동 정밀 구축** (`verify=true`): 기존 시맨틱 엣지를 먼저 비운 뒤(`clear_semantic_triggered_by`/`clear_semantic_discussed_in`/`clear_reference`) LLM이 개입하는 빌더로 재구축한다. 임베딩만으로 생기는 false positive(도메인 용어 중복 등)를 줄이지만 호출당 LLM 비용이 든다. 수동 '정밀 재구축'에서만 사용.
+
+  `verify=true`는 단일 방식이 아니라 **엣지 타입별로 채택된 방식이 다르다**:
+
+  | 엣지 타입 | 방식 | 동작 |
+  |-----------|------|------|
+  | TRIGGERED_BY | 추천형 (`build_issue_changeset_links_verified`) | 임계값을 낮춰 후보를 넓게 잡고 LLM이 최종 선택 — 임베딩이 못 고른 엣지를 **추가할 수 있다** |
+  | DISCUSSED_IN | 필터형 (`build_issue_communication_links_filtered`) | 임베딩이 확정한 쌍만 검수 — 걸러내기만 하고 **추가는 없다** |
+  | REFERENCE | 필터형 (`build_reference_edges_filtered`) | 위와 동일 |
+
+  clear 범위는 타입마다 다르다. TRIGGERED_BY·DISCUSSED_IN은 `source='semantic'`인 엣지만 지워 text(refs)·스레드 전파 엣지는 보존된다. 반면 REFERENCE는 텍스트 경로가 없어 전부 시맨틱 산물이므로 **전량 삭제 후 재생성**된다.
 
 ### API — `POST /issue-links/build` (하위 단계 직접 호출)
 
-오케스트레이션 없이 Issue 링크 단계만 직접 부르는 저수준 엔드포인트. 위 `/graph/build`는 이 단계를 포함한 전체 시퀀스를 돌린다.
+오케스트레이션 없이 Issue 링크 단계만 직접 부르는 저수준 엔드포인트. 위 `/graph/build`는 이 단계를 포함한 전체 시퀀스를 돌린다. **임베딩 유사도 전용이다** — LLM 검수까지 포함한 조합은 `POST /graph/build?verify=true`로 실행한다.
 
 | 파라미터 | 기본값 | 설명 |
 |----------|--------|------|
 | `triggered_by_threshold` | `0.30` | TRIGGERED_BY 임베딩 유사도 최소값 |
+| `triggered_by_message_mode` | `"max"` | 커밋 메시지 임베딩 비교 방식 (`off`/`max`/`only`) |
 | `discussed_in_threshold` | `0.40` | DISCUSSED_IN 임베딩 유사도 최소값 |
-| `llm_verify` | `false` | true면 임베딩 후보를 LLM이 재검증 |
-| `top_k` | `5` | LLM 검증 시 Issue당 후보 수 (비용 제어) |
-| `llm_threshold` | `0.7` | LLM confidence 최소값 (엣지 생성 기준) |
-| `repo` | `""` | `"owner/repo"` — LLM 검증 시 도메인 컨텍스트 주입용 |
+| `discussed_in_margin` | `0.10` | DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차 |
+| `discussed_in_pre_days` | `4` | DISCUSSED_IN 시간 윈도우 — 이슈 생성 이전 며칠까지 후보로 볼지 |
+| `discussed_in_post_days` | `3` | DISCUSSED_IN 시간 윈도우 — 이슈 종료 이후 며칠까지 후보로 볼지 |

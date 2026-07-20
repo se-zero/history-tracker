@@ -28,6 +28,7 @@ EXPECTED_ROUTES = {
     ("POST", "/graph/build"),
     ("POST", "/graph/subgraph"),
     ("POST", "/issue-links/build"),
+    ("POST", "/migrations/changeset-embeddings"),
     ("POST", "/migrations/clear-reference"),
     ("POST", "/migrations/clear-semantic-discussed-in"),
     ("POST", "/migrations/clear-semantic-triggered-by"),

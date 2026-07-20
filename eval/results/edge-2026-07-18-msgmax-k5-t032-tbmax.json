@@ -1,0 +1,229 @@
+{
+  "meta": {
+    "graph_snapshot": "graph-2026-07-05.dump",
+    "project_id": "eb74cbd9-33ce-4c0e-9272-d30a661830f3",
+    "precision_file": "edge_labels\\precision-2026-07-05.yaml",
+    "recall_file": "edge_labels\\recall-2026-07-05.yaml",
+    "run_at": "2026-07-18T15:19:29"
+  },
+  "precision": {
+    "overall": {
+      "precision": 0.4433,
+      "present": 99,
+      "relevant": 43,
+      "irrelevant": 54,
+      "unsure": 2
+    },
+    "by_type": {
+      "DISCUSSED_IN": {
+        "precision": 0.6053,
+        "present": 39,
+        "relevant": 23,
+        "irrelevant": 15,
+        "unsure": 1
+      },
+      "REFERENCE": {
+        "precision": 0.3137,
+        "present": 52,
+        "relevant": 16,
+        "irrelevant": 35,
+        "unsure": 1
+      },
+      "TRIGGERED_BY": {
+        "precision": 0.5,
+        "present": 8,
+        "relevant": 4,
+        "irrelevant": 4,
+        "unsure": 0
+      }
+    },
+    "by_bucket": {
+      "DISCUSSED_IN 0.40-0.50": {
+        "precision": 0.381,
+        "present": 22,
+        "relevant": 8,
+        "irrelevant": 13,
+        "unsure": 1
+      },
+      "DISCUSSED_IN 0.50-0.70": {
+        "precision": 0.7778,
+        "present": 9,
+        "relevant": 7,
+        "irrelevant": 2,
+        "unsure": 0
+      },
+      "DISCUSSED_IN 0.70+": {
+        "precision": 1.0,
+        "present": 8,
+        "relevant": 8,
+        "irrelevant": 0,
+        "unsure": 0
+      },
+      "REFERENCE 0.30-0.40": {
+        "precision": 0.0,
+        "present": 17,
+        "relevant": 0,
+        "irrelevant": 17,
+        "unsure": 0
+      },
+      "REFERENCE 0.40-0.50": {
+        "precision": 0.3529,
+        "present": 18,
+        "relevant": 6,
+        "irrelevant": 11,
+        "unsure": 1
+      },
+      "REFERENCE 0.50+": {
+        "precision": 0.5882,
+        "present": 17,
+        "relevant": 10,
+        "irrelevant": 7,
+        "unsure": 0
+      },
+      "TRIGGERED_BY 0.30-0.35": {
+        "precision": 0.5,
+        "present": 2,
+        "relevant": 1,
+        "irrelevant": 1,
+        "unsure": 0
+      },
+      "TRIGGERED_BY 0.35-0.40": {
+        "precision": 1.0,
+        "present": 3,
+        "relevant": 3,
+        "irrelevant": 0,
+        "unsure": 0
+      },
+      "TRIGGERED_BY 0.40+": {
+        "precision": 0.0,
+        "present": 3,
+        "relevant": 0,
+        "irrelevant": 3,
+        "unsure": 0
+      }
+    },
+    "vanished": [
+      "REFERENCE f570da7->1782617831.578529",
+      "REFERENCE 06b338c->1781600092.933319",
+      "REFERENCE 76924e3->1781766818.708419",
+      "REFERENCE 30dccc7->1781442472.936239",
+      "REFERENCE d835125->1781946322.265109",
+      "REFERENCE 820dc21->1782286987.165039",
+      "DISCUSSED_IN HT-66->1783128999.620619",
+      "DISCUSSED_IN HT-84->1781356896.027259",
+      "DISCUSSED_IN HT-101->1781533811.868749",
+      "DISCUSSED_IN HT-34->1778834642.751309",
+      "DISCUSSED_IN HT-93->1781442472.936239",
+      "DISCUSSED_IN HT-65->1779967008.121469",
+      "DISCUSSED_IN HT-57->1778676376.141739",
+      "DISCUSSED_IN HT-44->1781356896.027259",
+      "DISCUSSED_IN HT-95->1782650084.848469",
+      "DISCUSSED_IN HT-64->1781268987.825499",
+      "DISCUSSED_IN HT-30->1778834642.751309",
+      "DISCUSSED_IN HT-29->1779325412.928469",
+      "DISCUSSED_IN HT-70->1781946322.265109",
+      "DISCUSSED_IN HT-67->1782650084.848469",
+      "TRIGGERED_BY 60d2d92->HT-6",
+      "TRIGGERED_BY da56f8e->HT-3",
+      "DISCUSSED_IN HT-93->1781925043.152779",
+      "DISCUSSED_IN HT-77->1781503641.993609",
+      "DISCUSSED_IN HT-84->1781533811.868749",
+      "DISCUSSED_IN HT-99->1782650084.848469",
+      "DISCUSSED_IN HT-30->1778586053.322069",
+      "DISCUSSED_IN HT-95->1782102320.056619",
+      "DISCUSSED_IN HT-56->1783143134.172379",
+      "DISCUSSED_IN HT-90->1781925043.152779",
+      "DISCUSSED_IN HT-103->1783143134.172379",
+      "DISCUSSED_IN HT-90->1781760314.473099",
+      "DISCUSSED_IN HT-99->1783143134.172379",
+      "DISCUSSED_IN HT-56->1782650084.848469",
+      "DISCUSSED_IN HT-22->1777615886.638969",
+      "DISCUSSED_IN HT-92->1782286987.165039",
+      "DISCUSSED_IN HT-43->1778586053.322069",
+      "DISCUSSED_IN HT-90->1782194759.806139",
+      "DISCUSSED_IN HT-29->1778165442.394199",
+      "DISCUSSED_IN HT-68->1781356896.027259",
+      "DISCUSSED_IN HT-97->1782286987.165039",
+      "DISCUSSED_IN HT-22->1777026036.599589",
+      "DISCUSSED_IN HT-59->1779967008.121469",
+      "DISCUSSED_IN HT-103->1782650084.848469",
+      "DISCUSSED_IN HT-92->1782617831.578529",
+      "DISCUSSED_IN HT-56->1781832528.978749",
+      "REFERENCE 36cacb9->1781533811.868749",
+      "REFERENCE 0b9d030->1781600092.933319",
+      "REFERENCE 6bd3c7f->1783238894.462559",
+      "REFERENCE 63affb3->1780206867.542399",
+      "REFERENCE 5ac4f4e->1779372787.760439",
+      "REFERENCE 3e1d00e->1781533811.868749",
+      "REFERENCE 312e162->1778329685.720139",
+      "REFERENCE f1e5fdd->1782451627.362269",
+      "REFERENCE 051ad05->1781600092.933319",
+      "REFERENCE d58e361->1781925043.152779",
+      "REFERENCE 9b91ae7->1781224211.716939",
+      "REFERENCE 01cab41->1781533811.868749",
+      "REFERENCE 460a3b2->1783143134.172379",
+      "REFERENCE 4b8d8c0->1782286987.165039",
+      "REFERENCE 962a29d->1781224211.716939",
+      "REFERENCE ac24718->1775978966.443389",
+      "REFERENCE 083e0a9->1781503641.993609"
+    ],
+    "invalid_labels": [],
+    "labeled_total": 162
+  },
+  "recall": {
+    "overall": {
+      "recall": 0.8636,
+      "hits": 19,
+      "misses": 3,
+      "total": 22
+    },
+    "by_type": {
+      "DISCUSSED_IN": {
+        "recall": 1.0,
+        "hits": 5,
+        "misses": 0,
+        "total": 5
+      },
+      "REFERENCE": {
+        "recall": 0.9286,
+        "hits": 13,
+        "misses": 1,
+        "total": 14
+      },
+      "TRIGGERED_BY": {
+        "recall": 0.3333,
+        "hits": 1,
+        "misses": 2,
+        "total": 3
+      }
+    },
+    "miss_list": [
+      "REFERENCE 9e7a753->1775734002.878479",
+      "TRIGGERED_BY 60d2d92->HT-6",
+      "TRIGGERED_BY da56f8e->HT-1"
+    ],
+    "hit_list": [
+      "REFERENCE f29ca87->1781600092.933319 (conf=0.570)",
+      "REFERENCE 057422a->1776180884.595899 (conf=0.407)",
+      "REFERENCE c55f38f->1776180884.595899 (conf=0.393)",
+      "REFERENCE fa5686d->1777430711.997189 (conf=0.406)",
+      "REFERENCE bff2648->1779170187.956139 (conf=0.401)",
+      "REFERENCE 50d434c->1780206867.542399 (conf=0.518)",
+      "REFERENCE dd44be2->1781158602.670189 (conf=0.509)",
+      "REFERENCE f4a27e4->1781158602.670189 (conf=0.556)",
+      "REFERENCE 5715fca->1781224211.716939 (conf=0.324)",
+      "REFERENCE 7ee48b6->1781224211.716939 (conf=0.472)",
+      "REFERENCE 8cdb0cc->1781224211.716939 (conf=0.458)",
+      "REFERENCE 0a2a367->1781925043.152779 (conf=0.589)",
+      "REFERENCE cbea6c1->1781925043.152779 (conf=0.645)",
+      "DISCUSSED_IN HT-69->1781224211.716939 (conf=0.439)",
+      "DISCUSSED_IN HT-23->1776180884.595899 (conf=0.519)",
+      "DISCUSSED_IN HT-83->1781600092.933319 (conf=0.559)",
+      "DISCUSSED_IN HT-53->1779170187.956139 (conf=0.437)",
+      "DISCUSSED_IN HT-93->1782102320.056619 (conf=0.859)",
+      "TRIGGERED_BY 312e162->HT-29 (conf=0.395)"
+    ],
+    "invalid": [],
+    "pairs_total": 22
+  }
+}

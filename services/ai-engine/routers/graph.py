@@ -90,9 +90,12 @@ async def trigger_graph_build(project_id: str, verify: bool = False):
     같은 프로젝트가 이미 빌드 중이면 새로 시작하지 않고 진행 중 상태를 반환한다(coalesce).
     인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
 
-    verify=false (기본): 방안 A — 임베딩 유사도만 (빠름, LLM 비용 없음).
-    verify=true:         방안 D — 시맨틱 엣지 clear 후 LLM 검증으로 재구축
-                         (false positive 감소, 호출당 LLM 비용). '정밀 재구축' 버튼용.
+    verify=false (기본): 임베딩 유사도만 (빠름, LLM 비용 없음).
+    verify=true:         시맨틱 엣지(TRIGGERED_BY·DISCUSSED_IN·REFERENCE)를 clear한 뒤
+                         LLM이 개입하는 빌더로 재구축한다. 엣지 타입별로 채택 방식이 다르다 —
+                         TRIGGERED_BY는 추천형(후보를 넓게 잡고 LLM이 최종 선택),
+                         DISCUSSED_IN·REFERENCE는 필터형(임베딩이 확정한 쌍만 LLM이 검수).
+                         false positive 감소, 호출당 LLM 비용. '정밀 재구축' 버튼용.
     """
     return trigger_build(project_id, verify)
 

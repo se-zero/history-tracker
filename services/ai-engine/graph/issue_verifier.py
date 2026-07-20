@@ -1,79 +1,69 @@
+"""Issue 링크(TRIGGERED_BY / DISCUSSED_IN)의 LLM 검수 빌더.
+
+임베딩 전용 빌더(issue_linker)와 판정기(llm_judge)를 공유한다. 비교 측정에서 엣지 타입별로
+다른 방식이 채택돼, 여기에는 채택된 조합만 남아 있다. REF 쪽 대응은 reference_verifier 참고.
+
+  TRIGGERED_BY · 추천형  build_issue_changeset_links_verified
+      임베딩이 이슈당 top-k 커밋을 추천하고 LLM이 최종 선택한다 (엣지를 새로 추가할 수 있음).
+  DISCUSSED_IN · 필터형  build_issue_communication_links_filtered
+      임베딩이 확정한 쌍만 검수해 0.7 미만이면 만들지 않는다 (추가 없음).
+
+엣지 confidence에는 코사인 대신 LLM 값을 저장한다.
 """
-방안 D — 임베딩 후보 선별 + LLM 검증 (Layer 4 확장).
 
-방안 A와 동일하게 임베딩 유사도로 후보를 선별하되,
-최종 판단은 LLM이 실제 텍스트를 읽고 내린다.
-
-  Stage 1: 임베딩 유사도 ≥ threshold 인 쌍을 Issue당 top_k 후보로 압축
-  Stage 2: 후보 쌍의 텍스트를 LLM에 넘겨 confidence 판단
-           confidence ≥ llm_threshold 인 쌍에만 엣지 생성
-"""
-
-import json
 import logging
-from openai_client import Priority, chat_completion
 
 from graph.embedder import cosine_similarity
 from graph.issue_linker import (
+    DEFAULT_DISCUSSED_IN_MARGIN,
     DISCUSSED_IN_POST_BUFFER_DAYS,
     DISCUSSED_IN_PRE_BUFFER_DAYS,
     DISCUSSED_IN_THRESHOLD,
+    TRIGGERED_BY_MESSAGE_MODE,
     TRIGGERED_BY_THRESHOLD,
     IssueLinkStore,
     _compute_issue_window,
     _group_by_project,
+    select_discussed_in_pairs,
 )
+from graph.llm_judge import DEFAULT_LLM_THRESHOLD, JudgeStats, format_commit_text, judge_pair
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 5
-DEFAULT_LLM_THRESHOLD = 0.7
-
-_MAX_TEXT_LEN = 800
 
 
-def _truncate(text: str) -> str:
-    return text[:_MAX_TEXT_LEN] + "..." if len(text) > _MAX_TEXT_LEN else text
+def _issue_text(issue: dict) -> str:
+    return f"제목: {issue.get('title', '')}\n내용: {issue.get('body', '')}"
 
 
-async def _verify_pair(
-    issue_title: str,
-    issue_body: str,
-    target_type: str,
-    target_text: str,
-    project_context: str = "",
-) -> float:
-    """LLM으로 Issue와 대상 텍스트의 관련성 판단. confidence(0.0~1.0) 반환.
+async def _fetch_rows(store: IssueLinkStore, message_mode: str):
+    """A와 동일한 message_mode 규칙으로 비교 열을 만들고, LLM 입력용 커밋 원문도 함께 만든다."""
+    if message_mode not in ("off", "max", "only"):
+        raise ValueError(f"지원하지 않는 message_mode: {message_mode!r} (off/max/only)")
 
-    project_context가 주어지면 도메인 용어 매칭 정확도 향상에 활용.
-    """
-    context_block = (
-        f"[프로젝트 컨텍스트]\n{project_context.strip()}\n\n"
-        if project_context.strip()
-        else ""
-    )
-    prompt = (
-        f"{context_block}"
-        f"다음 Issue와 {target_type}이 실제로 관련이 있는지 판단해주세요.\n"
-        f"위 프로젝트 컨텍스트의 도메인 용어가 양쪽에서 일치하는지 우선 확인하세요.\n\n"
-        f"Issue:\n제목: {_truncate(issue_title)}\n내용: {_truncate(issue_body)}\n\n"
-        f"{target_type}:\n{_truncate(target_text)}\n\n"
-        f"JSON 형식으로만 응답: {{\"confidence\": 0.8, \"reason\": \"한 줄 이유\"}}\n"
-        f"confidence는 0.0~1.0 (1.0: 직접 관련, 0.5: 간접 관련, 0.0: 무관)"
-    )
-    try:
-        resp = await chat_completion(
-            priority=Priority.BACKGROUND,
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0,
+    modified_all = await store.fetch_modified_embeddings()
+    message_all  = await store.fetch_changeset_message_embeddings()
+
+    modified_list = [] if message_mode == "only" else modified_all
+    message_list  = [] if message_mode == "off" else message_all
+
+    # LLM 입력 원문은 message_mode와 무관하게 양쪽을 다 쓴다 (reference_verifier와 같은 이유).
+    messages_by_cs = {r["changeset_id"]: r.get("message", "") for r in message_all}
+    diffs_by_cs: dict[str, list[str]] = {}
+    for row in modified_all:
+        diffs_by_cs.setdefault(row["changeset_id"], []).append(row.get("diff_summary") or "")
+
+    commit_texts = {
+        cs_id: format_commit_text(
+            messages_by_cs.get(cs_id, ""), " / ".join(t for t in diffs_by_cs.get(cs_id, []) if t)
         )
-        data = json.loads(resp.choices[0].message.content)
-        return float(data.get("confidence", 0.0))
-    except Exception:
-        logger.exception("LLM 검증 실패 (0.0 반환)")
-        return 0.0
+        for cs_id in set(messages_by_cs) | set(diffs_by_cs)
+    }
+    return modified_list + message_list, commit_texts
+
+
+# ── TRIGGERED_BY · 추천형 ──────────────────────────────────────────────────
 
 
 async def build_issue_changeset_links_verified(
@@ -81,61 +71,61 @@ async def build_issue_changeset_links_verified(
     threshold: float = TRIGGERED_BY_THRESHOLD,
     top_k: int = DEFAULT_TOP_K,
     llm_threshold: float = DEFAULT_LLM_THRESHOLD,
+    message_mode: str = TRIGGERED_BY_MESSAGE_MODE,
     project_context: str = "",
 ) -> int:
-    """방안 D — Issue ↔ ChangeSet: 임베딩 후보 선별 후 LLM 검증으로 TRIGGERED_BY 생성.
+    """추천형 — 이슈당 top_k 커밋을 LLM이 판정하고, 커밋당 top-1만 남긴다."""
+    issues = await store.fetch_issue_embeddings()
+    candidate_rows, commit_texts = await _fetch_rows(store, message_mode)
 
-    정책 (방안 A와 동일):
-      - 비대칭 시간 윈도우 (`_compute_issue_window`)
-      - ChangeSet당 top-1 매칭 보장: 같은 커밋이 여러 이슈에 동시 연결되지 않음
-      - store.fetch_modified_embeddings가 text TRIGGERED_BY 있는 ChangeSet을 제외해서 반환
-
-    Returns:
-        생성(또는 갱신)된 TRIGGERED_BY 엣지 수
-    """
-    issues   = await store.fetch_issue_embeddings()
-    modified = await store.fetch_modified_embeddings()
-
-    if not issues or not modified:
-        logger.info("TRIGGERED_BY(D) 생성 스킵: issues=%d, modified=%d", len(issues), len(modified))
+    if not issues or not candidate_rows:
+        logger.info("TRIGGERED_BY(추천형) 스킵: issues=%d, candidates=%d", len(issues), len(candidate_rows))
         return 0
 
-    # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
     issues_by_project = _group_by_project(issues)
-    mods_by_project   = _group_by_project(modified)
+    mods_by_project   = _group_by_project(candidate_rows)
 
-    # (project_id, changeset_id) → (best_jira_key, best_confidence) — top-1
+    stats = JudgeStats()
+    judged_pairs = 0
     best_per_cs: dict[tuple[str, str], tuple[str, float]] = {}
 
     for project_id, project_issues in issues_by_project.items():
         project_mods = mods_by_project.get(project_id, [])
         for issue in project_issues:
-            issue_vec   = issue["embedding"]
-            issue_title = issue.get("title", "")
-            issue_body  = issue.get("body", "")
-            start, end  = _compute_issue_window(issue)
+            issue_vec  = issue.get("embedding")
+            start, end = _compute_issue_window(issue)
+            if not issue_vec:
+                continue
 
-            # Stage 1: 비대칭 윈도우 + 유사도 필터 → Issue당 top_k 후보
-            candidates = []
+            # Stage 1: 윈도우 + 임계값 → 커밋 단위로 집계(쌍별 max) → top_k.
+            # 커밋 단위로 먼저 접는 이유: max 주입에서는 한 커밋이 diff 행과 메시지 행 둘로
+            # 나뉘어 들어와, 접지 않으면 같은 커밋이 top_k 슬롯을 두 칸 먹고 LLM 호출도 두 번 된다.
+            best_by_cs: dict[str, float] = {}
             for mod in project_mods:
-                mod_time = mod["occurred_at"]
-                if mod_time < start or mod_time > end:
+                if not mod.get("embedding"):
+                    continue
+                if mod["occurred_at"] < start or mod["occurred_at"] > end:
                     continue
                 score = cosine_similarity(issue_vec, mod["embedding"])
                 if score < threshold:
                     continue
-                candidates.append((score, mod))
-            candidates.sort(key=lambda x: x[0], reverse=True)
+                cs_id = mod["changeset_id"]
+                if score > best_by_cs.get(cs_id, -1.0):
+                    best_by_cs[cs_id] = score
 
-            # Stage 2: LLM 검증 → top-1로 누적
-            for _, mod in candidates[:top_k]:
-                confidence = await _verify_pair(
-                    issue_title, issue_body, "커밋 변경 요약",
-                    mod.get("diff_summary", ""), project_context,
+            top = sorted(best_by_cs.items(), key=lambda x: -x[1])[:top_k]
+
+            # Stage 2: LLM 판정 → 커밋당 top-1로 누적
+            for cs_id, _cosine in top:
+                judged_pairs += 1
+                confidence = await judge_pair(
+                    "Issue", _issue_text(issue),
+                    "커밋", commit_texts.get(cs_id, ""),
+                    project_context=project_context, stats=stats,
                 )
-                if confidence < llm_threshold:
+                if confidence is None or confidence < llm_threshold:
                     continue
-                cs_key  = (project_id, mod["changeset_id"])
+                cs_key  = (project_id, cs_id)
                 current = best_per_cs.get(cs_key)
                 if current is None or confidence > current[1]:
                     best_per_cs[cs_key] = (issue["id"], confidence)
@@ -144,70 +134,56 @@ async def build_issue_changeset_links_verified(
     for (project_id, cs_id), (jira_key, confidence) in best_per_cs.items():
         await store.create_triggered_by_edge(project_id, cs_id, jira_key, confidence)
         created += 1
-        logger.debug("TRIGGERED_BY(D) 생성: changeset=%s issue=%s conf=%.2f",
-                     cs_id, jira_key, confidence)
 
-    logger.info("TRIGGERED_BY(D) 엣지 생성 완료: %d개 (threshold=%.2f, llm_threshold=%.2f)",
-                created, threshold, llm_threshold)
+    logger.info(
+        "TRIGGERED_BY(추천형) 완료: %d개 생성 / 후보 %d쌍 (threshold=%.2f, top_k=%d, llm_threshold=%.2f, %s)",
+        created, judged_pairs, threshold, top_k, llm_threshold, stats.summary(),
+    )
     return created
 
 
-async def build_issue_communication_links_verified(
+# ── DISCUSSED_IN · 필터형 ──────────────────────────────────────────────────
+
+
+async def build_issue_communication_links_filtered(
     store: IssueLinkStore,
     threshold: float = DISCUSSED_IN_THRESHOLD,
-    top_k: int = DEFAULT_TOP_K,
+    margin: float = DEFAULT_DISCUSSED_IN_MARGIN,
+    pre_days: int = DISCUSSED_IN_PRE_BUFFER_DAYS,
+    post_days: int = DISCUSSED_IN_POST_BUFFER_DAYS,
     llm_threshold: float = DEFAULT_LLM_THRESHOLD,
     project_context: str = "",
 ) -> int:
-    """방안 D — Issue ↔ Communication: 임베딩 후보 선별 후 LLM 검증으로 DISCUSSED_IN 생성.
-
-    Returns:
-        생성(또는 갱신)된 DISCUSSED_IN 엣지 수
-    """
+    """필터형 — 임베딩의 마진 컷 결과를 LLM이 검수한다 (추가 없음)."""
     issues = await store.fetch_issue_embeddings()
     comms  = await store.fetch_communication_embeddings()
 
     if not issues or not comms:
-        logger.info("DISCUSSED_IN(D) 생성 스킵: issues=%d, comms=%d", len(issues), len(comms))
+        logger.info("DISCUSSED_IN(필터형) 스킵: issues=%d, comms=%d", len(issues), len(comms))
         return 0
 
+    issue_by_key = {(i.get("project_id") or "", i["id"]): i for i in issues}
+    comm_texts   = {c["id"]: (c.get("body") or "") for c in comms}
+    pairs = select_discussed_in_pairs(issues, comms, threshold, margin, pre_days, post_days)
+
+    stats = JudgeStats()
     created = 0
+    for project_id, jira_key, comm_id, cosine in pairs:
+        issue = issue_by_key.get((project_id, jira_key), {})
+        confidence = await judge_pair(
+            "Issue", _issue_text(issue),
+            "Slack 메시지", comm_texts.get(comm_id, ""),
+            project_context=project_context, stats=stats,
+        )
+        if confidence is None:
+            confidence = cosine          # 판정 못 한 엣지는 남긴다 (장애가 골든을 지우면 안 된다)
+        elif confidence < llm_threshold:
+            continue
+        await store.create_discussed_in_edge(project_id, jira_key, comm_id, confidence)
+        created += 1
 
-    # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
-    issues_by_project = _group_by_project(issues)
-    comms_by_project  = _group_by_project(comms)
-
-    for project_id, project_issues in issues_by_project.items():
-        project_comms = comms_by_project.get(project_id, [])
-        for issue in project_issues:
-            issue_vec   = issue["embedding"]
-            issue_title = issue.get("title", "")
-            issue_body  = issue.get("body", "")
-            start, end  = _compute_issue_window(
-                issue, DISCUSSED_IN_PRE_BUFFER_DAYS, DISCUSSED_IN_POST_BUFFER_DAYS
-            )
-
-            # Stage 1: 이슈 생애 윈도우 + 유사도 필터 → Issue당 top_k 후보
-            candidates = [
-                (cosine_similarity(issue_vec, comm["embedding"]), comm)
-                for comm in project_comms
-                if start <= comm["occurred_at"] <= end
-                and cosine_similarity(issue_vec, comm["embedding"]) >= threshold
-            ]
-            candidates.sort(key=lambda x: x[0], reverse=True)
-
-            # Stage 2: LLM 검증
-            for _, comm in candidates[:top_k]:
-                confidence = await _verify_pair(
-                    issue_title, issue_body, "Slack 메시지",
-                    comm.get("body", ""), project_context,
-                )
-                if confidence >= llm_threshold:
-                    await store.create_discussed_in_edge(project_id, issue["id"], comm["id"], confidence)
-                    created += 1
-                    logger.debug("DISCUSSED_IN(D) 생성: issue=%s comm=%s conf=%.2f",
-                                 issue["id"], comm["id"], confidence)
-
-    logger.info("DISCUSSED_IN(D) 엣지 생성 완료: %d개 (threshold=%.2f, llm_threshold=%.2f)",
-                created, threshold, llm_threshold)
+    logger.info(
+        "DISCUSSED_IN(필터형) 완료: %d개 유지 / 임베딩 확정 %d쌍 (threshold=%.2f, margin=%.2f, llm_threshold=%.2f, %s)",
+        created, len(pairs), threshold, margin, llm_threshold, stats.summary(),
+    )
     return created

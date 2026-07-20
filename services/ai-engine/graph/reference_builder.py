@@ -25,11 +25,18 @@ from graph.embedder import embed_batch, similarity_matrix
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_THRESHOLD = 0.30
+# 쌍별 max(diff+커밋 메시지) 주입 기준으로 재조정한 운영점. 재측정에서 0.30~0.39 구간에는
+# 노이즈만 남아 0.39까지 올려도 recall 손실 없이 precision만 올랐다. 점수 분포는 임베딩 모델에
+# 종속이라 모델을 바꾸면 전면 재스윕이 전제인 잠정값이다.
+DEFAULT_THRESHOLD = 0.39
 TIME_WINDOW_DAYS = 5
 # 커밋당 유지할 최대 스레드 수 (fan-out 컷). 커밋의 배경 논의는 팀 규모와 무관하게 원래 소수라
-# 고정 개수가 정당하다. 골든 쌍의 진짜 스레드는 커밋 기준 1~4위(스레드 단위)에 들어온다.
-DEFAULT_TOP_K = 4
+# 고정 개수가 정당하다. 메시지 행이 순위 경쟁에 끼면서 진짜 스레드가 5위까지 밀리는 사례가
+# 확인돼 4→5로 완화했다.
+DEFAULT_TOP_K = 5
+# 커밋 메시지 임베딩을 diff 행과 함께 비교(쌍별 max)하는 기본 모드. 메시지 주입의 점수 상승이
+# 정답 쌍에 선별적(노이즈 상승은 미미)이라는 측정 근거로 채택 — off는 도입 전 동작(측정 재현용).
+DEFAULT_MESSAGE_MODE = "max"
 
 
 def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
@@ -82,39 +89,58 @@ class ReferenceStore:
         embedding:        임베딩 벡터
     """
 
+    fetch_unembedded_changeset_messages: Callable[[], Awaitable[list[dict]]]
+    """message는 있는데 embedding 프로퍼티가 없는 ChangeSet 노드 반환 (보정용).
+    Returns:
+        [{"project_id": str, "id": str (hash), "message": str}, ...]
+    """
 
-async def build_reference_edges(
-    store: ReferenceStore,
+    save_changeset_message_embedding: Callable[[str, str, list[float]], Awaitable[None]]
+    """ChangeSet 노드에 커밋 메시지 embedding 저장.
+    Args:
+        project_id:   프로젝트 UUID
+        changeset_id: ChangeSet hash
+        embedding:    임베딩 벡터
+    """
+
+    fetch_changeset_message_embeddings: Callable[[], Awaitable[list[dict]]]
+    """embedding(커밋 메시지)이 있는 모든 ChangeSet 노드 반환 — REFERENCE의 메시지 비교 행.
+    Returns:
+        [{"project_id": str, "changeset_id": str, "message": str, "embedding": list[float],
+          "occurred_at": datetime}, ...]
+        message는 원문이다 — 수동 정밀 구축이 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
+    """
+
+
+def select_reference_pairs(
+    candidate_rows: list[dict],
+    comm_list: list[dict],
     threshold: float = DEFAULT_THRESHOLD,
     top_k: int = DEFAULT_TOP_K,
-) -> int:
-    """MODIFIED.embedding ↔ Communication.embedding 코사인 유사도로 REFERENCE 엣지 생성.
+) -> list[tuple[str, str, str, float]]:
+    """자동구축의 REFERENCE 후보 선별 — 시간 윈도우·임계값·쌍별 max·스레드 fan-out 컷.
+
+    엣지 생성과 분리된 순수 함수다. 자동구축(build_reference_edges)과 수동 정밀 구축(LLM 검수)이
+    같은 후보 선별을 쓰게 하려고 뽑았다 — 두 방식이 갈리는 지점을 "선별 이후"로 한정해야
+    측정 델타를 방식 차이에 귀속할 수 있다.
 
     Args:
-        store:     Neo4j 접근 인터페이스
-        threshold: 엣지 생성 최소 유사도
-        top_k:     커밋당 유지할 최대 스레드 수 (fan-out 컷). 자르는 단위가 메시지가 아니라
-                   스레드인 이유 — 수다스러운 스레드 하나가 k칸을 독식하면 다른 스레드의
-                   진짜 배경 논의가 밀려난다.
+        candidate_rows: 비교 행 (파일 diff 행 + 커밋 메시지 행 — message_mode에 따라 호출자가 구성)
+        comm_list:      Communication 행
+        threshold:      엣지 생성 최소 유사도
+        top_k:          커밋당 유지할 최대 스레드 수 (fan-out 컷)
 
     Returns:
-        생성(또는 갱신)된 REFERENCE 엣지 수
+        [(project_id, changeset_id, communication_id, score), ...]
     """
-    modified_list = await store.fetch_modified_embeddings()
-    comm_list = await store.fetch_communication_embeddings()
-
-    if not modified_list or not comm_list:
-        logger.info("REFERENCE 엣지 생성 스킵: modified=%d, comm=%d", len(modified_list), len(comm_list))
-        return 0
-
     window_s = timedelta(days=TIME_WINDOW_DAYS).total_seconds()
 
     # 같은 프로젝트 안에서만 비교 — 다른 프로젝트의 커밋과 메시지가 의미상 비슷해도
     # 엣지를 만들면 안 된다 (그래프 격리 위반).
-    mods_by_project = _group_by_project(modified_list)
+    mods_by_project = _group_by_project(candidate_rows)
     comms_by_project = _group_by_project(comm_list)
 
-    created = 0
+    selected: list[tuple[str, str, str, float]] = []
     for project_id, mods in mods_by_project.items():
         comms = comms_by_project.get(project_id, [])
         # 빈 임베딩은 제외 — 유사도 0이라 어차피 임계값 미달이고, 행렬화도 깨진다
@@ -162,14 +188,59 @@ async def build_reference_edges(
         for (changeset_id, comm_id), score in best_per_pair.items():
             if thread_of[comm_id] not in kept_threads[changeset_id]:
                 continue
-            await store.create_reference_edge(project_id, changeset_id, comm_id, score)
-            created += 1
-            logger.debug(
-                "REFERENCE 생성: changeset=%s comm=%s score=%.3f",
-                changeset_id, comm_id, score,
-            )
+            selected.append((project_id, changeset_id, comm_id, score))
 
-    logger.info("REFERENCE 엣지 생성 완료: %d개 (threshold=%.2f, top_k=%d)", created, threshold, top_k)
+    return selected
+
+
+async def build_reference_edges(
+    store: ReferenceStore,
+    threshold: float = DEFAULT_THRESHOLD,
+    top_k: int = DEFAULT_TOP_K,
+    message_mode: str = DEFAULT_MESSAGE_MODE,
+) -> int:
+    """MODIFIED.embedding ↔ Communication.embedding 코사인 유사도로 REFERENCE 엣지 생성.
+
+    Args:
+        store:     Neo4j 접근 인터페이스
+        threshold: 엣지 생성 최소 유사도
+        top_k:     커밋당 유지할 최대 스레드 수 (fan-out 컷). 자르는 단위가 메시지가 아니라
+                   스레드인 이유 — 수다스러운 스레드 하나가 k칸을 독식하면 다른 스레드의
+                   진짜 배경 논의가 밀려난다.
+        message_mode: 커밋 메시지 임베딩(ChangeSet.embedding)을 비교 행에 넣는 방식.
+                   max  — 기본: 메시지 행을 파일 행에 추가, 기존 쌍별 max 집계가
+                          diff·메시지 중 최고점을 취한다
+                   off  — 파일(diff) 임베딩만 비교 (도입 전 동작, 측정 재현용)
+                   only — 메시지 임베딩만 비교 (diff는 fetch하지 않음)
+
+    Returns:
+        생성(또는 갱신)된 REFERENCE 엣지 수
+    """
+    if message_mode not in ("off", "max", "only"):
+        raise ValueError(f"지원하지 않는 message_mode: {message_mode!r} (off/max/only)")
+
+    modified_list = [] if message_mode == "only" else await store.fetch_modified_embeddings()
+    message_list = [] if message_mode == "off" else await store.fetch_changeset_message_embeddings()
+    candidate_rows = modified_list + message_list
+    comm_list = await store.fetch_communication_embeddings()
+
+    if not candidate_rows or not comm_list:
+        logger.info("REFERENCE 엣지 생성 스킵: candidates=%d, comm=%d", len(candidate_rows), len(comm_list))
+        return 0
+
+    created = 0
+    for project_id, changeset_id, comm_id, score in select_reference_pairs(
+        candidate_rows, comm_list, threshold, top_k
+    ):
+        await store.create_reference_edge(project_id, changeset_id, comm_id, score)
+        created += 1
+        logger.debug(
+            "REFERENCE 생성: changeset=%s comm=%s score=%.3f",
+            changeset_id, comm_id, score,
+        )
+
+    logger.info("REFERENCE 엣지 생성 완료: %d개 (threshold=%.2f, top_k=%d, message_mode=%s)",
+                created, threshold, top_k, message_mode)
     return created
 
 
@@ -196,4 +267,30 @@ async def backfill_communication_embeddings(store: ReferenceStore) -> int:
             saved += 1
 
     logger.info("Communication 임베딩 보정 완료: %d/%d개", saved, len(nodes))
+    return saved
+
+
+async def backfill_changeset_message_embeddings(store: ReferenceStore) -> int:
+    """message는 있는데 embedding이 없는 ChangeSet 노드를 배치 임베딩으로 보정.
+
+    커밋 메시지 임베딩 도입 이전에 수집된 노드는 message 원문이 이미 저장돼 있어
+    이벤트 재주입 없이 여기서 채운다. 수집 중 임베딩이 실패한 노드의 보정도 겸한다.
+
+    Returns:
+        임베딩이 저장된 노드 수
+    """
+    nodes = await store.fetch_unembedded_changeset_messages()
+    if not nodes:
+        logger.info("보정할 ChangeSet 노드 없음")
+        return 0
+
+    vectors = await embed_batch([n["message"] for n in nodes])
+
+    saved = 0
+    for node, vec in zip(nodes, vectors):
+        if vec:
+            await store.save_changeset_message_embedding(node.get("project_id") or "", node["id"], vec)
+            saved += 1
+
+    logger.info("ChangeSet 메시지 임베딩 보정 완료: %d/%d개", saved, len(nodes))
     return saved

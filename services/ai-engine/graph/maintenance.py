@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 async def propagate_thread_discussed_in(project_id: str | None = None) -> int:
-    """방안 C — 스레드 전파: conversation_id로 묶인 스레드 내 하나의 Communication이
+    """스레드 전파 — conversation_id로 묶인 스레드 내 하나의 Communication이
     DISCUSSED_IN을 가지면 같은 스레드의 나머지 Communication에도 전파.
 
     conversation_id(Slack ts 등)는 프로젝트 간 충돌 가능 — 같은 project_id 안에서만 전파한다.
@@ -313,7 +313,7 @@ async def clear_semantic_triggered_by(project_id: str | None = None) -> int:
 
 
 async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
-    """시맨틱 DISCUSSED_IN(방안 A/D 산물)과 그 스레드 전파 복사본을 일괄 삭제한다.
+    """시맨틱 DISCUSSED_IN(자동구축·수동 정밀 구축 산물)과 그 스레드 전파 복사본을 일괄 삭제한다.
 
     전파 복사본(source='propagated')도 함께 지운다 — 시맨틱 원본만 지우면 복사본이 스레드에
     남고, 다음 빌드의 재전파가 지워진 원본까지 복원해 오탐이 사라지지 않는다. 재구축 시퀀스
@@ -324,7 +324,7 @@ async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
     그래프에서도 시맨틱을 잡기 위한 fallback이다.
 
     용도: 정책(threshold/window/top-k) 변경 후 시맨틱 결과를 깨끗하게 재구축하고 싶을 때,
-    그리고 방안 D(LLM 검증) 재구축 전에 A의 false positive를 비울 때.
+    그리고 수동 정밀 구축(LLM 검수) 전에 자동구축의 false positive를 비울 때.
     project_id를 주면 그 프로젝트 엣지만 삭제한다(per-project 정밀 재구축).
 
     Returns:
