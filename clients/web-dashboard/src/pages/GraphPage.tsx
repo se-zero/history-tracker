@@ -27,7 +27,7 @@ export function GraphPage({ project }: { project: Project }) {
   const buildStatus = useGraphBuildStatus(project.id);
 
   // 트리거(202)는 즉시 반환되고, 완료는 buildStatus 폴링으로 확인한다.
-  // verify=false: 방안 A(임베딩, 빠름) / verify=true: 방안 D(LLM 검증, 느림·비용).
+  // verify=false: 임베딩만 사용(빠름) / verify=true: 수동 정밀 구축(LLM 검수, 느림·비용).
   const rebuild = useRebuildGraph(project.id);
 
   const data = graphQuery.data;

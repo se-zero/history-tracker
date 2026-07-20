@@ -1,5 +1,5 @@
 """
-방안 A — 임베딩 유사도 기반 Issue 연결 (Layer 4 확장).
+자동구축 — 임베딩 유사도 기반 Issue 연결 (Layer 4 확장).
 
 refs 텍스트 매칭에 의존하지 않고 임베딩 유사도로
 Issue와 ChangeSet / Communication을 연결한다.
@@ -156,7 +156,7 @@ class IssueLinkStore:
     Returns:
         [{"project_id": str, "changeset_id": str, "message": str, "embedding": list[float],
           "occurred_at": datetime}, ...]
-        message는 원문이다 — 방안 D가 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
+        message는 원문이다 — 수동 정밀 구축이 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
     """
 
 
@@ -165,7 +165,7 @@ def select_triggered_by_pairs(
     candidate_rows: list[dict],
     threshold: float = TRIGGERED_BY_THRESHOLD,
 ) -> list[tuple[str, str, str, float]]:
-    """방안 A의 TRIGGERED_BY 후보 선별 — 비대칭 윈도우·임계값·커밋당 top-1.
+    """자동구축의 TRIGGERED_BY 후보 선별 — 비대칭 윈도우·임계값·커밋당 top-1.
 
     엣지 생성과 분리된 순수 함수다 (분리 이유는 select_reference_pairs 참고).
 
@@ -285,7 +285,7 @@ def select_discussed_in_pairs(
     pre_days: int = DISCUSSED_IN_PRE_BUFFER_DAYS,
     post_days: int = DISCUSSED_IN_POST_BUFFER_DAYS,
 ) -> list[tuple[str, str, str, float]]:
-    """방안 A의 DISCUSSED_IN 후보 선별 — 이슈 생애 윈도우·임계값·스레드 마진 컷.
+    """자동구축의 DISCUSSED_IN 후보 선별 — 이슈 생애 윈도우·임계값·스레드 마진 컷.
 
     엣지 생성과 분리된 순수 함수다 (분리 이유는 select_reference_pairs 참고).
 

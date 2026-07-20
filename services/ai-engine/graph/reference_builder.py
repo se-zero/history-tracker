@@ -108,7 +108,7 @@ class ReferenceStore:
     Returns:
         [{"project_id": str, "changeset_id": str, "message": str, "embedding": list[float],
           "occurred_at": datetime}, ...]
-        message는 원문이다 — 방안 D가 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
+        message는 원문이다 — 수동 정밀 구축이 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
     """
 
 
@@ -118,11 +118,11 @@ def select_reference_pairs(
     threshold: float = DEFAULT_THRESHOLD,
     top_k: int = DEFAULT_TOP_K,
 ) -> list[tuple[str, str, str, float]]:
-    """방안 A의 REFERENCE 후보 선별 — 시간 윈도우·임계값·쌍별 max·스레드 fan-out 컷.
+    """자동구축의 REFERENCE 후보 선별 — 시간 윈도우·임계값·쌍별 max·스레드 fan-out 컷.
 
-    엣지 생성과 분리된 순수 함수다. 방안 A(build_reference_edges)와 방안 D 변형 2(LLM 검수)가
-    같은 Stage 1을 쓰게 하려고 뽑았다 — 변형이 갈리는 지점을 "선별 이후"로 한정해야
-    측정 델타를 변형에 귀속할 수 있다.
+    엣지 생성과 분리된 순수 함수다. 자동구축(build_reference_edges)과 수동 정밀 구축(LLM 검수)이
+    같은 후보 선별을 쓰게 하려고 뽑았다 — 두 방식이 갈리는 지점을 "선별 이후"로 한정해야
+    측정 델타를 방식 차이에 귀속할 수 있다.
 
     Args:
         candidate_rows: 비교 행 (파일 diff 행 + 커밋 메시지 행 — message_mode에 따라 호출자가 구성)

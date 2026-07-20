@@ -62,7 +62,7 @@ function toBuildStatus(raw: GraphBuildStatusResponse): GraphBuildStatus {
 
 // 소스 간 시맨틱 엣지 재구축을 프로젝트 단위로 트리거한다 (디바운스 자동 빌드를 기다리지 않음).
 // 빌드는 백그라운드(202)라 즉시 현재 상태(보통 running)를 반환하고, 완료는 getGraphBuildStatus 폴링으로 확인한다.
-// verify=true면 방안 D — 시맨틱 엣지를 비우고 LLM 검증으로 재구축(느림·비용).
+// verify=true면 수동 정밀 구축 — 시맨틱 엣지를 비우고 LLM 검수로 재구축(느림·비용).
 export async function rebuildProjectGraph(
   projectId: string,
   verify = false,

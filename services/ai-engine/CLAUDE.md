@@ -114,7 +114,7 @@ graph/             Neo4j 그래프 구축 + 수집
     actor_store.py       Actor 동일인 판단용 ActorStore 어댑터
     communication_store.py  Slack 필터용 Communication 조회/정리
   embedder.py        임베딩 생성
-  reference_builder.py / issue_linker.py / issue_verifier.py   시맨틱 링크 빌더(방안 A/D)
+  reference_builder.py / issue_linker.py / issue_verifier.py   시맨틱 링크 빌더(자동구축·수동 정밀 구축)
   actor_resolver.py / actor_llm.py                             Actor 동일인 판단
   slack_filter.py / slack_llm_filter.py / slack_batch_filter.py  Slack 노이즈 필터
   summarizer.py / path_filter.py / project_context.py / overview.py / search.py

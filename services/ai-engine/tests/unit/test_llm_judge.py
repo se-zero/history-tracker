@@ -1,4 +1,4 @@
-"""방안 D 공통 LLM 판정기 단위 테스트 (오프라인 — chat_completion mock).
+"""수동 정밀 구축의 LLM 판정기 단위 테스트 (오프라인 — chat_completion mock).
 
 검증 대상은 세 가지다.
   1. 실패 전파 정책 — 설정 오류(4xx)는 raise, 일시 오류는 skip(None)+집계.
