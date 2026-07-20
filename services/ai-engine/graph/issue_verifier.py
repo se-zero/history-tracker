@@ -1,10 +1,12 @@
-"""방안 D — Issue 링크(TRIGGERED_BY / DISCUSSED_IN)의 두 변형.
+"""Issue 링크(TRIGGERED_BY / DISCUSSED_IN)의 LLM 검수 빌더.
 
-방안 A(issue_linker)와 판정기(llm_judge)를 공유하고, 변형은 "최종 선택권이 임베딩에 있나
-LLM에 있나"로만 갈린다. 설계 근거와 REF 쪽 대응은 reference_verifier 참고.
+임베딩 전용 빌더(issue_linker)와 판정기(llm_judge)를 공유한다. 비교 측정에서 엣지 타입별로
+다른 방식이 채택돼, 여기에는 채택된 조합만 남아 있다. REF 쪽 대응은 reference_verifier 참고.
 
-  변형 1 · D-추천  *_verified   임베딩이 이슈당 top-k를 추천 → LLM이 최종 선택
-  변형 2 · D-필터  *_filtered   A가 확정한 쌍만 검수 → 0.7 미만이면 제거 (추가 없음)
+  TRIGGERED_BY · 추천형  build_issue_changeset_links_verified
+      임베딩이 이슈당 top-k 커밋을 추천하고 LLM이 최종 선택한다 (엣지를 새로 추가할 수 있음).
+  DISCUSSED_IN · 필터형  build_issue_communication_links_filtered
+      임베딩이 확정한 쌍만 검수해 0.7 미만이면 만들지 않는다 (추가 없음).
 
 엣지 confidence에는 코사인 대신 LLM 값을 저장한다.
 """
@@ -23,7 +25,6 @@ from graph.issue_linker import (
     _compute_issue_window,
     _group_by_project,
     select_discussed_in_pairs,
-    select_triggered_by_pairs,
 )
 from graph.llm_judge import DEFAULT_LLM_THRESHOLD, JudgeStats, format_commit_text, judge_pair
 
@@ -62,7 +63,7 @@ async def _fetch_rows(store: IssueLinkStore, message_mode: str):
     return modified_list + message_list, commit_texts
 
 
-# ── 변형 1 · D-추천 ────────────────────────────────────────────────────────
+# ── TRIGGERED_BY · 추천형 ──────────────────────────────────────────────────
 
 
 async def build_issue_changeset_links_verified(
@@ -73,12 +74,12 @@ async def build_issue_changeset_links_verified(
     message_mode: str = TRIGGERED_BY_MESSAGE_MODE,
     project_context: str = "",
 ) -> int:
-    """변형 1 — 이슈당 top_k 커밋을 LLM이 판정하고, 커밋당 top-1만 남긴다."""
+    """추천형 — 이슈당 top_k 커밋을 LLM이 판정하고, 커밋당 top-1만 남긴다."""
     issues = await store.fetch_issue_embeddings()
     candidate_rows, commit_texts = await _fetch_rows(store, message_mode)
 
     if not issues or not candidate_rows:
-        logger.info("TRIGGERED_BY(D-추천) 스킵: issues=%d, candidates=%d", len(issues), len(candidate_rows))
+        logger.info("TRIGGERED_BY(추천형) 스킵: issues=%d, candidates=%d", len(issues), len(candidate_rows))
         return 0
 
     issues_by_project = _group_by_project(issues)
@@ -135,116 +136,13 @@ async def build_issue_changeset_links_verified(
         created += 1
 
     logger.info(
-        "TRIGGERED_BY(D-추천) 완료: %d개 생성 / 후보 %d쌍 (threshold=%.2f, top_k=%d, llm_threshold=%.2f, %s)",
+        "TRIGGERED_BY(추천형) 완료: %d개 생성 / 후보 %d쌍 (threshold=%.2f, top_k=%d, llm_threshold=%.2f, %s)",
         created, judged_pairs, threshold, top_k, llm_threshold, stats.summary(),
     )
     return created
 
 
-async def build_issue_communication_links_verified(
-    store: IssueLinkStore,
-    threshold: float = DISCUSSED_IN_THRESHOLD,
-    top_k: int = DEFAULT_TOP_K,
-    llm_threshold: float = DEFAULT_LLM_THRESHOLD,
-    project_context: str = "",
-) -> int:
-    """변형 1 — 이슈당 top_k 대화를 LLM이 판정하고, 0.7 통과분을 전부 연결한다."""
-    issues = await store.fetch_issue_embeddings()
-    comms  = await store.fetch_communication_embeddings()
-
-    if not issues or not comms:
-        logger.info("DISCUSSED_IN(D-추천) 스킵: issues=%d, comms=%d", len(issues), len(comms))
-        return 0
-
-    issues_by_project = _group_by_project(issues)
-    comms_by_project  = _group_by_project(comms)
-
-    stats = JudgeStats()
-    judged_pairs = 0
-    created = 0
-
-    for project_id, project_issues in issues_by_project.items():
-        project_comms = comms_by_project.get(project_id, [])
-        for issue in project_issues:
-            issue_vec  = issue.get("embedding")
-            start, end = _compute_issue_window(
-                issue, DISCUSSED_IN_PRE_BUFFER_DAYS, DISCUSSED_IN_POST_BUFFER_DAYS
-            )
-            if not issue_vec:
-                continue
-
-            candidates = []
-            for comm in project_comms:
-                if not comm.get("embedding"):
-                    continue
-                if comm["occurred_at"] < start or comm["occurred_at"] > end:
-                    continue
-                score = cosine_similarity(issue_vec, comm["embedding"])
-                if score >= threshold:
-                    candidates.append((score, comm))
-            candidates.sort(key=lambda x: -x[0])
-
-            for _score, comm in candidates[:top_k]:
-                judged_pairs += 1
-                confidence = await judge_pair(
-                    "Issue", _issue_text(issue),
-                    "Slack 메시지", comm.get("body", ""),
-                    project_context=project_context, stats=stats,
-                )
-                if confidence is None or confidence < llm_threshold:
-                    continue
-                await store.create_discussed_in_edge(project_id, issue["id"], comm["id"], confidence)
-                created += 1
-
-    logger.info(
-        "DISCUSSED_IN(D-추천) 완료: %d개 생성 / 후보 %d쌍 (threshold=%.2f, top_k=%d, llm_threshold=%.2f, %s)",
-        created, judged_pairs, threshold, top_k, llm_threshold, stats.summary(),
-    )
-    return created
-
-
-# ── 변형 2 · D-필터 ────────────────────────────────────────────────────────
-
-
-async def build_issue_changeset_links_filtered(
-    store: IssueLinkStore,
-    threshold: float = TRIGGERED_BY_THRESHOLD,
-    llm_threshold: float = DEFAULT_LLM_THRESHOLD,
-    message_mode: str = TRIGGERED_BY_MESSAGE_MODE,
-    project_context: str = "",
-) -> int:
-    """변형 2 — A의 커밋당 top-1 결과를 LLM이 검수한다 (재선택 없음)."""
-    issues = await store.fetch_issue_embeddings()
-    candidate_rows, commit_texts = await _fetch_rows(store, message_mode)
-
-    if not issues or not candidate_rows:
-        logger.info("TRIGGERED_BY(D-필터) 스킵: issues=%d, candidates=%d", len(issues), len(candidate_rows))
-        return 0
-
-    issue_by_key = {(i.get("project_id") or "", i["id"]): i for i in issues}
-    pairs = select_triggered_by_pairs(issues, candidate_rows, threshold)
-
-    stats = JudgeStats()
-    created = 0
-    for project_id, cs_id, jira_key, cosine in pairs:
-        issue = issue_by_key.get((project_id, jira_key), {})
-        confidence = await judge_pair(
-            "Issue", _issue_text(issue),
-            "커밋", commit_texts.get(cs_id, ""),
-            project_context=project_context, stats=stats,
-        )
-        if confidence is None:
-            confidence = cosine          # 판정 못 한 A 엣지는 남긴다 (장애가 골든을 지우면 안 된다)
-        elif confidence < llm_threshold:
-            continue
-        await store.create_triggered_by_edge(project_id, cs_id, jira_key, confidence)
-        created += 1
-
-    logger.info(
-        "TRIGGERED_BY(D-필터) 완료: %d개 유지 / A 확정 %d쌍 (threshold=%.2f, llm_threshold=%.2f, %s)",
-        created, len(pairs), threshold, llm_threshold, stats.summary(),
-    )
-    return created
+# ── DISCUSSED_IN · 필터형 ──────────────────────────────────────────────────
 
 
 async def build_issue_communication_links_filtered(
@@ -256,12 +154,12 @@ async def build_issue_communication_links_filtered(
     llm_threshold: float = DEFAULT_LLM_THRESHOLD,
     project_context: str = "",
 ) -> int:
-    """변형 2 — A의 마진 컷 결과를 LLM이 검수한다."""
+    """필터형 — 임베딩의 마진 컷 결과를 LLM이 검수한다 (추가 없음)."""
     issues = await store.fetch_issue_embeddings()
     comms  = await store.fetch_communication_embeddings()
 
     if not issues or not comms:
-        logger.info("DISCUSSED_IN(D-필터) 스킵: issues=%d, comms=%d", len(issues), len(comms))
+        logger.info("DISCUSSED_IN(필터형) 스킵: issues=%d, comms=%d", len(issues), len(comms))
         return 0
 
     issue_by_key = {(i.get("project_id") or "", i["id"]): i for i in issues}
@@ -278,14 +176,14 @@ async def build_issue_communication_links_filtered(
             project_context=project_context, stats=stats,
         )
         if confidence is None:
-            confidence = cosine
+            confidence = cosine          # 판정 못 한 엣지는 남긴다 (장애가 골든을 지우면 안 된다)
         elif confidence < llm_threshold:
             continue
         await store.create_discussed_in_edge(project_id, jira_key, comm_id, confidence)
         created += 1
 
     logger.info(
-        "DISCUSSED_IN(D-필터) 완료: %d개 유지 / A 확정 %d쌍 (threshold=%.2f, margin=%.2f, llm_threshold=%.2f, %s)",
+        "DISCUSSED_IN(필터형) 완료: %d개 유지 / 임베딩 확정 %d쌍 (threshold=%.2f, margin=%.2f, llm_threshold=%.2f, %s)",
         created, len(pairs), threshold, margin, llm_threshold, stats.summary(),
     )
     return created

@@ -5,7 +5,7 @@ REFERENCE 엣지 빌드, 일회성 마이그레이션, Slack 배치 필터, 이�
 """
 
 import aio_pika
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from graph.builder import (
@@ -44,14 +44,9 @@ from graph.reference_builder import (
     backfill_communication_embeddings,
     build_reference_edges,
 )
-from graph.llm_judge import DEFAULT_LLM_THRESHOLD
 from graph.slack_batch_filter import run_slack_llm_filter
 
 router = APIRouter()
-
-# Phase 4 비교 측정 — 방안 A와 방안 D 두 변형의 선택지.
-# 기본값은 항상 "a"다: 제품 기본 동작(자동 빌드·재구축 버튼)은 채택 결정 전까지 불변이어야 한다.
-_VARIANTS = ("a", "d_recommend", "d_filter")
 
 
 @router.post("/test/ingest", tags=["test"])
@@ -66,43 +61,23 @@ async def test_ingest(event: dict):
 
 @router.post("/reference/build")
 async def trigger_reference_build(
-    threshold: float | None = None,
+    threshold: float = REFERENCE_DEFAULT_THRESHOLD,
     top_k: int = REFERENCE_DEFAULT_TOP_K,
     message_mode: str = REFERENCE_DEFAULT_MESSAGE_MODE,
-    variant: str = "a",
-    llm_threshold: float = DEFAULT_LLM_THRESHOLD,
 ):
     """REFERENCE 엣지 배치 생성. 임베딩이 충분히 쌓인 뒤 수동 호출.
 
-    threshold:    엣지 생성 최소 유사도. 생략하면 변형별 기본값 (a/d_filter는 0.39, d_recommend는 0.30).
+    threshold:    엣지 생성 최소 유사도.
     top_k:        커밋당 유지할 최대 스레드 수 (fan-out 컷).
     message_mode: 커밋 메시지 임베딩 비교 방식 (off/max/only — reference_builder 참고).
-    variant:      a(기본, 방안 A) / d_recommend(변형 1) / d_filter(변형 2) — Phase 4 비교 측정용.
     모두 코드 수정 없이 스윕하기 위한 파라미터다 (측정 루프용 — 확정된 값은
     reference_builder의 상수/기본값에 반영한다).
-    """
-    if variant not in _VARIANTS:
-        raise HTTPException(status_code=400, detail=f"지원하지 않는 variant: {variant!r} ({'/'.join(_VARIANTS)})")
 
+    LLM 검수까지 포함한 조합은 POST /graph/build?verify=true로 실행한다.
+    """
     store = make_neo4j_reference_store()
-    if variant == "a":
-        created = await build_reference_edges(
-            store, threshold=threshold if threshold is not None else REFERENCE_DEFAULT_THRESHOLD,
-            top_k=top_k, message_mode=message_mode,
-        )
-    elif variant == "d_recommend":
-        from graph.reference_verifier import VARIANT1_THRESHOLD, build_reference_edges_verified
-        created = await build_reference_edges_verified(
-            store, threshold=threshold if threshold is not None else VARIANT1_THRESHOLD,
-            top_k=top_k, llm_threshold=llm_threshold, message_mode=message_mode,
-        )
-    else:
-        from graph.reference_verifier import build_reference_edges_filtered
-        created = await build_reference_edges_filtered(
-            store, threshold=threshold if threshold is not None else REFERENCE_DEFAULT_THRESHOLD,
-            top_k=top_k, llm_threshold=llm_threshold, message_mode=message_mode,
-        )
-    return {"created": created, "variant": variant}
+    created = await build_reference_edges(store, threshold=threshold, top_k=top_k, message_mode=message_mode)
+    return {"created": created}
 
 
 @router.post("/reference/backfill")
@@ -115,7 +90,7 @@ async def trigger_backfill():
 
 @router.post("/reference/propagate-threads")
 async def trigger_thread_propagation():
-    """방안 C — 스레드 전파: DISCUSSED_IN 엣지를 같은 conversation_id 내 전체 메시지로 전파."""
+    """스레드 전파 — DISCUSSED_IN 엣지를 같은 conversation_id 내 전체 메시지로 전파."""
     created = await propagate_thread_discussed_in()
     return {"created": created}
 
@@ -225,87 +200,38 @@ async def trigger_slack_filter(options: SlackFilterOptions = SlackFilterOptions(
 class IssueLinkOptions(BaseModel):
     # TRIGGERED_BY 시맨틱 매칭 임계값 (기본값 근거는 issue_linker 상수 주석 참고)
     triggered_by_threshold: float = TRIGGERED_BY_DEFAULT_THRESHOLD
-    # TRIGGERED_BY 커밋 메시지 임베딩 비교 방식 (off/max/only — issue_linker 참고, 방안 A 전용)
+    # TRIGGERED_BY 커밋 메시지 임베딩 비교 방식 (off/max/only — issue_linker 참고)
     triggered_by_message_mode: str = TRIGGERED_BY_DEFAULT_MESSAGE_MODE
     # DISCUSSED_IN 시맨틱 매칭 임계값 (스레드 보존은 쿼리 단에서 처리하므로 기존값 유지)
     discussed_in_threshold: float = 0.40
-    # DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차 (방안 A 전용)
+    # DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차
     discussed_in_margin: float = DISCUSSED_IN_DEFAULT_MARGIN
-    # DISCUSSED_IN 시간 윈도우 — 이슈 생애(생성~종료) 앞뒤로 며칠까지 후보로 볼지 (방안 A 전용).
+    # DISCUSSED_IN 시간 윈도우 — 이슈 생애(생성~종료) 앞뒤로 며칠까지 후보로 볼지.
     # 코드 수정 없이 스윕하기 위한 파라미터. 확정된 값은 issue_linker 상수에 반영한다.
     discussed_in_pre_days: int = DISCUSSED_IN_DEFAULT_PRE_DAYS
     discussed_in_post_days: int = DISCUSSED_IN_DEFAULT_POST_DAYS
-    # a(기본, 방안 A) / d_recommend(변형 1) / d_filter(변형 2) — Phase 4 비교 측정용
-    variant: str = "a"
-    top_k: int = 5
-    llm_threshold: float = DEFAULT_LLM_THRESHOLD
-    # "owner/repo" 형식. 방안 D에서 도메인 컨텍스트 주입에 사용.
-    # Phase 4 측정은 통제 조건상 미주입(빈 값)이 기본이다 — 컨텍스트 효과는 별도 레버다.
-    repo: str = ""
 
 
 @router.post("/issue-links/build")
 async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
-    """방안 A/D — Issue ↔ ChangeSet, Issue ↔ Communication 엣지 생성.
+    """Issue ↔ ChangeSet, Issue ↔ Communication 엣지 생성 (임베딩 유사도만).
 
-    variant=a (기본):      방안 A — 임베딩 유사도만으로 판단
-    variant=d_recommend:  변형 1 — 임베딩이 이슈당 top_k 추천 → LLM이 최종 선택
-    variant=d_filter:     변형 2 — A가 확정한 쌍만 LLM이 검수 (추가 없음)
+    LLM 검수까지 포함한 조합은 POST /graph/build?verify=true로 실행한다.
     """
-    if options.variant not in _VARIANTS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"지원하지 않는 variant: {options.variant!r} ({'/'.join(_VARIANTS)})",
-        )
-
     store = make_neo4j_issue_link_store()
-
-    project_context = ""
-    if options.variant != "a" and options.repo and "/" in options.repo:
-        from graph.project_context import get_project_summary
-        owner, repo_name = options.repo.split("/", 1)
-        project_context = await get_project_summary(owner, repo_name) or ""
-
-    if options.variant == "d_recommend":
-        from graph.issue_verifier import (
-            build_issue_changeset_links_verified,
-            build_issue_communication_links_verified,
-        )
-        triggered_by = await build_issue_changeset_links_verified(
-            store, options.triggered_by_threshold, options.top_k, options.llm_threshold,
-            options.triggered_by_message_mode, project_context,
-        )
-        discussed_in = await build_issue_communication_links_verified(
-            store, options.discussed_in_threshold, options.top_k, options.llm_threshold, project_context,
-        )
-    elif options.variant == "d_filter":
-        from graph.issue_verifier import (
-            build_issue_changeset_links_filtered,
-            build_issue_communication_links_filtered,
-        )
-        triggered_by = await build_issue_changeset_links_filtered(
-            store, options.triggered_by_threshold, options.llm_threshold,
-            options.triggered_by_message_mode, project_context,
-        )
-        discussed_in = await build_issue_communication_links_filtered(
-            store, options.discussed_in_threshold, options.discussed_in_margin,
-            options.discussed_in_pre_days, options.discussed_in_post_days,
-            options.llm_threshold, project_context,
-        )
-    else:
-        triggered_by = await build_issue_changeset_links(
-            store,
-            threshold=options.triggered_by_threshold,
-            message_mode=options.triggered_by_message_mode,
-        )
-        discussed_in = await build_issue_communication_links(
-            store,
-            threshold=options.discussed_in_threshold,
-            margin=options.discussed_in_margin,
-            pre_days=options.discussed_in_pre_days,
-            post_days=options.discussed_in_post_days,
-        )
-    return {"triggered_by": triggered_by, "discussed_in": discussed_in, "variant": options.variant}
+    triggered_by = await build_issue_changeset_links(
+        store,
+        threshold=options.triggered_by_threshold,
+        message_mode=options.triggered_by_message_mode,
+    )
+    discussed_in = await build_issue_communication_links(
+        store,
+        threshold=options.discussed_in_threshold,
+        margin=options.discussed_in_margin,
+        pre_days=options.discussed_in_pre_days,
+        post_days=options.discussed_in_post_days,
+    )
+    return {"triggered_by": triggered_by, "discussed_in": discussed_in}
 
 
 class DlqReplayOptions(BaseModel):
