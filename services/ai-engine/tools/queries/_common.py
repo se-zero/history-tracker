@@ -7,6 +7,69 @@ from collections.abc import Callable
 from graph.driver import get_driver
 
 
+# ─── 시간축: 노드 → 이벤트 펼치기 ──────────────────────────────────────────────
+# 한 노드는 시간 이벤트를 여러 개 낳는다 — Issue는 생성·종료, PR은 오픈·머지.
+# 이 표가 단일 출처다 (docs/timeline-scope.md의 매핑 표, agent/orchestrator.py의
+# 타임스탬프 의미 사전과 일치해야 한다).
+#
+# Issue.occurredAt(최종 업데이트)은 생성도 종료도 아니라 의미가 모호하므로 이벤트로
+# 만들지 않는다 — 라벨 없이 노출하면 모델이 생성/완료로 추정해 뒤집는다
+# (docs/query-quality-issues.md 문제 2·3).
+
+EVENT_SPECS: dict[str, tuple[tuple[str, str], ...]] = {
+    "Issue":         (("createdAt", "issue_created"), ("closedAt", "issue_closed")),
+    "PullRequest":   (("createdAt", "pr_opened"),     ("occurredAt", "pr_merged")),
+    "ChangeSet":     (("occurredAt", "commit_authored"),),
+    "Communication": (("occurredAt", "message_posted"),),
+}
+
+
+def _event_time(value) -> str | None:
+    """이벤트 시각을 ISO 문자열로 정규화. 값이 없으면 None.
+
+    Cypher `toString(n.x)`가 미매치(OPTIONAL MATCH)에서 null을 주고, 드라이버가 넘긴
+    neo4j DateTime이 그대로 오는 경우도 있어 양쪽을 함께 흡수한다. 문자열 "None"은
+    파이썬 str(None)이 섞여 들어온 값이라 시각으로 취급하지 않는다.
+    """
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    text = text.strip()
+    return text or None if text != "None" else None
+
+
+def expand_events(node_type: str, timestamps: dict, data: dict) -> list[dict]:
+    """한 노드를 EVENT_SPECS에 따라 이벤트 목록으로 펼친다.
+
+    timestamps: 시각 속성 dict (예: {"createdAt": ..., "closedAt": ...}).
+                해당 키가 없거나 값이 비면 그 이벤트는 만들지 않는다.
+    data:       이벤트에 실을 본문 dict — 같은 노드에서 나온 이벤트들이 공유한다.
+
+    반환 항목 구조: {type, event_meaning, occurredAt, data}
+    """
+    events: list[dict] = []
+    for prop, meaning in EVENT_SPECS.get(node_type, ()):
+        at = _event_time(timestamps.get(prop))
+        if at is None:
+            continue
+        events.append({
+            "type": node_type,
+            "event_meaning": meaning,
+            "occurredAt": at,
+            "data": data,
+        })
+    return events
+
+
+def sort_events(events: list[dict]) -> list[dict]:
+    """시각 없는 이벤트를 버리고 occurredAt 오름차순으로 정렬한다.
+
+    occurredAt은 ISO-8601 문자열이라 사전순 = 시간순이다.
+    """
+    valid = [e for e in events if _event_time(e.get("occurredAt")) is not None]
+    return sorted(valid, key=lambda e: e["occurredAt"])
+
+
 # ─── 2계층(detail/context) 반환 공용 헬퍼 ──────────────────────────────────────
 # get_file_history에서 시작한 반환 정책 — detail(본문 포함 인용 대상)은 바이트 예산만큼
 # 채우고 나머지는 stub 개요로 내린다. get_actor_activity 등 리스트 컷 도구가 공유한다.

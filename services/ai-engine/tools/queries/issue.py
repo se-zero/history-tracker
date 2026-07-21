@@ -3,7 +3,9 @@
 from tools.queries._common import (
     _MIN_CONFIDENCE,
     _group_communications_by_thread,
+    expand_events,
     get_driver,
+    sort_events,
 )
 
 
@@ -165,35 +167,25 @@ async def get_timeline(project_id: str, jira_key: str) -> list[dict]:
     반환 항목 공통 구조: {type, event_meaning, occurredAt, data: {...}}
     """
     async with get_driver().session() as session:
-        # 이슈 자체 + 연결된 커밋·PR
+        # 이슈 자체 + 연결된 커밋·PR. 이벤트 모양이 아니라 원시 필드로 받아
+        # 펼치기는 expand_events(EVENT_SPECS)가 담당한다 — 매핑 단일 출처 유지.
         result = await session.run(
             """
             MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
             OPTIONAL MATCH (cs:ChangeSet)-[tb:TRIGGERED_BY]->(i)
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
-            WITH i,
-                 collect(DISTINCT {
-                     type: 'ChangeSet',
-                     event_meaning: 'commit_authored',
-                     occurredAt: toString(cs.occurredAt),
-                     data: {hash: cs.hash, message: cs.message,
-                            confidence: tb.confidence,
-                            link_source: tb.source}
-                 }) AS cs_events,
-                 collect(DISTINCT {
-                     type: 'PullRequest',
-                     event_meaning: 'pr_opened',
-                     occurredAt: toString(pr.createdAt),
-                     data: {pr_number: pr.pr_number, title: pr.title, url: pr.url}
-                 }) AS pr_open_events,
-                 collect(DISTINCT {
-                     type: 'PullRequest',
-                     event_meaning: 'pr_merged',
-                     occurredAt: toString(pr.occurredAt),
-                     data: {pr_number: pr.pr_number, title: pr.title, url: pr.url}
-                 }) AS pr_merge_events
-            RETURN i, cs_events, pr_open_events, pr_merge_events
+            RETURN i,
+                   collect(DISTINCT {
+                       occurredAt: toString(cs.occurredAt),
+                       hash: cs.hash, message: cs.message,
+                       confidence: tb.confidence, link_source: tb.source
+                   }) AS changesets,
+                   collect(DISTINCT {
+                       createdAt: toString(pr.createdAt),
+                       occurredAt: toString(pr.occurredAt),
+                       pr_number: pr.pr_number, title: pr.title, url: pr.url
+                   }) AS pull_requests
             """,
             project_id=project_id,
             jira_key=jira_key,
@@ -204,50 +196,48 @@ async def get_timeline(project_id: str, jira_key: str) -> list[dict]:
             return [{"message": f"이슈를 찾을 수 없습니다: {jira_key}"}]
 
         i = row["i"]
-        issue_data = {
-            "jira_key": i.get("jira_key"),
-            "title":    i.get("title"),
-            "status":   i.get("status"),
-        }
-        # Issue 생명주기 이벤트 — createdAt / closedAt 각각 별도 이벤트로 emit.
-        # occurredAt(최종 업데이트)은 의미가 모호하므로 별도 이벤트로 만들지 않는다.
-        issue_events: list[dict] = []
-        if i.get("createdAt"):
-            issue_events.append({
-                "type": "Issue",
-                "event_meaning": "issue_created",
-                "occurredAt": str(i.get("createdAt")),
-                "data": issue_data,
-            })
-        if i.get("closedAt"):
-            issue_events.append({
-                "type": "Issue",
-                "event_meaning": "issue_closed",
-                "occurredAt": str(i.get("closedAt")),
-                "data": issue_data,
-            })
+        all_events = expand_events(
+            "Issue",
+            {"createdAt": i.get("createdAt"), "closedAt": i.get("closedAt")},
+            {"jira_key": i.get("jira_key"), "title": i.get("title"), "status": i.get("status")},
+        )
 
-        all_events = issue_events + row["cs_events"] + row["pr_open_events"] + row["pr_merge_events"]
+        for cs in row["changesets"]:
+            all_events += expand_events(
+                "ChangeSet",
+                cs,
+                {"hash": cs.get("hash"), "message": cs.get("message"),
+                 "confidence": cs.get("confidence"), "link_source": cs.get("link_source")},
+            )
+
+        for pr in row["pull_requests"]:
+            all_events += expand_events(
+                "PullRequest",
+                pr,
+                {"pr_number": pr.get("pr_number"), "title": pr.get("title"), "url": pr.get("url")},
+            )
 
         # 논의 수집 (이슈와 독립적이므로 별도 쿼리)
         result2 = await session.run(
             """
             MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})-[:DISCUSSED_IN]->(c:Communication)
             RETURN collect(DISTINCT {
-                type: 'Communication',
-                event_meaning: 'message_posted',
                 occurredAt: toString(c.occurredAt),
-                data: {body: c.body, channel: c.channel, source: c.source,
-                       conversation_id: c.conversation_id}
-            }) AS comm_events
+                body: c.body, channel: c.channel, source: c.source,
+                conversation_id: c.conversation_id
+            }) AS communications
             """,
             project_id=project_id,
             jira_key=jira_key,
         )
         row2 = await result2.single()
         if row2:
-            all_events += row2["comm_events"]
+            for c in row2["communications"]:
+                all_events += expand_events(
+                    "Communication",
+                    c,
+                    {"body": c.get("body"), "channel": c.get("channel"),
+                     "source": c.get("source"), "conversation_id": c.get("conversation_id")},
+                )
 
-        # null occurredAt 제거 후 정렬
-        valid = [e for e in all_events if e.get("occurredAt") and e["occurredAt"] != "None"]
-        return sorted(valid, key=lambda e: e["occurredAt"])
+        return sort_events(all_events)
