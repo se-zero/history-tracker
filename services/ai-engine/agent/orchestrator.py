@@ -201,6 +201,9 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 
 [모호한 질문 처리 절차]
 질문에 구체적 entity(jira_key / commit hash / PR # / 파일 경로)가 없으면 다음을 순서대로 시도:
+  0) 질문이 순서·시점을 묻는다면("언제", "어떤 순서로", "시간순", "과정", "흐름", "초기에")
+     entity가 없어도 곧바로 get_timeline을 호출한다 — 스코프 인자를 모두 생략하면
+     프로젝트 전체 기간이고, from_time/to_time으로 기간만 좁힐 수도 있다.
   1) 질문의 명사구·기능 이름을 키워드로 search_by_keyword 호출
      (예: "초기 데이터 수집 파이프라인 구조" → "데이터 수집 파이프라인")
   2) search_by_keyword 결과가 약하면(1건 이하 또는 score 낮음) get_recent_activity로 시간 기반 탐색
@@ -208,6 +211,25 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
      - "최근" / "이번 주" → 현재 기준 최근 7~30일
   3) 위 두 단계가 모두 비면 unknown_aspects에 "그래프에서 관련 항목을 찾지 못함" 명시.
 즉시 "확인되지 않음"으로 종료 금지 — 최소 한 번은 도구를 호출해 탐색하세요.
+
+[시간순 질문 처리 — get_timeline]
+- "언제 / 어떤 순서로 / 시간순으로 / 과정 / 흐름" 류 질문의 기본 도구는 get_timeline이다.
+  스코프는 넷 중 하나를 고른다:
+    jira_key → 이슈 하나의 생명주기 + 연결 커밋·PR·논의
+    path     → 그 파일을 바꾼 커밋과 그것을 담은 PR (연결 이슈는 커밋의 data.issues에 키로 실림)
+    actor    → 그 사람의 커밋·PR·메시지·이슈 활동
+    (전부 생략) → 프로젝트 전체
+  from_time/to_time은 어느 스코프와도 조합한다 (예: 특정 인물의 특정 달 → actor + from/to).
+- 이슈 진행 과정·변경 내용·마무리를 묻는 질문에는 get_issue_context 이후 get_timeline을
+  반드시 추가 호출한다. get_issue_context의 occurredAt만으로 생성/완료를 추정하지 말 것.
+- 반환은 {scope, window, total_events, events, truncated} 구조다.
+  - events[*].event_meaning을 그대로 쓴다 (시각만 보고 추정 금지).
+  - occurredAt은 전부 UTC로 정규화돼 있다.
+  - window.covered_from / covered_to는 **실제로 담긴 구간**이다. total_events가 events 길이보다
+    크거나 truncated 필드가 있으면 뒤 구간이 잘린 것이므로, covered_to를 "여기서 끝났다"로
+    서술하지 말고 잘렸다는 사실을 밝히거나 from_time을 올려 재호출한다.
+  - scope.candidates가 있으면 경로가 모호한 것이니 후보 중 하나로 재호출한다.
+    scope.resolved_path가 있으면 인용에 그 값을 쓴다(추정한 path 금지).
 
 [파일 경로 모호 처리]
 - get_file_history 결과에 'candidates' 필드가 있으면 그 중 가장 적절한 경로로 재호출하세요.
@@ -235,6 +257,11 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - 커밋 hash나 Jira key를 모를 때: search_by_keyword로 진입점 탐색 후 다른 도구 호출
 - 코드 변경 이유: search_by_keyword → get_changeset_context
 - Jira 이슈 중심 탐색: get_issue_context 또는 get_timeline
+- 시간순·순서·과정 질문: get_timeline (스코프 = jira_key | path | actor | 생략=전체, ±from/to_time)
+  - "이 프로젝트 어떤 순서로 만들어졌어" → get_timeline()  (인자 없음)
+  - "5월에 무슨 일이 있었어"           → get_timeline(from_time=..., to_time=...)
+  - "OO가 4월에 뭐 했어"               → get_timeline(actor="OO", from_time=..., to_time=...)
+  - "이 파일 어떻게 바뀌어 왔어"        → get_timeline(path="...")  (본문 인용이 필요하면 get_file_history)
 - Slack 스레드 전체 맥락(검색 결과는 스레드당 대표 1건만 노출됨): get_thread_context(conversation_id)
 - 파일 담당자: find_expert
 - 사람 활동 조회: get_actor_activity
