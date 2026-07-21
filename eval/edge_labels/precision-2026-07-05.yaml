@@ -6,7 +6,7 @@
 #   - unsure    : 원문만으로 판단 불가
 # note는 선택(애매했던 근거). label/판정은 그래프와 독립적인 정답지이므로,
 # 빌더를 바꿔 엣지가 사라지거나 새로 생겨도 이 판정은 유지하고 새 쌍만 추가한다.
-graph_snapshot: graph-2026-07-05.dump
+graph_snapshot: graph-2026-07-21.dump
 project_id: eb74cbd9-33ce-4c0e-9272-d30a661830f3
 seed: 42
 edges:
