@@ -6,7 +6,46 @@
 
 import unittest
 
-from tools.queries._common import EVENT_SPECS, expand_events, sort_events
+from tools.queries._common import EVENT_SPECS, expand_events, normalize_time, sort_events
+
+
+class TestUtcNormalization(unittest.TestCase):
+    """그래프의 시각 표기가 섞여 있다 — Issue.createdAt만 +09:00, 나머지는 Z.
+    사전순 정렬이 시간순과 일치하려면 표기를 하나로 통일해야 한다."""
+
+    def test_offset_converted_to_utc(self):
+        events = expand_events("Issue", {"createdAt": "2026-05-16T19:47:57.124+09:00"}, {})
+        self.assertEqual(events[0]["occurredAt"], "2026-05-16T10:47:57.124Z")
+
+    def test_already_utc_gets_same_shape(self):
+        """이미 Z여도 같은 경로로 다시 찍어야 표기가 통일된다."""
+        events = expand_events("ChangeSet", {"occurredAt": "2026-05-16T11:07:48Z"}, {})
+        self.assertEqual(events[0]["occurredAt"], "2026-05-16T11:07:48.000Z")
+
+    def test_naive_treated_as_utc(self):
+        self.assertEqual(normalize_time("2026-05-16T11:07:48"), "2026-05-16T11:07:48.000Z")
+
+    def test_unparsable_kept_as_is(self):
+        self.assertEqual(normalize_time("not-a-time"), "not-a-time")
+
+    def test_offset_ordering_matches_real_time(self):
+        """HT-45(case-43) 회귀 가드 — 정규화 전에는 이슈 생성이 PR 머지 뒤로 밀렸다.
+
+        원문: 이슈 생성 T19:47+09:00(=10:47Z) / PR 오픈 10:52Z / PR 머지 11:07Z.
+        사전순으로 그냥 비교하면 "T19:47..." > "T11:07Z"라 순서가 뒤집힌다.
+        """
+        events = sort_events(
+            expand_events("Issue", {"createdAt": "2026-05-16T19:47:57.124+09:00"},
+                          {"jira_key": "HT-45"})
+            + expand_events("PullRequest",
+                            {"createdAt": "2026-05-16T10:52:04Z",
+                             "occurredAt": "2026-05-16T11:07:48Z"},
+                            {"pr_number": 21})
+        )
+        self.assertEqual(
+            [e["event_meaning"] for e in events],
+            ["issue_created", "pr_opened", "pr_merged"],
+        )
 
 
 class TestEventSpecs(unittest.TestCase):
@@ -38,8 +77,9 @@ class TestExpandEvents(unittest.TestCase):
         )
         self.assertEqual([e["event_meaning"] for e in events],
                          ["issue_created", "issue_closed"])
+        # 반환 시각은 UTC·밀리초 고정 표기로 정규화된다 (TestUtcNormalization 참고)
         self.assertEqual([e["occurredAt"] for e in events],
-                         ["2026-05-16T19:47:00Z", "2026-05-17T16:56:00Z"])
+                         ["2026-05-16T19:47:00.000Z", "2026-05-17T16:56:00.000Z"])
         self.assertTrue(all(e["type"] == "Issue" for e in events))
         self.assertTrue(all(e["data"]["jira_key"] == "HT-45" for e in events))
 

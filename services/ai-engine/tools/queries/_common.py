@@ -3,6 +3,7 @@
 import json
 import os
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from graph.driver import get_driver
 
@@ -25,17 +26,33 @@ EVENT_SPECS: dict[str, tuple[tuple[str, str], ...]] = {
 
 
 def _event_time(value) -> str | None:
-    """이벤트 시각을 ISO 문자열로 정규화. 값이 없으면 None.
+    """이벤트 시각을 **UTC ISO 문자열(밀리초 고정)**로 정규화. 값이 없으면 None.
 
     Cypher `toString(n.x)`가 미매치(OPTIONAL MATCH)에서 null을 주고, 드라이버가 넘긴
     neo4j DateTime이 그대로 오는 경우도 있어 양쪽을 함께 흡수한다. 문자열 "None"은
     파이썬 str(None)이 섞여 들어온 값이라 시각으로 취급하지 않는다.
+
+    **정규화가 필요한 이유**: 그래프의 시각 표기가 섞여 있다 — `Issue.createdAt`은
+    `+09:00` 오프셋으로, 나머지(ChangeSet/PullRequest/Communication)는 `Z`로 저장된다.
+    타임라인은 ISO 문자열 사전순으로 정렬하는데, 사전순 = 시간순은 **표기가 동일할
+    때만** 성립한다. 오프셋이 섞이면 `T19:47+09:00`(=10:47Z)이 `T11:07Z`보다 뒤로
+    가서 순서가 뒤집힌다 — 시간축 도구의 존재 이유가 순서 정확성이므로 여기서 막는다.
+    표기를 하나로 통일해야 하므로 이미 Z인 값도 같은 경로로 다시 찍는다.
+    또한 시스템 프롬프트가 "모든 시각은 UTC"라고 선언하므로 표시값도 UTC여야 한다.
     """
     if value is None:
         return None
     text = value if isinstance(value, str) else str(value)
     text = text.strip()
-    return text or None if text != "None" else None
+    if not text or text == "None":
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return text  # 파싱 불가 — 원문을 그대로 두어 정보를 잃지 않는다
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)  # naive는 UTC로 간주
+    return parsed.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def expand_events(node_type: str, timestamps: dict, data: dict) -> list[dict]:
@@ -59,6 +76,11 @@ def expand_events(node_type: str, timestamps: dict, data: dict) -> list[dict]:
             "data": data,
         })
     return events
+
+
+def normalize_time(value) -> str | None:
+    """외부에서 받은 시각(도구 인자의 from_time/to_time 등)을 이벤트 시각과 같은 표기로 맞춘다."""
+    return _event_time(value)
 
 
 def sort_events(events: list[dict]) -> list[dict]:
