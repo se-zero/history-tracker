@@ -15,7 +15,7 @@
 # - note에 연결 근거(당시 정황)를 적는다 — 검수자가 그래프를 안 뒤져도 판단 가능한 수준으로.
 # - 명백한 쌍만 넣는다. 애매하면 버린다. 이 판정은 그래프와 독립적인 정답지이므로
 #   빌더가 바뀌어도 유지하고, 쌍은 추가만 한다 (precision 라벨셋과 같은 원칙).
-graph_snapshot: graph-2026-07-05.dump
+graph_snapshot: graph-2026-07-21.dump
 pairs:
 - edge_type: REFERENCE
   src: {type: commit, id: f29ca87}          # feat: 프로젝트 삭제 시 Neo4j 그래프 cascade 삭제 (2026-06-17, PR #38 / HT-83)

@@ -17,6 +17,8 @@ from graph.reference_builder import (
     DEFAULT_TOP_K,
     ReferenceStore,
     backfill_changeset_message_embeddings,
+    backfill_communication_embeddings,
+    backfill_modified_embeddings,
     build_reference_edges,
 )
 
@@ -98,6 +100,8 @@ class _FakeStore:
             fetch_unembedded_changeset_messages=unsupported,
             save_changeset_message_embedding=unsupported,
             fetch_changeset_message_embeddings=fetch_messages,
+            fetch_unembedded_modified_edges=unsupported,
+            save_modified_embedding=unsupported,
         )
 
 
@@ -412,16 +416,17 @@ class MessageEmbeddingModeTest(unittest.TestCase):
 
 
 class AdoptedDefaultsTest(unittest.TestCase):
-    """기본값 = 채택 운영점 (max · top_k 5 · threshold 0.39).
+    """기본값 = 채택 운영점 (max · top_k 5 · threshold 0.44).
 
     postprocess 자동 빌드는 인자 없이 호출하므로, 측정으로 확정한 구성과 코드 기본값이
     같아야 프로덕션이 측정과 동일하게 돈다 — 그 일치를 박는 계약 테스트.
+    임계값은 임베딩 모델(3-large@1536)에 종속이라 모델을 바꾸면 함께 재스윕된다.
     """
 
     def test_default_constants_are_adopted_operating_point(self):
         self.assertEqual(DEFAULT_MESSAGE_MODE, "max")
         self.assertEqual(DEFAULT_TOP_K, 5)
-        self.assertAlmostEqual(DEFAULT_THRESHOLD, 0.39)
+        self.assertAlmostEqual(DEFAULT_THRESHOLD, 0.44)
 
     def test_default_call_uses_message_rows(self):
         # diff(0.2)는 임계값 밑, 메시지(0.9)는 위 — 인자 없는 기본 호출이 메시지 행으로 엣지를 만든다
@@ -437,12 +442,12 @@ class AdoptedDefaultsTest(unittest.TestCase):
         self.assertEqual(created, 1)
         self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
 
-    def test_default_threshold_cuts_between_030_and_039(self):
-        # 0.30~0.39 구간은 재조정 측정에서 노이즈만 남았다 — 새 기본 임계값이 잘라야 한다
+    def test_default_threshold_cuts_below_044(self):
+        # 모델 교체 후 재스윕에서 0.44 미만 구간에는 노이즈만 남았다 — 기본 임계값이 잘라야 한다
         fake = _FakeStore(
             modified=[],
             comms=[_comm("m1", [1.0, 0.0])],
-            messages=[_message_row("c1", _vec(0.35))],
+            messages=[_message_row("c1", _vec(0.43))],
         )
 
         created = asyncio.run(build_reference_edges(fake.as_store()))
@@ -455,12 +460,13 @@ class ChangesetMessageBackfillTest(unittest.TestCase):
 
     communication 백필과 같은 계약: 빈 벡터(임베딩 실패)는 저장하지 않고,
     보정 대상이 없으면 임베딩 API를 호출하지 않는다.
+    반환은 {"saved", "total"} — saved != total이면 완주하지 못한 것이다.
     """
 
     def _store(self, nodes):
         saved: list[tuple[str, str, list[float]]] = []
 
-        async def fetch_unembedded():
+        async def fetch_unembedded(force):
             return nodes
 
         async def save(project_id, changeset_id, embedding):
@@ -478,6 +484,8 @@ class ChangesetMessageBackfillTest(unittest.TestCase):
             fetch_unembedded_changeset_messages=fetch_unembedded,
             save_changeset_message_embedding=save,
             fetch_changeset_message_embeddings=unsupported,
+            fetch_unembedded_modified_edges=unsupported,
+            save_modified_embedding=unsupported,
         )
         return store, saved
 
@@ -491,14 +499,16 @@ class ChangesetMessageBackfillTest(unittest.TestCase):
             "graph.reference_builder.embed_batch",
             new=mock.AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]]),
         ) as embed:
-            count = asyncio.run(backfill_changeset_message_embeddings(store))
+            result = asyncio.run(backfill_changeset_message_embeddings(store))
 
         embed.assert_awaited_once_with(["feat: 로그인 수정", "docs: 문서 최신화"])
-        self.assertEqual(count, 2)
+        self.assertEqual(result, {"saved": 2, "total": 2})
         self.assertEqual(saved, [("p1", "c1", [0.1, 0.2]), ("p1", "c2", [0.3, 0.4])])
 
-    def test_failed_embedding_is_not_saved(self):
-        # 배치 중 일부만 임베딩이 실패(빈 벡터)하면 그 노드만 건너뛴다
+    def test_partial_embedding_failure_shows_as_saved_below_total(self):
+        # 배치 중 일부만 임베딩이 실패(빈 벡터)하면 그 노드만 건너뛴다.
+        # 신·구 모델 벡터가 같은 1536차원이라 섞여도 조용히 계산되므로,
+        # 완주하지 못했다는 사실은 saved < total로만 드러난다.
         store, saved = self._store([
             {"project_id": "p1", "id": "c1", "message": "feat: A"},
             {"project_id": "p1", "id": "c2", "message": "feat: B"},
@@ -508,20 +518,219 @@ class ChangesetMessageBackfillTest(unittest.TestCase):
             "graph.reference_builder.embed_batch",
             new=mock.AsyncMock(return_value=[[0.5, 0.5], []]),
         ):
-            count = asyncio.run(backfill_changeset_message_embeddings(store))
+            result = asyncio.run(backfill_changeset_message_embeddings(store))
 
-        self.assertEqual(count, 1)
+        self.assertEqual(result, {"saved": 1, "total": 2})
         self.assertEqual(saved, [("p1", "c1", [0.5, 0.5])])
 
     def test_noop_when_nothing_to_backfill(self):
         store, saved = self._store([])
 
         with mock.patch("graph.reference_builder.embed_batch", new=mock.AsyncMock()) as embed:
-            count = asyncio.run(backfill_changeset_message_embeddings(store))
+            result = asyncio.run(backfill_changeset_message_embeddings(store))
 
         embed.assert_not_awaited()
-        self.assertEqual(count, 0)
+        self.assertEqual(result, {"saved": 0, "total": 0})
         self.assertEqual(saved, [])
+
+
+class ModifiedEdgeBackfillTest(unittest.TestCase):
+    """backfill_modified_embeddings — diffSummary는 있는데 embedding이 없는 MODIFIED 엣지 보정.
+
+    임베딩 대상 텍스트는 수집 경로(event_handler)가 저장한 diffSummary 그대로여야 한다 —
+    다르면 수집으로 들어온 엣지와 백필로 채운 엣지의 벡터가 서로 다른 기준이 된다.
+    """
+
+    def _store(self, edges):
+        saved: list[tuple[str, str, str, list[float]]] = []
+
+        async def fetch_unembedded(force):
+            return edges
+
+        async def save(project_id, changeset_id, file_path, embedding):
+            saved.append((project_id, changeset_id, file_path, embedding))
+
+        async def unsupported(*args):
+            raise AssertionError("이 테스트에서 호출되지 않아야 한다")
+
+        store = ReferenceStore(
+            fetch_modified_embeddings=unsupported,
+            fetch_communication_embeddings=unsupported,
+            create_reference_edge=unsupported,
+            fetch_unembedded_communications=unsupported,
+            save_communication_embedding=unsupported,
+            fetch_unembedded_changeset_messages=unsupported,
+            save_changeset_message_embedding=unsupported,
+            fetch_changeset_message_embeddings=unsupported,
+            fetch_unembedded_modified_edges=fetch_unembedded,
+            save_modified_embedding=save,
+        )
+        return store, saved
+
+    def test_embeds_diff_summary_and_saves_per_edge(self):
+        # 엣지 식별자는 (changeset, file_path) 쌍 — 같은 커밋의 파일마다 별도 벡터가 저장된다
+        store, saved = self._store([
+            {"project_id": "p1", "changeset_id": "c1", "file_path": "a.py", "diff_summary": "로그인 검증 추가"},
+            {"project_id": "p1", "changeset_id": "c1", "file_path": "b.py", "diff_summary": "테스트 보강"},
+        ])
+
+        with mock.patch(
+            "graph.reference_builder.embed_batch",
+            new=mock.AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]]),
+        ) as embed:
+            result = asyncio.run(backfill_modified_embeddings(store))
+
+        embed.assert_awaited_once_with(["로그인 검증 추가", "테스트 보강"])
+        self.assertEqual(result, {"saved": 2, "total": 2})
+        self.assertEqual(
+            saved,
+            [("p1", "c1", "a.py", [0.1, 0.2]), ("p1", "c1", "b.py", [0.3, 0.4])],
+        )
+
+    def test_partial_embedding_failure_shows_as_saved_below_total(self):
+        store, saved = self._store([
+            {"project_id": "p1", "changeset_id": "c1", "file_path": "a.py", "diff_summary": "A"},
+            {"project_id": "p1", "changeset_id": "c2", "file_path": "b.py", "diff_summary": "B"},
+        ])
+
+        with mock.patch(
+            "graph.reference_builder.embed_batch",
+            new=mock.AsyncMock(return_value=[[0.5, 0.5], []]),
+        ):
+            result = asyncio.run(backfill_modified_embeddings(store))
+
+        self.assertEqual(result, {"saved": 1, "total": 2})
+        self.assertEqual(saved, [("p1", "c1", "a.py", [0.5, 0.5])])
+
+    def test_noop_when_nothing_to_backfill(self):
+        store, saved = self._store([])
+
+        with mock.patch("graph.reference_builder.embed_batch", new=mock.AsyncMock()) as embed:
+            result = asyncio.run(backfill_modified_embeddings(store))
+
+        embed.assert_not_awaited()
+        self.assertEqual(result, {"saved": 0, "total": 0})
+        self.assertEqual(saved, [])
+
+
+class CommunicationBackfillTest(unittest.TestCase):
+    """backfill_communication_embeddings — 나머지 3종과 같은 {"saved", "total"} 계약."""
+
+    def _store(self, nodes):
+        saved: list[tuple[str, str, list[float]]] = []
+
+        async def fetch_unembedded(force):
+            return nodes
+
+        async def save(project_id, comm_id, embedding):
+            saved.append((project_id, comm_id, embedding))
+
+        async def unsupported(*args):
+            raise AssertionError("이 테스트에서 호출되지 않아야 한다")
+
+        store = ReferenceStore(
+            fetch_modified_embeddings=unsupported,
+            fetch_communication_embeddings=unsupported,
+            create_reference_edge=unsupported,
+            fetch_unembedded_communications=fetch_unembedded,
+            save_communication_embedding=save,
+            fetch_unembedded_changeset_messages=unsupported,
+            save_changeset_message_embedding=unsupported,
+            fetch_changeset_message_embeddings=unsupported,
+            fetch_unembedded_modified_edges=unsupported,
+            save_modified_embedding=unsupported,
+        )
+        return store, saved
+
+    def test_embeds_body_and_reports_full_completion(self):
+        store, saved = self._store([
+            {"project_id": "p1", "id": "m1", "body": "배포 언제 하나요"},
+            {"project_id": "p1", "id": "m2", "body": "내일 오전"},
+        ])
+
+        with mock.patch(
+            "graph.reference_builder.embed_batch",
+            new=mock.AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]]),
+        ) as embed:
+            result = asyncio.run(backfill_communication_embeddings(store))
+
+        embed.assert_awaited_once_with(["배포 언제 하나요", "내일 오전"])
+        self.assertEqual(result, {"saved": 2, "total": 2})
+        self.assertEqual(saved, [("p1", "m1", [0.1, 0.2]), ("p1", "m2", [0.3, 0.4])])
+
+    def test_partial_embedding_failure_shows_as_saved_below_total(self):
+        store, saved = self._store([
+            {"project_id": "p1", "id": "m1", "body": "A"},
+            {"project_id": "p1", "id": "m2", "body": "B"},
+        ])
+
+        with mock.patch(
+            "graph.reference_builder.embed_batch",
+            new=mock.AsyncMock(return_value=[[0.5, 0.5], []]),
+        ):
+            result = asyncio.run(backfill_communication_embeddings(store))
+
+        self.assertEqual(result, {"saved": 1, "total": 2})
+        self.assertEqual(saved, [("p1", "m1", [0.5, 0.5])])
+
+
+class ForceReembedTest(unittest.TestCase):
+    """force — 이미 embedding이 있는 노드/엣지까지 덮어쓰는 전량 재임베딩.
+
+    임베딩 모델을 바꾸면 구 모델 벡터가 신 모델 벡터와 비교 불가라 전량 교체가 필요하다.
+    force 플래그가 fetch까지 그대로 전달되는지(=대상 선정이 바뀌는지)를 박는다.
+    기본값은 False — 제품의 기존 동작(수집 중 누락분만 보정)을 바꾸지 않는다.
+    """
+
+    def _store(self, field, seen):
+        async def fetch(force):
+            seen.append(force)
+            return []
+
+        async def unsupported(*args):
+            raise AssertionError("이 테스트에서 호출되지 않아야 한다")
+
+        fields = {
+            "fetch_modified_embeddings": unsupported,
+            "fetch_communication_embeddings": unsupported,
+            "create_reference_edge": unsupported,
+            "fetch_unembedded_communications": unsupported,
+            "save_communication_embedding": unsupported,
+            "fetch_unembedded_changeset_messages": unsupported,
+            "save_changeset_message_embedding": unsupported,
+            "fetch_changeset_message_embeddings": unsupported,
+            "fetch_unembedded_modified_edges": unsupported,
+            "save_modified_embedding": unsupported,
+        }
+        fields[field] = fetch
+        return ReferenceStore(**fields)
+
+    def _run(self, backfill, field, force):
+        seen: list[bool] = []
+        store = self._store(field, seen)
+        if force is None:
+            asyncio.run(backfill(store))
+        else:
+            asyncio.run(backfill(store, force=force))
+        return seen
+
+    def test_defaults_to_gap_filling(self):
+        for backfill, field in (
+            (backfill_communication_embeddings, "fetch_unembedded_communications"),
+            (backfill_changeset_message_embeddings, "fetch_unembedded_changeset_messages"),
+            (backfill_modified_embeddings, "fetch_unembedded_modified_edges"),
+        ):
+            with self.subTest(backfill=backfill.__name__):
+                self.assertEqual(self._run(backfill, field, None), [False])
+
+    def test_force_is_forwarded_to_fetch(self):
+        for backfill, field in (
+            (backfill_communication_embeddings, "fetch_unembedded_communications"),
+            (backfill_changeset_message_embeddings, "fetch_unembedded_changeset_messages"),
+            (backfill_modified_embeddings, "fetch_unembedded_modified_edges"),
+        ):
+            with self.subTest(backfill=backfill.__name__):
+                self.assertEqual(self._run(backfill, field, True), [True])
 
 
 if __name__ == "__main__":

@@ -143,6 +143,23 @@ class GatewayTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertIs(resp, fake_resp)
         self.assertEqual(create.call_args.kwargs["model"], "text-embedding-3-small")
+        self.assertNotIn("dimensions", create.call_args.kwargs)  # 미지정이면 모델 기본 차원
+
+    async def test_embed_passes_dimensions_to_sdk(self):
+        # 차원 절삭(Matryoshka)은 SDK 인자로만 걸리므로 게이트웨이가 통과시켜야 한다
+        fake_resp = SimpleNamespace(
+            usage=SimpleNamespace(total_tokens=10),
+            data=[SimpleNamespace(embedding=[0.1, 0.2])],
+        )
+        client = openai_client.get_openai_client()
+        with patch.object(client.embeddings, "create", return_value=fake_resp) as create:
+            await openai_client.embed(
+                model="text-embedding-3-large",
+                input=["hi"],
+                priority=Priority.BACKGROUND,
+                dimensions=1536,
+            )
+        self.assertEqual(create.call_args.kwargs["dimensions"], 1536)
 
 
 if __name__ == "__main__":

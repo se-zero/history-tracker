@@ -46,8 +46,8 @@ def _run_sequence(verify: bool) -> list[str]:
 
     log = _CallLog()
     with ExitStack() as stack:
-        def step(target: str, name: str):
-            stack.enter_context(patch(target, log.step(name)))
+        def step(target: str, name: str, result=0):
+            stack.enter_context(patch(target, log.step(name, result)))
 
         stack.enter_context(
             patch("graph.builder.make_neo4j_reference_store", lambda project_id=None: _fake_store())
@@ -66,7 +66,12 @@ def _run_sequence(verify: bool) -> list[str]:
         step("graph.builder.clear_semantic_discussed_in", "clear_discussed_in")
         step("graph.builder.clear_reference", "clear_reference")
         step("graph.builder.propagate_thread_discussed_in", "propagate")
-        step("graph.reference_builder.backfill_communication_embeddings", "backfill")
+        # backfill만 {"saved", "total"}를 반환한다 — 시퀀스가 saved를 꺼내 쓴다
+        step(
+            "graph.reference_builder.backfill_communication_embeddings",
+            "backfill",
+            {"saved": 0, "total": 0},
+        )
 
         # 임베딩 전용(자동 재구축) 빌더
         step("graph.issue_linker.build_issue_changeset_links", "tb_embedding")

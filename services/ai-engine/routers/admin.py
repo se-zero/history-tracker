@@ -39,8 +39,10 @@ from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN as DISCUSSED_IN_DEFAULT_MARGIN,
     DISCUSSED_IN_POST_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_POST_DAYS,
     DISCUSSED_IN_PRE_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_PRE_DAYS,
+    DISCUSSED_IN_THRESHOLD as DISCUSSED_IN_DEFAULT_THRESHOLD,
     TRIGGERED_BY_MESSAGE_MODE as TRIGGERED_BY_DEFAULT_MESSAGE_MODE,
     TRIGGERED_BY_THRESHOLD as TRIGGERED_BY_DEFAULT_THRESHOLD,
+    backfill_issue_embeddings,
     build_issue_changeset_links,
     build_issue_communication_links,
 )
@@ -50,6 +52,7 @@ from graph.reference_builder import (
     DEFAULT_TOP_K as REFERENCE_DEFAULT_TOP_K,
     backfill_changeset_message_embeddings,
     backfill_communication_embeddings,
+    backfill_modified_embeddings,
     build_reference_edges,
 )
 from graph.slack_batch_filter import run_slack_llm_filter
@@ -89,11 +92,14 @@ async def trigger_reference_build(
 
 
 @router.post("/reference/backfill")
-async def trigger_backfill():
-    """embedding 없는 Communication 노드 일괄 임베딩 보정."""
+async def trigger_backfill(force: bool = False):
+    """embedding 없는 Communication 노드 일괄 임베딩 보정.
+
+    force=true면 이미 embedding이 있는 노드까지 덮어쓴다 (임베딩 모델 교체 시 전량 재임베딩).
+    응답의 saved != total이면 일부가 임베딩되지 않은 것이다 (백필 4종 공통).
+    """
     store = make_neo4j_reference_store()
-    saved = await backfill_communication_embeddings(store)
-    return {"saved": saved}
+    return await backfill_communication_embeddings(store, force=force)
 
 
 @router.post("/reference/propagate-threads")
@@ -104,15 +110,42 @@ async def trigger_thread_propagation():
 
 
 @router.post("/migrations/changeset-embeddings")
-async def trigger_changeset_embeddings_backfill(project_id: str | None = None):
+async def trigger_changeset_embeddings_backfill(project_id: str | None = None, force: bool = False):
     """message는 있는데 embedding이 없는 ChangeSet 노드 일괄 임베딩 보정.
 
     커밋 메시지 임베딩 도입 이전에 수집된 노드를 이벤트 재주입 없이 채우는 백필.
     project_id를 주면 그 프로젝트만. Idempotent — 이미 채워진 노드는 건너뜀.
+    force=true면 이미 채워진 노드까지 덮어쓴다 (임베딩 모델 교체 시 전량 재임베딩).
+    응답의 saved != total이면 일부가 임베딩되지 않은 것이다 (백필 4종 공통).
     """
     store = make_neo4j_reference_store(project_id)
-    saved = await backfill_changeset_message_embeddings(store)
-    return {"saved": saved}
+    return await backfill_changeset_message_embeddings(store, force=force)
+
+
+@router.post("/migrations/modified-embeddings")
+async def trigger_modified_embeddings_backfill(project_id: str | None = None, force: bool = False):
+    """diffSummary는 있는데 embedding이 없는 MODIFIED 엣지 일괄 임베딩 보정.
+
+    저장된 diffSummary를 그대로 임베딩한다 (요약 LLM 재호출 없음).
+    project_id를 주면 그 프로젝트만. Idempotent — 이미 채워진 엣지는 건너뜀.
+    force=true면 이미 채워진 엣지까지 덮어쓴다 (임베딩 모델 교체 시 전량 재임베딩).
+    응답의 saved != total이면 일부가 임베딩되지 않은 것이다 (백필 4종 공통).
+    """
+    store = make_neo4j_reference_store(project_id)
+    return await backfill_modified_embeddings(store, force=force)
+
+
+@router.post("/migrations/issue-embeddings")
+async def trigger_issue_embeddings_backfill(project_id: str | None = None, force: bool = False):
+    """embedding이 없는 Issue 노드 일괄 임베딩 보정.
+
+    임베딩 대상은 수집 경로와 같은 "title\\n\\nbody"다.
+    project_id를 주면 그 프로젝트만. Idempotent — 이미 채워진 노드는 건너뜀.
+    force=true면 이미 채워진 노드까지 덮어쓴다 (임베딩 모델 교체 시 전량 재임베딩).
+    응답의 saved != total이면 일부가 임베딩되지 않은 것이다 (백필 4종 공통).
+    """
+    store = make_neo4j_issue_link_store(project_id)
+    return await backfill_issue_embeddings(store, force=force)
 
 
 @router.post("/migrations/triggered-by-source")
@@ -210,8 +243,8 @@ class IssueLinkOptions(BaseModel):
     triggered_by_threshold: float = TRIGGERED_BY_DEFAULT_THRESHOLD
     # TRIGGERED_BY 커밋 메시지 임베딩 비교 방식 (off/max/only — issue_linker 참고)
     triggered_by_message_mode: str = TRIGGERED_BY_DEFAULT_MESSAGE_MODE
-    # DISCUSSED_IN 시맨틱 매칭 임계값 (스레드 보존은 쿼리 단에서 처리하므로 기존값 유지)
-    discussed_in_threshold: float = 0.40
+    # DISCUSSED_IN 시맨틱 매칭 임계값 (기본값 근거는 issue_linker 상수 주석 참고)
+    discussed_in_threshold: float = DISCUSSED_IN_DEFAULT_THRESHOLD
     # DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차
     discussed_in_margin: float = DISCUSSED_IN_DEFAULT_MARGIN
     # DISCUSSED_IN 시간 윈도우 — 이슈 생애(생성~종료) 앞뒤로 며칠까지 후보로 볼지.

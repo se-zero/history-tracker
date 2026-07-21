@@ -26,7 +26,7 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
 |--------|------|
 | 데이터 수집 | Spring Boot (Java), GitHub API, Jira API, Slack API |
 | 메시지 큐 | RabbitMQ |
-| AI 처리 | Python/FastAPI, OpenAI GPT-4o-mini, text-embedding-3-small |
+| AI 처리 | Python/FastAPI, OpenAI GPT-4o-mini, text-embedding-3-large (1536차원 절삭) |
 | 그래프 DB | Neo4j (벡터 인덱스 포함) |
 
 ## 핵심 기능
@@ -38,7 +38,7 @@ GitHub 커밋/PR/이슈, Jira 티켓, Slack 메시지를 수집해 Neo4j 지식 
 커밋의 코드 변경(unified diff)을 GPT-4o-mini가 읽고 사람이 이해할 수 있는 요약문(diffSummary)으로 변환합니다. 이 요약문이 MODIFIED 엣지에 저장되어 코드 변경의 의미를 그래프에 보존합니다.
 
 ### 시맨틱 크로스소스 연결
-각 노드의 텍스트를 text-embedding-3-small로 임베딩해 코사인 유사도 기반으로 REFERENCE 엣지를 자동 생성합니다. Jira 키나 PR 번호를 명시하지 않아도 커밋과 관련 Slack 대화를 의미적으로 연결합니다.
+각 노드의 텍스트를 text-embedding-3-large(1536차원으로 절삭)로 임베딩해 코사인 유사도 기반으로 REFERENCE 엣지를 자동 생성합니다. Jira 키나 PR 번호를 명시하지 않아도 커밋과 관련 Slack 대화를 의미적으로 연결합니다.
 
 ### Slack 메시지 필터링
 룰 기반 + LLM 2단계 필터로 Slack 메시지 중 지식 그래프에 저장할 가치가 있는 메시지만 선별합니다. 단순 승인 메시지, 잡담, 무관한 프로젝트 내용을 제거합니다.
