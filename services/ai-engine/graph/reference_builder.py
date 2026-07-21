@@ -75,8 +75,10 @@ class ReferenceStore:
         confidence:        코사인 유사도 값 (0.0~1.0)
     """
 
-    fetch_unembedded_communications: Callable[[], Awaitable[list[dict]]]
+    fetch_unembedded_communications: Callable[[bool], Awaitable[list[dict]]]
     """embedding 프로퍼티가 없는 Communication 노드 반환 (보정용).
+    Args:
+        force: True면 embedding이 이미 있는 노드까지 전부 반환 (모델 교체 시 전량 재임베딩)
     Returns:
         [{"project_id": str, "id": str, "body": str}, ...]
     """
@@ -89,8 +91,10 @@ class ReferenceStore:
         embedding:        임베딩 벡터
     """
 
-    fetch_unembedded_changeset_messages: Callable[[], Awaitable[list[dict]]]
+    fetch_unembedded_changeset_messages: Callable[[bool], Awaitable[list[dict]]]
     """message는 있는데 embedding 프로퍼티가 없는 ChangeSet 노드 반환 (보정용).
+    Args:
+        force: True면 embedding이 이미 있는 노드까지 전부 반환 (모델 교체 시 전량 재임베딩)
     Returns:
         [{"project_id": str, "id": str (hash), "message": str}, ...]
     """
@@ -109,6 +113,23 @@ class ReferenceStore:
         [{"project_id": str, "changeset_id": str, "message": str, "embedding": list[float],
           "occurred_at": datetime}, ...]
         message는 원문이다 — 수동 정밀 구축이 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
+    """
+
+    fetch_unembedded_modified_edges: Callable[[bool], Awaitable[list[dict]]]
+    """diffSummary는 있는데 embedding 프로퍼티가 없는 MODIFIED 엣지 반환 (보정용).
+    Args:
+        force: True면 embedding이 이미 있는 엣지까지 전부 반환 (모델 교체 시 전량 재임베딩)
+    Returns:
+        [{"project_id": str, "changeset_id": str, "file_path": str, "diff_summary": str}, ...]
+    """
+
+    save_modified_embedding: Callable[[str, str, str, list[float]], Awaitable[None]]
+    """MODIFIED 엣지에 embedding 저장.
+    Args:
+        project_id:   프로젝트 UUID
+        changeset_id: ChangeSet hash
+        file_path:    File path — 엣지는 (changeset, file) 쌍으로 식별된다
+        embedding:    임베딩 벡터
     """
 
 
@@ -244,18 +265,27 @@ async def build_reference_edges(
     return created
 
 
-async def backfill_communication_embeddings(store: ReferenceStore) -> int:
+async def backfill_communication_embeddings(store: ReferenceStore, force: bool = False) -> dict:
     """embedding이 없는 Communication 노드를 배치 임베딩으로 보정.
 
     실시간 처리 중 임베딩이 누락된 노드나 초기 대량 데이터 적재 후 실행.
 
+    Args:
+        force: 이미 embedding이 있는 노드까지 다시 임베딩한다. 임베딩 모델을 바꾸면 구 모델
+               벡터는 신 모델 벡터와 코사인 비교가 무의미해서 전량 교체가 필요하다. 지우고
+               다시 채우지 않고 덮어쓰는 이유 — 그 사이 질의가 임베딩 없는 그래프를 탄다.
+               기본 False는 기존 동작(수집 중 누락분만 보정) 유지.
+
     Returns:
-        임베딩이 저장된 노드 수
+        {"saved": 저장된 노드 수, "total": 대상 노드 수}
+        embed_batch는 청크가 실패해도 예외 대신 빈 벡터를 채우므로, 저장 수만 봐서는
+        완주 여부를 알 수 없다. total을 함께 돌려줘 saved != total로 드러나게 한다
+        (모델 교체 시 신·구 벡터가 같은 1536차원이라 섞여도 조용히 계산된다).
     """
-    nodes = await store.fetch_unembedded_communications()
+    nodes = await store.fetch_unembedded_communications(force)
     if not nodes:
         logger.info("보정할 Communication 노드 없음")
-        return 0
+        return {"saved": 0, "total": 0}
 
     bodies = [n["body"] for n in nodes]
     vectors = await embed_batch(bodies)
@@ -267,22 +297,26 @@ async def backfill_communication_embeddings(store: ReferenceStore) -> int:
             saved += 1
 
     logger.info("Communication 임베딩 보정 완료: %d/%d개", saved, len(nodes))
-    return saved
+    return {"saved": saved, "total": len(nodes)}
 
 
-async def backfill_changeset_message_embeddings(store: ReferenceStore) -> int:
+async def backfill_changeset_message_embeddings(store: ReferenceStore, force: bool = False) -> dict:
     """message는 있는데 embedding이 없는 ChangeSet 노드를 배치 임베딩으로 보정.
 
     커밋 메시지 임베딩 도입 이전에 수집된 노드는 message 원문이 이미 저장돼 있어
     이벤트 재주입 없이 여기서 채운다. 수집 중 임베딩이 실패한 노드의 보정도 겸한다.
 
+    Args:
+        force: 전량 재임베딩 (근거는 backfill_communication_embeddings 참고)
+
     Returns:
-        임베딩이 저장된 노드 수
+        {"saved": 저장된 노드 수, "total": 대상 노드 수} — 완주 판정 근거는
+        backfill_communication_embeddings 참고
     """
-    nodes = await store.fetch_unembedded_changeset_messages()
+    nodes = await store.fetch_unembedded_changeset_messages(force)
     if not nodes:
         logger.info("보정할 ChangeSet 노드 없음")
-        return 0
+        return {"saved": 0, "total": 0}
 
     vectors = await embed_batch([n["message"] for n in nodes])
 
@@ -293,4 +327,36 @@ async def backfill_changeset_message_embeddings(store: ReferenceStore) -> int:
             saved += 1
 
     logger.info("ChangeSet 메시지 임베딩 보정 완료: %d/%d개", saved, len(nodes))
-    return saved
+    return {"saved": saved, "total": len(nodes)}
+
+
+async def backfill_modified_embeddings(store: ReferenceStore, force: bool = False) -> dict:
+    """diffSummary는 있는데 embedding이 없는 MODIFIED 엣지를 배치 임베딩으로 보정.
+
+    임베딩 대상은 저장된 diffSummary 원문이다 — 수집 경로(event_handler)가 임베딩한 것과
+    같은 텍스트라야 수집 엣지와 백필 엣지의 벡터가 같은 기준이 된다(요약 LLM 재호출 없음).
+
+    Args:
+        force: 전량 재임베딩 (근거는 backfill_communication_embeddings 참고)
+
+    Returns:
+        {"saved": 저장된 엣지 수, "total": 대상 엣지 수} — 완주 판정 근거는
+        backfill_communication_embeddings 참고
+    """
+    edges = await store.fetch_unembedded_modified_edges(force)
+    if not edges:
+        logger.info("보정할 MODIFIED 엣지 없음")
+        return {"saved": 0, "total": 0}
+
+    vectors = await embed_batch([e["diff_summary"] for e in edges])
+
+    saved = 0
+    for edge, vec in zip(edges, vectors):
+        if vec:
+            await store.save_modified_embedding(
+                edge.get("project_id") or "", edge["changeset_id"], edge["file_path"], vec
+            )
+            saved += 1
+
+    logger.info("MODIFIED 임베딩 보정 완료: %d/%d개", saved, len(edges))
+    return {"saved": saved, "total": len(edges)}

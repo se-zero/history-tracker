@@ -33,6 +33,8 @@ EXPECTED_ROUTES = {
     ("POST", "/migrations/clear-semantic-discussed-in"),
     ("POST", "/migrations/clear-semantic-triggered-by"),
     ("POST", "/migrations/discussed-in-source"),
+    ("POST", "/migrations/issue-embeddings"),
+    ("POST", "/migrations/modified-embeddings"),
     ("POST", "/migrations/pr-jira-keys"),
     ("POST", "/migrations/triggered-by-source"),
     ("GET", "/query/config"),

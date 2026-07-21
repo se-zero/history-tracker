@@ -81,13 +81,15 @@ async def _create_reference_edge(project_id: str, changeset_id: str, communicati
         )
 
 
-async def _fetch_unembedded_communications(project_id: str | None = None) -> list[dict]:
+async def _fetch_unembedded_communications(project_id: str | None = None, force: bool = False) -> list[dict]:
     query = """
         MATCH (comm:Communication)
-        WHERE comm.embedding IS NULL
+        WHERE comm.body IS NOT NULL __EMBEDDING_FILTER__
         __PROJECT_FILTER__
         RETURN comm.project_id AS project_id, comm.url AS id, comm.body AS body
-    """.replace("__PROJECT_FILTER__", "AND comm.project_id = $project_id" if project_id else "")
+    """.replace(
+        "__EMBEDDING_FILTER__", "" if force else "AND comm.embedding IS NULL"
+    ).replace("__PROJECT_FILTER__", "AND comm.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
         result = await session.run(query, project_id=project_id)
         rows = await result.data()
@@ -107,13 +109,15 @@ async def _save_communication_embedding(project_id: str, communication_id: str, 
         )
 
 
-async def _fetch_unembedded_changeset_messages(project_id: str | None = None) -> list[dict]:
+async def _fetch_unembedded_changeset_messages(project_id: str | None = None, force: bool = False) -> list[dict]:
     query = """
         MATCH (c:ChangeSet)
-        WHERE c.message IS NOT NULL AND c.message <> '' AND c.embedding IS NULL
+        WHERE c.message IS NOT NULL AND c.message <> '' __EMBEDDING_FILTER__
         __PROJECT_FILTER__
         RETURN c.project_id AS project_id, c.hash AS id, c.message AS message
-    """.replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
+    """.replace(
+        "__EMBEDDING_FILTER__", "" if force else "AND c.embedding IS NULL"
+    ).replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
         result = await session.run(query, project_id=project_id)
         rows = await result.data()
@@ -159,6 +163,49 @@ async def _save_changeset_message_embedding(project_id: str, changeset_id: str, 
         )
 
 
+async def _fetch_unembedded_modified_edges(project_id: str | None = None, force: bool = False) -> list[dict]:
+    query = """
+        MATCH (c:ChangeSet)-[r:MODIFIED]->(f:File)
+        WHERE r.diffSummary IS NOT NULL AND r.diffSummary <> '' __EMBEDDING_FILTER__
+        __PROJECT_FILTER__
+        RETURN c.project_id AS project_id,
+               c.hash AS changeset_id,
+               f.path AS file_path,
+               r.diffSummary AS diff_summary
+    """.replace(
+        "__EMBEDDING_FILTER__", "" if force else "AND r.embedding IS NULL"
+    ).replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
+    async with get_driver().session() as session:
+        result = await session.run(query, project_id=project_id)
+        rows = await result.data()
+    return [
+        {
+            "project_id":   r["project_id"],
+            "changeset_id": r["changeset_id"],
+            "file_path":    r["file_path"],
+            "diff_summary": r["diff_summary"],
+        }
+        for r in rows
+    ]
+
+
+async def _save_modified_embedding(
+    project_id: str, changeset_id: str, file_path: str, embedding: list[float]
+) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_id})
+                  -[r:MODIFIED]->(f:File {project_id: $project_id, path: $file_path})
+            SET r.embedding = $embedding
+            """,
+            project_id=project_id,
+            changeset_id=changeset_id,
+            file_path=file_path,
+            embedding=embedding,
+        )
+
+
 def make_neo4j_reference_store(project_id: str | None = None):
     """Neo4j 기반 ReferenceStore 인스턴스를 반환한다.
 
@@ -170,9 +217,11 @@ def make_neo4j_reference_store(project_id: str | None = None):
         fetch_modified_embeddings=lambda: _fetch_modified_embeddings(project_id),
         fetch_communication_embeddings=lambda: _fetch_communication_embeddings(project_id),
         create_reference_edge=_create_reference_edge,
-        fetch_unembedded_communications=lambda: _fetch_unembedded_communications(project_id),
+        fetch_unembedded_communications=lambda force: _fetch_unembedded_communications(project_id, force),
         save_communication_embedding=_save_communication_embedding,
-        fetch_unembedded_changeset_messages=lambda: _fetch_unembedded_changeset_messages(project_id),
+        fetch_unembedded_changeset_messages=lambda force: _fetch_unembedded_changeset_messages(project_id, force),
         save_changeset_message_embedding=_save_changeset_message_embedding,
         fetch_changeset_message_embeddings=lambda: _fetch_changeset_message_embeddings(project_id),
+        fetch_unembedded_modified_edges=lambda force: _fetch_unembedded_modified_edges(project_id, force),
+        save_modified_embedding=_save_modified_embedding,
     )

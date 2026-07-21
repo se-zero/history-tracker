@@ -28,7 +28,7 @@ from typing import Awaitable, Callable
 
 import numpy as np
 
-from graph.embedder import similarity_matrix
+from graph.embedder import embed_batch, similarity_matrix
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,22 @@ class IssueLinkStore:
         [{"project_id": str, "changeset_id": str, "message": str, "embedding": list[float],
           "occurred_at": datetime}, ...]
         message는 원문이다 — 수동 정밀 구축이 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
+    """
+
+    fetch_unembedded_issues: Callable[[bool], Awaitable[list[dict]]]
+    """embedding 프로퍼티가 없는 Issue 노드 반환 (보정용).
+    Args:
+        force: True면 embedding이 이미 있는 노드까지 전부 반환 (모델 교체 시 전량 재임베딩)
+    Returns:
+        [{"project_id": str, "id": str (jira_key), "title": str, "body": str}, ...]
+    """
+
+    save_issue_embedding: Callable[[str, str, list[float]], Awaitable[None]]
+    """Issue 노드에 embedding 저장.
+    Args:
+        project_id: 프로젝트 UUID
+        jira_key:   Issue jira_key
+        embedding:  임베딩 벡터
     """
 
 
@@ -384,3 +400,34 @@ async def build_issue_communication_links(
     logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f, margin=%.2f, window=-%dd/+%dd)",
                 created, threshold, margin, pre_days, post_days)
     return created
+
+
+async def backfill_issue_embeddings(store: IssueLinkStore, force: bool = False) -> dict:
+    """embedding이 없는 Issue 노드를 배치 임베딩으로 보정.
+
+    임베딩 대상 텍스트는 수집 경로(event_handler)와 같은 "title\\n\\nbody"다 — 어긋나면
+    수집으로 들어온 이슈와 백필로 채운 이슈의 벡터가 서로 다른 기준이 된다.
+
+    Args:
+        force: 이미 embedding이 있는 노드까지 다시 임베딩한다 (임베딩 모델 교체 시 전량 교체).
+               기본 False는 기존 동작(수집 중 누락분만 보정) 유지.
+
+    Returns:
+        {"saved": 저장된 노드 수, "total": 대상 노드 수}
+        embed_batch가 청크 실패를 빈 벡터로 삼키므로, saved != total로 미완주를 드러낸다.
+    """
+    nodes = await store.fetch_unembedded_issues(force)
+    if not nodes:
+        logger.info("보정할 Issue 노드 없음")
+        return {"saved": 0, "total": 0}
+
+    vectors = await embed_batch([f"{n['title']}\n\n{n['body']}" for n in nodes])
+
+    saved = 0
+    for node, vec in zip(nodes, vectors):
+        if vec:
+            await store.save_issue_embedding(node.get("project_id") or "", node["id"], vec)
+            saved += 1
+
+    logger.info("Issue 임베딩 보정 완료: %d/%d개", saved, len(nodes))
+    return {"saved": saved, "total": len(nodes)}

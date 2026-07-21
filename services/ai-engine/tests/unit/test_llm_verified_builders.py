@@ -61,6 +61,8 @@ class _FakeStore:
             fetch_unembedded_changeset_messages=AsyncMock(return_value=[]),
             save_changeset_message_embedding=AsyncMock(),
             fetch_changeset_message_embeddings=AsyncMock(return_value=self.messages),
+            fetch_unembedded_modified_edges=AsyncMock(return_value=[]),
+            save_modified_embedding=AsyncMock(),
         )
 
 
@@ -154,6 +156,8 @@ class _FakeIssueStore:
             create_triggered_by_edge=_tb,
             create_discussed_in_edge=_di,
             fetch_changeset_message_embeddings=AsyncMock(return_value=self.messages),
+            fetch_unembedded_issues=AsyncMock(return_value=[]),
+            save_issue_embedding=AsyncMock(),
         )
 
 
