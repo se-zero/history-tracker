@@ -66,18 +66,39 @@ TOOLS = [
         "function": {
             "name": "get_timeline",
             "description": (
-                "Jira 이슈 기준으로 Slack 논의 → Jira 생성 → 커밋 → PR 머지 순서를 "
-                "UTC 기준 오름차순으로 반환한다. 타임라인 순서 검증에 사용."
+                "'언제', '어떤 순서로', '시간순으로', '과정' 류 질문의 기본 도구. "
+                "Slack 논의·Jira 생성/완료·커밋·PR 오픈/머지를 UTC 오름차순으로 반환하며 "
+                "각 이벤트에 event_meaning 라벨이 붙는다(시각만 보고 추정하지 말 것). "
+                "스코프는 넷 중 하나를 고른다 — jira_key(이슈) / path(파일) / actor(사람) / "
+                "전부 생략(프로젝트 전체). from_time·to_time으로 기간을 좁힐 수 있다. "
+                "'이 프로젝트가 어떤 순서로 만들어졌어', 'OO가 5월에 뭐 했어'처럼 특정 "
+                "엔티티가 없는 시간순 질문에도 쓴다."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "jira_key": {
                         "type": "string",
-                        "description": "Jira 티켓 키",
-                    }
+                        "description": "이슈 스코프 — Jira 티켓 키 (예: HT-45)",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "파일 스코프 — 파일 경로. 그 파일을 바꾼 커밋과 관련 PR·이슈를 시간순으로",
+                    },
+                    "actor": {
+                        "type": "string",
+                        "description": "사람 스코프 — 이름·alias·이메일 중 하나",
+                    },
+                    "from_time": {
+                        "type": "string",
+                        "description": "조회 시작 시각 ISO-8601 (예: 2026-05-01T00:00:00Z). 생략 시 처음부터",
+                    },
+                    "to_time": {
+                        "type": "string",
+                        "description": "조회 종료 시각 ISO-8601. 생략 시 끝까지",
+                    },
                 },
-                "required": ["jira_key"],
+                "required": [],
             },
         },
     },
