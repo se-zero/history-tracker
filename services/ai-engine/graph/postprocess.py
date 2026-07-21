@@ -247,7 +247,9 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
     results = {
         "slack_kept":        slack["kept"],
         "slack_deleted":     slack["deleted"],
-        "backfilled":        await backfill_communication_embeddings(ref_store),
+        # backfill은 {"saved", "total"}을 주지만 여기선 saved만 싣는다 —
+        # 빌드 결과의 backfilled는 backend가 int로 역직렬화하는 기존 계약이다.
+        "backfilled":        (await backfill_communication_embeddings(ref_store))["saved"],
         "triggered_by":      await build_triggered_by(link_store),
         "discussed_in":      await build_discussed_in(link_store),
         "reference":         await build_reference(ref_store),

@@ -15,6 +15,7 @@ import asyncio
 import math
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN,
@@ -23,6 +24,7 @@ from graph.issue_linker import (
     TRIGGERED_BY_MESSAGE_MODE,
     TRIGGERED_BY_THRESHOLD,
     IssueLinkStore,
+    backfill_issue_embeddings,
     build_issue_changeset_links,
     build_issue_communication_links,
 )
@@ -95,6 +97,8 @@ class _FakeStore:
             create_triggered_by_edge=unsupported,
             create_discussed_in_edge=create_discussed_in,
             fetch_changeset_message_embeddings=unsupported,
+            fetch_unembedded_issues=unsupported,
+            save_issue_embedding=unsupported,
         )
 
     def linked_comms(self) -> set[str]:
@@ -358,8 +362,9 @@ class TriggeredByDefaultThresholdTest(unittest.TestCase):
 
     def test_default_threshold_catches_low_scoring_true_links(self):
         # 후보는 text 링크가 전혀 없는 커밋뿐(store fetch에서 제외)이라 풀이 작고,
-        # 진짜 연결은 diff 요약↔이슈의 어휘 차이로 0.30~0.38에 깔려 있다 — 0.55는 전멸시켰다.
-        self.assertEqual(TRIGGERED_BY_THRESHOLD, 0.30)
+        # 진짜 연결은 diff 요약↔이슈의 어휘 차이로 낮은 점수대에 깔려 있다 — 0.55는 전멸시켰다.
+        # 값은 임베딩 모델(3-large@1536) 재스윕으로 확정 — 모델을 바꾸면 함께 재스윕된다.
+        self.assertEqual(TRIGGERED_BY_THRESHOLD, 0.34)
 
         created: list[tuple[str, str, str, float]] = []
 
@@ -368,8 +373,8 @@ class TriggeredByDefaultThresholdTest(unittest.TestCase):
 
         async def fetch_mods():
             return [
-                self._mod("cs-golden", _vec(0.33)),   # 골든 쌍 점수대 — 기본값에서 살아야 한다
-                self._mod("cs-below", _vec(0.29)),    # 바닥 아래 — 잘려야 한다
+                self._mod("cs-golden", _vec(0.36)),   # 골든 쌍 점수대 — 기본값에서 살아야 한다
+                self._mod("cs-below", _vec(0.33)),    # 바닥 아래 — 잘려야 한다
             ]
 
         async def create_tb(project_id, cs_id, jira_key, confidence):
@@ -389,6 +394,8 @@ class TriggeredByDefaultThresholdTest(unittest.TestCase):
             create_triggered_by_edge=create_tb,
             create_discussed_in_edge=unsupported,
             fetch_changeset_message_embeddings=fetch_no_messages,
+            fetch_unembedded_issues=unsupported,
+            save_issue_embedding=unsupported,
         )
 
         asyncio.run(build_issue_changeset_links(store))
@@ -443,6 +450,8 @@ class _FakeTbStore:
             create_triggered_by_edge=create_tb,
             create_discussed_in_edge=unsupported,
             fetch_changeset_message_embeddings=fetch_messages,
+            fetch_unembedded_issues=unsupported,
+            save_issue_embedding=unsupported,
         )
 
 
@@ -543,7 +552,7 @@ class TriggeredByMessageModeTest(unittest.TestCase):
 
 
 class TriggeredByAdoptedDefaultsTest(unittest.TestCase):
-    """기본값 = 채택 구성 (message_mode max, 임계값은 0.30 유지).
+    """기본값 = 채택 구성 (message_mode max, 임계값 0.34).
 
     postprocess 자동 빌드는 인자 없이 호출하므로, 측정으로 확정한 구성과 코드 기본값이
     같아야 프로덕션이 측정과 동일하게 돈다 — 그 일치를 박는 계약 테스트.
@@ -576,6 +585,94 @@ class TriggeredByAdoptedDefaultsTest(unittest.TestCase):
         self.assertTrue(fake.fetched_messages)
         self.assertEqual(created, 1)
         self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
+
+
+class IssueEmbeddingBackfillTest(unittest.TestCase):
+    """backfill_issue_embeddings — embedding이 없는 Issue 노드 보정.
+
+    임베딩 대상 텍스트는 수집 경로(event_handler)와 같은 "title\\n\\nbody"여야 한다 —
+    다르면 수집으로 들어온 이슈와 백필로 채운 이슈의 벡터가 서로 다른 기준이 된다.
+    force는 이미 embedding이 있는 노드까지 덮어쓰는 전량 재임베딩(모델 교체용).
+    반환은 {"saved", "total"} — saved != total이면 완주하지 못한 것이다.
+    """
+
+    def _store(self, nodes, seen=None):
+        saved: list[tuple[str, str, list[float]]] = []
+
+        async def fetch_unembedded(force):
+            if seen is not None:
+                seen.append(force)
+            return nodes
+
+        async def save(project_id, jira_key, embedding):
+            saved.append((project_id, jira_key, embedding))
+
+        async def unsupported(*args, **kwargs):
+            raise AssertionError("이 테스트에서 호출되지 않아야 한다")
+
+        store = IssueLinkStore(
+            fetch_issue_embeddings=unsupported,
+            fetch_modified_embeddings=unsupported,
+            fetch_communication_embeddings=unsupported,
+            create_triggered_by_edge=unsupported,
+            create_discussed_in_edge=unsupported,
+            fetch_changeset_message_embeddings=unsupported,
+            fetch_unembedded_issues=fetch_unembedded,
+            save_issue_embedding=save,
+        )
+        return store, saved
+
+    def test_embeds_title_and_body_joined_like_ingestion(self):
+        store, saved = self._store([
+            {"project_id": "p1", "id": "HT-1", "title": "로그인 실패", "body": "토큰 만료 처리"},
+            {"project_id": "p1", "id": "HT-2", "title": "문서 정리", "body": ""},
+        ])
+
+        with mock.patch(
+            "graph.issue_linker.embed_batch",
+            new=mock.AsyncMock(return_value=[[0.1, 0.2], [0.3, 0.4]]),
+        ) as embed:
+            result = asyncio.run(backfill_issue_embeddings(store))
+
+        embed.assert_awaited_once_with(["로그인 실패\n\n토큰 만료 처리", "문서 정리\n\n"])
+        self.assertEqual(result, {"saved": 2, "total": 2})
+        self.assertEqual(saved, [("p1", "HT-1", [0.1, 0.2]), ("p1", "HT-2", [0.3, 0.4])])
+
+    def test_partial_embedding_failure_shows_as_saved_below_total(self):
+        # 신·구 모델 벡터가 같은 1536차원이라 섞여도 조용히 계산된다 —
+        # 완주하지 못했다는 사실은 saved < total로만 드러난다.
+        store, saved = self._store([
+            {"project_id": "p1", "id": "HT-1", "title": "A", "body": "a"},
+            {"project_id": "p1", "id": "HT-2", "title": "B", "body": "b"},
+        ])
+
+        with mock.patch(
+            "graph.issue_linker.embed_batch",
+            new=mock.AsyncMock(return_value=[[0.5, 0.5], []]),
+        ):
+            result = asyncio.run(backfill_issue_embeddings(store))
+
+        self.assertEqual(result, {"saved": 1, "total": 2})
+        self.assertEqual(saved, [("p1", "HT-1", [0.5, 0.5])])
+
+    def test_noop_when_nothing_to_backfill(self):
+        store, saved = self._store([])
+
+        with mock.patch("graph.issue_linker.embed_batch", new=mock.AsyncMock()) as embed:
+            result = asyncio.run(backfill_issue_embeddings(store))
+
+        embed.assert_not_awaited()
+        self.assertEqual(result, {"saved": 0, "total": 0})
+        self.assertEqual(saved, [])
+
+    def test_force_flag_is_forwarded_to_fetch(self):
+        seen: list[bool] = []
+        store, _ = self._store([], seen)
+
+        asyncio.run(backfill_issue_embeddings(store))
+        asyncio.run(backfill_issue_embeddings(store, force=True))
+
+        self.assertEqual(seen, [False, True])   # 기본은 구멍 메우기, force면 전량
 
 
 if __name__ == "__main__":

@@ -123,6 +123,45 @@ async def _fetch_changeset_message_embeddings_for_issue_linking(project_id: str 
     ]
 
 
+async def _fetch_unembedded_issues(project_id: str | None = None, force: bool = False) -> list[dict]:
+    query = """
+        MATCH (i:Issue)
+        WHERE (i.title IS NOT NULL OR i.body IS NOT NULL) __EMBEDDING_FILTER__
+        __PROJECT_FILTER__
+        RETURN i.project_id AS project_id,
+               i.jira_key AS id,
+               i.title AS title,
+               i.body AS body
+    """.replace(
+        "__EMBEDDING_FILTER__", "" if force else "AND i.embedding IS NULL"
+    ).replace("__PROJECT_FILTER__", "AND i.project_id = $project_id" if project_id else "")
+    async with get_driver().session() as session:
+        result = await session.run(query, project_id=project_id)
+        rows = await result.data()
+    return [
+        {
+            "project_id": r["project_id"],
+            "id":         r["id"],
+            "title":      r["title"] or "",
+            "body":       r["body"] or "",
+        }
+        for r in rows
+    ]
+
+
+async def _save_issue_embedding(project_id: str, jira_key: str, embedding: list[float]) -> None:
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            SET i.embedding = $embedding
+            """,
+            project_id=project_id,
+            jira_key=jira_key,
+            embedding=embedding,
+        )
+
+
 async def _create_triggered_by_semantic_edge(
     project_id: str, changeset_id: str, jira_key: str, confidence: float
 ) -> None:
@@ -192,4 +231,6 @@ def make_neo4j_issue_link_store(project_id: str | None = None):
         create_triggered_by_edge=_create_triggered_by_semantic_edge,
         create_discussed_in_edge=_create_discussed_in_semantic_edge,
         fetch_changeset_message_embeddings=lambda: _fetch_changeset_message_embeddings_for_issue_linking(project_id),
+        fetch_unembedded_issues=lambda force: _fetch_unembedded_issues(project_id, force),
+        save_issue_embedding=_save_issue_embedding,
     )

@@ -296,6 +296,7 @@ pairs:
 |---|---|
 | `eval/sample_edges.py` | 시맨틱 엣지를 층화 샘플링 → 빈 라벨 칸이 있는 precision YAML 생성. `--count-only`로 분포만 볼 수도 있다 |
 | `eval/edge_eval.py` | 두 정답지를 현재 그래프에 대조해 precision/recall 계산 → 콘솔 출력 + JSON 저장 |
+| `eval/precheck_embedding_model.py` | 임베딩 모델 후보를 **그래프 재구축 없이** 비교 — 정답지 쌍의 원문만 후보 모델로 임베딩해 분리도(AUC)와 동일-recall precision을 낸다. 재임베딩·재스윕에 들어가기 전 모델 선택용 |
 | `eval/graph_lookup.py` | 공용 헬퍼 — Neo4j 접속, project_id 자동 감지, 노드 원문 조회 |
 | `eval/tests/test_edge_recall.py` | recall 채점 로직 단위 테스트 (Neo4j 없이 실행) |
 
@@ -334,13 +335,29 @@ pairs:
    curl -X POST "$BASE/migrations/clear-semantic-discussed-in?project_id=$PID"
    curl -X POST "$BASE/migrations/clear-reference?project_id=$PID"
 
-   # 2) 새 파라미터로 다시 긋는다 (임계값은 스윕 대상)
+   # 2) 새 파라미터로 다시 긋는다 (임계값은 스윕 대상 — 아래는 현행 채택값)
    curl -X POST "$BASE/reference/backfill"
    curl -X POST "$BASE/issue-links/build" -H 'Content-Type: application/json' \
-        -d '{"triggered_by_threshold": 0.30, "discussed_in_threshold": 0.40}'
-   curl -X POST "$BASE/reference/build?threshold=0.30"
+        -d '{"triggered_by_threshold": 0.34, "discussed_in_threshold": 0.48}'
+   curl -X POST "$BASE/reference/build?threshold=0.44"
    curl -X POST "$BASE/reference/propagate-threads"
    ```
+
+   > **임베딩을 다시 만들어야 하는 경우에만** 위 체인 앞에 재임베딩 backfill을 넣는다.
+   > 임베딩이 저장된 곳은 4곳(`Communication`·`ChangeSet`·`Issue` 노드와 `MODIFIED` 엣지)이고,
+   > 라우트도 4개다. **임계값 튜닝에는 불필요하다** — 임베딩은 그대로고 엣지만 다시 그으면 된다.
+   > ```bash
+   > # 임베딩 모델을 바꿨다면 force=true로 4종 전부 덮어쓴다 (구 모델 벡터는 신 모델과 비교 불가).
+   > # force 없이 호출하면 embedding이 비어 있는 것만 채운다(수집 중 누락분 보정).
+   > curl -X POST "$BASE/reference/backfill?force=true"
+   > curl -X POST "$BASE/migrations/changeset-embeddings?project_id=$PID&force=true"
+   > curl -X POST "$BASE/migrations/issue-embeddings?project_id=$PID&force=true"
+   > curl -X POST "$BASE/migrations/modified-embeddings?project_id=$PID&force=true"
+   > ```
+   > 4종 모두 `{"saved": N, "total": M}`을 반환한다. **`saved != total`이면 일부가 임베딩되지 않은
+   > 것이니 재실행한다** — 배치 임베딩은 청크가 실패해도 예외 대신 빈 벡터를 채우고 넘어간다.
+   > 신·구 모델 벡터의 차원이 같으면(예: 3-small ↔ 3-large@1536) 섞여도 오류 없이 무의미한
+   > 유사도가 계산되므로, 이 대조를 건너뛰면 조용히 잘못된 측정을 하게 된다.
    > **`POST /graph/build?verify=true`를 쓰지 않는다.** `verify`는 clear 스위치가 아니라 **빌더 선택**
    > 파라미터다 — `true`면 링커가 수동 정밀 구축(LLM 검수)으로 바뀌어, 튜닝 대상인 자동구축(임베딩)을 측정하지 못한다.
    > 게다가 LLM 판정은 빌드마다 달라져 비결정적이다. 위 체인은 LLM을 타지 않아 결정적이므로

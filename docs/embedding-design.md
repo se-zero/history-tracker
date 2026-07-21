@@ -13,8 +13,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| 모델 | `text-embedding-3-small` (OpenAI) |
-| 차원 | 1536 |
+| 모델 | `text-embedding-3-large` (OpenAI) |
+| 차원 | 1536 (`dimensions` 파라미터로 절삭 — 모델 기본은 3072) |
 | 언어 | 한국어 + 영어 동시 지원 |
 | 비용 | ~$0.02 / 1M 토큰 |
 | 라이브러리 | `openai` (이미 설치됨, 추가 의존성 없음) |
@@ -23,6 +23,9 @@
 
 - **LLM**: 텍스트를 읽고 답변 생성 (actor 판단, diff 요약, Slack 필터링)
 - **임베딩 모델**: 텍스트 전체를 1536개 숫자 벡터로 압축. 역변환 불가.
+
+3072이 아니라 1536으로 절삭해 쓰는 이유는 사전 조회에서 1536과 3072의 관련/무관 쌍 분리도 차이가
+AUC +0.0026(95% CI [−0.005, +0.010])으로 **측정 해상도 안에서 구분되지 않았다** — 차원을 늘릴 실익이 없다.
 
 ---
 
@@ -56,17 +59,20 @@ Issue 이벤트         → embed_text(title + body)   → Issue.embedding 저�
 
 ### threshold 선정 근거
 
-`text-embedding-3-small`로 실측한 결과, diffSummary(구조화된 포맷)와 Communication.body(구어체 대화)는 같은 내용이어도 임베딩 공간에서 거리가 있어 유사도가 전반적으로 낮게 나온다.
+도입 초기 `text-embedding-3-small`로 실측한 결과, diffSummary(구조화된 포맷)와 Communication.body(구어체 대화)는 같은 내용이어도 임베딩 공간에서 거리가 있어 유사도가 전반적으로 낮게 나왔다.
 
-| 케이스 | 유사도 |
+| 케이스 | 유사도 (3-small 초기 실측) |
 |--------|--------|
 | 무관한 쌍 (점심 메뉴) | 0.15 |
 | 관련 있는 쌍 (한국어, 낙관적 락) | 0.33 |
 | 관련 있는 쌍 (한/영, JWT) | 0.40 |
 | 동일 의미 한/영 | 0.57 |
 
-무관한 쌍(0.15)과 관련 있는 쌍(0.33~) 사이인 **0.30**을 기본값으로 설정.
-Neo4j 연동 후 실제 데이터로 추가 조정 권장.
+초기값은 무관한 쌍(0.15)과 관련 있는 쌍(0.33~) 사이인 0.30으로 잡았고, 이후 실제 데이터 정답지 기반
+스윕으로 엣지 타입별로 재조정했다 (`docs/measurement.md` 4.5, `eval/improvement-log.md`).
+**임계값은 임베딩 모델에 종속**이라 위 표의 점수대는 3-large로 바꾼 지금은 그대로 적용되지 않는다 —
+모델을 교체하면 전 임계값 재스윕이 전제다. 현행 채택값은 코드 상수가 단일 출처다
+(`reference_builder.DEFAULT_THRESHOLD`, `issue_linker.DISCUSSED_IN_THRESHOLD`/`TRIGGERED_BY_THRESHOLD`).
 
 ---
 
@@ -80,7 +86,7 @@ Neo4j에서 Communication.embedding 목록 조회
   ↓
 occurredAt 차이 5일 이내인 쌍만 코사인 유사도 계산  ← 시간 윈도우 필터
   ↓
-유사도 ≥ 0.30 → REFERENCE 엣지 생성 (confidence = 유사도)
+유사도 ≥ 0.44 → REFERENCE 엣지 생성 (confidence = 유사도)
 ```
 
 ---
@@ -130,7 +136,7 @@ MATCH (cs:ChangeSet)-[m:MODIFIED]->(f:File)
 WHERE m.embedding IS NOT NULL
 CALL db.index.vector.queryNodes('comm_embedding', 10, m.embedding)
 YIELD node AS comm, score
-WHERE score >= 0.30 AND comm.project_id = cs.project_id
+WHERE score >= 0.44 AND comm.project_id = cs.project_id
 MERGE (cs)-[r:REFERENCE]->(comm)
 SET r.confidence = score
 ```

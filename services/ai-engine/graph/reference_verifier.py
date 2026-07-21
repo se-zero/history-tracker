@@ -1,7 +1,7 @@
 """REFERENCE(ChangeSet ↔ Communication) 엣지의 LLM 검수 빌더 — 필터형.
 
 임베딩 전용 빌더(reference_builder)의 선별 함수를 Stage 1으로 공유하고, Stage 2에서 LLM이 판정한다.
-필터형은 임베딩이 채택 파라미터(t0.39)로 확정한 쌍만 검수해 0.7 미만이면 만들지 않는다 —
+필터형은 임베딩이 채택 파라미터(t0.44)로 확정한 쌍만 검수해 0.7 미만이면 만들지 않는다 —
 후보를 추가하지는 못한다. recall ≤ 임베딩 전용이 구조적으로 보장되고, precision 상승이
 순수하게 LLM 몫으로 귀속된다. 비교 측정에서 REFERENCE에 채택된 방식이다.
 
