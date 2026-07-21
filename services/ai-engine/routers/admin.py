@@ -39,6 +39,7 @@ from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN as DISCUSSED_IN_DEFAULT_MARGIN,
     DISCUSSED_IN_POST_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_POST_DAYS,
     DISCUSSED_IN_PRE_BUFFER_DAYS as DISCUSSED_IN_DEFAULT_PRE_DAYS,
+    DISCUSSED_IN_THRESHOLD as DISCUSSED_IN_DEFAULT_THRESHOLD,
     TRIGGERED_BY_MESSAGE_MODE as TRIGGERED_BY_DEFAULT_MESSAGE_MODE,
     TRIGGERED_BY_THRESHOLD as TRIGGERED_BY_DEFAULT_THRESHOLD,
     backfill_issue_embeddings,
@@ -242,8 +243,8 @@ class IssueLinkOptions(BaseModel):
     triggered_by_threshold: float = TRIGGERED_BY_DEFAULT_THRESHOLD
     # TRIGGERED_BY 커밋 메시지 임베딩 비교 방식 (off/max/only — issue_linker 참고)
     triggered_by_message_mode: str = TRIGGERED_BY_DEFAULT_MESSAGE_MODE
-    # DISCUSSED_IN 시맨틱 매칭 임계값 (스레드 보존은 쿼리 단에서 처리하므로 기존값 유지)
-    discussed_in_threshold: float = 0.40
+    # DISCUSSED_IN 시맨틱 매칭 임계값 (기본값 근거는 issue_linker 상수 주석 참고)
+    discussed_in_threshold: float = DISCUSSED_IN_DEFAULT_THRESHOLD
     # DISCUSSED_IN fan-out 컷 — 이슈 최고점 스레드와의 허용 점수차
     discussed_in_margin: float = DISCUSSED_IN_DEFAULT_MARGIN
     # DISCUSSED_IN 시간 윈도우 — 이슈 생애(생성~종료) 앞뒤로 며칠까지 후보로 볼지.

@@ -416,16 +416,17 @@ class MessageEmbeddingModeTest(unittest.TestCase):
 
 
 class AdoptedDefaultsTest(unittest.TestCase):
-    """기본값 = 채택 운영점 (max · top_k 5 · threshold 0.39).
+    """기본값 = 채택 운영점 (max · top_k 5 · threshold 0.44).
 
     postprocess 자동 빌드는 인자 없이 호출하므로, 측정으로 확정한 구성과 코드 기본값이
     같아야 프로덕션이 측정과 동일하게 돈다 — 그 일치를 박는 계약 테스트.
+    임계값은 임베딩 모델(3-large@1536)에 종속이라 모델을 바꾸면 함께 재스윕된다.
     """
 
     def test_default_constants_are_adopted_operating_point(self):
         self.assertEqual(DEFAULT_MESSAGE_MODE, "max")
         self.assertEqual(DEFAULT_TOP_K, 5)
-        self.assertAlmostEqual(DEFAULT_THRESHOLD, 0.39)
+        self.assertAlmostEqual(DEFAULT_THRESHOLD, 0.44)
 
     def test_default_call_uses_message_rows(self):
         # diff(0.2)는 임계값 밑, 메시지(0.9)는 위 — 인자 없는 기본 호출이 메시지 행으로 엣지를 만든다
@@ -441,12 +442,12 @@ class AdoptedDefaultsTest(unittest.TestCase):
         self.assertEqual(created, 1)
         self.assertAlmostEqual(fake.created[0][3], 0.9, places=5)
 
-    def test_default_threshold_cuts_between_030_and_039(self):
-        # 0.30~0.39 구간은 재조정 측정에서 노이즈만 남았다 — 새 기본 임계값이 잘라야 한다
+    def test_default_threshold_cuts_below_044(self):
+        # 모델 교체 후 재스윕에서 0.44 미만 구간에는 노이즈만 남았다 — 기본 임계값이 잘라야 한다
         fake = _FakeStore(
             modified=[],
             comms=[_comm("m1", [1.0, 0.0])],
-            messages=[_message_row("c1", _vec(0.35))],
+            messages=[_message_row("c1", _vec(0.43))],
         )
 
         created = asyncio.run(build_reference_edges(fake.as_store()))

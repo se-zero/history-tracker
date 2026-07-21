@@ -70,14 +70,21 @@ async def chat_completion(*, priority: Priority, **kwargs):
         limiter.reconcile(reserved, _usage_total(resp, reserved))
 
 
-async def embed(*, model: str, input, priority: Priority):
-    """모든 embeddings 호출의 단일 게이트웨이."""
+async def embed(*, model: str, input, priority: Priority, dimensions: int | None = None):
+    """모든 embeddings 호출의 단일 게이트웨이.
+
+    dimensions: 출력 벡터 차원. None이면 모델 기본 차원으로 호출한다 — 차원 절삭을
+    지원하지 않는 모델에 인자를 넘기면 API가 거부하므로 지정됐을 때만 전달한다.
+    """
     est = estimate_embed_tokens(input, model)
     limiter = get_embed_limiter()
     reserved = await limiter.acquire(priority, est)
+    kwargs = {"model": model, "input": input}
+    if dimensions is not None:
+        kwargs["dimensions"] = dimensions
     resp = None
     try:
-        resp = await asyncio.to_thread(lambda: get_openai_client().embeddings.create(model=model, input=input))
+        resp = await asyncio.to_thread(lambda: get_openai_client().embeddings.create(**kwargs))
         return resp
     finally:
         limiter.reconcile(reserved, _usage_total(resp, reserved))

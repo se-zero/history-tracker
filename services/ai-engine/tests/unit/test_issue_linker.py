@@ -362,8 +362,9 @@ class TriggeredByDefaultThresholdTest(unittest.TestCase):
 
     def test_default_threshold_catches_low_scoring_true_links(self):
         # 후보는 text 링크가 전혀 없는 커밋뿐(store fetch에서 제외)이라 풀이 작고,
-        # 진짜 연결은 diff 요약↔이슈의 어휘 차이로 0.30~0.38에 깔려 있다 — 0.55는 전멸시켰다.
-        self.assertEqual(TRIGGERED_BY_THRESHOLD, 0.30)
+        # 진짜 연결은 diff 요약↔이슈의 어휘 차이로 낮은 점수대에 깔려 있다 — 0.55는 전멸시켰다.
+        # 값은 임베딩 모델(3-large@1536) 재스윕으로 확정 — 모델을 바꾸면 함께 재스윕된다.
+        self.assertEqual(TRIGGERED_BY_THRESHOLD, 0.34)
 
         created: list[tuple[str, str, str, float]] = []
 
@@ -372,8 +373,8 @@ class TriggeredByDefaultThresholdTest(unittest.TestCase):
 
         async def fetch_mods():
             return [
-                self._mod("cs-golden", _vec(0.33)),   # 골든 쌍 점수대 — 기본값에서 살아야 한다
-                self._mod("cs-below", _vec(0.29)),    # 바닥 아래 — 잘려야 한다
+                self._mod("cs-golden", _vec(0.36)),   # 골든 쌍 점수대 — 기본값에서 살아야 한다
+                self._mod("cs-below", _vec(0.33)),    # 바닥 아래 — 잘려야 한다
             ]
 
         async def create_tb(project_id, cs_id, jira_key, confidence):
@@ -551,7 +552,7 @@ class TriggeredByMessageModeTest(unittest.TestCase):
 
 
 class TriggeredByAdoptedDefaultsTest(unittest.TestCase):
-    """기본값 = 채택 구성 (message_mode max, 임계값은 0.30 유지).
+    """기본값 = 채택 구성 (message_mode max, 임계값 0.34).
 
     postprocess 자동 빌드는 인자 없이 호출하므로, 측정으로 확정한 구성과 코드 기본값이
     같아야 프로덕션이 측정과 동일하게 돈다 — 그 일치를 박는 계약 테스트.

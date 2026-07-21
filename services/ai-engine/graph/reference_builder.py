@@ -25,14 +25,10 @@ from graph.embedder import embed_batch, similarity_matrix
 
 logger = logging.getLogger(__name__)
 
-# 쌍별 max(diff+커밋 메시지) 주입 기준으로 재조정한 운영점. 재측정에서 0.30~0.39 구간에는
-# 노이즈만 남아 0.39까지 올려도 recall 손실 없이 precision만 올랐다. 점수 분포는 임베딩 모델에
-# 종속이라 모델을 바꾸면 전면 재스윕이 전제인 잠정값이다.
-DEFAULT_THRESHOLD = 0.39
+
+DEFAULT_THRESHOLD = 0.44
 TIME_WINDOW_DAYS = 5
-# 커밋당 유지할 최대 스레드 수 (fan-out 컷). 커밋의 배경 논의는 팀 규모와 무관하게 원래 소수라
-# 고정 개수가 정당하다. 메시지 행이 순위 경쟁에 끼면서 진짜 스레드가 5위까지 밀리는 사례가
-# 확인돼 4→5로 완화했다.
+# 커밋당 유지할 최대 스레드 수 (fan-out 컷)
 DEFAULT_TOP_K = 5
 # 커밋 메시지 임베딩을 diff 행과 함께 비교(쌍별 max)하는 기본 모드. 메시지 주입의 점수 상승이
 # 정답 쌍에 선별적(노이즈 상승은 미미)이라는 측정 근거로 채택 — off는 도입 전 동작(측정 재현용).

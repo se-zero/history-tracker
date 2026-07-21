@@ -7,7 +7,8 @@ from openai_client import Priority, embed
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "text-embedding-3-small"
+_MODEL = "text-embedding-3-large"
+_DIMENSIONS = 1536  # 절삭 — Neo4j 벡터 인덱스 차원 유지 (근거는 docs/embedding-design.md)
 _BATCH_CHUNK_SIZE = 200  # OpenAI Embedding API 호출당 입력 수 상한 (요청당 토큰 한도 회피)
 
 
@@ -95,7 +96,7 @@ async def _call_embed(texts: list[str], model: str, priority: Priority = Priorit
     실패 시 빈 리스트 반환 — 호출자가 빈 벡터로 처리해 이벤트 처리 흐름이 끊기지 않도록.
     """
     try:
-        response = await embed(model=model, input=texts, priority=priority)
+        response = await embed(model=model, input=texts, priority=priority, dimensions=_DIMENSIONS)
         return [item.embedding for item in response.data]
     except Exception:
         logger.exception("Embedding API 호출 실패 (input %d개)", len(texts))
