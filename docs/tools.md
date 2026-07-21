@@ -121,6 +121,13 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 
 - **스코프 우선순위**: `jira_key` > `path` > `actor` > (전부 생략) 프로젝트 전체.
   넷 다 없으면 전 기간 타임라인이라 **특정 엔티티 없는 시간순 질문에도 쓸 수 있다.**
+- **순서 뼈대이지 인용 원문이 아니다.** `events` 항목은 식별자·제목 수준 개요라 본문이 없다.
+  근거로 인용하려면 식별자로 상세 도구를 호출해 본문을 얻는다 — commit→`get_changeset_context`,
+  message→`get_thread_context`, pull_request→`get_pr_context`, issue→`get_issue_context`.
+  `get_file_history`·`get_actor_activity`의 `context` 계층과 같은 규약이다.
+  > 측정 근거: 이 규칙이 없던 런에서 모델이 타임라인을 상세 도구의 **대체**로 써
+  > (case-05 `get_issue_context` 7→3회, case-40 `get_changeset_context` 3→0회)
+  > 인용할 원문이 사라지며 evidence recall이 떨어졌다.
 - **노드 ≠ 이벤트**: 한 노드가 이벤트를 여러 개 낳는다. 매핑 단일 출처는
   `tools/queries/_common.py`의 `EVENT_SPECS`이며, `agent/orchestrator.py`의 타임스탬프 의미
   사전과 함께 움직여야 한다.

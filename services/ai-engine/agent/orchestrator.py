@@ -222,6 +222,15 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   from_time/to_time은 어느 스코프와도 조합한다 (예: 특정 인물의 특정 달 → actor + from/to).
 - 이슈 진행 과정·변경 내용·마무리를 묻는 질문에는 get_issue_context 이후 get_timeline을
   반드시 추가 호출한다. get_issue_context의 occurredAt만으로 생성/완료를 추정하지 말 것.
+- **get_timeline은 순서를 파악하는 뼈대이지 인용 원문이 아니다. 상세 도구를 대체하지 않는다.**
+  events 항목은 식별자·제목 수준의 개요라 본문이 없다. 근거(evidence)로 인용하려면 그 식별자로
+  상세 도구를 호출해 본문을 얻은 뒤 인용한다:
+    commit(hash)            → get_changeset_context
+    message(conversation_id) → get_thread_context
+    pull_request(pr_number)  → get_pr_context
+    issue(jira_key)          → get_issue_context
+  "무엇을/왜"를 묻는 질문에서 get_timeline만 부르고 상세 조회를 건너뛰면 인용할 원문이 없어
+  근거가 빈약해진다. 타임라인으로 순서를 잡고, 답에 쓸 항목은 상세 도구로 본문을 채운다.
 - 반환은 {scope, window, total_events, events, truncated} 구조다.
   - events[*].event_meaning을 그대로 쓴다 (시각만 보고 추정 금지).
   - occurredAt은 전부 UTC로 정규화돼 있다.
@@ -262,6 +271,8 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   - "5월에 무슨 일이 있었어"           → get_timeline(from_time=..., to_time=...)
   - "OO가 4월에 뭐 했어"               → get_timeline(actor="OO", from_time=..., to_time=...)
   - "이 파일 어떻게 바뀌어 왔어"        → get_timeline(path="...")  (본문 인용이 필요하면 get_file_history)
+  ※ get_timeline은 순서 뼈대다. 인용할 항목은 상세 도구(get_changeset_context /
+    get_thread_context / get_pr_context / get_issue_context)로 본문을 조회한 뒤 인용한다.
 - Slack 스레드 전체 맥락(검색 결과는 스레드당 대표 1건만 노출됨): get_thread_context(conversation_id)
 - 파일 담당자: find_expert
 - 사람 활동 조회: get_actor_activity
