@@ -125,9 +125,17 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
   근거로 인용하려면 식별자로 상세 도구를 호출해 본문을 얻는다 — commit→`get_changeset_context`,
   message→`get_thread_context`, pull_request→`get_pr_context`, issue→`get_issue_context`.
   `get_file_history`·`get_actor_activity`의 `context` 계층과 같은 규약이다.
+  여러 종류가 섞여 있으면 한 종류만 파고들지 않는다 — "왜/배경/발단" 질문에서 `message`
+  이벤트는 논의의 출발점을 담는다.
   > 측정 근거: 이 규칙이 없던 런에서 모델이 타임라인을 상세 도구의 **대체**로 써
   > (case-05 `get_issue_context` 7→3회, case-40 `get_changeset_context` 3→0회)
-  > 인용할 원문이 사라지며 evidence recall이 떨어졌다.
+  > 인용할 원문이 사라지며 evidence recall이 떨어졌다. 규칙 추가 후에도 커밋만 상세
+  > 조회하는 쏠림이 남아(case-44: message 12건·PR #34가 출력에 떴으나 3런 모두 미인용),
+  > 종류를 고르게 커버하라는 규칙을 덧붙였다.
+- **이슈 스코프는 `CHILD_OF` 자식 이슈까지 포함**한다(`get_issue_context`와 같은 범위).
+  root만 보면 epic의 "어떤 하위 작업들로 진행됐나"에 답할 수 없고, 정보량이 더 적은
+  타임라인이 `get_issue_context` 드릴다운을 밀어내는 회귀가 생긴다
+  (case-05: 자식 이슈 4건 조회가 타임라인 1회로 대체되며 recall 0.778 → 0.111).
 - **노드 ≠ 이벤트**: 한 노드가 이벤트를 여러 개 낳는다. 매핑 단일 출처는
   `tools/queries/_common.py`의 `EVENT_SPECS`이며, `agent/orchestrator.py`의 타임스탬프 의미
   사전과 함께 움직여야 한다.

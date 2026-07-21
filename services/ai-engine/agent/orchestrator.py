@@ -231,6 +231,12 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
     issue(jira_key)          → get_issue_context
   "무엇을/왜"를 묻는 질문에서 get_timeline만 부르고 상세 조회를 건너뛰면 인용할 원문이 없어
   근거가 빈약해진다. 타임라인으로 순서를 잡고, 답에 쓸 항목은 상세 도구로 본문을 채운다.
+- **events에 여러 종류가 섞여 있으면 한 종류만 파고들지 말 것.** 커밋만 상세 조회하고 같은
+  창에 뜬 message·pull_request를 건너뛰면 답이 한쪽으로 기운다. 특히 "왜 / 배경 / 발단 /
+  어떻게 시작됐나"를 묻는 질문에서 **message 이벤트는 논의의 출발점**을 담고 있으므로,
+  타임라인에 message가 있으면 그 conversation_id로 get_thread_context를 호출해 확인한다.
+  타임라인에 뜬 PR·이슈도 질문과 관련되면 각각의 상세 도구로 확인한다 — 타임라인이 보여준
+  것과 다른 PR 번호를 임의로 조회하지 말고, events에 실제로 있는 식별자를 쓴다.
 - 반환은 {scope, window, total_events, events, truncated} 구조다.
   - events[*].event_meaning을 그대로 쓴다 (시각만 보고 추정 금지).
   - occurredAt은 전부 UTC로 정규화돼 있다.

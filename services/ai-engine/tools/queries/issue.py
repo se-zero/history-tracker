@@ -305,47 +305,64 @@ def _issue_lifecycle_events(rows: list[dict]) -> list[dict]:
 
 
 async def _issue_events(session, project_id: str, jira_key: str) -> list[dict] | None:
-    """이슈 스코프 — 이슈 생명주기 + 연결된 커밋·PR·논의 (현행 동작)."""
+    """이슈 스코프 — 이슈 생명주기 + 연결된 커밋·PR·논의.
+
+    **CHILD_OF 자식 이슈까지 포함**한다 (get_issue_context와 같은 범위). epic 아래
+    하위 작업이 달린 구조에서 root만 보면 "어떤 하위 작업들로 진행됐나"에 답할 수 없고,
+    정보량이 더 적은 타임라인이 get_issue_context 드릴다운을 밀어내는 회귀가 생긴다
+    (case-05: 자식 이슈 4건 조회가 타임라인 1회로 대체되며 recall 0.778 → 0.111).
+    """
     result = await session.run(
-        """
-        MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+        f"""
+        MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
+        OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
+        WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
+        UNWIND issues_raw AS i
+        WITH i WHERE i IS NOT NULL
         OPTIONAL MATCH (cs:ChangeSet)-[tb:TRIGGERED_BY]->(i)
             WHERE coalesce(tb.confidence, 1.0) >= $min_conf
         OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
-        RETURN i,
-               collect(DISTINCT {
+        RETURN collect(DISTINCT {{
+                   createdAt: toString(i.createdAt), closedAt: toString(i.closedAt),
+                   jira_key: i.jira_key, title: i.title, status: i.status
+               }}) AS issues,
+               collect(DISTINCT {{
                    occurredAt: toString(cs.occurredAt),
                    hash: cs.hash, message: cs.message,
                    confidence: tb.confidence, link_source: tb.source
-               }) AS changesets,
-               collect(DISTINCT {
+               }}) AS changesets,
+               collect(DISTINCT {{
                    createdAt: toString(pr.createdAt),
                    occurredAt: toString(pr.occurredAt),
                    pr_number: pr.pr_number, title: pr.title, url: pr.url
-               }) AS pull_requests
+               }}) AS pull_requests
         """,
         project_id=project_id, jira_key=jira_key, min_conf=_MIN_CONFIDENCE,
     )
     row = await result.single()
-    if not row:
+    if not row or not row["issues"] or not any(i.get("jira_key") for i in row["issues"]):
         return None
 
-    i = row["i"]
-    events = _issue_lifecycle_events([{
-        "createdAt": i.get("createdAt"), "closedAt": i.get("closedAt"),
-        "jira_key": i.get("jira_key"), "title": i.get("title"), "status": i.get("status"),
-    }])
-    events += _cs_events(row["changesets"]) + _pr_events(row["pull_requests"])
+    events = (
+        _issue_lifecycle_events(row["issues"])
+        + _cs_events(row["changesets"])
+        + _pr_events(row["pull_requests"])
+    )
 
-    # 논의는 이슈와 독립적이므로 별도 쿼리
+    # 논의는 이슈와 독립적이므로 별도 쿼리 (자식 이슈의 논의까지 포함)
     result2 = await session.run(
-        """
-        MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})-[:DISCUSSED_IN]->(c:Communication)
-        RETURN collect(DISTINCT {
+        f"""
+        MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
+        OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
+        WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
+        UNWIND issues_raw AS i
+        WITH i WHERE i IS NOT NULL
+        MATCH (i)-[:DISCUSSED_IN]->(c:Communication)
+        RETURN collect(DISTINCT {{
             occurredAt: toString(c.occurredAt),
             body: c.body, channel: c.channel, source: c.source,
             conversation_id: c.conversation_id
-        }) AS communications
+        }}) AS communications
         """,
         project_id=project_id, jira_key=jira_key,
     )

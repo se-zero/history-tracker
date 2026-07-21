@@ -79,11 +79,16 @@ TOOLS = [
                 "properties": {
                     "jira_key": {
                         "type": "string",
-                        "description": "이슈 스코프 — Jira 티켓 키 (예: HT-45)",
+                        "description": "이슈 스코프 — Jira 티켓 키 (예: HT-45). 자식 이슈(CHILD_OF)까지 포함한다",
                     },
                     "path": {
                         "type": "string",
-                        "description": "파일 스코프 — 파일 경로. 그 파일을 바꾼 커밋과 관련 PR·이슈를 시간순으로",
+                        "description": (
+                            "파일 스코프 — 저장소 내 **파일 경로**만 (예: src/auth/token.py). "
+                            "그 파일을 바꾼 커밋과 담은 PR을 시간순으로. "
+                            "커밋 해시·PR 번호·이슈 키를 여기 넣지 말 것 "
+                            "(커밋 하나는 get_changeset_context를 쓴다)"
+                        ),
                     },
                     "actor": {
                         "type": "string",
