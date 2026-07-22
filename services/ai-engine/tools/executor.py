@@ -223,6 +223,13 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
                 to_time=args.get("to_time"),
             )
 
+        case "rank_issues":
+            return await queries.rank_issues(
+                project_id=project_id,
+                by=args.get("by", "discussion"),
+                top_k=args.get("top_k", 5),
+            )
+
         case "search_by_keyword":
             # LLM이 keyword 문자열을 전달 → executor에서 임베딩 생성.
             # 질의 경로이므로 INTERACTIVE — 수집 임베딩보다 먼저 처리돼 질의 latency를 보호한다.

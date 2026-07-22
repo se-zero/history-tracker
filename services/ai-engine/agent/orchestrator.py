@@ -282,6 +282,10 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   - "5월에 무슨 일이 있었어"           → get_timeline(from_time=..., to_time=...)
   - "OO가 4월에 뭐 했어"               → get_timeline(actor="OO", from_time=..., to_time=...)
   - "이 파일 어떻게 바뀌어 왔어"        → get_timeline(path="...")  (본문 인용이 필요하면 get_file_history)
+- 이슈 랭킹 질문("가장 오래/많이 논의된 티켓", "가장 오래 걸린 이슈"): rank_issues(by=...)
+  - **get_timeline으로 답하지 말 것** — 스코프 시간축이라 전수 비교를 못 해, 어쩌다 걸린 한
+    이슈를 최상위로 오답낸다. 전체 비교가 필요한 '가장 ~한 이슈'는 rank_issues만 쓴다.
+  - "많이/활발히 논의된" → by="discussion", "오래 걸린/기간이 긴" → by="duration"
   ※ get_timeline은 순서 뼈대다. 인용할 항목은 상세 도구(get_changeset_context /
     get_thread_context / get_pr_context / get_issue_context)로 본문을 조회한 뒤 인용한다.
 - Slack 스레드 전체 맥락(검색 결과는 스레드당 대표 1건만 노출됨): get_thread_context(conversation_id)

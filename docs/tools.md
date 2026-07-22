@@ -53,6 +53,7 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | 2 | `get_changeset_context` | 커밋 hash로 변경 이유(이슈/논의/PR/diff) 조회 | `get_changeset_context` |
 | 3 | `find_expert` | 파일/디렉토리 최다 기여자 식별 (최근 6개월 2배 가중) | `find_expert` |
 | 4 | `get_timeline` | 시간순 이벤트를 스코프별(이슈/파일/사람/전체 ±기간)로 반환 | `get_timeline` |
+| 4b | `rank_issues` | 이슈 전체를 논의량·진행기간으로 정렬해 상위 반환 | `rank_issues` |
 | 5 | `search_by_keyword` | 자연어 키워드 시맨틱 검색 (Communication + Issue) | `search_by_keyword` |
 | 6 | `get_actor_activity` | 사람(이름/alias/email) 중심 활동 조회 | `get_actor_activity` |
 | 7 | `get_file_history` | 파일 변경 이력 + 경로 fuzzy fallback | `get_file_history` |
@@ -176,6 +177,25 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
   펼치면 파일 하나에 연결된 이슈 수십 개의 생성/완료가 정작 그 파일을 바꾼 커밋을 덮는다.
   경로 fuzzy 폴백(basename → stem)은 `get_file_history`와 같은 규칙이고, 후보가 2개 이상이면
   `scope.candidates`를 돌려 재호출을 유도한다.
+
+### 4b. `rank_issues`
+
+이슈 **전체를 지표로 정렬해 상위**를 반환한다. "가장 오래/많이 논의된 티켓", "가장 오래 걸린
+이슈"처럼 전수 비교로 1등을 뽑는 질문용.
+
+| 파라미터 | 타입 | 필수 | 기본 | 설명 |
+|---------|------|------|------|------|
+| `by` | string | ✔ | — | `discussion`(DISCUSSED_IN 수) 또는 `duration`(생성→종료 경과일, 종료 이슈만) |
+| `top_k` | integer | | 5 | 상위 개수 (최대 20) |
+
+- **`get_timeline`과 역할이 다르다**: `get_timeline`은 *스코프가 주어진* 시간축이라 전수 비교를
+  못 한다. 랭킹 질문을 `get_timeline`으로 답하면 어쩌다 걸린 한 이슈를 최상위로 오답낸다
+  (실측: "가장 길게 논의된 티켓"에 HT-48을 답했으나 실제 discussion 1위는 HT-102·HT-94,
+  duration 1위는 HT-3).
+- 각 행에 `discussion_count`·`duration_days`를 **함께** 실어 모델이 맥락을 본다.
+- **경과일은 epoch 차이로 계산**한다 — `duration.between(...).days`는 월 정규화 후 '일 성분'만
+  줘서 총 경과일을 크게 빗나간다(HT-3 실제 50.8일인데 `.days`는 19).
+- `title IS NULL`인 stub 이슈는 제외. `duration` 랭킹은 종료된 이슈만 대상.
 
 ### 5. `search_by_keyword`
 

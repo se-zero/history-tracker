@@ -107,6 +107,7 @@ QUERIES_PUBLIC = [
     "get_changeset_context",
     "find_expert",
     "get_timeline",
+    "rank_issues",
     "search_by_keyword",
     "get_actor_activity",
     "get_file_history",

@@ -184,6 +184,77 @@ async def get_issue_context(project_id: str, jira_key: str) -> dict:
 
         return base
 
+_RANK_TOP_K_MAX = 20
+
+
+async def rank_issues(project_id: str, by: str = "discussion", top_k: int = 5) -> dict:
+    """이슈 전체를 지표로 정렬해 상위 top_k를 반환한다.
+
+    "가장 오래/많이 논의된 티켓", "가장 오래 걸린 이슈"처럼 **전체를 비교해 1등을 뽑는**
+    질문용이다. get_timeline은 스코프가 주어진 시간축 조회라 전수 비교를 못 한다 — 그걸로
+    답하면 어쩌다 걸린 한 이슈를 최상위로 오인한다(HT-48을 "가장 길게 논의"로 오답).
+
+    by:
+      - "discussion" : DISCUSSED_IN 연결 수(논의량) 내림차순
+      - "duration"   : createdAt→closedAt 경과일 내림차순 (종료된 이슈만)
+    각 행에 두 지표를 함께 실어(discussion_count·duration_days) 모델이 맥락을 본다.
+    """
+    by = by if by in ("discussion", "duration") else "discussion"
+    k = max(1, min(top_k, _RANK_TOP_K_MAX))
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (i:Issue {project_id: $project_id})
+            WHERE i.title IS NOT NULL
+            OPTIONAL MATCH (i)-[:DISCUSSED_IN]->(c:Communication)
+            WITH i, count(DISTINCT c) AS disc
+            WITH i, disc,
+                 CASE WHEN i.closedAt IS NOT NULL
+                      THEN i.closedAt.epochMillis - i.createdAt.epochMillis
+                      ELSE null END AS dur_ms
+            RETURN i.jira_key AS jira_key, i.title AS title, i.status AS status,
+                   toString(i.createdAt) AS created_at, toString(i.closedAt) AS closed_at,
+                   disc AS discussion_count, dur_ms AS duration_ms
+            """,
+            project_id=project_id,
+        )
+        rows = await result.data()
+
+    if not rows:
+        return {"ranked_by": by, "issues": [], "message": "이슈가 없습니다."}
+
+    # 경과일은 epoch 차이로 계산한다 — duration.between(...).days는 월로 정규화된 뒤
+    # 남은 '일 성분'만 줘서(1개월 19일 → 19) 총 경과일을 크게 빗나간다.
+    def duration_days(r):
+        ms = r.get("duration_ms")
+        return round(ms / 86_400_000, 1) if ms is not None else None
+
+    ranked = [
+        {
+            "jira_key": r["jira_key"],
+            "title": _first_line(r["title"], _TITLE_CHARS),
+            "status": r["status"],
+            "created_at": normalize_time(r["created_at"]),
+            "closed_at": normalize_time(r["closed_at"]),
+            "discussion_count": r["discussion_count"],
+            "duration_days": duration_days(r),
+        }
+        for r in rows
+    ]
+
+    if by == "duration":
+        pool = [x for x in ranked if x["duration_days"] is not None]
+        pool.sort(key=lambda x: x["duration_days"], reverse=True)
+    else:
+        pool = sorted(ranked, key=lambda x: x["discussion_count"], reverse=True)
+
+    return {
+        "ranked_by": by,
+        "total_issues": len(ranked),
+        "issues": pool[:k],
+    }
+
+
 async def get_timeline(
     project_id: str,
     jira_key: str | None = None,

@@ -110,6 +110,39 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "rank_issues",
+            "description": (
+                "이슈 전체를 지표로 정렬해 상위를 반환한다. '가장 오래/많이 논의된 티켓', "
+                "'가장 오래 걸린 이슈', '논의가 제일 활발했던 작업'처럼 **전체를 비교해 1등을 "
+                "뽑는** 질문에 쓴다. get_timeline은 특정 스코프의 시간축이라 전수 비교를 못 하므로 "
+                "이런 랭킹 질문에 쓰면 안 된다(어쩌다 걸린 이슈를 최상위로 오답낸다). "
+                "각 결과에 discussion_count와 duration_days가 함께 실린다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "by": {
+                        "type": "string",
+                        "enum": ["discussion", "duration"],
+                        "description": (
+                            "정렬 기준. discussion=논의(DISCUSSED_IN) 수, "
+                            "duration=생성→종료 경과일(종료된 이슈만). "
+                            "'논의'·'댓글'·'많이 얘기된'이면 discussion, '오래 걸린'·'기간이 긴'이면 duration"
+                        ),
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "반환할 상위 개수 (기본 5, 최대 20)",
+                        "default": 5,
+                    },
+                },
+                "required": ["by"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_by_keyword",
             "description": (
                 "자연어 키워드로 의미적으로 유사한 Slack/GitHub 메시지와 Jira 이슈를 탐색한다. "
