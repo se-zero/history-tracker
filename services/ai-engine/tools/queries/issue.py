@@ -1,5 +1,6 @@
 """이슈/에픽 컨텍스트 조회 — 이슈 상세, 타임라인."""
 
+import json
 import os
 
 from tools.queries._common import (
@@ -23,9 +24,21 @@ _CHILD_DEPTH = 5
 # 타임라인 반환 이벤트 상한 — executor의 바이트 컷(_MAX_RESULT_CHARS)에 닿기 전에
 # 쿼리 단에서 먼저 자르고 잘린 사실을 구조적으로 알린다. eval 스윕용 env 노브.
 _TIMELINE_MAX_EVENTS = int(os.environ.get("TIMELINE_MAX_EVENTS", "80"))
-# 타임라인 이벤트의 메시지 본문 컷 — 전체 흐름 파악이 목적이라 짧게 싣는다.
-# 인용이 필요하면 conversation_id로 get_thread_context를 호출한다.
+# 타임라인 직렬화 예산(자) — executor의 _MAX_RESULT_CHARS(8000) 아래로 잡아, 쿼리 단에서
+# 예산에 맞춰 양끝을 남기고 자른다. 이렇게 해야 executor의 뒤쪽-컷이 뒤늦게 끼어들어
+# duration 질문의 끝점(issue_closed 등)을 다시 떨어뜨리는 이중 잘림을 막는다.
+_TIMELINE_BUDGET = int(os.environ.get("TIMELINE_BUDGET_CHARS", "7000"))
+# 타임라인은 '순서 뼈대'라 본문·제목·메시지를 짧게 싣는다(인용은 상세 도구로).
+# 커밋 메시지·PR/이슈 제목은 첫 줄만, 슬랙 본문은 앞부분만.
 _BODY_CHARS = int(os.environ.get("TIMELINE_BODY_CHARS", "200"))
+_TITLE_CHARS = int(os.environ.get("TIMELINE_TITLE_CHARS", "120"))
+
+
+def _first_line(text: str | None, cap: int) -> str | None:
+    """첫 줄만 cap자까지 — 타임라인 이벤트를 뼈대 크기로 유지(예산 절약)."""
+    if not text:
+        return None
+    return text.splitlines()[0][:cap] or None
 
 async def get_issue_context(project_id: str, jira_key: str) -> dict:
     """이슈 단일 키로 직속 작업 + 자식 이슈 작업까지 모두 집계해서 반환.
@@ -199,9 +212,7 @@ async def get_timeline(
     """
     async with get_driver().session() as session:
         if jira_key:
-            scope, events = {"type": "issue", "value": jira_key}, await _issue_events(
-                session, project_id, jira_key
-            )
+            scope, events = await _issue_events(session, project_id, jira_key)
         elif path:
             scope, events = await _path_events(session, project_id, path)
         elif actor:
@@ -223,21 +234,59 @@ def _in_window(at: str, from_time: str | None, to_time: str | None) -> bool:
     return not (to_time and at > to_time)
 
 
+def _event_size(e: dict) -> int:
+    return len(json.dumps(e, ensure_ascii=False, default=str))
+
+
+def _truncate_span(ordered: list[dict]) -> tuple[list[dict], int]:
+    """예산 초과 시 **양끝을 남기고 가운데를 자른다**. (표시 이벤트, 생략 건수) 반환.
+
+    앞(가장 오래된 = 시작)과 뒤(가장 최신 = 끝)를 모두 보존한다 — '얼마 동안 진행됐어'
+    류 질문은 시작·끝이 둘 다 필요한데, 뒤만 자르면 끝점(issue_closed 등)을 잃어 모델이
+    잘린 창의 마지막을 진짜 끝으로 오인하고 기간을 틀리게 계산한다(HT-3 41일 오답).
+    양끝을 남기면 covered_to가 실제 마지막 사건이 되어 기간이 맞다. 가운데 생략분은
+    truncated로 고지하고, 필요하면 from_time/to_time으로 구간을 좁혀 다시 본다.
+    """
+    n = len(ordered)
+    sizes = [_event_size(e) for e in ordered]
+    if n <= _TIMELINE_MAX_EVENTS and sum(sizes) <= _TIMELINE_BUDGET:
+        return ordered, 0
+
+    # 뒤(최신)를 먼저 예산의 일부로 확보 — 끝점 보존이 목적이라 앞보다 우선.
+    tail_budget = max(int(_TIMELINE_BUDGET * 0.3), 1)
+    tail_max = max(_TIMELINE_MAX_EVENTS // 4, 1)
+    tail_idx: list[int] = []
+    used = 0
+    for j in range(n - 1, -1, -1):
+        if tail_idx and (used + sizes[j] > tail_budget or len(tail_idx) >= tail_max):
+            break
+        tail_idx.append(j)
+        used += sizes[j]
+    tail_start = min(tail_idx)
+
+    # 앞(오래된)을 나머지 예산으로 채우되 tail 시작 전까지만.
+    head_idx: list[int] = []
+    for i in range(tail_start):
+        if head_idx and (used + sizes[i] > _TIMELINE_BUDGET
+                         or len(head_idx) + len(tail_idx) >= _TIMELINE_MAX_EVENTS):
+            break
+        head_idx.append(i)
+        used += sizes[i]
+
+    kept_idx = head_idx + sorted(tail_idx)
+    kept = [ordered[i] for i in kept_idx]
+    return kept, n - len(kept)
+
+
 def _timeline_result(
     scope: dict, events: list[dict], from_time: str | None, to_time: str | None
 ) -> dict:
-    """창 필터 → 정렬 → 캡 적용 후 반환 구조를 만든다.
-
-    캡에 걸리면 **오래된 쪽부터** 남기고 뒤를 자른다. 시간축 질문은 시작 시점이 답의
-    일부인데(query-quality-issues 문제 2: '시작 시점 없이 완료 시점만 나열'), 최신순
-    컷은 그 시작을 조용히 없앤다. 자른 사실과 실제 커버 구간을 함께 알려 모델이 잘린
-    끝을 '여기서 끝났다'로 읽지 않게 한다.
-    """
+    """창 필터 → 정렬 → 예산 내 양끝 보존 잘림 후 반환 구조를 만든다."""
     lo, hi = normalize_time(from_time), normalize_time(to_time)
     ordered = sort_events([e for e in events if _in_window(e["occurredAt"], lo, hi)])
     total = len(ordered)
 
-    kept = ordered[:_TIMELINE_MAX_EVENTS]
+    kept, omitted = _truncate_span(ordered)
     result = {
         "scope": scope,
         "window": {
@@ -249,11 +298,12 @@ def _timeline_result(
         "total_events": total,
         "events": kept,
     }
-    if total > len(kept):
+    if omitted:
         result["truncated"] = (
-            f"전체 {total}건 중 오래된 순 {len(kept)}건만 표시 — {result['window']['covered_to']} "
-            f"이후 {total - len(kept)}건 생략. 뒤 구간이 필요하면 from_time을 그 시각 이후로 "
-            f"올려 다시 호출하세요. covered_to가 실제 마지막 사건이 아닙니다."
+            f"전체 {total}건 중 {len(kept)}건 표시 — 시작·끝 구간은 보존하고 가운데 "
+            f"{omitted}건을 생략. covered_from~covered_to는 실제 처음·마지막 사건이라 "
+            f"기간 판단에 그대로 쓸 수 있으나, 중간 사건이 필요하면 from_time/to_time으로 "
+            f"구간을 좁혀 다시 호출하세요."
         )
     if not kept:
         result["message"] = "해당 스코프·기간에 이벤트가 없습니다."
@@ -265,7 +315,7 @@ def _cs_events(rows: list[dict]) -> list[dict]:
     파일 스코프에서 이슈를 별도 생명주기 이벤트로 만들지 않기 위한 경로다."""
     out = []
     for cs in rows:
-        data = {"hash": cs.get("hash"), "message": cs.get("message")}
+        data = {"hash": cs.get("hash"), "message": _first_line(cs.get("message"), _TITLE_CHARS)}
         for k in ("confidence", "link_source"):
             if cs.get(k) is not None:
                 data[k] = cs[k]
@@ -279,7 +329,8 @@ def _pr_events(rows: list[dict]) -> list[dict]:
     return [
         e for pr in rows
         for e in expand_events("PullRequest", pr, {
-            "pr_number": pr.get("pr_number"), "title": pr.get("title"), "url": pr.get("url"),
+            "pr_number": pr.get("pr_number"),
+            "title": _first_line(pr.get("title"), _TITLE_CHARS), "url": pr.get("url"),
         })
     ]
 
@@ -299,30 +350,38 @@ def _issue_lifecycle_events(rows: list[dict]) -> list[dict]:
     return [
         e for i in rows
         for e in expand_events("Issue", i, {
-            "jira_key": i.get("jira_key"), "title": i.get("title"), "status": i.get("status"),
+            "jira_key": i.get("jira_key"),
+            "title": _first_line(i.get("title"), _TITLE_CHARS), "status": i.get("status"),
         })
     ]
 
 
-async def _issue_events(session, project_id: str, jira_key: str) -> list[dict] | None:
+async def _issue_events(session, project_id: str, jira_key: str) -> tuple[dict, list[dict] | None]:
     """이슈 스코프 — 이슈 생명주기 + 연결된 커밋·PR·논의.
 
     **CHILD_OF 자식 이슈까지 포함**한다 (get_issue_context와 같은 범위). epic 아래
     하위 작업이 달린 구조에서 root만 보면 "어떤 하위 작업들로 진행됐나"에 답할 수 없고,
     정보량이 더 적은 타임라인이 get_issue_context 드릴다운을 밀어내는 회귀가 생긴다
     (case-05: 자식 이슈 4건 조회가 타임라인 1회로 대체되며 recall 0.778 → 0.111).
+
+    scope에 **root 이슈의 created_at/closed_at**을 실어 준다 — "이 이슈 얼마 동안 진행됐어"의
+    권위 있는 답은 이벤트 목록(잘릴 수 있음)이 아니라 이슈 노드의 생애 속성이다. 잘림과
+    무관하게 기간을 정확히 계산하게 한다(HT-3 41일 오답 방지).
     """
     result = await session.run(
         f"""
         MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
         OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
-        WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
+        WITH root, collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
         UNWIND issues_raw AS i
-        WITH i WHERE i IS NOT NULL
+        WITH root, i WHERE i IS NOT NULL
         OPTIONAL MATCH (cs:ChangeSet)-[tb:TRIGGERED_BY]->(i)
             WHERE coalesce(tb.confidence, 1.0) >= $min_conf
         OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
-        RETURN collect(DISTINCT {{
+        RETURN toString(root.createdAt) AS root_created,
+               toString(root.closedAt) AS root_closed,
+               root.status AS root_status,
+               collect(DISTINCT {{
                    createdAt: toString(i.createdAt), closedAt: toString(i.closedAt),
                    jira_key: i.jira_key, title: i.title, status: i.status
                }}) AS issues,
@@ -341,7 +400,14 @@ async def _issue_events(session, project_id: str, jira_key: str) -> list[dict] |
     )
     row = await result.single()
     if not row or not row["issues"] or not any(i.get("jira_key") for i in row["issues"]):
-        return None
+        return {"type": "issue", "value": jira_key}, None
+
+    scope = {
+        "type": "issue", "value": jira_key,
+        "created_at": normalize_time(row["root_created"]),
+        "closed_at":  normalize_time(row["root_closed"]),
+        "status":     row["root_status"],
+    }
 
     events = (
         _issue_lifecycle_events(row["issues"])
@@ -369,7 +435,7 @@ async def _issue_events(session, project_id: str, jira_key: str) -> list[dict] |
     row2 = await result2.single()
     if row2:
         events += _comm_events(row2["communications"])
-    return events
+    return scope, events
 
 
 async def _path_events(session, project_id: str, path: str) -> tuple[dict, list[dict] | None]:

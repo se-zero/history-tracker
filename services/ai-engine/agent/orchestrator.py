@@ -237,12 +237,17 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   타임라인에 message가 있으면 그 conversation_id로 get_thread_context를 호출해 확인한다.
   타임라인에 뜬 PR·이슈도 질문과 관련되면 각각의 상세 도구로 확인한다 — 타임라인이 보여준
   것과 다른 PR 번호를 임의로 조회하지 말고, events에 실제로 있는 식별자를 쓴다.
+- **"이 이슈/작업이 얼마 동안 진행됐어" 류 기간 질문은 scope.created_at ~ scope.closed_at으로
+  답한다.** 이건 이슈 노드의 생애 속성이라 잘림과 무관한 권위값이다. events 목록의 처음·마지막
+  시각으로 기간을 계산하지 말 것 — 이벤트는 잘릴 수 있고, 자식 이슈·커밋 활동이 섞여 있다.
+  closed_at이 null이면 아직 진행 중(status 참고).
 - 반환은 {scope, window, total_events, events, truncated} 구조다.
   - events[*].event_meaning을 그대로 쓴다 (시각만 보고 추정 금지).
   - occurredAt은 전부 UTC로 정규화돼 있다.
-  - window.covered_from / covered_to는 **실제로 담긴 구간**이다. total_events가 events 길이보다
-    크거나 truncated 필드가 있으면 뒤 구간이 잘린 것이므로, covered_to를 "여기서 끝났다"로
-    서술하지 말고 잘렸다는 사실을 밝히거나 from_time을 올려 재호출한다.
+  - window.covered_from / covered_to는 **실제 처음·마지막 사건 시각**이다. truncated가 있어도
+    양끝(시작·끝)은 보존하고 가운데만 생략하므로, covered_from~covered_to를 전체 기간으로
+    그대로 쓸 수 있다. 다만 **중간 사건**은 빠졌을 수 있으니, 중간 흐름이 필요하면 truncated
+    안내대로 from_time/to_time으로 구간을 좁혀 다시 호출한다.
   - scope.candidates가 있으면 경로가 모호한 것이니 후보 중 하나로 재호출한다.
     scope.resolved_path가 있으면 인용에 그 값을 쓴다(추정한 path 금지).
 

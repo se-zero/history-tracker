@@ -155,17 +155,23 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
   종료 이벤트를 잃는다.
 - 반환 구조:
   ```
-  {scope: {type: issue|path|actor|project, value, resolved_path?, resolved_via?, candidates?},
+  {scope: {type: issue|path|actor|project, value,
+           created_at?, closed_at?, status?,     # issue 스코프: root 이슈 생애 (권위값)
+           resolved_path?, resolved_via?, candidates?},
    window: {requested_from, requested_to, covered_from, covered_to},
    total_events, events: [{type, event_meaning, occurredAt, data}], truncated?}
   ```
   - `events`는 occurredAt 오름차순. 시각 없는 이벤트는 제외.
-  - **`covered_*`는 실제로 담긴 구간**이다. `truncated`가 있으면 `covered_to`가 마지막 사건이
-    아니므로 "여기서 끝났다"로 서술하면 안 된다.
-- **잘림은 뒤에서** 자른다(오래된 쪽 보존). 시간축 질문은 시작 시점이 답의 일부인데 최신순
-  컷은 그 시작을 조용히 없앤다(문제 2: "시작 시점 없이 완료 시점만 나열"). 상한은
-  `TIMELINE_MAX_EVENTS`(기본 80), 본문 컷은 `TIMELINE_BODY_CHARS`(기본 200).
-  executor의 바이트 상한에 걸리면 `_trim_timeline_dict`가 한 번 더 줄이고 `covered_to`를 되돌린다.
+  - **"얼마 동안 진행됐어"류 기간 질문은 issue 스코프의 `scope.created_at`~`scope.closed_at`으로**
+    답한다. 이슈 노드의 생애 속성이라 잘림과 무관한 권위값이다. events의 처음·마지막으로
+    기간을 계산하면 자식 이슈·커밋 활동이 섞이거나 잘려 틀린다(HT-3가 41일로 오답 나던 원인).
+  - **`covered_from`/`covered_to`는 실제 처음·마지막 사건 시각**이다. 아래 양끝 보존 잘림 덕에
+    `truncated`가 있어도 전체 기간으로 그대로 쓸 수 있다(가운데 사건만 빠짐).
+- **잘림은 양끝을 보존하고 가운데를 자른다.** "얼마 동안"류는 시작·끝이 둘 다 필요한데, 뒤만
+  자르면 끝점(issue_closed 등)을 잃어 기간을 틀리게 계산한다. 예산 `TIMELINE_BUDGET_CHARS`
+  (기본 7000, executor 상한 8000 아래)에 맞춰 오래된 앞 + 최신 뒤를 남기므로 executor의
+  바이트 재컷이 뒤늦게 끼어드는 이중 잘림이 없다. 이벤트는 순서 뼈대라 커밋 메시지·제목은
+  첫 줄만(`TIMELINE_TITLE_CHARS` 120), 슬랙 본문은 앞부분만(`TIMELINE_BODY_CHARS` 200) 싣는다.
 - **파일 스코프는 이슈를 이벤트로 펼치지 않는다.** 연결 이슈는 커밋 `data.issues`에 키로 실린다 —
   펼치면 파일 하나에 연결된 이슈 수십 개의 생성/완료가 정작 그 파일을 바꾼 커밋을 덮는다.
   경로 fuzzy 폴백(basename → stem)은 `get_file_history`와 같은 규칙이고, 후보가 2개 이상이면

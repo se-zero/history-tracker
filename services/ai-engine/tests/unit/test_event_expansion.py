@@ -152,5 +152,44 @@ class TestSortEvents(unittest.TestCase):
         )
 
 
+class TestTruncateSpan(unittest.TestCase):
+    """양끝 보존 잘림 — 버그 3 회귀 가드. 예산 초과 시 시작·끝을 모두 남긴다."""
+
+    def _events(self, n):
+        # occurredAt만 다른 n개 이벤트 (본문을 채워 예산을 넘기게 함)
+        return [
+            {"type": "ChangeSet", "event_meaning": "commit_authored",
+             "occurredAt": f"2026-01-{i+1:02d}T00:00:00.000Z",
+             "data": {"hash": f"h{i}", "message": "x" * 300}}
+            for i in range(n)
+        ]
+
+    def test_small_list_kept_whole(self):
+        from tools.queries.issue import _truncate_span
+        ev = self._events(3)
+        kept, omitted = _truncate_span(ev)
+        self.assertEqual(kept, ev)
+        self.assertEqual(omitted, 0)
+
+    def test_large_list_preserves_both_ends(self):
+        from tools.queries.issue import _truncate_span
+        ev = self._events(200)  # 예산 초과 확실
+        kept, omitted = _truncate_span(ev)
+        self.assertGreater(omitted, 0)
+        # 첫 사건과 마지막 사건이 반드시 남는다 (기간 계산의 양 끝점)
+        self.assertEqual(kept[0]["occurredAt"], ev[0]["occurredAt"])
+        self.assertEqual(kept[-1]["occurredAt"], ev[-1]["occurredAt"])
+        # 오름차순 유지
+        times = [e["occurredAt"] for e in kept]
+        self.assertEqual(times, sorted(times))
+
+    def test_fits_budget(self):
+        import json
+        from tools.queries.issue import _TIMELINE_BUDGET, _truncate_span
+        kept, _ = _truncate_span(self._events(200))
+        size = sum(len(json.dumps(e, ensure_ascii=False)) for e in kept)
+        self.assertLessEqual(size, _TIMELINE_BUDGET)
+
+
 if __name__ == "__main__":
     unittest.main()
