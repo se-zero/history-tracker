@@ -26,11 +26,12 @@ from tools.queries.discovery import (
     search_by_keyword,
 )
 from tools.queries.files import get_file_history
-from tools.queries.issue import get_issue_context, get_timeline
+from tools.queries.issue import get_issue_context, get_timeline, rank_issues
 
 __all__ = [
     "get_issue_context",
     "get_timeline",
+    "rank_issues",
     "get_changeset_context",
     "check_missing_context",
     "get_conflict_context",

@@ -66,18 +66,77 @@ TOOLS = [
         "function": {
             "name": "get_timeline",
             "description": (
-                "Jira 이슈 기준으로 Slack 논의 → Jira 생성 → 커밋 → PR 머지 순서를 "
-                "UTC 기준 오름차순으로 반환한다. 타임라인 순서 검증에 사용."
+                "'언제', '어떤 순서로', '시간순으로', '과정' 류 질문의 기본 도구. "
+                "Slack 논의·Jira 생성/완료·커밋·PR 오픈/머지를 UTC 오름차순으로 반환하며 "
+                "각 이벤트에 event_meaning 라벨이 붙는다(시각만 보고 추정하지 말 것). "
+                "스코프는 넷 중 하나를 고른다 — jira_key(이슈) / path(파일) / actor(사람) / "
+                "전부 생략(프로젝트 전체). from_time·to_time으로 기간을 좁힐 수 있다. "
+                "'이 프로젝트가 어떤 순서로 만들어졌어', 'OO가 5월에 뭐 했어'처럼 특정 "
+                "엔티티가 없는 시간순 질문에도 쓴다."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "jira_key": {
                         "type": "string",
-                        "description": "Jira 티켓 키",
-                    }
+                        "description": "이슈 스코프 — Jira 티켓 키 (예: HT-45). 자식 이슈(CHILD_OF)까지 포함한다",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "파일 스코프 — 저장소 내 **파일 경로**만 (예: src/auth/token.py). "
+                            "그 파일을 바꾼 커밋과 담은 PR을 시간순으로. "
+                            "커밋 해시·PR 번호·이슈 키를 여기 넣지 말 것 "
+                            "(커밋 하나는 get_changeset_context를 쓴다)"
+                        ),
+                    },
+                    "actor": {
+                        "type": "string",
+                        "description": "사람 스코프 — 이름·alias·이메일 중 하나",
+                    },
+                    "from_time": {
+                        "type": "string",
+                        "description": "조회 시작 시각 ISO-8601 (예: 2026-05-01T00:00:00Z). 생략 시 처음부터",
+                    },
+                    "to_time": {
+                        "type": "string",
+                        "description": "조회 종료 시각 ISO-8601. 생략 시 끝까지",
+                    },
                 },
-                "required": ["jira_key"],
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rank_issues",
+            "description": (
+                "이슈 전체를 지표로 정렬해 상위를 반환한다. '가장 오래/많이 논의된 티켓', "
+                "'가장 오래 걸린 이슈', '논의가 제일 활발했던 작업'처럼 **전체를 비교해 1등을 "
+                "뽑는** 질문에 쓴다. get_timeline은 특정 스코프의 시간축이라 전수 비교를 못 하므로 "
+                "이런 랭킹 질문에 쓰면 안 된다(어쩌다 걸린 이슈를 최상위로 오답낸다). "
+                "각 결과에 discussion_count와 duration_days가 함께 실린다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "by": {
+                        "type": "string",
+                        "enum": ["discussion", "duration"],
+                        "description": (
+                            "정렬 기준. discussion=논의(DISCUSSED_IN) 수, "
+                            "duration=생성→종료 경과일(종료된 이슈만). "
+                            "'논의'·'댓글'·'많이 얘기된'이면 discussion, '오래 걸린'·'기간이 긴'이면 duration"
+                        ),
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "반환할 상위 개수 (기본 5, 최대 20)",
+                        "default": 5,
+                    },
+                },
+                "required": ["by"],
             },
         },
     },

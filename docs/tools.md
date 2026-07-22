@@ -52,7 +52,8 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | 1 | `get_issue_context` | Jira 이슈 + 자식 이슈까지 관련 작업/논의 집계 | `get_issue_context` |
 | 2 | `get_changeset_context` | 커밋 hash로 변경 이유(이슈/논의/PR/diff) 조회 | `get_changeset_context` |
 | 3 | `find_expert` | 파일/디렉토리 최다 기여자 식별 (최근 6개월 2배 가중) | `find_expert` |
-| 4 | `get_timeline` | 이슈 생명주기 이벤트를 시간순 + 의미 라벨로 반환 | `get_timeline` |
+| 4 | `get_timeline` | 시간순 이벤트를 스코프별(이슈/파일/사람/전체 ±기간)로 반환 | `get_timeline` |
+| 4b | `rank_issues` | 이슈 전체를 논의량·진행기간으로 정렬해 상위 반환 | `rank_issues` |
 | 5 | `search_by_keyword` | 자연어 키워드 시맨틱 검색 (Communication + Issue) | `search_by_keyword` |
 | 6 | `get_actor_activity` | 사람(이름/alias/email) 중심 활동 조회 | `get_actor_activity` |
 | 7 | `get_file_history` | 파일 변경 이력 + 경로 fuzzy fallback | `get_file_history` |
@@ -110,16 +111,91 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 
 ### 4. `get_timeline`
 
-이슈 생명주기를 시간순으로 반환한다.
+시간순 이벤트를 **스코프별로** 반환한다. 설계 배경은 [`timeline-scope.md`](timeline-scope.md).
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| `jira_key` | string | ✔ | Jira 티켓 키 |
+| `jira_key` | string | | 이슈 스코프 — 생명주기 + 연결 커밋·PR·논의 |
+| `path` | string | | 파일 스코프 — 그 파일을 바꾼 커밋 + 담은 PR |
+| `actor` | string | | 사람 스코프 — 이름·alias·이메일 |
+| `from_time` / `to_time` | string | | ISO-8601 기간 한정. 어느 스코프와도 조합 가능 |
 
-- 각 이벤트에 **`event_meaning` 라벨**을 붙여 LLM이 occurredAt만 보고 추정하지 않게 한다:
-  `issue_created` / `issue_closed`(closedAt 존재 시) / `commit_authored` / `pr_opened`(createdAt) /
-  `pr_merged`(occurredAt) / `message_posted`.
-- 항목 구조 `{type, event_meaning, occurredAt, data}`, occurredAt 오름차순. null occurredAt은 제외.
+- **스코프 우선순위**: `jira_key` > `path` > `actor` > (전부 생략) 프로젝트 전체.
+  넷 다 없으면 전 기간 타임라인이라 **특정 엔티티 없는 시간순 질문에도 쓸 수 있다.**
+- **순서 뼈대이지 인용 원문이 아니다.** `events` 항목은 식별자·제목 수준 개요라 본문이 없다.
+  근거로 인용하려면 식별자로 상세 도구를 호출해 본문을 얻는다 — commit→`get_changeset_context`,
+  message→`get_thread_context`, pull_request→`get_pr_context`, issue→`get_issue_context`.
+  `get_file_history`·`get_actor_activity`의 `context` 계층과 같은 규약이다.
+  여러 종류가 섞여 있으면 한 종류만 파고들지 않는다 — "왜/배경/발단" 질문에서 `message`
+  이벤트는 논의의 출발점을 담는다.
+  > 측정 근거: 이 규칙이 없던 런에서 모델이 타임라인을 상세 도구의 **대체**로 써
+  > (case-05 `get_issue_context` 7→3회, case-40 `get_changeset_context` 3→0회)
+  > 인용할 원문이 사라지며 evidence recall이 떨어졌다. 규칙 추가 후에도 커밋만 상세
+  > 조회하는 쏠림이 남아(case-44: message 12건·PR #34가 출력에 떴으나 3런 모두 미인용),
+  > 종류를 고르게 커버하라는 규칙을 덧붙였다.
+- **이슈 스코프는 `CHILD_OF` 자식 이슈까지 포함**한다(`get_issue_context`와 같은 범위).
+  root만 보면 epic의 "어떤 하위 작업들로 진행됐나"에 답할 수 없고, 정보량이 더 적은
+  타임라인이 `get_issue_context` 드릴다운을 밀어내는 회귀가 생긴다
+  (case-05: 자식 이슈 4건 조회가 타임라인 1회로 대체되며 recall 0.778 → 0.111).
+- **노드 ≠ 이벤트**: 한 노드가 이벤트를 여러 개 낳는다. 매핑 단일 출처는
+  `tools/queries/_common.py`의 `EVENT_SPECS`이며, `agent/orchestrator.py`의 타임스탬프 의미
+  사전과 함께 움직여야 한다.
+
+  | 노드 | 시각 속성 | `event_meaning` |
+  |---|---|---|
+  | Issue | `createdAt` / `closedAt` | `issue_created` / `issue_closed` |
+  | PullRequest | `createdAt` / `occurredAt` | `pr_opened` / `pr_merged` |
+  | ChangeSet | `occurredAt` | `commit_authored` |
+  | Communication | `occurredAt` | `message_posted` |
+
+  `Issue.occurredAt`(최종 업데이트)은 생성도 종료도 아니라 **이벤트로 만들지 않는다** —
+  라벨 없이 노출하면 모델이 생성/완료로 추정해 뒤집는다(`query-quality-issues.md` 문제 2·3).
+- **시각은 UTC로 정규화**된다(밀리초 고정). 그래프에는 `Issue.createdAt`만 `+09:00` 오프셋으로,
+  나머지는 `Z`로 저장돼 있어 사전순 정렬이 시간순과 어긋나기 때문 (`_common._event_time`).
+- **창 필터는 이벤트 단위**다. 노드 단위로 자르면 창 이전에 생성돼 창 안에서 종료된 이슈의
+  종료 이벤트를 잃는다.
+- 반환 구조:
+  ```
+  {scope: {type: issue|path|actor|project, value,
+           created_at?, closed_at?, status?,     # issue 스코프: root 이슈 생애 (권위값)
+           resolved_path?, resolved_via?, candidates?},
+   window: {requested_from, requested_to, covered_from, covered_to},
+   total_events, events: [{type, event_meaning, occurredAt, data}], truncated?}
+  ```
+  - `events`는 occurredAt 오름차순. 시각 없는 이벤트는 제외.
+  - **"얼마 동안 진행됐어"류 기간 질문은 issue 스코프의 `scope.created_at`~`scope.closed_at`으로**
+    답한다. 이슈 노드의 생애 속성이라 잘림과 무관한 권위값이다. events의 처음·마지막으로
+    기간을 계산하면 자식 이슈·커밋 활동이 섞이거나 잘려 틀린다(HT-3가 41일로 오답 나던 원인).
+  - **`covered_from`/`covered_to`는 실제 처음·마지막 사건 시각**이다. 아래 양끝 보존 잘림 덕에
+    `truncated`가 있어도 전체 기간으로 그대로 쓸 수 있다(가운데 사건만 빠짐).
+- **잘림은 양끝을 보존하고 가운데를 자른다.** "얼마 동안"류는 시작·끝이 둘 다 필요한데, 뒤만
+  자르면 끝점(issue_closed 등)을 잃어 기간을 틀리게 계산한다. 예산 `TIMELINE_BUDGET_CHARS`
+  (기본 7000, executor 상한 8000 아래)에 맞춰 오래된 앞 + 최신 뒤를 남기므로 executor의
+  바이트 재컷이 뒤늦게 끼어드는 이중 잘림이 없다. 이벤트는 순서 뼈대라 커밋 메시지·제목은
+  첫 줄만(`TIMELINE_TITLE_CHARS` 120), 슬랙 본문은 앞부분만(`TIMELINE_BODY_CHARS` 200) 싣는다.
+- **파일 스코프는 이슈를 이벤트로 펼치지 않는다.** 연결 이슈는 커밋 `data.issues`에 키로 실린다 —
+  펼치면 파일 하나에 연결된 이슈 수십 개의 생성/완료가 정작 그 파일을 바꾼 커밋을 덮는다.
+  경로 fuzzy 폴백(basename → stem)은 `get_file_history`와 같은 규칙이고, 후보가 2개 이상이면
+  `scope.candidates`를 돌려 재호출을 유도한다.
+
+### 4b. `rank_issues`
+
+이슈 **전체를 지표로 정렬해 상위**를 반환한다. "가장 오래/많이 논의된 티켓", "가장 오래 걸린
+이슈"처럼 전수 비교로 1등을 뽑는 질문용.
+
+| 파라미터 | 타입 | 필수 | 기본 | 설명 |
+|---------|------|------|------|------|
+| `by` | string | ✔ | — | `discussion`(DISCUSSED_IN 수) 또는 `duration`(생성→종료 경과일, 종료 이슈만) |
+| `top_k` | integer | | 5 | 상위 개수 (최대 20) |
+
+- **`get_timeline`과 역할이 다르다**: `get_timeline`은 *스코프가 주어진* 시간축이라 전수 비교를
+  못 한다. 랭킹 질문을 `get_timeline`으로 답하면 어쩌다 걸린 한 이슈를 최상위로 오답낸다
+  (실측: "가장 길게 논의된 티켓"에 HT-48을 답했으나 실제 discussion 1위는 HT-102·HT-94,
+  duration 1위는 HT-3).
+- 각 행에 `discussion_count`·`duration_days`를 **함께** 실어 모델이 맥락을 본다.
+- **경과일은 epoch 차이로 계산**한다 — `duration.between(...).days`는 월 정규화 후 '일 성분'만
+  줘서 총 경과일을 크게 빗나간다(HT-3 실제 50.8일인데 `.days`는 19).
+- `title IS NULL`인 stub 이슈는 제외. `duration` 랭킹은 종료된 이슈만 대상.
 
 ### 5. `search_by_keyword`
 

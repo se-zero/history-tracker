@@ -1,0 +1,55 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement.md 참고.
+# [시간축 — 사람 스코프 + 기간] 한 사람의 활동을 기간으로 잘라 시간순 조회.
+#   get_actor_activity는 from_time만 있고 to_time이 없어 '4월만'을 자를 수 없다.
+#
+#   ⚠ 이 스냅샷(graph-2026-07-21)의 Actor 상태: 서준수가 아직 병합되지 않아 두 노드로 갈려 있다.
+#     - "서준수" 노드(JIRA·SLACK alias) : 이슈 55·메시지 86, 커밋·PR 0
+#     - "JunsuSeo" 노드(GITHUB:Oxalidaceae): 커밋 103·PR 20, 이슈·메시지 0
+#   질문이 "서준수"를 지목하므로 actor 스코프는 JIRA/SLACK 노드로 해석된다 → 도달 가능한 4월
+#   활동은 이슈 생성/완료와 슬랙 논의뿐이다(커밋·PR은 다른 노드라 이 질문으로는 안 온다).
+#   그래서 기대 근거를 이슈·메시지로 한정한다. 커밋/PR을 요구하면 병합 전 스냅샷에서 도달 불가라
+#   측정이 무효가 된다(case 설계 오류). GitHub 활동까지 한 사람으로 묶는 건 Actor 병합의 몫이며
+#   alias 매칭 개선(get_timeline·get_actor_activity 공통)의 후속 과제다.
+id: case-42
+question: "서준수가 2026년 4월에 어떤 이슈와 논의를 진행했어? 시간순으로 알려줘."
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# 4월 활동의 축(이슈 생성/완료 + 슬랙 논의) — actor="서준수"(JIRA/SLACK)로 실제 도달 가능한 근거만.
+expected_evidence_ids:
+- "issue:HT-19"                  # 4/1 생성 → 4/9 완료, LLM 요약 테스트
+- "issue:HT-22"                  # 4/10 생성 → 4/29 완료, Slack 데이터 전처리
+- "message:1776405432.933819"    # 4/17 "슬랙 메세지 필터링 하는거 pr 날렸어"
+- "message:1777430711.997189"    # 4/29 "프롬프트에 프로젝트 설명 추가한거 pr 날렸어"
+
+# 인용 무방 — 서준수(JIRA/SLACK)의 4월 나머지 활동
+acceptable_evidence_ids:
+- "issue:HT-20"                  # 예시 탐색 (시장조사) 4/1 생성·4/2 완료
+- "issue:HT-26"                  # 그래프 생성 (4/29 생성)
+- "issue:HT-6"                   # 인프라 (4/29 완료)
+- "message:1776952023.070729"    # 4/23 actor 노드 내용 논의
+- "message:1777026036.599589"    # 4/24 과제 설명 / 행정 일정 공유
+- "message:1775978966.443389"    # 4/12 방안 B/C 논의
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "4월 1일 LLM 요약 테스트(HT-19)를 생성해 4월 9일에 완료했다"
+- "4월 10일 Slack 데이터 전처리(HT-22)를 생성하고, 4월 17일 '슬랙 메시지 필터링 PR을 날렸다'고 공유한 뒤 4월 29일에 완료했다"
+- "4월 29일 프롬프트에 프로젝트 설명을 추가한 PR을 슬랙에 공유했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  facts:
+    # 커밋/PR은 이 스냅샷에서 다른 Actor 노드(JunsuSeo)라 actor="서준수" 스코프로는 안 온다.
+    # 모델이 커밋 hash·PR 번호를 지어내면 감점.
+    - "서준수가 4월에 특정 커밋 해시나 PR 번호로 코드를 직접 작성했다고 구체적으로 명시 — 이 스코프에는 커밋/PR이 없다"
+  evidence_ids:
+    - "message:1780206867.542399"    # 무관한 로그인 디버깅 스레드 (6월)
+
+# 케이스별 기계 채점 (시간축 — 스코프 격리 + 순서)
+rule_checks:
+- "summary가 HT-19(4/9 완료) → HT-22 생성(4/10)·필터링 PR 공유(4/17)·HT-22 완료(4/29) 순서를 시간 역전 없이 서술"
+- "summary가 2026년 4월 범위 밖의 활동을 서준수의 4월 활동으로 서술하지 않음"
+- "evidence에 issue와 message가 모두 존재"

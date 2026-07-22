@@ -1,0 +1,60 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement.md 참고.
+# [시간축 — 이슈 스코프 회귀 가드] get_timeline의 현행(jira_key) 경로가 스코프 일반화 후에도
+#   그대로 동작하는지 지킨다. 동시에 **타임존 정규화의 판별기**다.
+#   그래프에서 Issue.createdAt만 +09:00 오프셋으로 저장되고 나머지는 Z(UTC)라,
+#   ISO 문자열을 그대로 사전순 정렬하면 이슈 생성이 엉뚱한 자리로 간다.
+#     원문 표기: createdAt 2026-05-16T19:47:57+09:00 / closedAt 2026-05-17T16:56:12+09:00
+#     UTC 정규화: 2026-05-16T10:47:57Z / 2026-05-17T07:56:12Z
+#   정규화 전에는 issue_created가 pr_merged(10:52Z·11:07Z) 뒤로 밀렸다. 정규화 후 실제 순서는
+#   커밋 11건 → 이슈 생성(10:47) → PR 오픈(10:52) → 커밋 1건 → PR 머지(11:07) → 완료(익일).
+#   createdAt/closedAt 미분리나 타임존 미정규화 중 하나만 어긋나도 이 케이스가 깨진다
+#   (docs/query-quality-issues.md 문제 2·3의 실패 패턴).
+id: case-43
+question: "GitHub OAuth 구현(HT-45)은 어떤 순서로 진행됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-45"                  # GitHub OAuth 구현 — 생성 5/16 19:47, 완료 5/17 16:56
+- "commit:2fa078f"               # 2026-05-15T14:05 GitHub OAuth 로그인 구현 (핵심)
+- "commit:ed9bfc7"               # 2026-05-16T03:49 GitHub OAuth 로그인 구현 (이어짐)
+- "pull_request:#21"             # Feat/auth GitHub foundation — 5/16 10:52 open, 11:07 merge
+- "message:1778928805.320969"    # 2026-05-16T10:53 "깃허브 Oauth기능 구현한거 pr 날렸어"
+
+# 인용 무방 — PR #21에 함께 담긴 나머지 커밋 (구현 과정 서술용)
+acceptable_evidence_ids:
+- "commit:ed377ca"               # docs: CLAUDE.md 작성
+- "commit:a0ea8bb"               # 백엔드 영속성 및 마이그레이션 기반 설정
+- "commit:1777fef"               # 인증 및 GitHub 설치 스키마 추가
+- "commit:f661fca"               # JWT 인증 기반 추가
+- "commit:7ab4bdf"               # GitHub App 설치 정보 저장 및 조회 구현
+- "commit:6882ce1"               # 인증 토큰 갱신 및 사용자 API 구현
+- "commit:07eee4a"               # 인증 및 GitHub 기반 흐름 테스트 보강
+- "commit:c7a2580"               # PostgreSQL 런타임 실행 오류 수정
+- "commit:ad77061"               # 인증 동시성 및 OAuth 검증 보강
+- "commit:6b993e0"               # backend 폴더 작업 순서 계획
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+# 시각은 모두 UTC — 도구가 UTC로 정규화해 반환하고 프롬프트도 UTC를 선언한다.
+expected_facts:
+- "구현 커밋 대부분(5월 15일 07:16 ~ 5월 16일 10:45 UTC)이 HT-45 이슈 생성(5월 16일 10:47 UTC)보다 먼저 이뤄졌다"
+- "이슈 생성 직후 PR #21이 열리고(10:52) 같은 날 머지됐다(11:07)"
+- "HT-45는 다음 날인 5월 17일(07:56 UTC)에 완료됐다"
+- "JWT 인증 기반과 GitHub App 설치 정보 저장·조회를 포함한 인증 기반 작업이 함께 진행됐다"
+- "5월 16일 슬랙에 '깃허브 Oauth기능 구현한거 pr 날렸어'로 공유됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  facts:
+    - "HT-45 이슈가 생성된 뒤에 구현 커밋 작업이 시작됐다 — 실제로는 커밋 11건이 이슈 생성보다 앞선다"
+    - "HT-45가 5월 16일에 완료(closed)됐다 — 5월 16일은 생성일이고 완료는 5월 17일이다"
+    - "PR #21이 이슈 생성보다 먼저 열렸다 — PR 오픈(10:52)은 이슈 생성(10:47) 5분 뒤다"
+    - "HT-45 이슈 생성이 PR #21 머지보다 나중이다 — 타임존을 정규화하지 않으면 생기는 순서 역전"
+
+# 케이스별 기계 채점 (시간 라벨 분리 + 타임존 정규화 회귀 가드)
+rule_checks:
+- "summary가 HT-45의 생성일(5/16)과 완료일(5/17)을 각각 올바른 의미로 서술하고 뒤바꾸지 않음"
+- "summary가 '커밋 다수 → 이슈 생성 → PR 오픈 → PR 머지 → 이슈 완료' 순서를 역전 없이 서술"
+- "evidence에 issue, commit, pull_request가 모두 존재"

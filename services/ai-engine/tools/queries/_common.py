@@ -3,8 +3,93 @@
 import json
 import os
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from graph.driver import get_driver
+
+
+# ─── 시간축: 노드 → 이벤트 펼치기 ──────────────────────────────────────────────
+# 한 노드는 시간 이벤트를 여러 개 낳는다 — Issue는 생성·종료, PR은 오픈·머지.
+# 이 표가 단일 출처다 (docs/timeline-scope.md의 매핑 표, agent/orchestrator.py의
+# 타임스탬프 의미 사전과 일치해야 한다).
+#
+# Issue.occurredAt(최종 업데이트)은 생성도 종료도 아니라 의미가 모호하므로 이벤트로
+# 만들지 않는다 — 라벨 없이 노출하면 모델이 생성/완료로 추정해 뒤집는다
+# (docs/query-quality-issues.md 문제 2·3).
+
+EVENT_SPECS: dict[str, tuple[tuple[str, str], ...]] = {
+    "Issue":         (("createdAt", "issue_created"), ("closedAt", "issue_closed")),
+    "PullRequest":   (("createdAt", "pr_opened"),     ("occurredAt", "pr_merged")),
+    "ChangeSet":     (("occurredAt", "commit_authored"),),
+    "Communication": (("occurredAt", "message_posted"),),
+}
+
+
+def _event_time(value) -> str | None:
+    """이벤트 시각을 **UTC ISO 문자열(밀리초 고정)**로 정규화. 값이 없으면 None.
+
+    Cypher `toString(n.x)`가 미매치(OPTIONAL MATCH)에서 null을 주고, 드라이버가 넘긴
+    neo4j DateTime이 그대로 오는 경우도 있어 양쪽을 함께 흡수한다. 문자열 "None"은
+    파이썬 str(None)이 섞여 들어온 값이라 시각으로 취급하지 않는다.
+
+    **정규화가 필요한 이유**: 그래프의 시각 표기가 섞여 있다 — `Issue.createdAt`은
+    `+09:00` 오프셋으로, 나머지(ChangeSet/PullRequest/Communication)는 `Z`로 저장된다.
+    타임라인은 ISO 문자열 사전순으로 정렬하는데, 사전순 = 시간순은 **표기가 동일할
+    때만** 성립한다. 오프셋이 섞이면 `T19:47+09:00`(=10:47Z)이 `T11:07Z`보다 뒤로
+    가서 순서가 뒤집힌다 — 시간축 도구의 존재 이유가 순서 정확성이므로 여기서 막는다.
+    표기를 하나로 통일해야 하므로 이미 Z인 값도 같은 경로로 다시 찍는다.
+    또한 시스템 프롬프트가 "모든 시각은 UTC"라고 선언하므로 표시값도 UTC여야 한다.
+    """
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    text = text.strip()
+    if not text or text == "None":
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return text  # 파싱 불가 — 원문을 그대로 두어 정보를 잃지 않는다
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)  # naive는 UTC로 간주
+    return parsed.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def expand_events(node_type: str, timestamps: dict, data: dict) -> list[dict]:
+    """한 노드를 EVENT_SPECS에 따라 이벤트 목록으로 펼친다.
+
+    timestamps: 시각 속성 dict (예: {"createdAt": ..., "closedAt": ...}).
+                해당 키가 없거나 값이 비면 그 이벤트는 만들지 않는다.
+    data:       이벤트에 실을 본문 dict — 같은 노드에서 나온 이벤트들이 공유한다.
+
+    반환 항목 구조: {type, event_meaning, occurredAt, data}
+    """
+    events: list[dict] = []
+    for prop, meaning in EVENT_SPECS.get(node_type, ()):
+        at = _event_time(timestamps.get(prop))
+        if at is None:
+            continue
+        events.append({
+            "type": node_type,
+            "event_meaning": meaning,
+            "occurredAt": at,
+            "data": data,
+        })
+    return events
+
+
+def normalize_time(value) -> str | None:
+    """외부에서 받은 시각(도구 인자의 from_time/to_time 등)을 이벤트 시각과 같은 표기로 맞춘다."""
+    return _event_time(value)
+
+
+def sort_events(events: list[dict]) -> list[dict]:
+    """시각 없는 이벤트를 버리고 occurredAt 오름차순으로 정렬한다.
+
+    occurredAt은 ISO-8601 문자열이라 사전순 = 시간순이다.
+    """
+    valid = [e for e in events if _event_time(e.get("occurredAt")) is not None]
+    return sorted(valid, key=lambda e: e["occurredAt"])
 
 
 # ─── 2계층(detail/context) 반환 공용 헬퍼 ──────────────────────────────────────

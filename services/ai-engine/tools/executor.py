@@ -90,7 +90,48 @@ def _truncate_payload(result, payload: str) -> str:
         trimmed = _trim_tiered_dict(result)
         if trimmed is not None:
             return trimmed
+    # get_timeline의 events dict — 계층 dict가 아니라 위 트리머가 못 잡는다.
+    if isinstance(result, dict) and isinstance(result.get("events"), list):
+        trimmed = _trim_timeline_dict(result)
+        if trimmed is not None:
+            return trimmed
     return payload[:_MAX_RESULT_CHARS] + " ...[결과 뒷부분이 잘렸습니다 — JSON이 불완전할 수 있습니다. 더 좁은 범위로 다시 호출하세요.]"
+
+
+def _trim_timeline_dict(result: dict) -> str | None:
+    """시간축 events dict를 상한 이하로 줄인다 — 항상 유효 JSON 반환.
+
+    오름차순 정렬이므로 **뒤에서** 자른다(= 최근 쪽을 버리고 시작을 남긴다).
+    시간축 질문은 시작 시점이 답의 일부라 앞을 버리면 '언제 시작됐나'가 사라진다
+    (query-quality-issues 문제 2). 자른 뒤에는 window.covered_to를 실제 마지막
+    이벤트로 되돌려, 모델이 원래 범위를 그대로 믿지 않게 한다.
+    """
+    def dumps(obj) -> str:
+        return json.dumps(obj, ensure_ascii=False, default=_json_default)
+
+    events = result["events"]
+    if not events:
+        return None
+
+    work = dict(result)
+    kept = list(events)
+    while kept:
+        work["events"] = kept
+        if len(kept) < len(events):
+            work["window"] = {
+                **(result.get("window") or {}),
+                "covered_to": kept[-1].get("occurredAt"),
+            }
+            work["truncated"] = (
+                f"전체 {result.get('total_events', len(events))}건 중 오래된 순 {len(kept)}건만 "
+                f"표시 — 상한 초과로 뒤 구간 생략. covered_to가 실제 마지막 사건이 아닙니다. "
+                f"뒤가 필요하면 from_time을 올려 다시 호출하세요."
+            )
+        candidate = dumps(work)
+        if len(candidate) <= _MAX_RESULT_CHARS:
+            return candidate
+        kept.pop()
+    return None
 
 
 def _trim_tiered_dict(result: dict) -> str | None:
@@ -172,9 +213,21 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
             )
 
         case "get_timeline":
+            # 스코프 인자는 전부 선택 — 넷 다 없으면 프로젝트 전체 기간이다.
             return await queries.get_timeline(
                 project_id=project_id,
-                jira_key=args["jira_key"],
+                jira_key=args.get("jira_key"),
+                path=args.get("path"),
+                actor=args.get("actor"),
+                from_time=args.get("from_time"),
+                to_time=args.get("to_time"),
+            )
+
+        case "rank_issues":
+            return await queries.rank_issues(
+                project_id=project_id,
+                by=args.get("by", "discussion"),
+                top_k=args.get("top_k", 5),
             )
 
         case "search_by_keyword":

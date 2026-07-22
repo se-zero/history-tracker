@@ -1,0 +1,60 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement.md 참고.
+# [시간축 — 전체 스코프] 특정 엔티티 키 없이 프로젝트 전 기간을 시간순으로 조회해야 답할 수 있다.
+#   현행 get_timeline은 jira_key가 필수라 이 질문에 쓸 수 없다 (docs/timeline-scope.md 0단계).
+#   그래프 최초 이벤트 = 2026-03-12T17:42 HT-1 생성. 첫 커밋 3/17, 첫 PR 3/23.
+id: case-41
+question: "이 프로젝트는 처음에 어떤 순서로 시작됐어? 가장 초기 작업부터 시간순으로 정리해줘."
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# 초기 타임라인의 3개 이정표(최초 이슈 / 최초 커밋 / 최초 PR)만 필수로 둔다.
+expected_evidence_ids:
+- "issue:HT-1"                   # 2026-03-12T17:42 생성 — 그래프 전체의 최초 이벤트
+- "issue:HT-2"                   # 2026-03-12T17:43 생성 — 두 번째 이벤트
+- "commit:1739b7a"               # 2026-03-17T10:25 'init: project structure setup' — 최초 커밋
+- "pull_request:#1"              # 2026-03-23 'Feature/infra' — 최초 PR (open·merge 같은 날)
+
+# 인용 무방 — 3월 창의 나머지 이벤트 (전체 흐름 서술에 쓰일 수 있음)
+acceptable_evidence_ids:
+- "issue:HT-3"                   # 파이프라인 구축
+- "issue:HT-4"                   # 깃허브 레파지토리 생성
+- "issue:HT-5"                   # API 테스트
+- "issue:HT-6"                   # 인프라
+- "issue:HT-7"                   # 데이터 공통 포멧으로 정규화
+- "issue:HT-15"                  # 평가척도 만들기
+- "issue:HT-17"                  # 그래프 연결 예시 작성
+- "issue:HT-18"                  # 데이터 포맷 변경에 따른 재정규화
+- "commit:7d711ea"               # backend 초기 Gradle 설정
+- "commit:3a4a7ec"               # 초기 Gradle 설정
+- "commit:fabce0a"               # github 데이터 가져오기 (raw data)
+- "commit:81314d2"               # jira 데이터 가져오기 (raw data)
+- "commit:8ab65c5"               # slack 데이터 가져오기 (raw data)
+- "commit:982135c"               # slack 데이터 가져오기 (raw data)
+- "commit:60d2d92"               # 기본적인 도커 설정
+- "commit:da56f8e"               # 지식그래프 시스템 기초 작성
+- "commit:e7efa0a"               # Jira 데이터 검색 쿼리 개선
+- "commit:b9931ab"               # GitHub/Slack/Jira 데이터 정규화 처리
+- "pull_request:#2"              # Feature/extract data
+- "pull_request:#3"              # Feat/attribute normalization (HT-18)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "가장 먼저 만들어진 Jira 이슈는 2026년 3월 12일의 HT-1(jira 데이터 생성)과 HT-2(그래프 노드/엣지 정의)다"
+- "첫 커밋은 2026년 3월 17일 1739b7a 'init: project structure setup'이다"
+- "첫 PR은 #1 'Feature/infra'로 2026년 3월 23일 열리고 같은 날 머지됐다"
+- "초기 작업은 Jira 이슈 정의 → 데이터 수집(GitHub·Jira·Slack raw data) → 공통 포맷 정규화 순으로 진행됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  facts:
+    - "프로젝트가 2026년 3월 12일보다 이른 시점에 시작됐다 — 그래프의 최초 이벤트는 HT-1 생성(2026-03-12T17:42)이다"
+    - "HT-1 또는 HT-2가 프로젝트 초기가 아닌 후반 작업이라는 서술"
+    - "첫 커밋이 첫 이슈 생성보다 먼저였다는 서술 — 이슈(3/12)가 커밋(3/17)보다 5일 앞선다"
+
+# 케이스별 기계 채점 (시간축 — 순서·라벨 정확도)
+rule_checks:
+- "summary가 이슈 생성(3/12) → 첫 커밋(3/17) → 첫 PR(3/23) 순서를 시간 역전 없이 서술"
+- "HT-1·HT-2를 '생성'으로 서술하고 '완료'와 뒤바꾸지 않음 (HT-1 생성 3/12, 완료 3/15)"
+- "summary가 최소 3개 이상의 서로 다른 시점을 날짜와 함께 제시"
