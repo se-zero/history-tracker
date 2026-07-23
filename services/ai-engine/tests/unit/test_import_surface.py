@@ -61,6 +61,7 @@ MODULES = [
     "tools.queries.actor",
     "tools.queries.changeset",
     "tools.queries.discovery",
+    "tools.queries.explore",
     "tools.queries.files",
     "tools.queries.issue",
     "routers.admin",
@@ -117,6 +118,9 @@ QUERIES_PUBLIC = [
     "get_recent_activity",
     "get_pr_context",
     "get_thread_context",
+    "run_graph_query",
+    "describe_graph",
+    "SCHEMA_CARD",
 ]
 
 ORCHESTRATOR_PUBLIC = ["run", "summarize_history"]

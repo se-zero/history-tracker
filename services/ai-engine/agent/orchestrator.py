@@ -5,6 +5,7 @@ import os
 from openai_client import Priority, chat_completion
 from tools.definitions import TOOLS
 from tools.executor import execute
+from tools.queries import SCHEMA_CARD
 from tools.queries._common import _MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,17 @@ _MODEL = os.environ.get("QUERY_MODEL", "gpt-5.4-mini")
 # eval 스윕용 — 코드 수정 없이 env로 주입한다 (docs/measurement.md의 임계값 주입과 같은 방식).
 _REASONING_EFFORT = os.environ.get("QUERY_REASONING_EFFORT", "")
 _MAX_ITERATIONS = 10
+
+# 범용 조회(run_graph_query) 호출 상한. 중복 호출 가드는 (도구명, 인자) 정확 일치라
+# 쿼리 문자열을 조금만 바꿔도 뚫린다 — 쿼리를 고쳐 쓰며 반복 상한을 태우는 걸 여기서 막는다.
+_MAX_GRAPH_QUERY_CALLS = 3
+
+# 범용 경로가 답에 기여했을 때 붙는 경고. 사용자가 어느 답을 의심해야 하는지 알리는 것이
+# 목적이라, "AI는 틀릴 수 있다" 류의 일반 고지(프론트 상시 표기)와는 다른 층이다.
+_EXPLORATORY_NOTICE = (
+    "> ⚠️ 이 질문에 맞는 전용 조회 경로가 없어 그래프를 직접 탐색해 답했습니다. "
+    "근거 연결이 약하거나 일부가 추론일 수 있습니다."
+)
 
 
 def _model_kwargs() -> dict:
@@ -293,7 +305,27 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - 사람 활동 조회: get_actor_activity
 - 컨텍스트 없는 커밋: check_missing_context
 - 여러 출처 비교: get_conflict_context
-""".replace("__MIN_CONF__", f"{_MIN_CONFIDENCE:g}")
+
+[범용 조회 — run_graph_query (마지막 수단)]
+위 도구들이 커버하지 못하는 질문만 그래프에 직접 Cypher를 실행해 답한다. 다음 둘 중
+하나일 때만 호출한다:
+  1) 질문이 **속성 필터**(status·issue_type·state·channel 등으로 거르기), **개수·집계**,
+     **다중 조건 조인**(예: "A가 만든 이슈 중 B가 논의한 것"), **이슈 외 노드 랭킹**
+     (예: "가장 많이 바뀐 파일")이라 전용 도구로 표현할 수 없을 때
+  2) 전용 도구를 최소 한 번 시도했는데 결과가 비었을 때
+- **전용 도구가 있는 질문에 쓰지 말 것.** 이슈·커밋·PR·스레드·파일이력·사람활동·시간순·
+  이슈랭킹·키워드탐색은 전부 전용 도구가 있고, Cypher로 대체하면 인용할 본문이 빠져 답이
+  나빠진다.
+- 값으로 거르기 전에 describe_graph로 **실제 값**을 확인한다(완료 상태가 'Done'인지 '완료'인지는
+  프로젝트마다 다르다).
+- 결과 행은 개요다. 인용할 항목은 식별자(hash·pr_number·jira_key·conversation_id)로 상세
+  도구를 호출해 본문을 얻은 뒤 인용한다 — 행에 본문이 없으면 quote를 지어내지 말 것.
+- 질의당 최대 __MAX_GQ__회까지만 호출할 수 있다.
+
+__SCHEMA_CARD__
+""".replace("__MIN_CONF__", f"{_MIN_CONFIDENCE:g}") \
+   .replace("__MAX_GQ__", str(_MAX_GRAPH_QUERY_CALLS)) \
+   .replace("__SCHEMA_CARD__", SCHEMA_CARD)
 
 _FALLBACK_ANSWER = "답변을 생성하지 못했습니다."
 _LLM_FAILURE_ANSWER = "AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
@@ -449,6 +481,10 @@ def _render_structured(structured: dict) -> str:
     """
     parts: list[str] = []
 
+    # 범용 조회가 답에 기여했으면 맨 앞에 경고를 세운다 (서버 판정 — LLM이 못 지운다).
+    if structured.get("answer_mode") == "exploratory":
+        parts.append(_EXPLORATORY_NOTICE)
+
     summary = (structured.get("summary") or "").strip()
     if summary:
         parts.append(summary)
@@ -480,6 +516,25 @@ def _render_structured(structured: dict) -> str:
             parts.append(f"- {u}")
 
     return "\n".join(parts) if parts else _FALLBACK_ANSWER
+
+
+def _finalize(structured: dict | None, fallback_text: str, exploratory: bool) -> tuple[str, dict | None]:
+    """최종 답변을 만든다 — answer_mode는 **서버가** 결정해 구조에 실어 준다.
+
+    LLM 자기신고를 쓰지 않는 이유: unknown_aspects가 이미 양방향으로 틀린 전례가 있다
+    (docs/query-quality-issues.md 케이스 3은 있는 근거를 '확인 안 됨'으로, 케이스 4는 없는
+    근거인데 비워 뒀다). 어떤 도구를 탔는지는 기계적으로 아는 사실이므로 추론시키지 않는다.
+
+    grounded_answer 스키마는 strict(additionalProperties: false)라 LLM에게 이 필드를 만들게
+    할 수 없다 — 파싱이 끝난 dict에 서버가 덧붙인다.
+    """
+    mode = "exploratory" if exploratory else "grounded"
+    if structured is None:
+        # structured 실패 fallback — 자유 텍스트에라도 경고는 남긴다.
+        text = f"{_EXPLORATORY_NOTICE}\n\n{fallback_text}" if exploratory else fallback_text
+        return text, None
+    structured["answer_mode"] = mode
+    return _render_structured(structured), structured
 
 
 def _tool_error(tool_call_id: str, message: str) -> dict:
@@ -574,6 +629,7 @@ async def run(
         return [messages[0], *messages[current_turn_start:]]
 
     seen_calls: set[tuple[str, str]] = set()  # (tool_name, args_json) 중복 호출 가드
+    graph_query_calls = 0                     # 범용 조회 호출 수 — answer_mode 판정 근거
 
     for iteration in range(_MAX_ITERATIONS):
         response = await _call_llm(messages, with_tools=True)
@@ -586,10 +642,9 @@ async def run(
         # tool_calls 없음 → 도구 탐색 종료. structured output으로 최종 답변 생성.
         if not message.tool_calls:
             structured = await _call_llm_structured(current_turn_messages(), debug=debug)
-            if structured is None:
-                # fallback: 마지막 LLM 자유 텍스트라도 반환 (할루시네이션 가드는 잃지만 응답은 제공)
-                return message.content or _FALLBACK_ANSWER, None
-            return _render_structured(structured), structured
+            # structured 실패 시 fallback: 마지막 LLM 자유 텍스트라도 반환
+            # (할루시네이션 가드는 잃지만 응답은 제공)
+            return _finalize(structured, message.content or _FALLBACK_ANSWER, graph_query_calls > 0)
 
         messages.append(message)
 
@@ -622,6 +677,20 @@ async def run(
                 continue
             seen_calls.add(call_key)
 
+            # 범용 조회 상한 — 쿼리를 미세하게 고쳐 쓰며 반복 상한을 소진하는 것을 막는다
+            # (중복 가드는 인자 정확 일치라 여기서 못 잡는다).
+            if tool_name == "run_graph_query":
+                if graph_query_calls >= _MAX_GRAPH_QUERY_CALLS:
+                    logger.info("범용 조회 호출 상한 도달 — 차단")
+                    _record_tool_call(debug, tool_name, args, "limit_exceeded", None)
+                    messages.append(_tool_error(
+                        tc.id,
+                        f"run_graph_query는 질의당 {_MAX_GRAPH_QUERY_CALLS}회까지만 호출할 수 있습니다. "
+                        "지금까지의 결과로 답하거나 전용 도구를 사용하세요.",
+                    ))
+                    continue
+                graph_query_calls += 1
+
             logger.info("도구 호출: %s", tool_name)
             result_str = await execute(tool_name, args, project_id, question=question)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
@@ -637,6 +706,4 @@ async def run(
     # 최대 반복 도달 → 그 시점까지의 컨텍스트로 강제 structured 답변
     logger.warning("최대 반복 횟수(%d) 도달 — structured 강제 응답", _MAX_ITERATIONS)
     structured = await _call_llm_structured(current_turn_messages(), debug=debug)
-    if structured is None:
-        return _FALLBACK_ANSWER, None
-    return _render_structured(structured), structured
+    return _finalize(structured, _FALLBACK_ANSWER, graph_query_calls > 0)

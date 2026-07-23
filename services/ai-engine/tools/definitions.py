@@ -1,3 +1,5 @@
+from tools.queries.explore import NODE_LABELS
+
 TOOLS = [
     {
         "type": "function",
@@ -372,6 +374,73 @@ TOOLS = [
                     }
                 },
                 "required": ["conversation_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_graph_query",
+            "description": (
+                "**전용 도구가 없는 질문에만** 쓰는 마지막 수단. 지식 그래프에 Cypher를 직접 "
+                "실행한다. 속성으로 거르기(status·issue_type·state·channel), 개수 세기·집계, "
+                "여러 조건을 엮는 조인(예: 'A가 만든 이슈 중 B가 논의한 것'), 이슈 외 노드 "
+                "랭킹(예: '가장 많이 바뀐 파일')처럼 다른 도구로는 표현할 수 없는 질문에 쓴다.\n"
+                "**쓰지 말아야 할 때(중요)**: 이슈 하나→get_issue_context, 커밋 하나→"
+                "get_changeset_context, PR 하나→get_pr_context, 스레드→get_thread_context, "
+                "파일 이력→get_file_history, 사람 활동→get_actor_activity, 시간순→get_timeline, "
+                "이슈 랭킹→rank_issues, 키워드 탐색→search_by_keyword. 이 도구들이 커버하는 "
+                "질문에 Cypher를 쓰면 더 나쁜 답이 나온다(본문·인용 원문이 빠진다). 전용 도구를 "
+                "먼저 시도하고, 그 결과가 비었거나 질문이 위 유형일 때만 이 도구를 쓴다.\n"
+                "제약: 읽기 전용 단일 쿼리(MATCH / OPTIONAL MATCH / WHERE / WITH / RETURN / "
+                "ORDER BY / SKIP / LIMIT)만 된다. 모든 노드 패턴에 라벨이 있어야 하고, "
+                "project_id 조건은 서버가 자동 주입하므로 쓰지 않는다. LIMIT을 안 쓰면 서버가 "
+                "붙인다. 스키마는 시스템 프롬프트의 [그래프 스키마] 참고.\n"
+                "**RETURN 설계 규칙**: 답변 근거로 인용하려면 식별자가 필요하다 — 커밋은 hash, "
+                "PR은 pr_number, 이슈는 jira_key, 메시지는 conversation_id를 occurredAt·본문과 "
+                "함께 RETURN한다. 개수만 세는 질의도 근거가 된 노드의 식별자를 함께 반환한다. "
+                "노드 전체(RETURN n)보다 필요한 속성만 고르는 편이 좋다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cypher": {
+                        "type": "string",
+                        "description": (
+                            "실행할 Cypher. 예: MATCH (i:Issue) WHERE i.status <> '완료' "
+                            "RETURN i.jira_key, i.title, i.status ORDER BY i.createdAt"
+                        ),
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "이 쿼리로 확인하려는 것 한 줄 (기록용 — 실행에는 영향 없음)",
+                    },
+                },
+                "required": ["cypher", "purpose"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "describe_graph",
+            "description": (
+                "run_graph_query를 쓰기 전에 특정 노드 라벨의 실제 데이터 분포를 확인한다. "
+                "노드 수, 실제로 존재하는 속성 목록, 주요 속성의 실제 값과 빈도를 반환한다. "
+                "status·issue_type·channel 같은 값은 프로젝트마다 다르므로, 값으로 거르는 "
+                "쿼리를 쓰기 전에 이 도구로 실제 값을 확인한다 "
+                "(예: 완료 상태가 'Done'인지 '완료'인지)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string",
+                        "enum": sorted(NODE_LABELS),
+                        "description": "조회할 노드 라벨",
+                    }
+                },
+                "required": ["label"],
             },
         },
     },

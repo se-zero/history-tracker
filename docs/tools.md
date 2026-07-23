@@ -24,6 +24,7 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 - **project_id 자동 스코프**: `execute(tool_name, args, project_id)`가 backend로부터 인증된
   사용자의 `project_id`를 주입한다. 모든 Cypher가 이 값으로 스코프되어 다른 프로젝트 그래프를
   조회할 수 없다. **LLM은 project_id를 보지도 못하고 인자로 바꿀 수도 없다** (도구 파라미터에 없음).
+  `run_graph_query`만 주입 방식이 다르다 — LLM이 쓴 Cypher의 노드 패턴을 서버가 재작성해 넣는다(#14).
 - **TRIGGERED_BY confidence 컷오프** (`_MIN_CONFIDENCE = 0.5`): TRIGGERED_BY 엣지를 따라가는
   모든 도구는 `confidence >= 0.5`만 통과시킨다. 텍스트 매칭(`source='text'`)은 항상 `1.0`이라
   항상 통과하고, 시맨틱 매칭은 0.5 미만이면 응답에서 제외된다.
@@ -63,6 +64,8 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | 11 | `get_recent_activity` | 기간 내 전 노드 타입 활동을 최신순 혼합 반환 | `get_recent_activity` |
 | 12 | `get_pr_context` | PR 번호로 커밋/이슈/논의/파일 변경 조회 | `get_pr_context` |
 | 13 | `get_thread_context` | Slack 스레드를 conversation_id로 전체 조회 | `get_thread_context` |
+| 14 | `run_graph_query` | 전용 도구가 없는 질문에 Cypher 직접 실행 (범용 탈출구) | `explore.run_graph_query` |
+| 15 | `describe_graph` | 라벨의 노드 수·속성·실제 값 분포 조회 | `explore.describe_graph` |
 
 ---
 
@@ -348,6 +351,49 @@ Slack 스레드를 conversation_id로 완전히 조회한다.
 - 반환: 스레드 내 메시지를 occurredAt 오름차순으로, 각 메시지에 `author`와 연결 `related_issues` 포함.
 - 정렬은 RETURN alias `occurredAt`(ISO 문자열) 기준 — collect aggregation 때문에 `c.occurredAt`을
   ORDER BY에서 직접 못 쓴다(코드 주석 참고).
+
+### 14. `run_graph_query`
+
+전용 도구가 커버하지 못하는 질문(속성 필터·집계·다중 조건 조인·이슈 외 노드 랭킹)을 위한
+범용 탈출구. 설계 배경과 측정 계획은 [`graph-query-tool.md`](graph-query-tool.md) 참고.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| `cypher` | string | ✔ | 실행할 읽기 쿼리. **`project_id` 조건을 쓰지 않는다** (서버가 주입) |
+| `purpose` | string | ✔ | 쿼리 의도 한 줄. 로그 전용 — 실행에 영향 없음 |
+
+- **project_id는 쿼리 재작성으로 주입된다.** 다른 도구처럼 파라미터로 스코프되는 게 아니라,
+  모든 노드 패턴 `(v:Label …)`을 `(v:Label {project_id: $project_id} …)`로 고쳐 실행한다.
+  Neo4j community 에디션이라 프로젝트별 DB 분리가 불가능해 이 재작성이 격리의 유일한 보장이다.
+- 검증은 **fail-closed**다. 아래는 전부 거부된다(사유는 LLM에게 전달되어 교정을 유도한다):
+  쓰기·부작용 구문(`CREATE`/`MERGE`/`SET`/`DELETE`/`REMOVE`/`FOREACH`), `CALL`·`LOAD CSV`,
+  `UNION`·`UNWIND`, `EXISTS{}`/`COUNT{}` 서브쿼리, 복수 문장, 라벨 없는 노드 패턴,
+  화이트리스트 밖 라벨·관계, 상한 없는 가변 길이 관계(최대 5홉), MATCH 절 밖의 그래프 패턴
+  (WHERE 패턴 술어·패턴 컴프리헨션 — 주입을 타지 않는 경로다).
+- **MATCH 절의 노드만 스코프해도 충분한 이유**: 엣지는 프로젝트를 건너뛰지 않는다(모든 관계
+  MERGE가 양끝을 project_id로 매칭). 시작 노드를 묶으면 거기서 뻗는 탐색은 프로젝트를 벗어날 수 없다.
+- 실행은 읽기 전용 트랜잭션 + 5초 타임아웃. `LIMIT` 미지정 시 50을 주입하고, 200을 넘는 값은 깎는다.
+- 반환은 **행 리스트**다(executor의 행 단위 잘림을 타기 위함). 반환 값에서 `embedding` 속성은
+  제거되고, 다른 프로젝트 노드가 섞인 행은 후검증에서 걸러진다(재작성 실패 대비 2중 방어).
+- **다른 도구와 달리 `_MIN_CONFIDENCE` 컷이 적용되지 않는다.** 시맨틱 엣지를 지날 때는
+  쿼리에 `WHERE r.confidence >= 0.5`를 직접 넣어야 한다(프롬프트 스키마 카드가 안내).
+- 이 도구가 호출된 질의의 응답에는 `answer_mode: "exploratory"`가 붙고, 웹 대시보드가 경고
+  배너를 띄운다. 판정은 orchestrator가 **실제 호출된 도구**로 하며 LLM이 관여하지 않는다.
+- 라우팅 가드: 질의당 최대 3회(`_MAX_GRAPH_QUERY_CALLS`). 중복 호출 가드는 인자 정확 일치라
+  쿼리를 미세하게 고쳐 쓰는 반복을 못 잡기 때문에 별도 상한을 둔다.
+
+### 15. `describe_graph`
+
+값으로 거르는 쿼리를 쓰기 전에 실제 데이터 분포를 확인하는 도구.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| `label` | string | ✔ | `ChangeSet`·`PullRequest`·`Issue`·`Communication`·`File`·`Actor` 중 하나 |
+
+- 반환: `{label, total, properties[], value_distribution{}}`. `value_distribution`은 라벨별
+  주요 속성(Issue는 status·issue_type·priority·assignee·source 등)의 실제 값과 빈도 상위 20건.
+- 라벨·속성·관계 **골격**은 시스템 프롬프트의 정적 스키마 카드(`explore.SCHEMA_CARD`)가 담당하고,
+  이 도구는 프로젝트마다 달라지는 **값**만 조회한다 (완료 상태가 `'Done'`인지 `'완료'`인지 등).
 
 ---
 
