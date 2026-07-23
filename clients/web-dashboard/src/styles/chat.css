@@ -303,6 +303,19 @@
 }
 .unknown-aspects li { margin-bottom: 2px; }
 
+/* 답변별 신뢰도 신호 — 범용 그래프 탐색으로 답한 경우에만 뜬다.
+   composer의 상시 고지(.composer-disclaimer)와 다른 층이라 톤도 구분한다. */
+.msg-exploratory {
+  margin: 0 0 10px;
+  padding: 8px 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  border: 1px solid color-mix(in oklab, var(--warning) 30%, var(--border));
+  background: color-mix(in oklab, var(--warning) 8%, transparent);
+  border-radius: var(--r-md);
+}
+
 .citation-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -429,6 +442,11 @@
   margin-top: 6px;
   text-align: center;
   display: flex; justify-content: center; gap: 12px;
+  flex-wrap: wrap;
+}
+/* 정적 고지 — 좁은 폭에서 키보드 힌트와 같은 줄에 끼지 않도록 항상 줄을 차지한다 */
+.composer-disclaimer {
+  flex-basis: 100%;
 }
 /* 중립 톤 안내 배너 — 채팅 차단 사유(연동 없음·구축중) 안내. 에러(InlineError)와 구분되는 정보성 */
 .composer-notice {

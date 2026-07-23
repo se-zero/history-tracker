@@ -82,6 +82,14 @@ function AssistantMessage({
       </div>
       <div className="msg-body">
         <div className="msg-role">History Tracker</div>
+        {/* 답변별 신뢰도 신호 — composer의 상시 고지와 달리 이 답이 약할 때만 뜬다.
+            판정은 ai-engine이 실제 호출된 도구로 한다(LLM 자기신고 아님). */}
+        {structured?.answerMode === "exploratory" && (
+          <div className="msg-exploratory" role="note">
+            전용 조회 경로가 없어 그래프를 직접 탐색해 답했습니다. 근거 연결이 약하거나 일부가
+            추론일 수 있습니다.
+          </div>
+        )}
         {/* assistant 응답은 markdown으로 렌더링한다(유저 메시지는 원문 그대로 pre-wrap 유지). */}
         <div className="msg-content markdown">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>

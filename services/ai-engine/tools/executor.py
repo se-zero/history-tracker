@@ -299,5 +299,20 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
                 conversation_id=args["conversation_id"],
             )
 
+        case "run_graph_query":
+            # purpose는 실행에 쓰지 않는다 — 어떤 의도의 쿼리였는지 로그로 남겨,
+            # 나중에 라우팅 오염(전용 도구가 있는 질문에 Cypher를 쓴 경우)을 추적한다.
+            logger.info("run_graph_query 의도: %s", args.get("purpose", ""))
+            return await queries.run_graph_query(
+                project_id=project_id,
+                cypher=args["cypher"],
+            )
+
+        case "describe_graph":
+            return await queries.describe_graph(
+                project_id=project_id,
+                label=args["label"],
+            )
+
         case _:
             raise ValueError(f"알 수 없는 도구: {tool_name}")
