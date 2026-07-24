@@ -1,0 +1,1629 @@
+/* ============================================================
+   Landing — 제품 소개 페이지 (docs/DESIGN.md 적용)
+   ------------------------------------------------------------
+   모든 규칙은 .lp 하위로 스코프하고 색·radius·모션은 --lp-* 토큰만 쓴다.
+   기존 앱 스타일과 겹치지 않아야 하므로 hex 하드코딩·전역 셀렉터 금지.
+   ============================================================ */
+
+/* ── General Sans (본문 서체) ────────────────────────────────
+   Fontshare의 API CSS(api.fontshare.com/v2/css?f[]=general-sans)는 오리진을 차단해
+   @font-face가 하나도 없는 빈 CSS(주석만)를 200으로 돌려준다. 그래서 API를 쓰지 않고
+   CDN의 woff2를 직접 @font-face로 선언한다. 라이선스 확인 전이므로 자체 호스팅은 하지 않는다.
+   (@font-face는 @import가 아닌 일반 규칙이라 이 파일 안 어디에 있어도 된다.)
+   --------------------------------------------------------- */
+@font-face {
+  font-family: "General Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("https://cdn.fontshare.com/wf/MFQT7HFGCR2L5ULQTW6YXYZXXHMPKLJ3/YWQ244D6TACUX5JBKATPOW5I5MGJ3G73/7YY3ZAAE3TRV2LANYOLXNHTPHLXVWTKH.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "General Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("https://cdn.fontshare.com/wf/3RZHWSNONLLWJK3RLPEKUZOMM56GO4LJ/BPDRY7AHVI3MCDXXVXTQQ76H3UXA63S3/SB2OEB6IKZPRR6JT4GFJ2TFT6HBB6AZN.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "General Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("https://cdn.fontshare.com/wf/K46YRH762FH3QJ25IQM3VAXAKCHEXXW4/ISLWQPUZHZF33LRIOTBMFOJL57GBGQ4B/3ZLMEXZEQPLTEPMHTQDAUXP5ZZXCZAEN.woff2")
+    format("woff2");
+}
+
+/* 오버스크롤 영역까지 랜딩 배경으로 덮는다(body 배경은 앱 테마 토큰이라 그대로 둔다). */
+body:has(.lp) {
+  background: var(--lp-surface-0);
+}
+
+.lp {
+  position: relative;
+  min-height: 100%;
+  background: var(--lp-surface-0);
+  color: var(--lp-text-primary);
+  font-family: var(--lp-font-body);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* 포커스 링은 앰버 — DESIGN.md의 앰버 허용 지점 중 하나. outline-offset만 살짝 이징 —
+   색은 즉시 나타나야 하므로(접근성상 지연 금지) outline-color는 트랜지션하지 않는다. */
+.lp :focus-visible {
+  outline: 2px solid var(--lp-accent);
+  outline-offset: 2px;
+  transition: outline-offset var(--lp-dur-fast) var(--lp-ease-standard);
+}
+
+/* ── 모션 ───────────────────────────────────────────────────
+   JS 없이 로드 시퀀스만으로 시그니처 순간(텍스트 → 그래프 점등)을 재연한다.
+   1회 재생, 루프 없음.
+   --------------------------------------------------------- */
+@keyframes lp-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes lp-rise-media {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes lp-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* 프레임 뒤 글로우는 은은해야 하므로 최종 불투명도를 낮게 고정한다. */
+@keyframes lp-glow-in {
+  from { opacity: 0; }
+  to   { opacity: 0.2; }
+}
+
+/* ── 그래프 모션 (히어로 성좌 + 작동 방식 미니 그래프 공용 키프레임) ──────────────
+   DESIGN.md "그래프: force-directed 노드는 스프링 물리로 정착(linear 스냅 금지)"·
+   "시그니처 순간: 인용된 노드와 엣지가 앰버빛으로 켜지며 나머지는 딤"을 페이지 모션으로 옮긴다.
+   --------------------------------------------------------- */
+
+/* 노드 정착 — scale 0.6→1 + 살짝 위로 슬라이드하며 스프링으로 안착한다(히어로 배경 노드,
+   작동 방식 01 스텝). 최종 불투명도는 노드마다 달라(성좌 생성기가 부여) --o로 받는다 —
+   그래야 애니메이션 종료 후에도 기존 정적 화면과 같은 밀도로 보인다. */
+@keyframes lp-node-settle {
+  from { opacity: 0; transform: scale(0.6) translateY(4px); }
+  to   { opacity: var(--o, 1); transform: none; }
+}
+
+/* 노드가 스프링 오버슈트 없이 빠르게 나타나는 버전 — 작동 방식 02/03. "이미 있던 노드
+   사이에 관계가 이어진다"는 인상을 위해 01의 정착보다 절제된 등장을 쓴다. */
+@keyframes lp-node-appear {
+  from { opacity: 0; transform: scale(0.85); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 점등 노드 — 완전한 등장(scale+fade), 스프링 오버슈트가 있어 "선택된" 느낌을 준다.
+   최종 불투명도는 요소마다 다르므로(헤일로는 0.35) --lit-o로 받는다. */
+@keyframes lp-lit-node-in {
+  from { opacity: 0; transform: scale(0.5); }
+  to   { opacity: var(--lit-o, 1); transform: none; }
+}
+
+/* 점등 엣지 — stroke-dashoffset 드로잉. SVG 쪽에서 pathLength="1"을 지정해 실제 픽셀
+   길이와 무관하게 0→1 오프셋으로 그려지게 한다. transform·opacity만 애니메이션한다는
+   원칙의 명시적 예외다 — DESIGN.md가 "그래프가 살아나는 순간"의 시각 언어로 지시한 기법이고,
+   대상이 히어로/미니 그래프의 짧은 선 몇 개뿐이라 paint 비용이 무시할 만하다. */
+@keyframes lp-lit-edge-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* 점등 경로 은은한 루프(히어로 전용) — 끄는 게 아니라 ~0.5로 가라앉았다 다시 켜진다.
+   엣지·헤일로·노드 그룹 전체를 하나의 단위로 다뤄 함께 어두워지고 함께 밝아진다. */
+@keyframes lp-lit-loop {
+  0%, 45%  { opacity: 1; }
+  55%, 95% { opacity: 0.5; }
+  100%     { opacity: 1; }
+}
+
+/* 작동 방식 03 전용 — 비점등 요소가 앰버 경로 점등과 동시에 0.25로 가라앉는다(끝나면 유지,
+   루프 없음 — 03은 본문을 읽는 구간이라 1회 재생 후 정지해야 한다). */
+@keyframes lp-how-dim {
+  from { opacity: 1; }
+  to   { opacity: 0.25; }
+}
+
+/* ── 헤더 ─────────────────────────────────────────────────── */
+/* 바깥은 sticky + 스크롤 상태(테두리·블러)만 담당하고, 레이아웃은 안쪽에 둔다. */
+.lp-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid transparent;
+  transition:
+    border-color var(--lp-dur-base) var(--lp-ease-standard),
+    background-color var(--lp-dur-base) var(--lp-ease-standard);
+}
+.lp-header.is-scrolled {
+  border-bottom-color: var(--lp-border);
+  background-color: color-mix(in srgb, var(--lp-surface-0) 80%, transparent);
+  backdrop-filter: blur(12px);
+}
+/* blur가 없는 환경에서는 80% 반투명이 뒤 콘텐츠를 그대로 비추므로 불투명도로 보강한다.
+   (겹침처럼 보였던 건 풀페이지 캡처의 sticky 아티팩트 + 헤드리스의 blur 미렌더였다 —
+   실제 blur 지원 브라우저는 의도된 글래스 헤더를 그대로 유지한다.) */
+@supports not (backdrop-filter: blur(12px)) {
+  .lp-header.is-scrolled {
+    background-color: color-mix(in srgb, var(--lp-surface-0) 94%, transparent);
+  }
+}
+
+.lp-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 64px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+.lp-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--lp-r-sm);
+}
+
+/* 노드 타입 7색 conic — 로고는 그래프를 가리키므로 노드 색을 쓴다(앰버 아님). */
+.lp-logo-mark {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--lp-r-sm);
+  background: conic-gradient(
+    from 220deg at 50% 50%,
+    var(--lp-node-commit),
+    var(--lp-node-pr),
+    var(--lp-node-issue),
+    var(--lp-node-slack),
+    var(--lp-node-jira),
+    var(--lp-node-person),
+    var(--lp-node-file),
+    var(--lp-node-commit)
+  );
+}
+.lp-logo-mark::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 3px;
+  background: var(--lp-surface-0);
+}
+.lp-logo-mark::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  z-index: 1;
+  border-radius: 1.5px;
+  background: var(--lp-text-primary);
+}
+
+.lp-wordmark {
+  font-family: var(--lp-font-display);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--lp-text-primary);
+  white-space: nowrap;
+}
+
+.lp-login-link {
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--lp-r-md);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--lp-text-secondary);
+  white-space: nowrap;
+  transition:
+    color var(--lp-dur-fast) var(--lp-ease-standard),
+    background-color var(--lp-dur-fast) var(--lp-ease-standard),
+    border-color var(--lp-dur-fast) var(--lp-ease-standard);
+}
+.lp-login-link:hover {
+  color: var(--lp-text-primary);
+  background-color: var(--lp-surface-2);
+  border-color: var(--lp-border);
+}
+
+/* ── 히어로 레이아웃 ─────────────────────────────────────────
+   overflow: hidden 은 프레임 뒤 글로우와 미디어 bleed가 가로 스크롤을 만들지 않게 하는 장치다.
+   높이는 콘텐츠에 맡기고 상단 패딩만 좁혀 내비 바로 아래에서 시작하게 한다.
+   --------------------------------------------------------- */
+.lp-hero {
+  display: flex;
+  flex-direction: column;
+  /* 히어로를 첫 화면 높이만큼 세워 스크롤 큐가 섹션 바닥(=폴드)에 앉게 한다. 64px는 헤더 높이(.lp-header-inner). */
+  min-height: calc(100svh - 64px);
+  padding: 40px 0 40px;
+  overflow: hidden;
+  /* 컨테이너(1200px) 우측 끝에서 뷰포트 우측 끝까지의 거리 — 미디어 bleed 계산용.
+     뷰포트가 1200px 미만이면 0. */
+  --lp-bleed: max(0px, calc((100vw - 1200px) / 2));
+}
+
+.lp-hero-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  /* 미디어가 트랙을 꽉 채워 좌측 padding 끝에 붙으므로(아래 .lp-hero-media), 텍스트도
+     같은 기준선에 맞춘다 — center로 두면 텍스트만 안쪽으로 들어가 좌측 정렬선이 어긋난다. */
+  justify-items: start;
+  gap: 48px;
+  /* .lp-hero가 column flex라 좌우 auto 마진이 교차축이 된다 — stretch가 꺼지므로 width를 명시한다. */
+  width: 100%;
+  max-width: 1200px;
+  /* 콘텐츠와 스크롤 큐가 각각 margin-top:auto를 가져 남는 세로 공간을 반씩 나눈다 →
+     콘텐츠는 중앙보다 약간 위, 큐는 바닥에 고정. */
+  margin: auto auto 0;
+  padding: 0 32px;
+}
+
+/* 단일 컬럼 구간에서 본문 줄 길이를 읽기 좋게 제한한다. */
+.lp-hero-text {
+  width: 100%;
+  max-width: 600px;
+}
+
+/* ── 텍스트 ─────────────────────────────────────────────────── */
+.lp-eyebrow {
+  margin: 0;
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.08em; /* 대문자 라틴 전용 — 한글 eyebrow에는 쓰지 않는다 */
+  /* text-muted는 surface-0 위에서 AA(4.5:1) 미달(약 3.3:1) — text-secondary로 올린다 */
+  color: var(--lp-text-secondary);
+  animation: lp-rise var(--lp-dur-base) var(--lp-ease-standard) 0ms both;
+}
+
+.lp-headline {
+  margin: 20px 0 0;
+  font-family: var(--lp-font-display);
+  /* 한글은 시각 무게가 커서 라틴 700보다 낮춘 500을 쓴다. */
+  font-weight: 500;
+  font-size: clamp(2.125rem, 6.4vw, 3.5rem);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
+  color: var(--lp-text-primary);
+}
+.lp-headline-line {
+  display: block;
+}
+.lp-headline-line:nth-child(1) {
+  animation: lp-rise var(--lp-dur-base) var(--lp-ease-standard) 60ms both;
+}
+.lp-headline-line:nth-child(2) {
+  animation: lp-rise var(--lp-dur-base) var(--lp-ease-standard) 120ms both;
+}
+
+.lp-sub {
+  max-width: 34em;
+  margin: 24px 0 0;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.75; /* 한글 행간 */
+  color: var(--lp-text-secondary);
+  animation: lp-rise var(--lp-dur-base) var(--lp-ease-standard) 180ms both;
+}
+
+/* ── CTA ───────────────────────────────────────────────────── */
+.lp-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+  animation: lp-rise var(--lp-dur-base) var(--lp-ease-standard) 240ms both;
+}
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 22px;
+  border: 1px solid transparent;
+  border-radius: var(--lp-r-md);
+  font-family: var(--lp-font-body);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition:
+    background-color var(--lp-dur-fast) var(--lp-ease-standard),
+    /* 보조 CTA의 hover 틴트는 background-image(그라디언트)라 여기에 없으면 혼자 즉시 튄다 */
+    background-image var(--lp-dur-fast) var(--lp-ease-standard),
+    border-color var(--lp-dur-fast) var(--lp-ease-standard),
+    color var(--lp-dur-fast) var(--lp-ease-standard),
+    transform var(--lp-dur-fast) var(--lp-ease-standard);
+}
+/* 프레스 마이크로 인터랙션 — 미묘하게만(과하면 장난감처럼 보인다). */
+.lp-btn:active {
+  transform: scale(0.97);
+}
+
+/* 앰버 채움 위 어두운 글자 — 대비 약 11:1 */
+.lp-btn--primary {
+  background-color: var(--lp-accent);
+  color: var(--lp-surface-0);
+}
+.lp-btn--primary:hover { background-color: var(--lp-accent-hover); }
+.lp-btn--primary:active { background-color: var(--lp-accent-pressed); }
+
+.lp-btn--secondary {
+  background-color: var(--lp-surface-2);
+  border-color: var(--lp-border);
+  color: var(--lp-text-primary);
+}
+/* surface-2 위에 accent-soft를 얹는 틴트(배경색 교체가 아니라 겹침) */
+.lp-btn--secondary:hover {
+  background-image: linear-gradient(var(--lp-accent-soft), var(--lp-accent-soft));
+  border-color: var(--lp-border-strong);
+}
+
+.lp-cta-meta {
+  margin: 20px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  /* text-muted는 surface-0 위에서 AA(4.5:1) 미달(약 3.3:1) — text-secondary로 올린다 */
+  color: var(--lp-text-secondary);
+  animation: lp-rise var(--lp-dur-base) var(--lp-ease-standard) 240ms both;
+}
+
+/* ── 스크롤 큐 ─────────────────────────────────────────────── */
+.lp-scroll-cue {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  /* margin-top:auto가 .lp-hero-inner와 남는 세로 공간을 나눠 가져 큐를 히어로 바닥에 고정한다. */
+  margin: auto auto 0;
+  font-size: 13px;
+  /* text-muted는 surface-0 위에서 AA(4.5:1) 미달(약 3.3:1) — text-secondary로 올린다 */
+  color: var(--lp-text-secondary);
+  transition: color var(--lp-dur-fast) var(--lp-ease-standard);
+  animation: lp-rise var(--lp-dur-base) var(--lp-ease-standard) 300ms both;
+}
+.lp-scroll-cue::before {
+  content: "";
+  width: 1px;
+  height: 32px;
+  background: linear-gradient(to bottom, transparent, var(--lp-border));
+}
+.lp-scroll-cue:hover { color: var(--lp-text-secondary); }
+.lp-scroll-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── 미디어 플레이스홀더 ────────────────────────────────────── */
+.lp-hero-media {
+  position: relative;
+  /* justify-self: stretch가 핵심이다 — width를 명시하면(예: 100%) 그리드가 이 아이템을
+     "고정 크기"로 취급해 정렬을 start/center로 취급하고, 음수 margin은 정렬 계산에
+     흡수돼 버려 bleed가 전혀 일어나지 않는다(width:auto 상태에서만 stretch가
+     "트랙 크기 - margin"으로 폭을 계산하므로 음수 margin이 실제로 트랙 밖으로 밀어낸다). */
+  justify-self: stretch;
+  /* 컨테이너 padding(32px)을 상쇄해 뷰포트 우측 끝까지 붙인다.
+     ≥1180px는 --lp-bleed를 더해 컨테이너 밖 여백까지 상쇄한다(아래 반응형 참고). */
+  margin-right: -32px;
+}
+
+/* 점등에서 새어나온 빛 — 장식 블롭이 아니라 지시 대상이 있는 앰버. */
+.lp-media-glow {
+  position: absolute;
+  inset: -14%;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(60% 60% at 50% 50%, var(--lp-accent-glow), transparent 100%);
+  filter: blur(48px);
+  animation: lp-glow-in var(--lp-dur-slow) var(--lp-ease-standard) 620ms both;
+}
+
+/* 더 이상 테두리·배경이 있는 카드가 아니다 — 그래프가 배경 위에 떠서 우측 bleed로
+   뷰포트 끝까지, 화면 밖 공간까지 이어지는 것처럼 보이게 프레임 느낌을 없앤다.
+   aspect-ratio 대신 높이를 직접 고정 — bleed로 폭이 크게 변하는 구간에서 과도하게
+   높아지지 않게 한다. SVG는 preserveAspectRatio="xMidYMid slice"라 잘릴 뿐 늘어나지 않는다. */
+.lp-media-frame {
+  position: relative;
+  z-index: 1;
+  height: clamp(320px, 30vw, 460px);
+  overflow: hidden;
+  animation: lp-rise-media var(--lp-dur-slow) var(--lp-ease-spring) 300ms both;
+}
+
+/* 좌측(텍스트 쪽)은 배경에 녹아들도록 마스크로 페이드아웃하고, 우측은 그대로 bleed시킨다. */
+.lp-constellation {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 20%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 20%);
+}
+
+/* ── 성좌 SVG ──────────────────────────────────────────────── */
+.lp-c-edge {
+  stroke: var(--lp-border-strong);
+  stroke-width: 1;
+}
+
+/* 배경 노드 — 스프링 정착(scale 0.6→1 + 페이드). transform-box: fill-box로 노드 자신의
+   중심을 기준으로 스케일되게 한다(기본값인 SVG 뷰포트 원점 기준이면 좌상단에서 날아오는
+   것처럼 보인다). --o(최종 불투명도)·--d(스태거 지연)는 HeroMedia.tsx가 노드마다 부여한다. */
+.lp-constellation .lp-c-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lp-node-settle var(--lp-dur-slow) var(--lp-ease-spring) var(--d, 0ms) both;
+}
+
+.lp-c-node--commit { fill: var(--lp-node-commit); }
+.lp-c-node--pr     { fill: var(--lp-node-pr); }
+.lp-c-node--issue  { fill: var(--lp-node-issue); }
+.lp-c-node--slack  { fill: var(--lp-node-slack); }
+.lp-c-node--jira   { fill: var(--lp-node-jira); }
+.lp-c-node--person { fill: var(--lp-node-person); }
+.lp-c-node--file   { fill: var(--lp-node-file); }
+
+/* 점등 경로 — 앰버는 "지금 살아있는 것"에만 쓴다. 노드 정착이 끝난 뒤 노드→엣지→노드…
+   순으로 순차 등장(각 요소의 --d는 HeroMedia.tsx가 부여), 이후 이 그룹 전체가 8~10초
+   주기로 은은한 재점등 루프를 돈다. 히어로가 화면 밖이면 is-loop-paused로 루프만 멈춘다
+   (개별 등장 애니메이션은 이미 끝난 뒤라 무관하다). */
+.lp-c-lit {
+  animation: lp-lit-loop 9s var(--lp-ease-standard) 2700ms infinite;
+  /* 2700ms ≈ HeroMedia.tsx의 LIT_SEQUENCE_BASE_MS(1000ms) + 마지막 노드 beat(6×190ms=1140ms)
+     + 그 노드의 등장 시간(--lp-dur-base) + 여유. 두 파일이 이 값으로 묶여 있으므로 한쪽을
+     바꾸면 반드시 다른 쪽도 맞춘다. */
+}
+.lp-c-lit.is-loop-paused {
+  animation-play-state: paused;
+}
+.lp-c-lit-edge {
+  stroke: var(--lp-accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  animation: lp-lit-edge-draw var(--lp-dur-slow) var(--lp-ease-standard) var(--d, 0ms) both;
+}
+.lp-c-lit-node {
+  fill: var(--lp-accent);
+  --lit-o: 1;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lp-lit-node-in var(--lp-dur-base) var(--lp-ease-spring) var(--d, 0ms) both;
+}
+.lp-c-lit-halo {
+  fill: var(--lp-accent-glow);
+  --lit-o: 0.35;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lp-lit-node-in var(--lp-dur-base) var(--lp-ease-spring) var(--d, 0ms) both;
+}
+
+/* ── 문제 정의 섹션 ──────────────────────────────────────────
+   이미지·아이콘 없는 순수 타이포그래피 블록. 히어로와의 경계는 여백만으로 만든다
+   (테두리·배경 없음). 정렬은 좌측 — 페이지 전체를 좌측 정렬로 통일하고(최종 CTA만 예외),
+   리듬은 정렬이 아니라 형식 변화로 만든다. 이 섹션은 페이지의 감정적 정점 중 하나라
+   헤드라인을 히어로급(display-xl)으로 키우고, 블록 내부는 조밀하게 · 외부 여백은 넓게 —
+   임팩트는 내부 밀도와 외부 여백의 대비에서 나온다.
+   --------------------------------------------------------- */
+.lp-problem {
+  /* 하단은 좁게 — 작동 방식 섹션과의 사이 여백을 줄인다(상단은 히어로와의 숨). */
+  padding-block: clamp(96px, 12vw, 128px) 64px;
+  padding-inline: 32px;
+}
+
+.lp-problem-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.lp-problem-headline {
+  margin: 0;
+  font-family: var(--lp-font-display);
+  /* 한글은 시각 무게가 커서 600은 과하다. */
+  font-weight: 500;
+  /* 히어로와 같은 display-xl 스케일 — 이 섹션은 페이지의 감정적 정점이다. */
+  font-size: clamp(2.125rem, 6.4vw, 3.5rem);
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+  color: var(--lp-text-primary);
+}
+.lp-problem-line {
+  display: block;
+  /* 모바일에서 행이 꺾일 때 "알려준다."만 홀로 남는 고아 줄을 막는다.
+     데스크톱은 한 줄에 다 들어가므로 no-op. keep-all은 음절 중간 꺾임 방지. */
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* "git blame"만 모노스페이스로 — DESIGN.md의 "기술 토큰은 모노" 규칙을 헤드라인 안에서
+   직접 보여주는 장치. 색은 앰버로 틴트하지 않는다 — 모노 처리 자체가 구분이다. */
+.lp-problem-mono {
+  font-family: var(--lp-font-mono);
+  font-size: 0.92em;
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.lp-problem-body {
+  /* 헤드라인에 바짝 붙인다 — 내부 밀도가 임팩트를 만든다. */
+  margin: 24px 0 0;
+  max-width: 36em;
+  font-family: var(--lp-font-body);
+  /* display-xl 헤드라인과의 격차를 좁힌다 — 15px는 3.5rem 옆에서 왜소했다. */
+  font-size: 1.125rem;
+  line-height: 1.7;
+  color: var(--lp-text-secondary);
+}
+.lp-problem-body-line {
+  display: block;
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* ── 문제 정의: 반응형 — 다른 섹션과 동일한 컨테이너 규칙(32→24) */
+@media (max-width: 767px) {
+  .lp-problem {
+    padding-inline: 24px;
+  }
+}
+
+/* ── 작동 방식 3스텝 섹션 ─────────────────────────────────────
+   3단 가로 진행. 헤더(eyebrow + 헤드라인)는 좌측 정렬 — 앞의 문제 정의 섹션(중앙 정렬)과
+   형식 대비를 만들고, 히어로의 좌측 그리드 라인(max-width 1200px + padding 0 32px)을 공유한다.
+   이미지·아이콘·앰버 없음 — 순수 타이포. 앰버는 "라이브/실행/선택" 전용이라 이 섹션엔 자리가 없다.
+   --------------------------------------------------------- */
+.lp-how {
+  /* 상단은 좁게(문제 정의와의 사이를 줄인다), 하단은 기본 리듬 유지. */
+  padding-block: 64px clamp(80px, 9vw, 112px);
+  padding-inline: 32px;
+}
+
+.lp-how-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.lp-how-header {
+  /* 내부 밀도를 높인다 — 콘텐츠가 꽉 차 보이게. */
+  margin-bottom: 48px;
+}
+
+.lp-how-eyebrow {
+  margin: 0;
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.08em; /* 대문자 라틴 전용 */
+  /* text-muted는 surface-0 위에서 AA 미달 — text-secondary로 (문제 정의 섹션과 동일 근거) */
+  color: var(--lp-text-secondary);
+}
+
+.lp-how-headline {
+  margin: 16px 0 0;
+  font-family: var(--lp-font-display);
+  /* 한글은 시각 무게가 커서 라틴보다 한 단계 낮춘 500. */
+  font-weight: 500;
+  font-size: clamp(1.75rem, 4.2vw, 2.5rem);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--lp-text-primary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* 3단 가로 진행 — 헤어라인 구분선 대신 각 스텝 위 미니 그래프 시각화(.lp-how-viz)가
+   스텝 구분 역할을 대신하므로 border는 두지 않고 grid gap(32px, 간격 스케일)만으로 나눈다. */
+.lp-how-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lp-how-step {
+  padding: 0;
+  /* 스텝별 기본 지연 — 데스크톱은 세 스텝이 한 화면에 동시에 들어오므로 이 값이 01→02→03
+     순차 진행을 만든다(안무가 "하나의 그래프가 단계적으로 완성되는 과정"으로 읽히는 핵심).
+     모바일(<768px)은 세로 스택이라 각 스텝이 개별 진입 시 발동하면 되므로 아래 반응형에서
+     0으로 되돌린다. */
+  --step-base: 0ms;
+}
+.lp-how-steps > .lp-how-step:nth-child(2) { --step-base: 700ms; }
+.lp-how-steps > .lp-how-step:nth-child(3) { --step-base: 1500ms; }
+
+/* ── 작동 방식: 스텝별 미니 그래프 시각화 ──────────────────────
+   01/02/03이 같은 노드 배치를 공유하는 하나의 그래프가 단계적으로 완성되는 과정을 보여준다
+   (구현은 src/lib/howItWorksGraph.ts + MiniGraph.tsx). 텍스트 위, 헤어라인 구분선이 있던
+   자리를 대신한다. 발동은 각 .lp-how-step을 IntersectionObserver로 1회 관찰해(threshold 0.4)
+   is-played를 부여하는 방식(HowItWorksSection.tsx의 useInViewOnce) — 재생 후 최종 상태를
+   유지하고 루프는 없다(본문을 읽는 구간이므로). */
+.lp-how-viz {
+  /* 고정 높이는 viewBox(400×240)와 비율이 어긋나 meet 레터박스(상하 죽은 공간)를 만들었다.
+     컨테이너를 viewBox 비율로 맞춰 그래프가 박스를 꽉 채우게 한다. 1440px 3열에서 약 214px. */
+  aspect-ratio: 400 / 240;
+  margin-bottom: 16px;
+}
+.lp-how-graph {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 노드 타입 색은 .lp-c-node--{type}(히어로와 공유), 일반 엣지는 .lp-c-edge(히어로와 공유)를
+   그대로 재사용한다 — 둘 다 "노드를 지시" 또는 헤어라인 엣지라는 같은 의미로 쓰이므로.
+   03: 앰버 경로 외 나머지를 저투명(~0.25)으로 딤 처리하고, 아래 앰버 오버레이만 도드라지게 한다.
+   근거: DESIGN.md 시그니처("질문 → 답변 경로가 앰버로 점등, 나머지는 딤")와 같은 지시 대상이라
+   앰버 사용 규칙에 부합한다. 01·02에는 이 규칙이 적용되지 않으므로 앰버가 등장하지 않는다.
+   (이 규칙은 발동 여부와 무관하게 항상 적용된다 — 기능 2 미리보기(FeatureSections.tsx)가
+   is-played 게이팅 없이 이 stage=3 그래프를 정적으로 재사용하기 때문이다.) */
+.lp-how-graph--stage-3 .lp-how-graph-edge,
+.lp-how-graph--stage-3 .lp-how-graph-node {
+  opacity: 0.25;
+}
+
+/* 발동 전 숨김 — 작동 방식 섹션 안에서만 그래프가 완전히 안 보이는 상태로 시작한다
+   (is-played 전에 미리 보이면 안 된다는 요구사항). 위 stage-3 딤 규칙(2-class, opacity:0.25)과
+   이 규칙(2-class, opacity:0)은 specificity가 같으므로 파일 순서상 이 규칙이 뒤에 와
+   "발동 전"에는 0이 이긴다 — 발동 후에는 아래 애니메이션 규칙(더 구체적)이 opacity를 담당한다.
+   기능 2 미리보기는 .lp-how-step 밖이라 이 규칙의 영향을 받지 않는다(항상 보임). */
+.lp-how-step .lp-how-graph-node,
+.lp-how-step .lp-how-graph-edge {
+  opacity: 0;
+}
+
+/* 01 — 노드가 스프링으로 정착한다(index 기반 스태거, MiniGraph.tsx의 --local-d). */
+.lp-how-step.is-played .lp-how-graph--stage-1 .lp-how-graph-node {
+  animation: lp-node-settle var(--lp-dur-slow) var(--lp-ease-spring)
+    calc(var(--step-base) + var(--local-d, 0ms)) both;
+}
+.lp-how-step.is-played .lp-how-graph--stage-1 .lp-how-graph-edge {
+  /* dashoffset 애니메이션은 opacity를 건드리지 않으므로, 위 발동 전 숨김 규칙(opacity:0)을
+     명시적으로 되돌려야 한다 — 안 그러면 그려져도 투명해서 안 보인다. */
+  opacity: 1;
+  stroke-dasharray: 1;
+  animation: lp-lit-edge-draw var(--lp-dur-base) var(--lp-ease-standard)
+    calc(var(--step-base) + 200ms + var(--local-d, 0ms)) both;
+}
+
+/* 02 — 노드는 빠르게(스프링 없이) 한 번에 등장하고, 그 다음 엣지가 하나씩 그어진다
+   (엣지별 스태거, --local-d). "이미 있던 노드 사이에 관계가 이어지는" 인상을 노린다. */
+.lp-how-step.is-played .lp-how-graph--stage-2 .lp-how-graph-node {
+  animation: lp-node-appear var(--lp-dur-fast) var(--lp-ease-standard) var(--step-base) both;
+}
+.lp-how-step.is-played .lp-how-graph--stage-2 .lp-how-graph-edge {
+  /* dashoffset 애니메이션은 opacity를 건드리지 않으므로, 발동 전 숨김 규칙(opacity:0)을
+     명시적으로 되돌린다 — stage-3는 lp-how-dim이 opacity를 담당해 자동으로 해결된다. */
+  opacity: 1;
+  stroke-dasharray: 1;
+  animation: lp-lit-edge-draw var(--lp-dur-base) var(--lp-ease-standard)
+    calc(var(--step-base) + 150ms + var(--local-d, 0ms)) both;
+}
+
+/* 03 — 02와 같은 방식으로 그래프가 다시 지어진 뒤(노드 빠른 등장 → 엣지 드로잉),
+   비점등 요소가 앰버 경로 점등과 동시에 0.25로 가라앉는다(lp-how-dim). 900ms는
+   13개 엣지 스태거(최대 --local-d≈480ms)+드로잉 시간이 끝나는 시점에 맞춘 값이다. */
+.lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-graph-node {
+  animation:
+    lp-node-appear var(--lp-dur-fast) var(--lp-ease-standard) var(--step-base) both,
+    lp-how-dim var(--lp-dur-slow) var(--lp-ease-standard) calc(var(--step-base) + 900ms) both;
+}
+.lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-graph-edge {
+  stroke-dasharray: 1;
+  animation:
+    lp-lit-edge-draw var(--lp-dur-base) var(--lp-ease-standard)
+      calc(var(--step-base) + 150ms + var(--local-d, 0ms)) both,
+    lp-how-dim var(--lp-dur-slow) var(--lp-ease-standard) calc(var(--step-base) + 900ms) both;
+}
+
+/* 03 전용 앰버 오버레이 — 히어로 .lp-c-lit*(HeroMedia.tsx)와 같은 시각(앰버 stroke 1.6 /
+   fill / accent-glow 헤일로 0.35)과 같은 "노드→엣지→노드…" 교차 점등 순서를 쓰되, 미니
+   그래프 스케일에 맞게 보폭만 짧다(MiniGraph.tsx의 LIT_BEAT_MS). 비점등 요소가 가라앉기
+   시작하는 시점(900ms)과 같은 순간부터 점등이 시작된다 — "가라앉으며 점등"이 동시에 읽히게. */
+.lp-how-lit-edge {
+  stroke: var(--lp-accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.lp-how-lit-node {
+  fill: var(--lp-accent);
+  --lit-o: 1;
+}
+.lp-how-lit-halo {
+  fill: var(--lp-accent-glow);
+  --lit-o: 0.35;
+}
+/* 발동 전 숨김(작동 방식 섹션 한정) — 기능 2 미리보기는 아래 별도 규칙(.lp-feature-graph)으로 다룬다. */
+.lp-how-step .lp-how-lit-node,
+.lp-how-step .lp-how-lit-halo {
+  opacity: 0;
+}
+.lp-how-step .lp-how-lit-edge {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-edge {
+  animation: lp-lit-edge-draw var(--lp-dur-base) var(--lp-ease-standard)
+    calc(var(--step-base) + 900ms + var(--lit-d, 0ms)) both;
+}
+.lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-node,
+.lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lp-lit-node-in var(--lp-dur-base) var(--lp-ease-spring)
+    calc(var(--step-base) + 900ms + var(--lit-d, 0ms)) both;
+}
+
+.lp-how-step-title {
+  display: flex;
+  /* 모노 번호와 본문 서체 제목이 한 줄에 섞이므로 폰트별 메트릭 차이를 베이스라인으로 맞춘다. */
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+
+/* 번호/슬래시만 모노(라틴 기술 토큰). 한글 제목·본문은 절대 모노 금지 — 본문 서체로. */
+.lp-how-step-num {
+  font-family: var(--lp-font-mono);
+  font-weight: 500;
+  font-size: 1.125rem;
+  color: var(--lp-text-secondary);
+}
+
+.lp-how-step-name {
+  font-family: var(--lp-font-body);
+  font-weight: 600;
+  font-size: 1.125rem;
+  color: var(--lp-text-primary);
+}
+
+.lp-how-step-body {
+  margin: 12px 0 0;
+  font-family: var(--lp-font-body);
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--lp-text-secondary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* ── 작동 방식: 반응형 (768px 미만 세로 스택) ──────────────────
+   헤어라인 구분선이 없으므로 스텝 사이 구분은 grid gap(세로 스택에서는 row-gap)이 그대로
+   맡는다 — 별도 border를 다시 넣지 않는다. 시각화 높이만 좁은 뷰포트에 맞게 줄인다. */
+@media (max-width: 767px) {
+  .lp-how {
+    padding-inline: 24px;
+  }
+  .lp-how-header {
+    margin-bottom: 48px;
+  }
+  .lp-how-steps {
+    grid-template-columns: 1fr;
+  }
+  .lp-how-step {
+    padding: 0;
+  }
+  /* 세로 스택에서는 세 스텝이 한 화면에 동시에 들어오지 않으므로 스텝 간 기본 지연을
+     되돌린다 — 각 스텝은 그 자체의 진입 시점에 바로 발동한다.
+     .lp-how-steps > .lp-how-step:nth-child(n)과 동일한 specificity라 파일 순서(이 규칙이 뒤)로 이긴다. */
+  .lp-how-steps > .lp-how-step:nth-child(1),
+  .lp-how-steps > .lp-how-step:nth-child(2),
+  .lp-how-steps > .lp-how-step:nth-child(3) {
+    --step-base: 0ms;
+  }
+  .lp-how-viz {
+    /* 데스크톱과 동일하게 viewBox 비율 유지 — 390px 폭에서 약 205px. */
+    aspect-ratio: 400 / 240;
+  }
+}
+
+/* ── 기능 3섹션 (대화 / 그래프 탐색 / 데이터 소스) ────────────────
+   좌우 교차 그리드 — 기능 1·3은 좌 텍스트/우 미디어, 기능 2만 반전(우 텍스트/좌 미디어)해
+   앞뒤 섹션(작동 방식의 3단 가로, 유스케이스의 카드 그리드)과 또 다른 형식으로 리듬을 만든다.
+   미디어 슬롯은 실제 제품 스크린샷이 아니라 DESIGN.md 컴포넌트 스펙을 그대로 따르는 실제
+   DOM 미리보기다(FeatureSections.tsx의 ChatPreview/GraphExplorerPreview/DataSourcesPreview) —
+   가짜 목업이 아니라 앱이 DESIGN.md로 리스타일되면 그대로 쓰일 실제 화면이다.
+   슬롯 종횡비는 콘텐츠에 맞춰 슬롯별로 분리(.lp-feature-media--chat/--graph/--sources,
+   2026-07-24 결정) — 공통 16:10이 세 슬롯을 "같은 이미지 자리 3개"처럼 반복시켰던 문제를
+   깼다. 세 블록 모두 align-items: center를 유지한다 — 짧은 소스 슬롯도, 콘텐츠 높이가 큰
+   채팅 슬롯도 옆 텍스트 블록(둘 다 짧다)을 슬롯 중앙에 맞추는 편이 가장 균형 있게 읽힌다.
+   애니메이션·트랜지션 없음(모션은 나중에 페이지 전체에 일괄 적용).
+   --------------------------------------------------------- */
+.lp-features {
+  padding-block: clamp(80px, 9vw, 112px);
+  padding-inline: 32px;
+}
+
+.lp-features-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 80px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.lp-feature-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 56px;
+}
+
+/* 기능 2 반전 — DOM 순서(텍스트 먼저, 접근성·읽기 순서 유지)는 그대로 두고 grid order로만 뒤집는다. */
+.lp-feature-block--reverse .lp-feature-text {
+  order: 2;
+}
+.lp-feature-block--reverse .lp-feature-media {
+  order: 1;
+}
+
+.lp-feature-eyebrow {
+  margin: 0;
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.08em; /* 대문자 라틴 전용 */
+  /* text-muted는 surface-0 위에서 AA 미달 — text-secondary로 (다른 섹션과 동일 근거) */
+  color: var(--lp-text-secondary);
+}
+
+.lp-feature-headline {
+  margin: 16px 0 0;
+  font-family: var(--lp-font-display);
+  /* 한글은 시각 무게가 커서 라틴보다 한 단계 낮춘 500 — 다른 섹션 헤드라인과 동일 규칙. */
+  font-weight: 500;
+  font-size: clamp(1.75rem, 4.2vw, 2.5rem);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--lp-text-primary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+.lp-feature-body {
+  margin: 16px 0 0;
+  font-family: var(--lp-font-body);
+  font-size: 15px;
+  line-height: 1.75; /* 한글 행간 */
+  color: var(--lp-text-secondary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* 종횡비는 콘텐츠에 맞춰 슬롯별로 분리한다(2026-07-24 결정) — 세 슬롯을 "같은 이미지 자리
+   3개"처럼 반복시키던 공통 16:10을 깼다. 공통 규칙은 elevation·형태만 맡고, 높이는
+   --{chat,graph,sources} 수식자가 나눠 정한다. elevation 규칙: 슬롯 자체는
+   --lp-surface-1(앱 패널 층)이고 내부 버블·카드가 --lp-surface-2로 그 위에 떠 보인다(아래
+   각 미리보기 CSS 참고). 카드가 아니므로 슬롯 자체엔 보더를 두지 않는다(다른 섹션의 실제
+   카드류와 구분). */
+.lp-feature-media {
+  position: relative;
+  overflow: hidden;
+  background: var(--lp-surface-1);
+  border-radius: var(--lp-r-lg);
+}
+
+/* 대화 — 종횡비 없음. 채팅 스트림은 세로 매체라 콘텐츠(사용자 버블 + 답변 + 출처 카드 2장)
+   높이를 그대로 따른다 — 이전 16:10 강제 시 하단이 비었던 문제가 함께 해소된다. */
+.lp-feature-media--chat {
+  height: auto;
+}
+
+/* 그래프 탐색 — 16:10 유지. 캔버스는 가로 폭이 있어야 그래프가 읽힌다(세 슬롯 중 유일하게
+   비율을 고정할 이유가 있다). */
+.lp-feature-media--graph {
+  aspect-ratio: 16 / 10;
+}
+
+/* 데이터 소스 — 종횡비 없음. 커넥터 카드 3장의 실제 높이 그대로 두고, 짧다고 억지로
+   늘리지 않는다. */
+.lp-feature-media--sources {
+  height: auto;
+}
+
+/* ── 기능 1 미리보기: 대화 (DESIGN.md "채팅 답변"·"출처 카드" 스펙) ──────────────
+   사용자 버블 → 답변 산문(버블 없음) → 출처 카드 2장 순으로 세로 배치. 배지·모노 메타는
+   라틴 모노, 내용 줄은 한글이라 본문 서체(DESIGN.md 모노 스코프 규칙 — 한글 콘텐츠엔
+   모노 금지). 슬롯(.lp-feature-media--chat)이 종횡비 없이 콘텐츠 높이를 따르므로
+   height:100%는 두지 않는다 — 이 블록의 실제 콘텐츠 높이가 곧 슬롯 높이다. */
+.lp-feature-chat {
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  gap: 10px;
+}
+
+.lp-feature-chat-user {
+  align-self: flex-end;
+  max-width: 85%;
+  margin: 0;
+  padding: 7px 12px;
+  border-radius: var(--lp-r-md);
+  background: var(--lp-surface-2);
+  color: var(--lp-text-primary);
+  font-family: var(--lp-font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.lp-feature-chat-answer {
+  margin: 0;
+  font-family: var(--lp-font-body);
+  font-size: 13px;
+  line-height: 1.7; /* 한글 행간 */
+  color: var(--lp-text-secondary);
+  word-break: keep-all;
+}
+
+.lp-feature-chat-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lp-feature-chat-source {
+  padding: 8px 10px;
+  border-radius: var(--lp-r-md);
+  background: var(--lp-surface-2);
+}
+
+.lp-feature-chat-source-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 타입 배지 — 카드가 노드를 지시하므로 노드 색을 쓴다(네임스페이스 규칙). 배경은 저투명
+   틴트 + 글자는 노드 색 그대로(색 hex를 새로 만들지 않고 토큰에서 color-mix로 파생).
+   모노 라벨이므로 DESIGN.md 스케일 최소인 12px(mono-label) 미만으로 두지 않는다. */
+.lp-feature-chat-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--lp-r-sm);
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.lp-feature-chat-badge--issue {
+  background: color-mix(in srgb, var(--lp-node-issue) 16%, transparent);
+  color: var(--lp-node-issue);
+}
+.lp-feature-chat-badge--message {
+  background: color-mix(in srgb, var(--lp-node-slack) 16%, transparent);
+  color: var(--lp-node-slack);
+}
+
+/* 모노 메타(HT-64 · 2026-06-12) — DESIGN.md 스케일 최소 12px(mono-label) 미만으로 두지 않는다. */
+.lp-feature-chat-meta {
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  color: var(--lp-text-secondary);
+}
+
+.lp-feature-chat-source-body {
+  margin: 6px 0 0;
+  font-family: var(--lp-font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--lp-text-primary);
+  word-break: keep-all;
+}
+
+/* ── 기능 2 미리보기: 그래프 탐색 (DESIGN.md "그래프 캔버스" 스펙) ─────────────────
+   위: 노드 색 pill 범례(필터 칩이므로 pill radius 예약 대상). 아래: 캔버스 — DESIGN.md대로
+   가장 깊은 층이라 슬롯 배경(surface-1)보다 한 단계 더 파서 surface-0으로 둔다. MiniGraph는
+   stage=3을 그대로 써서 점등 경로(앰버)가 온전히 보이게 한다 — 이 페이지에서 앰버가
+   허용되는 유일한 슬롯 요소. 절제 원칙(브리프 B-4, 페이지에 이미 그래프가 둘이라) 때문에
+   기본 노드/엣지는 애니메이션 없이 정적이고, 앰버 경로만 IO 1회 트리거로 부드럽게 페이드
+   인한다(드로잉 없이) — FeatureSections.tsx의 useInViewOnce가 is-played를 부여한다. */
+.lp-feature-graph {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+/* 앰버 경로 전체(엣지·헤일로·노드)를 하나의 그룹으로 다뤄 단일 페이드로 점등한다 —
+   작동 방식 섹션과 달리 드로잉·스태거·개별 등장 없음(절제). */
+.lp-feature-graph .lp-how-lit {
+  opacity: 0;
+}
+.lp-feature-graph.is-played .lp-how-lit {
+  animation: lp-fade var(--lp-dur-slow) var(--lp-ease-standard) 0ms both;
+}
+
+.lp-feature-graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 14px 14px 10px;
+}
+
+/* 범례 pill 라벨 — 모노 라벨, DESIGN.md 스케일 최소 12px 미만으로 두지 않는다. */
+.lp-feature-graph-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--lp-r-pill);
+  background: var(--lp-surface-2);
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  color: var(--lp-text-secondary);
+  white-space: nowrap;
+}
+
+.lp-feature-graph-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+.lp-feature-graph-dot--commit { background: var(--lp-node-commit); }
+.lp-feature-graph-dot--pr     { background: var(--lp-node-pr); }
+.lp-feature-graph-dot--issue  { background: var(--lp-node-issue); }
+.lp-feature-graph-dot--slack  { background: var(--lp-node-slack); }
+.lp-feature-graph-dot--jira   { background: var(--lp-node-jira); }
+.lp-feature-graph-dot--person { background: var(--lp-node-person); }
+.lp-feature-graph-dot--file   { background: var(--lp-node-file); }
+
+.lp-feature-graph-canvas {
+  flex: 1;
+  min-height: 0;
+  background: var(--lp-surface-0);
+}
+.lp-feature-graph-canvas .lp-how-graph {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── 기능 3 미리보기: 데이터 소스 (DESIGN.md "데이터 소스 카드" 스펙) ───────────────
+   커넥터 3장을 세로로 쌓은 행 카드. 로고는 각 서비스의 공식 브랜드 마크 SVG(브랜드 색,
+   DESIGN.md "커넥터 로고는 브랜드 색" 규칙)다. 액션은 surface-3로 한 단계 더 띄워 "조용한
+   보조 버튼" 인상을 주되, 실제 컨트롤이 아니므로 <span>이고 앰버는 쓰지 않는다.
+   슬롯(.lp-feature-media--sources)이 종횡비 없이 콘텐츠 높이를 따르므로 height:100%·
+   justify-content:center(둘 다 남는 세로 공간을 나눠 가지려던 장치)는 더 이상 필요 없다 —
+   카드 3장 높이 그대로가 곧 슬롯 높이다. */
+.lp-feature-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.lp-feature-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--lp-r-md);
+  background: var(--lp-surface-2);
+}
+
+.lp-feature-source-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 공식 브랜드 마크 SVG(FeatureSections.tsx) — DESIGN.md 로고 크기 가이드(20~24px) 준수.
+   회전·왜곡·클리핑 없음(브랜드 변형 금지) — 실제 패스 형태 그대로 크기만 지정한다. */
+.lp-feature-source-logo {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.lp-feature-source-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lp-feature-source-name {
+  font-family: var(--lp-font-body);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--lp-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 커넥터 sync 상태 — 모노 라벨, DESIGN.md 스케일 최소 12px 미만으로 두지 않는다. */
+.lp-feature-source-sync {
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  color: var(--lp-text-secondary);
+  white-space: nowrap;
+}
+
+.lp-feature-source-action {
+  flex: none;
+  padding: 5px 10px;
+  border-radius: var(--lp-r-sm);
+  background: var(--lp-surface-3);
+  font-family: var(--lp-font-body);
+  font-size: 12px;
+  color: var(--lp-text-secondary);
+  white-space: nowrap;
+}
+
+/* ── 기능 3섹션: 반응형 (768px 미만 텍스트 위 / 미디어 아래로 스택, 교차 반전 해제) ── */
+@media (max-width: 767px) {
+  .lp-features {
+    padding-inline: 24px;
+  }
+  .lp-features-inner {
+    gap: 64px;
+  }
+  .lp-feature-block {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .lp-feature-block--reverse .lp-feature-text,
+  .lp-feature-block--reverse .lp-feature-media {
+    order: initial;
+  }
+
+  /* 미디어 미리보기 3종 — 그래프(16:10)는 비율을 유지하고, 대화·데이터 소스는 원래도
+     콘텐츠 높이라 내부 여백·타이포만 줄여 좁은 슬롯(390px 뷰포트에서 폭 약 342px)에서도
+     잘리거나 겹치지 않게 한다. 한글 내용 줄·답변 산문(13px)과 모노 라벨(12px)은
+     DESIGN.md 스케일 최소를 모바일에서도 유지한다. */
+  .lp-feature-chat {
+    padding: 14px;
+    gap: 5px;
+  }
+  .lp-feature-chat-user,
+  .lp-feature-chat-answer,
+  .lp-feature-chat-source-body {
+    font-size: 13px;
+  }
+  .lp-feature-chat-sources {
+    gap: 6px;
+  }
+  .lp-feature-chat-source {
+    padding: 6px 8px;
+  }
+
+  .lp-feature-graph-legend {
+    gap: 4px;
+    padding: 10px 10px 8px;
+  }
+  .lp-feature-graph-pill {
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+
+  .lp-feature-sources {
+    gap: 6px;
+    padding: 10px;
+  }
+  .lp-feature-source-row {
+    padding: 7px 9px;
+  }
+  .lp-feature-source-logo {
+    /* DESIGN.md 로고 크기 가이드(20~24px) 하한을 모바일에서도 유지한다. */
+    width: 20px;
+    height: 20px;
+  }
+  .lp-feature-source-name {
+    font-size: 12px;
+  }
+  .lp-feature-source-sync {
+    font-size: 12px;
+  }
+  .lp-feature-source-action {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}
+
+/* ── 유스케이스 섹션 ───────────────────────────────────────────
+   2×2 카드 그리드 — 문제 정의(중앙 타이포)·작동 방식(3단 가로)에 이어 세 번째 형식.
+   헤더(eyebrow + 헤드라인)는 좌측 정렬로 작동 방식 섹션과 같은 그리드 라인을 공유하고,
+   앞 섹션과의 형식 대비는 헤더가 아니라 카드 그리드라는 새 포맷 자체가 만든다.
+   카드는 클릭 요소가 아니다 — hover·transition·애니메이션 없음. 깊이는 elevation
+   (surface-0 위 surface-2)만으로 표현하고 테두리는 넣지 않는다.
+   앰버·노드 색 없음 — 이 섹션엔 "라이브/실행/선택"도 노드 지시도 없다.
+   --------------------------------------------------------- */
+.lp-cases {
+  padding-block: clamp(80px, 9vw, 112px);
+  padding-inline: 32px;
+}
+
+.lp-cases-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.lp-cases-header {
+  margin-bottom: 48px;
+}
+
+.lp-cases-eyebrow {
+  margin: 0;
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.08em; /* 대문자 라틴 전용 */
+  /* text-muted는 어두운 표면 위에서 AA(4.5:1) 미달 — text-secondary로 (다른 섹션과 동일 근거) */
+  color: var(--lp-text-secondary);
+}
+
+.lp-cases-headline {
+  margin: 16px 0 0;
+  font-family: var(--lp-font-display);
+  /* 한글은 시각 무게가 커서 라틴보다 한 단계 낮춘 500. */
+  font-weight: 500;
+  font-size: clamp(1.75rem, 4.2vw, 2.5rem);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--lp-text-primary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+.lp-cases-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  /* gap을 좁혀 4장이 하나의 덩어리로 읽히게 한다. */
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* 비클릭 카드지만 호버에 미묘한 elevation 상승을 준다(사람 지시) — 앰버 없이
+   surface 단계와 헤어라인만으로. 레이아웃 시프트 방지를 위해 보더는 상시 확보. */
+.lp-cases-card {
+  padding: 32px;
+  background: var(--lp-surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--lp-r-md);
+  transition:
+    background-color var(--lp-dur-fast) var(--lp-ease-standard),
+    border-color var(--lp-dur-fast) var(--lp-ease-standard);
+}
+.lp-cases-card:hover {
+  background: var(--lp-surface-3);
+  border-color: var(--lp-border-strong);
+}
+
+/* 질문 앞의 작은 노드 색 점 — 질문이 주로 가리키는 노드 타입을 지시한다(노드 색 네임스페이스).
+   페이지 전체의 그래프 모티프와 카드를 잇는 장치. */
+.lp-cases-node-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  vertical-align: 2px;
+}
+.lp-cases-node-dot--commit { background: var(--lp-node-commit); }
+.lp-cases-node-dot--person { background: var(--lp-node-person); }
+.lp-cases-node-dot--pr     { background: var(--lp-node-pr); }
+.lp-cases-node-dot--issue  { background: var(--lp-node-issue); }
+
+/* 질문은 한글이므로 모노 금지 — 본문 서체 weight로만 강조한다. */
+.lp-cases-question {
+  margin: 0;
+  font-family: var(--lp-font-body);
+  font-weight: 600;
+  font-size: 1.125rem;
+  line-height: 1.5;
+  color: var(--lp-text-primary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+.lp-cases-desc {
+  margin: 12px 0 0;
+  font-family: var(--lp-font-body);
+  font-size: 15px;
+  line-height: 1.75; /* 한글 행간 */
+  /* 브리프 원안은 text-muted이나, 이 파일의 다른 텍스트와 동일 근거로 secondary로 올린다 —
+     text-muted는 어두운 표면 위에서 AA(4.5:1) 미달이고 surface-2는 surface-0보다 밝아
+     대비가 더 낮다. DESIGN.md 품질 하한선(충분한 텍스트 대비)은 타협 대상이 아니다. */
+  color: var(--lp-text-secondary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+.lp-cases-category {
+  font-weight: 500; /* 카테고리는 색이 아니라 웨이트로 설명과 구분한다 */
+}
+
+/* ── 유스케이스: 반응형 (768px 미만 1열) ───────────────────── */
+@media (max-width: 767px) {
+  .lp-cases {
+    padding-inline: 24px;
+  }
+  .lp-cases-header {
+    margin-bottom: 48px;
+  }
+  .lp-cases-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 최종 CTA 섹션 ─────────────────────────────────────────────
+   중앙 정렬, 넓은 상하 여백 — 문제 정의 섹션과 같은 급(clamp(96px, 13vw, 160px)).
+   페이지를 닫는 조용한 선언 + 실행 버튼 하나. 배경 장식·아이콘·그래프 에코 없음 —
+   앰버 채움 버튼이 이 섹션의 유일한 라이브 요소다. 애니메이션 없음(모션은 나중에 일괄).
+   --------------------------------------------------------- */
+.lp-final-cta {
+  padding-block: clamp(96px, 13vw, 160px);
+  padding-inline: 24px;
+  text-align: center;
+}
+
+.lp-final-cta-inner {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.lp-final-cta-headline {
+  margin: 0;
+  font-family: var(--lp-font-display);
+  /* 한글은 시각 무게가 커서 라틴보다 한 단계 낮춘 500 — 다른 섹션 헤드라인과 동일 규칙. */
+  font-weight: 500;
+  /* 히어로·문제 정의와 같은 display-xl 스케일 — 페이지의 감정적 정점. */
+  font-size: clamp(2.125rem, 6.4vw, 3.5rem);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--lp-text-primary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* 헤드라인과 한 호흡의 2행 선언 — 본문 서체로 헤드라인보다 작게, 여백은 좁게 붙인다. */
+.lp-final-cta-sub {
+  margin: 12px 0 0;
+  font-family: var(--lp-font-body);
+  font-weight: 400;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--lp-text-secondary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+/* 선언과 실행을 넓게 띄워 버튼이 이 화면의 유일한 다음 동작으로 읽히게 한다. */
+.lp-final-cta-actions {
+  margin-top: 48px;
+}
+
+/* 히어로 .lp-cta-meta와 같은 톤(13px, secondary, 1.7)이나 진입 애니메이션은 없다 —
+   이 섹션 스코프의 별도 클래스로 둔다. */
+.lp-final-cta-meta {
+  margin: 16px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--lp-text-secondary);
+}
+
+/* ── 최종 CTA: 반응형 (768px 미만) ───────────────────────────
+   좁은 화면에서 버튼을 꽉 채워 탭 타깃을 키우고, 선언-실행 간격을 조금 좁힌다.
+   --------------------------------------------------------- */
+@media (max-width: 767px) {
+  .lp-final-cta-actions {
+    margin-top: 32px;
+  }
+  .lp-final-cta-actions .lp-btn {
+    width: 100%;
+  }
+}
+
+/* ── 푸터 ─────────────────────────────────────────────────────
+   페이지의 마지막 섹션 — 미니멀 한 줄. 상단 헤어라인으로 본문과 구분하고,
+   좌측 제품명 텍스트 / 우측 GitHub·로그인 링크만 둔다(브리프가 명시한 세 항목뿐 —
+   ©연도·슬로건·소셜 아이콘·추가 내비 없음). 로고 마크는 재사용하지 않는다(미니멀이 목표).
+   앰버·노드 색 없음, 애니메이션·트랜지션 없음(모션은 나중에 페이지 전체에 일괄 적용).
+   --------------------------------------------------------- */
+.lp-footer {
+  border-top: 1px solid var(--lp-border);
+  /* 페이지 전체 무게 대비 너무 가볍지 않게 상하 여백을 키운다. */
+  padding-block: 48px;
+  padding-inline: 32px;
+}
+
+.lp-footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* 헤더 워드마크(.lp-wordmark)와 같은 디스플레이 서체 계열이나, 크기를 줄이고
+   text-secondary로 낮춰 조용하게 — 로고 마크 없이 텍스트만 남긴다. */
+.lp-footer-brand {
+  margin: 0;
+  font-family: var(--lp-font-display);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--lp-text-secondary);
+}
+
+.lp-footer-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+/* hover는 .lp-login-link와 같은 의도(색만 text-primary로) — 모션 일괄 적용 라운드에서
+   dur-fast/ease-standard 트랜지션을 부여했다(그 전까지는 즉시 전환으로 남겨뒀었다). */
+.lp-footer-link {
+  font-size: 13px;
+  color: var(--lp-text-secondary);
+  transition: color var(--lp-dur-fast) var(--lp-ease-standard);
+}
+.lp-footer-link:hover {
+  color: var(--lp-text-primary);
+}
+
+/* ── 푸터: 반응형 (768px 미만) ────────────────────────────────
+   다른 섹션과 동일한 컨테이너 규칙(padding-inline 32→24)만 따른다 — 제품명 한 단어 +
+   링크 2개는 가장 좁은 모바일 폭에서도 한 줄에 들어가므로 별도 스택 규칙은 두지 않는다.
+   --------------------------------------------------------- */
+@media (max-width: 767px) {
+  .lp-footer {
+    padding-inline: 24px;
+  }
+}
+
+/* ── 반응형 ─────────────────────────────────────────────────
+   ≥1180px 2컬럼 / 768~1179px 단일 컬럼(텍스트는 중앙, 미디어는 우측 bleed) / <768px 스택
+   진입점이 1080px이면 텍스트 560 고정 탓에 미디어가 392px까지 눌려 단일 컬럼보다
+   작아지는 역전이 생긴다. 1180px부터 열어 미디어 폭을 492~512px 범위로 묶는다.
+   --------------------------------------------------------- */
+@media (min-width: 1180px) {
+  .lp-hero-inner {
+    grid-template-columns: minmax(0, 560px) minmax(0, 1fr);
+    justify-items: stretch;
+    align-items: center;
+    gap: 64px;
+  }
+  .lp-hero-text { max-width: 560px; }
+  /* 컨테이너 우측 padding(32px)과 bleed를 합쳐 한 번에 상쇄 */
+  .lp-hero-media { margin-right: calc(-1 * (var(--lp-bleed) + 32px)); }
+}
+
+@media (max-width: 767px) {
+  .lp-header-inner,
+  .lp-hero-inner {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .lp-hero {
+    padding: 24px 0 48px;
+    gap: 40px;
+  }
+  .lp-hero-media { margin-right: -24px; }
+  /* 390px 한 줄에 겨우 들어가던 eyebrow — 트래킹(0.08em)은 대문자 라틴이라 유지하고 크기만 줄인다 */
+  .lp-eyebrow { font-size: 11px; }
+  .lp-cta-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lp-btn { width: 100%; }
+  /* 글로우 반경 축소 */
+  .lp-media-glow {
+    inset: -6%;
+    filter: blur(28px);
+  }
+}
+
+/* ── 접근성: 모션 축소 ──────────────────────────────────────
+   transform은 전부 제거하고 opacity 전환만 남긴다.
+   점등은 여전히 일어나되 크로스페이드로.
+   --------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .lp-eyebrow,
+  .lp-headline-line:nth-child(1),
+  .lp-headline-line:nth-child(2),
+  .lp-sub,
+  .lp-cta-row,
+  .lp-cta-meta,
+  .lp-scroll-cue,
+  .lp-media-frame {
+    animation-name: lp-fade;
+    animation-timing-function: var(--lp-ease-standard);
+  }
+
+  /* 버튼 프레스 — transform 전부 제거 원칙(DESIGN.md)에 따라 눌림 스케일도 없앤다. */
+  .lp-btn:active {
+    transform: none;
+  }
+
+  /* 히어로 그래프 — 노드 정착·점등 순차 등장·재점등 루프 전부 제거하고 즉시 최종 상태로.
+     아래 셀렉터는 전부 non-media 규칙과 동일해서(위와 같은 specificity) 이 블록이 파일
+     마지막에 있다는 점만으로 이긴다. */
+  .lp-constellation .lp-c-node {
+    animation: none;
+    opacity: var(--o, 1);
+    transform: none;
+  }
+  .lp-c-lit {
+    animation: none;
+    opacity: 1;
+  }
+  .lp-c-lit-edge {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .lp-c-lit-node,
+  .lp-c-lit-halo {
+    animation: none;
+    opacity: var(--lit-o, 1);
+    transform: none;
+  }
+
+  /* 작동 방식 3스텝 — is-played는 useInViewOnce가 reduced-motion에서 즉시 부여하므로,
+     여기서는 그 뒤에 실제로 재생되는 애니메이션만 무력화하면 된다. 아래 셀렉터는 is-played
+     규칙과 동일한 4-class 조합이라 이 블록의 파일 위치(맨 끝)로 이긴다. */
+  .lp-how-step.is-played .lp-how-graph--stage-1 .lp-how-graph-node,
+  .lp-how-step.is-played .lp-how-graph--stage-2 .lp-how-graph-node,
+  .lp-how-step.is-played .lp-how-graph--stage-1 .lp-how-graph-edge,
+  .lp-how-step.is-played .lp-how-graph--stage-2 .lp-how-graph-edge {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    stroke-dashoffset: 0;
+  }
+  .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-graph-node,
+  .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-graph-edge {
+    animation: none;
+    opacity: 0.25; /* 03의 최종 상태 — 비점등 요소는 딤을 유지한 채 멈춘다 */
+    transform: none;
+    stroke-dashoffset: 0;
+  }
+  .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-edge {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-node,
+  .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-halo {
+    animation: none;
+    opacity: var(--lit-o, 1);
+    transform: none;
+  }
+
+  /* 기능 2 그래프 — 앰버 경로 페이드를 제거하고 즉시 표시한다. */
+  .lp-feature-graph.is-played .lp-how-lit {
+    animation: none;
+    opacity: 1;
+  }
+}

@@ -1,6 +1,10 @@
 /* 외부 폰트 — @import 규칙은 다른 모든 규칙보다 먼저 와야 하므로 진입점 최상단에 둔다. */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+/* 랜딩(docs/DESIGN.md) 3티어 스택 — display / body / 한글 헤딩 폴백 */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap");
+/* General Sans는 Fontshare API CSS가 아니라 landing.css의 @font-face로 직접 선언한다(사유는 그쪽 주석). */
+@import url("https://cdn.jsdelivr.net/gh/wanteddev/wanted-sans@v1.0.3/packages/wanted-sans/fonts/webfonts/variable/split/WantedSansVariable.min.css");
 
 /* 아래 순서는 원본 styles.css의 cascade 순서를 그대로 보존한다. */
 @import "./tokens.css";
@@ -17,3 +21,4 @@
 @import "./sources.css";
 @import "./search.css";
 @import "./misc.css";
+@import "./landing.css";

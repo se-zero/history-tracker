@@ -10,6 +10,7 @@ import { ActorsPage } from "@/pages/ActorsPage";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { GraphPage } from "@/pages/GraphPage";
+import { LandingPage } from "@/pages/LandingPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
@@ -61,6 +62,8 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <Routes>
+          {/* 제품 소개 페이지 — 인증 가드 없는 공개 라우트 */}
+          <Route path="/landing" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route

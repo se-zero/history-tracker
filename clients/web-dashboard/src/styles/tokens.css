@@ -31,6 +31,65 @@
   --node-code:     oklch(0.65 0.02 250);   /* gray */
 
   --primary-hue: 250;
+
+  /* ── Landing (docs/DESIGN.md) ──────────────────────────────
+     랜딩 전용 토큰. --lp- 프리픽스로 기존 앱 토큰과 격리한다.
+     앱이 DESIGN.md로 마이그레이션할 때 프리픽스를 떼서 그대로 승격한다.
+     hex 정본은 docs/DESIGN.md.
+     --------------------------------------------------------- */
+  --lp-surface-0: #0B0D10;
+  --lp-surface-1: #111419;
+  --lp-surface-2: #171B21;
+  --lp-surface-3: #1E232B;
+  --lp-border: #262B33;
+  --lp-border-strong: #333A44;
+
+  --lp-text-primary: #E6E9EE;
+  --lp-text-secondary: #9BA3AE;
+  --lp-text-muted: #5C6672;
+
+  --lp-accent: #EBA23C;
+  --lp-accent-hover: #F4B455;
+  --lp-accent-pressed: #D18D26;
+  --lp-accent-soft: rgba(235, 162, 60, 0.14);
+  --lp-accent-glow: rgba(235, 162, 60, 0.45);
+
+  --lp-node-commit: #6FB58A;
+  --lp-node-pr: #5FA8B5;
+  --lp-node-issue: #C97A5A;
+  --lp-node-slack: #A88BC4;
+  --lp-node-jira: #7C93C9;
+  --lp-node-person: #C77D9E;
+  --lp-node-file: #7E8794;
+
+  --lp-font-display: "Space Grotesk", "Wanted Sans Variable", "Wanted Sans", sans-serif;
+  --lp-font-body: "General Sans", "Pretendard Variable", Pretendard, sans-serif;
+  --lp-font-mono: "JetBrains Mono", "D2Coding", monospace;
+
+  --lp-r-sm: 6px;
+  --lp-r-md: 10px;
+  --lp-r-lg: 16px;
+  --lp-r-pill: 999px;
+
+  --lp-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --lp-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* DESIGN.md 모션 섹션에 정의만 있고 아직 tokens.css에 없던 값 — 추가만 한다(기존 토큰 변경 아님). */
+  --lp-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --lp-dur-fast: 120ms;
+  --lp-dur-base: 220ms;
+  --lp-dur-slow: 420ms;
+
+  /* ── 브랜드 로고 (커넥터 아이콘 전용) ────────────────────────
+     외부 브랜드 자산 — --lp-* 팔레트와 별개 네임스페이스. 앰버 독점 규칙 비대상
+     (커넥터 로고 전용). 각 서비스의 공식 브랜드 가이드라인 hex를 그대로 옮긴다.
+     --------------------------------------------------------- */
+  --brand-github: #FFFFFF;       /* GitHub Invertocat — 다크 배경용 흰색 변형 */
+  --brand-jira: #2684FF;         /* Jira 공식 그라데이션 — 밝은 블루 */
+  --brand-jira-deep: #0052CC;    /* Jira 공식 그라데이션 — 딥 블루 */
+  --brand-slack-blue: #36C5F0;
+  --brand-slack-green: #2EB67D;
+  --brand-slack-yellow: #ECB22E; /* 앰버(#EBA23C)와 근접하나 외부 브랜드 자산이라 앰버 독점 규칙 비대상 */
+  --brand-slack-red: #E01E5A;
 }
 
 /* light theme */
