@@ -5,7 +5,13 @@
 // 그 위에 가장 조밀한 코어 클러스터 "안"만 도는 4노드/3엣지 트레이스를 골라 앰버로
 // 덮어써 시그니처 순간(질문 → 코어를 가로지르는 근거 트레이스)을 재연한다. 시작점에서
 // 먼 이웃을 우선 선택해 중심에 뭉치지 않고 코어 전체로 퍼진 경로가 되도록 한다.
-// 다음 라운드에서 이 데이터를 애니메이션할 예정이므로 노드·엣지를 각각 id로 참조할 수 있게 한다.
+//
+// ── 풀블리드 리워크(히어로 재설계) ─────────────────────────────
+// viewBox를 히어로 전체 비율(1440×820)로 잡고 그래프가 히어로 배경 레이어 전체에
+// 흐르게 한다. 텍스트 가독성은 CSS 스크림이 아니라 여기 "존 기반 감쇠"가 담당한다 —
+// 텍스트 존(x<740, y<560) 안의 노드는 opacity를 ×0.25~0.35로 감쇠하고, 그 존에 걸친
+// 엣지도 양 끝 노드 감쇠 계수의 min으로 같이 감쇠한다. 클러스터는 텍스트 존 밖
+// (우측 ⅔ + 좌하단)에만 두고, 존 안에는 저투명 아웃라이어만 흩뿌린다.
 
 export type HeroNodeType = "commit" | "pr" | "issue" | "slack" | "jira" | "person" | "file";
 
@@ -30,18 +36,30 @@ export interface HeroConstellation {
   height: number;
   nodes: HeroNode[];
   edges: HeroEdge[];
+  /** 점등 경로 — 2026-07-25 히어로 2차 재설계 이후 배경 렌더(HeroMedia)에서는 미사용
+      (앰버 점등은 제품 UI 슬롯의 "관련 그래프" 패널이 자체적으로 가진다). 공개 인터페이스는
+      유지한다. */
   litNodeIds: string[];
   litEdgeIds: string[];
 }
 
-const WIDTH = 680;
-const HEIGHT = 425;
-const PADDING = 10;
+const WIDTH = 1440;
+const HEIGHT = 820;
+const PADDING = 16;
 const SEED = 20260419; // 임의 고정 시드 — 바뀌면 배치가 전부 달라지므로 건드리지 않는다.
+
+// 텍스트 존 — 히어로 카피(eyebrow~CTA 안내문)가 앉는 좌상단 영역. 이 존 안의 노드·엣지는
+// 감쇠 계수(0.25~0.35)를 곱해 카피 가독성을 지킨다. 존 밖은 계수 1(감쇠 없음).
+// x 경계는 렌더 실측으로 확정 — 헤드라인 1행이 화면 x≈873(≈viewBox 800)까지 닿아
+// 계획치(740)보다 넓혀야 감쇠 안 된 아웃라이어가 헤드라인 옆에 앉지 않는다.
+const TEXT_ZONE_X_MAX = 800;
+const TEXT_ZONE_Y_MAX = 560;
+const TEXT_ZONE_FACTOR_MIN = 0.25;
+const TEXT_ZONE_FACTOR_SPAN = 0.1; // 0.25~0.35
 
 // 클러스터 소속 — HeroNode에는 공개 필드로 노출하지 않고(공개 인터페이스 고정),
 // 생성기 내부에서만 Map으로 추적해 엣지·점등 경로 계산에 쓴다.
-type ClusterId = "core" | "medA" | "medB" | "medC" | "outlier";
+type ClusterId = "core" | "medA" | "medB" | "medC" | "medD" | "lobeSW" | "outlier";
 
 interface ClusterSpec {
   id: ClusterId;
@@ -53,20 +71,25 @@ interface ClusterSpec {
 
 // 클러스터 중심·개수·가우시안 확산도. core가 가장 조밀하고, outlier는 클러스터가 아니라
 // 캔버스 전역에 흩뿌리는 외톨이 노드라 이 배열에는 넣지 않는다(아래 OUTLIER_COUNT).
-// medA 중심(x=165)은 .lp-constellation의 좌측 페이드 마스크(~x<136 완전 소실, x<200 강하게
-// 흐려짐)에 걸려 있어 배치를 마스크 바깥의 별도 로브로 옮겼다 — CSS 쪽 수정 없이 좌표만 조정.
+// 배치 원칙: 조밀한 코어는 우중앙, 중밀도 클러스터는 우측 ⅔ 영역에 분산, 좌하단
+// (CTA 아래 빈 공간)에 중~저밀도 로브 하나. 텍스트 존(TEXT_ZONE_X/Y_MAX)에는 클러스터를
+// 두지 않는다 — 그 존은 저투명 아웃라이어만 지나간다.
+// 1440×900 뷰포트에서 slice 크롭이 좌우를 ~70px씩 자르므로 우측 클러스터 중심은
+// x≤1300 안쪽에 둔다.
 const CLUSTERS: ClusterSpec[] = [
-  { id: "core", cx: 365, cy: 200, count: 28, spread: 26 },
-  { id: "medA", cx: 250, cy: 320, count: 15, spread: 34 },
-  { id: "medB", cx: 520, cy: 130, count: 15, spread: 36 },
-  { id: "medC", cx: 555, cy: 320, count: 12, spread: 34 },
+  { id: "core", cx: 975, cy: 350, count: 38, spread: 46 },
+  { id: "medA", cx: 1160, cy: 180, count: 20, spread: 50 },
+  { id: "medB", cx: 1290, cy: 520, count: 17, spread: 44 },
+  { id: "medC", cx: 790, cy: 650, count: 16, spread: 46 },
+  { id: "medD", cx: 1080, cy: 700, count: 15, spread: 40 },
+  { id: "lobeSW", cx: 300, cy: 690, count: 16, spread: 52 },
 ];
-const OUTLIER_COUNT = 10;
-// 아웃라이어도 좌측 페이드 바깥에 머물도록 캔버스 전체가 아닌 이 범위 안에서만 흩뿌린다.
-const OUTLIER_X_MIN = 175;
-const OUTLIER_X_MAX = 655;
-const OUTLIER_Y_MIN = 30;
-const OUTLIER_Y_MAX = 395;
+const OUTLIER_COUNT = 28;
+// 아웃라이어는 캔버스 전역에 흩뿌린다 — 텍스트 존 안도 허용(존 감쇠가 저투명을 보장한다).
+const OUTLIER_X_MIN = PADDING;
+const OUTLIER_X_MAX = WIDTH - PADDING;
+const OUTLIER_Y_MIN = PADDING;
+const OUTLIER_Y_MAX = HEIGHT - PADDING;
 
 // 클러스터 내부 k-최근접 이웃 연결 개수 — core는 더 촘촘하게 4, 나머지는 2.
 const INTRA_K: Record<Exclude<ClusterId, "outlier">, number> = {
@@ -74,17 +97,24 @@ const INTRA_K: Record<Exclude<ClusterId, "outlier">, number> = {
   medA: 2,
   medB: 2,
   medC: 2,
+  medD: 2,
+  lobeSW: 2,
 };
 
 // 클러스터 간 성긴 브리지 — 지정된 쌍마다 두 클러스터에서 가장 가까운 노드끼리 딱 1개만 잇는다.
+// lobeSW는 core가 아니라 medC와 잇는다 — core와 직결하면 브리지가 텍스트 존을 대각선으로
+// 가로질러 카피 위를 지나가기 때문이다(medC 경유는 존 아래(y>560)로 돈다).
 const BRIDGE_PAIRS: Array<[ClusterId, ClusterId]> = [
   ["core", "medA"],
   ["core", "medB"],
   ["core", "medC"],
-  ["medB", "medC"],
+  ["core", "medD"],
+  ["medA", "medB"],
+  ["medB", "medD"],
+  ["medC", "lobeSW"],
 ];
 
-const OVERLAP_GUARD = 5; // 배치 시 기존 노드와 최소 이 거리(px) 이상 떨어지도록 시도한다 — 코어를 촘촘히 채우려 짧게 잡는다.
+const OVERLAP_GUARD = 7; // 배치 시 기존 노드와 최소 이 거리(px) 이상 떨어지도록 시도한다 — 코어를 촘촘히 채우려 짧게 잡는다.
 const OVERLAP_ATTEMPTS = 6; // 위 조건을 만족하는 후보를 이 횟수만큼만 재시도하고, 실패해도 마지막 후보를 그대로 쓴다.
 
 // mulberry32 — 32비트 정수 시드 기반 결정론적 PRNG. Math.random() 대체.
@@ -127,6 +157,15 @@ function isTooClose(x: number, y: number, placed: PlacedPoint[]): boolean {
   return placed.some((p) => dist(p.x, p.y, x, y) < OVERLAP_GUARD);
 }
 
+// 텍스트 존 감쇠 계수 — 존 안이면 0.25~0.35, 존 밖이면 1.
+// rng는 존 안일 때만 소비한다(존 밖 노드가 난수열을 흔들지 않게).
+function zoneFactor(x: number, y: number, rng: () => number): number {
+  if (x < TEXT_ZONE_X_MAX && y < TEXT_ZONE_Y_MAX) {
+    return TEXT_ZONE_FACTOR_MIN + rng() * TEXT_ZONE_FACTOR_SPAN;
+  }
+  return 1;
+}
+
 // 클러스터 노드 배치 — 중심에서 가우시안 오프셋만큼 떨어뜨리고 캔버스 안쪽으로 clamp한다.
 // 거리 분산을 일부러 크게 허용하므로(균일 간격을 강제하지 않음) 겹침 방지는 가볍게
 // 몇 번만 재시도하고, 그래도 실패하면 마지막 후보를 그냥 받아들인다 — 분산 자체가 목적이다.
@@ -145,8 +184,9 @@ function placeClusterPoint(
   return { x, y };
 }
 
-// 아웃라이어 배치 — 클러스터 중심 없이 OUTLIER_X/Y 범위 안에 고르게 흩뿌린다
-// (좌측 페이드 마스크 구간은 피해서, 배치되더라도 보이는 위치에만 놓는다).
+// 아웃라이어 배치 — 클러스터 중심 없이 캔버스 전역에 고르게 흩뿌린다.
+// 텍스트 존 안에 떨어져도 그대로 둔다 — 존 감쇠가 저투명을 보장하므로 카피를 해치지 않고,
+// 좌측에도 "그래프가 이어져 있다"는 존재감을 준다.
 function placeOutlierPoint(rng: () => number, placed: PlacedPoint[]): { x: number; y: number } {
   let x = OUTLIER_X_MIN;
   let y = OUTLIER_Y_MIN;
@@ -195,26 +235,36 @@ function pickType(rng: () => number): HeroNodeType {
 }
 
 // 노드 시각 속성 — 클러스터 노드는 진하고 크게, 아웃라이어는 작고 흐리게 둬서
-// "가장자리에 홀로 떨어진 노드"처럼 보이게 한다.
-function buildNodes(rng: () => number): { nodes: HeroNode[]; clusterOf: Map<string, ClusterId> } {
+// "가장자리에 홀로 떨어진 노드"처럼 보이게 한다. 풀블리드 배경에서 그래프가 첫 화면의
+// 명확한 시각 요소로 읽히도록 클러스터 노드는 opacity 0.45~0.7 / r 3.4~5.6으로 올렸다
+// (단 앰버 점등 경로가 항상 그 위로 튀어야 하므로 그 이상은 올리지 않는다).
+// 텍스트 존 안 노드는 zoneFactor(0.25~0.35)를 곱해 카피 가독성을 지킨다.
+function buildNodes(rng: () => number): {
+  nodes: HeroNode[];
+  clusterOf: Map<string, ClusterId>;
+  factorOf: Map<string, number>;
+} {
   const points = placeAllPoints(rng);
   const clusterOf = new Map<string, ClusterId>();
+  const factorOf = new Map<string, number>();
   const nodes = points.map((p, i) => {
     const id = `n${i}`;
     clusterOf.set(id, p.clusterId);
     const isOutlier = p.clusterId === "outlier";
-    const r = isOutlier ? 2.4 + rng() * 1.0 : 3.2 + rng() * 1.8;
-    const opacity = isOutlier ? 0.14 + rng() * 0.12 : 0.26 + rng() * 0.2;
+    const r = isOutlier ? 2.4 + rng() * 1.0 : 3.4 + rng() * 2.2;
+    const baseOpacity = isOutlier ? 0.2 + rng() * 0.15 : 0.45 + rng() * 0.25;
+    const factor = zoneFactor(p.x, p.y, rng);
+    factorOf.set(id, factor);
     return {
       id,
       x: Math.round(p.x * 100) / 100,
       y: Math.round(p.y * 100) / 100,
       r: Math.round(r * 100) / 100,
       type: pickType(rng),
-      opacity: Math.round(opacity * 1000) / 1000,
+      opacity: Math.round(baseOpacity * factor * 1000) / 1000,
     };
   });
-  return { nodes, clusterOf };
+  return { nodes, clusterOf, factorOf };
 }
 
 function edgeKey(a: number, b: number): string {
@@ -224,9 +274,11 @@ function edgeKey(a: number, b: number): string {
 // 엣지 — 클러스터 내부는 k-최근접 이웃으로 촘촘하게, 클러스터 사이는 지정된 쌍마다
 // 가장 가까운 노드끼리 딱 1개씩만 이어 성긴 브리지를 만든다. 무향 그래프이므로
 // a-b/b-a 중복은 인덱스 쌍 키로 제거한다. 전결합은 절대 하지 않는다.
+// 텍스트 존에 걸친 엣지는 양 끝 노드 감쇠 계수의 min을 곱해 노드와 함께 가라앉는다.
 function buildEdges(
   nodes: HeroNode[],
   clusterOf: Map<string, ClusterId>,
+  factorOf: Map<string, number>,
   rng: () => number,
 ): HeroEdge[] {
   const seen = new Set<string>();
@@ -290,15 +342,20 @@ function buildEdges(
   }
 
   pairs.sort((p1, p2) => p1.a - p2.a || p1.b - p2.b);
-  return pairs.map((pair, idx) => ({
-    id: `e${idx}`,
-    from: `n${pair.a}`,
-    to: `n${pair.b}`,
-    opacity:
-      pair.kind === "intra"
-        ? Math.round((0.1 + rng() * 0.12) * 1000) / 1000
-        : Math.round((0.07 + rng() * 0.04) * 1000) / 1000,
-  }));
+  return pairs.map((pair, idx) => {
+    const baseOpacity =
+      pair.kind === "intra" ? 0.14 + rng() * 0.12 : 0.09 + rng() * 0.06;
+    const factor = Math.min(
+      factorOf.get(`n${pair.a}`) ?? 1,
+      factorOf.get(`n${pair.b}`) ?? 1,
+    );
+    return {
+      id: `e${idx}`,
+      from: `n${pair.a}`,
+      to: `n${pair.b}`,
+      opacity: Math.round(baseOpacity * factor * 1000) / 1000,
+    };
+  });
 }
 
 interface AdjacentNode {
@@ -406,7 +463,8 @@ function buildLitPath(
   edges: HeroEdge[],
   clusterOf: Map<string, ClusterId>,
 ): { litNodeIds: string[]; litEdgeIds: string[] } {
-  const MIN_SPAN = 55;
+  // 코어 spread(40)에 비례한 최소 스팬 — 기존 spread 26 기준 55에서 확대.
+  const MIN_SPAN = 85;
   const coreNodes = nodes.filter((n) => clusterOf.get(n.id) === "core");
   const coreEdges = edges.filter(
     (e) => clusterOf.get(e.from) === "core" && clusterOf.get(e.to) === "core",
@@ -448,8 +506,8 @@ function buildLitPath(
 
 function generateConstellation(): HeroConstellation {
   const rng = mulberry32(SEED);
-  const { nodes, clusterOf } = buildNodes(rng);
-  const edges = buildEdges(nodes, clusterOf, rng);
+  const { nodes, clusterOf, factorOf } = buildNodes(rng);
+  const edges = buildEdges(nodes, clusterOf, factorOf, rng);
   const { litNodeIds, litEdgeIds } = buildLitPath(nodes, edges, clusterOf);
   return { width: WIDTH, height: HEIGHT, nodes, edges, litNodeIds, litEdgeIds };
 }

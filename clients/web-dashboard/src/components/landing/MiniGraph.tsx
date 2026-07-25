@@ -19,9 +19,11 @@ const NODE_R = 4.5;
 // 100/400 cqw), 세로에만 위아래 레터박스가 생긴다. 그 레터박스 폭은 두 비율(뷰박스·슬롯)
 // 만으로 정해지는 상수라 브레이크포인트와 무관하게 항상 같다 — 슬롯 aspect-ratio를 바꾸면
 // GRAPH_SLOT_ASPECT도 같이 바꿔야 한다.
+// 라벨 컨테이너가 16:10 슬롯이 아닌 곳(작동 방식 섹션 — .lp-how-viz가 뷰박스 비율 그대로)
+// 에서는 labelAspect prop으로 그 컨테이너의 비율을 넘긴다 — 뷰박스 비와 같으면 레터박스가
+// 0으로 떨어져 같은 공식이 그대로 성립한다(컨테이너는 여전히 width-constrained여야 한다).
 const GRAPH_SLOT_ASPECT = 16 / 10;
 const UNIT_TO_CQW = 100 / HOW_GRAPH_WIDTH;
-const LETTERBOX_CQH = ((1 - (HOW_GRAPH_HEIGHT / HOW_GRAPH_WIDTH) * GRAPH_SLOT_ASPECT) / 2) * 100;
 
 // 스테이지별 등장 리듬(landing.css의 애니메이션 delay/duration 선택과 짝을 이룬다):
 // - stage 1: 노드가 스프링으로 정착한다(index 기반 스태거) — "하나씩 나타나는" 인상.
@@ -56,12 +58,17 @@ export function MiniGraph({
   extraNodes = [],
   extraEdges = [],
   labels = [],
+  labelAspect = GRAPH_SLOT_ASPECT,
 }: {
   stage: 1 | 2 | 3;
   extraNodes?: MiniGraphNode[];
   extraEdges?: MiniGraphEdge[];
   labels?: MiniGraphLabel[];
+  /** 라벨 오버레이가 앉는 사이즈 컨테이너의 가로세로비 — 기본은 기능 2 슬롯(16:10).
+      작동 방식 섹션은 뷰박스 비율 컨테이너(.lp-how-viz)라 뷰박스 비를 넘긴다(레터박스 0). */
+  labelAspect?: number;
 }) {
+  const letterboxCqh = ((1 - (HOW_GRAPH_HEIGHT / HOW_GRAPH_WIDTH) * labelAspect) / 2) * 100;
   const allNodes = extraNodes.length ? [...HOW_IT_WORKS_NODES, ...extraNodes] : HOW_IT_WORKS_NODES;
   const allEdges = extraEdges.length ? [...HOW_IT_WORKS_EDGES, ...extraEdges] : HOW_IT_WORKS_EDGES;
   const nodeById = new Map(allNodes.map((n) => [n.id, n]));
@@ -182,7 +189,7 @@ export function MiniGraph({
           그래서 라벨은 SVG 밖 실제 HTML(font-size: 12px 고정)로 오버레이한다. 좌표는 컨테이너
           쿼리 단위(cqw/cqh, .lp-feature-graph-canvas의 container-type: size)로 계산해 SVG의
           xMidYMid meet 렌더 위치와 정확히 맞춘다(letterbox 오프셋 포함, UNIT_TO_CQW/
-          LETTERBOX_CQH 유도 참고) — 브레이크포인트와 무관하게 항상 정확하다. */}
+          letterboxCqh 유도 참고) — 브레이크포인트와 무관하게 항상 정확하다. */}
       {labels.length > 0 && (
         <div className="lp-feature-graph-labels">
           {labels.map((l) => {
@@ -195,7 +202,7 @@ export function MiniGraph({
                 style={
                   {
                     left: `calc(${(n.x * UNIT_TO_CQW).toFixed(2)}cqw)`,
-                    top: `calc(${LETTERBOX_CQH.toFixed(2)}cqh + ${(n.y * UNIT_TO_CQW).toFixed(2)}cqw)`,
+                    top: `calc(${letterboxCqh.toFixed(2)}cqh + ${(n.y * UNIT_TO_CQW).toFixed(2)}cqw)`,
                     "--lx": `${l.dx}px`,
                     "--ly": `${l.dy}px`,
                   } as CSSProperties

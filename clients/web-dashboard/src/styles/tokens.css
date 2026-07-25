@@ -41,6 +41,11 @@
   --lp-surface-1: #111419;
   --lp-surface-2: #171B21;
   --lp-surface-3: #1E232B;
+  /* surface-0보다 한 칸 더 깊은 그래프 캔버스 전용 층 — 노드가 떠 보이게 한다.
+     순수 #000 금지 원칙 준수, 틴트 유지(surface-0과 같은 블루 틴트 계열). 기존 토큰
+     변경이 아니라 추가다 — 히어로 풀블리드 그래프 배경에서 surface-0 섹션과의 경계를
+     색차만으로 만들기 위한 값. */
+  --lp-surface-canvas: #07090C;
   --lp-border: #262B33;
   --lp-border-strong: #333A44;
 
