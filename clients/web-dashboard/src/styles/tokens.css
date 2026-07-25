@@ -62,6 +62,19 @@
   --lp-node-person: #C77D9E;
   --lp-node-file: #7E8794;
 
+  /* 들린 표면(카드·슬롯) 상단 엣지 하이라이트 — 위에서 빛을 받는 질감을 위한 1px 흰색
+     저알파 인셋. 드롭섀도는 쓰지 않는다(깊이는 surface 사다리·헤어라인으로만) — 이건
+     그 원칙과 별개로 "빛의 방향"만 표현하는 장식 토큰이다. 앱 리스타일에도 재사용할
+     규칙이라 토큰화한다. */
+  --lp-edge-highlight: rgba(255, 255, 255, 0.06);
+
+  /* ── 시맨틱 (시스템 상태 전용 — 노드 지시에는 쓰지 않는다) ────────
+     DESIGN.md 네임스페이스 규칙: success는 node-commit과 hex가 같지만 별도 네임스페이스라
+     충돌하지 않는다(같은 초록이 노드 옆이면 "커밋", 상태 라벨 옆이면 "정상"). 정의된 값의
+     추가일 뿐 기존 토큰 변경이 아니다 — success만 추가한다(다른 시맨틱은 이번 범위 밖).
+     --------------------------------------------------------- */
+  --lp-success: #6FB58A;
+
   --lp-font-display: "Space Grotesk", "Wanted Sans Variable", "Wanted Sans", sans-serif;
   --lp-font-body: "General Sans", "Pretendard Variable", Pretendard, sans-serif;
   --lp-font-mono: "JetBrains Mono", "D2Coding", monospace;

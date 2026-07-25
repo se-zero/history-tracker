@@ -299,7 +299,9 @@ body:has(.lp) {
   font-weight: 500;
   font-size: clamp(2.125rem, 6.4vw, 3.5rem);
   line-height: 1.18;
-  letter-spacing: -0.01em;
+  /* 디스플레이 조판 규칙 — 네거티브 트래킹 -0.02em(기존 -0.01em은 느슨했다). 히어로도
+     시스템 차원 규칙이라 예외 없이 적용(레이아웃·카피는 불변). */
+  letter-spacing: -0.02em;
   color: var(--lp-text-primary);
 }
 .lp-headline-line {
@@ -544,7 +546,8 @@ body:has(.lp) {
   /* 히어로와 같은 display-xl 스케일 — 이 섹션은 페이지의 감정적 정점이다. */
   font-size: clamp(2.125rem, 6.4vw, 3.5rem);
   line-height: 1.22;
-  letter-spacing: -0.01em;
+  /* 디스플레이 조판 규칙 — 네거티브 트래킹 -0.02em(기존 -0.01em은 느슨했다). */
+  letter-spacing: -0.02em;
   color: var(--lp-text-primary);
 }
 .lp-problem-line {
@@ -597,6 +600,12 @@ body:has(.lp) {
   /* 상단은 좁게(문제 정의와의 사이를 줄인다), 하단은 기본 리듬 유지. */
   padding-block: 64px clamp(80px, 9vw, 112px);
   padding-inline: 32px;
+  /* 섹션 지형 — 전 섹션이 surface-0 평면이라 페이지에 깊이가 없던 문제. 헤어라인 경계
+     없이 색차만으로 앞뒤 섹션(surface-0)과 구분한다. */
+  background: var(--lp-surface-1);
+  /* #how 앵커(히어로 스크롤 큐) 이동 시 sticky 헤더(64px, .lp-header-inner)에 상단이
+     가리지 않도록 보정. */
+  scroll-margin-top: 64px;
 }
 
 .lp-how-inner {
@@ -627,7 +636,8 @@ body:has(.lp) {
   font-weight: 500;
   font-size: clamp(1.75rem, 4.2vw, 2.5rem);
   line-height: 1.3;
-  letter-spacing: -0.01em;
+  /* 디스플레이 조판 규칙 — 네거티브 트래킹 -0.02em(기존 -0.01em은 느슨했다). */
+  letter-spacing: -0.02em;
   color: var(--lp-text-primary);
   text-wrap: balance;
   word-break: keep-all;
@@ -880,6 +890,33 @@ body:has(.lp) {
   order: 1;
 }
 
+/* 기능 1(대화) 미디어 슬롯만 넓힌다(2026-07-24, 크롭 밀도 개선) — 사이드 레일 단면 +
+   브레드크럼 + 출처 카드 3장 + 입력창까지 넣으려면 텍스트 컬럼과의 1:1 분할로는 좁다.
+   모바일은 이미 1열 스택(아래 반응형 블록)이라 이 규칙은 데스크톱 2열 구간에서만 켠다. */
+@media (min-width: 768px) {
+  .lp-feature-block:has(.lp-feature-media--chat) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  }
+}
+
+/* ── 기능 3섹션: 제한적 scroll snap ─────────────────────────────
+   전체 페이지 mandatory snap은 스크롤 재킹이라 쓰지 않는다 — 기능 3섹션 블록(.lp-feature-block
+   3개)에만 proximity(강제 안착 없음)로 제한 적용한다. 랜딩 라우트 밖으로 새면 안 되므로
+   html:has(.lp)로 스코프하고(다른 페이지는 .lp 래퍼가 없다), 데스크톱(min-width 768px —
+   기존 767/768px 경계 재사용)과 prefers-reduced-motion: no-preference에서만 켠다.
+   scroll-padding-top(64px = .lp-header-inner 높이)은 스냅 안착 지점을 sticky 헤더 아래로
+   보정한다 — #how 앵커 자체의 스크롤 보정은 이 스냅 조건과 무관하게 항상 필요하므로
+   .lp-how의 scroll-margin-top으로 별도 처리한다. */
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  html:has(.lp) {
+    scroll-snap-type: y proximity;
+    scroll-padding-top: 64px;
+  }
+  .lp-feature-block {
+    scroll-snap-align: start;
+  }
+}
+
 .lp-feature-eyebrow {
   margin: 0;
   font-family: var(--lp-font-mono);
@@ -898,7 +935,8 @@ body:has(.lp) {
   font-weight: 500;
   font-size: clamp(1.75rem, 4.2vw, 2.5rem);
   line-height: 1.3;
-  letter-spacing: -0.01em;
+  /* 디스플레이 조판 규칙 — 네거티브 트래킹 -0.02em(기존 -0.01em은 느슨했다). */
+  letter-spacing: -0.02em;
   color: var(--lp-text-primary);
   text-wrap: balance;
   word-break: keep-all;
@@ -925,6 +963,9 @@ body:has(.lp) {
   overflow: hidden;
   background: var(--lp-surface-1);
   border-radius: var(--lp-r-lg);
+  /* 상단 엣지 하이라이트 — 위에서 빛을 받는 질감(들린 표면 공통 규칙). border는 없으므로
+     충돌 없음. */
+  box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
 }
 
 /* 대화 — 종횡비 없음. 채팅 스트림은 세로 매체라 콘텐츠(사용자 버블 + 답변 + 출처 카드 2장)
@@ -945,16 +986,131 @@ body:has(.lp) {
   height: auto;
 }
 
-/* ── 기능 1 미리보기: 대화 (DESIGN.md "채팅 답변"·"출처 카드" 스펙) ──────────────
-   사용자 버블 → 답변 산문(버블 없음) → 출처 카드 2장 순으로 세로 배치. 배지·모노 메타는
-   라틴 모노, 내용 줄은 한글이라 본문 서체(DESIGN.md 모노 스코프 규칙 — 한글 콘텐츠엔
-   모노 금지). 슬롯(.lp-feature-media--chat)이 종횡비 없이 콘텐츠 높이를 따르므로
-   height:100%는 두지 않는다 — 이 블록의 실제 콘텐츠 높이가 곧 슬롯 높이다. */
+/* ── 기능 1 미리보기: 대화 — 실제 앱 화면의 단면 (2026-07-24 밀도 개선) ─────────────
+   좌: 사이드 레일 크롭(검색+내비 5개+대화 히스토리), 헤어라인 하나로만 슬롯과 구분(별도
+   elevation 없음 — 슬롯 자체가 이미 surface-1). 우: 브레드크럼 → Q&A 스트림(사용자 버블 →
+   답변 산문 → 출처 카드 3장) → 하단 입력창, 각 구간을 헤어라인으로 나눠 실제 앱의
+   "상단바 / 스트림 / 입력창" 3단 구조를 그대로 재현한다. 배지·모노 메타·mono 번호는 라틴
+   모노, 내용 줄·히스토리 제목은 한글이라 본문 서체(DESIGN.md 모노 스코프 규칙). 슬롯
+   (.lp-feature-media--chat)이 종횡비 없이 콘텐츠 높이를 따르므로 height:100%는 두지
+   않는다 — 이 블록의 실제 콘텐츠 높이가 곧 슬롯 높이다. */
 .lp-feature-chat {
   display: flex;
+  align-items: stretch;
+}
+
+/* 좌측 사이드 레일 단면 — 실제 앱 사이드바(약 240px+)보다 훨씬 좁게 잘라, 이 조각이 더
+   넓은 화면의 일부라는 인상을 준다. 카드가 아니라 화면의 일부이므로 자체 radius·elevation
+   없이 헤어라인 하나로만 본문과 나뉜다. */
+.lp-feature-chat-rail {
+  flex: 0 0 152px;
+  display: flex;
   flex-direction: column;
-  padding: 20px;
+  gap: 14px;
+  padding: 16px 10px 16px 14px;
+  border-right: 1px solid var(--lp-border);
+}
+
+.lp-feature-chat-rail-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lp-feature-chat-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--lp-r-sm);
+  font-family: var(--lp-font-body);
+  font-size: 13px;
+  color: var(--lp-text-secondary);
+  white-space: nowrap;
+}
+
+/* 검색 항목의 단축키 힌트 — 라틴이라 모노, DESIGN.md 스케일 최소 12px(mono-label) 유지. */
+.lp-feature-chat-rail-kbd {
+  margin-left: auto;
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  color: var(--lp-text-muted);
+}
+
+/* 활성 내비("대화") — DESIGN.md 활성 내비 규칙(액센트)을 조용하게 적용: 좁은 pill 면적의
+   accent-soft 틴트 + text-primary. 큰 앰버 면적을 만들지 않는다. */
+.lp-feature-chat-rail-item--active {
+  background: var(--lp-accent-soft);
+  color: var(--lp-text-primary);
+  font-weight: 500;
+}
+
+.lp-feature-chat-rail-divider {
+  height: 1px;
+  background: var(--lp-border);
+}
+
+.lp-feature-chat-rail-history {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+}
+
+.lp-feature-chat-rail-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px;
+}
+
+.lp-feature-chat-rail-history-title {
+  font-family: var(--lp-font-body);
+  font-size: 12px;
+  color: var(--lp-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 히스토리 날짜 — 모노, DESIGN.md 스케일 최소 12px(mono-label) 미만으로 두지 않는다. */
+.lp-feature-chat-rail-history-date {
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  color: var(--lp-text-muted);
+}
+
+.lp-feature-chat-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 상단 브레드크럼 — 실제 앱 Topbar(.crumbs)와 동일하게 본문 서체(라틴+한글 혼용 한 줄이라
+   모노를 쓰지 않는다). 현재 위치("대화")만 text-primary로 밝혀 위계를 준다. */
+.lp-feature-chat-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--lp-border);
+  font-family: var(--lp-font-body);
+  font-size: 13px;
+  color: var(--lp-text-muted);
+}
+.lp-feature-chat-breadcrumb-sep {
+  color: var(--lp-text-muted);
+}
+.lp-feature-chat-breadcrumb-current {
+  color: var(--lp-text-primary);
+  font-weight: 500;
+}
+
+.lp-feature-chat-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
 }
 
 .lp-feature-chat-user {
@@ -980,6 +1136,19 @@ body:has(.lp) {
   word-break: keep-all;
 }
 
+/* 답변 속 라틴 기술 토큰(HT-64, PR #142, #dev-search) 인라인 코드 처리 — 앱 마크다운의
+   인라인 code 스타일(chat.css `.msg-content.markdown code`)을 lp 토큰으로 옮겼다. 부모
+   폰트 크기(13px)를 그대로 상속해 DESIGN.md mono-label(12px) 하한 위에 여유를 둔다. */
+.lp-feature-chat-code {
+  font-family: var(--lp-font-mono);
+  padding: 1px 5px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-r-sm);
+  background: var(--lp-surface-2);
+  color: var(--lp-text-primary);
+  white-space: nowrap; /* 짧은 기술 토큰이 칩 중간에서 꺾이면 조판 사고처럼 보인다(모바일) */
+}
+
 .lp-feature-chat-sources {
   display: flex;
   flex-direction: column;
@@ -990,12 +1159,26 @@ body:has(.lp) {
   padding: 8px 10px;
   border-radius: var(--lp-r-md);
   background: var(--lp-surface-2);
+  /* 상단 엣지 하이라이트 — 위에서 빛을 받는 질감(들린 표면 공통 규칙). border는 없으므로
+     충돌 없음. */
+  box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
 }
 
+/* flex-wrap — 카드 헤더(번호+배지+메타)가 좁은 폭에서 두 줄로 자연스럽게 접히게 한다
+   (겹침·overflow 대신). */
 .lp-feature-chat-source-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  row-gap: 4px;
+}
+
+/* 출처 번호(#1~#3) — 조용한 참조 표식, 타입 배지의 노드 색이 주된 시각 식별자다. */
+.lp-feature-chat-source-num {
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  color: var(--lp-text-muted);
 }
 
 /* 타입 배지 — 카드가 노드를 지시하므로 노드 색을 쓴다(네임스페이스 규칙). 배경은 저투명
@@ -1019,6 +1202,10 @@ body:has(.lp) {
   background: color-mix(in srgb, var(--lp-node-slack) 16%, transparent);
   color: var(--lp-node-slack);
 }
+.lp-feature-chat-badge--pr {
+  background: color-mix(in srgb, var(--lp-node-pr) 16%, transparent);
+  color: var(--lp-node-pr);
+}
 
 /* 모노 메타(HT-64 · 2026-06-12) — DESIGN.md 스케일 최소 12px(mono-label) 미만으로 두지 않는다. */
 .lp-feature-chat-meta {
@@ -1036,16 +1223,78 @@ body:has(.lp) {
   word-break: keep-all;
 }
 
-/* ── 기능 2 미리보기: 그래프 탐색 (DESIGN.md "그래프 캔버스" 스펙) ─────────────────
-   위: 노드 색 pill 범례(필터 칩이므로 pill radius 예약 대상). 아래: 캔버스 — DESIGN.md대로
-   가장 깊은 층이라 슬롯 배경(surface-1)보다 한 단계 더 파서 surface-0으로 둔다. MiniGraph는
-   stage=3을 그대로 써서 점등 경로(앰버)가 온전히 보이게 한다 — 이 페이지에서 앰버가
-   허용되는 유일한 슬롯 요소. 절제 원칙(브리프 B-4, 페이지에 이미 그래프가 둘이라) 때문에
-   기본 노드/엣지는 애니메이션 없이 정적이고, 앰버 경로만 IO 1회 트리거로 부드럽게 페이드
-   인한다(드로잉 없이) — FeatureSections.tsx의 useInViewOnce가 is-played를 부여한다. */
-.lp-feature-graph {
+/* 하단 입력창 — 비포커스 상태(앰버 포커스 링 없음, 실제 포커스된 입력이 아니다).
+   전송 버튼만 DESIGN.md 기본 버튼 레시피(앰버 채움 + surface-0 아이콘, 대비 ~11:1,
+   `.lp-btn--primary`와 동일)를 작은 아이콘 버튼 크기로 축소 적용한다. */
+.lp-feature-chat-composer {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--lp-border);
+}
+
+.lp-feature-chat-composer-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-r-md);
+  background: var(--lp-surface-2);
+}
+
+.lp-feature-chat-composer-placeholder {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--lp-font-body);
+  font-size: 13px;
+  color: var(--lp-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lp-feature-chat-composer-send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--lp-r-sm);
+  background: var(--lp-accent);
+  color: var(--lp-surface-0);
+}
+
+.lp-feature-chat-composer-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-family: var(--lp-font-body);
+  font-size: 12px;
+  color: var(--lp-text-muted);
+}
+
+/* Enter / Shift+Enter — 라틴 키 이름만 모노, "전송"/"줄바꿈"은 본문 서체(부모에서 상속). */
+.lp-feature-chat-kbd {
+  font-family: var(--lp-font-mono);
+  color: var(--lp-text-secondary);
+}
+
+/* ── 기능 2 미리보기: 그래프 탐색 (DESIGN.md "그래프 캔버스" 스펙) ─────────────────
+   캔버스(DESIGN.md대로 가장 깊은 층 surface-0)가 슬롯 전체를 채우고, 툴바·범례는 그 위에
+   뜨는 오버레이다(실제 그래프 툴처럼 — 줌 컨트롤과 같은 "플로팅" 취급). 캔버스를 툴바·범례
+   아래 남는 flex 공간으로 접었던 이전 레이아웃은 범례(7 pill)·툴바(버튼 2개+카운트)가 좁은
+   폭에서 각각 줄바꿈될 때 캔버스가 라벨도 못 앉힐 만큼 짜부라지는 문제가 있었다 — 오버레이로
+   바꾸면 캔버스는 항상 슬롯 전체 크기를 쓰고, 툴바·범례가 몇 줄로 접히든 캔버스 크기와
+   무관해진다. MiniGraph는 stage=3을 그대로 써서 점등 경로(앰버)가 온전히 보이게 한다 —
+   이 페이지에서 앰버가 허용되는 유일한 슬롯 요소. 절제 원칙(브리프 B-4, 페이지에 이미
+   그래프가 둘이라) 때문에 기본 노드/엣지는 애니메이션 없이 정적이고, 앰버 경로만 IO 1회
+   트리거로 부드럽게 페이드 인한다(드로잉 없이) — FeatureSections.tsx의 useInViewOnce가
+   is-played를 부여한다. */
+.lp-feature-graph {
+  position: relative;
   height: 100%;
 }
 /* 앰버 경로 전체(엣지·헤일로·노드)를 하나의 그룹으로 다뤄 단일 페이드로 점등한다 —
@@ -1055,6 +1304,71 @@ body:has(.lp) {
 }
 .lp-feature-graph.is-played .lp-how-lit {
   animation: lp-fade var(--lp-dur-slow) var(--lp-ease-standard) 0ms both;
+}
+
+/* 툴바+범례 묶음 — position 지정을 여기 하나에만 둬서(자식은 static 그대로) 뒤에 오는
+   절대배치 캔버스보다 이 묶음이 항상 위에 그려지게 한다(포지션드 vs 스태틱 형제 사이에서는
+   DOM 순서와 무관하게 포지션드가 이긴다는 규칙 — 캔버스가 먼저 나와도 이 wrapper가
+   position을 가지면 이후 DOM 순서로 스택되어 위로 온다).
+   배경(슬롯 원래 표면인 surface-1, 새 색 아님)을 불투명하게 깔아 둔다 — 좁은 폭에서 범례·
+   툴바가 여러 줄로 접히면 그 아래 놓인 노드 라벨과 뒤엉켜 보이는 문제가 있었다. 이 패널이
+   차지한 만큼 캔버스 위쪽이 가려지는 건 "축소하지 말고 잘라내라" 원칙과 같은 방향의 크롭이다
+   (그래프를 줄이는 대신 화면을 가린다). */
+.lp-feature-graph-header {
+  position: relative;
+  background: var(--lp-surface-1);
+  /* 상단 엣지 하이라이트 — 이 패널이 슬롯(.lp-feature-media) 맨 위와 같은 y=0에서 같은
+     불투명 surface-1로 덮으므로, 슬롯에 걸어둔 하이라이트가 이 패널에 가려 안 보인다.
+     그래프 슬롯에서도 "위에서 빛을 받는" 질감이 보이도록 같은 규칙을 이 패널에도 건다. */
+  box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
+}
+
+/* 상단 툴바 — 재구축 액션 2개(좌) + 노드/엣지 카운트(우). 실제 앱에 있는 컨트롤·상태를
+   그대로 옮기되 이 미리보기 안에서는 눌리지 않으므로 <span>이고 앰버를 쓰지 않는다(라이브
+   컨트롤이 아니다 — DESIGN.md 앰버 규칙). 범례 행과 같은 가로 패딩을 쓰고 아래쪽 gap은
+   범례 자체의 padding-top(14px)에 맡긴다. */
+.lp-feature-graph-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+
+.lp-feature-graph-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* DESIGN.md 보조 버튼 레시피(surface-2 + border, text-primary)를 이 슬롯 밀도에 맞춰
+   축소 적용 — .lp-btn--secondary와 같은 배합이지만 크기는 .lp-feature-source-action류의
+   컴팩트 스케일을 따른다. 내용이 한글이라 본문 서체(모노 스코프 규칙 — 라틴 기술 토큰이
+   아니다). */
+.lp-feature-graph-action {
+  padding: 5px 10px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-r-sm);
+  background: var(--lp-surface-2);
+  font-family: var(--lp-font-body);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--lp-text-primary);
+  white-space: nowrap;
+}
+
+/* 노드/엣지 카운트 — 숫자·구분점(·)만 모노, "노드"/"연결"은 한글이라 본문 서체를 상속한다
+   (모노 스코프 규칙). text-muted 수준으로 조용하게 — 이 슬롯의 다른 mono 라벨(범례 12px)과
+   달리 상태 고지라 가장 낮은 톤을 쓴다. */
+.lp-feature-graph-stats {
+  font-family: var(--lp-font-body);
+  font-size: 12px;
+  color: var(--lp-text-muted);
+  white-space: nowrap;
+}
+.lp-feature-graph-stats-mono {
+  font-family: var(--lp-font-mono);
 }
 
 .lp-feature-graph-legend {
@@ -1092,15 +1406,91 @@ body:has(.lp) {
 .lp-feature-graph-dot--person { background: var(--lp-node-person); }
 .lp-feature-graph-dot--file   { background: var(--lp-node-file); }
 
+/* 캔버스가 슬롯 전체를 채운다(위 .lp-feature-graph 주석 참고 — 툴바·범례는 이 위에 뜨는
+   오버레이). container-type: size — 아래 라벨 오버레이가 cqh/cqw(이 요소 크기의 1%) 단위로
+   SVG의 렌더 위치를 정확히 계산할 수 있게 이 요소를 사이즈 쿼리 컨테이너로 만든다. inset:0로
+   크기가 부모(.lp-feature-graph, 슬롯 100%)에서 바로 정해지므로(콘텐츠 기반이 아님)
+   containment와 충돌하지 않는다. */
 .lp-feature-graph-canvas {
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   background: var(--lp-surface-0);
+  container-type: size;
 }
 .lp-feature-graph-canvas .lp-how-graph {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* 노드 mono 라벨 오버레이 — MiniGraph.tsx가 labels prop을 받았을 때만 렌더한다(기능 2
+   전용). SVG 안에 <text>로 넣지 않는 이유: 뷰박스(400x240)가 preserveAspectRatio로
+   컨테이너에 맞춰 스케일되면 그 안의 모든 요소(텍스트 포함)가 함께 줄어들어, 좁은 화면에서
+   DESIGN.md의 mono-label 12px 하한을 지킬 수 없다. 그래서 라벨은 SVG 밖 실제 HTML로
+   두고 font-size를 12px로 고정한다.
+   위치 계산(MiniGraph.tsx): 캔버스는 항상 슬롯(aspect-ratio: 16/10 = 1.6) 전체를 채우고,
+   뷰박스 비(400/240≈1.667)가 그보다 항상 크므로(뷰박스가 상대적으로 더 옆으로 넓다) SVG는
+   항상 width-constrained로 렌더된다 — 가로는 레터박스 없이 꽉 차고 세로에만 위아래
+   레터박스가 남는다. 그래서 left = x*(100/400)cqw로 정확히 맞고, top은 그 레터박스만큼
+   cqh로 보정해 LETTERBOX_CQH + y*(100/400)cqw로 계산한다. 두 비율(뷰박스·슬롯)이 모두
+   상수라 이 매핑은 브레이크포인트와 무관하게 항상 정확하다. */
+.lp-feature-graph-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.lp-feature-graph-label {
+  position: absolute;
+  transform: translate(var(--lx, 6px), var(--ly, -6px));
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--lp-text-secondary);
+  white-space: nowrap;
+}
+/* 오른쪽에 다른 노드·엣지가 붙어 기본(우측으로 뻗는) 방향이 겹치는 라벨용 — 텍스트 끝을
+   (노드 x + dx)에 맞춰 왼쪽으로 뻗는다. */
+.lp-feature-graph-label--end {
+  transform: translate(calc(-100% + var(--lx, -6px)), var(--ly, -6px));
+}
+/* 앰버 점등 경로 위 라벨 하나만 살짝 밝힌다(선택된/점등 맥락) — 정적, is-played와
+   무관하게 항상 이 톤이다(라벨에는 추가 안무를 넣지 않는다). */
+.lp-feature-graph-label--lit {
+  color: var(--lp-text-primary);
+}
+/* 캔버스가 좁으면(2열 레이아웃의 768~1180px 근방 — 슬롯 폭이 아직 데스크톱만큼 넓어지지
+   않은 구간) 실 px 고정폭의 긴 라벨이 캔버스 왼쪽 밖으로 밀려 잘린다. 1180px는 이 파일의
+   기존 데스크톱 임계값(히어로 bleed 규칙)을 재사용한 것 — 그 폭부터는 슬롯이 충분히 넓어
+   여유가 생긴다. */
+@media (max-width: 1179px) {
+  .lp-feature-graph-label--wide {
+    display: none;
+  }
+}
+
+/* 줌 컨트롤 — DESIGN.md "줌 컨트롤은 surface-2로 우하단에 플로팅" 그대로. 비인터랙티브
+   표시용이라 <span>이고 앰버를 쓰지 않는다. */
+.lp-feature-graph-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-r-sm);
+  background: var(--lp-surface-2);
+}
+.lp-feature-graph-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--lp-r-sm);
+  font-family: var(--lp-font-mono);
+  font-size: 13px;
+  color: var(--lp-text-secondary);
 }
 
 /* ── 기능 3 미리보기: 데이터 소스 (DESIGN.md "데이터 소스 카드" 스펙) ───────────────
@@ -1125,6 +1515,9 @@ body:has(.lp) {
   padding: 10px 12px;
   border-radius: var(--lp-r-md);
   background: var(--lp-surface-2);
+  /* 상단 엣지 하이라이트 — 위에서 빛을 받는 질감(들린 표면 공통 규칙). border는 없으므로
+     충돌 없음. */
+  box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
 }
 
 .lp-feature-source-id {
@@ -1178,6 +1571,81 @@ body:has(.lp) {
   white-space: nowrap;
 }
 
+/* 커넥터 대상 식별자(경로/키/채널) — 라틴 기술 토큰이라 모노(DESIGN.md 모노 스코프 규칙).
+   .lp-feature-source-name 안에 이름과 나란히 흐르는 인라인 자식이라 별도 font-size를 두지
+   않고 부모(13px, 모바일 12px)를 상속한다. */
+.lp-feature-source-target {
+  font-family: var(--lp-font-mono);
+  color: var(--lp-text-secondary);
+  margin-left: 6px;
+}
+
+/* Jira "HT 프로젝트"처럼 키 뒤에 붙는 한글 단어 — 한글이므로 모노 스코프를 벗어나 본문 서체. */
+.lp-feature-source-target-label {
+  font-family: var(--lp-font-body);
+  color: var(--lp-text-secondary);
+  margin-left: 4px;
+}
+
+/* 상태 점 + mono 상태 텍스트 한 줄. */
+.lp-feature-source-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 상태 점 — 시맨틱 success(시스템 상태를 가리킨다). node-commit과 hex는 같지만 여기선
+   노드를 가리키지 않으므로 --lp-node-commit이 아니라 --lp-success를 쓴다(DESIGN.md
+   네임스페이스 규칙 — hex가 같아도 지시 대상이 다르면 다른 토큰). */
+.lp-feature-source-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--lp-success);
+}
+
+/* 수집 항목 수 — 이 슬롯 밀도의 핵심(2026-07-24 추가). mono, 상태 텍스트(.lp-feature-source-sync)
+   와 같은 톤(text-secondary)으로 가독성을 확보한다 — 아래 상단 요약 스트립(text-muted)보다
+   한 단계 밝다. */
+.lp-feature-source-counts {
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  color: var(--lp-text-secondary);
+}
+
+/* 상단 요약 스트립 — 총 노드/연결 수 + 마지막 동기화 시각. 기능 2 슬롯(.lp-feature-graph-stats)
+   과 같은 수치를 공유한다(교차 검증 대비 — 같은 그래프의 다른 단면이므로 값이 같아야 한다).
+   숫자·타임스탬프만 모노, 한글은 본문 서체(모노 스코프 규칙). text-muted로 조용하게 —
+   이 슬롯의 핵심 정보는 아래 커넥터별 수집 항목 수다. */
+.lp-feature-sources-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+  font-family: var(--lp-font-body);
+  font-size: 12px;
+  color: var(--lp-text-muted);
+}
+.lp-feature-sources-summary-mono {
+  font-family: var(--lp-font-mono);
+}
+
+/* 하단 "+ 데이터 소스 추가" — 낮은 위계. 실제 커넥터 행(surface-2 채움)과 달리 배경 없는
+   고스트 + 점선 테두리로 "아직 연결 안 된 것"을 표현한다. 그라데이션·앰버 금지(DESIGN.md —
+   이 슬롯엔 라이브/실행/선택에 해당하는 것이 없다). */
+.lp-feature-sources-add {
+  padding: 9px 12px;
+  border: 1px dashed var(--lp-border);
+  border-radius: var(--lp-r-md);
+  font-family: var(--lp-font-body);
+  font-size: 12px;
+  color: var(--lp-text-muted);
+  text-align: center;
+}
+
 /* ── 기능 3섹션: 반응형 (768px 미만 텍스트 위 / 미디어 아래로 스택, 교차 반전 해제) ── */
 @media (max-width: 767px) {
   .lp-features {
@@ -1198,10 +1666,20 @@ body:has(.lp) {
   /* 미디어 미리보기 3종 — 그래프(16:10)는 비율을 유지하고, 대화·데이터 소스는 원래도
      콘텐츠 높이라 내부 여백·타이포만 줄여 좁은 슬롯(390px 뷰포트에서 폭 약 342px)에서도
      잘리거나 겹치지 않게 한다. 한글 내용 줄·답변 산문(13px)과 모노 라벨(12px)은
-     DESIGN.md 스케일 최소를 모바일에서도 유지한다. */
-  .lp-feature-chat {
-    padding: 14px;
-    gap: 5px;
+     DESIGN.md 스케일 최소를 모바일에서도 유지한다. 사이드 레일 크롭은 이 폭에서는 유지할
+     여유가 없으므로 숨긴다(브리프 요구: "사이드 레일은 모바일에서 숨기거나 더 얇게"). */
+  .lp-feature-chat-rail {
+    display: none;
+  }
+  .lp-feature-chat-breadcrumb {
+    padding: 10px 14px;
+  }
+  .lp-feature-chat-stream {
+    padding: 12px 14px;
+    gap: 6px;
+  }
+  .lp-feature-chat-composer {
+    padding: 10px 14px 14px;
   }
   .lp-feature-chat-user,
   .lp-feature-chat-answer,
@@ -1215,12 +1693,35 @@ body:has(.lp) {
     padding: 6px 8px;
   }
 
+  /* 좁은 화면에서는 툴바(액션 2개 + 카운트)까지 범례와 함께 오버레이로 얹으면 불투명
+     헤더(.lp-feature-graph-header)가 안 그래도 작은 모바일 캔버스의 대부분을 덮어버린다 —
+     사이드 레일을 숨기는 기능 1 미리보기와 같은 판단으로, 이 슬롯의 핵심인 그래프 자체가
+     가려지는 면적을 줄인다(캔버스 자체는 이제 항상 슬롯 전체 크기라 찌부러지지는 않는다 —
+     .lp-feature-graph 주석 참고. 여기서는 순전히 가려짐 면적 문제). */
+  .lp-feature-graph-toolbar {
+    display: none;
+  }
   .lp-feature-graph-legend {
     gap: 4px;
     padding: 10px 10px 8px;
   }
   .lp-feature-graph-pill {
     padding: 3px 8px;
+    font-size: 12px;
+  }
+  /* 라벨 밀도 축소 — 좁은 화면에서는 core(4개)만 남기고 나머지는 뺀다(겹치면 라벨을 빼는
+     쪽을 택한다). 남는 라벨은 크기를 줄이지 않는다 — DESIGN.md mono-label 12px 하한은
+     화면 폭과 무관하게 항상 지킨다. */
+  .lp-feature-graph-label:not(.lp-feature-graph-label--core) {
+    display: none;
+  }
+  .lp-feature-graph-zoom {
+    right: 8px;
+    bottom: 8px;
+  }
+  .lp-feature-graph-zoom-btn {
+    width: 20px;
+    height: 20px;
     font-size: 12px;
   }
 
@@ -1246,6 +1747,9 @@ body:has(.lp) {
     padding: 4px 8px;
     font-size: 11px;
   }
+  .lp-feature-sources-add {
+    padding: 7px 9px;
+  }
 }
 
 /* ── 유스케이스 섹션 ───────────────────────────────────────────
@@ -1259,6 +1763,8 @@ body:has(.lp) {
 .lp-cases {
   padding-block: clamp(80px, 9vw, 112px);
   padding-inline: 32px;
+  /* 섹션 지형 — 작동 방식과 같은 근거로 surface-1로 한 단계 올린다(헤어라인 없이 색차만). */
+  background: var(--lp-surface-1);
 }
 
 .lp-cases-inner {
@@ -1288,7 +1794,8 @@ body:has(.lp) {
   font-weight: 500;
   font-size: clamp(1.75rem, 4.2vw, 2.5rem);
   line-height: 1.3;
-  letter-spacing: -0.01em;
+  /* 디스플레이 조판 규칙 — 네거티브 트래킹 -0.02em(기존 -0.01em은 느슨했다). */
+  letter-spacing: -0.02em;
   color: var(--lp-text-primary);
   text-wrap: balance;
   word-break: keep-all;
@@ -1311,6 +1818,9 @@ body:has(.lp) {
   background: var(--lp-surface-2);
   border: 1px solid transparent;
   border-radius: var(--lp-r-md);
+  /* 상단 엣지 하이라이트 — 위에서 빛을 받는 질감(들린 표면 공통 규칙). inset이라 border
+     안쪽에 그려져 위 border와 충돌하지 않는다. */
+  box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
   transition:
     background-color var(--lp-dur-fast) var(--lp-ease-standard),
     border-color var(--lp-dur-fast) var(--lp-ease-standard);
@@ -1401,7 +1911,8 @@ body:has(.lp) {
   /* 히어로·문제 정의와 같은 display-xl 스케일 — 페이지의 감정적 정점. */
   font-size: clamp(2.125rem, 6.4vw, 3.5rem);
   line-height: 1.2;
-  letter-spacing: -0.01em;
+  /* 디스플레이 조판 규칙 — 네거티브 트래킹 -0.02em(기존 -0.01em은 느슨했다). */
+  letter-spacing: -0.02em;
   color: var(--lp-text-primary);
   text-wrap: balance;
   word-break: keep-all;
