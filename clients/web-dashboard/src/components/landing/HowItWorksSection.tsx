@@ -54,7 +54,17 @@ const STEP_LABELS: [MiniGraphLabel[], MiniGraphLabel[], MiniGraphLabel[]] = [
 ];
 
 // id="how" — 히어로 스크롤 큐(#how)의 앵커 대상.
+// 안무 트리거(2026-07-26 7차): 스텝별 개별 IO가 아니라 3단 행(<ol>) 전체를 하나의
+// IntersectionObserver로 관찰하고, 발동 시 세 스텝 모두에 is-played를 부여한다 — 01→02→03
+// 순차는 landing.css의 --step-base delay 체인이 만든다. "세 컷이 하나의 안무"라는 요구의
+// 구조적 보장: 트리거가 하나뿐이라 어떤 컷도 따로 발동하거나 빠질 수 없다. threshold 0.3:
+// 데스크톱(행 높이 ≈ 뷰포트의 ⅓)에서는 행이 하단에 충분히 걸쳤을 때, 모바일(행이 뷰포트보다
+// 큰 세로 스택)에서는 01 스텝이 대부분 보였을 때 발동하는 절충값. 모바일도 같은 delay
+// 체인을 타므로(7차에 모바일 --step-base 리셋 제거) 02·03이 화면 밖에서 먼저 재생될 수
+// 있지만, 재생 후 최종 상태가 유지돼 콘텐츠 손실은 없다(행 단위 단일 안무를 우선한 절충).
 export function HowItWorksSection() {
+  const { ref, inView } = useInViewOnce<HTMLOListElement>({ threshold: 0.3 });
+
   return (
     <section className="lp-how" id="how">
       <div className="lp-how-inner">
@@ -62,9 +72,14 @@ export function HowItWorksSection() {
           <p className="lp-how-eyebrow">HOW IT WORKS</p>
           <h2 className="lp-how-headline">연결하고, 묻는다. 그 사이는 자동이다.</h2>
         </div>
-        <ol className="lp-how-steps">
+        <ol className="lp-how-steps" ref={ref}>
           {STEPS.map((step, i) => (
-            <HowStep key={step.num} step={step} stage={(i + 1) as 1 | 2 | 3} />
+            <HowStep
+              key={step.num}
+              step={step}
+              stage={(i + 1) as 1 | 2 | 3}
+              played={inView}
+            />
           ))}
         </ol>
       </div>
@@ -72,22 +87,19 @@ export function HowItWorksSection() {
   );
 }
 
-// 스텝 하나 — IntersectionObserver로 1회 관찰해(threshold 0.4) 진입 시 is-played를 부여하고
-// 곧바로 unobserve한다. is-played는 재생 후 계속 유지되며(리렌더돼도 남는다), 루프는 없다.
-// 데스크톱에서는 세 스텝이 한 화면에 동시에 들어오므로 landing.css의 --step-base(스텝별
-// 0/700/1500ms 기본 지연)가 01→02→03 순차 진행을 만든다 — 모바일은 세로 스택이라
-// --step-base가 0으로 리셋되고, 각 스텝이 개별 진입할 때 바로 발동한다.
+// 스텝 하나 — is-played는 부모 행 관찰(위 useInViewOnce)에서 일괄 부여된다. 재생 후 계속
+// 유지되며(리렌더돼도 남는다), 루프는 없다.
 function HowStep({
   step,
   stage,
+  played,
 }: {
   step: (typeof STEPS)[number];
   stage: 1 | 2 | 3;
+  played: boolean;
 }) {
-  const { ref, inView } = useInViewOnce<HTMLLIElement>({ threshold: 0.4 });
-
   return (
-    <li className={`lp-how-step${inView ? " is-played" : ""}`} ref={ref}>
+    <li className={`lp-how-step${played ? " is-played" : ""}`}>
       <div className="lp-how-viz">
         {/* labelAspect: .lp-how-viz는 뷰박스 비율 그대로의 컨테이너라 레터박스가 0 —
             MiniGraph의 cqw 라벨 위치 공식이 그대로 성립한다. */}

@@ -115,6 +115,16 @@ body:has(.lp) {
   to   { stroke-dashoffset: 0; }
 }
 
+/* 작동 방식 02/03 전용 — 일반 엣지가 "그려지는 동안"은 두껍고 밝게(2px, text-muted), 다 그려진
+   뒤(70% 시점) 기본 헤어라인(.lp-c-edge — 1px, border-strong)으로 가라앉는다. 7차 지시:
+   1px 헤어라인은 드로잉 과정이 안 보였다 — 드로잉 중 강조로 "이어지는 순간"을 가시화하고
+   정착시킨다. 100% 값은 .lp-c-edge 기본과 동일해야 한다(fill 유지 상태 = 평시 상태). */
+@keyframes lp-how-edge-draw {
+  0%   { stroke-dashoffset: 1; stroke-width: 2; stroke: var(--lp-text-muted); }
+  70%  { stroke-dashoffset: 0; stroke-width: 2; stroke: var(--lp-text-muted); }
+  100% { stroke-dashoffset: 0; stroke-width: 1; stroke: var(--lp-border-strong); }
+}
+
 /* 작동 방식 03 전용 — 비점등 요소가 앰버 경로 점등과 동시에 0.25로 가라앉는다(끝나면 유지,
    루프 없음 — 03은 본문을 읽는 구간이라 1회 재생 후 정지해야 한다). */
 @keyframes lp-how-dim {
@@ -123,11 +133,14 @@ body:has(.lp) {
 }
 
 /* ── 헤더 ─────────────────────────────────────────────────── */
-/* 바깥은 sticky + 스크롤 상태(테두리·블러)만 담당하고, 레이아웃은 안쪽에 둔다. */
+/* 바깥은 sticky + 스크롤 상태(테두리·블러)만 담당하고, 레이아웃은 안쪽에 둔다.
+   6차 기준선 통일: 좌우 패딩은 섹션(이 요소)에, inner는 max-width 1200 순수 컨테이너 —
+   전 섹션 공통 규약(섹션 padding-inline 32px + inner 1200px). 배경·보더는 여전히 전폭. */
 .lp-header {
   position: sticky;
   top: 0;
   z-index: 20;
+  padding-inline: 32px;
   border-bottom: 1px solid transparent;
   transition:
     border-color var(--lp-dur-base) var(--lp-ease-standard),
@@ -155,7 +168,6 @@ body:has(.lp) {
   height: 64px;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 32px;
 }
 
 .lp-brand {
@@ -250,10 +262,22 @@ body:has(.lp) {
   margin-top: -64px; /* 64px는 헤더 높이(.lp-header-inner) */
   /* 상단: 헤더 클리어런스 + 96px(5차 — 4차의 48px는 텍스트가 내비에 붙어 답답했다.
      Linear급 상단 여백으로 텍스트가 내려와 시작한다. 슬롯 와이드화(세로 축소)가 폴드
-     예산을 돌려줘서 가능해진 값). 하단: 폴드 아래로 이어진 슬롯 하단과 문제 정의 섹션
-     사이의 숨. */
-  padding: calc(64px + 96px) 0 96px;
-  background: var(--lp-surface-canvas);
+     예산을 돌려줘서 가능해진 값). 좌우 32px: 6차 기준선 통일 — 패딩은 섹션에, inner는
+     max-width 1200 순수 컨테이너(전 섹션 공통 규약). 하단: 폴드 아래로 이어진 슬롯
+     하단과 문제 정의 섹션 사이의 숨. */
+  padding: calc(64px + 96px) 32px 96px;
+  /* 8차 — 아래 문제 정의(surface-0)와의 이음새를 무채 보간으로 잇는다. 캔버스 층(#07090C)과
+     surface-0(#0B0D10)은 색차가 작지만 전폭 직선으로 만나면 "뚝 끊김"이 보인다는 사람 지시.
+     히어로 하단 마지막 220px에서만 인접 surface 토큰 두 값 사이를 보간해 경계선을 지운다 —
+     장식용 대기 그라데이션(금지 목록)이 아니라 기존 두 층의 무채 이음이고 새 색은 없다.
+     "그라데이션이 눈에 띄면 실패"가 기준이므로 보간 구간은 짧게, 끝값은 다음 섹션 배경과
+     정확히 같게 둔다. */
+  background: linear-gradient(
+    to bottom,
+    var(--lp-surface-canvas) 0%,
+    var(--lp-surface-canvas) calc(100% - 220px),
+    var(--lp-surface-0) 100%
+  );
 }
 
 .lp-hero-inner {
@@ -269,7 +293,6 @@ body:has(.lp) {
   gap: 48px;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 32px;
 }
 
 /* 텍스트 블록 — 좌측 정렬(페이지 전체의 좌측 정렬 일관성), 폭 제한 없음: 전폭 행이라
@@ -463,12 +486,13 @@ body:has(.lp) {
    (.lp-hero-app — 제품 UI DOM)은 내부를 absolute로 채운다. 제품 영상이 완성되면 내용물만
    <video>로 갈아끼운다(HeroProductSlot.tsx의 교체 주석 참조) — 그때 이 프레임과
    레이아웃은 바뀌지 않는다(표준 16:9 영상은 object-fit: cover로 수 % 크롭하면 맞는다).
-   5차 비율 근거: 4차의 16:10(1136×710)이 "거의 정사각형·세로가 길다"로 읽혔다. 16:9는
-   폭을 1280으로 넓히면 높이 720으로 오히려 세로가 늘어 기각 — 1280:675(≈1.9:1)가
-   가로 확장(+144)과 세로 축소(−35)를 동시에 준다. 폭 규칙: 기본은 컨테이너 콘텐츠 폭
-   100%, ≥1344px에서 좌우 +72px씩 대칭 확장(아래 미디어쿼리) — 좌·우 엣지는 항상
-   뷰포트 안에 온전(한쪽만 잘리는 블리드 없음). 하단 크롭은 슬롯이 아니라 폴드가 만든다 —
-   히어로가 클리핑하지 않으므로 슬롯 하반부는 폴드 아래로 이어지고 스크롤하면 드러난다.
+   5차 비율 근거: 4차의 16:10(≈1.6)이 "거의 정사각형·세로가 길다"로 읽혔다. 16:9는
+   폭 확장 시 오히려 세로가 늘어 기각 — 1280:675(≈1.9:1)가 와이드 인상과 세로 축소를
+   동시에 준다. 폭 규칙(6차 기준선 통일): 항상 컨테이너 콘텐츠 폭 100%(1440에서 1200×633) —
+   5차의 대칭 확장(+144)은 좌측 기준선 통일과 양립하지 않아 폐기했다(슬롯 좌측이 기준선에
+   앉은 채 확장하면 우측만 잘려 "한쪽만 잘림 금지"를 위반한다). 폭이 줄어도 종횡비가
+   고정이라 와이드 인상은 유지된다. 하단 크롭은 슬롯이 아니라 폴드가 만든다 — 히어로가
+   클리핑하지 않으므로 슬롯 하반부는 폴드 아래로 이어지고 스크롤하면 드러난다.
    스트림의 버블·답변·출처 카드·레일은 기능 1 미리보기의 .lp-feature-chat-* 클래스를
    그대로 재사용한다(채팅 공통 시각 언어 — 크기·톤이 자동으로 일치한다). */
 .lp-hero-slot {
@@ -483,17 +507,6 @@ body:has(.lp) {
   box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
   /* 로드 시퀀스 2박자 — 텍스트 rise 다음, 스프링으로 프레임이 들어온다. */
   animation: lp-rise-media var(--lp-dur-slow) var(--lp-ease-spring) 300ms both;
-}
-
-/* 대칭 가로 확장(5차) — 컨테이너(1200) 밖으로 좌우 72px씩. 1344px = 1200 + 144:
-   이 폭부터는 확장분이 항상 뷰포트 안에 들어온다(1344에서 양쪽 마진 32px, 1440에서 80px —
-   대칭 온전. vw 기반 계산을 쓰지 않는 이유: 스크롤바 폭 오차로 좁은 구간에서 가로
-   오버플로가 날 수 있다). 그 아래(<1344px)는 확장 없이 컨테이너 전폭. */
-@media (min-width: 1344px) {
-  .lp-hero-slot {
-    width: calc(100% + 144px);
-    align-self: center;
-  }
 }
 
 /* 내용물 — 컨테이너 내부를 absolute로 채우는 제품 UI DOM. 콘텐츠가 슬롯보다 길면
@@ -677,10 +690,9 @@ body:has(.lp) {
    크롭 없이 폭 기준으로 렌더되게 한다. container-type: size — HTML 라벨 오버레이가 cqw
    (폭의 1%) 단위로 노드 위치를 정확히 계산하기 위한 사이즈 컨테이너(기능 2 라벨과 같은
    방식). 패널 폭 340px 고정이라 캔버스는 항상 340×600 = 1단위 1px로 렌더된다. 높이 600은
-   슬롯 높이(1440에서 675) − 크롬 − 패널 타이틀에 맞춘 값 — 캔버스 하단과 슬롯 하단이
-   거의 일치하고, 남는 수 px 클립은 저투명 배경 구간이라 무해하다. 768~1343px의 낮은
-   슬롯에서는 하단이 슬롯 경계에서 더 잘리지만 그 구간(y>400)은 저투명 배경 전용이라
-   안전하다. */
+   와이드 슬롯의 잔여 높이(크롬·패널 타이틀 제외)에 맞춘 값 — 6차 기준선 통일로 슬롯이
+   1200×633이 되면서 하단 ~45px이 슬롯 경계에서 잘리지만, 그 구간(y>390)은 저투명 배경
+   전용이라 안전하다(좁은 뷰포트일수록 클립이 커지는 것도 같은 이유로 무해). */
 .lp-hero-app-panel-canvas {
   position: relative;
   width: 100%;
@@ -846,18 +858,43 @@ body:has(.lp) {
    이미지·아이콘·앰버 없음 — 순수 타이포. 앰버는 "라이브/실행/선택" 전용이라 이 섹션엔 자리가 없다.
    --------------------------------------------------------- */
 .lp-how {
-  /* 상단은 좁게(문제 정의와의 사이를 줄인다), 하단은 기본 리듬 유지. */
+  /* 상단은 좁게(문제 정의와의 사이를 줄인다), 하단은 기본 리듬 유지(모바일 기준 —
+     데스크톱은 아래 미디어쿼리가 대칭 중앙 배치로 대체한다). */
   padding-block: 64px clamp(80px, 9vw, 112px);
   padding-inline: 32px;
-  /* 섹션 지형 — 전 섹션이 surface-0 평면이라 페이지에 깊이가 없던 문제. 헤어라인 경계
-     없이 색차만으로 앞뒤 섹션(surface-0)과 구분한다. */
-  background: var(--lp-surface-1);
+  /* 섹션 지형(8차 개정) — 7차의 surface-2 층 + 상하 헤어라인은 스크롤 흐름에 "밝은 박스가
+     끼어든" 단절로 읽혔고, 밝은 배경 위에서 노드 타입색(전 섹션 통일 팔레트라 여기만 바꿀
+     수 없다)이 붕 떠 부자연스러웠다(사람 지시). 배경·경계선 선언을 제거해 주변과 같은
+     surface-0 흐름으로 되돌린다 — 섹션 구분은 밝기·경계선이 아니라 넉넉한 여백(자기 화면
+     세로 중앙)과 도식적 성격(아래 점 격자)이 맡는다. "밝게 해서 나누기"를 그만둔다. */
   /* #how 앵커 이동 시 sticky 헤더(64px, .lp-header-inner)에 상단이 가리지 않도록 보정
      (scroll snap은 5차에서 제거됐지만 이 앵커 보정은 스냅과 무관하게 유지한다). */
   scroll-margin-top: 64px;
+  /* 7차 모션 감속 상수 — 이 섹션 안무 전용(랜딩 로컬 값, DESIGN.md 모션 토큰은 이징만 재사용).
+     --how-edge-dur: 엣지 하나의 드로잉 850ms(0~70%가 실제 드로잉 = 595ms — 사용자 하한
+     0.4~0.6s의 상단). --how-dim-at: 03에서 비점등 딤·앰버 점등이 시작되는 로컬 시점 =
+     엣지 재생 완료(300 + 12×140 + 850 = 2830ms) + 여유. */
+  --how-edge-dur: 850ms;
+  --how-dim-at: 2900ms;
+}
+
+/* ≥768px — 여정 섹션이 자기 화면을 갖는다(6차): 콘텐츠(헤더 + 3스텝)를 헤더 아래 가시
+   영역(100svh − 64px) 세로 중앙에 두고 위아래 여백을 대칭으로 만든다 — 콘텐츠가 상단에
+   몰리고 아래가 비어 섹션 경계가 흐릿하던 문제의 해결. 문제 정의 섹션과 같은 패턴. */
+@media (min-width: 768px) {
+  .lp-how {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: calc(100svh - 64px);
+    padding-block: 64px;
+  }
 }
 
 .lp-how-inner {
+  /* flex 컨테이너(≥768px) 안에서 auto 마진이 stretch를 끄므로 width를 명시한다
+     (문제 정의 .lp-problem-inner와 같은 이유). */
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
 }
@@ -905,14 +942,14 @@ body:has(.lp) {
 
 .lp-how-step {
   padding: 0;
-  /* 스텝별 기본 지연 — 데스크톱은 세 스텝이 한 화면에 동시에 들어오므로 이 값이 01→02→03
-     순차 진행을 만든다(안무가 "하나의 그래프가 단계적으로 완성되는 과정"으로 읽히는 핵심).
-     모바일(<768px)은 세로 스택이라 각 스텝이 개별 진입 시 발동하면 되므로 아래 반응형에서
-     0으로 되돌린다. */
+  /* 스텝별 기본 지연 — 트리거는 행(<ol>) 단위 하나(HowItWorksSection.tsx, 7차)이고 이 체인이
+     01→02→03 순차 진행을 만든다(안무가 "하나의 그래프가 단계적으로 완성되는 과정"으로
+     읽히는 핵심). 7차 감속: 700/1500 → 1400/2800("본능적 값보다 확실히 느리게").
+     모바일 세로 스택도 같은 체인을 탄다 — 행 단위 단일 안무 통일(컴포넌트 주석 참고). */
   --step-base: 0ms;
 }
-.lp-how-steps > .lp-how-step:nth-child(2) { --step-base: 700ms; }
-.lp-how-steps > .lp-how-step:nth-child(3) { --step-base: 1500ms; }
+.lp-how-steps > .lp-how-step:nth-child(2) { --step-base: 1400ms; }
+.lp-how-steps > .lp-how-step:nth-child(3) { --step-base: 2800ms; }
 
 /* ── 작동 방식: 스텝별 미니 그래프 시각화 ──────────────────────
    01/02/03이 같은 노드 배치를 공유하는 하나의 그래프가 단계적으로 완성되는 과정을 보여준다
@@ -930,6 +967,19 @@ body:has(.lp) {
      뷰박스와 같아 레터박스 보정은 0이다(MiniGraph labelAspect 참조). */
   position: relative;
   container-type: size;
+  /* 도식 신호(6차) — 은은한 점 격자. 이 섹션은 실제 제품 화면이 아니라 "연결→구축→질문"
+     여정의 개념 다이어그램인데, 위아래의 실제 제품 UI(히어로 슬롯·기능 미리보기) 사이에서
+     같은 문법(맨 배경 위 노드)으로 그려지면 어중간한 "덜 만든 캔버스"로 읽힌다. 점 격자가
+     "도식/블루프린트" 관습을 즉각 신호한다 — 실제 캔버스(surface-0/surface-canvas 우물,
+     격자 없음)와의 구분이 목적. 어두운 플레이트를 깔지 않는 이유도 같다: 어두운 배경 우물은
+     실제 캔버스의 문법이다. 색은 기존 토큰(--lp-border)만, 격자는 이 클래스(.lp-how-viz)
+     한정이라 MiniGraph를 공유하는 기능 2에는 새지 않는다. */
+  /* 점 색은 --lp-border 복귀(8차) — 7차의 border-strong은 surface-2 배경에서 점이 묻히는
+     것의 보정이었고, 배경이 surface-0 흐름으로 돌아오며 근거가 소멸했다. 어두운 배경
+     위에서는 border 점으로도 "은은한 블루프린트" 신호가 성립한다. */
+  background-image: radial-gradient(circle, var(--lp-border) 1.1px, transparent 1.7px);
+  background-size: 24px 24px;
+  background-position: 50% 50%;
 }
 .lp-how-graph {
   display: block;
@@ -971,48 +1021,53 @@ body:has(.lp) {
   opacity: 0;
 }
 
-/* 01 — 노드가 스프링으로 정착한다(index 기반 스태거, MiniGraph.tsx의 --local-d). */
+/* 01 — 노드가 스프링으로 정착한다(index 기반 스태거, MiniGraph.tsx의 --local-d).
+   6차부터 01(연결)은 엣지가 0개다(howItWorksGraph.ts — "연결 안 된 흩어진 기록" 상태라
+   노드만 정착하고 관계는 02에서 처음 이어진다). 그래서 stage-1 전용 엣지 드로잉 규칙은
+   대상이 없어 제거됐다 — 01에 엣지를 되살리려면 드로잉 규칙도 함께 복원해야 한다. */
 .lp-how-step.is-played .lp-how-graph--stage-1 .lp-how-graph-node {
   animation: lp-node-settle var(--lp-dur-slow) var(--lp-ease-spring)
     calc(var(--step-base) + var(--local-d, 0ms)) both;
 }
-.lp-how-step.is-played .lp-how-graph--stage-1 .lp-how-graph-edge {
-  /* dashoffset 애니메이션은 opacity를 건드리지 않으므로, 위 발동 전 숨김 규칙(opacity:0)을
-     명시적으로 되돌려야 한다 — 안 그러면 그려져도 투명해서 안 보인다. */
-  opacity: 1;
-  stroke-dasharray: 1;
-  animation: lp-lit-edge-draw var(--lp-dur-base) var(--lp-ease-standard)
-    calc(var(--step-base) + 200ms + var(--local-d, 0ms)) both;
-}
 
 /* 02 — 노드는 빠르게(스프링 없이) 한 번에 등장하고, 그 다음 엣지가 하나씩 그어진다
-   (엣지별 스태거, --local-d). "이미 있던 노드 사이에 관계가 이어지는" 인상을 노린다. */
+   (엣지별 스태거, --local-d). "이미 있던 노드 사이에 관계가 이어지는" 인상을 노린다.
+   7차: 드로잉을 lp-how-edge-draw(그리는 동안 2px·밝게 → 정착)로 교체하고 시작 오프셋을
+   150→300ms로 — 노드가 자리 잡은 뒤 한 숨 쉬고 관계가 이어지기 시작한다. */
 .lp-how-step.is-played .lp-how-graph--stage-2 .lp-how-graph-node {
   animation: lp-node-appear var(--lp-dur-fast) var(--lp-ease-standard) var(--step-base) both;
 }
 .lp-how-step.is-played .lp-how-graph--stage-2 .lp-how-graph-edge {
   /* dashoffset 애니메이션은 opacity를 건드리지 않으므로, 발동 전 숨김 규칙(opacity:0)을
-     명시적으로 되돌린다 — stage-3는 lp-how-dim이 opacity를 담당해 자동으로 해결된다. */
+     명시적으로 되돌린다 — 드로잉 전 구간은 dashoffset 1이 대신 숨긴다. */
   opacity: 1;
   stroke-dasharray: 1;
-  animation: lp-lit-edge-draw var(--lp-dur-base) var(--lp-ease-standard)
-    calc(var(--step-base) + 150ms + var(--local-d, 0ms)) both;
+  animation: lp-how-edge-draw var(--how-edge-dur) var(--lp-ease-standard)
+    calc(var(--step-base) + 300ms + var(--local-d, 0ms)) both;
 }
 
 /* 03 — 02와 같은 방식으로 그래프가 다시 지어진 뒤(노드 빠른 등장 → 엣지 드로잉),
-   비점등 요소가 앰버 경로 점등과 동시에 0.25로 가라앉는다(lp-how-dim). 900ms는
-   13개 엣지 스태거(최대 --local-d≈480ms)+드로잉 시간이 끝나는 시점에 맞춘 값이다. */
+   비점등 요소가 앰버 경로 점등과 동시에 0.25로 가라앉는다(lp-how-dim, --how-dim-at 시점).
+   ⚠️ lp-how-dim은 반드시 forwards(backwards fill 금지) — 애니메이션 목록에서 뒤에 오는
+   lp-how-dim이 both였을 때, 발동~딤 사이 대기 구간에 backwards fill(from: opacity 1)이
+   앞의 lp-node-appear backwards fill(opacity 0)을 덮어 03만 등장 안무 없이 "처음부터 완성
+   상태"로 점프하는 버그가 있었다(7차 수정 — 같은 속성을 애니메이트하는 목록은 뒤가 이긴다).
+   엣지의 opacity:1은 02와 같은 이유(발동 전 숨김 해제, 드로잉 전엔 dashoffset이 숨김)이고,
+   딤 재생부터는 lp-how-dim(active/forwards)이 opacity를 넘겨받는다. */
 .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-graph-node {
   animation:
     lp-node-appear var(--lp-dur-fast) var(--lp-ease-standard) var(--step-base) both,
-    lp-how-dim var(--lp-dur-slow) var(--lp-ease-standard) calc(var(--step-base) + 900ms) both;
+    lp-how-dim var(--lp-dur-slow) var(--lp-ease-standard)
+      calc(var(--step-base) + var(--how-dim-at)) forwards;
 }
 .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-graph-edge {
+  opacity: 1;
   stroke-dasharray: 1;
   animation:
-    lp-lit-edge-draw var(--lp-dur-base) var(--lp-ease-standard)
-      calc(var(--step-base) + 150ms + var(--local-d, 0ms)) both,
-    lp-how-dim var(--lp-dur-slow) var(--lp-ease-standard) calc(var(--step-base) + 900ms) both;
+    lp-how-edge-draw var(--how-edge-dur) var(--lp-ease-standard)
+      calc(var(--step-base) + 300ms + var(--local-d, 0ms)) both,
+    lp-how-dim var(--lp-dur-slow) var(--lp-ease-standard)
+      calc(var(--step-base) + var(--how-dim-at)) forwards;
 }
 
 /* 03 전용 앰버 오버레이 — 히어로 .lp-c-lit*(HeroMedia.tsx)와 같은 시각(앰버 stroke 1.6 /
@@ -1042,15 +1097,15 @@ body:has(.lp) {
   stroke-dashoffset: 1;
 }
 .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-edge {
-  animation: lp-lit-edge-draw var(--lp-dur-base) var(--lp-ease-standard)
-    calc(var(--step-base) + 900ms + var(--lit-d, 0ms)) both;
+  animation: lp-lit-edge-draw var(--lp-dur-slow) var(--lp-ease-standard)
+    calc(var(--step-base) + var(--how-dim-at) + var(--lit-d, 0ms)) both;
 }
 .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-node,
 .lp-how-step.is-played .lp-how-graph--stage-3 .lp-how-lit-halo {
   transform-box: fill-box;
   transform-origin: center;
-  animation: lp-lit-node-in var(--lp-dur-base) var(--lp-ease-spring)
-    calc(var(--step-base) + 900ms + var(--lit-d, 0ms)) both;
+  animation: lp-lit-node-in var(--lp-dur-slow) var(--lp-ease-spring)
+    calc(var(--step-base) + var(--how-dim-at) + var(--lit-d, 0ms)) both;
 }
 
 .lp-how-step-title {
@@ -1102,14 +1157,8 @@ body:has(.lp) {
   .lp-how-step {
     padding: 0;
   }
-  /* 세로 스택에서는 세 스텝이 한 화면에 동시에 들어오지 않으므로 스텝 간 기본 지연을
-     되돌린다 — 각 스텝은 그 자체의 진입 시점에 바로 발동한다.
-     .lp-how-steps > .lp-how-step:nth-child(n)과 동일한 specificity라 파일 순서(이 규칙이 뒤)로 이긴다. */
-  .lp-how-steps > .lp-how-step:nth-child(1),
-  .lp-how-steps > .lp-how-step:nth-child(2),
-  .lp-how-steps > .lp-how-step:nth-child(3) {
-    --step-base: 0ms;
-  }
+  /* (7차) 모바일 --step-base 리셋은 제거됐다 — 트리거가 행 단위 하나로 통일되면서
+     (HowItWorksSection.tsx) 모바일도 데스크톱과 같은 01→02→03 delay 체인을 탄다. */
   .lp-how-viz {
     /* 데스크톱과 동일하게 viewBox 비율 유지 — 390px 폭에서 약 205px. */
     aspect-ratio: 400 / 240;
@@ -1553,13 +1602,28 @@ body:has(.lp) {
   position: relative;
   height: 100%;
 }
-/* 앰버 경로 전체(엣지·헤일로·노드)를 하나의 그룹으로 다뤄 단일 페이드로 점등한다 —
-   작동 방식 섹션과 달리 드로잉·스태거·개별 등장 없음(절제). */
-.lp-feature-graph .lp-how-lit {
+/* 앰버 경로 점등(7차 개정) — 기존의 그룹 단일 페이드(420ms)는 "모션이 있었는지도 모른다"는
+   지시로 폐기. 요소별 순차 점등(엣지 드로잉 → 노드 스프링, MiniGraph.tsx의 --lit-d 교차
+   비트)으로 바꾸되 절제는 유지한다(앰버 경로만 움직이고 기본 노드·엣지는 정적 그대로).
+   전체 점등 = 최대 --lit-d(6×230ms) + 요소 420ms = 1800ms, 점등 후 유지(fill, 루프 없음). */
+.lp-feature-graph .lp-how-lit-node,
+.lp-feature-graph .lp-how-lit-halo {
   opacity: 0;
 }
-.lp-feature-graph.is-played .lp-how-lit {
-  animation: lp-fade var(--lp-dur-slow) var(--lp-ease-standard) 0ms both;
+.lp-feature-graph .lp-how-lit-edge {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.lp-feature-graph.is-played .lp-how-lit-edge {
+  animation: lp-lit-edge-draw var(--lp-dur-slow) var(--lp-ease-standard)
+    var(--lit-d, 0ms) both;
+}
+.lp-feature-graph.is-played .lp-how-lit-node,
+.lp-feature-graph.is-played .lp-how-lit-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lp-lit-node-in var(--lp-dur-slow) var(--lp-ease-spring)
+    var(--lit-d, 0ms) both;
 }
 
 /* 툴바+범례 묶음 — position 지정을 여기 하나에만 둬서(자식은 static 그대로) 뒤에 오는
@@ -2019,8 +2083,10 @@ body:has(.lp) {
 .lp-cases {
   padding-block: clamp(80px, 9vw, 112px);
   padding-inline: 32px;
-  /* 섹션 지형 — 작동 방식과 같은 근거로 surface-1로 한 단계 올린다(헤어라인 없이 색차만). */
-  background: var(--lp-surface-1);
+  /* 섹션 지형(7차 개정) — surface-1 변주를 제거하고 기본 흐름(surface-0)에 남긴다.
+     밝은 층이 둘(작동 방식 + 여기)이면 페이지 리듬이 흐려진다는 사용자 지시 — 위
+     데이터 소스 섹션(surface-0)과 자연스럽게 이어지고, 층 구분은 작동 방식(surface-2)
+     하나만 갖는다. 배경 선언 없음 = .lp 기본 surface-0. */
 }
 
 .lp-cases-inner {
@@ -2144,17 +2210,64 @@ body:has(.lp) {
 }
 
 /* ── 최종 CTA 섹션 ─────────────────────────────────────────────
-   중앙 정렬, 넓은 상하 여백 — 문제 정의 섹션과 같은 급(clamp(96px, 13vw, 160px)).
-   페이지를 닫는 조용한 선언 + 실행 버튼 하나. 배경 장식·아이콘·그래프 에코 없음 —
-   앰버 채움 버튼이 이 섹션의 유일한 라이브 요소다. 애니메이션 없음(모션은 나중에 일괄).
+   중앙 정렬, 넓은 상하 여백으로 페이지를 닫는 조용한 선언 + 실행 버튼 하나.
+   8차 — 경계 방식 전환("단절"에서 "흐름"으로): 7차의 상단 헤어라인 + 에코 0.5는 섹션
+   전체가 "밝은 회색 박스 = 다른 페이지가 끼어든 것"으로 읽혔다(사람 지시 — 원인은 경계선과
+   에코의 실효 존재감 ~0.35가 면 전체를 회색으로 띄운 것). 헤어라인을 제거하고, 위
+   유스케이스(surface-0)에서 캔버스 층으로 240px 무채 보간으로 내려간다 — "페이지가
+   깊어지며 끝난다". 경계는 선이 아니라 넓어진 상하 여백(상한 160→200)과 깊어지는 톤이
+   만든다. 캔버스 층 + 성좌 에코(수미상관) 세트는 유지하되 에코는 "면"이 아니라 "기척"
+   수준으로 대폭 하향(아래 .lp-final-cta-echo). 앰버 채움 버튼이 이 섹션의 유일한 라이브
+   요소라는 원칙은 유지된다.
    --------------------------------------------------------- */
 .lp-final-cta {
-  padding-block: clamp(96px, 13vw, 160px);
+  position: relative; /* 에코 레이어(absolute)의 기준 박스 */
+  overflow: hidden;
+  padding-block: clamp(96px, 15vw, 200px);
   padding-inline: 24px;
   text-align: center;
+  /* 진입부 240px에서 surface-0 → canvas 무채 보간(히어로 하단 이음과 같은 문법 — 인접
+     토큰 두 값 사이만, 새 색 없음). 시작값이 위 섹션 배경과 정확히 같아 경계선이 없다. */
+  background: linear-gradient(
+    to bottom,
+    var(--lp-surface-0) 0%,
+    var(--lp-surface-canvas) 240px,
+    var(--lp-surface-canvas) 100%
+  );
+}
+
+/* 성좌 에코 — 히어로와 같은 데이터(HERO_CONSTELLATION)를 무채 단색으로 재렌더한 배경.
+   개별 노드·엣지 opacity(생성기 부여) 위에 레이어 전체를 한 번 더 낮춘다.
+   8차 하향: 0.5(실효 최대 ≈0.35)는 점 무늬가 면 전체를 회색으로 띄워 "밝은 박스"의
+   원인이 됐다 — 0.25(실효 최대 = 0.25 × 노드 개별 최대 0.7 ≈ 0.175)로 내려 "면"이 아니라
+   "기척"만 남기고, 마스크의 온전 구간도 35~80% → 45~75%로 좁혀 상하 보간 구간(배경
+   그라데이션·여백)과 겹치지 않게 한다. */
+.lp-final-cta-echo {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.25;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 45%, black 75%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 45%, black 75%, transparent 100%);
+}
+.lp-final-cta-echo-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* 무채 — 노드 타입색을 쓰지 않는다(특정 노드를 지시하지 않는 추상 모티프라 네임스페이스
+   비대상이고, 무채여야 "끝났다"는 조용한 신호로 읽힌다). 앰버는 당연히 금지(라이브 아님). */
+.lp-final-cta-echo-edge {
+  stroke: var(--lp-border);
+  stroke-width: 1;
+}
+.lp-final-cta-echo-node {
+  fill: var(--lp-text-muted);
 }
 
 .lp-final-cta-inner {
+  /* 에코 레이어 위로 콘텐츠를 올린다(포지션드 vs 스태틱 스택 순서 명시). */
+  position: relative;
   max-width: 640px;
   margin: 0 auto;
 }
@@ -2276,14 +2389,13 @@ body:has(.lp) {
    ≥1180px 레일+스트림+패널(+ 배경 성좌 스트립), 768~1179px 스트림+패널(레일 숨김 —
    위 레일 블록), <768px 스트림만(아래 — 패널·레일 숨김, 종횡비 해제). */
 @media (max-width: 767px) {
-  .lp-header-inner,
-  .lp-hero-inner {
-    padding-left: 24px;
-    padding-right: 24px;
+  /* 6차 기준선 통일 — 좌우 패딩은 섹션 레벨(inner는 순수 컨테이너). */
+  .lp-header {
+    padding-inline: 24px;
   }
   .lp-hero {
     /* 상단은 헤더 높이(64px, 음수 마진으로 당겨진 몫) + 소량만 남긴다. */
-    padding: calc(64px + 24px) 0 64px;
+    padding: calc(64px + 24px) 24px 64px;
   }
   .lp-hero-inner {
     gap: 32px;
@@ -2351,7 +2463,6 @@ body:has(.lp) {
      규칙과 동일한 4-class 조합이라 이 블록의 파일 위치(맨 끝)로 이긴다. */
   .lp-how-step.is-played .lp-how-graph--stage-1 .lp-how-graph-node,
   .lp-how-step.is-played .lp-how-graph--stage-2 .lp-how-graph-node,
-  .lp-how-step.is-played .lp-how-graph--stage-1 .lp-how-graph-edge,
   .lp-how-step.is-played .lp-how-graph--stage-2 .lp-how-graph-edge {
     animation: none;
     opacity: 1;
@@ -2376,10 +2487,18 @@ body:has(.lp) {
     transform: none;
   }
 
-  /* 기능 2 그래프 — 앰버 경로 페이드를 제거하고 즉시 표시한다. */
-  .lp-feature-graph.is-played .lp-how-lit {
+  /* 기능 2 그래프 — 앰버 경로 순차 점등(7차)을 제거하고 즉시 최종 상태로 표시한다.
+     is-played는 useInViewOnce가 reduced-motion에서 즉시 부여한다. 셀렉터는 non-media
+     점등 규칙과 같은 3-class 조합이라 이 블록의 파일 위치(맨 끝)로 이긴다. */
+  .lp-feature-graph.is-played .lp-how-lit-edge {
     animation: none;
-    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+  .lp-feature-graph.is-played .lp-how-lit-node,
+  .lp-feature-graph.is-played .lp-how-lit-halo {
+    animation: none;
+    opacity: var(--lit-o, 1);
+    transform: none;
   }
 
   /* 작동 방식 스텝 mono 라벨 — is-played는 reduced-motion에서 즉시 부여되므로(useInViewOnce)

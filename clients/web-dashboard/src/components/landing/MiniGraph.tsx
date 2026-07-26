@@ -32,10 +32,16 @@ const UNIT_TO_CQW = 100 / HOW_GRAPH_WIDTH;
 //   NODE_LOCAL_STEP_MS/EDGE_LOCAL_STEP_MS는 stage 구분 없이 계산해두고, CSS 쪽에서
 //   stage-1 규칙만 --local-d를 소비하고 stage-2/3 규칙은 무시한다(고정 지연만 사용).
 const NODE_LOCAL_STEP_MS = 14;
-const EDGE_LOCAL_STEP_MS = 40;
+// 7차(2026-07-26) 감속: 40 → 140ms. "엣지가 하나씩 이어지는" 과정이 보이려면 스태거가
+// 드로잉과 분리돼 읽혀야 한다 — 13개 엣지 기준 마지막 엣지 시작이 +1680ms.
+const EDGE_LOCAL_STEP_MS = 140;
 // stage 3 앰버 경로 전용 — 히어로의 "노드→엣지→노드…" 교차 스태거와 같은 공식(beat 2i/2i+1),
 // 다만 미니 그래프는 더 작아서 보폭(BEAT)만 짧게 잡는다. 3의 앰버 경로는 항상 이 순서를 유지한다.
-const LIT_BEAT_MS = 130;
+// 7차 감속: 130 → 230ms. 이 보폭은 작동 방식 03과 기능 2 점등이 공유한다 — 기능 2 기준
+// 전체 점등 시간 = 최대 beat(6)×230 + 요소 duration 420 = 1800ms(사용자 하한 1.2~1.8s의 상단).
+// 03은 문맥이 달라도(여정의 결말 vs 단독 미리보기) "인지 가능한 점등"이라는 기준이 같아
+// 값을 분리하지 않는다 — 03의 늦은 시작은 CSS delay(--step-base + 딤 시점)가 담당한다.
+const LIT_BEAT_MS = 230;
 
 // "작동 방식" 스텝 위에 얹는 미니 그래프. 01/02/03 세 인스턴스가 howItWorksGraph.ts의
 // 같은 노드 배열을 그대로 렌더한다 — 노드는 스테이지와 무관하게 항상 전부 그리고,
