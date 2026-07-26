@@ -9,6 +9,7 @@ import { AccountPage } from "@/pages/AccountPage";
 import { ActorsPage } from "@/pages/ActorsPage";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { ChatPage } from "@/pages/ChatPage";
+import { GalaxyPage } from "@/pages/GalaxyPage";
 import { GraphPage } from "@/pages/GraphPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
@@ -48,6 +49,9 @@ function ActorsRoute() {
 function GraphRoute() {
   return <GraphPage project={useProject()} />;
 }
+function GalaxyRoute() {
+  return <GalaxyPage project={useProject()} />;
+}
 function SettingsRoute() {
   return <SettingsPage project={useProject()} />;
 }
@@ -85,6 +89,7 @@ export default function App() {
             <Route path="sources" element={<SourcesRoute />} />
             <Route path="actors" element={<ActorsRoute />} />
             <Route path="graph" element={<GraphRoute />} />
+            <Route path="galaxy" element={<GalaxyRoute />} />
             <Route path="settings" element={<SettingsRoute />} />
             <Route path="account" element={<AccountRoute />} />
             <Route path="*" element={<NotFoundPage />} />

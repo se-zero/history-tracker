@@ -9,7 +9,14 @@ import { ConversationList } from "./ConversationList";
 import { userInitials } from "@/lib/format";
 import type { Project, User } from "@/types/api";
 
-type Route = "chat" | "sources" | "actors" | "graph" | "settings" | "account";
+type Route =
+  | "chat"
+  | "sources"
+  | "actors"
+  | "graph"
+  | "galaxy"
+  | "settings"
+  | "account";
 
 interface Props {
   route: Route;
@@ -92,6 +99,12 @@ export function Sidebar({
           label="그래프 탐색"
           active={route === "graph"}
           onClick={() => onRouteChange("graph")}
+        />
+        <NavItem
+          icon={<Icons.Sparkle />}
+          label="작업 성좌"
+          active={route === "galaxy"}
+          onClick={() => onRouteChange("galaxy")}
         />
         <NavItem
           icon={<Icons.Settings />}
