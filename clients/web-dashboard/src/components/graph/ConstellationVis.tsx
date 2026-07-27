@@ -21,6 +21,8 @@ import {
 interface Props {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** 별성으로 그릴 노드 id — 서버가 정한 작업 단위 목록. */
+  workUnitIds: string[];
   selectedId: string | null;
   onSelect: (node: GraphNode) => void;
   onBackgroundClick: () => void;
@@ -139,6 +141,7 @@ function inView(x: number, y: number, radius: number, size: Size): boolean {
 export function ConstellationVis({
   nodes,
   edges,
+  workUnitIds,
   selectedId,
   onSelect,
   onBackgroundClick,
@@ -168,7 +171,10 @@ export function ConstellationVis({
     focusedRef.current = focused;
   }, [focused]);
 
-  const layout = useMemo(() => buildConstellations(nodes, edges), [nodes, edges]);
+  const layout = useMemo(
+    () => buildConstellations(nodes, edges, workUnitIds),
+    [nodes, edges, workUnitIds],
+  );
   const starfield = useMemo(() => makeStarfield(140), []);
 
   // 확대 상한은 그래프 규모·뷰포트에 따라 달라진다. 휠 핸들러가 [] deps라 ref로 전달한다.

@@ -37,14 +37,25 @@ import {
 import type { GraphEdge, GraphNode, GraphNodeType } from "@/types/graph";
 
 /**
- * 별성이 되는 타입 — 작업 단위.
+ * 별성으로 삼을 노드를 고른다.
  *
- * 주의: PR은 base 브랜치 기준으로 수집되므로(pipeline-worker의 GitHubRawService),
- * 연동 브랜치가 feature 브랜치면 PullRequest 노드가 0개가 될 수 있다.
- * 그 경우 별성이 하나도 생기지 않아 화면이 먼지 고리만 남는다 — 데이터 쪽에서
- * 브랜치를 main으로 맞춰야 한다.
+ * 작업 단위 판정은 서버(ai-engine)가 하고 프론트는 그 목록을 받아 쓴다. 노드 타입으로
+ * 하드코딩하면, PR이 base 브랜치 기준으로 수집되는 탓에 PullRequest가 0건인 프로젝트에서
+ * 별성이 통째로 사라진다(화면이 먼지 고리만 남는다). 서버는 그럴 때 Issue로 폴백한다.
+ *
+ * workUnitIds가 비어 있으면(구버전 응답 등) PR을 별성으로 보는 기존 동작으로 되돌아간다.
  */
-const STAR_TYPES: ReadonlySet<GraphNodeType> = new Set<GraphNodeType>(["pr"]);
+const FALLBACK_STAR_TYPES: ReadonlySet<GraphNodeType> = new Set<GraphNodeType>(["pr"]);
+
+function resolveStarPredicate(
+  workUnitIds: readonly string[] | undefined,
+): (node: GraphNode) => boolean {
+  if (workUnitIds && workUnitIds.length > 0) {
+    const ids = new Set(workUnitIds);
+    return (node) => ids.has(node.id);
+  }
+  return (node) => FALLBACK_STAR_TYPES.has(node.type);
+}
 
 /**
  * 별성에서 몇 홉까지 위성으로 끌어올지.
@@ -135,7 +146,9 @@ interface StarSim extends SimulationNodeDatum {
 export function buildConstellations(
   nodes: GraphNode[],
   edges: GraphEdge[],
+  workUnitIds?: readonly string[],
 ): ConstellationLayout {
+  const isStar = resolveStarPredicate(workUnitIds);
   const byId = new Map(nodes.map((n) => [n.id, n]));
 
   // 인접 리스트 (무향). Actor로 향하는 간선도 담아두고 작성자 이름 추출에만 쓴다.
@@ -151,7 +164,7 @@ export function buildConstellations(
     push(b, a);
   }
 
-  const starNodes = nodes.filter((n) => STAR_TYPES.has(n.type));
+  const starNodes = nodes.filter(isStar);
   const starIndex = new Map(starNodes.map((n, i) => [n.id, i]));
 
   const stars: Star[] = starNodes.map((node) => ({
@@ -210,7 +223,7 @@ export function buildConstellations(
   // Actor는 배치에서 제외하고 인접 별성의 작성자 목록에만 이름을 남긴다.
   let pending: GraphNode[] = [];
   for (const node of nodes) {
-    if (STAR_TYPES.has(node.type)) continue;
+    if (isStar(node)) continue;
     if (node.type === "actor") {
       for (const nb of adj.get(node.id) ?? []) {
         const si = starIndex.get(nb);

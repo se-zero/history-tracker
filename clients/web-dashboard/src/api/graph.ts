@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type {
+  ConstellationData,
   GraphActivity,
   GraphBuildResult,
   GraphBuildStatus,
@@ -11,6 +12,29 @@ import type {
 export async function getProjectGraph(projectId: string): Promise<GraphData> {
   const { data } = await api.get<GraphData>(`/projects/${projectId}/graph`);
   return data;
+}
+
+// 성좌 뷰용 조회 — overview와 달리 작업 단위(PR, 없으면 Issue)를 전량 담고 위성만 최신 limit개다.
+// 별성이 빠지면 그림 자체가 틀리기 때문에 완전성이 필요한 쪽만 따로 가져온다.
+interface ConstellationResponse {
+  nodes: GraphData["nodes"];
+  edges: GraphData["edges"];
+  work_unit_ids: string[];
+}
+
+export async function getProjectConstellation(
+  projectId: string,
+  limit?: number,
+): Promise<ConstellationData> {
+  const { data } = await api.get<ConstellationResponse>(
+    `/projects/${projectId}/graph/constellation`,
+    { params: limit ? { limit } : undefined },
+  );
+  return {
+    nodes: data.nodes ?? [],
+    edges: data.edges ?? [],
+    workUnitIds: data.work_unit_ids ?? [],
+  };
 }
 
 // 통합 검색 — full-text 인덱스로 프로젝트 그래프 전체에서 노드 검색.

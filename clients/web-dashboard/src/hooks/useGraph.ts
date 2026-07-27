@@ -5,6 +5,7 @@ import {
   getGraphActivity,
   getGraphBuildStatus,
   getMessageSubgraph,
+  getProjectConstellation,
   getProjectGraph,
   rebuildProjectGraph,
 } from "@/api/graph";
@@ -17,6 +18,16 @@ export function useGraph(projectId: string) {
   return useQuery({
     queryKey: queryKeys.graph(projectId),
     queryFn: () => getProjectGraph(projectId),
+  });
+}
+
+// 성좌 뷰용 조회 — 작업 단위 전량 + 위성 최신 N개.
+// 키가 ["graph", projectId, "constellation"]이라 빌드/수집 완료 시의
+// invalidateQueries(queryKeys.graph)에 prefix로 함께 걸린다(별도 무효화 불필요).
+export function useConstellation(projectId: string) {
+  return useQuery({
+    queryKey: queryKeys.graphConstellation(projectId),
+    queryFn: () => getProjectConstellation(projectId),
   });
 }
 

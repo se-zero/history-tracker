@@ -5,7 +5,12 @@ from pydantic import BaseModel, Field
 
 from graph.actor_admin import list_actors
 from graph.builder import delete_project_graph
-from graph.overview import get_evidence_subgraph, get_project_overview
+from graph.overview import (
+    CONSTELLATION_DEFAULT_LIMIT,
+    get_constellation_view,
+    get_evidence_subgraph,
+    get_project_overview,
+)
 from graph.search import DEFAULT_LIMIT as SEARCH_DEFAULT_LIMIT
 from graph.search import search_nodes
 from graph.postprocess import get_build_status, get_graph_activity, trigger_build
@@ -35,6 +40,17 @@ async def graph_overview(project_id: str, limit: int = 200, types: str = ""):
     """
     type_list = [t for t in (types.split(",") if types else []) if t.strip()] or None
     return await get_project_overview(project_id, limit, type_list)
+
+
+@router.get("/graph/constellation")
+async def graph_constellation(project_id: str, limit: int = CONSTELLATION_DEFAULT_LIMIT):
+    """성좌 뷰용 그래프 조회 (프론트 작업 성좌 화면용).
+
+    overview와 달리 작업 단위(PullRequest, 없으면 Issue)를 전량 가져오고 위성만 최신 limit개로
+    자른다 — 별성이 빠지면 그림 자체가 틀리기 때문. {nodes, edges, work_unit_ids}를 반환한다.
+    인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
+    """
+    return await get_constellation_view(project_id, limit)
 
 
 @router.get("/graph/search")

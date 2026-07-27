@@ -4,7 +4,7 @@ import { ConstellationVis } from "@/components/graph/ConstellationVis";
 import { NodeDetail } from "@/components/graph/NodeDetail";
 import { StatusView } from "@/components/StatusView";
 import { Topbar } from "@/components/shell/Topbar";
-import { useGraph } from "@/hooks/useGraph";
+import { useConstellation } from "@/hooks/useGraph";
 import type { Project } from "@/types/api";
 
 /**
@@ -13,14 +13,11 @@ import type { Project } from "@/types/api";
  */
 export function GalaxyPage({ project }: { project: Project }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const graphQuery = useGraph(project.id);
+  const graphQuery = useConstellation(project.id);
   const data = graphQuery.data;
 
-  // 별성 개수 = 작업 단위(PR) 노드 수 — constellation.ts의 STAR_TYPES와 맞춰야 한다.
-  const starCount = useMemo(
-    () => (data?.nodes ?? []).filter((n) => n.type === "pr").length,
-    [data],
-  );
+  // 별성 개수 = 서버가 알려준 작업 단위 수.
+  const starCount = data?.workUnitIds.length ?? 0;
 
   const selected = useMemo(
     () => data?.nodes.find((n) => n.id === selectedId) ?? null,
@@ -64,6 +61,7 @@ export function GalaxyPage({ project }: { project: Project }) {
             <ConstellationVis
               nodes={data.nodes}
               edges={data.edges}
+              workUnitIds={data.workUnitIds}
               selectedId={selectedId}
               onSelect={(n) => setSelectedId(n.id)}
               onBackgroundClick={() => setSelectedId(null)}

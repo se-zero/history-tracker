@@ -38,6 +38,13 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
+// 성좌 뷰용 그래프 — GraphData에 작업 단위 목록을 더한다.
+// workUnitIds가 별성으로 그릴 노드다. 어떤 노드가 작업 단위인지는 서버가 정한다 —
+// 프론트가 노드 타입으로 하드코딩하면 PR이 0건인 프로젝트에서 별성이 사라진다.
+export interface ConstellationData extends GraphData {
+  workUnitIds: string[];
+}
+
 // 답변 evidence 관련 서브그래프 — GraphData에 seeds를 더한다.
 // seeds는 입력 evidence 순서에 정렬된 시드 노드 id(미해석은 null) — 인용 카드 ↔ 노드 매핑용.
 export interface SubgraphData extends GraphData {
