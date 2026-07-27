@@ -9,7 +9,6 @@ import { rgba, resolveVarRgb, shade, varName, type Rgb } from "@/lib/canvasColor
 import {
   buildConstellations,
   type ConstellationLayout,
-  type Satellite,
 } from "@/lib/constellation";
 import { useTheme } from "@/theme/ThemeProvider";
 import {
@@ -34,16 +33,23 @@ const MIN_ZOOM = 0.35;
  * 최대 확대는 고정 배율(k)이 아니라 "월드 1단위가 화면 몇 px이 되는가"로 정한다.
  * 기본 배율은 그래프 규모(extent)에 따라 달라지므로 k에 고정 상한을 두면,
  * 성좌를 여는 순간 이미 상한에 닿아 그 안에서 더 확대할 수 없게 된다.
- * 위성 반지름이 2~3.6이라 28px/단위면 입자 하나가 지름 150px 안팎까지 커진다 —
- * 촘촘한 궤도에서 라벨을 하나씩 뜯어볼 수 있는 수준.
  */
 const MAX_SCALE = 28;
 /** 성좌를 열면 왼쪽 패널이 화면을 가리므로, 그만큼 중심을 오른쪽으로 민다. */
 const PANEL_SHIFT = 150;
 /** 카메라 이동 보간 계수 — 프레임마다 목표까지 남은 거리의 이 비율만큼 다가간다. */
 const CAMERA_EASE = 0.16;
-/** 이 배율 아래에서는 위성 라벨을 그리지 않는다 (겹쳐서 읽을 수 없다). */
-const SATELLITE_LABEL_MIN_SPAN = 110;
+
+/** 강조 대상이 있을 때, 그 바깥 노드에 남기는 투명도. */
+const MUTED_ALPHA = 0.14;
+
+/**
+ * 라벨은 노드가 화면에서 이 반지름(px)보다 커졌을 때부터 나타난다.
+ * 노드 크기는 별성이 위성 수에, 위성이 타입에 따라 다르므로 큰 것부터 차례로 켜진다 —
+ * 배율 구간을 따로 나누지 않아도 확대에 따라 라벨이 순차적으로 드러난다.
+ */
+const STAR_LABEL_MIN_R = 6;
+const SATELLITE_LABEL_MIN_R = 4;
 
 interface View {
   k: number;
@@ -62,11 +68,23 @@ interface Hit {
   isStar: boolean;
 }
 
+/** 화면에 자리를 가진 노드 — 좌표 조회와 엣지 그리기에 쓴다. */
+interface Placed {
+  node: GraphNode;
+  x: number;
+  y: number;
+  r: number;
+  isStar: boolean;
+  /** 소속 성좌 인덱스. 먼지는 null. */
+  starIndex: number | null;
+}
+
 interface Palette {
   byType: Record<GraphNodeType, Rgb>;
   bg: Rgb;
   fg: Rgb;
   muted: Rgb;
+  border: Rgb;
   fontFamily: string;
 }
 
@@ -75,7 +93,6 @@ interface BgStar {
   y: number;
   r: number;
   a: number;
-  phase: number;
 }
 
 function makeStarfield(count: number): BgStar[] {
@@ -88,9 +105,8 @@ function makeStarfield(count: number): BgStar[] {
   return Array.from({ length: count }, () => ({
     x: rand(),
     y: rand(),
-    r: 0.4 + rand() * 1.1,
-    a: 0.12 + rand() * 0.4,
-    phase: rand() * Math.PI * 2,
+    r: 0.4 + rand() * 0.9,
+    a: 0.06 + rand() * 0.14,
   }));
 }
 
@@ -113,11 +129,7 @@ function truncate(s: string, n: number) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-/**
- * 반지름 radius의 원이 화면에 조금이라도 걸치는지.
- * 확대할수록 성운·헤일로 그라디언트가 수천 px로 커지는데, 화면 밖 성좌까지 매 프레임
- * 만들어 칠하면 그리기 비용이 배율에 비례해 늘어난다. 그래서 미리 걸러낸다.
- */
+/** 반지름 radius의 원이 화면에 조금이라도 걸치는지 (확대 시 그리기 비용을 줄인다). */
 function inView(x: number, y: number, radius: number, size: Size): boolean {
   return (
     x + radius >= 0 && x - radius <= size.w && y + radius >= 0 && y - radius <= size.h
@@ -157,7 +169,7 @@ export function ConstellationVis({
   }, [focused]);
 
   const layout = useMemo(() => buildConstellations(nodes, edges), [nodes, edges]);
-  const starfield = useMemo(() => makeStarfield(220), []);
+  const starfield = useMemo(() => makeStarfield(140), []);
 
   // 확대 상한은 그래프 규모·뷰포트에 따라 달라진다. 휠 핸들러가 [] deps라 ref로 전달한다.
   const maxZoomRef = useRef(MAX_SCALE);
@@ -165,12 +177,44 @@ export function ConstellationVis({
     maxZoomRef.current = Math.max(2, MAX_SCALE / baseScale(layout, size));
   }, [layout, size]);
 
-  // 성좌가 바뀌면 열려 있던 포커스는 의미가 없다.
-  useEffect(() => {
-    setFocused(null);
-    targetRef.current = null;
-    viewRef.current = { k: 1, tx: 0, ty: 0 };
+  /** 노드 id → 화면상의 자리. 강조·엣지 그리기에서 좌표를 찾는 데 쓴다. */
+  const placed = useMemo(() => {
+    const map = new Map<string, Placed>();
+    layout.stars.forEach((star, i) => {
+      map.set(star.node.id, {
+        node: star.node, x: star.x, y: star.y, r: star.r, isStar: true, starIndex: i,
+      });
+      star.satellites.forEach((sat) => {
+        map.set(sat.node.id, {
+          node: sat.node, x: sat.x, y: sat.y, r: sat.r, isStar: false, starIndex: i,
+        });
+      });
+    });
+    layout.dust.forEach((d) => {
+      map.set(d.node.id, {
+        node: d.node, x: d.x, y: d.y, r: d.r, isStar: false, starIndex: null,
+      });
+    });
+    return map;
   }, [layout]);
+
+  /**
+   * 실제 그래프 인접 관계. 성좌 배치가 만드는 스포크·다리와 달리 원본 엣지 그대로다 —
+   * 선택한 노드의 "진짜 이웃"을 강조하고 그 연결선을 그리는 데 쓴다.
+   */
+  const adjacency = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const push = (a: string, b: string) => {
+      const list = map.get(a);
+      if (list) list.push(b);
+      else map.set(a, [b]);
+    };
+    for (const [a, b] of edges) {
+      push(a, b);
+      push(b, a);
+    }
+    return map;
+  }, [edges]);
 
   /** 별성 인덱스 → 다리로 이어진 다른 별성들. */
   const starNeighbors = useMemo(() => {
@@ -194,6 +238,7 @@ export function ConstellationVis({
       bg: resolveVarRgb("--bg", theme),
       fg: resolveVarRgb("--fg", theme),
       muted: resolveVarRgb("--fg-muted", theme),
+      border: resolveVarRgb("--border-strong", theme),
       fontFamily:
         getComputedStyle(document.documentElement)
           .getPropertyValue("--font-sans")
@@ -211,6 +256,13 @@ export function ConstellationVis({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // 성좌가 바뀌면 열려 있던 포커스는 의미가 없다.
+  useEffect(() => {
+    setFocused(null);
+    targetRef.current = null;
+    viewRef.current = { k: 1, tx: 0, ty: 0 };
+  }, [layout]);
 
   // React의 onWheel은 passive라 preventDefault가 먹지 않는다 — native로 직접 붙인다.
   // 래퍼가 아니라 캔버스에 붙이는 게 중요하다. 래퍼에 붙이면 위에 얹힌 상세 패널에서
@@ -249,11 +301,7 @@ export function ConstellationVis({
       const wanted = (Math.min(size.w, size.h) * 0.36) / Math.max(star.reach, 1);
       const k = clamp(wanted / base, MIN_ZOOM, maxZoomRef.current);
       const s = base * k;
-      targetRef.current = {
-        k,
-        tx: PANEL_SHIFT - star.x * s,
-        ty: -star.y * s,
-      };
+      targetRef.current = { k, tx: PANEL_SHIFT - star.x * s, ty: -star.y * s };
       setFocused(index);
     },
     [layout, size],
@@ -285,10 +333,11 @@ export function ConstellationVis({
     canvas.height = Math.round(size.h * dpr);
 
     let raf = 0;
-    const started = performance.now();
     const loop = () => {
       stepCamera();
       const focusedIndex = focusedRef.current;
+      // hover가 있으면 미리보기처럼 hover 대상을, 없으면 선택 대상을 강조한다.
+      const activeId = hitRef.current?.node.id ?? selectedRef.current;
       drawScene(ctx, {
         dpr,
         size,
@@ -296,18 +345,19 @@ export function ConstellationVis({
         layout,
         palette,
         starfield,
-        time: (performance.now() - started) / 1000,
+        placed,
+        adjacency,
+        activeId,
+        highlight: buildHighlight(activeId, adjacency, placed),
         focused: focusedIndex,
         related: focusedIndex === null ? null : (starNeighbors.get(focusedIndex) ?? new Set()),
-        hoveredId: hitRef.current?.node.id ?? null,
         selectedId: selectedRef.current,
-        hoveredStar: hitRef.current?.starIndex ?? null,
       });
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [layout, palette, size, starfield, starNeighbors]);
+  }, [layout, palette, size, starfield, starNeighbors, placed, adjacency]);
 
   /** 카메라 목표가 있으면 매 프레임 조금씩 다가간다. */
   const stepCamera = () => {
@@ -358,7 +408,7 @@ export function ConstellationVis({
     }
     const hit = pick(e.clientX, e.clientY);
     hitRef.current = hit;
-    // 툴팁/커서용 state는 대상이 실제로 바뀔 때만 갱신한다(매 프레임 리렌더 방지).
+    // 커서용 state는 대상이 실제로 바뀔 때만 갱신한다(매 프레임 리렌더 방지).
     setHovered((prev) => (prev?.id === hit?.node.id ? prev : (hit?.node ?? null)));
   };
 
@@ -394,7 +444,6 @@ export function ConstellationVis({
     const cy = size.h / 2 + view.ty;
     const star = focused === null ? null : layout.stars[focused];
     const s = baseScale(layout, size) * view.k;
-    // 이 화면 좌표에 있는 월드 지점이 확대 후에도 제자리에 있도록 이동을 보정한다.
     const ax = star ? cx + star.x * s : size.w / 2;
     const ay = star ? cy + star.y * s : size.h / 2;
     viewRef.current = {
@@ -449,7 +498,7 @@ export function ConstellationVis({
         />
       ) : (
         <div className="galaxy-legend">
-          <div className="galaxy-legend-hint">별성을 클릭하면 성좌가 열립니다</div>
+          <div className="galaxy-legend-hint">노드를 클릭하면 이웃이 강조됩니다</div>
           {(Object.keys(NODE_TYPE_INFO) as GraphNodeType[])
             .filter((t) => t !== "actor")
             .map((t) => (
@@ -477,6 +526,23 @@ export function ConstellationVis({
       </div>
     </div>
   );
+}
+
+/**
+ * 강조 집합 = 대상 노드 + 실제 엣지로 이어진 이웃.
+ * Actor처럼 배치에서 빠진 노드는 그릴 자리가 없으므로 제외한다.
+ */
+function buildHighlight(
+  activeId: string | null,
+  adjacency: Map<string, string[]>,
+  placed: Map<string, Placed>,
+): Set<string> | null {
+  if (!activeId || !placed.has(activeId)) return null;
+  const set = new Set<string>([activeId]);
+  for (const nb of adjacency.get(activeId) ?? []) {
+    if (placed.has(nb)) set.add(nb);
+  }
+  return set;
 }
 
 function hitTest(
@@ -528,29 +594,36 @@ interface SceneParams {
   layout: ConstellationLayout;
   palette: Palette;
   starfield: BgStar[];
-  time: number;
+  placed: Map<string, Placed>;
+  adjacency: Map<string, string[]>;
+  activeId: string | null;
+  highlight: Set<string> | null;
   focused: number | null;
   related: Set<number> | null;
-  hoveredId: string | null;
-  hoveredStar: number | null;
   selectedId: string | null;
 }
 
 /**
- * 성좌별 강조도(0~1)를 미리 계산한다.
- * 포커스 중이면 연결된 성좌를 중간 밝기로 남겨 "어디로 이어지는지"가 보이게 한다.
+ * 성좌별 기본 밝기(0~1). 성좌를 열었을 때만 주변을 눌러 주고,
+ * 그 외에는 전부 같은 밝기다 — 노드 단위 강조가 흐려지지 않게.
  */
 function computeEmphasis(p: SceneParams): number[] {
   const n = p.layout.stars.length;
   const emph = new Array<number>(n).fill(1);
   if (p.focused !== null) {
     for (let i = 0; i < n; i++) {
-      emph[i] = i === p.focused ? 1 : p.related?.has(i) ? 0.5 : 0.1;
+      emph[i] = i === p.focused ? 1 : p.related?.has(i) ? 0.55 : 0.16;
     }
-  } else if (p.hoveredStar !== null) {
-    for (let i = 0; i < n; i++) emph[i] = i === p.hoveredStar ? 1 : 0.32;
   }
   return emph;
+}
+
+/** 노드 하나의 최종 투명도. 강조 대상이 있으면 그 바깥은 확실히 눌러 둔다. */
+function nodeAlpha(p: SceneParams, node: Placed, emph: number[]): number {
+  const base =
+    node.starIndex === null ? (p.focused === null ? 0.6 : 0.14) : emph[node.starIndex];
+  if (!p.highlight) return base;
+  return p.highlight.has(node.node.id) ? 1 : Math.min(base, MUTED_ALPHA);
 }
 
 function drawScene(ctx: CanvasRenderingContext2D, p: SceneParams): void {
@@ -562,88 +635,35 @@ function drawScene(ctx: CanvasRenderingContext2D, p: SceneParams): void {
   ctx.scale(dpr, dpr);
 
   drawBackground(ctx, p);
-  drawNebulae(ctx, p, emph, s, cx, cy);
   drawBridges(ctx, p, emph, s, cx, cy);
   drawSpokes(ctx, p, emph, s, cx, cy);
-  drawParticles(ctx, p, emph, s, cx, cy);
-  drawStars(ctx, p, emph, s, cx, cy);
+  drawHighlightEdges(ctx, p, s, cx, cy);
+  drawNodes(ctx, p, emph, s, cx, cy);
   drawLabels(ctx, p, emph, s, cx, cy);
 
   ctx.restore();
 }
 
 function drawBackground(ctx: CanvasRenderingContext2D, p: SceneParams): void {
-  const { size, palette, starfield, time, view } = p;
+  const { size, palette, starfield, view } = p;
 
   ctx.fillStyle = rgba(palette.bg, 1);
   ctx.fillRect(0, 0, size.w, size.h);
 
-  // 배경 별먼지 — 팬에 아주 약하게 따라 움직여 깊이감을 준다.
+  // 배경 별먼지 — 깜빡임 없이 아주 옅은 점으로만 깔아 질감만 준다.
   const ox = view.tx * 0.04;
   const oy = view.ty * 0.04;
-  ctx.globalCompositeOperation = "lighter";
   for (const st of starfield) {
     const x = (((st.x * size.w + ox) % size.w) + size.w) % size.w;
     const y = (((st.y * size.h + oy) % size.h) + size.h) % size.h;
-    const twinkle = 0.65 + 0.35 * Math.sin(time * 0.9 + st.phase);
-    ctx.fillStyle = rgba(palette.fg, st.a * twinkle * 0.5);
+    ctx.fillStyle = rgba(palette.fg, st.a);
     ctx.beginPath();
     ctx.arc(x, y, st.r, 0, Math.PI * 2);
     ctx.fill();
   }
-  ctx.globalCompositeOperation = "source-over";
-
-  // 가장자리를 눌러 중앙에 시선을 모은다.
-  const vignette = ctx.createRadialGradient(
-    size.w / 2,
-    size.h / 2,
-    Math.min(size.w, size.h) * 0.25,
-    size.w / 2,
-    size.h / 2,
-    Math.max(size.w, size.h) * 0.72,
-  );
-  vignette.addColorStop(0, rgba(palette.bg, 0));
-  vignette.addColorStop(1, rgba(shade(palette.bg, 0.55), 0.85));
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, size.w, size.h);
 }
 
-/** 성좌마다 은은한 색 구름을 깔아 밀도가 낮아도 화면이 비어 보이지 않게 한다. */
-function drawNebulae(
-  ctx: CanvasRenderingContext2D,
-  p: SceneParams,
-  emph: number[],
-  s: number,
-  cx: number,
-  cy: number,
-): void {
-  const { layout, palette, time, size } = p;
-  ctx.globalCompositeOperation = "lighter";
-  layout.stars.forEach((star, i) => {
-    const color = palette.byType[star.node.type];
-    const x = cx + star.x * s;
-    const y = cy + star.y * s;
-    const radius = star.reach * s * 1.25;
-    if (radius <= 0 || !inView(x, y, radius, size)) return;
-    // 숨 쉬듯 아주 느리게 밝기가 오르내린다.
-    const breathe = 0.9 + 0.1 * Math.sin(time * 0.5 + i);
-    const alpha = 0.17 * emph[i] * breathe;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
-    g.addColorStop(0, rgba(color, alpha));
-    g.addColorStop(0.45, rgba(color, alpha * 0.4));
-    g.addColorStop(1, rgba(color, 0));
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
-  });
-  ctx.globalCompositeOperation = "source-over";
-}
-
-/**
- * 성좌 사이의 다리 — 같은 파일·티켓을 공유한 작업들을 잇는 성좌선.
- * 포커스 중인 성좌에서 뻗어나가는 다리는 밝게 그리고, 흐르는 입자로 방향을 보여준다.
- */
+/** 성좌 사이의 다리 — 같은 파일·티켓을 공유한 작업들을 잇는다. */
 function drawBridges(
   ctx: CanvasRenderingContext2D,
   p: SceneParams,
@@ -652,8 +672,7 @@ function drawBridges(
   cx: number,
   cy: number,
 ): void {
-  const { layout, palette, focused, time } = p;
-  ctx.globalCompositeOperation = "lighter";
+  const { layout, palette, focused, highlight } = p;
 
   for (const bridge of layout.bridges) {
     const a = layout.stars[bridge.a];
@@ -661,8 +680,9 @@ function drawBridges(
     if (!a || !b) continue;
 
     const isFocusLink = focused !== null && (bridge.a === focused || bridge.b === focused);
-    // 포커스 중이면 그 성좌의 다리만 살리고 나머지는 확실히 눌러 둔다.
-    const strength = isFocusLink ? 1 : Math.min(emph[bridge.a], emph[bridge.b]) * 0.7;
+    let strength = isFocusLink ? 1 : Math.min(emph[bridge.a], emph[bridge.b]);
+    // 노드 강조 중에는 구조선을 확실히 눌러 강조 대상이 묻히지 않게 한다.
+    if (highlight) strength = Math.min(strength, 0.25);
 
     const ax = cx + a.x * s;
     const ay = cy + a.y * s;
@@ -675,45 +695,17 @@ function drawBridges(
     const dy = by - ay;
     const len = Math.hypot(dx, dy) || 1;
     const bow = Math.min(60, len * 0.12);
-    const qx = mx + (-dy / len) * bow;
-    const qy = my + (dx / len) * bow;
 
-    ctx.strokeStyle = rgba(
-      isFocusLink ? palette.byType[a.node.type] : palette.muted,
-      (isFocusLink ? 0.5 : 0.28) * strength,
-    );
-    ctx.lineWidth = Math.min(2.6, 0.5 + bridge.weight * 0.22) * (isFocusLink ? 1.5 : 1);
+    ctx.strokeStyle = rgba(palette.border, 0.5 * strength);
+    ctx.lineWidth = Math.min(1.8, 0.5 + bridge.weight * 0.16);
     ctx.beginPath();
     ctx.moveTo(ax, ay);
-    ctx.quadraticCurveTo(qx, qy, bx, by);
+    ctx.quadraticCurveTo(mx + (-dy / len) * bow, my + (dx / len) * bow, bx, by);
     ctx.stroke();
-
-    if (!isFocusLink) continue;
-
-    // 포커스한 성좌에서 상대 성좌 쪽으로 입자가 흐른다 — 연결의 방향과 존재를 눈에 띄게 한다.
-    const forward = bridge.a === focused;
-    const [sx, sy, ex, ey] = forward ? [ax, ay, bx, by] : [bx, by, ax, ay];
-    const color = palette.byType[(forward ? a : b).node.type];
-    for (let n = 0; n < 3; n++) {
-      const t = ((time * 0.32 + n / 3) % 1 + 1) % 1;
-      const mt = 1 - t;
-      const px = mt * mt * sx + 2 * mt * t * qx + t * t * ex;
-      const py = mt * mt * sy + 2 * mt * t * qy + t * t * ey;
-      // 양 끝에서 서서히 나타났다 사라지게 해 갑작스러운 점멸을 없앤다.
-      const fade = Math.sin(t * Math.PI);
-      const g = ctx.createRadialGradient(px, py, 0, px, py, 7);
-      g.addColorStop(0, rgba(shade(color, 1.4), 0.85 * fade));
-      g.addColorStop(1, rgba(color, 0));
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(px, py, 7, 0, Math.PI * 2);
-      ctx.fill();
-    }
   }
-  ctx.globalCompositeOperation = "source-over";
 }
 
-/** 별성 → 위성 연결선. 아주 흐리게 깔아 성좌의 소속감만 만든다. */
+/** 별성 → 위성 연결선. 성좌의 소속감만 만드는 얇은 구조선이다. */
 function drawSpokes(
   ctx: CanvasRenderingContext2D,
   p: SceneParams,
@@ -722,16 +714,16 @@ function drawSpokes(
   cx: number,
   cy: number,
 ): void {
-  const { layout, palette, size } = p;
-  ctx.globalCompositeOperation = "lighter";
+  const { layout, palette, size, highlight } = p;
   layout.stars.forEach((star, i) => {
-    if (emph[i] < 0.3) return;
-    const color = palette.byType[star.node.type];
+    let strength = emph[i];
+    if (highlight) strength = Math.min(strength, 0.22);
+    if (strength < 0.05) return;
     const x = cx + star.x * s;
     const y = cy + star.y * s;
     if (!inView(x, y, star.reach * s, size)) return;
-    ctx.strokeStyle = rgba(color, 0.22 * emph[i]);
-    ctx.lineWidth = 0.7;
+    ctx.strokeStyle = rgba(palette.border, 0.45 * strength);
+    ctx.lineWidth = 0.6;
     ctx.beginPath();
     for (const sat of star.satellites) {
       ctx.moveTo(x, y);
@@ -739,11 +731,43 @@ function drawSpokes(
     }
     ctx.stroke();
   });
-  ctx.globalCompositeOperation = "source-over";
 }
 
-/** 위성 + 성간 먼지 — 발광하는 입자로 그린다. */
-function drawParticles(
+/**
+ * 선택(또는 hover)한 노드의 실제 그래프 엣지.
+ * 성좌 스포크는 배치가 만든 선이라 원본 관계와 다르다 — 여기서만 진짜 관계를 그린다.
+ */
+function drawHighlightEdges(
+  ctx: CanvasRenderingContext2D,
+  p: SceneParams,
+  s: number,
+  cx: number,
+  cy: number,
+): void {
+  const { activeId, adjacency, placed, palette } = p;
+  if (!activeId) return;
+  const from = placed.get(activeId);
+  if (!from) return;
+
+  const fx = cx + from.x * s;
+  const fy = cy + from.y * s;
+  ctx.strokeStyle = rgba(palette.fg, 0.5);
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (const nbId of adjacency.get(activeId) ?? []) {
+    const to = placed.get(nbId);
+    if (!to) continue;
+    ctx.moveTo(fx, fy);
+    ctx.lineTo(cx + to.x * s, cy + to.y * s);
+  }
+  ctx.stroke();
+}
+
+/**
+ * 노드 = 채운 원 + 얇은 테두리. 글로우(가산 합성·방사 그라디언트)는 쓰지 않는다.
+ * 강조는 밝기와 테두리 굵기로만 표현해, 강조 대상이 어디인지 한눈에 들어오게 한다.
+ */
+function drawNodes(
   ctx: CanvasRenderingContext2D,
   p: SceneParams,
   emph: number[],
@@ -751,113 +775,105 @@ function drawParticles(
   cx: number,
   cy: number,
 ): void {
-  const { layout, palette, time, hoveredId, selectedId, focused, size } = p;
-  ctx.globalCompositeOperation = "lighter";
+  const { layout, palette, size, highlight, activeId, selectedId } = p;
 
-  const paint = (sat: Satellite, strength: number) => {
-    const color = palette.byType[sat.node.type];
-    const x = cx + sat.x * s;
-    const y = cy + sat.y * s;
-    const isFocus = sat.node.id === hoveredId || sat.node.id === selectedId;
-    if (!inView(x, y, Math.max(sat.r * s, 1.3) * 9, size)) return;
-    const twinkle = 0.75 + 0.25 * Math.sin(time * 1.6 + sat.phase);
-    // 줌 아웃해도 입자가 사라지지 않도록 화면 기준 최소 크기를 준다.
-    const r = Math.max(sat.r * s, 1.3) * (isFocus ? 2 : 1);
-    const alpha = strength * twinkle;
+  const paint = (node: Placed) => {
+    const alpha = nodeAlpha(p, node, emph);
+    if (alpha <= 0.02) return;
 
-    const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 4.5);
-    glow.addColorStop(0, rgba(color, 0.5 * alpha));
-    glow.addColorStop(1, rgba(color, 0));
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 4.5, 0, Math.PI * 2);
-    ctx.fill();
+    const x = cx + node.x * s;
+    const y = cy + node.y * s;
+    const isActive = node.node.id === activeId;
+    const isNeighbor = !isActive && !!highlight && highlight.has(node.node.id);
+    const minR = node.isStar ? 5 : 1.6;
+    let r = Math.max(node.r * s, minR);
+    if (isActive) r *= 1.5;
+    else if (isNeighbor) r *= 1.15;
 
-    ctx.fillStyle = rgba(shade(color, 1.15), Math.min(1, 0.85 * alpha));
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-  };
+    if (!inView(x, y, r + 14, size)) return;
 
-  layout.stars.forEach((star, i) => {
-    star.satellites.forEach((sat) => paint(sat, emph[i]));
-  });
-  layout.dust.forEach((d) => paint(d, focused === null ? 0.7 : 0.1));
-
-  ctx.globalCompositeOperation = "source-over";
-}
-
-/** 별성 오브 — 헤일로 + 코어 + 링. */
-function drawStars(
-  ctx: CanvasRenderingContext2D,
-  p: SceneParams,
-  emph: number[],
-  s: number,
-  cx: number,
-  cy: number,
-): void {
-  const { layout, palette, time, hoveredId, selectedId, focused, size } = p;
-
-  layout.stars.forEach((star, i) => {
-    const color = palette.byType[star.node.type];
-    const x = cx + star.x * s;
-    const y = cy + star.y * s;
-    const isFocus = star.node.id === hoveredId || star.node.id === selectedId;
-    const alpha = emph[i];
-    const pulse = 1 + 0.05 * Math.sin(time * 1.2 + i * 0.7);
-    const r = Math.max(star.r * s, 5) * pulse * (isFocus ? 1.25 : 1);
-    // 열린 성좌는 궤도 링(reach)까지 그리므로 그만큼 넉넉히 잡고 판정한다.
-    if (!inView(x, y, focused === i ? star.reach * s : r * 5, size)) return;
-
-    ctx.globalCompositeOperation = "lighter";
-    const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 5);
-    glow.addColorStop(0, rgba(color, 0.55 * alpha));
-    glow.addColorStop(0.4, rgba(color, 0.18 * alpha));
-    glow.addColorStop(1, rgba(color, 0));
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalCompositeOperation = "source-over";
-
-    // 코어는 중심이 흰빛으로 타는 그라디언트라야 "빛나는 구슬"처럼 보인다.
-    const core = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
-    core.addColorStop(0, rgba(shade(color, 1.6), alpha));
-    core.addColorStop(0.55, rgba(color, alpha));
-    core.addColorStop(1, rgba(shade(color, 0.72), alpha));
-    ctx.fillStyle = core;
+    const color = palette.byType[node.node.type];
+    ctx.fillStyle = rgba(color, alpha);
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = rgba(shade(color, 1.5), 0.55 * alpha);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(x, y, r + 3.5, 0, Math.PI * 2);
+    // 얇은 테두리 — 어두운 배경에서 원의 경계를 또렷하게 만든다.
+    ctx.strokeStyle = rgba(shade(color, 1.35), Math.min(1, alpha * 1.1));
+    ctx.lineWidth = isActive ? 2 : isNeighbor ? 1.4 : 1;
     ctx.stroke();
 
-    // 열려 있는 성좌는 궤도 링을 하나 둘러 "여기를 보고 있다"를 명확히 한다.
-    if (focused === i) {
-      ctx.strokeStyle = rgba(shade(color, 1.4), 0.32);
+    // 선택한 노드에만 바깥 링을 하나 둘러 위치를 못 놓치게 한다.
+    if (node.node.id === selectedId) {
+      ctx.strokeStyle = rgba(palette.fg, 0.75);
       ctx.lineWidth = 1.2;
-      ctx.setLineDash([4, 6]);
       ctx.beginPath();
-      ctx.arc(x, y, star.reach * s, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    } else if (isFocus) {
-      ctx.strokeStyle = rgba(shade(color, 1.4), 0.4);
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(x, y, r + 11, 0, Math.PI * 2);
+      ctx.arc(x, y, r + 5, 0, Math.PI * 2);
       ctx.stroke();
     }
+  };
+
+  // 위성 → 먼지 → 별성 순으로 그려 큰 노드가 위에 오게 한다.
+  layout.stars.forEach((star) => {
+    star.satellites.forEach((sat) => {
+      const node = p.placed.get(sat.node.id);
+      if (node) paint(node);
+    });
   });
+  layout.dust.forEach((d) => {
+    const node = p.placed.get(d.node.id);
+    if (node) paint(node);
+  });
+  layout.stars.forEach((star) => {
+    const node = p.placed.get(star.node.id);
+    if (node) paint(node);
+  });
+
+  // 열린 성좌의 궤도 경계 — 점선 링 하나로만 표시한다.
+  if (p.focused !== null) {
+    const star = layout.stars[p.focused];
+    if (star) {
+      const x = cx + star.x * s;
+      const y = cy + star.y * s;
+      if (inView(x, y, star.reach * s, size)) {
+        ctx.strokeStyle = rgba(palette.border, 0.5);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.arc(x, y, star.reach * s, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+}
+
+/** 라벨 하나를 그리는 데 필요한 정보. */
+interface LabelCandidate {
+  id: string;
+  x: number;
+  y: number;
+  title: string;
+  isStar: boolean;
+  /** 화면상의 노드 반지름 — 노출 판정 기준이자 라벨을 밀어낼 거리다. */
+  r: number;
+  /** 위성은 성좌 중심에서 바깥으로 뻗는다 — 그 방향. */
+  dx: number;
+  dy: number;
+  alpha: number;
+  /** 별성의 부제(작성자). 위성은 없다. */
+  sub: string | null;
+  subColor: Rgb;
 }
 
 /**
  * 라벨은 화면 좌표에 고정 크기로 그린다 — 줌을 해도 글자 크기가 변하지 않아
  * 어느 배율에서든 읽힌다.
+ *
+ * 표시 규칙은 배율 하나로 정한다 — 노드가 화면에서 일정 크기보다 커져야 라벨이 붙는다.
+ * 노드 크기가 제각각이라(별성은 위성 수, 위성은 타입에 따라) 확대할수록 큰 것부터
+ * 차례로 켜지고, 전체 뷰에서는 아무 라벨도 뜨지 않는다.
+ * hover·선택한 노드만 배율과 무관하게 항상 보인다.
  */
 function drawLabels(
   ctx: CanvasRenderingContext2D,
@@ -867,61 +883,93 @@ function drawLabels(
   cx: number,
   cy: number,
 ): void {
-  const { layout, palette, focused, hoveredId, selectedId, size } = p;
+  const { layout, palette, size, placed, activeId, selectedId } = p;
 
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
+  const onScreen = (x: number, y: number) =>
+    x >= -30 && x <= size.w + 30 && y >= -30 && y <= size.h + 30;
 
-  layout.stars.forEach((star, i) => {
+  const candidates: LabelCandidate[] = [];
+
+  layout.stars.forEach((star) => {
     const x = cx + star.x * s;
     const y = cy + star.y * s;
-    if (x < -160 || x > size.w + 160 || y < -100 || y > size.h + 100) return;
+    if (!onScreen(x, y)) return;
+    const node = placed.get(star.node.id);
+    candidates.push({
+      id: star.node.id,
+      x,
+      y,
+      title: star.node.title,
+      isStar: true,
+      // 최소 크기 보정 없이 실제 배율 크기로 판정해야 확대에 비례해 차례로 켜진다.
+      r: star.r * s,
+      dx: 0,
+      dy: 0,
+      alpha: node ? nodeAlpha(p, node, emph) : 1,
+      sub: star.authors.length > 0 ? star.authors.join(", ") : star.node.meta,
+      subColor: palette.byType[star.node.type],
+    });
+  });
 
-    const r = Math.max(star.r * s, 5);
-    const color = palette.byType[star.node.type];
-
-    ctx.font = `600 12px ${palette.fontFamily}`;
-    ctx.fillStyle = rgba(palette.fg, 0.94 * emph[i]);
-    ctx.fillText(truncate(star.node.title, 26), x, y + r + 9);
-
-    // 부제(작성자)는 주목 중인 성좌에만 — 평소엔 화면을 어지럽히지 않는다.
-    if (emph[i] > 0.9) {
-      const sub = star.authors.length > 0 ? star.authors.join(", ") : star.node.meta;
-      if (sub) {
-        ctx.font = `500 10px ${palette.fontFamily}`;
-        ctx.fillStyle = rgba(color, 0.85);
-        ctx.fillText(truncate(sub, 30), x, y + r + 25);
-      }
+  // 위성도 모든 성좌에서 후보가 된다 — 노출을 배율만으로 정하므로
+  // 성좌를 열지 않고 확대해 들어가도 라벨이 나타난다.
+  layout.stars.forEach((star) => {
+    const sx = cx + star.x * s;
+    const sy = cy + star.y * s;
+    for (const sat of star.satellites) {
+      const x = cx + sat.x * s;
+      const y = cy + sat.y * s;
+      if (!onScreen(x, y)) continue;
+      const node = placed.get(sat.node.id);
+      candidates.push({
+        id: sat.node.id,
+        x,
+        y,
+        title: sat.node.title,
+        isStar: false,
+        r: sat.r * s,
+        dx: x - sx,
+        dy: y - sy,
+        alpha: node ? nodeAlpha(p, node, emph) : 1,
+        sub: null,
+        subColor: palette.byType[sat.node.type],
+      });
     }
   });
 
-  // 열린 성좌의 위성 라벨 — 충분히 확대됐을 때만, 중심에서 바깥으로 뻗어 겹침을 줄인다.
-  if (focused !== null) {
-    const star = layout.stars[focused];
-    if (star && star.reach * s > SATELLITE_LABEL_MIN_SPAN) {
-      const sx = cx + star.x * s;
-      const sy = cy + star.y * s;
-      ctx.font = `500 10px ${palette.fontFamily}`;
-      ctx.textBaseline = "middle";
-      for (const sat of star.satellites) {
-        const x = cx + sat.x * s;
-        const y = cy + sat.y * s;
-        if (x < -60 || x > size.w + 60 || y < -40 || y > size.h + 40) continue;
-        const dx = x - sx;
-        const dy = y - sy;
-        const len = Math.hypot(dx, dy) || 1;
-        const gap = Math.max(sat.r * s, 2) + 6;
-        const lx = x + (dx / len) * gap;
-        const ly = y + (dy / len) * gap;
-        ctx.textAlign = dx >= 0 ? "left" : "right";
-        ctx.fillStyle = rgba(
-          palette.fg,
-          sat.node.id === hoveredId || sat.node.id === selectedId ? 0.95 : 0.62,
-        );
-        ctx.fillText(truncate(sat.node.title, 22), lx, ly);
-      }
-      ctx.textBaseline = "top";
+  for (const c of candidates) {
+    const active = c.id === activeId || c.id === selectedId;
+    // 배율 게이트 — 노드가 충분히 커지기 전엔 라벨을 달지 않는다.
+    if (!active && c.r < (c.isStar ? STAR_LABEL_MIN_R : SATELLITE_LABEL_MIN_R)) continue;
+    // 강조 대상 바깥으로 밀려난 노드의 라벨은 읽을 필요가 없다.
+    if (!active && c.alpha <= MUTED_ALPHA) continue;
+
+    const title = truncate(c.title, c.isStar ? 26 : 22);
+
+    if (c.isStar) {
+      const drawR = Math.max(c.r, 5);
       ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `600 12px ${palette.fontFamily}`;
+      ctx.fillStyle = rgba(palette.fg, 0.94 * (active ? 1 : c.alpha));
+      ctx.fillText(title, c.x, c.y + drawR + 9);
+      // 부제는 주목 중인 성좌에만 — 평소엔 화면을 어지럽히지 않는다.
+      if (c.sub && (active || c.alpha > 0.9)) {
+        ctx.font = `500 10px ${palette.fontFamily}`;
+        ctx.fillStyle = rgba(c.subColor, 0.85);
+        ctx.fillText(truncate(c.sub, 30), c.x, c.y + drawR + 25);
+      }
+    } else {
+      const len = Math.hypot(c.dx, c.dy) || 1;
+      const gap = Math.max(c.r, 2) + 6;
+      ctx.textBaseline = "middle";
+      ctx.textAlign = c.dx >= 0 ? "left" : "right";
+      ctx.font = `500 10px ${palette.fontFamily}`;
+      ctx.fillStyle = rgba(palette.fg, (active ? 0.95 : 0.62) * (active ? 1 : c.alpha));
+      ctx.fillText(title, c.x + (c.dx / len) * gap, c.y + (c.dy / len) * gap);
     }
   }
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
 }
