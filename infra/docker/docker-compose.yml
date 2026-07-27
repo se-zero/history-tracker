@@ -144,6 +144,10 @@ services:
       # backend와 동일한 값을 공유해야 함 (토큰 검증 / credential 복호화)
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
       BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
+
+      # GitHub App settings의 Webhook secret과 동일한 값이어야 서명 검증이 통과한다.
+      # 미설정 시 webhook만 동작하지 않고 초기 수집은 정상이라 필수(:?)로 두지 않는다.
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy

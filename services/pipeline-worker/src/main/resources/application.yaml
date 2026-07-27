@@ -48,7 +48,9 @@ app:
 
   webhook:
     github:
-      secret: ""  # GitHub webhook secret. X-Hub-Signature-256 검증에 사용.
+      # GitHub webhook secret. X-Hub-Signature-256 검증에 사용.
+      # 비어 있으면 GitHubWebhookVerifier가 모든 webhook을 거부한다(fail-closed).
+      secret: ${GITHUB_WEBHOOK_SECRET:}
     executor:
       pool-size: 4              # webhook 동시 처리 수. 동일 프로젝트는 collection-lock으로 직렬화됨.
       await-termination-seconds: 300
