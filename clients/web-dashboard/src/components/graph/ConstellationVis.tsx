@@ -234,6 +234,15 @@ export function ConstellationVis({
     return map;
   }, [edges]);
 
+  /** 별성 id → 그 성좌에 속한 위성 id들. 별성을 고를 때 성좌 전체를 살리는 데 쓴다. */
+  const constellationMembers = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const star of layout.stars) {
+      map.set(star.node.id, star.satellites.map((sat) => sat.node.id));
+    }
+    return map;
+  }, [layout]);
+
   /** 별성 인덱스 → 다리로 이어진 다른 별성들. */
   const starNeighbors = useMemo(() => {
     const map = new Map<number, Set<number>>();
@@ -382,7 +391,7 @@ export function ConstellationVis({
         placed,
         adjacency,
         activeId,
-        highlight: buildHighlight(activeId, adjacency, placed),
+        highlight: buildHighlight(activeId, adjacency, placed, constellationMembers),
         focused: focusedIndex,
         related: focusedIndex === null ? null : (starNeighbors.get(focusedIndex) ?? new Set()),
         selectedId: selectedRef.current,
@@ -391,7 +400,7 @@ export function ConstellationVis({
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [layout, palette, size, starfield, starNeighbors, placed, adjacency]);
+  }, [layout, palette, size, starfield, starNeighbors, placed, adjacency, constellationMembers]);
 
   /** 카메라 목표가 있으면 매 프레임 조금씩 다가간다. */
   const stepCamera = () => {
@@ -565,16 +574,26 @@ export function ConstellationVis({
 /**
  * 강조 집합 = 대상 노드 + 실제 엣지로 이어진 이웃.
  * Actor처럼 배치에서 빠진 노드는 그릴 자리가 없으므로 제외한다.
+ *
+ * 별성(작업 단위)을 고르면 그 성좌 전체를 함께 살린다. 작업 단위는 커밋만 직접 이웃이고
+ * 파일·티켓·대화는 2~3홉이라, 1홉만 살리면 방금 연 성좌의 대부분이 눌려서 안 보인다.
  */
 function buildHighlight(
   activeId: string | null,
   adjacency: Map<string, string[]>,
   placed: Map<string, Placed>,
+  members: Map<string, string[]>,
 ): Set<string> | null {
-  if (!activeId || !placed.has(activeId)) return null;
+  if (!activeId) return null;
+  const node = placed.get(activeId);
+  if (!node) return null;
+
   const set = new Set<string>([activeId]);
   for (const nb of adjacency.get(activeId) ?? []) {
     if (placed.has(nb)) set.add(nb);
+  }
+  if (node.isStar) {
+    for (const id of members.get(activeId) ?? []) set.add(id);
   }
   return set;
 }
@@ -751,7 +770,9 @@ function drawSpokes(
   const { layout, palette, size, highlight } = p;
   layout.stars.forEach((star, i) => {
     let strength = emph[i];
-    if (highlight) strength = Math.min(strength, 0.22);
+    // 강조 중이면 "다른" 성좌의 구조선만 눌러 둔다.
+    // 일괄로 누르면 방금 연 성좌의 위성 연결까지 사라져, 커밋만 이어진 것처럼 보인다.
+    if (highlight && !highlight.has(star.node.id)) strength = Math.min(strength, 0.15);
     if (strength < 0.05) return;
     const x = cx + star.x * s;
     const y = cy + star.y * s;
