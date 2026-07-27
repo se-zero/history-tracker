@@ -33,6 +33,15 @@ public class GraphService {
         return aiEngineGraphClient.fetchConstellation(projectId, limit);
     }
 
+    // 소유권 검증 후 성좌 드릴인 조회를 프록시한다. 빈 nodeId는 ai-engine 왕복 없이 빈 결과.
+    public GraphResponse getWorkUnit(UUID ownerId, UUID projectId, String nodeId) {
+        projectService.getProject(ownerId, projectId);
+        if (nodeId == null || nodeId.isBlank()) {
+            return GraphResponse.empty();
+        }
+        return aiEngineGraphClient.fetchWorkUnit(projectId, nodeId.trim());
+    }
+
     // 소유권 검증 후 그래프 노드 키워드 검색을 프록시한다 (통합 검색용). 빈 질의는 ai-engine 왕복 없이 빈 결과.
     public GraphSearchResponse searchNodes(UUID ownerId, UUID projectId, String q, Integer limit) {
         projectService.getProject(ownerId, projectId);

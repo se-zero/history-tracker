@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   getGraphActivity,
@@ -7,11 +7,12 @@ import {
   getMessageSubgraph,
   getProjectConstellation,
   getProjectGraph,
+  getWorkUnitNeighborhood,
   rebuildProjectGraph,
 } from "@/api/graph";
 import { extractStructured } from "@/components/chat/messageStructured";
 import type { Message } from "@/types/api";
-import type { GraphActivityState } from "@/types/graph";
+import type { GraphActivityState, GraphEdge, GraphNode } from "@/types/graph";
 import { queryKeys } from "./queryKeys";
 
 export function useGraph(projectId: string) {
@@ -29,6 +30,41 @@ export function useConstellation(projectId: string) {
     queryKey: queryKeys.graphConstellation(projectId),
     queryFn: () => getProjectConstellation(projectId),
   });
+}
+
+/**
+ * 성좌 드릴인으로 펼친 작업 단위들의 이웃을 모아 하나의 {nodes, edges}로 준다.
+ *
+ * 작업 단위별 결과는 불변이라 오래 캐시한다(같은 성좌를 다시 열어도 재요청 없음).
+ * 병합 결과는 레이아웃 useMemo의 입력이 되므로, 매 렌더 새 객체가 나오면 은하가
+ * 매번 다시 계산된다 — 그래서 데이터가 실제로 갱신됐을 때만(dataUpdatedAt) 새로 만든다.
+ */
+export function useWorkUnitNeighborhoods(projectId: string, nodeIds: string[]) {
+  const results = useQueries({
+    queries: nodeIds.map((nodeId) => ({
+      queryKey: queryKeys.graphWorkUnit(projectId, nodeId),
+      queryFn: () => getWorkUnitNeighborhood(projectId, nodeId),
+      staleTime: Infinity,
+    })),
+  });
+
+  const signature = results.map((r) => r.dataUpdatedAt).join("|");
+  const isFetching = results.some((r) => r.isFetching);
+
+  const merged = useMemo(() => {
+    const nodes: GraphNode[] = [];
+    const edges: GraphEdge[] = [];
+    for (const r of results) {
+      if (!r.data) continue;
+      nodes.push(...r.data.nodes);
+      edges.push(...r.data.edges);
+    }
+    return { nodes, edges };
+    // results는 매 렌더 새 배열이라 deps로 쓸 수 없다 — 데이터 갱신 시각으로 대체한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
+
+  return { ...merged, isFetching };
 }
 
 // 답변의 evidence를 {type, id}로 추린다 — 인용 카드 렌더와 동일한 순서를 유지한다.

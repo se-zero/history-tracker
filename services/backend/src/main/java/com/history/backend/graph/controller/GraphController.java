@@ -50,6 +50,16 @@ public class GraphController {
         return graphService.getConstellation(authenticatedUser.id(), projectId, limit);
     }
 
+    // 성좌 드릴인 — 작업 단위 하나의 이웃 조회 (위성이 비어 있는 성좌를 열 때)
+    @GetMapping("/work-unit")
+    public GraphResponse getWorkUnit(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @RequestParam String nodeId
+    ) {
+        return graphService.getWorkUnit(authenticatedUser.id(), projectId, nodeId);
+    }
+
     // 통합 검색 — 프로젝트 그래프 전체에서 노드 키워드 검색 (ai-engine full-text 프록시)
     @GetMapping("/search")
     public GraphSearchResponse searchProjectGraph(

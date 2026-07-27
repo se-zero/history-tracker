@@ -10,6 +10,7 @@ from graph.overview import (
     get_constellation_view,
     get_evidence_subgraph,
     get_project_overview,
+    get_work_unit_neighborhood,
 )
 from graph.search import DEFAULT_LIMIT as SEARCH_DEFAULT_LIMIT
 from graph.search import search_nodes
@@ -51,6 +52,16 @@ async def graph_constellation(project_id: str, limit: int = CONSTELLATION_DEFAUL
     인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
     """
     return await get_constellation_view(project_id, limit)
+
+
+@router.get("/graph/work-unit")
+async def graph_work_unit(project_id: str, node_id: str):
+    """작업 단위 하나의 이웃 조회 (성좌 드릴인용).
+
+    성좌 뷰는 위성을 최신 N개로 자르므로 오래된 작업은 별성만 있고 위성이 비어 있다.
+    그 성좌를 열 때 이 조회로 해당 작업의 이웃만 채운다. {nodes, edges} 반환.
+    """
+    return await get_work_unit_neighborhood(project_id, node_id)
 
 
 @router.get("/graph/search")

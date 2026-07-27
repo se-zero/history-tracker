@@ -26,6 +26,8 @@ interface Props {
   selectedId: string | null;
   onSelect: (node: GraphNode) => void;
   onBackgroundClick: () => void;
+  /** 성좌를 열 때 그 작업 단위의 이웃을 채워 달라는 요청 (드릴인 지연 로딩). */
+  onExpandWorkUnit?: (nodeId: string) => void;
 }
 
 /** 화면에 맞추는 기본 배율에 곱하는 여백 계수. */
@@ -145,6 +147,7 @@ export function ConstellationVis({
   selectedId,
   onSelect,
   onBackgroundClick,
+  onExpandWorkUnit,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -163,6 +166,8 @@ export function ConstellationVis({
 
   const [hovered, setHovered] = useState<GraphNode | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
+  // 열린 성좌의 도달 반경 — 드릴인으로 위성이 늘어 커졌는지 판단해 카메라를 다시 맞춘다.
+  const focusedReachRef = useRef<number | null>(null);
 
   useEffect(() => {
     selectedRef.current = selectedId;
@@ -171,10 +176,17 @@ export function ConstellationVis({
     focusedRef.current = focused;
   }, [focused]);
 
+  // 직전 배치의 별성 좌표. 드릴인으로 위성이 늘어도 은하가 재배치되지 않도록 고정에 쓴다.
+  const starPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const layout = useMemo(
-    () => buildConstellations(nodes, edges, workUnitIds),
+    () => buildConstellations(nodes, edges, workUnitIds, starPosRef.current),
     [nodes, edges, workUnitIds],
   );
+  useEffect(() => {
+    const positions = new Map<string, { x: number; y: number }>();
+    for (const star of layout.stars) positions.set(star.node.id, { x: star.x, y: star.y });
+    starPosRef.current = positions;
+  }, [layout]);
   const starfield = useMemo(() => makeStarfield(140), []);
 
   // 확대 상한은 그래프 규모·뷰포트에 따라 달라진다. 휠 핸들러가 [] deps라 ref로 전달한다.
@@ -263,12 +275,15 @@ export function ConstellationVis({
     return () => ro.disconnect();
   }, []);
 
-  // 성좌가 바뀌면 열려 있던 포커스는 의미가 없다.
+  // 그래프가 바뀌면 열려 있던 포커스는 의미가 없다.
+  // 판정 기준을 layout이 아니라 작업 단위 목록으로 둔다 — 드릴인으로 위성만 늘어난 경우엔
+  // layout 객체가 새로 만들어져도 보고 있던 성좌를 닫으면 안 된다.
+  const workSignature = workUnitIds.join("|");
   useEffect(() => {
     setFocused(null);
     targetRef.current = null;
     viewRef.current = { k: 1, tx: 0, ty: 0 };
-  }, [layout]);
+  }, [workSignature]);
 
   // React의 onWheel은 passive라 preventDefault가 먹지 않는다 — native로 직접 붙인다.
   // 래퍼가 아니라 캔버스에 붙이는 게 중요하다. 래퍼에 붙이면 위에 얹힌 상세 패널에서
@@ -309,14 +324,27 @@ export function ConstellationVis({
       const s = base * k;
       targetRef.current = { k, tx: PANEL_SHIFT - star.x * s, ty: -star.y * s };
       setFocused(index);
+      // 위성이 아직 없는 성좌(최신 창 밖의 오래된 작업)를 채워 달라고 알린다.
+      onExpandWorkUnit?.(star.node.id);
     },
-    [layout, size],
+    [layout, size, onExpandWorkUnit],
   );
 
   const exitFocus = useCallback(() => {
     setFocused(null);
+    focusedReachRef.current = null;
     targetRef.current = { k: 1, tx: 0, ty: 0 };
   }, []);
+
+  // 드릴인으로 위성이 채워지면 성좌가 커진다 — 새 위성이 화면 밖에 놓이지 않게 다시 맞춘다.
+  useEffect(() => {
+    if (focused === null) return;
+    const star = layout.stars[focused];
+    if (!star) return;
+    const prev = focusedReachRef.current;
+    focusedReachRef.current = star.reach;
+    if (prev !== null && Math.abs(star.reach - prev) > 1) focusOn(focused);
+  }, [layout, focused, focusOn]);
 
   // ESC로 성좌에서 빠져나온다.
   useEffect(() => {

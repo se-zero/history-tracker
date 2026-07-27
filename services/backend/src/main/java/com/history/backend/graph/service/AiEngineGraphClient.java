@@ -71,6 +71,25 @@ public class AiEngineGraphClient {
         }
     }
 
+    // 성좌 드릴인 — 작업 단위 하나의 이웃만 조회한다 (위성이 비어 있는 오래된 성좌를 채울 때).
+    // nodeId는 Neo4j elementId라 콜론을 포함한다 — URI 템플릿 변수로 넘겨 strict 인코딩되게 한다.
+    public GraphResponse fetchWorkUnit(UUID projectId, String nodeId) {
+        try {
+            GraphResponse response = aiEngineRestClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/graph/work-unit")
+                            .queryParam("project_id", projectId)
+                            .queryParam("node_id", "{nodeId}")
+                            .build(nodeId))
+                    .retrieve()
+                    .body(GraphResponse.class);
+            return normalize(response);
+        } catch (RestClientException exception) {
+            log.error("ai-engine graph work-unit request failed: {}", exception.getMessage());
+            throw new BadGatewayException("Failed to load work unit neighborhood.");
+        }
+    }
+
     // 그래프 노드 키워드 검색 — full-text 인덱스로 프로젝트 전체 그래프를 검색한다 (통합 검색용).
     // q는 URI 템플릿 변수로 전달한다 — 사용자 입력의 예약 문자('+', '&' 등)까지 strict 인코딩되도록.
     public GraphSearchResponse searchNodes(UUID projectId, String q, Integer limit) {

@@ -143,10 +143,16 @@ interface StarSim extends SimulationNodeDatum {
   reach: number;
 }
 
+/**
+ * @param frozen 이미 자리를 잡은 별성의 좌표. 드릴인으로 위성을 나중에 채울 때,
+ *   이 좌표를 고정하지 않으면 시뮬레이션이 다시 돌아 사용자가 보고 있던 은하가
+ *   통째로 재배치된다. 전부 고정되면 시뮬레이션 자체를 건너뛴다.
+ */
 export function buildConstellations(
   nodes: GraphNode[],
   edges: GraphEdge[],
   workUnitIds?: readonly string[],
+  frozen?: ReadonlyMap<string, { x: number; y: number }>,
 ): ConstellationLayout {
   const isStar = resolveStarPredicate(workUnitIds);
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -261,7 +267,7 @@ export function buildConstellations(
   for (const star of stars) layoutSatellites(star);
 
   const bridges = [...bridgeMap.values()];
-  simulateStars(stars, bridges);
+  simulateStars(stars, bridges, frozen);
 
   // 위성 좌표를 별성 위치 기준 절대 좌표로 확정한다.
   for (const star of stars) {
@@ -317,16 +323,34 @@ function layoutSatellites(star: Star): void {
 }
 
 /** 별성만 대상으로 force 시뮬레이션을 돌린다 — 대상이 적어 빠르고 안정적이다. */
-function simulateStars(stars: Star[], bridges: Bridge[]): void {
+function simulateStars(
+  stars: Star[],
+  bridges: Bridge[],
+  frozen?: ReadonlyMap<string, { x: number; y: number }>,
+): void {
   if (stars.length === 0) return;
 
-  const simNodes: StarSim[] = stars.map((s, i) => ({
-    id: String(i),
-    reach: s.reach,
-    // 초기 위치를 원형으로 흩어 두면 대칭 붕괴 없이 빨리 자리를 잡는다.
-    x: Math.cos((i / stars.length) * Math.PI * 2) * 300,
-    y: Math.sin((i / stars.length) * Math.PI * 2) * 300,
-  }));
+  const simNodes: StarSim[] = stars.map((s, i) => {
+    const fixed = frozen?.get(s.node.id);
+    return {
+      id: String(i),
+      reach: s.reach,
+      // 이미 자리를 잡았던 별성은 fx/fy로 못 박아 두어 위치가 유지된다.
+      x: fixed?.x ?? Math.cos((i / stars.length) * Math.PI * 2) * 300,
+      y: fixed?.y ?? Math.sin((i / stars.length) * Math.PI * 2) * 300,
+      fx: fixed?.x,
+      fy: fixed?.y,
+    };
+  });
+
+  // 전부 고정이면 돌릴 이유가 없다 — 드릴인으로 위성만 늘어난 경우가 여기 해당한다.
+  if (simNodes.every((n) => n.fx !== undefined)) {
+    stars.forEach((star, i) => {
+      star.x = simNodes[i].x ?? 0;
+      star.y = simNodes[i].y ?? 0;
+    });
+    return;
+  }
 
   const links: SimulationLinkDatum<StarSim>[] = bridges.map((b) => ({
     source: String(b.a),

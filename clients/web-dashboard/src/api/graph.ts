@@ -37,6 +37,20 @@ export async function getProjectConstellation(
   };
 }
 
+// 성좌 드릴인 — 작업 단위 하나의 이웃만 가져온다.
+// 성좌 뷰는 위성을 최신 N개로 자르므로 오래된 작업은 별성만 있고 위성이 비어 있는데,
+// 그 성좌를 열 때 이걸로 채운다.
+export async function getWorkUnitNeighborhood(
+  projectId: string,
+  nodeId: string,
+): Promise<GraphData> {
+  const { data } = await api.get<GraphData>(
+    `/projects/${projectId}/graph/work-unit`,
+    { params: { nodeId } },
+  );
+  return { nodes: data.nodes ?? [], edges: data.edges ?? [] };
+}
+
 // 통합 검색 — full-text 인덱스로 프로젝트 그래프 전체에서 노드 검색.
 // overview가 최근 활동 top-N만 내리는 것과 달리 전체를 대상으로 하므로,
 // 반환된 노드가 그래프 화면에 로드돼 있지 않을 수 있다.

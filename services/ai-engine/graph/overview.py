@@ -417,6 +417,77 @@ async def get_constellation_view(
     return {"nodes": nodes, "edges": edges, "work_unit_ids": work_unit_ids}
 
 
+# ── 작업 단위 이웃 조회 (성좌 드릴인) ─────────────────────────────────────────
+# 성좌 뷰는 위성을 최신 limit개로 자르므로, 오래된 작업은 별성만 있고 위성이 없다.
+# 그 성좌를 열 때 이 조회로 해당 작업의 이웃만 따로 채운다.
+#
+# 관계 타입을 명시해 확장한다 — 무타입 가변길이(*1..3)로 뻗으면 파일 같은 허브를 거쳐
+# 다른 작업의 커밋까지 딸려와 결과가 폭주한다.
+_WORK_UNIT_NODE_LIMIT = 400
+
+_WORK_UNIT_NEIGHBORHOOD_QUERY = f"""
+MATCH (w) WHERE elementId(w) = $node_id AND w.project_id = $project_id
+CALL (w) {{
+    // 1홉 — 작업 단위에 직접 매달린 content (PR→커밋, 이슈→커밋·대화)
+    MATCH (w)-[:CONTAINS|TRIGGERED_BY|DISCUSSED_IN|REFERENCE|CHILD_OF]-(a)
+    WHERE a.project_id = $project_id
+    RETURN collect(DISTINCT a) AS h1
+}}
+CALL (h1) {{
+    // 2홉 — 커밋이 건드린 파일, 커밋이 가리키는 이슈·대화
+    UNWIND h1 AS n
+    MATCH (n)-[:MODIFIED|TRIGGERED_BY|DISCUSSED_IN|REFERENCE]-(b)
+    WHERE b.project_id = $project_id
+    RETURN collect(DISTINCT b) AS h2
+}}
+CALL (h2) {{
+    // 3홉 — 이슈를 거쳐야 닿는 대화 (DISCUSSED_IN)
+    UNWIND h2 AS n
+    MATCH (n)-[:DISCUSSED_IN]-(c)
+    WHERE c.project_id = $project_id
+    RETURN collect(DISTINCT c) AS h3
+}}
+WITH [w] + h1 + h2 + h3 AS found
+UNWIND found AS n
+WITH DISTINCT n
+WHERE NOT n:Actor
+WITH n LIMIT $node_limit
+RETURN {_NODE_RETURN_FIELDS}
+"""
+
+
+async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
+    """작업 단위 하나의 이웃을 {nodes, edges}로 반환한다 (성좌 드릴인용).
+
+    반환 집합에는 공유 노드(주로 파일)도 포함되므로, 클라이언트가 기존 그래프에 합치면
+    이미 로드된 다른 성좌와의 다리도 그 공유 노드를 통해 자연스럽게 이어진다.
+    """
+    if not project_id or not node_id:
+        return {"nodes": [], "edges": []}
+
+    async with get_driver().session() as session:
+        node_result = await session.run(
+            _WORK_UNIT_NEIGHBORHOOD_QUERY,
+            node_id=node_id,
+            project_id=project_id,
+            node_limit=_WORK_UNIT_NODE_LIMIT,
+        )
+        node_rows = await node_result.data()
+        if not node_rows:
+            return {"nodes": [], "edges": []}
+
+        edge_result = await session.run(_EDGE_QUERY, ids=[r["id"] for r in node_rows])
+        edge_rows = await edge_result.data()
+
+    nodes = [_to_graph_node(r) for r in node_rows]
+    edges = [[r["source"], r["target"]] for r in edge_rows]
+    logger.info(
+        "work-unit project=%s node=%s nodes=%d edges=%d",
+        project_id, node_id, len(nodes), len(edges),
+    )
+    return {"nodes": nodes, "edges": edges}
+
+
 # ── 답변 evidence → 관련 서브그래프 ────────────────────────────────────────────
 # 채팅 답변의 evidence는 도메인 키로 노드를 가리킨다(commit→hash 앞 7자, pull_request→
 # "#번호", issue→jira_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로
