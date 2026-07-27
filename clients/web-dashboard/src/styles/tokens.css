@@ -31,6 +31,158 @@
   --node-code:     oklch(0.65 0.02 250);   /* gray */
 
   --primary-hue: 250;
+
+  /* ── Landing (docs/DESIGN.md) ──────────────────────────────
+     랜딩 전용 토큰. --lp- 프리픽스로 기존 앱 토큰과 격리한다.
+     앱이 DESIGN.md로 마이그레이션할 때 프리픽스를 떼서 그대로 승격한다.
+     hex 정본은 docs/DESIGN.md.
+     --------------------------------------------------------- */
+  --lp-surface-0: #0B0D10;
+  --lp-surface-1: #111419;
+  --lp-surface-2: #171B21;
+  --lp-surface-3: #1E232B;
+  /* surface-0보다 한 칸 더 깊은 그래프 캔버스 전용 층 — 노드가 떠 보이게 한다.
+     순수 #000 금지 원칙 준수, 틴트 유지(surface-0과 같은 블루 틴트 계열). 기존 토큰
+     변경이 아니라 추가다 — 히어로 풀블리드 그래프 배경에서 surface-0 섹션과의 경계를
+     색차만으로 만들기 위한 값. */
+  --lp-surface-canvas: #07090C;
+  --lp-border: #262B33;
+  --lp-border-strong: #333A44;
+
+  --lp-text-primary: #E6E9EE;
+  --lp-text-secondary: #9BA3AE;
+  --lp-text-muted: #5C6672;
+
+  --lp-accent: #EBA23C;
+  --lp-accent-hover: #F4B455;
+  --lp-accent-pressed: #D18D26;
+  /* 앰버 2단 매핑(라이트 테마 도입, DESIGN.md "라이트 테마에서 앰버는 구조적으로 까다롭다"
+     구현 노트) — 채움(면)은 --lp-accent, 선·스트로크·텍스트·링은 --lp-accent-ink.
+     다크에서는 두 값이 동일해 시각 변화가 없고, 라이트에서만 ink가 대비를 확보한
+     어두운 앰버(코퍼)로 갈라진다. 그래프 점등 경로·링, focus ring 등이 ink를 참조한다. */
+  --lp-accent-ink: #EBA23C;
+  --lp-accent-soft: rgba(235, 162, 60, 0.14);
+  --lp-accent-glow: rgba(235, 162, 60, 0.45);
+
+  /* 그래프 엣지 전용 토큰 — 지금까지 그래프 엣지(.lp-c-edge 등)가 빌려 쓰던
+     border-strong(#333A44)과 같은 값의 토큰화(다크 시각 변화 없음). 라이트에서 UI 헤어라인
+     (보더)과 그래프 엣지가 서로 다른 값을 가져야 해서 네임스페이스를 분리한다. */
+  --lp-graph-edge: #333A44;
+
+  --lp-node-commit: #6FB58A;
+  --lp-node-pr: #5FA8B5;
+  --lp-node-issue: #C97A5A;
+  --lp-node-slack: #A88BC4;
+  --lp-node-jira: #7C93C9;
+  --lp-node-person: #C77D9E;
+  --lp-node-file: #7E8794;
+
+  /* 들린 표면(카드·슬롯) 상단 엣지 하이라이트 — 위에서 빛을 받는 질감을 위한 1px 흰색
+     저알파 인셋. 드롭섀도는 쓰지 않는다(깊이는 surface 사다리·헤어라인으로만) — 이건
+     그 원칙과 별개로 "빛의 방향"만 표현하는 장식 토큰이다. 앱 리스타일에도 재사용할
+     규칙이라 토큰화한다. */
+  --lp-edge-highlight: rgba(255, 255, 255, 0.06);
+
+  /* 그림자 — 다크는 none(깊이는 surface 사다리·헤어라인·edge-highlight로만, DESIGN.md).
+     라이트에서는 surface 사다리가 흰색 부근으로 수렴해 elevation을 잃으므로 그림자가
+     그 역할을 넘겨받는다(라이트 블록에서 오버라이드). */
+  --lp-shadow-sm: none;
+  --lp-shadow-md: none;
+  --lp-shadow-lg: none;
+
+  /* ── 시맨틱 (시스템 상태 전용 — 노드 지시에는 쓰지 않는다) ────────
+     DESIGN.md 네임스페이스 규칙: success는 node-commit과 hex가 같지만 별도 네임스페이스라
+     충돌하지 않는다(같은 초록이 노드 옆이면 "커밋", 상태 라벨 옆이면 "정상"). 정의된 값의
+     추가일 뿐 기존 토큰 변경이 아니다 — success만 추가한다(다른 시맨틱은 이번 범위 밖).
+     --------------------------------------------------------- */
+  --lp-success: #6FB58A;
+
+  --lp-font-display: "Space Grotesk", "Wanted Sans Variable", "Wanted Sans", sans-serif;
+  --lp-font-body: "General Sans", "Pretendard Variable", Pretendard, sans-serif;
+  --lp-font-mono: "JetBrains Mono", "D2Coding", monospace;
+
+  --lp-r-sm: 6px;
+  --lp-r-md: 10px;
+  --lp-r-lg: 16px;
+  --lp-r-pill: 999px;
+
+  --lp-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --lp-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* DESIGN.md 모션 섹션에 정의만 있고 아직 tokens.css에 없던 값 — 추가만 한다(기존 토큰 변경 아님). */
+  --lp-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --lp-dur-fast: 120ms;
+  --lp-dur-base: 220ms;
+  --lp-dur-slow: 420ms;
+
+  /* ── 브랜드 로고 (커넥터 아이콘 전용) ────────────────────────
+     외부 브랜드 자산 — --lp-* 팔레트와 별개 네임스페이스. 앰버 독점 규칙 비대상
+     (커넥터 로고 전용). 각 서비스의 공식 브랜드 가이드라인 hex를 그대로 옮긴다.
+     --------------------------------------------------------- */
+  --brand-github: #FFFFFF;       /* GitHub Invertocat — 다크 배경용 흰색 변형 */
+  --brand-jira: #2684FF;         /* Jira 공식 그라데이션 — 밝은 블루 */
+  --brand-jira-deep: #0052CC;    /* Jira 공식 그라데이션 — 딥 블루 */
+  --brand-slack-blue: #36C5F0;
+  --brand-slack-green: #2EB67D;
+  --brand-slack-yellow: #ECB22E; /* 앰버(#EBA23C)와 근접하나 외부 브랜드 자산이라 앰버 독점 규칙 비대상 */
+  --brand-slack-red: #E01E5A;
+}
+
+/* ── Landing 라이트 테마 오버라이드 ─────────────────────────────
+   랜딩 전용 토글(LandingPage의 React 상태)이 붙이는 .lp[data-theme="light"] 스코프 —
+   전역 [data-theme="light"](앱 ThemeProvider가 documentElement에 붙이는 값)에 넣지
+   않는 이유: 앱 테마가 light인 사용자가 랜딩에 오면 랜딩 자체 토글과 무관하게 라이트가
+   새기 때문이다. body:has(...) 셀렉터는 오버스크롤 배경(landing.css의 body:has(.lp))이
+   같은 팔레트를 보도록 토큰을 body 레벨에도 올린다(커스텀 프로퍼티는 상속되므로 랜딩
+   서브트리 전체가 이 값을 받는다). 다크 값(:root)은 변경하지 않는다 — 추가만.
+   라이트에서 표면 사다리는 아래로 어두워지는 대신 회색으로 깊어진다(canvas가 가장 회색,
+   surface-2/3이 흰색) — 깊이는 그림자 토큰이 넘겨받는다. */
+.lp[data-theme="light"],
+body:has(.lp[data-theme="light"]) {
+  --lp-surface-canvas: #EDEFF2;
+  --lp-surface-0: #FAFAFB;
+  --lp-surface-1: #F4F5F7;
+  --lp-surface-2: #FFFFFF;
+  --lp-surface-3: #FFFFFF;
+  --lp-border: #E6E9ED;
+  --lp-border-strong: #D4D9E0;
+
+  --lp-text-primary: #171A1F;
+  --lp-text-secondary: #4A515A;
+  --lp-text-muted: #6E7683;
+
+  /* --lp-accent(채움)은 라이트에서도 #EBA23C 유지 — 오버라이드하지 않는다.
+     hover/pressed는 라이트에서 어두워지는 방향(밝아지면 흰 배경에 묻힌다). */
+  --lp-accent-hover: #DE9630;
+  --lp-accent-pressed: #C9821F;
+  /* 잉크(선·스트로크·텍스트·링) — 흰 배경에서 대비를 확보한 어두운 앰버(코퍼).
+     DESIGN.md 구현 노트: "액센트 hue의 명도만 낮춰 재사용하지 않는다"의 그 별도 변수다. */
+  --lp-accent-ink: #B3550B;
+  --lp-accent-soft: rgba(179, 85, 11, 0.1);
+  /* 라이트에서 글로우는 성립하지 않는다 — 소프트 링 수준의 저투명 틴트로 약화. */
+  --lp-accent-glow: rgba(179, 85, 11, 0.22);
+
+  --lp-node-commit: #2F7D54;
+  --lp-node-pr: #1F7A8C;
+  --lp-node-issue: #AC4A2E;
+  --lp-node-slack: #7A5CA8;
+  --lp-node-jira: #4C67A9;
+  --lp-node-person: #A4517A;
+  --lp-node-file: #6F7987;
+  --lp-graph-edge: #C6CCD4;
+
+  /* 위에서 빛 받는 인셋 하이라이트는 다크 표면의 질감 — 라이트에서는 무의미하므로 끈다. */
+  --lp-edge-highlight: transparent;
+
+  --lp-success: #2F7D54;
+
+  --lp-shadow-sm: 0 1px 2px rgba(13, 16, 20, 0.05), 0 2px 8px rgba(13, 16, 20, 0.04);
+  --lp-shadow-md: 0 2px 4px rgba(13, 16, 20, 0.04), 0 12px 32px -8px rgba(13, 16, 20, 0.1);
+  --lp-shadow-lg: 0 4px 8px rgba(13, 16, 20, 0.04), 0 32px 80px -24px rgba(13, 16, 20, 0.16);
+
+  /* GitHub 마크는 다크 배경용 흰색 변형이라 라이트(흰 카드)에서 보이지 않는다 — 잠정으로
+     라이트 잉크(text-primary #171A1F, GitHub 공식 다크 마크 #181717과 사실상 동일 톤)로
+     대체한다. 공식 hex 승인은 별도 확인 필요(팔레트 표 밖 신규 hex 도입 금지 규칙). */
+  --brand-github: var(--lp-text-primary);
 }
 
 /* light theme */
