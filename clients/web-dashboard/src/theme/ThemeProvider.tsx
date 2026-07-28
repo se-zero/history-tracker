@@ -24,8 +24,15 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readInitialTheme);
 
-  useEffect(() => {
+  // 렌더 중에 적용한다. effect로 미루면, 렌더 단계에서 getComputedStyle로 CSS 토큰을
+  // 읽는 자식(그래프 캔버스가 그렇다)이 아직 바뀌지 않은 직전 테마의 값을 읽는다.
+  // 그 값이 새 테마 키로 캐시되면 테마를 바꿔도 색이 따라오지 않는다.
+  // DOM 속성 하나만 건드리는 멱등 연산이라 렌더 중 실행해도 안전하다.
+  if (typeof document !== "undefined") {
     document.documentElement.dataset.theme = theme;
+  }
+
+  useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 

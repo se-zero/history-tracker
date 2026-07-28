@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
+import com.history.backend.graph.dto.GraphConstellationResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
@@ -24,6 +25,21 @@ public class GraphService {
     public GraphResponse getProjectGraph(UUID ownerId, UUID projectId, Integer limit, String types) {
         projectService.getProject(ownerId, projectId);
         return aiEngineGraphClient.fetchOverview(projectId, limit, types);
+    }
+
+    // 소유권 검증 후 성좌 뷰용 조회를 프록시한다 (작업 성좌 화면용).
+    public GraphConstellationResponse getConstellation(UUID ownerId, UUID projectId, Integer limit) {
+        projectService.getProject(ownerId, projectId);
+        return aiEngineGraphClient.fetchConstellation(projectId, limit);
+    }
+
+    // 소유권 검증 후 성좌 드릴인 조회를 프록시한다. 빈 nodeId는 ai-engine 왕복 없이 빈 결과.
+    public GraphResponse getWorkUnit(UUID ownerId, UUID projectId, String nodeId) {
+        projectService.getProject(ownerId, projectId);
+        if (nodeId == null || nodeId.isBlank()) {
+            return GraphResponse.empty();
+        }
+        return aiEngineGraphClient.fetchWorkUnit(projectId, nodeId.trim());
     }
 
     // 소유권 검증 후 그래프 노드 키워드 검색을 프록시한다 (통합 검색용). 빈 질의는 ai-engine 왕복 없이 빈 결과.

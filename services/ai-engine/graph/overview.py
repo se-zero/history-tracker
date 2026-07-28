@@ -296,6 +296,198 @@ async def get_project_overview(
     return {"nodes": nodes, "edges": edges}
 
 
+# ── 성좌 뷰 조회 ──────────────────────────────────────────────────────────────
+# overview("최근 활동 top-N")와 계약이 다르다.
+#
+# 성좌 뷰는 작업 단위를 큰 노드(별성)로 두고 그에 딸린 것들을 주위에 배치한다.
+# 별성은 그림의 골격이라 하나라도 빠지면 화면 자체가 틀린 그림이 된다 —
+# 실제로 타입 구분 없이 최신 200개를 자르면 PR 56개 중 19개만 남았다.
+# 반면 위성(commit/file/논의)은 최근 것만 있어도 충분하다.
+#
+# 그래서 "완전성이 필요한 것"과 "밀도가 필요한 것"을 분리해 조회한다:
+#   작업 단위는 전량(상한 WORK_UNIT_MAX) · 위성은 최신 limit개 → 합집합.
+# 작업 단위 수는 보통 수십 개라 전량으로 가져와도 비용이 거의 없다.
+
+CONSTELLATION_DEFAULT_LIMIT = 400
+CONSTELLATION_MAX_LIMIT = 800
+WORK_UNIT_MAX = 300
+
+# 작업 단위 후보 라벨 — 앞선 라벨이 0건이면 다음으로 넘어간다.
+# PR은 base 브랜치 기준으로 수집되므로(pipeline-worker) 연동 브랜치가 feature 브랜치면
+# PullRequest가 0건일 수 있다. 그 경우 별성이 하나도 없어 화면이 무너지므로 Issue로 폴백한다.
+_WORK_UNIT_LABELS = ("PullRequest", "Issue", "ChangeSet")
+
+# 최신 content 노드 — overview와 같은 기준(occurredAt 역순)이다.
+_RECENT_CONTENT_QUERY = f"""
+MATCH (n)
+WHERE n.project_id = $project_id
+  AND ({_ALL_CONTENT_PRED})
+WITH n ORDER BY n.occurredAt DESC LIMIT $limit
+RETURN {_NODE_RETURN_FIELDS}
+"""
+
+
+def _work_unit_query(label: str) -> str:
+    """작업 단위 전량 조회. label은 _WORK_UNIT_LABELS의 고정 값이라 인젝션 위험 없음."""
+    return f"""
+MATCH (n:{label})
+WHERE n.project_id = $project_id
+WITH n ORDER BY n.occurredAt DESC LIMIT $work_limit
+RETURN {_NODE_RETURN_FIELDS}
+"""
+
+
+# content 노드에 매달린 Actor/File만 확장한다 (overview의 이웃 확장과 동일 기준).
+_NEIGHBOR_BY_IDS_QUERY = f"""
+MATCH (c) WHERE elementId(c) IN $ids
+OPTIONAL MATCH (c)--(nb)
+WHERE ({_ALL_EXPANSION_PRED}) AND nb.project_id = $project_id
+WITH DISTINCT nb AS n
+WHERE n IS NOT NULL
+RETURN {_NODE_RETURN_FIELDS}
+"""
+
+
+async def get_constellation_view(
+    project_id: str,
+    limit: int = CONSTELLATION_DEFAULT_LIMIT,
+) -> dict:
+    """성좌 뷰용 그래프를 {nodes, edges, work_unit_ids}로 반환한다.
+
+    work_unit_ids는 별성으로 그릴 노드 id 목록이다. 어떤 라벨이 작업 단위인지는
+    서버가 정해서 알려준다 — 프론트가 노드 타입을 하드코딩하면 PR이 0건인 프로젝트에서
+    별성이 사라지고, 나중에 작업 단위 정의가 바뀔 때도 양쪽을 같이 고쳐야 한다.
+    """
+    if not project_id:
+        return {"nodes": [], "edges": [], "work_unit_ids": []}
+    limit = max(1, min(limit, CONSTELLATION_MAX_LIMIT))
+
+    async with get_driver().session() as session:
+        # 작업 단위 — 첫 번째로 0건이 아닌 라벨을 쓴다.
+        work_rows: list[dict] = []
+        work_label = ""
+        for label in _WORK_UNIT_LABELS:
+            result = await session.run(
+                _work_unit_query(label), project_id=project_id, work_limit=WORK_UNIT_MAX
+            )
+            work_rows = await result.data()
+            if work_rows:
+                work_label = label
+                break
+
+        recent_result = await session.run(
+            _RECENT_CONTENT_QUERY, project_id=project_id, limit=limit
+        )
+        recent_rows = await recent_result.data()
+
+        # 합집합 — 작업 단위를 앞에 두고, 이미 담긴 id는 건너뛴다.
+        content_rows = list(work_rows)
+        seen = {r["id"] for r in content_rows}
+        for row in recent_rows:
+            if row["id"] not in seen:
+                seen.add(row["id"])
+                content_rows.append(row)
+
+        if not content_rows:
+            return {"nodes": [], "edges": [], "work_unit_ids": []}
+
+        content_ids = [r["id"] for r in content_rows]
+        neighbor_result = await session.run(
+            _NEIGHBOR_BY_IDS_QUERY, ids=content_ids, project_id=project_id
+        )
+        neighbor_rows = await neighbor_result.data()
+
+        node_rows = list(content_rows)
+        for row in neighbor_rows:
+            if row["id"] not in seen:
+                seen.add(row["id"])
+                node_rows.append(row)
+
+        edge_result = await session.run(_EDGE_QUERY, ids=[r["id"] for r in node_rows])
+        edge_rows = await edge_result.data()
+
+    nodes = [_to_graph_node(r) for r in node_rows]
+    edges = [[r["source"], r["target"]] for r in edge_rows]
+    work_unit_ids = [r["id"] for r in work_rows]
+
+    logger.info(
+        "constellation project=%s nodes=%d edges=%d works=%d(%s) (limit=%d)",
+        project_id, len(nodes), len(edges), len(work_unit_ids), work_label or "none", limit,
+    )
+    return {"nodes": nodes, "edges": edges, "work_unit_ids": work_unit_ids}
+
+
+# ── 작업 단위 이웃 조회 (성좌 드릴인) ─────────────────────────────────────────
+# 성좌 뷰는 위성을 최신 limit개로 자르므로, 오래된 작업은 별성만 있고 위성이 없다.
+# 그 성좌를 열 때 이 조회로 해당 작업의 이웃만 따로 채운다.
+#
+# 관계 타입을 명시해 확장한다 — 무타입 가변길이(*1..3)로 뻗으면 파일 같은 허브를 거쳐
+# 다른 작업의 커밋까지 딸려와 결과가 폭주한다.
+_WORK_UNIT_NODE_LIMIT = 400
+
+_WORK_UNIT_NEIGHBORHOOD_QUERY = f"""
+MATCH (w) WHERE elementId(w) = $node_id AND w.project_id = $project_id
+CALL (w) {{
+    // 1홉 — 작업 단위에 직접 매달린 content (PR→커밋, 이슈→커밋·대화)
+    MATCH (w)-[:CONTAINS|TRIGGERED_BY|DISCUSSED_IN|REFERENCE|CHILD_OF]-(a)
+    WHERE a.project_id = $project_id
+    RETURN collect(DISTINCT a) AS h1
+}}
+CALL (h1) {{
+    // 2홉 — 커밋이 건드린 파일, 커밋이 가리키는 이슈·대화
+    UNWIND h1 AS n
+    MATCH (n)-[:MODIFIED|TRIGGERED_BY|DISCUSSED_IN|REFERENCE]-(b)
+    WHERE b.project_id = $project_id
+    RETURN collect(DISTINCT b) AS h2
+}}
+CALL (h2) {{
+    // 3홉 — 이슈를 거쳐야 닿는 대화 (DISCUSSED_IN)
+    UNWIND h2 AS n
+    MATCH (n)-[:DISCUSSED_IN]-(c)
+    WHERE c.project_id = $project_id
+    RETURN collect(DISTINCT c) AS h3
+}}
+WITH [w] + h1 + h2 + h3 AS found
+UNWIND found AS n
+WITH DISTINCT n
+WHERE NOT n:Actor
+WITH n LIMIT $node_limit
+RETURN {_NODE_RETURN_FIELDS}
+"""
+
+
+async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
+    """작업 단위 하나의 이웃을 {nodes, edges}로 반환한다 (성좌 드릴인용).
+
+    반환 집합에는 공유 노드(주로 파일)도 포함되므로, 클라이언트가 기존 그래프에 합치면
+    이미 로드된 다른 성좌와의 다리도 그 공유 노드를 통해 자연스럽게 이어진다.
+    """
+    if not project_id or not node_id:
+        return {"nodes": [], "edges": []}
+
+    async with get_driver().session() as session:
+        node_result = await session.run(
+            _WORK_UNIT_NEIGHBORHOOD_QUERY,
+            node_id=node_id,
+            project_id=project_id,
+            node_limit=_WORK_UNIT_NODE_LIMIT,
+        )
+        node_rows = await node_result.data()
+        if not node_rows:
+            return {"nodes": [], "edges": []}
+
+        edge_result = await session.run(_EDGE_QUERY, ids=[r["id"] for r in node_rows])
+        edge_rows = await edge_result.data()
+
+    nodes = [_to_graph_node(r) for r in node_rows]
+    edges = [[r["source"], r["target"]] for r in edge_rows]
+    logger.info(
+        "work-unit project=%s node=%s nodes=%d edges=%d",
+        project_id, node_id, len(nodes), len(edges),
+    )
+    return {"nodes": nodes, "edges": edges}
+
+
 # ── 답변 evidence → 관련 서브그래프 ────────────────────────────────────────────
 # 채팅 답변의 evidence는 도메인 키로 노드를 가리킨다(commit→hash 앞 7자, pull_request→
 # "#번호", issue→jira_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로

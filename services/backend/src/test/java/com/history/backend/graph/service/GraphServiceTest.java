@@ -15,6 +15,7 @@ import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
+import com.history.backend.graph.dto.GraphConstellationResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
@@ -215,6 +216,71 @@ class GraphServiceTest {
                 .when(projectService).getProject(USER_ID, PROJECT_ID);
 
         assertThatThrownBy(() -> graphService.getGraphActivity(USER_ID, PROJECT_ID))
+                .isInstanceOf(ForbiddenException.class);
+
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("소유권 확인 후 성좌 뷰 조회")
+    void fetchesConstellationAfterOwnershipCheck() {
+        GraphConstellationResponse expected = GraphConstellationResponse.empty();
+        when(aiEngineGraphClient.fetchConstellation(PROJECT_ID, 400)).thenReturn(expected);
+
+        GraphConstellationResponse result = graphService.getConstellation(USER_ID, PROJECT_ID, 400);
+
+        assertThat(result).isSameAs(expected);
+        // 소유권 검증이 ai-engine 호출보다 먼저 일어나야 한다
+        InOrder inOrder = inOrder(projectService, aiEngineGraphClient);
+        inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).fetchConstellation(PROJECT_ID, 400);
+    }
+
+    @Test
+    @DisplayName("성좌 뷰 조회 — 소유권 검증 실패 시 ai-engine 미호출")
+    void doesNotFetchConstellationWhenOwnershipCheckFails() {
+        doThrow(new ForbiddenException("Project access denied."))
+                .when(projectService).getProject(USER_ID, PROJECT_ID);
+
+        assertThatThrownBy(() -> graphService.getConstellation(USER_ID, PROJECT_ID, null))
+                .isInstanceOf(ForbiddenException.class);
+
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("소유권 확인 후 작업 단위 이웃 조회 (nodeId는 trim해 전달)")
+    void fetchesWorkUnitAfterOwnershipCheck() {
+        GraphResponse expected = GraphResponse.empty();
+        when(aiEngineGraphClient.fetchWorkUnit(PROJECT_ID, "4:abc:12")).thenReturn(expected);
+
+        GraphResponse result = graphService.getWorkUnit(USER_ID, PROJECT_ID, " 4:abc:12 ");
+
+        assertThat(result).isSameAs(expected);
+        // 소유권 검증이 ai-engine 호출보다 먼저 일어나야 한다
+        InOrder inOrder = inOrder(projectService, aiEngineGraphClient);
+        inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).fetchWorkUnit(PROJECT_ID, "4:abc:12");
+    }
+
+    @Test
+    @DisplayName("작업 단위 이웃 조회 — 빈 nodeId는 ai-engine 왕복 없이 빈 결과")
+    void returnsEmptyWorkUnitWithoutAiEngineCallForBlankNodeId() {
+        GraphResponse result = graphService.getWorkUnit(USER_ID, PROJECT_ID, "  ");
+
+        assertThat(result.nodes()).isEmpty();
+        // 빈 nodeId여도 인가 게이트는 통과해야 한다
+        verify(projectService).getProject(USER_ID, PROJECT_ID);
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("작업 단위 이웃 조회 — 소유권 검증 실패 시 ai-engine 미호출")
+    void doesNotFetchWorkUnitWhenOwnershipCheckFails() {
+        doThrow(new ForbiddenException("Project access denied."))
+                .when(projectService).getProject(USER_ID, PROJECT_ID);
+
+        assertThatThrownBy(() -> graphService.getWorkUnit(USER_ID, PROJECT_ID, "4:abc:12"))
                 .isInstanceOf(ForbiddenException.class);
 
         verifyNoInteractions(aiEngineGraphClient);

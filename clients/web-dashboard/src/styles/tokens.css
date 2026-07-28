@@ -19,16 +19,22 @@
   /* spacing rhythm */
   --gutter: 16px;
 
-  /* node hues (shared chroma/lightness, hue varied) */
-  --node-c: 0.13;
-  --node-l: 0.62;
-  --node-commit:   oklch(0.62 0.13 150);   /* green */
-  --node-pr:       oklch(0.62 0.13 250);   /* blue */
-  --node-issue:    oklch(0.65 0.14  45);   /* orange */
-  --node-slack:    oklch(0.62 0.13 305);   /* purple */
-  --node-jira:     oklch(0.70 0.13  85);   /* amber */
-  --node-actor:    oklch(0.66 0.14 350);   /* pink */
-  --node-code:     oklch(0.65 0.02 250);   /* gray */
+  /* ── 노드 타입 팔레트 (기본 = 라이트, 다크는 아래에서 재정의) ──────────
+     DESIGN.md의 정본 hex를 oklch로 변환한 값이다(hue만 돌려 파생시키지 않는다).
+
+     채도를 낮춘 "무채도 통일 패밀리"인 이유: 7종이 무지개가 아니라 하나의 시스템으로
+     읽혀야 하고, 그 위로 앰버 액센트(선택·답변 경로)가 항상 튀어야 한다.
+
+     앰버 계열(hue 60~90)은 액센트가 독점한다 — 노드 팔레트는 이 영역에 들어오지 않는다.
+     그래서 node-jira는 앰버가 아니라 slate-blue다(hue 266). 여기를 앰버로 되돌리면
+     "앰버 = 지금 살아있는 것" 신호가 무너진다. */
+  --node-commit:   oklch(0.53 0.101 157);  /* green      #2F7D54 */
+  --node-pr:       oklch(0.54 0.085 214);  /* teal       #1F7A8C */
+  --node-issue:    oklch(0.53 0.136  37);  /* clay       #AC4A2E */
+  --node-slack:    oklch(0.54 0.119 301);  /* mauve      #7A5CA8 */
+  --node-jira:     oklch(0.52 0.109 266);  /* slate-blue #4C67A9 */
+  --node-actor:    oklch(0.55 0.119 351);  /* rose       #A4517A */
+  --node-code:     oklch(0.57 0.025 257);  /* cool grey  #6F7987 — 가장 수가 많아 가장 조용하게 */
 
   --primary-hue: 250;
 
@@ -215,6 +221,19 @@ body:has(.lp[data-theme="light"]) {
   --node-stroke: oklch(0.99 0.003 250);
   --edge:        oklch(0.84 0.008 250);
   --edge-active: oklch(0.55 0.18 var(--primary-hue));
+
+  /* 그래프가 앉는 "우물" — UI 사다리(surface-*)와 별개 층이다.
+     라이트에선 어두워지는 게 아니라 회색으로 가라앉는다. */
+  --surface-canvas: oklch(0.95 0.005 258);  /* #EDEFF2 */
+  /* 엣지 전용 네임스페이스 — border와 값이 갈라진다(엣지가 노이즈가 되지 않게). */
+  --graph-edge:     oklch(0.84 0.013 256);  /* #C6CCD4 */
+
+  /* 액센트 = "라이브 / 실행 / 선택". 라이트에선 2단으로 갈라진다:
+     채움은 앰버 유지, 선·텍스트·링·점등은 대비를 확보한 코퍼(accent-ink). */
+  --accent:      oklch(0.77 0.142 71);      /* #EBA23C */
+  --accent-ink:  oklch(0.56 0.143 50);      /* #B3550B — 코퍼 */
+  --accent-soft: rgb(179 85 11 / 0.10);
+  --accent-glow: rgb(179 85 11 / 0.22);     /* 라이트에서 글로우는 소프트 링 수준 */
 }
 
 [data-theme="dark"] {
@@ -247,14 +266,24 @@ body:has(.lp[data-theme="light"]) {
   --edge:        oklch(0.36 0.012 250);
   --edge-active: oklch(0.72 0.18 var(--primary-hue));
 
-  /* slightly brighter nodes for dark */
-  --node-commit:   oklch(0.72 0.14 150);
-  --node-pr:       oklch(0.72 0.14 250);
-  --node-issue:    oklch(0.74 0.14  45);
-  --node-slack:    oklch(0.72 0.14 305);
-  --node-jira:     oklch(0.80 0.14  85);
-  --node-actor:    oklch(0.76 0.15 350);
-  --node-code:     oklch(0.75 0.02 250);
+  /* 다크 노드 팔레트 — DESIGN.md 정본 hex의 oklch 변환 */
+  --node-commit:   oklch(0.71 0.095 156);  /* green      #6FB58A */
+  --node-pr:       oklch(0.69 0.075 210);  /* teal       #5FA8B5 */
+  --node-issue:    oklch(0.66 0.109  43);  /* clay       #C97A5A */
+  --node-slack:    oklch(0.68 0.088 307);  /* mauve      #A88BC4 */
+  --node-jira:     oklch(0.67 0.085 266);  /* slate-blue #7C93C9 */
+  --node-actor:    oklch(0.68 0.100 352);  /* rose       #C77D9E */
+  --node-code:     oklch(0.62 0.022 257);  /* cool grey  #7E8794 */
+
+  /* 그래프 우물 — 사다리보다 한 칸 더 내린다. 노드가 더 떠 보인다. */
+  --surface-canvas: oklch(0.14 0.008 256);  /* #07090C — 틴트 유지, 순수 검정 금지 */
+  --graph-edge:     oklch(0.35 0.020 257);  /* #333A44 */
+
+  /* 다크에선 accent-ink가 accent와 동치다 — 참조만 분리한다. */
+  --accent:      oklch(0.77 0.142 71);      /* #EBA23C */
+  --accent-ink:  oklch(0.77 0.142 71);
+  --accent-soft: rgb(235 162 60 / 0.14);
+  --accent-glow: rgb(235 162 60 / 0.45);    /* 선택 노드 헤일로 전용 */
 }
 
 /* density */

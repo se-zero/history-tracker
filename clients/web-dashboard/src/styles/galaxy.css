@@ -1,0 +1,290 @@
+/* ============================================================
+   작업 성좌(Galaxy) 뷰
+   캔버스가 배경을 직접 칠하므로, 위에 얹는 UI만 여기서 다룬다.
+   ============================================================ */
+
+.galaxy-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 0;
+}
+
+/* 캔버스가 absolute로 채우는 무대. min-height:0이 없으면 flex 자식이 넘친다. */
+.galaxy-stage {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.galaxy-wrap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+}
+
+.galaxy-canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+.galaxy-legend {
+  position: absolute;
+  left: var(--gutter);
+  bottom: var(--gutter);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  /* 은하 위에 떠 있는 유리판 느낌 — 배경을 완전히 가리지 않는다. */
+  background: color-mix(in oklab, var(--surface) 62%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 11px;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+
+.galaxy-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.galaxy-legend-hint {
+  color: var(--fg-subtle);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── 액터 렌즈 — 사람을 골라 그 사람의 자취만 밝힌다 ───────────────────── */
+
+.galaxy-lens {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+  /* 범례 전체는 pointer-events:none이라 클릭이 캔버스로 넘어간다 — 칩만 되살린다. */
+  pointer-events: auto;
+}
+
+.galaxy-lens-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.galaxy-lens-chip:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+/* 선택 표시는 노드 색이 아니라 액센트다 — 앰버는 "선택됨"을 뜻하는 유일한 색이다. */
+.galaxy-lens-chip.active {
+  border-color: var(--accent-ink);
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+.galaxy-lens-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 기여 수 — 동일인이 여러 액터로 남아 있을 때(병합 전) 구분하는 단서가 된다. */
+.galaxy-lens-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-subtle);
+}
+
+.galaxy-legend-dot,
+.gd-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-full);
+  flex: none;
+}
+
+/* ── 성좌 상세 패널 (별성 클릭 시 좌측에 열린다) ───────────────────────── */
+
+.galaxy-detail {
+  position: absolute;
+  left: var(--gutter);
+  top: var(--gutter);
+  bottom: var(--gutter);
+  width: 288px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: color-mix(in oklab, var(--surface) 78%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-lg);
+  z-index: 5;
+  overflow: hidden;
+}
+
+.gd-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gd-badge {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+  margin-top: 4px;
+  flex: none;
+}
+
+.gd-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--fg);
+  /* 제목은 두 줄까지 보여주고 자른다 — PR 제목이 길어도 패널이 밀리지 않게. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.gd-meta {
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.gd-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 목록 끝까지 스크롤해도 바깥(캔버스·페이지)으로 스크롤이 번지지 않게 한다. */
+  overscroll-behavior: contain;
+  padding: 8px 8px 12px;
+}
+
+.gd-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+/* 패널 안에서는 전역 .spinner가 너무 크다 — 목록 글자 크기에 맞춘다. */
+.gd-loading .spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+}
+
+.gd-section + .gd-section {
+  margin-top: 10px;
+}
+
+.gd-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+  padding: 6px 4px 4px;
+}
+
+.gd-item,
+.gd-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gd-item:hover,
+.gd-link:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.gd-item.active {
+  background: var(--primary-soft);
+  color: var(--fg);
+}
+
+.gd-item-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gd-link {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.gd-link-meta {
+  font-size: 10px;
+  color: var(--fg-subtle);
+  font-family: var(--font-mono);
+}

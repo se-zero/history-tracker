@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
+import com.history.backend.graph.dto.GraphConstellationResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
@@ -37,6 +38,26 @@ public class GraphController {
             @RequestParam(required = false) String types
     ) {
         return graphService.getProjectGraph(authenticatedUser.id(), projectId, limit, types);
+    }
+
+    // 작업 성좌 화면용 — 작업 단위는 전량, 위성만 최신 limit개로 자른 그래프
+    @GetMapping("/constellation")
+    public GraphConstellationResponse getProjectConstellation(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @RequestParam(required = false) Integer limit
+    ) {
+        return graphService.getConstellation(authenticatedUser.id(), projectId, limit);
+    }
+
+    // 성좌 드릴인 — 작업 단위 하나의 이웃 조회 (위성이 비어 있는 성좌를 열 때)
+    @GetMapping("/work-unit")
+    public GraphResponse getWorkUnit(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @RequestParam String nodeId
+    ) {
+        return graphService.getWorkUnit(authenticatedUser.id(), projectId, nodeId);
     }
 
     // 통합 검색 — 프로젝트 그래프 전체에서 노드 키워드 검색 (ai-engine full-text 프록시)
