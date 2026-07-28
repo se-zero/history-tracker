@@ -46,8 +46,18 @@ const PANEL_SHIFT = 150;
 /** 카메라 이동 보간 계수 — 프레임마다 목표까지 남은 거리의 이 비율만큼 다가간다. */
 const CAMERA_EASE = 0.16;
 
-/** 강조 대상이 있을 때, 그 바깥 노드에 남기는 투명도(디자인 시스템 기준 ~20%). */
+/** 선택·렌즈가 켜졌을 때, 그 바깥 노드에 남기는 투명도(디자인 시스템 기준 ~20%). */
 const MUTED_ALPHA = 0.2;
+
+/**
+ * 아무것도 짚지 않았을 때의 기본 밝기.
+ *
+ * 1이 아닌 이유는 hover가 "밝힐 여지"를 남기기 위해서다. hover가 주변을 어둡게 하면
+ * 마우스가 노드를 스칠 때마다 화면 전체가 켜졌다 꺼져 어지럽다. 그래서 어둡게 하는 건
+ * 선택·렌즈처럼 의도한 행위에만 두고, hover는 이 값에서 1로 올리는 것만 한다 —
+ * 배경 밝기가 고정이라 마우스를 움직여도 필드 전체가 출렁이지 않는다.
+ */
+const REST_ALPHA = 0.8;
 
 /**
  * 라벨은 노드가 화면에서 이 반지름(px)보다 커졌을 때부터 나타난다.
@@ -487,8 +497,10 @@ export function ConstellationVis({
     const loop = () => {
       stepCamera();
       const focusedIndex = focusedRef.current;
-      // hover가 있으면 미리보기처럼 hover 대상을, 없으면 선택 대상을 강조한다.
-      const activeId = hitRef.current?.node.id ?? selectedRef.current;
+      const hoveredId = hitRef.current?.node.id ?? null;
+      const selected = selectedRef.current;
+      // 엣지·라벨은 지금 주목 중인 대상을 따른다(hover가 있으면 hover).
+      const activeId = hoveredId ?? selected;
       drawScene(ctx, {
         dpr,
         size,
@@ -499,10 +511,11 @@ export function ConstellationVis({
         placed,
         adjacency,
         activeId,
-        // 노드 강조(hover·선택)가 렌즈보다 우선 — 렌즈는 아무것도 안 짚었을 때의 바탕 상태다.
+        // 선택이 렌즈보다 우선 — 렌즈는 아무것도 안 짚었을 때의 바탕 상태다.
         highlight:
-          buildHighlight(activeId, adjacency, placed, constellationMembers) ??
+          buildHighlight(selected, adjacency, placed, constellationMembers) ??
           lensHighlightRef.current,
+        hoverLift: buildHighlight(hoveredId, adjacency, placed, constellationMembers),
         focusedEdges: focusedEdgesRef.current,
         focused: focusedIndex,
         related: focusedIndex === null ? null : (starNeighbors.get(focusedIndex) ?? new Set()),
@@ -790,7 +803,10 @@ interface SceneParams {
   placed: Map<string, Placed>;
   adjacency: Map<string, string[]>;
   activeId: string | null;
+  /** 나머지를 눌러 대비를 만드는 강조 — 선택·렌즈처럼 의도한 행위에서만 온다. */
   highlight: Set<string> | null;
+  /** 밝히기만 하는 강조 — hover. 주변 밝기를 건드리지 않아 마우스를 움직여도 출렁이지 않는다. */
+  hoverLift: Set<string> | null;
   /** 열린 성좌 내부의 실제 엣지 (월드 좌표 노드 쌍). */
   focusedEdges: Array<[Placed, Placed]>;
   focused: number | null;
@@ -813,12 +829,25 @@ function computeEmphasis(p: SceneParams): number[] {
   return emph;
 }
 
-/** 노드 하나의 최종 투명도. 강조 대상이 있으면 그 바깥은 확실히 눌러 둔다. */
+/**
+ * 노드 하나의 최종 투명도.
+ *
+ * 강조는 두 갈래다. 선택·렌즈는 의도한 행위라 나머지를 눌러 대비를 만들고,
+ * hover는 스쳐 지나가는 것이라 밝히기만 한다(주변을 건드리지 않는다).
+ */
 function nodeAlpha(p: SceneParams, node: Placed, emph: number[]): number {
-  const base =
-    node.starIndex === null ? (p.focused === null ? 0.6 : 0.14) : emph[node.starIndex];
-  if (!p.highlight) return base;
-  return p.highlight.has(node.node.id) ? 1 : Math.min(base, MUTED_ALPHA);
+  let alpha =
+    node.starIndex === null
+      ? p.focused === null
+        ? 0.5
+        : 0.14
+      : emph[node.starIndex] * REST_ALPHA;
+
+  if (p.highlight) {
+    alpha = p.highlight.has(node.node.id) ? 1 : Math.min(alpha, MUTED_ALPHA);
+  }
+  if (p.hoverLift?.has(node.node.id)) alpha = 1;
+  return alpha;
 }
 
 function drawScene(ctx: CanvasRenderingContext2D, p: SceneParams): void {
@@ -1016,6 +1045,9 @@ function drawNodes(
     const y = cy + node.y * s;
     const isActive = node.node.id === activeId;
     const isNeighbor = !isActive && !!highlight && highlight.has(node.node.id);
+    // hover로 밝아진 이웃 — 크기는 건드리지 않는다. 마우스가 스칠 때마다 수십 개가
+    // 커졌다 작아지면 밝기만 바뀌는 것보다 훨씬 어지럽다.
+    const isLifted = !isActive && !isNeighbor && !!p.hoverLift?.has(node.node.id);
     const minR = node.isStar ? 5 : 1.6;
     let r = Math.max(node.r * s, minR);
     if (isActive) r *= 1.5;
@@ -1031,7 +1063,7 @@ function drawNodes(
 
     // 얇은 테두리 — 어두운 배경에서 원의 경계를 또렷하게 만든다.
     ctx.strokeStyle = rgba(shade(color, 1.35), Math.min(1, alpha * 1.1));
-    ctx.lineWidth = isActive ? 2 : isNeighbor ? 1.4 : 1;
+    ctx.lineWidth = isActive ? 2 : isNeighbor ? 1.4 : isLifted ? 1.3 : 1;
     ctx.stroke();
 
     // 선택 표시는 앰버 링 + 헤일로다. 앰버는 이 시스템에서 "라이브 / 실행 / 선택"만
