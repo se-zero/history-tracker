@@ -246,6 +246,45 @@ export function ConstellationVis({
     return map;
   }, [layout]);
 
+  /**
+   * 열린 성좌 안의 실제 그래프 엣지.
+   *
+   * 별성→위성 스포크는 배치가 만든 소속 표시일 뿐 원본 관계가 아니다. 스키마상 PR에서
+   * 나가는 관계는 CONTAINS(→커밋) 하나뿐이고 파일·티켓·대화는 커밋을 거치므로,
+   * 스포크만 그리면 "왜 바뀌었나"의 사슬(커밋→파일, 커밋→티켓, 티켓→대화)이 보이지 않는다.
+   */
+  const focusedEdges = useMemo(() => {
+    if (focused === null) return [];
+    const star = layout.stars[focused];
+    if (!star) return [];
+
+    const members = new Set<string>([star.node.id]);
+    for (const sat of star.satellites) members.add(sat.node.id);
+
+    const pairs: Array<[Placed, Placed]> = [];
+    const seen = new Set<string>();
+    for (const id of members) {
+      const from = placed.get(id);
+      if (!from) continue;
+      for (const nb of adjacency.get(id) ?? []) {
+        if (!members.has(nb)) continue;
+        // 무향으로 다루므로 같은 쌍을 양쪽에서 두 번 그리지 않게 정렬한 키로 거른다.
+        const key = id < nb ? `${id} ${nb}` : `${nb} ${id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const to = placed.get(nb);
+        if (to) pairs.push([from, to]);
+      }
+    }
+    return pairs;
+  }, [focused, layout, adjacency, placed]);
+
+  // 렌더 루프를 재시작시키지 않으려고 ref로 넘긴다(재시작하면 캔버스가 리사이즈되며 깜빡인다).
+  const focusedEdgesRef = useRef<Array<[Placed, Placed]>>([]);
+  useEffect(() => {
+    focusedEdgesRef.current = focusedEdges;
+  }, [focusedEdges]);
+
   /** 별성 인덱스 → 다리로 이어진 다른 별성들. */
   const starNeighbors = useMemo(() => {
     const map = new Map<number, Set<number>>();
@@ -395,6 +434,7 @@ export function ConstellationVis({
         adjacency,
         activeId,
         highlight: buildHighlight(activeId, adjacency, placed, constellationMembers),
+        focusedEdges: focusedEdgesRef.current,
         focused: focusedIndex,
         related: focusedIndex === null ? null : (starNeighbors.get(focusedIndex) ?? new Set()),
         selectedId: selectedRef.current,
@@ -655,6 +695,8 @@ interface SceneParams {
   adjacency: Map<string, string[]>;
   activeId: string | null;
   highlight: Set<string> | null;
+  /** 열린 성좌 내부의 실제 엣지 (월드 좌표 노드 쌍). */
+  focusedEdges: Array<[Placed, Placed]>;
   focused: number | null;
   related: Set<number> | null;
   selectedId: string | null;
@@ -694,6 +736,7 @@ function drawScene(ctx: CanvasRenderingContext2D, p: SceneParams): void {
   drawBackground(ctx, p);
   drawBridges(ctx, p, emph, s, cx, cy);
   drawSpokes(ctx, p, emph, s, cx, cy);
+  drawConstellationEdges(ctx, p, s, cx, cy);
   drawHighlightEdges(ctx, p, s, cx, cy);
   drawNodes(ctx, p, emph, s, cx, cy);
   drawLabels(ctx, p, emph, s, cx, cy);
@@ -773,6 +816,8 @@ function drawSpokes(
 ): void {
   const { layout, palette, size, highlight } = p;
   layout.stars.forEach((star, i) => {
+    // 열린 성좌는 방사형 소속선 대신 실제 엣지를 그린다 — drawConstellationEdges가 맡는다.
+    if (p.focused === i) return;
     let strength = emph[i];
     // 강조 중이면 "다른" 성좌의 구조선만 눌러 둔다.
     // 일괄로 누르면 방금 연 성좌의 위성 연결까지 사라져, 커밋만 이어진 것처럼 보인다.
@@ -790,6 +835,37 @@ function drawSpokes(
     }
     ctx.stroke();
   });
+}
+
+/**
+ * 열린 성좌 안의 실제 관계를 그린다 — 커밋→파일, 커밋→티켓, 티켓→대화.
+ * 별성에서 뻗는 방사선만 있으면 "PR은 커밋에만 이어진다"로만 읽히고,
+ * 나머지 위성이 왜 이 작업에 속하는지가 화면에서 사라진다.
+ */
+function drawConstellationEdges(
+  ctx: CanvasRenderingContext2D,
+  p: SceneParams,
+  s: number,
+  cx: number,
+  cy: number,
+): void {
+  const { focusedEdges, palette, size } = p;
+  if (focusedEdges.length === 0) return;
+
+  ctx.strokeStyle = rgba(palette.fg, 0.3);
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  for (const [from, to] of focusedEdges) {
+    const fx = cx + from.x * s;
+    const fy = cy + from.y * s;
+    const tx = cx + to.x * s;
+    const ty = cy + to.y * s;
+    // 양 끝이 모두 화면 밖이면 선분도 대체로 밖이다 — 확대 시 그리기 비용을 줄인다.
+    if (!inView(fx, fy, 0, size) && !inView(tx, ty, 0, size)) continue;
+    ctx.moveTo(fx, fy);
+    ctx.lineTo(tx, ty);
+  }
+  ctx.stroke();
 }
 
 /**
