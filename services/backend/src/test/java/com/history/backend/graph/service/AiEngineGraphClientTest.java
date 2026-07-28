@@ -18,6 +18,7 @@ import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
+import com.history.backend.graph.dto.GraphConstellationResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
@@ -293,6 +294,116 @@ class AiEngineGraphClientTest {
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> fixture.client.fetchSubgraph(PROJECT_ID, List.of(new EvidenceRef("commit", "abc1234"))))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("성좌 뷰 조회 — work_unit_ids를 workUnitIds로 매핑")
+    void fetchesConstellationWithWorkUnitIds() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/constellation")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(queryParam("project_id", PROJECT_ID.toString()))
+                .andExpect(queryParam("limit", "400"))
+                .andRespond(withSuccess("""
+                        {
+                          "nodes": [
+                            {"id":"pr1","type":"pr","title":"feat: x","meta":"#7",
+                             "source":"github","snippet":"body"}
+                          ],
+                          "edges": [["pr1","c1"]],
+                          "work_unit_ids": ["pr1"]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        GraphConstellationResponse result = fixture.client.fetchConstellation(PROJECT_ID, 400);
+
+        assertThat(result.nodes()).hasSize(1);
+        // 별성 판정은 서버가 내려주는 이 목록이 유일한 출처다
+        assertThat(result.workUnitIds()).containsExactly("pr1");
+        assertThat(result.edges()).containsExactly(List.of("pr1", "c1"));
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("성좌 뷰 조회 — limit이 null이면 URL에서 생략")
+    void omitsConstellationLimitWhenNull() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(),
+                        requestTo("https://ai-engine.test/graph/constellation?project_id=" + PROJECT_ID))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"nodes": [], "edges": [], "work_unit_ids": []}
+                        """, MediaType.APPLICATION_JSON));
+
+        GraphConstellationResponse result = fixture.client.fetchConstellation(PROJECT_ID, null);
+
+        assertThat(result.nodes()).isEmpty();
+        assertThat(result.workUnitIds()).isEmpty();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("성좌 뷰 조회 — 필드가 누락돼도 빈 배열로 보정")
+    void normalizesMissingConstellationFields() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/constellation")))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        GraphConstellationResponse result = fixture.client.fetchConstellation(PROJECT_ID, null);
+
+        assertThat(result.nodes()).isEmpty();
+        assertThat(result.edges()).isEmpty();
+        assertThat(result.workUnitIds()).isEmpty();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("성좌 뷰 조회 실패 시 BadGatewayException 발생")
+    void throwsBadGatewayWhenConstellationFails() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/constellation")))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.fetchConstellation(PROJECT_ID, 400))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("작업 단위 조회 — 콜론이 든 elementId를 그대로 전달")
+    void fetchesWorkUnitWithElementIdContainingColons() {
+        AiEngineGraphClientFixture fixture = fixture();
+        // Neo4j elementId는 "4:<uuid>:<seq>" 형태라 콜론을 포함한다 — 잘리거나 뭉개지면 조회가 빈다.
+        // 콜론은 %3A로 이스케이프돼 나가고 서버(Starlette)가 다시 ':'로 읽는다.
+        String nodeId = "4:af917685-a5d7-4465-b0a3-aef34f6a747e:83";
+        String encoded = "4%3Aaf917685-a5d7-4465-b0a3-aef34f6a747e%3A83";
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/work-unit")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(queryParam("project_id", PROJECT_ID.toString()))
+                .andExpect(queryParam("node_id", encoded))
+                .andRespond(withSuccess("""
+                        {"nodes": [{"id":"c1","type":"commit","title":"fix: y","meta":"abc1234",
+                                    "source":"github","snippet":"b"}],
+                         "edges": [["pr1","c1"]]}
+                        """, MediaType.APPLICATION_JSON));
+
+        GraphResponse result = fixture.client.fetchWorkUnit(PROJECT_ID, nodeId);
+
+        assertThat(result.nodes()).hasSize(1);
+        assertThat(result.edges()).containsExactly(List.of("pr1", "c1"));
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("작업 단위 조회 실패 시 BadGatewayException 발생")
+    void throwsBadGatewayWhenWorkUnitFails() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/work-unit")))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.fetchWorkUnit(PROJECT_ID, "4:abc:1"))
                 .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
