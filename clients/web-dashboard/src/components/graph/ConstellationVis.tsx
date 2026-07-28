@@ -105,6 +105,11 @@ interface Palette {
   edge: Rgb;
   /** "라이브 / 실행 / 선택"을 뜻하는 유일한 강조색. */
   accent: Rgb;
+  /**
+   * 배경이 어두운지. 색이 아니라 "방향"이 갈리는 표현들이 있어서 필요하다 —
+   * 테두리를 밝혀야 또렷한지 어둡게 해야 또렷한지, 별먼지가 성립하는지 등.
+   */
+  isDark: boolean;
   fontFamily: string;
 }
 
@@ -384,6 +389,7 @@ export function ConstellationVis({
       muted: resolveVarRgb("--fg-muted", theme),
       edge: resolveVarRgb("--graph-edge", theme),
       accent: resolveVarRgb("--accent-ink", theme),
+      isDark: theme === "dark",
       fontFamily:
         getComputedStyle(document.documentElement)
           .getPropertyValue("--font-sans")
@@ -875,7 +881,11 @@ function drawBackground(ctx: CanvasRenderingContext2D, p: SceneParams): void {
   ctx.fillStyle = rgba(palette.canvas, 1);
   ctx.fillRect(0, 0, size.w, size.h);
 
-  // 배경 별먼지 — 깜빡임 없이 아주 옅은 점으로만 깔아 질감만 준다.
+  // 별먼지는 밤하늘의 장치라 밝은 배경에선 성립하지 않는다 — 어두운 점 140개가
+  // 질감이 아니라 얼룩으로 보인다. 라이트에서 그래프는 "잉크로 찍힌 도식"이므로
+  // 배경은 비워 둔다.
+  if (!palette.isDark) return;
+
   const ox = view.tx * 0.04;
   const oy = view.ty * 0.04;
   for (const st of starfield) {
@@ -977,7 +987,8 @@ function drawConstellationEdges(
   const { focusedEdges, palette, size } = p;
   if (focusedEdges.length === 0) return;
 
-  ctx.strokeStyle = rgba(palette.fg, 0.3);
+  // 밝은 배경에선 같은 알파라도 선이 훨씬 진하게 읽혀 도식이 지저분해진다.
+  ctx.strokeStyle = rgba(palette.fg, palette.isDark ? 0.3 : 0.2);
   ctx.lineWidth = 0.8;
   ctx.beginPath();
   for (const [from, to] of focusedEdges) {
@@ -1011,7 +1022,7 @@ function drawHighlightEdges(
 
   const fx = cx + from.x * s;
   const fy = cy + from.y * s;
-  ctx.strokeStyle = rgba(palette.fg, 0.5);
+  ctx.strokeStyle = rgba(palette.fg, palette.isDark ? 0.5 : 0.38);
   ctx.lineWidth = 1.2;
   ctx.beginPath();
   for (const nbId of adjacency.get(activeId) ?? []) {
@@ -1061,8 +1072,12 @@ function drawNodes(
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
 
-    // 얇은 테두리 — 어두운 배경에서 원의 경계를 또렷하게 만든다.
-    ctx.strokeStyle = rgba(shade(color, 1.35), Math.min(1, alpha * 1.1));
+    // 얇은 테두리 — 경계를 또렷하게 만든다. 배경에 따라 방향이 뒤집힌다.
+    // 다크는 채움색을 밝혀서, 라이트는 잉크색으로 찍어서 경계를 만든다
+    // (밝은 배경에서 밝힌 테두리는 배경에 묻힌다).
+    ctx.strokeStyle = palette.isDark
+      ? rgba(shade(color, 1.35), Math.min(1, alpha * 1.1))
+      : rgba(palette.fg, alpha);
     ctx.lineWidth = isActive ? 2 : isNeighbor ? 1.4 : isLifted ? 1.3 : 1;
     ctx.stroke();
 
@@ -1070,8 +1085,9 @@ function drawNodes(
     // 뜻하므로, 선택은 노드 색이 아니라 반드시 이 색으로 말해야 한다.
     // 글로우도 여기서만 쓴다 — 모든 노드가 빛나면 신호가 아니라 배경이 된다.
     if (node.node.id === selectedId) {
+      // 라이트에선 발광이 성립하지 않는다 — 헤일로를 소프트 링 수준으로만 남긴다.
       const halo = ctx.createRadialGradient(x, y, r, x, y, r + 14);
-      halo.addColorStop(0, rgba(palette.accent, 0.32));
+      halo.addColorStop(0, rgba(palette.accent, palette.isDark ? 0.32 : 0.16));
       halo.addColorStop(1, rgba(palette.accent, 0));
       ctx.fillStyle = halo;
       ctx.beginPath();
