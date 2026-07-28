@@ -15,6 +15,8 @@ interface Props {
   star: Star;
   connections: Connection[];
   selectedId: string | null;
+  /** 이 작업의 이웃을 불러오는 중인지 (성좌 드릴인 지연 로딩). */
+  loading?: boolean;
   onSelectNode: (node: GraphNode) => void;
   onJump: (index: number) => void;
   onClose: () => void;
@@ -27,6 +29,7 @@ export function ConstellationDetail({
   star,
   connections,
   selectedId,
+  loading = false,
   onSelectNode,
   onJump,
   onClose,
@@ -75,6 +78,13 @@ export function ConstellationDetail({
       </div>
 
       <div className="gd-scroll">
+        {/* 기본 조회는 위성을 최신 N개로 자르므로 오래된 작업은 열 때 비어 있다가 채워진다. */}
+        {loading && (
+          <div className="gd-loading">
+            <span className="spinner" />
+            <span>{groups.length === 0 ? "구성을 불러오는 중…" : "더 불러오는 중…"}</span>
+          </div>
+        )}
         {groups.map((g) => (
           <div key={g.type} className="gd-section">
             <div className="gd-section-title">{NODE_TYPE_INFO[g.type].label}</div>

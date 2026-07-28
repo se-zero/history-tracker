@@ -158,6 +158,22 @@
   padding: 8px 8px 12px;
 }
 
+.gd-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+/* 패널 안에서는 전역 .spinner가 너무 크다 — 목록 글자 크기에 맞춘다. */
+.gd-loading .spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+}
+
 .gd-section + .gd-section {
   margin-top: 10px;
 }

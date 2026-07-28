@@ -28,6 +28,8 @@ interface Props {
   onBackgroundClick: () => void;
   /** 성좌를 열 때 그 작업 단위의 이웃을 채워 달라는 요청 (드릴인 지연 로딩). */
   onExpandWorkUnit?: (nodeId: string) => void;
+  /** 드릴인 조회가 진행 중인지 — 열린 성좌 패널에 표시한다. */
+  expanding?: boolean;
 }
 
 /** 화면에 맞추는 기본 배율에 곱하는 여백 계수. */
@@ -148,6 +150,7 @@ export function ConstellationVis({
   onSelect,
   onBackgroundClick,
   onExpandWorkUnit,
+  expanding = false,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -532,6 +535,7 @@ export function ConstellationVis({
           star={focusedStar}
           connections={connections}
           selectedId={selectedId}
+          loading={expanding}
           onSelectNode={onSelect}
           onJump={(index) => {
             focusOn(index);
