@@ -3,6 +3,7 @@ package com.history.backend.integration.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -261,17 +262,17 @@ class IntegrationServiceTest {
     }
 
     @Test
-    @DisplayName("Slack 토큰 암호화 후 소유 프로젝트에 연동 저장")
-    void connectSlackWorkspaceEncryptsTokenAndSavesIntegrationForOwnedProject() {
+    @DisplayName("Slack code 교환 후 소유 프로젝트에 연동 저장")
+    void connectSlackWorkspaceExchangesCodeAndSavesIntegrationForOwnedProject() {
         IntegrationService service = service();
         Project project = project();
         byte[] encryptedCredential = new byte[] {1, 2, 3};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
                 .thenReturn(false);
-        when(slackClient.verifyToken("xoxb-token"))
-                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme"));
-        when(credentialCryptoService.encrypt("xoxb-token")).thenReturn(encryptedCredential);
+        when(slackClient.exchangeCode("auth-code"))
+                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme", "xoxp-token"));
+        when(credentialCryptoService.encrypt("xoxp-token")).thenReturn(encryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         doAnswer(invocation -> {
@@ -282,7 +283,7 @@ class IntegrationServiceTest {
         Integration result = service.connectSlackWorkspace(
                 OWNER_ID,
                 PROJECT_ID,
-                "  xoxb-token  "
+                "auth-code"
         );
 
         assertThat(result.getProject()).isSameAs(project);
@@ -295,8 +296,8 @@ class IntegrationServiceTest {
     }
 
     @Test
-    @DisplayName("중복 Slack 연동 거부")
-    void connectSlackWorkspaceRejectsDuplicateSlackProvider() {
+    @DisplayName("중복 Slack 연동 거부 (code 교환 호출 안 함)")
+    void connectSlackWorkspaceRejectsDuplicateSlackProviderWithoutExchangingCode() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
@@ -305,10 +306,12 @@ class IntegrationServiceTest {
         assertThatThrownBy(() -> service.connectSlackWorkspace(
                 OWNER_ID,
                 PROJECT_ID,
-                "xoxb-token"
+                "auth-code"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Slack integration already exists.");
+        // 이미 연동된 프로젝트라면 Slack API 호출로 코드를 낭비하지 않는다
+        verify(slackClient, never()).exchangeCode(anyString());
     }
 
     @Test
@@ -318,16 +321,16 @@ class IntegrationServiceTest {
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
                 .thenReturn(false);
-        when(slackClient.verifyToken("xoxb-token"))
-                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme"));
-        when(credentialCryptoService.encrypt("xoxb-token")).thenReturn(new byte[] {1, 2, 3});
+        when(slackClient.exchangeCode("auth-code"))
+                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme", "xoxp-token"));
+        when(credentialCryptoService.encrypt("xoxp-token")).thenReturn(new byte[] {1, 2, 3});
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate integration"));
 
         assertThatThrownBy(() -> service.connectSlackWorkspace(
                 OWNER_ID,
                 PROJECT_ID,
-                "xoxb-token"
+                "auth-code"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Slack integration already exists.");

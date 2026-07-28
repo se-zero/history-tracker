@@ -3,16 +3,18 @@ package com.history.backend.slack.service;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.slack.SlackProperties;
-import com.history.backend.slack.dto.SlackAuthTestResponse;
+import com.history.backend.slack.dto.SlackOAuthAccessResponse;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import lombok.extern.slf4j.Slf4j;
 
-// Slack API 클라이언트 (연동 토큰 검증용)
+// Slack OAuth API 클라이언트 (authorization code → user access token 교환)
 @Slf4j
 @Component
 public class SlackClient {
@@ -29,34 +31,46 @@ public class SlackClient {
         this.restClient = restClient;
     }
 
-    // Slack 토큰 검증 및 workspace 정보 조회
-    public SlackWorkspace verifyToken(String token) {
-        SlackAuthTestResponse response;
+    // authorization code를 user 토큰(xoxp-)과 workspace 정보로 교환
+    public SlackWorkspace exchangeCode(String code) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("client_id", properties.clientId());
+        form.add("client_secret", properties.clientSecret());
+        form.add("code", code);
+        form.add("redirect_uri", properties.redirectUri());
+
+        SlackOAuthAccessResponse response;
         try {
             response = restClient
                     .post()
-                    .uri(properties.authTestUrl())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                    .uri(properties.oauthAccessUrl())
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
                     .retrieve()
-                    .body(SlackAuthTestResponse.class);
+                    .body(SlackOAuthAccessResponse.class);
         } catch (RestClientResponseException exception) {
-            throw new UnauthorizedException("Invalid Slack token.");
+            throw new UnauthorizedException("Invalid Slack authorization code.");
         } catch (RestClientException exception) {
-            throw new BadGatewayException("Slack auth test request failed.", exception);
+            throw new BadGatewayException("Slack OAuth code exchange request failed.", exception);
         }
 
         // Slack은 인증 실패도 HTTP 200으로 응답하므로 ok 필드로 판별
         if (response == null || !Boolean.TRUE.equals(response.ok())) {
-            log.warn("Slack auth test failed. error={}", response == null ? "empty_response" : response.error());
-            throw new UnauthorizedException("Invalid Slack token.");
+            log.warn("Slack OAuth code exchange failed. error={}", response == null ? "empty_response" : response.error());
+            throw new UnauthorizedException("Invalid Slack authorization code.");
         }
-        if (response.teamId() == null || response.teamId().isBlank()
-                || response.team() == null || response.team().isBlank()) {
-            throw new BadGatewayException("Slack auth test response is missing workspace information.");
+
+        String accessToken = response.authedUser() == null ? null : response.authedUser().accessToken();
+        if (accessToken == null || accessToken.isBlank()) {
+            throw new BadGatewayException("Slack OAuth response is missing user access token.");
         }
-        return new SlackWorkspace(response.teamId(), response.team());
+        SlackOAuthAccessResponse.Team team = response.team();
+        if (team == null || team.id() == null || team.id().isBlank() || team.name() == null || team.name().isBlank()) {
+            throw new BadGatewayException("Slack OAuth response is missing workspace information.");
+        }
+        return new SlackWorkspace(team.id(), team.name(), accessToken);
     }
 
-    public record SlackWorkspace(String id, String name) {
+    public record SlackWorkspace(String id, String name, String accessToken) {
     }
 }

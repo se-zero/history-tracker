@@ -59,4 +59,9 @@ github:
     repository-branches-url: ${GITHUB_REPOSITORY_BRANCHES_URL:https://api.github.com/repos/{owner}/{repo}/branches}
 
 slack:
-  auth-test-url: ${SLACK_AUTH_TEST_URL:https://slack.com/api/auth.test}
+  client-id: ${SLACK_CLIENT_ID:}
+  client-secret: ${SLACK_CLIENT_SECRET:}
+  redirect-uri: ${SLACK_REDIRECT_URI:}
+  user-scopes: "${SLACK_USER_SCOPES:channels:read,groups:read,channels:history,groups:history,users:read,users:read.email}"
+  authorize-url: ${SLACK_AUTHORIZE_URL:https://slack.com/oauth/v2/authorize}
+  oauth-access-url: ${SLACK_OAUTH_ACCESS_URL:https://slack.com/api/oauth.v2.access}

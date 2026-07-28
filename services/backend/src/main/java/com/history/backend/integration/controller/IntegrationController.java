@@ -5,7 +5,6 @@ import java.util.UUID;
 
 import com.history.backend.integration.dto.ConnectGitHubIntegrationRequest;
 import com.history.backend.integration.dto.ConnectJiraIntegrationRequest;
-import com.history.backend.integration.dto.ConnectSlackIntegrationRequest;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.security.AuthenticatedUser;
@@ -50,20 +49,6 @@ public class IntegrationController {
                 request.repositoryId(),
                 request.repositoryFullName(),
                 request.branch()
-        ));
-    }
-
-    @PostMapping("/slack")
-    @ResponseStatus(HttpStatus.CREATED)
-    public IntegrationResponse connectSlackWorkspace(
-            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID projectId,
-            @Valid @RequestBody ConnectSlackIntegrationRequest request
-    ) {
-        return IntegrationResponse.from(integrationService.connectSlackWorkspace(
-                authenticatedUser.id(),
-                projectId,
-                request.token()
         ));
     }
 

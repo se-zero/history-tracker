@@ -5,6 +5,36 @@
 .page-title { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.02em; }
 .page-sub { color: var(--fg-muted); margin: 0 0 28px; font-size: 14px; }
 
+.oauth-result-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  border-radius: var(--r-md);
+}
+.oauth-result-banner.success {
+  color: var(--success);
+  border: 1px solid color-mix(in oklab, var(--success) 30%, var(--border));
+  background: color-mix(in oklab, var(--success) 8%, transparent);
+}
+.oauth-result-banner.error {
+  color: var(--danger);
+  border: 1px solid color-mix(in oklab, var(--danger) 30%, var(--border));
+  background: color-mix(in oklab, var(--danger) 8%, transparent);
+}
+.oauth-result-banner button {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
 .source-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

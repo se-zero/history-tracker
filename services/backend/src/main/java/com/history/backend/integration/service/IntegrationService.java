@@ -122,15 +122,17 @@ public class IntegrationService {
         }
     }
 
-    // Slack 토큰 검증 후 workspace 연동 추가
+    // Slack code 교환 후 workspace 연동 추가
     public Integration connectSlackWorkspace(
             UUID ownerId,
             UUID projectId,
-            String token
+            String code
     ) {
-        String normalizedToken = token.trim();
-        SlackClient.SlackWorkspace workspace = slackClient.verifyToken(normalizedToken);
-        byte[] encryptedCredential = credentialCryptoService.encrypt(normalizedToken);
+        projectService.getProject(ownerId, projectId);
+        // 이미 연동된 프로젝트라면 code 교환으로 낭비하지 않도록 외부 호출 전에 선검증
+        validateProviderAvailable(projectId, IntegrationProvider.SLACK);
+        SlackClient.SlackWorkspace workspace = slackClient.exchangeCode(code);
+        byte[] encryptedCredential = credentialCryptoService.encrypt(workspace.accessToken());
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
         Integration integration = transactionTemplate.execute(status -> saveSlackWorkspace(

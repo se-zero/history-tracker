@@ -15,10 +15,6 @@ export interface ConnectJiraPayload {
   apiToken: string;
 }
 
-export interface ConnectSlackPayload {
-  token: string;
-}
-
 export async function listIntegrations(projectId: string): Promise<Integration[]> {
   const { data } = await api.get<Integration[]>(`/projects/${projectId}/integrations`);
   return data;
@@ -56,13 +52,11 @@ export async function connectJiraProject(
   return data;
 }
 
-export async function connectSlackWorkspace(
-  projectId: string,
-  payload: ConnectSlackPayload,
-): Promise<Integration> {
-  const { data } = await api.post<Integration>(
-    `/projects/${projectId}/integrations/slack`,
-    { token: payload.token },
+// Slack 동의 화면 URL 조회. 프론트는 이 URL로 window.location.href를 대입해 이동한다 —
+// <a href> 최상위 네비게이션에는 axios 인터셉터가 붙이는 JWT가 실리지 않아 이 엔드포인트는 JSON으로 받아야 한다.
+export async function getSlackAuthorizeUrl(projectId: string): Promise<string> {
+  const { data } = await api.get<{ authorizeUrl: string }>(
+    `/projects/${projectId}/integrations/slack/authorize`,
   );
-  return data;
+  return data.authorizeUrl;
 }
