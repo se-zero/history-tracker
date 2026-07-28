@@ -65,6 +65,59 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* ── 액터 렌즈 — 사람을 골라 그 사람의 자취만 밝힌다 ───────────────────── */
+
+.galaxy-lens {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+  /* 범례 전체는 pointer-events:none이라 클릭이 캔버스로 넘어간다 — 칩만 되살린다. */
+  pointer-events: auto;
+}
+
+.galaxy-lens-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.galaxy-lens-chip:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.galaxy-lens-chip.active {
+  border-color: var(--node-actor);
+  background: color-mix(in oklab, var(--node-actor) 16%, transparent);
+  color: var(--fg);
+}
+
+.galaxy-lens-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 기여 수 — 동일인이 여러 액터로 남아 있을 때(병합 전) 구분하는 단서가 된다. */
+.galaxy-lens-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-subtle);
+}
+
 .galaxy-legend-dot,
 .gd-dot {
   width: 7px;

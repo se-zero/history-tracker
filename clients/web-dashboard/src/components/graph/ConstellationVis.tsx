@@ -169,6 +169,14 @@ export function ConstellationVis({
 
   const [hovered, setHovered] = useState<GraphNode | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
+  /**
+   * 액터 렌즈 — 고른 사람이 관여한 노드만 밝히는 필터. 액터는 노드로 그리지 않는다.
+   *
+   * 다중 선택인 이유: 액터가 소스별로 쪼개져 있어(같은 사람의 GitHub·Jira·Slack 활동이
+   * 서로 다른 Actor 노드) 하나만 고르면 그 사람의 절반만 보인다. 동일인 병합 전까지
+   * 조각을 합쳐 볼 수 있어야 하고, 여러 사람의 작업 범위를 겹쳐 보는 데도 쓸 수 있다.
+   */
+  const [lensActorIds, setLensActorIds] = useState<string[]>([]);
   // 열린 성좌의 도달 반경 — 드릴인으로 위성이 늘어 커졌는지 판단해 카메라를 다시 맞춘다.
   const focusedReachRef = useRef<number | null>(null);
 
@@ -284,6 +292,59 @@ export function ConstellationVis({
   useEffect(() => {
     focusedEdgesRef.current = focusedEdges;
   }, [focusedEdges]);
+
+  /**
+   * 액터 렌즈 후보 — 배치된 노드에 실제로 관여한 사람만.
+   *
+   * 액터는 연결 수가 50~133으로 다른 노드(중앙값 3)의 수십 배라 배치에 넣으면 은하가
+   * 붕괴한다. 그래서 노드로 그리지 않고, 대신 "이 사람이 무엇을 했나"를 강조로 답한다.
+   * 기여 수를 함께 보여주는 건 동일인이 여러 액터로 남아 있을 때(병합 전) 구분하기 위함이다.
+   */
+  const lensActors = useMemo(() => {
+    return nodes
+      .filter((n) => n.type === "actor")
+      .map((node) => ({
+        node,
+        count: (adjacency.get(node.id) ?? []).filter((id) => placed.has(id)).length,
+      }))
+      .filter((a) => a.count > 0)
+      .sort((a, b) => b.count - a.count);
+  }, [nodes, adjacency, placed]);
+
+  /** 렌즈가 켜졌을 때 밝힐 노드 집합(고른 사람들의 합집합). 액터 자신은 배치되지 않아 제외된다. */
+  const lensSignature = lensActorIds.join("|");
+  const lensHighlight = useMemo(() => {
+    if (lensActorIds.length === 0) return null;
+    const set = new Set<string>();
+    for (const actorId of lensActorIds) {
+      for (const nb of adjacency.get(actorId) ?? []) {
+        if (placed.has(nb)) set.add(nb);
+      }
+    }
+    // 파일은 한 홉으로 절대 걸리지 않는다 — 스키마에 (Actor)→(File) 관계가 없기 때문이다.
+    // 전체 노드의 절반이 파일이라, 그대로 두면 렌즈를 켜도 화면 대부분이 꺼진 채 남는다.
+    // File은 (ChangeSet)-[MODIFIED]->(File)로만 이어지므로 "이 사람이 만진 노드에 인접한
+    // 파일" = "이 사람이 바꾼 파일"이다. 그래서 파일에 한해 한 홉만 더 넓힌다.
+    for (const id of [...set]) {
+      for (const nb of adjacency.get(id) ?? []) {
+        if (placed.get(nb)?.node.type === "code") set.add(nb);
+      }
+    }
+    return set.size > 0 ? set : null;
+    // lensActorIds는 매번 새 배열이라 문자열 시그니처로 대체한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lensSignature, adjacency, placed]);
+
+  // focusedEdges와 같은 이유로 ref 경유 — deps에 넣으면 렌더 루프가 재시작하며 깜빡인다.
+  const lensHighlightRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    lensHighlightRef.current = lensHighlight;
+  }, [lensHighlight]);
+
+  // 그래프가 바뀌면 이전 프로젝트의 액터를 가리키는 렌즈는 의미가 없다.
+  useEffect(() => {
+    setLensActorIds([]);
+  }, [nodes]);
 
   /** 별성 인덱스 → 다리로 이어진 다른 별성들. */
   const starNeighbors = useMemo(() => {
@@ -433,7 +494,10 @@ export function ConstellationVis({
         placed,
         adjacency,
         activeId,
-        highlight: buildHighlight(activeId, adjacency, placed, constellationMembers),
+        // 노드 강조(hover·선택)가 렌즈보다 우선 — 렌즈는 아무것도 안 짚었을 때의 바탕 상태다.
+        highlight:
+          buildHighlight(activeId, adjacency, placed, constellationMembers) ??
+          lensHighlightRef.current,
         focusedEdges: focusedEdgesRef.current,
         focused: focusedIndex,
         related: focusedIndex === null ? null : (starNeighbors.get(focusedIndex) ?? new Set()),
@@ -585,6 +649,33 @@ export function ConstellationVis({
         />
       ) : (
         <div className="galaxy-legend">
+          {lensActors.length > 0 && (
+            <div className="galaxy-lens">
+              <div className="galaxy-legend-hint">
+                사람별로 보기{lensActorIds.length > 0 ? ` · ${lensActorIds.length}명` : ""}
+              </div>
+              {lensActors.map(({ node, count }) => (
+                <button
+                  key={node.id}
+                  className={
+                    "galaxy-lens-chip" +
+                    (lensActorIds.includes(node.id) ? " active" : "")
+                  }
+                  onClick={() =>
+                    setLensActorIds((cur) =>
+                      cur.includes(node.id)
+                        ? cur.filter((id) => id !== node.id)
+                        : [...cur, node.id],
+                    )
+                  }
+                  title={`${node.title} — 관여한 노드 ${count}개 (여러 명 함께 선택 가능)`}
+                >
+                  <span className="galaxy-lens-name">{node.title}</span>
+                  <span className="galaxy-lens-count">{count}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="galaxy-legend-hint">노드를 클릭하면 이웃이 강조됩니다</div>
           {(Object.keys(NODE_TYPE_INFO) as GraphNodeType[])
             .filter((t) => t !== "actor")
