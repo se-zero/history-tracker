@@ -96,9 +96,10 @@
   color: var(--fg);
 }
 
+/* 선택 표시는 노드 색이 아니라 액센트다 — 앰버는 "선택됨"을 뜻하는 유일한 색이다. */
 .galaxy-lens-chip.active {
-  border-color: var(--node-actor);
-  background: color-mix(in oklab, var(--node-actor) 16%, transparent);
+  border-color: var(--accent-ink);
+  background: var(--accent-soft);
   color: var(--fg);
 }
 

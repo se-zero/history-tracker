@@ -318,7 +318,10 @@ function layoutSatellites(star: Star): void {
     });
   }
 
-  star.r = Math.min(24, 10 + Math.sqrt(star.satellites.length) * 2.4);
+  // 별성 반지름은 위성(2.1~3.6)보다 훨씬 크고 배율에 그대로 비례하므로, 확대할수록
+  // 성좌 중심을 뒤덮는다. 기존 값(10 + √n × 2.4, 상한 24)에서 30% 줄인 크기다.
+  // 렌더러의 최소 크기(5px)는 그대로라 축소 뷰의 인상은 바뀌지 않는다.
+  star.r = Math.min(16.8, 7 + Math.sqrt(star.satellites.length) * 1.68);
   star.reach = Math.max(reach + 14, star.r + 26);
 }
 

@@ -46,8 +46,8 @@ const PANEL_SHIFT = 150;
 /** 카메라 이동 보간 계수 — 프레임마다 목표까지 남은 거리의 이 비율만큼 다가간다. */
 const CAMERA_EASE = 0.16;
 
-/** 강조 대상이 있을 때, 그 바깥 노드에 남기는 투명도. */
-const MUTED_ALPHA = 0.14;
+/** 강조 대상이 있을 때, 그 바깥 노드에 남기는 투명도(디자인 시스템 기준 ~20%). */
+const MUTED_ALPHA = 0.2;
 
 /**
  * 라벨은 노드가 화면에서 이 반지름(px)보다 커졌을 때부터 나타난다.
@@ -87,10 +87,14 @@ interface Placed {
 
 interface Palette {
   byType: Record<GraphNodeType, Rgb>;
-  bg: Rgb;
+  /** 그래프가 앉는 "우물" — UI 사다리보다 한 칸 낮은 전용 층. */
+  canvas: Rgb;
   fg: Rgb;
   muted: Rgb;
-  border: Rgb;
+  /** 엣지 전용 색 — border와 네임스페이스가 갈라진다. */
+  edge: Rgb;
+  /** "라이브 / 실행 / 선택"을 뜻하는 유일한 강조색. */
+  accent: Rgb;
   fontFamily: string;
 }
 
@@ -365,10 +369,11 @@ export function ConstellationVis({
     }
     return {
       byType,
-      bg: resolveVarRgb("--bg", theme),
+      canvas: resolveVarRgb("--surface-canvas", theme),
       fg: resolveVarRgb("--fg", theme),
       muted: resolveVarRgb("--fg-muted", theme),
-      border: resolveVarRgb("--border-strong", theme),
+      edge: resolveVarRgb("--graph-edge", theme),
+      accent: resolveVarRgb("--accent-ink", theme),
       fontFamily:
         getComputedStyle(document.documentElement)
           .getPropertyValue("--font-sans")
@@ -838,7 +843,7 @@ function drawScene(ctx: CanvasRenderingContext2D, p: SceneParams): void {
 function drawBackground(ctx: CanvasRenderingContext2D, p: SceneParams): void {
   const { size, palette, starfield, view } = p;
 
-  ctx.fillStyle = rgba(palette.bg, 1);
+  ctx.fillStyle = rgba(palette.canvas, 1);
   ctx.fillRect(0, 0, size.w, size.h);
 
   // 배경 별먼지 — 깜빡임 없이 아주 옅은 점으로만 깔아 질감만 준다.
@@ -887,7 +892,7 @@ function drawBridges(
     const len = Math.hypot(dx, dy) || 1;
     const bow = Math.min(60, len * 0.12);
 
-    ctx.strokeStyle = rgba(palette.border, 0.5 * strength);
+    ctx.strokeStyle = rgba(palette.edge, 0.5 * strength);
     ctx.lineWidth = Math.min(1.8, 0.5 + bridge.weight * 0.16);
     ctx.beginPath();
     ctx.moveTo(ax, ay);
@@ -917,7 +922,7 @@ function drawSpokes(
     const x = cx + star.x * s;
     const y = cy + star.y * s;
     if (!inView(x, y, star.reach * s, size)) return;
-    ctx.strokeStyle = rgba(palette.border, 0.45 * strength);
+    ctx.strokeStyle = rgba(palette.edge, 0.45 * strength);
     ctx.lineWidth = 0.6;
     ctx.beginPath();
     for (const sat of star.satellites) {
@@ -1029,10 +1034,20 @@ function drawNodes(
     ctx.lineWidth = isActive ? 2 : isNeighbor ? 1.4 : 1;
     ctx.stroke();
 
-    // 선택한 노드에만 바깥 링을 하나 둘러 위치를 못 놓치게 한다.
+    // 선택 표시는 앰버 링 + 헤일로다. 앰버는 이 시스템에서 "라이브 / 실행 / 선택"만
+    // 뜻하므로, 선택은 노드 색이 아니라 반드시 이 색으로 말해야 한다.
+    // 글로우도 여기서만 쓴다 — 모든 노드가 빛나면 신호가 아니라 배경이 된다.
     if (node.node.id === selectedId) {
-      ctx.strokeStyle = rgba(palette.fg, 0.75);
-      ctx.lineWidth = 1.2;
+      const halo = ctx.createRadialGradient(x, y, r, x, y, r + 14);
+      halo.addColorStop(0, rgba(palette.accent, 0.32));
+      halo.addColorStop(1, rgba(palette.accent, 0));
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(x, y, r + 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = rgba(palette.accent, 0.95);
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(x, y, r + 5, 0, Math.PI * 2);
       ctx.stroke();
@@ -1062,7 +1077,7 @@ function drawNodes(
       const x = cx + star.x * s;
       const y = cy + star.y * s;
       if (inView(x, y, star.reach * s, size)) {
-        ctx.strokeStyle = rgba(palette.border, 0.5);
+        ctx.strokeStyle = rgba(palette.edge, 0.6);
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 6]);
         ctx.beginPath();
