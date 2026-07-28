@@ -42,13 +42,16 @@ src/
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
     graph/          GraphVis(d3-force SVG) · NodeDetail
+                    ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널)
     search/         SearchDialog — ⌘K 통합 검색(대화 + 그래프 노드, AppShell에서 마운트)
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
-    Login · Onboarding · Chat · Sources · Settings · Account · Graph · AuthCallback · NotFound
+    Login · Onboarding · Chat · Sources · Settings · Account · Graph · Galaxy(작업 성좌) ·
+    Actors · Landing · AuthCallback · NotFound
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
+                    constellation(성좌 배치: 별성 force + 위성 궤도) · canvasColor(CSS 토큰 → Canvas RGB)
   auth/             AuthProvider(세션 상태) · tokenStorage(localStorage)
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)
