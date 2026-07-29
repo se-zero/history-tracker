@@ -47,6 +47,17 @@ cd services/backend
 - running summary 갱신은 version 기반 낙관적 충돌 처리로, 실패하거나 충돌해도 현재 질문 응답을 막지 않는다.
 - 직전 정상 응답의 `structured.evidence`에서 후속 질문 대상 식별용 prior evidence를 추출해 함께 전달한다.
 
+## 외부 연동 (OAuth)
+
+- GitHub은 App installation, Slack·Jira는 OAuth 동의 흐름으로만 붙인다. **토큰을 사용자가 직접 입력하는 경로는 없다.**
+- 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,
+  authorize URL 조립 시 소유권을 확인하고 state를 발급한다.
+- 콜백은 예외를 던지지 않고 항상 프론트로 302 리다이렉트하며, 실패는 `?error=` 코드로 전달한다.
+  state 위조·만료는 `projectId`를 복원할 수 없어 로그가 유일한 관측 수단이다.
+- Jira만 2단계다: 동의 직후에는 토큰만 담은 pending 행을 만들고, 사용자가 사이트·프로젝트를 고르면 확정한다.
+- Jira access token은 1시간짜리라 `JiraTokenService`가 갱신을 전담한다. Atlassian refresh token은 회전하므로
+  **갱신 주체가 둘이면 서로의 토큰을 무효화한다** — pipeline-worker는 직접 갱신하지 않고 아래 내부 API로 위임한다.
+
 ## 내부 서비스 API
 
 - `/api/v1/internal/**`는 사용자 JWT가 아니라 `X-Internal-Service-Token` 헤더로 인증한다.

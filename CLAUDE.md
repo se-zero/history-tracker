@@ -98,3 +98,5 @@ cd infra/docker
 - `docs/DB.md` - backend PostgreSQL 테이블 정의 및 관계도 (Flyway V1~)
 - `docs/tools.md` - ai-engine의 LLM tool-calling 도구 레퍼런스 (계약·반환·동작, 코드 위치 포인터)
 - `docs/query-quality-issues.md` - GraphRAG 쿼리 품질 이슈 분석
+- `docs/measurement.md` - GraphRAG 정량 측정(eval) 가이드 — 그래프·응답 품질 개선을 숫자로 검증하는 방법
+- `docs/DESIGN.md` - 디자인 시스템(팔레트·타이포·모션). **UI 작업 전에 읽고 모든 시각 결정을 여기서 파생시킨다**
