@@ -38,7 +38,7 @@ src/
   components/
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
-    sources/        GitHubCard · TokenIntegrationCard(Jira·Slack 공용) · JiraCard · SlackCard · IngestStatus
+    sources/        GitHubCard · JiraCard · SlackCard · IngestStatus
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
     graph/          GraphVis(d3-force SVG) · NodeDetail

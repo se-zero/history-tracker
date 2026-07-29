@@ -11,6 +11,7 @@ import java.util.UUID;
 import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
+import com.history.backend.jira.AtlassianProperties;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.slack.SlackProperties;
@@ -44,6 +45,17 @@ class IntegrationOAuthServiceTest {
             "channels:read,groups:read",
             "https://slack.test/oauth/v2/authorize",
             "https://slack.test/api/oauth.v2.access"
+    );
+
+    private final AtlassianProperties atlassianProperties = new AtlassianProperties(
+            "test-atlassian-client-id",
+            "test-atlassian-client-secret",
+            "https://atlassian.test/callback",
+            "read:jira-work read:jira-user offline_access",
+            "https://atlassian.test/authorize",
+            "https://atlassian.test/oauth/token",
+            "https://atlassian.test/oauth/token/accessible-resources",
+            "https://atlassian.test/ex/jira"
     );
 
     @Test
@@ -153,6 +165,87 @@ class IntegrationOAuthServiceTest {
         assertThat(outcome.errorCode()).isEqualTo("connect_failed");
     }
 
+    @Test
+    @DisplayName("Jira authorize URL 조립 — Atlassian 전용 파라미터(audience·response_type·prompt) 포함")
+    void buildJiraAuthorizeUrlIssuesStateAndAssemblesUrl() {
+        IntegrationOAuthService service = service();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(oauthStateService.issue(PROJECT_ID, USER_ID, "jira")).thenReturn("signed-state");
+
+        String authorizeUrl = service.buildJiraAuthorizeUrl(USER_ID, PROJECT_ID);
+
+        assertThat(authorizeUrl).isEqualTo(
+                "https://atlassian.test/authorize"
+                        + "?audience=api.atlassian.com"
+                        + "&client_id=test-atlassian-client-id"
+                        + "&scope=read:jira-work%20read:jira-user%20offline_access"
+                        + "&redirect_uri=https://atlassian.test/callback"
+                        + "&state=signed-state"
+                        + "&response_type=code"
+                        + "&prompt=consent"
+        );
+        verify(projectService).getProject(USER_ID, PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("Jira 콜백 성공 시 사이트 연동(pending) 완료 및 성공 outcome 반환")
+    void completeJiraCallbackConnectsSiteOnSuccess() {
+        IntegrationOAuthService service = service();
+        when(oauthStateService.verify("signed-state", "jira"))
+                .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "jira"));
+
+        OAuthCallbackOutcome outcome = service.completeJiraCallback("auth-code", "signed-state", null);
+
+        assertThat(outcome.projectId()).isEqualTo(PROJECT_ID);
+        assertThat(outcome.provider()).isEqualTo("jira");
+        assertThat(outcome.errorCode()).isNull();
+        verify(integrationService).connectJiraSite(USER_ID, PROJECT_ID, "auth-code");
+    }
+
+    @Test
+    @DisplayName("Jira state 검증 실패 → projectId 없이 invalid_state 반환, 연동 시도 안 함")
+    void completeJiraCallbackRejectsInvalidState() {
+        IntegrationOAuthService service = service();
+        when(oauthStateService.verify("bad-state", "jira"))
+                .thenThrow(new OAuthStateException("Invalid OAuth state signature."));
+
+        OAuthCallbackOutcome outcome = service.completeJiraCallback("auth-code", "bad-state", null);
+
+        assertThat(outcome.projectId()).isNull();
+        assertThat(outcome.provider()).isEqualTo("jira");
+        assertThat(outcome.errorCode()).isEqualTo("invalid_state");
+        verify(integrationService, never()).connectJiraSite(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Jira 동의 거부(error=access_denied) → access_denied, 연동 시도 안 함")
+    void completeJiraCallbackReturnsAccessDeniedWhenUserDeclines() {
+        IntegrationOAuthService service = service();
+        when(oauthStateService.verify("signed-state", "jira"))
+                .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "jira"));
+
+        OAuthCallbackOutcome outcome = service.completeJiraCallback(null, "signed-state", "access_denied");
+
+        assertThat(outcome.projectId()).isEqualTo(PROJECT_ID);
+        assertThat(outcome.errorCode()).isEqualTo("access_denied");
+        verify(integrationService, never()).connectJiraSite(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("이미 확정된 Jira 연동에 재연결 시도 → already_connected")
+    void completeJiraCallbackReturnsAlreadyConnectedOnConflict() {
+        IntegrationOAuthService service = service();
+        when(oauthStateService.verify("signed-state", "jira"))
+                .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "jira"));
+        when(integrationService.connectJiraSite(USER_ID, PROJECT_ID, "auth-code"))
+                .thenThrow(new ConflictException("Jira integration already exists."));
+
+        OAuthCallbackOutcome outcome = service.completeJiraCallback("auth-code", "signed-state", null);
+
+        assertThat(outcome.projectId()).isEqualTo(PROJECT_ID);
+        assertThat(outcome.errorCode()).isEqualTo("already_connected");
+    }
+
     private Project project() {
         User owner = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(owner, "id", USER_ID);
@@ -166,6 +259,7 @@ class IntegrationOAuthServiceTest {
                 projectService,
                 oauthStateService,
                 slackProperties,
+                atlassianProperties,
                 integrationService
         );
     }

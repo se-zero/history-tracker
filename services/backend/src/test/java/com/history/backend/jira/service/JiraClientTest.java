@@ -9,8 +9,11 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.util.List;
+
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
+import com.history.backend.jira.AtlassianProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -22,80 +25,74 @@ import org.springframework.web.client.RestClient;
 class JiraClientTest {
 
     @Test
-    @DisplayName("Jira 프로젝트 검증 성공 → 프로젝트 정보 반환")
-    void verifyProjectReturnsProjectInformation() {
+    @DisplayName("프로젝트 목록 조회 성공 → cloudId 게이트웨이 URI·Bearer 헤더로 요청, 프로젝트 목록 반환")
+    void listProjectsReturnsProjectList() {
         JiraClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://example.atlassian.net/rest/api/3/project/PROJ"))
+        fixture.server.expect(once(), requestTo(
+                        "https://atlassian.test/ex/jira/cloud-1/rest/api/3/project/search?maxResults=100"))
                 .andExpect(method(HttpMethod.GET))
-                .andExpect(header(
-                        "Authorization",
-                        "Basic b3duZXJAZXhhbXBsZS5jb206amlyYS10b2tlbg=="
-                ))
+                .andExpect(header("Authorization", "Bearer atl-access-token"))
                 .andExpect(header("Accept", "application/json"))
                 .andRespond(withSuccess("""
                         {
-                          "key": "PROJ",
-                          "name": "Project"
+                          "values": [
+                            { "key": "PROJ", "name": "Project" },
+                            { "key": "PLAT", "name": "Platform" }
+                          ]
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        JiraClient.JiraProject result = fixture.client.verifyProject(
-                "https://example.atlassian.net",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        );
+        List<JiraClient.JiraProject> result = fixture.client.listProjects("cloud-1", "atl-access-token");
 
-        assertThat(result.key()).isEqualTo("PROJ");
-        assertThat(result.name()).isEqualTo("Project");
+        assertThat(result).containsExactly(
+                new JiraClient.JiraProject("PROJ", "Project"),
+                new JiraClient.JiraProject("PLAT", "Platform")
+        );
         fixture.server.verify();
     }
 
     @Test
     @DisplayName("HTTP 오류 응답 → UnauthorizedException 발생")
-    void verifyProjectRejectsHttpErrorResponse() {
+    void listProjectsRejectsHttpErrorResponse() {
         JiraClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://example.atlassian.net/rest/api/3/project/PROJ"))
+        fixture.server.expect(once(), requestTo(
+                        "https://atlassian.test/ex/jira/cloud-1/rest/api/3/project/search?maxResults=100"))
                 .andRespond(withResourceNotFound());
 
-        assertThatThrownBy(() -> fixture.client.verifyProject(
-                "https://example.atlassian.net",
-                "PROJ",
-                "owner@example.com",
-                "bad-token"
-        ))
-                .isInstanceOf(UnauthorizedException.class)
-                .hasMessage("Invalid Jira credentials or project.");
+        assertThatThrownBy(() -> fixture.client.listProjects("cloud-1", "bad-token"))
+                .isInstanceOf(UnauthorizedException.class);
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("프로젝트 정보 누락 응답 → BadGatewayException 발생")
-    void verifyProjectRejectsMissingProjectInformation() {
+    @DisplayName("values 누락 응답 → BadGatewayException 발생")
+    void listProjectsRejectsMissingValues() {
         JiraClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://example.atlassian.net/rest/api/3/project/PROJ"))
-                .andRespond(withSuccess("""
-                        {
-                          "key": "",
-                          "name": "Project"
-                        }
-                        """, MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo(
+                        "https://atlassian.test/ex/jira/cloud-1/rest/api/3/project/search?maxResults=100"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.verifyProject(
-                "https://example.atlassian.net",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        ))
-                .isInstanceOf(BadGatewayException.class)
-                .hasMessage("Jira project verification response is missing project information.");
+        assertThatThrownBy(() -> fixture.client.listProjects("cloud-1", "atl-access-token"))
+                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 
     private JiraClientFixture fixture() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        JiraClient client = new JiraClient(builder.build());
+        JiraClient client = new JiraClient(
+                new AtlassianProperties(
+                        "test-client-id",
+                        "test-client-secret",
+                        "https://atlassian.test/callback",
+                        "read:jira-work read:jira-user offline_access",
+                        "https://atlassian.test/authorize",
+                        "https://atlassian.test/oauth/token",
+                        "https://atlassian.test/oauth/token/accessible-resources",
+                        "https://atlassian.test/ex/jira"
+                ),
+                builder.build()
+        );
         return new JiraClientFixture(client, server);
     }
 

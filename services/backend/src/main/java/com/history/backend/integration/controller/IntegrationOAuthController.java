@@ -46,13 +46,37 @@ public class IntegrationOAuthController {
                 .build();
     }
 
+    @GetMapping("/api/v1/projects/{projectId}/integrations/jira/authorize")
+    public AuthorizeUrlResponse authorizeJira(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId
+    ) {
+        return new AuthorizeUrlResponse(
+                integrationOAuthService.buildJiraAuthorizeUrl(authenticatedUser.id(), projectId)
+        );
+    }
+
+    @GetMapping("/api/v1/integrations/jira/callback")
+    public ResponseEntity<Void> callbackJira(
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String error
+    ) {
+        OAuthCallbackOutcome outcome = integrationOAuthService.completeJiraCallback(code, state, error);
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(buildRedirectPath(outcome)))
+                .build();
+    }
+
+    // 에러 경로에 provider를 함께 실어 프론트가 provider별 실패 문구를 조립할 수 있게 한다
+    // (provider 정보가 없으면 Jira 실패에도 Slack 문구가 뜨는 문제가 있었다).
     private String buildRedirectPath(OAuthCallbackOutcome outcome) {
         if (outcome.projectId() == null) {
-            return "/?error=" + outcome.errorCode();
+            return "/?error=" + outcome.errorCode() + "&provider=" + outcome.provider();
         }
         String query = outcome.errorCode() == null
                 ? "connected=" + outcome.provider()
-                : "error=" + outcome.errorCode();
+                : "error=" + outcome.errorCode() + "&provider=" + outcome.provider();
         return "/projects/" + outcome.projectId() + "/sources?" + query;
     }
 }

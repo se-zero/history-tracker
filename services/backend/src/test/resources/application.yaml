@@ -60,3 +60,13 @@ slack:
   user-scopes: "channels:read,groups:read,channels:history,groups:history,users:read,users:read.email"
   authorize-url: https://slack.test/oauth/v2/authorize
   oauth-access-url: https://slack.test/api/oauth.v2.access
+
+atlassian:
+  client-id: test-client-id
+  client-secret: test-client-secret
+  redirect-uri: https://atlassian.test/callback
+  scopes: "read:jira-work read:jira-user offline_access"
+  authorize-url: https://atlassian.test/authorize
+  token-url: https://atlassian.test/oauth/token
+  accessible-resources-url: https://atlassian.test/oauth/token/accessible-resources
+  api-gateway-url: https://atlassian.test/ex/jira

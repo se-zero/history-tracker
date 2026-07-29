@@ -44,6 +44,10 @@ public record IntegrationResponse(
             case GITHUB -> integration.getGitHubRepositoryFullName();
             case SLACK -> integration.getSlackWorkspaceName();
             case JIRA -> {
+                // pending 행은 project_key가 없어 getJiraProjectKey()가 던진다 — 목록 조회 전체가 500이 되는 것을 막는다
+                if (integration.isJiraPendingProject()) {
+                    yield integration.getJiraSiteName();
+                }
                 String projectName = integration.getJiraProjectName();
                 yield projectName == null ? integration.getJiraProjectKey() : projectName;
             }

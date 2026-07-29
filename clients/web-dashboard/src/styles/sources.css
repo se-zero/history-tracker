@@ -60,8 +60,9 @@
   flex-shrink: 0;
 }
 .src-logo.gh { background: var(--fg); color: var(--bg); }
-.src-logo.jira { background: var(--node-pr); }
-.src-logo.slack { background: var(--node-slack); }
+/* 커넥터 로고는 노드를 가리키지 않으므로 노드 색이 아니라 각 서비스 브랜드 색을 쓴다 (DESIGN.md) */
+.src-logo.jira { background: var(--brand-jira); }
+.src-logo.slack { background: var(--brand-slack-aubergine); }
 .source-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; }
 .source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; font-family: var(--font-mono); }
 
@@ -88,6 +89,18 @@
   background: var(--surface);
   color: var(--fg);
   max-width: 170px;
+}
+
+/* Jira 사이트·프로젝트 선택 — branch-select와 달리 카드 폭 전체를 쓴다 */
+.jira-select {
+  width: 100%;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-mono);
 }
 
 .repo-toggle {

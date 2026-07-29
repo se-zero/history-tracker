@@ -9,6 +9,9 @@ export const queryKeys = {
     conversationId: string | undefined,
   ) => ["conversation", projectId, conversationId] as const,
   integrations: (projectId: string) => ["integrations", projectId] as const,
+  jiraSites: (projectId: string) => ["jira", projectId, "sites"] as const,
+  jiraProjects: (projectId: string, cloudId: string) =>
+    ["jira", projectId, "projects", cloudId] as const,
   githubInstallations: () => ["github", "installations"] as const,
   githubRepositories: (installationId: string) =>
     ["github", "installations", installationId, "repositories"] as const,

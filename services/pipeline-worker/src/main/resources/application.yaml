@@ -34,6 +34,9 @@ app:
   jira:
     base-url: ""  # 요청의 options.baseUrl로 전달
     max-pages-per-run: 50
+    # OAuth 전환 후 모든 Jira API는 cloudId 게이트웨이로 간다. Atlassian 시크릿은 backend만 쓰므로
+    # worker에는 신규 환경변수가 없다 — 기본값만으로 충분하다.
+    gateway-base-url: https://api.atlassian.com/ex/jira
   slack:
     base-url: https://slack.com/api
     user-map-cache-ttl: 5m  # users.list 결과 캐시 TTL. webhook 수집마다 전체 멤버 재조회 방지(0 = 캐시 비활성).

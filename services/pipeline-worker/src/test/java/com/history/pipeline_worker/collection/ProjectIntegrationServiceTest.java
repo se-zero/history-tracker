@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.collection;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.common.crypto.CredentialCryptoService;
 import com.history.pipeline_worker.webhook.GitHubWebhookPayload;
 import org.junit.jupiter.api.Test;
@@ -25,11 +26,15 @@ class ProjectIntegrationServiceTest {
     private static final byte[] JIRA_TOKEN = new byte[] {2};
     private static final byte[] SLACK_TOKEN = new byte[] {3};
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
+    private static final String GATEWAY_BASE_URL = "https://api.atlassian.com/ex/jira";
+    private static final String JIRA_CREDENTIAL_JSON =
+            "{\"access_token\":\"jira-access-token\",\"refresh_token\":\"jira-refresh-token\","
+                    + "\"expires_at\":\"2026-01-01T01:00:00Z\"}";
 
     private final ProjectIntegrationRepository repository = mock(ProjectIntegrationRepository.class);
     private final CredentialCryptoService credentialCryptoService = mock(CredentialCryptoService.class);
     private final ProjectIntegrationService service =
-            new ProjectIntegrationService(repository, credentialCryptoService, CLOCK);
+            new ProjectIntegrationService(repository, credentialCryptoService, new ObjectMapper(), GATEWAY_BASE_URL, CLOCK);
 
     @Test
     void resolveGitHubPullRequestWebhook_buildsCollectionContextFromProjectIntegrations() {
@@ -42,7 +47,7 @@ class ProjectIntegrationServiceTest {
         when(repository.findAllByProjectId(PROJECT_ID))
                 .thenReturn(List.of(github, jiraRow(), slackRow()));
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
-        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn("jira@example.com:jira-token");
+        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn(JIRA_CREDENTIAL_JSON);
         when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("xoxb-slack-token");
 
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
@@ -53,9 +58,9 @@ class ProjectIntegrationServiceTest {
         assertThat(context.github().credentials()).isEqualTo("Bearer gh-token");
         assertThat(context.github().repositoryFullName()).isEqualTo("owner/repo");
         assertThat(context.jira()).hasValueSatisfying(jira -> {
-            assertThat(jira.credentials()).isEqualTo("jira@example.com:jira-token");
+            assertThat(jira.credentials()).isEqualTo("Bearer jira-access-token");
             assertThat(jira.projectKey()).isEqualTo("PLAT");
-            assertThat(jira.baseUrl()).isEqualTo("https://jira.example.com");
+            assertThat(jira.baseUrl()).isEqualTo(GATEWAY_BASE_URL + "/CLOUD123");
         });
         assertThat(context.slack()).hasValueSatisfying(slack ->
                 assertThat(slack.credentials()).isEqualTo("Bearer xoxb-slack-token"));
@@ -135,6 +140,7 @@ class ProjectIntegrationServiceTest {
         when(repository.findAllByProjectId(PROJECT_ID))
                 .thenReturn(List.of(github, invalidJira, slackRow()));
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
+        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn(JIRA_CREDENTIAL_JSON);
         when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("Bearer xoxb-slack-token");
 
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
@@ -187,15 +193,44 @@ class ProjectIntegrationServiceTest {
     @Test
     void resolveJira_buildsOnlyJiraIntegrationForProject() {
         when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(slackRow(), jiraRow()));
-        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn("jira@example.com:jira-token");
+        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn(JIRA_CREDENTIAL_JSON);
 
         Optional<JiraIntegration> result = service.resolveJira(PROJECT_ID);
 
         assertThat(result).hasValueSatisfying(integration -> {
-            assertThat(integration.credentials()).isEqualTo("jira@example.com:jira-token");
+            assertThat(integration.credentials()).isEqualTo("Bearer jira-access-token");
             assertThat(integration.projectKey()).isEqualTo("PLAT");
-            assertThat(integration.baseUrl()).isEqualTo("https://jira.example.com");
+            assertThat(integration.baseUrl()).isEqualTo(GATEWAY_BASE_URL + "/CLOUD123");
         });
+    }
+
+    @Test
+    void resolveJira_returnsEmptyWhenCredentialJsonIsBroken() {
+        // OAuth 전환 후 credential은 JSON이라, 깨진 JSON도 IllegalStateException으로 감싸 걸러야 한다.
+        // 감싸지 않으면 buildOptionalIntegration의 안전망(IllegalArgumentException|IllegalStateException만
+        // 잡음)을 우회해 webhook 수집 전체가 실패한다.
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(jiraRow()));
+        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn("not-valid-json");
+
+        assertThat(service.resolveJira(PROJECT_ID)).isEmpty();
+    }
+
+    @Test
+    void resolveJira_returnsEmptyWhenCredentialJsonIsMissingAccessToken() {
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(jiraRow()));
+        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn("{\"refresh_token\":\"jira-refresh-token\"}");
+
+        assertThat(service.resolveJira(PROJECT_ID)).isEmpty();
+    }
+
+    @Test
+    void requiredCredentialString_throwsMessageDistinctFromExternalRefFailures() {
+        // access_token은 external_ref가 아니라 암호화된 credential JSON 안에 있으므로,
+        // requiredString과 같은 "Missing external_ref value: ..." 메시지를 재사용하면 엉뚱한 곳을 가리켜
+        // 디버깅을 오도한다.
+        assertThatThrownBy(() -> service.requiredCredentialString(Map.of(), "access_token"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Missing Jira credential field: access_token");
     }
 
     @Test
@@ -244,7 +279,7 @@ class ProjectIntegrationServiceTest {
         return new ProjectIntegrationRepository.IntegrationRow(
                 PROJECT_ID,
                 "jira",
-                Map.of("project_key", "PLAT", "base_url", "https://jira.example.com"),
+                Map.of("project_key", "PLAT", "cloud_id", "CLOUD123"),
                 JIRA_TOKEN,
                 null,
                 null

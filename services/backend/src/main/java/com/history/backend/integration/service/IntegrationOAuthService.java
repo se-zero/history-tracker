@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.jira.AtlassianProperties;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.slack.SlackProperties;
 import lombok.RequiredArgsConstructor;
@@ -19,10 +20,12 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class IntegrationOAuthService {
 
     private static final String SLACK_PROVIDER = IntegrationProvider.SLACK.value();
+    private static final String JIRA_PROVIDER = IntegrationProvider.JIRA.value();
 
     private final ProjectService projectService;
     private final OAuthStateService oauthStateService;
     private final SlackProperties slackProperties;
+    private final AtlassianProperties atlassianProperties;
     private final IntegrationService integrationService;
 
     // 소유권 확인 후 state를 발급해 Slack 동의 화면 URL을 조립한다
@@ -70,6 +73,54 @@ public class IntegrationOAuthService {
         } catch (RuntimeException exception) {
             log.warn("Slack OAuth callback failed. projectId={}, error={}", claims.projectId(), exception.getMessage());
             return new OAuthCallbackOutcome(claims.projectId(), SLACK_PROVIDER, "connect_failed");
+        }
+    }
+
+    // 소유권 확인 후 state를 발급해 Atlassian 동의 화면 URL을 조립한다.
+    // Atlassian은 Slack보다 파라미터가 많다 — audience 고정값, response_type/prompt 지정이 필요하다.
+    public String buildJiraAuthorizeUrl(UUID userId, UUID projectId) {
+        projectService.getProject(userId, projectId);
+        String state = oauthStateService.issue(projectId, userId, JIRA_PROVIDER);
+
+        return UriComponentsBuilder.fromUriString(atlassianProperties.authorizeUrl())
+                .queryParam("audience", "api.atlassian.com")
+                .queryParam("client_id", atlassianProperties.clientId())
+                .queryParam("scope", atlassianProperties.scopes())
+                .queryParam("redirect_uri", atlassianProperties.redirectUri())
+                .queryParam("state", state)
+                .queryParam("response_type", "code")
+                .queryParam("prompt", "consent")
+                .encode()
+                .build()
+                .toUriString();
+    }
+
+    // state 검증 후 Jira 연동을 pending 상태로 생성/재시도한다. 에러 코드 매핑은 Slack과 동일하다.
+    public OAuthCallbackOutcome completeJiraCallback(String code, String state, String error) {
+        OAuthStateClaims claims;
+        try {
+            claims = oauthStateService.verify(state, JIRA_PROVIDER);
+        } catch (OAuthStateException exception) {
+            log.warn("Jira OAuth callback rejected invalid state. reason={}", exception.getMessage());
+            return new OAuthCallbackOutcome(null, JIRA_PROVIDER, "invalid_state");
+        }
+
+        if (error != null && !error.isBlank()) {
+            if ("access_denied".equals(error)) {
+                return new OAuthCallbackOutcome(claims.projectId(), JIRA_PROVIDER, "access_denied");
+            }
+            log.warn("Jira OAuth callback returned provider error. projectId={}, error={}", claims.projectId(), error);
+            return new OAuthCallbackOutcome(claims.projectId(), JIRA_PROVIDER, "connect_failed");
+        }
+
+        try {
+            integrationService.connectJiraSite(claims.userId(), claims.projectId(), code);
+            return new OAuthCallbackOutcome(claims.projectId(), JIRA_PROVIDER, null);
+        } catch (ConflictException exception) {
+            return new OAuthCallbackOutcome(claims.projectId(), JIRA_PROVIDER, "already_connected");
+        } catch (RuntimeException exception) {
+            log.warn("Jira OAuth callback failed. projectId={}, error={}", claims.projectId(), exception.getMessage());
+            return new OAuthCallbackOutcome(claims.projectId(), JIRA_PROVIDER, "connect_failed");
         }
     }
 }

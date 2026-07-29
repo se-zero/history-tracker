@@ -125,6 +125,7 @@
   --brand-slack-green: #2EB67D;
   --brand-slack-yellow: #ECB22E; /* 앰버(#EBA23C)와 근접하나 외부 브랜드 자산이라 앰버 독점 규칙 비대상 */
   --brand-slack-red: #E01E5A;
+  --brand-slack-aubergine: #4A154B; /* Slack 브랜드 주색 — 단색 커넥터 로고 배경용 */
 }
 
 /* ── Landing 라이트 테마 오버라이드 ─────────────────────────────

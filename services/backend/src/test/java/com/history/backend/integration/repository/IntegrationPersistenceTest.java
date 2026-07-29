@@ -126,13 +126,9 @@ class IntegrationPersistenceTest {
     void saveAndFindJiraIntegration() {
         ProjectFixture fixture = createProjectFixture();
         byte[] encryptedCredential = new byte[] {40, 50, 60};
-        Integration integration = integrationRepository.saveAndFlush(Integration.jira(
-                fixture.project(),
-                "PLAT",
-                "Platform",
-                "https://acme.atlassian.net",
-                encryptedCredential
-        ));
+        Integration pending = Integration.jiraPending(fixture.project(), encryptedCredential);
+        pending.completeJiraProject("cloud-1", "acme", "PLAT", "Platform");
+        Integration integration = integrationRepository.saveAndFlush(pending);
 
         Optional<Integration> result = integrationRepository.findByProject_IdAndProvider(
                 fixture.project().getId(),
@@ -143,7 +139,7 @@ class IntegrationPersistenceTest {
         assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.JIRA);
         assertThat(result.orElseThrow().getJiraProjectKey()).isEqualTo("PLAT");
         assertThat(result.orElseThrow().getJiraProjectName()).isEqualTo("Platform");
-        assertThat(result.orElseThrow().getJiraBaseUrl()).isEqualTo("https://acme.atlassian.net");
+        assertThat(result.orElseThrow().isJiraPendingProject()).isFalse();
         assertThat(result.orElseThrow().getInstallation()).isNull();
         assertThat(result.orElseThrow().getEncryptedCredential()).containsExactly(40, 50, 60);
     }
@@ -214,13 +210,9 @@ class IntegrationPersistenceTest {
     @DisplayName("Jira external_ref는 JSONB로 저장")
     void jiraExternalRefIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
-        Integration integration = integrationRepository.saveAndFlush(Integration.jira(
-                fixture.project(),
-                "PLAT",
-                "Platform",
-                "https://acme.atlassian.net",
-                new byte[] {1, 2, 3}
-        ));
+        Integration pending = Integration.jiraPending(fixture.project(), new byte[] {1, 2, 3});
+        pending.completeJiraProject("cloud-1", "acme", "PLAT", "Platform");
+        Integration integration = integrationRepository.saveAndFlush(pending);
 
         String projectKey = jdbcTemplate.queryForObject(
                 "SELECT external_ref->>'project_key' FROM integrations WHERE id = ?",
@@ -232,9 +224,15 @@ class IntegrationPersistenceTest {
                 String.class,
                 integration.getId()
         );
+        String cloudId = jdbcTemplate.queryForObject(
+                "SELECT external_ref->>'cloud_id' FROM integrations WHERE id = ?",
+                String.class,
+                integration.getId()
+        );
 
         assertThat(projectKey).isEqualTo("PLAT");
         assertThat(projectName).isEqualTo("Platform");
+        assertThat(cloudId).isEqualTo("cloud-1");
     }
 
     @Test
@@ -281,24 +279,17 @@ class IntegrationPersistenceTest {
     }
 
     @Test
-    @DisplayName("Jira base_url 타입 불일치 시 IllegalStateException")
-    void jiraBaseUrlFailsWhenExternalRefUsesUnexpectedType() {
+    @DisplayName("Jira project_key 타입 불일치 시 IllegalStateException")
+    void jiraProjectKeyFailsWhenExternalRefUsesUnexpectedType() {
         ProjectFixture fixture = createProjectFixture();
-        Integration integration = Integration.jira(
-                fixture.project(),
-                "PLAT",
-                "Platform",
-                "https://acme.atlassian.net",
-                new byte[] {1, 2, 3}
-        );
+        Integration integration = Integration.jiraPending(fixture.project(), new byte[] {1, 2, 3});
         ReflectionTestUtils.setField(integration, "externalRef", Map.of(
-                Integration.JIRA_PROJECT_KEY, "PLAT",
-                Integration.JIRA_BASE_URL, 123
+                Integration.JIRA_PROJECT_KEY, 123
         ));
 
-        assertThatThrownBy(integration::getJiraBaseUrl)
+        assertThatThrownBy(integration::getJiraProjectKey)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageStartingWith("Unexpected Jira base_url type:");
+                .hasMessageStartingWith("Unexpected Jira project_key type:");
     }
 
     private ProjectFixture createProjectFixture() {
