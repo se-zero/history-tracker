@@ -6,11 +6,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
+import com.history.backend.integration.domain.Integration;
 import com.history.backend.jira.AtlassianProperties;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
@@ -55,7 +57,8 @@ class IntegrationOAuthServiceTest {
             "https://atlassian.test/authorize",
             "https://atlassian.test/oauth/token",
             "https://atlassian.test/oauth/token/accessible-resources",
-            "https://atlassian.test/ex/jira"
+            "https://atlassian.test/ex/jira",
+            Duration.ofMinutes(5)
     );
 
     @Test
@@ -188,18 +191,39 @@ class IntegrationOAuthServiceTest {
     }
 
     @Test
-    @DisplayName("Jira 콜백 성공 시 사이트 연동(pending) 완료 및 성공 outcome 반환")
+    @DisplayName("Jira 콜백 성공(사이트·프로젝트 선택 필요) 시 pending 완료 및 confirmed=false 반환")
     void completeJiraCallbackConnectsSiteOnSuccess() {
         IntegrationOAuthService service = service();
         when(oauthStateService.verify("signed-state", "jira"))
                 .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "jira"));
+        Integration pendingIntegration = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        when(integrationService.connectJiraSite(USER_ID, PROJECT_ID, "auth-code")).thenReturn(pendingIntegration);
 
         OAuthCallbackOutcome outcome = service.completeJiraCallback("auth-code", "signed-state", null);
 
         assertThat(outcome.projectId()).isEqualTo(PROJECT_ID);
         assertThat(outcome.provider()).isEqualTo("jira");
         assertThat(outcome.errorCode()).isNull();
+        // 사이트·프로젝트를 아직 고르지 않은 pending 상태이므로 confirmed는 false다
+        assertThat(outcome.confirmed()).isFalse();
         verify(integrationService).connectJiraSite(USER_ID, PROJECT_ID, "auth-code");
+    }
+
+    @Test
+    @DisplayName("Jira 콜백 성공(자동 복원으로 이미 확정) 시 confirmed=true 반환")
+    void completeJiraCallbackReturnsConfirmedTrueWhenAutoRestored() {
+        IntegrationOAuthService service = service();
+        when(oauthStateService.verify("signed-state", "jira"))
+                .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "jira"));
+        Integration restoredIntegration = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        restoredIntegration.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        when(integrationService.connectJiraSite(USER_ID, PROJECT_ID, "auth-code")).thenReturn(restoredIntegration);
+
+        OAuthCallbackOutcome outcome = service.completeJiraCallback("auth-code", "signed-state", null);
+
+        assertThat(outcome.projectId()).isEqualTo(PROJECT_ID);
+        assertThat(outcome.errorCode()).isNull();
+        assertThat(outcome.confirmed()).isTrue();
     }
 
     @Test

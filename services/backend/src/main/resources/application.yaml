@@ -76,3 +76,5 @@ atlassian:
   token-url: ${ATLASSIAN_TOKEN_URL:https://auth.atlassian.com/oauth/token}
   accessible-resources-url: ${ATLASSIAN_ACCESSIBLE_RESOURCES_URL:https://api.atlassian.com/oauth/token/accessible-resources}
   api-gateway-url: ${ATLASSIAN_API_GATEWAY_URL:https://api.atlassian.com/ex/jira}
+  # 만료 전 미리 갱신할 여유 시간. 로컬에서 크게 잡으면(예: PT2H) 갱신 경로를 즉시 검증할 수 있다.
+  refresh-skew: ${ATLASSIAN_REFRESH_SKEW:PT5M}

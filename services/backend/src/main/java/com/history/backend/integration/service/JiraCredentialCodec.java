@@ -7,7 +7,7 @@ import com.history.backend.common.crypto.CredentialCryptoService;
 import org.springframework.stereotype.Component;
 
 // JiraCredential(access/refresh token·만료 시각) ↔ encrypted_credential(BYTEA) 변환.
-// JSON 직렬화 후 기존 CredentialCryptoService(AES-GCM)를 그대로 감싼다 — 2-b의 토큰 갱신도 이 코덱을 재사용한다.
+// JSON 직렬화 후 기존 CredentialCryptoService(AES-GCM)를 그대로 감싼다 — 토큰 갱신도 이 코덱을 재사용한다.
 @Component
 public class JiraCredentialCodec {
 

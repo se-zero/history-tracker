@@ -74,9 +74,12 @@ public class IntegrationOAuthController {
         if (outcome.projectId() == null) {
             return "/?error=" + outcome.errorCode() + "&provider=" + outcome.provider();
         }
-        String query = outcome.errorCode() == null
-                ? "connected=" + outcome.provider()
-                : "error=" + outcome.errorCode() + "&provider=" + outcome.provider();
+        if (outcome.errorCode() != null) {
+            return "/projects/" + outcome.projectId() + "/sources?error=" + outcome.errorCode()
+                    + "&provider=" + outcome.provider();
+        }
+        // Jira 자동 복원 완료는 confirmed=true로 넘어온다 — 배너가 "선택하세요" 대신 "복원됐어요"를 보여준다.
+        String query = "connected=" + outcome.provider() + (outcome.confirmed() ? "&restored=true" : "");
         return "/projects/" + outcome.projectId() + "/sources?" + query;
     }
 }

@@ -69,7 +69,7 @@ cd infra/docker
 - 모든 환경변수는 `infra/docker/.env` 한 곳에 모인다 (`.env`는 gitignore).
 - 컨테이너: postgres, neo4j, rabbitmq, ai-engine, backend, pipeline-worker, web-dashboard.
 - 필수 키: `BACKEND_CREDENTIAL_KEY`(32-byte Base64), `INTERNAL_SERVICE_TOKEN`(backend·pipeline-worker 공유),
-  `OPENAI_API_KEY`, GitHub App OAuth 값(`GITHUB_APP_*`, `GITHUB_CLIENT_*`).
+  `OPENAI_API_KEY`, GitHub App OAuth 값(`GITHUB_APP_*`, `GITHUB_CLIENT_*`), Atlassian OAuth 값(`ATLASSIAN_CLIENT_*`, `ATLASSIAN_REDIRECT_URI`).
 - 개별 서비스 빌드/테스트 명령은 각 서비스의 CLAUDE.md를 참고한다.
 
 ## 코딩 규칙

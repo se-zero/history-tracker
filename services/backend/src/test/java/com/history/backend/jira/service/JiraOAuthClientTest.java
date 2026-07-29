@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.time.Duration;
 import java.util.List;
 
 import com.history.backend.common.error.BadGatewayException;
@@ -90,7 +91,7 @@ class JiraOAuthClientTest {
     @DisplayName("refresh_token 누락 응답 → BadGatewayException 발생")
     void exchangeCodeRejectsMissingRefreshToken() {
         // offline_access 스코프가 빠지면 Atlassian이 refresh_token 없이 응답한다. 여기서 막지 않으면
-        // null로 조용히 저장돼 2-b 토큰 갱신 시점에서야 "갱신 불가"로 드러난다.
+        // null로 조용히 저장돼 토큰 갱신 시점에서야 "갱신 불가"로 드러난다.
         JiraOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
                 .andRespond(withSuccess("""
@@ -171,6 +172,67 @@ class JiraOAuthClientTest {
         fixture.server.verify();
     }
 
+    @Test
+    @DisplayName("refresh token 교환 성공 → JSON body로 요청, 회전된 새 토큰 3종 반환")
+    void refreshReturnsRotatedTokensWithJsonBody() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        {
+                          "grant_type": "refresh_token",
+                          "client_id": "test-client-id",
+                          "client_secret": "test-client-secret",
+                          "refresh_token": "old-refresh-token"
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {
+                          "access_token": "new-access-token",
+                          "refresh_token": "rotated-refresh-token",
+                          "expires_in": 3600
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        JiraOAuthClient.JiraTokens result = fixture.client.refresh("old-refresh-token");
+
+        assertThat(result.accessToken()).isEqualTo("new-access-token");
+        // 응답에 담겨 오는 새 refresh token(회전) — 저장하지 않으면 다음 갱신이 영구 실패한다
+        assertThat(result.refreshToken()).isEqualTo("rotated-refresh-token");
+        assertThat(result.expiresIn()).isEqualTo(3600L);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh token 폐기(HTTP 4xx) → UnauthorizedException 발생")
+    void refreshRejectsRevokedRefreshToken() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withResourceNotFound());
+
+        assertThatThrownBy(() -> fixture.client.refresh("revoked-refresh-token"))
+                .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh 응답에 refresh_token 누락 → BadGatewayException 발생")
+    void refreshRejectsMissingRotatedRefreshToken() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withSuccess("""
+                        {
+                          "access_token": "new-access-token",
+                          "expires_in": 3600
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.refresh("old-refresh-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
     private JiraOAuthClientFixture fixture() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -183,7 +245,8 @@ class JiraOAuthClientTest {
                         "https://atlassian.test/authorize",
                         "https://atlassian.test/oauth/token",
                         "https://atlassian.test/oauth/token/accessible-resources",
-                        "https://atlassian.test/ex/jira"
+                        "https://atlassian.test/ex/jira",
+                        Duration.ofMinutes(5)
                 ),
                 builder.build()
         );

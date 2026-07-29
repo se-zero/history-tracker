@@ -10,7 +10,7 @@ cd services/backend
 
 ## 패키지 구조
 
-패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시하고, `jira`·`slack`은 연동 검증용 client(config/service/dto)만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
+패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시한다. `jira`는 OAuth 클라이언트(동의 코드 교환·토큰 갱신·사이트/프로젝트 조회)를, `slack`은 연동 검증용 client(config/service/dto)만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
 
 `dto`에는 직렬화 경계 타입(프론트 요청·응답, ai-engine 클라이언트 DTO, opaque 커서)만 두고 필드에 도메인 엔티티를 노출하지 않는다(엔티티는 `from()` 매핑 파라미터로만 받는다). 도메인 엔티티를 필드로 담는 서비스 반환·중간 타입(예: `ConversationStart`, `ConversationPage`, `ConversationDetail`)은 `service`에 둔다.
 
@@ -52,6 +52,7 @@ cd services/backend
 - `/api/v1/internal/**`는 사용자 JWT가 아니라 `X-Internal-Service-Token` 헤더로 인증한다.
 - `InternalServiceAuthenticationFilter`는 `security.internal-service.token`과 요청 헤더를 timing-safe 방식으로 비교한다.
 - `POST /api/v1/internal/github/installations/{installationId}/token`은 GitHub installation access token이 없거나 만료 임박한 경우 갱신해 DB 캐시를 보장하고 `204`를 반환한다. 토큰 평문은 응답하지 않는다.
+- `POST /api/v1/internal/integrations/{projectId}/jira/token`은 Jira access token이 없거나 만료 임박한 경우 refresh token으로 갱신해 저장하고 `204`를 반환한다. refresh token이 폐기돼 갱신이 영구 실패하면 연동을 pending 상태로 되돌린다. 토큰 평문은 응답하지 않는다.
 - backend와 pipeline-worker에는 동일한 `INTERNAL_SERVICE_TOKEN`을 배포해야 한다.
 - GitHub App private key는 backend에만 두고 pipeline-worker와 공유하지 않는다.
 

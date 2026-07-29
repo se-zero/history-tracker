@@ -7,6 +7,9 @@ import java.util.UUID;
 public record OAuthCallbackOutcome(
         UUID projectId,
         String provider,
-        String errorCode
+        String errorCode,
+        // Jira 자동 복원으로 사이트·프로젝트가 이미 확정됐는지 여부 — 프론트가 "선택 필요" 배너와
+        // "복원 완료" 배너를 구분하는 데 쓴다. Slack과 에러 경로는 항상 false다.
+        boolean confirmed
 ) {
 }

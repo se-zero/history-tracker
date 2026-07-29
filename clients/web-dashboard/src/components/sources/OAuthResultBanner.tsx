@@ -35,6 +35,7 @@ export function OAuthResultBanner() {
     connected: searchParams.get("connected"),
     error: searchParams.get("error"),
     provider: searchParams.get("provider"),
+    restored: searchParams.get("restored") === "true",
   }));
   const [dismissed, setDismissed] = useState(false);
 
@@ -46,6 +47,7 @@ export function OAuthResultBanner() {
         next.delete("connected");
         next.delete("error");
         next.delete("provider");
+        next.delete("restored");
         return next;
       },
       { replace: true },
@@ -57,11 +59,14 @@ export function OAuthResultBanner() {
 
   const tone = result.error ? "error" : "success";
   // Jira는 동의 직후 아직 미확정(사이트·프로젝트 선택 전)이므로 "완료"가 아니라 다음 단계를 안내한다.
+  // 단, 갱신 실패로 끊겼던 연동이 재동의로 자동 복원된 경우(restored=true)는 선택 단계 없이 곧바로 완료다.
   const message = result.error
     ? errorMessage(result.error, result.provider)
-    : result.connected === "jira"
+    : result.connected === "jira" && !result.restored
       ? "Jira 연동을 계속하려면 사이트와 프로젝트를 선택하세요."
-      : `${providerLabel(result.connected)} 연동이 완료됐어요.`;
+      : result.connected === "jira"
+        ? "Jira 연동이 복원됐어요."
+        : `${providerLabel(result.connected)} 연동이 완료됐어요.`;
 
   return (
     <div className={`oauth-result-banner ${tone}`} role="status">

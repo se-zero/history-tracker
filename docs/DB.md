@@ -174,7 +174,7 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 | `provider` | TEXT | NOT NULL, CHECK IN (`github`, `slack`, `jira`) | 외부 시스템 종류 |
 | `external_ref` | JSONB | NOT NULL | provider별 식별자 묶음 |
 | `installation_id` | UUID | FK → `github_installations.id` CASCADE, nullable | GitHub 연동 시 installation 참조 |
-| `encrypted_credential` | BYTEA | nullable | Slack·Jira PAT·API key 암호화 보관 (AES-GCM) |
+| `encrypted_credential` | BYTEA | nullable | Slack API 토큰·Jira OAuth 토큰(JSON: access·refresh token·만료 시각) 암호화 보관 (AES-GCM) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 연동 등록 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 메타데이터 변경 시각 |
 
@@ -185,7 +185,7 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 **`external_ref` JSON 키**
 - GitHub: `repository_id`, `repository_full_name`
 - Slack: `workspace_id`, `workspace_name`
-- Jira: `project_key`, `project_name`, `base_url`
+- Jira: `cloud_id`, `site_name`, `project_key`, `project_name`(선택). 사이트·프로젝트 선택 전(pending) 상태에서는 `status`(`pending_project`)만 담긴다
 
 **인덱스**
 - UNIQUE `(project_id, provider)`
