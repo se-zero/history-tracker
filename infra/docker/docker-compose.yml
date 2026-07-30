@@ -115,6 +115,16 @@ services:
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
       GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:8080/api/v1/auth/github/callback}
       GITHUB_INSTALLATION_URL: ${GITHUB_INSTALLATION_URL:-}
+
+      # Slack App — infra/docker/.env 에서 forward
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
+      SLACK_REDIRECT_URI: ${SLACK_REDIRECT_URI:-}
+
+      # Atlassian App — infra/docker/.env 에서 forward
+      ATLASSIAN_CLIENT_ID: ${ATLASSIAN_CLIENT_ID:-}
+      ATLASSIAN_CLIENT_SECRET: ${ATLASSIAN_CLIENT_SECRET:-}
+      ATLASSIAN_REDIRECT_URI: ${ATLASSIAN_REDIRECT_URI:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,6 +154,10 @@ services:
       # backend와 동일한 값을 공유해야 함 (토큰 검증 / credential 복호화)
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
       BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
+
+      # GitHub App settings의 Webhook secret과 동일한 값이어야 서명 검증이 통과한다.
+      # 미설정 시 webhook만 동작하지 않고 초기 수집은 정상이라 필수(:?)로 두지 않는다.
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy

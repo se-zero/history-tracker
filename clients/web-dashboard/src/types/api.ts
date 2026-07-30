@@ -97,6 +97,18 @@ export interface GitHubRepository {
   default_branch: string;
 }
 
+// Atlassian 사이트(cloudId 단위 조직) — Jira 연동 2단계에서 사용자가 고르는 목록
+export interface JiraSite {
+  cloudId: string;
+  name: string;
+  url: string;
+}
+
+export interface JiraProject {
+  key: string;
+  name: string;
+}
+
 export interface Integration {
   id: string;
   projectId: string;

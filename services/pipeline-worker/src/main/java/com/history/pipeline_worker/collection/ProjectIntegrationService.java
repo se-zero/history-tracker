@@ -1,9 +1,12 @@
 package com.history.pipeline_worker.collection;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.common.crypto.CredentialCryptoService;
 import com.history.pipeline_worker.webhook.GitHubWebhookPayload;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -22,28 +25,39 @@ public class ProjectIntegrationService {
     private static final String GITHUB_REPOSITORY_FULL_NAME = "repository_full_name";
     private static final String GITHUB_BRANCH = "branch";
     private static final String JIRA_PROJECT_KEY = "project_key";
-    private static final String JIRA_BASE_URL = "base_url";
+    private static final String JIRA_CLOUD_ID = "cloud_id";
+    private static final String JIRA_ACCESS_TOKEN = "access_token";
     private static final Duration GITHUB_TOKEN_REFRESH_SKEW = Duration.ofMinutes(5);
+    private static final TypeReference<Map<String, Object>> CREDENTIAL_JSON_TYPE = new TypeReference<>() {
+    };
 
     private final ProjectIntegrationRepository repository;
     private final CredentialCryptoService credentialCryptoService;
+    private final ObjectMapper objectMapper;
+    private final String jiraGatewayBaseUrl;
     private final Clock clock;
 
     @Autowired
     public ProjectIntegrationService(
             ProjectIntegrationRepository repository,
-            CredentialCryptoService credentialCryptoService
+            CredentialCryptoService credentialCryptoService,
+            ObjectMapper objectMapper,
+            @Value("${app.jira.gateway-base-url}") String jiraGatewayBaseUrl
     ) {
-        this(repository, credentialCryptoService, Clock.systemUTC());
+        this(repository, credentialCryptoService, objectMapper, jiraGatewayBaseUrl, Clock.systemUTC());
     }
 
     ProjectIntegrationService(
             ProjectIntegrationRepository repository,
             CredentialCryptoService credentialCryptoService,
+            ObjectMapper objectMapper,
+            String jiraGatewayBaseUrl,
             Clock clock
     ) {
         this.repository = repository;
         this.credentialCryptoService = credentialCryptoService;
+        this.objectMapper = objectMapper;
+        this.jiraGatewayBaseUrl = jiraGatewayBaseUrl;
         this.clock = clock;
     }
 
@@ -171,11 +185,25 @@ public class ProjectIntegrationService {
     }
 
     private JiraIntegration buildJiraIntegration(ProjectIntegrationRepository.IntegrationRow integration) {
-        return new JiraIntegration(
-                credentialCryptoService.decrypt(requiredEncryptedCredential(integration)),
-                requiredString(integration.externalRef(), JIRA_PROJECT_KEY),
-                requiredString(integration.externalRef(), JIRA_BASE_URL)
+        Map<String, Object> credential = parseJiraCredential(
+                credentialCryptoService.decrypt(requiredEncryptedCredential(integration))
         );
+        return new JiraIntegration(
+                bearer(requiredCredentialString(credential, JIRA_ACCESS_TOKEN)),
+                requiredString(integration.externalRef(), JIRA_PROJECT_KEY),
+                jiraGatewayBaseUrl + "/" + requiredString(integration.externalRef(), JIRA_CLOUD_ID)
+        );
+    }
+
+    // OAuth 전환 후 Jira credential은 JSON({access_token, refresh_token, expires_at})이다.
+    // Jackson 예외를 그대로 던지면 buildOptionalIntegration의 안전망(IllegalArgumentException|IllegalStateException만
+    // 잡음)을 우회해 잘못된 연동이 webhook 수집 전체를 실패시키므로 반드시 IllegalStateException으로 감싼다.
+    private Map<String, Object> parseJiraCredential(String json) {
+        try {
+            return objectMapper.readValue(json, CREDENTIAL_JSON_TYPE);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to parse Jira credential JSON.", exception);
+        }
     }
 
     private SlackIntegration buildSlackIntegration(ProjectIntegrationRepository.IntegrationRow integration) {
@@ -205,6 +233,17 @@ public class ProjectIntegrationService {
             return text;
         }
         throw new IllegalStateException("Missing external_ref value: " + key);
+    }
+
+    // access_token은 external_ref가 아니라 암호화된 credential JSON 안에 있어 requiredString과 메시지를
+    // 분리한다 — 재사용하면 "Missing external_ref value: access_token"처럼 엉뚱한 위치를 가리켜 오도한다.
+    // 패키지 접근으로 열어 테스트에서 메시지를 직접 검증한다.
+    String requiredCredentialString(Map<String, Object> credential, String key) {
+        Object value = credential.get(key);
+        if (value instanceof String text && !text.isBlank()) {
+            return text;
+        }
+        throw new IllegalStateException("Missing Jira credential field: " + key);
     }
 
     // branch는 과거 연동에는 없을 수 있어 선택값으로 읽는다 (null이면 기본 브랜치 수집)

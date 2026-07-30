@@ -59,4 +59,20 @@ github:
     repository-branches-url: ${GITHUB_REPOSITORY_BRANCHES_URL:https://api.github.com/repos/{owner}/{repo}/branches}
 
 slack:
-  auth-test-url: ${SLACK_AUTH_TEST_URL:https://slack.com/api/auth.test}
+  client-id: ${SLACK_CLIENT_ID:}
+  client-secret: ${SLACK_CLIENT_SECRET:}
+  redirect-uri: ${SLACK_REDIRECT_URI:}
+  user-scopes: "${SLACK_USER_SCOPES:channels:read,groups:read,channels:history,groups:history,users:read,users:read.email}"
+  authorize-url: ${SLACK_AUTHORIZE_URL:https://slack.com/oauth/v2/authorize}
+  oauth-access-url: ${SLACK_OAUTH_ACCESS_URL:https://slack.com/api/oauth.v2.access}
+
+atlassian:
+  client-id: ${ATLASSIAN_CLIENT_ID:}
+  client-secret: ${ATLASSIAN_CLIENT_SECRET:}
+  redirect-uri: ${ATLASSIAN_REDIRECT_URI:}
+  # Atlassian scope 구분자는 공백(Slack의 user-scopes는 콤마) — 콜론이 들어가므로 따옴표로 감싼다.
+  scopes: "${ATLASSIAN_SCOPES:read:jira-work read:jira-user offline_access}"
+  authorize-url: ${ATLASSIAN_AUTHORIZE_URL:https://auth.atlassian.com/authorize}
+  token-url: ${ATLASSIAN_TOKEN_URL:https://auth.atlassian.com/oauth/token}
+  accessible-resources-url: ${ATLASSIAN_ACCESSIBLE_RESOURCES_URL:https://api.atlassian.com/oauth/token/accessible-resources}
+  api-gateway-url: ${ATLASSIAN_API_GATEWAY_URL:https://api.atlassian.com/ex/jira}

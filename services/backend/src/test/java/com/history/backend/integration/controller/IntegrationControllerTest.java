@@ -17,6 +17,8 @@ import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.service.IntegrationService;
+import com.history.backend.jira.service.JiraClient;
+import com.history.backend.jira.service.JiraOAuthClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
@@ -116,60 +118,71 @@ class IntegrationControllerTest {
     }
 
     @Test
-    @DisplayName("Slack 워크스페이스 연동 → 201 Created 반환")
-    void connectSlackWorkspaceReturnsCreatedIntegration() throws Exception {
-        when(integrationService.connectSlackWorkspace(
-                USER_ID,
-                PROJECT_ID,
-                "xoxb-token"
-        )).thenReturn(slackIntegration());
+    @DisplayName("pending 행이 있어도 연동 목록 조회는 200 — displayName null, metadata.status는 pending_project")
+    void listIntegrationsReturnsOkWhenJiraIntegrationIsPending() throws Exception {
+        when(integrationService.listIntegrations(USER_ID, PROJECT_ID))
+                .thenReturn(List.of(IntegrationResponse.from(jiraPendingIntegration())));
 
-        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "token": "xoxb-token"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(INTEGRATION_ID.toString()))
-                .andExpect(jsonPath("$.projectId").value(PROJECT_ID.toString()))
-                .andExpect(jsonPath("$.provider").value("slack"))
-                .andExpect(jsonPath("$.displayName").value("Acme"))
-                .andExpect(jsonPath("$.installationId").doesNotExist())
-                .andExpect(jsonPath("$.metadata.workspace_id").value("T123"))
-                .andExpect(jsonPath("$.metadata.workspace_name").value("Acme"))
-                .andExpect(jsonPath("$.metadata.token").doesNotExist())
-                .andExpect(jsonPath("$.externalRef").doesNotExist())
-                .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
-                .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].provider").value("jira"))
+                .andExpect(jsonPath("$[0].displayName").doesNotExist())
+                .andExpect(jsonPath("$[0].metadata.status").value("pending_project"));
     }
 
     @Test
-    @DisplayName("Jira 프로젝트 연동 → 201 Created 반환")
-    void connectJiraProjectReturnsCreatedIntegration() throws Exception {
-        when(integrationService.connectJiraProject(
+    @DisplayName("Jira 접근 가능 사이트 목록 조회")
+    void listJiraSitesReturnsSiteList() throws Exception {
+        when(integrationService.listJiraSites(USER_ID, PROJECT_ID))
+                .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net")));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/jira/sites", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].cloudId").value("cloud-1"))
+                .andExpect(jsonPath("$[0].name").value("acme"))
+                .andExpect(jsonPath("$[0].url").value("https://acme.atlassian.net"));
+    }
+
+    @Test
+    @DisplayName("선택한 사이트의 Jira 프로젝트 목록 조회")
+    void listJiraProjectsReturnsProjectList() throws Exception {
+        when(integrationService.listJiraProjects(USER_ID, PROJECT_ID, "cloud-1"))
+                .thenReturn(List.of(new JiraClient.JiraProject("PROJ", "Project")));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/jira/projects", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .param("cloudId", "cloud-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].key").value("PROJ"))
+                .andExpect(jsonPath("$[0].name").value("Project"));
+    }
+
+    @Test
+    @DisplayName("Jira 사이트·프로젝트 선택 확정 → 200과 확정된 연동 반환")
+    void completeJiraProjectReturnsUpdatedIntegration() throws Exception {
+        when(integrationService.completeJiraProject(
                 USER_ID,
                 PROJECT_ID,
-                "https://example.atlassian.net",
+                "cloud-1",
+                "acme",
                 "PROJ",
-                "owner@example.com",
-                "jira-token"
+                "Project"
         )).thenReturn(jiraIntegration());
 
-        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira", PROJECT_ID)
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira/project", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "base_url": "https://example.atlassian.net",
+                                  "cloud_id": "cloud-1",
+                                  "site_name": "acme",
                                   "project_key": "PROJ",
-                                  "email": "owner@example.com",
-                                  "api_token": "jira-token"
+                                  "project_name": "Project"
                                 }
                                 """))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(INTEGRATION_ID.toString()))
                 .andExpect(jsonPath("$.projectId").value(PROJECT_ID.toString()))
                 .andExpect(jsonPath("$.provider").value("jira"))
@@ -177,10 +190,8 @@ class IntegrationControllerTest {
                 .andExpect(jsonPath("$.installationId").doesNotExist())
                 .andExpect(jsonPath("$.metadata.project_key").value("PROJ"))
                 .andExpect(jsonPath("$.metadata.project_name").value("Project"))
-                .andExpect(jsonPath("$.metadata.base_url").value("https://example.atlassian.net"))
-                .andExpect(jsonPath("$.metadata.email").doesNotExist())
-                .andExpect(jsonPath("$.metadata.api_token").doesNotExist())
-                .andExpect(jsonPath("$.externalRef").doesNotExist())
+                .andExpect(jsonPath("$.metadata.cloud_id").value("cloud-1"))
+                .andExpect(jsonPath("$.metadata.status").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
                 .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
     }
@@ -196,39 +207,6 @@ class IntegrationControllerTest {
                                   "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
                                   "repository_id": 0,
                                   "repository_full_name": ""
-                                }
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Request validation failed."));
-    }
-
-    @Test
-    @DisplayName("유효하지 않은 Slack 연동 요청 → 400 Bad Request 반환")
-    void connectSlackWorkspaceRejectsInvalidRequest() throws Exception {
-        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "token": ""
-                                }
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Request validation failed."));
-    }
-
-    @Test
-    @DisplayName("유효하지 않은 Jira 연동 요청 → 400 Bad Request 반환")
-    void connectJiraProjectRejectsInvalidRequest() throws Exception {
-        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira", PROJECT_ID)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "base_url": "ftp://example.atlassian.net",
-                                  "project_key": "bad key",
-                                  "email": "not-email",
-                                  "api_token": ""
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -282,54 +260,6 @@ class IntegrationControllerTest {
     }
 
     @Test
-    @DisplayName("이미 연동된 Slack 워크스페이스 → 409 Conflict 반환")
-    void connectSlackWorkspaceReturnsConflictWhenAlreadyConnected() throws Exception {
-        when(integrationService.connectSlackWorkspace(
-                USER_ID,
-                PROJECT_ID,
-                "xoxb-token"
-        )).thenThrow(new ConflictException("Slack integration already exists."));
-
-        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "token": "xoxb-token"
-                                }
-                                """))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("Slack integration already exists."));
-    }
-
-    @Test
-    @DisplayName("이미 연동된 Jira 프로젝트 → 409 Conflict 반환")
-    void connectJiraProjectReturnsConflictWhenAlreadyConnected() throws Exception {
-        when(integrationService.connectJiraProject(
-                USER_ID,
-                PROJECT_ID,
-                "https://example.atlassian.net",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        )).thenThrow(new ConflictException("Jira integration already exists."));
-
-        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira", PROJECT_ID)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "base_url": "https://example.atlassian.net",
-                                  "project_key": "PROJ",
-                                  "email": "owner@example.com",
-                                  "api_token": "jira-token"
-                                }
-                                """))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("Jira integration already exists."));
-    }
-
-    @Test
     @DisplayName("액세스 토큰 없으면 401 Unauthorized 반환")
     void rejectMissingAccessToken() throws Exception {
         mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/github", PROJECT_ID)
@@ -362,14 +292,14 @@ class IntegrationControllerTest {
         return integration;
     }
 
-    private Integration slackIntegration() {
+    private Integration jiraPendingIntegration() {
         User owner = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(owner, "id", USER_ID);
 
         Project project = new Project(owner, "History Tracker", null);
         ReflectionTestUtils.setField(project, "id", PROJECT_ID);
 
-        Integration integration = Integration.slack(project, "T123", "Acme", new byte[] {1, 2, 3});
+        Integration integration = Integration.jiraPending(project, new byte[] {4, 5, 6});
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);
@@ -383,13 +313,8 @@ class IntegrationControllerTest {
         Project project = new Project(owner, "History Tracker", null);
         ReflectionTestUtils.setField(project, "id", PROJECT_ID);
 
-        Integration integration = Integration.jira(
-                project,
-                "PROJ",
-                "Project",
-                "https://example.atlassian.net",
-                new byte[] {4, 5, 6}
-        );
+        Integration integration = Integration.jiraPending(project, new byte[] {4, 5, 6});
+        integration.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);

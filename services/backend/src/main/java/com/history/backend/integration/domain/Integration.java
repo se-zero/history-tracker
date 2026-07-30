@@ -40,7 +40,10 @@ public class Integration {
     public static final String SLACK_WORKSPACE_NAME = "workspace_name";
     public static final String JIRA_PROJECT_KEY = "project_key";
     public static final String JIRA_PROJECT_NAME = "project_name";
-    public static final String JIRA_BASE_URL = "base_url";
+    public static final String JIRA_CLOUD_ID = "cloud_id";
+    public static final String JIRA_SITE_NAME = "site_name";
+    public static final String JIRA_STATUS = "status";
+    public static final String JIRA_STATUS_PENDING_PROJECT = "pending_project";
 
     @Id
     @GeneratedValue
@@ -112,23 +115,13 @@ public class Integration {
         );
     }
 
-    public static Integration jira(
-            Project project,
-            String projectKey,
-            String projectName,
-            String baseUrl,
-            byte[] encryptedCredential
-    ) {
-        Map<String, Object> externalRef = new HashMap<>();
-        externalRef.put(JIRA_PROJECT_KEY, projectKey);
-        externalRef.put(JIRA_BASE_URL, baseUrl);
-        if (projectName != null && !projectName.isBlank()) {
-            externalRef.put(JIRA_PROJECT_NAME, projectName);
-        }
+    // Jira는 동의 직후 사이트·프로젝트를 아직 모르므로 토큰만 담은 pending 행으로 시작한다.
+    // 사용자가 사이트·프로젝트를 고르면 completeJiraProject로 확정한다.
+    public static Integration jiraPending(Project project, byte[] encryptedCredential) {
         return new Integration(
                 project,
                 IntegrationProvider.JIRA,
-                Map.copyOf(externalRef),
+                Map.of(JIRA_STATUS, JIRA_STATUS_PENDING_PROJECT),
                 null,
                 encryptedCredential
         );
@@ -201,12 +194,35 @@ public class Integration {
         throw new IllegalStateException("Unexpected Jira project_name type: " + value.getClass());
     }
 
-    public String getJiraBaseUrl() {
-        return getRequiredString(JIRA_BASE_URL, "Jira base_url");
+    public String getJiraSiteName() {
+        Object value = externalRef.get(JIRA_SITE_NAME);
+        return value instanceof String text && !text.isBlank() ? text : null;
+    }
+
+    public boolean isJiraPendingProject() {
+        return JIRA_STATUS_PENDING_PROJECT.equals(externalRef.get(JIRA_STATUS));
+    }
+
+    // pending 행 재동의 시 토큰 교체 (2-b의 갱신도 이 메서드를 재사용한다)
+    public void updateCredential(byte[] encryptedCredential) {
+        this.encryptedCredential = Arrays.copyOf(encryptedCredential, encryptedCredential.length);
+    }
+
+    // 사이트·프로젝트 선택 확정 — external_ref를 통째로 교체해 status를 자연히 제거한다
+    public void completeJiraProject(String cloudId, String siteName, String projectKey, String projectName) {
+        Map<String, Object> updated = new HashMap<>();
+        updated.put(JIRA_CLOUD_ID, cloudId);
+        updated.put(JIRA_SITE_NAME, siteName);
+        updated.put(JIRA_PROJECT_KEY, projectKey);
+        if (projectName != null && !projectName.isBlank()) {
+            updated.put(JIRA_PROJECT_NAME, projectName);
+        }
+        // externalRef는 Map.copyOf로 불변이라 새 Map을 할당해야 Hibernate dirty checking이 필드 참조 변경을 잡는다
+        this.externalRef = Map.copyOf(updated);
     }
 
     private String getRequiredString(String key, String label) {
-        Object value = externalRef.get(key);
+    Object value = externalRef.get(key);
         if (value instanceof String text && !text.isBlank()) {
             return text;
         }

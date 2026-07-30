@@ -3,6 +3,7 @@ package com.history.backend.integration.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -10,11 +11,11 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.auth.domain.User;
-import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
@@ -25,6 +26,7 @@ import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.jira.service.JiraClient;
+import com.history.backend.jira.service.JiraOAuthClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.shared.domain.Checkpoint;
@@ -33,6 +35,7 @@ import com.history.backend.slack.service.SlackClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -72,7 +75,13 @@ class IntegrationServiceTest {
     private SlackClient slackClient;
 
     @Mock
+    private JiraOAuthClient jiraOAuthClient;
+
+    @Mock
     private JiraClient jiraClient;
+
+    @Mock
+    private JiraCredentialCodec jiraCredentialCodec;
 
     @Mock
     private PipelineWorkerClient pipelineWorkerClient;
@@ -261,17 +270,17 @@ class IntegrationServiceTest {
     }
 
     @Test
-    @DisplayName("Slack 토큰 암호화 후 소유 프로젝트에 연동 저장")
-    void connectSlackWorkspaceEncryptsTokenAndSavesIntegrationForOwnedProject() {
+    @DisplayName("Slack code 교환 후 소유 프로젝트에 연동 저장")
+    void connectSlackWorkspaceExchangesCodeAndSavesIntegrationForOwnedProject() {
         IntegrationService service = service();
         Project project = project();
         byte[] encryptedCredential = new byte[] {1, 2, 3};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
                 .thenReturn(false);
-        when(slackClient.verifyToken("xoxb-token"))
-                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme"));
-        when(credentialCryptoService.encrypt("xoxb-token")).thenReturn(encryptedCredential);
+        when(slackClient.exchangeCode("auth-code"))
+                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme", "xoxp-token"));
+        when(credentialCryptoService.encrypt("xoxp-token")).thenReturn(encryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         doAnswer(invocation -> {
@@ -282,7 +291,7 @@ class IntegrationServiceTest {
         Integration result = service.connectSlackWorkspace(
                 OWNER_ID,
                 PROJECT_ID,
-                "  xoxb-token  "
+                "auth-code"
         );
 
         assertThat(result.getProject()).isSameAs(project);
@@ -295,8 +304,8 @@ class IntegrationServiceTest {
     }
 
     @Test
-    @DisplayName("중복 Slack 연동 거부")
-    void connectSlackWorkspaceRejectsDuplicateSlackProvider() {
+    @DisplayName("중복 Slack 연동 거부 (code 교환 호출 안 함)")
+    void connectSlackWorkspaceRejectsDuplicateSlackProviderWithoutExchangingCode() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
@@ -305,10 +314,12 @@ class IntegrationServiceTest {
         assertThatThrownBy(() -> service.connectSlackWorkspace(
                 OWNER_ID,
                 PROJECT_ID,
-                "xoxb-token"
+                "auth-code"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Slack integration already exists.");
+        // 이미 연동된 프로젝트라면 Slack API 호출로 코드를 낭비하지 않는다
+        verify(slackClient, never()).exchangeCode(anyString());
     }
 
     @Test
@@ -318,154 +329,169 @@ class IntegrationServiceTest {
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
                 .thenReturn(false);
-        when(slackClient.verifyToken("xoxb-token"))
-                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme"));
-        when(credentialCryptoService.encrypt("xoxb-token")).thenReturn(new byte[] {1, 2, 3});
+        when(slackClient.exchangeCode("auth-code"))
+                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme", "xoxp-token"));
+        when(credentialCryptoService.encrypt("xoxp-token")).thenReturn(new byte[] {1, 2, 3});
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate integration"));
 
         assertThatThrownBy(() -> service.connectSlackWorkspace(
                 OWNER_ID,
                 PROJECT_ID,
-                "xoxb-token"
+                "auth-code"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Slack integration already exists.");
     }
 
     @Test
-    @DisplayName("Jira 자격 증명 암호화 후 소유 프로젝트에 연동 저장")
-    void connectJiraProjectEncryptsCredentialAndSavesIntegrationForOwnedProject() {
+    @DisplayName("code 교환 후 새 pending Jira 연동 생성")
+    void connectJiraSiteCreatesNewPendingIntegration() {
         IntegrationService service = service();
         Project project = project();
-        byte[] encryptedCredential = new byte[] {4, 5, 6};
-        when(jiraClient.verifyProject(
-                "https://93.184.216.34",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        )).thenReturn(new JiraClient.JiraProject("PROJ", "Project"));
-        when(credentialCryptoService.encrypt("owner@example.com:jira-token"))
-                .thenReturn(encryptedCredential);
+        byte[] encryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
-        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
-                .thenReturn(false);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.empty());
+        when(jiraOAuthClient.exchangeCode("auth-code"))
+                .thenReturn(new JiraOAuthClient.JiraTokens("atl-access-token", "atl-refresh-token", 3600L));
+        ArgumentCaptor<JiraCredential> credentialCaptor = ArgumentCaptor.forClass(JiraCredential.class);
+        when(jiraCredentialCodec.encrypt(credentialCaptor.capture())).thenReturn(encryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
+
+        assertThat(result.getProject()).isSameAs(project);
+        assertThat(result.getProvider()).isEqualTo(IntegrationProvider.JIRA);
+        assertThat(result.isJiraPendingProject()).isTrue();
+        assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
+        assertThat(credentialCaptor.getValue().accessToken()).isEqualTo("atl-access-token");
+        assertThat(credentialCaptor.getValue().refreshToken()).isEqualTo("atl-refresh-token");
+        assertThat(credentialCaptor.getValue().expiresAt()).isAfter(Instant.now());
+        // 확정 전이므로 초기 수집 트리거는 completeJiraProject의 책임이다
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+    }
+
+    @Test
+    @DisplayName("pending 행 재시도 시 기존 행의 자격증명을 덮어쓴다")
+    void connectJiraSiteOverwritesExistingPendingIntegration() {
+        IntegrationService service = service();
+        Project project = project();
+        Integration pending = Integration.jiraPending(project, new byte[] {1, 2, 3});
+        byte[] newEncryptedCredential = new byte[] {7, 8, 9};
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(pending));
+        when(jiraOAuthClient.exchangeCode("auth-code"))
+                .thenReturn(new JiraOAuthClient.JiraTokens("new-access-token", "new-refresh-token", 3600L));
+        when(jiraCredentialCodec.encrypt(any(JiraCredential.class))).thenReturn(newEncryptedCredential);
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
+
+        assertThat(result).isSameAs(pending);
+        assertThat(result.isJiraPendingProject()).isTrue();
+        assertThat(result.getEncryptedCredential()).containsExactly(newEncryptedCredential);
+    }
+
+    @Test
+    @DisplayName("이미 확정된 Jira 연동에 재연결 시도 → 409, code 교환 안 함")
+    void connectJiraSiteRejectsWhenAlreadyConfirmedWithoutExchangingCode() {
+        IntegrationService service = service();
+        Integration confirmed = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        confirmed.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(confirmed));
+
+        assertThatThrownBy(() -> service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Jira integration already exists.");
+        // 1회용 code를 낭비하지 않도록 확정 여부를 code 교환 전에 확인한다
+        verify(jiraOAuthClient, never()).exchangeCode(anyString());
+    }
+
+    @Test
+    @DisplayName("저장된 pending 자격증명을 복호화해 접근 가능한 Jira 사이트 목록 조회")
+    void listJiraSitesReturnsAccessibleSites() {
+        IntegrationService service = service();
+        Integration pending = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(pending));
+        when(jiraCredentialCodec.decrypt(pending.getEncryptedCredential())).thenReturn(
+                new JiraCredential("atl-access-token", "atl-refresh-token", Instant.parse("2026-06-15T04:00:00Z")));
+        when(jiraOAuthClient.listAccessibleResources("atl-access-token"))
+                .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net")));
+
+        List<JiraOAuthClient.JiraSite> result = service.listJiraSites(OWNER_ID, PROJECT_ID);
+
+        assertThat(result).containsExactly(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net"));
+    }
+
+    @Test
+    @DisplayName("선택한 사이트(cloudId)의 Jira 프로젝트 목록 조회")
+    void listJiraProjectsReturnsProjectsForSelectedSite() {
+        IntegrationService service = service();
+        Integration pending = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(pending));
+        when(jiraCredentialCodec.decrypt(pending.getEncryptedCredential())).thenReturn(
+                new JiraCredential("atl-access-token", "atl-refresh-token", Instant.parse("2026-06-15T04:00:00Z")));
+        when(jiraClient.listProjects("cloud-1", "atl-access-token"))
+                .thenReturn(List.of(new JiraClient.JiraProject("PROJ", "Project")));
+
+        List<JiraClient.JiraProject> result = service.listJiraProjects(OWNER_ID, PROJECT_ID, "cloud-1");
+
+        assertThat(result).containsExactly(new JiraClient.JiraProject("PROJ", "Project"));
+    }
+
+    @Test
+    @DisplayName("pending 행 확정 저장 후 커밋 뒤(트랜잭션 밖) 초기 수집 트리거")
+    void completeJiraProjectSavesAndTriggersCollectionOutsideTransaction() {
+        IntegrationService service = service();
+        Integration pending = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(pending));
+        when(integrationRepository.saveAndFlush(pending))
+                .thenAnswer(invocation -> {
+                    assertThat(transactionManager.transactionActive).isTrue();
+                    return invocation.getArgument(0);
+                });
         doAnswer(invocation -> {
             assertThat(transactionManager.transactionActive).isFalse();
             return null;
         }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
 
-        Integration result = service.connectJiraProject(
-                OWNER_ID,
-                PROJECT_ID,
-                "  https://93.184.216.34/  ",
-                "PROJ",
-                "  owner@example.com  ",
-                "  jira-token  "
-        );
+        Integration result = service.completeJiraProject(OWNER_ID, PROJECT_ID, "cloud-1", "acme", "PROJ", "Project");
 
-        assertThat(result.getProject()).isSameAs(project);
-        assertThat(result.getInstallation()).isNull();
-        assertThat(result.getProvider()).isEqualTo(IntegrationProvider.JIRA);
+        assertThat(result).isSameAs(pending);
+        assertThat(result.isJiraPendingProject()).isFalse();
         assertThat(result.getJiraProjectKey()).isEqualTo("PROJ");
         assertThat(result.getJiraProjectName()).isEqualTo("Project");
-        assertThat(result.getJiraBaseUrl()).isEqualTo("https://93.184.216.34");
-        assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
         verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
     }
 
     @Test
-    @DisplayName("루프백 base URL로 Jira 연동 거부")
-    void connectJiraProjectRejectsLoopbackBaseUrl() {
+    @DisplayName("이미 확정된 행에 다시 확정 시도 → 409, 트리거 호출 안 함")
+    void completeJiraProjectRejectsWhenAlreadyConfirmed() {
         IntegrationService service = service();
-
-        assertThatThrownBy(() -> service.connectJiraProject(
-                OWNER_ID,
-                PROJECT_ID,
-                "https://127.0.0.1",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        ))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("Jira base URL host must be public.");
-    }
-
-    @Test
-    @DisplayName("HTTP base URL로 Jira 연동 거부")
-    void connectJiraProjectRejectsHttpBaseUrl() {
-        IntegrationService service = service();
-
-        assertThatThrownBy(() -> service.connectJiraProject(
-                OWNER_ID,
-                PROJECT_ID,
-                "http://example.atlassian.net",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        ))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("Jira base URL must start with https://.");
-    }
-
-    @Test
-    @DisplayName("중복 Jira 연동 거부")
-    void connectJiraProjectRejectsDuplicateJiraProvider() {
-        IntegrationService service = service();
-        when(jiraClient.verifyProject(
-                "https://93.184.216.34",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        )).thenReturn(new JiraClient.JiraProject("PROJ", "Project"));
-        when(credentialCryptoService.encrypt("owner@example.com:jira-token"))
-                .thenReturn(new byte[] {4, 5, 6});
+        Integration confirmed = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        confirmed.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
-                .thenReturn(true);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(confirmed));
 
-        assertThatThrownBy(() -> service.connectJiraProject(
-                OWNER_ID,
-                PROJECT_ID,
-                "https://93.184.216.34",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
+        assertThatThrownBy(() -> service.completeJiraProject(
+                OWNER_ID, PROJECT_ID, "cloud-2", "other-site", "OTHER", "Other"
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Jira integration already exists.");
-    }
-
-    @Test
-    @DisplayName("Jira 연동 시 유니크 제약 위반을 ConflictException으로 변환")
-    void connectJiraProjectConvertsUniqueConstraintViolationToConflict() {
-        IntegrationService service = service();
-        when(jiraClient.verifyProject(
-                "https://93.184.216.34",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        )).thenReturn(new JiraClient.JiraProject("PROJ", "Project"));
-        when(credentialCryptoService.encrypt("owner@example.com:jira-token"))
-                .thenReturn(new byte[] {4, 5, 6});
-        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
-                .thenReturn(false);
-        when(integrationRepository.saveAndFlush(any(Integration.class)))
-                .thenThrow(new DataIntegrityViolationException("duplicate integration"));
-
-        assertThatThrownBy(() -> service.connectJiraProject(
-                OWNER_ID,
-                PROJECT_ID,
-                "https://93.184.216.34",
-                "PROJ",
-                "owner@example.com",
-                "jira-token"
-        ))
-                .isInstanceOf(ConflictException.class)
-                .hasMessage("Jira integration already exists.");
+        verify(pipelineWorkerClient, never()).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
     }
 
     private User user() {
@@ -502,7 +528,9 @@ class IntegrationServiceTest {
                 installationTokenService,
                 credentialCryptoService,
                 slackClient,
+                jiraOAuthClient,
                 jiraClient,
+                jiraCredentialCodec,
                 pipelineWorkerClient,
                 new TransactionTemplate(transactionManager)
         );

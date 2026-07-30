@@ -3,10 +3,11 @@ package com.history.backend.integration.controller;
 import java.util.List;
 import java.util.UUID;
 
+import com.history.backend.integration.dto.CompleteJiraProjectRequest;
 import com.history.backend.integration.dto.ConnectGitHubIntegrationRequest;
-import com.history.backend.integration.dto.ConnectJiraIntegrationRequest;
-import com.history.backend.integration.dto.ConnectSlackIntegrationRequest;
 import com.history.backend.integration.dto.IntegrationResponse;
+import com.history.backend.integration.dto.JiraProjectResponse;
+import com.history.backend.integration.dto.JiraSiteResponse;
 import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.security.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -53,34 +55,40 @@ public class IntegrationController {
         ));
     }
 
-    @PostMapping("/slack")
-    @ResponseStatus(HttpStatus.CREATED)
-    public IntegrationResponse connectSlackWorkspace(
+    @GetMapping("/jira/sites")
+    public List<JiraSiteResponse> listJiraSites(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID projectId,
-            @Valid @RequestBody ConnectSlackIntegrationRequest request
+            @PathVariable UUID projectId
     ) {
-        return IntegrationResponse.from(integrationService.connectSlackWorkspace(
-                authenticatedUser.id(),
-                projectId,
-                request.token()
-        ));
+        return integrationService.listJiraSites(authenticatedUser.id(), projectId).stream()
+                .map(JiraSiteResponse::from)
+                .toList();
     }
 
-    @PostMapping("/jira")
-    @ResponseStatus(HttpStatus.CREATED)
-    public IntegrationResponse connectJiraProject(
+    @GetMapping("/jira/projects")
+    public List<JiraProjectResponse> listJiraProjects(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @PathVariable UUID projectId,
-            @Valid @RequestBody ConnectJiraIntegrationRequest request
+            @RequestParam String cloudId
     ) {
-        return IntegrationResponse.from(integrationService.connectJiraProject(
+        return integrationService.listJiraProjects(authenticatedUser.id(), projectId, cloudId).stream()
+                .map(JiraProjectResponse::from)
+                .toList();
+    }
+
+    @PostMapping("/jira/project")
+    public IntegrationResponse completeJiraProject(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @Valid @RequestBody CompleteJiraProjectRequest request
+    ) {
+        return IntegrationResponse.from(integrationService.completeJiraProject(
                 authenticatedUser.id(),
                 projectId,
-                request.baseUrl(),
+                request.cloudId(),
+                request.siteName(),
                 request.projectKey(),
-                request.email(),
-                request.apiToken()
+                request.projectName()
         ));
     }
 }

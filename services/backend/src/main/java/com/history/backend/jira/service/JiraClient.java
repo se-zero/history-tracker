@@ -1,11 +1,11 @@
 package com.history.backend.jira.service;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import java.util.List;
 
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
-import com.history.backend.jira.dto.JiraProjectResponse;
+import com.history.backend.jira.AtlassianProperties;
+import com.history.backend.jira.dto.JiraProjectSearchResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
@@ -14,55 +14,46 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
-// Jira REST API 클라이언트 (연동 자격증명 검증용)
+// Jira REST API 클라이언트 (cloudId 게이트웨이 경유, OAuth access token 기반)
 @Slf4j
 @Component
 public class JiraClient {
 
+    private final AtlassianProperties properties;
     private final RestClient restClient;
 
-    public JiraClient(@Qualifier("jiraRestClient") RestClient restClient) {
+    public JiraClient(
+            AtlassianProperties properties,
+            @Qualifier("jiraRestClient") RestClient restClient
+    ) {
+        this.properties = properties;
         this.restClient = restClient;
     }
 
-    // Jira 프로젝트 존재·자격증명 검증
-    public JiraProject verifyProject(
-            String baseUrl,
-            String projectKey,
-            String email,
-            String apiToken
-    ) {
-        JiraProjectResponse response;
+    // 사용자가 고를 수 있는 프로젝트 목록 조회
+    public List<JiraProject> listProjects(String cloudId, String accessToken) {
+        JiraProjectSearchResponse response;
         try {
             response = restClient
                     .get()
-                    .uri(baseUrl + "/rest/api/3/project/{projectKey}", projectKey)
-                    .header(HttpHeaders.AUTHORIZATION, basicAuth(email, apiToken))
+                    .uri(properties.apiGatewayUrl() + "/{cloudId}/rest/api/3/project/search?maxResults=100", cloudId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                     .header(HttpHeaders.ACCEPT, "application/json")
                     .retrieve()
-                    .body(JiraProjectResponse.class);
+                    .body(JiraProjectSearchResponse.class);
         } catch (RestClientResponseException exception) {
-            // Jira의 오류 응답(404 포함)은 자격증명 또는 프로젝트 지정 오류로 간주해 401 처리
-            log.warn(
-                    "Jira project verification failed. status={} projectKey={}",
-                    exception.getStatusCode(),
-                    projectKey
-            );
-            throw new UnauthorizedException("Invalid Jira credentials or project.");
+            log.warn("Jira project list request failed. status={} cloudId={}", exception.getStatusCode(), cloudId);
+            throw new UnauthorizedException("Invalid Jira access token.");
         } catch (RestClientException exception) {
-            throw new BadGatewayException("Jira project verification request failed.", exception);
+            throw new BadGatewayException("Jira project list request failed.", exception);
         }
 
-        if (response == null || response.key() == null || response.key().isBlank()) {
-            throw new BadGatewayException("Jira project verification response is missing project information.");
+        if (response == null || response.values() == null) {
+            throw new BadGatewayException("Jira project list response is missing values.");
         }
-        return new JiraProject(response.key(), response.name());
-    }
-
-    private String basicAuth(String email, String apiToken) {
-        String credential = email + ":" + apiToken;
-        String encoded = Base64.getEncoder().encodeToString(credential.getBytes(StandardCharsets.UTF_8));
-        return "Basic " + encoded;
+        return response.values().stream()
+                .map(value -> new JiraProject(value.key(), value.name()))
+                .toList();
     }
 
     public record JiraProject(String key, String name) {

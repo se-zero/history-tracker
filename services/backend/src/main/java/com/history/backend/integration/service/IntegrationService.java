@@ -1,19 +1,15 @@
 package com.history.backend.integration.service;
 
-import java.net.Inet6Address;
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.UnknownHostException;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.common.error.ConflictException;
-import com.history.backend.common.error.BadRequestException;
+import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
@@ -22,6 +18,7 @@ import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.jira.service.JiraClient;
+import com.history.backend.jira.service.JiraOAuthClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.shared.domain.Checkpoint;
@@ -43,7 +40,9 @@ public class IntegrationService {
     private final InstallationTokenService installationTokenService;
     private final CredentialCryptoService credentialCryptoService;
     private final SlackClient slackClient;
+    private final JiraOAuthClient jiraOAuthClient;
     private final JiraClient jiraClient;
+    private final JiraCredentialCodec jiraCredentialCodec;
     private final PipelineWorkerClient pipelineWorkerClient;
     private final TransactionTemplate transactionTemplate;
 
@@ -122,15 +121,17 @@ public class IntegrationService {
         }
     }
 
-    // Slack 토큰 검증 후 workspace 연동 추가
+    // Slack code 교환 후 workspace 연동 추가
     public Integration connectSlackWorkspace(
             UUID ownerId,
             UUID projectId,
-            String token
+            String code
     ) {
-        String normalizedToken = token.trim();
-        SlackClient.SlackWorkspace workspace = slackClient.verifyToken(normalizedToken);
-        byte[] encryptedCredential = credentialCryptoService.encrypt(normalizedToken);
+        projectService.getProject(ownerId, projectId);
+        // 이미 연동된 프로젝트라면 code 교환으로 낭비하지 않도록 외부 호출 전에 선검증
+        validateProviderAvailable(projectId, IntegrationProvider.SLACK);
+        SlackClient.SlackWorkspace workspace = slackClient.exchangeCode(code);
+        byte[] encryptedCredential = credentialCryptoService.encrypt(workspace.accessToken());
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
         Integration integration = transactionTemplate.execute(status -> saveSlackWorkspace(
@@ -143,40 +144,72 @@ public class IntegrationService {
         return integration;
     }
 
-    // Jira 자격증명·프로젝트 검증 후 연동 추가
-    public Integration connectJiraProject(
-            UUID ownerId,
-            UUID projectId,
-            String baseUrl,
-            String projectKey,
-            String email,
-            String apiToken
-    ) {
-        String normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-        String normalizedProjectKey = projectKey.trim();
-        String normalizedEmail = email.trim();
-        String normalizedApiToken = apiToken.trim();
+    // Atlassian code 교환 후 Jira 연동을 pending 상태로 생성/재시도한다.
+    // 확정된 연동이면 code 교환 전에 걸러 1회용 code를 낭비하지 않는다(Slack과 동일한 방침).
+    public Integration connectJiraSite(UUID ownerId, UUID projectId, String code) {
+        projectService.getProject(ownerId, projectId);
+        rejectIfJiraAlreadyConnected(projectId);
 
-        JiraClient.JiraProject jiraProject = jiraClient.verifyProject(
-                normalizedBaseUrl,
-                normalizedProjectKey,
-                normalizedEmail,
-                normalizedApiToken
+        JiraOAuthClient.JiraTokens tokens = jiraOAuthClient.exchangeCode(code);
+        JiraCredential credential = new JiraCredential(
+                tokens.accessToken(),
+                tokens.refreshToken(),
+                Instant.now().plusSeconds(tokens.expiresIn())
         );
-        byte[] encryptedCredential = credentialCryptoService.encrypt(
-                normalizedEmail + ":" + normalizedApiToken
-        );
+        byte[] encryptedCredential = jiraCredentialCodec.encrypt(credential);
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        Integration integration = transactionTemplate.execute(status -> saveJiraProject(
-                ownerId,
-                projectId,
-                normalizedBaseUrl,
-                jiraProject,
-                encryptedCredential
-        ));
+        return transactionTemplate.execute(status -> saveJiraPending(ownerId, projectId, encryptedCredential));
+    }
+
+    // 저장된 pending 자격증명을 복호화해 접근 가능한 Atlassian 사이트 목록 조회
+    public List<JiraOAuthClient.JiraSite> listJiraSites(UUID ownerId, UUID projectId) {
+        projectService.getProject(ownerId, projectId);
+        JiraCredential credential = jiraCredentialCodec.decrypt(getJiraIntegration(projectId).getEncryptedCredential());
+        return jiraOAuthClient.listAccessibleResources(credential.accessToken());
+    }
+
+    // 선택한 사이트(cloudId)에서 고를 수 있는 프로젝트 목록 조회
+    public List<JiraClient.JiraProject> listJiraProjects(UUID ownerId, UUID projectId, String cloudId) {
+        projectService.getProject(ownerId, projectId);
+        JiraCredential credential = jiraCredentialCodec.decrypt(getJiraIntegration(projectId).getEncryptedCredential());
+        return jiraClient.listProjects(cloudId, credential.accessToken());
+    }
+
+    // 사이트·프로젝트 선택 확정. pending 행에만 허용하고, 커밋 뒤 초기 수집을 트리거한다.
+    public Integration completeJiraProject(
+            UUID ownerId,
+            UUID projectId,
+            String cloudId,
+            String siteName,
+            String projectKey,
+            String projectName
+    ) {
+        projectService.getProject(ownerId, projectId);
+        Integration integration = transactionTemplate.execute(status -> {
+            Integration jiraIntegration = getJiraIntegration(projectId);
+            if (!jiraIntegration.isJiraPendingProject()) {
+                throw integrationAlreadyExists(IntegrationProvider.JIRA);
+            }
+            jiraIntegration.completeJiraProject(cloudId, siteName, projectKey, projectName);
+            return integrationRepository.saveAndFlush(jiraIntegration);
+        });
         pipelineWorkerClient.triggerCollection(IntegrationProvider.JIRA, projectId);
         return integration;
+    }
+
+    // 재시도는 pending 행에만 허용한다 — 확정된 연동에는 409로 code 교환 전에 막는다
+    private void rejectIfJiraAlreadyConnected(UUID projectId) {
+        integrationRepository.findByProject_IdAndProvider(projectId, IntegrationProvider.JIRA)
+                .filter(integration -> !integration.isJiraPendingProject())
+                .ifPresent(integration -> {
+                    throw integrationAlreadyExists(IntegrationProvider.JIRA);
+                });
+    }
+
+    private Integration getJiraIntegration(UUID projectId) {
+        return integrationRepository.findByProject_IdAndProvider(projectId, IntegrationProvider.JIRA)
+                .orElseThrow(() -> new NotFoundException("Jira integration not found."));
     }
 
     private Integration saveSlackWorkspace(
@@ -201,84 +234,25 @@ public class IntegrationService {
         }
     }
 
-    private Integration saveJiraProject(
-            UUID ownerId,
-            UUID projectId,
-            String baseUrl,
-            JiraClient.JiraProject jiraProject,
-            byte[] encryptedCredential
-    ) {
+    // pending 재시도(경합 방어를 위해 트랜잭션 안에서 재확인) 또는 신규 생성
+    private Integration saveJiraPending(UUID ownerId, UUID projectId, byte[] encryptedCredential) {
         Project project = projectService.getProject(ownerId, projectId);
-        validateProviderAvailable(projectId, IntegrationProvider.JIRA);
-
+        Optional<Integration> existing = integrationRepository.findByProject_IdAndProvider(projectId, IntegrationProvider.JIRA);
+        if (existing.isPresent()) {
+            Integration integration = existing.get();
+            if (!integration.isJiraPendingProject()) {
+                // 사전 검사와 저장 사이 경합으로 그 사이 확정된 경우
+                throw integrationAlreadyExists(IntegrationProvider.JIRA);
+            }
+            integration.updateCredential(encryptedCredential);
+            return integrationRepository.saveAndFlush(integration);
+        }
         try {
-            return integrationRepository.saveAndFlush(Integration.jira(
-                    project,
-                    jiraProject.key(),
-                    jiraProject.name(),
-                    baseUrl,
-                    encryptedCredential
-            ));
+            return integrationRepository.saveAndFlush(Integration.jiraPending(project, encryptedCredential));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
             throw integrationAlreadyExists(IntegrationProvider.JIRA);
         }
-    }
-
-    // Jira base URL 정규화 및 검증 (https 필수, 공개 호스트만 허용)
-    private String normalizeBaseUrl(String baseUrl) {
-        String normalized = baseUrl.trim();
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        try {
-            URI uri = new URI(normalized);
-            if (!"https".equalsIgnoreCase(uri.getScheme())) {
-                throw new BadRequestException("Jira base URL must start with https://.");
-            }
-            String host = uri.getHost();
-            if (host == null || host.isBlank()) {
-                throw new BadRequestException("Jira base URL host is required.");
-            }
-            validatePublicHost(host);
-            return uri.toString();
-        } catch (URISyntaxException exception) {
-            throw new BadRequestException("Jira base URL is invalid.");
-        }
-    }
-
-    // SSRF 방지 — 내부망·루프백 주소로 해석되는 호스트 차단
-    private void validatePublicHost(String host) {
-        String normalizedHost = host.toLowerCase();
-        if ("localhost".equals(normalizedHost) || normalizedHost.endsWith(".localhost")) {
-            throw new BadRequestException("Jira base URL host must be public.");
-        }
-        try {
-            for (InetAddress address : InetAddress.getAllByName(host)) {
-                if (!isPublicAddress(address)) {
-                    throw new BadRequestException("Jira base URL host must be public.");
-                }
-            }
-        } catch (UnknownHostException exception) {
-            throw new BadRequestException("Jira base URL host is invalid.");
-        }
-    }
-
-    private boolean isPublicAddress(InetAddress address) {
-        return !address.isAnyLocalAddress()
-                && !address.isLoopbackAddress()
-                && !address.isLinkLocalAddress()
-                && !address.isSiteLocalAddress()
-                && !isUniqueLocalIpv6Address(address);
-    }
-
-    // IPv6 ULA(fc00::/7) 여부 판별
-    private boolean isUniqueLocalIpv6Address(InetAddress address) {
-        if (!(address instanceof Inet6Address)) {
-            return false;
-        }
-        byte firstByte = address.getAddress()[0];
-        return (firstByte & 0xfe) == 0xfc;
     }
 
     // 프로젝트당 provider별 1개 연동 제한 검증
