@@ -35,7 +35,7 @@ export function JiraCard({ projectId }: { projectId: string }) {
   const selectedSite = sites.find((site) => site.cloudId === cloudId);
   const selectedProject = projects.find((project) => project.key === projectKey);
 
-  const badgeTone = connected ? "success" : pending ? "warning" : "";
+  const badgeTone = connected ? "success" : pending ? "accent" : "";
   const badgeLabel = integrationsQuery.isLoading
     ? "확인 중"
     : connected

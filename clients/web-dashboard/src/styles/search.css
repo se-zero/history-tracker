@@ -8,7 +8,7 @@
   justify-content: center;
   align-items: flex-start;
   padding-top: 14vh;
-  background: rgb(15 23 42 / 0.28);
+  background: rgb(13 16 20 / 0.28);
   backdrop-filter: blur(2px);
 }
 
@@ -19,7 +19,8 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-lg);
+  /* 다크에서 그림자가 none이 되는 대신 상단 1px 인셋으로 빛을 받는다(edge-highlight, DESIGN.md) */
+  box-shadow: inset 0 1px 0 0 var(--edge-highlight), var(--shadow-lg);
   overflow: hidden;
 }
 

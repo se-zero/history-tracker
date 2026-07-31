@@ -11,7 +11,7 @@
   /* radii */
   --r-xs: 4px;
   --r-sm: 6px;
-  --r-md: 8px;
+  --r-md: 10px;
   --r-lg: 12px;
   --r-xl: 16px;
   --r-full: 999px;
@@ -196,30 +196,31 @@ body:has(.lp[data-theme="light"]) {
 
 /* light theme */
 [data-theme="light"] {
-  --bg:           oklch(0.99 0.003 250);
-  --surface:      oklch(1    0     250);
-  --surface-2:    oklch(0.975 0.004 250);
-  --surface-3:    oklch(0.955 0.005 250);
-  --border:       oklch(0.92 0.006 250);
-  --border-strong:oklch(0.85 0.008 250);
+  --bg:            oklch(0.985 0.001 286);  /* #FAFAFB — surface-0, near-white 쿨 틴트 */
+  --surface:       oklch(1 0 250);          /* #FFFFFF — 카드·다이얼로그(정본 surface-2 역할). 이 앱은 카드층이 --surface를 쓴다 */
+  --surface-2:     oklch(0.970 0.003 265);  /* #F4F5F7 — 레일·호버 틴트(정본 surface-1 역할) */
+  --surface-3:     oklch(0.955 0.005 250);  /* 정본 대응 없음 — 활성/호버 강조 틴트라 흰색이면 사라진다. 현행 유지 */
+  --border:        oklch(0.933 0.006 255);  /* #E6E9ED */
+  --border-strong: oklch(0.884 0.011 257);  /* #D4D9E0 */
 
-  --fg:           oklch(0.19 0.012 250);
-  --fg-muted:     oklch(0.45 0.012 250);
-  --fg-subtle:    oklch(0.60 0.010 250);
-  --fg-inverse:   oklch(0.99 0.003 250);
+  --fg:            oklch(0.217 0.011 261);  /* #171A1F */
+  --fg-muted:      oklch(0.432 0.017 255);  /* #4A515A */
+  --fg-subtle:     oklch(0.564 0.022 260);  /* #6E7683 */
+  --fg-inverse:    oklch(0.985 0.001 286);  /* 새 --bg와 동치 유지 */
 
   /* galaxy.css(.gd-item.active)가 참조하는 유일한 잔존 토큰 — 다른 --primary* 토큰은
      전량 앰버(accent)로 치환·삭제됐다. galaxy.css는 이번 작업 범위 밖(수정 금지)이라
      완전 삭제를 보류한다. */
   --primary-soft: oklch(0.95 0.04 var(--primary-hue));
 
-  --success:      oklch(0.62 0.15 150);
-  --warning:      oklch(0.70 0.15  75);
+  --success:      oklch(0.530 0.101 157);  /* #2F7D54 */
   --danger:       oklch(0.58 0.20  25);
 
-  --shadow-sm:  0 1px 2px rgb(15 23 42 / 0.04), 0 0 0 1px rgb(15 23 42 / 0.03);
-  --shadow-md:  0 4px 12px rgb(15 23 42 / 0.06), 0 0 0 1px rgb(15 23 42 / 0.04);
-  --shadow-lg:  0 16px 40px rgb(15 23 42 / 0.10), 0 0 0 1px rgb(15 23 42 / 0.04);
+  --shadow-sm:  0 1px 2px rgba(13, 16, 20, 0.05), 0 2px 8px rgba(13, 16, 20, 0.04);
+  --shadow-md:  0 2px 4px rgba(13, 16, 20, 0.04), 0 12px 32px -8px rgba(13, 16, 20, 0.1);
+  --shadow-lg:  0 4px 8px rgba(13, 16, 20, 0.04), 0 32px 80px -24px rgba(13, 16, 20, 0.16);
+  /* 위에서 빛 받는 인셋 하이라이트는 다크 표면의 질감 — 라이트에선 그림자가 깊이를 넘겨받으므로 끈다(DESIGN.md). */
+  --edge-highlight: transparent;
 
   --node-stroke: oklch(0.99 0.003 250);
   --edge:        oklch(0.84 0.008 250);
@@ -244,28 +245,33 @@ body:has(.lp[data-theme="light"]) {
 }
 
 [data-theme="dark"] {
-  --bg:           oklch(0.16 0.012 250);
-  --surface:      oklch(0.195 0.012 250);
-  --surface-2:    oklch(0.225 0.014 250);
-  --surface-3:    oklch(0.265 0.014 250);
-  --border:       oklch(0.30 0.012 250);
-  --border-strong:oklch(0.38 0.012 250);
+  --bg:            oklch(0.158 0.007 258);  /* #0B0D10 — surface-0 */
+  --surface:       oklch(0.190 0.011 261);  /* #111419 — surface-1 */
+  --surface-2:     oklch(0.221 0.013 258);  /* #171B21 */
+  --surface-3:     oklch(0.255 0.017 260);  /* #1E232B */
+  --border:        oklch(0.288 0.016 260);  /* #262B33 */
+  --border-strong: oklch(0.346 0.020 257);  /* #333A44 */
 
-  --fg:           oklch(0.97 0.005 250);
-  --fg-muted:     oklch(0.70 0.012 250);
-  --fg-subtle:    oklch(0.55 0.012 250);
-  --fg-inverse:   oklch(0.16 0.012 250);
+  --fg:            oklch(0.933 0.007 261);  /* #E6E9EE — text-primary */
+  --fg-muted:      oklch(0.713 0.018 256);  /* #9BA3AE — text-secondary */
+  --fg-subtle:     oklch(0.506 0.023 253);  /* #5C6672 — text-muted */
+  --fg-inverse:    oklch(0.158 0.007 258);  /* 새 --bg와 동치 유지 */
 
   /* galaxy.css(.gd-item.active)가 참조하는 유일한 잔존 토큰 — 라이트 블록과 동일 사유. */
   --primary-soft: oklch(0.30 0.08 var(--primary-hue));
 
-  --success:      oklch(0.72 0.15 150);
-  --warning:      oklch(0.80 0.15  85);
-  --danger:       oklch(0.70 0.18  25);
+  --success:      oklch(0.715 0.095 156);  /* #6FB58A — node-commit과 같은 hex(네임스페이스 분리) */
+  --danger:       oklch(0.652 0.143 28);   /* #D9695C */
 
-  --shadow-sm:  0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.04);
-  --shadow-md:  0 4px 12px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.04);
-  --shadow-lg:  0 16px 40px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.05);
+  /* 그림자 사다리는 라이트 전용 — 다크의 깊이는 surface 사다리 + edge-highlight가 담당한다(DESIGN.md).
+     literal "none" 대신 투명 no-op을 쓰는 이유: box-shadow는 쉼표로 결합될 때 "none"을 리스트 항목으로
+     허용하지 않는다(`inset …, none`은 invalid라 선언 전체가 무효화된다). 아래 값은 항상 유효한
+     그림자 항이면서 시각 결과는 none과 동일하다. */
+  --shadow-sm: 0 0 0 0 transparent;
+  --shadow-md: 0 0 0 0 transparent;
+  --shadow-lg: 0 0 0 0 transparent;
+  /* 들린 표면 위쪽 1px 인셋 하이라이트 — 위에서 빛 받는 질감. 드롭섀도의 대체물이지 병용물이 아니다(DESIGN.md). */
+  --edge-highlight: rgb(255 255 255 / 0.06);
 
   --node-stroke: oklch(0.16 0.012 250);
   --edge:        oklch(0.36 0.012 250);
