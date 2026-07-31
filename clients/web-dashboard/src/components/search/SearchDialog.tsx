@@ -62,8 +62,8 @@ export function SearchDialog({ project, onClose }: Props) {
     if (row.kind === "conversation") {
       navigate(`/projects/${project.id}/chat/${row.conversation.id}`);
     } else {
-      // 검색된 노드는 그래프 화면(최근 top-N)에 없을 수 있어 노드 자체를 state로 넘긴다
-      navigate(`/projects/${project.id}/graph`, {
+      // 검색된 노드는 성좌 화면(작업 단위 + 최신 위성)에 없을 수 있어 노드 자체를 state로 넘긴다
+      navigate(`/projects/${project.id}/galaxy`, {
         state: { searchNode: row.node },
       });
     }
