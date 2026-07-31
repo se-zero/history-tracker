@@ -18,7 +18,7 @@
   background: var(--surface-2); color: var(--fg-muted);
   border: 1px solid var(--border);
 }
-.onb-step-dot.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.onb-step-dot.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .onb-step-line { width: 40px; height: 1px; background: var(--border); }
 .onb-muted-block { text-align: center; color: var(--fg-muted); font-size: 13px; padding: 24px 0; }
 .onboarding-gh-empty {

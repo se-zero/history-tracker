@@ -136,7 +136,7 @@
   outline: none;
   font-family: var(--font-mono);
 }
-.field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent); }
+.field input:focus { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
 .field .hint { font-size: 11px; color: var(--fg-subtle); }
 
 .ingest-card {
@@ -187,7 +187,7 @@
 .actor-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 11.5px; font-weight: 600; }
 .actor-form label span { color: var(--fg-subtle); font-weight: 400; }
 .actor-form input, .actor-form select { min-width: 0; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; }
-.actor-form input:focus, .actor-form select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent); }
+.actor-form input:focus, .actor-form select:focus { outline: none; border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
 .actor-form-actions { display: flex; gap: 8px; }
 .actor-alias-picker { display: flex; flex-wrap: wrap; gap: 8px; }
 .actor-alias-picker label { flex-direction: row; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 400; }

@@ -85,7 +85,7 @@ function Spinner() {
         width: 18,
         height: 18,
         border: "2px solid var(--border)",
-        borderTopColor: "var(--primary)",
+        borderTopColor: "var(--accent-ink)",
         borderRadius: "50%",
         animation: "ht-spin 0.8s linear infinite",
       }}

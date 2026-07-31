@@ -43,7 +43,7 @@
   color: var(--fg-muted);
   backdrop-filter: blur(4px);
 }
-.filter-chip.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.filter-chip.active { background: var(--accent-soft); border-color: var(--accent-ink); color: var(--accent-ink); }
 .filter-chip .ch-dot { width: 7px; height: 7px; border-radius: 50%; }
 
 .node-detail {

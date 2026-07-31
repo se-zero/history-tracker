@@ -67,7 +67,7 @@
 }
 .panel-resizer:hover::after,
 .panel-resizer:active::after {
-  background: var(--primary);
+  background: var(--accent-ink);
 }
 .side-panel-head {
   display: flex;
@@ -167,13 +167,15 @@
   font-weight: 600;
 }
 .msg.user .msg-avatar {
-  background: linear-gradient(135deg, oklch(0.65 0.16 280), oklch(0.62 0.18 220));
-  color: white;
+  /* 아이덴티티 표시일 뿐 상태가 아니라서 무채로 (DESIGN.md: 라이브가 아니면 앰버를 쓰지 않는다) */
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
 }
 .msg.assistant .msg-avatar {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  color: var(--primary);
+  color: var(--fg-muted);
 }
 /* 사용자 메시지: GPT처럼 오른쪽 정렬 말풍선 */
 .msg.user { flex-direction: row-reverse; }
@@ -186,7 +188,8 @@
 }
 .msg.user .msg-role { text-align: right; }
 .msg.user .msg-content {
-  background: var(--primary-soft);
+  /* 사용자 메시지는 surface-2 버블 — 액센트가 아니라 elevation으로 구분 (DESIGN.md 컴포넌트 규칙) */
+  background: var(--surface-2);
   padding: 10px 14px;
   border-radius: 16px;
   border-top-right-radius: 5px;
@@ -228,7 +231,7 @@
 .msg-content.markdown ol { margin: 0 0 10px; padding-left: 22px; }
 .msg-content.markdown li { margin: 3px 0; }
 .msg-content.markdown li > p { margin: 0; }
-.msg-content.markdown a { color: var(--primary); text-decoration: underline; }
+.msg-content.markdown a { color: var(--accent-ink); text-decoration: underline; }
 .msg-content.markdown strong { font-weight: 650; }
 .msg-content.markdown code {
   font-family: var(--font-mono);
@@ -284,15 +287,15 @@
   font-size: 11px;
   padding: 1px 5px;
   border-radius: var(--r-xs);
-  background: var(--primary-soft);
-  color: var(--primary);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   cursor: pointer;
   vertical-align: 2px;
   margin: 0 2px;
   transition: background 0.1s;
-  border: 1px solid color-mix(in oklab, var(--primary) 20%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-ink) 20%, transparent);
 }
-.msg-content .cite:hover { background: color-mix(in oklab, var(--primary) 20%, transparent); }
+.msg-content .cite:hover { background: color-mix(in oklab, var(--accent-ink) 20%, transparent); }
 
 .unknown-aspects {
   margin: 10px 0 0;
@@ -337,8 +340,8 @@
 .cite-card:hover { background: var(--surface-2); border-color: var(--border-strong); }
 /* 그래프에서 대응 노드가 선택되면 인용 카드를 강조(역방향 연동) */
 .cite-card.selected {
-  border-color: var(--primary);
-  background: var(--primary-soft);
+  border-color: var(--accent-ink);
+  background: var(--accent-soft);
 }
 /* 그래프에서 노드를 hover하면 대응 카드를 카드 hover와 동일하게 강조 */
 .cite-card.emphasized {
@@ -385,7 +388,7 @@
   width: 16px; height: 16px;
   flex-shrink: 0;
   border: 2px solid var(--border);
-  border-top-color: var(--primary);
+  border-top-color: var(--accent-ink);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -414,8 +417,8 @@
   transition: border-color 0.12s, box-shadow 0.12s;
 }
 .composer-box:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent);
+  border-color: var(--accent-ink);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent);
 }
 .composer-box textarea {
   border: none;
@@ -552,4 +555,4 @@
   align-items: flex-start;
 }
 .suggest-card:hover { background: var(--surface-2); border-color: var(--border-strong); }
-.suggest-card .sg-icon { color: var(--primary); flex-shrink: 0; margin-top: 2px; }
+.suggest-card .sg-icon { color: var(--fg-muted); flex-shrink: 0; margin-top: 2px; }

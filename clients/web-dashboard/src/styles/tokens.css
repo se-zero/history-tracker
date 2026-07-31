@@ -36,6 +36,8 @@
   --node-actor:    oklch(0.55 0.119 351);  /* rose       #A4517A */
   --node-code:     oklch(0.57 0.025 257);  /* cool grey  #6F7987 — 가장 수가 많아 가장 조용하게 */
 
+  /* galaxy.css(.gd-item.active)가 아직 --primary-soft를 참조해 완전 제거가 보류됐다 —
+     상세 사유는 tokens.css 하단 --primary-soft 선언부 주석 참고. */
   --primary-hue: 250;
 
   /* ── Landing (docs/DESIGN.md) ──────────────────────────────
@@ -206,10 +208,10 @@ body:has(.lp[data-theme="light"]) {
   --fg-subtle:    oklch(0.60 0.010 250);
   --fg-inverse:   oklch(0.99 0.003 250);
 
-  --primary:      oklch(0.55 0.18 var(--primary-hue));
-  --primary-hover:oklch(0.50 0.20 var(--primary-hue));
+  /* galaxy.css(.gd-item.active)가 참조하는 유일한 잔존 토큰 — 다른 --primary* 토큰은
+     전량 앰버(accent)로 치환·삭제됐다. galaxy.css는 이번 작업 범위 밖(수정 금지)이라
+     완전 삭제를 보류한다. */
   --primary-soft: oklch(0.95 0.04 var(--primary-hue));
-  --primary-fg:   oklch(0.99 0.003 250);
 
   --success:      oklch(0.62 0.15 150);
   --warning:      oklch(0.70 0.15  75);
@@ -221,7 +223,8 @@ body:has(.lp[data-theme="light"]) {
 
   --node-stroke: oklch(0.99 0.003 250);
   --edge:        oklch(0.84 0.008 250);
-  --edge-active: oklch(0.55 0.18 var(--primary-hue));
+  /* 답변 경로 점등 = 라이브 = 앰버(라이트는 코퍼) — accent-ink 네임스페이스로 재지정 */
+  --edge-active: var(--accent-ink);
 
   /* 그래프가 앉는 "우물" — UI 사다리(surface-*)와 별개 층이다.
      라이트에선 어두워지는 게 아니라 회색으로 가라앉는다. */
@@ -233,6 +236,9 @@ body:has(.lp[data-theme="light"]) {
      채움은 앰버 유지, 선·텍스트·링·점등은 대비를 확보한 코퍼(accent-ink). */
   --accent:      oklch(0.77 0.142 71);      /* #EBA23C */
   --accent-ink:  oklch(0.56 0.143 50);      /* #B3550B — 코퍼 */
+  --accent-hover:   oklch(0.728 0.141 71);  /* #DE9630 — 라이트 hover는 어두워지는 방향(밝아지면 흰 배경에 묻힌다) */
+  --accent-pressed: oklch(0.665 0.136 69);  /* #C9821F */
+  --accent-fg:      oklch(0.217 0.011 261); /* #171A1F — 채움 위 잉크 글자 */
   --accent-soft: rgb(179 85 11 / 0.10);
   --accent-glow: rgb(179 85 11 / 0.22);     /* 라이트에서 글로우는 소프트 링 수준 */
 }
@@ -250,10 +256,8 @@ body:has(.lp[data-theme="light"]) {
   --fg-subtle:    oklch(0.55 0.012 250);
   --fg-inverse:   oklch(0.16 0.012 250);
 
-  --primary:      oklch(0.72 0.18 var(--primary-hue));
-  --primary-hover:oklch(0.78 0.18 var(--primary-hue));
+  /* galaxy.css(.gd-item.active)가 참조하는 유일한 잔존 토큰 — 라이트 블록과 동일 사유. */
   --primary-soft: oklch(0.30 0.08 var(--primary-hue));
-  --primary-fg:   oklch(0.14 0.02 var(--primary-hue));
 
   --success:      oklch(0.72 0.15 150);
   --warning:      oklch(0.80 0.15  85);
@@ -265,7 +269,8 @@ body:has(.lp[data-theme="light"]) {
 
   --node-stroke: oklch(0.16 0.012 250);
   --edge:        oklch(0.36 0.012 250);
-  --edge-active: oklch(0.72 0.18 var(--primary-hue));
+  /* 답변 경로 점등 = 라이브 = 앰버(라이트는 코퍼) — accent-ink 네임스페이스로 재지정 */
+  --edge-active: var(--accent-ink);
 
   /* 다크 노드 팔레트 — DESIGN.md 정본 hex의 oklch 변환 */
   --node-commit:   oklch(0.71 0.095 156);  /* green      #6FB58A */
@@ -283,6 +288,9 @@ body:has(.lp[data-theme="light"]) {
   /* 다크에선 accent-ink가 accent와 동치다 — 참조만 분리한다. */
   --accent:      oklch(0.77 0.142 71);      /* #EBA23C */
   --accent-ink:  oklch(0.77 0.142 71);
+  --accent-hover:   oklch(0.812 0.133 75);  /* #F4B455 */
+  --accent-pressed: oklch(0.696 0.137 72);  /* #D18D26 */
+  --accent-fg:      oklch(0.158 0.007 258); /* #0B0D10 — 채움 위 잉크 글자(랜딩 다크 버튼과 동일 논리) */
   --accent-soft: rgb(235 162 60 / 0.14);
   --accent-glow: rgb(235 162 60 / 0.45);    /* 선택 노드 헤일로 전용 */
 }
