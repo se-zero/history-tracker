@@ -1,4 +1,8 @@
+import { Link } from "react-router-dom";
+
 import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
+import { useAuth } from "@/auth/AuthProvider";
+import { PATHS } from "@/routes";
 import { HERO_CONSTELLATION } from "@/lib/heroConstellation";
 
 // 최종 CTA — 중앙 정렬, 넓은 상하 여백으로 페이지를 닫는다.
@@ -12,7 +16,9 @@ import { HERO_CONSTELLATION } from "@/lib/heroConstellation";
 //    "처음의 그 그래프가 여기에도 있다"는 수미상관 신호. 무채(노드 타입색·앰버 없음)인
 //    이유: 라이브한 것도, 특정 노드를 지시하는 것도 아니다(앰버·노드색 네임스페이스 비대상).
 //    모션 없음(정적) — 이 섹션의 유일한 라이브 요소는 앰버 버튼 하나로 유지한다.
+// 주 CTA는 헤더·푸터·히어로와 같은 인증 상태 분기를 쓴다 — 로그인 상태면 OAuth 대신 제품으로 바로 이동.
 export function FinalCtaSection() {
+  const { status } = useAuth();
   const { width, height, nodes, edges } = HERO_CONSTELLATION;
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
@@ -61,13 +67,21 @@ export function FinalCtaSection() {
         <h2 className="lp-final-cta-headline">당신의 저장소에도 같은 그래프가 있다.</h2>
         <p className="lp-final-cta-sub">아직 연결되지 않았을 뿐이다.</p>
         <div className="lp-final-cta-actions">
-          <a className="lp-btn lp-btn--primary" href={GITHUB_AUTHORIZE_URL}>
-            GitHub으로 시작
-          </a>
+          {status === "authenticated" ? (
+            <Link className="lp-btn lp-btn--primary" to={PATHS.root}>
+              History Tracker 열기
+            </Link>
+          ) : (
+            <a className="lp-btn lp-btn--primary" href={GITHUB_AUTHORIZE_URL}>
+              GitHub으로 시작
+            </a>
+          )}
         </div>
-        <p className="lp-final-cta-meta">
-          GitHub 계정으로 로그인한 뒤, 연결할 저장소를 직접 고릅니다.
-        </p>
+        {status !== "authenticated" && (
+          <p className="lp-final-cta-meta">
+            GitHub 계정으로 로그인한 뒤, 연결할 저장소를 직접 고릅니다.
+          </p>
+        )}
       </div>
     </section>
   );

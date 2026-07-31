@@ -12,11 +12,11 @@ import { ChatPage } from "@/pages/ChatPage";
 import { GalaxyPage } from "@/pages/GalaxyPage";
 import { GraphPage } from "@/pages/GraphPage";
 import { LandingPage } from "@/pages/LandingPage";
-import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SourcesPage } from "@/pages/SourcesPage";
+import { PATHS } from "@/routes";
 import type { Project } from "@/types/api";
 
 interface ShellContext {
@@ -33,7 +33,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return <StatusView tone="loading" description="세션 확인 중…" fullPage />;
   }
   if (status === "unauthenticated") {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={PATHS.landing} replace />;
   }
   return <>{children}</>;
 }
@@ -67,11 +67,10 @@ export default function App() {
       <AuthProvider>
         <Routes>
           {/* 제품 소개 페이지 — 인증 가드 없는 공개 라우트 */}
-          <Route path="/landing" element={<LandingPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path={PATHS.landing} element={<LandingPage />} />
+          <Route path={PATHS.authCallback} element={<AuthCallbackPage />} />
           <Route
-            path="/onboarding"
+            path={PATHS.onboarding}
             element={
               <AuthGate>
                 <OnboardingPage />
@@ -97,8 +96,8 @@ export default function App() {
             <Route path="account" element={<AccountRoute />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
-          <Route path="/demo/graph" element={<DemoGraphRoute />} />
-          <Route path="/" element={<RootRedirect />} />
+          <Route path={PATHS.demoGraph} element={<DemoGraphRoute />} />
+          <Route path={PATHS.root} element={<RootRedirect />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AuthProvider>
@@ -126,7 +125,7 @@ function RootRedirect() {
   if (status === "loading") {
     return <StatusView tone="loading" description="세션 확인 중…" fullPage />;
   }
-  if (status === "unauthenticated") return <Navigate to="/login" replace />;
+  if (status === "unauthenticated") return <Navigate to={PATHS.landing} replace />;
   if (projectsQuery.isLoading) {
     return <StatusView tone="loading" description="프로젝트를 불러오는 중…" fullPage />;
   }
@@ -150,6 +149,6 @@ function RootRedirect() {
   }
 
   const projects = projectsQuery.data ?? [];
-  if (projects.length === 0) return <Navigate to="/onboarding" replace />;
+  if (projects.length === 0) return <Navigate to={PATHS.onboarding} replace />;
   return <Navigate to={`/projects/${projects[0].id}/chat`} replace />;
 }

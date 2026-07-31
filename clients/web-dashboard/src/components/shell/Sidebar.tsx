@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Icons } from "@/components/Icons";
 import { useAuth } from "@/auth/AuthProvider";
 import { useTheme } from "@/theme/ThemeProvider";
+import { PATHS } from "@/routes";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { ConversationList } from "./ConversationList";
 import { userInitials } from "@/lib/format";
@@ -139,7 +140,7 @@ function UserMenu({ onOpenAccount }: { onOpenAccount: () => void }) {
   const handleLogout = async () => {
     setOpen(false);
     await logout();
-    navigate("/login", { replace: true });
+    navigate(PATHS.landing, { replace: true });
   };
 
   return (

@@ -8,6 +8,7 @@ import { InlineError } from "@/components/ui/InlineError";
 import { MonoChip } from "@/components/ui/MonoChip";
 import { deleteAccount } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
+import { PATHS } from "@/routes";
 
 // 계정 단위 설정 — 프로젝트와 무관한 회원 탈퇴 등을 모은다.
 export function AccountPage() {
@@ -20,10 +21,10 @@ export function AccountPage() {
   const withdrawMutation = useMutation({
     mutationFn: deleteAccount,
     onSuccess: async () => {
-      // 탈퇴 후 로컬 토큰을 비우고(이미 비활성화된 계정이라 logout API 실패는 무시됨) 로그인 화면으로
+      // 탈퇴 후 로컬 토큰을 비우고(이미 비활성화된 계정이라 logout API 실패는 무시됨) 랜딩으로
       await logout();
       queryClient.clear();
-      navigate("/login", { replace: true });
+      navigate(PATHS.landing, { replace: true });
     },
   });
 
