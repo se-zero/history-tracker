@@ -13,7 +13,6 @@ type Route =
   | "chat"
   | "sources"
   | "actors"
-  | "graph"
   | "galaxy"
   | "settings"
   | "account";
@@ -95,14 +94,8 @@ export function Sidebar({
           onClick={() => onRouteChange("actors")}
         />
         <NavItem
-          icon={<Icons.Graph />}
-          label="그래프 탐색"
-          active={route === "graph"}
-          onClick={() => onRouteChange("graph")}
-        />
-        <NavItem
           icon={<Icons.Sparkle />}
-          label="작업 성좌"
+          label="그래프 확인"
           active={route === "galaxy"}
           onClick={() => onRouteChange("galaxy")}
         />
