@@ -39,6 +39,21 @@ class IntegrationTest {
     }
 
     @Test
+    @DisplayName("markJiraPendingProject 호출 후에도 사이트·프로젝트 정보는 남고 status만 pending으로 바뀐다")
+    void markJiraPendingProjectKeepsSiteAndProjectInfo() {
+        Integration integration = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        integration.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+
+        integration.markJiraPendingProject();
+
+        assertThat(integration.isJiraPendingProject()).isTrue();
+        assertThat(integration.getJiraCloudId()).isEqualTo("cloud-1");
+        assertThat(integration.getJiraSiteName()).isEqualTo("acme");
+        assertThat(integration.getJiraProjectKey()).isEqualTo("PROJ");
+        assertThat(integration.getJiraProjectName()).isEqualTo("Project");
+    }
+
+    @Test
     @DisplayName("updateCredential은 새 바이트 배열을 방어적으로 복사해 저장한다")
     void updateCredentialDefensivelyCopiesBytes() {
         Integration integration = Integration.jiraPending(project(), new byte[] {1, 2, 3});

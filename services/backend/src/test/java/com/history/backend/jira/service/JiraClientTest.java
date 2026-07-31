@@ -9,6 +9,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.time.Duration;
 import java.util.List;
 
 import com.history.backend.common.error.BadGatewayException;
@@ -89,7 +90,8 @@ class JiraClientTest {
                         "https://atlassian.test/authorize",
                         "https://atlassian.test/oauth/token",
                         "https://atlassian.test/oauth/token/accessible-resources",
-                        "https://atlassian.test/ex/jira"
+                        "https://atlassian.test/ex/jira",
+                        Duration.ofMinutes(5)
                 ),
                 builder.build()
         );

@@ -60,11 +60,45 @@ public class JiraOAuthClient {
             throw new BadGatewayException("Jira OAuth code exchange request failed.", exception);
         }
 
+        return validateTokens(response);
+    }
+
+    // refresh token으로 access token 갱신. Atlassian은 갱신할 때마다 새 refresh token을 함께 내려주고
+    // 직전 것을 즉시 무효화한다 — 응답의 refreshToken()을 반드시 덮어써 저장해야 다음 갱신이 성공한다.
+    public JiraTokens refresh(String refreshToken) {
+        Map<String, String> body = Map.of(
+                "grant_type", "refresh_token",
+                "client_id", properties.clientId(),
+                "client_secret", properties.clientSecret(),
+                "refresh_token", refreshToken
+        );
+
+        JiraTokenResponse response;
+        try {
+            response = restClient
+                    .post()
+                    .uri(properties.tokenUrl())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(JiraTokenResponse.class);
+        } catch (RestClientResponseException exception) {
+            // refresh token이 폐기됨(재동의 취소·90일 미사용) — 호출부(JiraTokenService)가 이 예외를 보고
+            // pending 되돌리기를 판단한다.
+            throw new UnauthorizedException("Jira refresh token is invalid or revoked.");
+        } catch (RestClientException exception) {
+            throw new BadGatewayException("Jira OAuth token refresh request failed.", exception);
+        }
+
+        return validateTokens(response);
+    }
+
+    private JiraTokens validateTokens(JiraTokenResponse response) {
         if (response == null || response.accessToken() == null || response.accessToken().isBlank()) {
             throw new BadGatewayException("Jira OAuth response is missing access token.");
         }
         // offline_access 스코프가 빠지면 refresh_token 없이 응답한다 — 여기서 막지 않으면 null로
-        // 조용히 저장되고 2-b 토큰 갱신 시점에서야 "갱신 불가"로 드러난다.
+        // 조용히 저장되고 토큰 갱신 시점에서야 "갱신 불가"로 드러난다.
         if (response.refreshToken() == null || response.refreshToken().isBlank()) {
             throw new BadGatewayException("Jira OAuth response is missing refresh token.");
         }

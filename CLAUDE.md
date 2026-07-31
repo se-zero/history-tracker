@@ -69,7 +69,7 @@ cd infra/docker
 - 모든 환경변수는 `infra/docker/.env` 한 곳에 모인다 (`.env`는 gitignore).
 - 컨테이너: postgres, neo4j, rabbitmq, ai-engine, backend, pipeline-worker, web-dashboard.
 - 필수 키: `BACKEND_CREDENTIAL_KEY`(32-byte Base64), `INTERNAL_SERVICE_TOKEN`(backend·pipeline-worker 공유),
-  `OPENAI_API_KEY`, GitHub App OAuth 값(`GITHUB_APP_*`, `GITHUB_CLIENT_*`).
+  `OPENAI_API_KEY`, GitHub App OAuth 값(`GITHUB_APP_*`, `GITHUB_CLIENT_*`), Atlassian OAuth 값(`ATLASSIAN_CLIENT_*`, `ATLASSIAN_REDIRECT_URI`).
 - 개별 서비스 빌드/테스트 명령은 각 서비스의 CLAUDE.md를 참고한다.
 
 ## 코딩 규칙
@@ -98,3 +98,5 @@ cd infra/docker
 - `docs/DB.md` - backend PostgreSQL 테이블 정의 및 관계도 (Flyway V1~)
 - `docs/tools.md` - ai-engine의 LLM tool-calling 도구 레퍼런스 (계약·반환·동작, 코드 위치 포인터)
 - `docs/query-quality-issues.md` - GraphRAG 쿼리 품질 이슈 분석
+- `docs/measurement.md` - GraphRAG 정량 측정(eval) 가이드 — 그래프·응답 품질 개선을 숫자로 검증하는 방법
+- `docs/DESIGN.md` - 디자인 시스템(팔레트·타이포·모션). **UI 작업 전에 읽고 모든 시각 결정을 여기서 파생시킨다**

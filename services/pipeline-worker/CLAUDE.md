@@ -65,6 +65,8 @@ GitHub PR merge webhook
   -> ProjectIntegrationService로 integration과 installation token freshness 조회
   -> token이 없거나 만료 5분 이내면 backend 내부 API로 token 갱신
   -> 갱신한 경우 ProjectIntegrationService로 DB integration 재조회
+  -> context에 Jira 연동이 있으면 backend 내부 API로 Jira 토큰 확보 요청
+     -> 성공 시 Jira 부분만 재해석해 context 교체, 실패 시 Jira만 제외하고 진행
   -> WebhookDeliveryService.tryClaim(deliveryId, projectId)
   -> webhookTaskExecutor에서 비동기 실행
   -> PipelineService.collectIncremental(context)
@@ -77,6 +79,7 @@ GitHub PR merge webhook
 installation token이 충분히 유효하면 backend를 호출하지 않는다. token이 없거나 만료 5분 이내면 `GitHubInstallationTokenClient`가 `X-Internal-Service-Token`으로 backend의 token 보장 API를 호출한 뒤 DB를 재조회한다. backend는 token 평문을 반환하지 않는다.
 backend에 installation이 없으면 `404`, backend 호출 실패 또는 token 갱신 실패는 `500`으로 처리해 GitHub 재시도를 허용한다.
 Jira/Slack 연동은 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
+Jira 토큰 확보 요청이 실패하거나(연동 없음·backend 오류) 예외가 나면 Jira만 건너뛰고 GitHub·Slack 수집은 계속한다.
 `webhookTaskExecutor`가 작업을 받을 수 없으면 `IN_PROGRESS` claim을 해제해 GitHub 재시도가 다시 claim할 수 있게 한다.
 애플리케이션 시작 시 `app.webhook.delivery.stale-in-progress-timeout`보다 오래된 `IN_PROGRESS` delivery는 `FAILED`로 정리한다.
 `webhookTaskExecutor`는 `app.webhook.executor.pool-size`(기본 4)로 여러 프로젝트 webhook을 병렬 처리한다. 단 동일 프로젝트의 동시 수집은 `ProjectCollectionSerializer`(project id striped lock)가 직렬화해 같은 구간 중복 풀스캔을 막는다. 초기 수집(`collectionTaskExecutor`)은 provider별 병렬이 의도라 직렬화 대상이 아니다.
@@ -123,7 +126,7 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 - credential 복호화 키 (`security.credentials.key`)
 - backend 내부 API URL (`backend.url`)
 - 내부 서비스 인증 token (`security.internal-service.token`)
-- GitHub/Jira/Slack base URL
+- GitHub/Jira/Slack base URL (Jira는 `app.jira.gateway-base-url`도 포함 — OAuth cloudId 게이트웨이 주소)
 - rate limit 값
 - GitHub webhook secret
 - webhook executor 종료 대기 시간
@@ -131,7 +134,7 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 - stale `IN_PROGRESS` webhook delivery 정리 기준 시간
 
 사용자/프로젝트별 credential은 `application.yaml`에 두지 않는다. DB의 project integration 정보에서 조회하고 `security.credentials.key`로 복호화한다.
-GitHub/Slack credential은 Bearer 토큰으로 사용한다. Jira credential은 `JiraRawService`에서 Basic/Bearer 형식을 해석한다.
+GitHub/Slack/Jira credential은 모두 Bearer 토큰으로 사용한다. Jira는 OAuth 전환 후 DB에 JSON(`access_token`·`refresh_token`·`expires_at`)으로 저장되며, `ProjectIntegrationService`가 복호화해 `access_token`만 꺼내 Bearer로 감싼다. `JiraRawService.resolveAuth`는 과거 `email:token`(Basic) 포맷도 여전히 받아들이지만 정규 수집 경로에서는 쓰이지 않는다.
 
 로컬 실행과 배포 시 다음 환경변수를 설정한다.
 

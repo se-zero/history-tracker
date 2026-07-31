@@ -199,13 +199,38 @@ public class Integration {
         return value instanceof String text && !text.isBlank() ? text : null;
     }
 
+    public String getJiraCloudId() {
+        Object value = externalRef.get(JIRA_CLOUD_ID);
+        return value instanceof String text && !text.isBlank() ? text : null;
+    }
+
     public boolean isJiraPendingProject() {
         return JIRA_STATUS_PENDING_PROJECT.equals(externalRef.get(JIRA_STATUS));
     }
 
-    // pending 행 재동의 시 토큰 교체 (2-b의 갱신도 이 메서드를 재사용한다)
+    // 갱신 실패로 pending 복귀한 행인지 판별 — cloud_id·project_key가 남아 있으면 자동 복원 대상이다.
+    // 최초 연결의 pending 행(status만 있음)은 이 값들이 없어 자연히 자동 복원 분기를 타지 않는다.
+    public boolean hasRestorableJiraProject() {
+        return getJiraCloudId() != null && hasJiraProjectKey();
+    }
+
+    private boolean hasJiraProjectKey() {
+        Object value = externalRef.get(JIRA_PROJECT_KEY);
+        return value instanceof String text && !text.isBlank();
+    }
+
+    // pending 행 재동의 시 토큰 교체 (토큰 갱신도 이 메서드를 재사용한다)
     public void updateCredential(byte[] encryptedCredential) {
         this.encryptedCredential = Arrays.copyOf(encryptedCredential, encryptedCredential.length);
+    }
+
+    // 토큰 갱신 영구 실패 시 미확정으로 되돌린다. cloud_id·site_name·project_key·project_name은 그대로
+    // 남겨 재동의 성공 시 자동 복원(IntegrationService)이 다시 쓸 수 있게 한다 — completeJiraProject처럼
+    // external_ref를 통째로 교체하지 않는다.
+    public void markJiraPendingProject() {
+        Map<String, Object> reverted = new HashMap<>(externalRef);
+        reverted.put(JIRA_STATUS, JIRA_STATUS_PENDING_PROJECT);
+        this.externalRef = Map.copyOf(reverted);
     }
 
     // 사이트·프로젝트 선택 확정 — external_ref를 통째로 교체해 status를 자연히 제거한다

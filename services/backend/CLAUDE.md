@@ -10,7 +10,7 @@ cd services/backend
 
 ## 패키지 구조
 
-패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시하고, `jira`·`slack`은 연동 검증용 client(config/service/dto)만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
+패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시한다. `jira`는 OAuth 클라이언트(동의 코드 교환·토큰 갱신·사이트/프로젝트 조회)를, `slack`은 연동 검증용 client(config/service/dto)만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
 
 `dto`에는 직렬화 경계 타입(프론트 요청·응답, ai-engine 클라이언트 DTO, opaque 커서)만 두고 필드에 도메인 엔티티를 노출하지 않는다(엔티티는 `from()` 매핑 파라미터로만 받는다). 도메인 엔티티를 필드로 담는 서비스 반환·중간 타입(예: `ConversationStart`, `ConversationPage`, `ConversationDetail`)은 `service`에 둔다.
 
@@ -47,11 +47,23 @@ cd services/backend
 - running summary 갱신은 version 기반 낙관적 충돌 처리로, 실패하거나 충돌해도 현재 질문 응답을 막지 않는다.
 - 직전 정상 응답의 `structured.evidence`에서 후속 질문 대상 식별용 prior evidence를 추출해 함께 전달한다.
 
+## 외부 연동 (OAuth)
+
+- GitHub은 App installation, Slack·Jira는 OAuth 동의 흐름으로만 붙인다. **토큰을 사용자가 직접 입력하는 경로는 없다.**
+- 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,
+  authorize URL 조립 시 소유권을 확인하고 state를 발급한다.
+- 콜백은 예외를 던지지 않고 항상 프론트로 302 리다이렉트하며, 실패는 `?error=` 코드로 전달한다.
+  state 위조·만료는 `projectId`를 복원할 수 없어 로그가 유일한 관측 수단이다.
+- Jira만 2단계다: 동의 직후에는 토큰만 담은 pending 행을 만들고, 사용자가 사이트·프로젝트를 고르면 확정한다.
+- Jira access token은 1시간짜리라 `JiraTokenService`가 갱신을 전담한다. Atlassian refresh token은 회전하므로
+  **갱신 주체가 둘이면 서로의 토큰을 무효화한다** — pipeline-worker는 직접 갱신하지 않고 아래 내부 API로 위임한다.
+
 ## 내부 서비스 API
 
 - `/api/v1/internal/**`는 사용자 JWT가 아니라 `X-Internal-Service-Token` 헤더로 인증한다.
 - `InternalServiceAuthenticationFilter`는 `security.internal-service.token`과 요청 헤더를 timing-safe 방식으로 비교한다.
 - `POST /api/v1/internal/github/installations/{installationId}/token`은 GitHub installation access token이 없거나 만료 임박한 경우 갱신해 DB 캐시를 보장하고 `204`를 반환한다. 토큰 평문은 응답하지 않는다.
+- `POST /api/v1/internal/integrations/{projectId}/jira/token`은 Jira access token이 없거나 만료 임박한 경우 refresh token으로 갱신해 저장하고 `204`를 반환한다. refresh token이 폐기돼 갱신이 영구 실패하면 연동을 pending 상태로 되돌린다. 토큰 평문은 응답하지 않는다.
 - backend와 pipeline-worker에는 동일한 `INTERNAL_SERVICE_TOKEN`을 배포해야 한다.
 - GitHub App private key는 backend에만 두고 pipeline-worker와 공유하지 않는다.
 

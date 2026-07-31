@@ -2,7 +2,7 @@
 
 ## 역할
 
-사용자 웹 프론트엔드 (Vite + React 18 + TypeScript, :5173). onboarding·sources·graph·chat·settings 화면을 제공하며,
+사용자 웹 프론트엔드 (Vite + React 18 + TypeScript, :5173). onboarding·sources·성좌·chat·settings 화면을 제공하며,
 backend(:8080) API만 호출한다. 전체 아키텍처는 루트 [CLAUDE.md](../../CLAUDE.md) 참고.
 
 ## 실행 / 빌드
@@ -29,29 +29,34 @@ src/
 
   api/              backend 엔드포인트별 axios 클라이언트 (리소스 단위로 얇게)
     client.ts         axios 인스턴스 + 인터셉터 (access 토큰 부착, 401 시 refresh+rotation 재시도)
-    auth/projects/conversations/integrations/github/graph.ts
+    그 외는 리소스당 모듈 1개 (auth · projects · conversations · integrations · github · graph · actors)
 
   hooks/            React Query 캡슐화 레이어 (컴포넌트는 여기로만 서버 상태 접근)
     queryKeys.ts      중앙 키 팩토리 — 모든 queryKey의 단일 출처
-    useProjects · useConversations · useIntegrations · useGithub · useGraph · useSearch
+    그 외는 리소스당 use* 훅 1개. 연동만 셋으로 갈린다 —
+    useIntegrations(조회·연결·해제) / useIntegrationOAuth(동의 리다이렉트) / useJira(사이트·프로젝트 선택)
 
   components/
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
-    sources/        GitHubCard · JiraCard · SlackCard · IngestStatus
+    sources/        GitHubCard · JiraCard · SlackCard · IngestStatus · ActorManagementCard
+                    OAuthResultBanner — 동의 후 돌아온 리다이렉트의 성공/실패 안내
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
-    graph/          GraphVis(d3-force SVG) · NodeDetail
-                    ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널)
+    graph/          ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널) · NodeDetail
+                    GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 성좌로 대체됨)
     search/         SearchDialog — ⌘K 통합 검색(대화 + 그래프 노드, AppShell에서 마운트)
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
-    Login · Onboarding · Chat · Sources · Settings · Account · Graph · Galaxy(작업 성좌) ·
+    Login · Onboarding · Chat · Sources · Settings · Account · Galaxy(작업 성좌 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
     Actors · Landing · AuthCallback · NotFound
+    ※ /projects/:id/graph 는 /galaxy 로 리다이렉트한다(옛 링크 호환).
+    ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
                     constellation(성좌 배치: 별성 force + 위성 궤도) · canvasColor(CSS 토큰 → Canvas RGB)
+                    heroConstellation · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
   auth/             AuthProvider(세션 상태) · tokenStorage(localStorage)
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)

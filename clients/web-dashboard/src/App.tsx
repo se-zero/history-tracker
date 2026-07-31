@@ -10,7 +10,6 @@ import { ActorsPage } from "@/pages/ActorsPage";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { GalaxyPage } from "@/pages/GalaxyPage";
-import { GraphPage } from "@/pages/GraphPage";
 import { LandingPage } from "@/pages/LandingPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
@@ -46,9 +45,6 @@ function SourcesRoute() {
 }
 function ActorsRoute() {
   return <ActorsPage project={useProject()} />;
-}
-function GraphRoute() {
-  return <GraphPage project={useProject()} />;
 }
 function GalaxyRoute() {
   return <GalaxyPage project={useProject()} />;
@@ -90,13 +86,14 @@ export default function App() {
             <Route path="chat/:conversationId" element={<ChatRoute />} />
             <Route path="sources" element={<SourcesRoute />} />
             <Route path="actors" element={<ActorsRoute />} />
-            <Route path="graph" element={<GraphRoute />} />
+            {/* 그래프 탐색은 작업 성좌로 대체됐다 — 예전 링크·북마크만 넘겨준다. */}
+            <Route path="graph" element={<Navigate to="../galaxy" replace />} />
             <Route path="galaxy" element={<GalaxyRoute />} />
             <Route path="settings" element={<SettingsRoute />} />
             <Route path="account" element={<AccountRoute />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
-          <Route path={PATHS.demoGraph} element={<DemoGraphRoute />} />
+          <Route path={PATHS.demoGraph} element={<DemoGalaxyRoute />} />
           <Route path={PATHS.root} element={<RootRedirect />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
@@ -106,7 +103,7 @@ export default function App() {
 }
 
 // 백엔드 없이 그래프 디자인만 확인할 때 쓰는 라우트.
-function DemoGraphRoute() {
+function DemoGalaxyRoute() {
   const demoProject: Project = {
     id: "demo",
     ownerId: "demo",
@@ -115,7 +112,7 @@ function DemoGraphRoute() {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  return <GraphPage project={demoProject} />;
+  return <GalaxyPage project={demoProject} />;
 }
 
 function RootRedirect() {

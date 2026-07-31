@@ -90,24 +90,34 @@ export function JiraCard({ projectId }: { projectId: string }) {
           ) : (
             <>
               <Field label="사이트">
-                <select
-                  className="jira-select"
-                  value={cloudId}
-                  onChange={(e) => {
-                    setCloudId(e.target.value);
-                    setProjectKey("");
-                  }}
-                  disabled={sitesQuery.isLoading}
-                >
-                  <option value="" disabled>
-                    {sitesQuery.isLoading ? "불러오는 중…" : "사이트를 선택하세요"}
-                  </option>
-                  {sites.map((site) => (
-                    <option key={site.cloudId} value={site.cloudId}>
-                      {site.name}
+                {sites.length === 1 ? (
+                  // resource-level grant로 등록된 Atlassian 앱은 동의 화면에서 이미 사이트를
+                  // 선택하므로 목록이 항상 1개뿐이다 — 고를 게 없는데 select로 보이면 혼란만
+                  // 준다. 다만 문서상 site(s)로 복수 표기돼 있고 account-level로 등록 방식이
+                  // 바뀌면 여러 개가 돌아올 수 있어, 하드코딩 대신 개수로 분기해 그때도
+                  // 자연히 select로 복귀하게 한다. 이름은 계속 보여줘 동의 화면에서 고른
+                  // 사이트가 맞는지 확인할 근거로 쓴다.
+                  <div className="jira-site-value">{sites[0].name}</div>
+                ) : (
+                  <select
+                    className="jira-select"
+                    value={cloudId}
+                    onChange={(e) => {
+                      setCloudId(e.target.value);
+                      setProjectKey("");
+                    }}
+                    disabled={sitesQuery.isLoading}
+                  >
+                    <option value="" disabled>
+                      {sitesQuery.isLoading ? "불러오는 중…" : "사이트를 선택하세요"}
                     </option>
-                  ))}
-                </select>
+                    {sites.map((site) => (
+                      <option key={site.cloudId} value={site.cloudId}>
+                        {site.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </Field>
 
               {cloudId && (

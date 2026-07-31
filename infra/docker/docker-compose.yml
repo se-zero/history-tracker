@@ -125,6 +125,8 @@ services:
       ATLASSIAN_CLIENT_ID: ${ATLASSIAN_CLIENT_ID:-}
       ATLASSIAN_CLIENT_SECRET: ${ATLASSIAN_CLIENT_SECRET:-}
       ATLASSIAN_REDIRECT_URI: ${ATLASSIAN_REDIRECT_URI:-}
+      # 빈 문자열이 넘어가면 Duration 파싱이 깨지므로 Spring 기본값(PT5M)과 같은 compose 기본값을 둔다.
+      ATLASSIAN_REFRESH_SKEW: ${ATLASSIAN_REFRESH_SKEW:-PT5M}
     depends_on:
       postgres:
         condition: service_healthy

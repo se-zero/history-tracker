@@ -2,6 +2,7 @@ package com.history.pipeline_worker.webhook;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.history.pipeline_worker.collection.JiraTokenClient;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.collection.GitHubWebhookIntegrationResolution;
@@ -13,6 +14,8 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 
 @Slf4j
@@ -23,6 +26,7 @@ public class GitHubWebhookService {
     private final GitHubWebhookVerifier verifier;
     private final WebhookDeliveryService webhookDeliveryService;
     private final GitHubInstallationTokenClient installationTokenClient;
+    private final JiraTokenClient jiraTokenClient;
     private final ProjectIntegrationService projectIntegrationService;
     private final PipelineService pipelineService;
     private final TaskExecutor taskExecutor;
@@ -33,6 +37,7 @@ public class GitHubWebhookService {
             GitHubWebhookVerifier verifier,
             WebhookDeliveryService webhookDeliveryService,
             GitHubInstallationTokenClient installationTokenClient,
+            JiraTokenClient jiraTokenClient,
             ProjectIntegrationService projectIntegrationService,
             PipelineService pipelineService,
             @Qualifier("webhookTaskExecutor") TaskExecutor taskExecutor,
@@ -42,6 +47,7 @@ public class GitHubWebhookService {
         this.verifier = verifier;
         this.webhookDeliveryService = webhookDeliveryService;
         this.installationTokenClient = installationTokenClient;
+        this.jiraTokenClient = jiraTokenClient;
         this.projectIntegrationService = projectIntegrationService;
         this.pipelineService = pipelineService;
         this.taskExecutor = taskExecutor;
@@ -89,7 +95,7 @@ public class GitHubWebhookService {
         if (resolution.status() != GitHubWebhookIntegrationResolution.Status.READY) {
             return new WebhookResult(WebhookStatus.NOT_FOUND, "no project integration found");
         }
-        ProjectCollectionContext collectionContext = resolution.context();
+        ProjectCollectionContext collectionContext = ensureFreshJiraToken(resolution.context());
 
         if (!webhookDeliveryService.tryClaim(deliveryId, collectionContext.projectId())) {
             return new WebhookResult(WebhookStatus.DUPLICATE, "duplicate delivery");
@@ -109,6 +115,34 @@ public class GitHubWebhookService {
             throw e;
         }
         return new WebhookResult(WebhookStatus.ACCEPTED, "collection queued");
+    }
+
+    // Jira는 선택 연동이다 — 토큰 확보에 실패해도 GitHub·Slack 수집은 계속 진행해야 하므로 예외를
+    // 삼키고 Jira만 Optional.empty()로 비운다. 죽은 토큰으로 시도해 401을 내는 것보다 낫다.
+    private ProjectCollectionContext ensureFreshJiraToken(ProjectCollectionContext context) {
+        if (context.jira().isEmpty()) {
+            return context;
+        }
+        UUID projectId = UUID.fromString(context.projectId());
+        if (!ensureJiraToken(projectId)) {
+            log.warn("Jira 토큰 확보 실패로 이번 수집에서 Jira를 건너뜁니다: projectId={}", context.projectId());
+            return new ProjectCollectionContext(context.projectId(), context.github(), Optional.empty(), context.slack());
+        }
+        return new ProjectCollectionContext(
+                context.projectId(),
+                context.github(),
+                projectIntegrationService.resolveJira(projectId),
+                context.slack()
+        );
+    }
+
+    private boolean ensureJiraToken(UUID projectId) {
+        try {
+            return jiraTokenClient.ensureJiraToken(projectId);
+        } catch (RuntimeException e) {
+            log.warn("Jira 토큰 확보 요청이 실패했습니다: projectId={}", projectId, e);
+            return false;
+        }
     }
 
     private GitHubWebhookPayload parsePullRequestWebhook(String payload) {
