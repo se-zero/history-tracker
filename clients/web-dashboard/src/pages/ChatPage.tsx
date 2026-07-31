@@ -15,7 +15,6 @@ import {
 import { RelatedGraphPanel } from "@/components/chat/RelatedGraphPanel";
 import { ThinkingState } from "@/components/chat/ThinkingState";
 import { createConversation, sendMessage } from "@/api/conversations";
-import { useAuth } from "@/auth/AuthProvider";
 import { queryKeys } from "@/hooks/queryKeys";
 import {
   useConversation,
@@ -39,7 +38,6 @@ export function ChatPage({ project }: { project: Project }) {
   const { conversationId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user } = useAuth();
 
   const conversationQuery = useConversation(project.id, conversationId);
   const detail = conversationQuery.data;
@@ -254,7 +252,7 @@ export function ChatPage({ project }: { project: Project }) {
 
   const renderMessages = () =>
     messages.map((m) => (
-      <MessageItem key={m.id} message={m} user={user} citation={citationFor(m)} />
+      <MessageItem key={m.id} message={m} citation={citationFor(m)} />
     ));
 
   // 전송 실패 시 친 내용·첨부 노드가 사라지지 않도록 복구하고 에러를 표시한다.
@@ -454,7 +452,7 @@ export function ChatPage({ project }: { project: Project }) {
         {showPending ? (
           <ChatStream {...streamProps}>
             {renderMessages()}
-            <UserMessage content={pendingMessage!.text} user={user} />
+            <UserMessage content={pendingMessage!.text} />
             <ThinkingState />
           </ChatStream>
         ) : !conversationId ? (

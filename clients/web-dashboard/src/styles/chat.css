@@ -150,7 +150,9 @@
   border-color: var(--danger);
 }
 .chat-inner {
-  max-width: 760px;
+  /* 760(컴포저 내용 폭) + 좌우 패딩 56 — border-box라 패딩이 안쪽으로 먹혀,
+     760으로 두면 내역이 입력창보다 56px 좁아진다. 입력창과 가로 폭을 맞춘다. */
+  max-width: 816px;
   margin: 0 auto;
   padding: 0 28px;
   display: flex;
@@ -158,26 +160,7 @@
   gap: 24px;
 }
 
-.msg { display: flex; gap: 12px; align-items: flex-start; }
-.msg .msg-avatar {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  display: grid; place-items: center;
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 600;
-}
-.msg.user .msg-avatar {
-  /* 아이덴티티 표시일 뿐 상태가 아니라서 무채로 (DESIGN.md: 라이브가 아니면 앰버를 쓰지 않는다) */
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  color: var(--fg-muted);
-}
-.msg.assistant .msg-avatar {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--fg-muted);
-}
+.msg { display: flex; align-items: flex-start; }
 /* 사용자 메시지: GPT처럼 오른쪽 정렬 말풍선 */
 .msg.user { flex-direction: row-reverse; }
 .msg.user .msg-body {
@@ -187,7 +170,6 @@
   flex-direction: column;
   align-items: flex-end;
 }
-.msg.user .msg-role { text-align: right; }
 .msg.user .msg-content {
   /* 사용자 메시지는 surface-2 버블 — 액센트가 아니라 elevation으로 구분 (DESIGN.md 컴포넌트 규칙) */
   background: var(--surface-2);
@@ -196,14 +178,6 @@
   border-top-right-radius: 5px;
 }
 .msg-body { flex: 1; min-width: 0; }
-.msg-role {
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--fg-subtle);
-  margin-bottom: 6px;
-}
 .msg-content {
   font-size: 14.5px;
   line-height: 1.65;
@@ -322,7 +296,7 @@
 
 .citation-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 16px;
 }
@@ -337,6 +311,7 @@
   transition: background 0.12s, border-color 0.12s;
   text-align: left;
   align-items: flex-start;
+  overflow: hidden;
 }
 .cite-card:hover { background: var(--surface-2); border-color: var(--border-strong); }
 /* 그래프에서 대응 노드가 선택되면 인용 카드를 강조(역방향 연동) */
@@ -364,6 +339,17 @@
   font-size: 11px;
   color: var(--fg-subtle);
   margin-bottom: 3px;
+  min-width: 0;
+}
+/* id처럼 긴 값만 줄여 잘라내고(ellipsis), 타입·날짜 등 짧은 항목은 밀리지 않게 고정폭 유지 */
+.cite-card .cite-meta > span:not(.cite-id) { flex-shrink: 0; }
+.cite-card .cite-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
 }
 .cite-card .cite-title { font-size: 13px; font-weight: 550; color: var(--fg); line-height: 1.35; }
 .cite-card .cite-body { flex: 1; min-width: 0; }
