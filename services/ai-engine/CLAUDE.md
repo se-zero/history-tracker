@@ -140,4 +140,3 @@ graph/             Neo4j 그래프 구축 + 수집
 - **모든 그래프 노드·쿼리는 `project_id`로 스코프**한다 (프로젝트 격리 — 자연키가 프로젝트 간 충돌하므로
   `project_id` 없는 MERGE/MATCH는 데이터 누출 위험). 인가는 backend가 담당하고 ai-engine은 내부 서비스로 신뢰한다.
 - 주석·docstring은 한국어로 작성한다 (코드베이스 관행).
-```

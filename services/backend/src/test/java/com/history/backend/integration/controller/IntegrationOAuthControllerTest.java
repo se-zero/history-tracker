@@ -70,7 +70,7 @@ class IntegrationOAuthControllerTest {
     @DisplayName("콜백 성공 → 302, Location에 ?connected=slack")
     void callbackSlackRedirectsWithConnectedQueryOnSuccess() throws Exception {
         when(integrationOAuthService.completeSlackCallback("auth-code", "signed-state", null))
-                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "slack", null));
+                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "slack", null, false));
 
         mockMvc.perform(get("/api/v1/integrations/slack/callback")
                         .param("code", "auth-code")
@@ -86,7 +86,7 @@ class IntegrationOAuthControllerTest {
     @DisplayName("잘못된 state → 302, Location에 error=invalid_state&provider=slack (projectId 없이 루트로)")
     void callbackSlackRedirectsToRootWithInvalidStateError() throws Exception {
         when(integrationOAuthService.completeSlackCallback("auth-code", "bad-state", null))
-                .thenReturn(new OAuthCallbackOutcome(null, "slack", "invalid_state"));
+                .thenReturn(new OAuthCallbackOutcome(null, "slack", "invalid_state", false));
 
         mockMvc.perform(get("/api/v1/integrations/slack/callback")
                         .param("code", "auth-code")
@@ -99,7 +99,7 @@ class IntegrationOAuthControllerTest {
     @DisplayName("동의 거부(error=access_denied) → 302, Location에 error=access_denied&provider=slack")
     void callbackSlackRedirectsWithAccessDeniedError() throws Exception {
         when(integrationOAuthService.completeSlackCallback(null, "signed-state", "access_denied"))
-                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "slack", "access_denied"));
+                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "slack", "access_denied", false));
 
         mockMvc.perform(get("/api/v1/integrations/slack/callback")
                         .param("state", "signed-state")
@@ -133,10 +133,10 @@ class IntegrationOAuthControllerTest {
     }
 
     @Test
-    @DisplayName("Jira 콜백 성공 → 302, Location에 ?connected=jira")
+    @DisplayName("Jira 콜백 성공(선택 필요) → 302, Location에 ?connected=jira")
     void callbackJiraRedirectsWithConnectedQueryOnSuccess() throws Exception {
         when(integrationOAuthService.completeJiraCallback("auth-code", "signed-state", null))
-                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "jira", null));
+                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "jira", null, false));
 
         mockMvc.perform(get("/api/v1/integrations/jira/callback")
                         .param("code", "auth-code")
@@ -149,10 +149,26 @@ class IntegrationOAuthControllerTest {
     }
 
     @Test
+    @DisplayName("Jira 콜백 성공(자동 복원 완료) → 302, Location에 ?connected=jira&restored=true")
+    void callbackJiraRedirectsWithRestoredQueryWhenAutoConfirmed() throws Exception {
+        when(integrationOAuthService.completeJiraCallback("auth-code", "signed-state", null))
+                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "jira", null, true));
+
+        mockMvc.perform(get("/api/v1/integrations/jira/callback")
+                        .param("code", "auth-code")
+                        .param("state", "signed-state"))
+                .andExpect(status().isFound())
+                .andExpect(header().string(
+                        "Location",
+                        "/projects/" + PROJECT_ID + "/sources?connected=jira&restored=true"
+                ));
+    }
+
+    @Test
     @DisplayName("Jira 잘못된 state → 302, Location에 error=invalid_state&provider=jira (projectId 없이 루트로)")
     void callbackJiraRedirectsToRootWithInvalidStateError() throws Exception {
         when(integrationOAuthService.completeJiraCallback("auth-code", "bad-state", null))
-                .thenReturn(new OAuthCallbackOutcome(null, "jira", "invalid_state"));
+                .thenReturn(new OAuthCallbackOutcome(null, "jira", "invalid_state", false));
 
         mockMvc.perform(get("/api/v1/integrations/jira/callback")
                         .param("code", "auth-code")
@@ -165,7 +181,7 @@ class IntegrationOAuthControllerTest {
     @DisplayName("Jira 동의 거부(error=access_denied) → 302, Location에 error=access_denied&provider=jira")
     void callbackJiraRedirectsWithAccessDeniedError() throws Exception {
         when(integrationOAuthService.completeJiraCallback(null, "signed-state", "access_denied"))
-                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "jira", "access_denied"));
+                .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "jira", "access_denied", false));
 
         mockMvc.perform(get("/api/v1/integrations/jira/callback")
                         .param("state", "signed-state")

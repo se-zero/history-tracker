@@ -103,6 +103,20 @@
   font-family: var(--font-mono);
 }
 
+/* Jira 사이트가 1개뿐이면(resource-level grant) select 대신 이 정적 텍스트로 보여준다 —
+   jira-select와 같은 크기·톤을 유지해 1개↔여러 개 전환 시 레이아웃이 흔들리지 않는다. */
+.jira-site-value {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-mono);
+}
+
 .repo-toggle {
   display: flex; align-items: center; justify-content: center;
   gap: 4px;

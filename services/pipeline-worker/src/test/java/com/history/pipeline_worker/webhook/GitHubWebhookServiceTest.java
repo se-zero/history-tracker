@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.collection.GitHubIntegration;
 import com.history.pipeline_worker.collection.GitHubWebhookIntegrationResolution;
 import com.history.pipeline_worker.collection.JiraIntegration;
+import com.history.pipeline_worker.collection.JiraTokenClient;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.collection.SlackIntegration;
@@ -15,6 +16,7 @@ import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +28,7 @@ class GitHubWebhookServiceTest {
     private GitHubWebhookVerifier verifier;
     private WebhookDeliveryService webhookDeliveryService;
     private GitHubInstallationTokenClient installationTokenClient;
+    private JiraTokenClient jiraTokenClient;
     private ProjectIntegrationService projectIntegrationService;
     private PipelineService pipelineService;
     private GitHubWebhookService service;
@@ -35,6 +38,7 @@ class GitHubWebhookServiceTest {
         verifier = mock(GitHubWebhookVerifier.class);
         webhookDeliveryService = mock(WebhookDeliveryService.class);
         installationTokenClient = mock(GitHubInstallationTokenClient.class);
+        jiraTokenClient = mock(JiraTokenClient.class);
         projectIntegrationService = mock(ProjectIntegrationService.class);
         pipelineService = mock(PipelineService.class);
         service = new GitHubWebhookService(
@@ -42,6 +46,7 @@ class GitHubWebhookServiceTest {
                 verifier,
                 webhookDeliveryService,
                 installationTokenClient,
+                jiraTokenClient,
                 projectIntegrationService,
                 pipelineService,
                 new SyncTaskExecutor(),
@@ -189,6 +194,79 @@ class GitHubWebhookServiceTest {
     }
 
     @Test
+    void handle_readyWithJiraIntegration_ensuresJiraTokenAndReResolvesJiraContext() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextWithStaleJira = collectionContextWithJira(
+                new JiraIntegration("Bearer stale-jira-token", "PROJ", "https://jira.example.com"));
+        Optional<JiraIntegration> refreshedJira = Optional.of(
+                new JiraIntegration("Bearer fresh-jira-token", "PROJ", "https://jira.example.com"));
+        ProjectCollectionContext expectedContext = new ProjectCollectionContext(
+                projectId(), contextWithStaleJira.github(), refreshedJira, contextWithStaleJira.slack());
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithStaleJira));
+        when(jiraTokenClient.ensureJiraToken(UUID.fromString(projectId()))).thenReturn(true);
+        when(projectIntegrationService.resolveJira(UUID.fromString(projectId()))).thenReturn(refreshedJira);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(pipelineService.collectIncremental(expectedContext)).thenReturn(new CollectionResult(1, 2, 3));
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
+        verify(jiraTokenClient).ensureJiraToken(UUID.fromString(projectId()));
+        verify(pipelineService).collectIncremental(expectedContext);
+    }
+
+    @Test
+    void handle_jiraTokenEnsureFails_skipsJiraButContinuesGitHubCollection() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextWithJira = collectionContextWithJira(
+                new JiraIntegration("Bearer stale-jira-token", "PROJ", "https://jira.example.com"));
+        ProjectCollectionContext contextWithoutJira = new ProjectCollectionContext(
+                projectId(), contextWithJira.github(), Optional.empty(), contextWithJira.slack());
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithJira));
+        when(jiraTokenClient.ensureJiraToken(UUID.fromString(projectId()))).thenReturn(false);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextWithoutJira)).thenReturn(new CollectionResult(1, 0, 3));
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
+        verify(pipelineService).collectIncremental(contextWithoutJira);
+        verify(projectIntegrationService, never()).resolveJira(any());
+    }
+
+    @Test
+    void handle_jiraTokenEnsureThrows_skipsJiraButContinuesGitHubCollection() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextWithJira = collectionContextWithJira(
+                new JiraIntegration("Bearer stale-jira-token", "PROJ", "https://jira.example.com"));
+        ProjectCollectionContext contextWithoutJira = new ProjectCollectionContext(
+                projectId(), contextWithJira.github(), Optional.empty(), contextWithJira.slack());
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithJira));
+        when(jiraTokenClient.ensureJiraToken(UUID.fromString(projectId())))
+                .thenThrow(new RuntimeException("backend 500"));
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextWithoutJira)).thenReturn(new CollectionResult(1, 0, 3));
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
+        verify(pipelineService).collectIncremental(contextWithoutJira);
+        verify(projectIntegrationService, never()).resolveJira(any());
+    }
+
+    @Test
     void handle_collectionFailure_marksDeliveryFailed() {
         HttpHeaders headers = headers();
         String payload = payload(true, "closed");
@@ -218,6 +296,7 @@ class GitHubWebhookServiceTest {
                 verifier,
                 webhookDeliveryService,
                 installationTokenClient,
+                jiraTokenClient,
                 projectIntegrationService,
                 pipelineService,
                 rejectingExecutor,
@@ -255,10 +334,21 @@ class GitHubWebhookServiceTest {
     }
 
     private ProjectCollectionContext collectionContext() {
+        // 이 fixture는 GitHub webhook 흐름 자체를 검증하는 테스트에서 공용으로 쓴다 — Jira 토큰
+        // 보장·재해석은 별도 fixture(collectionContextWithJira)로 검증하므로 Jira는 비워 둔다.
         return new ProjectCollectionContext(
                 projectId(),
                 new GitHubIntegration("Bearer gh", "owner/repo", null),
-                Optional.of(new JiraIntegration("jira:token", "PROJ", "https://jira.example.com")),
+                Optional.empty(),
+                Optional.of(new SlackIntegration("Bearer slack"))
+        );
+    }
+
+    private ProjectCollectionContext collectionContextWithJira(JiraIntegration jira) {
+        return new ProjectCollectionContext(
+                projectId(),
+                new GitHubIntegration("Bearer gh", "owner/repo", null),
+                Optional.of(jira),
                 Optional.of(new SlackIntegration("Bearer slack"))
         );
     }

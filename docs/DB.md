@@ -122,6 +122,10 @@ JWT refresh token 저장. token 값은 해시(BYTEA)로만 보관한다.
 | `expires_at` | TIMESTAMPTZ | NOT NULL | 토큰 만료 시각 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 토큰 발급 시각 |
 
+**인덱스**
+- UNIQUE `(token_hash)`
+- `(user_id)`
+
 ---
 
 ### `github_installations`
@@ -139,6 +143,10 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 | `installation_token_expires_at` | TIMESTAMPTZ | | 캐시된 token 만료 시각 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | App 설치 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | token 갱신 시각 |
+
+**인덱스**
+- UNIQUE `(installation_id)`
+- `(installer_user_id)`
 
 ---
 
@@ -174,7 +182,7 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 | `provider` | TEXT | NOT NULL, CHECK IN (`github`, `slack`, `jira`) | 외부 시스템 종류 |
 | `external_ref` | JSONB | NOT NULL | provider별 식별자 묶음 |
 | `installation_id` | UUID | FK → `github_installations.id` CASCADE, nullable | GitHub 연동 시 installation 참조 |
-| `encrypted_credential` | BYTEA | nullable | Slack·Jira PAT·API key 암호화 보관 (AES-GCM) |
+| `encrypted_credential` | BYTEA | nullable | provider별 자격증명 암호화 보관 (AES-GCM). 평문 포맷은 아래 참고 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 연동 등록 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 메타데이터 변경 시각 |
 
@@ -183,9 +191,27 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 - `provider IN ('slack', 'jira')` → `installation_id NULL`, `encrypted_credential NOT NULL`
 
 **`external_ref` JSON 키**
-- GitHub: `repository_id`, `repository_full_name`
+- GitHub: `repository_id`, `repository_full_name`, `branch`(선택 — 지정하면 해당 브랜치로 수집을 스코프한다)
 - Slack: `workspace_id`, `workspace_name`
-- Jira: `project_key`, `project_name`, `base_url`
+- Jira: `cloud_id`, `site_name`, `project_key`, `project_name`(선택)
+  - 최초 동의 직후에는 사이트·프로젝트를 아직 모르므로 `status`(`pending_project`) 하나만 담긴다
+  - 토큰 갱신이 영구 실패해 pending으로 되돌아온 경우는 기존 키를 유지한 채 `status`만 덧붙는다
+    (재동의 시 자동 복원에 쓰인다 — 두 pending 상태는 `cloud_id` 유무로 구분한다)
+
+**`encrypted_credential` 평문 포맷**
+
+AES-256-GCM으로 암호화한다(`security.credentials.key`, base64 디코딩 후 32바이트).
+저장 바이트는 `IV(12) + 암호문 + GCM tag(16)`를 이어 붙인 단일 배열이다.
+
+| provider | 평문 |
+|----------|------|
+| `github` | NULL — installation token은 `github_installations.encrypted_installation_token`에 따로 캐싱한다 |
+| `slack` | user access token 문자열 그대로 (`xoxp-...`) — 동의 URL이 `user_scope`를 쓰므로 응답의 `authed_user.access_token`을 저장한다 |
+| `jira` | OAuth 토큰 JSON — `{"access_token": ..., "refresh_token": ..., "expires_at": ...}` |
+
+Jira는 Atlassian refresh token이 회전하므로 갱신할 때마다 세 값이 통째로 교체된다.
+GitHub과 달리 **만료 시각이 암호문 안에 있어** 만료 여부를 판정할 때도 복호화가 필요하다
+(pipeline-worker는 이 판정을 할 수 없어 backend 내부 API에 토큰 확보를 위임한다).
 
 **인덱스**
 - UNIQUE `(project_id, provider)`

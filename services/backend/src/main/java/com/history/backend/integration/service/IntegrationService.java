@@ -25,10 +25,12 @@ import com.history.backend.shared.domain.Checkpoint;
 import com.history.backend.shared.repository.CheckpointRepository;
 import com.history.backend.slack.service.SlackClient;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class IntegrationService {
@@ -43,6 +45,7 @@ public class IntegrationService {
     private final JiraOAuthClient jiraOAuthClient;
     private final JiraClient jiraClient;
     private final JiraCredentialCodec jiraCredentialCodec;
+    private final JiraTokenService jiraTokenService;
     private final PipelineWorkerClient pipelineWorkerClient;
     private final TransactionTemplate transactionTemplate;
 
@@ -159,24 +162,60 @@ public class IntegrationService {
         byte[] encryptedCredential = jiraCredentialCodec.encrypt(credential);
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        return transactionTemplate.execute(status -> saveJiraPending(ownerId, projectId, encryptedCredential));
+        Integration integration = transactionTemplate.execute(status -> saveJiraPending(ownerId, projectId, encryptedCredential));
+
+        // 갱신 실패로 pending 복귀한 행(cloud_id·project_key 보존)이면 재동의 직후 자동 복원을 시도한다.
+        // 최초 연결의 pending 행에는 cloud_id가 없으므로 이 분기를 자연히 타지 않는다.
+        if (integration.hasRestorableJiraProject()) {
+            return tryRestoreJiraProject(ownerId, projectId, integration, tokens.accessToken());
+        }
+        return integration;
     }
 
-    // 저장된 pending 자격증명을 복호화해 접근 가능한 Atlassian 사이트 목록 조회
+    // 재동의로 얻은 새 토큰이 기존 cloudId에 여전히 접근 가능한지 확인해 자동 복원한다.
+    // 접근 불가(다른 Atlassian 계정으로 동의한 경우)면 pending을 유지해 사용자가 다시 고르게 한다.
+    private Integration tryRestoreJiraProject(UUID ownerId, UUID projectId, Integration integration, String accessToken) {
+        String cloudId = integration.getJiraCloudId();
+        List<JiraOAuthClient.JiraSite> accessibleSites;
+        try {
+            accessibleSites = jiraOAuthClient.listAccessibleResources(accessToken);
+        } catch (RuntimeException exception) {
+            // 이 시점엔 토큰 저장 트랜잭션이 이미 커밋된 뒤라 동의 자체는 성공했다. 조회 실패(네트워크
+            // 오류 등)를 "연결 실패"로 알리면 실제 상태(새 토큰이 저장된 pending 행)와 어긋나므로,
+            // 자동 복원만 포기하고 pending을 그대로 반환한다 — 사용자는 화면에서 바로 사이트를 고를 수 있다.
+            log.warn("Jira 접근 가능 사이트 조회 실패로 자동 복원을 건너뜁니다. projectId={}", projectId, exception);
+            return integration;
+        }
+        boolean stillAccessible = accessibleSites.stream()
+                .anyMatch(site -> site.cloudId().equals(cloudId));
+        if (!stillAccessible) {
+            return integration;
+        }
+        return completeJiraProject(
+                ownerId,
+                projectId,
+                cloudId,
+                integration.getJiraSiteName(),
+                integration.getJiraProjectKey(),
+                integration.getJiraProjectName()
+        );
+    }
+
+    // 저장된 연동의 access token(JiraTokenService가 필요 시 갱신)으로 접근 가능한 Atlassian 사이트 목록 조회
     public List<JiraOAuthClient.JiraSite> listJiraSites(UUID ownerId, UUID projectId) {
         projectService.getProject(ownerId, projectId);
-        JiraCredential credential = jiraCredentialCodec.decrypt(getJiraIntegration(projectId).getEncryptedCredential());
-        return jiraOAuthClient.listAccessibleResources(credential.accessToken());
+        String accessToken = jiraTokenService.getAccessToken(projectId);
+        return jiraOAuthClient.listAccessibleResources(accessToken);
     }
 
     // 선택한 사이트(cloudId)에서 고를 수 있는 프로젝트 목록 조회
     public List<JiraClient.JiraProject> listJiraProjects(UUID ownerId, UUID projectId, String cloudId) {
         projectService.getProject(ownerId, projectId);
-        JiraCredential credential = jiraCredentialCodec.decrypt(getJiraIntegration(projectId).getEncryptedCredential());
-        return jiraClient.listProjects(cloudId, credential.accessToken());
+        String accessToken = jiraTokenService.getAccessToken(projectId);
+        return jiraClient.listProjects(cloudId, accessToken);
     }
 
-    // 사이트·프로젝트 선택 확정. pending 행에만 허용하고, 커밋 뒤 초기 수집을 트리거한다.
+    // 사이트·프로젝트 선택 확정. pending 행에만 허용하고, 토큰 확보 뒤 초기 수집을 트리거한다.
     public Integration completeJiraProject(
             UUID ownerId,
             UUID projectId,
@@ -194,6 +233,9 @@ public class IntegrationService {
             jiraIntegration.completeJiraProject(cloudId, siteName, projectKey, projectName);
             return integrationRepository.saveAndFlush(jiraIntegration);
         });
+        // GitHub이 connectGitHubRepository에서 트리거 직전에 토큰을 갱신하는 것과 같은 자리 —
+        // 방금 발급된 토큰이라 대개 그대로 재사용되지만, 사용자가 선택 화면에 오래 머문 경우를 대비한다.
+        jiraTokenService.ensureAccessToken(projectId);
         pipelineWorkerClient.triggerCollection(IntegrationProvider.JIRA, projectId);
         return integration;
     }
