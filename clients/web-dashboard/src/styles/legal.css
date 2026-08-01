@@ -157,6 +157,72 @@
   line-height: 1.75;
 }
 
+/* ── 서비스별 연동 블록 ───────────────────────────────────────
+   외부 앱 심사(GitHub·Slack·Atlassian)가 각자 앵커 URL로 지목하는 지점이다. 헤어라인 상자로
+   묶어 "이 서비스에 해당하는 내용은 여기까지"라는 경계를 만든다 — 심사자가 착지한 위치에서
+   자기 항목만 읽고 끝낼 수 있어야 한다.
+   --------------------------------------------------------- */
+/* 앵커 착지점이 스티키 헤더(64px) 아래로 숨지 않게 한다. */
+.lp-legal-section[id],
+.lp-legal-source {
+  scroll-margin-top: 88px;
+}
+
+.lp-legal-source {
+  margin-top: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-r-md);
+  background: var(--lp-surface-1);
+}
+
+.lp-legal-source-name {
+  margin: 0 0 14px;
+  font-family: var(--lp-font-display);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--lp-text-primary);
+}
+
+/* 라벨 열은 고정 폭 — 세 블록의 라벨이 같은 세로선에 서야 훑어 읽힌다. */
+.lp-legal-source-row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--lp-border);
+}
+.lp-legal-source-row:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+.lp-legal-source-row + .lp-legal-source-row {
+  margin-top: 12px;
+}
+
+.lp-legal-source-label {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--lp-text-muted);
+}
+
+.lp-legal-source-value {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--lp-text-secondary);
+  word-break: keep-all;
+}
+.lp-legal-source-value ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.lp-legal-source-value li {
+  margin-bottom: 8px;
+}
+.lp-legal-source-value li:last-child {
+  margin-bottom: 0;
+}
+
 /* ── 표 ────────────────────────────────────────────────────── */
 /* 수집 항목·권한·위탁처는 산문보다 표가 정확하다. 좁은 화면에서 페이지 전체가 가로로
    밀리지 않도록 표만 자기 안에서 스크롤한다. */
@@ -233,5 +299,13 @@
      그것 때문에 표 최소 폭이 커져 스크롤이 길어진다. */
   .lp-legal-table tbody td:first-child {
     white-space: normal;
+  }
+  /* 88px 라벨 열을 남기면 값 열이 한 어절씩 끊긴다 — 라벨을 값 위로 올린다. */
+  .lp-legal-source {
+    padding: 16px;
+  }
+  .lp-legal-source-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }
