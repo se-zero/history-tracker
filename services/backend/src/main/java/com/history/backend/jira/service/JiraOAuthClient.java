@@ -55,6 +55,9 @@ public class JiraOAuthClient {
                     .retrieve()
                     .body(JiraTokenResponse.class);
         } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is5xxServerError()) {
+                throw new BadGatewayException("Jira OAuth code exchange request failed.", exception);
+            }
             throw new UnauthorizedException("Invalid Jira authorization code.");
         } catch (RestClientException exception) {
             throw new BadGatewayException("Jira OAuth code exchange request failed.", exception);
@@ -83,8 +86,11 @@ public class JiraOAuthClient {
                     .retrieve()
                     .body(JiraTokenResponse.class);
         } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is5xxServerError()) {
+                throw new BadGatewayException("Jira OAuth token refresh request failed.", exception);
+            }
             // refresh token이 폐기됨(재동의 취소·90일 미사용) — 호출부(JiraTokenService)가 이 예외를 보고
-            // pending 되돌리기를 판단한다.
+            // pending 되돌리기를 판단한다. 5xx는 Atlassian 측 일시 장애일 뿐 폐기가 아니므로 위에서 분기한다.
             throw new UnauthorizedException("Jira refresh token is invalid or revoked.");
         } catch (RestClientException exception) {
             throw new BadGatewayException("Jira OAuth token refresh request failed.", exception);
@@ -122,6 +128,9 @@ public class JiraOAuthClient {
                     .retrieve()
                     .body(JiraAccessibleResource[].class);
         } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is5xxServerError()) {
+                throw new BadGatewayException("Jira accessible resources request failed.", exception);
+            }
             throw new UnauthorizedException("Invalid Jira access token.");
         } catch (RestClientException exception) {
             throw new BadGatewayException("Jira accessible resources request failed.", exception);

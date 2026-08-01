@@ -8,6 +8,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.time.Duration;
@@ -67,6 +68,18 @@ class JiraOAuthClientTest {
 
         assertThatThrownBy(() -> fixture.client.exchangeCode("bad-code"))
                 .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("HTTP 5xx 응답 → BadGatewayException 발생")
+    void exchangeCodeRejectsHttpServerErrorResponse() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.exchangeCode("auth-code"))
+                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 
@@ -173,6 +186,18 @@ class JiraOAuthClientTest {
     }
 
     @Test
+    @DisplayName("사이트 목록 조회 HTTP 5xx 응답 → BadGatewayException 발생")
+    void listAccessibleResourcesRejectsHttpServerErrorResponse() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token/accessible-resources"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.listAccessibleResources("atl-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("refresh token 교환 성공 → JSON body로 요청, 회전된 새 토큰 3종 반환")
     void refreshReturnsRotatedTokensWithJsonBody() {
         JiraOAuthClientFixture fixture = fixture();
@@ -213,6 +238,20 @@ class JiraOAuthClientTest {
 
         assertThatThrownBy(() -> fixture.client.refresh("revoked-refresh-token"))
                 .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh token 갱신 중 HTTP 5xx 응답 → BadGatewayException 발생")
+    void refreshRejectsHttpServerErrorResponse() {
+        // Atlassian 일시 장애(5xx)를 토큰 폐기로 오판하면 JiraTokenService가 연동을 pending으로
+        // 강등해 버린다 — 4xx(폐기)와 구분해야 한다.
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.refresh("old-refresh-token"))
+                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 

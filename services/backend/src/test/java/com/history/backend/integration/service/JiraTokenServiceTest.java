@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.integration.domain.Integration;
@@ -166,6 +167,27 @@ class JiraTokenServiceTest {
         // 사이트·프로젝트 정보는 남아 있어야 재동의 시 자동 복원이 가능하다
         assertThat(integration.getJiraCloudId()).isEqualTo("cloud-1");
         assertThat(integration.getJiraProjectKey()).isEqualTo("PROJ");
+    }
+
+    @Test
+    @DisplayName("refresh 중 Atlassian 5xx(BadGatewayException)는 그대로 전파하고 pending으로 되돌리지 않는다")
+    void propagatesBadGatewayWithoutRevertingToPendingWhenAtlassianHasServerError() {
+        JiraTokenService service = service(new TestTransactionManager());
+        Integration integration = jiraIntegration(new byte[] {1, 2, 3});
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(integration));
+        when(jiraCredentialCodec.decrypt(integration.getEncryptedCredential()))
+                .thenReturn(new JiraCredential("stale-access-token", "old-refresh-token", NOW.plusSeconds(200)));
+        when(integrationRepository.findByProjectAndProviderForUpdate(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(integration));
+        when(jiraOAuthClient.refresh("old-refresh-token"))
+                .thenThrow(new BadGatewayException("Jira OAuth token refresh request failed."));
+
+        assertThatThrownBy(() -> service.getAccessToken(PROJECT_ID))
+                .isInstanceOf(BadGatewayException.class);
+
+        assertThat(integration.isJiraPendingProject()).isFalse();
+        verify(integrationRepository, never()).findById(integration.getId());
     }
 
     @Test
