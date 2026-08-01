@@ -50,6 +50,10 @@ cd services/backend
 ## 외부 연동 (OAuth)
 
 - GitHub은 App installation, Slack·Jira는 OAuth 동의 흐름으로만 붙인다. **토큰을 사용자가 직접 입력하는 경로는 없다.**
+- `POST /api/v1/projects`에 `github` 블록이 있으면 프로젝트 생성과 GitHub 연동을 **한 트랜잭션**으로 처리한다
+  (`IntegrationService.createProjectWithGitHubRepository`). 온보딩에서 프로젝트만 만들어지고 사용자가 이탈해
+  GitHub 없는 빈 프로젝트가 남는 것을 막기 위함이다. 설치 토큰 발급(외부 호출)은 트랜잭션 시작 전에 끝내고,
+  수집 트리거는 커밋 뒤에 한다.
 - 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,
   authorize URL 조립 시 소유권을 확인하고 state를 발급한다.
 - 콜백은 예외를 던지지 않고 항상 프론트로 302 리다이렉트하며, 실패는 `?error=` 코드로 전달한다.

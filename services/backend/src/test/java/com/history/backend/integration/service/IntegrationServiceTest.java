@@ -210,6 +210,109 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("프로젝트 생성 + GitHub 연동을 한 트랜잭션에서 저장하고 커밋 뒤 수집 트리거")
+    void createProjectWithGitHubRepositoryCommitsProjectAndIntegrationTogether() {
+        IntegrationService service = service();
+        Project project = project();
+        GitHubInstallation installation = installation();
+        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation);
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return "installation-token";
+        }).when(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
+        when(projectService.createProject(OWNER_ID, "History Tracker", "GraphRAG backend"))
+                .thenAnswer(invocation -> {
+                    // 프로젝트 생성이 연동 저장과 같은 트랜잭션 안이어야 함께 롤백된다
+                    assertThat(transactionManager.transactionActive).isTrue();
+                    return project;
+                });
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> {
+                    assertThat(transactionManager.transactionActive).isTrue();
+                    return invocation.getArgument(0);
+                });
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID);
+
+        Project result = service.createProjectWithGitHubRepository(
+                OWNER_ID,
+                "History Tracker",
+                "GraphRAG backend",
+                INSTALLATION_ID,
+                12345L,
+                "  acme/widget  ",
+                "  main  "
+        );
+
+        assertThat(result).isSameAs(project);
+        assertThat(transactionManager.beginCount).isEqualTo(1);
+        assertThat(transactionManager.rollbackCount).isZero();
+        ArgumentCaptor<Integration> captor = ArgumentCaptor.forClass(Integration.class);
+        verify(integrationRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getProject()).isSameAs(project);
+        assertThat(captor.getValue().getGitHubRepositoryFullName()).isEqualTo("acme/widget");
+        assertThat(captor.getValue().getGitHubBranch()).isEqualTo("main");
+        verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("연동 저장이 실패하면 프로젝트 생성까지 롤백되고 수집 트리거도 하지 않음")
+    void createProjectWithGitHubRepositoryRollsBackProjectWhenIntegrationSaveFails() {
+        IntegrationService service = service();
+        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
+                .thenReturn("installation-token");
+        when(projectService.createProject(OWNER_ID, "History Tracker", null)).thenReturn(project());
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate"));
+
+        assertThatThrownBy(() -> service.createProjectWithGitHubRepository(
+                OWNER_ID,
+                "History Tracker",
+                null,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(ConflictException.class);
+
+        assertThat(transactionManager.rollbackCount).isEqualTo(1);
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+    }
+
+    @Test
+    @DisplayName("설치 토큰 발급 실패 시 프로젝트를 만들지 않음 — 트랜잭션 시작 전")
+    void createProjectWithGitHubRepositoryDoesNotCreateProjectWhenInstallationTokenCannotBeIssued() {
+        IntegrationService service = service();
+        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
+                .thenThrow(new IllegalStateException("GitHub token issuance failed."));
+
+        assertThatThrownBy(() -> service.createProjectWithGitHubRepository(
+                OWNER_ID,
+                "History Tracker",
+                null,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("GitHub token issuance failed.");
+
+        assertThat(transactionManager.beginCount).isZero();
+        verify(projectService, never()).createProject(any(), anyString(), any());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+    }
+
+    @Test
     @DisplayName("중복 GitHub 연동 거부")
     void connectGitHubRepositoryRejectsDuplicateGitHubProvider() {
         IntegrationService service = service();

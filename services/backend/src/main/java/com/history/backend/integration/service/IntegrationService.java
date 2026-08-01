@@ -101,6 +101,40 @@ public class IntegrationService {
         return integration;
     }
 
+    // 프로젝트 생성과 GitHub 연동을 한 트랜잭션으로 처리 (온보딩 전용 경로)
+    public Project createProjectWithGitHubRepository(
+            UUID ownerId,
+            String name,
+            String description,
+            UUID installationId,
+            Long repositoryId,
+            String repositoryFullName,
+            String branch
+    ) {
+        // 설치 조회가 active user 검증을 겸한다. 외부 호출(토큰 발급)은 트랜잭션 시작 전에 끝내
+        // 발급이 실패하면 프로젝트가 아예 만들어지지 않게 하고, 발급 지연 동안 DB 커넥션도 잡지 않는다.
+        GitHubInstallation installation = gitHubInstallationService.getInstallationForInstaller(ownerId, installationId);
+        installationTokenService.getInstallationAccessToken(installationId);
+
+        String normalizedRepositoryFullName = repositoryFullName.trim();
+        String normalizedBranch = branch.trim();
+        // 프로젝트 생성과 연동 저장을 한 트랜잭션에 묶는다 — 연동 저장이 실패하면 프로젝트도 함께
+        // 롤백돼 GitHub 없는 빈 프로젝트가 남지 않는다. 갓 만든 프로젝트라 중복 연동 검사는 생략한다.
+        Project project = transactionTemplate.execute(status -> {
+            Project created = projectService.createProject(ownerId, name, description);
+            saveGitHubIntegration(
+                    created,
+                    installation,
+                    repositoryId,
+                    normalizedRepositoryFullName,
+                    normalizedBranch
+            );
+            return created;
+        });
+        pipelineWorkerClient.triggerCollection(IntegrationProvider.GITHUB, project.getId());
+        return project;
+    }
+
     private Integration saveGitHubRepository(
             Project project,
             GitHubInstallation installation,
@@ -110,6 +144,16 @@ public class IntegrationService {
             String branch
     ) {
         validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
+        return saveGitHubIntegration(project, installation, repositoryId, repositoryFullName, branch);
+    }
+
+    private Integration saveGitHubIntegration(
+            Project project,
+            GitHubInstallation installation,
+            Long repositoryId,
+            String repositoryFullName,
+            String branch
+    ) {
         try {
             return integrationRepository.saveAndFlush(Integration.github(
                     project,
