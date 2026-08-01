@@ -10,6 +10,6 @@
   color: var(--fg-muted);
 }
 .badge.success { color: var(--success); border-color: color-mix(in oklab, var(--success) 30%, var(--border)); background: color-mix(in oklab, var(--success) 8%, transparent); }
-.badge.warning { color: var(--warning); border-color: color-mix(in oklab, var(--warning) 30%, var(--border)); background: color-mix(in oklab, var(--warning) 8%, transparent); }
+.badge.accent  { color: var(--accent-ink); border-color: color-mix(in oklab, var(--accent-ink) 30%, var(--border)); background: color-mix(in oklab, var(--accent-ink) 8%, transparent); }
 .badge.danger  { color: var(--danger);  border-color: color-mix(in oklab, var(--danger) 30%, var(--border));  background: color-mix(in oklab, var(--danger) 8%, transparent); }
 .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }

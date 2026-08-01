@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { HeroMedia } from "@/components/landing/HeroMedia";
 import { HeroProductSlot } from "@/components/landing/HeroProductSlot";
 import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
+import { useAuth } from "@/auth/AuthProvider";
+import { PATHS } from "@/routes";
 
 // 히어로 — 상하 구조(2026-07-25 4차 재설계): 위 텍스트 블록(좌측 정렬) → 아래 제품 UI
 // 슬롯(영상 슬롯, 컨테이너 전폭). 슬롯은 히어로가 클리핑하지 않아 하단이 첫 화면(폴드)
@@ -12,7 +14,10 @@ import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
 // 로드 시퀀스(텍스트 rise → 슬롯 프레임 rise → 패널 점등 → 배경 성좌 페이드)는 landing.css의
 // animation-delay가 담당한다. HeroMedia는 .lp-hero-inner 밖의 직계 자식이어야 한다 —
 // absolute(상단 텍스트 구간 한정 스트립)의 기준 박스가 .lp-hero여야 하기 때문이다.
+// 주 CTA는 헤더·푸터와 같은 인증 상태 분기를 쓴다 — 로그인 상태면 OAuth 대신 제품으로 바로 이동.
 export function LandingHero() {
+  const { status } = useAuth();
+
   return (
     <section className="lp-hero">
       <HeroMedia />
@@ -31,16 +36,24 @@ export function LandingHero() {
             흩어진 커밋·PR·이슈·대화를 하나의 그래프로 묶어, 물으면 근거와 함께 답합니다.
           </p>
           <div className="lp-cta-row">
-            <a className="lp-btn lp-btn--primary" href={GITHUB_AUTHORIZE_URL}>
-              GitHub으로 시작
-            </a>
+            {status === "authenticated" ? (
+              <Link className="lp-btn lp-btn--primary" to={PATHS.root}>
+                History Tracker 열기
+              </Link>
+            ) : (
+              <a className="lp-btn lp-btn--primary" href={GITHUB_AUTHORIZE_URL}>
+                GitHub으로 시작
+              </a>
+            )}
             <Link className="lp-btn lp-btn--secondary" to="/demo/graph">
               그래프 만져보기
             </Link>
           </div>
-          <p className="lp-cta-meta">
-            GitHub 계정으로 로그인한 뒤, 연결할 저장소를 직접 고릅니다.
-          </p>
+          {status !== "authenticated" && (
+            <p className="lp-cta-meta">
+              GitHub 계정으로 로그인한 뒤, 연결할 저장소를 직접 고릅니다.
+            </p>
+          )}
         </div>
 
         <HeroProductSlot />

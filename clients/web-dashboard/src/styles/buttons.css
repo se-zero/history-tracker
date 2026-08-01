@@ -12,11 +12,12 @@
 }
 .btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .btn-primary {
-  background: var(--primary);
-  color: var(--primary-fg);
-  border-color: var(--primary);
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
 }
-.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-primary:active { background: var(--accent-pressed); border-color: var(--accent-pressed); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--fg-muted); }
 .btn-ghost:hover { background: var(--surface-2); color: var(--fg); }
 .btn-danger { color: var(--danger); border-color: var(--border); }

@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
+import { useAuth } from "@/auth/AuthProvider";
+import { PATHS } from "@/routes";
 import type { LandingTheme } from "@/pages/LandingPage";
 
-// 랜딩 헤더 — 로고/워드마크와 우측 액션(테마 토글 + 로그인 링크). 섹션 내비는 대상 섹션이
-// 생긴 뒤에 붙인다. 스크롤 시 하단 헤어라인 + backdrop-blur를 붙이기 위해 스크롤 위치를
-// 추적한다. 테마 상태는 LandingPage가 소유한다(래퍼 data-theme) — 여기는 표시·토글만.
+// 랜딩 헤더 — 로고/워드마크와 우측 액션(테마 토글 + 로그인 링크). 로그인 링크는 인증 상태로
+// 분기한다(노션 방식) — 비로그인이면 히어로 CTA와 동일한 GitHub OAuth 직행, 로그인 상태면
+// 제품으로 바로 이동. 섹션 내비는 대상 섹션이 생긴 뒤에 붙인다. 스크롤 시 하단 헤어라인 +
+// backdrop-blur를 붙이기 위해 스크롤 위치를 추적한다. 테마 상태는 LandingPage가 소유한다
+// (래퍼 data-theme) — 여기는 표시·토글만.
 export function LandingHeader({
   theme,
   onToggleTheme,
@@ -14,6 +19,7 @@ export function LandingHeader({
   onToggleTheme: () => void;
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
+  const { status } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 8);
@@ -40,9 +46,15 @@ export function LandingHeader({
           >
             {theme === "dark" ? <SunGlyph /> : <MoonGlyph />}
           </button>
-          <Link className="lp-login-link" to="/login">
-            로그인
-          </Link>
+          {status === "authenticated" ? (
+            <Link className="lp-login-link" to={PATHS.root}>
+              History Tracker 열기
+            </Link>
+          ) : (
+            <a className="lp-login-link" href={GITHUB_AUTHORIZE_URL}>
+              로그인
+            </a>
+          )}
         </div>
       </div>
     </header>

@@ -2,9 +2,7 @@ import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { Icons } from "@/components/Icons";
-import { userInitials } from "@/lib/format";
-import type { Message, User } from "@/types/api";
+import type { Message } from "@/types/api";
 import { extractStructured } from "./messageStructured";
 
 // 그래프 패널이 열렸을 때 모든 답변 카드에 주어진다.
@@ -25,31 +23,21 @@ export interface CitationLink {
 
 export function MessageItem({
   message,
-  user,
   citation,
 }: {
   message: Message;
-  user: User | null;
   citation?: CitationLink;
 }) {
   if (message.role === "USER") {
-    return <UserMessage content={message.content} user={user} />;
+    return <UserMessage content={message.content} />;
   }
   return <AssistantMessage message={message} citation={citation} />;
 }
 
-export function UserMessage({
-  content,
-  user,
-}: {
-  content: string;
-  user: User | null;
-}) {
+export function UserMessage({ content }: { content: string }) {
   return (
     <div className="msg user">
-      <div className="msg-avatar">{userInitials(user)}</div>
       <div className="msg-body">
-        <div className="msg-role">{user?.displayName ?? "나"}</div>
         <div className="msg-content">
           <p style={{ whiteSpace: "pre-wrap" }}>{content}</p>
         </div>
@@ -77,11 +65,7 @@ function AssistantMessage({
 
   return (
     <div className="msg assistant" data-role="ASSISTANT" data-message-id={message.id}>
-      <div className="msg-avatar">
-        <Icons.Sparkle size={14} />
-      </div>
       <div className="msg-body">
-        <div className="msg-role">History Tracker</div>
         {/* 답변별 신뢰도 신호 — composer의 상시 고지와 달리 이 답이 약할 때만 뜬다.
             판정은 ai-engine이 실제 호출된 도구로 한다(LLM 자기신고 아님). */}
         {structured?.answerMode === "exploratory" && (
@@ -138,9 +122,7 @@ function AssistantMessage({
                   <div className="cite-meta">
                     <span>{e.type}</span>
                     <span>·</span>
-                    <span className="mono" style={{ fontSize: 10.5 }}>
-                      {e.id}
-                    </span>
+                    <span className="mono cite-id">{e.id}</span>
                     {e.author && (
                       <>
                         <span>·</span>
