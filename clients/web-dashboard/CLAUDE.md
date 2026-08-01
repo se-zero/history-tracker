@@ -40,7 +40,7 @@ src/
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
     sources/        GitHubCard · JiraCard · SlackCard · IngestStatus · ActorManagementCard
-                    OAuthResultBanner — 동의 후 돌아온 리다이렉트의 성공/실패 안내
+                    useOAuthCallbackError — 동의 후 돌아온 리다이렉트의 실패 안내(URL 쿼리 캡처)
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
     graph/          ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널) · NodeDetail

@@ -1,67 +1,47 @@
+import { SlackMark } from "@/components/brand/BrandMarks";
 import { InlineError } from "@/components/ui/InlineError";
 import { useIntegrations } from "@/hooks/useIntegrations";
-import { useSlackAuthorize } from "@/hooks/useIntegrationOAuth";
+import { formatTimestamp } from "@/lib/format";
 
-export function SlackCard({ projectId }: { projectId: string }) {
+// Slack은 pending 단계가 없어(동의 즉시 확정) integration이 있으면 곧 연결 완료 상태다 —
+// 미연결은 이 컴포넌트가 아니라 "추가 가능" 타일(SourceTileGrid)이 맡는다.
+export function SlackCard({
+  projectId,
+  oauthError,
+}: {
+  projectId: string;
+  oauthError?: string;
+}) {
   const integrationsQuery = useIntegrations(projectId);
   const integration = integrationsQuery.data?.find((i) => i.provider === "slack");
-  const connected = Boolean(integration);
   const connectedName = integration?.displayName ?? "워크스페이스";
-
-  const authorizeMutation = useSlackAuthorize(projectId);
+  const lastSyncedAt = integration?.lastSyncedAt
+    ? formatTimestamp(integration.lastSyncedAt)
+    : null;
 
   return (
-    <div className="source-card">
-      <div className="src-head">
-        <div className="src-logo slack">S</div>
-        <div style={{ flex: 1 }}>
-          <h4>Slack</h4>
-          <div className="src-sub">
-            {connected ? connectedName : "선택 사항 · 토론 맥락을 추가"}
-          </div>
+    <div className="source-row">
+      <div className="source-row-top">
+        <div className="source-logo-chip">
+          <SlackMark size={20} />
         </div>
-        <span className={"badge " + (connected ? "success" : "")}>
-          <span className="dot" />
-          {integrationsQuery.isLoading
-            ? "확인 중"
-            : connected
-              ? "연결됨"
-              : "미연결"}
-        </span>
-      </div>
-
-      {!connected && (
-        <div
-          style={{
-            padding: "20px 0",
-            textAlign: "center",
-            color: "var(--fg-muted)",
-            fontSize: 13,
-          }}
-        >
-          Slack을 연결하면 채널 토론도 그래프에 들어갑니다.
+        <div className="source-row-main">
+          <div className="source-row-name">Slack</div>
+          <div className="source-row-sub">{connectedName}</div>
         </div>
-      )}
-
-      {authorizeMutation.isError && (
-        <InlineError>연결에 실패했어요. 잠시 후 다시 시도해 주세요.</InlineError>
-      )}
-
-      <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
-        {/* 재연결은 제공하지 않는다 — 연결됨이면 버튼을 비활성화한다 */}
-        <button
-          className={"btn " + (connected ? "" : "btn-primary")}
-          style={{ flex: 1 }}
-          onClick={() => authorizeMutation.mutate()}
-          disabled={connected || integrationsQuery.isLoading || authorizeMutation.isPending}
-        >
-          {authorizeMutation.isPending
-            ? "이동 중…"
-            : connected
-              ? "연결됨"
-              : "Slack 연결"}
-        </button>
+        <div className="source-row-status">
+          <span className="src-pill connected">
+            <span className="dot" />
+            연결됨
+          </span>
+          {lastSyncedAt && (
+            <div className="source-row-synced">
+              마지막 수집 <span className="mono">{lastSyncedAt}</span>
+            </div>
+          )}
+        </div>
       </div>
+      {oauthError && <InlineError style={{ marginTop: 10 }}>{oauthError}</InlineError>}
     </div>
   );
 }
