@@ -24,20 +24,24 @@ function errorMessage(errorCode: string, provider: string | null): string {
   return ERROR_MESSAGES[errorCode] ?? "연결 중 문제가 발생했어요.";
 }
 
-// OAuth 콜백이 붙여주는 ?connected=/?error=/?provider= 쿼리를 배너로 보여준 뒤 URL에서 지운다.
-// 콜백은 전체 페이지 이동(302)이라 React Query 캐시가 비어 새로고침처럼 다시 fetch되므로
-// 별도 invalidate 없이도 연결 상태가 최신으로 반영된다.
-export function OAuthResultBanner() {
+export interface OAuthCallbackError {
+  provider: string | null;
+  message: string;
+}
+
+// OAuth 콜백이 붙여주는 ?connected=/?error=/?provider=/?restored= 쿼리를 처리한다.
+// 성공(connected)은 행/타일 상태가 이미 보여주므로 중복 안내하지 않고 URL만 정리하며, 실패
+// (error)만 값으로 반환해 호출자(SourcesPage)가 해당 소스 카드/타일 자리에서 보여주게 한다.
+// 서버 상태가 아니라 URL 쿼리 상태라 hooks/(React Query 레이어) 대신 sources에 colocate한다.
+export function useOAuthCallbackError(): OAuthCallbackError | null {
   const [searchParams, setSearchParams] = useSearchParams();
   // 마운트 시점 값을 한 번만 캡처한다 — effect가 쿼리를 지우면서 유발하는 리렌더에서
-  // searchParams를 다시 읽으면 모두 null이 되어 배너가 뜨자마자 사라진다.
+  // searchParams를 다시 읽으면 모두 null이 되어 에러가 뜨자마자 사라진다.
   const [result] = useState(() => ({
     connected: searchParams.get("connected"),
     error: searchParams.get("error"),
     provider: searchParams.get("provider"),
-    restored: searchParams.get("restored") === "true",
   }));
-  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     if (!result.connected && !result.error) return;
@@ -55,25 +59,7 @@ export function OAuthResultBanner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (dismissed || (!result.connected && !result.error)) return null;
+  if (!result.error) return null;
 
-  const tone = result.error ? "error" : "success";
-  // Jira는 동의 직후 아직 미확정(사이트·프로젝트 선택 전)이므로 "완료"가 아니라 다음 단계를 안내한다.
-  // 단, 갱신 실패로 끊겼던 연동이 재동의로 자동 복원된 경우(restored=true)는 선택 단계 없이 곧바로 완료다.
-  const message = result.error
-    ? errorMessage(result.error, result.provider)
-    : result.connected === "jira" && !result.restored
-      ? "Jira 연동을 계속하려면 사이트와 프로젝트를 선택하세요."
-      : result.connected === "jira"
-        ? "Jira 연동이 복원됐어요."
-        : `${providerLabel(result.connected)} 연동이 완료됐어요.`;
-
-  return (
-    <div className={`oauth-result-banner ${tone}`} role="status">
-      <span>{message}</span>
-      <button onClick={() => setDismissed(true)} aria-label="닫기">
-        ×
-      </button>
-    </div>
-  );
+  return { provider: result.provider, message: errorMessage(result.error, result.provider) };
 }

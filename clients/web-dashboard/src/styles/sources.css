@@ -5,66 +5,106 @@
 .page-title { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.02em; }
 .page-sub { color: var(--fg-muted); margin: 0 0 28px; font-size: 14px; }
 
-.oauth-result-banner {
+/* 섹션 라벨(eyebrow) — 한글 콘텐츠라 트래킹은 0으로 고정한다(DESIGN.md eyebrow-ko). */
+.sources-section-label {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  margin-bottom: 20px;
-  font-size: 13px;
-  border-radius: var(--r-md);
+  gap: 10px;
+  margin: 28px 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--fg-subtle);
 }
-.oauth-result-banner.success {
-  color: var(--success);
-  border: 1px solid color-mix(in oklab, var(--success) 30%, var(--border));
-  background: color-mix(in oklab, var(--success) 8%, transparent);
-}
-.oauth-result-banner.error {
-  color: var(--danger);
-  border: 1px solid color-mix(in oklab, var(--danger) 30%, var(--border));
-  background: color-mix(in oklab, var(--danger) 8%, transparent);
-}
-.oauth-result-banner button {
-  background: none;
-  border: none;
-  color: inherit;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
+.sources-section-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
-.source-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-  margin-bottom: 32px;
-}
-.source-card {
+/* 연동 중 — 넓은 행. surface-2(카드층 --surface) + 헤어라인 + 상단 엣지 하이라이트(다크)/shadow-sm(라이트).
+   DESIGN.md "들린 표면" 규칙 — edge-highlight는 라이트에서 transparent, shadow-sm은 다크에서 no-op이라
+   하나의 선언으로 두 테마가 공존한다. */
+.source-rows { display: flex; flex-direction: column; gap: 12px; }
+.source-row {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 18px;
-  display: flex; flex-direction: column; gap: 14px;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 var(--edge-highlight), var(--shadow-sm);
+  padding: 18px 20px;
 }
-.source-card .src-head { display: flex; align-items: center; gap: 12px; }
-.src-logo {
-  width: 36px; height: 36px;
-  border-radius: 10px;
+/* 재연결 등 즉시 처리가 필요한 행 — accent 토큰에서 파생한 저알파 테두리(raw rgba 금지) */
+.source-row.warn { border-color: color-mix(in srgb, var(--accent-ink) 35%, transparent); }
+.source-row-top { display: flex; align-items: flex-start; gap: 14px; }
+.source-row-main { flex: 1; min-width: 0; }
+.source-row-name { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.source-row-sub { color: var(--fg-muted); font-size: 13px; margin-top: 3px; }
+.source-row-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+
+/* 오른쪽 상태 영역 — 위: 상태 pill, 아래: 마지막 수집 시각(있을 때만). 세로 스택 + 우측 정렬. */
+.source-row-status { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
+.source-row-synced { color: var(--fg-subtle); font-size: 12px; text-align: right; }
+
+/* 추가 가능 — 균일 타일. 이름·설명은 한 줄 고정, 로고·버튼 크기 고정으로 내용 길이와 무관하게 동일한 모양을 유지한다. */
+.source-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+.source-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 var(--edge-highlight), var(--shadow-sm);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.15s;
+}
+.source-tile:hover { border-color: var(--border-strong); }
+/* OAuth 콜백 에러가 이 타일의 소스를 가리킬 때 — warn 행 테두리와 같은 기법, hue만 danger */
+.source-tile.oauth-error { border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.source-tile-main { flex: 1; min-width: 0; }
+.source-tile-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.source-tile-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 로고 칩 — 11개 소스 전부 동일 처리(surface-3 + 헤어라인 + 실색 브랜드 마크). 브랜드별 틴트 배경은
+   쓰지 않는다(마크 자체가 브랜드 색을 담는다). 행 40px / 타일 36px(.sm). */
+.source-logo-chip {
+  width: 40px; height: 40px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
   display: grid; place-items: center;
-  color: white;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  font-size: 13px;
   flex-shrink: 0;
 }
-.src-logo.gh { background: var(--fg); color: var(--bg); }
-/* 커넥터 로고는 노드를 가리키지 않으므로 노드 색이 아니라 각 서비스 브랜드 색을 쓴다 (DESIGN.md) */
-.src-logo.jira { background: var(--brand-jira); }
-.src-logo.slack { background: var(--brand-slack-aubergine); }
-.source-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; }
-.source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; font-family: var(--font-mono); }
+.source-logo-chip.sm { width: 36px; height: 36px; }
+
+/* 상태 pill — 연결됨(success)·미연결(muted)·재연결 필요(accent-ink) 세 톤만 쓴다. */
+.src-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.src-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.src-pill.connected { color: var(--success); background: color-mix(in oklab, var(--success) 12%, transparent); }
+.src-pill.disconnected { color: var(--fg-subtle); background: var(--surface-3); }
+.src-pill.warn { color: var(--accent-ink); background: var(--accent-soft); }
+
+@media (max-width: 700px) {
+  .source-row-top { flex-direction: column; align-items: flex-start; }
+  .source-row-status { align-items: flex-start; }
+  .source-row-synced { text-align: left; }
+  .source-tiles { grid-template-columns: 1fr; }
+}
 
 .repo-list {
   border: 1px solid var(--border);
@@ -153,26 +193,18 @@
 .field input:focus { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
 .field .hint { font-size: 11px; color: var(--fg-subtle); }
 
-.ingest-card {
+/* 공용 "설정 카드" — SourcesPage 전용이 아니라 SettingsPage·AccountPage·DangerZone이 공유하는
+   범용 섹션 카드다(이번 데이터 소스 재설계 대상 밖 — 그대로 유지). */
+.source-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   padding: 18px;
+  display: flex; flex-direction: column; gap: 14px;
 }
-.ingest-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.ingest-head h4 { margin: 0; font-size: 14px; font-weight: 600; }
-.ingest-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-}
-.ingest-row:first-of-type { border-top: none; }
-.ingest-source { font-weight: 550; }
-.ingest-count { font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted); text-align: right; }
+.source-card .src-head { display: flex; align-items: center; gap: 12px; }
+.source-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; }
+.source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; font-family: var(--font-mono); }
 
 .actor-card {
   margin-top: 20px;

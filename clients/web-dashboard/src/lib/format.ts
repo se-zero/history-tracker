@@ -21,10 +21,13 @@ export function formatRelative(iso: string): string {
   return new Date(iso).toLocaleDateString("ko-KR");
 }
 
-// 절대 시각을 ko-KR 로캘 문자열로. 파싱 실패 시 원본을 그대로 돌려준다.
-export function formatDateTime(iso: string): string {
+// 절대 시각을 로컬 시간 기준 "YYYY-MM-DD HH:mm"으로. DESIGN.md 모노 스코프상 타임스탬프는
+// 라틴 기술 토큰이라 로캘 문자열이 아닌 고정 포맷을 쓴다. 파싱 실패 시 원본을 그대로 돌려준다.
+export function formatTimestamp(iso: string): string {
   try {
-    return new Date(iso).toLocaleString("ko-KR");
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   } catch {
     return iso;
   }
