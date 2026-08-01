@@ -46,13 +46,19 @@ src/
     graph/          ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널) · NodeDetail
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 성좌로 대체됨)
     search/         SearchDialog — ⌘K 통합 검색(대화 + 그래프 노드, AppShell에서 마운트)
+    landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
+                    LegalLayout — 약관·개인정보 공통 셸(헤더/푸터 재사용 + 산문 컬럼)
+                    useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
-    Login · Onboarding · Chat · Sources · Settings · Account · Galaxy(작업 성좌 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
-    Actors · Landing · AuthCallback · NotFound
+    Onboarding · Chat · Sources · Settings · Account · Galaxy(작업 성좌 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
+    Actors · Landing · Terms · Privacy · AuthCallback · NotFound
     ※ /projects/:id/graph 는 /galaxy 로 리다이렉트한다(옛 링크 호환).
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
+    ※ Terms(`/terms`)·Privacy(`/privacy`)도 AuthGate 밖 공개 라우트다. 랜딩과 같은 `.lp` 스코프를
+      쓰며 헤더·푸터를 공유한다(LegalLayout). 내용은 실제 수집 항목·권한 scope·보유 기간을
+      반영하므로 **수집 코드나 purge 설정이 바뀌면 이 두 페이지도 함께 고친다**.
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
                     constellation(성좌 배치: 별성 force + 위성 궤도) · canvasColor(CSS 토큰 → Canvas RGB)

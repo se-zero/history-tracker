@@ -2397,6 +2397,7 @@ body:has(.lp) {
 .lp-footer-links {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 24px;
 }
 
@@ -2412,12 +2413,23 @@ body:has(.lp) {
 }
 
 /* ── 푸터: 반응형 (768px 미만) ────────────────────────────────
-   다른 섹션과 동일한 컨테이너 규칙(padding-inline 32→24)만 따른다 — 제품명 한 단어 +
-   링크 2개는 가장 좁은 모바일 폭에서도 한 줄에 들어가므로 별도 스택 규칙은 두지 않는다.
+   약관 링크가 붙어 링크가 4개가 되면서 모바일에서 한 줄에 안 들어간다. 제품명과 링크 묶음을
+   세로로 쌓고(좌측 정렬 유지) 링크는 .lp-footer-links의 flex-wrap으로 접히게 한다.
    --------------------------------------------------------- */
 @media (max-width: 767px) {
   .lp-footer {
     padding-inline: 24px;
+  }
+  .lp-footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  /* 링크 사이 24px은 두 줄로 접힐 때 행간이 되기도 한다 — 열 간격만 좁혀 두 줄이
+     "한 덩어리"로 읽히게 한다. */
+  .lp-footer-links {
+    column-gap: 18px;
+    row-gap: 12px;
   }
 }
 
