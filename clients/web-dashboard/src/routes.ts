@@ -4,5 +4,4 @@ export const PATHS = {
   landing: "/landing",
   authCallback: "/auth/callback",
   onboarding: "/onboarding",
-  demoGraph: "/demo/graph",
 } as const;

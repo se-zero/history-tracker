@@ -93,26 +93,12 @@ export default function App() {
             <Route path="account" element={<AccountRoute />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
-          <Route path={PATHS.demoGraph} element={<DemoGalaxyRoute />} />
           <Route path={PATHS.root} element={<RootRedirect />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AuthProvider>
     </ErrorBoundary>
   );
-}
-
-// 백엔드 없이 그래프 디자인만 확인할 때 쓰는 라우트.
-function DemoGalaxyRoute() {
-  const demoProject: Project = {
-    id: "demo",
-    ownerId: "demo",
-    name: "Demo Project",
-    description: "더미 그래프 데모",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  return <GalaxyPage project={demoProject} />;
 }
 
 function RootRedirect() {

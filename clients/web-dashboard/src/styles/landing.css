@@ -426,8 +426,6 @@ body:has(.lp) {
   white-space: nowrap;
   transition:
     background-color var(--lp-dur-fast) var(--lp-ease-standard),
-    /* 보조 CTA의 hover 틴트는 background-image(그라디언트)라 여기에 없으면 혼자 즉시 튄다 */
-    background-image var(--lp-dur-fast) var(--lp-ease-standard),
     border-color var(--lp-dur-fast) var(--lp-ease-standard),
     color var(--lp-dur-fast) var(--lp-ease-standard),
     transform var(--lp-dur-fast) var(--lp-ease-standard);
@@ -445,16 +443,6 @@ body:has(.lp) {
 .lp-btn--primary:hover { background-color: var(--lp-accent-hover); }
 .lp-btn--primary:active { background-color: var(--lp-accent-pressed); }
 
-.lp-btn--secondary {
-  background-color: var(--lp-surface-2);
-  border-color: var(--lp-border);
-  color: var(--lp-text-primary);
-}
-/* surface-2 위에 accent-soft를 얹는 틴트(배경색 교체가 아니라 겹침) */
-.lp-btn--secondary:hover {
-  background-image: linear-gradient(var(--lp-accent-soft), var(--lp-accent-soft));
-  border-color: var(--lp-border-strong);
-}
 
 .lp-cta-meta {
   margin: 20px 0 0;
@@ -1710,8 +1698,8 @@ body:has(.lp) {
 }
 
 /* DESIGN.md 보조 버튼 레시피(surface-2 + border, text-primary)를 이 슬롯 밀도에 맞춰
-   축소 적용 — .lp-btn--secondary와 같은 배합이지만 크기는 .lp-feature-source-action류의
-   컴팩트 스케일을 따른다. 내용이 한글이라 본문 서체(모노 스코프 규칙 — 라틴 기술 토큰이
+   축소 적용 — 배합은 그 레시피 그대로이고 크기만 .lp-feature-source-action류의 컴팩트
+   스케일을 따른다. 내용이 한글이라 본문 서체(모노 스코프 규칙 — 라틴 기술 토큰이
    아니다). */
 .lp-feature-graph-action {
   padding: 5px 10px;
