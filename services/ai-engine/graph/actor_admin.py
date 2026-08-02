@@ -375,7 +375,7 @@ async def unmerge_actors(project_id: str, decision_id: str) -> dict:
             project_id=project_id,
             aliases_a=remaining_aliases,
             aliases_b=movable,
-            note="unmerge 자동 생성",
+            note="",
         )
 
         await recompute_display_name(tx, canonical_uuid)
@@ -497,7 +497,8 @@ async def split_alias(project_id: str, actor_uuid: str, source_ids: list[str]) -
             project_id=project_id,
             aliases_a=remaining,
             aliases_b=source_ids,
-            note="split 자동 생성",
+            # 시스템 자동 문구는 이력 화면에 노이즈라 노트를 비워 둔다 — note는 사람이 남긴 메모 전용
+            note="",
         )
 
         await recompute_display_name(tx, actor_uuid)

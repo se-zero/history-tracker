@@ -262,6 +262,8 @@
 .actor-alias-picker label { flex-direction: row; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 400; }
 .actor-alias-picker input { min-width: auto; padding: 0; }
 .actor-decision p { margin: 4px 0 0; color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; }
+/* 분리 항목의 효과 부연("다시 안 합쳐짐") — 한글 문장이라 모노가 아닌 본문 서체로 둔다(span인 이유). */
+.actor-decision-hint { display: block; margin-top: 3px; color: var(--fg-subtle); font-size: 11px; }
 
 @media (max-width: 700px) {
   .actor-head, .actor-row, .actor-decision { align-items: flex-start; flex-direction: column; }
