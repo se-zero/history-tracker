@@ -104,6 +104,9 @@
   .source-row-status { align-items: flex-start; }
   .source-row-synced { text-align: left; }
   .source-tiles { grid-template-columns: 1fr; }
+  /* 세로 스택에선 세로 구분선이 성립하지 않는다 */
+  .src-divider { display: none; }
+  .src-disconnect { align-self: flex-start; }
 }
 
 .repo-list {
@@ -270,8 +273,10 @@
    (ghost, 평소 fg-subtle) 있다가 확인 다이얼로그에서 danger로 말한다 — 행에 danger 버튼을
    상시 노출하면 연결 상태 행 전체가 경고처럼 읽힌다.
    --------------------------------------------------------------------- */
-.src-disconnect { padding: 4px 10px; font-size: 12px; color: var(--fg-subtle); }
+.src-disconnect { padding: 4px 10px; font-size: 12px; color: var(--fg-subtle); align-self: center; }
 .src-disconnect:hover { color: var(--danger); background: color-mix(in oklab, var(--danger) 8%, transparent); }
+/* 상태 정보와 해제 액션을 가르는 세로 헤어라인 — 행 정보는 위 정렬이지만 액션은 세로중앙에 둔다. */
+.src-divider { width: 1px; height: 36px; background: var(--border); align-self: center; flex-shrink: 0; margin: 0 2px; }
 
 /* 오버레이·다이얼로그는 통합 검색(search.css)과 같은 기법 — scrim + blur, 다크에서
    그림자 대신 상단 인셋 하이라이트로 표면을 띄운다(DESIGN.md). 위치만 중앙 정렬이다. */
@@ -300,7 +305,6 @@
 
 .confirm-points { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .confirm-points li { display: flex; gap: 9px; color: var(--fg-muted); font-size: 13px; line-height: 1.65; word-break: keep-all; }
-.confirm-points strong { color: var(--fg); font-weight: 500; }
 
 /* 불릿을 문자 대신 점으로 — 첫 항목만 danger라 "이것이 손실"이 한눈에 잡힌다. */
 .confirm-mark {
