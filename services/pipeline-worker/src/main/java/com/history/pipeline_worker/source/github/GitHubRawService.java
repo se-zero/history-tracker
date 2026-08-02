@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
@@ -236,25 +238,44 @@ public class GitHubRawService {
     /** GET /users/{login} → {email, name} (캐시 적용) */
     @SuppressWarnings("unchecked")
     private Map<String, String> fetchUserProfile(String login, String auth) {
-        return userProfileCache.computeIfAbsent(login, l -> {
+        Map<String, String> cached = userProfileCache.get(login);
+        if (cached != null) return cached;
+
+        // computeIfAbsent는 매핑 함수의 반환값을 무조건 캐시하므로 실패(에러 상태·예외) 케이스를
+        // 걸러낼 수 없다. get으로 조회 후 미스일 때만 호출하고 성공한 결과만 putIfAbsent 하는 패턴으로
+        // 바꿔, 일시 장애가 그 계정의 신원 보강을 재시작 전까지 영구히 결손시키지 않도록 한다.
+        try {
             AtomicReference<org.springframework.http.HttpHeaders> headersRef = new AtomicReference<>();
+            AtomicBoolean success = new AtomicBoolean(false);
             Map<String, Object> result = webClient.get()
-                    .uri("/users/{login}", l)
+                    .uri("/users/{login}", login)
                     .header("Authorization", auth)
                     .exchangeToMono(resp -> {
                         headersRef.set(resp.headers().asHttpHeaders());
+                        if (!resp.statusCode().is2xxSuccessful()) {
+                            return Mono.empty();
+                        }
+                        success.set(true);
                         return resp.bodyToMono(Map.class);
                     })
                     .block();
             rateLimiter.acquire(headersRef.get());
-            if (result == null) return Map.of();
+            if (!success.get()) return Map.of();
+
             Map<String, String> profile = new HashMap<>();
-            String email = (String) result.get("email");
-            String name  = (String) result.get("name");
-            if (email != null) profile.put("email", email);
-            if (name  != null) profile.put("name",  name);
+            if (result != null) {
+                String email = (String) result.get("email");
+                String name  = (String) result.get("name");
+                if (email != null) profile.put("email", email);
+                if (name  != null) profile.put("name",  name);
+            }
+            userProfileCache.putIfAbsent(login, profile);
             return profile;
-        });
+        } catch (Exception e) {
+            // 프로필은 부가 데이터라 조회 실패로 커밋/이슈 수집 자체를 막지 않는다.
+            log.warn("GitHub user profile 조회 실패 (login={}): {}", login, e.getMessage());
+            return Map.of();
+        }
     }
 
     @SuppressWarnings("unchecked")

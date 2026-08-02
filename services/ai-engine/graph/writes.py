@@ -424,16 +424,40 @@ async def link_issue_to_parent(project_id: str, child_key: str, parent_key: str)
         )
 
 async def link_issue_to_assignee(project_id: str, jira_key: str, actor_uuid: str) -> None:
-    """ASSIGNED_TO: Issue assignee 존재 시. event_handler가 resolve_actor로 확정한 Actor uuid를 받는다."""
+    """ASSIGNED_TO: Issue assignee 존재 시. event_handler가 resolve_actor로 확정한 Actor uuid를 받는다.
+
+    Jira 이슈 이벤트는 그 이슈의 최신 스냅샷이라 항상 담당자 최대 1명을 가리켜야 한다.
+    재배정(A→B) 시 새 엣지만 MERGE하면 이전 담당자 엣지가 남아 "현재 담당자" 조회·활동량
+    집계가 과거 담당자까지 잡으므로, 새 담당자로 향하지 않는 기존 ASSIGNED_TO 엣지를 먼저 지운다.
+    """
     async with get_driver().session() as session:
         await session.run(
             """
             MATCH (a:Actor {uuid: $actor_uuid, project_id: $project_id})
             WITH a
             MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            OPTIONAL MATCH (i)-[r:ASSIGNED_TO]->(other:Actor)
+            WHERE other.uuid <> $actor_uuid
+            DELETE r
             MERGE (i)-[:ASSIGNED_TO]->(a)
             """,
             project_id=project_id,
             jira_key=jira_key,
             actor_uuid=actor_uuid,
+        )
+
+
+async def unlink_issue_assignees(project_id: str, jira_key: str) -> None:
+    """이슈 스냅샷 이벤트에 assigneeId가 없을 때(담당자 해제) 그 이슈의 기존 ASSIGNED_TO
+    엣지를 전부 지운다. 이슈 이벤트가 아닌, 이슈를 참조만 하는 이벤트(코멘트 등)에서
+    호출하면 안 된다 — 그 경우 assignee 정보 부재가 "해제"를 뜻하지 않는다.
+    """
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})-[r:ASSIGNED_TO]->()
+            DELETE r
+            """,
+            project_id=project_id,
+            jira_key=jira_key,
         )

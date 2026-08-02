@@ -138,8 +138,10 @@ Actor에서 alias 일부를 새 Actor로 떼어낸다 (수동 병합 이력이 �
 | `GET /actors/decisions?project_id=` | 결정 이력 (감사·unmerge 대상 조회) |
 | `DELETE /actors/decisions/{decision_id}` | distinct 결정 철회 (자동 재병합 다시 허용) |
 
-backend는 `/api/v1/projects/{projectId}/actors*`로 인가 후 프록시하고,
-web-dashboard는 Sources 화면의 액터 관리 카드에서 호출한다.
+backend는 `/api/v1/projects/{projectId}/actors*`로 인가 후 프록시한다.
+web-dashboard의 액터 페이지는 목록·상세·병합·분리·이름 변경만 호출하고, 결정 이력은
+보기 전용 카드다 — unmerge·결정 철회는 화면 진입점 없이 API로만 남아 있다(이력에서의
+직접 조작이 순서 꼬임 버그를 만들어 제거, 잘못된 병합 되돌리기는 분리로 일원화).
 
 ## 코드 위치
 

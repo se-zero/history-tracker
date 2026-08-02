@@ -218,6 +218,11 @@ async def _handle_issue(event: dict) -> None:
         }
         assigned = await resolve_actor(assignee_actor, source, make_neo4j_actor_store(project_id), event)
         await builder.link_issue_to_assignee(project_id, props["jira_key"], assigned["uuid"])
+    else:
+        # 이슈 이벤트는 최신 스냅샷이므로 assigneeId가 없다는 건 담당자가 해제됐다는 뜻이다.
+        # 이 분기는 handle()에서 nodeType == "Issue"일 때만 타는 _handle_issue 안에 있으므로,
+        # 이슈를 참조만 하는 다른 이벤트(코멘트 등)가 잘못 해제를 트리거할 일은 없다.
+        await builder.unlink_issue_assignees(project_id, props["jira_key"])
 
 
 async def _handle_communication(event: dict) -> None:
