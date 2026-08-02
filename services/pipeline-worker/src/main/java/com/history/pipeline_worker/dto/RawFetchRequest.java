@@ -6,9 +6,7 @@ import java.util.Map;
 
 // 외부 API raw 데이터 수집 요청 DTO
 public record RawFetchRequest(
-        // 인증 토큰. OAuth 전환 후 GitHub·Jira·Slack 정규 수집은 모두 "Bearer {token}".
-        // Jira는 디버그용 POST /api/v1/raw/jira에서 "email:apiToken" 또는 "Basic {base64}"도 허용한다
-        // (JiraRawService.resolveAuth).
+        // 인증 토큰. GitHub·Jira·Slack 모두 "Bearer {token}" — 디버그용 raw 호출도 같다.
         @NotBlank
         String credentials,
 

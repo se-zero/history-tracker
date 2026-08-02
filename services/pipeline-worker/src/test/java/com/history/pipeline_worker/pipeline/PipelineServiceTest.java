@@ -95,7 +95,7 @@ class PipelineServiceTest {
 
         JiraRawService.JiraFetchContext jiraContext = new JiraRawService.JiraFetchContext(
                 org.springframework.web.reactive.function.client.WebClient.builder().build(),
-                "Basic token",
+                "Bearer token",
                 "PROJ",
                 null
         );

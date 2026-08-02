@@ -134,7 +134,7 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 - stale `IN_PROGRESS` webhook delivery 정리 기준 시간
 
 사용자/프로젝트별 credential은 `application.yaml`에 두지 않는다. DB의 project integration 정보에서 조회하고 `security.credentials.key`로 복호화한다.
-GitHub/Slack/Jira credential은 모두 Bearer 토큰으로 사용한다. Jira는 OAuth 전환 후 DB에 JSON(`access_token`·`refresh_token`·`expires_at`)으로 저장되며, `ProjectIntegrationService`가 복호화해 `access_token`만 꺼내 Bearer로 감싼다. `JiraRawService.resolveAuth`는 과거 `email:token`(Basic) 포맷도 여전히 받아들이지만 정규 수집 경로에서는 쓰이지 않는다.
+GitHub/Slack/Jira credential은 모두 Bearer 토큰으로 사용한다. Jira는 OAuth 전환 후 DB에 JSON(`access_token`·`refresh_token`·`expires_at`)으로 저장되며, `ProjectIntegrationService`가 복호화해 `access_token`만 꺼내 Bearer로 감싼다. 사용자가 토큰을 직접 입력하는 경로가 없으므로 `JiraRawService.resolveAuth`는 **Bearer 외 포맷을 거부한다** — 과거 `email:token`(Basic) 지원은 제거됐다.
 
 로컬 실행과 배포 시 다음 환경변수를 설정한다.
 
