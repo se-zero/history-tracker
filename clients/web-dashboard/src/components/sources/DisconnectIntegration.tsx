@@ -48,6 +48,8 @@ export function DisconnectIntegration({
 
   return (
     <>
+      {/* 상태 정보(배지·수집시각)와 액션을 시각적으로 가르는 세로 헤어라인 */}
+      <span className="src-divider" aria-hidden />
       <button
         type="button"
         className="btn btn-ghost src-disconnect"
@@ -72,7 +74,7 @@ export function DisconnectIntegration({
             <ul className="confirm-points">
               <li>
                 <span className="confirm-mark danger" aria-hidden />
-                저장된 접근 권한과 {DELETED_DATA[provider]}가 <strong>삭제됩니다.</strong>
+                저장된 접근 권한과 {DELETED_DATA[provider]}가 삭제됩니다.
               </li>
               <li>
                 <span className="confirm-mark" aria-hidden />

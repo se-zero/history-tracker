@@ -64,7 +64,6 @@ public class JiraNormalizer {
             properties.put("status", statusName);
             properties.put("issue_type", issueType != null ? issueType.get("name") : null);
             properties.put("priority", priority != null ? priority.get("name") : null);
-            properties.put("assignee", assigneeField != null ? assigneeField.get("displayName") : null);
             properties.put("created_at", createdAt);
             // 종료된 이슈만 closed_at을 채운다.
             // 미종료(재오픈 포함) 상태에서는 키를 넣지 않으면 ai-engine builder가 status를 보고
@@ -82,7 +81,14 @@ public class JiraNormalizer {
 
             Map<String, Object> refs = new HashMap<>(refsExtractor.extract(summary + " " + descriptionText));
             if (parentKey != null) refs.put("parentJiraKey", parentKey);
-            if (assigneeField != null) refs.put("assigneeId", (String) assigneeField.get("accountId"));
+            if (assigneeField != null) {
+                String assigneeId = (String) assigneeField.get("accountId");
+                String assigneeName = (String) assigneeField.get("displayName");
+                String assigneeEmail = (String) assigneeField.get("emailAddress");
+                if (assigneeId != null) refs.put("assigneeId", assigneeId);
+                if (assigneeName != null) refs.put("assigneeName", assigneeName);
+                if (assigneeEmail != null) refs.put("assigneeEmail", assigneeEmail);
+            }
 
             events.add(new NormalizedEvent(
                     projectId,

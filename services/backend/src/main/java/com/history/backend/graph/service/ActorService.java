@@ -3,6 +3,7 @@ package com.history.backend.graph.service;
 import java.util.UUID;
 
 import com.history.backend.graph.dto.ActorDecisionListResponse;
+import com.history.backend.graph.dto.ActorDetailResponse;
 import com.history.backend.graph.dto.ActorListResponse;
 import com.history.backend.graph.dto.ActorMergeRequest;
 import com.history.backend.graph.dto.ActorMergeResponse;
@@ -31,8 +32,12 @@ public class ActorService {
 
     public ActorMergeResponse mergeActors(UUID ownerId, UUID projectId, ActorMergeRequest request) {
         projectService.getProject(ownerId, projectId);
-        return aiEngineActorClient.mergeActors(
-                projectId, request.sourceUuid(), request.targetUuid(), request.name(), request.note());
+        return aiEngineActorClient.mergeActors(projectId, request.uuidA(), request.uuidB(), request.note());
+    }
+
+    public ActorDetailResponse getActorDetail(UUID ownerId, UUID projectId, String actorUuid) {
+        projectService.getProject(ownerId, projectId);
+        return aiEngineActorClient.fetchActorDetail(projectId, actorUuid);
     }
 
     public ActorRenameResponse renameActor(UUID ownerId, UUID projectId, ActorRenameRequest request) {
@@ -47,8 +52,7 @@ public class ActorService {
 
     public ActorSplitResponse splitActor(UUID ownerId, UUID projectId, ActorSplitRequest request) {
         projectService.getProject(ownerId, projectId);
-        return aiEngineActorClient.splitActor(
-                projectId, request.actorUuid(), request.sourceIds(), request.name());
+        return aiEngineActorClient.splitActor(projectId, request.actorUuid(), request.sourceIds());
     }
 
     public ActorDecisionListResponse getDecisions(UUID ownerId, UUID projectId) {

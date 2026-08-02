@@ -459,7 +459,7 @@ async def run_graph_query(project_id: str, cypher: str) -> list | dict:
 # 달라지는 것(status·channel 등 실제 값)만 조회한다.
 
 _DESCRIBE_ENUMS: dict[str, tuple[str, ...]] = {
-    "Issue":         ("status", "issue_type", "priority", "assignee", "source"),
+    "Issue":         ("status", "issue_type", "priority", "source"),
     "PullRequest":   ("state", "base_branch", "source"),
     "Communication": ("source", "channel"),
     "ChangeSet":     ("source",),
@@ -481,10 +481,10 @@ SCHEMA_CARD = """\
 노드 (전부 project_id를 갖지만 쿼리에 쓰지 말 것 — 서버가 주입한다)
 - ChangeSet(커밋): hash, message, occurredAt(=커밋 시각), source
 - PullRequest: pr_number, title, body, state, base_branch, url, createdAt(=오픈), occurredAt(=머지), jira_keys
-- Issue: jira_key, title, body, status, issue_type, priority, assignee, createdAt, closedAt, occurredAt(=최종 수정), source
+- Issue: jira_key, title, body, status, issue_type, priority, createdAt, closedAt, occurredAt(=최종 수정), source
 - Communication(Slack/GitHub 메시지): body, channel, url, conversation_id, createdAt, occurredAt, source, llm_filtered
 - File: path
-- Actor(사람): uuid, name, normalized_name, aliases, emails, confidence
+- Actor(사람): uuid, name, aliases
 
 관계 (방향 주의)
 - (Actor)-[:AUTHORED]->(ChangeSet | PullRequest)

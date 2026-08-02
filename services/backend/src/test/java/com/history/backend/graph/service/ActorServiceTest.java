@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.common.error.ForbiddenException;
+import com.history.backend.graph.dto.ActorDetailResponse;
 import com.history.backend.graph.dto.ActorListResponse;
 import com.history.backend.graph.dto.ActorMergeRequest;
 import com.history.backend.graph.dto.ActorMergeResponse;
@@ -59,18 +60,32 @@ class ActorServiceTest {
     }
 
     @Test
-    @DisplayName("소유권 확인 후 병합 위임 (합친 뒤 이름 전달)")
+    @DisplayName("소유권 확인 후 병합 위임 (병합 방향은 ai-engine이 결정, 이름은 입력받지 않는다)")
     void mergesActorsAfterOwnershipCheck() {
         ActorMergeResponse expected = new ActorMergeResponse("d1", "t", "s", 3, List.of());
-        when(aiEngineActorClient.mergeActors(PROJECT_ID, "s", "t", "서준수", "메모")).thenReturn(expected);
+        when(aiEngineActorClient.mergeActors(PROJECT_ID, "s", "t", "메모")).thenReturn(expected);
 
         ActorMergeResponse result = actorService.mergeActors(
-                USER_ID, PROJECT_ID, new ActorMergeRequest("s", "t", "서준수", "메모"));
+                USER_ID, PROJECT_ID, new ActorMergeRequest("s", "t", "메모"));
 
         assertThat(result).isSameAs(expected);
         InOrder inOrder = inOrder(projectService, aiEngineActorClient);
         inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
-        inOrder.verify(aiEngineActorClient).mergeActors(PROJECT_ID, "s", "t", "서준수", "메모");
+        inOrder.verify(aiEngineActorClient).mergeActors(PROJECT_ID, "s", "t", "메모");
+    }
+
+    @Test
+    @DisplayName("소유권 확인 후 액터 상세 조회 위임")
+    void fetchesActorDetailAfterOwnershipCheck() {
+        ActorDetailResponse expected = new ActorDetailResponse("a1", "Younghee Kim", List.of());
+        when(aiEngineActorClient.fetchActorDetail(PROJECT_ID, "a1")).thenReturn(expected);
+
+        ActorDetailResponse result = actorService.getActorDetail(USER_ID, PROJECT_ID, "a1");
+
+        assertThat(result).isSameAs(expected);
+        InOrder inOrder = inOrder(projectService, aiEngineActorClient);
+        inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
+        inOrder.verify(aiEngineActorClient).fetchActorDetail(PROJECT_ID, "a1");
     }
 
     @Test
@@ -89,13 +104,15 @@ class ActorServiceTest {
     }
 
     @Test
-    @DisplayName("소유권 검증 실패 시 병합·이름 변경·복원·분리·철회 모두 ai-engine 호출 차단")
+    @DisplayName("소유권 검증 실패 시 병합·이름 변경·복원·분리·철회·상세조회 모두 ai-engine 호출 차단")
     void doesNotCallAiEngineWhenOwnershipCheckFails() {
         doThrow(new ForbiddenException("Project access denied."))
                 .when(projectService).getProject(USER_ID, PROJECT_ID);
 
         assertThatThrownBy(() -> actorService.mergeActors(
-                USER_ID, PROJECT_ID, new ActorMergeRequest("s", "t", "서준수", "")))
+                USER_ID, PROJECT_ID, new ActorMergeRequest("s", "t", "")))
+                .isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> actorService.getActorDetail(USER_ID, PROJECT_ID, "a1"))
                 .isInstanceOf(ForbiddenException.class);
         assertThatThrownBy(() -> actorService.unmergeActors(
                 USER_ID, PROJECT_ID, new ActorUnmergeRequest("d1")))
@@ -104,7 +121,7 @@ class ActorServiceTest {
                 USER_ID, PROJECT_ID, new ActorRenameRequest("a", "정세영")))
                 .isInstanceOf(ForbiddenException.class);
         assertThatThrownBy(() -> actorService.splitActor(
-                USER_ID, PROJECT_ID, new ActorSplitRequest("a", List.of("GITHUB:x"), "")))
+                USER_ID, PROJECT_ID, new ActorSplitRequest("a", List.of("GITHUB:x"))))
                 .isInstanceOf(ForbiddenException.class);
         assertThatThrownBy(() -> actorService.revokeDecision(USER_ID, PROJECT_ID, "d1"))
                 .isInstanceOf(ForbiddenException.class);

@@ -223,8 +223,8 @@ class JiraNormalizerTest {
     }
 
     @Test
-    @DisplayName("assignee 있는 이슈 → refs에 assigneeAccountId 포함")
-    void normalizeIssues_withAssignee_assigneeAccountIdInRefs() {
+    @DisplayName("assignee 있는 이슈 → refs에 assigneeId·assigneeName·assigneeEmail 포함, properties에는 assignee 키 없음")
+    void normalizeIssues_withAssignee_assigneeIdNameEmailInRefsNotProperties() {
         Map<String, Object> issue = buildIssue("PROJ-11", "Assigned issue", null, "Open", "Task", "Medium",
                 "reporter-id", "Reporter", "reporter@test.com");
 
@@ -233,11 +233,29 @@ class JiraNormalizerTest {
         Map<String, Object> assignee = new HashMap<>();
         assignee.put("accountId", "assignee-account-id");
         assignee.put("displayName", "Assignee Name");
+        assignee.put("emailAddress", "assignee@test.com");
         fields.put("assignee", assignee);
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.refs()).containsEntry("assigneeId", "assignee-account-id");
+        assertThat(event.refs()).containsEntry("assigneeId", "assignee-account-id")
+                .containsEntry("assigneeName", "Assignee Name")
+                .containsEntry("assigneeEmail", "assignee@test.com");
+        // Issue 노드에 이름 문자열을 저장하지 않기 위해 properties에는 assignee 키 자체를 두지 않는다
+        assertThat(event.properties()).doesNotContainKey("assignee");
+    }
+
+    @Test
+    @DisplayName("assignee null → refs에 assigneeId·assigneeName·assigneeEmail 모두 없음")
+    void normalizeIssues_nullAssignee_noAssigneeKeysInRefs() {
+        Map<String, Object> result = buildSearchResult(List.of(
+                buildIssue("PROJ-12", "Unassigned issue", null, "Open", "Task", "Medium",
+                        "reporter-id", "Reporter", "reporter@test.com")
+        ));
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, result).get(0);
+
+        assertThat(event.refs()).doesNotContainKeys("assigneeId", "assigneeName", "assigneeEmail");
     }
 
     // ─── closed_at 추론 (status terminal 여부 + resolutiondate fallback) ────────

@@ -7,6 +7,7 @@
 import logging
 import re
 
+from graph.actor_store import recompute_display_name
 from graph.driver import get_driver
 from graph.writes import link_pr_changesets_to_issues
 
@@ -384,13 +385,16 @@ async def delete_project_source_graph(
     2. 고아 File — File은 `{project_id, path}`뿐이라 source가 없다(스키마상 GitHub 전용
        파생 노드). ChangeSet이 사라지면 MODIFIED가 끊긴 채 남으므로 여기서 정리한다.
     3. Actor alias — Actor는 소스를 가로지른다(aliases=["GITHUB:x", "SLACK:y"]). 지우는
-       소스의 alias만 배열에서 빼고 ActorAlias 인덱스 노드를 삭제한 뒤, 남은 alias가 없는
-       Actor만 삭제한다. 그러지 않으면 Slack 해제가 GitHub 이력까지 끊는다.
+       소스의 alias만 배열에서 빼고 ActorAlias 인덱스 노드(pd_name·pd_email 포함)를 삭제한 뒤,
+       남은 alias가 없는 Actor만 삭제한다. 그러지 않으면 Slack 해제가 GitHub 이력까지 끊는다.
+       살아남은 Actor는 recompute_display_name으로 표시 이름을 재계산한다 — 지워진 소스가
+       표시 이름의 출처였다면(예: GitHub 프로필 이름) 그 개인정보가 Actor.name에 남기 때문이다.
     4. ActorDecision — 수동 병합·분리 기록 중 삭제된 alias만 참조하는 것은 대상이 사라져
        무의미하므로 제거한다. 한쪽이라도 남아 있으면 보존한다(재수집 후 다시 적용돼야 한다).
 
-    한계: Actor.emails는 어느 소스에서 얻었는지 기록하지 않아, 살아남은 Actor의 이메일은
-    그대로 둔다. 소스별 출처를 남기려면 스키마 변경이 필요하다.
+    개인정보(이름·이메일)는 ActorAlias의 pd_* 필드에 소스별로 저장되므로, 3단계의 ActorAlias
+    삭제가 곧 그 소스에서 받은 개인정보 삭제를 겸한다 — Actor.emails가 출처를 기록하지 않아
+    못 지웠던 구 모델의 한계는 없다.
 
     대형 프로젝트의 tx timeout을 피하려고 delete_project_graph와 같은 배치 커밋을 쓴다.
     멱등 — 이미 지워진 소스를 다시 호출하면 전부 0이다.
@@ -454,16 +458,22 @@ async def delete_project_source_graph(
         )
         actors = (await result.consume()).counters.nodes_deleted
 
-        # 살아남은 Actor(다른 소스 alias 보유)는 배열에서 해당 소스 alias만 뺀다
-        await session.run(
+        # 살아남은 Actor(다른 소스 alias 보유)는 배열에서 해당 소스 alias만 빼고, 영향받은
+        # uuid를 돌려받아 표시 이름을 재계산한다 — 지워진 소스가 표시 이름의 출처였다면
+        # 그 개인정보가 Actor.name에 그대로 남기 때문이다.
+        result = await session.run(
             """
             MATCH (a:Actor {project_id: $project_id})
             WHERE any(alias IN coalesce(a.aliases, []) WHERE alias STARTS WITH $alias_prefix)
             SET a.aliases = [alias IN a.aliases WHERE NOT alias STARTS WITH $alias_prefix]
+            RETURN a.uuid AS uuid
             """,
             project_id=project_id,
             alias_prefix=alias_prefix,
         )
+        survivor_uuids = [row["uuid"] for row in await result.data()]
+        for survivor_uuid in survivor_uuids:
+            await recompute_display_name(session, survivor_uuid)
 
         # 양쪽 모두 삭제된 alias만 가리키는 결정은 적용 대상이 없다
         result = await session.run(
@@ -483,13 +493,14 @@ async def delete_project_source_graph(
         decisions = (await result.consume()).counters.nodes_deleted
 
     logger.info(
-        "소스 그래프 삭제 완료: project=%s, source=%s, nodes=%d, files=%d, actors=%d, decisions=%d",
+        "소스 그래프 삭제 완료: project=%s, source=%s, nodes=%d, files=%d, actors=%d, decisions=%d, recomputed=%d",
         project_id,
         normalized_source,
         nodes,
         files,
         actors,
         decisions,
+        len(survivor_uuids),
     )
     return {
         "nodes": nodes,

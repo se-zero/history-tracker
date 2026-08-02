@@ -9,6 +9,7 @@ full-text 인덱스(node_search)로 프로젝트 그래프 전체에서 노드�
 import logging
 import re
 
+from graph.actor_store import _DELETED_USER_LABEL
 from graph.driver import get_driver
 from graph.overview import _NODE_RETURN_FIELDS, _to_graph_node
 
@@ -36,7 +37,14 @@ _SEARCH_QUERY = f"""
 CALL db.index.fulltext.queryNodes('node_search', $lucene, {{limit: $fetch_k}})
 YIELD node AS n, score
 WHERE n.project_id = $project_id
-WITH n, score
+  AND NOT (n:Actor AND n.name = $deleted_label)
+// ActorAlias가 잡히면(Jira/Slack 이름 검색) 결과로는 alias가 아니라 그 소유 Actor를 낸다 —
+// 표시 이름은 GitHub 기준으로 고정돼도 다른 소스 이름으로 검색은 되어야 한다.
+OPTIONAL MATCH (n)-[:ALIAS_OF]->(owner:Actor)
+WITH coalesce(owner, n) AS n, score
+ORDER BY score DESC
+// 같은 Actor가 자기 name과 alias 양쪽으로 잡히는 중복 제거 — 최고 score 1건만 남긴다.
+WITH n, collect(score)[0] AS score
 ORDER BY score DESC
 LIMIT $fetch_limit
 RETURN {_NODE_RETURN_FIELDS},
@@ -72,7 +80,8 @@ async def search_nodes(project_id: str, q: str, limit: int = DEFAULT_LIMIT) -> l
 
     빈/무효 질의면 빈 리스트. 같은 스레드(conversation_id)의 Communication이 여럿 잡히면
     대표(최고 score) 1건만 남긴다 — 결과가 한 스레드로 도배되는 것을 막는다
-    (discovery.search_by_keyword와 동일한 규칙).
+    (discovery.search_by_keyword와 동일한 규칙). 개인정보가 하나도 없어 표시 이름이
+    "(삭제된 사용자)"인 Actor는 검색어와 우연히 일치해도 운영자에게 쓸모없는 노이즈라 제외한다.
     """
     if not project_id:
         return []
@@ -91,6 +100,7 @@ async def search_nodes(project_id: str, q: str, limit: int = DEFAULT_LIMIT) -> l
             lucene=lucene_query,
             fetch_k=fetch_k,
             fetch_limit=limit * _DEDUPE_PADDING,
+            deleted_label=_DELETED_USER_LABEL,
         )
         rows = await result.data()
 

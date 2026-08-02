@@ -17,6 +17,7 @@ EXPECTED_ROUTES = {
     ("GET", "/dlq/stats"),
     ("GET", "/graph/activity"),
     ("GET", "/graph/actors"),
+    ("GET", "/graph/actors/{actor_uuid}"),
     ("POST", "/actors/merge"),
     ("POST", "/actors/rename"),
     ("POST", "/actors/split"),

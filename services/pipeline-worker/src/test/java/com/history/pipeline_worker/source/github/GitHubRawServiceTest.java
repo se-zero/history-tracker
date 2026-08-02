@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.source.github;
 
+import com.history.pipeline_worker.checkpoint.ProjectCheckpointData;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,9 +14,11 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 class GitHubRawServiceTest {
 
@@ -49,6 +52,28 @@ class GitHubRawServiceTest {
         assertThat(commits.get(0)).containsEntry("sha", "sha-pr")
                 .containsEntry("prNumber", "10");
         assertThat(searchApiCalled).isFalse();
+    }
+
+    @Test
+    @DisplayName("commit.author(GitHub 계정)에 프로필 name/email이 보강된다")
+    @SuppressWarnings("unchecked")
+    void fetchSample_commitAuthor_enrichedWithProfileNameAndEmail() {
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> Mono.just(jsonResponse(responseFor(request))));
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0)
+        );
+
+        Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
+
+        List<Map<String, Object>> commits = (List<Map<String, Object>>) raw.get("commits");
+        Map<String, Object> author = (Map<String, Object>) commits.get(0).get("author");
+        assertThat(author).containsEntry("login", "dev")
+                .containsEntry("name", "Dev")
+                .containsEntry("email", "dev@example.com");
     }
 
     @Test
@@ -95,6 +120,151 @@ class GitHubRawServiceTest {
         service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
 
         assertThat(capturedCommitsQuery.get()).doesNotContain("sha=");
+    }
+
+    @Test
+    @DisplayName("프로필 조회 HTTP 에러 응답은 캐시하지 않고 다음 호출에서 재조회한다")
+    void fetchCommitPage_userProfileHttpError_notCachedAndRetried() {
+        AtomicInteger userProfileCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/users/dev")) {
+                        userProfileCallCount.incrementAndGet();
+                        return Mono.just(errorResponse(HttpStatus.FORBIDDEN));
+                    }
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        service.fetchCommitPage(context, 1, Map.of());
+        service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(userProfileCallCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("프로필 조회 중 예외가 발생해도 enrichCommits는 예외를 전파하지 않고 보강 없이 진행하며, 실패한 조회는 캐시하지 않는다")
+    @SuppressWarnings("unchecked")
+    void fetchCommitPage_userProfileFetchThrows_doesNotPropagateAndNotCached() {
+        AtomicInteger userProfileCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/users/dev")) {
+                        if (userProfileCallCount.incrementAndGet() == 1) {
+                            return Mono.error(new RuntimeException("connection reset"));
+                        }
+                        return Mono.just(jsonResponse("""
+                                {"email": "dev@example.com", "name": "Dev"}
+                                """));
+                    }
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        AtomicReference<GitHubRawService.GitHubPage> firstPageRef = new AtomicReference<>();
+        assertThatCode(() -> firstPageRef.set(service.fetchCommitPage(context, 1, Map.of())))
+                .doesNotThrowAnyException();
+
+        Map<String, Object> firstAuthor = (Map<String, Object>) firstPageRef.get().items().get(0);
+        firstAuthor = (Map<String, Object>) firstAuthor.get("author");
+        assertThat(firstAuthor).doesNotContainKeys("email", "name");
+
+        GitHubRawService.GitHubPage secondPage = service.fetchCommitPage(context, 1, Map.of());
+        Map<String, Object> secondAuthor = (Map<String, Object>) ((Map<String, Object>) secondPage.items().get(0)).get("author");
+        assertThat(secondAuthor).containsEntry("email", "dev@example.com").containsEntry("name", "Dev");
+        assertThat(userProfileCallCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("성공한 프로필 조회는 캐시되어 같은 login 재조회 시 exchange가 1회만 호출된다")
+    void fetchCommitPage_userProfileSuccess_cachedAcrossCalls() {
+        AtomicInteger userProfileCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/users/dev")) {
+                        userProfileCallCount.incrementAndGet();
+                        return Mono.just(jsonResponse("""
+                                {"email": "dev@example.com", "name": "Dev"}
+                                """));
+                    }
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        service.fetchCommitPage(context, 1, Map.of());
+        service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(userProfileCallCount.get()).isEqualTo(1);
+    }
+
+    private GitHubRawService.GitHubFetchContext fetchContext() {
+        return new GitHubRawService.GitHubFetchContext(
+                "Bearer token", "owner", "repo", null, new ProjectCheckpointData.GitHubCheckpoint());
+    }
+
+    private String commitsPageJson(String sha, String login) {
+        return """
+                [
+                  {
+                    "sha": "%s",
+                    "commit": {
+                      "message": "feat: work",
+                      "author": {"name": "Dev", "email": "dev@example.com", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "%s"},
+                    "parents": [{"sha": "parent"}]
+                  }
+                ]
+                """.formatted(sha, login);
+    }
+
+    private ClientResponse errorResponse(HttpStatus status) {
+        return ClientResponse.create(status)
+                .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                .body("""
+                        {"message": "API rate limit exceeded"}
+                        """)
+                .build();
     }
 
     private ClientResponse jsonResponse(String body) {

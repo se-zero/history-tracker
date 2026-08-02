@@ -59,10 +59,7 @@ async def _seed_legacy_actor(project_id: str, actor_uuid: str, aliases: list[str
     async with get_driver().session() as session:
         await session.run(
             """
-            CREATE (a:Actor {
-                uuid: $uuid, project_id: $pid, name: 'Legacy',
-                normalized_name: 'legacy', aliases: $aliases, emails: [], confidence: 1.0
-            })
+            CREATE (a:Actor {uuid: $uuid, project_id: $pid, name: 'Legacy', aliases: $aliases})
             """,
             uuid=actor_uuid, pid=project_id, aliases=aliases,
         )
@@ -145,7 +142,7 @@ async def case_concurrent_create_no_duplicate() -> CaseResult:
         store = make_neo4j_actor_store(pid)
         # 같은 alias로 10개 동시 생성 — 프로덕션에서 두 이벤트가 동시에 Step 4에 도달한 상황.
         results = await asyncio.gather(
-            *[store.create_actor("Race Guy", ["GITHUB:raceguy"], [], 1.0) for _ in range(10)]
+            *[store.create_actor("Race Guy", "GITHUB:raceguy", None) for _ in range(10)]
         )
         uuids = {res["uuid"] for res in results}
         r.assert_(len(uuids) == 1, f"모든 호출이 같은 actor를 받아야 함, 실제 uuid {len(uuids)}종")

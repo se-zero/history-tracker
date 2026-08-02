@@ -122,22 +122,43 @@ export interface Integration {
   lastSyncedAt: string | null;
 }
 
-// 하나의 사람으로 통합된 소스별 신원. aliases는 "GITHUB:login" 같은 안정 식별자다.
+// 목록에서 보여줄 소스별 표시 이름 — "이 둘이 같은 사람인가" 판단 재료. 이메일·계정ID는 상세 조회로 뺀다.
+export interface ActorSourceName {
+  source: string;
+  name: string | null;
+  erased: string | null;
+}
+
+// 하나의 사람으로 통합된 액터. 소스별 세부(이메일·계정ID)는 getActorDetail로 지연 조회한다.
 export interface Actor {
   uuid: string;
   name: string;
-  aliases: string[];
-  emails: string[];
-  confidence: number;
   activityCount: number;
+  sourceNames: ActorSourceName[];
+}
+
+// 액터 상세 — 병합/분리 폼에서 alias 단위 판단 재료(이메일·계정ID 포함)로 지연 조회한다.
+export interface ActorAliasDetail {
+  sourceId: string;
+  source: string;
+  name: string | null;
+  email: string | null;
+  erased: string | null;
+}
+
+export interface ActorDetail {
+  uuid: string;
+  name: string;
+  aliases: ActorAliasDetail[];
 }
 
 // 수동 병합(same)·분리(distinct) 이력. same만 스냅샷을 이용해 병합 취소할 수 있다.
+// aliasesA/aliasesB는 목록의 sourceNames와 같은 shape이라 sourceNameSummary로 그대로 렌더한다.
 export interface ActorDecision {
   decisionId: string;
   kind: "same" | "distinct";
-  aliasesA: string[];
-  aliasesB: string[];
+  aliasesA: ActorSourceName[];
+  aliasesB: ActorSourceName[];
   canonicalUuid: string | null;
   note: string;
   decidedAt: string;

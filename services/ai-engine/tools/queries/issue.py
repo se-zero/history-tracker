@@ -583,7 +583,9 @@ async def _actor_events(session, project_id: str, actor: str) -> tuple[dict, lis
     result = await session.run(
         """
         MATCH (a:Actor {project_id: $project_id})
-        WHERE a.name = $actor OR $actor IN a.aliases OR $actor IN a.emails
+        WHERE a.name = $actor
+           OR $actor IN a.aliases
+           OR EXISTS { MATCH (al:ActorAlias)-[:ALIAS_OF]->(a) WHERE al.pd_email = $actor OR al.pd_name = $actor }
         OPTIONAL MATCH (a)-[:AUTHORED]->(cs:ChangeSet)
         OPTIONAL MATCH (a)-[:AUTHORED]->(pr:PullRequest)
         OPTIONAL MATCH (a)-[:WROTE]->(c:Communication)

@@ -104,6 +104,9 @@
   .source-row-status { align-items: flex-start; }
   .source-row-synced { text-align: left; }
   .source-tiles { grid-template-columns: 1fr; }
+  /* 세로 스택에선 세로 구분선이 성립하지 않는다 */
+  .src-divider { display: none; }
+  .src-disconnect { align-self: flex-start; }
 }
 
 .repo-list {
@@ -206,6 +209,17 @@
 .source-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; }
 .source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; font-family: var(--font-mono); }
 
+/* 액터 관리 카드(좌, 넓게) + 병합 결정 이력 카드(우, 고정폭) 2열 배치 */
+.actors-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .actors-layout { grid-template-columns: 1fr; }
+}
+
 .actor-card {
   margin-top: 20px;
   background: var(--surface);
@@ -218,33 +232,42 @@
 .actor-head p, .actor-form > p { margin: 4px 0 0; color: var(--fg-muted); font-size: 12px; }
 .actor-empty { margin: 16px 0; color: var(--fg-muted); font-size: 13px; }
 .actor-list { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+/* position: relative — useCollapsedRows가 행의 offsetTop을 이 래퍼 기준으로 재는 offsetParent가 되도록 한다. */
+.actor-list-rows { display: flex; flex-direction: column; position: relative; }
+/* 접힘 높이는 useCollapsedRows가 실측한 px을 인라인 style로 준다 — 여기서는 스크롤만 담당. */
+.actor-list-collapsed { overflow-y: auto; }
 .actor-row, .actor-decision { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
 .actor-row:last-child, .actor-decision:last-child { border-bottom: none; }
 .actor-info { min-width: 0; }
 .actor-info strong, .actor-decision strong { display: block; font-size: 13px; }
 .actor-row-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .actor-meta { color: var(--fg-subtle); font-family: var(--font-mono); font-size: 11px; }
-.actor-aliases { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.actor-aliases code { padding: 2px 5px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-muted); font-size: 11px; }
+.actor-source-names { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.actor-source-names code { padding: 2px 5px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-muted); font-size: 11px; }
 .actor-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; padding: 16px; border: 1px dashed var(--border-strong); border-radius: var(--r-md); background: var(--surface-2); }
-.actor-form h3, .actor-form > p, .actor-form > .actor-alias-picker, .actor-form > .actor-form-actions, .actor-form > [role="alert"] { grid-column: 1 / -1; }
+.actor-form h3, .actor-form > p, .actor-form > .actor-compare, .actor-form > .actor-alias-picker, .actor-form > .actor-form-actions, .actor-form > [role="alert"] { grid-column: 1 / -1; }
+.actor-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.actor-compare-col { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+.actor-compare-col strong { font-size: 12.5px; }
+.actor-alias-detail { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); }
+.actor-alias-detail code { color: var(--fg); background: var(--surface-2); padding: 2px 5px; border-radius: var(--r-sm); }
 .actor-rename-form { grid-template-columns: 1fr; }
 .actor-form h3 { margin: 0; font-size: 13px; }
 .actor-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 11.5px; font-weight: 600; }
 .actor-form label span { color: var(--fg-subtle); font-weight: 400; }
 .actor-form input, .actor-form select { min-width: 0; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; }
 .actor-form input:focus, .actor-form select:focus { outline: none; border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
-.actor-form-actions { display: flex; gap: 8px; }
+.actor-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .actor-alias-picker { display: flex; flex-wrap: wrap; gap: 8px; }
 .actor-alias-picker label { flex-direction: row; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 400; }
 .actor-alias-picker input { min-width: auto; padding: 0; }
-.actor-decisions { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
-.actor-decision-list { border-top: 1px solid var(--border); }
 .actor-decision p { margin: 4px 0 0; color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; }
+/* 분리 항목의 효과 부연("다시 안 합쳐짐") — 한글 문장이라 모노가 아닌 본문 서체로 둔다(span인 이유). */
+.actor-decision-hint { display: block; margin-top: 3px; color: var(--fg-subtle); font-size: 11px; }
 
 @media (max-width: 700px) {
   .actor-head, .actor-row, .actor-decision { align-items: flex-start; flex-direction: column; }
-  .actor-form { grid-template-columns: 1fr; }
+  .actor-form, .actor-compare { grid-template-columns: 1fr; }
 }
 
 /* ── 연동 해제 ─────────────────────────────────────────────────────────
@@ -252,8 +275,10 @@
    (ghost, 평소 fg-subtle) 있다가 확인 다이얼로그에서 danger로 말한다 — 행에 danger 버튼을
    상시 노출하면 연결 상태 행 전체가 경고처럼 읽힌다.
    --------------------------------------------------------------------- */
-.src-disconnect { padding: 4px 10px; font-size: 12px; color: var(--fg-subtle); }
+.src-disconnect { padding: 4px 10px; font-size: 12px; color: var(--fg-subtle); align-self: center; }
 .src-disconnect:hover { color: var(--danger); background: color-mix(in oklab, var(--danger) 8%, transparent); }
+/* 상태 정보와 해제 액션을 가르는 세로 헤어라인 — 행 정보는 위 정렬이지만 액션은 세로중앙에 둔다. */
+.src-divider { width: 1px; height: 36px; background: var(--border); align-self: center; flex-shrink: 0; margin: 0 2px; }
 
 /* 오버레이·다이얼로그는 통합 검색(search.css)과 같은 기법 — scrim + blur, 다크에서
    그림자 대신 상단 인셋 하이라이트로 표면을 띄운다(DESIGN.md). 위치만 중앙 정렬이다. */
@@ -282,7 +307,6 @@
 
 .confirm-points { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .confirm-points li { display: flex; gap: 9px; color: var(--fg-muted); font-size: 13px; line-height: 1.65; word-break: keep-all; }
-.confirm-points strong { color: var(--fg); font-weight: 500; }
 
 /* 불릿을 문자 대신 점으로 — 첫 항목만 danger라 "이것이 손실"이 한눈에 잡힌다. */
 .confirm-mark {

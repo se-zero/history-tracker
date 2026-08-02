@@ -17,7 +17,6 @@ VETOED_ACTOR = {
     "name": "John Doe",
     "aliases": ["JIRA:john"],
     "emails": ["john@company.com"],
-    "confidence": 1.0,
 }
 
 OTHER_ACTOR = {
@@ -25,7 +24,6 @@ OTHER_ACTOR = {
     "name": "John Doe",
     "aliases": ["SLACK:jdoe"],
     "emails": ["jdoe@company.com"],
-    "confidence": 1.0,
 }
 
 NEW_EVENT_ACTOR = {"id": "john-gh", "name": "John Doe", "email": "john@company.com"}
@@ -53,11 +51,11 @@ def _store(
     async def lookup_activities(actor):
         return []
 
-    async def merge_actor(actor, new_alias, new_email, confidence):
-        calls["merged"].append((actor["uuid"], new_alias, confidence))
+    async def merge_actor(actor, new_alias, new_email, new_name):
+        calls["merged"].append((actor["uuid"], new_alias, new_name))
 
-    async def create_actor(name, aliases, emails, confidence):
-        created = {"uuid": "new-uuid", "name": name, "aliases": aliases, "emails": emails}
+    async def create_actor(name, source_id, email):
+        created = {"uuid": "new-uuid", "name": name, "aliases": [source_id], "emails": [email] if email else []}
         calls["created"].append(created)
         return created
 

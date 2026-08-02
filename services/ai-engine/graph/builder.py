@@ -46,6 +46,7 @@ from graph.writes import (
     link_issue_to_parent,
     link_pr_changesets_to_issues,
     link_pr_to_changeset,
+    unlink_issue_assignees,
     upsert_changeset,
     upsert_communication,
     upsert_file_with_modified_edge,
@@ -76,6 +77,7 @@ __all__ = [
     "link_issue_to_communication",
     "link_issue_to_parent",
     "link_issue_to_assignee",
+    "unlink_issue_assignees",
     # maintenance / migrations
     "propagate_thread_discussed_in",
     "backfill_triggered_by_source",

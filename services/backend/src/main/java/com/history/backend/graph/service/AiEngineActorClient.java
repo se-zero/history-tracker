@@ -10,6 +10,7 @@ import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.graph.dto.ActorDecisionListResponse;
+import com.history.backend.graph.dto.ActorDetailResponse;
 import com.history.backend.graph.dto.ActorListResponse;
 import com.history.backend.graph.dto.ActorMergeResponse;
 import com.history.backend.graph.dto.ActorRenameResponse;
@@ -51,15 +52,26 @@ public class AiEngineActorClient {
         }
     }
 
-    public ActorMergeResponse mergeActors(
-            UUID projectId, String sourceUuid, String targetUuid, String name, String note) {
+    public ActorDetailResponse fetchActorDetail(UUID projectId, String actorUuid) {
+        try {
+            return aiEngineRestClient.get()
+                    .uri(uriBuilder -> uriBuilder.path("/graph/actors/{actorUuid}")
+                            .queryParam("project_id", projectId)
+                            .build(actorUuid))
+                    .retrieve()
+                    .body(ActorDetailResponse.class);
+        } catch (RestClientException exception) {
+            throw translate(exception, "Failed to load actor detail.", projectId);
+        }
+    }
+
+    public ActorMergeResponse mergeActors(UUID projectId, String uuidA, String uuidB, String note) {
         try {
             return aiEngineRestClient.post()
                     .uri("/actors/merge")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(new AiEngineMergeRequest(
-                            projectId.toString(), sourceUuid, targetUuid,
-                            name == null ? "" : name, note == null ? "" : note))
+                            projectId.toString(), uuidA, uuidB, note == null ? "" : note))
                     .retrieve()
                     .body(ActorMergeResponse.class);
         } catch (RestClientException exception) {
@@ -94,15 +106,14 @@ public class AiEngineActorClient {
         }
     }
 
-    public ActorSplitResponse splitActor(UUID projectId, String actorUuid, List<String> sourceIds, String name) {
+    public ActorSplitResponse splitActor(UUID projectId, String actorUuid, List<String> sourceIds) {
         try {
             return aiEngineRestClient.post()
                     .uri("/actors/split")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(new AiEngineSplitRequest(
                             projectId.toString(), actorUuid,
-                            sourceIds == null ? List.of() : sourceIds,
-                            name == null ? "" : name))
+                            sourceIds == null ? List.of() : sourceIds))
                     .retrieve()
                     .body(ActorSplitResponse.class);
         } catch (RestClientException exception) {
@@ -171,9 +182,8 @@ public class AiEngineActorClient {
 
     private record AiEngineMergeRequest(
             @JsonProperty("project_id") String projectId,
-            @JsonProperty("source_uuid") String sourceUuid,
-            @JsonProperty("target_uuid") String targetUuid,
-            String name,
+            @JsonProperty("uuid_a") String uuidA,
+            @JsonProperty("uuid_b") String uuidB,
             String note
     ) {
     }
@@ -194,8 +204,7 @@ public class AiEngineActorClient {
     private record AiEngineSplitRequest(
             @JsonProperty("project_id") String projectId,
             @JsonProperty("actor_uuid") String actorUuid,
-            @JsonProperty("source_ids") List<String> sourceIds,
-            String name
+            @JsonProperty("source_ids") List<String> sourceIds
     ) {
     }
 }

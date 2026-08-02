@@ -35,13 +35,17 @@ public class GitHubNormalizer {
             Map<String, Object> authorDetail = (Map<String, Object>) commitDetail.get("author");
             Map<String, Object> ghAuthor = (Map<String, Object>) commit.get("author"); // GitHub 계정 (null 가능)
 
-            String authorName  = authorDetail != null ? (String) authorDetail.get("name")  : null;
-            String authorEmail = authorDetail != null ? (String) authorDetail.get("email") : null;
-            String authorLogin = ghAuthor != null ? (String) ghAuthor.get("login") : authorName;
+            String gitConfigName = authorDetail != null ? (String) authorDetail.get("name") : null;
             String message = (String) commitDetail.get("message");
             String authoredAt = authorDetail != null ? (String) authorDetail.get("date") : null;
             Map<String, Object> committerDetail = (Map<String, Object>) commitDetail.get("committer");
             String committedAt = committerDetail != null ? (String) committerDetail.get("date") : null;
+
+            // 신원은 GitHub 계정 기준으로 통일한다. GitHub 계정이 없으면 git config 이름만 폴백으로
+            // 쓰고, git config 이메일은 협업 툴 계정이 아닌 개인 정보라 절대 사용하지 않는다.
+            ActorDto actor = ghAuthor != null
+                    ? new ActorDto((String) ghAuthor.get("login"), resolveDisplayName(ghAuthor), (String) ghAuthor.get("email"))
+                    : new ActorDto(gitConfigName, gitConfigName, null);
 
             Map<String, Object> properties = new HashMap<>();
             List<Object> rawFiles = (List<Object>) commit.get("files");
@@ -73,7 +77,7 @@ public class GitHubNormalizer {
                     "ChangeSet",
                     "GITHUB",
                     resolveInstant(committedAt, authoredAt),
-                    new ActorDto(authorLogin, authorName, authorEmail),
+                    actor,
                     properties,
                     refs
             ));
