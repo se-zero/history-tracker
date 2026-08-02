@@ -33,6 +33,7 @@ from graph.maintenance import (
     clear_semantic_discussed_in,
     clear_semantic_triggered_by,
     delete_project_graph,
+    delete_project_source_graph,
     propagate_thread_discussed_in,
 )
 from graph.reference_store import make_neo4j_reference_store
@@ -85,6 +86,7 @@ __all__ = [
     "clear_semantic_discussed_in",
     "clear_reference",
     "delete_project_graph",
+    "delete_project_source_graph",
     # store factories
     "make_neo4j_reference_store",
     "make_neo4j_issue_link_store",

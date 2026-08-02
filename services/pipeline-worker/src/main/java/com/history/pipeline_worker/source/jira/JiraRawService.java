@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -149,13 +148,13 @@ public class JiraRawService {
         return projectKey;
     }
 
-    // credentials 형식: "email:apiToken" 또는 이미 "Basic xxx" / "Bearer xxx"
+    // credentials 형식: "Bearer {access_token}". OAuth 전환으로 API 토큰(email:apiToken → Basic)
+    // 경로는 제거됐다 — 사용자가 토큰을 직접 입력하는 연동 경로 자체가 없다.
     private String resolveAuth(String credentials) {
-        if (credentials.startsWith("Basic ") || credentials.startsWith("Bearer ")) {
-            return credentials;
+        if (!credentials.startsWith("Bearer ")) {
+            throw new IllegalArgumentException("Jira credentials must be a Bearer token.");
         }
-        String encoded = Base64.getEncoder().encodeToString(credentials.getBytes());
-        return "Basic " + encoded;
+        return credentials;
     }
 
     private Map<String, Object> fetchSearchPage(WebClient client, String auth, String projectKey,

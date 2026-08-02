@@ -99,6 +99,34 @@ public class JiraOAuthClient {
         return validateTokens(response);
     }
 
+    /**
+     * refresh token 폐기 (연동 해제 시). Atlassian은 refresh token을 폐기하면 그로부터 파생된
+     * access token도 함께 무효화하므로 refresh token 하나만 넘긴다.
+     *
+     * <p>Slack revoke와 같은 이유로 실패해도 예외를 던지지 않는다 — 이미 폐기됐거나(90일 미사용,
+     * 사용자가 직접 취소) Atlassian 장애일 때 연동 해제 자체가 막히면 안 된다.</p>
+     */
+    public void revoke(String refreshToken) {
+        Map<String, String> body = Map.of(
+                "token", refreshToken,
+                "token_type_hint", "refresh_token",
+                "client_id", properties.clientId(),
+                "client_secret", properties.clientSecret()
+        );
+
+        try {
+            restClient
+                    .post()
+                    .uri(properties.revokeUrl())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException exception) {
+            log.warn("Jira token revoke request failed. error={}", exception.getMessage());
+        }
+    }
+
     private JiraTokens validateTokens(JiraTokenResponse response) {
         if (response == null || response.accessToken() == null || response.accessToken().isBlank()) {
             throw new BadGatewayException("Jira OAuth response is missing access token.");

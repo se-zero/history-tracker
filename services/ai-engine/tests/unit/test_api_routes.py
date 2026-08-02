@@ -12,6 +12,7 @@ import main
 EXPECTED_ROUTES = {
     ("DELETE", "/actors/decisions/{decision_id}"),
     ("DELETE", "/graph/projects/{project_id}"),
+    ("DELETE", "/graph/projects/{project_id}/sources/{source}"),
     ("GET", "/actors/decisions"),
     ("GET", "/dlq/stats"),
     ("GET", "/graph/activity"),

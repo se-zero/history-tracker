@@ -1,4 +1,5 @@
 import { GithubMark } from "@/components/brand/BrandMarks";
+import { DisconnectIntegration } from "@/components/sources/DisconnectIntegration";
 import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
 import { useGithubInstallations } from "@/hooks/useGithub";
 import { useIntegrations } from "@/hooks/useIntegrations";
@@ -58,6 +59,11 @@ export function GitHubCard({ projectId }: { projectId: string }) {
             </div>
           )}
         </div>
+        {/* 저장소가 연결된 경우에만 해제할 게 있다. App 설치 자체는 계정 단위(다른 프로젝트도
+            쓴다)라 여기서 건드리지 않는다 — 제거는 GitHub 설정에서 한다. */}
+        {repoConnected && (
+          <DisconnectIntegration projectId={projectId} provider="github" />
+        )}
       </div>
 
       {installationsQuery.isLoading && (

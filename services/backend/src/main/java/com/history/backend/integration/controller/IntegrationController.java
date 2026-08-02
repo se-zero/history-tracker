@@ -3,17 +3,20 @@ package com.history.backend.integration.controller;
 import java.util.List;
 import java.util.UUID;
 
+import com.history.backend.common.error.BadRequestException;
 import com.history.backend.integration.dto.CompleteJiraProjectRequest;
 import com.history.backend.integration.dto.ConnectGitHubIntegrationRequest;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.dto.JiraProjectResponse;
 import com.history.backend.integration.dto.JiraSiteResponse;
+import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -53,6 +56,26 @@ public class IntegrationController {
                 request.repositoryFullName(),
                 request.branch()
         ));
+    }
+
+    @DeleteMapping("/{provider}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void disconnect(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @PathVariable String provider
+    ) {
+        integrationService.disconnect(authenticatedUser.id(), projectId, parseProvider(provider));
+    }
+
+    // 알 수 없는 provider를 500이 아니라 400으로 — fromValue가 던지는 IllegalArgumentException은
+    // GlobalExceptionHandler에 매핑이 없다.
+    private IntegrationProvider parseProvider(String provider) {
+        try {
+            return IntegrationProvider.fromValue(provider);
+        } catch (IllegalArgumentException exception) {
+            throw new BadRequestException(exception.getMessage());
+        }
     }
 
     @GetMapping("/jira/sites")

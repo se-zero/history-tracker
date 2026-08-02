@@ -1,6 +1,8 @@
 import { api } from "./client";
 import type { Integration, JiraProject, JiraSite } from "@/types/api";
 
+export type IntegrationProvider = "github" | "slack" | "jira";
+
 export interface ConnectGitHubPayload {
   installationId: string;
   repositoryId: number;
@@ -34,6 +36,14 @@ export async function connectGitHubRepository(
     },
   );
   return data;
+}
+
+// 연동 해제 — 자격증명·수집 커서와 그 소스에서 수집한 그래프가 함께 삭제된다(되돌릴 수 없음).
+export async function disconnectIntegration(
+  projectId: string,
+  provider: IntegrationProvider,
+): Promise<void> {
+  await api.delete(`/projects/${projectId}/integrations/${provider}`);
 }
 
 // Slack 동의 화면 URL 조회. 프론트는 이 URL로 window.location.href를 대입해 이동한다 —

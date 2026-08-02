@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { JiraMark } from "@/components/brand/BrandMarks";
+import { DisconnectIntegration } from "@/components/sources/DisconnectIntegration";
 import { BusyLabel } from "@/components/ui/BusyLabel";
 import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
@@ -180,6 +181,9 @@ export function JiraCard({
             </div>
           )}
         </div>
+        {/* pending(프로젝트 미선택) 상태에서도 해제할 수 있어야 한다 — 사이트 조회가 막혀
+            연결을 완료할 수 없을 때 빠져나갈 길이 이것뿐이다. */}
+        <DisconnectIntegration projectId={projectId} provider="jira" />
       </div>
 
       {pending && (

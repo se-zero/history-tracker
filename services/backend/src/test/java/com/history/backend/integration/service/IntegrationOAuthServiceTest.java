@@ -46,7 +46,8 @@ class IntegrationOAuthServiceTest {
             "https://slack.test/callback",
             "channels:read,groups:read",
             "https://slack.test/oauth/v2/authorize",
-            "https://slack.test/api/oauth.v2.access"
+            "https://slack.test/api/oauth.v2.access",
+            "https://slack.test/api/auth.revoke"
     );
 
     private final AtlassianProperties atlassianProperties = new AtlassianProperties(
@@ -57,6 +58,7 @@ class IntegrationOAuthServiceTest {
             "https://atlassian.test/authorize",
             "https://atlassian.test/oauth/token",
             "https://atlassian.test/oauth/token/accessible-resources",
+            "https://atlassian.test/oauth/revoke",
             "https://atlassian.test/ex/jira",
             Duration.ofMinutes(5)
     );

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from graph.actor_admin import get_actor_detail, list_actors
-from graph.builder import delete_project_graph
+from graph.builder import delete_project_graph, delete_project_source_graph
 from graph.overview import (
     CONSTELLATION_DEFAULT_LIMIT,
     get_constellation_view,
@@ -120,6 +120,17 @@ async def delete_project_graph_endpoint(project_id: str):
     """
     deleted = await delete_project_graph(project_id)
     return {"deleted": deleted}
+
+
+@router.delete("/graph/projects/{project_id}/sources/{source}")
+async def delete_project_source_graph_endpoint(project_id: str, source: str):
+    """한 소스에서 수집한 노드만 삭제한다 (GITHUB|SLACK|JIRA).
+
+    backend의 연동 해제에서 호출하는 cascade. 프로젝트와 다른 소스의 노드는 남는다.
+    인가는 backend가 담당 — 프로젝트 삭제와 같은 내부 서비스 신뢰 모델이다.
+    멱등 — 이미 지워진 소스를 다시 호출하면 전부 0이다.
+    """
+    return await delete_project_source_graph(project_id, source)
 
 
 @router.post("/graph/build", status_code=202)

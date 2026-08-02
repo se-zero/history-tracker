@@ -12,6 +12,7 @@ import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
+import com.history.backend.integration.domain.IntegrationProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -194,6 +195,20 @@ public class AiEngineGraphClient {
             log.error("ai-engine project graph delete failed: projectId={}, {}",
                     projectId, exception.getMessage());
             throw new BadGatewayException("Failed to delete project graph.");
+        }
+    }
+
+    // 연동 해제 cascade — 한 소스에서 수집한 노드만 삭제한다(프로젝트·다른 소스는 유지)
+    public void deleteProjectSourceGraph(UUID projectId, IntegrationProvider provider) {
+        try {
+            aiEngineRestClient.delete()
+                    .uri("/graph/projects/{projectId}/sources/{source}", projectId, provider.value())
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException exception) {
+            log.error("ai-engine source graph delete failed: projectId={}, provider={}, {}",
+                    projectId, provider.value(), exception.getMessage());
+            throw new BadGatewayException("Failed to delete integration graph.");
         }
     }
 

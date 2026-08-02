@@ -16,15 +16,12 @@ import { PATHS } from "@/routes";
 // (서비스별로 문서를 나누면 수집 코드가 바뀔 때 세 곳이 갈라진다). 심사자가 자기 서비스만
 // 바로 보도록 제2조에 앵커를 뒀다 — /privacy#github · #slack · #jira.
 //
-// ⚠️ 제2조의 "삭제"와 제5조 1항은 **연동 해제 기능이 있다는 전제**로 쓰여 있다.
-//    2026-08-01 기준 해제 엔드포인트·UI는 아직 없다(데이터 삭제 경로는 프로젝트 삭제와
-//    회원 탈퇴뿐). 기능이 나가기 전에는 이 페이지를 외부 앱 심사에 제출하지 말 것.
-//
 // 항목·보유기간·위탁처는 실제 구현에서 확인한 값이다(docs/DB.md, services/*/CLAUDE.md):
 //   수집 대상  → pipeline-worker의 GitHub/Jira/Slack 정규화 코드
 //   요청 권한  → backend application.yaml의 slack.user-scopes / atlassian.scopes
 //   위탁       → ai-engine의 OpenAI 임베딩·질의 모델
 //   파기 기한  → backend user-lifecycle.purge.grace-period (P30D)
+//   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
 // 이 중 하나라도 코드가 바뀌면 이 페이지도 함께 고쳐야 한다.
 export function PrivacyPage() {
   return (
@@ -115,6 +112,8 @@ export function PrivacyPage() {
           </LegalSourceRow>
           <LegalSourceRow label="삭제">
             연동을 해제하면 저장된 자격증명과 해당 저장소에서 수집한 그래프 데이터를 삭제합니다.
+            GitHub App 설치는 이용자의 계정에 속하고 다른 프로젝트에서도 쓰일 수 있어 그대로
+            두므로, 앱 자체를 제거하려면 GitHub 설정에서 해주세요.
           </LegalSourceRow>
         </LegalSourceBlock>
 
@@ -144,8 +143,8 @@ export function PrivacyPage() {
             사용하며, 마케팅 발송이나 외부 제공에 쓰지 않습니다.
           </LegalSourceRow>
           <LegalSourceRow label="삭제">
-            연동을 해제하면 저장된 액세스 토큰과 해당 워크스페이스에서 수집한 메시지·멤버
-            데이터를 삭제합니다.
+            연동을 해제하면 Slack에 액세스 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과
+            해당 워크스페이스에서 수집한 메시지·멤버 데이터를 삭제합니다.
           </LegalSourceRow>
           <LegalSourceRow label="쓰기 권한">
             요청하지 않습니다. 메시지 전송·수정·삭제, 채널 생성 등 워크스페이스를 변경하는
@@ -175,7 +174,8 @@ export function PrivacyPage() {
             티켓에 적힌 요구사항·결정을 코드 변경과 연결하기 위함입니다.
           </LegalSourceRow>
           <LegalSourceRow label="삭제">
-            연동을 해제하면 저장된 토큰과 해당 프로젝트에서 수집한 이슈 데이터를 삭제합니다.
+            연동을 해제하면 Atlassian에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과
+            해당 프로젝트에서 수집한 이슈 데이터를 삭제합니다.
           </LegalSourceRow>
         </LegalSourceBlock>
       </LegalSection>
@@ -222,9 +222,9 @@ export function PrivacyPage() {
       <LegalSection index={5} heading="보유 기간과 파기">
         <ol>
           <li>
-            <strong>연동 해제</strong> — 연동을 해제하면 저장된 자격증명과 그 서비스에서
-            수집한 데이터(지식 그래프의 해당 노드 포함)를 지체 없이 삭제합니다. 다른 서비스의
-            연동과 대화 기록은 유지됩니다.
+            <strong>연동 해제</strong> — 연동을 해제하면 해당 서비스에 접근 권한 폐기를 요청한
+            뒤, 저장된 자격증명과 그 서비스에서 수집한 데이터(지식 그래프의 해당 노드 포함)를
+            지체 없이 삭제합니다. 다른 서비스의 연동과 대화 기록은 유지됩니다.
           </li>
           <li>
             <strong>프로젝트 삭제</strong> — 프로젝트를 삭제하면 그 프로젝트의 연동 정보,
