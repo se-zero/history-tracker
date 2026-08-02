@@ -9,9 +9,7 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 public record ActorResponse(
         String uuid,
         String name,
-        List<String> aliases,
-        List<String> emails,
-        Double confidence,
-        @JsonAlias("activity_count") Long activityCount
+        @JsonAlias("activity_count") Long activityCount,
+        @JsonAlias("source_names") List<ActorSourceName> sourceNames
 ) {
 }

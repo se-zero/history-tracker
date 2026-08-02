@@ -5,7 +5,7 @@ Neo4j 없이 도는 순수 함수만 검증한다 — 사용자 입력 → Lucen
 실제 full-text 조회·랭킹은 live Neo4j(integration) 영역.
 """
 
-from graph.search import build_lucene_query
+from graph.search import _SEARCH_QUERY, build_lucene_query
 
 
 def test_ascii_terms_get_prefix_wildcard_and_lowercase():
@@ -29,6 +29,11 @@ def test_composite_keys_become_phrases():
     assert build_lucene_query("a:b/c") == '"a:b/c"'
     # phrase 문법을 깨는 따옴표·백슬래시만 escape
     assert build_lucene_query('say-"hi"') == '"say-\\"hi\\""'
+
+
+def test_search_query_excludes_deleted_user_actors():
+    # 개인정보가 하나도 없는 "(삭제된 사용자)" Actor는 검색어와 우연히 일치해도 노이즈라 제외한다
+    assert "NOT (n:Actor AND n.name = $deleted_label)" in _SEARCH_QUERY
 
 
 def test_punctuation_only_terms_dropped():

@@ -1,9 +1,9 @@
 """그래프 API — 개요·검색·관련 서브그래프 조회, 프로젝트 그래프 삭제, 후처리(Layer 4) 수동 트리거."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from graph.actor_admin import list_actors
+from graph.actor_admin import get_actor_detail, list_actors
 from graph.builder import delete_project_graph
 from graph.overview import (
     CONSTELLATION_DEFAULT_LIMIT,
@@ -91,11 +91,24 @@ async def graph_subgraph(req: SubgraphRequest):
 async def graph_actors(project_id: str):
     """프로젝트 Actor 목록 + 활동 수 (액터 관리 UI용).
 
-    수동 병합/분리 대상 선택을 위해 aliases를 함께 반환한다. 개인정보(이메일 등)는
-    ActorAlias에 있으므로 여기 포함하지 않는다 — 필요하면 별도 조회로 확장한다.
+    "이 둘이 같은 사람인가" 판단 재료인 소스별 이름(source_names)만 내려준다. 이메일·계정ID는
+    개인정보라 목록에 넣지 않는다 — 병합·분리 폼을 열 때 GET /graph/actors/{actor_uuid}로 조회한다.
     인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
     """
     return {"actors": await list_actors(project_id)}
+
+
+@router.get("/graph/actors/{actor_uuid}")
+async def graph_actor_detail(actor_uuid: str, project_id: str):
+    """Actor 상세 조회 (병합·분리 폼용) — 이메일·계정ID를 포함한다.
+
+    목록(/graph/actors)과 달리 여기서만 개인정보를 노출한다.
+    인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
+    """
+    try:
+        return await get_actor_detail(project_id, actor_uuid)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.delete("/graph/projects/{project_id}")

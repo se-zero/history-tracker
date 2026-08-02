@@ -192,10 +192,15 @@
 .actor-info strong, .actor-decision strong { display: block; font-size: 13px; }
 .actor-row-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .actor-meta { color: var(--fg-subtle); font-family: var(--font-mono); font-size: 11px; }
-.actor-aliases { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.actor-aliases code { padding: 2px 5px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-muted); font-size: 11px; }
+.actor-source-names { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.actor-source-names code { padding: 2px 5px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-muted); font-size: 11px; }
 .actor-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; padding: 16px; border: 1px dashed var(--border-strong); border-radius: var(--r-md); background: var(--surface-2); }
-.actor-form h3, .actor-form > p, .actor-form > .actor-alias-picker, .actor-form > .actor-form-actions, .actor-form > [role="alert"] { grid-column: 1 / -1; }
+.actor-form h3, .actor-form > p, .actor-form > .actor-compare, .actor-form > .actor-alias-picker, .actor-form > .actor-form-actions, .actor-form > [role="alert"] { grid-column: 1 / -1; }
+.actor-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.actor-compare-col { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+.actor-compare-col strong { font-size: 12.5px; }
+.actor-alias-detail { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); }
+.actor-alias-detail code { color: var(--fg); background: var(--surface-2); padding: 2px 5px; border-radius: var(--r-sm); }
 .actor-rename-form { grid-template-columns: 1fr; }
 .actor-form h3 { margin: 0; font-size: 13px; }
 .actor-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 11.5px; font-weight: 600; }
@@ -212,5 +217,5 @@
 
 @media (max-width: 700px) {
   .actor-head, .actor-row, .actor-decision { align-items: flex-start; flex-direction: column; }
-  .actor-form { grid-template-columns: 1fr; }
+  .actor-form, .actor-compare { grid-template-columns: 1fr; }
 }

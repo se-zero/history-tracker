@@ -1,14 +1,19 @@
 import { api } from "./client";
-import type { Actor, ActorDecision } from "@/types/api";
+import type { Actor, ActorDecision, ActorDetail } from "@/types/api";
 
 export async function getActors(projectId: string): Promise<Actor[]> {
   const { data } = await api.get<{ actors: Actor[] }>(`/projects/${projectId}/actors`);
   return data.actors;
 }
 
+export async function getActorDetail(projectId: string, actorUuid: string): Promise<ActorDetail> {
+  const { data } = await api.get<ActorDetail>(`/projects/${projectId}/actors/${actorUuid}`);
+  return data;
+}
+
 export async function mergeActors(
   projectId: string,
-  input: { sourceUuid: string; targetUuid: string; name?: string; note?: string },
+  input: { uuidA: string; uuidB: string; note?: string },
 ): Promise<void> {
   await api.post(`/projects/${projectId}/actors/merge`, input);
 }
@@ -22,7 +27,7 @@ export async function renameActor(
 
 export async function splitActor(
   projectId: string,
-  input: { actorUuid: string; sourceIds: string[]; name?: string },
+  input: { actorUuid: string; sourceIds: string[] },
 ): Promise<void> {
   await api.post(`/projects/${projectId}/actors/split`, input);
 }

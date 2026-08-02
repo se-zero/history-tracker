@@ -3,6 +3,7 @@ package com.history.backend.graph.controller;
 import java.util.UUID;
 
 import com.history.backend.graph.dto.ActorDecisionListResponse;
+import com.history.backend.graph.dto.ActorDetailResponse;
 import com.history.backend.graph.dto.ActorListResponse;
 import com.history.backend.graph.dto.ActorMergeRequest;
 import com.history.backend.graph.dto.ActorMergeResponse;
@@ -39,6 +40,15 @@ public class ActorController {
             @PathVariable UUID projectId
     ) {
         return actorService.getActors(authenticatedUser.id(), projectId);
+    }
+
+    @GetMapping("/{actorUuid}")
+    public ActorDetailResponse getActorDetail(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable UUID projectId,
+            @PathVariable String actorUuid
+    ) {
+        return actorService.getActorDetail(authenticatedUser.id(), projectId, actorUuid);
     }
 
     @PostMapping("/merge")

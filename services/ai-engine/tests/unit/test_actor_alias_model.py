@@ -20,20 +20,53 @@ from graph.actor_store import derive_display_name
 
 
 class DeriveDisplayName(unittest.TestCase):
-    def test_prefers_github_over_jira_over_slack(self):
+    def test_github_profile_wins_regardless_of_activity(self):
+        """(a) GitHub 프로필 이름이 있으면 다른 소스의 활동량이 훨씬 많아도 최우선이다."""
         aliases = [
             {"source_id": "SLACK:U1", "source": "SLACK", "pd_name": "영희"},
             {"source_id": "JIRA:5b10a2", "source": "JIRA", "pd_name": "김영희"},
             {"source_id": "GITHUB:se-zero", "source": "GITHUB", "pd_name": "Younghee Kim"},
         ]
-        self.assertEqual(derive_display_name(aliases, False, None), "Younghee Kim")
+        activity = {"SLACK": 1000, "JIRA": 500, "GITHUB": 1}
+        self.assertEqual(derive_display_name(aliases, False, None, activity), "Younghee Kim")
 
-    def test_falls_back_to_jira_when_no_github(self):
+    def test_more_active_source_wins_when_no_github(self):
+        """(b) GitHub이 없으면 고정 서열(Jira>Slack) 대신 소스 활동량이 더 많은 쪽이 이긴다."""
+        aliases = [
+            {"source_id": "JIRA:5b10a2", "source": "JIRA", "pd_name": "김영희"},
+            {"source_id": "SLACK:U1", "source": "SLACK", "pd_name": "영희"},
+        ]
+        activity = {"JIRA": 10, "SLACK": 90}
+        self.assertEqual(derive_display_name(aliases, False, None, activity), "영희")
+
+    def test_tied_activity_breaks_by_source_name_lexicographic_order(self):
+        """(c) 활동량이 동률이면 소스명 사전순으로 정한다."""
+        aliases = [
+            {"source_id": "JIRA:5b10a2", "source": "JIRA", "pd_name": "김영희"},
+            {"source_id": "SLACK:U1", "source": "SLACK", "pd_name": "영희"},
+        ]
+        activity = {"JIRA": 5, "SLACK": 5}
+        self.assertEqual(derive_display_name(aliases, False, None, activity), "김영희")
+
+    def test_activity_by_source_omitted_keeps_deterministic_order(self):
+        """(d) activity_by_source를 안 주면(None) 모든 소스를 활동량 0으로 보고 소스명
+        사전순으로 정한다 — 우연히 기존 GitHub>Jira>Slack 고정 서열과 알파벳 순서가 같아
+        결과도 같다."""
         aliases = [
             {"source_id": "SLACK:U1", "source": "SLACK", "pd_name": "영희"},
             {"source_id": "JIRA:5b10a2", "source": "JIRA", "pd_name": "김영희"},
         ]
         self.assertEqual(derive_display_name(aliases, False, None), "김영희")
+
+    def test_placeholder_github_activity_does_not_override_exclusion(self):
+        """(e) placeholder GitHub(pd_name==login)은 활동량이 커도 후보 비교에 안 낀다 —
+        login 폴백은 다른 소스가 전혀 없을 때만 쓰인다."""
+        aliases = [
+            {"source_id": "GITHUB:se-zero", "source": "GITHUB", "pd_name": "se-zero"},
+            {"source_id": "JIRA:5b10a2", "source": "JIRA", "pd_name": "김영희"},
+        ]
+        activity = {"GITHUB": 1000, "JIRA": 1}
+        self.assertEqual(derive_display_name(aliases, False, None, activity), "김영희")
 
     def test_falls_back_to_slack_when_only_slack(self):
         aliases = [{"source_id": "SLACK:U1", "source": "SLACK", "pd_name": "영희"}]
@@ -81,7 +114,7 @@ class DeriveDisplayName(unittest.TestCase):
 
     def test_github_pd_name_differs_from_login_still_takes_priority(self):
         """실제 GitHub 프로필 이름(login과 다름)은 기존대로 최우선 — 이미 다른 테스트가
-        커버하는 시나리오지만(test_prefers_github_over_jira_over_slack) 회귀 방지로 명시한다."""
+        커버하는 시나리오지만(test_github_profile_wins_regardless_of_activity) 회귀 방지로 명시한다."""
         aliases = [
             {"source_id": "GITHUB:se-zero", "source": "GITHUB", "pd_name": "Younghee Kim"},
             {"source_id": "JIRA:5b10a2", "source": "JIRA", "pd_name": "김영희"},

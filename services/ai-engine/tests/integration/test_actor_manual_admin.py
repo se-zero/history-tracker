@@ -257,7 +257,7 @@ async def case_split_alias_moves_source_edges() -> CaseResult:
                 slack_url=f"https://slack.example/{pid}",
             )
 
-        split = await split_alias(pid, actor_uuid, ["SLACK:mixed"], name="Slack Actor")
+        split = await split_alias(pid, actor_uuid, ["SLACK:mixed"])
         new_uuid = split["new_uuid"]
         r.assert_(split["moved_edges"] == 1, f"SLACK AUTHORED 1개 이동 기대, 실제 {split}")
         r.assert_(split["moved_sources"] == ["SLACK"], f"moved_sources=['SLACK'] 기대, 실제 {split}")
@@ -266,7 +266,9 @@ async def case_split_alias_moves_source_edges() -> CaseResult:
         created = await _actor(pid, new_uuid)
         r.assert_(original and original["aliases"] == ["GITHUB:mixed"], f"원 Actor alias 잔류 기대, 실제 {original}")
         r.assert_(created and created["aliases"] == ["SLACK:mixed"], f"새 Actor alias 기대, 실제 {created}")
-        r.assert_(created and created["name"] == "Slack Actor", f"새 Actor 이름 기대, 실제 {created}")
+        # name 파라미터 없이 표시 이름은 alias(SLACK:mixed)의 pd_name에서 유도된다 — _seed_actor가
+        # 원 Actor 생성 시 모든 alias에 같은 pd_name("Mixed Actor")을 심었으므로 그 값 그대로다.
+        r.assert_(created and created["name"] == "Mixed Actor", f"새 Actor 이름(alias 유도) 기대, 실제 {created}")
         r.assert_(
             await _count(
                 """
@@ -343,10 +345,49 @@ async def case_rename_actor_updates_display_name() -> CaseResult:
     return r
 
 
+async def case_unmerge_blocked_after_split_relocates_all_aliases() -> CaseResult:
+    """실사용 버그 재현: 병합 후 그 alias를 분리로 다른 Actor에 옮기면, canonical에는
+    되돌릴 alias가 하나도 안 남아 unmerge가 빈 Actor를 복원하게 된다 — 가드가 막아야 한다."""
+    r = CaseResult("unmerge_actors: 병합→분리로 전부 재배치된 경우 복원 불가 가드")
+    pid = f"test-actor-unmerge-guard-{uuid.uuid4()}"
+    more_uuid = f"{pid}-more"
+    less_uuid = f"{pid}-less"
+    try:
+        await _seed_merge_graph(pid, more_uuid, less_uuid)
+        merged = await merge_actors(pid, less_uuid, more_uuid, note="integration")
+        canonical_uuid = merged["canonical_uuid"]  # more_uuid (활동 많은 쪽)
+
+        # 병합 직후, less의 alias(SLACK:less)를 canonical에서 다시 분리해 재배치한다 —
+        # 이제 canonical에는 병합 취소로 되돌릴 SLACK:less가 남아 있지 않다.
+        split = await split_alias(pid, canonical_uuid, ["SLACK:less"])
+        r.assert_(split["new_uuid"] != canonical_uuid, f"분리로 새 Actor가 생겨야 함, 실제 {split}")
+
+        try:
+            await unmerge_actors(pid, merged["decision_id"])
+            r.assert_(False, "재배치 후 unmerge는 ValueError를 던져야 하는데 성공했다")
+        except ValueError as exc:
+            r.assert_("재배치" in str(exc), f"가드 에러 메시지에 재배치 안내가 있어야 함, 실제: {exc}")
+
+        # 가드가 트랜잭션을 되돌렸으므로 canonical/분리된 Actor 상태는 분리 직후 그대로여야 한다.
+        canonical = await _actor(pid, canonical_uuid)
+        r.assert_(
+            canonical and canonical["aliases"] == ["GITHUB:more"],
+            f"가드 실패 후에도 canonical alias는 분리 결과 그대로여야 함, 실제 {canonical}",
+        )
+        r.assert_(
+            await _actor(pid, less_uuid) is None,
+            "가드가 less Actor를 복원하면 안 됨(빈 Actor 생성 방지가 이 가드의 목적)",
+        )
+    finally:
+        await delete_project_graph(pid)
+    return r
+
+
 CASES = [
     case_merge_unmerge_roundtrip,
     case_split_alias_moves_source_edges,
     case_rename_actor_updates_display_name,
+    case_unmerge_blocked_after_split_relocates_all_aliases,
 ]
 
 

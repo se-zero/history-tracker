@@ -17,21 +17,29 @@ from graph.driver import get_driver
 # alias가 바뀌는 모든 경로(Step 1/3 병합, Step 4 생성, Step 0 이름 갱신, 이후 수동
 # 병합·취소·분리·개인정보 삭제)가 이 규칙을 거쳐 Actor.name을 재계산한다.
 
-_DISPLAY_NAME_SOURCE_PRIORITY = ("GITHUB", "JIRA", "SLACK")
 _DELETED_USER_LABEL = "(삭제된 사용자)"
 
 
-def derive_display_name(aliases: list[dict], manual_name: bool, current_name: Optional[str]) -> str:
+def derive_display_name(
+    aliases: list[dict],
+    manual_name: bool,
+    current_name: Optional[str],
+    activity_by_source: Optional[dict[str, int]] = None,
+) -> str:
     """alias 목록에서 표시 이름을 폴백 체인으로 유도한다.
 
-    체인: manual_name=true면 현재 이름 유지 > GitHub 프로필 이름 > Jira pd_name > Slack pd_name
-    > GitHub login(source_id의 'GITHUB:' 뒤) > "(삭제된 사용자)".
-    빈 pd_name은 후보에서 제외한다. 같은 소스에 alias가 여럿이면 source_id 사전순
+    체인: manual_name=true면 현재 이름 유지 > GitHub 프로필 이름 > (이름 있는 alias 중)
+    소스 활동량 최다 > GitHub login(source_id의 'GITHUB:' 뒤) > "(삭제된 사용자)".
+    소스마다 고정 서열(과거엔 Jira > Slack)을 두지 않는 이유는, 데이터 소스가 늘어날 때마다
+    서열을 다시 정의해야 하는 유지 비용 때문이다 — 대신 "그 사람이 가장 활발히 쓰는 툴의
+    이름"으로 일반화한다. activity_by_source가 없으면(None) 모든 소스를 활동량 0으로 보고
+    소스명 사전순으로만 정해지므로, 활동량 정보 없이도 항상 같은 결과를 내는 결정적 동작이다.
+    빈 pd_name은 후보에서 제외한다. 활동량·소스명까지 같으면 source_id 사전순
     최솟값을 쓴다 — 어느 alias를 고를지 결정적으로 정해야 재계산이 매번 같은 값을 낸다.
 
     GitHub은 pd_name == login(source_id의 'GITHUB:' 뒤)이면 "프로필 이름 없음, login으로
     대체 수집"으로 본다 — pipeline-worker가 프로필 이름이 비어 있을 때 login을 name에
-    그대로 채워 보내기 때문이다. 이 경우 여기서는 건너뛰고 Jira/Slack으로 내려가며, 그 값은
+    그대로 채워 보내기 때문이다. 이 경우 활동량 비교에도 끼지 않고 건너뛰며, 그 값은
     마지막 "GitHub login" 폴백 단계에서 어차피 다시 쓰인다(실제 프로필 이름을 우연히 login과
     똑같이 지은 경우도 login 취급으로 무해하다).
 
@@ -39,23 +47,32 @@ def derive_display_name(aliases: list[dict], manual_name: bool, current_name: Op
         aliases: 이 Actor에 붙은 alias 목록. 각 항목 {"source_id", "source", "pd_name"}
         manual_name: 운영자가 이름을 수동 확정했는지 (true면 자동 유도를 건너뛴다)
         current_name: 현재 Actor.name (manual_name=true일 때 유지할 값)
+        activity_by_source: {"JIRA": 96, "SLACK": 12}처럼 소스별 활동량. None이면 빈 dict 취급.
     """
     if manual_name and current_name:
         return current_name
 
+    activity_by_source = activity_by_source or {}
+
     def _is_github_login_placeholder(a: dict) -> bool:
         return a.get("source") == "GITHUB" and a.get("pd_name") == a["source_id"].split(":", 1)[-1]
 
-    for source in _DISPLAY_NAME_SOURCE_PRIORITY:
-        named = sorted(
-            (
-                a for a in aliases
-                if a.get("source") == source and a.get("pd_name") and not _is_github_login_placeholder(a)
-            ),
-            key=lambda a: a["source_id"],
-        )
-        if named:
-            return named[0]["pd_name"]
+    github_named = sorted(
+        (
+            a for a in aliases
+            if a.get("source") == "GITHUB" and a.get("pd_name") and not _is_github_login_placeholder(a)
+        ),
+        key=lambda a: a["source_id"],
+    )
+    if github_named:
+        return github_named[0]["pd_name"]
+
+    named = sorted(
+        (a for a in aliases if a.get("pd_name") and not _is_github_login_placeholder(a)),
+        key=lambda a: (-activity_by_source.get(a.get("source"), 0), a.get("source") or "", a["source_id"]),
+    )
+    if named:
+        return named[0]["pd_name"]
 
     github_aliases = sorted(
         (a for a in aliases if a.get("source") == "GITHUB"),
@@ -73,6 +90,10 @@ async def recompute_display_name(tx, actor_uuid: str) -> None:
     tx(트랜잭션 또는 세션)를 받아 동작한다 — actor_admin의 수동 병합·취소·분리·개인정보
     삭제가 각자의 단일 트랜잭션 안에서 이 함수를 그대로 재사용할 수 있어야
     "alias는 비웠는데 표시 이름은 안 바뀌는" 정합성 결함을 구조로 막을 수 있다.
+
+    소스별 활동량은 outgoing(AUTHORED/CREATED/WROTE)과 incoming(ASSIGNED_TO)을 별도 쿼리로
+    구해 파이썬에서 합산한다 — 한 쿼리에서 두 OPTIONAL MATCH의 집계를 그대로 더하면 집계와
+    비집계 변수가 섞여 Neo4j 5.x가 42I18로 거부한다.
     """
     result = await tx.run(
         """
@@ -89,7 +110,30 @@ async def recompute_display_name(tx, actor_uuid: str) -> None:
     if record is None:
         return
     aliases = [a for a in (record["aliases"] or []) if a is not None]
-    display_name = derive_display_name(aliases, bool(record["manual_name"]), record["name"])
+
+    activity_by_source: dict[str, int] = {}
+    outgoing = await tx.run(
+        """
+        MATCH (a:Actor {uuid: $actor_uuid})-[:AUTHORED|CREATED|WROTE]->(n)
+        RETURN n.source AS source, count(n) AS cnt
+        """,
+        actor_uuid=actor_uuid,
+    )
+    for row in await outgoing.data():
+        activity_by_source[row["source"]] = activity_by_source.get(row["source"], 0) + row["cnt"]
+    incoming = await tx.run(
+        """
+        MATCH (n)-[:ASSIGNED_TO]->(a:Actor {uuid: $actor_uuid})
+        RETURN n.source AS source, count(n) AS cnt
+        """,
+        actor_uuid=actor_uuid,
+    )
+    for row in await incoming.data():
+        activity_by_source[row["source"]] = activity_by_source.get(row["source"], 0) + row["cnt"]
+
+    display_name = derive_display_name(
+        aliases, bool(record["manual_name"]), record["name"], activity_by_source
+    )
     await tx.run(
         "MATCH (a:Actor {uuid: $actor_uuid}) SET a.name = $name",
         actor_uuid=actor_uuid,

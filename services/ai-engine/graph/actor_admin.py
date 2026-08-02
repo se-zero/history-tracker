@@ -44,7 +44,9 @@ async def _count_activity_edges(tx, actor_uuid: str) -> int:
         OPTIONAL MATCH (a)-[r:AUTHORED|CREATED|WROTE]->()
         WITH a, count(r) AS authored
         OPTIONAL MATCH ()-[ra:ASSIGNED_TO]->(a)
-        RETURN authored + count(ra) AS activity_count
+        // 집계(count)와 비집계 변수(authored)를 한 식에 섞으면 Neo4j 5.x가 42I18로 거부한다
+        WITH authored, count(ra) AS assigned
+        RETURN authored + assigned AS activity_count
         """,
         actor_uuid=actor_uuid,
     )
@@ -245,6 +247,12 @@ async def unmerge_actors(project_id: str, decision_id: str) -> dict:
     대상이다. 복원 후 distinct 결정을 자동 생성해 다음 수집에서 자동 파이프라인이 같은 병합을
     반복하지 않게 한다. 병합 이후 수집된 이벤트는 표식이 없어 canonical에 남는다
     (docs/actor-manual-merge.md 한계 참고).
+
+    병합 후 그 alias들이 분리(split_alias)로 다른 Actor에 재배치된 경우, canonical에
+    더 이상 ALIAS_OF로 붙어 있지 않은 alias는 되돌릴 대상이 없다 — 그런 alias만 있으면
+    (movable 없음) ValueError를 던지고, 일부만 있으면(movable 일부) 그 alias들만으로
+    부분 복원한다(복원 Actor의 aliases·ALIAS_OF 이동·canonical aliases 차감·자동 생성
+    distinct 결정의 aliases_b 모두 movable 기준).
     """
 
     async def _tx(tx):
@@ -272,18 +280,36 @@ async def unmerge_actors(project_id: str, decision_id: str) -> dict:
         if canonical is None:
             raise LookupError(f"canonical Actor가 이후 병합/삭제로 사라져 복원 불가: {canonical_uuid}")
 
+        # 병합 후 분리(split_alias)로 다른 Actor에 재배치된 alias는 되돌릴 수 없다 —
+        # canonical에 아직 ALIAS_OF로 붙어 있는 것(movable)만 복원 대상으로 좁힌다.
+        movable_result = await tx.run(
+            """
+            MATCH (al:ActorAlias {project_id: $project_id})-[:ALIAS_OF]->(a:Actor {uuid: $canonical_uuid})
+            WHERE al.source_id IN $aliases_b
+            RETURN collect(al.source_id) AS movable
+            """,
+            project_id=project_id,
+            canonical_uuid=canonical_uuid,
+            aliases_b=aliases_b,
+        )
+        movable = (await movable_result.single())["movable"]
+        if not movable:
+            raise ValueError(
+                "병합으로 넘어온 계정이 분리로 이미 재배치되어 되돌릴 수 없습니다 — 분리 결과를 확인하세요"
+            )
+
         # name은 아래 recompute_display_name이 alias 기준으로 채운다.
         await tx.run(
             "CREATE (b:Actor {uuid: $uuid, project_id: $project_id, aliases: $aliases})",
             uuid=merged_uuid,
             project_id=project_id,
-            aliases=aliases_b,
+            aliases=movable,
         )
 
         await tx.run(
             """
             MATCH (al:ActorAlias {project_id: $project_id})-[r:ALIAS_OF]->(a:Actor {uuid: $canonical_uuid})
-            WHERE al.source_id IN $aliases_b
+            WHERE al.source_id IN $movable
             MATCH (b:Actor {uuid: $merged_uuid})
             MERGE (al)-[:ALIAS_OF]->(b)
             DELETE r
@@ -291,7 +317,7 @@ async def unmerge_actors(project_id: str, decision_id: str) -> dict:
             project_id=project_id,
             canonical_uuid=canonical_uuid,
             merged_uuid=merged_uuid,
-            aliases_b=aliases_b,
+            movable=movable,
         )
 
         # merged_from 표식이 붙은 엣지만 원 Actor로 반환
@@ -322,8 +348,8 @@ async def unmerge_actors(project_id: str, decision_id: str) -> dict:
         )
         moved += (await result.single())["n"]
 
-        # canonical에서 합쳐졌던 alias만 제거
-        restored_set = set(aliases_b)
+        # canonical에서 합쳐졌던 alias만 제거 (movable 기준)
+        restored_set = set(movable)
         remaining_aliases = [x for x in (canonical["aliases"] or []) if x not in restored_set]
         await tx.run(
             "MATCH (a:Actor {uuid: $canonical_uuid}) SET a.aliases = $aliases",
@@ -348,7 +374,7 @@ async def unmerge_actors(project_id: str, decision_id: str) -> dict:
             decision_id=distinct_id,
             project_id=project_id,
             aliases_a=remaining_aliases,
-            aliases_b=aliases_b,
+            aliases_b=movable,
             note="unmerge 자동 생성",
         )
 
@@ -371,16 +397,14 @@ async def unmerge_actors(project_id: str, decision_id: str) -> dict:
     return summary
 
 
-async def split_alias(
-    project_id: str, actor_uuid: str, source_ids: list[str], name: str = ""
-) -> dict:
+async def split_alias(project_id: str, actor_uuid: str, source_ids: list[str]) -> dict:
     """자동 병합이 잘못 합친 Actor에서 alias 일부를 새 Actor로 분리한다.
 
     소스 단위 휴리스틱 재귀속: 떼어낸 alias의 소스가 원 Actor에 더 이상 없으면
     그 소스의 이벤트 권한 엣지를 새 Actor로 옮긴다. 같은 소스 alias가 남아 있으면
     어느 신원의 활동인지 판별 불가 → 옮기지 않는다(보수적).
-    name을 주면 운영자 라벨로 확정(manual_name=true)하고, 생략하면 표시 이름을
-    alias 기준으로 유도한다. distinct 결정을 자동 생성해 자동 파이프라인의 재병합을 막는다.
+    표시 이름은 입력받지 않고 alias 기준으로 재계산된다 — 운영자가 직접 정하고 싶으면
+    rename_actor를 쓴다(병합과 대칭). distinct 결정을 자동 생성해 자동 파이프라인의 재병합을 막는다.
     """
     if not source_ids:
         raise ValueError("분리할 source_ids가 비어 있다")
@@ -460,18 +484,6 @@ async def split_alias(
             aliases=remaining,
         )
 
-        if name:
-            # 운영자가 이름을 지정하면 라벨로 확정 — 아래 recompute_display_name이 덮어쓰지 않게
-            # manual_name을 먼저 세운다.
-            await tx.run(
-                """
-                MATCH (b:Actor {uuid: $new_uuid})
-                SET b.name = $name, b.manual_name = true, b.name_updated_at = datetime()
-                """,
-                new_uuid=new_uuid,
-                name=name,
-            )
-
         distinct_id = str(uuid_mod.uuid4())
         await tx.run(
             """
@@ -514,7 +526,12 @@ async def split_alias(
 
 
 async def list_actors(project_id: str) -> list[dict]:
-    """프로젝트의 Actor 목록 + 활동 수 (관리 UI용). 활동 많은 순 정렬."""
+    """프로젝트의 Actor 목록 + 활동 수 (관리 UI용). 활동 많은 순 정렬.
+
+    소스별 이름(source_names)만 판단 재료로 내려준다 — 이메일·계정ID(source_id)는
+    "같은 사람인가" 판단에 쓸모없는 개인정보라 목록에 깔지 않는다. 필요하면
+    get_actor_detail(병합·분리 폼)로 별도 조회한다.
+    """
     async with get_driver().session() as session:
         result = await session.run(
             """
@@ -522,9 +539,18 @@ async def list_actors(project_id: str) -> list[dict]:
             OPTIONAL MATCH (a)-[r:AUTHORED|CREATED|WROTE]->()
             WITH a, count(r) AS authored
             OPTIONAL MATCH ()-[ra:ASSIGNED_TO]->(a)
+            // 집계(count)와 비집계 변수(authored)를 한 식에 섞으면 Neo4j 5.x가 42I18로 거부한다
+            // — 집계를 먼저 확정한 뒤 다음 WITH에서 합산한다.
             WITH a, authored, count(ra) AS assigned
-            RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases,
-                   authored + assigned AS activity_count
+            WITH a, authored + assigned AS activity_count
+            OPTIONAL MATCH (al:ActorAlias)-[:ALIAS_OF]->(a)
+            WITH a, activity_count, al
+            ORDER BY al.source_id
+            WITH a, activity_count,
+                 [x IN collect(CASE WHEN al IS NULL THEN null ELSE
+                     {source: al.source, name: al.pd_name, erased: al.pd_erased}
+                 END) WHERE x IS NOT NULL] AS source_names
+            RETURN a.uuid AS uuid, a.name AS name, activity_count, source_names
             ORDER BY activity_count DESC, name
             """,
             project_id=project_id,
@@ -533,8 +559,47 @@ async def list_actors(project_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def get_actor_detail(project_id: str, actor_uuid: str) -> dict:
+    """Actor 상세 조회 (병합·분리 폼용) — 이메일·계정ID(source_id)를 함께 내려준다.
+
+    list_actors(목록)와 달리 여기서만 개인정보를 노출한다. 획득·보고 시각
+    (pd_updated_at·pd_reported_at)은 개인정보 관리 내부값이라 여기서도 반환하지 않는다.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})
+            OPTIONAL MATCH (al:ActorAlias)-[:ALIAS_OF]->(a)
+            WITH a, al
+            ORDER BY al.source_id
+            RETURN a.uuid AS uuid, a.name AS name,
+                   collect(CASE WHEN al IS NULL THEN null ELSE
+                       {source_id: al.source_id, source: al.source, name: al.pd_name,
+                        email: al.pd_email, erased: al.pd_erased}
+                   END) AS aliases
+            """,
+            project_id=project_id,
+            actor_uuid=actor_uuid,
+        )
+        record = await result.single()
+    if record is None:
+        raise LookupError(f"Actor 없음: {actor_uuid}")
+    return {
+        "uuid": record["uuid"],
+        "name": record["name"],
+        "aliases": [a for a in (record["aliases"] or []) if a is not None],
+    }
+
+
 async def list_decisions(project_id: str) -> list[dict]:
-    """수동 결정 이력 (감사·unmerge 대상 조회용). 스냅샷 본문은 제외해 경량화."""
+    """수동 결정 이력 (감사·unmerge 대상 조회용). 스냅샷 본문은 제외해 경량화.
+
+    ActorDecision에는 aliases_a/aliases_b가 source_id(계정ID)로 저장돼 있다 — 사람이 못
+    읽고 목록에 계정ID를 깔지 않는 원칙에도 어긋나므로, 조회 시점에 현재 ActorAlias에서
+    이름을 읽어 {source, name, erased}로 바꿔 반환한다. 결정 노드 자체에는 이름을 저장하지
+    않는다 — 개인정보 사본을 여러 곳에 두지 않기 위해서다. 매칭되는 alias가 없으면(이론상
+    없지만) {source: null, name: null, erased: null}로 채운다.
+    """
     async with get_driver().session() as session:
         result = await session.run(
             """
@@ -548,7 +613,41 @@ async def list_decisions(project_id: str) -> list[dict]:
             project_id=project_id,
         )
         rows = await result.data()
-    return [dict(r) for r in rows]
+
+        source_ids = list({sid for r in rows for sid in (r["aliases_a"] or []) + (r["aliases_b"] or [])})
+        alias_result = await session.run(
+            """
+            MATCH (al:ActorAlias {project_id: $project_id})
+            WHERE al.source_id IN $source_ids
+            RETURN al.source_id AS source_id, al.source AS source,
+                   al.pd_name AS name, al.pd_erased AS erased
+            """,
+            project_id=project_id,
+            source_ids=source_ids,
+        )
+        alias_rows = await alias_result.data()
+
+    alias_by_id = {
+        r["source_id"]: {"source": r["source"], "name": r["name"], "erased": r["erased"]}
+        for r in alias_rows
+    }
+
+    def _resolve(ids: list[str]) -> list[dict]:
+        return [alias_by_id.get(sid, {"source": None, "name": None, "erased": None}) for sid in ids]
+
+    return [
+        {
+            "decision_id": r["decision_id"],
+            "kind": r["kind"],
+            "aliases_a": _resolve(r["aliases_a"] or []),
+            "aliases_b": _resolve(r["aliases_b"] or []),
+            "canonical_uuid": r["canonical_uuid"],
+            "merged_uuid": r["merged_uuid"],
+            "note": r["note"],
+            "decided_at": r["decided_at"],
+        }
+        for r in rows
+    ]
 
 
 async def delete_decision(project_id: str, decision_id: str) -> int:

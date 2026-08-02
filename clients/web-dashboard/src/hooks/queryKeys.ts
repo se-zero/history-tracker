@@ -27,6 +27,8 @@ export const queryKeys = {
   graphActivity: (projectId: string) =>
     ["graph", projectId, "activity"] as const,
   actors: (projectId: string) => ["actors", projectId] as const,
+  actorDetail: (projectId: string, actorUuid: string) =>
+    ["actors", projectId, actorUuid] as const,
   actorDecisions: (projectId: string) => ["actors", projectId, "decisions"] as const,
   graphSubgraph: (projectId: string, messageId: string) =>
     ["graph", projectId, "subgraph", messageId] as const,

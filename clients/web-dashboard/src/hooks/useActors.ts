@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   getActorDecisions,
+  getActorDetail,
   getActors,
   mergeActors,
   renameActor,
@@ -34,6 +35,14 @@ export function useActors(projectId: string) {
   });
 }
 
+export function useActorDetail(projectId: string, actorUuid: string | null) {
+  return useQuery({
+    queryKey: queryKeys.actorDetail(projectId, actorUuid ?? ""),
+    queryFn: () => getActorDetail(projectId, actorUuid!),
+    enabled: Boolean(actorUuid),
+  });
+}
+
 export function useActorDecisions(projectId: string) {
   return useQuery({
     queryKey: queryKeys.actorDecisions(projectId),
@@ -43,9 +52,8 @@ export function useActorDecisions(projectId: string) {
 
 export function useMergeActors(projectId: string) {
   return useActorMutation(projectId, (input: {
-    sourceUuid: string;
-    targetUuid: string;
-    name?: string;
+    uuidA: string;
+    uuidB: string;
     note?: string;
   }) => mergeActors(projectId, input));
 }
@@ -54,7 +62,6 @@ export function useSplitActor(projectId: string) {
   return useActorMutation(projectId, (input: {
     actorUuid: string;
     sourceIds: string[];
-    name?: string;
   }) => splitActor(projectId, input));
 }
 

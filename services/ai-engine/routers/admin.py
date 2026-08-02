@@ -291,7 +291,6 @@ class ActorSplitRequest(BaseModel):
     project_id: str
     actor_uuid: str
     source_ids: list[str]  # 분리할 alias 목록 (예: ["GITHUB:se-zero"])
-    name: str = ""  # 새 Actor 표시 이름 (생략 시 alias에서 유도)
 
 
 class ActorRenameRequest(BaseModel):
@@ -340,9 +339,12 @@ async def trigger_actor_unmerge(req: ActorUnmergeRequest):
 
 @router.post("/actors/split", tags=["actors"])
 async def trigger_actor_split(req: ActorSplitRequest):
-    """자동 병합 교정 — Actor에서 alias 일부를 새 Actor로 분리하고 distinct 결정을 남긴다."""
+    """자동 병합 교정 — Actor에서 alias 일부를 새 Actor로 분리하고 distinct 결정을 남긴다.
+
+    표시 이름은 입력받지 않고 alias 기준으로 재계산된다 — 직접 정하려면 /actors/rename을 쓴다.
+    """
     try:
-        return await split_alias(req.project_id, req.actor_uuid, req.source_ids, req.name)
+        return await split_alias(req.project_id, req.actor_uuid, req.source_ids)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
