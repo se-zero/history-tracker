@@ -17,6 +17,7 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 | Communication | (project_id, url) |
 | File | (project_id, path) |
 | Actor | uuid (단일) — 단, 생성/조회는 project_id 스코프 |
+| ActorAlias | (project_id, source_id) |
 
 - 제약은 ai-engine 시작 시 `ensure_constraints()`(graph/builder.py)가 생성한다.
 - Actor 동일인 판단(alias/email/이름 매칭)도 project_id 스코프 안에서만 동작한다 —
@@ -28,18 +29,47 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 
 ### Actor
 모든 소스(GitHub, Jira, Slack)의 사용자. ai-engine이 alias를 통합해 동일인을 하나의 노드로 합침.
+개인정보(이름·이메일)는 담지 않는다 — 아래 ActorAlias에 소스별로 저장하고, Actor는 거기서
+유도한 표시 이름과 조회 키(aliases)만 갖는다.
 
 ```json
 {
-  "uuid": "",            // 고유 식별자
-  "project_id": "",      // 소속 프로젝트 UUID — 동일인 판단은 프로젝트 경계를 넘지 않음
-  "name": "",            // 표시 이름
-  "normalized_name": "", // 정규화 이름 (소문자·특수문자 제거) — 동일인 스코어링에 사용
-  "aliases": [""],       // source-scoped ID 목록 (예: "GITHUB:se-zero", "JIRA:123abc")
-  "emails": [""],        // 확인된 이메일 목록 — 동일인 판단 1차 기준
-  "confidence": 0.0      // 마지막 합산/생성 시점의 신뢰도
+  "uuid": "",             // 고유 식별자
+  "project_id": "",       // 소속 프로젝트 UUID — 동일인 판단은 프로젝트 경계를 넘지 않음
+  "name": "",             // 표시 이름 — ActorAlias로부터 파생되는 값 (derive_display_name)
+  "aliases": [""],        // source-scoped ID 목록 (예: "GITHUB:se-zero", "JIRA:123abc")
+  "manual_name": false,   // (수동 변경 시에만) 운영자가 표시 이름을 직접 확정했는지
+  "name_updated_at": ""   // (수동 변경 시에만) 마지막 수동 변경 시각 (ISO-8601)
 }
 ```
+
+표시 이름 유도 규칙(`derive_display_name`, `graph/actor_store.py`): 수동 확정(manual_name) >
+GitHub 프로필 이름(login 대체값 제외) > 이름 있는 소스 중 활동량 최다(동률은 소스명 사전순) >
+GitHub login > "(삭제된 사용자)".
+
+---
+
+### ActorAlias
+Actor가 가진 소스 계정 하나 (예: `GITHUB:se-zero`, `JIRA:5b10a2`). 개인정보(이름·이메일)와 그
+획득/삭제 상태를 담아 "어느 정보가 어느 소스에서 왔는지"를 구분 가능하게 한다 — Actor 동일인
+판단(Step 0~2)의 조회 키이자 Atlassian 개인정보 보고·삭제 단위다.
+
+```json
+{
+  "project_id": "",           // 소속 프로젝트 UUID
+  "source_id": "",            // 소스-스코프 계정 ID (예: "JIRA:5b10a2") — (project_id, source_id) 유니크
+  "source": "",                // JIRA | GITHUB | SLACK — 보고 대상을 전역으로 훑는 열거 키
+  "pd_name": "",               // 이 계정에서 받은 이름 — 표시 이름 유도 재료, node_search 검색 대상
+  "pd_normalized_name": "",    // 정규화 이름 — Step 2 후보 조회 키
+  "pd_email": "",              // 이 계정에서 받은 이메일 — Step 1 매칭 키
+  "pd_updated_at": "",         // 이 개인정보를 획득한 시각 (ISO-8601)
+  "pd_reported_at": "",        // Atlassian 개인정보 보고 시각 (Jira alias에만 의미)
+  "pd_erased": null            // 삭제 사유 — null(정상) | "closed"(계정 폐쇄) | "access_lost"(재조회 불가)
+}
+```
+
+`(ActorAlias)-[:ALIAS_OF]->(Actor)`로 소속 Actor에 연결된다. 상세 배경·Before/After는
+`docs/actor-identity-model.md` 참고.
 
 ---
 
@@ -60,7 +90,6 @@ Jira 티켓.
     "status": "",                      // 현재 상태 (예: 진행 중)
     "issue_type": "",                  // Task | Bug | Story ...
     "priority": "",                    // 우선순위 (예: Medium)
-    "assignee": "",                    // 담당자 이름
     "created_at": "",                  // 티켓 최초 생성 시각 (ISO-8601); occurredAt이 updated 기준이므로 보존
     "closed_at": ""                    // 종료 시각 (ISO-8601, terminal status일 때만 전달) → 노드 closedAt 저장. TRIGGERED_BY 비대칭 윈도우 계산에 사용
   },
@@ -180,6 +209,7 @@ GitHub 저장소 내 파일.
 | `WROTE` | `(Actor)→(Communication)` | — | Actor가 메시지/이슈를 작성 |
 | `AUTHORED` | `(Actor)→(PullRequest)`, `(Actor)→(ChangeSet)` | — | Actor가 PR/commit을 생성 |
 | `ASSIGNED_TO` | `(Issue)→(Actor)` | — | Jira 이슈의 담당자 |
+| `ALIAS_OF` | `(ActorAlias)→(Actor)` | — | ActorAlias(소스 계정)가 속한 Actor. Step 0 조회, 수동 병합·복원·분리의 재연결 대상 |
 | `DISCUSSED_IN` | `(Issue)→(Communication)` | `confidence: Float` (시맨틱 엣지만) | 이슈가 대화에서 언급됨. text(`refs.jiraKey`)·스레드 전파 엣지는 속성 없음, 시맨틱 엣지만 confidence 부여 |
 | `CHILD_OF` | `(Issue)→(Issue)` | — | 이슈 계층 구조 (Sub-task → Parent). `refs.parentJiraKey` 기반 |
 | `CHILD_OF` | `(ChangeSet)→(ChangeSet)` _(미구현)_ | — | 커밋 계층 구조 — 현재 미구현 |
@@ -196,12 +226,15 @@ GitHub 저장소 내 파일.
 ```mermaid
 graph LR
     Actor(("Actor"))
+    ActorAlias(("ActorAlias"))
     Issue(["Issue"])
     Communication(["Communication"])
     PullRequest(["PullRequest"])
     ChangeSet(["ChangeSet"])
     File(["File"])
     Document(["Document (미래)"])
+
+    ActorAlias -->|ALIAS_OF| Actor
 
     Actor -->|CREATED| Issue
     Actor -->|WROTE| Communication

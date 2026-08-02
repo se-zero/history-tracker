@@ -5,7 +5,7 @@ Actor 동일인 판단 파이프라인.
   Step 0: alias 조회        → 이미 아는 actor면 즉시 반환 (O(1), 비용 0)
   Step 1: email 정확 매칭   → 확실한 동일인 (비용 최소)
   Step 2: 이름 스코어링     → score < 0.4 → Step 4, score ≥ 0.4 → Step 3
-  Step 3: LLM 다중 신호     → confidence ≥ 0.85 → MERGE, 미달 → Step 4
+  Step 3: LLM 다중 신호     → confidence ≥ 0.9 → MERGE, 미달 → Step 4
   Step 4: 신규 Actor 생성   → 판단 불가 시 fallback
 
 수동 distinct 결정(docs/actor-manual-merge.md)이 금지한 Actor는 Step 1 매칭과
