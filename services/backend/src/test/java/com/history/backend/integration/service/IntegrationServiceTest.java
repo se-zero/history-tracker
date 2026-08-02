@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,6 +24,7 @@ import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
+import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.dto.IntegrationResponse;
@@ -55,6 +57,7 @@ class IntegrationServiceTest {
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
+    private static final UUID INTEGRATION_ID = UUID.fromString("2f0f1c2e-9a4e-4f0e-9d1a-6b0f8c3d7a55");
 
     @Mock
     private IntegrationRepository integrationRepository;
@@ -91,6 +94,9 @@ class IntegrationServiceTest {
 
     @Mock
     private PipelineWorkerClient pipelineWorkerClient;
+
+    @Mock
+    private AiEngineGraphClient aiEngineGraphClient;
 
     private final NoopTransactionManager transactionManager = new NoopTransactionManager();
 
@@ -695,6 +701,129 @@ class IntegrationServiceTest {
         verify(pipelineWorkerClient, never()).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
     }
 
+    @Test
+    @DisplayName("연동 해제 — 그래프를 트랜잭션 밖에서 먼저 지우고 연동·checkpoint를 함께 삭제")
+    void disconnectDeletesSourceGraphThenIntegrationAndCheckpoints() {
+        IntegrationService service = service();
+        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget", "main");
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(Optional.of(integration));
+        doAnswer(invocation -> {
+            // 그래프 삭제는 외부 HTTP다 — 트랜잭션이 열린 채로 호출하면 커넥션을 점유한다
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB);
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isTrue();
+            return 1;
+        }).when(checkpointRepository).deleteByProject_IdAndId_Provider(PROJECT_ID, IntegrationProvider.GITHUB);
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isTrue();
+            return null;
+        }).when(integrationRepository).deleteById(INTEGRATION_ID);
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.GITHUB);
+
+        // 그래프 먼저, RDB 나중 — 재시도로 수렴하는 순서(ProjectService.deleteProject와 동일)
+        InOrder inOrder = inOrder(aiEngineGraphClient, checkpointRepository, integrationRepository);
+        inOrder.verify(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB);
+        inOrder.verify(checkpointRepository).deleteByProject_IdAndId_Provider(PROJECT_ID, IntegrationProvider.GITHUB);
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
+        assertThat(transactionManager.rollbackCount).isZero();
+    }
+
+    @Test
+    @DisplayName("Slack 해제는 우리 토큰 삭제 전에 provider 권한을 폐기한다")
+    void disconnectRevokesSlackTokenBeforeDeletingIt() {
+        IntegrationService service = service();
+        Integration integration = Integration.slack(project(), "T1", "acme", new byte[] {1, 2, 3});
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.of(integration));
+        when(credentialCryptoService.decrypt(new byte[] {1, 2, 3})).thenReturn("xoxp-token");
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.SLACK);
+
+        // 폐기가 삭제보다 앞서야 한다 — 행을 먼저 지우면 폐기에 쓸 토큰이 사라진다
+        InOrder inOrder = inOrder(slackClient, integrationRepository);
+        inOrder.verify(slackClient).revoke("xoxp-token");
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
+    }
+
+    @Test
+    @DisplayName("Jira 해제는 refresh token을 폐기한다 (파생 access token도 함께 무효화)")
+    void disconnectRevokesJiraRefreshToken() {
+        IntegrationService service = service();
+        Integration integration = Integration.jiraPending(project(), new byte[] {9});
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(integration));
+        when(jiraCredentialCodec.decrypt(new byte[] {9}))
+                .thenReturn(new JiraCredential("access", "refresh", Instant.parse("2026-08-01T00:00:00Z")));
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA);
+
+        verify(jiraOAuthClient).revoke("refresh");
+    }
+
+    @Test
+    @DisplayName("GitHub 해제는 폐기 호출이 없다 — App 설치는 계정 단위라 유지")
+    void disconnectDoesNotRevokeForGitHub() {
+        IntegrationService service = service();
+        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget", "main");
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(Optional.of(integration));
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.GITHUB);
+
+        verify(slackClient, never()).revoke(anyString());
+        verify(jiraOAuthClient, never()).revoke(anyString());
+        verify(integrationRepository).deleteById(INTEGRATION_ID);
+    }
+
+    @Test
+    @DisplayName("연동이 없으면 404 — 그래프 삭제도 호출하지 않음")
+    void disconnectRejectsMissingIntegration() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.SLACK))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Slack integration not found.");
+
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        assertThat(transactionManager.beginCount).isZero();
+    }
+
+    @Test
+    @DisplayName("그래프 삭제가 실패하면 연동·checkpoint를 지우지 않는다")
+    void disconnectKeepsIntegrationWhenGraphDeleteFails() {
+        IntegrationService service = service();
+        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget", "main");
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(Optional.of(integration));
+        doThrow(new BadGatewayException("Failed to delete integration graph."))
+                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB);
+
+        assertThatThrownBy(() -> service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.GITHUB))
+                .isInstanceOf(BadGatewayException.class);
+
+        // 연동이 남아 있어야 사용자가 재시도할 수 있다 — 여기서 지우면 고아 그래프가 영구히 남는다
+        verify(integrationRepository, never()).deleteById(any());
+        verify(checkpointRepository, never()).deleteByProject_IdAndId_Provider(any(), any());
+        assertThat(transactionManager.beginCount).isZero();
+    }
+
     private User user() {
         User user = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(user, "id", OWNER_ID);
@@ -734,6 +863,7 @@ class IntegrationServiceTest {
                 jiraCredentialCodec,
                 jiraTokenService,
                 pipelineWorkerClient,
+                aiEngineGraphClient,
                 new TransactionTemplate(transactionManager)
         );
     }

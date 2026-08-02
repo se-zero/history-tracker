@@ -65,6 +65,7 @@ slack:
   user-scopes: "${SLACK_USER_SCOPES:channels:read,groups:read,channels:history,groups:history,users:read,users:read.email}"
   authorize-url: ${SLACK_AUTHORIZE_URL:https://slack.com/oauth/v2/authorize}
   oauth-access-url: ${SLACK_OAUTH_ACCESS_URL:https://slack.com/api/oauth.v2.access}
+  revoke-url: ${SLACK_REVOKE_URL:https://slack.com/api/auth.revoke}
 
 atlassian:
   client-id: ${ATLASSIAN_CLIENT_ID:}
@@ -75,6 +76,7 @@ atlassian:
   authorize-url: ${ATLASSIAN_AUTHORIZE_URL:https://auth.atlassian.com/authorize}
   token-url: ${ATLASSIAN_TOKEN_URL:https://auth.atlassian.com/oauth/token}
   accessible-resources-url: ${ATLASSIAN_ACCESSIBLE_RESOURCES_URL:https://api.atlassian.com/oauth/token/accessible-resources}
+  revoke-url: ${ATLASSIAN_REVOKE_URL:https://auth.atlassian.com/oauth/revoke}
   api-gateway-url: ${ATLASSIAN_API_GATEWAY_URL:https://api.atlassian.com/ex/jira}
   # 만료 전 미리 갱신할 여유 시간. 로컬에서 크게 잡으면(예: PT2H) 갱신 경로를 즉시 검증할 수 있다.
   refresh-skew: ${ATLASSIAN_REFRESH_SKEW:PT5M}

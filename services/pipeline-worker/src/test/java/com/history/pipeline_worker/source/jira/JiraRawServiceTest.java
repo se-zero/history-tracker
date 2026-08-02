@@ -26,7 +26,7 @@ class JiraRawServiceTest {
                 50,
                 new JiraRateLimiter(0)
         );
-        RawFetchRequest request = new RawFetchRequest("email:token", "PROJ OR project=BAD",
+        RawFetchRequest request = new RawFetchRequest("Bearer token", "PROJ OR project=BAD",
                 Map.of("baseUrl", "https://example.atlassian.net"));
 
         assertThatThrownBy(() -> service.prepareFetchContext(request, null))
@@ -73,7 +73,7 @@ class JiraRawServiceTest {
         );
         JiraRawService.JiraFetchContext context = new JiraRawService.JiraFetchContext(
                 client,
-                "Basic token",
+                "Bearer token",
                 "PROJ",
                 Instant.parse("2024-03-02T00:00:00Z")
         );
@@ -98,7 +98,7 @@ class JiraRawServiceTest {
         );
         JiraRawService.JiraFetchContext context = new JiraRawService.JiraFetchContext(
                 WebClient.builder().baseUrl("https://example.atlassian.net").build(),
-                "Basic token",
+                "Bearer token",
                 "PROJ",
                 null
         );

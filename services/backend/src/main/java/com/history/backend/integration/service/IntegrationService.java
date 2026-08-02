@@ -13,6 +13,7 @@ import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
+import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.dto.IntegrationResponse;
@@ -47,6 +48,7 @@ public class IntegrationService {
     private final JiraCredentialCodec jiraCredentialCodec;
     private final JiraTokenService jiraTokenService;
     private final PipelineWorkerClient pipelineWorkerClient;
+    private final AiEngineGraphClient aiEngineGraphClient;
     private final TransactionTemplate transactionTemplate;
 
     // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
@@ -338,6 +340,49 @@ public class IntegrationService {
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
             throw integrationAlreadyExists(IntegrationProvider.JIRA);
+        }
+    }
+
+    /**
+     * 연동 해제 — 자격증명·수집 커서·그 소스에서 수집한 그래프를 모두 제거한다.
+     *
+     * <p>프로젝트와 다른 provider의 연동은 유지된다. 사용자에게는 파괴적 동작이라
+     * 프론트가 사전 경고를 띄운 뒤 호출한다.</p>
+     */
+    public void disconnect(UUID ownerId, UUID projectId, IntegrationProvider provider) {
+        projectService.getProject(ownerId, projectId);
+        Integration integration = integrationRepository.findByProject_IdAndProvider(projectId, provider)
+                .orElseThrow(() -> new NotFoundException(provider.displayName() + " integration not found."));
+
+        // provider 쪽 권한 폐기를 먼저 한다 — 우리 DB의 토큰을 지우면 폐기에 쓸 값 자체가 사라진다.
+        // 실패해도 진행한다(각 client가 삼킨다): 이미 폐기된 토큰이나 provider 장애 때문에
+        // 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
+        revokeProviderAccess(integration, provider);
+
+        // 그래프를 먼저 지우는 순서·이유는 프로젝트 삭제와 같다(ProjectService.deleteProject 주석):
+        // 외부 HTTP를 트랜잭션 밖에 둬 커넥션 점유를 피하고, 그래프 삭제가 멱등이라 RDB 삭제가
+        // 뒤에서 실패해도 재시도 시 no-op으로 통과해 수렴한다(원자적 보장은 아님).
+        aiEngineGraphClient.deleteProjectSourceGraph(projectId, provider);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            // checkpoint를 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이 데이터가 누락된다
+            checkpointRepository.deleteByProject_IdAndId_Provider(projectId, provider);
+            integrationRepository.deleteById(integration.getId());
+        });
+    }
+
+    // GitHub은 폐기 대상이 없다 — App 설치는 계정 단위(다른 프로젝트도 쓴다)라 유지하고,
+    // installation token은 1시간짜리 캐시라 방치해도 곧 만료된다. 제거는 GitHub 설정에서 한다.
+    private void revokeProviderAccess(Integration integration, IntegrationProvider provider) {
+        byte[] encryptedCredential = integration.getEncryptedCredential();
+        if (encryptedCredential == null) {
+            return;
+        }
+        switch (provider) {
+            case SLACK -> slackClient.revoke(credentialCryptoService.decrypt(encryptedCredential));
+            // refresh token을 폐기하면 파생된 access token도 함께 무효화된다
+            case JIRA -> jiraOAuthClient.revoke(jiraCredentialCodec.decrypt(encryptedCredential).refreshToken());
+            case GITHUB -> { }
         }
     }
 
