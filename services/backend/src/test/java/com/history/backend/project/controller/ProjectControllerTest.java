@@ -1,7 +1,9 @@
 package com.history.backend.project.controller;
 
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -21,6 +23,7 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.security.AuthenticatedUser;
@@ -44,6 +47,7 @@ class ProjectControllerTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
+    private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
     private static final Instant CREATED_AT = Instant.parse("2026-05-18T01:00:00Z");
     private static final Instant UPDATED_AT = Instant.parse("2026-05-18T02:00:00Z");
 
@@ -52,6 +56,9 @@ class ProjectControllerTest {
 
     @MockitoBean
     private ProjectService projectService;
+
+    @MockitoBean
+    private IntegrationService integrationService;
 
     @MockitoBean
     private JwtTokenService jwtTokenService;
@@ -83,6 +90,63 @@ class ProjectControllerTest {
                 .andExpect(jsonPath("$.description").value("GraphRAG backend"))
                 .andExpect(jsonPath("$.createdAt").value("2026-05-18T01:00:00Z"))
                 .andExpect(jsonPath("$.updatedAt").value("2026-05-18T02:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("github 블록을 포함해 생성 → 프로젝트·연동 동시 생성으로 위임")
+    void createProjectWithGitHubDelegatesToIntegrationService() throws Exception {
+        when(integrationService.createProjectWithGitHubRepository(
+                USER_ID,
+                "History Tracker",
+                "GraphRAG backend",
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        )).thenReturn(project("History Tracker", "GraphRAG backend"));
+
+        mockMvc.perform(post("/api/v1/projects")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "History Tracker",
+                                  "description": "GraphRAG backend",
+                                  "github": {
+                                    "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
+                                    "repository_id": 12345,
+                                    "repository_full_name": "acme/widget",
+                                    "branch": "main"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(PROJECT_ID.toString()));
+
+        verify(projectService, never()).createProject(any(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("github 블록이 불완전하면 400 — 프로젝트도 만들지 않는다")
+    void createProjectRejectsIncompleteGitHubBlock() throws Exception {
+        mockMvc.perform(post("/api/v1/projects")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "History Tracker",
+                                  "github": {
+                                    "installation_id": "45b30a75-46d0-4402-b842-9e9c7d07e9ab",
+                                    "repository_id": 12345,
+                                    "repository_full_name": "acme/widget"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(projectService, never()).createProject(any(), anyString(), any());
+        verify(integrationService, never()).createProjectWithGitHubRepository(
+                any(), anyString(), any(), any(), any(), anyString(), anyString());
     }
 
     @Test

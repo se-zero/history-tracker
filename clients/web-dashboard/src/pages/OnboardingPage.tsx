@@ -8,44 +8,28 @@ import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
 import { MonoChip } from "@/components/ui/MonoChip";
 import { createProject } from "@/api/projects";
-import { connectGitHubRepository } from "@/api/integrations";
 import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
 import { Topbar } from "@/components/shell/Topbar";
 import { queryKeys } from "@/hooks/queryKeys";
 import { useGithubRepoRows } from "@/hooks/useGithub";
 import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api";
 
+// 프로젝트는 STEP 01이 아니라 STEP 02의 "연결"에서, GitHub 연동과 함께 한 번에 만들어진다.
+// 예전에는 STEP 01의 "다음"이 곧바로 createProject를 호출했는데, STEP 02가 라우트가 아니라
+// 로컬 state 전환이라 뒤로가기·새로고침·탭 닫기로 이 화면을 벗어나면 화면 상태만 사라지고
+// 서버에는 GitHub 연동이 없는 빈 프로젝트가 남았다(새로고침은 STEP 01로 되돌아가므로 같은
+// 이름으로 하나 더 만들어지기까지 했다). 지금은 STEP 01이 서버를 부르지 않고, 생성·연동을
+// backend가 한 트랜잭션으로 처리해(POST /projects의 github 블록) 반쪽 상태 자체가 없다.
 export function OnboardingPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  // 생성된 프로젝트가 있으면 STEP 02(GitHub 연결)로 전환한다.
-  const [createdProject, setCreatedProject] = useState<Project | null>(null);
-
-  const createMutation = useMutation({
-    mutationFn: () => createProject({ name, description: description || undefined }),
-    onSuccess: (project) => {
-      // 새 프로젝트를 캐시에 즉시 반영한다. 이후 chat 이동 시 AppShell이 stale한 빈 목록을
-      // 보고 /onboarding으로 되튕기는 것을 막는다.
-      queryClient.setQueryData<Project[]>(queryKeys.projects(), (prev) =>
-        prev ? [project, ...prev] : [project],
-      );
-      queryClient.invalidateQueries({ queryKey: queryKeys.projects() });
-      setCreatedProject(project);
-    },
-  });
+  const [step, setStep] = useState<1 | 2>(1);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    createMutation.mutate();
-  };
-
-  const goToProject = () => {
-    if (createdProject) {
-      navigate(`/projects/${createdProject.id}/chat`, { replace: true });
-    }
+    setStep(2);
   };
 
   return (
@@ -53,8 +37,15 @@ export function OnboardingPage() {
       <div className="main">
         <Topbar crumbs={["History Tracker", "시작하기"]} />
         <div className="onboarding">
-          {createdProject ? (
-            <ConnectGitHubStep project={createdProject} onDone={goToProject} />
+          {step === 2 ? (
+            <ConnectGitHubStep
+              name={name.trim()}
+              description={description.trim()}
+              onDone={(projectId) =>
+                navigate(`/projects/${projectId}/chat`, { replace: true })
+              }
+              onBack={() => setStep(1)}
+            />
           ) : (
             <CreateProjectStep
               name={name}
@@ -62,8 +53,6 @@ export function OnboardingPage() {
               onName={setName}
               onDescription={setDescription}
               onSubmit={submit}
-              pending={createMutation.isPending}
-              error={createMutation.isError}
             />
           )}
         </div>
@@ -76,22 +65,19 @@ export function OnboardingPage() {
 // STEP 01 — 프로젝트 생성
 // =========================================================
 
+// 이 단계는 서버를 부르지 않는다 — 입력만 받아 STEP 02로 넘긴다(파일 상단 주석).
 function CreateProjectStep({
   name,
   description,
   onName,
   onDescription,
   onSubmit,
-  pending,
-  error,
 }: {
   name: string;
   description: string;
   onName: (v: string) => void;
   onDescription: (v: string) => void;
   onSubmit: (e: React.FormEvent) => void;
-  pending: boolean;
-  error: boolean;
 }) {
   return (
     <>
@@ -147,16 +133,12 @@ function CreateProjectStep({
             placeholder="예: 결제 도메인 전반(주문, 정산, 환불)"
           />
         </Field>
-        {error && (
-          <InlineError>프로젝트를 만들지 못했어요. 다시 시도해 주세요.</InlineError>
-        )}
         <button
           type="submit"
           className="btn btn-primary btn-lg"
-          disabled={!name.trim() || pending}
+          disabled={!name.trim()}
         >
-          <Icons.Plus size={14} />{" "}
-          {pending ? "만드는 중…" : "다음: GitHub 연결"}
+          <Icons.Plus size={14} /> 다음: GitHub 연결
         </button>
       </form>
     </>
@@ -168,11 +150,15 @@ function CreateProjectStep({
 // =========================================================
 
 function ConnectGitHubStep({
-  project,
+  name,
+  description,
   onDone,
+  onBack,
 }: {
-  project: Project;
-  onDone: () => void;
+  name: string;
+  description: string;
+  onDone: (projectId: string) => void;
+  onBack: () => void;
 }) {
   const queryClient = useQueryClient();
 
@@ -187,24 +173,34 @@ function ConnectGitHubStep({
   const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
   const [branch, setBranch] = useState("");
 
+  // 프로젝트 생성과 저장소 연결은 backend가 한 트랜잭션으로 처리한다(요청 한 번) —
+  // 둘 중 하나만 남는 상태가 없어서, 실패하면 서버에는 아무것도 만들어지지 않고 재시도가
+  // 깨끗하다. 저장소 목록은 프로젝트가 아니라 사용자 단위(installations) 조회라
+  // 프로젝트가 없는 상태에서도 이 화면을 그릴 수 있다.
   const connectMutation = useMutation({
     mutationFn: (payload: {
       installation: GitHubInstallation;
       repo: GitHubRepository;
       branch: string;
     }) =>
-      connectGitHubRepository(project.id, {
-        installationId: payload.installation.id,
-        repositoryId: payload.repo.id,
-        repositoryFullName: payload.repo.full_name,
-        branch: payload.branch,
+      createProject({
+        name,
+        description: description || undefined,
+        github: {
+          installationId: payload.installation.id,
+          repositoryId: payload.repo.id,
+          repositoryFullName: payload.repo.full_name,
+          branch: payload.branch,
+        },
       }),
-    onSuccess: () => {
-      // 연결 시 초기 수집이 트리거된다. 연동 캐시를 비우고 프로젝트로 이동.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.integrations(project.id),
-      });
-      onDone();
+    onSuccess: (project) => {
+      // 새 프로젝트를 캐시에 즉시 반영한다. 이후 chat 이동 시 AppShell이 stale한 빈 목록을
+      // 보고 /onboarding으로 되튕기는 것을 막는다.
+      queryClient.setQueryData<Project[]>(queryKeys.projects(), (prev) =>
+        prev ? [project, ...prev] : [project],
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects() });
+      onDone(project.id);
     },
   });
 
@@ -220,8 +216,8 @@ function ConnectGitHubStep({
       <StepIndicator step={2} />
       <h1>GitHub 저장소 연결</h1>
       <p className="lead">
-        <MonoChip>{project.name}</MonoChip>{" "}
-        · 분석할 저장소를 선택하세요. GitHub은 필수예요.
+        <MonoChip>{name}</MonoChip>{" "}
+        · 분석할 저장소를 선택하세요. 저장소를 연결하면 프로젝트가 만들어집니다.
       </p>
 
       <div style={{ maxWidth: 560, margin: "0 auto", width: "100%" }}>
@@ -276,6 +272,8 @@ function ConnectGitHubStep({
                         }
                         disabled={isPending || !branch}
                       >
+                        {/* 이 버튼 하나가 프로젝트 생성 + 연결을 다 한다 — "만드는 중"까지
+                            분리해 보여주면 단계가 둘로 읽혀 되돌릴 수 있다고 오해된다. */}
                         {isPending ? "연결 중…" : "연결"}
                       </button>
                       <button
@@ -308,10 +306,15 @@ function ConnectGitHubStep({
 
         {connectMutation.isError && (
           <InlineError style={{ marginTop: 10 }}>
-            연결에 실패했어요. 잠시 후 다시 시도해 주세요.
+            프로젝트를 만들지 못했어요. 잠시 후 다시 시도해 주세요.
           </InlineError>
         )}
 
+        {/* "나중에 연결하기"는 제거됐다 — GitHub 연결은 필수이고(위 lead 문구), 저장소 없이
+            들어가면 그래프가 빈 채로 첫 화면이 열려 제품이 고장난 것처럼 보인다.
+            대신 '이전'으로 STEP 01에 언제든 돌아갈 수 있다 — 실패했든 아직 시도 전이든
+            서버에는 아무것도 만들어지지 않았으므로 되돌아가도 남는 게 없다.
+            '연결 확인'은 GitHub App 설치·권한을 바꾸고 돌아와 목록을 다시 받는 용도다. */}
         <div
           style={{
             display: "flex",
@@ -328,10 +331,10 @@ function ConnectGitHubStep({
           <button
             className="btn btn-ghost"
             style={{ marginLeft: "auto" }}
-            onClick={onDone}
+            onClick={onBack}
             disabled={connectMutation.isPending}
           >
-            나중에 연결하기
+            이전
           </button>
         </div>
       </div>

@@ -13,8 +13,10 @@ import { GalaxyPage } from "@/pages/GalaxyPage";
 import { LandingPage } from "@/pages/LandingPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
+import { PrivacyPage } from "@/pages/PrivacyPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SourcesPage } from "@/pages/SourcesPage";
+import { TermsPage } from "@/pages/TermsPage";
 import { PATHS } from "@/routes";
 import type { Project } from "@/types/api";
 
@@ -62,8 +64,10 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <Routes>
-          {/* 제품 소개 페이지 — 인증 가드 없는 공개 라우트 */}
+          {/* 제품 소개·약관 페이지 — 인증 가드 없는 공개 라우트 */}
           <Route path={PATHS.landing} element={<LandingPage />} />
+          <Route path={PATHS.terms} element={<TermsPage />} />
+          <Route path={PATHS.privacy} element={<PrivacyPage />} />
           <Route path={PATHS.authCallback} element={<AuthCallbackPage />} />
           <Route
             path={PATHS.onboarding}
@@ -93,26 +97,12 @@ export default function App() {
             <Route path="account" element={<AccountRoute />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
-          <Route path={PATHS.demoGraph} element={<DemoGalaxyRoute />} />
           <Route path={PATHS.root} element={<RootRedirect />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AuthProvider>
     </ErrorBoundary>
   );
-}
-
-// 백엔드 없이 그래프 디자인만 확인할 때 쓰는 라우트.
-function DemoGalaxyRoute() {
-  const demoProject: Project = {
-    id: "demo",
-    ownerId: "demo",
-    name: "Demo Project",
-    description: "더미 그래프 데모",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  return <GalaxyPage project={demoProject} />;
 }
 
 function RootRedirect() {
