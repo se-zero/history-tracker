@@ -230,9 +230,10 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 `limit`은 의도적으로 스키마에 없다 — LLM이 습관적으로 20을 넣어 조회 창을 옛 컷 크기로
 되돌리는 것을 봉인 (조회 창은 서버 정책 `ACTOR_ACTIVITY_MAX`, 기본 100/카테고리).
 
-- **alias/email 통합 매칭**: `a.name = identifier OR identifier IN a.aliases OR identifier IN a.emails`.
-  Identity Resolution으로 통합된 Actor를 단일 식별자로 찾는다.
-- 반환 구조: `name`/`aliases`/`emails` + `totals` + `ranked_by` + `detail[]`/`context[]` +
+- **alias/email/이름 통합 매칭**: `a.name = identifier OR identifier IN a.aliases OR`
+  `ActorAlias.pd_email/pd_name = identifier`(EXISTS 서브쿼리). 개인정보(이메일·원 이름)는
+  `ActorAlias`에 있어 이쪽으로 조회한다. Identity Resolution으로 통합된 Actor를 단일 식별자로 찾는다.
+- 반환 구조: `name`/`aliases`/`emails`(ActorAlias의 pd_email 수집) + `totals` + `ranked_by` + `detail[]`/`context[]` +
   `issues_created`/`issues_assigned`(+`*_total`/`*_older_keys`) + `_note`.
   - `detail[]` — **인용 대상**(kind 필드로 commit/pull_request/message 구분). 카테고리별 바이트
     예산(`ACTOR_ACTIVITY_DETAIL_BUDGET`, 기본 4000자를 45/35/20%로 배분)만큼 채우고 시간순 병합.
@@ -300,8 +301,8 @@ Actor 통합 결과를 확인한다 (Identity Resolution 검증).
 |---------|------|------|------|
 | `identifier` | string | ✔ | 이름, alias, 또는 이메일 중 하나 |
 
-- 반환: `uuid`, `display_name`, `normalized_name`, `all_aliases`, `emails`,
-  `merge_confidence`, 활동 집계(`commit_count`/`pr_count`/`message_count`/`issue_created_count`).
+- 반환: `uuid`, `display_name`, `all_aliases`, `emails`(ActorAlias의 pd_email, 중복 제거),
+  활동 집계(`commit_count`/`pr_count`/`message_count`/`issue_created_count`).
 
 ### 10. `get_conflict_context`
 
@@ -414,6 +415,5 @@ Slack 스레드를 conversation_id로 완전히 조회한다.
 **"john-dev랑 jkim@co.com 같은 사람이야?"** — Identity Resolution 확인
 ```
 inspect_actor("john-dev")
-   → all_aliases: ["GITHUB:john-dev", "JIRA:account_abc"], emails: ["jkim@co.com"],
-     merge_confidence: 0.91
+   → all_aliases: ["GITHUB:john-dev", "JIRA:account_abc"], emails: ["jkim@co.com"]
 ```

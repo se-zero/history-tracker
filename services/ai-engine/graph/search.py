@@ -36,7 +36,13 @@ _SEARCH_QUERY = f"""
 CALL db.index.fulltext.queryNodes('node_search', $lucene, {{limit: $fetch_k}})
 YIELD node AS n, score
 WHERE n.project_id = $project_id
-WITH n, score
+// ActorAlias가 잡히면(Jira/Slack 이름 검색) 결과로는 alias가 아니라 그 소유 Actor를 낸다 —
+// 표시 이름은 GitHub 기준으로 고정돼도 다른 소스 이름으로 검색은 되어야 한다.
+OPTIONAL MATCH (n)-[:ALIAS_OF]->(owner:Actor)
+WITH coalesce(owner, n) AS n, score
+ORDER BY score DESC
+// 같은 Actor가 자기 name과 alias 양쪽으로 잡히는 중복 제거 — 최고 score 1건만 남긴다.
+WITH n, collect(score)[0] AS score
 ORDER BY score DESC
 LIMIT $fetch_limit
 RETURN {_NODE_RETURN_FIELDS},

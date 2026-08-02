@@ -30,17 +30,23 @@ class ActorStore:
     """Neo4j Actor 조회·생성 함수 묶음. 테스트 시 mock으로 교체 가능."""
 
     lookup_by_alias: Callable[[str], Awaitable[Optional[dict]]]
-    """source-scoped alias(예: 'GITHUB:se-zero')로 Actor 조회. 없으면 None."""
+    """source-scoped alias(예: 'GITHUB:se-zero')로 Actor 조회. 없으면 None.
+    반환 dict에는 Actor 필드(uuid·name·aliases)와 함께 그 alias가 들고 있는
+    개인정보 상태 alias_pd_name, alias_pd_erased가 포함된다 (Step 0 이름 갱신 판단용).
+    """
 
     lookup_by_email: Callable[[str], Awaitable[Optional[dict]]]
-    """email 정확 매칭으로 Actor 조회. emails 배열에 포함되면 반환. 없으면 None."""
+    """email 정확 매칭으로 Actor 조회. 어느 alias든 pd_email이 일치하면 반환. 없으면 None.
+    반환 dict의 emails는 그 Actor의 전체 alias에서 모은 pd_email 목록(중복 제거)이다.
+    """
 
     lookup_by_name: Callable[[str], Awaitable[list[dict]]]
     """정규화된 이름으로 Actor 후보 목록 반환.
     Args:
         normalized_name: normalize_name() 결과 (예: 'johndoe', '김철수')
     Returns:
-        정규화 이름이 일치하는 Actor dict 목록 (없으면 [])
+        정규화 이름이 일치하는 Actor dict 목록 (없으면 []).
+        각 dict의 emails는 그 Actor의 전체 alias에서 모은 pd_email 목록(Step 2 스코어링 재료).
     """
 
     lookup_activities: Callable[[dict], Awaitable[list[dict]]]
@@ -51,28 +57,35 @@ class ActorStore:
         활동 dict 목록 — 각 항목: {"source", "nodeType", "title", "message", "body"}
     """
 
-    merge_actor: Callable[[dict, str, Optional[str], float], Awaitable[None]]
-    """기존 Actor에 새 alias(·email)를 추가한다.
+    merge_actor: Callable[[dict, str, Optional[str], str], Awaitable[None]]
+    """기존 Actor에 새 alias(·email·이름)를 추가한다.
     Args:
         actor:      기존 Actor 노드 dict (lookup 결과)
         new_alias:  추가할 source-scoped alias (예: 'GITHUB:se-zero')
-        new_email:  추가할 이메일 (이미 있으면 no-op, None이면 생략)
-        confidence: 통합 신뢰도 (email 정확 매칭 → 1.0, LLM 판단 → LLM 반환값)
+        new_email:  이 계정에서 받은 이메일 (없으면 None) — ActorAlias.pd_email로 저장
+        new_name:   이 계정에서 받은 이름 — ActorAlias.pd_name으로 저장, 표시 이름 재계산에 반영
     """
 
-    create_actor: Callable[[str, list, list, float], Awaitable[dict]]
+    create_actor: Callable[[str, str, Optional[str]], Awaitable[dict]]
     """신규 Actor 노드를 생성하고 반환한다.
     Args:
-        name:       표시 이름
-        aliases:    source-scoped alias 목록 (예: ['GITHUB:se-zero'])
-        emails:     확인된 이메일 목록 (없으면 [])
-        confidence: 통합 신뢰도 (새 노드 생성 시 1.0)
+        name:      표시 이름 (첫 alias의 pd_name)
+        source_id: source-scoped alias (예: 'GITHUB:se-zero')
+        email:     확인된 이메일 (없으면 None)
     """
 
     lookup_vetoes: Optional[Callable[[str], Awaitable[list[str]]]] = None
     """수동 distinct 결정으로 이 source_id와 병합이 금지된 Actor uuid 목록.
     None이면 결정 저장소 없음(기존 mock/호출부 호환) — 거부 없이 동작한다.
     설계: docs/actor-manual-merge.md
+    """
+
+    update_alias_name: Optional[Callable[[str, str], Awaitable[None]]] = None
+    """이미 아는 alias의 이름을 갱신한다 (Step 0 — 표시 이름이 첫 수집 값에 고정되는 것을 막는다).
+    Args:
+        source_id: 갱신 대상 alias (예: 'GITHUB:se-zero')
+        name:      이번 이벤트에서 온 이름
+    None이면 갱신 없음(기존 mock/호출부 호환).
     """
 
 
@@ -145,6 +158,15 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
     existing = await store.lookup_by_alias(source_id)
     if existing:
         logger.debug("[Step 0] alias 매칭: %s → Actor(%s)", source_id, existing.get("name"))
+        # 이름 갱신 — 표시 이름이 첫 수집 값에 영구히 고정되는 것을 막는다.
+        # "closed"(계정 폐쇄로 삭제)는 절대 갱신하지 않는다 — 자동 경로로 되살아나는 것을
+        # 막는 유일한 방어선이다. "access_lost"(재조회 불가로 삭제)는 재연동 복구 경로라 갱신한다.
+        if (
+            store.update_alias_name
+            and name != existing.get("alias_pd_name")
+            and existing.get("alias_pd_erased") != "closed"
+        ):
+            await store.update_alias_name(source_id, name)
         return existing
 
     # ── 수동 분리 결정(veto) 조회 ─────────────────────────────────────────
@@ -169,7 +191,7 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
                     "[Step 1] email 매칭: %s → Actor(%s), alias 추가: %s",
                     email, existing.get("name"), source_id,
                 )
-                await store.merge_actor(existing, source_id, email, 1.0)
+                await store.merge_actor(existing, source_id, email, name)
                 return existing
 
     # ── Step 2: 이름 정규화 + email 교차 스코어링 ─────────────────────────
@@ -200,14 +222,13 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
             )
 
             if result["same_person"] and result["confidence"] >= 0.9:
-                await store.merge_actor(candidate, source_id, email, result["confidence"])
+                await store.merge_actor(candidate, source_id, email, name)
                 return candidate
 
     # ── Step 4: 신규 Actor 노드 생성 ─────────────────────────────────────
-    emails = [email] if email else []
-    new_actor = await store.create_actor(name, [source_id], emails, 1.0)
+    new_actor = await store.create_actor(name, source_id, email)
     logger.info(
-        "[Step 4] 신규 Actor 생성: name=%s, alias=%s, emails=%s",
-        name, source_id, emails,
+        "[Step 4] 신규 Actor 생성: name=%s, alias=%s, email=%s",
+        name, source_id, email,
     )
     return new_actor

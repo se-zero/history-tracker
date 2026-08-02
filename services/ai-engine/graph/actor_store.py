@@ -1,6 +1,9 @@
 """Actor 동일인 판단용 Neo4j ActorStore 어댑터.
 
 graph.actor_resolver.ActorStore에 주입할 프로젝트 스코프 조회/병합/생성 콜백을 제공한다.
+개인정보(이름·이메일)는 Actor가 아니라 ActorAlias(소스 계정 단위)에 저장한다 — Atlassian
+개인정보 보고·삭제가 "어느 소스에서 받았는지" 단위로 동작해야 하기 때문이다
+(docs/actor-identity-model.md).
 """
 
 import uuid
@@ -9,19 +12,105 @@ from typing import Optional
 from graph.driver import get_driver
 
 
+# ── 표시 이름 헬퍼 ────────────────────────────────────────────────────────
+# Actor.name은 alias들로부터 파생되는 값이라, 파생 규칙을 이 파일에 하나만 둔다.
+# alias가 바뀌는 모든 경로(Step 1/3 병합, Step 4 생성, Step 0 이름 갱신, 이후 수동
+# 병합·취소·분리·개인정보 삭제)가 이 규칙을 거쳐 Actor.name을 재계산한다.
+
+_DISPLAY_NAME_SOURCE_PRIORITY = ("GITHUB", "JIRA", "SLACK")
+_DELETED_USER_LABEL = "(삭제된 사용자)"
+
+
+def derive_display_name(aliases: list[dict], manual_name: bool, current_name: Optional[str]) -> str:
+    """alias 목록에서 표시 이름을 폴백 체인으로 유도한다.
+
+    체인: manual_name=true면 현재 이름 유지 > GitHub 프로필 이름 > Jira pd_name > Slack pd_name
+    > GitHub login(source_id의 'GITHUB:' 뒤) > "(삭제된 사용자)".
+    빈 pd_name은 후보에서 제외한다. 같은 소스에 alias가 여럿이면 source_id 사전순
+    최솟값을 쓴다 — 어느 alias를 고를지 결정적으로 정해야 재계산이 매번 같은 값을 낸다.
+
+    GitHub은 pd_name == login(source_id의 'GITHUB:' 뒤)이면 "프로필 이름 없음, login으로
+    대체 수집"으로 본다 — pipeline-worker가 프로필 이름이 비어 있을 때 login을 name에
+    그대로 채워 보내기 때문이다. 이 경우 여기서는 건너뛰고 Jira/Slack으로 내려가며, 그 값은
+    마지막 "GitHub login" 폴백 단계에서 어차피 다시 쓰인다(실제 프로필 이름을 우연히 login과
+    똑같이 지은 경우도 login 취급으로 무해하다).
+
+    Args:
+        aliases: 이 Actor에 붙은 alias 목록. 각 항목 {"source_id", "source", "pd_name"}
+        manual_name: 운영자가 이름을 수동 확정했는지 (true면 자동 유도를 건너뛴다)
+        current_name: 현재 Actor.name (manual_name=true일 때 유지할 값)
+    """
+    if manual_name and current_name:
+        return current_name
+
+    def _is_github_login_placeholder(a: dict) -> bool:
+        return a.get("source") == "GITHUB" and a.get("pd_name") == a["source_id"].split(":", 1)[-1]
+
+    for source in _DISPLAY_NAME_SOURCE_PRIORITY:
+        named = sorted(
+            (
+                a for a in aliases
+                if a.get("source") == source and a.get("pd_name") and not _is_github_login_placeholder(a)
+            ),
+            key=lambda a: a["source_id"],
+        )
+        if named:
+            return named[0]["pd_name"]
+
+    github_aliases = sorted(
+        (a for a in aliases if a.get("source") == "GITHUB"),
+        key=lambda a: a["source_id"],
+    )
+    if github_aliases:
+        return github_aliases[0]["source_id"].split(":", 1)[-1]
+
+    return _DELETED_USER_LABEL
+
+
+async def recompute_display_name(tx, actor_uuid: str) -> None:
+    """Actor의 표시 이름을 alias 기준으로 재계산해 SET한다.
+
+    tx(트랜잭션 또는 세션)를 받아 동작한다 — actor_admin의 수동 병합·취소·분리·개인정보
+    삭제가 각자의 단일 트랜잭션 안에서 이 함수를 그대로 재사용할 수 있어야
+    "alias는 비웠는데 표시 이름은 안 바뀌는" 정합성 결함을 구조로 막을 수 있다.
+    """
+    result = await tx.run(
+        """
+        MATCH (a:Actor {uuid: $actor_uuid})
+        OPTIONAL MATCH (al:ActorAlias)-[:ALIAS_OF]->(a)
+        RETURN a.manual_name AS manual_name, a.name AS name,
+               collect(CASE WHEN al IS NULL THEN null ELSE
+                   {source_id: al.source_id, source: al.source, pd_name: al.pd_name}
+               END) AS aliases
+        """,
+        actor_uuid=actor_uuid,
+    )
+    record = await result.single()
+    if record is None:
+        return
+    aliases = [a for a in (record["aliases"] or []) if a is not None]
+    display_name = derive_display_name(aliases, bool(record["manual_name"]), record["name"])
+    await tx.run(
+        "MATCH (a:Actor {uuid: $actor_uuid}) SET a.name = $name",
+        actor_uuid=actor_uuid,
+        name=display_name,
+    )
+
+
 # ── ActorStore Neo4j 구현체 ───────────────────────────────────────────────
 
 
 async def _lookup_actor_by_alias(project_id: str, source_id: str) -> Optional[dict]:
     """ActorAlias 인덱스로 O(1) 조회 — 배열 멤버십 스캔(WHERE x IN a.aliases) 대신.
-    매 이벤트의 Step 0에서 호출되므로 인덱스 조회가 기여자 수와 무관하게 일정 비용이다."""
+    매 이벤트의 Step 0에서 호출되므로 인덱스 조회가 기여자 수와 무관하게 일정 비용이다.
+    alias_pd_name·alias_pd_erased는 resolve_actor의 Step 0 이름 갱신 판단 재료다.
+    """
     async with get_driver().session() as session:
         result = await session.run(
             """
             MATCH (al:ActorAlias {project_id: $project_id, source_id: $source_id})-[:ALIAS_OF]->(a:Actor)
-            RETURN a.uuid AS uuid, a.name AS name,
-                   a.aliases AS aliases, a.emails AS emails,
-                   a.confidence AS confidence
+            RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases,
+                   al.pd_name AS alias_pd_name, al.pd_erased AS alias_pd_erased
             """,
             project_id=project_id,
             source_id=source_id,
@@ -31,14 +120,16 @@ async def _lookup_actor_by_alias(project_id: str, source_id: str) -> Optional[di
 
 
 async def _lookup_actor_by_email(project_id: str, email: str) -> Optional[dict]:
+    """alias의 pd_email로 Actor를 찾는다. 여러 Actor가 걸리면 첫 1명만 본다
+    (기존 단일 Actor.emails 배열 스캔 시절의 single() 의미를 그대로 유지)."""
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})
-            WHERE $email IN a.emails
-            RETURN a.uuid AS uuid, a.name AS name,
-                   a.aliases AS aliases, a.emails AS emails,
-                   a.confidence AS confidence
+            MATCH (al:ActorAlias {project_id: $project_id, pd_email: $email})-[:ALIAS_OF]->(a:Actor)
+            WITH a LIMIT 1
+            MATCH (other:ActorAlias)-[:ALIAS_OF]->(a)
+            RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases,
+                   [x IN collect(DISTINCT other.pd_email) WHERE x IS NOT NULL] AS emails
             """,
             project_id=project_id,
             email=email,
@@ -48,14 +139,15 @@ async def _lookup_actor_by_email(project_id: str, email: str) -> Optional[dict]:
 
 
 async def _lookup_actor_by_name(project_id: str, normalized_name: str) -> list[dict]:
+    """alias의 pd_normalized_name으로 Actor 후보를 찾는다. 후보당 추가 왕복 없이
+    같은 쿼리에서 각 후보의 전체 alias pd_email을 모아 Step 2 스코어링 재료로 반환한다."""
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})
-            WHERE a.normalized_name = $normalized_name
-            RETURN a.uuid AS uuid, a.name AS name,
-                   a.aliases AS aliases, a.emails AS emails,
-                   a.confidence AS confidence
+            MATCH (al:ActorAlias {project_id: $project_id, pd_normalized_name: $normalized_name})-[:ALIAS_OF]->(a:Actor)
+            MATCH (other:ActorAlias)-[:ALIAS_OF]->(a)
+            WITH a, [x IN collect(DISTINCT other.pd_email) WHERE x IS NOT NULL] AS emails
+            RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases, emails
             """,
             project_id=project_id,
             normalized_name=normalized_name,
@@ -117,33 +209,40 @@ async def _lookup_veto_uuids(project_id: str, source_id: str) -> list[str]:
 
 
 async def _merge_actor(
-    actor: dict, new_alias: str, new_email: Optional[str], confidence: float
+    actor: dict, new_alias: str, new_email: Optional[str], new_name: str
 ) -> None:
+    """기존 Actor에 새 alias를 붙이고, 그 alias 노드에 이 계정의 개인정보를 심는다."""
+    from graph.actor_resolver import normalize_name
+    source = new_alias.split(":", 1)[0]
+    normalized = normalize_name(new_name)
     async with get_driver().session() as session:
         await session.run(
             """
             MATCH (a:Actor {uuid: $actor_uuid})
             SET a.aliases = CASE WHEN $new_alias IN a.aliases
                                  THEN a.aliases
-                                 ELSE a.aliases + $new_alias END,
-                a.emails  = CASE WHEN $new_email IS NULL OR $new_email IN a.emails
-                                 THEN a.emails
-                                 ELSE a.emails + $new_email END,
-                a.confidence = $confidence
+                                 ELSE a.aliases + $new_alias END
             // 새 alias도 ActorAlias 인덱스 노드로 연결 — Step 0 조회가 이 actor를 찾도록.
             MERGE (al:ActorAlias {project_id: a.project_id, source_id: $new_alias})
+            SET al.pd_name = $new_name,
+                al.pd_normalized_name = $normalized,
+                al.pd_email = $new_email,
+                al.pd_updated_at = datetime(),
+                al.pd_erased = null,
+                al.source = $source
             MERGE (al)-[:ALIAS_OF]->(a)
             """,
             actor_uuid=actor.get("uuid"),
             new_alias=new_alias,
+            new_name=new_name,
+            normalized=normalized,
             new_email=new_email,
-            confidence=confidence,
+            source=source,
         )
+        await recompute_display_name(session, actor.get("uuid"))
 
 
-async def _create_actor(
-    project_id: str, name: str, aliases: list, emails: list, confidence: float
-) -> dict:
+async def _create_actor(project_id: str, source_id: str, name: str, email: Optional[str]) -> dict:
     """신규 Actor를 생성하되 ActorAlias로 멱등화한다.
 
     resolve_actor는 alias 1개(source_id)와 함께 호출한다. 그 alias로 ActorAlias를
@@ -153,42 +252,79 @@ async def _create_actor(
     — #1 동시 수집의 중복 Actor 생성 race를 막는다.
     """
     from graph.actor_resolver import normalize_name
-    actor_uuid     = str(uuid.uuid4())
-    normalized     = normalize_name(name)
-    primary_alias  = aliases[0] if aliases else None
+    actor_uuid = str(uuid.uuid4())
+    source = source_id.split(":", 1)[0]
+    normalized = normalize_name(name)
+    # 첫 alias 하나로 표시 이름을 유도한다 — derive_display_name과 규칙을 하나로 유지한다.
+    display_name = derive_display_name(
+        [{"source_id": source_id, "source": source, "pd_name": name}],
+        manual_name=False,
+        current_name=None,
+    )
     async with get_driver().session() as session:
         result = await session.run(
             """
-            MERGE (al:ActorAlias {project_id: $project_id, source_id: $primary_alias})
+            MERGE (al:ActorAlias {project_id: $project_id, source_id: $source_id})
             FOREACH (_ IN CASE WHEN NOT EXISTS { (al)-[:ALIAS_OF]->(:Actor) } THEN [1] ELSE [] END |
                 CREATE (a:Actor {
                     uuid: $uuid,
                     project_id: $project_id,
-                    name: $name,
-                    normalized_name: $normalized_name,
-                    aliases: $aliases,
-                    emails: $emails,
-                    confidence: $confidence
+                    name: $display_name,
+                    aliases: [$source_id]
                 })
                 MERGE (al)-[:ALIAS_OF]->(a)
             )
+            SET al.pd_name = $name,
+                al.pd_normalized_name = $normalized,
+                al.pd_email = $email,
+                al.pd_updated_at = datetime(),
+                al.pd_erased = null,
+                al.source = $source
             WITH al
             MATCH (al)-[:ALIAS_OF]->(a:Actor)
-            RETURN a.uuid AS uuid, a.name AS name,
-                   a.aliases AS aliases, a.emails AS emails,
-                   a.confidence AS confidence
+            RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases
             """,
             uuid=actor_uuid,
             project_id=project_id,
+            source_id=source_id,
+            display_name=display_name,
             name=name,
-            normalized_name=normalized,
-            aliases=aliases,
-            emails=emails,
-            confidence=confidence,
-            primary_alias=primary_alias,
+            normalized=normalized,
+            email=email,
+            source=source,
         )
         record = await result.single()
     return dict(record)
+
+
+async def _update_alias_name(project_id: str, source_id: str, name: str) -> None:
+    """이미 아는 alias의 이름을 갱신한다 (resolve_actor Step 0).
+
+    pd_erased=null로 되돌리는 것은 access_lost(재조회 불가로 비워둔 휴면 상태)가
+    재수집으로 복구되는 경로다 — closed는 이 함수가 애초에 호출되지 않는다
+    (resolve_actor가 호출 전에 걸러낸다).
+    """
+    from graph.actor_resolver import normalize_name
+    normalized = normalize_name(name)
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (al:ActorAlias {project_id: $project_id, source_id: $source_id})-[:ALIAS_OF]->(a:Actor)
+            SET al.pd_name = $name,
+                al.pd_normalized_name = $normalized,
+                al.pd_updated_at = datetime(),
+                al.pd_erased = null
+            RETURN a.uuid AS uuid
+            """,
+            project_id=project_id,
+            source_id=source_id,
+            name=name,
+            normalized=normalized,
+        )
+        record = await result.single()
+        if record:
+            await recompute_display_name(session, record["uuid"])
+
 
 def make_neo4j_actor_store(project_id: str):
     """프로젝트 스코프 Neo4j ActorStore 인스턴스를 반환한다.
@@ -204,8 +340,9 @@ def make_neo4j_actor_store(project_id: str):
         lookup_by_name=lambda name: _lookup_actor_by_name(project_id, name),
         lookup_activities=_lookup_actor_activities,
         merge_actor=_merge_actor,
-        create_actor=lambda name, aliases, emails, confidence: _create_actor(
-            project_id, name, aliases, emails, confidence
+        create_actor=lambda name, source_id, email: _create_actor(
+            project_id, source_id, name, email
         ),
         lookup_vetoes=lambda source_id: _lookup_veto_uuids(project_id, source_id),
+        update_alias_name=lambda source_id, name: _update_alias_name(project_id, source_id, name),
     )

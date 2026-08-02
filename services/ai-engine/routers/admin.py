@@ -277,9 +277,8 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
 
 class ActorMergeRequest(BaseModel):
     project_id: str
-    source_uuid: str  # 합칠 두 노드 중 하나 (병합 후 삭제)
-    target_uuid: str  # 합칠 두 노드 중 통합 대상 (유지)
-    name: str = ""    # 합친 뒤 표시 이름 (생략 시 target 이름 유지)
+    uuid_a: str  # 합칠 두 노드 중 하나
+    uuid_b: str  # 합칠 두 노드 중 나머지 — 어느 쪽이 살아남을지는 활동 엣지 수로 자동 결정
     note: str = ""
 
 
@@ -303,15 +302,14 @@ class ActorRenameRequest(BaseModel):
 
 @router.post("/actors/merge", tags=["actors"])
 async def trigger_actor_merge(req: ActorMergeRequest):
-    """Actor 수동 병합 — 두 노드를 같은 사람으로 합치고 표시 이름을 정한다.
+    """Actor 수동 병합 — 두 노드를 같은 사람으로 합친다.
 
-    스냅샷·merged_from 표식을 남겨 /actors/unmerge로 복원 가능하다.
+    어느 쪽이 살아남을지(canonical)는 활동 엣지가 많은 쪽으로 자동 결정된다 — 표시 이름은
+    입력받지 않고 alias 기준으로 재계산된다. merged_from 표식을 남겨 /actors/unmerge로 복원 가능하다.
     설계: docs/actor-manual-merge.md
     """
     try:
-        return await merge_actors(
-            req.project_id, req.source_uuid, req.target_uuid, req.name, req.note
-        )
+        return await merge_actors(req.project_id, req.uuid_a, req.uuid_b, req.note)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:

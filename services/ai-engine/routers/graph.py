@@ -91,7 +91,8 @@ async def graph_subgraph(req: SubgraphRequest):
 async def graph_actors(project_id: str):
     """프로젝트 Actor 목록 + 활동 수 (액터 관리 UI용).
 
-    수동 병합/분리 대상 선택을 위해 aliases·emails·confidence를 함께 반환한다.
+    수동 병합/분리 대상 선택을 위해 aliases를 함께 반환한다. 개인정보(이메일 등)는
+    ActorAlias에 있으므로 여기 포함하지 않는다 — 필요하면 별도 조회로 확장한다.
     인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
     """
     return {"actors": await list_actors(project_id)}

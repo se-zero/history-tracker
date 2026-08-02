@@ -2,10 +2,11 @@
 Actor 수동 관리 통합 검증 — 병합/복원/분리/이름 변경의 실제 Neo4j 쓰기 경로.
 
 실제 Neo4j(docker, localhost:7687)에 throwaway project_id로 검증한다:
-  1. merge_actors: source Actor의 alias와 권한 엣지가 target Actor로 이동한다.
-  2. unmerge_actors: same 결정 스냅샷으로 병합을 되돌리고 distinct 결정을 남긴다.
+  1. merge_actors: 활동 엣지가 많은 쪽을 canonical로 자동 선택해 alias·권한 엣지를 이동한다.
+  2. unmerge_actors: 결정 노드(canonical_uuid/merged_uuid/aliases_b)만으로 스냅샷 없이 복원하고
+     distinct 결정을 남긴다.
   3. split_alias: alias 일부를 새 Actor로 분리하고 해당 소스의 권한 엣지를 재귀속한다.
-  4. rename_actor: 표시 이름과 normalized_name을 함께 갱신한다.
+  4. rename_actor: 표시 이름만 갱신한다 — ActorAlias의 검색용 이름은 매칭에 남아 있어야 한다.
 
 OpenAI 불필요 — 전부 Neo4j 경로만 검증한다.
 
@@ -44,50 +45,56 @@ class CaseResult:
         return True
 
 
-async def _seed_actor(project_id: str, actor_uuid: str, name: str,
-                      aliases: list[str], emails: list[str] | None = None) -> None:
+async def _seed_actor(project_id: str, actor_uuid: str, name: str, aliases: list[str]) -> None:
+    """Actor + 각 alias의 ActorAlias(pd_name=name)를 심는다.
+
+    개인정보는 ActorAlias에 있으므로(docs/actor-identity-model.md), 표시 이름 재계산이
+    실제로 이 pd_name을 읽어 동작하는지까지 검증할 수 있게 alias 노드도 함께 만든다.
+    """
     async with get_driver().session() as session:
         await session.run(
             """
-            CREATE (a:Actor {
-                uuid: $uuid, project_id: $pid, name: $name,
-                normalized_name: $normalized_name, aliases: $aliases,
-                emails: $emails, confidence: 1.0
-            })
+            CREATE (a:Actor {uuid: $uuid, project_id: $pid, name: $name, aliases: $aliases})
             WITH a
             UNWIND $aliases AS source_id
-            CREATE (al:ActorAlias {project_id: $pid, source_id: source_id})
+            CREATE (al:ActorAlias {
+                project_id: $pid, source_id: source_id,
+                source: split(source_id, ':')[0], pd_name: $name
+            })
             CREATE (al)-[:ALIAS_OF]->(a)
             """,
             uuid=actor_uuid,
             pid=project_id,
             name=name,
-            normalized_name=name.lower().replace(" ", ""),
             aliases=aliases,
-            emails=emails or [],
         )
 
 
-async def _seed_merge_graph(project_id: str, target_uuid: str, source_uuid: str) -> None:
-    await _seed_actor(project_id, target_uuid, "Target Actor", ["GITHUB:target"], ["target@example.com"])
-    await _seed_actor(project_id, source_uuid, "Source Actor", ["SLACK:source"], ["source@example.com"])
+async def _seed_merge_graph(project_id: str, more_uuid: str, less_uuid: str) -> None:
+    """활동 엣지가 더 많은 쪽(more)이 병합 방향 자동 결정으로 canonical이 되는 시나리오.
+
+    more: AUTHORED 1개 + 담당(ASSIGNED_TO) 1개 = 활동 2. less: AUTHORED 1개 = 활동 1.
+    merge_actors를 어느 인자 순서로 불러도 more가 살아남아야 한다.
+    """
+    await _seed_actor(project_id, more_uuid, "More Actor", ["GITHUB:more"])
+    await _seed_actor(project_id, less_uuid, "Less Actor", ["SLACK:less"])
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (target:Actor {uuid: $target_uuid})
-            MATCH (source:Actor {uuid: $source_uuid})
-            CREATE (target_cs:ChangeSet {project_id: $pid, hash: $target_hash, source: 'GITHUB'})
-            CREATE (source_cs:ChangeSet {project_id: $pid, hash: $source_hash, source: 'SLACK'})
+            MATCH (more:Actor {uuid: $more_uuid})
+            MATCH (less:Actor {uuid: $less_uuid})
+            CREATE (more_cs:ChangeSet {project_id: $pid, hash: $more_hash, source: 'GITHUB'})
+            CREATE (less_cs:ChangeSet {project_id: $pid, hash: $less_hash, source: 'SLACK'})
             CREATE (issue:Issue {project_id: $pid, jira_key: $issue_key, source: 'JIRA'})
-            CREATE (target)-[:AUTHORED]->(target_cs)
-            CREATE (source)-[:AUTHORED]->(source_cs)
-            CREATE (issue)-[:ASSIGNED_TO]->(source)
+            CREATE (more)-[:AUTHORED]->(more_cs)
+            CREATE (less)-[:AUTHORED]->(less_cs)
+            CREATE (issue)-[:ASSIGNED_TO]->(more)
             """,
             pid=project_id,
-            target_uuid=target_uuid,
-            source_uuid=source_uuid,
-            target_hash=f"{project_id}-target",
-            source_hash=f"{project_id}-source",
+            more_uuid=more_uuid,
+            less_uuid=less_uuid,
+            more_hash=f"{project_id}-more",
+            less_hash=f"{project_id}-less",
             issue_key=f"TST-{project_id[-6:]}",
         )
 
@@ -107,8 +114,7 @@ async def _actor(project_id: str, actor_uuid: str) -> dict | None:
     record = await _single(
         """
         MATCH (a:Actor {project_id: $pid, uuid: $uuid})
-        RETURN a.uuid AS uuid, a.name AS name, a.normalized_name AS normalized_name,
-               a.aliases AS aliases, a.emails AS emails, a.manual_name AS manual_name
+        RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases, a.manual_name AS manual_name
         """,
         pid=project_id,
         uuid=actor_uuid,
@@ -117,85 +123,93 @@ async def _actor(project_id: str, actor_uuid: str) -> dict | None:
 
 
 async def case_merge_unmerge_roundtrip() -> CaseResult:
-    r = CaseResult("merge_actors + unmerge_actors: 실제 Neo4j 왕복")
+    r = CaseResult("merge_actors + unmerge_actors: 실제 Neo4j 왕복 (활동 많은 쪽이 canonical)")
     pid = f"test-actor-merge-{uuid.uuid4()}"
-    target_uuid = f"{pid}-target"
-    source_uuid = f"{pid}-source"
+    more_uuid = f"{pid}-more"
+    less_uuid = f"{pid}-less"
     try:
-        await _seed_merge_graph(pid, target_uuid, source_uuid)
+        await _seed_merge_graph(pid, more_uuid, less_uuid)
 
-        merged = await merge_actors(
-            pid, source_uuid, target_uuid, name="Unified Actor", note="integration"
-        )
-        r.assert_(merged["moved_edges"] == 2, f"AUTHORED+ASSIGNED_TO 2개 이동 기대, 실제 {merged}")
-        r.assert_(await _actor(pid, source_uuid) is None, "병합 후 source Actor는 삭제되어야 함")
+        # 인자 순서를 일부러 뒤집어도(less, more) 활동이 더 많은 more가 canonical로 남아야 한다.
+        merged = await merge_actors(pid, less_uuid, more_uuid, note="integration")
+        r.assert_(merged["canonical_uuid"] == more_uuid, f"활동 많은 쪽이 canonical이어야 함, 실제 {merged}")
+        r.assert_(merged["merged_uuid"] == less_uuid, f"활동 적은 쪽이 삭제 대상이어야 함, 실제 {merged}")
+        r.assert_(merged["moved_edges"] == 1, f"less의 AUTHORED 1개만 이동 기대, 실제 {merged}")
+        r.assert_(await _actor(pid, less_uuid) is None, "병합 후 less Actor는 삭제되어야 함")
 
-        target = await _actor(pid, target_uuid)
-        r.assert_(target is not None, "병합 후 target Actor가 남아야 함")
-        r.assert_(target and target["name"] == "Unified Actor", f"표시 이름이 갱신되어야 함: {target}")
+        canonical = await _actor(pid, more_uuid)
+        r.assert_(canonical is not None, "병합 후 canonical(more) Actor가 남아야 함")
         r.assert_(
-            target and target["aliases"] == ["GITHUB:target", "SLACK:source"],
-            f"alias 합집합 기대, 실제 {target}",
+            canonical and canonical["name"] == "More Actor",
+            f"표시 이름은 alias 기준 재계산 결과여야 함, 실제 {canonical}",
+        )
+        r.assert_(
+            canonical and canonical["aliases"] == ["GITHUB:more", "SLACK:less"],
+            f"alias 합집합 기대, 실제 {canonical}",
         )
         r.assert_(
             await _count(
                 """
-                MATCH (:Actor {uuid: $target})-[:AUTHORED {merged_from: $source}]
-                      ->(:ChangeSet {project_id: $pid, hash: $source_hash})
+                MATCH (:Actor {uuid: $canonical})-[:AUTHORED {merged_from: $merged}]
+                      ->(:ChangeSet {project_id: $pid, hash: $less_hash})
                 RETURN count(*) AS c
                 """,
                 pid=pid,
-                target=target_uuid,
-                source=source_uuid,
-                source_hash=f"{pid}-source",
+                canonical=more_uuid,
+                merged=less_uuid,
+                less_hash=f"{pid}-less",
             ) == 1,
-            "source AUTHORED 엣지가 target으로 moved_from 표식과 함께 이동해야 함",
+            "less의 AUTHORED 엣지가 canonical로 merged_from 표식과 함께 이동해야 함",
         )
         r.assert_(
             await _count(
                 """
-                MATCH (:ActorAlias {project_id: $pid, source_id: 'SLACK:source'})
-                      -[:ALIAS_OF]->(:Actor {uuid: $target})
+                MATCH (:ActorAlias {project_id: $pid, source_id: 'SLACK:less'})
+                      -[:ALIAS_OF]->(:Actor {uuid: $canonical})
                 RETURN count(*) AS c
                 """,
                 pid=pid,
-                target=target_uuid,
+                canonical=more_uuid,
             ) == 1,
-            "source alias가 target Actor로 재연결되어야 함",
+            "less alias가 canonical Actor로 재연결되어야 함",
         )
 
         restored = await unmerge_actors(pid, merged["decision_id"])
-        r.assert_(restored["moved_edges"] == 2, f"복원 이동 엣지 2개 기대, 실제 {restored}")
+        r.assert_(restored["moved_edges"] == 1, f"복원 이동 엣지 1개 기대, 실제 {restored}")
 
-        source = await _actor(pid, source_uuid)
-        target = await _actor(pid, target_uuid)
-        r.assert_(source is not None, "unmerge 후 source Actor가 복원되어야 함")
-        r.assert_(target is not None, "unmerge 후 target Actor가 남아야 함")
-        r.assert_(source and source["aliases"] == ["SLACK:source"], f"source alias 복원 기대, 실제 {source}")
-        r.assert_(target and target["aliases"] == ["GITHUB:target"], f"target alias에서 source alias 제거 기대, 실제 {target}")
+        less = await _actor(pid, less_uuid)
+        canonical = await _actor(pid, more_uuid)
+        r.assert_(less is not None, "unmerge 후 less Actor가 복원되어야 함")
+        r.assert_(canonical is not None, "unmerge 후 canonical(more) Actor가 남아야 함")
+        r.assert_(less and less["aliases"] == ["SLACK:less"], f"less alias 복원 기대, 실제 {less}")
+        r.assert_(less and less["name"] == "Less Actor", f"복원된 표시 이름 기대, 실제 {less}")
         r.assert_(
-            await _count(
-                """
-                MATCH (:Actor {uuid: $source})-[:AUTHORED]
-                      ->(:ChangeSet {project_id: $pid, hash: $source_hash})
-                RETURN count(*) AS c
-                """,
-                pid=pid,
-                source=source_uuid,
-                source_hash=f"{pid}-source",
-            ) == 1,
-            "source AUTHORED 엣지가 원 Actor로 돌아와야 함",
+            canonical and canonical["aliases"] == ["GITHUB:more"],
+            f"canonical alias에서 less alias 제거 기대, 실제 {canonical}",
         )
         r.assert_(
             await _count(
                 """
-                MATCH (:Issue {project_id: $pid})-[:ASSIGNED_TO]->(:Actor {uuid: $source})
+                MATCH (:Actor {uuid: $less})-[:AUTHORED]
+                      ->(:ChangeSet {project_id: $pid, hash: $less_hash})
                 RETURN count(*) AS c
                 """,
                 pid=pid,
-                source=source_uuid,
+                less=less_uuid,
+                less_hash=f"{pid}-less",
             ) == 1,
-            "ASSIGNED_TO 엣지가 원 Actor로 돌아와야 함",
+            "less의 AUTHORED 엣지가 원 Actor로 돌아와야 함",
+        )
+        r.assert_(
+            await _count(
+                """
+                MATCH (:Issue {project_id: $pid})-[:ASSIGNED_TO]->(:Actor {uuid: $canonical})
+                RETURN count(*) AS c
+                """,
+                pid=pid,
+                canonical=more_uuid,
+            ) == 1,
+            "ASSIGNED_TO 엣지는 병합 전부터 canonical(more) 소유라 그대로 남아 있어야 함",
         )
         r.assert_(
             await _count(
@@ -227,13 +241,7 @@ async def case_split_alias_moves_source_edges() -> CaseResult:
     pid = f"test-actor-split-{uuid.uuid4()}"
     actor_uuid = f"{pid}-actor"
     try:
-        await _seed_actor(
-            pid,
-            actor_uuid,
-            "Mixed Actor",
-            ["GITHUB:mixed", "SLACK:mixed"],
-            ["mixed@example.com"],
-        )
+        await _seed_actor(pid, actor_uuid, "Mixed Actor", ["GITHUB:mixed", "SLACK:mixed"])
         async with get_driver().session() as session:
             await session.run(
                 """
@@ -307,8 +315,8 @@ async def case_split_alias_moves_source_edges() -> CaseResult:
     return r
 
 
-async def case_rename_actor_updates_normalized_name() -> CaseResult:
-    r = CaseResult("rename_actor: 표시 이름 + normalized_name 갱신")
+async def case_rename_actor_updates_display_name() -> CaseResult:
+    r = CaseResult("rename_actor: 표시 이름만 갱신 — ActorAlias는 손대지 않음")
     pid = f"test-actor-rename-{uuid.uuid4()}"
     actor_uuid = f"{pid}-actor"
     try:
@@ -317,8 +325,19 @@ async def case_rename_actor_updates_normalized_name() -> CaseResult:
         actor = await _actor(pid, actor_uuid)
         r.assert_(renamed["name"] == "New Person (BE)", f"응답 name trim 기대, 실제 {renamed}")
         r.assert_(actor and actor["name"] == "New Person (BE)", f"저장 name 갱신 기대, 실제 {actor}")
-        r.assert_(actor and actor["normalized_name"] == "newpersonbe", f"normalized_name 갱신 기대, 실제 {actor}")
         r.assert_(actor and actor["manual_name"] is True, f"manual_name=true 기대, 실제 {actor}")
+
+        alias = await _single(
+            """
+            MATCH (al:ActorAlias {project_id: $pid, source_id: 'GITHUB:old'})
+            RETURN al.pd_name AS pd_name
+            """,
+            pid=pid,
+        )
+        r.assert_(
+            alias and alias["pd_name"] == "Old Name",
+            f"rename은 검색용 이름(pd_name)을 건드리면 안 됨, 실제 {dict(alias) if alias else None}",
+        )
     finally:
         await delete_project_graph(pid)
     return r
@@ -327,7 +346,7 @@ async def case_rename_actor_updates_normalized_name() -> CaseResult:
 CASES = [
     case_merge_unmerge_roundtrip,
     case_split_alias_moves_source_edges,
-    case_rename_actor_updates_normalized_name,
+    case_rename_actor_updates_display_name,
 ]
 
 

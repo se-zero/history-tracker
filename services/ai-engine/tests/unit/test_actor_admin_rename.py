@@ -48,15 +48,31 @@ class _FakeDriver:
 
 
 class RenameActor(unittest.TestCase):
-    def test_renames_actor_and_updates_normalized_name(self):
-        driver = _FakeDriver({"uuid": "a1", "name": "John Doe", "normalized_name": "johndoe"})
+    def test_renames_actor(self):
+        driver = _FakeDriver({"uuid": "a1", "name": "John Doe"})
 
         with patch("graph.actor_admin.get_driver", return_value=driver):
             result = asyncio.run(rename_actor("p1", "a1", "  John Doe  "))
 
-        self.assertEqual(result["name"], "John Doe")
+        self.assertEqual(result, {"uuid": "a1", "name": "John Doe"})
         self.assertEqual(driver.session_obj.tx.params["name"], "John Doe")
-        self.assertEqual(driver.session_obj.tx.params["normalized_name"], "johndoe")
+
+    def test_does_not_touch_normalized_name_or_alias_pd_fields(self):
+        """운영자가 입력한 이름이 매칭 키로 새면 오매칭·검색 축소를 만든다 — 회귀 방지.
+
+        rename_actor는 Actor.name/manual_name/name_updated_at 3개만 SET한다. normalized_name이나
+        ActorAlias의 pd_* 파라미터가 섞여 들어오면 검색·Step 2 후보 조회에 운영자 라벨이
+        새어 들어가는 회귀다.
+        """
+        driver = _FakeDriver({"uuid": "a1", "name": "John Doe"})
+
+        with patch("graph.actor_admin.get_driver", return_value=driver):
+            asyncio.run(rename_actor("p1", "a1", "John Doe"))
+
+        params = driver.session_obj.tx.params
+        self.assertNotIn("normalized_name", params)
+        self.assertNotIn("pd_name", params)
+        self.assertNotIn("pd_normalized_name", params)
 
     def test_missing_actor_raises_lookup_error(self):
         driver = _FakeDriver(None)

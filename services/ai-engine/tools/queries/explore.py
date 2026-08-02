@@ -484,7 +484,7 @@ SCHEMA_CARD = """\
 - Issue: jira_key, title, body, status, issue_type, priority, assignee, createdAt, closedAt, occurredAt(=최종 수정), source
 - Communication(Slack/GitHub 메시지): body, channel, url, conversation_id, createdAt, occurredAt, source, llm_filtered
 - File: path
-- Actor(사람): uuid, name, normalized_name, aliases, emails, confidence
+- Actor(사람): uuid, name, aliases
 
 관계 (방향 주의)
 - (Actor)-[:AUTHORED]->(ChangeSet | PullRequest)

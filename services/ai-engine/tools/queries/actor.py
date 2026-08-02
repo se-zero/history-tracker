@@ -169,6 +169,16 @@ def _build_activity_tiers(
     return detail, context, len(stubs) - len(context)
 
 
+# Actor 식별자(이름/alias/이메일) 매칭 WHERE 조각 — get_actor_activity·inspect_actor에서 반복
+# 사용한다. 개인정보(표시 이름·이메일)는 ActorAlias로 이전됐으므로 EXISTS 서브쿼리로 조회한다.
+# al.pd_name 매칭은 의도된 확장 — 표시 이름이 GitHub 기준으로 바뀌어도 LLM이 Jira 실명("김영희")
+# 으로 사람을 찾을 수 있어야 한다. ALIAS_OF는 항상 같은 project 안에서만 이어지므로 project_id
+# 중복 필터는 불필요하다.
+_ACTOR_MATCH_WHERE = """a.name = $identifier
+   OR $identifier IN a.aliases
+   OR EXISTS { MATCH (al:ActorAlias)-[:ALIAS_OF]->(a) WHERE al.pd_email = $identifier OR al.pd_name = $identifier }"""
+
+
 async def get_actor_activity(
     project_id: str,
     identifier: str,
@@ -188,10 +198,9 @@ async def get_actor_activity(
         result = await session.run(
             """
             MATCH (a:Actor {project_id: $project_id})
-            WHERE a.name = $identifier
-               OR $identifier IN a.aliases
-               OR $identifier IN a.emails
-            RETURN a.name AS name, a.aliases AS aliases, a.emails AS emails
+            WHERE """ + _ACTOR_MATCH_WHERE + """
+            RETURN a.name AS name, a.aliases AS aliases,
+                   [x IN [(al:ActorAlias)-[:ALIAS_OF]->(a) | al.pd_email] WHERE x IS NOT NULL] AS emails
             LIMIT 1
             """,
             project_id=project_id,
@@ -206,7 +215,7 @@ async def get_actor_activity(
         result = await session.run(
             """
             MATCH (a:Actor {project_id: $project_id})-[:AUTHORED]->(cs:ChangeSet)
-            WHERE (a.name = $identifier OR $identifier IN a.aliases OR $identifier IN a.emails)
+            WHERE (""" + _ACTOR_MATCH_WHERE + """)
               AND ($from_time IS NULL OR cs.occurredAt >= datetime($from_time))
             WITH cs ORDER BY cs.occurredAt DESC LIMIT $fetch_cap
             RETURN cs.hash AS hash, cs.message AS message, toString(cs.occurredAt) AS occurredAt
@@ -219,7 +228,7 @@ async def get_actor_activity(
         result = await session.run(
             """
             MATCH (a:Actor {project_id: $project_id})-[:AUTHORED]->(pr:PullRequest)
-            WHERE (a.name = $identifier OR $identifier IN a.aliases OR $identifier IN a.emails)
+            WHERE (""" + _ACTOR_MATCH_WHERE + """)
               AND ($from_time IS NULL OR pr.occurredAt >= datetime($from_time))
             WITH pr ORDER BY pr.occurredAt DESC LIMIT $fetch_cap
             RETURN pr.pr_number AS pr_number, pr.title AS title, toString(pr.occurredAt) AS occurredAt
@@ -232,7 +241,7 @@ async def get_actor_activity(
         result = await session.run(
             """
             MATCH (a:Actor {project_id: $project_id})-[:WROTE]->(c:Communication)
-            WHERE (a.name = $identifier OR $identifier IN a.aliases OR $identifier IN a.emails)
+            WHERE (""" + _ACTOR_MATCH_WHERE + """)
               AND ($from_time IS NULL OR c.occurredAt >= datetime($from_time))
             WITH c ORDER BY c.occurredAt DESC LIMIT $fetch_cap
             RETURN c.body AS body, c.channel AS channel,
@@ -267,7 +276,7 @@ async def get_actor_activity(
         result = await session.run(
             """
             MATCH (a:Actor {project_id: $project_id})
-            WHERE a.name = $identifier OR $identifier IN a.aliases OR $identifier IN a.emails
+            WHERE """ + _ACTOR_MATCH_WHERE + """
             OPTIONAL MATCH (a)-[:CREATED]->(i:Issue)
             OPTIONAL MATCH (assigned:Issue)-[:ASSIGNED_TO]->(a)
             RETURN collect(DISTINCT {jira_key: i.jira_key, title: i.title}) AS issues_created,
@@ -294,15 +303,13 @@ async def inspect_actor(project_id: str, identifier: str) -> dict:
         result = await session.run(
             """
             MATCH (a:Actor {project_id: $project_id})
-            WHERE a.name = $identifier
-               OR $identifier IN a.aliases
-               OR $identifier IN a.emails
+            WHERE """ + _ACTOR_MATCH_WHERE + """
+            OPTIONAL MATCH (al:ActorAlias)-[:ALIAS_OF]->(a)
+            WITH a, collect(DISTINCT al.pd_email) AS raw_emails
             RETURN a.uuid AS uuid,
                    a.name AS display_name,
-                   a.normalized_name AS normalized_name,
                    a.aliases AS all_aliases,
-                   a.emails AS emails,
-                   a.confidence AS merge_confidence,
+                   [x IN raw_emails WHERE x IS NOT NULL] AS emails,
                    count { (a)-[:AUTHORED]->(:ChangeSet) } AS commit_count,
                    count { (a)-[:AUTHORED]->(:PullRequest) } AS pr_count,
                    count { (a)-[:WROTE]->(:Communication) } AS message_count,
