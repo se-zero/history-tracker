@@ -105,8 +105,8 @@ class GitHubNormalizerTest {
     }
 
     @Test
-    @DisplayName("GitHub 계정(author)이 null이면 authorLogin은 commit.author.name으로 대체")
-    void normalizeCommits_nullGitHubAuthor_fallbackToName() {
+    @DisplayName("GitHub 계정(author)이 null이면 authorLogin은 commit.author.name으로 대체하고 git email은 넣지 않는다")
+    void normalizeCommits_nullGitHubAuthor_fallbackToNameWithoutEmail() {
         Map<String, Object> commitDetail = new HashMap<>();
         commitDetail.put("message", "init");
         commitDetail.put("author", Map.of("name", "John Doe", "email", "john@example.com", "date", "2024-01-01T00:00:00Z"));
@@ -122,6 +122,39 @@ class GitHubNormalizerTest {
         // login이 없으므로 name이 id 필드에 사용되어야 함
         assertThat(event.actor().id()).isEqualTo("John Doe");
         assertThat(event.actor().name()).isEqualTo("John Doe");
+        // git config 이메일은 개인정보라 ActorDto에 넣지 않는다
+        assertThat(event.actor().email()).isNull();
+    }
+
+    @Test
+    @DisplayName("GitHub 계정(author) 있음 + 보강된 프로필 name/email 있음 → ActorDto는 프로필 정보 사용")
+    void normalizeCommits_authorWithEnrichedProfile_usesProfileNameAndEmail() {
+        Map<String, Object> commit = buildCommit("sha1", "feat: x", "2024-03-15T10:00:00Z",
+                List.of(Map.of("sha", "p1")));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ghAuthor = (Map<String, Object>) commit.get("author");
+        ghAuthor.put("name", "Octocat Profile");   // GitHubRawService.enrichCommits가 보강한 프로필 name
+        ghAuthor.put("email", "octocat@github.com"); // 보강된 프로필 email
+
+        NormalizedEvent event = normalizer.normalizeCommits(PROJECT_ID, List.of(commit)).get(0);
+
+        assertThat(event.actor().id()).isEqualTo("test-user");
+        assertThat(event.actor().name()).isEqualTo("Octocat Profile");
+        assertThat(event.actor().email()).isEqualTo("octocat@github.com");
+    }
+
+    @Test
+    @DisplayName("GitHub 계정(author) 있음 + 보강된 프로필 name 없음 → name은 login으로 대체")
+    void normalizeCommits_authorWithoutEnrichedProfileName_fallsBackToLogin() {
+        Map<String, Object> commit = buildCommit("sha1", "feat: y", "2024-03-15T10:00:00Z",
+                List.of(Map.of("sha", "p1")));
+        // ghAuthor에는 login만 있고 보강된 name/email이 없는 상태 (buildCommit 기본값)
+
+        NormalizedEvent event = normalizer.normalizeCommits(PROJECT_ID, List.of(commit)).get(0);
+
+        assertThat(event.actor().id()).isEqualTo("test-user");
+        assertThat(event.actor().name()).isEqualTo("test-user");
+        assertThat(event.actor().email()).isNull();
     }
 
     @Test

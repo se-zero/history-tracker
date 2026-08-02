@@ -192,7 +192,6 @@ async def _handle_issue(event: dict) -> None:
         status=props.get("status", ""),
         issue_type=props.get("issue_type", ""),
         priority=props.get("priority", ""),
-        assignee=props.get("assignee", ""),
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
         # pipeline-worker는 status가 terminal일 때만 closed_at을 보낸다.
@@ -209,8 +208,16 @@ async def _handle_issue(event: dict) -> None:
         await builder.link_issue_to_parent(project_id, props["jira_key"], refs["parentJiraKey"])
 
     # Layer 2: Jira assignee → ASSIGNED_TO
+    # 담당자도 작성자와 동일하게 resolve_actor를 거쳐 Actor로 승격한다 (이름 문자열을
+    # Issue 속성에 저장하지 않기 위함). 이미 아는 담당자면 Step 0 alias 조회로 끝나 LLM 비용이 없다.
     if refs.get("assigneeId"):
-        await builder.link_issue_to_assignee(project_id, props["jira_key"], refs["assigneeId"])
+        assignee_actor = {
+            "id": refs["assigneeId"],
+            "name": refs.get("assigneeName"),
+            "email": refs.get("assigneeEmail"),
+        }
+        assigned = await resolve_actor(assignee_actor, source, make_neo4j_actor_store(project_id), event)
+        await builder.link_issue_to_assignee(project_id, props["jira_key"], assigned["uuid"])
 
 
 async def _handle_communication(event: dict) -> None:

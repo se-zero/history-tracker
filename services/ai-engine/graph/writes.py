@@ -174,7 +174,6 @@ async def upsert_issue(
     status: str,
     issue_type: str,
     priority: str,
-    assignee: str,
     occurred_at: str,
     created_at: Optional[str],
     closed_at: Optional[str] = None,
@@ -203,7 +202,6 @@ async def upsert_issue(
                 i.status = $status,
                 i.issue_type = $issue_type,
                 i.priority = $priority,
-                i.assignee = $assignee,
                 i.occurredAt = datetime($occurred_at),
                 i.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
                 i.closedAt   = CASE
@@ -223,7 +221,6 @@ async def upsert_issue(
             status=status,
             issue_type=issue_type,
             priority=priority,
-            assignee=assignee,
             occurred_at=occurred_at,
             created_at=created_at,
             closed_at=closed_at,
@@ -426,18 +423,17 @@ async def link_issue_to_parent(project_id: str, child_key: str, parent_key: str)
             child_key=child_key,
         )
 
-async def link_issue_to_assignee(project_id: str, jira_key: str, assignee_id: str) -> None:
-    """ASSIGNED_TO: Issue assignee 존재 시. JIRA source-scoped alias로 Actor 조회."""
+async def link_issue_to_assignee(project_id: str, jira_key: str, actor_uuid: str) -> None:
+    """ASSIGNED_TO: Issue assignee 존재 시. event_handler가 resolve_actor로 확정한 Actor uuid를 받는다."""
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})
-            WHERE $scoped_alias IN a.aliases
+            MATCH (a:Actor {uuid: $actor_uuid, project_id: $project_id})
             WITH a
             MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
             MERGE (i)-[:ASSIGNED_TO]->(a)
             """,
             project_id=project_id,
             jira_key=jira_key,
-            scoped_alias=f"JIRA:{assignee_id}",
+            actor_uuid=actor_uuid,
         )

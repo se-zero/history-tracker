@@ -52,6 +52,28 @@ class GitHubRawServiceTest {
     }
 
     @Test
+    @DisplayName("commit.author(GitHub 계정)에 프로필 name/email이 보강된다")
+    @SuppressWarnings("unchecked")
+    void fetchSample_commitAuthor_enrichedWithProfileNameAndEmail() {
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> Mono.just(jsonResponse(responseFor(request))));
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0)
+        );
+
+        Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
+
+        List<Map<String, Object>> commits = (List<Map<String, Object>>) raw.get("commits");
+        Map<String, Object> author = (Map<String, Object>) commits.get(0).get("author");
+        assertThat(author).containsEntry("login", "dev")
+                .containsEntry("name", "Dev")
+                .containsEntry("email", "dev@example.com");
+    }
+
+    @Test
     @DisplayName("branch 옵션 지정 시 commits 요청 URL에 sha 파라미터 포함")
     void prepareFetchContext_withBranchOption_addsShaParam() {
         AtomicReference<String> capturedCommitsQuery = new AtomicReference<>();

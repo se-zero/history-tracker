@@ -153,6 +153,7 @@ public class GitHubRawService {
         return new GitHubPage(items, pageItems.size() < PER_PAGE);
     }
 
+    /** commit.author(GitHub 계정)에 프로필 name/email 보강. login별 캐시로 기여자 수만큼만 호출한다. */
     @SuppressWarnings("unchecked")
     private List<Object> enrichCommits(String auth, List<Object> commits, String owner, String repo,
                                        Map<String, String> commitPrNumbers) {
@@ -167,6 +168,17 @@ public class GitHubRawService {
             String prNumber = commitPrNumbers.get(sha);
             if (prNumber != null) {
                 commit.put("prNumber", prNumber);
+            }
+            Map<String, Object> ghAuthor = (Map<String, Object>) commit.get("author");
+            if (ghAuthor != null) {
+                String login = (String) ghAuthor.get("login");
+                if (login != null) {
+                    Map<String, String> profile = fetchUserProfile(login, auth);
+                    Map<String, Object> enrichedAuthor = new HashMap<>(ghAuthor);
+                    if (profile.containsKey("email")) enrichedAuthor.put("email", profile.get("email"));
+                    if (profile.containsKey("name"))  enrichedAuthor.put("name",  profile.get("name"));
+                    commit.put("author", enrichedAuthor);
+                }
             }
             result.add(commit);
         }
