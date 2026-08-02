@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
 import { PATHS } from "@/routes";
-import type { LandingTheme } from "@/pages/LandingPage";
+import type { LandingTheme } from "@/components/landing/useLandingTheme";
 
 // 랜딩 헤더 — 로고/워드마크와 우측 액션(테마 토글 + 로그인 링크). 로그인 링크는 인증 상태로
 // 분기한다(노션 방식) — 비로그인이면 히어로 CTA와 동일한 GitHub OAuth 직행, 로그인 상태면

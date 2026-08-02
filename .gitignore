@@ -41,3 +41,4 @@ eval/results/
 infra/docker/graph-swap.sh
 
 .ua
+.claude

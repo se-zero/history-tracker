@@ -45,9 +45,6 @@ export function LandingHero() {
                 GitHub으로 시작
               </a>
             )}
-            <Link className="lp-btn lp-btn--secondary" to="/demo/graph">
-              그래프 만져보기
-            </Link>
           </div>
           {status !== "authenticated" && (
             <p className="lp-cta-meta">

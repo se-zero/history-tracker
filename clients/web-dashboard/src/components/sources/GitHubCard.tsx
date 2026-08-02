@@ -1,106 +1,67 @@
-import { useState } from "react";
-import axios from "axios";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-
-import { BranchSelect } from "@/components/BranchSelect";
-import { Icons } from "@/components/Icons";
-import { InlineError } from "@/components/ui/InlineError";
+import { GithubMark } from "@/components/brand/BrandMarks";
 import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
-import { connectGitHubRepository } from "@/api/integrations";
-import { queryKeys } from "@/hooks/queryKeys";
-import { useGithubRepoRows } from "@/hooks/useGithub";
+import { useGithubInstallations } from "@/hooks/useGithub";
 import { useIntegrations } from "@/hooks/useIntegrations";
-import type { GitHubInstallation, GitHubRepository } from "@/types/api";
+import { formatTimestamp } from "@/lib/format";
 
-// 접힌 상태에서 보여줄 리포지토리 수 — Jira/Slack 카드와 높이를 맞추기 위함
-const REPO_PREVIEW_COUNT = 4;
-
+// GitHub는 항상 "연동 중" 행 최상단에 고정된다(미설치 상태에도 행 안에서 설치 플로우를 안내한다).
+// 저장소 선택 UI는 이 카드가 아니라 온보딩에서 담당한다 — 여기는 표시 전용.
 export function GitHubCard({ projectId }: { projectId: string }) {
-  const { installationsQuery, installations, rows: allRepoRows, totalRepos } =
-    useGithubRepoRows();
+  const installationsQuery = useGithubInstallations();
+  const installations = installationsQuery.data ?? [];
   const connected = installations.length > 0;
 
   const integrationsQuery = useIntegrations(projectId);
   const githubIntegration = integrationsQuery.data?.find((i) => i.provider === "github");
-  const connectedRepoId = githubIntegration?.metadata?.["repository_id"] as
-    | number
-    | undefined;
-  const connectedBranch = githubIntegration?.metadata?.["branch"] as
+  const repoConnected = Boolean(githubIntegration);
+
+  const repoFullName = githubIntegration?.metadata?.["repository_full_name"] as
     | string
     | undefined;
+  const branch = githubIntegration?.metadata?.["branch"] as string | undefined;
+  const repoLabel = repoFullName
+    ? `${repoFullName}:${branch}`
+    : githubIntegration?.displayName ?? "";
 
-  const [showAllRepos, setShowAllRepos] = useState(false);
-  // 프로젝트에 레포가 연결돼 있으면 그 레포만 노출한다 — 다른 레포로 바꾸려면 먼저 해제해야 해서
-  // 나머지 목록은 의미가 없다. (연결 정보는 있으나 설치 목록에서 사라진 예외엔 전체로 폴백.)
-  const connectedRow = allRepoRows.find(({ repo }) => repo.id === connectedRepoId);
-  const onlyConnected = connectedRepoId !== undefined && !!connectedRow;
-  const baseRepoRows = onlyConnected ? [connectedRow!] : allRepoRows;
-  const visibleRepoRows =
-    onlyConnected || showAllRepos
-      ? baseRepoRows
-      : baseRepoRows.slice(0, REPO_PREVIEW_COUNT);
-  const hiddenRepoCount = baseRepoRows.length - visibleRepoRows.length;
-
-  // 연결하려고 선택한 저장소(브랜치 선택 단계)
-  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
-  const [branch, setBranch] = useState("");
-
-  const queryClient = useQueryClient();
-  const connectMutation = useMutation({
-    mutationFn: (payload: {
-      installation: GitHubInstallation;
-      repo: GitHubRepository;
-      branch: string;
-    }) =>
-      connectGitHubRepository(projectId, {
-        installationId: payload.installation.id,
-        repositoryId: payload.repo.id,
-        repositoryFullName: payload.repo.full_name,
-        branch: payload.branch,
-      }),
-    onSuccess: () => {
-      setSelectedRepoId(null);
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations(projectId) });
-    },
-  });
-
-  const startBranchSelect = (repo: GitHubRepository) => {
-    setSelectedRepoId(repo.id);
-    setBranch(repo.default_branch);
-  };
-
-  const connectErrorMessage = connectMutation.isError
-    ? axios.isAxiosError(connectMutation.error) && connectMutation.error.response?.status === 409
-      ? "이미 이 프로젝트에 연결된 GitHub 저장소가 있어요."
-      : "연결에 실패했어요. 잠시 후 다시 시도해 주세요."
+  const lastSyncedAt = githubIntegration?.lastSyncedAt
+    ? formatTimestamp(githubIntegration.lastSyncedAt)
     : null;
 
   return (
-    <div className="source-card">
-      <div className="src-head">
-        <div className="src-logo gh">
-          <Icons.GitHub size={20} />
+    <div className="source-row">
+      <div className="source-row-top">
+        <div className="source-logo-chip">
+          <GithubMark size={20} />
         </div>
-        <div style={{ flex: 1 }}>
-          <h4>GitHub</h4>
-          <div className="src-sub">
-            {connected
-              ? `${installations.map((i) => i.accountLogin).join(", ")} · ${totalRepos} repos`
-              : "GitHub App을 설치해 시작하세요"}
+        <div className="source-row-main">
+          <div className="source-row-name">GitHub</div>
+          <div className="source-row-sub">
+            {!connected ? (
+              "GitHub App을 설치해 시작하세요"
+            ) : repoConnected ? (
+              <span className="mono">{repoLabel}</span>
+            ) : (
+              "연결된 저장소가 없습니다"
+            )}
           </div>
         </div>
-        <span className={"badge " + (connected ? "success" : "")}>
-          <span className="dot" />
-          {installationsQuery.isLoading
-            ? "확인 중"
-            : connected
-              ? "연결됨"
-              : "미연결"}
-        </span>
+        <div className="source-row-status">
+          {/* 배지는 App 설치가 아니라 "이 프로젝트에 저장소가 연결됐는가"를 말한다 —
+              설치만 되고 repo가 없으면 서브라인(연결된 저장소가 없습니다)과 함께 미연결. */}
+          <span className={"src-pill " + (connected && repoConnected ? "connected" : "disconnected")}>
+            <span className="dot" />
+            {installationsQuery.isLoading ? "확인 중" : connected && repoConnected ? "연결됨" : "미연결"}
+          </span>
+          {lastSyncedAt && (
+            <div className="source-row-synced">
+              마지막 수집 <span className="mono">{lastSyncedAt}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {installationsQuery.isLoading && (
-        <div style={{ padding: "20px 0", color: "var(--fg-muted)", fontSize: 13 }}>
+        <div style={{ padding: "16px 0 0", color: "var(--fg-muted)", fontSize: 13 }}>
           GitHub installations 불러오는 중…
         </div>
       )}
@@ -108,7 +69,7 @@ export function GitHubCard({ projectId }: { projectId: string }) {
       {!installationsQuery.isLoading && !connected && (
         <div
           style={{
-            padding: "20px 0",
+            padding: "16px 0 0",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -133,108 +94,6 @@ export function GitHubCard({ projectId }: { projectId: string }) {
           </span>
         </div>
       )}
-
-      {connected && (
-        <div className="repo-list">
-          {visibleRepoRows.map(({ installation: inst, repo: r }) => {
-            const isConnected = connectedRepoId === r.id;
-            const otherRepoConnected = connectedRepoId !== undefined && !isConnected;
-            const isSelected = selectedRepoId === r.id;
-            const isPending =
-              connectMutation.isPending &&
-              connectMutation.variables?.repo.id === r.id;
-            return (
-              <div key={`${inst.id}-${r.id}`} className="repo-row">
-                <span className="repo-name">{r.full_name}</span>
-                {isConnected ? (
-                  <>
-                    <span className="repo-meta">
-                      {connectedBranch ? `branch: ${connectedBranch}` : r.visibility}
-                    </span>
-                    <span style={{ fontSize: 12, color: "var(--success)", marginLeft: 8 }}>
-                      연결됨
-                    </span>
-                  </>
-                ) : isSelected ? (
-                  <>
-                    <BranchSelect
-                      installationId={inst.id}
-                      owner={r.owner}
-                      repo={r.name}
-                      value={branch}
-                      onChange={setBranch}
-                      disabled={isPending}
-                    />
-                    <button
-                      className="btn btn-primary"
-                      style={{ padding: "3px 8px", marginLeft: 8 }}
-                      onClick={() =>
-                        connectMutation.mutate({ installation: inst, repo: r, branch })
-                      }
-                      disabled={isPending || !branch}
-                    >
-                      {isPending ? "연결 중…" : "연결"}
-                    </button>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: "3px 8px", marginLeft: 4 }}
-                      onClick={() => setSelectedRepoId(null)}
-                      disabled={isPending}
-                    >
-                      취소
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="repo-meta">{r.visibility}</span>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: "3px 8px", marginLeft: 8 }}
-                      onClick={() => startBranchSelect(r)}
-                      disabled={otherRepoConnected}
-                    >
-                      {otherRepoConnected ? "다른 저장소 연결됨" : "이 프로젝트에 연결"}
-                    </button>
-                  </>
-                )}
-              </div>
-            );
-          })}
-          {baseRepoRows.length > REPO_PREVIEW_COUNT && (
-            <button
-              className="repo-toggle"
-              onClick={() => setShowAllRepos((prev) => !prev)}
-            >
-              {showAllRepos ? "접기" : `${hiddenRepoCount}개 더 보기`}
-              <Icons.ChevronDown
-                size={12}
-                style={{
-                  transform: showAllRepos ? "rotate(180deg)" : undefined,
-                }}
-              />
-            </button>
-          )}
-          {connectErrorMessage && (
-            <InlineError style={{ padding: "8px 12px" }}>
-              {connectErrorMessage}
-            </InlineError>
-          )}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
-        <a
-          className="btn btn-ghost"
-          href={GITHUB_INSTALL_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          앱 관리
-        </a>
-        <a className="btn btn-ghost" href={GITHUB_AUTHORIZE_URL}>
-          연결 확인
-        </a>
-      </div>
     </div>
   );
 }

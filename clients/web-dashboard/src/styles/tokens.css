@@ -134,6 +134,26 @@
   --brand-slack-yellow: #ECB22E; /* 앰버(#EBA23C)와 근접하나 외부 브랜드 자산이라 앰버 독점 규칙 비대상 */
   --brand-slack-red: #E01E5A;
   --brand-slack-aubergine: #4A154B; /* Slack 브랜드 주색 — 단색 커넥터 로고 배경용 */
+
+  /* 신규 8개 브랜드(2단계 데이터 소스 재설계 기반 작업) — GitHub와 같은 사유로 잉크(흑백)
+     마크는 다크 배경용 흰색 변형을 기본값으로 둔다(Notion). 나머지는 공식 컬러 그대로. */
+  --brand-notion: #FFFFFF;          /* Notion 잉크 마크 — 다크 배경용 흰색 변형(공식은 흑, GitHub와 동일 패턴) */
+  --brand-linear: #5E6AD2;
+  --brand-asana: #F06A6A;
+  --brand-monday-red: #F62B54;      /* monday.com 공식 "flag" 마크 3색 중 레드 */
+  --brand-monday-yellow: #FFCC00;   /* 옐로 — 노드 팔레트가 밝은 노랑을 쓰지 않으므로 앰버 독점 규칙과 무충돌 */
+  --brand-monday-green: #00CA72;
+  --brand-clickup-pink: #FD71AF;    /* ClickUp 그라데이션 핑크 — 공식 팔레트 확정값 */
+  --brand-clickup-purple: #7B68EE;  /* ClickUp 공식 대표 컬러 */
+  --brand-clickup-blue: #49CCF9;    /* ClickUp 그라데이션 블루 — 공식 팔레트 확정값 */
+  --brand-teams: #5059C9;           /* Microsoft Teams 배지 — 진한 퍼플 */
+  --brand-teams-light: #7B83EB;     /* Microsoft Teams 배지 — 밝은 퍼플 */
+  --brand-teams-grad-a: #5A62C3;    /* Teams 패널 그라데이션 3단 */
+  --brand-teams-grad-b: #4D55BD;
+  --brand-teams-grad-c: #3940AB;
+  --brand-teams-fg: #FFFFFF;        /* Teams 패널 위 흰 "T" */
+  --brand-google-chat: #34A853;     /* Google 워크스페이스 그린 */
+  --brand-discord: #5865F2;         /* Discord 공식 "Blurple" */
 }
 
 /* ── Landing 라이트 테마 오버라이드 ─────────────────────────────
@@ -188,10 +208,12 @@ body:has(.lp[data-theme="light"]) {
   --lp-shadow-md: 0 2px 4px rgba(13, 16, 20, 0.04), 0 12px 32px -8px rgba(13, 16, 20, 0.1);
   --lp-shadow-lg: 0 4px 8px rgba(13, 16, 20, 0.04), 0 32px 80px -24px rgba(13, 16, 20, 0.16);
 
-  /* GitHub 마크는 다크 배경용 흰색 변형이라 라이트(흰 카드)에서 보이지 않는다 — 잠정으로
-     라이트 잉크(text-primary #171A1F, GitHub 공식 다크 마크 #181717과 사실상 동일 톤)로
-     대체한다. 공식 hex 승인은 별도 확인 필요(팔레트 표 밖 신규 hex 도입 금지 규칙). */
+  /* GitHub·Notion 마크는 다크 배경용 흰색 변형이라 라이트(흰 카드)에서 보이지 않는다 — 잠정으로
+     라이트 잉크(text-primary #171A1F, 각 브랜드 공식 다크 마크와 사실상 동일 톤)로 대체한다.
+     공식 hex 승인은 별도 확인 필요(팔레트 표 밖 신규 hex 도입 금지 규칙). 다색 마크(Jira·Slack·
+     Linear 등)는 라이트에서도 공식 색을 그대로 유지하므로 오버라이드가 필요 없다. */
   --brand-github: var(--lp-text-primary);
+  --brand-notion: var(--lp-text-primary);
 }
 
 /* light theme */
@@ -215,6 +237,13 @@ body:has(.lp[data-theme="light"]) {
 
   --success:      oklch(0.530 0.101 157);  /* #2F7D54 */
   --danger:       oklch(0.58 0.20  25);
+
+  /* GitHub·Notion 마크는 :root의 다크 배경용 흰색 변형이 기본값이라, 이 앱 라이트 블록에
+     오버라이드가 없으면 흰 카드 위에서 보이지 않는다(랜딩은 .lp[data-theme="light"] 스코프에
+     자체 오버라이드가 있어 문제없지만 앱 라이트 테마는 그 스코프 밖이다). 잠정으로 라이트
+     잉크(--fg)로 대체 — 공식 hex 승인 전까지 GitHub 라이트 오버라이드와 같은 사유. */
+  --brand-github: var(--fg);
+  --brand-notion: var(--fg);
 
   --shadow-sm:  0 1px 2px rgba(13, 16, 20, 0.05), 0 2px 8px rgba(13, 16, 20, 0.04);
   --shadow-md:  0 2px 4px rgba(13, 16, 20, 0.04), 0 12px 32px -8px rgba(13, 16, 20, 0.1);

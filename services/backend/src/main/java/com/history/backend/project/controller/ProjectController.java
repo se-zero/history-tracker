@@ -3,6 +3,7 @@ package com.history.backend.project.controller;
 import java.util.List;
 import java.util.UUID;
 
+import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.project.dto.CreateProjectRequest;
 import com.history.backend.project.dto.ProjectResponse;
 import com.history.backend.project.dto.ReorderProjectsRequest;
@@ -30,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProjectController {
 
     private final ProjectService projectService;
+    // 프로젝트 + GitHub 연동 동시 생성만 위임한다 — 연동 저장은 integration 쪽이 소유한다.
+    private final IntegrationService integrationService;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -37,6 +40,17 @@ public class ProjectController {
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @Valid @RequestBody CreateProjectRequest request
     ) {
+        if (request.github() != null) {
+            return ProjectResponse.from(integrationService.createProjectWithGitHubRepository(
+                    authenticatedUser.id(),
+                    request.name(),
+                    request.description(),
+                    request.github().installationId(),
+                    request.github().repositoryId(),
+                    request.github().repositoryFullName(),
+                    request.github().branch()
+            ));
+        }
         return ProjectResponse.from(projectService.createProject(
                 authenticatedUser.id(),
                 request.name(),
