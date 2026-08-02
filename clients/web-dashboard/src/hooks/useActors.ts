@@ -6,9 +6,7 @@ import {
   getActors,
   mergeActors,
   renameActor,
-  revokeActorDecision,
   splitActor,
-  unmergeActors,
 } from "@/api/actors";
 import { queryKeys } from "./queryKeys";
 
@@ -70,16 +68,4 @@ export function useRenameActor(projectId: string) {
     actorUuid: string;
     name: string;
   }) => renameActor(projectId, input));
-}
-
-export function useUnmergeActors(projectId: string) {
-  return useActorMutation(projectId, (decisionId: string) =>
-    unmergeActors(projectId, decisionId),
-  );
-}
-
-export function useRevokeActorDecision(projectId: string) {
-  return useActorMutation(projectId, (decisionId: string) =>
-    revokeActorDecision(projectId, decisionId),
-  );
 }

@@ -206,6 +206,17 @@
 .source-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; }
 .source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; font-family: var(--font-mono); }
 
+/* 액터 관리 카드(좌, 넓게) + 병합 결정 이력 카드(우, 고정폭) 2열 배치 */
+.actors-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .actors-layout { grid-template-columns: 1fr; }
+}
+
 .actor-card {
   margin-top: 20px;
   background: var(--surface);
@@ -218,6 +229,10 @@
 .actor-head p, .actor-form > p { margin: 4px 0 0; color: var(--fg-muted); font-size: 12px; }
 .actor-empty { margin: 16px 0; color: var(--fg-muted); font-size: 13px; }
 .actor-list { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+/* position: relative — useCollapsedRows가 행의 offsetTop을 이 래퍼 기준으로 재는 offsetParent가 되도록 한다. */
+.actor-list-rows { display: flex; flex-direction: column; position: relative; }
+/* 접힘 높이는 useCollapsedRows가 실측한 px을 인라인 style로 준다 — 여기서는 스크롤만 담당. */
+.actor-list-collapsed { overflow-y: auto; }
 .actor-row, .actor-decision { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
 .actor-row:last-child, .actor-decision:last-child { border-bottom: none; }
 .actor-info { min-width: 0; }
@@ -239,12 +254,10 @@
 .actor-form label span { color: var(--fg-subtle); font-weight: 400; }
 .actor-form input, .actor-form select { min-width: 0; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; }
 .actor-form input:focus, .actor-form select:focus { outline: none; border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
-.actor-form-actions { display: flex; gap: 8px; }
+.actor-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .actor-alias-picker { display: flex; flex-wrap: wrap; gap: 8px; }
 .actor-alias-picker label { flex-direction: row; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 400; }
 .actor-alias-picker input { min-width: auto; padding: 0; }
-.actor-decisions { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
-.actor-decision-list { border-top: 1px solid var(--border); }
 .actor-decision p { margin: 4px 0 0; color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; }
 
 @media (max-width: 700px) {

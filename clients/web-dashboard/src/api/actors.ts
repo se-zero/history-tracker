@@ -38,14 +38,3 @@ export async function getActorDecisions(projectId: string): Promise<ActorDecisio
   );
   return data.decisions;
 }
-
-export async function unmergeActors(projectId: string, decisionId: string): Promise<void> {
-  await api.post(`/projects/${projectId}/actors/unmerge`, { decisionId });
-}
-
-export async function revokeActorDecision(
-  projectId: string,
-  decisionId: string,
-): Promise<void> {
-  await api.delete(`/projects/${projectId}/actors/decisions/${decisionId}`);
-}
