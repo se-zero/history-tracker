@@ -86,8 +86,9 @@ class ListDecisions(unittest.TestCase):
         self.assertNotIn("GITHUB:more", response_text)
         self.assertNotIn("SLACK:less", response_text)
 
-    def test_missing_alias_match_fills_nulls(self):
-        """이론상 없지만, 매칭되는 alias가 없으면 source/name/erased 전부 null로 채운다."""
+    def test_missing_alias_match_falls_back_to_source_prefix(self):
+        """소스 연동 해제로 alias가 삭제된 뒤에도 반대편이 남아 결정이 보존되는 경우 —
+        name/erased는 채울 게 없지만 source_id 접두사에서 소스명만 유도해 빈 칩을 피한다."""
         decisions = [
             {
                 "decision_id": "d1", "kind": "distinct",
@@ -101,7 +102,9 @@ class ListDecisions(unittest.TestCase):
         with patch("graph.actor_admin.get_driver", return_value=driver):
             result = asyncio.run(list_decisions("p1"))
 
-        self.assertEqual(result[0]["aliases_a"], [{"source": None, "name": None, "erased": None}])
+        self.assertEqual(
+            result[0]["aliases_a"], [{"source": "GITHUB", "name": None, "erased": None}]
+        )
 
 
 if __name__ == "__main__":

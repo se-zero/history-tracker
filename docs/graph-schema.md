@@ -44,8 +44,10 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
    ChangeSet이 사라지면 `MODIFIED`가 끊긴 채 남으므로 별도로 정리한다.
 3. **Actor** — 소스를 가로지른다(`aliases: ["GITHUB:x", "SLACK:y"]`). 가진 alias가 **전부**
    해당 소스인 Actor만 삭제하고, 다른 소스가 남은 Actor는 배열에서 그 alias만 뺀다.
-   `ActorAlias` 인덱스 노드도 함께 지운다(Step 0 조회가 이걸 탄다).
-   ⚠️ `Actor.emails`는 출처 소스를 기록하지 않아, 살아남은 Actor의 이메일은 그대로 둔다.
+   `ActorAlias` 인덱스 노드(`pd_name`·`pd_email` 포함)도 함께 지운다(Step 0 조회가 이걸 탄다) —
+   개인정보는 ActorAlias에 소스별로 저장되므로 이 삭제가 곧 그 소스에서 받은 개인정보 삭제를
+   겸한다. 살아남은 Actor는 표시 이름을 재계산한다(`recompute_display_name`) — 지워진 소스가
+   표시 이름의 출처였다면 그 개인정보가 `Actor.name`에 남기 때문이다.
 4. **ActorDecision** — 수동 병합·분리 기록 중 한쪽 alias 묶음이 통째로 사라진 것은 적용
    대상이 없어 삭제한다. 양쪽 모두 남아 있으면 보존한다(재수집 후 다시 적용돼야 한다).
 

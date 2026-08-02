@@ -597,8 +597,10 @@ async def list_decisions(project_id: str) -> list[dict]:
     ActorDecision에는 aliases_a/aliases_b가 source_id(계정ID)로 저장돼 있다 — 사람이 못
     읽고 목록에 계정ID를 깔지 않는 원칙에도 어긋나므로, 조회 시점에 현재 ActorAlias에서
     이름을 읽어 {source, name, erased}로 바꿔 반환한다. 결정 노드 자체에는 이름을 저장하지
-    않는다 — 개인정보 사본을 여러 곳에 두지 않기 위해서다. 매칭되는 alias가 없으면(이론상
-    없지만) {source: null, name: null, erased: null}로 채운다.
+    않는다 — 개인정보 사본을 여러 곳에 두지 않기 위해서다. 매칭되는 alias가 없으면 —
+    소스 연동 해제로 그 alias가 삭제된 뒤에도 반대편이 남아 결정이 보존되는 경우가 실제로
+    발생한다 — source_id 접두사에서 소스명만 유도해 {source: <소스>, name: null, erased: null}로
+    채운다(계정ID 자체는 노출하지 않는다).
     """
     async with get_driver().session() as session:
         result = await session.run(
@@ -633,7 +635,10 @@ async def list_decisions(project_id: str) -> list[dict]:
     }
 
     def _resolve(ids: list[str]) -> list[dict]:
-        return [alias_by_id.get(sid, {"source": None, "name": None, "erased": None}) for sid in ids]
+        return [
+            alias_by_id.get(sid, {"source": sid.split(":", 1)[0], "name": None, "erased": None})
+            for sid in ids
+        ]
 
     return [
         {
