@@ -246,3 +246,53 @@
   .actor-head, .actor-row, .actor-decision { align-items: flex-start; flex-direction: column; }
   .actor-form { grid-template-columns: 1fr; }
 }
+
+/* ── 연동 해제 ─────────────────────────────────────────────────────────
+   해제는 자격증명뿐 아니라 수집된 그래프까지 지우는 파괴적 동작이라, 행에서는 조용히
+   (ghost, 평소 fg-subtle) 있다가 확인 다이얼로그에서 danger로 말한다 — 행에 danger 버튼을
+   상시 노출하면 연결 상태 행 전체가 경고처럼 읽힌다.
+   --------------------------------------------------------------------- */
+.src-disconnect { padding: 4px 10px; font-size: 12px; color: var(--fg-subtle); }
+.src-disconnect:hover { color: var(--danger); background: color-mix(in oklab, var(--danger) 8%, transparent); }
+
+/* 오버레이·다이얼로그는 통합 검색(search.css)과 같은 기법 — scrim + blur, 다크에서
+   그림자 대신 상단 인셋 하이라이트로 표면을 띄운다(DESIGN.md). 위치만 중앙 정렬이다. */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(13 16 20 / 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.confirm-dialog {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 0 var(--edge-highlight), var(--shadow-lg);
+}
+
+.confirm-title { margin: 0 0 14px; font-size: 15px; }
+
+.confirm-points { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.confirm-points li { display: flex; gap: 9px; color: var(--fg-muted); font-size: 13px; line-height: 1.65; word-break: keep-all; }
+.confirm-points strong { color: var(--fg); font-weight: 500; }
+
+/* 불릿을 문자 대신 점으로 — 첫 항목만 danger라 "이것이 손실"이 한눈에 잡힌다. */
+.confirm-mark {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: var(--fg-subtle);
+}
+.confirm-mark.danger { background: var(--danger); }
+
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }

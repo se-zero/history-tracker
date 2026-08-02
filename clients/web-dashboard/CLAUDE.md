@@ -41,6 +41,8 @@ src/
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
     sources/        GitHubCard · JiraCard · SlackCard · IngestStatus · ActorManagementCard
                     useOAuthCallbackError — 동의 후 돌아온 리다이렉트의 실패 안내(URL 쿼리 캡처)
+                    DisconnectIntegration — 해제 버튼 + 사전 경고 다이얼로그(세 카드 공용).
+                    해제는 수집된 그래프까지 지우는 파괴적 동작이라 무엇이 삭제·유지되는지 먼저 보여준다
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
     graph/          ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널) · NodeDetail

@@ -54,6 +54,16 @@ cd services/backend
   (`IntegrationService.createProjectWithGitHubRepository`). 온보딩에서 프로젝트만 만들어지고 사용자가 이탈해
   GitHub 없는 빈 프로젝트가 남는 것을 막기 위함이다. 설치 토큰 발급(외부 호출)은 트랜잭션 시작 전에 끝내고,
   수집 트리거는 커밋 뒤에 한다.
+- `DELETE /api/v1/projects/{projectId}/integrations/{provider}`(연동 해제)는 provider 권한 폐기 →
+  그래프 삭제 → RDB(연동 행·checkpoint) 삭제 순서다. **권한 폐기가 가장 먼저인 이유**: 우리 DB의
+  토큰을 지우면 폐기에 쓸 값 자체가 사라진다. Slack은 `auth.revoke`, Jira는 refresh token 폐기
+  (파생 access token도 함께 무효화)이며, 폐기 실패는 각 client가 로그만 남기고 삼킨다 —
+  이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
+  GitHub은 폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시).
+  **그래프가 RDB보다 먼저** — 프로젝트 삭제와 같은 이유다(외부 HTTP를 트랜잭션 밖에 두고,
+  그래프 삭제가 멱등이라 재시도로 수렴).
+  checkpoint를 반드시 함께 지운다 — 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이
+  데이터가 영구 누락된다. GitHub App 설치(`github_installations`)는 계정 단위라 건드리지 않는다.
 - 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,
   authorize URL 조립 시 소유권을 확인하고 state를 발급한다.
 - 콜백은 예외를 던지지 않고 항상 프론트로 302 리다이렉트하며, 실패는 `?error=` 코드로 전달한다.

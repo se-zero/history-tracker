@@ -1,7 +1,11 @@
 package com.history.backend.integration.controller;
 
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,6 +19,7 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.integration.domain.Integration;
+import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.jira.service.JiraClient;
@@ -115,6 +120,26 @@ class IntegrationControllerTest {
                 .andExpect(jsonPath("$.externalRef").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
                 .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("연동 해제 → 204 No Content")
+    void disconnectReturnsNoContent() throws Exception {
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNoContent());
+
+        verify(integrationService).disconnect(USER_ID, PROJECT_ID, IntegrationProvider.SLACK);
+    }
+
+    @Test
+    @DisplayName("알 수 없는 provider 해제 → 400 (500 아님)")
+    void disconnectRejectsUnknownProvider() throws Exception {
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/notion", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isBadRequest());
+
+        verify(integrationService, never()).disconnect(any(), any(), any());
     }
 
     @Test

@@ -61,6 +61,7 @@ class JiraTokenServiceTest {
             "https://atlassian.test/authorize",
             "https://atlassian.test/oauth/token",
             "https://atlassian.test/oauth/token/accessible-resources",
+            "https://atlassian.test/oauth/revoke",
             "https://atlassian.test/ex/jira",
             REFRESH_SKEW
     );

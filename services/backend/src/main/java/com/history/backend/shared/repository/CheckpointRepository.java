@@ -18,6 +18,11 @@ public interface CheckpointRepository extends JpaRepository<Checkpoint, Checkpoi
 
     List<Checkpoint> findAllByProject_IdAndId_Provider(UUID projectId, IntegrationProvider provider);
 
+    // 연동 해제 시 수집 커서 제거 — 남겨두면 재연결이 옛 커서부터 증분 수집을 재개해
+    // 그 사이 발생한 데이터가 영구 누락된다.
+    @Modifying
+    int deleteByProject_IdAndId_Provider(UUID projectId, IntegrationProvider provider);
+
     // 지연 도착한 과거 cursor가 checkpoint를 되돌리지 못하도록 GREATEST로 단조 증가 보장
     @Modifying
     @Query(

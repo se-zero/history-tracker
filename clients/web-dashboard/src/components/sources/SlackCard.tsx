@@ -1,4 +1,5 @@
 import { SlackMark } from "@/components/brand/BrandMarks";
+import { DisconnectIntegration } from "@/components/sources/DisconnectIntegration";
 import { InlineError } from "@/components/ui/InlineError";
 import { useIntegrations } from "@/hooks/useIntegrations";
 import { formatTimestamp } from "@/lib/format";
@@ -40,6 +41,7 @@ export function SlackCard({
             </div>
           )}
         </div>
+        <DisconnectIntegration projectId={projectId} provider="slack" />
       </div>
       {oauthError && <InlineError style={{ marginTop: 10 }}>{oauthError}</InlineError>}
     </div>

@@ -85,6 +85,7 @@ BUILDER_PUBLIC = [
     "ensure_fulltext_index",
     "ensure_constraints",
     "delete_project_graph",
+    "delete_project_source_graph",
     "backfill_actor_aliases",
     "backfill_pr_jira_keys",
     "backfill_triggered_by_source",

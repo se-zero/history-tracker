@@ -24,6 +24,32 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 - 배치 작업(REFERENCE, TRIGGERED_BY/DISCUSSED_IN 시맨틱 링크, 스레드 전파, Slack LLM 필터)도
   같은 project_id 안에서만 쌍을 비교/생성한다.
 
+## 삭제 (cascade)
+
+그래프를 지우는 경로는 둘이고, 스코프가 다르다. 둘 다 backend가 인가를 통과시킨 뒤 호출하는
+내부 API이며 멱등이다(대형 프로젝트의 tx timeout을 피해 배치 커밋한다).
+
+| 트리거 | 엔드포인트 | 범위 |
+|--------|-----------|------|
+| 프로젝트 삭제 · 회원 탈퇴 | `DELETE /graph/projects/{project_id}` | 그 프로젝트의 모든 노드(Actor 포함) |
+| 연동 해제 | `DELETE /graph/projects/{project_id}/sources/{source}` | 그 소스에서 수집한 노드만 |
+
+**소스 단위 삭제(`delete_project_source_graph`)는 네 단계다.** `source` 속성 하나로 지우고
+끝낼 수 없는 이유가 각 단계에 있다.
+
+1. **도메인 노드** — `source` 속성으로 스코프한다. `Communication`이 SLACK·GITHUB 공용이라
+   라벨이 아니라 속성으로 걸러야 한다.
+2. **고아 File** — `File`은 `(project_id, path)`뿐이라 `source`가 없다(GitHub 전용 파생 노드).
+   ChangeSet이 사라지면 `MODIFIED`가 끊긴 채 남으므로 별도로 정리한다.
+3. **Actor** — 소스를 가로지른다(`aliases: ["GITHUB:x", "SLACK:y"]`). 가진 alias가 **전부**
+   해당 소스인 Actor만 삭제하고, 다른 소스가 남은 Actor는 배열에서 그 alias만 뺀다.
+   `ActorAlias` 인덱스 노드도 함께 지운다(Step 0 조회가 이걸 탄다).
+   ⚠️ `Actor.emails`는 출처 소스를 기록하지 않아, 살아남은 Actor의 이메일은 그대로 둔다.
+4. **ActorDecision** — 수동 병합·분리 기록 중 한쪽 alias 묶음이 통째로 사라진 것은 적용
+   대상이 없어 삭제한다. 양쪽 모두 남아 있으면 보존한다(재수집 후 다시 적용돼야 한다).
+
+RDB 쪽(연동 행·checkpoint) 삭제는 backend가 담당한다 — `services/backend/CLAUDE.md` 참고.
+
 ## 노드 목록
 
 ### Actor

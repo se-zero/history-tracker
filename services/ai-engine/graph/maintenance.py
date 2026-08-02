@@ -370,6 +370,135 @@ async def clear_reference(project_id: str | None = None) -> int:
     return deleted
 
 
+async def delete_project_source_graph(
+    project_id: str, source: str, batch_size: int = 10_000
+) -> dict:
+    """한 소스(GITHUB|SLACK|JIRA)에서 수집한 노드만 삭제한다. 연동 해제 cascade.
+
+    delete_project_graph와 달리 프로젝트는 남기고 그 소스의 흔적만 지운다. 소스가 겹치는
+    구조 때문에 단순히 `source` 속성으로 한 번 지우고 끝낼 수 없어 네 단계로 나눈다.
+
+    1. 도메인 노드 — `source` 속성으로 스코프된다(Issue=JIRA, PullRequest/ChangeSet=GITHUB,
+       Communication=SLACK|GITHUB). Communication이 두 소스 공용이라 라벨이 아니라 속성으로
+       걸러야 한다.
+    2. 고아 File — File은 `{project_id, path}`뿐이라 source가 없다(스키마상 GitHub 전용
+       파생 노드). ChangeSet이 사라지면 MODIFIED가 끊긴 채 남으므로 여기서 정리한다.
+    3. Actor alias — Actor는 소스를 가로지른다(aliases=["GITHUB:x", "SLACK:y"]). 지우는
+       소스의 alias만 배열에서 빼고 ActorAlias 인덱스 노드를 삭제한 뒤, 남은 alias가 없는
+       Actor만 삭제한다. 그러지 않으면 Slack 해제가 GitHub 이력까지 끊는다.
+    4. ActorDecision — 수동 병합·분리 기록 중 삭제된 alias만 참조하는 것은 대상이 사라져
+       무의미하므로 제거한다. 한쪽이라도 남아 있으면 보존한다(재수집 후 다시 적용돼야 한다).
+
+    한계: Actor.emails는 어느 소스에서 얻었는지 기록하지 않아, 살아남은 Actor의 이메일은
+    그대로 둔다. 소스별 출처를 남기려면 스키마 변경이 필요하다.
+
+    대형 프로젝트의 tx timeout을 피하려고 delete_project_graph와 같은 배치 커밋을 쓴다.
+    멱등 — 이미 지워진 소스를 다시 호출하면 전부 0이다.
+
+    Returns:
+        단계별 삭제 수 {"nodes", "files", "actors", "decisions"}.
+    """
+    if not project_id or not source:
+        return {"nodes": 0, "files": 0, "actors": 0, "decisions": 0}
+
+    normalized_source = source.upper()
+    alias_prefix = f"{normalized_source}:"
+
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (n {project_id: $project_id, source: $source})
+            CALL (n) { DETACH DELETE n } IN TRANSACTIONS OF $batch_size ROWS
+            """,
+            project_id=project_id,
+            source=normalized_source,
+            batch_size=batch_size,
+        )
+        nodes = (await result.consume()).counters.nodes_deleted
+
+        # ChangeSet이 사라져 아무 커밋도 건드리지 않게 된 File
+        result = await session.run(
+            """
+            MATCH (f:File {project_id: $project_id})
+            WHERE NOT (f)<-[:MODIFIED]-()
+            CALL (f) { DETACH DELETE f } IN TRANSACTIONS OF $batch_size ROWS
+            """,
+            project_id=project_id,
+            batch_size=batch_size,
+        )
+        files = (await result.consume()).counters.nodes_deleted
+
+        # ActorAlias 인덱스 노드 — Step 0 조회(actor_store.find_actor_by_alias)가 이걸 탄다
+        await session.run(
+            """
+            MATCH (al:ActorAlias {project_id: $project_id})
+            WHERE al.source_id STARTS WITH $alias_prefix
+            DETACH DELETE al
+            """,
+            project_id=project_id,
+            alias_prefix=alias_prefix,
+        )
+
+        # 이 소스 전용 Actor(가진 alias가 전부 해당 소스)는 삭제한다. any()가 앞에 있어야
+        # alias가 비어 있던 기존 이상 데이터까지 쓸어가지 않는다 — all()은 빈 배열에 참이다.
+        result = await session.run(
+            """
+            MATCH (a:Actor {project_id: $project_id})
+            WHERE any(alias IN coalesce(a.aliases, []) WHERE alias STARTS WITH $alias_prefix)
+              AND all(alias IN coalesce(a.aliases, []) WHERE alias STARTS WITH $alias_prefix)
+            CALL (a) { DETACH DELETE a } IN TRANSACTIONS OF $batch_size ROWS
+            """,
+            project_id=project_id,
+            alias_prefix=alias_prefix,
+            batch_size=batch_size,
+        )
+        actors = (await result.consume()).counters.nodes_deleted
+
+        # 살아남은 Actor(다른 소스 alias 보유)는 배열에서 해당 소스 alias만 뺀다
+        await session.run(
+            """
+            MATCH (a:Actor {project_id: $project_id})
+            WHERE any(alias IN coalesce(a.aliases, []) WHERE alias STARTS WITH $alias_prefix)
+            SET a.aliases = [alias IN a.aliases WHERE NOT alias STARTS WITH $alias_prefix]
+            """,
+            project_id=project_id,
+            alias_prefix=alias_prefix,
+        )
+
+        # 양쪽 모두 삭제된 alias만 가리키는 결정은 적용 대상이 없다
+        result = await session.run(
+            """
+            MATCH (d:ActorDecision {project_id: $project_id})
+            WITH d,
+                 [alias IN coalesce(d.aliases_a, [])
+                  WHERE NOT alias STARTS WITH $alias_prefix] AS remaining_a,
+                 [alias IN coalesce(d.aliases_b, [])
+                  WHERE NOT alias STARTS WITH $alias_prefix] AS remaining_b
+            WHERE size(remaining_a) = 0 OR size(remaining_b) = 0
+            DETACH DELETE d
+            """,
+            project_id=project_id,
+            alias_prefix=alias_prefix,
+        )
+        decisions = (await result.consume()).counters.nodes_deleted
+
+    logger.info(
+        "소스 그래프 삭제 완료: project=%s, source=%s, nodes=%d, files=%d, actors=%d, decisions=%d",
+        project_id,
+        normalized_source,
+        nodes,
+        files,
+        actors,
+        decisions,
+    )
+    return {
+        "nodes": nodes,
+        "files": files,
+        "actors": actors,
+        "decisions": decisions,
+    }
+
+
 async def delete_project_graph(project_id: str, batch_size: int = 10_000) -> int:
     """해당 project_id의 모든 노드(Actor 포함)와 관계를 삭제한다.
 
