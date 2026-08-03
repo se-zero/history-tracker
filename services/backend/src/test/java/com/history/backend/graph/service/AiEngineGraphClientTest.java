@@ -20,7 +20,6 @@ import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphConstellationResponse;
 import com.history.backend.graph.dto.GraphResponse;
-import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
@@ -89,54 +88,6 @@ class AiEngineGraphClientTest {
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> fixture.client.fetchOverview(PROJECT_ID, null, null))
-                .isInstanceOf(BadGatewayException.class);
-        fixture.server.verify();
-    }
-
-    @Test
-    @DisplayName("노드 검색 — q는 URI 변수로 strict 인코딩되어 전달, score 등 추가 필드는 무시")
-    void searchesNodesWithStrictlyEncodedQuery() {
-        AiEngineGraphClientFixture fixture = fixture();
-        // '+' 같은 예약 문자가 그대로 전달되면 서버가 공백으로 해석한다 — %2B 인코딩을 검증
-        fixture.server.expect(once(), requestTo(
-                        "https://ai-engine.test/graph/search?project_id=" + PROJECT_ID + "&q=a%2Bb&limit=20"))
-                .andExpect(method(HttpMethod.GET))
-                .andRespond(withSuccess("""
-                        {"nodes":[{"id":"n1","type":"commit","title":"feat: a+b","meta":"abc1234",
-                         "source":"github","snippet":"feat: a+b","score":2.7}]}
-                        """, MediaType.APPLICATION_JSON));
-
-        GraphSearchResponse result = fixture.client.searchNodes(PROJECT_ID, "a+b", 20);
-
-        assertThat(result.nodes()).hasSize(1);
-        assertThat(result.nodes().get(0).id()).isEqualTo("n1");
-        assertThat(result.nodes().get(0).type()).isEqualTo("commit");
-        fixture.server.verify();
-    }
-
-    @Test
-    @DisplayName("노드 검색 — limit null 시 생략, 빈 본문 응답은 nodes 빈 배열로 보정")
-    void searchOmitsNullLimitAndNormalizesEmptyBody() {
-        AiEngineGraphClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo(
-                        "https://ai-engine.test/graph/search?project_id=" + PROJECT_ID + "&q=auth"))
-                .andExpect(method(HttpMethod.GET))
-                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
-
-        GraphSearchResponse result = fixture.client.searchNodes(PROJECT_ID, "auth", null);
-
-        assertThat(result.nodes()).isEmpty();
-        fixture.server.verify();
-    }
-
-    @Test
-    @DisplayName("노드 검색 실패 시 BadGatewayException 발생")
-    void throwsBadGatewayWhenSearchFails() {
-        AiEngineGraphClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/search")))
-                .andRespond(withServerError());
-
-        assertThatThrownBy(() -> fixture.client.searchNodes(PROJECT_ID, "auth", null))
                 .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }

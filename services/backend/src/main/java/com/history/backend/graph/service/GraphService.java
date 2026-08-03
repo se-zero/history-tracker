@@ -6,7 +6,6 @@ import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphConstellationResponse;
 import com.history.backend.graph.dto.GraphResponse;
-import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.SubgraphRequest;
 import com.history.backend.project.service.ProjectService;
@@ -40,15 +39,6 @@ public class GraphService {
             return GraphResponse.empty();
         }
         return aiEngineGraphClient.fetchWorkUnit(projectId, nodeId.trim());
-    }
-
-    // 소유권 검증 후 그래프 노드 키워드 검색을 프록시한다 (통합 검색용). 빈 질의는 ai-engine 왕복 없이 빈 결과.
-    public GraphSearchResponse searchNodes(UUID ownerId, UUID projectId, String q, Integer limit) {
-        projectService.getProject(ownerId, projectId);
-        if (q == null || q.isBlank()) {
-            return GraphSearchResponse.empty();
-        }
-        return aiEngineGraphClient.searchNodes(projectId, q.trim(), limit);
     }
 
     // 소유권 검증 후 답변 evidence가 가리키는 관련 서브그래프를 ai-engine에서 조회한다 (대화 화면 그래프 패널용).

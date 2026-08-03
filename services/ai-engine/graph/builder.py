@@ -37,7 +37,7 @@ from graph.maintenance import (
     propagate_thread_discussed_in,
 )
 from graph.reference_store import make_neo4j_reference_store
-from graph.schema import ensure_constraints, ensure_fulltext_index, ensure_vector_indexes
+from graph.schema import drop_node_search_index, ensure_constraints, ensure_vector_indexes
 from graph.writes import (
     link_changeset_to_issue,
     link_changeset_to_pr_issues,
@@ -60,7 +60,7 @@ __all__ = [
     "get_driver",
     "close_driver",
     "ensure_vector_indexes",
-    "ensure_fulltext_index",
+    "drop_node_search_index",
     "ensure_constraints",
     # writes (upsert)
     "upsert_changeset",

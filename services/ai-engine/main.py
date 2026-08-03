@@ -16,8 +16,8 @@ logging.basicConfig(
 from graph.builder import (
     backfill_actor_aliases,
     close_driver,
+    drop_node_search_index,
     ensure_constraints,
-    ensure_fulltext_index,
     ensure_vector_indexes,
     get_driver,
 )
@@ -53,7 +53,8 @@ async def lifespan(app: FastAPI):
                 get_driver()  # 연결 검증 겸 초기화
                 await ensure_constraints()
                 await ensure_vector_indexes()
-                await ensure_fulltext_index()
+                # 옛 통합 검색이 쓰던 full-text 인덱스 제거 (읽는 코드가 없어 색인 비용만 남는다).
+                await drop_node_search_index()
                 # A: 구버전 Actor의 aliases 배열을 ActorAlias 인덱스 노드로 백필한다.
                 # 컨슈머 가동 전에 끝내야 기존 actor의 이벤트가 Step 0에서 잡혀 중복 생성을 막는다.
                 # Idempotent라 매 기동마다 안전(이미 연결된 alias는 no-op).

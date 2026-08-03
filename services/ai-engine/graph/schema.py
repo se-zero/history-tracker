@@ -1,4 +1,4 @@
-"""Neo4j 스키마 부트스트랩 — 벡터/full-text 인덱스와 (project_id, 자연키) 복합 유니크 제약."""
+"""Neo4j 스키마 부트스트랩 — 벡터 인덱스와 (project_id, 자연키) 복합 유니크 제약."""
 
 import logging
 
@@ -33,32 +33,22 @@ async def ensure_vector_indexes() -> None:
     logger.info("벡터 인덱스 확인 완료 (comm_embedding, issue_embedding)")
 
 
-async def ensure_fulltext_index() -> None:
-    """통합 검색용 node_search full-text 인덱스를 생성한다. 이미 존재하면 무시.
+async def drop_node_search_index() -> None:
+    """옛 통합 검색용 node_search full-text 인덱스를 제거한다. 없으면 무시.
 
-    analyzer 'cjk': 한글을 bigram으로 토큰화해 substring처럼 매치되게 한다
-    (기본 standard analyzer는 공백 단위라 한글 부분 일치가 안 됨). 영문은 소문자화 토큰.
-    검색 기능이 붙기 전 버전의 Neo4j/설정에서 생성이 실패해도 수집·질의는 무관하므로
-    부트를 막지 않는다 — 이 경우 /graph/search만 실패한다.
+    ⌘K 검색이 대화 검색으로 바뀌며 이 인덱스를 읽던 graph.search가 사라졌다. 남겨두면
+    노드를 upsert할 때마다 색인 갱신 비용만 든다. DROP ... IF EXISTS라 매 기동 반복해도
+    안전하고 이미 정리된 배포에서는 no-op다 — 모든 배포가 한 번씩 뜨고 나면 이 함수와
+    호출부는 지워도 된다.
 
-    ActorAlias.pd_name을 색인 대상에 추가한다 — 표시 이름(Actor.name)이 GitHub 기준으로
-    고정돼도 Jira/Slack 이름으로 검색이 되게 하기 위함(graph.search가 ALIAS_OF로 소유
-    Actor를 되찾는다). IF NOT EXISTS라 기존에 이미 만들어진 DB에는 반영되지 않는다 —
-    기존 인덱스 갱신은 이후 백필 단계(migrations)에서 처리한다.
+    제거가 실패해도 색인 비용만 남을 뿐 수집·질의 동작에는 영향이 없으므로 부트를 막지 않는다.
     """
     try:
         async with get_driver().session() as session:
-            await session.run(
-                """
-                CREATE FULLTEXT INDEX node_search IF NOT EXISTS
-                FOR (n:ChangeSet|PullRequest|Issue|Communication|Actor|ActorAlias|File)
-                ON EACH [n.title, n.message, n.body, n.name, n.aliases, n.path, n.jira_key, n.pd_name]
-                OPTIONS { indexConfig: { `fulltext.analyzer`: 'cjk' } }
-                """
-            )
-        logger.info("full-text 인덱스 확인 완료 (node_search)")
+            await session.run("DROP INDEX node_search IF EXISTS")
+        logger.info("node_search full-text 인덱스 제거 확인 완료")
     except Exception:
-        logger.warning("full-text 인덱스 생성 실패 — /graph/search 비활성", exc_info=True)
+        logger.warning("node_search 인덱스 제거 실패 — 색인 갱신 비용만 남는다", exc_info=True)
 
 
 # 프로젝트 격리의 핵심 — 모든 도메인 노드는 (project_id, 자연키) 복합 유니크.

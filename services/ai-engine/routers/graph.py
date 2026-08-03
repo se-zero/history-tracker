@@ -1,4 +1,4 @@
-"""그래프 API — 개요·검색·관련 서브그래프 조회, 프로젝트 그래프 삭제, 후처리(Layer 4) 수동 트리거."""
+"""그래프 API — 개요·관련 서브그래프 조회, 프로젝트 그래프 삭제, 후처리(Layer 4) 수동 트리거."""
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -12,8 +12,6 @@ from graph.overview import (
     get_project_overview,
     get_work_unit_neighborhood,
 )
-from graph.search import DEFAULT_LIMIT as SEARCH_DEFAULT_LIMIT
-from graph.search import search_nodes
 from graph.postprocess import get_build_status, get_graph_activity, trigger_build
 
 router = APIRouter()
@@ -62,17 +60,6 @@ async def graph_work_unit(project_id: str, node_id: str):
     그 성좌를 열 때 이 조회로 해당 작업의 이웃만 채운다. {nodes, edges} 반환.
     """
     return await get_work_unit_neighborhood(project_id, node_id)
-
-
-@router.get("/graph/search")
-async def graph_search(project_id: str, q: str, limit: int = SEARCH_DEFAULT_LIMIT):
-    """그래프 노드 키워드 검색 (프론트 통합 검색용).
-
-    overview의 최근 top-N 제한과 무관하게 full-text 인덱스로 프로젝트 그래프 전체를
-    검색해, overview와 동일한 GraphNode shape + score를 {nodes}로 반환한다.
-    인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
-    """
-    return {"nodes": await search_nodes(project_id, q, limit)}
 
 
 @router.post("/graph/subgraph")

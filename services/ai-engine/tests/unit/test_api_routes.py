@@ -25,7 +25,6 @@ EXPECTED_ROUTES = {
     ("GET", "/graph/build/status"),
     ("GET", "/graph/constellation"),
     ("GET", "/graph/overview"),
-    ("GET", "/graph/search"),
     ("GET", "/graph/work-unit"),
     ("GET", "/health"),
     ("POST", "/dlq/replay"),
