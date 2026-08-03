@@ -26,6 +26,7 @@ from graph.builder import (
     make_neo4j_issue_link_store,
     make_neo4j_reference_store,
     propagate_thread_discussed_in,
+    verify_actor_name_consistency,
 )
 from graph.consumer import (
     DLQ_QUEUE,
@@ -217,6 +218,17 @@ async def trigger_pr_jira_keys_backfill():
     Idempotent — pr.jira_keys가 이미 채워진 PR은 건너뜀.
     """
     return await backfill_pr_jira_keys()
+
+
+@router.post("/migrations/verify-actor-names")
+async def trigger_verify_actor_names(project_id: str | None = None):
+    """모든 Actor의 name이 alias 기준 기대값과 일치하는지 검증한다. project_id를 주면 그 프로젝트만.
+
+    개인정보 삭제는 "alias 비우기 + Actor.name 재계산"이 한 트랜잭션이어야 하는데, 그 불변식이
+    깨져도 에러 없이 조용히 어긋난다 — 이 엔드포인트로 수동 감사한다. 읽기 전용이라 mismatches가
+    있어도 직접 고치지 않는다.
+    """
+    return await verify_actor_name_consistency(project_id)
 
 
 class SlackFilterOptions(BaseModel):

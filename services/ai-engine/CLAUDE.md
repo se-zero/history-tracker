@@ -83,6 +83,7 @@ routers/           HTTP 엔드포인트 (APIRouter, prefix 없이 전체 경로 
   query.py           질의 — 공개 read API
   graph.py           그래프 조회·서브그래프·삭제·빌드(202 비동기)·활동 조회
   admin.py           일회성 운영 트리거 (reference·migrations·slack 필터·issue-links·DLQ)
+  privacy.py         개인정보 보고 대상 조회 (backend 보고 스케줄러 전용, project_id 스코프 없음)
                      ※ 전체 라우트 계약의 단일 출처는 tests/unit/test_api_routes.py의 EXPECTED_ROUTES —
                        개별 경로를 여기에 열거하지 않는다
 
@@ -117,6 +118,7 @@ graph/             Neo4j 그래프 구축 + 수집
   reference_builder.py / issue_linker.py / issue_verifier.py   시맨틱 링크 빌더(자동구축·수동 정밀 구축)
   actor_resolver.py / actor_llm.py                             Actor 동일인 판단
   actor_admin.py     Actor 수동 병합·복원·분리 (운영 쓰기 경로, docs/actor-manual-merge.md)
+  privacy.py         개인정보 보고 대상 조회 (project_id 스코프 없는 예외 — 모듈 docstring 참고)
   slack_filter.py / slack_llm_filter.py / slack_batch_filter.py  Slack 노이즈 필터
   summarizer.py / path_filter.py / project_context.py / overview.py
 ```

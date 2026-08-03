@@ -7,7 +7,7 @@
 import logging
 import re
 
-from graph.actor_store import recompute_display_name
+from graph.actor_store import _compute_display_name, recompute_display_name
 from graph.driver import get_driver
 from graph.writes import link_pr_changesets_to_issues
 
@@ -282,6 +282,54 @@ async def backfill_actor_aliases() -> dict:
     links = row["links"] if row else 0
     logger.info("ActorAlias 백필 완료: actors=%d, aliases_linked=%d", actors, links)
     return {"actors_scanned": actors, "aliases_linked": links}
+
+
+async def verify_actor_name_consistency(project_id: str | None = None) -> dict:
+    """모든 Actor의 name이 alias 기준 기대값과 일치하는지 검증한다.
+
+    개인정보 삭제는 "alias 비우기 + Actor.name 재계산"이 한 트랜잭션이어야 하는데, 이
+    불변식이 깨져도 에러가 나지 않는다 — alias는 깨끗한데 지운 이름이 Actor.name에 남는
+    조용한 결함이 된다. 기대값은 recompute_display_name과 정확히 같은 계산 로직
+    (actor_store._compute_display_name)을 공유한다 — 쿼리를 복제하면 검증 자체가 오탐한다.
+
+    delete_project_source_graph의 전 Actor 순회와 같은 방식으로, 먼저 Actor 목록(uuid·
+    project_id·name)을 뽑고 uuid마다 헬퍼를 호출한다. project_id를 주면 그 프로젝트만,
+    없으면 전 프로젝트를 검사한다. 삭제 배치 끝과 수동 트리거(POST /migrations/verify-actor-names)
+    에서 호출한다.
+
+    쓰기 없음(Idempotent) — SET/DELETE/MERGE/CREATE 없이 읽기만 한다.
+
+    Returns:
+        {"checked": 검사한 Actor 수, "mismatches": [{"uuid", "project_id", "name", "expected"}, ...]}
+    """
+    query = """
+        MATCH (a:Actor)
+        __PROJECT_FILTER__
+        RETURN a.uuid AS uuid, a.project_id AS project_id, a.name AS name
+    """.replace("__PROJECT_FILTER__", "WHERE a.project_id = $project_id" if project_id else "")
+    async with get_driver().session() as session:
+        result = await session.run(query, project_id=project_id)
+        actors = await result.data()
+
+        mismatches = []
+        for actor in actors:
+            computed = await _compute_display_name(session, actor["uuid"])
+            if computed is None:
+                continue
+            current_name, expected = computed
+            if current_name != expected:
+                mismatches.append({
+                    "uuid": actor["uuid"],
+                    "project_id": actor["project_id"],
+                    "name": current_name,
+                    "expected": expected,
+                })
+
+    logger.info(
+        "Actor 이름 정합성 검증 완료: checked=%d, mismatches=%d",
+        len(actors), len(mismatches),
+    )
+    return {"checked": len(actors), "mismatches": mismatches}
 
 
 async def clear_semantic_triggered_by(project_id: str | None = None) -> int:

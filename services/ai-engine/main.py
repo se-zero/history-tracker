@@ -25,6 +25,7 @@ from graph.consumer import start_consumer
 from graph.postprocess import start_debounce_loop
 from routers.admin import router as admin_router
 from routers.graph import router as graph_router
+from routers.privacy import router as privacy_router
 from routers.query import router as query_router
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ app = FastAPI(title="History Graph AI Engine", lifespan=lifespan)
 app.include_router(query_router)
 app.include_router(graph_router)
 app.include_router(admin_router)
+app.include_router(privacy_router)
 
 
 @app.get("/health")
