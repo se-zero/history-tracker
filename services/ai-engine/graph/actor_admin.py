@@ -242,7 +242,7 @@ async def unmerge_actors(project_id: str, decision_id: str) -> dict:
     """수동 병합(same 결정)을 되돌린다 — 스냅샷 없이 결정 노드와 alias로 복원한다.
 
     개인정보는 alias에 있고 병합으로 삭제된 적 없이 화살표만 옮겨갔으므로, 되돌린 뒤
-    alias에서 다시 읽으면 스냅샷 없이도 정확히 복원된다(docs/actor-identity-model.md §7).
+    alias에서 다시 읽으면 스냅샷 없이도 정확히 복원된다.
     구버전(스냅샷 방식) 결정은 merged_uuid가 없어 이 함수로 복원할 수 없다 — 백필 마이그레이션
     대상이다. 복원 후 distinct 결정을 자동 생성해 다음 수집에서 자동 파이프라인이 같은 병합을
     반복하지 않게 한다. 병합 이후 수집된 이벤트는 표식이 없어 canonical에 남는다
