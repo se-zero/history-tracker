@@ -80,3 +80,10 @@ atlassian:
   api-gateway-url: ${ATLASSIAN_API_GATEWAY_URL:https://api.atlassian.com/ex/jira}
   # 만료 전 미리 갱신할 여유 시간. 로컬에서 크게 잡으면(예: PT2H) 갱신 경로를 즉시 검증할 수 있다.
   refresh-skew: ${ATLASSIAN_REFRESH_SKEW:PT5M}
+  personal-data-report:
+    # 봇 계정 동의(내부 consent 엔드포인트) 완료 후 켠다
+    enabled: ${ATLASSIAN_PDR_ENABLED:false}
+    cron: "${ATLASSIAN_PDR_CRON:0 30 3 * * *}"
+    cycle-period: ${ATLASSIAN_PDR_CYCLE_PERIOD:P7D}
+    # 트레일링 슬래시는 스파이크에서 204로 검증된 실제 호출 형태
+    report-url: ${ATLASSIAN_PDR_REPORT_URL:https://api.atlassian.com/app/report-accounts/}

@@ -20,6 +20,8 @@ public interface IntegrationRepository extends JpaRepository<Integration, UUID> 
 
     boolean existsByProject_IdAndProvider(UUID projectId, IntegrationProvider provider);
 
+    List<Integration> findAllByProvider(IntegrationProvider provider);
+
     // Jira 토큰 갱신 경합(동시 refresh로 인한 refresh token 상호 무효화) 방지를 위한 비관적 잠금 조회
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT integration FROM Integration integration "
