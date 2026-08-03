@@ -208,7 +208,7 @@ class ConversationServiceTest {
     }
 
     @Test
-    @DisplayName("통합 검색 — 이스케이프된 패턴으로 조회 후 한 줄 스니펫과 함께 반환")
+    @DisplayName("대화 검색 — 이스케이프된 패턴으로 조회 후 한 줄 스니펫과 함께 반환")
     void searchConversationsBuildsEscapedPatternAndSnippets() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Auth 정리");
@@ -227,7 +227,7 @@ class ConversationServiceTest {
     }
 
     @Test
-    @DisplayName("통합 검색 — 제목만 매치한 대화는 스니펫 없이 반환")
+    @DisplayName("대화 검색 — 제목만 매치한 대화는 스니펫 없이 반환")
     void searchConversationsReturnsNullSnippetForTitleOnlyMatch() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "인증 정리");
@@ -244,7 +244,7 @@ class ConversationServiceTest {
     }
 
     @Test
-    @DisplayName("통합 검색 — 긴 본문은 매치 주변만 발췌하고 앞뒤 말줄임")
+    @DisplayName("대화 검색 — 긴 본문은 매치 주변만 발췌하고 앞뒤 말줄임")
     void searchConversationsTruncatesSnippetAroundMatch() {
         ConversationService service = service();
         Conversation conversation = conversation(project(), user(), "Long");
@@ -264,7 +264,7 @@ class ConversationServiceTest {
     }
 
     @Test
-    @DisplayName("통합 검색 — 빈 검색어는 저장소 조회 없이 빈 결과")
+    @DisplayName("대화 검색 — 빈 검색어는 저장소 조회 없이 빈 결과")
     void searchConversationsReturnsEmptyForBlankQuery() {
         ConversationService service = service();
         when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());

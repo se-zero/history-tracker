@@ -5,7 +5,7 @@ import java.util.UUID;
 
 import com.history.backend.conversation.service.ConversationSearchResult;
 
-// 통합 검색 결과 대화 1건. snippet은 매치된 메시지 발췌(제목만 매치면 null).
+// 대화 검색 결과 1건. snippet은 매치된 메시지 발췌(제목만 매치면 null).
 public record ConversationSearchItemResponse(
         UUID id,
         String title,

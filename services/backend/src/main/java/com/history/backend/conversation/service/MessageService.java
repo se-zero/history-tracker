@@ -160,7 +160,7 @@ public class MessageService {
         return messageRepository.findOlderBefore(conversationId, cursor.timestamp(), cursor.id(), limit);
     }
 
-    // 통합 검색 스니펫용 — 대화별 가장 최근 매치 메시지 본문 (호출자 트랜잭션과 공유)
+    // 대화 검색 스니펫용 — 대화별 가장 최근 매치 메시지 본문 (호출자 트랜잭션과 공유)
     @Transactional(readOnly = true, propagation = Propagation.MANDATORY)
     public Map<UUID, String> findLatestMatchedContents(List<UUID> conversationIds, String pattern) {
         if (conversationIds.isEmpty()) {

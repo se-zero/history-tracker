@@ -45,7 +45,7 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
             Pageable pageable
     );
 
-    // 통합 검색 스니펫용 — 대화별 가장 최근 매치 메시지 1건 (window로 대화당 top-1을 한 번에 조회).
+    // 대화 검색 스니펫용 — 대화별 가장 최근 매치 메시지 1건 (window로 대화당 top-1을 한 번에 조회).
     // pattern 규약은 ConversationRepository.searchPageByProject와 동일.
     // alias는 Postgres가 소문자로 접지 않도록 인용해 projection getter와 정확히 맞춘다.
     @Query(value = """
@@ -67,7 +67,7 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
             @Param("pattern") String pattern
     );
 
-    // 통합 검색 매치 행 projection
+    // 대화 검색 매치 행 projection
     interface MessageMatchRow {
         UUID getConversationId();
 

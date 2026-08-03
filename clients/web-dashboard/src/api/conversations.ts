@@ -9,7 +9,7 @@ import type {
 } from "@/types/api";
 import type { NodeRef } from "@/types/graph";
 
-// 통합 검색 — 제목·메시지 본문 부분 일치 대화 (updatedAt 역순, 매치 스니펫 포함)
+// 대화 검색 — 제목·메시지 본문 부분 일치 대화 (updatedAt 역순, 매치 스니펫 포함)
 export async function searchConversations(
   projectId: string,
   q: string,
