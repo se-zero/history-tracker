@@ -2,13 +2,11 @@ import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { searchConversations } from "@/api/conversations";
-import { searchGraphNodes } from "@/api/graph";
 import { queryKeys } from "./queryKeys";
 
-// 검색 시작 최소 글자 수 — ai-engine 한글 bigram 인덱스도 2자부터 안정적으로 매치된다.
+// 검색 시작 최소 글자 수 — 1자 부분 일치는 대화 대부분에 걸려 결과가 무의미해진다.
 export const SEARCH_MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 250;
-const NODE_RESULT_LIMIT = 10;
 
 // 타이핑 중 요청 폭주를 막는 디바운스 값
 export function useDebouncedValue<T>(value: T, delayMs = DEBOUNCE_MS): T {
@@ -30,18 +28,6 @@ export function useSearchConversations(projectId: string, q: string) {
   return useQuery({
     queryKey: queryKeys.searchConversations(projectId, q),
     queryFn: () => searchConversations(projectId, q),
-    enabled: searchEnabled(q),
-    placeholderData: keepPreviousData,
-    retry: false,
-  });
-}
-
-// 그래프 노드 검색 — 대화 검색과 병렬 실행되며, ai-engine 장애(502) 시
-// 이 쿼리만 실패하고 대화 검색 결과는 그대로 노출된다 (우아한 성능 저하).
-export function useSearchGraphNodes(projectId: string, q: string) {
-  return useQuery({
-    queryKey: queryKeys.searchNodes(projectId, q),
-    queryFn: () => searchGraphNodes(projectId, q, NODE_RESULT_LIMIT),
     enabled: searchEnabled(q),
     placeholderData: keepPreviousData,
     retry: false,

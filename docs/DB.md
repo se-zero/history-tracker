@@ -240,7 +240,7 @@ AI 질의 대화 세션. 사용자가 탈퇴하면 `user_id`가 NULL로 유지�
 **인덱스**
 - `(project_id, updated_at DESC)`
 - `(user_id, updated_at DESC)` WHERE `user_id IS NOT NULL`
-- GIN `(lower(title) gin_trgm_ops)` — 통합 검색의 제목 부분 일치 (pg_trgm, V10)
+- GIN `(lower(title) gin_trgm_ops)` — 대화 검색(⌘K)의 제목 부분 일치 (pg_trgm, V10)
 
 ---
 
@@ -259,7 +259,7 @@ AI 질의 대화 세션. 사용자가 탈퇴하면 `user_id`가 NULL로 유지�
 
 **인덱스**
 - `(conversation_id, created_at ASC)`
-- GIN `(lower(content) gin_trgm_ops)` — 통합 검색의 본문 부분 일치 (pg_trgm, V10)
+- GIN `(lower(content) gin_trgm_ops)` — 대화 검색(⌘K)의 본문 부분 일치 (pg_trgm, V10)
 
 ---
 

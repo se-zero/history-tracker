@@ -57,7 +57,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const projectsQuery = useProjects();
   const reorderProjects = useReorderProjects();
 
-  // 통합 검색(⌘K/Ctrl+K) — 다이얼로그는 열릴 때만 마운트해 입력 상태를 매번 초기화한다
+  // 대화 검색(⌘K/Ctrl+K) — 다이얼로그는 열릴 때만 마운트해 입력 상태를 매번 초기화한다
   const [searchOpen, setSearchOpen] = useState(false);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

@@ -42,7 +42,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
 
     Optional<Conversation> findByIdAndProject_Id(UUID id, UUID projectId);
 
-    // 통합 검색 — 제목 또는 메시지 본문이 매치되는 대화 (updatedAt·id 역순, Pageable로 개수 제한).
+    // 대화 검색 — 제목 또는 메시지 본문이 매치되는 대화 (updatedAt·id 역순, Pageable로 개수 제한).
     // pattern은 서비스가 소문자화·와일드카드 이스케이프('!')·양쪽 % 처리를 끝낸 LIKE 패턴이다.
     @Query("""
             SELECT conversation

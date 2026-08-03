@@ -10,7 +10,6 @@ import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphConstellationResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
-import com.history.backend.graph.dto.GraphSearchResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.integration.domain.IntegrationProvider;
 import lombok.RequiredArgsConstructor;
@@ -88,30 +87,6 @@ public class AiEngineGraphClient {
         } catch (RestClientException exception) {
             log.error("ai-engine graph work-unit request failed: {}", exception.getMessage());
             throw new BadGatewayException("Failed to load work unit neighborhood.");
-        }
-    }
-
-    // 그래프 노드 키워드 검색 — full-text 인덱스로 프로젝트 전체 그래프를 검색한다 (통합 검색용).
-    // q는 URI 템플릿 변수로 전달한다 — 사용자 입력의 예약 문자('+', '&' 등)까지 strict 인코딩되도록.
-    public GraphSearchResponse searchNodes(UUID projectId, String q, Integer limit) {
-        try {
-            GraphSearchResponse response = aiEngineRestClient.get()
-                    .uri(uriBuilder -> {
-                        uriBuilder.path("/graph/search")
-                                .queryParam("project_id", projectId)
-                                .queryParam("q", "{q}");
-                        if (limit != null) {
-                            uriBuilder.queryParam("limit", limit);
-                        }
-                        return uriBuilder.build(q);
-                    })
-                    .retrieve()
-                    .body(GraphSearchResponse.class);
-            return normalize(response);
-        } catch (RestClientException exception) {
-            log.error("ai-engine graph search request failed: projectId={}, {}",
-                    projectId, exception.getMessage());
-            throw new BadGatewayException("Failed to search project graph.");
         }
     }
 
@@ -210,14 +185,6 @@ public class AiEngineGraphClient {
                     projectId, provider.value(), exception.getMessage());
             throw new BadGatewayException("Failed to delete integration graph.");
         }
-    }
-
-    // ai-engine이 빈 본문/누락 필드를 줘도 프론트는 항상 nodes 배열을 받도록 보정
-    private GraphSearchResponse normalize(GraphSearchResponse response) {
-        if (response == null || response.nodes() == null) {
-            return GraphSearchResponse.empty();
-        }
-        return response;
     }
 
     // ai-engine이 빈 본문/누락 필드를 줘도 프론트는 항상 nodes/edges 배열을 받도록 보정

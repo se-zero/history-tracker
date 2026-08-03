@@ -47,7 +47,7 @@ src/
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
     graph/          ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널) · NodeDetail
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 성좌로 대체됨)
-    search/         SearchDialog — ⌘K 통합 검색(대화 + 그래프 노드, AppShell에서 마운트)
+    search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
     landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
                     LegalLayout — 약관·개인정보 공통 셸(헤더/푸터 재사용 + 산문 컬럼)
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)

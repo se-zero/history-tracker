@@ -39,7 +39,7 @@ Actor가 가진 소스 계정 하나 (예: `GITHUB:john-doe`, `JIRA:557058:abc`)
   "project_id": "",            // 소속 프로젝트 UUID
   "source_id": "",             // 소스-스코프 계정 ID (예: "GITHUB:john-doe") — (project_id, source_id) 유니크
   "source": "",                // GITHUB | JIRA | SLACK
-  "pd_name": "",               // 이 계정에서 받은 이름 — 표시 이름 유도 재료, node_search 검색 대상
+  "pd_name": "",               // 이 계정에서 받은 이름 — 표시 이름 유도 재료
   "pd_normalized_name": "",    // 정규화 이름 — Step 2 후보 조회 키
   "pd_email": "",              // 이 계정에서 받은 이메일 — Step 1 매칭 키
   "pd_updated_at": "",         // 이 개인정보를 획득한 시각 (ISO-8601)
@@ -60,7 +60,10 @@ Slack:   jdoe@company.com     (회사 이메일)
 
 - `(project_id, source_id)` 유니크 제약 — Step 0 alias 조회를 배열 스캔 대신 인덱스 O(1)로 만들고, 동시 수집 시 같은 alias의 중복 Actor 생성을 MERGE로 막는다.
 - range 인덱스 3종 — `(project_id, pd_normalized_name)`(Step 2 후보 조회), `(project_id, pd_email)`(Step 1 매칭), `(source, pd_reported_at)`(개인정보 보고 대상을 프로젝트 경계 없이 전역으로 훑는 용도라 의도적으로 project_id 미포함).
-- full-text 인덱스 `node_search`가 `ActorAlias.pd_name`을 색인한다 — 표시 이름이 GitHub 기준으로 정해져도 Jira/Slack 이름으로 검색이 되게 하기 위함.
+
+> `pd_name`을 색인하던 full-text 인덱스 `node_search`는 제거됐다. ⌘K 검색이 대화 검색으로 바뀌며
+> 유일한 소비자였던 그래프 노드 검색이 사라졌기 때문이다 — 지금은 Jira/Slack 이름으로 사람을 찾는
+> 경로가 없다. 되살리려면 인덱스와 검색 쿼리를 함께 복구해야 한다.
 
 ---
 

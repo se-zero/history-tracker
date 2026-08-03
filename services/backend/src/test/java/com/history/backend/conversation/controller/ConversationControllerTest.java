@@ -130,7 +130,7 @@ class ConversationControllerTest {
     }
 
     @Test
-    @DisplayName("통합 검색 → 매치 대화·스니펫 목록 반환")
+    @DisplayName("대화 검색 → 매치 대화·스니펫 목록 반환")
     void searchConversationsReturnsMatchesWithSnippets() throws Exception {
         when(conversationService.searchConversations(USER_ID, PROJECT_ID, "인증"))
                 .thenReturn(List.of(new ConversationSearchResult(conversation("인증 정리"), "…JWT 인증 흐름…")));
@@ -146,7 +146,7 @@ class ConversationControllerTest {
     }
 
     @Test
-    @DisplayName("통합 검색 — q 미전달 시 400 Bad Request")
+    @DisplayName("대화 검색 — q 미전달 시 400 Bad Request")
     void rejectsSearchWithoutQuery() throws Exception {
         mockMvc.perform(get("/api/v1/projects/{projectId}/conversations/search", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))

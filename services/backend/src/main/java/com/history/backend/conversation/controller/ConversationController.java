@@ -62,7 +62,7 @@ public class ConversationController {
         );
     }
 
-    // 통합 검색 — 제목·메시지 본문 부분 일치 대화 (리터럴 "search"가 "/{conversationId}"보다 우선 매칭된다)
+    // 대화 검색 — 제목·메시지 본문 부분 일치 대화 (리터럴 "search"가 "/{conversationId}"보다 우선 매칭된다)
     @GetMapping("/search")
     public ConversationSearchResponse searchConversations(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,

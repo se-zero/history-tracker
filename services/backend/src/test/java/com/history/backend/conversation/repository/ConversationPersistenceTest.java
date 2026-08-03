@@ -236,7 +236,7 @@ class ConversationPersistenceTest {
     }
 
     @Test
-    @DisplayName("통합 검색 — 제목·메시지 본문 매치 대화를 updatedAt 역순 조회, 타 프로젝트 제외")
+    @DisplayName("대화 검색 — 제목·메시지 본문 매치 대화를 updatedAt 역순 조회, 타 프로젝트 제외")
     void searchPageByProjectMatchesTitleOrMessageContent() throws InterruptedException {
         ProjectFixture fixture = createProjectFixture();
         Conversation titleMatch = conversationRepository.saveAndFlush(
@@ -258,7 +258,7 @@ class ConversationPersistenceTest {
     }
 
     @Test
-    @DisplayName("통합 검색 — LIKE 와일드카드는 escape('!')로 리터럴 매치")
+    @DisplayName("대화 검색 — LIKE 와일드카드는 escape('!')로 리터럴 매치")
     void searchPageByProjectEscapesLikeWildcards() {
         ProjectFixture fixture = createProjectFixture();
         Conversation literalPercent = conversationRepository.saveAndFlush(
@@ -273,7 +273,7 @@ class ConversationPersistenceTest {
     }
 
     @Test
-    @DisplayName("통합 검색 스니펫 — 대화별 가장 최근 '매치' 메시지 1건만 반환")
+    @DisplayName("대화 검색 스니펫 — 대화별 가장 최근 '매치' 메시지 1건만 반환")
     void findLatestMatchPerConversationReturnsSingleLatestMatch() throws InterruptedException {
         ProjectFixture fixture = createProjectFixture();
         Conversation conversation = conversationRepository.saveAndFlush(

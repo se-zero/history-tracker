@@ -87,7 +87,7 @@ Actor가 가진 소스 계정 하나 (예: `GITHUB:se-zero`, `JIRA:5b10a2`). 개
   "project_id": "",           // 소속 프로젝트 UUID
   "source_id": "",            // 소스-스코프 계정 ID (예: "JIRA:5b10a2") — (project_id, source_id) 유니크
   "source": "",                // JIRA | GITHUB | SLACK — 보고 대상을 전역으로 훑는 열거 키
-  "pd_name": "",               // 이 계정에서 받은 이름 — 표시 이름 유도 재료, node_search 검색 대상
+  "pd_name": "",               // 이 계정에서 받은 이름 — 표시 이름 유도 재료
   "pd_normalized_name": "",    // 정규화 이름 — Step 2 후보 조회 키
   "pd_email": "",              // 이 계정에서 받은 이메일 — Step 1 매칭 키
   "pd_updated_at": "",         // 이 개인정보를 획득한 시각 (ISO-8601)
