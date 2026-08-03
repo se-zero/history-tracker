@@ -96,8 +96,9 @@ Actor가 가진 소스 계정 하나 (예: `GITHUB:se-zero`, `JIRA:5b10a2`). 개
 }
 ```
 
-`(ActorAlias)-[:ALIAS_OF]->(Actor)`로 소속 Actor에 연결된다. 상세 배경·Before/After는
-`docs/actor-identity-model.md` 참고.
+`(ActorAlias)-[:ALIAS_OF]->(Actor)`로 소속 Actor에 연결된다. 개인정보를 alias 단위에 두는
+이유와 보고·삭제 규칙은 `docs/jira-personal-data-policy.md`, 동일인 판단 파이프라인은
+`docs/actor-node-design.md` 참고.
 
 ---
 

@@ -1,7 +1,7 @@
 # DB 스키마
 
 backend 서비스(`services/backend`)의 PostgreSQL 테이블 정의 및 관계를 기술한다.
-마이그레이션 파일: `src/main/resources/db/migration/V1~V10`
+마이그레이션 파일: `src/main/resources/db/migration/V1~V11`
 
 ---
 
@@ -69,6 +69,11 @@ erDiagram
         string delivery_id
         UUID project_id FK
         string status
+    }
+    app_credentials {
+        string provider PK
+        bytea encrypted_credential
+        timestamptz updated_at
     }
 
     users          ||..o{ refresh_tokens        : "1:N"
@@ -293,3 +298,17 @@ pipeline-worker의 수집 커서 위치를 저장한다. `(project_id, provider,
 
 **인덱스**
 - `(project_id, received_at DESC)` WHERE `project_id IS NOT NULL`
+
+---
+
+### `app_credentials`
+
+앱 수준(프로젝트·사용자 무관) 외부 서비스 자격증명. 현재 유일한 행은 Atlassian 봇 계정의
+OAuth 토큰으로, Jira 개인정보 보고 배치가 사용한다. refresh token이 갱신마다 회전해
+새 값을 저장해야 하므로 환경변수가 아니라 DB에 둔다. 어떤 테이블과도 FK 관계가 없다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `provider` | TEXT | PK | 자격증명 소유 서비스 (`ATLASSIAN`) |
+| `encrypted_credential` | BYTEA | NOT NULL | AES-GCM 암호화된 토큰 묶음 (access + refresh + 만료 시각) |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | 마지막 갱신 시각 (토큰 회전마다 갱신) |
