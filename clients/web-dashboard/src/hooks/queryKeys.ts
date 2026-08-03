@@ -34,6 +34,4 @@ export const queryKeys = {
     ["graph", projectId, "subgraph", messageId] as const,
   searchConversations: (projectId: string, q: string) =>
     ["search", projectId, "conversations", q] as const,
-  searchNodes: (projectId: string, q: string) =>
-    ["search", projectId, "nodes", q] as const,
 };
