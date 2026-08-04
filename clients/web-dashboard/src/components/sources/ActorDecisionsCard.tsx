@@ -2,8 +2,27 @@ import { useState } from "react";
 
 import { InlineError } from "@/components/ui/InlineError";
 import { useActorDecisions } from "@/hooks/useActors";
+import type { ActorSourceName } from "@/types/api";
 import { sourceNameSummary } from "./actorFormat";
 import { useCollapsedRows } from "./useCollapsedRows";
+
+// 병합/분리 양쪽의 alias 목록을 ", "로 잇는다 — 라벨만 <code>로 감싸 모노 스코프를 지킨다.
+function AliasSummaryList({ aliases }: { aliases: ActorSourceName[] }) {
+  return (
+    <>
+      {aliases.map((alias, index) => {
+        const { label, name } = sourceNameSummary(alias);
+        return (
+          <span key={`${alias.source}-${index}`}>
+            {index > 0 && ", "}
+            <code>{label}</code>
+            {name && `: ${name}`}
+          </span>
+        );
+      })}
+    </>
+  );
+}
 
 export function ActorDecisionsCard({ projectId }: { projectId: string }) {
   const decisionsQuery = useActorDecisions(projectId);
@@ -38,9 +57,9 @@ export function ActorDecisionsCard({ projectId }: { projectId: string }) {
                   <strong>{decision.kind === "same" ? "수동 병합" : "분리"}</strong>
                   {/* 병합은 양방향(↔), 분리는 "남은 계정들 → 떨어져 나간 계정"의 방향(→)으로 읽는다 */}
                   <p>
-                    {decision.aliasesA.map(sourceNameSummary).join(", ")}{" "}
+                    <AliasSummaryList aliases={decision.aliasesA} />{" "}
                     {decision.kind === "same" ? "↔" : "→"}{" "}
-                    {decision.aliasesB.map(sourceNameSummary).join(", ")}
+                    <AliasSummaryList aliases={decision.aliasesB} />
                   </p>
                   {decision.kind === "distinct" && (
                     <span className="actor-decision-hint">분리된 계정은 자동으로 다시 합쳐지지 않습니다</span>

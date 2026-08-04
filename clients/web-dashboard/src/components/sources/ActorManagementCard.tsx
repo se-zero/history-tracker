@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 
 import { InlineError } from "@/components/ui/InlineError";
@@ -14,7 +14,11 @@ import { aliasNameText, sourceLabel, sourceNameSummary } from "./actorFormat";
 import { useCollapsedRows } from "./useCollapsedRows";
 
 function actorLabel(actor: Actor) {
-  const summary = actor.sourceNames.map(sourceNameSummary).join(", ");
+  // select <option>은 마크업을 못 담아 label/name을 다시 문자열로 합친다(모노 스코프는 적용 대상 아님).
+  const summary = actor.sourceNames
+    .map(sourceNameSummary)
+    .map(({ label, name }) => (name ? `${label}: ${name}` : label))
+    .join(", ");
   return summary ? `${actor.name} · ${summary}` : actor.name;
 }
 
@@ -33,7 +37,7 @@ function AliasDetailRow({ alias }: { alias: ActorAliasDetail }) {
     <div className="actor-alias-detail">
       <code>{sourceLabel(alias.source)}</code>
       <span>{aliasNameText(alias.name, alias.erased)}</span>
-      {alias.email && <span className="actor-meta">{alias.email}</span>}
+      {alias.email && <span className="actor-meta mono">{alias.email}</span>}
     </div>
   );
 }
@@ -111,6 +115,7 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
     // 자동 선택 없이 "선택하세요"로 시작한다 — 실수로 엉뚱한 두 액터가 미리 골라진 채 합쳐지는 것 방지.
     setUuidA("");
     setUuidB("");
+    mergeMutation.reset();
     setPanel({ kind: "merge" });
   };
 
@@ -120,25 +125,37 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
       return;
     }
     setSplitAliases([]);
+    splitMutation.reset();
     setPanel({ kind: "split", uuid: actor.uuid });
   };
 
   const openRename = (actor: Actor) => {
+    renameMutation.reset();
     setRenameActorUuid(actor.uuid);
     setRenameName(actor.name);
   };
 
   const splitTarget = actors.find((actor) => actor.uuid === splitActorUuid);
   const renameActor = actors.find((actor) => actor.uuid === renameActorUuid);
+
+  // 병합·재조회 등으로 분리 대상 액터가 목록에서 사라지면 패널을 닫는다 —
+  // 열어둔 채로 두면 존재하지 않는 액터의 상세를 계속 재조회(404)하게 된다.
+  useEffect(() => {
+    if (panel?.kind === "split" && !splitTarget) {
+      setPanel(null);
+    }
+  }, [panel, splitTarget]);
+
   const splitAliasDetails = splitDetailQuery.data?.aliases ?? [];
   const splitRemainingAliases = splitAliasDetails.filter((alias) => !splitAliases.includes(alias.sourceId));
   const splitSelectedAliases = splitAliasDetails.filter((alias) => splitAliases.includes(alias.sourceId));
-  const canMerge = uuidA !== "" && uuidB !== "" && uuidA !== uuidB;
-  const canSplit = Boolean(
-    splitDetailQuery.data &&
-      splitAliases.length > 0 &&
-      splitAliases.length < splitAliasDetails.length,
-  );
+  const canMerge =
+    uuidA !== "" &&
+    uuidB !== "" &&
+    uuidA !== uuidB &&
+    actors.some((actor) => actor.uuid === uuidA) &&
+    actors.some((actor) => actor.uuid === uuidB);
+  const canSplit = splitSelectedAliases.length > 0 && splitRemainingAliases.length > 0;
   const canRename = Boolean(
     renameActor && renameName.trim() && renameName.trim() !== renameActor.name,
   );
@@ -177,9 +194,15 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
                   <span className="actor-meta">활동 {actor.activityCount}건</span>
                   <div className="actor-source-names">
                     {/* 같은 소스의 계정이 2개 병합된 액터는 항목이 소스명으로 겹친다 — index로 키 유일성 보장 */}
-                    {actor.sourceNames.map((sourceName, index) => (
-                      <code key={`${sourceName.source}-${index}`}>{sourceNameSummary(sourceName)}</code>
-                    ))}
+                    {actor.sourceNames.map((sourceName, index) => {
+                      const { label, name } = sourceNameSummary(sourceName);
+                      return (
+                        <span className="actor-source-name" key={`${sourceName.source}-${index}`}>
+                          <code>{label}</code>
+                          {name && `: ${name}`}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="actor-row-actions">
@@ -225,7 +248,7 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
           </label>
           {renameMutation.isError && <InlineError>{errorMessage(renameMutation.error, "이름 변경에 실패했어요.")}</InlineError>}
           <div className="actor-form-actions">
-            <button className="btn btn-ghost" type="button" onClick={() => setRenameActorUuid(null)}>취소</button>
+            <button className="btn btn-ghost" type="button" onClick={() => { renameMutation.reset(); setRenameActorUuid(null); }}>취소</button>
             <button className="btn btn-primary" type="submit" disabled={!canRename || renameMutation.isPending}>
               {renameMutation.isPending ? "변경 중…" : "변경"}
             </button>
@@ -271,7 +294,7 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
           </div>
           {mergeMutation.isError && <InlineError>{errorMessage(mergeMutation.error, "합치기에 실패했어요.")}</InlineError>}
           <div className="actor-form-actions">
-            <button className="btn btn-ghost" type="button" onClick={() => setPanel(null)}>취소</button>
+            <button className="btn btn-ghost" type="button" onClick={() => { mergeMutation.reset(); setPanel(null); }}>취소</button>
             <button className="btn btn-primary" type="submit" disabled={!canMerge || mergeMutation.isPending}>
               {mergeMutation.isPending ? "합치는 중…" : "합치기"}
             </button>
@@ -286,7 +309,7 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
             event.preventDefault();
             if (!canSplit || !window.confirm("선택한 alias를 새 액터로 분리할까요?")) return;
             splitMutation.mutate(
-              { actorUuid: splitTarget.uuid, sourceIds: splitAliases },
+              { actorUuid: splitTarget.uuid, sourceIds: splitSelectedAliases.map((alias) => alias.sourceId) },
               { onSuccess: () => setPanel(null) },
             );
           }}
@@ -298,19 +321,23 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
           </p>
           {splitDetailQuery.isLoading && <p className="actor-empty">alias 정보를 불러오는 중…</p>}
           <div className="actor-alias-picker">
-            {splitAliasDetails.map((alias) => (
-              <label key={alias.sourceId}>
-                <input
-                  type="checkbox"
-                  checked={splitAliases.includes(alias.sourceId)}
-                  onChange={(event) => setSplitAliases((current) =>
-                    event.target.checked ? [...current, alias.sourceId] : current.filter((value) => value !== alias.sourceId),
-                  )}
-                />
-                {sourceLabel(alias.source)}: {aliasNameText(alias.name, alias.erased)}
-                {alias.email ? ` · ${alias.email}` : ""}
-              </label>
-            ))}
+            {splitAliasDetails.map((alias) => {
+              const { label, name } = sourceNameSummary(alias);
+              return (
+                <label key={alias.sourceId}>
+                  <input
+                    type="checkbox"
+                    checked={splitAliases.includes(alias.sourceId)}
+                    onChange={(event) => setSplitAliases((current) =>
+                      event.target.checked ? [...current, alias.sourceId] : current.filter((value) => value !== alias.sourceId),
+                    )}
+                  />
+                  <code>{label}</code>
+                  {name && `: ${name}`}
+                  {alias.email && <span className="mono">{` · ${alias.email}`}</span>}
+                </label>
+              );
+            })}
           </div>
           <div className="actor-compare">
             <div className="actor-compare-col">
@@ -330,7 +357,7 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
           </div>
           {splitMutation.isError && <InlineError>{errorMessage(splitMutation.error, "분리에 실패했어요.")}</InlineError>}
           <div className="actor-form-actions">
-            <button className="btn btn-ghost" type="button" onClick={() => setPanel(null)}>취소</button>
+            <button className="btn btn-ghost" type="button" onClick={() => { splitMutation.reset(); setPanel(null); }}>취소</button>
             <button className="btn btn-primary" type="submit" disabled={!canSplit || splitMutation.isPending}>
               {splitMutation.isPending ? "분리 중…" : "분리"}
             </button>

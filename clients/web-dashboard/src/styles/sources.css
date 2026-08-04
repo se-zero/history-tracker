@@ -241,15 +241,16 @@
 .actor-info { min-width: 0; }
 .actor-info strong, .actor-decision strong { display: block; font-size: 13px; }
 .actor-row-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.actor-meta { color: var(--fg-subtle); font-family: var(--font-mono); font-size: 11px; }
+/* 한글 문구와 이메일(라틴 토큰)을 겸용한다 — 이메일 자리에는 호출부에서 .mono를 덧붙인다. */
+.actor-meta { color: var(--fg-subtle); font-size: 11px; }
 .actor-source-names { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.actor-source-names code { padding: 2px 5px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-muted); font-size: 11px; }
+.actor-source-name { padding: 2px 5px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-muted); font-size: 11px; }
 .actor-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; padding: 16px; border: 1px dashed var(--border-strong); border-radius: var(--r-md); background: var(--surface-2); }
 .actor-form h3, .actor-form > p, .actor-form > .actor-compare, .actor-form > .actor-alias-picker, .actor-form > .actor-form-actions, .actor-form > [role="alert"] { grid-column: 1 / -1; }
 .actor-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .actor-compare-col { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
 .actor-compare-col strong { font-size: 12.5px; }
-.actor-alias-detail { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); }
+.actor-alias-detail { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-muted); }
 .actor-alias-detail code { color: var(--fg); background: var(--surface-2); padding: 2px 5px; border-radius: var(--r-sm); }
 .actor-rename-form { grid-template-columns: 1fr; }
 .actor-form h3 { margin: 0; font-size: 13px; }
@@ -259,9 +260,9 @@
 .actor-form input:focus, .actor-form select:focus { outline: none; border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
 .actor-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .actor-alias-picker { display: flex; flex-wrap: wrap; gap: 8px; }
-.actor-alias-picker label { flex-direction: row; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 400; }
+.actor-alias-picker label { flex-direction: row; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-muted); font-size: 11px; font-weight: 400; }
 .actor-alias-picker input { min-width: auto; padding: 0; }
-.actor-decision p { margin: 4px 0 0; color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; }
+.actor-decision p { margin: 4px 0 0; color: var(--fg-muted); font-size: 11px; }
 /* 분리 항목의 효과 부연("다시 안 합쳐짐") — 한글 문장이라 모노가 아닌 본문 서체로 둔다(span인 이유). */
 .actor-decision-hint { display: block; margin-top: 3px; color: var(--fg-subtle); font-size: 11px; }
 
