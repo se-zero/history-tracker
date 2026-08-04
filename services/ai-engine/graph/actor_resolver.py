@@ -80,11 +80,12 @@ class ActorStore:
     설계: docs/actor-manual-merge.md
     """
 
-    update_alias_name: Optional[Callable[[str, str], Awaitable[None]]] = None
+    update_alias_name: Optional[Callable[[str, str, Optional[str]], Awaitable[None]]] = None
     """이미 아는 alias의 이름을 갱신한다 (Step 0 — 표시 이름이 첫 수집 값에 고정되는 것을 막는다).
     Args:
         source_id: 갱신 대상 alias (예: 'GITHUB:se-zero')
         name:      이번 이벤트에서 온 이름
+        email:     이번 이벤트에서 온 이메일 (없으면 None — access_lost 복구 시 기존 값 보존)
     None이면 갱신 없음(기존 mock/호출부 호환).
     """
 
@@ -149,7 +150,8 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
     """
     event = event or {}
     actor_id  = actor.get("id")
-    name      = actor.get("name") or actor_id or "unknown"
+    raw_name  = actor.get("name")           # 이벤트가 준 실제 이름 — 없으면 None(폴백 미적용)
+    name      = raw_name or actor_id or "unknown"
     email     = actor.get("email")          # null 허용 — pipeline-worker 수집 불가 시
     source_id = f"{source}:{actor_id}"      # e.g. "GITHUB:se-zero"
 
@@ -160,13 +162,18 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
         logger.debug("[Step 0] alias 매칭: %s → Actor(%s)", source_id, existing.get("name"))
         # 이름 갱신 — 표시 이름이 첫 수집 값에 영구히 고정되는 것을 막는다.
         # "closed"(계정 폐쇄로 삭제)는 절대 갱신하지 않는다 — 자동 경로로 되살아나는 것을
-        # 막는 유일한 방어선이다. "access_lost"(재조회 불가로 삭제)는 재연동 복구 경로라 갱신한다.
+        # 막는 1차 방어선이다(store 계층의 _merge_actor/_create_actor CASE 가드·
+        # _update_alias_name WHERE절이 2차 방어선). "access_lost"(재조회 불가로 삭제)는
+        # 재연동 복구 경로라 갱신한다.
+        # raw_name이 없으면(계정ID 폴백) 갱신하지 않는다 — 폴백값으로 기존 정상 pd_name을
+        # 덮어써 격하시키는 것을 막는다(격하보다 낡은 값이 낫다).
         if (
             store.update_alias_name
+            and raw_name
             and name != existing.get("alias_pd_name")
             and existing.get("alias_pd_erased") != "closed"
         ):
-            await store.update_alias_name(source_id, name)
+            await store.update_alias_name(source_id, name, email)
         return existing
 
     # ── 수동 분리 결정(veto) 조회 ─────────────────────────────────────────

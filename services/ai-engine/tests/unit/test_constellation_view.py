@@ -225,5 +225,31 @@ class WorkUnitNeighborhood(unittest.TestCase):
         self.assertEqual(driver.session_obj.calls, [])
 
 
+class ActorPrivacyInGraphNode(unittest.TestCase):
+    """Actor 노드의 meta/snippet에 계정ID(aliases) 원문이 노출되면 안 된다.
+
+    액터 관리 UI(actor_admin.list_actors)와 같은 원칙 — 목록에 계정ID를 깔지 않는다.
+    """
+
+    def test_actor_meta_is_source_label_summary_without_raw_alias(self):
+        result, _ = _run_constellation({
+            "work:PullRequest": [_row("pr1", "PullRequest")],
+            "neighbors": [
+                _row("a1", "Actor", name="Kim", aliases=["GITHUB:se-zero", "JIRA:5b10a2"])
+            ],
+        })
+
+        actor_nodes = [n for n in result["nodes"] if n["type"] == "actor"]
+        self.assertEqual(len(actor_nodes), 1)
+        actor = actor_nodes[0]
+
+        self.assertNotIn("se-zero", actor["meta"])
+        self.assertNotIn("5b10a2", actor["meta"])
+        self.assertNotIn("se-zero", actor["snippet"])
+        self.assertNotIn("5b10a2", actor["snippet"])
+        self.assertEqual(actor["meta"], "GitHub · Jira")
+        self.assertEqual(actor["snippet"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

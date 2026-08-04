@@ -20,8 +20,11 @@ export function aliasNameText(name: string | null, erased: string | null) {
   return name ?? "이름 없음";
 }
 
-// 목록 행 · select 라벨용 최소 요약. 이름도 erased도 없는 소스는 소스명만 남긴다.
+// 목록 행 · select 라벨용 최소 요약. 라벨(라틴, 모노 유지 대상)과 이름(한글 가능, 본문 서체)을
+// 분리 반환한다 — 호출부가 라벨만 <code>/.mono로 감싸도록 한다(DESIGN.md "모노의 스코프").
+// 이름도 erased도 없는 소스는 name을 null로 둔다.
 export function sourceNameSummary(sourceName: ActorSourceName) {
-  if (!sourceName.name && !sourceName.erased) return sourceLabel(sourceName.source);
-  return `${sourceLabel(sourceName.source)}: ${aliasNameText(sourceName.name, sourceName.erased)}`;
+  const label = sourceLabel(sourceName.source);
+  if (!sourceName.name && !sourceName.erased) return { label, name: null as string | null };
+  return { label, name: aliasNameText(sourceName.name, sourceName.erased) as string | null };
 }

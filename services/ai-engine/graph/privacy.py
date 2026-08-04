@@ -116,8 +116,9 @@ async def _refresh_item(tx, item: dict, reported_at: str, actor_uuids: set[str])
         """
         MATCH (al:ActorAlias)
         WHERE al.source_id = 'JIRA:' + $account_id
-          // 'closed'는 이 조건에 절대 매치되지 않는다 — store 계층에 별도 가드가 없어
-          // pd_erased='closed' alias가 되살아나지 않는 유일한 방어선이 이 WHERE절이다.
+          // 'closed'는 이 조건에 절대 매치되지 않는다 — actor_store.py의 _merge_actor/
+          // _create_actor CASE 가드·_update_alias_name WHERE절과 함께 이 WHERE절도
+          // pd_erased='closed' alias가 되살아나지 않도록 막는 방어선 중 하나다.
           AND (al.pd_erased IS NULL OR al.pd_erased = 'access_lost')
         SET al.pd_name = $name, al.pd_normalized_name = $normalized, al.pd_email = $email,
             al.pd_updated_at = datetime($reported_at), al.pd_reported_at = datetime($reported_at),

@@ -122,6 +122,8 @@ async def merge_actors(project_id: str, uuid_a: str, uuid_b: str, note: str = ""
     두 Actor의 소스 계정(aliases)은 canonical로 통합되고 나머지 쪽은 삭제된다. ActorDecision에
     aliases_a(canonical의 병합 전 aliases)·aliases_b(삭제된 쪽 aliases)·canonical_uuid·merged_uuid를
     남겨 unmerge로 되돌릴 수 있다. ALIAS_OF 재연결로 이후 재수집 이벤트는 Step 0에서 canonical로 귀속된다.
+    두 Actor 사이에 남아 있는 distinct(다른 사람) 결정은 자동 삭제한다 — 남겨두면 재연동 시
+    resolver veto가 canonical(자기 자신)을 막아 방금 합친 사람이 다시 쪼개진다.
     """
     if not project_id:
         raise ValueError("project_id는 필수다")
@@ -163,6 +165,25 @@ async def merge_actors(project_id: str, uuid_a: str, uuid_b: str, note: str = ""
             aliases=merged_aliases,
         )
 
+        # 수동 병합은 "같은 사람" 선언으로 이전 분리 결정을 뒤집는 행위다. 두 액터 사이에
+        # 남아 있는 distinct 결정을 지우지 않으면, 소스를 끊었다 재연동할 때 resolver veto가
+        # 남은 distinct를 보고 canonical(자기 자신)을 차단해 방금 합친 사람이 다시 쪼개진다
+        # (unmerge_actors가 기존 same 결정을 지우는 선례와 대칭). 병합 전 aliases 기준으로
+        # 양방향(aliases_a↔aliases_b, aliases_b↔aliases_a) 모두 잡는다.
+        distinct_result = await tx.run(
+            """
+            MATCH (d:ActorDecision {project_id: $project_id, kind: 'distinct'})
+            WHERE (ANY(x IN d.aliases_a WHERE x IN $aliases_a) AND ANY(y IN d.aliases_b WHERE y IN $aliases_b))
+               OR (ANY(x IN d.aliases_a WHERE x IN $aliases_b) AND ANY(y IN d.aliases_b WHERE y IN $aliases_a))
+            DELETE d
+            RETURN count(*) AS n
+            """,
+            project_id=project_id,
+            aliases_a=canonical["aliases"] or [],
+            aliases_b=merged["aliases"] or [],
+        )
+        distinct_removed = (await distinct_result.single())["n"]
+
         decision_id = str(uuid_mod.uuid4())
         await tx.run(
             """
@@ -190,13 +211,15 @@ async def merge_actors(project_id: str, uuid_a: str, uuid_b: str, note: str = ""
             "merged_uuid": merged_uuid,
             "moved_edges": moved,
             "aliases": merged_aliases,
+            "distinct_removed": distinct_removed,
         }
 
     async with get_driver().session() as session:
         summary = await session.execute_write(_tx)
     logger.info(
-        "Actor 수동 병합: project=%s %s → %s (edges=%d)",
-        project_id, summary["merged_uuid"], summary["canonical_uuid"], summary["moved_edges"],
+        "Actor 수동 병합: project=%s %s → %s (edges=%d, distinct_removed=%d)",
+        project_id, summary["merged_uuid"], summary["canonical_uuid"],
+        summary["moved_edges"], summary["distinct_removed"],
     )
     return summary
 

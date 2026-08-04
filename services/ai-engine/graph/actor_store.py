@@ -284,12 +284,17 @@ async def _merge_actor(
                                  ELSE a.aliases + $new_alias END
             // 새 alias도 ActorAlias 인덱스 노드로 연결 — Step 0 조회가 이 actor를 찾도록.
             MERGE (al:ActorAlias {project_id: a.project_id, source_id: $new_alias})
-            SET al.pd_name = $new_name,
-                al.pd_normalized_name = $normalized,
-                al.pd_email = $new_email,
-                al.pd_updated_at = datetime(),
-                al.pd_erased = null,
-                al.source = $source
+            // closed(계정 폐쇄로 영구 삭제)는 resolver Step 0 가드를 못 미치는 경로(예: ALIAS_OF가
+            // 없어 Step 0 lookup이 미스나는 alias)로도 이 MERGE가 잡을 수 있어, 되돌릴 수 없는
+            // 삭제 상태를 store 계층에서도 부활시키지 않는다.
+            SET al += CASE WHEN al.pd_erased = 'closed' THEN {} ELSE {
+                pd_name: $new_name,
+                pd_normalized_name: $normalized,
+                pd_email: $new_email,
+                pd_updated_at: datetime(),
+                pd_erased: null
+            } END
+            SET al.source = $source
             MERGE (al)-[:ALIAS_OF]->(a)
             """,
             actor_uuid=actor.get("uuid"),
@@ -334,12 +339,17 @@ async def _create_actor(project_id: str, source_id: str, name: str, email: Optio
                 })
                 MERGE (al)-[:ALIAS_OF]->(a)
             )
-            SET al.pd_name = $name,
-                al.pd_normalized_name = $normalized,
-                al.pd_email = $email,
-                al.pd_updated_at = datetime(),
-                al.pd_erased = null,
-                al.source = $source
+            // closed(계정 폐쇄로 영구 삭제)는 resolver Step 0 가드를 못 미치는 경로(예: ALIAS_OF가
+            // 없어 Step 0 lookup이 미스나는 alias)로도 이 MERGE가 잡을 수 있어, 되돌릴 수 없는
+            // 삭제 상태를 store 계층에서도 부활시키지 않는다.
+            SET al += CASE WHEN al.pd_erased = 'closed' THEN {} ELSE {
+                pd_name: $name,
+                pd_normalized_name: $normalized,
+                pd_email: $email,
+                pd_updated_at: datetime(),
+                pd_erased: null
+            } END
+            SET al.source = $source
             WITH al
             MATCH (al)-[:ALIAS_OF]->(a:Actor)
             RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases
@@ -357,29 +367,42 @@ async def _create_actor(project_id: str, source_id: str, name: str, email: Optio
     return dict(record)
 
 
-async def _update_alias_name(project_id: str, source_id: str, name: str) -> None:
+async def _update_alias_name(project_id: str, source_id: str, name: str, email: Optional[str]) -> None:
     """이미 아는 alias의 이름을 갱신한다 (resolve_actor Step 0).
 
     pd_erased=null로 되돌리는 것은 access_lost(재조회 불가로 비워둔 휴면 상태)가
-    재수집으로 복구되는 경로다 — closed는 이 함수가 애초에 호출되지 않는다
-    (resolve_actor가 호출 전에 걸러낸다).
+    재수집으로 복구되는 경로다 — closed는 resolve_actor가 호출 전에 걸러내므로 이 함수는
+    보통 호출되지 않지만, WHERE절로 store 계층에서도 한 번 더 막는다(심층 방어).
+
+    al.source는 _merge_actor/_create_actor와 동일하게 source_id 접두어로 유도해 SET한다 —
+    backfill_actor_aliases(graph/maintenance.py)가 만든 bare alias는 source가 없어 이 경로를
+    타기 전까지 graph/privacy.py의 al.source='JIRA' 필터에서 누락되기 때문이다.
+
+    pd_email은 coalesce로 SET한다 — 이벤트에 email이 없는 소스(예: Jira 담당자)가 access_lost
+    alias를 되살릴 때 email까지 null로 덮어 영구 소실시키지 않기 위함이다.
     """
     from graph.actor_resolver import normalize_name
+    source = source_id.split(":", 1)[0]
     normalized = normalize_name(name)
     async with get_driver().session() as session:
         result = await session.run(
             """
             MATCH (al:ActorAlias {project_id: $project_id, source_id: $source_id})-[:ALIAS_OF]->(a:Actor)
+            WHERE al.pd_erased IS NULL OR al.pd_erased <> 'closed'
             SET al.pd_name = $name,
                 al.pd_normalized_name = $normalized,
+                al.pd_email = coalesce($email, al.pd_email),
                 al.pd_updated_at = datetime(),
-                al.pd_erased = null
+                al.pd_erased = null,
+                al.source = $source
             RETURN a.uuid AS uuid
             """,
             project_id=project_id,
             source_id=source_id,
             name=name,
             normalized=normalized,
+            email=email,
+            source=source,
         )
         record = await result.single()
         if record:
@@ -404,5 +427,7 @@ def make_neo4j_actor_store(project_id: str):
             project_id, source_id, name, email
         ),
         lookup_vetoes=lambda source_id: _lookup_veto_uuids(project_id, source_id),
-        update_alias_name=lambda source_id, name: _update_alias_name(project_id, source_id, name),
+        update_alias_name=lambda source_id, name, email: _update_alias_name(
+            project_id, source_id, name, email
+        ),
     )
