@@ -11,6 +11,7 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,7 +39,8 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0)
+                new GitHubRateLimiter(0, 0),
+                Duration.ofMinutes(30)
         );
 
         Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
@@ -64,7 +66,8 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0)
+                new GitHubRateLimiter(0, 0),
+                Duration.ofMinutes(30)
         );
 
         Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
@@ -91,7 +94,8 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0)
+                new GitHubRateLimiter(0, 0),
+                Duration.ofMinutes(30)
         );
 
         service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of("branch", "develop")));
@@ -114,7 +118,8 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0)
+                new GitHubRateLimiter(0, 0),
+                Duration.ofMinutes(30)
         );
 
         service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
@@ -145,7 +150,8 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0)
+                new GitHubRateLimiter(0, 0),
+                Duration.ofMinutes(30)
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -183,7 +189,8 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0)
+                new GitHubRateLimiter(0, 0),
+                Duration.ofMinutes(30)
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -226,7 +233,8 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0)
+                new GitHubRateLimiter(0, 0),
+                Duration.ofMinutes(30)
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -234,6 +242,78 @@ class GitHubRawServiceTest {
         service.fetchCommitPage(context, 1, Map.of());
 
         assertThat(userProfileCallCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("TTL 내 재호출은 프로필을 재조회하지 않고 캐시를 재사용한다")
+    void fetchCommitPage_userProfileWithinTtl_cachedAcrossCalls() {
+        AtomicInteger userProfileCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/users/dev")) {
+                        userProfileCallCount.incrementAndGet();
+                        return Mono.just(jsonResponse("""
+                                {"email": "dev@example.com", "name": "Dev"}
+                                """));
+                    }
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0),
+                Duration.ofMinutes(5)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        service.fetchCommitPage(context, 1, Map.of());
+        service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(userProfileCallCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("TTL=0이면 캐시가 비활성화되어 매번 프로필을 재조회한다")
+    void fetchCommitPage_userProfileTtlZero_refetchedEachCall() {
+        AtomicInteger userProfileCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/users/dev")) {
+                        userProfileCallCount.incrementAndGet();
+                        return Mono.just(jsonResponse("""
+                                {"email": "dev@example.com", "name": "Dev"}
+                                """));
+                    }
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0),
+                Duration.ZERO
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        service.fetchCommitPage(context, 1, Map.of());
+        service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(userProfileCallCount.get()).isEqualTo(2);
     }
 
     private GitHubRawService.GitHubFetchContext fetchContext() {

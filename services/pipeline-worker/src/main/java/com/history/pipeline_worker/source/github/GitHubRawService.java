@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,12 +32,16 @@ public class GitHubRawService {
     private final GitHubRateLimiter rateLimiter;
 
     // login → {email, name} 캐시 — 동일 user에 대한 반복 API 호출 방지
-    private final Map<String, Map<String, String>> userProfileCache = new ConcurrentHashMap<>();
+    private final Map<String, CachedProfile> userProfileCache = new ConcurrentHashMap<>();
+    private final Duration userProfileCacheTtl;
+
+    private record CachedProfile(Map<String, String> profile, Instant fetchedAt) {}
 
     public GitHubRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.github.base-url}") String baseUrl,
-            GitHubRateLimiter rateLimiter
+            GitHubRateLimiter rateLimiter,
+            @Value("${app.github.user-profile-cache-ttl:30m}") Duration userProfileCacheTtl
     ) {
         this.webClient = webClientBuilder
                 .baseUrl(baseUrl)
@@ -44,6 +49,7 @@ public class GitHubRawService {
                 .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
                 .build();
         this.rateLimiter = rateLimiter;
+        this.userProfileCacheTtl = userProfileCacheTtl;
     }
 
     public GitHubFetchContext prepareFetchContext(
@@ -235,14 +241,16 @@ public class GitHubRawService {
         return result;
     }
 
-    /** GET /users/{login} → {email, name} (캐시 적용) */
+    /** GET /users/{login} → {email, name}. login별로 TTL 동안 캐시를 재사용하고, 만료되면 재조회 후 캐시를 갱신한다. */
     @SuppressWarnings("unchecked")
     private Map<String, String> fetchUserProfile(String login, String auth) {
-        Map<String, String> cached = userProfileCache.get(login);
-        if (cached != null) return cached;
+        CachedProfile cached = userProfileCache.get(login);
+        if (cached != null && Duration.between(cached.fetchedAt(), Instant.now()).compareTo(userProfileCacheTtl) < 0) {
+            return cached.profile();
+        }
 
         // computeIfAbsent는 매핑 함수의 반환값을 무조건 캐시하므로 실패(에러 상태·예외) 케이스를
-        // 걸러낼 수 없다. get으로 조회 후 미스일 때만 호출하고 성공한 결과만 putIfAbsent 하는 패턴으로
+        // 걸러낼 수 없다. get으로 조회 후 미스/만료일 때만 호출하고 성공한 결과만 캐시에 반영하는 패턴으로
         // 바꿔, 일시 장애가 그 계정의 신원 보강을 재시작 전까지 영구히 결손시키지 않도록 한다.
         try {
             AtomicReference<org.springframework.http.HttpHeaders> headersRef = new AtomicReference<>();
@@ -269,7 +277,7 @@ public class GitHubRawService {
                 if (email != null) profile.put("email", email);
                 if (name  != null) profile.put("name",  name);
             }
-            userProfileCache.putIfAbsent(login, profile);
+            userProfileCache.put(login, new CachedProfile(profile, Instant.now()));
             return profile;
         } catch (Exception e) {
             // 프로필은 부가 데이터라 조회 실패로 커밋/이슈 수집 자체를 막지 않는다.
