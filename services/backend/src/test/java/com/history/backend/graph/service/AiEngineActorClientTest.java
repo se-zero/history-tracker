@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -113,10 +114,10 @@ class AiEngineActorClientTest {
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("""
                         {"project_id": "%s", "uuid_a": "a1", "uuid_b": "a2", "note": "같은 사람"}
-                        """.formatted(PROJECT_ID)))
+                        """.formatted(PROJECT_ID), JsonCompareMode.STRICT))
                 .andRespond(withSuccess("""
                         {"decision_id": "d1", "canonical_uuid": "a1", "merged_uuid": "a2",
-                         "moved_edges": 3, "aliases": []}
+                         "moved_edges": 3, "aliases": [], "distinct_removed": 0}
                         """, MediaType.APPLICATION_JSON));
 
         ActorMergeResponse result = fixture.client.mergeActors(PROJECT_ID, "a1", "a2", "같은 사람");
@@ -138,7 +139,7 @@ class AiEngineActorClientTest {
                         {"decisions": [{"decision_id": "d1", "kind": "same",
                           "aliases_a": [{"source": "JIRA", "name": "김영희", "erased": null}],
                           "aliases_b": [{"source": "GITHUB", "name": "Younghee Kim", "erased": null}],
-                          "canonical_uuid": "t", "note": "", "decided_at": "2026-08-02T00:00:00Z"}]}
+                          "canonical_uuid": "t", "merged_uuid": "a2", "note": "", "decided_at": "2026-08-02T00:00:00Z"}]}
                         """, MediaType.APPLICATION_JSON));
 
         ActorDecisionListResponse result = fixture.client.fetchDecisions(PROJECT_ID);
