@@ -297,6 +297,9 @@ async def verify_actor_name_consistency(project_id: str | None = None) -> dict:
     없으면 전 프로젝트를 검사한다. 삭제 배치 끝과 수동 트리거(POST /migrations/verify-actor-names)
     에서 호출한다.
 
+    Actor당 쿼리 3개(alias·outgoing·incoming)가 나가는 N+1형 구조지만, 수동 트리거·삭제
+    배치 끝에서만 호출되는 함수라 규모상 허용한다 — 호출 규모가 커지면 배치 쿼리로 전환할 것.
+
     쓰기 없음(Idempotent) — SET/DELETE/MERGE/CREATE 없이 읽기만 한다.
 
     Returns:
@@ -508,20 +511,27 @@ async def delete_project_source_graph(
 
         # 살아남은 Actor(다른 소스 alias 보유)는 배열에서 해당 소스 alias만 빼고, 영향받은
         # uuid를 돌려받아 표시 이름을 재계산한다 — 지워진 소스가 표시 이름의 출처였다면
-        # 그 개인정보가 Actor.name에 그대로 남기 때문이다.
-        result = await session.run(
-            """
-            MATCH (a:Actor {project_id: $project_id})
-            WHERE any(alias IN coalesce(a.aliases, []) WHERE alias STARTS WITH $alias_prefix)
-            SET a.aliases = [alias IN a.aliases WHERE NOT alias STARTS WITH $alias_prefix]
-            RETURN a.uuid AS uuid
-            """,
-            project_id=project_id,
-            alias_prefix=alias_prefix,
-        )
-        survivor_uuids = [row["uuid"] for row in await result.data()]
-        for survivor_uuid in survivor_uuids:
-            await recompute_display_name(session, survivor_uuid)
+        # 그 개인정보가 Actor.name에 그대로 남기 때문이다. 차감과 재계산 사이에 프로세스가
+        # 죽으면 재실행 시 차감 쿼리의 WHERE가 더 이상 매치되지 않아 재계산이 영구 누락되므로
+        # (privacy.apply_report와 동일 패턴으로) 한 트랜잭션으로 묶는다. survivor가 많아 트랜잭션이
+        # 커질 수 있지만, 소스 삭제는 빈도 낮은 관리 작업이라 허용한다.
+        async def _recompute_survivors_tx(tx):
+            result = await tx.run(
+                """
+                MATCH (a:Actor {project_id: $project_id})
+                WHERE any(alias IN coalesce(a.aliases, []) WHERE alias STARTS WITH $alias_prefix)
+                SET a.aliases = [alias IN a.aliases WHERE NOT alias STARTS WITH $alias_prefix]
+                RETURN a.uuid AS uuid
+                """,
+                project_id=project_id,
+                alias_prefix=alias_prefix,
+            )
+            uuids = [row["uuid"] for row in await result.data()]
+            for survivor_uuid in uuids:
+                await recompute_display_name(tx, survivor_uuid)
+            return uuids
+
+        survivor_uuids = await session.execute_write(_recompute_survivors_tx)
 
         # 양쪽 모두 삭제된 alias만 가리키는 결정은 적용 대상이 없다
         result = await session.run(

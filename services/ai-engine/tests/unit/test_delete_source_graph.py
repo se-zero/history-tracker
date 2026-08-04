@@ -36,6 +36,19 @@ class _FakeResult:
         return self._records
 
 
+class _FakeTx:
+    """execute_write가 콜백에 넘기는 트랜잭션 스텁. run()을 세션에 위임해 session.calls에
+    그대로 기록되게 하면서도, 이 tx 객체 자체는 "같은 트랜잭션 안"임을 구분하는 표식이 된다
+    — recompute_display_name이 이 tx와 동일한 객체로 호출됐는지로 원자성을 검증할 수 있다.
+    """
+
+    def __init__(self, session):
+        self._session = session
+
+    async def run(self, query, **params):
+        return await self._session.run(query, **params)
+
+
 class _FakeSession:
     """실행된 (query, params)를 순서대로 기록하고, 정해진 삭제 수를 차례로 돌려준다.
 
@@ -48,6 +61,7 @@ class _FakeSession:
         self.calls = []
         self._deleted_counts = list(deleted_counts)
         self._survivor_records = [{"uuid": u} for u in survivor_uuids]
+        self.execute_write_calls = []  # 실행된 tx 콜백마다 넘겨준 _FakeTx 인스턴스를 기록
 
     async def __aenter__(self):
         return self
@@ -59,6 +73,11 @@ class _FakeSession:
         self.calls.append((query, params))
         count = self._deleted_counts.pop(0) if self._deleted_counts else 0
         return _FakeResult(count, records=self._survivor_records)
+
+    async def execute_write(self, tx_func):
+        tx = _FakeTx(self)
+        self.execute_write_calls.append(tx)
+        return await tx_func(tx)
 
 
 class _FakeDriver:
@@ -138,16 +157,36 @@ class DeleteProjectSourceGraph(unittest.TestCase):
 
     def test_survivor_alias_removal_recomputes_display_name(self):
         # 살아남은 Actor(다른 소스 alias 보유)의 alias 제거 쿼리가 영향받은 uuid를 돌려주면,
-        # 그 uuid마다 recompute_display_name이 같은 세션으로 호출돼야 한다 — 그러지 않으면
-        # 지워진 소스가 표시 이름의 출처였을 때 그 개인정보가 Actor.name에 그대로 남는다.
+        # 그 uuid마다 recompute_display_name이 같은 트랜잭션(tx)으로 호출돼야 한다 — 그러지
+        # 않으면 지워진 소스가 표시 이름의 출처였을 때 그 개인정보가 Actor.name에 그대로 남는다.
+        _, session, mock_recompute = _run(
+            "p1", "GITHUB", survivor_uuids=("actor-1", "actor-2")
+        )
+        tx = session.execute_write_calls[0]
+
+        self.assertEqual(
+            mock_recompute.call_args_list,
+            [call(tx, "actor-1"), call(tx, "actor-2")],
+        )
+
+    def test_alias_decrement_and_recompute_share_one_transaction(self):
+        # 차감 쿼리와 재계산 사이에서 프로세스가 죽으면, 재실행 시 차감 쿼리의 WHERE가 더 이상
+        # 매치되지 않아 재계산이 영구 누락된다 — 그래서 둘은 execute_write 하나로 원자적이어야
+        # 한다(graph.privacy.apply_report와 같은 패턴). tx 인자가 동일 객체인지로 검증한다.
         _, session, mock_recompute = _run(
             "p1", "GITHUB", survivor_uuids=("actor-1", "actor-2")
         )
 
-        self.assertEqual(
-            mock_recompute.call_args_list,
-            [call(session, "actor-1"), call(session, "actor-2")],
-        )
+        self.assertEqual(len(session.execute_write_calls), 1)
+        tx = session.execute_write_calls[0]
+        for recompute_call in mock_recompute.call_args_list:
+            self.assertIs(recompute_call.args[0], tx)
+
+        alias_decrement_queries = [
+            q for q, p in session.calls
+            if "SET a.aliases = [alias IN a.aliases" in q and "alias_prefix" in p
+        ]
+        self.assertEqual(len(alias_decrement_queries), 1)
 
     def test_no_survivors_skips_recompute(self):
         # 이 소스의 alias를 가진 살아남은 Actor가 없으면 재계산도 없다
