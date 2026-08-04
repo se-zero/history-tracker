@@ -3,7 +3,8 @@
 세 가지를 고정한다:
 - derive_display_name의 표시 이름 폴백 체인
 - resolve_actor Step 0의 이름 갱신 — "closed" alias는 절대 갱신하지 않는다(삭제 정합성의
-  유일한 방어선), "access_lost"는 갱신한다(재연동 복구 경로)
+  유일한 방어선), "access_lost"는 갱신한다(재연동 복구 경로). 이벤트에 실제 이름이 없어
+  계정ID로 폴백한 경우도 갱신하지 않는다(격하 방지 가드)
 - resolve_actor Step 1/3/4가 ActorStore의 새 시그니처(merge_actor에 name, create_actor에
   source_id·email 단일값)로 호출되는지
 """
@@ -127,7 +128,7 @@ class DeriveDisplayName(unittest.TestCase):
 
 def _step0_store(*, alias_hit: dict, with_update_alias_name: bool):
     """Step 0 alias 히트를 고정하고 update_alias_name 호출만 기록하는 mock ActorStore."""
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, object]] = []
 
     async def lookup_by_alias(source_id):
         return alias_hit
@@ -156,8 +157,8 @@ def _step0_store(*, alias_hit: dict, with_update_alias_name: bool):
         create_actor=create_actor,
     )
     if with_update_alias_name:
-        async def update_alias_name(source_id, name):
-            calls.append((source_id, name))
+        async def update_alias_name(source_id, name, email):
+            calls.append((source_id, name, email))
         kwargs["update_alias_name"] = update_alias_name
     return ActorStore(**kwargs), calls
 
@@ -182,7 +183,7 @@ class ResolveActorStep0NameUpdate(unittest.TestCase):
         }
         store, calls = _step0_store(alias_hit=alias_hit, with_update_alias_name=True)
         asyncio.run(resolve_actor({"id": "5b10a2", "name": "영희"}, "JIRA", store))
-        self.assertEqual(calls, [("JIRA:5b10a2", "영희")])
+        self.assertEqual(calls, [("JIRA:5b10a2", "영희", None)])
 
     def test_closed_alias_is_never_updated(self):
         """계정 폐쇄로 지운 이름은 재수집으로 절대 되살아나면 안 된다 — 삭제 정합성의 핵심 가드."""
@@ -202,7 +203,22 @@ class ResolveActorStep0NameUpdate(unittest.TestCase):
         }
         store, calls = _step0_store(alias_hit=alias_hit, with_update_alias_name=True)
         asyncio.run(resolve_actor({"id": "5b10a2", "name": "김영희"}, "JIRA", store))
-        self.assertEqual(calls, [("JIRA:5b10a2", "김영희")])
+        self.assertEqual(calls, [("JIRA:5b10a2", "김영희", None)])
+
+    def test_no_name_in_event_id_fallback_skips_update(self):
+        """이벤트에 실제 이름이 없어 계정ID로 폴백한 경우 — 그 폴백값(accountId)으로
+        기존 정상 pd_name을 덮어써 격하시키면 안 된다.
+
+        의도된 부작용: 이름 없는 이벤트만 계속 오는 계정은 alias의 pd_name이 낡은 값으로
+        남는다 — 격하보다 낡음이 낫다는 의도된 트레이드오프다(Jira 담당자 assigneeName처럼
+        일부 소스는 이벤트에 이름이 아예 없을 수 있다)."""
+        alias_hit = {
+            "uuid": "u1", "name": "김영희", "aliases": ["JIRA:5b10a2"],
+            "alias_pd_name": "김영희", "alias_pd_erased": None,
+        }
+        store, calls = _step0_store(alias_hit=alias_hit, with_update_alias_name=True)
+        asyncio.run(resolve_actor({"id": "5b10a2", "name": None}, "JIRA", store))
+        self.assertEqual(calls, [])
 
     def test_missing_update_alias_name_field_is_backward_compatible(self):
         """update_alias_name 미주입(None, 구형 mock) 스토어는 에러 없이 동작한다."""
