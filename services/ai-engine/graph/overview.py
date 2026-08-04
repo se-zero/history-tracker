@@ -146,6 +146,27 @@ def _node_ref(node_type: str, node_id: str | None) -> dict | None:
     return {"type": node_type, "id": node_id} if node_id else None
 
 
+# alias(예: "GITHUB:se-zero")의 소스 접두사 → 표시 라벨. 미지 접두사는 원문 접두사 그대로 쓴다.
+_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "JIRA": "Jira", "SLACK": "Slack"}
+
+
+def _actor_source_summary(aliases: list[str]) -> str:
+    """Actor aliases를 계정ID 없이 소스 라벨 요약으로 축약한다 (예: "GitHub · Jira").
+
+    actor_admin.list_actors와 같은 원칙 — 그래프 뷰 응답도 계정ID(source_id) 원문을 깔지 않는다.
+    중복 제거·순서는 aliases 등장 순으로 안정적으로 유지한다.
+    """
+    labels: list[str] = []
+    seen: set[str] = set()
+    for alias in aliases:
+        prefix = alias.split(":", 1)[0].upper() if alias else ""
+        if not prefix or prefix in seen:
+            continue
+        seen.add(prefix)
+        labels.append(_SOURCE_PREFIX_LABELS.get(prefix, prefix))
+    return " · ".join(labels)
+
+
 def _to_graph_node(row: dict) -> dict:
     """Neo4j 행을 프론트 GraphNode({id, type, title, meta, source, snippet})로 변환한다."""
     label = row["label"]
@@ -219,9 +240,9 @@ def _to_graph_node(row: dict) -> dict:
             "id": row["id"],
             "type": "actor",
             "title": row.get("name") or "(unknown)",
-            "meta": aliases[0] if aliases else "",
+            "meta": _actor_source_summary(aliases),
             "source": "people",
-            "snippet": _truncate(", ".join(aliases)),
+            "snippet": "",
             "ref": None,
         }
 
