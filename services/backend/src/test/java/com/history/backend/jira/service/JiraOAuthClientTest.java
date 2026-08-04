@@ -7,9 +7,13 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withForbiddenRequest;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withTooManyRequests;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withUnauthorizedRequest;
 
 import java.time.Duration;
 import java.util.List;
@@ -60,18 +64,6 @@ class JiraOAuthClientTest {
     }
 
     @Test
-    @DisplayName("HTTP 오류 응답 → UnauthorizedException 발생")
-    void exchangeCodeRejectsHttpErrorResponse() {
-        JiraOAuthClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
-                .andRespond(withResourceNotFound());
-
-        assertThatThrownBy(() -> fixture.client.exchangeCode("bad-code"))
-                .isInstanceOf(UnauthorizedException.class);
-        fixture.server.verify();
-    }
-
-    @Test
     @DisplayName("HTTP 5xx 응답 → BadGatewayException 발생")
     void exchangeCodeRejectsHttpServerErrorResponse() {
         JiraOAuthClientFixture fixture = fixture();
@@ -80,6 +72,66 @@ class JiraOAuthClientTest {
 
         assertThatThrownBy(() -> fixture.client.exchangeCode("auth-code"))
                 .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("HTTP 429(rate limit) 응답 → BadGatewayException 발생 (폐기 아닌 일시 장애)")
+    void exchangeCodeRejectsTooManyRequestsAsBadGateway() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.exchangeCode("auth-code"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("HTTP 404 응답 → BadGatewayException 발생 (폐기 아닌 일시 장애)")
+    void exchangeCodeRejectsNotFoundAsBadGateway() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withResourceNotFound());
+
+        assertThatThrownBy(() -> fixture.client.exchangeCode("bad-code"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("HTTP 400 응답 → UnauthorizedException 발생")
+    void exchangeCodeRejectsBadRequestAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withBadRequest());
+
+        assertThatThrownBy(() -> fixture.client.exchangeCode("bad-code"))
+                .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("HTTP 401 응답 → UnauthorizedException 발생")
+    void exchangeCodeRejectsUnauthorizedAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withUnauthorizedRequest());
+
+        assertThatThrownBy(() -> fixture.client.exchangeCode("bad-code"))
+                .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("HTTP 403 응답 → UnauthorizedException 발생")
+    void exchangeCodeRejectsForbiddenAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withForbiddenRequest());
+
+        assertThatThrownBy(() -> fixture.client.exchangeCode("bad-code"))
+                .isInstanceOf(UnauthorizedException.class);
         fixture.server.verify();
     }
 
@@ -174,18 +226,6 @@ class JiraOAuthClientTest {
     }
 
     @Test
-    @DisplayName("사이트 목록 조회 HTTP 오류 응답 → UnauthorizedException 발생")
-    void listAccessibleResourcesRejectsHttpErrorResponse() {
-        JiraOAuthClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token/accessible-resources"))
-                .andRespond(withResourceNotFound());
-
-        assertThatThrownBy(() -> fixture.client.listAccessibleResources("bad-token"))
-                .isInstanceOf(UnauthorizedException.class);
-        fixture.server.verify();
-    }
-
-    @Test
     @DisplayName("사이트 목록 조회 HTTP 5xx 응답 → BadGatewayException 발생")
     void listAccessibleResourcesRejectsHttpServerErrorResponse() {
         JiraOAuthClientFixture fixture = fixture();
@@ -194,6 +234,66 @@ class JiraOAuthClientTest {
 
         assertThatThrownBy(() -> fixture.client.listAccessibleResources("atl-access-token"))
                 .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("사이트 목록 조회 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (폐기 아닌 일시 장애)")
+    void listAccessibleResourcesRejectsTooManyRequestsAsBadGateway() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token/accessible-resources"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listAccessibleResources("atl-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("사이트 목록 조회 HTTP 404 응답 → BadGatewayException 발생 (폐기 아닌 일시 장애)")
+    void listAccessibleResourcesRejectsNotFoundAsBadGateway() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token/accessible-resources"))
+                .andRespond(withResourceNotFound());
+
+        assertThatThrownBy(() -> fixture.client.listAccessibleResources("bad-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("사이트 목록 조회 HTTP 400 응답 → UnauthorizedException 발생")
+    void listAccessibleResourcesRejectsBadRequestAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token/accessible-resources"))
+                .andRespond(withBadRequest());
+
+        assertThatThrownBy(() -> fixture.client.listAccessibleResources("bad-token"))
+                .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("사이트 목록 조회 HTTP 401 응답 → UnauthorizedException 발생")
+    void listAccessibleResourcesRejectsUnauthorizedAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token/accessible-resources"))
+                .andRespond(withUnauthorizedRequest());
+
+        assertThatThrownBy(() -> fixture.client.listAccessibleResources("bad-token"))
+                .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("사이트 목록 조회 HTTP 403 응답 → UnauthorizedException 발생")
+    void listAccessibleResourcesRejectsForbiddenAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token/accessible-resources"))
+                .andRespond(withForbiddenRequest());
+
+        assertThatThrownBy(() -> fixture.client.listAccessibleResources("bad-token"))
+                .isInstanceOf(UnauthorizedException.class);
         fixture.server.verify();
     }
 
@@ -230,18 +330,6 @@ class JiraOAuthClientTest {
     }
 
     @Test
-    @DisplayName("refresh token 폐기(HTTP 4xx) → UnauthorizedException 발생")
-    void refreshRejectsRevokedRefreshToken() {
-        JiraOAuthClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
-                .andRespond(withResourceNotFound());
-
-        assertThatThrownBy(() -> fixture.client.refresh("revoked-refresh-token"))
-                .isInstanceOf(UnauthorizedException.class);
-        fixture.server.verify();
-    }
-
-    @Test
     @DisplayName("refresh token 갱신 중 HTTP 5xx 응답 → BadGatewayException 발생")
     void refreshRejectsHttpServerErrorResponse() {
         // Atlassian 일시 장애(5xx)를 토큰 폐기로 오판하면 JiraTokenService가 연동을 pending으로
@@ -252,6 +340,67 @@ class JiraOAuthClientTest {
 
         assertThatThrownBy(() -> fixture.client.refresh("old-refresh-token"))
                 .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh 중 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (폐기 아닌 일시 장애)")
+    void refreshRejectsTooManyRequestsAsBadGateway() {
+        // rate limit을 폐기로 오판하면 아직 유효한 refresh token인데도 연동이 pending으로 강등된다.
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.refresh("old-refresh-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh 중 HTTP 404 응답 → BadGatewayException 발생 (폐기 아닌 일시 장애)")
+    void refreshRejectsNotFoundAsBadGateway() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withResourceNotFound());
+
+        assertThatThrownBy(() -> fixture.client.refresh("revoked-refresh-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh token 폐기(HTTP 400) → UnauthorizedException 발생")
+    void refreshRejectsBadRequestAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withBadRequest());
+
+        assertThatThrownBy(() -> fixture.client.refresh("revoked-refresh-token"))
+                .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh token 폐기(HTTP 401) → UnauthorizedException 발생")
+    void refreshRejectsUnauthorizedAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withUnauthorizedRequest());
+
+        assertThatThrownBy(() -> fixture.client.refresh("revoked-refresh-token"))
+                .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh token 폐기(HTTP 403) → UnauthorizedException 발생")
+    void refreshRejectsForbiddenAsUnauthorized() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/token"))
+                .andRespond(withForbiddenRequest());
+
+        assertThatThrownBy(() -> fixture.client.refresh("revoked-refresh-token"))
+                .isInstanceOf(UnauthorizedException.class);
         fixture.server.verify();
     }
 

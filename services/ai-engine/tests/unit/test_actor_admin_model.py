@@ -1,6 +1,6 @@
 """Actor 신원 모델 개편(2/3) — actor_admin의 방향 자동화·unmerge 재배치 가드 단위 테스트.
 
-Neo4j 없이 오프라인으로 검증한다(docs/actor-identity-model.md, docs/jira-personal-data-plan.md A-6):
+Neo4j 없이 오프라인으로 검증한다:
 - `_pick_canonical`: 병합 방향을 정하는 순수 함수 — 활동 많은 쪽 승리, 동수면 uuid 사전순,
   인자 순서를 바꿔도 결과가 같아야 한다(호출자의 uuid_a/uuid_b 순서가 결과를 바꾸면 안 된다).
 - `split_alias`는 표시 이름을 입력받지 않는다(병합과 대칭) — manual_name SET이 호출되지

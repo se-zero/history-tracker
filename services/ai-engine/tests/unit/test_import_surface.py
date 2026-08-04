@@ -43,6 +43,7 @@ MODULES = [
     "graph.overview",
     "graph.path_filter",
     "graph.postprocess",
+    "graph.privacy",
     "graph.project_context",
     "graph.reference_builder",
     "graph.reference_store",
@@ -65,6 +66,7 @@ MODULES = [
     "tools.queries.issue",
     "routers.admin",
     "routers.graph",
+    "routers.privacy",
     "routers.query",
 ]
 
@@ -93,6 +95,7 @@ BUILDER_PUBLIC = [
     "clear_semantic_triggered_by",
     "clear_semantic_discussed_in",
     "propagate_thread_discussed_in",
+    "verify_actor_name_consistency",
     "make_neo4j_reference_store",
     "make_neo4j_issue_link_store",
     "make_neo4j_actor_store",

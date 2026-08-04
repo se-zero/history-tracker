@@ -78,6 +78,7 @@ cd services/backend
 - `InternalServiceAuthenticationFilter`는 `security.internal-service.token`과 요청 헤더를 timing-safe 방식으로 비교한다.
 - `POST /api/v1/internal/github/installations/{installationId}/token`은 GitHub installation access token이 없거나 만료 임박한 경우 갱신해 DB 캐시를 보장하고 `204`를 반환한다. 토큰 평문은 응답하지 않는다.
 - `POST /api/v1/internal/integrations/{projectId}/jira/token`은 Jira access token이 없거나 만료 임박한 경우 refresh token으로 갱신해 저장하고 `204`를 반환한다. refresh token이 폐기돼 갱신이 영구 실패하면 연동을 pending 상태로 되돌린다. 토큰 평문은 응답하지 않는다.
+- `POST /api/v1/internal/atlassian/consent`는 봇 계정 동의 code를 앱 수준 자격증명으로 교환·저장한다(최초 1회). 토큰 평문은 응답하지 않는다.
 - backend와 pipeline-worker에는 동일한 `INTERNAL_SERVICE_TOKEN`을 배포해야 한다.
 - GitHub App private key는 backend에만 두고 pipeline-worker와 공유하지 않는다.
 

@@ -71,3 +71,8 @@ atlassian:
   accessible-resources-url: https://atlassian.test/oauth/token/accessible-resources
   api-gateway-url: https://atlassian.test/ex/jira
   refresh-skew: PT5M
+  personal-data-report:
+    enabled: false
+    cron: "0 30 3 * * *"
+    cycle-period: P7D
+    report-url: https://atlassian.test/app/report-accounts

@@ -35,6 +35,7 @@ from graph.maintenance import (
     delete_project_graph,
     delete_project_source_graph,
     propagate_thread_discussed_in,
+    verify_actor_name_consistency,
 )
 from graph.reference_store import make_neo4j_reference_store
 from graph.schema import drop_node_search_index, ensure_constraints, ensure_vector_indexes
@@ -89,6 +90,7 @@ __all__ = [
     "clear_reference",
     "delete_project_graph",
     "delete_project_source_graph",
+    "verify_actor_name_consistency",
     # store factories
     "make_neo4j_reference_store",
     "make_neo4j_issue_link_store",

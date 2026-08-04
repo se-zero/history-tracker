@@ -127,6 +127,10 @@ services:
       ATLASSIAN_REDIRECT_URI: ${ATLASSIAN_REDIRECT_URI:-}
       # 빈 문자열이 넘어가면 Duration 파싱이 깨지므로 Spring 기본값(PT5M)과 같은 compose 기본값을 둔다.
       ATLASSIAN_REFRESH_SKEW: ${ATLASSIAN_REFRESH_SKEW:-PT5M}
+      # Jira 개인정보 보고 배치 — 봇 계정 동의 완료 후 켠다 (기본 false)
+      ATLASSIAN_PDR_ENABLED: ${ATLASSIAN_PDR_ENABLED:-false}
+      ATLASSIAN_PDR_CRON: ${ATLASSIAN_PDR_CRON:-0 30 3 * * *}
+      ATLASSIAN_PDR_CYCLE_PERIOD: ${ATLASSIAN_PDR_CYCLE_PERIOD:-P7D}
     depends_on:
       postgres:
         condition: service_healthy

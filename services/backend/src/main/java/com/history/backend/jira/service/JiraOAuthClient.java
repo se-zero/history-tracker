@@ -12,6 +12,8 @@ import com.history.backend.jira.dto.JiraTokenResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -55,10 +57,10 @@ public class JiraOAuthClient {
                     .retrieve()
                     .body(JiraTokenResponse.class);
         } catch (RestClientResponseException exception) {
-            if (exception.getStatusCode().is5xxServerError()) {
-                throw new BadGatewayException("Jira OAuth code exchange request failed.", exception);
+            if (isDefiniteAuthFailure(exception)) {
+                throw new UnauthorizedException("Invalid Jira authorization code.");
             }
-            throw new UnauthorizedException("Invalid Jira authorization code.");
+            throw new BadGatewayException("Jira OAuth code exchange request failed.", exception);
         } catch (RestClientException exception) {
             throw new BadGatewayException("Jira OAuth code exchange request failed.", exception);
         }
@@ -86,12 +88,14 @@ public class JiraOAuthClient {
                     .retrieve()
                     .body(JiraTokenResponse.class);
         } catch (RestClientResponseException exception) {
-            if (exception.getStatusCode().is5xxServerError()) {
-                throw new BadGatewayException("Jira OAuth token refresh request failed.", exception);
+            if (isDefiniteAuthFailure(exception)) {
+                // refresh token이 폐기됨(재동의 취소·90일 미사용) — 호출부(JiraTokenService)가 이 예외를 보고
+                // pending 되돌리기를 판단한다. 폐기 판정은 400/401/403으로만 좁힌다: 429는 rate limit이지
+                // 폐기가 아니고, 5xx는 Atlassian 측 일시 장애다. 여기서 오판하면 아직 유효한 연동이
+                // pending으로 강등되고, 개인정보 보고 배치가 재조회 실패를 폐기로 오해하게 된다.
+                throw new UnauthorizedException("Jira refresh token is invalid or revoked.");
             }
-            // refresh token이 폐기됨(재동의 취소·90일 미사용) — 호출부(JiraTokenService)가 이 예외를 보고
-            // pending 되돌리기를 판단한다. 5xx는 Atlassian 측 일시 장애일 뿐 폐기가 아니므로 위에서 분기한다.
-            throw new UnauthorizedException("Jira refresh token is invalid or revoked.");
+            throw new BadGatewayException("Jira OAuth token refresh request failed.", exception);
         } catch (RestClientException exception) {
             throw new BadGatewayException("Jira OAuth token refresh request failed.", exception);
         }
@@ -144,6 +148,15 @@ public class JiraOAuthClient {
         return new JiraTokens(response.accessToken(), response.refreshToken(), response.expiresIn());
     }
 
+    // 400·401·403만 확정된 인증 실패(폐기)로 판정한다. 429(rate limit)·404 등 나머지 4xx와
+    // 5xx는 Atlassian 측 일시 장애로 간주해 BadGateway로 넘긴다.
+    private static boolean isDefiniteAuthFailure(RestClientResponseException exception) {
+        HttpStatusCode status = exception.getStatusCode();
+        return status.equals(HttpStatus.BAD_REQUEST)
+                || status.equals(HttpStatus.UNAUTHORIZED)
+                || status.equals(HttpStatus.FORBIDDEN);
+    }
+
     // 발급된 토큰으로 접근 가능한 Atlassian 사이트(cloudId 단위) 목록 조회
     public List<JiraSite> listAccessibleResources(String accessToken) {
         JiraAccessibleResource[] resources;
@@ -156,10 +169,10 @@ public class JiraOAuthClient {
                     .retrieve()
                     .body(JiraAccessibleResource[].class);
         } catch (RestClientResponseException exception) {
-            if (exception.getStatusCode().is5xxServerError()) {
-                throw new BadGatewayException("Jira accessible resources request failed.", exception);
+            if (isDefiniteAuthFailure(exception)) {
+                throw new UnauthorizedException("Invalid Jira access token.");
             }
-            throw new UnauthorizedException("Invalid Jira access token.");
+            throw new BadGatewayException("Jira accessible resources request failed.", exception);
         } catch (RestClientException exception) {
             throw new BadGatewayException("Jira accessible resources request failed.", exception);
         }

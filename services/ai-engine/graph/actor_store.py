@@ -2,8 +2,7 @@
 
 graph.actor_resolver.ActorStore에 주입할 프로젝트 스코프 조회/병합/생성 콜백을 제공한다.
 개인정보(이름·이메일)는 Actor가 아니라 ActorAlias(소스 계정 단위)에 저장한다 — Atlassian
-개인정보 보고·삭제가 "어느 소스에서 받았는지" 단위로 동작해야 하기 때문이다
-(docs/actor-identity-model.md).
+개인정보 보고·삭제가 "어느 소스에서 받았는지" 단위로 동작해야 하기 때문이다.
 """
 
 import uuid
@@ -84,16 +83,19 @@ def derive_display_name(
     return _DELETED_USER_LABEL
 
 
-async def recompute_display_name(tx, actor_uuid: str) -> None:
-    """Actor의 표시 이름을 alias 기준으로 재계산해 SET한다.
+async def _compute_display_name(tx, actor_uuid: str) -> Optional[tuple[str, str]]:
+    """Actor의 현재 name과 alias 기준 기대값을 읽기 전용으로 계산한다.
 
-    tx(트랜잭션 또는 세션)를 받아 동작한다 — actor_admin의 수동 병합·취소·분리·개인정보
-    삭제가 각자의 단일 트랜잭션 안에서 이 함수를 그대로 재사용할 수 있어야
-    "alias는 비웠는데 표시 이름은 안 바뀌는" 정합성 결함을 구조로 막을 수 있다.
+    recompute_display_name과 graph.maintenance.verify_actor_name_consistency가 공유하는
+    계산 로직 — 검증이 실제 재계산과 다른 쿼리를 쓰면 alias는 멀쩡한데 검증만 오탐하는
+    상황이 생기므로 여기 하나로만 둔다.
 
     소스별 활동량은 outgoing(AUTHORED/CREATED/WROTE)과 incoming(ASSIGNED_TO)을 별도 쿼리로
     구해 파이썬에서 합산한다 — 한 쿼리에서 두 OPTIONAL MATCH의 집계를 그대로 더하면 집계와
     비집계 변수가 섞여 Neo4j 5.x가 42I18로 거부한다.
+
+    Returns:
+        (현재 a.name, alias 기준 기대값) 튜플. Actor가 없으면 None.
     """
     result = await tx.run(
         """
@@ -108,7 +110,7 @@ async def recompute_display_name(tx, actor_uuid: str) -> None:
     )
     record = await result.single()
     if record is None:
-        return
+        return None
     aliases = [a for a in (record["aliases"] or []) if a is not None]
 
     activity_by_source: dict[str, int] = {}
@@ -131,9 +133,23 @@ async def recompute_display_name(tx, actor_uuid: str) -> None:
     for row in await incoming.data():
         activity_by_source[row["source"]] = activity_by_source.get(row["source"], 0) + row["cnt"]
 
-    display_name = derive_display_name(
+    expected = derive_display_name(
         aliases, bool(record["manual_name"]), record["name"], activity_by_source
     )
+    return record["name"], expected
+
+
+async def recompute_display_name(tx, actor_uuid: str) -> None:
+    """Actor의 표시 이름을 alias 기준으로 재계산해 SET한다.
+
+    tx(트랜잭션 또는 세션)를 받아 동작한다 — actor_admin의 수동 병합·취소·분리·개인정보
+    삭제가 각자의 단일 트랜잭션 안에서 이 함수를 그대로 재사용할 수 있어야
+    "alias는 비웠는데 표시 이름은 안 바뀌는" 정합성 결함을 구조로 막을 수 있다.
+    """
+    computed = await _compute_display_name(tx, actor_uuid)
+    if computed is None:
+        return
+    _current_name, display_name = computed
     await tx.run(
         "MATCH (a:Actor {uuid: $actor_uuid}) SET a.name = $name",
         actor_uuid=actor_uuid,

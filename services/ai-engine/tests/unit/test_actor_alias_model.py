@@ -1,6 +1,6 @@
 """Actor 신원 모델 개편(개인정보를 ActorAlias로 이전) 단위 테스트 (오프라인 — Neo4j 없이 mock).
 
-세 가지를 고정한다 (docs/actor-identity-model.md):
+세 가지를 고정한다:
 - derive_display_name의 표시 이름 폴백 체인
 - resolve_actor Step 0의 이름 갱신 — "closed" alias는 절대 갱신하지 않는다(삭제 정합성의
   유일한 방어선), "access_lost"는 갱신한다(재연동 복구 경로)

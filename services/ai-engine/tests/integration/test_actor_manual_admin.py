@@ -48,7 +48,7 @@ class CaseResult:
 async def _seed_actor(project_id: str, actor_uuid: str, name: str, aliases: list[str]) -> None:
     """Actor + 각 alias의 ActorAlias(pd_name=name)를 심는다.
 
-    개인정보는 ActorAlias에 있으므로(docs/actor-identity-model.md), 표시 이름 재계산이
+    개인정보는 ActorAlias에 있으므로, 표시 이름 재계산이
     실제로 이 pd_name을 읽어 동작하는지까지 검증할 수 있게 alias 노드도 함께 만든다.
     """
     async with get_driver().session() as session:
