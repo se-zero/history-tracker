@@ -8,13 +8,15 @@ Neo4j 없이 오프라인으로 검증한다:
 - `unmerge_actors`의 재배치 가드 — 병합 후 그 alias가 분리로 다른 Actor에 옮겨진 경우
   canonical에 더 이상 안 붙어 있는(movable 없음) alias는 복원을 거부하고, 일부만
   재배치됐으면(movable 일부) 그 alias만으로 복원하는지 FakeTx로 확인한다.
+- `merge_actors`가 병합 대상 두 액터 사이의 기존 distinct 결정을 자동 삭제하는지 —
+  재연동 시 veto가 canonical(자기 자신)을 막아 다시 쪼개지는 걸 막는 방침(docs/actor-manual-merge.md).
 """
 
 import asyncio
 import unittest
 from unittest.mock import patch
 
-from graph.actor_admin import _pick_canonical, split_alias, unmerge_actors
+from graph.actor_admin import _pick_canonical, merge_actors, split_alias, unmerge_actors
 
 
 class PickCanonical(unittest.TestCase):
@@ -49,6 +51,10 @@ class _RecordingTx:
     전체를 재현하지 않고, 코드가 실제로 결과값을 읽는 쿼리(액터 조회·최종 이름 조회)만
     canned 값을 주고 나머지는 빈 결과(단일 조회 None)로 둔다 — 어차피 결과를 안 쓰는 쓰기
     쿼리들이라 무해하다.
+
+    응답값은 고정 dict 또는 callable(params) -> dict|None 둘 다 지원한다 — merge_actors는
+    같은 쿼리 텍스트(액터 조회, activity count)를 uuid_a/uuid_b 각각에 대해 두 번 실행하므로
+    마커 문자열만으로는 구분할 수 없고, params를 보고 갈라줘야 한다.
     """
 
     def __init__(self, responses: dict):
@@ -59,7 +65,7 @@ class _RecordingTx:
         self.calls.append((query, params))
         for marker, record in self._responses.items():
             if marker in query:
-                return _FakeResult(record)
+                return _FakeResult(record(params) if callable(record) else record)
         return _FakeResult(None)
 
 
@@ -177,6 +183,59 @@ class UnmergeMovableGuard(unittest.TestCase):
             distinct_calls[0]["aliases_b"], ["GITHUB:a"],
             "자동 생성 distinct 결정의 aliases_b도 movable 기준이어야 함",
         )
+
+
+# ── merge_actors — 반대 방향 distinct 결정 자동 삭제 ────────────────────────
+#
+# 실사용 버그: 수동 병합 후에도 두 액터 사이의 기존 distinct(다른 사람) 결정이 남아 있으면,
+# 재연동 시 resolver veto 조회가 그 결정을 보고 canonical(자기 자신)을 차단해 방금 합친
+# 사람이 다시 쪼개진다. 수동 병합은 이전 분리 결정을 명시적으로 뒤집는 행위이므로,
+# 병합 트랜잭션 안에서 반대 방향 distinct를 자동 삭제한다(unmerge_actors가 same 결정을
+# 지우는 선례와 대칭).
+
+
+class MergeActorsRemovesOpposingDistinctDecision(unittest.TestCase):
+    def test_merge_deletes_distinct_between_the_two_actors_and_still_creates_same(self):
+        def _actor_record(params):
+            uuid = params.get("uuid")
+            if uuid == "actor-a":
+                return {"uuid": "actor-a", "name": "A", "aliases": ["GITHUB:a1"]}
+            if uuid == "actor-b":
+                return {"uuid": "actor-b", "name": "B", "aliases": ["GITHUB:b1"]}
+            return None
+
+        def _activity_record(params):
+            # actor-a가 활동이 더 많아 canonical로 뽑혀야 한다(회귀 방지).
+            count = 5 if params.get("actor_uuid") == "actor-a" else 2
+            return {"activity_count": count}
+
+        tx = _RecordingTx(
+            {
+                "RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases": _actor_record,
+                "RETURN authored + assigned AS activity_count": _activity_record,
+                "RETURN count(*) AS n": {"n": 0},
+            }
+        )
+        driver = _FakeDriver(tx)
+
+        with patch("graph.actor_admin.get_driver", return_value=driver):
+            summary = asyncio.run(merge_actors("p1", "actor-a", "actor-b"))
+
+        # 회귀 방지: 병합 방향 결정과 same 결정 생성은 여전히 일어나야 한다.
+        self.assertEqual(summary["canonical_uuid"], "actor-a")
+        self.assertEqual(summary["merged_uuid"], "actor-b")
+
+        same_calls = [p for q, p in tx.calls if "kind: 'same'" in q]
+        self.assertEqual(len(same_calls), 1, "same 결정 생성이 여전히 일어나야 한다")
+        self.assertEqual(same_calls[0]["canonical_uuid"], "actor-a")
+        self.assertEqual(same_calls[0]["merged_uuid"], "actor-b")
+
+        distinct_delete_calls = [(q, p) for q, p in tx.calls if "kind: 'distinct'" in q]
+        self.assertEqual(len(distinct_delete_calls), 1, "반대 방향 distinct 삭제 쿼리가 실행돼야 한다")
+        delete_query, delete_params = distinct_delete_calls[0]
+        self.assertIn("DELETE", delete_query)
+        self.assertEqual(delete_params["aliases_a"], ["GITHUB:a1"], "canonical의 병합 전 aliases여야 함")
+        self.assertEqual(delete_params["aliases_b"], ["GITHUB:b1"], "merged의 병합 전 aliases여야 함")
 
 
 if __name__ == "__main__":
