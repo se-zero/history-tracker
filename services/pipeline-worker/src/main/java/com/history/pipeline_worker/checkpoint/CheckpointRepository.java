@@ -35,6 +35,24 @@ public class CheckpointRepository {
         );
     }
 
+    public List<CheckpointRow> findAllByProjectIdAndProvider(UUID projectId, String provider) {
+        String sql = """
+                SELECT project_id, provider, cursor_key, cursor_value, updated_at
+                FROM checkpoints
+                WHERE project_id = :projectId
+                  AND provider = :provider
+                ORDER BY cursor_key
+                """;
+
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("projectId", projectId)
+                        .addValue("provider", provider),
+                checkpointRowMapper()
+        );
+    }
+
     public int upsertCursor(UUID projectId, String provider, String cursorKey, Instant cursorValue) {
         String sql = """
                 INSERT INTO checkpoints (project_id, provider, cursor_key, cursor_value, updated_at)

@@ -1,284 +1,100 @@
 package com.history.pipeline_worker.pipeline;
 
-import com.history.pipeline_worker.checkpoint.CheckpointService;
-import com.history.pipeline_worker.checkpoint.ProjectCheckpointData;
-import com.history.pipeline_worker.collection.GitHubIntegration;
-import com.history.pipeline_worker.collection.JiraIntegration;
+import com.history.pipeline_worker.collection.CollectionProvider;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
-import com.history.pipeline_worker.collection.SlackIntegration;
-import com.history.pipeline_worker.dto.NormalizedEvent;
+import com.history.pipeline_worker.collection.SourceCollector;
+import com.history.pipeline_worker.collection.SourceCollectorRegistry;
 import com.history.pipeline_worker.dto.RawFetchRequest;
-import com.history.pipeline_worker.messaging.EventPublisher;
-import com.history.pipeline_worker.source.github.GitHubNormalizer;
-import com.history.pipeline_worker.source.github.GitHubRawService;
-import com.history.pipeline_worker.source.jira.JiraNormalizer;
-import com.history.pipeline_worker.source.jira.JiraRawService;
-import com.history.pipeline_worker.normalizer.RefsExtractor;
-import com.history.pipeline_worker.source.slack.SlackNormalizer;
-import com.history.pipeline_worker.source.slack.SlackRawService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.InOrder;
 
-import java.time.Instant;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
 class PipelineServiceTest {
 
     private static final String PROJECT_ID = "11111111-1111-1111-1111-111111111111";
 
-    @Mock
-    private GitHubRawService gitHubRawService;
-    @Mock
-    private JiraRawService jiraRawService;
-    @Mock
-    private SlackRawService slackRawService;
-    @Mock
-    private EventPublisher eventPublisher;
-    @Mock
-    private CheckpointService checkpointService;
+    private final SourceCollector github = collector(CollectionProvider.GITHUB);
+    private final SourceCollector jira = collector(CollectionProvider.JIRA);
+    private final SourceCollector slack = collector(CollectionProvider.SLACK);
+    private final PipelineService pipelineService =
+            new PipelineService(new SourceCollectorRegistry(List.of(github, jira, slack)));
 
-    private PipelineService pipelineService;
+    @Test
+    @DisplayName("컨텍스트에 담긴 provider만 수집하고 발행 건수를 provider별로 돌려준다")
+    void collectIncremental_collectsEveryProviderInContext() {
+        RawFetchRequest githubRequest = new RawFetchRequest("Bearer gh", "owner/repo", Map.of());
+        RawFetchRequest slackRequest = new RawFetchRequest("Bearer slack", null, Map.of());
+        when(github.collect(PROJECT_ID, githubRequest)).thenReturn(4);
+        when(slack.collect(PROJECT_ID, slackRequest)).thenReturn(2);
 
-    @BeforeEach
-    void setUp() {
-        RefsExtractor refsExtractor = new RefsExtractor();
-        pipelineService = new PipelineService(
-                gitHubRawService,
-                jiraRawService,
-                slackRawService,
-                new GitHubNormalizer(refsExtractor),
-                new JiraNormalizer(refsExtractor),
-                new SlackNormalizer(refsExtractor),
-                eventPublisher,
-                checkpointService
-        );
+        CollectionResult result = pipelineService.collectIncremental(new ProjectCollectionContext(
+                PROJECT_ID,
+                Map.of(CollectionProvider.GITHUB, githubRequest, CollectionProvider.SLACK, slackRequest)
+        ));
+
+        assertThat(result.of(CollectionProvider.GITHUB)).isEqualTo(4);
+        assertThat(result.of(CollectionProvider.SLACK)).isEqualTo(2);
+        assertThat(result.of(CollectionProvider.JIRA)).isZero();
+        assertThat(result.total()).isEqualTo(6);
+        verify(jira, never()).collect(anyString(), any());
     }
 
     @Test
-    @DisplayName("project context 기반 증분 수집은 GitHub/Jira/Slack integration을 기존 요청으로 변환한다")
-    void collectIncremental_projectContext_delegatesToExistingPipelines() {
-        ProjectCollectionContext context = new ProjectCollectionContext(
-                PROJECT_ID,
-                new GitHubIntegration("Bearer gh", "owner/repo", "main"),
-                Optional.of(new JiraIntegration("jira:token", "PROJ", "https://jira.example.com")),
-                Optional.of(new SlackIntegration("Bearer slack"))
-        );
-        RawFetchRequest githubRequest = new RawFetchRequest("Bearer gh", "owner/repo", Map.of("branch", "main"));
-        RawFetchRequest jiraRequest = new RawFetchRequest("jira:token", "PROJ", Map.of("baseUrl", "https://jira.example.com"));
+    @DisplayName("수집 순서는 컨텍스트 구성 순서와 무관하게 provider 선언 순서를 따른다")
+    void collectIncremental_runsProvidersInDeclarationOrder() {
+        RawFetchRequest githubRequest = new RawFetchRequest("Bearer gh", "owner/repo", Map.of());
+        RawFetchRequest jiraRequest = new RawFetchRequest("Bearer jira", "PLAT", Map.of());
         RawFetchRequest slackRequest = new RawFetchRequest("Bearer slack", null, Map.of());
 
-        GitHubRawService.GitHubFetchContext githubContext = githubContext();
-        ProjectCheckpointData checkpoints = new ProjectCheckpointData();
-        when(checkpointService.loadProjectCheckpoints(PROJECT_ID)).thenReturn(checkpoints);
-        when(gitHubRawService.prepareFetchContext(githubRequest, checkpoints.github)).thenReturn(githubContext);
-        when(gitHubRawService.fetchMergedPullRequestPage(githubContext, 1))
-                .thenReturn(new GitHubRawService.GitHubPage(List.of(), true));
-        when(gitHubRawService.fetchCommitPrNumbers(githubContext, List.of())).thenReturn(Map.of());
-        when(gitHubRawService.fetchCommitPage(githubContext, 1, Map.of()))
-                .thenReturn(new GitHubRawService.GitHubPage(List.of(), true));
-        when(gitHubRawService.fetchIssuePage(githubContext, 1))
-                .thenReturn(new GitHubRawService.GitHubPage(List.of(), true));
+        // 일부러 역순으로 넣어도 GitHub → Jira → Slack 순으로 돌아야 한다
+        Map<CollectionProvider, RawFetchRequest> reversed = new LinkedHashMap<>();
+        reversed.put(CollectionProvider.SLACK, slackRequest);
+        reversed.put(CollectionProvider.JIRA, jiraRequest);
+        reversed.put(CollectionProvider.GITHUB, githubRequest);
 
-        JiraRawService.JiraFetchContext jiraContext = new JiraRawService.JiraFetchContext(
-                org.springframework.web.reactive.function.client.WebClient.builder().build(),
-                "Bearer token",
-                "PROJ",
-                null
-        );
-        when(jiraRawService.prepareFetchContext(jiraRequest, checkpoints.jira.lastScannedAt)).thenReturn(jiraContext);
-        when(jiraRawService.fetchSearchPage(jiraContext, null, 1))
-                .thenReturn(new JiraRawService.JiraSearchPage(Map.of("issues", List.of()), null, false));
+        pipelineService.collectIncremental(new ProjectCollectionContext(PROJECT_ID, reversed));
 
-        SlackRawService.SlackFetchContext slackContext = slackContext();
-        when(slackRawService.prepareFetchContext(slackRequest, checkpoints.slack.lastScannedAt)).thenReturn(slackContext);
-        when(slackRawService.fetchChannels(slackContext)).thenReturn(List.of());
-
-        CollectionResult result = pipelineService.collectIncremental(context);
-
-        assertThat(result.github()).isZero();
-        assertThat(result.jira()).isZero();
-        assertThat(result.slack()).isZero();
-        verify(gitHubRawService).prepareFetchContext(githubRequest, checkpoints.github);
-        verify(jiraRawService).prepareFetchContext(jiraRequest, checkpoints.jira.lastScannedAt);
-        verify(slackRawService).prepareFetchContext(slackRequest, checkpoints.slack.lastScannedAt);
+        InOrder inOrder = inOrder(github, jira, slack);
+        inOrder.verify(github).collect(PROJECT_ID, githubRequest);
+        inOrder.verify(jira).collect(PROJECT_ID, jiraRequest);
+        inOrder.verify(slack).collect(PROJECT_ID, slackRequest);
     }
 
     @Test
-    @DisplayName("GitHub 체크포인트는 source+nodeType별 최대 occurredAt으로 갱신")
-    void normalizeGitHub_updatesCheckpointsByGithubNodeTypeMaxOccurredAt() {
-        RawFetchRequest request = new RawFetchRequest("Bearer token", "owner/repo", Map.of());
-        GitHubRawService.GitHubFetchContext context = githubContext();
-        ProjectCheckpointData checkpoints = new ProjectCheckpointData();
-        when(checkpointService.loadProjectCheckpoints(PROJECT_ID)).thenReturn(checkpoints);
-        when(gitHubRawService.prepareFetchContext(request, checkpoints.github)).thenReturn(context);
-        when(gitHubRawService.fetchMergedPullRequestPage(context, 1))
-                .thenReturn(new GitHubRawService.GitHubPage(List.of(buildPullRequest(10, "2024-02-02T00:00:00Z")), true));
-        when(gitHubRawService.fetchCommitPrNumbers(context, List.of(buildPullRequest(10, "2024-02-02T00:00:00Z"))))
-                .thenReturn(Map.of());
-        when(gitHubRawService.fetchCommitPage(context, 1, Map.of()))
-                .thenReturn(new GitHubRawService.GitHubPage(List.of(
-                        buildCommit("sha-1", "first", "2024-01-01T00:00:00Z"),
-                        buildCommit("sha-2", "second", "2024-01-03T00:00:00Z")
-                ), true));
-        when(gitHubRawService.fetchIssuePage(context, 1))
-                .thenReturn(new GitHubRawService.GitHubPage(List.of(buildIssue(1, "2024-03-03T00:00:00Z")), true));
-        when(eventPublisher.publishAll(anyList())).thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
+    @DisplayName("한 provider가 실패하면 이후 provider는 돌지 않는다")
+    void collectIncremental_propagatesFailureAndStops() {
+        RawFetchRequest githubRequest = new RawFetchRequest("Bearer gh", "owner/repo", Map.of());
+        RawFetchRequest slackRequest = new RawFetchRequest("Bearer slack", null, Map.of());
+        when(github.collect(PROJECT_ID, githubRequest)).thenThrow(new IllegalStateException("publish failed"));
 
-        int queued = pipelineService.normalizeGitHub(PROJECT_ID, request);
-
-        assertThat(queued).isEqualTo(4);
-        verify(checkpointService).updateGitHubCommits(PROJECT_ID, Instant.parse("2024-01-03T00:00:00Z"));
-        verify(checkpointService).updateGitHubPullRequests(PROJECT_ID, Instant.parse("2024-02-02T00:00:00Z"));
-        verify(checkpointService).updateGitHubIssues(PROJECT_ID, Instant.parse("2024-03-03T00:00:00Z"));
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<NormalizedEvent>> eventsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(eventPublisher, times(3)).publishAll(eventsCaptor.capture());
-        assertThat(eventsCaptor.getAllValues()).extracting(events -> events.get(0).nodeType())
-                .containsExactly("PullRequest", "ChangeSet", "Communication");
-    }
-
-    @Test
-    @DisplayName("GitHub 발행 실패 시 체크포인트 미갱신")
-    void normalizeGitHub_publishFailure_doesNotUpdateCheckpoint() {
-        RawFetchRequest request = new RawFetchRequest("Bearer token", "owner/repo", Map.of());
-        GitHubRawService.GitHubFetchContext context = githubContext();
-        ProjectCheckpointData checkpoints = new ProjectCheckpointData();
-        when(checkpointService.loadProjectCheckpoints(PROJECT_ID)).thenReturn(checkpoints);
-        when(gitHubRawService.prepareFetchContext(request, checkpoints.github)).thenReturn(context);
-        when(gitHubRawService.fetchMergedPullRequestPage(context, 1))
-                .thenReturn(new GitHubRawService.GitHubPage(List.of(buildPullRequest(10, "2024-02-02T00:00:00Z")), true));
-        when(eventPublisher.publishAll(anyList())).thenThrow(new IllegalStateException("publish failed"));
-
-        assertThatThrownBy(() -> pipelineService.normalizeGitHub(PROJECT_ID, request))
+        assertThatThrownBy(() -> pipelineService.collectIncremental(new ProjectCollectionContext(
+                PROJECT_ID,
+                Map.of(CollectionProvider.GITHUB, githubRequest, CollectionProvider.SLACK, slackRequest)
+        )))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("publish failed");
-        verify(checkpointService, never()).updateGitHubCommits(anyString(), any());
-        verify(checkpointService, never()).updateGitHubPullRequests(anyString(), any());
-        verify(checkpointService, never()).updateGitHubIssues(anyString(), any());
+        verify(slack, never()).collect(anyString(), any());
     }
 
     @Test
-    @DisplayName("Slack 이벤트는 채널별로 발행하고 전체 최대 occurredAt으로 체크포인트 갱신")
-    void normalizeSlack_publishesPerChannelAndUpdatesCheckpointWithMaxOccurredAt() {
-        RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
-        ProjectCheckpointData checkpoints = new ProjectCheckpointData();
-        Map<String, Object> firstChannel = buildSlackChannel(
-                "general",
-                "C001",
-                List.of(buildSlackMessage("U001", "first", "1714000000.000000"))
-        );
-        Map<String, Object> secondChannel = buildSlackChannel(
-                "dev",
-                "C002",
-                List.of(buildSlackMessage("U002", "second", "1714000100.000000"))
-        );
-        SlackRawService.SlackFetchContext context = slackContext();
-        when(checkpointService.loadProjectCheckpoints(PROJECT_ID)).thenReturn(checkpoints);
-        when(slackRawService.prepareFetchContext(request, checkpoints.slack.lastScannedAt)).thenReturn(context);
-        when(slackRawService.fetchChannels(context)).thenReturn(List.of(
-                Map.of("id", "C001", "name", "general"),
-                Map.of("id", "C002", "name", "dev")
-        ));
-        when(slackRawService.fetchHistoryPage(context, Map.of("id", "C001", "name", "general"), null))
-                .thenReturn(new SlackRawService.SlackHistoryPage(firstChannel, null));
-        when(slackRawService.fetchHistoryPage(context, Map.of("id", "C002", "name", "dev"), null))
-                .thenReturn(new SlackRawService.SlackHistoryPage(secondChannel, null));
-        when(eventPublisher.publishAll(anyList())).thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
+    void collect_dispatchesToRegisteredCollector() {
+        RawFetchRequest request = new RawFetchRequest("Bearer jira", "PLAT", Map.of());
+        when(jira.collect(PROJECT_ID, request)).thenReturn(7);
 
-        int queued = pipelineService.normalizeSlack(PROJECT_ID, request);
-
-        assertThat(queued).isEqualTo(2);
-        verify(eventPublisher, times(2)).publishAll(anyList());
-        verify(checkpointService).updateSlack(PROJECT_ID, Instant.ofEpochSecond(1714000100L));
+        assertThat(pipelineService.collect(PROJECT_ID, CollectionProvider.JIRA, request)).isEqualTo(7);
     }
 
-    private SlackRawService.SlackFetchContext slackContext() {
-        return new SlackRawService.SlackFetchContext(
-                "Bearer token",
-                null,
-                Map.of()
-        );
-    }
-
-    private GitHubRawService.GitHubFetchContext githubContext() {
-        return new GitHubRawService.GitHubFetchContext(
-                "Bearer token",
-                "owner",
-                "repo",
-                null,
-                new ProjectCheckpointData.GitHubCheckpoint()
-        );
-    }
-
-    private Map<String, Object> buildCommit(String sha, String message, String committedAt) {
-        Map<String, Object> commitDetail = new HashMap<>();
-        commitDetail.put("message", message);
-        commitDetail.put("author", Map.of("name", "Dev", "email", "dev@example.com", "date", "2024-01-01T00:00:00Z"));
-        commitDetail.put("committer", Map.of("date", committedAt));
-
-        Map<String, Object> commit = new HashMap<>();
-        commit.put("sha", sha);
-        commit.put("commit", commitDetail);
-        commit.put("author", Map.of("login", "dev"));
-        commit.put("parents", List.of(Map.of("sha", "parent")));
-        return commit;
-    }
-
-    private Map<String, Object> buildPullRequest(int number, String mergedAt) {
-        Map<String, Object> pr = new HashMap<>();
-        pr.put("number", number);
-        pr.put("title", "merged PR");
-        pr.put("state", "closed");
-        pr.put("body", null);
-        pr.put("created_at", "2024-02-01T00:00:00Z");
-        pr.put("merged_at", mergedAt);
-        pr.put("user", Map.of("login", "dev"));
-        pr.put("base", Map.of("ref", "main"));
-        pr.put("html_url", "https://github.com/owner/repo/pull/" + number);
-        return pr;
-    }
-
-    private Map<String, Object> buildIssue(int number, String updatedAt) {
-        Map<String, Object> issue = new HashMap<>();
-        issue.put("number", number);
-        issue.put("title", "issue");
-        issue.put("body", "body");
-        issue.put("created_at", "2024-03-01T00:00:00Z");
-        issue.put("updated_at", updatedAt);
-        issue.put("user", Map.of("login", "dev"));
-        issue.put("html_url", "https://github.com/owner/repo/issues/" + number);
-        return issue;
-    }
-
-    private Map<String, Object> buildSlackChannel(String name, String id, List<Map<String, Object>> messages) {
-        Map<String, Object> channel = new HashMap<>();
-        channel.put("channelName", name);
-        channel.put("channelId", id);
-        channel.put("messages", messages);
-        channel.put("threads", List.of());
-        return channel;
-    }
-
-    private Map<String, Object> buildSlackMessage(String userId, String text, String ts) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("user", userId);
-        message.put("text", text);
-        message.put("ts", ts);
-        return message;
+    private static SourceCollector collector(CollectionProvider provider) {
+        SourceCollector collector = mock(SourceCollector.class);
+        when(collector.provider()).thenReturn(provider);
+        return collector;
     }
 }
