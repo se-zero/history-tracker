@@ -8,9 +8,11 @@ live Neo4j(integration) 영역.
 """
 
 from graph.overview import (
+    _actor_source_summary,
     _group_evidence_keys,
     _normalize_evidence,
     _resolve_seed_ids,
+    _source_label,
     _to_graph_node,
 )
 
@@ -175,3 +177,26 @@ def test_to_graph_node_ref_none_when_key_missing():
     assert pr["ref"] is None
     slack = _to_graph_node({"id": "n9", "label": "Communication", "source": "SLACK"})
     assert slack["ref"] is None
+
+
+def test_source_label_derives_new_sources_without_registration():
+    # 커넥터를 추가할 때 라벨 맵을 고치지 않아도 표기가 자연스러워야 한다.
+    assert _source_label("LINEAR") == "Linear"
+    assert _source_label("NOTION") == "Notion"
+    # 대문자 snake 두 단어 → 단어별 대문자 (docs/normalized-event.md 「source · 표기 규칙」)
+    assert _source_label("GOOGLE_CHAT") == "Google Chat"
+
+
+def test_source_label_keeps_irregular_capitalization():
+    # 유도로는 "Github"·"Clickup"이 되어 틀리는 이름만 맵에 등록돼 있다.
+    assert _source_label("GITHUB") == "GitHub"
+    assert _source_label("CLICKUP") == "ClickUp"
+    # 유도로 맞는 이름은 맵에 없어도 그대로 나온다(기존 동작 유지)
+    assert _source_label("JIRA") == "Jira"
+    assert _source_label("SLACK") == "Slack"
+
+
+def test_actor_source_summary_dedupes_and_keeps_order():
+    # 계정ID는 노출하지 않고 소스 라벨만, 등장 순서대로 중복 제거한다.
+    summary = _actor_source_summary(["GITHUB:se-zero", "LINEAR:u1", "GITHUB:dup", "GOOGLE_CHAT:u2"])
+    assert summary == "GitHub · Linear · Google Chat"

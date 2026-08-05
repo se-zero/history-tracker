@@ -32,7 +32,7 @@ async def judge_same_person(
         existing_actor: 기존 Actor 노드 dict (name, aliases, emails 포함)
         activities:     기존 Actor의 최근 활동 내역 (lookup_activities 결과)
         new_actor:      NormalizedEvent의 actor 필드 {"id", "name", "email"}
-        source:         신규 이벤트 출처 — "GITHUB" | "JIRA" | "SLACK"
+        source:         신규 이벤트 출처 — 대문자 소스 식별자 (예: "GITHUB", "JIRA", "LINEAR")
         event:          전체 NormalizedEvent (nodeType, properties 등)
 
     Returns:

@@ -141,7 +141,7 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
     Args:
         actor:  NormalizedEvent의 actor 필드
                 {"id": "se-zero", "name": "John Doe", "email": "john@example.com"}
-        source: 이벤트 출처 — "GITHUB" | "JIRA" | "SLACK"
+        source: 이벤트 출처 — 대문자 소스 식별자 (예: "GITHUB", "JIRA", "LINEAR")
         store:  Neo4j 조회·생성 함수 묶음
         event:  전체 NormalizedEvent (Step 3 LLM 컨텍스트용, None이면 빈 dict 처리)
 

@@ -35,6 +35,7 @@ class EventPublisherTest {
 
     // 생성자 주입 방식이므로 테스트에서 직접 값 주입
     private static final String EXCHANGE   = "history.exchange";
+    private static final String PREFIX     = "event";
     private static final String GITHUB_KEY = "event.github";
     private static final String JIRA_KEY   = "event.jira";
     private static final String SLACK_KEY  = "event.slack";
@@ -43,7 +44,7 @@ class EventPublisherTest {
 
     @BeforeEach
     void setUp() {
-        publisher = new EventPublisher(rabbitTemplate, EXCHANGE, GITHUB_KEY, JIRA_KEY, SLACK_KEY, CONFIRM_TIMEOUT_MS);
+        publisher = new EventPublisher(rabbitTemplate, EXCHANGE, PREFIX, CONFIRM_TIMEOUT_MS);
     }
 
     // convertAndSend 호출 시 CorrelationData future를 주어진 결과로 완료시키는 스텁
@@ -115,10 +116,34 @@ class EventPublisherTest {
     }
 
     @Test
-    @DisplayName("알 수 없는 source → 'event.unknown' 라우팅 키 사용")
-    void publishAll_unknownSource_usesUnknownRoutingKey() {
+    @DisplayName("신규 source는 발행기 수정 없이 'event.{소문자}'로 라우팅된다")
+    void publishAll_newSource_derivesRoutingKeyWithoutRegistration() {
+        // 커넥터 추가 시 이 클래스를 고치지 않는다는 계약 — provider 분기를 되살리면 이 테스트가 깨진다
         stubConfirm(true, false);
-        NormalizedEvent event = buildEvent("UNKNOWN_SYSTEM");
+        NormalizedEvent event = buildEvent("LINEAR");
+
+        publisher.publishAll(List.of(event));
+
+        verify(rabbitTemplate).convertAndSend(eq(EXCHANGE), eq("event.linear"), eq(event), any(CorrelationData.class));
+    }
+
+    @Test
+    @DisplayName("두 단어 source는 대문자 snake → 소문자 snake로 유도 (GOOGLE_CHAT → event.google_chat)")
+    void publishAll_snakeCaseSource_keepsUnderscore() {
+        stubConfirm(true, false);
+        NormalizedEvent event = buildEvent("GOOGLE_CHAT");
+
+        publisher.publishAll(List.of(event));
+
+        verify(rabbitTemplate)
+                .convertAndSend(eq(EXCHANGE), eq("event.google_chat"), eq(event), any(CorrelationData.class));
+    }
+
+    @Test
+    @DisplayName("source가 비면 'event.unknown'으로 발행 (라우팅 키가 'event.'로 끝나지 않게)")
+    void publishAll_blankSource_usesUnknownRoutingKey() {
+        stubConfirm(true, false);
+        NormalizedEvent event = buildEvent("  ");
 
         publisher.publishAll(List.of(event));
 
@@ -128,7 +153,6 @@ class EventPublisherTest {
     @Test
     @DisplayName("source 소문자 입력도 대소문자 무관하게 처리")
     void publishAll_lowercaseSource_caseInsensitive() {
-        // resolveRoutingKey는 source.toUpperCase() 후 switch
         stubConfirm(true, false);
         NormalizedEvent event = buildEvent("github");
 

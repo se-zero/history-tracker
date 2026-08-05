@@ -146,8 +146,18 @@ def _node_ref(node_type: str, node_id: str | None) -> dict | None:
     return {"type": node_type, "id": node_id} if node_id else None
 
 
-# alias(예: "GITHUB:se-zero")의 소스 접두사 → 표시 라벨. 미지 접두사는 원문 접두사 그대로 쓴다.
-_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "JIRA": "Jira", "SLACK": "Slack"}
+# alias(예: "GITHUB:se-zero")의 소스 접두사 → 표시 라벨.
+# 등록되지 않은 소스는 _source_label이 대문자 snake에서 유도하므로(LINEAR → "Linear",
+# GOOGLE_CHAT → "Google Chat") 커넥터를 추가할 때 이 맵을 고칠 필요는 없다.
+# **유도로 표기가 틀어지는 이름만** 여기에 넣는다 (GitHub·ClickUp처럼 중간에 대문자가 오는 경우).
+_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "CLICKUP": "ClickUp", "MONDAY": "monday.com"}
+
+
+def _source_label(prefix: str) -> str:
+    """소스 접두사를 표시 라벨로. 등록된 예외를 먼저 보고, 없으면 대문자 snake에서 유도한다."""
+    if prefix in _SOURCE_PREFIX_LABELS:
+        return _SOURCE_PREFIX_LABELS[prefix]
+    return " ".join(word.capitalize() for word in prefix.split("_") if word) or prefix
 
 
 def _actor_source_summary(aliases: list[str]) -> str:
@@ -163,7 +173,7 @@ def _actor_source_summary(aliases: list[str]) -> str:
         if not prefix or prefix in seen:
             continue
         seen.add(prefix)
-        labels.append(_SOURCE_PREFIX_LABELS.get(prefix, prefix))
+        labels.append(_source_label(prefix))
     return " · ".join(labels)
 
 
