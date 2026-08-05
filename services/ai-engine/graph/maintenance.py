@@ -253,53 +253,6 @@ async def backfill_pr_issue_keys() -> dict:
     }
 
 
-async def migrate_issue_key_rename() -> dict:
-    """저장된 그래프의 Jira 전용 키 이름을 소스 중립 이름으로 바꾼다.
-
-    integration 추상화(docs/integration-abstraction.md A6)로 Issue 노드가 Jira 외 트래커
-    (Linear·Asana·monday·ClickUp)도 담게 되면서 속성 이름에서 provider를 뗐다:
-      - Issue.jira_key   → Issue.issue_key
-      - PullRequest.jira_keys → PullRequest.issue_keys
-      - 유니크 제약 issue_project_jira_key → issue_project_issue_key (schema 부트스트랩이 생성)
-
-    컨슈머 가동 전(lifespan)에 반드시 끝나야 한다 — 미이행 상태에서 새 코드가
-    MERGE (i:Issue {issue_key: …})를 하면 jira_key만 가진 기존 노드와 중복이 생긴다.
-    그래서 실패를 삼키지 않고 그대로 올려 부트를 막는다.
-
-    Idempotent: 이미 이행된 노드는 WHERE 절에 걸리지 않아 매 기동 반복해도 안전하다.
-    모든 배포가 한 번씩 뜨고 나면(옛 속성이 관측되지 않으면) 이 함수와 호출부는 지워도 된다.
-    """
-    async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (i:Issue)
-            WHERE i.jira_key IS NOT NULL
-            SET i.issue_key = coalesce(i.issue_key, i.jira_key)
-            REMOVE i.jira_key
-            RETURN count(i) AS migrated
-            """
-        )
-        issues = (await result.single())["migrated"]
-
-        result = await session.run(
-            """
-            MATCH (pr:PullRequest)
-            WHERE pr.jira_keys IS NOT NULL
-            SET pr.issue_keys = coalesce(pr.issue_keys, pr.jira_keys)
-            REMOVE pr.jira_keys
-            RETURN count(pr) AS migrated
-            """
-        )
-        prs = (await result.single())["migrated"]
-
-        # 옛 속성을 참조하는 유니크 제약 제거 — 새 제약은 ensure_constraints가 만든다
-        await session.run("DROP CONSTRAINT issue_project_jira_key IF EXISTS")
-
-    if issues or prs:
-        logger.info("issue_key 이름 이행 완료: Issue %d개, PullRequest %d개", issues, prs)
-    return {"issues_migrated": issues, "prs_migrated": prs}
-
-
 async def backfill_actor_aliases() -> dict:
     """기존 Actor.aliases 배열에서 ActorAlias 인덱스 노드를 백필한다 (A: alias 노드 도입).
 

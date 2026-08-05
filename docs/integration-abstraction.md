@@ -159,11 +159,13 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 - 이슈·대화 아키타입은 **무변경**이 원칙 (소스 문자열이 열려 있음을 스모크 테스트로만 확인).
 - **`jira_key` 중립화 → A6에서 "개명"으로 실행 완료**: `Issue.jira_key → issue_key`,
   `PullRequest.jira_keys → issue_keys`, refs `jiraKey(s)`/`parentJiraKey` → `issueKey(s)`/`parentIssueKey`.
-  전환 장치는 두 개다 — ① 옛 키 이벤트는 `event_handler._normalize_legacy_keys`가 진입점에서
-  정규화(브로커 잔여분·DLQ replay 호환), ② 저장 데이터는 기동 시 `migrate_issue_key_rename`이
-  이행(idempotent, 컨슈머 가동 전 실행이라 MERGE 중복 위험 없음. 옛 유니크 제약도 여기서 제거).
+  전환 장치는 인플라이트 이벤트용 하나뿐이다 — 옛 키 이벤트는 `event_handler._normalize_legacy_keys`가
+  진입점에서 정규화한다(브로커 잔여분·DLQ replay 호환). 옛 키가 더는 관측되지 않으면 제거해도 된다.
+  **저장 데이터 이행 장치는 두지 않는다** — 개발 단계라 보존할 그래프가 없어, 유지하려면 필요한
+  배치 처리·옛/새 키 중복 노드 검증·테스트보다 제거가 효율적이라 판단했다. 옛 키로 저장된 노드가
+  남은 환경은 그래프를 새로 구축한다(`DELETE /graph/projects/{id}` 후 재수집).
   `tools/queries`·에이전트 프롬프트·`docs/tools.md`·`docs/graph-schema.md`·`docs/normalized-event.md`
-  동반 수정 완료. 옛 키가 더는 관측되지 않으면 두 장치 모두 제거해도 된다.
+  동반 수정 완료.
 - **Notion `Document` 노드는 별도 설계 단계**: 스키마 제약, upsert+임베딩, Layer 2(문서
   본문의 이슈 키/PR 참조), Layer 4 REFERENCE 대상 편입, tool 정의 추가, 성좌 뷰 렌더링까지
   걸리는 실제 신규 기능이다. 추상화 PR에 섞지 않는다.
@@ -204,7 +206,7 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 | ~~A3~~ ✅ | backend OAuth·자격증명 전략 2종 + DB 제약 마이그레이션 (**동작 불변**) | 완료 — `./gradlew test` 509개 그린(Testcontainers 스키마 검증 포함) |
 | ~~A4~~ ✅ | **다단 선택(pending_selection) 일반화** — provider가 자기 단계를 선언, 백엔드·프론트는 스키마 고정 없이 구동. Jira를 이 메커니즘 위로 이전 | 완료 — 512개 그린. 선택적 중간 단계(ClickUp folder형) 테스트로 고정 |
 | ~~A5~~ ✅ | Integration 엔티티 typed getter 중립화 (A4에 묶임) | 완료 — 엔티티에 provider 이름이 남지 않는다 |
-| ~~A6~~ ✅ | ai-engine `issue_key`·`refs` 키 중립화 + 저장 데이터 마이그레이션(기동 시 자동, idempotent) | 완료 — `pytest` 482개 그린 + pipeline 192개 그린. eval(docs/measurement.md) 회귀는 라이브 인프라·OpenAI 키 필요라 배포 후 1회 권장 |
+| ~~A6~~ ✅ | ai-engine `issue_key`·`refs` 키 중립화. 저장 데이터 이행 장치는 두지 않는다(개발 단계 — 옛 키가 남은 그래프는 재구축) | 완료 — `pytest` 그린 + pipeline 그린. eval(docs/measurement.md) 회귀는 라이브 인프라·OpenAI 키 필요라 배포 후 1회 권장 |
 | ~~A7~~ ✅ | web-dashboard 연결 플로우 디스크립터화 (A4의 단계 선언을 그대로 렌더링) — Jira 선택 화면 복구. JiraCard·SlackCard가 범용 `OAuthSourceCard` 하나로 통합 | 완료 — `npm run typecheck && npm run build` 그린 |
 
 A4가 이 단계의 핵심이다 — 이슈 트래커 4종이 **전부** 이 경로를 지나므로, 여기가 provider별로 갈리면

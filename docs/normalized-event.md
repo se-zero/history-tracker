@@ -196,8 +196,11 @@ Jira 유래 명칭은 `docs/integration-abstraction.md` A6에서 소스 중립 �
 | `refs.jiraKey` / `jiraKeys` | `issueKey` / `issueKeys` |
 | `refs.parentJiraKey` | `parentIssueKey` |
 
-호환 장치 (옛 키가 브로커·retry 큐·DLQ에서 더는 관측되지 않으면 제거해도 된다):
-- ai-engine `graph/event_handler.py`의 `_normalize_legacy_keys`가 옛 키 이벤트를 진입점에서
-  새 이름으로 정규화한다.
-- 저장 데이터는 ai-engine 기동 시 `migrate_issue_key_rename`이 이행한다
-  (`Issue.jira_key → issue_key`, `PullRequest.jira_keys → issue_keys`, idempotent).
+**저장된 그래프에 이행 장치는 없다.** 개발 단계라 보존할 데이터가 없어 기동 시 마이그레이션을
+두지 않기로 했다 — 옛 키(`jira_key`)로 저장된 노드가 남아 있는 환경은 **그래프를 새로 구축한다**
+(`DELETE /graph/projects/{id}` 후 재수집). 이행 장치를 되살리는 편이 나은 시점이 오면
+배치 처리·옛/새 키 중복 노드 검증·테스트가 함께 필요하다.
+
+인플라이트 이벤트 호환만 남아 있다 — `graph/event_handler.py`의 `_normalize_legacy_keys`가
+브로커·retry 큐·DLQ에 남은 옛 키 이벤트를 진입점에서 새 이름으로 정규화한다.
+옛 키가 더는 관측되지 않으면 이것도 제거해도 된다.

@@ -34,7 +34,6 @@ from graph.maintenance import (
     clear_semantic_triggered_by,
     delete_project_graph,
     delete_project_source_graph,
-    migrate_issue_key_rename,
     propagate_thread_discussed_in,
     verify_actor_name_consistency,
 )
@@ -86,7 +85,6 @@ __all__ = [
     "backfill_discussed_in_source",
     "backfill_pr_issue_keys",
     "backfill_actor_aliases",
-    "migrate_issue_key_rename",
     "clear_semantic_triggered_by",
     "clear_semantic_discussed_in",
     "clear_reference",

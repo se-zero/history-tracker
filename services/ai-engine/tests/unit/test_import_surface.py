@@ -89,7 +89,6 @@ BUILDER_PUBLIC = [
     "delete_project_source_graph",
     "backfill_actor_aliases",
     "backfill_pr_issue_keys",
-    "migrate_issue_key_rename",
     "backfill_triggered_by_source",
     "backfill_discussed_in_source",
     "clear_reference",

@@ -20,7 +20,6 @@ from graph.builder import (
     ensure_constraints,
     ensure_vector_indexes,
     get_driver,
-    migrate_issue_key_rename,
 )
 from graph.consumer import start_consumer
 from graph.postprocess import start_debounce_loop
@@ -53,10 +52,6 @@ async def lifespan(app: FastAPI):
         for attempt in range(1, max_retries + 1):
             try:
                 get_driver()  # 연결 검증 겸 초기화
-                # A6: jira_key → issue_key 저장 데이터 이행. 컨슈머 가동 전에 끝나야
-                # 새 코드의 MERGE {issue_key}가 옛 속성만 가진 노드와 중복을 만들지 않는다.
-                # ensure_constraints보다 먼저 — 옛 유니크 제약을 지우고 새 제약을 만들게 한다.
-                await migrate_issue_key_rename()
                 await ensure_constraints()
                 await ensure_vector_indexes()
                 # 옛 통합 검색이 쓰던 full-text 인덱스 제거 (읽는 코드가 없어 색인 비용만 남는다).
