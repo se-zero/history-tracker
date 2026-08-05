@@ -8,6 +8,7 @@ live Neo4j(integration) 영역.
 """
 
 from graph.overview import (
+    _CONTENT_TYPE_PREDICATES,
     _actor_source_summary,
     _group_evidence_keys,
     _normalize_evidence,
@@ -200,3 +201,51 @@ def test_actor_source_summary_dedupes_and_keeps_order():
     # 계정ID는 노출하지 않고 소스 라벨만, 등장 순서대로 중복 제거한다.
     summary = _actor_source_summary(["GITHUB:se-zero", "LINEAR:u1", "GITHUB:dup", "GOOGLE_CHAT:u2"])
     assert summary == "GitHub · Linear · Google Chat"
+
+
+def test_to_graph_node_carries_actual_source_not_archetype():
+    # type은 프론트 렌더링 분류(색·범례)라 공용 값이지만, source는 실제 출처여야 한다 —
+    # 커넥터가 늘어도 Linear 이슈가 "jira"로, Discord 대화가 "slack"으로 보이지 않게.
+    linear = _to_graph_node(
+        {"id": "n1", "label": "Issue", "source": "LINEAR", "issue_key": "ENG-42", "title": "t"}
+    )
+    assert linear["source"] == "linear"
+    assert linear["type"] == "jira"  # 렌더링 분류는 이슈 트래커 공용
+
+    discord = _to_graph_node(
+        {"id": "n2", "label": "Communication", "source": "DISCORD", "conversation_id": "c1", "body": "b"}
+    )
+    assert discord["source"] == "discord"
+    assert discord["type"] == "slack"  # 렌더링 분류는 대화 공용
+
+
+def test_to_graph_node_chat_title_uses_source_when_channel_missing():
+    # 채널 이름이 없을 때 "Slack 메시지"로 굳으면 다른 대화 소스가 Slack으로 오표시된다.
+    discord = _to_graph_node({"id": "n1", "label": "Communication", "source": "DISCORD", "body": "b"})
+    assert discord["title"] == "Discord 메시지"
+
+    gchat = _to_graph_node({"id": "n2", "label": "Communication", "source": "GOOGLE_CHAT", "body": "b"})
+    assert gchat["title"] == "Google Chat 메시지"
+
+    # 채널이 있으면 채널 이름이 우선(기존 동작)
+    slack = _to_graph_node(
+        {"id": "n3", "label": "Communication", "source": "SLACK", "channel": "dev", "body": "b"}
+    )
+    assert slack["title"] == "#dev"
+
+
+def test_chat_type_filter_matches_renderer_archetype():
+    # 필터와 렌더러가 어긋나면 대화가 "slack"으로 그려지는데 "slack" 필터에서는 빠져 사라진다.
+    # 렌더러(_to_graph_node)는 GITHUB이 아닌 Communication을 전부 대화로 보내므로 필터도 그래야 한다.
+    chat_pred = _CONTENT_TYPE_PREDICATES["slack"]
+    assert "'GITHUB'" in chat_pred and "<>" in chat_pred, "대화 필터는 'GitHub 아님' 기준이어야 한다"
+    assert "'SLACK'" not in chat_pred, "특정 소스로 좁히면 Discord·Teams가 필터에서 빠진다"
+
+    # 렌더러 쪽 기준도 함께 고정 — 둘이 같은 기준임을 이 테스트가 보증한다
+    for source in ("DISCORD", "TEAMS", "GOOGLE_CHAT", "SLACK"):
+        node = _to_graph_node({"id": "n", "label": "Communication", "source": source, "body": "b"})
+        assert node["type"] == "slack", f"{source}는 대화 분류로 렌더돼야 한다"
+    github = _to_graph_node(
+        {"id": "n", "label": "Communication", "source": "GITHUB", "conversation_id": "7", "body": "b"}
+    )
+    assert github["type"] == "issue"

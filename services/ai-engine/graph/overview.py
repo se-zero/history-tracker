@@ -27,14 +27,19 @@ MAX_LIMIT = 500
 _SNIPPET_LEN = 240
 
 # 프론트 type → content 노드 선택 술어.
-# Communication은 source로 분기 — GitHub 이슈(issue)와 Slack 메시지(slack)가 같은 라벨이라.
+# 프론트의 type은 제품명이 아니라 **렌더링 분류**다 — "jira"는 이슈 트래커 전체(Linear·Asana…),
+# "slack"은 대화 전체(Discord·Teams·Google Chat…)를 가리킨다. 실제 출처는 노드의 source가 싣는다.
+# Communication은 GitHub 이슈(issue)와 대화(slack)가 같은 라벨이라 source로 가른다. 이 분기는
+# _to_graph_node의 `is_github`와 **같은 기준이어야 한다** — 어긋나면 대화가 "slack"으로 그려지는데
+# "slack" 필터에서는 빠져 화면에서 사라진다(옛 `source = 'SLACK'`이 그랬다).
 # 값은 고정 Cypher 조각이고 사용자 입력은 키 매칭에만 쓰므로 인젝션 위험 없음.
 _CONTENT_TYPE_PREDICATES = {
     "commit": "n:ChangeSet",
     "pr":     "n:PullRequest",
     "jira":   "n:Issue",
     "issue":  "(n:Communication AND n.source = 'GITHUB')",
-    "slack":  "(n:Communication AND n.source = 'SLACK')",
+    # coalesce — source가 빈 레거시 노드도 대화로 본다(_to_graph_node가 그렇게 렌더한다)
+    "slack":  "(n:Communication AND coalesce(n.source, '') <> 'GITHUB')",
 }
 _ALL_CONTENT_PRED = "n:ChangeSet OR n:PullRequest OR n:Issue OR n:Communication"
 
@@ -209,10 +214,12 @@ def _to_graph_node(row: dict) -> dict:
     if label == "Issue":
         return {
             "id": row["id"],
+            # type은 프론트의 렌더링 분류(색·범례)라 이슈 트래커 공용 값을 쓴다.
+            # 실제 출처는 source가 싣는다 — Linear 이슈가 "jira"로 보이지 않게.
             "type": "jira",
             "title": row.get("title") or row.get("issue_key") or "(issue)",
             "meta": row.get("issue_key") or "",
-            "source": "jira",
+            "source": src.lower() or "jira",
             "snippet": _truncate(row.get("body")),
             "ref": _node_ref("issue", row.get("issue_key")),
         }
@@ -233,12 +240,15 @@ def _to_graph_node(row: dict) -> dict:
                 # GitHub Issue·Slack 모두 message 도구(get_thread_context) 대상 — conversation_id로 조회.
                 "ref": _node_ref("message", row.get("conversation_id")),
             }
+        # GitHub이 아닌 Communication은 모두 대화 소스(Slack·Discord·Teams·Google Chat).
+        # 채널 이름이 없을 때 제목을 "Slack 메시지"로 굳히면 Discord 대화가 Slack으로 보인다.
         return {
             "id": row["id"],
+            # type은 프론트의 렌더링 분류(색·범례)라 대화 공용 값을 쓴다. 실제 출처는 source가 싣는다.
             "type": "slack",
-            "title": f"#{channel}" if channel else "Slack 메시지",
+            "title": f"#{channel}" if channel else (f"{_source_label(src)} 메시지" if src else "메시지"),
             "meta": " · ".join(p for p in (channel, date) if p),
-            "source": "slack",
+            "source": src.lower() or "slack",
             "snippet": _truncate(row.get("body")),
             # meta엔 conversation_id가 없어 텍스트로는 못 가리키므로 ref로 표면화한다.
             "ref": _node_ref("message", row.get("conversation_id")),

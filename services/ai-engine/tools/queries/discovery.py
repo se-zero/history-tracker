@@ -65,7 +65,7 @@ async def search_by_keyword(project_id: str, embedding: list[float], top_k: int 
             RETURN 'Issue' AS type,
                    (i.title + ': ' + coalesce(i.body, '')) AS text,
                    null AS channel,
-                   'JIRA' AS source,
+                   i.source AS source,
                    toString(i.occurredAt) AS occurredAt,
                    score,
                    collect(DISTINCT cs.hash) AS related_changesets,
