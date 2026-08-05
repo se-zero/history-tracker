@@ -2,6 +2,8 @@ package com.history.backend.integration.controller;
 
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -13,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
@@ -20,8 +23,10 @@ import com.history.backend.common.error.ConflictException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.integration.domain.SelectionStep;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.service.IntegrationService;
+import com.history.backend.integration.service.SelectionOption;
 import com.history.backend.jira.service.JiraClient;
 import com.history.backend.jira.service.JiraOAuthClient;
 import com.history.backend.project.domain.Project;
@@ -143,7 +148,7 @@ class IntegrationControllerTest {
     }
 
     @Test
-    @DisplayName("pending 행이 있어도 연동 목록 조회는 200 — displayName null, metadata.status는 pending_project")
+    @DisplayName("pending 행이 있어도 연동 목록 조회는 200 — displayName null, metadata.status는 pending_selection")
     void listIntegrationsReturnsOkWhenJiraIntegrationIsPending() throws Exception {
         when(integrationService.listIntegrations(USER_ID, PROJECT_ID))
                 .thenReturn(List.of(IntegrationResponse.from(jiraPendingIntegration())));
@@ -153,65 +158,69 @@ class IntegrationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].provider").value("jira"))
                 .andExpect(jsonPath("$[0].displayName").doesNotExist())
-                .andExpect(jsonPath("$[0].metadata.status").value("pending_project"));
+                .andExpect(jsonPath("$[0].metadata.status").value("pending_selection"));
     }
 
     @Test
-    @DisplayName("Jira 접근 가능 사이트 목록 조회")
-    void listJiraSitesReturnsSiteList() throws Exception {
-        when(integrationService.listJiraSites(USER_ID, PROJECT_ID))
-                .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net")));
+    @DisplayName("provider가 선언한 선택 단계 조회")
+    void selectionStepsReturnsDeclaredSteps() throws Exception {
+        when(integrationService.selectionSteps(USER_ID, PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(List.of(
+                        SelectionStep.required("cloud_id", "site_name", "사이트"),
+                        SelectionStep.required("project_key", "project_name", "프로젝트")));
 
-        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/jira/sites", PROJECT_ID)
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/jira/selection/steps", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].cloudId").value("cloud-1"))
-                .andExpect(jsonPath("$[0].name").value("acme"))
-                .andExpect(jsonPath("$[0].url").value("https://acme.atlassian.net"));
+                .andExpect(jsonPath("$[0].key").value("cloud_id"))
+                .andExpect(jsonPath("$[0].title").value("사이트"))
+                .andExpect(jsonPath("$[0].optional").value(false))
+                .andExpect(jsonPath("$[1].key").value("project_key"));
     }
 
     @Test
-    @DisplayName("선택한 사이트의 Jira 프로젝트 목록 조회")
-    void listJiraProjectsReturnsProjectList() throws Exception {
-        when(integrationService.listJiraProjects(USER_ID, PROJECT_ID, "cloud-1"))
-                .thenReturn(List.of(new JiraClient.JiraProject("PROJ", "Project")));
+    @DisplayName("앞 단계 선택을 쿼리 파라미터로 받아 다음 단계 후보 조회")
+    void selectionOptionsPassesPriorSelections() throws Exception {
+        when(integrationService.selectionOptions(
+                USER_ID, PROJECT_ID, IntegrationProvider.JIRA, "project_key", Map.of("cloud_id", "cloud-1")))
+                .thenReturn(List.of(new SelectionOption("PROJ", "Project")));
 
-        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/jira/projects", PROJECT_ID)
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/jira/selection/options", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
-                        .param("cloudId", "cloud-1"))
+                        .param("step", "project_key")
+                        .param("cloud_id", "cloud-1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].key").value("PROJ"))
-                .andExpect(jsonPath("$[0].name").value("Project"));
+                .andExpect(jsonPath("$[0].value").value("PROJ"))
+                .andExpect(jsonPath("$[0].label").value("Project"));
     }
 
     @Test
-    @DisplayName("Jira 사이트·프로젝트 선택 확정 → 200과 확정된 연동 반환")
-    void completeJiraProjectReturnsUpdatedIntegration() throws Exception {
-        when(integrationService.completeJiraProject(
-                USER_ID,
-                PROJECT_ID,
-                "cloud-1",
-                "acme",
-                "PROJ",
-                "Project"
-        )).thenReturn(jiraIntegration());
+    @DisplayName("선택 확정 → 200과 확정된 연동 반환")
+    void completeSelectionReturnsUpdatedIntegration() throws Exception {
+        Map<String, Object> externalRef = Map.of(
+                "cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project");
+        when(integrationService.buildSelectionExternalRef(eq(IntegrationProvider.JIRA), anyMap()))
+                .thenReturn(externalRef);
+        when(integrationService.completeSelection(USER_ID, PROJECT_ID, IntegrationProvider.JIRA, externalRef))
+                .thenReturn(jiraIntegration());
 
-        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira/project", PROJECT_ID)
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/jira/selection", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "cloud_id": "cloud-1",
-                                  "site_name": "acme",
-                                  "project_key": "PROJ",
-                                  "project_name": "Project"
+                                  "selections": {
+                                    "cloud_id": { "value": "cloud-1", "label": "acme" },
+                                    "project_key": { "value": "PROJ", "label": "Project" }
+                                  }
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(INTEGRATION_ID.toString()))
                 .andExpect(jsonPath("$.projectId").value(PROJECT_ID.toString()))
                 .andExpect(jsonPath("$.provider").value("jira"))
-                .andExpect(jsonPath("$.displayName").value("Project"))
+                // 사이트 이름을 함께 실어야 여러 Atlassian 사이트를 쓰는 조직에서 구분된다
+                .andExpect(jsonPath("$.displayName").value("acme / Project"))
                 .andExpect(jsonPath("$.installationId").doesNotExist())
                 .andExpect(jsonPath("$.metadata.project_key").value("PROJ"))
                 .andExpect(jsonPath("$.metadata.project_name").value("Project"))
@@ -324,7 +333,7 @@ class IntegrationControllerTest {
         Project project = new Project(owner, "History Tracker", null);
         ReflectionTestUtils.setField(project, "id", PROJECT_ID);
 
-        Integration integration = Integration.jiraPending(project, new byte[] {4, 5, 6});
+        Integration integration = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {4, 5, 6});
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);
@@ -338,8 +347,8 @@ class IntegrationControllerTest {
         Project project = new Project(owner, "History Tracker", null);
         ReflectionTestUtils.setField(project, "id", PROJECT_ID);
 
-        Integration integration = Integration.jiraPending(project, new byte[] {4, 5, 6});
-        integration.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        Integration integration = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {4, 5, 6});
+        integration.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);

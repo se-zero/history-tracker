@@ -130,7 +130,7 @@ async def case_pr18_only_ht37() -> CaseResult:
         return r
 
     issues = result.get("issues", [])
-    keys = {i.get("jira_key") for i in issues if i.get("jira_key")}
+    keys = {i.get("issue_key") for i in issues if i.get("issue_key")}
     print(f"     실제 연관 이슈: {sorted(keys)}")
 
     leaked = keys & PR18_FALSE_POSITIVE_ISSUES
@@ -140,7 +140,7 @@ async def case_pr18_only_ht37() -> CaseResult:
     )
     r.assert_(
         "HT-37" in keys,
-        f"PR #18의 정답 이슈 HT-37이 빠짐 (확인 필요 — 텍스트 매칭 또는 PR.jira_keys 전파가 동작했는지)"
+        f"PR #18의 정답 이슈 HT-37이 빠짐 (확인 필요 — 텍스트 매칭 또는 PR.issue_keys 전파가 동작했는지)"
     )
     return r
 
@@ -154,7 +154,7 @@ async def case_ht3_descendants_populated() -> CaseResult:
         return r
 
     descendants = result.get("descendants", [])
-    keys = [d.get("jira_key") for d in descendants]
+    keys = [d.get("issue_key") for d in descendants]
     print(f"     descendants 수: {len(descendants)}, 키: {keys}")
 
     r.assert_(

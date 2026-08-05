@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -20,23 +21,17 @@ public class EventPublisher {
 
     private final RabbitTemplate rabbitTemplate;
     private final String exchange;
-    private final String githubKey;
-    private final String jiraKey;
-    private final String slackKey;
+    private final String routingKeyPrefix;
     private final long confirmTimeoutMs;
 
     public EventPublisher(
             RabbitTemplate rabbitTemplate,
             @Value("${app.rabbitmq.exchange}") String exchange,
-            @Value("${app.rabbitmq.routing-key-github}") String githubKey,
-            @Value("${app.rabbitmq.routing-key-jira}") String jiraKey,
-            @Value("${app.rabbitmq.routing-key-slack}") String slackKey,
+            @Value("${app.rabbitmq.routing-key-prefix:event}") String routingKeyPrefix,
             @Value("${app.rabbitmq.publish-confirm-timeout-ms:10000}") long confirmTimeoutMs) {
         this.rabbitTemplate = rabbitTemplate;
         this.exchange = exchange;
-        this.githubKey = githubKey;
-        this.jiraKey = jiraKey;
-        this.slackKey = slackKey;
+        this.routingKeyPrefix = routingKeyPrefix;
         this.confirmTimeoutMs = confirmTimeoutMs;
     }
 
@@ -102,16 +97,21 @@ public class EventPublisher {
         return confirm != null && confirm.reason() != null ? ", reason=" + confirm.reason() : "";
     }
 
+    /**
+     * routing key를 source에서 유도한다 — {@code {prefix}.{소문자 source}}
+     * (예: {@code GITHUB} → {@code event.github}, {@code GOOGLE_CHAT} → {@code event.google_chat}).
+     *
+     * <p>표기 규칙의 단일 출처는 `docs/normalized-event.md`의 「source · 표기 규칙」이다.
+     * 큐 바인딩이 {@code event.#}라 <b>새 소스는 브로커 설정도 이 클래스도 고치지 않고</b> 라우팅된다 —
+     * provider별 분기를 두면 커넥터마다 이 공용 파일을 고쳐야 한다.</p>
+     */
     private String resolveRoutingKey(String source) {
-        return switch (source.toUpperCase()) {
-            case "GITHUB" -> githubKey;
-            case "JIRA"   -> jiraKey;
-            case "SLACK"  -> slackKey;
-            default -> {
-                log.warn("알 수 없는 source '{}', 기본 라우팅 키 사용", source);
-                yield "event.unknown";
-            }
-        };
+        if (source == null || source.isBlank()) {
+            log.warn("source 없는 이벤트 — '{}.unknown'으로 발행", routingKeyPrefix);
+            return routingKeyPrefix + ".unknown";
+        }
+        // Locale.ROOT — 터키어 로케일에서 'I'가 점 없는 'ı'로 내려가 라우팅 키가 어긋나는 것을 막는다
+        return routingKeyPrefix + "." + source.trim().toLowerCase(Locale.ROOT);
     }
 
     private record Pending(NormalizedEvent event, CorrelationData correlation) {}

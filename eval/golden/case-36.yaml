@@ -7,7 +7,7 @@ question: "Slack 데이터 전처리(필터링)는 어떻게 구현했고 슬랙
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
 expected_evidence_ids:
 - "issue:HT-22"                    # Jira: Slack 데이터 전처리
 - "message:1776405432.933819"     # Slack: "슬랙 메세지 필터링 하는거 pr 날렸어" (+ approve/머지)

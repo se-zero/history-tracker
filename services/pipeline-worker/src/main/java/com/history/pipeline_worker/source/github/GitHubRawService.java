@@ -1,6 +1,5 @@
 package com.history.pipeline_worker.source.github;
 
-import com.history.pipeline_worker.checkpoint.ProjectCheckpointData;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +24,7 @@ public class GitHubRawService {
 
     private static final int PER_PAGE = 100; // GitHub API 최대값
 
-    public record GitHubFetchContext(String auth, String owner, String repo, String branch, ProjectCheckpointData.GitHubCheckpoint checkpoint) {}
+    public record GitHubFetchContext(String auth, String owner, String repo, String branch, GitHubCheckpoint checkpoint) {}
     public record GitHubPage(List<Object> items, boolean finished) {}
 
     private final WebClient webClient;
@@ -54,7 +53,7 @@ public class GitHubRawService {
 
     public GitHubFetchContext prepareFetchContext(
             RawFetchRequest request,
-            ProjectCheckpointData.GitHubCheckpoint checkpoint
+            GitHubCheckpoint checkpoint
     ) {
         String[] parts = request.projectKey().split("/", 2);
         if (parts.length != 2) {
@@ -69,7 +68,7 @@ public class GitHubRawService {
     }
 
     public Map<String, Object> fetchSample(RawFetchRequest request) {
-        GitHubFetchContext context = prepareFetchContext(request, new ProjectCheckpointData.GitHubCheckpoint());
+        GitHubFetchContext context = prepareFetchContext(request, GitHubCheckpoint.empty());
         GitHubPage pullRequestPage = fetchMergedPullRequestPage(context, 1);
         Map<String, String> commitPrNumbers = fetchCommitPrNumbers(context, pullRequestPage.items());
         GitHubPage commitPage = fetchCommitPage(context, 1, commitPrNumbers);
@@ -90,14 +89,14 @@ public class GitHubRawService {
                 "/repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc&per_page=" + PER_PAGE + baseParam,
                 context.owner(),
                 context.repo(),
-                context.checkpoint().pullRequestsScannedAt,
+                context.checkpoint().pullRequestsScannedAt(),
                 "updated_at",
                 page
         );
 
         List<Object> mergedPullRequests = filterMergedPullRequests(
                 closedPullRequests.items(),
-                context.checkpoint().pullRequestsScannedAt
+                context.checkpoint().pullRequestsScannedAt()
         );
         return new GitHubPage(enrichUserObjects(context.auth(), mergedPullRequests), closedPullRequests.finished());
     }
@@ -113,7 +112,7 @@ public class GitHubRawService {
                 "/repos/{owner}/{repo}/commits?per_page=" + PER_PAGE + branchParam,
                 context.owner(),
                 context.repo(),
-                context.checkpoint().commitsScannedAt,
+                context.checkpoint().commitsScannedAt(),
                 "commit.committer.date",
                 page
         );
@@ -129,7 +128,7 @@ public class GitHubRawService {
                 "/repos/{owner}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=" + PER_PAGE,
                 context.owner(),
                 context.repo(),
-                context.checkpoint().issuesScannedAt,
+                context.checkpoint().issuesScannedAt(),
                 "updated_at",
                 page
         );

@@ -97,16 +97,21 @@ export interface GitHubRepository {
   default_branch: string;
 }
 
-// Atlassian 사이트(cloudId 단위 조직) — Jira 연동 2단계에서 사용자가 고르는 목록
-export interface JiraSite {
-  cloudId: string;
-  name: string;
-  url: string;
+// provider가 선언한 연동 대상 선택 단계 — 단계 수(1~4)와 이름이 provider마다 달라
+// 프론트는 이 선언을 그대로 렌더한다(단계 수·이름 하드코딩 금지).
+export interface SelectionStep {
+  // 선택 값이 저장될 external_ref 키 (예: cloud_id)
+  key: string;
+  // 화면에 보여줄 단계 이름 (예: "사이트")
+  title: string;
+  // ClickUp의 folder처럼 건너뛰어도 다음 단계로 갈 수 있는 단계
+  optional: boolean;
 }
 
-export interface JiraProject {
-  key: string;
-  name: string;
+// 한 단계의 후보 하나 — value를 제출하고 label을 사람에게 보여준다
+export interface SelectionOption {
+  value: string;
+  label: string;
 }
 
 export interface Integration {

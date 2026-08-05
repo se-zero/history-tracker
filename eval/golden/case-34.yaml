@@ -7,7 +7,7 @@ question: "RabbitMQ를 통한 데이터 전달 구현은 어떻게 진행됐어?
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
 expected_evidence_ids:
 - "issue:HT-21"                    # Jira
 - "message:1775657675.707839"     # Slack: "Rabbitmq 적용한 코드 pr 날렸어"

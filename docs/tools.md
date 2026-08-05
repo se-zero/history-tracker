@@ -80,7 +80,7 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| `jira_key` | string | ✔ | Jira 티켓 키 (예: `HT-12`) |
+| `issue_key` | string | ✔ | Jira 티켓 키 (예: `HT-12`) |
 
 - 반환: 이슈 메타(`title`/`body`/`status`/`creator`/`assignee` 등) + root 이슈에 직접 연결된
   `changesets` / `pull_requests` / `discussions`, 그리고 **`descendants[]`**.
@@ -118,12 +118,12 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| `jira_key` | string | | 이슈 스코프 — 생명주기 + 연결 커밋·PR·논의 |
+| `issue_key` | string | | 이슈 스코프 — 생명주기 + 연결 커밋·PR·논의 |
 | `path` | string | | 파일 스코프 — 그 파일을 바꾼 커밋 + 담은 PR |
 | `actor` | string | | 사람 스코프 — 이름·alias·이메일 |
 | `from_time` / `to_time` | string | | ISO-8601 기간 한정. 어느 스코프와도 조합 가능 |
 
-- **스코프 우선순위**: `jira_key` > `path` > `actor` > (전부 생략) 프로젝트 전체.
+- **스코프 우선순위**: `issue_key` > `path` > `actor` > (전부 생략) 프로젝트 전체.
   넷 다 없으면 전 기간 타임라인이라 **특정 엔티티 없는 시간순 질문에도 쓸 수 있다.**
 - **순서 뼈대이지 인용 원문이 아니다.** `events` 항목은 식별자·제목 수준 개요라 본문이 없다.
   근거로 인용하려면 식별자로 상세 도구를 호출해 본문을 얻는다 — commit→`get_changeset_context`,
@@ -216,7 +216,7 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
   전역 top-K만 주고 project_id 사전 필터가 불가하므로, **`top_k`의 20배(상한 500)만큼 over-fetch한 뒤
   project_id로 후필터하고 top_k로 자른다**.
 - 같은 스레드 중복 메시지는 최고 score 1건만 남긴다(이후 `get_thread_context`로 전체 확보 유도).
-- 각 항목에 `related_changesets`(hash) / `related_issues`(jira_key)를 실어 다음 도구 호출의 진입점 제공.
+- 각 항목에 `related_changesets`(hash) / `related_issues`(issue_key)를 실어 다음 도구 호출의 진입점 제공.
 
 ### 6. `get_actor_activity`
 
@@ -245,7 +245,7 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
   - `totals` — 카테고리별 조회 건수. **조회 상한 도달 시 `"100+ (…)"` 문자열** — 모델이 캡된
     수치를 절대 수치로 단정하는 것 방지.
   - `issues_created`/`issues_assigned` — 최근(번호 큰) 순 `ACTOR_ACTIVITY_ISSUES_CAP`(기본 20)개
-    {jira_key, title(40자)}. 잘린 오래된 이슈는 `*_older_keys`에 key 전체를 노출(드릴다운 가능).
+    {issue_key, title(40자)}. 잘린 오래된 이슈는 `*_older_keys`에 key 전체를 노출(드릴다운 가능).
 - **종료 시각(`to`/`to_time`) 파라미터는 없다** — `from_time` 이후 전체.
 
 ### 7. `get_file_history`
@@ -262,9 +262,9 @@ executor가 사용자 질문을 임베딩해 넘기면, 각 커밋의 `MODIFIED.
 - 반환 구조: `{path, total_commits, ranked_by, detail[], context[], _note}`.
   - `detail[]` — **인용 대상**. 관련도 상위 커밋을 바이트 예산(`FILE_HISTORY_DETAIL_BUDGET`,
     기본 6500자)이 되는 만큼 담는다. 커밋당 1행 — `hash`, `message`(400자 컷), `author`,
-    `diff_summary`(300자 컷), `issues[]`(`jira_key`/`title`/`confidence`/`source`),
+    `diff_summary`(300자 컷), `issues[]`(`issue_key`/`title`/`confidence`/`source`),
     `prs[]`(`pr_number`/`url`), `relevance`(랭킹 시). 이슈·PR 링크가 여러 개여도 행이 곱으로 불어나지 않는다.
-  - `context[]` — 나머지 이력의 **시간순 개요 stub**(`hash`/`occurredAt`/`title`/`issues[jira_key]`,
+  - `context[]` — 나머지 이력의 **시간순 개요 stub**(`hash`/`occurredAt`/`title`/`issues[issue_key]`,
     본문 없음). 전체 흐름 파악·드릴다운용. context 커밋을 인용하려면 그 hash로 `get_changeset_context`를
     호출해 본문을 조회한 뒤 인용한다(stub 요약만으로 quote 생성 금지).
   - **다 담아도 예산에 맞는 파일은 전량 `detail`**(구 동작 = 전량 인용 유지 → 나열형 recall 보존),
@@ -312,7 +312,7 @@ Actor 통합 결과를 확인한다 (Identity Resolution 검증).
 |---------|------|------|------|
 | `hash` | string | ✔ | Git commit hash |
 
-- 반환: `jira_contexts[]`(confidence/link_source), `comm_contexts`(스레드 그룹핑),
+- 반환: `issue_contexts[]`(confidence/link_source), `comm_contexts`(스레드 그룹핑),
   `pr_contexts[]`, `file_changes[]`. LLM이 다중 관점을 비교해 실제 이유를 추론하도록 설계.
 
 ### 11. `get_recent_activity`
@@ -326,7 +326,7 @@ Actor 통합 결과를 확인한다 (Identity Resolution 검증).
 | `limit` | integer | | 30 | 최대 반환 수 |
 
 - ChangeSet/PullRequest/Communication/Issue를 한꺼번에 occurredAt 최신순으로 반환.
-  각 항목 `{type, occurredAt, actor, id, summary}` (id/summary는 타입별로 hash·pr_number·url·jira_key
+  각 항목 `{type, occurredAt, actor, id, summary}` (id/summary는 타입별로 hash·pr_number·url·issue_key
   와 message·title·body로 매핑). **`from_time`은 필수다.**
 
 ### 12. `get_pr_context`
@@ -407,7 +407,7 @@ Slack 스레드를 conversation_id로 완전히 조회한다.
 1. search_by_keyword(keyword="결제 리팩토링")
    → related_changesets: ["abc123"], related_issues: ["HT-8"]
 2. get_changeset_context(hash="abc123")
-   → issues: [{jira_key:"HT-8", confidence:0.85, link_source:"semantic"}]
+   → issues: [{issue_key:"HT-8", confidence:0.85, link_source:"semantic"}]
    → communications: [{conversation_id, messages:[...]}], file_changes: [...]
 3. (선택) get_thread_context(conversation_id=...) → 스레드 전체 맥락
 ```

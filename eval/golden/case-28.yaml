@@ -7,7 +7,7 @@ question: "커밋 b9e921e은 어떤 이슈 작업이야?"
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# commit -> hash 앞 7자, issue -> jira_key
+# commit -> hash 앞 7자, issue -> issue_key
 expected_evidence_ids:
 - "commit:b9e921e"                 # fix: GitHub 로그인 시 계정 선택 화면 강제 (HT-104)
 - "issue:HT-104"                   # 커밋 자체키 = 정답 이슈

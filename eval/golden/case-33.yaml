@@ -7,7 +7,7 @@ question: "각 연동(GitHub·Jira·Slack) 연결 시 수집을 트리거하는 
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts)
+# issue -> issue_key, message -> conversation_id(루트 ts)
 expected_evidence_ids:
 - "issue:HT-75"                    # 각 integration 연결 시 pipeline-worker 수집 트리거
 - "message:1781439419.344509"     # Slack: "Pipeline worker 수집 트리거 pr 날렸어"

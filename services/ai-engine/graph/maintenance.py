@@ -47,7 +47,7 @@ async def backfill_triggered_by_source() -> dict:
     분류 기준:
       - confidence IS NULL          → 텍스트 경로로만 생성된 것 → source='text', confidence=1.0
       - confidence IS NOT NULL      → 시맨틱 경로 산물            → source='semantic'
-      - 위 둘 다 끝난 뒤, commit.message에 jira_key 텍스트가 들어있는 시맨틱 엣지는
+      - 위 둘 다 끝난 뒤, commit.message에 issue_key 텍스트가 들어있는 시맨틱 엣지는
         실제로는 텍스트 참조 케이스로 봐야 하므로 'text'로 승격 (confidence=1.0)
 
     모든 절은 idempotent. 재실행해도 안전.
@@ -76,14 +76,14 @@ async def backfill_triggered_by_source() -> dict:
         )
         semantic_backfilled = (await result.single())["n"]
 
-        # 3) commit message에 jira_key가 직접 들어있는 시맨틱 엣지를 텍스트로 승격
-        #    (pipeline-worker가 refs.jiraKey 추출에 실패했어도 후속 정정)
+        # 3) commit message에 issue_key가 직접 들어있는 시맨틱 엣지를 텍스트로 승격
+        #    (pipeline-worker가 refs.issueKey 추출에 실패했어도 후속 정정)
         result = await session.run(
             """
             MATCH (c:ChangeSet)-[r:TRIGGERED_BY]->(i:Issue)
             WHERE r.source = 'semantic'
               AND c.message IS NOT NULL
-              AND c.message CONTAINS i.jira_key
+              AND c.message CONTAINS i.issue_key
             SET r.source = 'text', r.confidence = 1.0
             RETURN count(r) AS n
             """
@@ -109,10 +109,10 @@ async def backfill_discussed_in_source() -> dict:
     표식이 도입되기 전 엣지는 셋을 구분할 수 없어 clear가 시맨틱만 골라 지울 수 없다.
 
     분류 기준 (backfill_triggered_by_source 선례와 동일한 순서):
-      - confidence IS NULL + 메시지 본문에 jira_key 포함 → source='text'   (명시적 참조)
+      - confidence IS NULL + 메시지 본문에 issue_key 포함 → source='text'   (명시적 참조)
       - confidence IS NULL + 그 외                        → source='propagated' (스레드 복사본)
       - confidence IS NOT NULL                            → source='semantic'
-      - 위가 끝난 뒤, 본문에 jira_key가 들어있는 시맨틱 엣지는 실제로는 텍스트 참조인데
+      - 위가 끝난 뒤, 본문에 issue_key가 들어있는 시맨틱 엣지는 실제로는 텍스트 참조인데
         가드 없던 시맨틱 빌더가 confidence를 덮어쓴 것이므로 'text'로 승격하고 confidence를 제거한다
         (남겨두면 clear가 시맨틱으로 오인해 삭제한다).
 
@@ -120,12 +120,12 @@ async def backfill_discussed_in_source() -> dict:
     반환: 단계별 갱신 카운트.
     """
     async with get_driver().session() as session:
-        # 1) confidence 없음 + 본문이 jira_key를 직접 언급 → 텍스트 참조
+        # 1) confidence 없음 + 본문이 issue_key를 직접 언급 → 텍스트 참조
         result = await session.run(
             """
             MATCH (i:Issue)-[r:DISCUSSED_IN]->(comm:Communication)
             WHERE r.source IS NULL AND r.confidence IS NULL
-              AND comm.body IS NOT NULL AND comm.body CONTAINS i.jira_key
+              AND comm.body IS NOT NULL AND comm.body CONTAINS i.issue_key
             SET r.source = 'text'
             RETURN count(r) AS n
             """
@@ -154,13 +154,13 @@ async def backfill_discussed_in_source() -> dict:
         )
         semantic_backfilled = (await result.single())["n"]
 
-        # 4) 본문에 jira_key가 있는 시맨틱 엣지를 텍스트로 승격 (confidence 오염 복구)
+        # 4) 본문에 issue_key가 있는 시맨틱 엣지를 텍스트로 승격 (confidence 오염 복구)
         result = await session.run(
             """
             MATCH (i:Issue)-[r:DISCUSSED_IN]->(comm:Communication)
             WHERE r.source = 'semantic'
               AND comm.body IS NOT NULL
-              AND comm.body CONTAINS i.jira_key
+              AND comm.body CONTAINS i.issue_key
             SET r.source = 'text'
             REMOVE r.confidence
             RETURN count(r) AS n
@@ -180,24 +180,24 @@ async def backfill_discussed_in_source() -> dict:
     }
 
 
-_JIRA_KEY_PATTERN = re.compile(r"\b([A-Z]{2,}-\d+)\b")
+_ISSUE_KEY_PATTERN = re.compile(r"\b([A-Z]{2,}-\d+)\b")
 
 
-async def backfill_pr_jira_keys() -> dict:
-    """기존 PR 노드의 title/body에서 jira_keys를 추출해 pr.jira_keys로 저장하고
+async def backfill_pr_issue_keys() -> dict:
+    """기존 PR 노드의 title/body에서 issue_keys를 추출해 pr.issue_keys로 저장하고
     link_pr_changesets_to_issues 전파까지 수행한다.
 
     배경:
-      Phase 2 이후 _handle_pull_request는 PR 이벤트가 들어올 때 refs.jiraKeys를 받아
-      pr.jira_keys로 저장하지만, 그 변경 이전에 이미 그래프에 들어와 있던 PR은 속성이
+      Phase 2 이후 _handle_pull_request는 PR 이벤트가 들어올 때 refs.issueKeys를 받아
+      pr.issue_keys로 저장하지만, 그 변경 이전에 이미 그래프에 들어와 있던 PR은 속성이
       비어있다. 이 함수는 그런 기존 PR에 한정해 한 번에 후처리한다.
 
     동작:
-      pr.jira_keys가 NULL이거나 빈 PR을 찾아 title + body 텍스트에서 Jira 키를 추출.
-      매치가 있으면 pr.jira_keys 설정 후 link_pr_changesets_to_issues로 CONTAINS 커밋에
+      pr.issue_keys가 NULL이거나 빈 PR을 찾아 title + body 텍스트에서 이슈 키를 추출.
+      매치가 있으면 pr.issue_keys 설정 후 link_pr_changesets_to_issues로 CONTAINS 커밋에
       텍스트 TRIGGERED_BY 전파.
 
-    Idempotent: jira_keys가 이미 채워진 PR은 건너뜀.
+    Idempotent: issue_keys가 이미 채워진 PR은 건너뜀.
 
     Returns:
         {"pr_scanned": N, "pr_backfilled": K, "edges_propagated": M}
@@ -206,7 +206,7 @@ async def backfill_pr_jira_keys() -> dict:
         result = await session.run(
             """
             MATCH (pr:PullRequest)
-            WHERE (pr.jira_keys IS NULL OR size(pr.jira_keys) = 0)
+            WHERE (pr.issue_keys IS NULL OR size(pr.issue_keys) = 0)
               AND pr.project_id IS NOT NULL
             RETURN pr.project_id AS project_id,
                    pr.pr_number  AS pr_number,
@@ -221,7 +221,7 @@ async def backfill_pr_jira_keys() -> dict:
     for pr in prs:
         text = (pr["title"] or "") + " " + (pr["body"] or "")
         # 중복 제거 + 입력 순서 유지 — pipeline-worker RefsExtractor와 같은 정책
-        keys = list(dict.fromkeys(_JIRA_KEY_PATTERN.findall(text)))
+        keys = list(dict.fromkeys(_ISSUE_KEY_PATTERN.findall(text)))
         if not keys:
             continue
 
@@ -231,7 +231,7 @@ async def backfill_pr_jira_keys() -> dict:
             await session.run(
                 """
                 MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
-                SET pr.jira_keys = $keys
+                SET pr.issue_keys = $keys
                 """,
                 project_id=project_id,
                 pr_number=pr_number,
@@ -240,10 +240,10 @@ async def backfill_pr_jira_keys() -> dict:
         propagated = await link_pr_changesets_to_issues(project_id, pr_number)
         edges_propagated += propagated
         backfilled += 1
-        logger.debug("PR #%s 백필: jira_keys=%s → 전파 %d개", pr_number, keys, propagated)
+        logger.debug("PR #%s 백필: issue_keys=%s → 전파 %d개", pr_number, keys, propagated)
 
     logger.info(
-        "PR jira_keys 백필 완료: scanned=%d, backfilled=%d, propagated=%d",
+        "PR issue_keys 백필 완료: scanned=%d, backfilled=%d, propagated=%d",
         len(prs), backfilled, edges_propagated,
     )
     return {
@@ -371,7 +371,7 @@ async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
     남고, 다음 빌드의 재전파가 지워진 원본까지 복원해 오탐이 사라지지 않는다. 재구축 시퀀스
     마지막에 propagate_thread_discussed_in이 다시 돌아 정상 전파는 복구되므로 손실이 없다.
 
-    source='text'(메시지가 jira_key를 직접 언급)는 어떤 경우에도 보존한다 — 수집 시점에만
+    source='text'(메시지가 issue_key를 직접 언급)는 어떤 경우에도 보존한다 — 수집 시점에만
     생기는 엣지라 지우면 복구되지 않는다. confidence 조건은 표식 도입 이전(백필 미실행)
     그래프에서도 시맨틱을 잡기 위한 fallback이다.
 

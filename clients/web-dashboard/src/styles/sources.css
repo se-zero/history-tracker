@@ -134,8 +134,8 @@
   max-width: 170px;
 }
 
-/* Jira 사이트·프로젝트 선택 — branch-select와 달리 카드 폭 전체를 쓴다 */
-.jira-select {
+/* 연동 대상 선택 단계의 select — branch-select와 달리 카드 폭 전체를 쓴다 */
+.selection-select {
   width: 100%;
   font-size: 13px;
   padding: 8px 10px;
@@ -146,9 +146,9 @@
   font-family: var(--font-mono);
 }
 
-/* Jira 사이트가 1개뿐이면(resource-level grant) select 대신 이 정적 텍스트로 보여준다 —
-   jira-select와 같은 크기·톤을 유지해 1개↔여러 개 전환 시 레이아웃이 흔들리지 않는다. */
-.jira-site-value {
+/* 후보가 1개뿐인 필수 단계는 자동 선택하고 select 대신 이 정적 텍스트로 보여준다 —
+   selection-select와 같은 크기·톤을 유지해 1개↔여러 개 전환 시 레이아웃이 흔들리지 않는다. */
+.selection-value {
   width: 100%;
   box-sizing: border-box;
   font-size: 13px;

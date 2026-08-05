@@ -19,6 +19,25 @@ def _is_bot_actor(actor_id: str) -> bool:
     return bool(actor_id) and actor_id.endswith("[bot]")
 
 
+# 키 중립화(jira_key → issue_key) 이전 pipeline-worker가 발행한 이벤트의 키 이름.
+# 브로커에 남아 있던 이벤트·retry 큐·DLQ replay가 옛 키로 도착할 수 있어 진입점에서
+# 새 이름으로 정규화한다 — 핸들러들은 새 키만 안다. 옛 키가 더는 관측되지 않으면 지워도 된다.
+_LEGACY_REF_KEYS = {"jiraKey": "issueKey", "jiraKeys": "issueKeys", "parentJiraKey": "parentIssueKey"}
+_LEGACY_PROP_KEYS = {"jira_key": "issue_key"}
+
+
+def _normalize_legacy_keys(event: dict) -> None:
+    """옛 키를 새 키로 옮긴다(새 키가 이미 있으면 새 키 우선). event를 제자리 수정한다."""
+    for mapping, field in ((_LEGACY_REF_KEYS, "refs"), (_LEGACY_PROP_KEYS, "properties")):
+        section = event.get(field)
+        if not isinstance(section, dict):
+            continue
+        for old_key, new_key in mapping.items():
+            if old_key in section:
+                section.setdefault(new_key, section[old_key])
+                del section[old_key]
+
+
 async def handle(event: dict) -> None:
     """NormalizedEvent를 nodeType에 따라 분기 처리한다."""
     node_type = event.get("nodeType", "unknown")
@@ -34,6 +53,9 @@ async def handle(event: dict) -> None:
         return
 
     logger.info("[%s/%s] actor=%s 수신", source, node_type, actor_id)
+
+    # 옛 키(jira_key·jiraKey 계열)로 도착한 이벤트를 새 이름으로 정규화
+    _normalize_legacy_keys(event)
 
     # GitHub 봇 커밋/PR은 그래프에서 제외 (의사결정 맥락 노이즈)
     if source == "GITHUB" and node_type in ("ChangeSet", "PullRequest") and _is_bot_actor(actor_id):
@@ -81,12 +103,12 @@ async def _handle_changeset(event: dict) -> None:
     )
 
     # Layer 2: refs 기반 엣지
-    if refs.get("jiraKey"):
-        await builder.link_changeset_to_issue(project_id, hash_, refs["jiraKey"])
+    if refs.get("issueKey"):
+        await builder.link_changeset_to_issue(project_id, hash_, refs["issueKey"])
     if refs.get("prNumber"):
         pr_num = int(refs["prNumber"])
         await builder.link_pr_to_changeset(project_id, pr_num, hash_)
-        # PR이 이미 jira_keys와 함께 도착했다면 이 커밋 '하나만' 같은 이슈에 text TRIGGERED_BY로 연결.
+        # PR이 이미 issue_keys와 함께 도착했다면 이 커밋 '하나만' 같은 이슈에 text TRIGGERED_BY로 연결.
         # 커밋마다 PR 전체에 재전파하면 O(N²)라, 전체 전파는 PR 도착 시(_handle_pull_request)에만 한다.
         # PR이 아직 안 도착했으면(CONTAINS 없음) noop — PR 도착 시 전체 전파가 처리한다.
         await builder.link_changeset_to_pr_issues(project_id, pr_num, hash_)
@@ -140,11 +162,11 @@ async def _handle_pull_request(event: dict) -> None:
 
     resolved = await resolve_actor(actor, source, make_neo4j_actor_store(project_id), event)
 
-    # PR 제목/본문에서 추출된 Jira 키 목록. pipeline-worker의 RefsExtractor가 jiraKeys로 전달.
-    # 단일 jiraKey만 있고 jiraKeys가 없는 구버전 이벤트도 호환 (단일 키만이라도 전파에 사용).
-    jira_keys = refs.get("jiraKeys")
-    if jira_keys is None and refs.get("jiraKey"):
-        jira_keys = [refs["jiraKey"]]
+    # PR 제목/본문에서 추출된 이슈 키 목록. pipeline-worker의 RefsExtractor가 issueKeys로 전달.
+    # 단일 issueKey만 있고 issueKeys가 없는 구버전 이벤트도 호환 (단일 키만이라도 전파에 사용).
+    issue_keys = refs.get("issueKeys")
+    if issue_keys is None and refs.get("issueKey"):
+        issue_keys = [refs["issueKey"]]
 
     await builder.upsert_pull_request(
         project_id=project_id,
@@ -158,12 +180,12 @@ async def _handle_pull_request(event: dict) -> None:
         created_at=props.get("created_at"),
         source=source,
         actor_uuid=resolved["uuid"],
-        jira_keys=jira_keys,
+        issue_keys=issue_keys,
     )
 
-    # Layer 2 전파: PR에 등록된 jira_keys를 그 PR이 머지한 모든 CONTAINS 커밋에 text TRIGGERED_BY로 적용.
+    # Layer 2 전파: PR에 등록된 issue_keys를 그 PR이 머지한 모든 CONTAINS 커밋에 text TRIGGERED_BY로 적용.
     # PR이 commits보다 늦게 도착하는 케이스도 _handle_changeset 쪽에서 다시 호출되어 동일하게 처리됨.
-    if pr_number is not None and jira_keys:
+    if pr_number is not None and issue_keys:
         propagated = await builder.link_pr_changesets_to_issues(project_id, int(pr_number))
         if propagated:
             logger.info("PR #%s text TRIGGERED_BY 전파: %d개 갱신", pr_number, propagated)
@@ -179,14 +201,14 @@ async def _handle_issue(event: dict) -> None:
     title       = props.get("title", "")
     body        = props.get("body", "")
 
-    logger.debug("Issue 수신: jira_key=%s", props.get("jira_key"))
+    logger.debug("Issue 수신: issue_key=%s", props.get("issue_key"))
 
     resolved  = await resolve_actor(actor, source, make_neo4j_actor_store(project_id), event)
     embedding = await embed_text(f"{title}\n\n{body}")
 
     await builder.upsert_issue(
         project_id=project_id,
-        jira_key=props.get("jira_key", ""),
+        issue_key=props.get("issue_key", ""),
         title=title,
         body=body,
         status=props.get("status", ""),
@@ -204,8 +226,8 @@ async def _handle_issue(event: dict) -> None:
     )
 
     # Layer 2: Jira parent → CHILD_OF
-    if refs.get("parentJiraKey"):
-        await builder.link_issue_to_parent(project_id, props["jira_key"], refs["parentJiraKey"])
+    if refs.get("parentIssueKey"):
+        await builder.link_issue_to_parent(project_id, props["issue_key"], refs["parentIssueKey"])
 
     # Layer 2: Jira assignee → ASSIGNED_TO
     # 담당자도 작성자와 동일하게 resolve_actor를 거쳐 Actor로 승격한다 (이름 문자열을
@@ -217,12 +239,12 @@ async def _handle_issue(event: dict) -> None:
             "email": refs.get("assigneeEmail"),
         }
         assigned = await resolve_actor(assignee_actor, source, make_neo4j_actor_store(project_id), event)
-        await builder.link_issue_to_assignee(project_id, props["jira_key"], assigned["uuid"])
+        await builder.link_issue_to_assignee(project_id, props["issue_key"], assigned["uuid"])
     else:
         # 이슈 이벤트는 최신 스냅샷이므로 assigneeId가 없다는 건 담당자가 해제됐다는 뜻이다.
         # 이 분기는 handle()에서 nodeType == "Issue"일 때만 타는 _handle_issue 안에 있으므로,
         # 이슈를 참조만 하는 다른 이벤트(코멘트 등)가 잘못 해제를 트리거할 일은 없다.
-        await builder.unlink_issue_assignees(project_id, props["jira_key"])
+        await builder.unlink_issue_assignees(project_id, props["issue_key"])
 
 
 async def _handle_communication(event: dict) -> None:
@@ -262,6 +284,6 @@ async def _handle_communication(event: dict) -> None:
         llm_filtered=False,
     )
 
-    # Layer 2: refs.jiraKey → DISCUSSED_IN
-    if refs.get("jiraKey"):
-        await builder.link_issue_to_communication(project_id, refs["jiraKey"], url)
+    # Layer 2: refs.issueKey → DISCUSSED_IN
+    if refs.get("issueKey"):
+        await builder.link_issue_to_communication(project_id, refs["issueKey"], url)

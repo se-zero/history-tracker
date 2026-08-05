@@ -1,15 +1,20 @@
 package com.history.pipeline_worker.checkpoint;
 
+import com.history.pipeline_worker.collection.CollectionProvider;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 
 class CheckpointServiceTest {
 
@@ -19,49 +24,43 @@ class CheckpointServiceTest {
     private final CheckpointService service = new CheckpointService(repository);
 
     @Test
-    void loadProjectCheckpoints_mapsRowsToSnapshot() {
-        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(
+    void loadCursors_returnsProviderCursorsByKey() {
+        when(repository.findAllByProjectIdAndProvider(PROJECT_ID, "github")).thenReturn(List.of(
                 row("github", "github_commits", "2024-01-01T00:00:00Z"),
                 row("github", "github_pull_requests", "2024-01-02T00:00:00Z"),
-                row("github", "github_issues", "2024-01-03T00:00:00Z"),
-                row("jira", "jira_updated", "2024-02-01T00:00:00Z"),
-                row("slack", "slack_messages", "2024-03-01T00:00:00Z")
+                row("github", "github_issues", "2024-01-03T00:00:00Z")
         ));
 
-        ProjectCheckpointData result = service.loadProjectCheckpoints(PROJECT_ID.toString());
+        Map<String, Instant> cursors = service.loadCursors(PROJECT_ID.toString(), CollectionProvider.GITHUB);
 
-        assertThat(result.github.commitsScannedAt).isEqualTo(Instant.parse("2024-01-01T00:00:00Z"));
-        assertThat(result.github.pullRequestsScannedAt).isEqualTo(Instant.parse("2024-01-02T00:00:00Z"));
-        assertThat(result.github.issuesScannedAt).isEqualTo(Instant.parse("2024-01-03T00:00:00Z"));
-        assertThat(result.jira.lastScannedAt).isEqualTo(Instant.parse("2024-02-01T00:00:00Z"));
-        assertThat(result.slack.lastScannedAt).isEqualTo(Instant.parse("2024-03-01T00:00:00Z"));
+        assertThat(cursors).containsOnly(
+                Map.entry("github_commits", Instant.parse("2024-01-01T00:00:00Z")),
+                Map.entry("github_pull_requests", Instant.parse("2024-01-02T00:00:00Z")),
+                Map.entry("github_issues", Instant.parse("2024-01-03T00:00:00Z"))
+        );
     }
 
     @Test
-    void updateGitHubCommits_usesExpectedCursorKey() {
-        Instant cursor = Instant.parse("2024-01-01T00:00:00Z");
+    void loadCursors_withoutRows_returnsEmptyMap() {
+        when(repository.findAllByProjectIdAndProvider(PROJECT_ID, "jira")).thenReturn(List.of());
 
-        service.updateGitHubCommits(PROJECT_ID.toString(), cursor);
-
-        verify(repository).upsertCursor(PROJECT_ID, "github", "github_commits", cursor);
+        assertThat(service.loadCursors(PROJECT_ID.toString(), CollectionProvider.JIRA)).isEmpty();
     }
 
     @Test
-    void updateJira_usesExpectedCursorKey() {
+    void updateCursor_delegatesProviderValueAndKey() {
         Instant cursor = Instant.parse("2024-02-01T00:00:00Z");
 
-        service.updateJira(PROJECT_ID.toString(), cursor);
+        service.updateCursor(PROJECT_ID.toString(), CollectionProvider.JIRA, "jira_updated", cursor);
 
         verify(repository).upsertCursor(PROJECT_ID, "jira", "jira_updated", cursor);
     }
 
     @Test
-    void updateSlack_usesExpectedCursorKey() {
-        Instant cursor = Instant.parse("2024-03-01T00:00:00Z");
+    void updateCursor_nullValue_doesNotTouchRepository() {
+        service.updateCursor(PROJECT_ID.toString(), CollectionProvider.SLACK, "slack_messages", null);
 
-        service.updateSlack(PROJECT_ID.toString(), cursor);
-
-        verify(repository).upsertCursor(PROJECT_ID, "slack", "slack_messages", cursor);
+        verify(repository, never()).upsertCursor(any(), anyString(), anyString(), any());
     }
 
     private CheckpointRepository.CheckpointRow row(String provider, String cursorKey, String cursorValue) {

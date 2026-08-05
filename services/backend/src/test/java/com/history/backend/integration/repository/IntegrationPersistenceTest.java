@@ -126,8 +126,8 @@ class IntegrationPersistenceTest {
     void saveAndFindJiraIntegration() {
         ProjectFixture fixture = createProjectFixture();
         byte[] encryptedCredential = new byte[] {40, 50, 60};
-        Integration pending = Integration.jiraPending(fixture.project(), encryptedCredential);
-        pending.completeJiraProject("cloud-1", "acme", "PLAT", "Platform");
+        Integration pending = Integration.pendingSelection(fixture.project(), IntegrationProvider.JIRA, encryptedCredential);
+        pending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PLAT", "project_name", "Platform"));
         Integration integration = integrationRepository.saveAndFlush(pending);
 
         Optional<Integration> result = integrationRepository.findByProject_IdAndProvider(
@@ -137,9 +137,9 @@ class IntegrationPersistenceTest {
 
         assertThat(result).contains(integration);
         assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.JIRA);
-        assertThat(result.orElseThrow().getJiraProjectKey()).isEqualTo("PLAT");
-        assertThat(result.orElseThrow().getJiraProjectName()).isEqualTo("Platform");
-        assertThat(result.orElseThrow().isJiraPendingProject()).isFalse();
+        assertThat(result.orElseThrow().selectionValue("project_key")).isEqualTo("PLAT");
+        assertThat(result.orElseThrow().selectionValue("project_name")).isEqualTo("Platform");
+        assertThat(result.orElseThrow().isPendingSelection()).isFalse();
         assertThat(result.orElseThrow().getInstallation()).isNull();
         assertThat(result.orElseThrow().getEncryptedCredential()).containsExactly(40, 50, 60);
     }
@@ -210,8 +210,8 @@ class IntegrationPersistenceTest {
     @DisplayName("Jira external_ref는 JSONB로 저장")
     void jiraExternalRefIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
-        Integration pending = Integration.jiraPending(fixture.project(), new byte[] {1, 2, 3});
-        pending.completeJiraProject("cloud-1", "acme", "PLAT", "Platform");
+        Integration pending = Integration.pendingSelection(fixture.project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        pending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PLAT", "project_name", "Platform"));
         Integration integration = integrationRepository.saveAndFlush(pending);
 
         String projectKey = jdbcTemplate.queryForObject(
@@ -279,17 +279,15 @@ class IntegrationPersistenceTest {
     }
 
     @Test
-    @DisplayName("Jira project_key 타입 불일치 시 IllegalStateException")
-    void jiraProjectKeyFailsWhenExternalRefUsesUnexpectedType() {
+    @DisplayName("선택 값 타입이 문자열이 아니면 null — 손상된 행 하나가 목록 조회 전체를 500으로 만들지 않는다")
+    void selectionValueReturnsNullWhenExternalRefUsesUnexpectedType() {
         ProjectFixture fixture = createProjectFixture();
-        Integration integration = Integration.jiraPending(fixture.project(), new byte[] {1, 2, 3});
+        Integration integration = Integration.pendingSelection(fixture.project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
         ReflectionTestUtils.setField(integration, "externalRef", Map.of(
-                Integration.JIRA_PROJECT_KEY, 123
+                "project_key", 123
         ));
 
-        assertThatThrownBy(integration::getJiraProjectKey)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageStartingWith("Unexpected Jira project_key type:");
+        assertThat(integration.selectionValue("project_key")).isNull();
     }
 
     private ProjectFixture createProjectFixture() {

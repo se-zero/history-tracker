@@ -64,11 +64,11 @@ HT-3는 직접 연결 커밋이 없지만 하위 이슈들에는 명시적 커�
 **실제 도구 응답 구조:**
 ```
 {
-  "jira_key": "HT-3",
+  "issue_key": "HT-3",
   "changesets": [],       ← 직접 커밋 없음 → LLM이 여기서 판단 종료
   "discussions": [],
   "descendants": [
-    { "jira_key": "HT-3-1", "changesets": [...], "discussions": [...] },
+    { "issue_key": "HT-3-1", "changesets": [...], "discussions": [...] },
     ...                   ← 실제 데이터가 여기 있었으나 무시됨
   ]
 }
@@ -270,7 +270,7 @@ LLM이 그룹 안의 개별 메시지 `occurredAt`을 id로 꺼내 쓴 것. 스�
 
 **개선 방안:**
 - 시스템 프롬프트 도구 사용 가이드에 추가:
-  > "파일·클래스·함수가 '어떤 이슈 때문에 바뀌어 왔는지' 물으면 `search_by_keyword` 대신 `get_file_history`를 먼저 호출. `get_file_history` 결과의 `jira_key`가 직접 연결된 이슈이며, `search_by_keyword`는 파일을 언급한 이슈를 찾을 뿐 변경 인과관계를 보장하지 않는다."
+  > "파일·클래스·함수가 '어떤 이슈 때문에 바뀌어 왔는지' 물으면 `search_by_keyword` 대신 `get_file_history`를 먼저 호출. `get_file_history` 결과의 `issue_key`가 직접 연결된 이슈이며, `search_by_keyword`는 파일을 언급한 이슈를 찾을 뿐 변경 인과관계를 보장하지 않는다."
 
 ---
 
@@ -299,7 +299,7 @@ HT-37 evidence의 `occurredAt`이 `"unknown"` 문자열. ISO-8601 규칙 위반�
 
 ```cypher
 collect(DISTINCT {
-    jira_key: i.jira_key, title: i.title,
+    issue_key: i.issue_key, title: i.title,
     status: i.status,
     confidence: tb.confidence,
     link_source: tb.source
@@ -312,7 +312,7 @@ collect(DISTINCT {
 **개선 방안 — `queries.py` `get_pr_context`:**
 ```cypher
 collect(DISTINCT {
-    jira_key:   i.jira_key, title: i.title, status: i.status,
+    issue_key:   i.issue_key, title: i.title, status: i.status,
     occurredAt: toString(i.occurredAt),
     closedAt:   toString(i.closedAt),
     creator:    creator.name,   -- OPTIONAL MATCH (creator:Actor)-[:CREATED]->(i) 추가 필요
@@ -324,7 +324,7 @@ collect(DISTINCT {
 
 ### 문제 2 — `get_issue_context` 추가 호출로 보완 가능했으나 안 함
 
-모델이 HT-37 `jira_key`를 알고 있었으므로 `get_issue_context("HT-37")`를 호출해 타임스탬프·creator를 채울 수 있었다. 그 대신 "unknown"으로 마무리한 것은 LLM 판단 실패.
+모델이 HT-37 `issue_key`를 알고 있었으므로 `get_issue_context("HT-37")`를 호출해 타임스탬프·creator를 채울 수 있었다. 그 대신 "unknown"으로 마무리한 것은 LLM 판단 실패.
 
 **개선 방안 — 프롬프트:**
 > "evidence의 `occurredAt`이 없거나 불명확하면 null을 쓰되, issue 타입이면 `get_issue_context`를 추가 호출해 실제 타임스탬프로 채운다. 'unknown' 문자열은 절대 사용 금지."
@@ -408,7 +408,7 @@ summary: "잡담 메시지를 규칙 기반 및 LLM 기반으로 제거하는 �
 
 unknown_aspects: "구체적인 데이터 정규화 작업의 세부 방법이나 사용된 기술 스택에 대한 정보는 확인되지 않음."
 
-HT-7·HT-22·HT-29의 `jira_key`를 이미 알고 있었으므로 `get_issue_context` 또는 `get_timeline`을 호출하면 연결된 커밋의 메시지와 `diffSummary`에서 구현 방법과 기술 스택을 확인할 수 있었다. 탐색 없이 unknown으로 처리한 케이스 4 패턴 반복.
+HT-7·HT-22·HT-29의 `issue_key`를 이미 알고 있었으므로 `get_issue_context` 또는 `get_timeline`을 호출하면 연결된 커밋의 메시지와 `diffSummary`에서 구현 방법과 기술 스택을 확인할 수 있었다. 탐색 없이 unknown으로 처리한 케이스 4 패턴 반복.
 
 시스템 프롬프트의 "즉시 '확인되지 않음'으로 종료 금지 — 최소 한 번은 도구를 호출해 탐색하세요" 규칙 위반.
 

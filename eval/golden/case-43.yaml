@@ -1,5 +1,5 @@
 # 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement.md 참고.
-# [시간축 — 이슈 스코프 회귀 가드] get_timeline의 현행(jira_key) 경로가 스코프 일반화 후에도
+# [시간축 — 이슈 스코프 회귀 가드] get_timeline의 현행(issue_key) 경로가 스코프 일반화 후에도
 #   그대로 동작하는지 지킨다. 동시에 **타임존 정규화의 판별기**다.
 #   그래프에서 Issue.createdAt만 +09:00 오프셋으로 저장되고 나머지는 Z(UTC)라,
 #   ISO 문자열을 그대로 사전순 정렬하면 이슈 생성이 엉뚱한 자리로 간다.
@@ -15,7 +15,7 @@ question: "GitHub OAuth 구현(HT-45)은 어떤 순서로 진행됐어?"
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
 expected_evidence_ids:
 - "issue:HT-45"                  # GitHub OAuth 구현 — 생성 5/16 19:47, 완료 5/17 16:56
 - "commit:2fa078f"               # 2026-05-15T14:05 GitHub OAuth 로그인 구현 (핵심)

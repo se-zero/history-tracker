@@ -17,20 +17,55 @@ cd services/pipeline-worker
 | 패키지 | 역할 |
 |--------|------|
 | `controller` | HTTP endpoint. 비즈니스 로직을 넣지 않는다. |
-| `pipeline` | 수집 오케스트레이션. fetch → normalize → publish → checkpoint 흐름을 조합한다. |
-| `collection` | 프로젝트별 수집 설정과 webhook payload → 수집 context 해석 경계. DB의 project/integration 정보를 조회한다. |
+| `pipeline` | 수집 오케스트레이션. 어떤 provider를 어떤 순서로 돌릴지만 정하고, 실제 수집은 `SourceCollector`에 위임한다. |
+| `collection` | `SourceCollector` SPI와 레지스트리, 프로젝트별 수집 설정·webhook payload 해석 경계. DB의 project/integration 정보를 조회한다. |
 | `trigger` | backend 연동 완료 요청을 provider별 비동기 초기 수집으로 연결한다. |
 | `webhook` | GitHub webhook 검증, 필터링, delivery 중복 처리, 비동기 수집 트리거. |
-| `source.github` | GitHub API 수집, 정규화, rate limit. |
-| `source.jira` | Jira API 수집, 정규화, rate limit. |
-| `source.slack` | Slack API 수집, 정규화, rate limit. |
+| `source.github` | GitHub 자격증명 해석·수집·정규화·rate limit (`GitHubCollector`). |
+| `source.jira` | Jira 자격증명 해석·수집·정규화·rate limit (`JiraCollector`). |
+| `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). |
 | `normalizer` | 여러 source가 공유하는 정규화 보조 유틸. 현재 `RefsExtractor` 유지. |
-| `checkpoint` | DB `checkpoints` 테이블 기반 checkpoint 조회/갱신 경계. |
+| `checkpoint` | DB `checkpoints` 테이블 기반 커서 조회/갱신 경계 + 배치의 커서 전진 값 계산(`CursorProgress`). |
 | `messaging` | RabbitMQ publish. |
 | `common` | 전역 공유 코드. 현재 `common.crypto`(integration credential 복호화)만 있다. |
 | `config` | Spring/RabbitMQ/WebClient/webhook executor 설정. |
 | `dto` | 요청/응답/event DTO. |
 | `util` | 일반 유틸. |
+
+## SourceCollector SPI — 새 소스 추가 지점
+
+provider별 수집은 `collection.SourceCollector` 구현체가 전부 소유한다. 오케스트레이션 계층
+(`pipeline`, `trigger`, `collection`)은 provider를 알지 못하고 `SourceCollectorRegistry`로만 구현체를 찾는다.
+
+```java
+CollectionProvider provider();
+Optional<RawFetchRequest> resolveFetchRequest(IntegrationRow integration);  // 자격증명 복호화 + external_ref 해석
+int collect(String projectId, RawFetchRequest request);                     // fetch → normalize → publish → checkpoint
+```
+
+`resolveFetchRequest`의 실패 신호는 두 가지로 구분한다 — 호출부가 다르게 처리하기 때문이다.
+
+- `Optional.empty()` — 연동은 정상이나 지금 수집 불가(예: 만료된 GitHub installation token).
+- `IllegalStateException`/`IllegalArgumentException` — 연동 설정이 깨짐(예: 필수 external_ref 누락).
+
+이 예외를 삼킬지는 provider가 아니라 **호출 맥락**이 정한다(`ProjectIntegrationService`):
+webhook context 조립에서 **GitHub만 전파**한다(앵커라 조용히 넘기면 "연동 없음"으로 오인돼 수집이
+멈춘 걸 아무도 모른다). 나머지 provider와 초기 수집 트리거 경로는 삼키고 그 provider만 건너뛴다.
+
+**새 소스를 추가할 때 편집하는 곳**은 다음뿐이다.
+
+1. `CollectionProvider`에 상수 추가
+2. `source/{provider}` 패키지에 `SourceCollector` 구현 `@Service` 추가
+
+routing key는 설정하지 않는다 — `EventPublisher`가 `source`에서 유도한다
+(`{app.rabbitmq.routing-key-prefix}` + `.` + 소문자 source, 예: `GOOGLE_CHAT` → `event.google_chat`).
+큐 바인딩이 `event.#`라 브로커 설정도 불변이다.
+
+`EventPublisher`·`PipelineService`·`CollectionTriggerService`·`ProjectIntegrationService`·`CheckpointService`는
+건드리지 않는다.
+발행 계약(nodeType별 properties·refs·source 표기)은 `docs/normalized-event.md`가 단일 출처이며,
+backend·프론트까지 포함한 커넥터 전체 순서는 `docs/integration-abstraction.md`의
+「커넥터 엔드투엔드 체크리스트」에 있다.
 
 ## Endpoint
 
@@ -45,9 +80,10 @@ cd services/pipeline-worker
 ```text
 backend integration connect commit
   -> POST /api/v1/collect/{provider} {projectId}
-  -> ProjectIntegrationService로 해당 provider 연동 조회·credential 복호화
+  -> ProjectIntegrationService.resolveFetchRequest(projectId, provider)
+     (해당 provider의 SourceCollector가 credential 복호화·external_ref 해석)
   -> collectionTaskExecutor에서 비동기 실행 (webhook 풀과 분리된 초기 수집 전용 풀)
-  -> PipelineService.normalize{Provider}(...)
+  -> PipelineService.collect(projectId, provider, request) -> SourceCollector.collect(...)
   -> RabbitMQ publish
   -> DB checkpoint 갱신
 ```
@@ -92,9 +128,9 @@ Jira 토큰 확보 요청이 실패하거나(연동 없음·backend 오류) 예�
 | Jira | `event.jira` |
 | Slack | `event.slack` |
 
-Exchange: `history.exchange` / Queue: `history.events`
+Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 새 routing key는 브로커 설정 변경 없이 소비된다)
 
-발행은 publisher confirm으로 검증한다. `EventPublisher`가 메시지를 일괄 전송한 뒤 `CorrelationData`별 broker ack/return을 모아 대기하고, 한 건이라도 nack·라우팅 실패(unroutable)·타임아웃이면 `EventPublishException`을 던진다. 그러면 `PipelineService`가 해당 checkpoint를 전진시키지 않아(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)을 막고 다음 수집에서 재발행한다. 이를 위해 연결은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿은 `mandatory=true`로 설정한다. confirm 대기 한도는 `app.rabbitmq.publish-confirm-timeout-ms`.
+발행은 publisher confirm으로 검증한다. `EventPublisher`가 메시지를 일괄 전송한 뒤 `CorrelationData`별 broker ack/return을 모아 대기하고, 한 건이라도 nack·라우팅 실패(unroutable)·타임아웃이면 `EventPublishException`을 던진다. 그러면 해당 `SourceCollector`가 checkpoint를 전진시키지 않아(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)을 막고 다음 수집에서 재발행한다. 이를 위해 연결은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿은 `mandatory=true`로 설정한다. confirm 대기 한도는 `app.rabbitmq.publish-confirm-timeout-ms`.
 
 ## Rate Limiting
 
@@ -106,6 +142,8 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 
 ## Checkpoint
 
+- cursor_key는 **provider가 소유한다**. `CheckpointService`는 `(project, provider, cursor_key)` 키-값 저장소일 뿐
+  키를 해석하지 않으므로, provider마다 커서를 몇 개 쓰든(GitHub 3개, Jira·Slack 1개) 저장소는 그대로다.
 - 현재는 DB `checkpoints` 테이블을 사용한다.
 - 재시작 시 마지막 수집 시각 이후 데이터만 수집해 누락을 방지하고 중복을 최소화한다.
 - checkpoint 기준은 `Instant.now()`가 아니라 이벤트 실제 발생 시각인 `occurredAt`이다.
@@ -147,8 +185,11 @@ GitHub App private key는 pipeline-worker에 설정하지 않는다. token 발�
 ## 규칙 및 주의사항
 
 - Controller에는 수집/정규화/publish/checkpoint 조합 로직을 넣지 않는다.
-- 전체 수집 흐름 조합은 `pipeline.PipelineService`에서 처리한다.
-- provider별 API 호출/정규화/rate limit은 `source.{provider}` 패키지 안에서 처리한다.
+- **오케스트레이션 계층에 provider 분기(switch·if)를 만들지 않는다.** provider별 동작은 `SourceCollector`
+  구현으로 표현한다 — 분기를 한 번 허용하면 소스가 늘 때마다 같은 자리를 계속 고쳐야 한다.
+- provider별 API 호출/정규화/rate limit/자격증명 해석은 `source.{provider}` 패키지 안에서 처리한다.
+- `SourceCollector.collect`는 발행 예외를 삼키지 않는다 — 예외가 나야 checkpoint가 전진하지 않아
+  다음 수집에서 재발행된다. 삼키면 그 구간이 영구 누락된다.
 - GitHub merge commit은 `GitHubNormalizer`에서 필터링한다.
 - GitHub PR 수집은 `/pulls?state=closed` + 클라이언트 `merged_at != null` 필터 방식이다.
 - GitHub 수집은 integration에 브랜치가 지정되면 해당 단일 브랜치로 스코프한다: PR은 `base={branch}`(타겟 브랜치 기준), commit은 `sha={branch}` 파라미터로 제한한다. 브랜치 미지정이면 전체 브랜치를 수집한다.

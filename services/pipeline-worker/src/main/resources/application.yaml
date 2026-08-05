@@ -45,9 +45,9 @@ app:
   rabbitmq:
     exchange: history.exchange
     queue: history.events
-    routing-key-github: event.github
-    routing-key-jira: event.jira
-    routing-key-slack: event.slack
+    # routing key는 source에서 유도한다 — {prefix}.{소문자 source} (GOOGLE_CHAT → event.google_chat).
+    # 큐 바인딩이 event.# 라 새 소스는 여기도 브로커 설정도 고치지 않는다. 점(.)은 붙이지 않는다.
+    routing-key-prefix: event
     publish-confirm-timeout-ms: 10000   # 한 배치 발행의 broker confirm 대기 한도. 초과 시 수집 실패 처리(재발행)
 
   webhook:

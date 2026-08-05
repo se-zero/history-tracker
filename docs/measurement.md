@@ -109,7 +109,7 @@ question: "PR #20 '그래프 생성 파이프라인 안정성 개선'은 어떤 
 focus_evidence: []
 
 # 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
-#   commit → hash 앞 7자 / pull_request → #번호 / issue → jira_key / message → conversation_id(스레드 루트 ts)
+#   commit → hash 앞 7자 / pull_request → #번호 / issue → issue_key / message → conversation_id(스레드 루트 ts)
 expected_evidence_ids:
   - "issue:HT-38"
   - "commit:b5ad923"

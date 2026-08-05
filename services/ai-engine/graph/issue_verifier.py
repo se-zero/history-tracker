@@ -131,8 +131,8 @@ async def build_issue_changeset_links_verified(
                     best_per_cs[cs_key] = (issue["id"], confidence)
 
     created = 0
-    for (project_id, cs_id), (jira_key, confidence) in best_per_cs.items():
-        await store.create_triggered_by_edge(project_id, cs_id, jira_key, confidence)
+    for (project_id, cs_id), (issue_key, confidence) in best_per_cs.items():
+        await store.create_triggered_by_edge(project_id, cs_id, issue_key, confidence)
         created += 1
 
     logger.info(
@@ -168,8 +168,8 @@ async def build_issue_communication_links_filtered(
 
     stats = JudgeStats()
     created = 0
-    for project_id, jira_key, comm_id, cosine in pairs:
-        issue = issue_by_key.get((project_id, jira_key), {})
+    for project_id, issue_key, comm_id, cosine in pairs:
+        issue = issue_by_key.get((project_id, issue_key), {})
         confidence = await judge_pair(
             "Issue", _issue_text(issue),
             "Slack 메시지", comm_texts.get(comm_id, ""),
@@ -179,7 +179,7 @@ async def build_issue_communication_links_filtered(
             confidence = cosine          # 판정 못 한 엣지는 남긴다 (장애가 골든을 지우면 안 된다)
         elif confidence < llm_threshold:
             continue
-        await store.create_discussed_in_edge(project_id, jira_key, comm_id, confidence)
+        await store.create_discussed_in_edge(project_id, issue_key, comm_id, confidence)
         created += 1
 
     logger.info(

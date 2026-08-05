@@ -2,6 +2,7 @@ package com.history.pipeline_worker.webhook;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.history.pipeline_worker.collection.CollectionProvider;
 import com.history.pipeline_worker.collection.JiraTokenClient;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
@@ -14,7 +15,6 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 
@@ -118,22 +118,20 @@ public class GitHubWebhookService {
     }
 
     // Jira는 선택 연동이다 — 토큰 확보에 실패해도 GitHub·Slack 수집은 계속 진행해야 하므로 예외를
-    // 삼키고 Jira만 Optional.empty()로 비운다. 죽은 토큰으로 시도해 401을 내는 것보다 낫다.
+    // 삼키고 Jira만 컨텍스트에서 뺀다. 죽은 토큰으로 시도해 401을 내는 것보다 낫다.
     private ProjectCollectionContext ensureFreshJiraToken(ProjectCollectionContext context) {
-        if (context.jira().isEmpty()) {
+        if (context.request(CollectionProvider.JIRA).isEmpty()) {
             return context;
         }
         UUID projectId = UUID.fromString(context.projectId());
         if (!ensureJiraToken(projectId)) {
             log.warn("Jira 토큰 확보 실패로 이번 수집에서 Jira를 건너뜁니다: projectId={}", context.projectId());
-            return new ProjectCollectionContext(context.projectId(), context.github(), Optional.empty(), context.slack());
+            return context.without(CollectionProvider.JIRA);
         }
-        return new ProjectCollectionContext(
-                context.projectId(),
-                context.github(),
-                projectIntegrationService.resolveJira(projectId),
-                context.slack()
-        );
+        // 갱신된 토큰으로 Jira 요청만 다시 만든다 — 재해석이 실패하면 Jira만 빼고 진행한다.
+        return projectIntegrationService.resolveFetchRequest(projectId, CollectionProvider.JIRA)
+                .map(request -> context.with(CollectionProvider.JIRA, request))
+                .orElseGet(() -> context.without(CollectionProvider.JIRA));
     }
 
     private boolean ensureJiraToken(UUID projectId) {
@@ -177,8 +175,8 @@ public class GitHubWebhookService {
                     context.projectId(),
                     () -> pipelineService.collectIncremental(context));
             webhookDeliveryService.markProcessed(deliveryId);
-            log.info("Webhook-triggered collection completed: deliveryId={}, projectId={}, github={}, jira={}, slack={}",
-                    deliveryId, context.projectId(), result.github(), result.jira(), result.slack());
+            log.info("Webhook-triggered collection completed: deliveryId={}, projectId={}, published={}",
+                    deliveryId, context.projectId(), result.published());
         } catch (Exception e) {
             webhookDeliveryService.markFailed(deliveryId, failureReason(e));
             log.error("Webhook-triggered collection failed: deliveryId={}", deliveryId, e);

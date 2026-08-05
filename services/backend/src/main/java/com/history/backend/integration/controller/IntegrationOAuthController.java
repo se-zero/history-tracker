@@ -3,6 +3,8 @@ package com.history.backend.integration.controller;
 import java.net.URI;
 import java.util.UUID;
 
+import com.history.backend.common.error.NotFoundException;
+import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.dto.AuthorizeUrlResponse;
 import com.history.backend.integration.service.IntegrationOAuthService;
 import com.history.backend.integration.service.OAuthCallbackOutcome;
@@ -16,56 +18,51 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-// Slack OAuth 동의 URL 발급(JWT)과 콜백 복귀(permitAll) — 두 경로의 base가 달라
+// OAuth 동의 URL 발급(JWT)과 콜백 복귀(permitAll) — 두 경로의 base가 달라
 // 클래스 레벨 @RequestMapping 없이 메서드에 전체 경로를 쓴다.
+// 경로의 {provider}는 provider별 라우트를 하나로 합친 것이라 기존 URL은 그대로다 —
+// 콜백 주소는 Slack·Atlassian 앱에 등록된 redirect URI라 바꾸면 배포된 연동이 깨진다.
 @RestController
 @RequiredArgsConstructor
 public class IntegrationOAuthController {
 
     private final IntegrationOAuthService integrationOAuthService;
 
-    @GetMapping("/api/v1/projects/{projectId}/integrations/slack/authorize")
-    public AuthorizeUrlResponse authorizeSlack(
+    @GetMapping("/api/v1/projects/{projectId}/integrations/{provider}/authorize")
+    public AuthorizeUrlResponse authorize(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID projectId
+            @PathVariable UUID projectId,
+            @PathVariable String provider
     ) {
-        return new AuthorizeUrlResponse(
-                integrationOAuthService.buildSlackAuthorizeUrl(authenticatedUser.id(), projectId)
-        );
+        return new AuthorizeUrlResponse(integrationOAuthService.buildAuthorizeUrl(
+                authenticatedUser.id(),
+                projectId,
+                parseProvider(provider)
+        ));
     }
 
-    @GetMapping("/api/v1/integrations/slack/callback")
-    public ResponseEntity<Void> callbackSlack(
+    @GetMapping("/api/v1/integrations/{provider}/callback")
+    public ResponseEntity<Void> callback(
+            @PathVariable String provider,
             @RequestParam(required = false) String code,
             @RequestParam(required = false) String state,
             @RequestParam(required = false) String error
     ) {
-        OAuthCallbackOutcome outcome = integrationOAuthService.completeSlackCallback(code, state, error);
+        OAuthCallbackOutcome outcome = integrationOAuthService.completeCallback(
+                parseProvider(provider), code, state, error);
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create(buildRedirectPath(outcome)))
                 .build();
     }
 
-    @GetMapping("/api/v1/projects/{projectId}/integrations/jira/authorize")
-    public AuthorizeUrlResponse authorizeJira(
-            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID projectId
-    ) {
-        return new AuthorizeUrlResponse(
-                integrationOAuthService.buildJiraAuthorizeUrl(authenticatedUser.id(), projectId)
-        );
-    }
-
-    @GetMapping("/api/v1/integrations/jira/callback")
-    public ResponseEntity<Void> callbackJira(
-            @RequestParam(required = false) String code,
-            @RequestParam(required = false) String state,
-            @RequestParam(required = false) String error
-    ) {
-        OAuthCallbackOutcome outcome = integrationOAuthService.completeJiraCallback(code, state, error);
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(buildRedirectPath(outcome)))
-                .build();
+    // 알 수 없는 provider는 라우트가 없던 것과 같게 404로 처리한다 — fromValue가 던지는
+    // IllegalArgumentException은 GlobalExceptionHandler에 매핑이 없어 500이 된다.
+    private IntegrationProvider parseProvider(String provider) {
+        try {
+            return IntegrationProvider.fromValue(provider);
+        } catch (IllegalArgumentException exception) {
+            throw new NotFoundException(exception.getMessage());
+        }
     }
 
     // 에러 경로에 provider를 함께 실어 프론트가 provider별 실패 문구를 조립할 수 있게 한다

@@ -105,23 +105,23 @@ class BuildActivityTiersTest(unittest.TestCase):
 
 class CapIssuesTest(unittest.TestCase):
     def test_caps_by_recent_jira_number_and_reports_total(self):
-        issues = [{"jira_key": f"HT-{i}", "title": f"issue {i}"} for i in range(1, 31)]
+        issues = [{"issue_key": f"HT-{i}", "title": f"issue {i}"} for i in range(1, 31)]
         capped, total, overflow = _cap_issues(issues, cap=5)
         self.assertEqual(total, 30)
-        self.assertEqual([i["jira_key"] for i in capped], ["HT-30", "HT-29", "HT-28", "HT-27", "HT-26"])
+        self.assertEqual([i["issue_key"] for i in capped], ["HT-30", "HT-29", "HT-28", "HT-27", "HT-26"])
         # 잘린 오래된 이슈도 key로는 전부 보인다 — 초기 대표작 증발 방지
         self.assertIn("HT-1", overflow)
         self.assertIn("HT-25", overflow)
 
     def test_drops_null_placeholder_rows(self):
-        # OPTIONAL MATCH 미매치 잔재({jira_key: null})는 집계에서 제외
-        capped, total, overflow = _cap_issues([{"jira_key": None, "title": None}, {"jira_key": "HT-1", "title": "t"}])
+        # OPTIONAL MATCH 미매치 잔재({issue_key: null})는 집계에서 제외
+        capped, total, overflow = _cap_issues([{"issue_key": None, "title": None}, {"issue_key": "HT-1", "title": "t"}])
         self.assertEqual(total, 1)
         self.assertEqual(len(capped), 1)
         self.assertEqual(overflow, "")
 
     def test_title_clipped(self):
-        capped, _, _ = _cap_issues([{"jira_key": "HT-1", "title": "x" * 200}])
+        capped, _, _ = _cap_issues([{"issue_key": "HT-1", "title": "x" * 200}])
         self.assertLessEqual(len(capped[0]["title"]), 40)
 
 

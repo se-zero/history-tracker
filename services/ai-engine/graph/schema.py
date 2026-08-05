@@ -52,12 +52,12 @@ async def drop_node_search_index() -> None:
 
 
 # 프로젝트 격리의 핵심 — 모든 도메인 노드는 (project_id, 자연키) 복합 유니크.
-# pr_number/path/jira_key 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하므로
+# pr_number/path/issue_key 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하므로
 # project_id 없이 MERGE하면 서로 다른 프로젝트의 데이터가 같은 노드로 병합된다.
 _UNIQUE_CONSTRAINTS: list[tuple[str, str, list[str]]] = [
     ("changeset_project_hash",      "ChangeSet",     ["project_id", "hash"]),
     ("pull_request_project_number", "PullRequest",   ["project_id", "pr_number"]),
-    ("issue_project_jira_key",      "Issue",         ["project_id", "jira_key"]),
+    ("issue_project_issue_key",      "Issue",         ["project_id", "issue_key"]),
     ("communication_project_url",   "Communication", ["project_id", "url"]),
     ("file_project_path",           "File",          ["project_id", "path"]),
     ("actor_uuid",                  "Actor",         ["uuid"]),

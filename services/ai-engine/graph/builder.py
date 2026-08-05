@@ -27,7 +27,7 @@ from graph.issue_link_store import make_neo4j_issue_link_store
 from graph.maintenance import (
     backfill_actor_aliases,
     backfill_discussed_in_source,
-    backfill_pr_jira_keys,
+    backfill_pr_issue_keys,
     backfill_triggered_by_source,
     clear_reference,
     clear_semantic_discussed_in,
@@ -83,7 +83,7 @@ __all__ = [
     "propagate_thread_discussed_in",
     "backfill_triggered_by_source",
     "backfill_discussed_in_source",
-    "backfill_pr_jira_keys",
+    "backfill_pr_issue_keys",
     "backfill_actor_aliases",
     "clear_semantic_triggered_by",
     "clear_semantic_discussed_in",

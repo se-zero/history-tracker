@@ -7,13 +7,13 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 - pipeline-worker가 발행하는 모든 NormalizedEvent는 최상위에 `projectId`(프로젝트 UUID)를 갖는다.
   ai-engine은 `projectId` 없는 이벤트를 그래프에 쓰지 않고 건너뛴다.
 - 모든 도메인 노드는 `project_id` 속성을 가지며, MERGE 키는 `(project_id, 자연키)` 복합 키다.
-  `pr_number`, `path`, `jira_key` 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하기 때문.
+  `pr_number`, `path`, `issue_key` 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하기 때문.
 
 | 노드 | 복합 유니크 키 |
 |------|----------------|
 | ChangeSet | (project_id, hash) |
 | PullRequest | (project_id, pr_number) |
-| Issue | (project_id, jira_key) |
+| Issue | (project_id, issue_key) |
 | Communication | (project_id, url) |
 | File | (project_id, path) |
 | Actor | uuid (단일) — 단, 생성/조회는 project_id 스코프 |
@@ -113,7 +113,7 @@ Jira 티켓.
   "occurredAt": "",                    // ISO-8601 — Jira updated 시각 기준 (변경 이력 반영); 생성만 있으면 created 사용
   "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
-    "jira_key": "",                    // Jira 고유 키 (예: HT-7)
+    "issue_key": "",                    // 외부 트래커 이슈 키 (예: HT-7)
     "title": "",                       // 티켓 제목
     "body": "",                        // 티켓 본문
     "status": "",                      // 현재 상태 (예: 진행 중)
@@ -122,7 +122,7 @@ Jira 티켓.
     "created_at": "",                  // 티켓 최초 생성 시각 (ISO-8601); occurredAt이 updated 기준이므로 보존
     "closed_at": ""                    // 종료 시각 (ISO-8601, terminal status일 때만 전달) → 노드 closedAt 저장. TRIGGERED_BY 비대칭 윈도우 계산에 사용
   },
-  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "parentJiraKey": "HT-1", "assigneeId": "abc123" }
+  "refs": {}                            // 예: { "issueKey": "PAYMENT-301", "parentIssueKey": "HT-1", "assigneeId": "abc123" }
 }
 ```
 
@@ -148,7 +148,7 @@ Slack 메시지 또는 GitHub Issue. 텍스트 기반 의사소통 단위.
                                        // GitHub Issue: issue number (string)
     "created_at": ""                   // GitHub Issue 최초 생성 시각 (ISO-8601); SLACK은 null
   },
-  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
+  "refs": {}                            // 예: { "issueKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
@@ -174,7 +174,7 @@ GitHub Pull Request. 머지된 PR만 수집한다.
     "created_at": "",                  // PR 최초 생성 시각 (ISO-8601)
     "url": ""                          // PR 링크
   },
-  "refs": {}                            // 예: { "jiraKeys": ["PAYMENT-301", "HT-7"] } — 제목/본문에서 추출. 이벤트 처리 시 pr.jira_keys 노드 속성으로 저장되어, 그 PR의 CONTAINS 커밋에 text TRIGGERED_BY 전파에 사용
+  "refs": {}                            // 예: { "issueKeys": ["PAYMENT-301", "HT-7"] } — 제목/본문에서 추출. 이벤트 처리 시 pr.issue_keys 노드 속성으로 저장되어, 그 PR의 CONTAINS 커밋에 text TRIGGERED_BY 전파에 사용
 }
 ```
 
@@ -202,7 +202,7 @@ GitHub Commit. 실제 코드 변경 단위. merge commit은 제외한다.
       }
     ]
   },
-  "refs": {}                            // 예: { "jiraKey": "PAYMENT-301", "prNumber": "142" }
+  "refs": {}                            // 예: { "issueKey": "PAYMENT-301", "prNumber": "142" }
 }
 ```
 
@@ -239,8 +239,8 @@ GitHub 저장소 내 파일.
 | `AUTHORED` | `(Actor)→(PullRequest)`, `(Actor)→(ChangeSet)` | — | Actor가 PR/commit을 생성 |
 | `ASSIGNED_TO` | `(Issue)→(Actor)` | — | Jira 이슈의 담당자 |
 | `ALIAS_OF` | `(ActorAlias)→(Actor)` | — | ActorAlias(소스 계정)가 속한 Actor. Step 0 조회, 수동 병합·복원·분리의 재연결 대상 |
-| `DISCUSSED_IN` | `(Issue)→(Communication)` | `confidence: Float` (시맨틱 엣지만) | 이슈가 대화에서 언급됨. text(`refs.jiraKey`)·스레드 전파 엣지는 속성 없음, 시맨틱 엣지만 confidence 부여 |
-| `CHILD_OF` | `(Issue)→(Issue)` | — | 이슈 계층 구조 (Sub-task → Parent). `refs.parentJiraKey` 기반 |
+| `DISCUSSED_IN` | `(Issue)→(Communication)` | `confidence: Float` (시맨틱 엣지만) | 이슈가 대화에서 언급됨. text(`refs.issueKey`)·스레드 전파 엣지는 속성 없음, 시맨틱 엣지만 confidence 부여 |
+| `CHILD_OF` | `(Issue)→(Issue)` | — | 이슈 계층 구조 (Sub-task → Parent). `refs.parentIssueKey` 기반 |
 | `CHILD_OF` | `(ChangeSet)→(ChangeSet)` _(미구현)_ | — | 커밋 계층 구조 — 현재 미구현 |
 | `TRIGGERED_BY` | `(ChangeSet)→(Issue)` | `source: String (text\|semantic)`, `confidence: Float` | 이슈에 대한 커밋. text=1.0 고정, semantic=코사인 유사도. text가 semantic보다 우선 |
 | `CONTAINS` | `(PullRequest)→(ChangeSet)` | — | PR에 포함된 커밋 |
@@ -300,10 +300,10 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | 레이어 | 관계 | 생성 조건 | 근거 |
 |--------|------|-----------|------|
 | Layer 1 | `CREATED` / `WROTE` / `AUTHORED` | 모든 이벤트 | `actor` 필드 |
-| Layer 2 | `CHILD_OF` (Issue) | `refs.parentJiraKey` 존재 시 | Issue의 refs (Jira Sub-task → Parent) |
+| Layer 2 | `CHILD_OF` (Issue) | `refs.parentIssueKey` 존재 시 | Issue의 refs (Jira Sub-task → Parent) |
 | Layer 2 | `ASSIGNED_TO` | `refs.assigneeId` 존재 시 | Issue의 refs (Jira 담당자 ID) |
-| Layer 2 | `DISCUSSED_IN` (text) | `refs.jiraKey` 존재 시 | Communication의 refs |
-| Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.jiraKey`, 또는 PR `jira_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
+| Layer 2 | `DISCUSSED_IN` (text) | `refs.issueKey` 존재 시 | Communication의 refs |
+| Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.issueKey`, 또는 PR `issue_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
 | Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary; 임베딩은 MODIFIED 엣지 속성으로 저장 |
 | Layer 4 | `REFERENCE` | 배치 처리 | `MODIFIED.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.44 (기본값), 시간 범위 ±5일 |
@@ -317,17 +317,17 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 
 ## Layer 4 — 시맨틱 링크 (구현된 생성 방식)
 
-refs(`jiraKey`/`prNumber`)는 커밋·메시지에 명시될 때만 텍스트로 추출되어 자주 비어 있다. 이를 보완해 Issue 연결을 아래 방식으로 생성한다. 모든 배치 비교는 같은 `project_id` 안에서만 수행한다.
+refs(`issueKey`/`prNumber`)는 커밋·메시지에 명시될 때만 텍스트로 추출되어 자주 비어 있다. 이를 보완해 Issue 연결을 아래 방식으로 생성한다. 모든 배치 비교는 같은 `project_id` 안에서만 수행한다.
 
 ### DISCUSSED_IN (Issue → Communication)
 
-1. **text** — Communication `refs.jiraKey`로 직접 연결 (`link_issue_to_communication`, 속성 없음)
+1. **text** — Communication `refs.issueKey`로 직접 연결 (`link_issue_to_communication`, 속성 없음)
 2. **스레드 전파** — 같은 `conversation_id` 스레드에 DISCUSSED_IN이 하나라도 있으면 스레드 전체로 전파 (`propagate_thread_discussed_in`, 속성 없음)
 3. **시맨틱** — `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ `discussed_in_threshold`(기본 0.48), 이슈 생애 윈도우 `[createdAt-4d, closedAt+3d / 진행 중이면 now]`. `confidence` 속성 부여 (`build_issue_communication_links`)
 
 ### TRIGGERED_BY (ChangeSet → Issue)
 
-1. **text** — ChangeSet `refs.jiraKey`, 그리고 PR 제목/본문의 `jira_keys`를 그 PR이 머지한 CONTAINS 커밋들에 전파. `source='text'`, `confidence=1.0` (`link_changeset_to_issue`, `link_pr_changesets_to_issues`)
+1. **text** — ChangeSet `refs.issueKey`, 그리고 PR 제목/본문의 `issue_keys`를 그 PR이 머지한 CONTAINS 커밋들에 전파. `source='text'`, `confidence=1.0` (`link_changeset_to_issue`, `link_pr_changesets_to_issues`)
 2. **시맨틱** — `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ `triggered_by_threshold`(기본 0.34 — text 엣지가 전혀 없는 커밋만 후보라 낮은 값이 안전하다). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행 중이면 now]`, ChangeSet당 top-1만 유지, text 엣지가 이미 있는 커밋은 제외(text 우선). `source='semantic'`, `confidence=점수` (`build_issue_changeset_links`)
 
 ### 실행 트리거 — 자동(디바운스) + 수동

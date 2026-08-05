@@ -36,7 +36,7 @@ class TestUtcNormalization(unittest.TestCase):
         """
         events = sort_events(
             expand_events("Issue", {"createdAt": "2026-05-16T19:47:57.124+09:00"},
-                          {"jira_key": "HT-45"})
+                          {"issue_key": "HT-45"})
             + expand_events("PullRequest",
                             {"createdAt": "2026-05-16T10:52:04Z",
                              "occurredAt": "2026-05-16T11:07:48Z"},
@@ -73,7 +73,7 @@ class TestExpandEvents(unittest.TestCase):
         events = expand_events(
             "Issue",
             {"createdAt": "2026-05-16T19:47:00Z", "closedAt": "2026-05-17T16:56:00Z"},
-            {"jira_key": "HT-45"},
+            {"issue_key": "HT-45"},
         )
         self.assertEqual([e["event_meaning"] for e in events],
                          ["issue_created", "issue_closed"])
@@ -81,7 +81,7 @@ class TestExpandEvents(unittest.TestCase):
         self.assertEqual([e["occurredAt"] for e in events],
                          ["2026-05-16T19:47:00.000Z", "2026-05-17T16:56:00.000Z"])
         self.assertTrue(all(e["type"] == "Issue" for e in events))
-        self.assertTrue(all(e["data"]["jira_key"] == "HT-45" for e in events))
+        self.assertTrue(all(e["data"]["issue_key"] == "HT-45" for e in events))
 
     def test_open_issue_yields_only_created(self):
         """closedAt은 terminal status에서만 존재 — 없으면 종료 이벤트도 없다."""

@@ -7,7 +7,7 @@ question: "HT-99 프론트엔드 개선작업2는 어떤 커밋들로 구현됐�
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, commit -> hash 앞 7자
+# issue -> issue_key, commit -> hash 앞 7자
 expected_evidence_ids:
 - "issue:HT-99"                    # 프론트엔드 개선작업 (PR #53)
 - "commit:99d0c1e"                 # 채팅 입력창 여러 줄 입력 시 높이 자동 확장

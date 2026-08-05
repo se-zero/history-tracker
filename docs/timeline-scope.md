@@ -46,18 +46,18 @@ Day/Week 노드 + `NEXT` 체인(time-tree)은 Neo4j에 네이티브 temporal 인
 ## 도구 계약
 
 ```
-get_timeline(jira_key?, path?, actor?, from_time?, to_time?)
+get_timeline(issue_key?, path?, actor?, from_time?, to_time?)
 ```
 
 | 파라미터 | 설명 |
 |---|---|
-| `jira_key` | 이슈 생명주기 (현행 동작) |
+| `issue_key` | 이슈 생명주기 (현행 동작) |
 | `path` | 그 파일을 변경한 커밋과 연결 이슈·PR |
 | `actor` | 그 사람의 활동 (이름·alias·email) |
 | `from_time` / `to_time` | ISO-8601 기간 한정. 스코프와 조합 가능 |
 
-- 스코프 우선순위: `jira_key` > `path` > `actor` > 프로젝트 전체. 전부 생략하면 전 기간.
-- `jira_key` **필수 제약 해제**가 이번 변경의 본체다. 지금은 이슈 하나 단위로만 나온다.
+- 스코프 우선순위: `issue_key` > `path` > `actor` > 프로젝트 전체. 전부 생략하면 전 기간.
+- `issue_key` **필수 제약 해제**가 이번 변경의 본체다. 지금은 이슈 하나 단위로만 나온다.
 - 반환: `{scope, window, events[], truncated}`. `events[]` 항목 구조는 현행 유지
   (`{type, event_meaning, occurredAt, data}`), occurredAt 오름차순, null occurredAt 제외.
 - `window`는 **실제로 커버한 시간 구간**이다. 요청 구간과 다를 수 있다(아래 잘림 규칙).
@@ -143,7 +143,7 @@ case-43이 가장 강한 판별기다. HT-45는 커밋(5/15~16)과 PR #21 머지
 
 - `tools/queries/_common.py` — 이벤트 펼치기 공용 헬퍼 (신규)
 - `tools/queries/issue.py` — `get_timeline` 스코프 일반화
-- `tools/definitions.py` — 도구 스키마 (`jira_key` 필수 해제, 스코프 파라미터 추가)
+- `tools/definitions.py` — 도구 스키마 (`issue_key` 필수 해제, 스코프 파라미터 추가)
 - `tools/executor.py` — 디스패치 인자 전달, `events` dict 잘림 처리
 - `agent/orchestrator.py` — 도구 사용 가이드에 스코프별 진입점 추가
 - `tests/unit/test_import_surface.py` — 공개 심볼 목록 유지 확인

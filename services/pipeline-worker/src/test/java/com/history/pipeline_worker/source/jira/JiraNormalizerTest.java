@@ -64,7 +64,7 @@ class JiraNormalizerTest {
         NormalizedEvent event = events.get(0);
         assertThat(event.nodeType()).isEqualTo("Issue");
         assertThat(event.source()).isEqualTo("JIRA");
-        assertThat(event.properties()).containsEntry("jira_key", "PROJ-1");
+        assertThat(event.properties()).containsEntry("issue_key", "PROJ-1");
         assertThat(event.properties()).containsEntry("title", "Test Summary");
         assertThat(event.properties()).containsEntry("status", "To Do");
         assertThat(event.properties()).containsEntry("issue_type", "Bug");
@@ -204,11 +204,11 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,result).get(0);
 
-        assertThat(event.refs()).containsEntry("jiraKey", "AUTH-99");
+        assertThat(event.refs()).containsEntry("issueKey", "AUTH-99");
     }
 
     @Test
-    @DisplayName("parent 필드 있는 이슈 → refs에 parentJiraKey 포함")
+    @DisplayName("parent 필드 있는 이슈 → refs에 parentIssueKey 포함")
     void normalizeIssues_withParent_parentKeyInRefs() {
         Map<String, Object> issue = buildIssue("PROJ-9", "Child story", null, "Open", "Story", "Medium",
                 "id1", "Name", "email@test.com");
@@ -219,7 +219,7 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.refs()).containsEntry("parentJiraKey", "EPIC-1");
+        assertThat(event.refs()).containsEntry("parentIssueKey", "EPIC-1");
     }
 
     @Test
@@ -305,7 +305,7 @@ class JiraNormalizerTest {
     }
 
     @Test
-    @DisplayName("parent 필드 없는 이슈 → refs에 parentJiraKey 없음")
+    @DisplayName("parent 필드 없는 이슈 → refs에 parentIssueKey 없음")
     void normalizeIssues_withoutParent_noParentKeyInRefs() {
         Map<String, Object> result = buildSearchResult(List.of(
                 buildIssue("PROJ-10", "Root epic", null, "Open", "Epic", "High",
@@ -314,7 +314,7 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,result).get(0);
 
-        assertThat(event.refs()).doesNotContainKey("parentJiraKey");
+        assertThat(event.refs()).doesNotContainKey("parentIssueKey");
     }
 
     // ─── 헬퍼 메서드 ───────────────────────────────────────────────────────────

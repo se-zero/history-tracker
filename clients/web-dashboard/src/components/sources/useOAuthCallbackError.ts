@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-const PROVIDER_LABELS: Record<string, string> = {
-  slack: "Slack",
-  jira: "Jira",
-};
+import { sourceName } from "@/components/sources/sourceCatalog";
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_state: "연결 요청이 만료되었거나 올바르지 않아요. 다시 시도해 주세요.",
@@ -12,14 +9,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   connect_failed: "연결에 실패했어요. 잠시 후 다시 시도해 주세요.",
 };
 
-function providerLabel(provider: string | null): string {
-  if (!provider) return "연동";
-  return PROVIDER_LABELS[provider] ?? provider;
-}
-
 function errorMessage(errorCode: string, provider: string | null): string {
   if (errorCode === "access_denied") {
-    return `${providerLabel(provider)} 연결 요청을 취소했어요.`;
+    return `${sourceName(provider)} 연결 요청을 취소했어요.`;
   }
   return ERROR_MESSAGES[errorCode] ?? "연결 중 문제가 발생했어요.";
 }

@@ -125,10 +125,10 @@ class ReferenceFilteredTest(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(store.created[0][3], 0.95, places=5)
 
 
-def _issue(jira_key, embedding, project_id="p1", occurred_at=NOW):
+def _issue(issue_key, embedding, project_id="p1", occurred_at=NOW):
     return {
-        "project_id": project_id, "id": jira_key, "title": f"{jira_key} 제목",
-        "body": f"{jira_key} 본문", "embedding": embedding, "occurred_at": occurred_at,
+        "project_id": project_id, "id": issue_key, "title": f"{issue_key} 제목",
+        "body": f"{issue_key} 본문", "embedding": embedding, "occurred_at": occurred_at,
         "created_at": occurred_at, "closed_at": None, "status": "진행 중",
     }
 

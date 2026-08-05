@@ -1,7 +1,7 @@
 # DB 스키마
 
 backend 서비스(`services/backend`)의 PostgreSQL 테이블 정의 및 관계를 기술한다.
-마이그레이션 파일: `src/main/resources/db/migration/V1~V11`
+마이그레이션 파일: `src/main/resources/db/migration/V1~V12`
 
 ---
 
@@ -184,7 +184,7 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 |------|------|------|------|
 | `id` | UUID | PK | 연동 레코드 ID |
 | `project_id` | UUID | NOT NULL, FK → `projects.id` CASCADE | 이 연동이 속한 프로젝트 |
-| `provider` | TEXT | NOT NULL, CHECK IN (`github`, `slack`, `jira`) | 외부 시스템 종류 |
+| `provider` | TEXT | NOT NULL | 외부 시스템 종류. 유효값은 앱(`IntegrationProvider`)이 보증한다 |
 | `external_ref` | JSONB | NOT NULL | provider별 식별자 묶음 |
 | `installation_id` | UUID | FK → `github_installations.id` CASCADE, nullable | GitHub 연동 시 installation 참조 |
 | `encrypted_credential` | BYTEA | nullable | provider별 자격증명 암호화 보관 (AES-GCM). 평문 포맷은 아래 참고 |
@@ -193,15 +193,22 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 
 **CHECK 제약**
 - `provider = 'github'` → `installation_id NOT NULL`, `encrypted_credential NULL`
-- `provider IN ('slack', 'jira')` → `installation_id NULL`, `encrypted_credential NOT NULL`
+- `provider <> 'github'` → `installation_id NULL`, `encrypted_credential NOT NULL`
+
+provider 열거형 CHECK는 V12에서 제거했다 — 새 연동을 붙일 때마다 마이그레이션을 강제했기 때문이다.
+자격증명 형태 제약은 provider 목록이 아니라 "installation 기반인가"로 표현돼 provider가 늘어도 그대로 성립한다.
 
 **`external_ref` JSON 키**
 - GitHub: `repository_id`, `repository_full_name`, `branch`(선택 — 지정하면 해당 브랜치로 수집을 스코프한다)
 - Slack: `workspace_id`, `workspace_name`
 - Jira: `cloud_id`, `site_name`, `project_key`, `project_name`(선택)
-  - 최초 동의 직후에는 사이트·프로젝트를 아직 모르므로 `status`(`pending_project`) 하나만 담긴다
+  - 최초 동의 직후에는 사이트·프로젝트를 아직 모르므로 `status`(`pending_selection`) 하나만 담긴다
   - 토큰 갱신이 영구 실패해 pending으로 되돌아온 경우는 기존 키를 유지한 채 `status`만 덧붙는다
-    (재동의 시 자동 복원에 쓰인다 — 두 pending 상태는 `cloud_id` 유무로 구분한다)
+    (재동의 시 자동 복원에 쓰인다 — 두 pending 상태는 고른 값의 유무로 구분한다)
+  - `status` 값은 provider 중립(`pending_selection`)이다. 구 Jira 전용 값 `pending_project`도
+    읽기에서 pending으로 인정해 저장된 행을 마이그레이션 없이 수용한다
+  - 선택 단계의 키(`cloud_id`·`project_key` 등)는 provider의 `IntegrationSelectionFlow`가 선언한다 —
+    pipeline-worker가 수집할 때 읽는 키와 같아야 하기 때문이다
 
 **`encrypted_credential` 평문 포맷**
 

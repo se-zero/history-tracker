@@ -1,6 +1,5 @@
 package com.history.pipeline_worker.source.github;
 
-import com.history.pipeline_worker.checkpoint.ProjectCheckpointData;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -318,7 +317,7 @@ class GitHubRawServiceTest {
 
     private GitHubRawService.GitHubFetchContext fetchContext() {
         return new GitHubRawService.GitHubFetchContext(
-                "Bearer token", "owner", "repo", null, new ProjectCheckpointData.GitHubCheckpoint());
+                "Bearer token", "owner", "repo", null, GitHubCheckpoint.empty());
     }
 
     private String commitsPageJson(String sha, String login) {

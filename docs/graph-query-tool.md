@@ -15,7 +15,7 @@
 
 ## 왜 전용 도구를 더 만들지 않는가
 
-현재 14개 도구는 전부 **"엔티티 하나 → 그 주변"** 모양이다(`jira_key`, `hash`, `pr_number`,
+현재 14개 도구는 전부 **"엔티티 하나 → 그 주변"** 모양이다(`issue_key`, `hash`, `pr_number`,
 `path`, `identifier`). 그래서 다음 유형이 통째로 빈다.
 
 | 유형 | 예 | 현재 결과 |
@@ -45,7 +45,7 @@ run_graph_query(cypher: str, purpose: str) -> list[dict]
 **인용 가능성이 반환 설계의 제약이다.** `grounded_answer`의 evidence는 4타입
 (commit / pull_request / issue / message)에 각각 정해진 id 형식을 요구한다. 집계 스칼라만
 돌려주면 그 답은 근거 없이 뜬다. 따라서 도구 설명에 "행에 표준 식별자(`hash`, `pr_number`,
-`jira_key`, `conversation_id`)와 `occurredAt`·본문을 함께 RETURN하라"를 명시하고,
+`issue_key`, `conversation_id`)와 `occurredAt`·본문을 함께 RETURN하라"를 명시하고,
 집계 질의도 근거가 된 노드 id를 함께 반환하도록 유도한다.
 
 ## 안전 — 서버 측 5개 관문

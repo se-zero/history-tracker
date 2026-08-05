@@ -59,7 +59,7 @@ EDGE_SPECS = {
         "query": (
             "MATCH (i:Issue {project_id:$pid})-[r:DISCUSSED_IN]->(comm:Communication) "
             "WHERE r.confidence IS NOT NULL AND comm.conversation_id IS NOT NULL "
-            "RETURN i.jira_key AS src_id, comm.conversation_id AS dst_id, r.confidence AS confidence"
+            "RETURN i.issue_key AS src_id, comm.conversation_id AS dst_id, r.confidence AS confidence"
         ),
         "src_type": "issue",
         "dst_type": "message",
@@ -69,7 +69,7 @@ EDGE_SPECS = {
         "query": (
             "MATCH (c:ChangeSet {project_id:$pid})-[r:TRIGGERED_BY]->(i:Issue) "
             "WHERE r.source='semantic' "
-            "RETURN left(c.hash,7) AS src_id, i.jira_key AS dst_id, r.confidence AS confidence"
+            "RETURN left(c.hash,7) AS src_id, i.issue_key AS dst_id, r.confidence AS confidence"
         ),
         "src_type": "commit",
         "dst_type": "issue",

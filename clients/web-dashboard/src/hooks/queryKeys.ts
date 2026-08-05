@@ -9,9 +9,15 @@ export const queryKeys = {
     conversationId: string | undefined,
   ) => ["conversation", projectId, conversationId] as const,
   integrations: (projectId: string) => ["integrations", projectId] as const,
-  jiraSites: (projectId: string) => ["jira", projectId, "sites"] as const,
-  jiraProjects: (projectId: string, cloudId: string) =>
-    ["jira", projectId, "projects", cloudId] as const,
+  selectionSteps: (projectId: string, provider: string) =>
+    ["selection", projectId, provider, "steps"] as const,
+  // prior(앞 단계 선택값 맵)가 키에 들어간다 — 상위 선택이 바뀌면 다른 캐시 엔트리가 된다.
+  selectionOptions: (
+    projectId: string,
+    provider: string,
+    stepKey: string,
+    prior: Record<string, string>,
+  ) => ["selection", projectId, provider, "options", stepKey, prior] as const,
   githubInstallations: () => ["github", "installations"] as const,
   githubRepositories: (installationId: string) =>
     ["github", "installations", installationId, "repositories"] as const,

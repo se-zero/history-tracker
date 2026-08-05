@@ -24,7 +24,7 @@ async def get_changeset_context(project_id: str, hash: str) -> dict:
                    toString(cs.occurredAt) AS occurredAt,
                    a.name AS author,
                    collect(DISTINCT {
-                       jira_key: i.jira_key, title: i.title,
+                       issue_key: i.issue_key, title: i.title,
                        body: i.body, status: i.status,
                        confidence: tb.confidence,
                        link_source: tb.source
@@ -104,12 +104,12 @@ async def get_conflict_context(project_id: str, hash: str) -> dict:
                    cs.message AS commit_message,
                    toString(cs.occurredAt) AS occurredAt,
                    collect(DISTINCT {
-                       source: 'Jira',
-                       id: i.jira_key,
+                       source: coalesce(i.source, 'JIRA'),
+                       id: i.issue_key,
                        text: i.title + '\n' + coalesce(i.body, ''),
                        confidence: tb.confidence,
                        link_source: tb.source
-                   }) AS jira_contexts,
+                   }) AS issue_contexts,
                    collect(DISTINCT {
                        source: c.source,
                        channel: c.channel,
@@ -167,7 +167,7 @@ async def get_pr_context(project_id: str, pr_number: int) -> dict:
                        author: cs_author.name
                    }) AS changesets,
                    collect(DISTINCT {
-                       jira_key: i.jira_key, title: i.title,
+                       issue_key: i.issue_key, title: i.title,
                        status: i.status,
                        confidence: tb.confidence,
                        link_source: tb.source

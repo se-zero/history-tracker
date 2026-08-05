@@ -131,7 +131,7 @@ async def case_evidence_type_and_event_meaning_enum() -> CaseResult:
 
 
 async def case_evidence_id_format() -> CaseResult:
-    r = CaseResult("evidence[*].id 형식이 타입별 규칙 준수 (jira_key / #N / commit 7+ / conversation_id)")
+    r = CaseResult("evidence[*].id 형식이 타입별 규칙 준수 (issue_key / #N / commit 7+ / conversation_id)")
     answer, structured = await _ask("PR #18은 어떤 작업이고 어떤 이슈와 연결돼?")
     if not _assert_structured_shape(r, structured, "PR #18 query"):
         return r
@@ -145,7 +145,7 @@ async def case_evidence_id_format() -> CaseResult:
         elif t == "issue":
             r.assert_(
                 "-" in id_ and id_.split("-", 1)[0].isalpha(),
-                f"evidence[{i}] issue id='{id_}' jira_key 형식 아님"
+                f"evidence[{i}] issue id='{id_}' issue_key 형식 아님"
             )
         elif t == "commit":
             r.assert_(

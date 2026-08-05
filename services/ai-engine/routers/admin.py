@@ -18,7 +18,7 @@ from graph.actor_admin import (
 )
 from graph.builder import (
     backfill_discussed_in_source,
-    backfill_pr_jira_keys,
+    backfill_pr_issue_keys,
     backfill_triggered_by_source,
     clear_reference,
     clear_semantic_discussed_in,
@@ -180,7 +180,7 @@ async def trigger_clear_semantic_triggered_by(project_id: str | None = None):
     실행 순서 권장:
       1. POST /migrations/triggered-by-source       (모든 엣지에 source 라벨 보장)
       2. POST /migrations/clear-semantic-triggered-by  (시맨틱만 정리)
-      3. POST /migrations/pr-jira-keys              (기존 PR에 jira_keys 백필 + 전파)
+      3. POST /migrations/pr-issue-keys              (기존 PR에 issue_keys 백필 + 전파)
       4. POST /issue-links/build                     (새 정책으로 시맨틱 재구축)
     """
     deleted = await clear_semantic_triggered_by(project_id)
@@ -209,15 +209,15 @@ async def trigger_clear_reference(project_id: str | None = None):
     return {"deleted": deleted}
 
 
-@router.post("/migrations/pr-jira-keys")
-async def trigger_pr_jira_keys_backfill():
-    """기존 PR 노드 title/body에서 jira_keys를 추출해 pr.jira_keys로 저장하고
+@router.post("/migrations/pr-issue-keys")
+async def trigger_pr_issue_keys_backfill():
+    """기존 PR 노드 title/body에서 issue_keys를 추출해 pr.issue_keys로 저장하고
     그 PR에 묶인 모든 ChangeSet에 text TRIGGERED_BY를 전파한다.
 
-    Phase 2(PR.jira_keys 전파) 변경 이전에 수집된 PR이 응답 단에서 누락되는 문제를 보정.
-    Idempotent — pr.jira_keys가 이미 채워진 PR은 건너뜀.
+    Phase 2(PR.issue_keys 전파) 변경 이전에 수집된 PR이 응답 단에서 누락되는 문제를 보정.
+    Idempotent — pr.issue_keys가 이미 채워진 PR은 건너뜀.
     """
-    return await backfill_pr_jira_keys()
+    return await backfill_pr_issue_keys()
 
 
 @router.post("/migrations/verify-actor-names")

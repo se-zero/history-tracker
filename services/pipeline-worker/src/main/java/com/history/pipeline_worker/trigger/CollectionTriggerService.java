@@ -2,6 +2,7 @@ package com.history.pipeline_worker.trigger;
 
 import com.history.pipeline_worker.collection.CollectionProvider;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
+import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.pipeline.PipelineService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -10,7 +11,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 @Slf4j
 @Service
@@ -33,59 +33,18 @@ public class CollectionTriggerService {
     }
 
     public TriggerResult trigger(CollectionProvider provider, UUID projectId) {
-        return switch (provider) {
-            case GITHUB -> queue(
-                    provider,
-                    projectId,
-                    projectIntegrationService.resolveGitHub(projectId),
-                    integration -> pipelineService.normalizeGitHub(
-                            projectId.toString(),
-                            integration.toRawFetchRequest()
-                    )
-            );
-            case JIRA -> queue(
-                    provider,
-                    projectId,
-                    projectIntegrationService.resolveJira(projectId),
-                    integration -> pipelineService.normalizeJira(
-                            projectId.toString(),
-                            integration.toRawFetchRequest()
-                    )
-            );
-            case SLACK -> queue(
-                    provider,
-                    projectId,
-                    projectIntegrationService.resolveSlack(projectId),
-                    integration -> pipelineService.normalizeSlack(
-                            projectId.toString(),
-                            integration.toRawFetchRequest()
-                    )
-            );
-        };
-    }
-
-    private <T> TriggerResult queue(
-            CollectionProvider provider,
-            UUID projectId,
-            Optional<T> integration,
-            Consumer<T> collection
-    ) {
-        if (integration.isEmpty()) {
+        Optional<RawFetchRequest> request = projectIntegrationService.resolveFetchRequest(projectId, provider);
+        if (request.isEmpty()) {
             return new TriggerResult(TriggerStatus.NOT_FOUND, "no project integration found");
         }
 
-        taskExecutor.execute(() -> runCollection(provider, projectId, integration.orElseThrow(), collection));
+        taskExecutor.execute(() -> runCollection(provider, projectId, request.orElseThrow()));
         return new TriggerResult(TriggerStatus.ACCEPTED, "collection queued");
     }
 
-    private <T> void runCollection(
-            CollectionProvider provider,
-            UUID projectId,
-            T integration,
-            Consumer<T> collection
-    ) {
+    private void runCollection(CollectionProvider provider, UUID projectId, RawFetchRequest request) {
         try {
-            collection.accept(integration);
+            pipelineService.collect(projectId.toString(), provider, request);
             log.info("Initial collection completed: projectId={}, provider={}", projectId, provider);
         } catch (Exception exception) {
             log.error("Initial collection failed: projectId={}, provider={}", projectId, provider, exception);

@@ -27,14 +27,19 @@ MAX_LIMIT = 500
 _SNIPPET_LEN = 240
 
 # 프론트 type → content 노드 선택 술어.
-# Communication은 source로 분기 — GitHub 이슈(issue)와 Slack 메시지(slack)가 같은 라벨이라.
+# 프론트의 type은 제품명이 아니라 **렌더링 분류**다 — "jira"는 이슈 트래커 전체(Linear·Asana…),
+# "slack"은 대화 전체(Discord·Teams·Google Chat…)를 가리킨다. 실제 출처는 노드의 source가 싣는다.
+# Communication은 GitHub 이슈(issue)와 대화(slack)가 같은 라벨이라 source로 가른다. 이 분기는
+# _to_graph_node의 `is_github`와 **같은 기준이어야 한다** — 어긋나면 대화가 "slack"으로 그려지는데
+# "slack" 필터에서는 빠져 화면에서 사라진다(옛 `source = 'SLACK'`이 그랬다).
 # 값은 고정 Cypher 조각이고 사용자 입력은 키 매칭에만 쓰므로 인젝션 위험 없음.
 _CONTENT_TYPE_PREDICATES = {
     "commit": "n:ChangeSet",
     "pr":     "n:PullRequest",
     "jira":   "n:Issue",
     "issue":  "(n:Communication AND n.source = 'GITHUB')",
-    "slack":  "(n:Communication AND n.source = 'SLACK')",
+    # coalesce — source가 빈 레거시 노드도 대화로 본다(_to_graph_node가 그렇게 렌더한다)
+    "slack":  "(n:Communication AND coalesce(n.source, '') <> 'GITHUB')",
 }
 _ALL_CONTENT_PRED = "n:ChangeSet OR n:PullRequest OR n:Issue OR n:Communication"
 
@@ -52,7 +57,7 @@ _NODE_RETURN_FIELDS = """elementId(n)        AS id,
        n.pr_number         AS pr_number,
        n.title             AS title,
        n.body              AS body,
-       n.jira_key          AS jira_key,
+       n.issue_key          AS issue_key,
        n.status            AS status,
        n.url               AS url,
        n.channel           AS channel,
@@ -146,8 +151,18 @@ def _node_ref(node_type: str, node_id: str | None) -> dict | None:
     return {"type": node_type, "id": node_id} if node_id else None
 
 
-# alias(예: "GITHUB:se-zero")의 소스 접두사 → 표시 라벨. 미지 접두사는 원문 접두사 그대로 쓴다.
-_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "JIRA": "Jira", "SLACK": "Slack"}
+# alias(예: "GITHUB:se-zero")의 소스 접두사 → 표시 라벨.
+# 등록되지 않은 소스는 _source_label이 대문자 snake에서 유도하므로(LINEAR → "Linear",
+# GOOGLE_CHAT → "Google Chat") 커넥터를 추가할 때 이 맵을 고칠 필요는 없다.
+# **유도로 표기가 틀어지는 이름만** 여기에 넣는다 (GitHub·ClickUp처럼 중간에 대문자가 오는 경우).
+_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "CLICKUP": "ClickUp", "MONDAY": "monday.com"}
+
+
+def _source_label(prefix: str) -> str:
+    """소스 접두사를 표시 라벨로. 등록된 예외를 먼저 보고, 없으면 대문자 snake에서 유도한다."""
+    if prefix in _SOURCE_PREFIX_LABELS:
+        return _SOURCE_PREFIX_LABELS[prefix]
+    return " ".join(word.capitalize() for word in prefix.split("_") if word) or prefix
 
 
 def _actor_source_summary(aliases: list[str]) -> str:
@@ -163,7 +178,7 @@ def _actor_source_summary(aliases: list[str]) -> str:
         if not prefix or prefix in seen:
             continue
         seen.add(prefix)
-        labels.append(_SOURCE_PREFIX_LABELS.get(prefix, prefix))
+        labels.append(_source_label(prefix))
     return " · ".join(labels)
 
 
@@ -199,12 +214,14 @@ def _to_graph_node(row: dict) -> dict:
     if label == "Issue":
         return {
             "id": row["id"],
+            # type은 프론트의 렌더링 분류(색·범례)라 이슈 트래커 공용 값을 쓴다.
+            # 실제 출처는 source가 싣는다 — Linear 이슈가 "jira"로 보이지 않게.
             "type": "jira",
-            "title": row.get("title") or row.get("jira_key") or "(issue)",
-            "meta": row.get("jira_key") or "",
-            "source": "jira",
+            "title": row.get("title") or row.get("issue_key") or "(issue)",
+            "meta": row.get("issue_key") or "",
+            "source": src.lower() or "jira",
             "snippet": _truncate(row.get("body")),
-            "ref": _node_ref("issue", row.get("jira_key")),
+            "ref": _node_ref("issue", row.get("issue_key")),
         }
 
     if label == "Communication":
@@ -223,12 +240,15 @@ def _to_graph_node(row: dict) -> dict:
                 # GitHub Issue·Slack 모두 message 도구(get_thread_context) 대상 — conversation_id로 조회.
                 "ref": _node_ref("message", row.get("conversation_id")),
             }
+        # GitHub이 아닌 Communication은 모두 대화 소스(Slack·Discord·Teams·Google Chat).
+        # 채널 이름이 없을 때 제목을 "Slack 메시지"로 굳히면 Discord 대화가 Slack으로 보인다.
         return {
             "id": row["id"],
+            # type은 프론트의 렌더링 분류(색·범례)라 대화 공용 값을 쓴다. 실제 출처는 source가 싣는다.
             "type": "slack",
-            "title": f"#{channel}" if channel else "Slack 메시지",
+            "title": f"#{channel}" if channel else (f"{_source_label(src)} 메시지" if src else "메시지"),
             "meta": " · ".join(p for p in (channel, date) if p),
-            "source": "slack",
+            "source": src.lower() or "slack",
             "snippet": _truncate(row.get("body")),
             # meta엔 conversation_id가 없어 텍스트로는 못 가리키므로 ref로 표면화한다.
             "ref": _node_ref("message", row.get("conversation_id")),
@@ -511,7 +531,7 @@ async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
 
 # ── 답변 evidence → 관련 서브그래프 ────────────────────────────────────────────
 # 채팅 답변의 evidence는 도메인 키로 노드를 가리킨다(commit→hash 앞 7자, pull_request→
-# "#번호", issue→jira_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로
+# "#번호", issue→issue_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로
 # 둘을 잇는 공통 키가 없다 — 여기서 도메인 키로 노드를 resolve해 서브그래프를 만든다.
 
 # 시드 노드(evidence가 가리키는 노드) + 1홉 이웃을 모으고, 그 집합 내부 엣지만 수집한다.
@@ -522,7 +542,7 @@ WHERE n.project_id = $project_id
   AND (
     (n:ChangeSet AND any(p IN $commit_prefixes WHERE n.hash STARTS WITH p))
     OR (n:PullRequest AND n.pr_number IN $pr_numbers)
-    OR (n:Issue AND n.jira_key IN $jira_keys)
+    OR (n:Issue AND n.issue_key IN $issue_keys)
     OR (n:Communication AND (
         replace(n.conversation_id, '.', '') IN $conv_ids
         OR split(coalesce(n.url, ''), '/p')[-1] IN $conv_ids
@@ -587,7 +607,7 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
     keys: dict = {
         "commit_prefixes": [],
         "pr_numbers": [],
-        "jira_keys": [],
+        "issue_keys": [],
         "conv_ids": [],
     }
     for item in evidence:
@@ -600,7 +620,7 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
         elif etype == "pull_request":
             keys["pr_numbers"].append(int(key))
         elif etype == "issue":
-            keys["jira_keys"].append(key)
+            keys["issue_keys"].append(key)
         elif etype == "message":
             keys["conv_ids"].append(key)
     return keys
@@ -632,7 +652,7 @@ def _resolve_seed_ids(evidence: list[dict], node_rows: list[dict]) -> list[str |
             elif etype == "issue":
                 match = next(
                     (r["id"] for r in node_rows
-                     if r.get("label") == "Issue" and r.get("jira_key") == key),
+                     if r.get("label") == "Issue" and r.get("issue_key") == key),
                     None,
                 )
             elif etype == "message":

@@ -70,7 +70,7 @@ def fetch_texts(session, pid: str, commits: set[str], issues: set[str], threads:
 
     for k in issues:
         row = session.run(
-            "MATCH (i:Issue {project_id:$pid, jira_key:$k}) "
+            "MATCH (i:Issue {project_id:$pid, issue_key:$k}) "
             "RETURN i.title AS title, i.body AS body LIMIT 1",
             pid=pid, k=k,
         ).single()

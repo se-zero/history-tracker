@@ -172,7 +172,7 @@ class JiraPersonalDataReportServiceTest {
         Project firstProject = mock(Project.class);
         when(firstProject.getId()).thenReturn(PROJECT_1);
         when(firstIntegration.getProject()).thenReturn(firstProject);
-        when(firstIntegration.getJiraCloudId()).thenReturn("cloud-1");
+        when(firstIntegration.selectionValue("cloud_id")).thenReturn("cloud-1");
         when(jiraTokenService.getAccessToken(PROJECT_1)).thenReturn("token-1");
         when(jiraClient.getUser("cloud-1", "712020:updated1", "token-1"))
                 .thenReturn(new JiraClient.JiraUser("712020:updated1", "Alice", "alice@example.com"));
@@ -209,7 +209,7 @@ class JiraPersonalDataReportServiceTest {
         Project project = mock(Project.class);
         when(project.getId()).thenReturn(PROJECT_2);
         when(integration.getProject()).thenReturn(project);
-        when(integration.getJiraCloudId()).thenReturn("cloud-2");
+        when(integration.selectionValue("cloud_id")).thenReturn("cloud-2");
         when(jiraTokenService.getAccessToken(PROJECT_2)).thenReturn("token-2");
         when(jiraClient.getUser("cloud-2", "712020:lost", "token-2"))
                 .thenThrow(new UnauthorizedException("Jira user lookup failed."));
@@ -240,7 +240,7 @@ class JiraPersonalDataReportServiceTest {
         Project project = mock(Project.class);
         when(project.getId()).thenReturn(PROJECT_3);
         when(integration.getProject()).thenReturn(project);
-        when(integration.getJiraCloudId()).thenReturn("cloud-3");
+        when(integration.selectionValue("cloud_id")).thenReturn("cloud-3");
         when(jiraTokenService.getAccessToken(PROJECT_3)).thenReturn("token-3");
         when(jiraClient.getUser("cloud-3", "712020:transient", "token-3"))
                 .thenThrow(new BadGatewayException("Jira user lookup request failed."));
@@ -278,7 +278,7 @@ class JiraPersonalDataReportServiceTest {
         Project failingProject = mock(Project.class);
         when(failingProject.getId()).thenReturn(PROJECT_4);
         when(failingIntegration.getProject()).thenReturn(failingProject);
-        when(failingIntegration.getJiraCloudId()).thenReturn("cloud-4");
+        when(failingIntegration.selectionValue("cloud_id")).thenReturn("cloud-4");
         when(jiraTokenService.getAccessToken(PROJECT_4))
                 .thenThrow(new UnauthorizedException("Jira refresh token is invalid or revoked."));
 
@@ -286,7 +286,7 @@ class JiraPersonalDataReportServiceTest {
         Project succeedingProject = mock(Project.class);
         when(succeedingProject.getId()).thenReturn(PROJECT_5);
         when(succeedingIntegration.getProject()).thenReturn(succeedingProject);
-        when(succeedingIntegration.getJiraCloudId()).thenReturn("cloud-5");
+        when(succeedingIntegration.selectionValue("cloud_id")).thenReturn("cloud-5");
         when(jiraTokenService.getAccessToken(PROJECT_5)).thenReturn("token-5");
         when(jiraClient.getUser("cloud-5", "712020:multi", "token-5"))
                 .thenReturn(new JiraClient.JiraUser("712020:multi", "Bob", "bob@example.com"));
@@ -405,13 +405,13 @@ class JiraPersonalDataReportServiceTest {
                 .thenReturn(new AtlassianPersonalDataClient.ReportOutcome(List.of(), List.of("712020:pendingskip")));
 
         Integration pendingIntegration = mock(Integration.class);
-        when(pendingIntegration.getJiraCloudId()).thenReturn(null);
+        when(pendingIntegration.selectionValue("cloud_id")).thenReturn(null);
 
         Integration workingIntegration = mock(Integration.class);
         Project workingProject = mock(Project.class);
         when(workingProject.getId()).thenReturn(PROJECT_6);
         when(workingIntegration.getProject()).thenReturn(workingProject);
-        when(workingIntegration.getJiraCloudId()).thenReturn("cloud-6");
+        when(workingIntegration.selectionValue("cloud_id")).thenReturn("cloud-6");
         when(jiraTokenService.getAccessToken(PROJECT_6)).thenReturn("token-6");
         when(jiraClient.getUser("cloud-6", "712020:pendingskip", "token-6"))
                 .thenReturn(new JiraClient.JiraUser("712020:pendingskip", "Carol", "carol@example.com"));

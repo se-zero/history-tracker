@@ -27,7 +27,7 @@ def _row(node_id: str, label: str, **extra) -> dict:
         "pr_number": None,
         "title": None,
         "body": None,
-        "jira_key": None,
+        "issue_key": None,
         "status": None,
         "url": None,
         "channel": None,
@@ -132,7 +132,7 @@ class ConstellationView(unittest.TestCase):
         # 그때 별성이 사라지면 화면이 먼지 고리만 남으므로 Issue로 폴백한다.
         result, session = _run_constellation({
             "work:PullRequest": [],
-            "work:Issue": [_row("i1", "Issue", jira_key="HT-1")],
+            "work:Issue": [_row("i1", "Issue", issue_key="HT-1")],
             "recent": [_row("c1", "ChangeSet")],
         })
 

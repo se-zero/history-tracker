@@ -1,6 +1,6 @@
 # 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement.md 참고.
 # [시간축 — 전체 스코프] 특정 엔티티 키 없이 프로젝트 전 기간을 시간순으로 조회해야 답할 수 있다.
-#   현행 get_timeline은 jira_key가 필수라 이 질문에 쓸 수 없다 (docs/timeline-scope.md 0단계).
+#   현행 get_timeline은 issue_key가 필수라 이 질문에 쓸 수 없다 (docs/timeline-scope.md 0단계).
 #   그래프 최초 이벤트 = 2026-03-12T17:42 HT-1 생성. 첫 커밋 3/17, 첫 PR 3/23.
 id: case-41
 question: "이 프로젝트는 처음에 어떤 순서로 시작됐어? 가장 초기 작업부터 시간순으로 정리해줘."
@@ -8,7 +8,7 @@ question: "이 프로젝트는 처음에 어떤 순서로 시작됐어? 가장 �
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
 # 초기 타임라인의 3개 이정표(최초 이슈 / 최초 커밋 / 최초 PR)만 필수로 둔다.
 expected_evidence_ids:
 - "issue:HT-1"                   # 2026-03-12T17:42 생성 — 그래프 전체의 최초 이벤트

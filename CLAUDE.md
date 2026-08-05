@@ -92,6 +92,8 @@ cd infra/docker
 
 - `docs/graph-schema.md` - 지식 그래프 노드, 관계 정의
 - `docs/data-collection.md` - pipeline-worker의 플랫폼별 수집·정규화·checkpoint 전략
+- `docs/normalized-event.md` - pipeline-worker ↔ ai-engine 수집 계약 (nodeType별 properties·refs·source 표기). **새 커넥터 작업의 체크리스트**
+- `docs/integration-abstraction.md` - 신규 integration(Linear·Teams·Notion 등) 추가를 위한 provider 추상화 계획 — 아키타입 분류, 서비스별 SPI 설계, 진행 순서
 - `docs/actor-node-design.md` - Actor 동일인 판단 파이프라인 상세 설계 (스코어링 로직, LLM 프롬프트, Neo4j 쿼리)
 - `docs/actor-manual-merge.md` - Actor 수동 병합·분리 설계 (ActorDecision 영속화, resolver veto, unmerge/split)
 - `docs/jira-personal-data-policy.md` - Jira 개인정보 보고 정책 — 보고 사이클, closed/access_lost 삭제 규칙, 배포 시 봇 계정 등록 절차

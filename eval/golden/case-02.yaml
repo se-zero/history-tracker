@@ -6,7 +6,7 @@ question: "HT-44 'backend 기능 구현'은 어떤 하위 작업들로 나뉘어
 focus_evidence: []
 
 # 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
-#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
 #   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
 #     - id: "message:1778586053.322069"
 #       aliases: ["message:1778590761.356869"]
