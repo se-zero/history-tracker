@@ -164,7 +164,13 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 
 ---
 
-## 새 커넥터 체크리스트
+## 새 커넥터 체크리스트 — 수집 계약 부분
+
+> ⚠️ **이 목록은 커넥터 작업의 전부가 아니다.** 여기서 다루는 건 pipeline-worker의 발행 계약뿐이라,
+> 이것만 따라가면 **연동 UI 없이 수집기만 만들고 끝난다.** backend 연결(OAuth·선택 단계)과
+> web-dashboard 등록까지 포함한 전체 순서는
+> **`docs/integration-abstraction.md`의 「커넥터 엔드투엔드 체크리스트」**를 따른다.
+> 아래 항목은 그 체크리스트의 2단계(pipeline-worker)에 해당한다.
 
 1. **아키타입 선택** — 이슈 트래커(`Issue`) / 대화(`Communication`) / 문서(`Document`, 미구현).
    기존 아키타입이면 ai-engine 무변경이다.

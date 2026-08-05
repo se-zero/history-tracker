@@ -55,11 +55,17 @@ webhook context 조립에서 **GitHub만 전파**한다(앵커라 조용히 넘�
 **새 소스를 추가할 때 편집하는 곳**은 다음뿐이다.
 
 1. `CollectionProvider`에 상수 추가
-2. `application.yaml`에 routing key 추가 (`event.{provider}` — 큐 바인딩이 `event.#`라 브로커 설정은 불변)
-3. `source/{provider}` 패키지에 `SourceCollector` 구현 `@Service` 추가
+2. `source/{provider}` 패키지에 `SourceCollector` 구현 `@Service` 추가
 
-`PipelineService`·`CollectionTriggerService`·`ProjectIntegrationService`·`CheckpointService`는 건드리지 않는다.
-발행 계약(nodeType별 properties·refs·source 표기)은 `docs/normalized-event.md`가 단일 출처다.
+routing key는 설정하지 않는다 — `EventPublisher`가 `source`에서 유도한다
+(`{app.rabbitmq.routing-key-prefix}` + `.` + 소문자 source, 예: `GOOGLE_CHAT` → `event.google_chat`).
+큐 바인딩이 `event.#`라 브로커 설정도 불변이다.
+
+`EventPublisher`·`PipelineService`·`CollectionTriggerService`·`ProjectIntegrationService`·`CheckpointService`는
+건드리지 않는다.
+발행 계약(nodeType별 properties·refs·source 표기)은 `docs/normalized-event.md`가 단일 출처이며,
+backend·프론트까지 포함한 커넥터 전체 순서는 `docs/integration-abstraction.md`의
+「커넥터 엔드투엔드 체크리스트」에 있다.
 
 ## Endpoint
 

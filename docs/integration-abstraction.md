@@ -212,8 +212,10 @@ A4가 이 단계의 핵심이다 — 이슈 트래커 4종이 **전부** 이 경
 
 ### Part B — 커넥터별 구현 (팀원 분담, 커넥터당 1 PR)
 
-각 PR의 체크리스트는 `docs/normalized-event.md`의 「새 커넥터 체크리스트」다. Part A가 끝났다면
-서로 독립이므로 순서 제약 없이 병렬로 진행한다.
+Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없이 병렬로 진행한다.
+**커넥터 1개를 끝내는 전체 순서는 아래 「커넥터 엔드투엔드 체크리스트」다** —
+`docs/normalized-event.md`의 「새 커넥터 체크리스트」는 그중 *수집 계약* 부분만 다루므로
+그것만 따라가면 연동 UI 없이 수집기만 만들고 끝난다.
 
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
@@ -226,6 +228,81 @@ Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메�
 backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대화 아키타입 1호 자리다.
 
 각 단계마다 대응 문서(data-collection.md, DB.md, graph-schema.md, 각 CLAUDE.md) 동반 갱신이 필요하다.
+
+### 커넥터 엔드투엔드 체크리스트
+
+커넥터 1개 = 1 PR. **연결(backend) → 수집(pipeline-worker) → 화면(web-dashboard)** 순으로 하면
+각 단계를 실제로 눌러 보며 다음 단계로 넘어갈 수 있다. 상세 규칙은 각 항목이 가리키는 문서를 본다.
+
+**0. 사전 준비 — 외부 앱 등록**
+
+- [ ] provider 개발자 콘솔에서 OAuth 앱 생성, redirect URI를 `{BASE}/api/v1/integrations/{provider}/callback`으로 등록.
+      **경로의 `{provider}`는 소문자 kebab**이며 이후 바꿀 수 없다(등록된 URI가 깨진다).
+- [ ] 필요한 scope 확정 — 최소 권한만. 개인정보(이름·이메일) scope는 `docs/graph-schema.md`의 ActorAlias 규약과
+      `docs/jira-personal-data-policy.md`(보고 의무가 있는 provider라면)를 먼저 확인한다.
+- [ ] `infra/docker/docker-compose.yml`의 backend 환경변수에 `{PROVIDER}_CLIENT_ID`·`_CLIENT_SECRET`·
+      `_REDIRECT_URI` 추가(`ATLASSIAN_*` 패턴). 실제 값은 `.env`(gitignore)에.
+
+**1. backend — 연결 (`services/backend/CLAUDE.md` 「provider 전략」·「다단 선택」)**
+
+- [ ] `IntegrationProvider` enum에 상수 추가 (`LINEAR("linear", "Linear")`).
+      **DB 마이그레이션은 불필요** — V12에서 provider CHECK 제약을 제거했다.
+- [ ] `{provider}/AtlassianProperties`형 `@ConfigurationProperties` 레코드 + `application.yaml` 블록 추가.
+- [ ] `OAuthConnectFlow` 구현 — 동의 URL 조립, code 교환 후 연동 저장.
+      선택 단계가 있으면 `Integration.pendingSelection(...)`으로 저장하고 `connect`가 `false`를 반환한다.
+- [ ] `ProviderCredentialLifecycle` 구현 — **해당 동작이 없으면 생략 가능**(기본 no-op).
+      토큰이 만료되면 `ensureFreshAccessToken`, 해제 시 원격 폐기가 있으면 `revoke`.
+- [ ] `IntegrationSelectionFlow` 구현 — 선택 단계가 있는 provider만.
+      `SelectionStep.key`가 **그대로 `external_ref` 키**가 되고 pipeline-worker가 같은 키를 읽는다(2번과 합의).
+      선택이 없는 provider(동의 즉시 확정, Slack형)는 이 SPI를 만들지 않는다.
+- [ ] `IntegrationResponse.displayName`의 switch에 case 추가 — 연동 행에 무엇을 보여줄지 정한다.
+      (exhaustive switch라 **추가하지 않으면 컴파일이 깨진다** — 의도된 안전망이다.)
+- [ ] 검증: `./gradlew test`
+
+**2. pipeline-worker — 수집 (`services/pipeline-worker/CLAUDE.md` 「SourceCollector SPI」)**
+
+- [ ] `CollectionProvider` enum에 상수 추가.
+- [ ] routing key는 **설정하지 않는다** — `EventPublisher`가 `source`에서 유도한다
+      (`GOOGLE_CHAT` → `event.google_chat`). 큐 바인딩이 `event.#`라 브로커 설정도 불변이다.
+- [ ] `source/{provider}` 패키지에 `SourceCollector` 구현(`@Service`) — fetch·normalize·publish·checkpoint.
+      `resolveFetchRequest`의 실패 신호 2종(`Optional.empty()` vs 예외)을 구분해 반환한다.
+- [ ] 발행 계약 준수 — **`docs/normalized-event.md`의 「새 커넥터 체크리스트」 9항목이 여기 해당한다.**
+      특히 `occurredAt`(checkpoint 정확도), `closed_at` 3-상태 규약, 담당자 해제 규약, `actor.id` 안정성.
+- [ ] `PipelineService`·`CollectionTriggerService`·`ProjectIntegrationService`·`CheckpointService`는
+      **건드리지 않는다.** 고쳐야 한다면 추상화가 새는 것이므로 먼저 상의한다.
+- [ ] 검증: `./gradlew test`
+
+**3. web-dashboard — 화면 (`clients/web-dashboard/CLAUDE.md`)**
+
+- [ ] `components/sources/sourceCatalog.tsx`의 해당 항목에 `connectable: true`와 `deletedData`(해제 시
+      무엇이 지워지는지) 추가. **11종의 브랜드 마크와 카탈로그 항목은 이미 있다** — 보통 이 두 필드가 전부다.
+- [ ] 연동 행·선택 폼·타일·해제 다이얼로그는 `OAuthSourceCard`가 backend 단계 선언으로 렌더하므로
+      **provider별 컴포넌트를 만들지 않는다.**
+- [ ] 검증: `npm run typecheck && npm run build`
+
+**4. ai-engine — 기존 아키타입이면 무변경**
+
+- [ ] `Issue`/`Communication`으로 정규화되면 코드 변경 없음. 소스별 삭제·Actor alias·Slack 노이즈 필터는
+      `source` 문자열 기반이라 자동 적용된다.
+- [ ] Notion(`Document`)만 예외 — 신규 노드 설계가 선행한다.
+- [ ] 검증(변경했다면): `python -m pytest`
+
+**5. 문서 동반 갱신**
+
+- [ ] `docs/data-collection.md` — 이 provider의 수집·checkpoint 전략.
+- [ ] `docs/graph-schema.md` — 새 노드·엣지를 추가했다면.
+- [ ] 위 표(Part B)의 해당 행에 완료 표시.
+
+### 공용 코드에 의도적으로 남긴 provider 분기
+
+`IntegrationResponse.displayName`의 switch **하나뿐**이며, 의도적으로 남긴 것이다. exhaustive switch라
+새 provider가 표시 이름을 정하지 않으면 컴파일이 깨져서, 화면에 빈 이름이 나가는 걸 막는다.
+
+그 밖의 provider 분기는 Part A에서 모두 제거했다. `EventPublisher`의 source switch와
+`routing-key-{provider}` 설정 3줄도 없앴고(routing key를 `source`에서 유도), 새 소스가
+발행기를 고치지 않고 라우팅되는지는 `EventPublisherTest`가 고정한다.
+ai-engine의 소스 표시 라벨(`graph/overview.py`)도 대문자 snake에서 유도하므로 등록이 필요 없다 —
+`GitHub`·`ClickUp`처럼 **유도로 표기가 틀어지는 이름만** `_SOURCE_PREFIX_LABELS`에 넣는다.
 
 ## 5. 미리 정할 것
 

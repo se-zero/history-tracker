@@ -51,6 +51,9 @@ cd services/backend
 
 ### provider 전략 — 새 연동 추가 지점
 
+> 커넥터 1개의 전체 순서(외부 앱 등록 → backend → pipeline-worker → 프론트)는
+> `docs/integration-abstraction.md`의 「커넥터 엔드투엔드 체크리스트」에 있다. 아래는 그중 backend 몫이다.
+
 provider별 차이는 두 SPI 구현으로만 표현한다. `integration` 패키지의 오케스트레이션(컨트롤러·
 `IntegrationOAuthService`·`IntegrationService`)에는 provider 분기(switch)를 두지 않는다.
 
