@@ -197,7 +197,7 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
         case "get_issue_context":
             return await queries.get_issue_context(
                 project_id=project_id,
-                jira_key=args["jira_key"],
+                issue_key=args["issue_key"],
             )
 
         case "get_changeset_context":
@@ -216,7 +216,7 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
             # 스코프 인자는 전부 선택 — 넷 다 없으면 프로젝트 전체 기간이다.
             return await queries.get_timeline(
                 project_id=project_id,
-                jira_key=args.get("jira_key"),
+                issue_key=args.get("issue_key"),
                 path=args.get("path"),
                 actor=args.get("actor"),
                 from_time=args.get("from_time"),

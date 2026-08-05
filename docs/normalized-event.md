@@ -89,11 +89,11 @@ record ActorDto(String id, String name, String email)
 
 `occurredAt`: 머지 시각(없으면 생성 시각).
 
-### Issue — 이슈/티켓 (자연키: `jira_key`)
+### Issue — 이슈/티켓 (자연키: `issue_key`)
 
 | 키 | 타입 | 비고 |
 |----|------|------|
-| `jira_key` | string | **자연키**. 이름은 Jira 유래지만 의미는 "외부 이슈 키"다 (§중립화 예정 참고) |
+| `issue_key` | string | **자연키**. 외부 트래커의 이슈 키 (Jira `HT-7`, Linear `ENG-42` 등) |
 | `title` · `body` | string | 합쳐서 임베딩된다 |
 | `status` | string | |
 | `issue_type` · `priority` | string | |
@@ -136,10 +136,10 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 
 | 키 | 타입 | 소비처 | 효과 |
 |----|------|--------|------|
-| `jiraKey` | string | ChangeSet, Communication | 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN` |
-| `jiraKeys` | string[] | PullRequest | PR이 머지한 모든 커밋에 이슈 연결 전파 |
+| `issueKey` | string | ChangeSet, Communication | 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN` |
+| `issueKeys` | string[] | PullRequest | PR이 머지한 모든 커밋에 이슈 연결 전파 |
 | `prNumber` | string | ChangeSet | PR → 커밋 `CONTAINS` |
-| `parentJiraKey` | string | Issue | 부모 이슈 `CHILD_OF` |
+| `parentIssueKey` | string | Issue | 부모 이슈 `CHILD_OF` |
 | `assigneeId` / `assigneeName` / `assigneeEmail` | string | Issue | 담당자를 Actor로 승격 후 `ASSIGNED_TO` |
 
 **담당자 해제 규약**: Issue 이벤트는 최신 스냅샷이다. `assigneeId`가 없으면 "담당자 없음"으로
@@ -179,16 +179,19 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 9. 연동 해제 시 소스별 그래프 삭제가 동작하는지 확인 —
    `DELETE /graph/projects/{id}/sources/{SOURCE}`는 `source` 속성 기반이라 자동으로 맞는다.
 
-## 중립화 예정 (부채)
+## 키 중립화 이력 (A6 완료)
 
-계약에 남은 Jira 유래 명칭 — `docs/integration-abstraction.md` 4단계에서 정리한다.
+Jira 유래 명칭은 `docs/integration-abstraction.md` A6에서 소스 중립 이름으로 바꿨다.
+**새 커넥터는 위 표의 현행 키(`issue_key`·`issueKey(s)`·`parentIssueKey`)만 쓴다.**
 
-| 현재 | 예정 | 이유 |
-|------|------|------|
-| `properties.jira_key` | `issue_key` | Linear·Asana 이슈에 `jira_key`는 오해를 부른다 |
-| `refs.jiraKey` / `jiraKeys` | `issueKey` / `issueKeys` | 위와 동일 |
-| `refs.parentJiraKey` | `parentIssueKey` | 위와 동일 |
+| 옛 이름 (더 이상 발행 금지) | 현행 |
+|------|------|
+| `properties.jira_key` | `issue_key` |
+| `refs.jiraKey` / `jiraKeys` | `issueKey` / `issueKeys` |
+| `refs.parentJiraKey` | `parentIssueKey` |
 
-전환은 ai-engine이 양쪽 키를 수용 → pipeline이 새 키 발행 → 저장 데이터 마이그레이션 →
-구 키 제거 순서로 한다. 그때까지 **새 커넥터도 현행 키(`jira_key` 등)를 그대로 쓴다** —
-소스마다 키가 갈리면 마이그레이션이 더 어려워진다.
+호환 장치 (옛 키가 브로커·retry 큐·DLQ에서 더는 관측되지 않으면 제거해도 된다):
+- ai-engine `graph/event_handler.py`의 `_normalize_legacy_keys`가 옛 키 이벤트를 진입점에서
+  새 이름으로 정규화한다.
+- 저장 데이터는 ai-engine 기동 시 `migrate_issue_key_rename`이 이행한다
+  (`Issue.jira_key → issue_key`, `PullRequest.jira_keys → issue_keys`, idempotent).

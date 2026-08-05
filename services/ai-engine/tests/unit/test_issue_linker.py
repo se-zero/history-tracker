@@ -40,7 +40,7 @@ def _vec(sim: float) -> list[float]:
 _UNSET = object()   # None("필드 없음")과 "기본값 쓰기"를 구분하기 위한 센티널
 
 
-def _issue(jira_key, embedding=None, project_id="p1", occurred_at=NOW,
+def _issue(issue_key, embedding=None, project_id="p1", occurred_at=NOW,
            created_at=_UNSET, closed_at=_UNSET, status="완료"):
     """기본값은 NOW에 생성돼 NOW에 종료된 이슈 — 윈도우가 wall-clock에 의존하지 않게 한다.
 
@@ -50,7 +50,7 @@ def _issue(jira_key, embedding=None, project_id="p1", occurred_at=NOW,
     """
     return {
         "project_id": project_id,
-        "id": jira_key,
+        "id": issue_key,
         "embedding": embedding or [1.0, 0.0],
         "occurred_at": occurred_at,
         "created_at": occurred_at if created_at is _UNSET else created_at,
@@ -84,8 +84,8 @@ class _FakeStore:
         async def fetch_comms():
             return self.comms
 
-        async def create_discussed_in(project_id, jira_key, comm_id, confidence):
-            self.created.append((project_id, jira_key, comm_id, confidence))
+        async def create_discussed_in(project_id, issue_key, comm_id, confidence):
+            self.created.append((project_id, issue_key, comm_id, confidence))
 
         async def unsupported(*args, **kwargs):
             raise AssertionError("이 테스트에서 호출되지 않아야 한다")
@@ -157,7 +157,7 @@ class DiscussedInMarginTest(unittest.TestCase):
 
         asyncio.run(build_issue_communication_links(fake.as_store(), threshold=0.4, margin=0.10))
 
-        linked = {(jira_key, comm_id) for _, jira_key, comm_id, _ in fake.created}
+        linked = {(issue_key, comm_id) for _, issue_key, comm_id, _ in fake.created}
         self.assertIn(("HT-1", "m1"), linked)        # HT-1의 최고점 스레드
         self.assertNotIn(("HT-1", "m2"), linked)     # 최고점과 0.30 차 — 마진 밖
         self.assertIn(("HT-2", "m2"), linked)        # HT-2 기준으로는 이쪽이 최고점
@@ -377,8 +377,8 @@ class TriggeredByDefaultThresholdTest(unittest.TestCase):
                 self._mod("cs-below", _vec(0.33)),    # 바닥 아래 — 잘려야 한다
             ]
 
-        async def create_tb(project_id, cs_id, jira_key, confidence):
-            created.append((project_id, cs_id, jira_key, confidence))
+        async def create_tb(project_id, cs_id, issue_key, confidence):
+            created.append((project_id, cs_id, issue_key, confidence))
 
         async def unsupported(*args, **kwargs):
             raise AssertionError("이 테스트에서 호출되지 않아야 한다")
@@ -437,8 +437,8 @@ class _FakeTbStore:
             self.fetched_messages = True
             return self.messages
 
-        async def create_tb(project_id, cs_id, jira_key, confidence):
-            self.created.append((project_id, cs_id, jira_key, confidence))
+        async def create_tb(project_id, cs_id, issue_key, confidence):
+            self.created.append((project_id, cs_id, issue_key, confidence))
 
         async def unsupported(*args, **kwargs):
             raise AssertionError("이 테스트에서 호출되지 않아야 한다")
@@ -604,8 +604,8 @@ class IssueEmbeddingBackfillTest(unittest.TestCase):
                 seen.append(force)
             return nodes
 
-        async def save(project_id, jira_key, embedding):
-            saved.append((project_id, jira_key, embedding))
+        async def save(project_id, issue_key, embedding):
+            saved.append((project_id, issue_key, embedding))
 
         async def unsupported(*args, **kwargs):
             raise AssertionError("이 테스트에서 호출되지 않아야 한다")

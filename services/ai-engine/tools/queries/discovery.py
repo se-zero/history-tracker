@@ -29,7 +29,7 @@ async def search_by_keyword(project_id: str, embedding: list[float], top_k: int 
                    toString(c.occurredAt) AS occurredAt,
                    score,
                    collect(DISTINCT cs.hash) AS related_changesets,
-                   collect(DISTINCT i.jira_key) AS related_issues
+                   collect(DISTINCT i.issue_key) AS related_issues
             ORDER BY score DESC
             LIMIT $top_k
             """,
@@ -69,7 +69,7 @@ async def search_by_keyword(project_id: str, embedding: list[float], top_k: int 
                    toString(i.occurredAt) AS occurredAt,
                    score,
                    collect(DISTINCT cs.hash) AS related_changesets,
-                   collect(DISTINCT i.jira_key) AS related_issues
+                   collect(DISTINCT i.issue_key) AS related_issues
             ORDER BY score DESC
             LIMIT $top_k
             """,
@@ -110,7 +110,7 @@ async def get_recent_activity(
                      WHEN 'ChangeSet'     THEN n.hash
                      WHEN 'PullRequest'   THEN toString(n.pr_number)
                      WHEN 'Communication' THEN n.url
-                     WHEN 'Issue'         THEN n.jira_key
+                     WHEN 'Issue'         THEN n.issue_key
                    END AS id,
                    CASE node_type
                      WHEN 'ChangeSet'     THEN n.message
@@ -146,7 +146,7 @@ async def get_thread_context(project_id: str, conversation_id: str) -> list[dict
                    c.source AS source,
                    c.url AS url,
                    a.name AS author,
-                   collect(DISTINCT {jira_key: i.jira_key, title: i.title}) AS related_issues
+                   collect(DISTINCT {issue_key: i.issue_key, title: i.title}) AS related_issues
             ORDER BY occurredAt ASC
             """,
             project_id=project_id,

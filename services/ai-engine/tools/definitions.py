@@ -6,18 +6,18 @@ TOOLS = [
         "function": {
             "name": "get_issue_context",
             "description": (
-                "Jira 이슈 키로 관련 커밋, PR, Slack/GitHub 논의를 한 번에 조회한다. "
-                "크로스 소스 연결(Jira→커밋→PR→Slack) 확인에 사용."
+                "이슈 키로 관련 커밋, PR, Slack/GitHub 논의를 한 번에 조회한다. "
+                "크로스 소스 연결(이슈→커밋→PR→Slack) 확인에 사용."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "jira_key": {
+                    "issue_key": {
                         "type": "string",
-                        "description": "Jira 티켓 키 (예: HT-12)",
+                        "description": "이슈 트래커 키 (예: HT-12)",
                     }
                 },
-                "required": ["jira_key"],
+                "required": ["issue_key"],
             },
         },
     },
@@ -71,7 +71,7 @@ TOOLS = [
                 "'언제', '어떤 순서로', '시간순으로', '과정' 류 질문의 기본 도구. "
                 "Slack 논의·Jira 생성/완료·커밋·PR 오픈/머지를 UTC 오름차순으로 반환하며 "
                 "각 이벤트에 event_meaning 라벨이 붙는다(시각만 보고 추정하지 말 것). "
-                "스코프는 넷 중 하나를 고른다 — jira_key(이슈) / path(파일) / actor(사람) / "
+                "스코프는 넷 중 하나를 고른다 — issue_key(이슈) / path(파일) / actor(사람) / "
                 "전부 생략(프로젝트 전체). from_time·to_time으로 기간을 좁힐 수 있다. "
                 "'이 프로젝트가 어떤 순서로 만들어졌어', 'OO가 5월에 뭐 했어'처럼 특정 "
                 "엔티티가 없는 시간순 질문에도 쓴다."
@@ -79,9 +79,9 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "jira_key": {
+                    "issue_key": {
                         "type": "string",
-                        "description": "이슈 스코프 — Jira 티켓 키 (예: HT-45). 자식 이슈(CHILD_OF)까지 포함한다",
+                        "description": "이슈 스코프 — 이슈 트래커 키 (예: HT-45). 자식 이슈(CHILD_OF)까지 포함한다",
                     },
                     "path": {
                         "type": "string",
@@ -147,9 +147,9 @@ TOOLS = [
         "function": {
             "name": "search_by_keyword",
             "description": (
-                "자연어 키워드로 의미적으로 유사한 Slack/GitHub 메시지와 Jira 이슈를 탐색한다. "
-                "특정 hash나 Jira key를 모를 때 진입점을 찾는 용도. "
-                "결과에 연결된 커밋 hash와 Jira key가 포함되므로 이후 다른 도구 호출에 활용."
+                "자연어 키워드로 의미적으로 유사한 Slack/GitHub 메시지와 이슈를 탐색한다. "
+                "특정 hash나 issue key를 모를 때 진입점을 찾는 용도. "
+                "결과에 연결된 커밋 hash와 issue key가 포함되므로 이후 다른 도구 호출에 활용."
             ),
             "parameters": {
                 "type": "object",
@@ -397,7 +397,7 @@ TOOLS = [
                 "project_id 조건은 서버가 자동 주입하므로 쓰지 않는다. LIMIT을 안 쓰면 서버가 "
                 "붙인다. 스키마는 시스템 프롬프트의 [그래프 스키마] 참고.\n"
                 "**RETURN 설계 규칙**: 답변 근거로 인용하려면 식별자가 필요하다 — 커밋은 hash, "
-                "PR은 pr_number, 이슈는 jira_key, 메시지는 conversation_id를 occurredAt·본문과 "
+                "PR은 pr_number, 이슈는 issue_key, 메시지는 conversation_id를 occurredAt·본문과 "
                 "함께 RETURN한다. 개수만 세는 질의도 근거가 된 노드의 식별자를 함께 반환한다. "
                 "노드 전체(RETURN n)보다 필요한 속성만 고르는 편이 좋다."
             ),
@@ -408,7 +408,7 @@ TOOLS = [
                         "type": "string",
                         "description": (
                             "실행할 Cypher. 예: MATCH (i:Issue) WHERE i.status <> '완료' "
-                            "RETURN i.jira_key, i.title, i.status ORDER BY i.createdAt"
+                            "RETURN i.issue_key, i.title, i.status ORDER BY i.createdAt"
                         ),
                     },
                     "purpose": {

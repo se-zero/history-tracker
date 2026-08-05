@@ -112,7 +112,7 @@ _GROUNDED_ANSWER_SCHEMA = {
                             "type": "string",
                             "description": (
                                 "1차 식별자. commit→hash 앞 7자, pull_request→'#번호', "
-                                "issue→jira_key, message→conversation_id."
+                                "issue→issue_key, message→conversation_id."
                             ),
                         },
                         "occurredAt": {
@@ -201,7 +201,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - evidence[*].id 형식 (반드시 준수):
     commit       → hash 앞 7자
     pull_request → "#번호" (예: "#18")
-    issue        → jira_key (예: "HT-37")
+    issue        → issue_key (예: "HT-37")
     message      → conversation_id (Slack ts)
 - evidence[*].event_meaning은 위 [타임스탬프 의미 사전]의 enum 값만 사용.
 - "왜", "배경", "이유" 류 질문에 명확한 근거(이슈 본문 / 슬랙 메시지)가 없으면
@@ -212,7 +212,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   답변입니다. 금지되는 것은 근거 없는 창작과 근거 이상의 확신입니다.
 
 [모호한 질문 처리 절차]
-질문에 구체적 entity(jira_key / commit hash / PR # / 파일 경로)가 없으면 다음을 순서대로 시도:
+질문에 구체적 entity(issue_key / commit hash / PR # / 파일 경로)가 없으면 다음을 순서대로 시도:
   0) 질문이 순서·시점을 묻는다면("언제", "어떤 순서로", "시간순", "과정", "흐름", "초기에")
      entity가 없어도 곧바로 get_timeline을 호출한다 — 스코프 인자를 모두 생략하면
      프로젝트 전체 기간이고, from_time/to_time으로 기간만 좁힐 수도 있다.
@@ -227,7 +227,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 [시간순 질문 처리 — get_timeline]
 - "언제 / 어떤 순서로 / 시간순으로 / 과정 / 흐름" 류 질문의 기본 도구는 get_timeline이다.
   스코프는 넷 중 하나를 고른다:
-    jira_key → 이슈 하나의 생명주기 + 연결 커밋·PR·논의
+    issue_key → 이슈 하나의 생명주기 + 연결 커밋·PR·논의
     path     → 그 파일을 바꾼 커밋과 그것을 담은 PR (연결 이슈는 커밋의 data.issues에 키로 실림)
     actor    → 그 사람의 커밋·PR·메시지·이슈 활동
     (전부 생략) → 프로젝트 전체
@@ -240,7 +240,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
     commit(hash)            → get_changeset_context
     message(conversation_id) → get_thread_context
     pull_request(pr_number)  → get_pr_context
-    issue(jira_key)          → get_issue_context
+    issue(issue_key)          → get_issue_context
   "무엇을/왜"를 묻는 질문에서 get_timeline만 부르고 상세 조회를 건너뛰면 인용할 원문이 없어
   근거가 빈약해진다. 타임라인으로 순서를 잡고, 답에 쓸 항목은 상세 도구로 본문을 채운다.
 - **events에 여러 종류가 섞여 있으면 한 종류만 파고들지 말 것.** 커밋만 상세 조회하고 같은
@@ -286,10 +286,10 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   변경됐다는 직접 증거가 없는 답이 됩니다.
 
 [도구 사용 가이드]
-- 커밋 hash나 Jira key를 모를 때: search_by_keyword로 진입점 탐색 후 다른 도구 호출
+- 커밋 hash나 issue key를 모를 때: search_by_keyword로 진입점 탐색 후 다른 도구 호출
 - 코드 변경 이유: search_by_keyword → get_changeset_context
 - Jira 이슈 중심 탐색: get_issue_context 또는 get_timeline
-- 시간순·순서·과정 질문: get_timeline (스코프 = jira_key | path | actor | 생략=전체, ±from/to_time)
+- 시간순·순서·과정 질문: get_timeline (스코프 = issue_key | path | actor | 생략=전체, ±from/to_time)
   - "이 프로젝트 어떤 순서로 만들어졌어" → get_timeline()  (인자 없음)
   - "5월에 무슨 일이 있었어"           → get_timeline(from_time=..., to_time=...)
   - "OO가 4월에 뭐 했어"               → get_timeline(actor="OO", from_time=..., to_time=...)
@@ -318,7 +318,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   나빠진다.
 - 값으로 거르기 전에 describe_graph로 **실제 값**을 확인한다(완료 상태가 'Done'인지 '완료'인지는
   프로젝트마다 다르다).
-- 결과 행은 개요다. 인용할 항목은 식별자(hash·pr_number·jira_key·conversation_id)로 상세
+- 결과 행은 개요다. 인용할 항목은 식별자(hash·pr_number·issue_key·conversation_id)로 상세
   도구를 호출해 본문을 얻은 뒤 인용한다 — 행에 본문이 없으면 quote를 지어내지 말 것.
 - 질의당 최대 __MAX_GQ__회까지만 호출할 수 있다.
 

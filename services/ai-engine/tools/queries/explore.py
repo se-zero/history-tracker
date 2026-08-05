@@ -480,8 +480,8 @@ SCHEMA_CARD = """\
 [그래프 스키마 — run_graph_query용]
 노드 (전부 project_id를 갖지만 쿼리에 쓰지 말 것 — 서버가 주입한다)
 - ChangeSet(커밋): hash, message, occurredAt(=커밋 시각), source
-- PullRequest: pr_number, title, body, state, base_branch, url, createdAt(=오픈), occurredAt(=머지), jira_keys
-- Issue: jira_key, title, body, status, issue_type, priority, createdAt, closedAt, occurredAt(=최종 수정), source
+- PullRequest: pr_number, title, body, state, base_branch, url, createdAt(=오픈), occurredAt(=머지), issue_keys
+- Issue: issue_key, title, body, status, issue_type, priority, createdAt, closedAt, occurredAt(=최종 수정), source
 - Communication(Slack/GitHub 메시지): body, channel, url, conversation_id, createdAt, occurredAt, source, llm_filtered
 - File: path
 - Actor(사람): uuid, name, aliases

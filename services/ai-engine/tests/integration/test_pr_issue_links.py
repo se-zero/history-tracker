@@ -5,7 +5,7 @@ link_changeset_to_pr_issues(#9) 통합 검증 — PR→커밋 TRIGGERED_BY 단�
 '그 커밋 하나만' 연결하도록 바꿨다(O(N)). 이 테스트는 단건 연결이:
   1. 호출 대상 커밋에만 TRIGGERED_BY를 건다(다른 커밋 불변)
   2. 커밋별로 부르면 전체가 빠짐없이 연결된다(완전성 = 옛 전체 전파와 동일 결과)
-  3. CONTAINS 없거나 PR.jira_keys 비면 noop
+  3. CONTAINS 없거나 PR.issue_keys 비면 noop
 를 실제 Neo4j(docker, localhost:7687)에서 확인한다. OpenAI 불필요.
 
 실행:
@@ -47,18 +47,18 @@ class CaseResult:
 
 
 async def _seed_pr_with_commits(project_id: str, pr_number: int, hashes: list[str],
-                                jira_keys: list[str] | None) -> None:
-    """PR(jira_keys 포함) + ChangeSet들 + CONTAINS 엣지를 심는다."""
+                                issue_keys: list[str] | None) -> None:
+    """PR(issue_keys 포함) + ChangeSet들 + CONTAINS 엣지를 심는다."""
     async with get_driver().session() as session:
         await session.run(
             """
-            CREATE (pr:PullRequest {project_id:$pid, pr_number:$prnum, jira_keys:$keys})
+            CREATE (pr:PullRequest {project_id:$pid, pr_number:$prnum, issue_keys:$keys})
             WITH pr
             UNWIND $hashes AS h
             CREATE (c:ChangeSet {project_id:$pid, hash:h})
             CREATE (pr)-[:CONTAINS]->(c)
             """,
-            pid=project_id, prnum=pr_number, keys=jira_keys, hashes=hashes,
+            pid=project_id, prnum=pr_number, keys=issue_keys, hashes=hashes,
         )
 
 
@@ -83,7 +83,7 @@ async def case_links_only_given_commit() -> CaseResult:
 
         n = await link_changeset_to_pr_issues(pid, 1, "h1")
 
-        r.assert_(n == 2, f"h1에 jira_keys 2개 연결 기대, 실제 반환 {n}")
+        r.assert_(n == 2, f"h1에 issue_keys 2개 연결 기대, 실제 반환 {n}")
         r.assert_(await _triggered_count(pid, "h1") == 2, "h1은 TRIGGERED_BY 2개여야 함")
         r.assert_(await _triggered_count(pid, "h2") == 0, "h2는 아직 연결 안 됨(불변)")
     finally:
@@ -122,13 +122,13 @@ async def case_noop_when_not_contained() -> CaseResult:
     return r
 
 
-async def case_noop_when_no_jira_keys() -> CaseResult:
-    r = CaseResult("PR.jira_keys 비면 noop(0)")
+async def case_noop_when_no_issue_keys() -> CaseResult:
+    r = CaseResult("PR.issue_keys 비면 noop(0)")
     pid = f"test-pr9-nokeys-{uuid.uuid4()}"
     try:
-        await _seed_pr_with_commits(pid, 4, ["h1"], None)  # jira_keys 없음
+        await _seed_pr_with_commits(pid, 4, ["h1"], None)  # issue_keys 없음
         n = await link_changeset_to_pr_issues(pid, 4, "h1")
-        r.assert_(n == 0, f"jira_keys 없으면 0 기대, 실제 {n}")
+        r.assert_(n == 0, f"issue_keys 없으면 0 기대, 실제 {n}")
         r.assert_(await _triggered_count(pid, "h1") == 0, "TRIGGERED_BY 생성 안 됨")
     finally:
         await delete_project_graph(pid)
@@ -139,7 +139,7 @@ CASES = [
     case_links_only_given_commit,
     case_all_commits_linked_per_commit,
     case_noop_when_not_contained,
-    case_noop_when_no_jira_keys,
+    case_noop_when_no_issue_keys,
 ]
 
 

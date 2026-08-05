@@ -58,7 +58,7 @@ public class JiraNormalizer {
             String closedAt = resolveClosedAt(statusName, resolutionDate, updatedAt);
 
             Map<String, Object> properties = new HashMap<>();
-            properties.put("jira_key", issue.get("key"));
+            properties.put("issue_key", issue.get("key"));
             properties.put("title", summary);
             properties.put("body", descriptionText);
             properties.put("status", statusName);
@@ -80,7 +80,7 @@ public class JiraNormalizer {
                     : new ActorDto(null, null, null);
 
             Map<String, Object> refs = new HashMap<>(refsExtractor.extract(summary + " " + descriptionText));
-            if (parentKey != null) refs.put("parentJiraKey", parentKey);
+            if (parentKey != null) refs.put("parentIssueKey", parentKey);
             if (assigneeField != null) {
                 String assigneeId = (String) assigneeField.get("accountId");
                 String assigneeName = (String) assigneeField.get("displayName");

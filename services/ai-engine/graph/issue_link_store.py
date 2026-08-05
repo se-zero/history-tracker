@@ -22,7 +22,7 @@ async def _fetch_issue_embeddings(project_id: str | None = None) -> list[dict]:
         WHERE i.embedding IS NOT NULL AND i.occurredAt IS NOT NULL
         __PROJECT_FILTER__
         RETURN i.project_id AS project_id,
-               i.jira_key AS id,
+               i.issue_key AS id,
                i.title AS title,
                i.body AS body,
                i.embedding AS embedding,
@@ -129,7 +129,7 @@ async def _fetch_unembedded_issues(project_id: str | None = None, force: bool = 
         WHERE (i.title IS NOT NULL OR i.body IS NOT NULL) __EMBEDDING_FILTER__
         __PROJECT_FILTER__
         RETURN i.project_id AS project_id,
-               i.jira_key AS id,
+               i.issue_key AS id,
                i.title AS title,
                i.body AS body
     """.replace(
@@ -149,21 +149,21 @@ async def _fetch_unembedded_issues(project_id: str | None = None, force: bool = 
     ]
 
 
-async def _save_issue_embedding(project_id: str, jira_key: str, embedding: list[float]) -> None:
+async def _save_issue_embedding(project_id: str, issue_key: str, embedding: list[float]) -> None:
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
             SET i.embedding = $embedding
             """,
             project_id=project_id,
-            jira_key=jira_key,
+            issue_key=issue_key,
             embedding=embedding,
         )
 
 
 async def _create_triggered_by_semantic_edge(
-    project_id: str, changeset_id: str, jira_key: str, confidence: float
+    project_id: str, changeset_id: str, issue_key: str, confidence: float
 ) -> None:
     """TRIGGERED_BY (semantic): 임베딩/LLM 검증으로 발견된 연결.
 
@@ -174,7 +174,7 @@ async def _create_triggered_by_semantic_edge(
         await session.run(
             """
             MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_id})
-            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
             MERGE (c)-[r:TRIGGERED_BY]->(i)
             WITH r
             WHERE coalesce(r.source, '') <> 'text'
@@ -182,24 +182,24 @@ async def _create_triggered_by_semantic_edge(
             """,
             project_id=project_id,
             changeset_id=changeset_id,
-            jira_key=jira_key,
+            issue_key=issue_key,
             confidence=confidence,
         )
 
 
 async def _create_discussed_in_semantic_edge(
-    project_id: str, jira_key: str, comm_url: str, confidence: float
+    project_id: str, issue_key: str, comm_url: str, confidence: float
 ) -> None:
     """DISCUSSED_IN (semantic): 임베딩/LLM 검증으로 발견된 연결.
 
-    source='text' 인 엣지(메시지가 jira_key를 직접 언급)는 이미 확정된 참조이므로
+    source='text' 인 엣지(메시지가 issue_key를 직접 언급)는 이미 확정된 참조이므로
     시맨틱 결과가 덮어쓰지 못하게 가드한다 — 덮어쓰면 confidence가 붙어 시맨틱으로 오인되고
     clear_semantic_discussed_in에 삭제된다(텍스트 엣지는 수집 시점에만 생겨 복구 불가).
     """
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
             MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
             MERGE (i)-[r:DISCUSSED_IN]->(comm)
             WITH r
@@ -207,7 +207,7 @@ async def _create_discussed_in_semantic_edge(
             SET r.source = 'semantic', r.confidence = $confidence
             """,
             project_id=project_id,
-            jira_key=jira_key,
+            issue_key=issue_key,
             comm_url=comm_url,
             confidence=confidence,
         )

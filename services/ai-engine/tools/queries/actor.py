@@ -94,9 +94,9 @@ def _first_line(text: str | None) -> str:
     return text.splitlines()[0][:_STUB_TITLE_MAX_CHARS] if text else ""
 
 
-def _jira_key_order(issue: dict) -> int:
-    """jira_key 번호 내림차순 정렬용 — 번호가 클수록 최근 이슈 (이슈 쿼리엔 시각이 없다)."""
-    key = issue.get("jira_key") or ""
+def _issue_key_order(issue: dict) -> int:
+    """issue_key 번호 내림차순 정렬용 — 번호가 클수록 최근 이슈 (이슈 쿼리엔 시각이 없다)."""
+    key = issue.get("issue_key") or ""
     try:
         return int(key.rsplit("-", 1)[-1])
     except ValueError:
@@ -113,14 +113,14 @@ def _cap_issues(issues: list[dict], cap: int = _ISSUES_CAP) -> tuple[list[dict],
 
     Returns: (capped_list, total, overflow_keys) — overflow_keys는 잘린 key들의 쉼표 문자열.
     """
-    valid = [i for i in issues if i.get("jira_key")]
-    valid.sort(key=_jira_key_order, reverse=True)
+    valid = [i for i in issues if i.get("issue_key")]
+    valid.sort(key=_issue_key_order, reverse=True)
     capped = [
-        {"jira_key": i["jira_key"],
+        {"issue_key": i["issue_key"],
          "title": (i.get("title") or "")[:_ISSUE_TITLE_MAX_CHARS]}
         for i in valid[:cap]
     ]
-    overflow_keys = ", ".join(i["jira_key"] for i in valid[cap:])
+    overflow_keys = ", ".join(i["issue_key"] for i in valid[cap:])
     return capped, len(valid), overflow_keys
 
 
@@ -279,8 +279,8 @@ async def get_actor_activity(
             WHERE """ + _ACTOR_MATCH_WHERE + """
             OPTIONAL MATCH (a)-[:CREATED]->(i:Issue)
             OPTIONAL MATCH (assigned:Issue)-[:ASSIGNED_TO]->(a)
-            RETURN collect(DISTINCT {jira_key: i.jira_key, title: i.title}) AS issues_created,
-                   collect(DISTINCT {jira_key: assigned.jira_key, title: assigned.title}) AS issues_assigned
+            RETURN collect(DISTINCT {issue_key: i.issue_key, title: i.title}) AS issues_created,
+                   collect(DISTINCT {issue_key: assigned.issue_key, title: assigned.title}) AS issues_assigned
             """,
             project_id=project_id,
             identifier=identifier,

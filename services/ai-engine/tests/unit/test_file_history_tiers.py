@@ -19,11 +19,11 @@ def _rows() -> list[dict]:
     # Cypher 반환 순서 = 최신순(occurredAt desc). relevance는 무작위로 흩뿌려 둠.
     return [
         {"hash": "c5", "occurredAt": "2026-05-01", "message": "newest\nbody", "relevance": 0.10,
-         "diff_summary": "d5", "author": "a", "issues": [{"jira_key": "HT-5"}], "prs": []},
+         "diff_summary": "d5", "author": "a", "issues": [{"issue_key": "HT-5"}], "prs": []},
         {"hash": "c4", "occurredAt": "2026-04-01", "message": "c4", "relevance": 0.20,
          "diff_summary": "d4", "author": "a", "issues": [], "prs": []},
         {"hash": "c3", "occurredAt": "2026-03-01", "message": "the relevant OLD one", "relevance": 0.90,
-         "diff_summary": "d3", "author": "a", "issues": [{"jira_key": "HT-3"}], "prs": []},
+         "diff_summary": "d3", "author": "a", "issues": [{"issue_key": "HT-3"}], "prs": []},
         {"hash": "c2", "occurredAt": "2026-02-01", "message": "c2", "relevance": 0.15,
          "diff_summary": "d2", "author": "a", "issues": [], "prs": []},
         {"hash": "c1", "occurredAt": "2026-01-01", "message": "c1", "relevance": 0.05,
@@ -66,7 +66,7 @@ class SplitTiersTest(unittest.TestCase):
         _, context, _ = _split_tiers(_rows(), ranked=True, detail_k=1, context_cap=10)
         stub = next(s for s in context if s["hash"] == "c5")
         self.assertEqual(stub["title"], "newest")           # 첫 줄만
-        self.assertEqual(stub["issues"], ["HT-5"])          # jira_key만 평탄화
+        self.assertEqual(stub["issues"], ["HT-5"])          # issue_key만 평탄화
         self.assertNotIn("diff_summary", stub)              # 본문 없음 → 대량 인용 불가
         self.assertNotIn("message", stub)
 

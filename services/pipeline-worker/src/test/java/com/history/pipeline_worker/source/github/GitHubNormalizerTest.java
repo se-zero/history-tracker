@@ -74,7 +74,7 @@ class GitHubNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeCommits(PROJECT_ID, List.of(commit)).get(0);
 
-        assertThat(event.refs()).containsEntry("jiraKey", "PAYMENT-301");
+        assertThat(event.refs()).containsEntry("issueKey", "PAYMENT-301");
     }
 
     @Test
@@ -206,7 +206,7 @@ class GitHubNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizePullRequests(PROJECT_ID, List.of(pr)).get(0);
 
-        assertThat(event.refs()).containsEntry("jiraKey", "AUTH-55");
+        assertThat(event.refs()).containsEntry("issueKey", "AUTH-55");
     }
 
     @Test

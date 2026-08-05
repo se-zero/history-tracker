@@ -56,7 +56,7 @@ def test_group_evidence_keys_buckets_by_type():
     keys = _group_evidence_keys(evidence)
     assert keys["commit_prefixes"] == ["abc1234"]
     assert keys["pr_numbers"] == [42, 99]
-    assert keys["jira_keys"] == ["HT-37"]
+    assert keys["issue_keys"] == ["HT-37"]
     assert keys["conv_ids"] == ["1700000000123"]
 
 
@@ -71,7 +71,7 @@ def test_group_evidence_keys_skips_blank_and_unknown():
     assert keys == {
         "commit_prefixes": [],
         "pr_numbers": [],
-        "jira_keys": [],
+        "issue_keys": [],
         "conv_ids": [],
     }
 
@@ -80,7 +80,7 @@ def test_resolve_seed_ids_aligns_to_evidence_order():
     rows = [
         {"id": "n1", "label": "ChangeSet", "hash": "abc1234def"},
         {"id": "n2", "label": "PullRequest", "pr_number": 42},
-        {"id": "n3", "label": "Issue", "jira_key": "HT-37"},
+        {"id": "n3", "label": "Issue", "issue_key": "HT-37"},
         {"id": "n4", "label": "Communication", "conversation_id": "1700000000.123"},
         {"id": "n5", "label": "Actor", "name": "neighbor (무시)"},
     ]
@@ -144,7 +144,7 @@ def test_to_graph_node_ref_carries_query_key():
     pr = _to_graph_node({"id": "n2", "label": "PullRequest", "pr_number": 42, "title": "t"})
     assert pr["ref"] == {"type": "pull_request", "id": "42"}
 
-    issue = _to_graph_node({"id": "n3", "label": "Issue", "jira_key": "HT-37", "title": "t"})
+    issue = _to_graph_node({"id": "n3", "label": "Issue", "issue_key": "HT-37", "title": "t"})
     assert issue["ref"] == {"type": "issue", "id": "HT-37"}
 
     # GitHub Issue Communication → message 도구 대상, conversation_id를 실어 보낸다.

@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * RefsExtractor: 텍스트에서 Jira 키·PR 번호를 정규식으로 추출하는 순수 컴포넌트.
  * 외부 의존성 없음 → Spring 컨텍스트 없이 단순 인스턴스화로 테스트.
  *
- * 반환 타입은 Map&lt;String, Object&gt; — jiraKey/prNumber는 String, jiraKeys는 List&lt;String&gt;.
+ * 반환 타입은 Map&lt;String, Object&gt; — issueKey/prNumber는 String, issueKeys는 List&lt;String&gt;.
  */
 class RefsExtractorTest {
 
@@ -47,44 +47,44 @@ class RefsExtractorTest {
     // ─── Jira 키 추출 ───────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("일반 Jira 키(PROJECT-123) 추출 — jiraKey + jiraKeys 모두 포함")
+    @DisplayName("일반 Jira 키(PROJECT-123) 추출 — issueKey + issueKeys 모두 포함")
     void extract_standardJiraKey() {
         Map<String, Object> refs = extractor.extract("Fix for PROJECT-123 resolved");
-        assertThat(refs).containsEntry("jiraKey", "PROJECT-123");
-        assertThat(refs).containsEntry("jiraKeys", List.of("PROJECT-123"));
+        assertThat(refs).containsEntry("issueKey", "PROJECT-123");
+        assertThat(refs).containsEntry("issueKeys", List.of("PROJECT-123"));
     }
 
     @Test
     @DisplayName("두 글자 짧은 Jira 키(AB-1) 추출")
     void extract_shortJiraKey() {
         Map<String, Object> refs = extractor.extract("Relates to AB-1");
-        assertThat(refs).containsEntry("jiraKey", "AB-1");
-        assertThat(refs).containsEntry("jiraKeys", List.of("AB-1"));
+        assertThat(refs).containsEntry("issueKey", "AB-1");
+        assertThat(refs).containsEntry("issueKeys", List.of("AB-1"));
     }
 
     @Test
-    @DisplayName("소문자 Jira 키는 패턴 불일치 → jiraKey 없음")
+    @DisplayName("소문자 Jira 키는 패턴 불일치 → issueKey 없음")
     void extract_lowercaseJiraKey_notMatched() {
         // 패턴이 [A-Z]{2,} 대문자만 허용하므로 소문자 키는 추출되지 않아야 함
         Map<String, Object> refs = extractor.extract("project-123 fix");
-        assertThat(refs).doesNotContainKey("jiraKey");
-        assertThat(refs).doesNotContainKey("jiraKeys");
+        assertThat(refs).doesNotContainKey("issueKey");
+        assertThat(refs).doesNotContainKey("issueKeys");
     }
 
     @Test
-    @DisplayName("여러 Jira 키 → jiraKey는 첫 번째, jiraKeys는 전체 (입력 순서 유지)")
+    @DisplayName("여러 Jira 키 → issueKey는 첫 번째, issueKeys는 전체 (입력 순서 유지)")
     void extract_multipleJiraKeys() {
         Map<String, Object> refs = extractor.extract("ALPHA-1 and BETA-2 referenced");
-        assertThat(refs).containsEntry("jiraKey", "ALPHA-1");
-        assertThat(refs).containsEntry("jiraKeys", List.of("ALPHA-1", "BETA-2"));
+        assertThat(refs).containsEntry("issueKey", "ALPHA-1");
+        assertThat(refs).containsEntry("issueKeys", List.of("ALPHA-1", "BETA-2"));
     }
 
     @Test
-    @DisplayName("같은 Jira 키가 중복 등장하면 jiraKeys에서 중복 제거")
+    @DisplayName("같은 Jira 키가 중복 등장하면 issueKeys에서 중복 제거")
     void extract_duplicateJiraKeys_deduplicatedInList() {
         Map<String, Object> refs = extractor.extract("HT-5 in title, HT-5 again in body, HT-12 too");
-        assertThat(refs).containsEntry("jiraKey", "HT-5");
-        assertThat(refs).containsEntry("jiraKeys", List.of("HT-5", "HT-12"));
+        assertThat(refs).containsEntry("issueKey", "HT-5");
+        assertThat(refs).containsEntry("issueKeys", List.of("HT-5", "HT-12"));
     }
 
     // ─── PR 번호 추출 ───────────────────────────────────────────────────────────
@@ -114,11 +114,11 @@ class RefsExtractorTest {
 
     @Test
     @DisplayName("Jira 키와 PR 번호가 함께 있으면 둘 다 추출")
-    void extract_jiraKeyAndPrNumber_bothExtracted() {
+    void extract_issueKeyAndPrNumber_bothExtracted() {
         Map<String, Object> refs = extractor.extract("Implements PROJ-99, closes PR #7");
         assertThat(refs)
-                .containsEntry("jiraKey", "PROJ-99")
-                .containsEntry("jiraKeys", List.of("PROJ-99"))
+                .containsEntry("issueKey", "PROJ-99")
+                .containsEntry("issueKeys", List.of("PROJ-99"))
                 .containsEntry("prNumber", "7");
     }
 

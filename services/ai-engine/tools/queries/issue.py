@@ -40,21 +40,21 @@ def _first_line(text: str | None, cap: int) -> str | None:
         return None
     return text.splitlines()[0][:cap] or None
 
-async def get_issue_context(project_id: str, jira_key: str) -> dict:
+async def get_issue_context(project_id: str, issue_key: str) -> dict:
     """이슈 단일 키로 직속 작업 + 자식 이슈 작업까지 모두 집계해서 반환.
 
-    진입 Issue를 project_id로 스코프한다 — jira_key는 프로젝트 간 충돌하므로 필수.
+    진입 Issue를 project_id로 스코프한다 — issue_key는 프로젝트 간 충돌하므로 필수.
     여기서 도달하는 ChangeSet/PR/Communication/자식 Issue는 프로젝트 내부 엣지로만
     연결되므로(Phase A 보장) 추가 스코프 불필요.
 
     반환 구조:
       {
-        jira_key, title, body, status, ..., creator, assignee,
+        issue_key, title, body, status, ..., creator, assignee,
         changesets:    [...],   # root 이슈에 직접 연결된 커밋
         pull_requests: [...],
         discussions:   [...],
         descendants: [
-          {jira_key, title, status, changesets, pull_requests, discussions},
+          {issue_key, title, status, changesets, pull_requests, discussions},
           ...
         ]
       }
@@ -68,41 +68,41 @@ async def get_issue_context(project_id: str, jira_key: str) -> dict:
         # 1단계: 이슈 + creator + assignee
         result = await session.run(
             """
-            MATCH (i:Issue {project_id: $project_id, jira_key: $jira_key})
+            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
             OPTIONAL MATCH (creator:Actor)-[:CREATED]->(i)
             OPTIONAL MATCH (assignee:Actor)<-[:ASSIGNED_TO]-(i)
-            RETURN i.jira_key AS jira_key, i.title AS title, i.body AS body,
+            RETURN i.issue_key AS issue_key, i.title AS title, i.body AS body,
                    i.status AS status, i.issue_type AS issue_type,
                    i.priority AS priority, toString(i.occurredAt) AS occurredAt,
                    creator.name AS creator, assignee.name AS assignee
             """,
             project_id=project_id,
-            jira_key=jira_key,
+            issue_key=issue_key,
         )
         row = await result.single()
         if not row:
-            return {"message": f"이슈를 찾을 수 없습니다: {jira_key}"}
+            return {"message": f"이슈를 찾을 수 없습니다: {issue_key}"}
         base = dict(row)
 
         # 2단계: 스코프 결정 — root + 자식 이슈 메타데이터 (root 자체는 항상 첫 항목)
         result = await session.run(
             f"""
-            MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
+            MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH root, collect(DISTINCT desc) AS descs
             UNWIND ([root] + descs) AS i
             WITH i WHERE i IS NOT NULL
-            RETURN i.jira_key AS jira_key, i.title AS title, i.status AS status
+            RETURN i.issue_key AS issue_key, i.title AS title, i.status AS status
             """,
             project_id=project_id,
-            jira_key=jira_key,
+            issue_key=issue_key,
         )
         scope_issues = await result.data()  # 첫 항목이 root, 이후가 descendants
 
-        # 3단계: 스코프 내 각 이슈의 커밋 + PR 일괄 조회 (jira_key 기준 grouping)
+        # 3단계: 스코프 내 각 이슈의 커밋 + PR 일괄 조회 (issue_key 기준 grouping)
         result = await session.run(
             f"""
-            MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
+            MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
             UNWIND issues_raw AS i
@@ -111,7 +111,7 @@ async def get_issue_context(project_id: str, jira_key: str) -> dict:
             WHERE coalesce(tb.confidence, 1.0) >= $min_conf
             OPTIONAL MATCH (cs_author:Actor)-[:AUTHORED]->(cs)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
-            RETURN i.jira_key AS jira_key,
+            RETURN i.issue_key AS issue_key,
                    collect(DISTINCT {{
                        hash: cs.hash, message: cs.message,
                        occurredAt: toString(cs.occurredAt),
@@ -125,22 +125,22 @@ async def get_issue_context(project_id: str, jira_key: str) -> dict:
                    }}) AS pull_requests
             """,
             project_id=project_id,
-            jira_key=jira_key,
+            issue_key=issue_key,
             min_conf=_MIN_CONFIDENCE,
         )
-        work_rows = {r["jira_key"]: r for r in await result.data()}
+        work_rows = {r["issue_key"]: r for r in await result.data()}
 
-        # 4단계: 스코프 내 각 이슈의 논의 일괄 조회 (jira_key 기준 grouping)
+        # 4단계: 스코프 내 각 이슈의 논의 일괄 조회 (issue_key 기준 grouping)
         result = await session.run(
             f"""
-            MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
+            MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
             UNWIND issues_raw AS i
             WITH i WHERE i IS NOT NULL
             OPTIONAL MATCH (i)-[disc:DISCUSSED_IN]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
-            RETURN i.jira_key AS jira_key,
+            RETURN i.issue_key AS issue_key,
                    collect(DISTINCT {{
                        body: c.body, channel: c.channel, source: c.source,
                        occurredAt: toString(c.occurredAt),
@@ -150,9 +150,9 @@ async def get_issue_context(project_id: str, jira_key: str) -> dict:
                    }}) AS discussions
             """,
             project_id=project_id,
-            jira_key=jira_key,
+            issue_key=issue_key,
         )
-        disc_rows = {r["jira_key"]: r["discussions"] for r in await result.data()}
+        disc_rows = {r["issue_key"]: r["discussions"] for r in await result.data()}
 
         def _filter_empty(items: list[dict]) -> list[dict]:
             """collect로 OPTIONAL MATCH가 비었을 때 들어오는 전 필드 None 더미 제거."""
@@ -168,18 +168,18 @@ async def get_issue_context(project_id: str, jira_key: str) -> dict:
             }
 
         # root 자체의 작업은 top-level에 그대로 배치 (하위 호환)
-        base.update(_per_issue(jira_key))
+        base.update(_per_issue(issue_key))
 
-        # descendants는 root 제외하고 jira_key 사전순 정렬
+        # descendants는 root 제외하고 issue_key 사전순 정렬
         base["descendants"] = [
             {
-                "jira_key": i["jira_key"],
+                "issue_key": i["issue_key"],
                 "title":    i["title"],
                 "status":   i["status"],
-                **_per_issue(i["jira_key"]),
+                **_per_issue(i["issue_key"]),
             }
-            for i in sorted(scope_issues, key=lambda x: x["jira_key"])
-            if i["jira_key"] != jira_key
+            for i in sorted(scope_issues, key=lambda x: x["issue_key"])
+            if i["issue_key"] != issue_key
         ]
 
         return base
@@ -212,7 +212,7 @@ async def rank_issues(project_id: str, by: str = "discussion", top_k: int = 5) -
                  CASE WHEN i.closedAt IS NOT NULL
                       THEN i.closedAt.epochMillis - i.createdAt.epochMillis
                       ELSE null END AS dur_ms
-            RETURN i.jira_key AS jira_key, i.title AS title, i.status AS status,
+            RETURN i.issue_key AS issue_key, i.title AS title, i.status AS status,
                    toString(i.createdAt) AS created_at, toString(i.closedAt) AS closed_at,
                    disc AS discussion_count, dur_ms AS duration_ms
             """,
@@ -231,7 +231,7 @@ async def rank_issues(project_id: str, by: str = "discussion", top_k: int = 5) -
 
     ranked = [
         {
-            "jira_key": r["jira_key"],
+            "issue_key": r["issue_key"],
             "title": _first_line(r["title"], _TITLE_CHARS),
             "status": r["status"],
             "created_at": normalize_time(r["created_at"]),
@@ -257,7 +257,7 @@ async def rank_issues(project_id: str, by: str = "discussion", top_k: int = 5) -
 
 async def get_timeline(
     project_id: str,
-    jira_key: str | None = None,
+    issue_key: str | None = None,
     path: str | None = None,
     actor: str | None = None,
     from_time: str | None = None,
@@ -265,7 +265,7 @@ async def get_timeline(
 ) -> dict:
     """시간순 이벤트를 스코프별로 반환한다.
 
-    스코프 우선순위: jira_key > path > actor > (전부 생략 시) 프로젝트 전체.
+    스코프 우선순위: issue_key > path > actor > (전부 생략 시) 프로젝트 전체.
     from_time/to_time은 어느 스코프와도 조합 가능하며 **이벤트 단위**로 적용된다 —
     노드 단위로 자르면 창 이전에 생성돼 창 안에서 종료된 이슈의 종료 이벤트를 잃는다.
 
@@ -282,8 +282,8 @@ async def get_timeline(
       }
     """
     async with get_driver().session() as session:
-        if jira_key:
-            scope, events = await _issue_events(session, project_id, jira_key)
+        if issue_key:
+            scope, events = await _issue_events(session, project_id, issue_key)
         elif path:
             scope, events = await _path_events(session, project_id, path)
         elif actor:
@@ -421,13 +421,13 @@ def _issue_lifecycle_events(rows: list[dict]) -> list[dict]:
     return [
         e for i in rows
         for e in expand_events("Issue", i, {
-            "jira_key": i.get("jira_key"),
+            "issue_key": i.get("issue_key"),
             "title": _first_line(i.get("title"), _TITLE_CHARS), "status": i.get("status"),
         })
     ]
 
 
-async def _issue_events(session, project_id: str, jira_key: str) -> tuple[dict, list[dict] | None]:
+async def _issue_events(session, project_id: str, issue_key: str) -> tuple[dict, list[dict] | None]:
     """이슈 스코프 — 이슈 생명주기 + 연결된 커밋·PR·논의.
 
     **CHILD_OF 자식 이슈까지 포함**한다 (get_issue_context와 같은 범위). epic 아래
@@ -441,7 +441,7 @@ async def _issue_events(session, project_id: str, jira_key: str) -> tuple[dict, 
     """
     result = await session.run(
         f"""
-        MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
+        MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
         OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
         WITH root, collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
         UNWIND issues_raw AS i
@@ -454,7 +454,7 @@ async def _issue_events(session, project_id: str, jira_key: str) -> tuple[dict, 
                root.status AS root_status,
                collect(DISTINCT {{
                    createdAt: toString(i.createdAt), closedAt: toString(i.closedAt),
-                   jira_key: i.jira_key, title: i.title, status: i.status
+                   issue_key: i.issue_key, title: i.title, status: i.status
                }}) AS issues,
                collect(DISTINCT {{
                    occurredAt: toString(cs.occurredAt),
@@ -467,14 +467,14 @@ async def _issue_events(session, project_id: str, jira_key: str) -> tuple[dict, 
                    pr_number: pr.pr_number, title: pr.title, url: pr.url
                }}) AS pull_requests
         """,
-        project_id=project_id, jira_key=jira_key, min_conf=_MIN_CONFIDENCE,
+        project_id=project_id, issue_key=issue_key, min_conf=_MIN_CONFIDENCE,
     )
     row = await result.single()
-    if not row or not row["issues"] or not any(i.get("jira_key") for i in row["issues"]):
-        return {"type": "issue", "value": jira_key}, None
+    if not row or not row["issues"] or not any(i.get("issue_key") for i in row["issues"]):
+        return {"type": "issue", "value": issue_key}, None
 
     scope = {
-        "type": "issue", "value": jira_key,
+        "type": "issue", "value": issue_key,
         "created_at": normalize_time(row["root_created"]),
         "closed_at":  normalize_time(row["root_closed"]),
         "status":     row["root_status"],
@@ -489,7 +489,7 @@ async def _issue_events(session, project_id: str, jira_key: str) -> tuple[dict, 
     # 논의는 이슈와 독립적이므로 별도 쿼리 (자식 이슈의 논의까지 포함)
     result2 = await session.run(
         f"""
-        MATCH (root:Issue {{project_id: $project_id, jira_key: $jira_key}})
+        MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
         OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
         WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
         UNWIND issues_raw AS i
@@ -501,7 +501,7 @@ async def _issue_events(session, project_id: str, jira_key: str) -> tuple[dict, 
             conversation_id: c.conversation_id
         }}) AS communications
         """,
-        project_id=project_id, jira_key=jira_key,
+        project_id=project_id, issue_key=issue_key,
     )
     row2 = await result2.single()
     if row2:
@@ -530,13 +530,13 @@ async def _path_events(session, project_id: str, path: str) -> tuple[dict, list[
     # 연결 이슈는 **커밋 data에 키만** 싣는다. 이슈 생명주기를 별도 이벤트로 펼치면
     # 파일 하나에 연결된 이슈 수십 개의 생성/완료가 정작 그 파일을 바꾼 커밋을 덮는다
     # (orchestrator: 파일 이력 질문의 인용 앵커는 파일을 실제 변경한 커밋).
-    # 이슈 자체의 시간축이 필요하면 그 jira_key로 이슈 스코프를 다시 호출한다.
+    # 이슈 자체의 시간축이 필요하면 그 issue_key로 이슈 스코프를 다시 호출한다.
     result = await session.run(
         """
         MATCH (cs:ChangeSet {project_id: $project_id})-[:MODIFIED]->(:File {path: $path})
         OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
             WHERE coalesce(tb.confidence, 1.0) >= $min_conf
-        WITH cs, collect(DISTINCT i.jira_key) AS issue_keys
+        WITH cs, collect(DISTINCT i.issue_key) AS issue_keys
         OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
         RETURN collect(DISTINCT {
                    occurredAt: toString(cs.occurredAt),
@@ -600,7 +600,7 @@ async def _actor_events(session, project_id: str, actor: str) -> tuple[dict, lis
                                  channel: c.channel, source: c.source,
                                  conversation_id: c.conversation_id}) AS communications,
                collect(DISTINCT {createdAt: toString(i.createdAt), closedAt: toString(i.closedAt),
-                                 jira_key: i.jira_key, title: i.title, status: i.status}) AS issues
+                                 issue_key: i.issue_key, title: i.title, status: i.status}) AS issues
         """,
         project_id=project_id, actor=actor,
     )
@@ -639,7 +639,7 @@ async def _project_events(session, project_id: str) -> list[dict]:
     iss = await (await session.run(
         "MATCH (n:Issue {project_id: $p}) "
         "RETURN collect({createdAt: toString(n.createdAt), closedAt: toString(n.closedAt), "
-        "jira_key: n.jira_key, title: n.title, status: n.status}) AS r",
+        "issue_key: n.issue_key, title: n.title, status: n.status}) AS r",
         p=project_id)).single()
 
     return (

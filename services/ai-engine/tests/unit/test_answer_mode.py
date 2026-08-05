@@ -61,7 +61,7 @@ class AnswerModeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_specialized_tools_only_is_grounded(self):
         responses = [
-            _message([_tool_call("1", "get_issue_context", {"jira_key": "HT-1"})]),
+            _message([_tool_call("1", "get_issue_context", {"issue_key": "HT-1"})]),
             _message(),
         ]
         answer, structured, _ = await self._run(responses)
@@ -70,7 +70,7 @@ class AnswerModeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_graph_query_marks_exploratory(self):
         responses = [
-            _message([_tool_call("1", "run_graph_query", {"cypher": "MATCH (i:Issue) RETURN i.jira_key", "purpose": "p"})]),
+            _message([_tool_call("1", "run_graph_query", {"cypher": "MATCH (i:Issue) RETURN i.issue_key", "purpose": "p"})]),
             _message(),
         ]
         answer, structured, _ = await self._run(responses)
@@ -93,7 +93,7 @@ class AnswerModeTest(unittest.IsolatedAsyncioTestCase):
         """상한을 넘는 호출은 실행되지 않고 LLM에게 사유가 전달된다."""
         over = orchestrator._MAX_GRAPH_QUERY_CALLS + 2
         calls = [
-            _tool_call(str(n), "run_graph_query", {"cypher": f"MATCH (i:Issue) RETURN i.jira_key LIMIT {n}", "purpose": "p"})
+            _tool_call(str(n), "run_graph_query", {"cypher": f"MATCH (i:Issue) RETURN i.issue_key LIMIT {n}", "purpose": "p"})
             for n in range(over)
         ]
         responses = [_message(calls), _message()]

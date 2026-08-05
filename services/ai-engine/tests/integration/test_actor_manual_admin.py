@@ -85,7 +85,7 @@ async def _seed_merge_graph(project_id: str, more_uuid: str, less_uuid: str) -> 
             MATCH (less:Actor {uuid: $less_uuid})
             CREATE (more_cs:ChangeSet {project_id: $pid, hash: $more_hash, source: 'GITHUB'})
             CREATE (less_cs:ChangeSet {project_id: $pid, hash: $less_hash, source: 'SLACK'})
-            CREATE (issue:Issue {project_id: $pid, jira_key: $issue_key, source: 'JIRA'})
+            CREATE (issue:Issue {project_id: $pid, issue_key: $issue_key, source: 'JIRA'})
             CREATE (more)-[:AUTHORED]->(more_cs)
             CREATE (less)-[:AUTHORED]->(less_cs)
             CREATE (issue)-[:ASSIGNED_TO]->(more)

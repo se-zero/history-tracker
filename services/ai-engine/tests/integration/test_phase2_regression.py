@@ -257,7 +257,7 @@ async def main() -> None:
     print("선행 작업이 완료된 그래프 상태에서 실행하세요 (하위 1 회귀와 동일):")
     print("  1) POST /migrations/triggered-by-source")
     print("  2) POST /migrations/clear-semantic-triggered-by")
-    print("  3) POST /migrations/pr-jira-keys")
+    print("  3) POST /migrations/pr-issue-keys")
     print("  4) POST /issue-links/build")
     print("=" * 70)
 

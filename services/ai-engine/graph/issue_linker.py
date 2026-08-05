@@ -114,7 +114,7 @@ class IssueLinkStore:
     fetch_issue_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 Issue 노드 반환.
     Returns:
-        [{"project_id": str, "id": str (jira_key), "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "id": str (issue_key), "embedding": list[float], "occurred_at": datetime}, ...]
     """
 
     fetch_modified_embeddings: Callable[[], Awaitable[list[dict]]]
@@ -136,7 +136,7 @@ class IssueLinkStore:
     Args:
         project_id:   프로젝트 UUID (노드 매칭 스코프)
         changeset_id: ChangeSet hash
-        jira_key:     Issue jira_key
+        issue_key:     Issue issue_key
         confidence:   코사인 유사도 (0~1)
     """
 
@@ -144,7 +144,7 @@ class IssueLinkStore:
     """DISCUSSED_IN 엣지 생성 또는 갱신.
     Args:
         project_id: 프로젝트 UUID (노드 매칭 스코프)
-        jira_key: Issue jira_key
+        issue_key: Issue issue_key
         comm_url: Communication url
         confidence: 코사인 유사도 (0~1)
     """
@@ -164,14 +164,14 @@ class IssueLinkStore:
     Args:
         force: True면 embedding이 이미 있는 노드까지 전부 반환 (모델 교체 시 전량 재임베딩)
     Returns:
-        [{"project_id": str, "id": str (jira_key), "title": str, "body": str}, ...]
+        [{"project_id": str, "id": str (issue_key), "title": str, "body": str}, ...]
     """
 
     save_issue_embedding: Callable[[str, str, list[float]], Awaitable[None]]
     """Issue 노드에 embedding 저장.
     Args:
         project_id: 프로젝트 UUID
-        jira_key:   Issue jira_key
+        issue_key:   Issue issue_key
         embedding:  임베딩 벡터
     """
 
@@ -191,13 +191,13 @@ def select_triggered_by_pairs(
         threshold:      엣지 생성 최소 유사도
 
     Returns:
-        [(project_id, changeset_id, jira_key, score), ...]
+        [(project_id, changeset_id, issue_key, score), ...]
     """
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
     issues_by_project = _group_by_project(issues)
     mods_by_project   = _group_by_project(candidate_rows)
 
-    # (project_id, changeset_id) → (best_jira_key, best_score) — top-1 보장.
+    # (project_id, changeset_id) → (best_issue_key, best_score) — top-1 보장.
     # 같은 커밋의 diff 행과 메시지 행이 같은 키로 병합돼 쌍별 max가 된다(message_mode=max).
     best_per_cs: dict[tuple[str, str], tuple[str, float]] = {}
 
@@ -238,8 +238,8 @@ def select_triggered_by_pairs(
                 best_per_cs[cs_key] = (p_issues[int(best_issue_idx[j])]["id"], score)
 
     return [
-        (project_id, cs_id, jira_key, score)
-        for (project_id, cs_id), (jira_key, score) in best_per_cs.items()
+        (project_id, cs_id, issue_key, score)
+        for (project_id, cs_id), (issue_key, score) in best_per_cs.items()
     ]
 
 
@@ -278,13 +278,13 @@ async def build_issue_changeset_links(
         return 0
 
     created = 0
-    for project_id, cs_id, jira_key, confidence in select_triggered_by_pairs(
+    for project_id, cs_id, issue_key, confidence in select_triggered_by_pairs(
         issues, candidates, threshold
     ):
-        await store.create_triggered_by_edge(project_id, cs_id, jira_key, confidence)
+        await store.create_triggered_by_edge(project_id, cs_id, issue_key, confidence)
         created += 1
         logger.debug("TRIGGERED_BY 생성: changeset=%s issue=%s score=%.3f",
-                     cs_id, jira_key, confidence)
+                     cs_id, issue_key, confidence)
 
     logger.info(
         "TRIGGERED_BY 엣지 생성 완료: %d개 (threshold=%.2f, message_mode=%s, scope=%d issues × %d rows)",
@@ -306,7 +306,7 @@ def select_discussed_in_pairs(
     엣지 생성과 분리된 순수 함수다 (분리 이유는 select_reference_pairs 참고).
 
     Returns:
-        [(project_id, jira_key, communication_id, score), ...]
+        [(project_id, issue_key, communication_id, score), ...]
     """
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
     issues_by_project = _group_by_project(issues)
@@ -390,12 +390,12 @@ async def build_issue_communication_links(
         return 0
 
     created = 0
-    for project_id, jira_key, comm_id, score in select_discussed_in_pairs(
+    for project_id, issue_key, comm_id, score in select_discussed_in_pairs(
         issues, comms, threshold, margin, pre_days, post_days
     ):
-        await store.create_discussed_in_edge(project_id, jira_key, comm_id, confidence=score)
+        await store.create_discussed_in_edge(project_id, issue_key, comm_id, confidence=score)
         created += 1
-        logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f", jira_key, comm_id, score)
+        logger.debug("DISCUSSED_IN 생성: issue=%s comm=%s score=%.3f", issue_key, comm_id, score)
 
     logger.info("DISCUSSED_IN 엣지 생성 완료: %d개 (threshold=%.2f, margin=%.2f, window=-%dd/+%dd)",
                 created, threshold, margin, pre_days, post_days)

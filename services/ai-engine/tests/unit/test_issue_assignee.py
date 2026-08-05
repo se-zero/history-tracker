@@ -27,7 +27,7 @@ def _issue_event(refs=None):
         "occurredAt": "2026-07-01T00:00:00Z",
         "actor": {"id": "reporter1", "name": "Reporter One", "email": "reporter1@example.com"},
         "properties": {
-            "jira_key": "HT-1",
+            "issue_key": "HT-1",
             "title": "제목",
             "body": "본문",
             "status": "진행중",
@@ -110,7 +110,7 @@ class HandleIssueAssigneeTest(unittest.TestCase):
         self.assertNotIn("assignee", upsert_issue_mock.await_args.kwargs)
 
     def test_non_issue_event_does_not_call_unlink(self):
-        # Communication처럼 이슈를 refs.jiraKey로 "참조"만 하는 이벤트는 그 이슈의
+        # Communication처럼 이슈를 refs.issueKey로 "참조"만 하는 이벤트는 그 이슈의
         # assignee 정보를 담고 있지 않다 — assigneeId 부재 분기와 같은 취급을 하면
         # 코멘트가 올 때마다 정상 담당자 엣지가 오삭제된다.
         event = {
@@ -125,7 +125,7 @@ class HandleIssueAssigneeTest(unittest.TestCase):
                 "channel": "general",
                 "conversation_id": "C1",
             },
-            "refs": {"jiraKey": "HT-1"},
+            "refs": {"issueKey": "HT-1"},
         }
         unlink_assignees_mock = AsyncMock()
         with patch("graph.event_handler.builder.upsert_communication", AsyncMock()), \
@@ -174,7 +174,7 @@ class LinkIssueToAssigneeQueryTest(unittest.TestCase):
         self.assertIn("ASSIGNED_TO", query)
         self.assertIn("DELETE r", query)
         self.assertEqual(params["project_id"], "p1")
-        self.assertEqual(params["jira_key"], "HT-1")
+        self.assertEqual(params["issue_key"], "HT-1")
         self.assertEqual(params["actor_uuid"], "new-actor-uuid")
 
 
@@ -188,7 +188,7 @@ class UnlinkIssueAssigneesQueryTest(unittest.TestCase):
         query, params = session.calls[0]
         self.assertIn("ASSIGNED_TO", query)
         self.assertIn("DELETE r", query)
-        self.assertEqual(params, {"project_id": "p1", "jira_key": "HT-1"})
+        self.assertEqual(params, {"project_id": "p1", "issue_key": "HT-1"})
 
 
 if __name__ == "__main__":

@@ -170,7 +170,7 @@ def _stub_row(r: dict) -> dict:
         "hash": r["hash"],
         "occurredAt": r.get("occurredAt"),
         "title": first_line,
-        "issues": [i["jira_key"] for i in (r.get("issues") or []) if i.get("jira_key")],
+        "issues": [i["issue_key"] for i in (r.get("issues") or []) if i.get("issue_key")],
     }
 
 
@@ -226,7 +226,7 @@ async def _fetch_file_history(
         // (같은 diffSummary 반복 + executor 상한에 오래된 커밋이 밀려남: case-27)
         WITH cs, m, a,
              collect(DISTINCT CASE WHEN i IS NOT NULL THEN {
-                 jira_key: i.jira_key, title: i.title,
+                 issue_key: i.issue_key, title: i.title,
                  confidence: tb.confidence, source: tb.source
              } END) AS issue_links,
              collect(DISTINCT CASE WHEN pr IS NOT NULL THEN {

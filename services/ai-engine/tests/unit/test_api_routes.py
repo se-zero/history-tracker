@@ -38,7 +38,7 @@ EXPECTED_ROUTES = {
     ("POST", "/migrations/discussed-in-source"),
     ("POST", "/migrations/issue-embeddings"),
     ("POST", "/migrations/modified-embeddings"),
-    ("POST", "/migrations/pr-jira-keys"),
+    ("POST", "/migrations/pr-issue-keys"),
     ("POST", "/migrations/triggered-by-source"),
     ("POST", "/migrations/verify-actor-names"),
     ("GET", "/privacy/jira/accounts"),

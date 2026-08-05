@@ -52,7 +52,7 @@ _NODE_RETURN_FIELDS = """elementId(n)        AS id,
        n.pr_number         AS pr_number,
        n.title             AS title,
        n.body              AS body,
-       n.jira_key          AS jira_key,
+       n.issue_key          AS issue_key,
        n.status            AS status,
        n.url               AS url,
        n.channel           AS channel,
@@ -200,11 +200,11 @@ def _to_graph_node(row: dict) -> dict:
         return {
             "id": row["id"],
             "type": "jira",
-            "title": row.get("title") or row.get("jira_key") or "(issue)",
-            "meta": row.get("jira_key") or "",
+            "title": row.get("title") or row.get("issue_key") or "(issue)",
+            "meta": row.get("issue_key") or "",
             "source": "jira",
             "snippet": _truncate(row.get("body")),
-            "ref": _node_ref("issue", row.get("jira_key")),
+            "ref": _node_ref("issue", row.get("issue_key")),
         }
 
     if label == "Communication":
@@ -511,7 +511,7 @@ async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
 
 # ── 답변 evidence → 관련 서브그래프 ────────────────────────────────────────────
 # 채팅 답변의 evidence는 도메인 키로 노드를 가리킨다(commit→hash 앞 7자, pull_request→
-# "#번호", issue→jira_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로
+# "#번호", issue→issue_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로
 # 둘을 잇는 공통 키가 없다 — 여기서 도메인 키로 노드를 resolve해 서브그래프를 만든다.
 
 # 시드 노드(evidence가 가리키는 노드) + 1홉 이웃을 모으고, 그 집합 내부 엣지만 수집한다.
@@ -522,7 +522,7 @@ WHERE n.project_id = $project_id
   AND (
     (n:ChangeSet AND any(p IN $commit_prefixes WHERE n.hash STARTS WITH p))
     OR (n:PullRequest AND n.pr_number IN $pr_numbers)
-    OR (n:Issue AND n.jira_key IN $jira_keys)
+    OR (n:Issue AND n.issue_key IN $issue_keys)
     OR (n:Communication AND (
         replace(n.conversation_id, '.', '') IN $conv_ids
         OR split(coalesce(n.url, ''), '/p')[-1] IN $conv_ids
@@ -587,7 +587,7 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
     keys: dict = {
         "commit_prefixes": [],
         "pr_numbers": [],
-        "jira_keys": [],
+        "issue_keys": [],
         "conv_ids": [],
     }
     for item in evidence:
@@ -600,7 +600,7 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
         elif etype == "pull_request":
             keys["pr_numbers"].append(int(key))
         elif etype == "issue":
-            keys["jira_keys"].append(key)
+            keys["issue_keys"].append(key)
         elif etype == "message":
             keys["conv_ids"].append(key)
     return keys
@@ -632,7 +632,7 @@ def _resolve_seed_ids(evidence: list[dict], node_rows: list[dict]) -> list[str |
             elif etype == "issue":
                 match = next(
                     (r["id"] for r in node_rows
-                     if r.get("label") == "Issue" and r.get("jira_key") == key),
+                     if r.get("label") == "Issue" and r.get("issue_key") == key),
                     None,
                 )
             elif etype == "message":

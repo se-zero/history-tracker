@@ -186,7 +186,7 @@ class SlackNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeChannels(PROJECT_ID,slackData).get(0);
 
-        assertThat(event.refs()).containsEntry("jiraKey", "PROJ-123");
+        assertThat(event.refs()).containsEntry("issueKey", "PROJ-123");
     }
 
     // ─── 헬퍼 메서드 ─────────────────────────────────────────────────────────────
