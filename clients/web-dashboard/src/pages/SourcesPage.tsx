@@ -1,6 +1,5 @@
 import { GitHubCard } from "@/components/sources/GitHubCard";
-import { JiraCard } from "@/components/sources/JiraCard";
-import { SlackCard } from "@/components/sources/SlackCard";
+import { OAuthSourceCard } from "@/components/sources/OAuthSourceCard";
 import { SourceTileGrid } from "@/components/sources/SourceTileGrid";
 import { useOAuthCallbackError } from "@/components/sources/useOAuthCallbackError";
 import { useIntegrations } from "@/hooks/useIntegrations";
@@ -11,17 +10,20 @@ export function SourcesPage({ project }: { project: Project }) {
   // 마지막 수집 시각 갱신을 겸한다. 하위 카드들도 같은 쿼리 키를 구독해 캐시를 공유한다.
   const integrationsQuery = useIntegrations(project.id, { refetchInterval: 60000 });
   const integrations = integrationsQuery.data ?? [];
-  // integration 레코드 존재 여부 — Jira는 pending_project 단계도 포함되므로 "연결됨"이 아니라
-  // "연동 행으로 렌더"라는 의미다.
-  const jiraLinked = integrations.some((i) => i.provider === "jira");
-  const slackLinked = integrations.some((i) => i.provider === "slack");
+  // GitHub는 설치 기반이라 항상 전용 행(GitHubCard)이고, 나머지는 integration 레코드가 존재하면
+  // (pending 선택 단계 포함) OAuthSourceCard 행으로 렌더한다 — "연결됨"이 아니라 "연동 행" 의미다.
+  const rowProviders = integrations
+    .map((integration) => integration.provider)
+    .filter((provider) => provider !== "github");
 
   const oauthError = useOAuthCallbackError();
   // 에러가 발생한 소스가 이미 "연동 중" 행으로 렌더되면 그 카드 자리에서 보여주고, 그 외에는
   // (타일 소스이거나 provider 불명) 타일 그리드 쪽으로 보낸다.
-  const jiraOAuthError = oauthError?.provider === "jira" && jiraLinked ? oauthError.message : undefined;
-  const slackOAuthError = oauthError?.provider === "slack" && slackLinked ? oauthError.message : undefined;
-  const tileOAuthError = oauthError && !jiraOAuthError && !slackOAuthError ? oauthError : undefined;
+  const rowError =
+    oauthError && oauthError.provider && rowProviders.includes(oauthError.provider)
+      ? oauthError
+      : undefined;
+  const tileOAuthError = oauthError && !rowError ? oauthError : undefined;
 
   return (
     <div className="sources-page">
@@ -31,15 +33,20 @@ export function SourcesPage({ project }: { project: Project }) {
       <div className="sources-section-label">연동 중</div>
       <div className="source-rows">
         <GitHubCard projectId={project.id} />
-        {jiraLinked && <JiraCard projectId={project.id} oauthError={jiraOAuthError} />}
-        {slackLinked && <SlackCard projectId={project.id} oauthError={slackOAuthError} />}
+        {rowProviders.map((provider) => (
+          <OAuthSourceCard
+            key={provider}
+            projectId={project.id}
+            provider={provider}
+            oauthError={rowError?.provider === provider ? rowError.message : undefined}
+          />
+        ))}
       </div>
 
       <div className="sources-section-label">추가 가능</div>
       <SourceTileGrid
         projectId={project.id}
-        jiraLinked={jiraLinked}
-        slackLinked={slackLinked}
+        linkedProviders={rowProviders}
         oauthError={tileOAuthError}
       />
     </div>

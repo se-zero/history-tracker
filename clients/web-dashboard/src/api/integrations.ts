@@ -1,7 +1,10 @@
 import { api } from "./client";
-import type { Integration, JiraProject, JiraSite } from "@/types/api";
+import type { Integration, SelectionOption, SelectionStep } from "@/types/api";
 
-export type IntegrationProvider = "github" | "slack" | "jira";
+// provider 식별자는 backend가 검증한다(모르는 값은 400/404) — 새 provider가 붙을 때마다
+// 프론트 타입을 고치지 않도록 union으로 고정하지 않는다. 어떤 소스가 연결 가능한지는
+// sourceCatalog의 connectable이 정한다.
+export type IntegrationProvider = string;
 
 export interface ConnectGitHubPayload {
   installationId: string;
@@ -10,11 +13,10 @@ export interface ConnectGitHubPayload {
   branch: string;
 }
 
-export interface CompleteJiraProjectPayload {
-  cloudId: string;
-  siteName: string;
-  projectKey: string;
-  projectName: string;
+// 선택 확정 시 단계 하나에 제출하는 값 — value는 external_ref에 저장되고 label은 표시 이름으로 저장된다
+export interface SelectionSubmission {
+  value: string;
+  label: string;
 }
 
 export async function listIntegrations(projectId: string): Promise<Integration[]> {
@@ -46,53 +48,54 @@ export async function disconnectIntegration(
   await api.delete(`/projects/${projectId}/integrations/${provider}`);
 }
 
-// Slack 동의 화면 URL 조회. 프론트는 이 URL로 window.location.href를 대입해 이동한다 —
+// OAuth 동의 화면 URL 조회. 프론트는 이 URL로 window.location.href를 대입해 이동한다 —
 // <a href> 최상위 네비게이션에는 axios 인터셉터가 붙이는 JWT가 실리지 않아 이 엔드포인트는 JSON으로 받아야 한다.
-export async function getSlackAuthorizeUrl(projectId: string): Promise<string> {
+export async function getAuthorizeUrl(
+  projectId: string,
+  provider: IntegrationProvider,
+): Promise<string> {
   const { data } = await api.get<{ authorizeUrl: string }>(
-    `/projects/${projectId}/integrations/slack/authorize`,
+    `/projects/${projectId}/integrations/${provider}/authorize`,
   );
   return data.authorizeUrl;
 }
 
-// Jira 동의 화면 URL 조회 — Slack과 동일한 이유로 JSON 응답을 받아 window.location으로 이동한다.
-export async function getJiraAuthorizeUrl(projectId: string): Promise<string> {
-  const { data } = await api.get<{ authorizeUrl: string }>(
-    `/projects/${projectId}/integrations/jira/authorize`,
-  );
-  return data.authorizeUrl;
-}
-
-export async function listJiraSites(projectId: string): Promise<JiraSite[]> {
-  const { data } = await api.get<JiraSite[]>(
-    `/projects/${projectId}/integrations/jira/sites`,
+// provider가 선언한 연동 대상 선택 단계 — pending(선택 필요) 상태에서만 의미가 있다
+export async function listSelectionSteps(
+  projectId: string,
+  provider: IntegrationProvider,
+): Promise<SelectionStep[]> {
+  const { data } = await api.get<SelectionStep[]>(
+    `/projects/${projectId}/integrations/${provider}/selection/steps`,
   );
   return data;
 }
 
-export async function listJiraProjects(
+// 한 단계의 후보 조회 — 앞 단계에서 고른 값들을 쿼리 파라미터로 함께 보낸다
+// (자식 목록 조회에 부모 id가 필요하다: 예를 들어 Jira 프로젝트 목록에는 cloud_id).
+export async function listSelectionOptions(
   projectId: string,
-  cloudId: string,
-): Promise<JiraProject[]> {
-  const { data } = await api.get<JiraProject[]>(
-    `/projects/${projectId}/integrations/jira/projects`,
-    { params: { cloudId } },
+  provider: IntegrationProvider,
+  stepKey: string,
+  prior: Record<string, string>,
+): Promise<SelectionOption[]> {
+  const { data } = await api.get<SelectionOption[]>(
+    `/projects/${projectId}/integrations/${provider}/selection/options`,
+    { params: { step: stepKey, ...prior } },
   );
   return data;
 }
 
-export async function completeJiraProject(
+// 선택 확정 — 모든 단계를 한 번에 제출한다(부분 저장 상태를 만들지 않는다).
+// 건너뛴 선택적(optional) 단계는 빼고 보낸다. 필수 단계 누락 검증은 backend가 한다.
+export async function completeSelection(
   projectId: string,
-  payload: CompleteJiraProjectPayload,
+  provider: IntegrationProvider,
+  selections: Record<string, SelectionSubmission>,
 ): Promise<Integration> {
   const { data } = await api.post<Integration>(
-    `/projects/${projectId}/integrations/jira/project`,
-    {
-      cloud_id: payload.cloudId,
-      site_name: payload.siteName,
-      project_key: payload.projectKey,
-      project_name: payload.projectName,
-    },
+    `/projects/${projectId}/integrations/${provider}/selection`,
+    { selections },
   );
   return data;
 }

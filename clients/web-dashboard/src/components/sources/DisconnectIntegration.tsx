@@ -1,22 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { InlineError } from "@/components/ui/InlineError";
+import { findSource, sourceName } from "@/components/sources/sourceCatalog";
 import { useDisconnectIntegration } from "@/hooks/useIntegrations";
 import type { IntegrationProvider } from "@/api/integrations";
-
-// provider별로 "무엇이 지워지는지"를 구체적으로 말한다 — "데이터가 삭제됩니다" 같은 뭉뚱그린
-// 문구는 사용자가 무엇을 잃는지 판단할 수 없어 파괴적 동작의 고지로 부족하다.
-const DELETED_DATA: Record<IntegrationProvider, string> = {
-  github: "수집한 커밋·Pull Request·이슈와 그 그래프",
-  slack: "수집한 채널 메시지·스레드와 그 그래프",
-  jira: "수집한 이슈와 그 그래프",
-};
-
-const LABEL: Record<IntegrationProvider, string> = {
-  github: "GitHub",
-  slack: "Slack",
-  jira: "Jira",
-};
 
 /**
  * 연동 해제 버튼 + 사전 경고 다이얼로그.
@@ -33,6 +20,10 @@ export function DisconnectIntegration({
 }) {
   const [confirming, setConfirming] = useState(false);
   const disconnect = useDisconnectIntegration(projectId);
+  const label = sourceName(provider);
+  // "무엇이 지워지는지"는 소스마다 다르다 — 문구는 sourceCatalog가 소유하고, 아직 문구가 없는
+  // 소스는 뭉뚱그린 폴백으로라도 파괴적 동작임을 알린다.
+  const deletedData = findSource(provider)?.deletedData ?? "수집한 데이터와 그 그래프";
 
   // 다이얼로그를 닫았다 다시 열면 지난 실패 문구가 남아 있지 않게 한다.
   useEffect(() => {
@@ -64,17 +55,17 @@ export function DisconnectIntegration({
             className="confirm-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label={`${LABEL[provider]} 연동 해제`}
+            aria-label={`${label} 연동 해제`}
             onMouseDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === "Escape") close();
             }}
           >
-            <h4 className="confirm-title">{LABEL[provider]} 연동을 해제할까요?</h4>
+            <h4 className="confirm-title">{label} 연동을 해제할까요?</h4>
             <ul className="confirm-points">
               <li>
                 <span className="confirm-mark danger" aria-hidden />
-                저장된 접근 권한과 {DELETED_DATA[provider]}가 삭제됩니다.
+                저장된 접근 권한과 {deletedData}가 삭제됩니다.
               </li>
               <li>
                 <span className="confirm-mark" aria-hidden />
