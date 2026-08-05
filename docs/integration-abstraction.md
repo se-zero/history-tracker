@@ -258,6 +258,8 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
       `SelectionStep.key`가 **그대로 `external_ref` 키**가 되고 pipeline-worker가 같은 키를 읽는다(2번과 합의).
       선택이 없는 provider(동의 즉시 확정, Slack형)는 이 SPI를 만들지 않는다.
 - [ ] `IntegrationResponse.displayName`의 switch에 case 추가 — 연동 행에 무엇을 보여줄지 정한다.
+      **선택 단계가 여럿이면 상위 단계도 함께 잇는다**(Jira는 `사이트 / 프로젝트`) — 말단 이름만
+      실으면 워크스페이스를 여러 개 쓰는 조직에서 어느 쪽 것인지 화면에서 구분되지 않는다.
       (exhaustive switch라 **추가하지 않으면 컴파일이 깨진다** — 의도된 안전망이다.)
 - [ ] 검증: `./gradlew test`
 

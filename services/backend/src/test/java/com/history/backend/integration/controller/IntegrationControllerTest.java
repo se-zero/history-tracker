@@ -219,7 +219,8 @@ class IntegrationControllerTest {
                 .andExpect(jsonPath("$.id").value(INTEGRATION_ID.toString()))
                 .andExpect(jsonPath("$.projectId").value(PROJECT_ID.toString()))
                 .andExpect(jsonPath("$.provider").value("jira"))
-                .andExpect(jsonPath("$.displayName").value("Project"))
+                // 사이트 이름을 함께 실어야 여러 Atlassian 사이트를 쓰는 조직에서 구분된다
+                .andExpect(jsonPath("$.displayName").value("acme / Project"))
                 .andExpect(jsonPath("$.installationId").doesNotExist())
                 .andExpect(jsonPath("$.metadata.project_key").value("PROJ"))
                 .andExpect(jsonPath("$.metadata.project_name").value("Project"))
