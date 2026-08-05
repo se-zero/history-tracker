@@ -2,12 +2,14 @@ package com.history.backend.integration.service;
 
 import java.time.Instant;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
+import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
@@ -16,9 +18,9 @@ import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.integration.domain.SelectionStep;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
-import com.history.backend.jira.service.JiraClient;
 import com.history.backend.jira.service.JiraOAuthClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
@@ -44,11 +46,11 @@ public class IntegrationService {
     private final CredentialCryptoService credentialCryptoService;
     private final SlackClient slackClient;
     private final JiraOAuthClient jiraOAuthClient;
-    private final JiraClient jiraClient;
     private final JiraCredentialCodec jiraCredentialCodec;
-    private final JiraTokenService jiraTokenService;
     private final PipelineWorkerClient pipelineWorkerClient;
     private final AiEngineGraphClient aiEngineGraphClient;
+    private final ProviderCredentialLifecycleRegistry credentialLifecycles;
+    private final IntegrationSelectionFlowRegistry selectionFlows;
     private final TransactionTemplate transactionTemplate;
 
     // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
@@ -210,95 +212,181 @@ public class IntegrationService {
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
         Integration integration = transactionTemplate.execute(status -> saveJiraPending(ownerId, projectId, encryptedCredential));
 
-        // 갱신 실패로 pending 복귀한 행(cloud_id·project_key 보존)이면 재동의 직후 자동 복원을 시도한다.
-        // 최초 연결의 pending 행에는 cloud_id가 없으므로 이 분기를 자연히 타지 않는다.
-        if (integration.hasRestorableJiraProject()) {
-            return tryRestoreJiraProject(ownerId, projectId, integration, tokens.accessToken());
-        }
-        return integration;
+        // 갱신 실패로 pending 복귀한 행(고른 값 보존)이면 재동의 직후 자동 복원을 시도한다.
+        // 최초 연결의 pending 행에는 고른 값이 없으므로 이 분기를 자연히 타지 않는다.
+        return tryRestoreSelection(ownerId, projectId, IntegrationProvider.JIRA, integration);
     }
 
-    // 재동의로 얻은 새 토큰이 기존 cloudId에 여전히 접근 가능한지 확인해 자동 복원한다.
-    // 접근 불가(다른 Atlassian 계정으로 동의한 경우)면 pending을 유지해 사용자가 다시 고르게 한다.
-    private Integration tryRestoreJiraProject(UUID ownerId, UUID projectId, Integration integration, String accessToken) {
-        String cloudId = integration.getJiraCloudId();
-        List<JiraOAuthClient.JiraSite> accessibleSites;
-        try {
-            accessibleSites = jiraOAuthClient.listAccessibleResources(accessToken);
-        } catch (RuntimeException exception) {
-            // 이 시점엔 토큰 저장 트랜잭션이 이미 커밋된 뒤라 동의 자체는 성공했다. 조회 실패(네트워크
-            // 오류 등)를 "연결 실패"로 알리면 실제 상태(새 토큰이 저장된 pending 행)와 어긋나므로,
-            // 자동 복원만 포기하고 pending을 그대로 반환한다 — 사용자는 화면에서 바로 사이트를 고를 수 있다.
-            log.warn("Jira 접근 가능 사이트 조회 실패로 자동 복원을 건너뜁니다. projectId={}", projectId, exception);
-            return integration;
-        }
-        boolean stillAccessible = accessibleSites.stream()
-                .anyMatch(site -> site.cloudId().equals(cloudId));
-        if (!stillAccessible) {
-            return integration;
-        }
-        return completeJiraProject(
-                ownerId,
-                projectId,
-                cloudId,
-                integration.getJiraSiteName(),
-                integration.getJiraProjectKey(),
-                integration.getJiraProjectName()
-        );
-    }
-
-    // 저장된 연동의 access token(JiraTokenService가 필요 시 갱신)으로 접근 가능한 Atlassian 사이트 목록 조회
-    public List<JiraOAuthClient.JiraSite> listJiraSites(UUID ownerId, UUID projectId) {
-        projectService.getProject(ownerId, projectId);
-        String accessToken = jiraTokenService.getAccessToken(projectId);
-        return jiraOAuthClient.listAccessibleResources(accessToken);
-    }
-
-    // 선택한 사이트(cloudId)에서 고를 수 있는 프로젝트 목록 조회
-    public List<JiraClient.JiraProject> listJiraProjects(UUID ownerId, UUID projectId, String cloudId) {
-        projectService.getProject(ownerId, projectId);
-        String accessToken = jiraTokenService.getAccessToken(projectId);
-        return jiraClient.listProjects(cloudId, accessToken);
-    }
-
-    // 사이트·프로젝트 선택 확정. pending 행에만 허용하고, 토큰 확보 뒤 초기 수집을 트리거한다.
-    public Integration completeJiraProject(
+    /**
+     * 재동의로 얻은 새 토큰으로 이전 선택이 여전히 유효한지 확인해 자동 복원한다.
+     *
+     * <p>필수 단계를 앞에서부터 훑어 저장된 값이 아직 후보에 있는지 본다. 하나라도 사라졌으면
+     * (다른 계정으로 동의했거나 대상이 삭제된 경우) pending을 유지해 사용자가 다시 고르게 한다.</p>
+     */
+    private Integration tryRestoreSelection(
             UUID ownerId,
             UUID projectId,
-            String cloudId,
-            String siteName,
-            String projectKey,
-            String projectName
+            IntegrationProvider provider,
+            Integration integration
+    ) {
+        IntegrationSelectionFlow flow = selectionFlows.find(provider).orElse(null);
+        if (flow == null) {
+            return integration;
+        }
+        Map<String, String> stored = storedSelections(integration, flow);
+        if (stored.isEmpty()) {
+            return integration;
+        }
+
+        Map<String, String> verified = new LinkedHashMap<>();
+        for (SelectionStep step : flow.steps()) {
+            String value = stored.get(step.key());
+            if (value == null) {
+                if (step.optional()) continue;
+                return integration;
+            }
+            try {
+                boolean stillAvailable = flow.options(projectId, step.key(), Map.copyOf(verified)).stream()
+                        .anyMatch(option -> option.value().equals(value));
+                if (!stillAvailable) {
+                    return integration;
+                }
+            } catch (RuntimeException exception) {
+                // 이 시점엔 토큰 저장 트랜잭션이 이미 커밋된 뒤라 동의 자체는 성공했다. 조회 실패(네트워크
+                // 오류 등)를 "연결 실패"로 알리면 실제 상태(새 토큰이 저장된 pending 행)와 어긋나므로,
+                // 자동 복원만 포기하고 pending을 그대로 반환한다 — 사용자는 화면에서 바로 다시 고를 수 있다.
+                log.warn("선택 후보 조회 실패로 자동 복원을 건너뜁니다. projectId={}, provider={}, step={}",
+                        projectId, provider.value(), step.key(), exception);
+                return integration;
+            }
+            verified.put(step.key(), value);
+        }
+
+        return completeSelection(ownerId, projectId, provider, storedExternalRef(integration, flow));
+    }
+
+    // provider가 선언한 선택 단계 (없으면 빈 목록 — 동의 직후 곧바로 확정되는 provider)
+    public List<SelectionStep> selectionSteps(UUID ownerId, UUID projectId, IntegrationProvider provider) {
+        projectService.getProject(ownerId, projectId);
+        return selectionFlows.find(provider).map(IntegrationSelectionFlow::steps).orElseGet(List::of);
+    }
+
+    // 한 선택 단계의 후보 조회. selected에는 앞선 단계에서 고른 값들이 들어온다.
+    public List<SelectionOption> selectionOptions(
+            UUID ownerId,
+            UUID projectId,
+            IntegrationProvider provider,
+            String stepKey,
+            Map<String, String> selected
+    ) {
+        projectService.getProject(ownerId, projectId);
+        IntegrationSelectionFlow flow = requireSelectionFlow(provider);
+        if (flow.steps().stream().noneMatch(step -> step.key().equals(stepKey))) {
+            throw new BadRequestException("Unknown selection step: " + stepKey);
+        }
+        return flow.options(projectId, stepKey, selected);
+    }
+
+    /**
+     * 선택 확정. pending 행에만 허용하고, 토큰 확보 뒤 초기 수집을 트리거한다.
+     *
+     * @param selections external_ref에 그대로 저장될 키-값 (단계 key/labelKey → 값/표시 이름)
+     */
+    public Integration completeSelection(
+            UUID ownerId,
+            UUID projectId,
+            IntegrationProvider provider,
+            Map<String, Object> selections
     ) {
         projectService.getProject(ownerId, projectId);
         Integration integration = transactionTemplate.execute(status -> {
-            Integration jiraIntegration = getJiraIntegration(projectId);
-            if (!jiraIntegration.isJiraPendingProject()) {
-                throw integrationAlreadyExists(IntegrationProvider.JIRA);
+            Integration target = getIntegration(projectId, provider);
+            if (!target.isPendingSelection()) {
+                throw integrationAlreadyExists(provider);
             }
-            jiraIntegration.completeJiraProject(cloudId, siteName, projectKey, projectName);
-            return integrationRepository.saveAndFlush(jiraIntegration);
+            target.applySelections(selections);
+            return integrationRepository.saveAndFlush(target);
         });
         // GitHub이 connectGitHubRepository에서 트리거 직전에 토큰을 갱신하는 것과 같은 자리 —
         // 방금 발급된 토큰이라 대개 그대로 재사용되지만, 사용자가 선택 화면에 오래 머문 경우를 대비한다.
-        jiraTokenService.ensureAccessToken(projectId);
-        pipelineWorkerClient.triggerCollection(IntegrationProvider.JIRA, projectId);
+        credentialLifecycles.get(provider).ensureFreshAccessToken(projectId);
+        pipelineWorkerClient.triggerCollection(provider, projectId);
         return integration;
+    }
+
+    // 제출된 선택을 provider의 단계 선언에 맞춰 external_ref 형태로 조립한다.
+    // 필수 단계가 비면 400 — 확정 후 수집이 대상을 못 찾는 상태를 만들지 않는다.
+    public Map<String, Object> buildSelectionExternalRef(
+            IntegrationProvider provider,
+            Map<String, SelectionInput> submitted
+    ) {
+        IntegrationSelectionFlow flow = requireSelectionFlow(provider);
+        Map<String, Object> externalRef = new LinkedHashMap<>();
+        for (SelectionStep step : flow.steps()) {
+            SelectionInput input = submitted.get(step.key());
+            String value = input == null ? null : input.value();
+            if (value == null || value.isBlank()) {
+                if (step.optional()) continue;
+                throw new BadRequestException("Missing required selection: " + step.key());
+            }
+            externalRef.put(step.key(), value);
+            if (step.labelKey() != null && input.label() != null && !input.label().isBlank()) {
+                externalRef.put(step.labelKey(), input.label());
+            }
+        }
+        return externalRef;
+    }
+
+    private IntegrationSelectionFlow requireSelectionFlow(IntegrationProvider provider) {
+        return selectionFlows.find(provider)
+                .orElseThrow(() -> new NotFoundException(
+                        provider.displayName() + " does not require target selection."));
+    }
+
+    private Map<String, String> storedSelections(Integration integration, IntegrationSelectionFlow flow) {
+        Map<String, String> stored = new LinkedHashMap<>();
+        for (SelectionStep step : flow.steps()) {
+            String value = integration.selectionValue(step.key());
+            if (value != null) {
+                stored.put(step.key(), value);
+            }
+        }
+        return stored;
+    }
+
+    // 자동 복원은 저장된 값·표시 이름을 그대로 다시 쓴다 (status만 사라진다)
+    private Map<String, Object> storedExternalRef(Integration integration, IntegrationSelectionFlow flow) {
+        Map<String, Object> externalRef = new LinkedHashMap<>();
+        for (SelectionStep step : flow.steps()) {
+            String value = integration.selectionValue(step.key());
+            if (value == null) continue;
+            externalRef.put(step.key(), value);
+            if (step.labelKey() != null) {
+                String label = integration.selectionValue(step.labelKey());
+                if (label != null) {
+                    externalRef.put(step.labelKey(), label);
+                }
+            }
+        }
+        return externalRef;
     }
 
     // 재시도는 pending 행에만 허용한다 — 확정된 연동에는 409로 code 교환 전에 막는다
     private void rejectIfJiraAlreadyConnected(UUID projectId) {
         integrationRepository.findByProject_IdAndProvider(projectId, IntegrationProvider.JIRA)
-                .filter(integration -> !integration.isJiraPendingProject())
+                .filter(integration -> !integration.isPendingSelection())
                 .ifPresent(integration -> {
                     throw integrationAlreadyExists(IntegrationProvider.JIRA);
                 });
     }
 
-    private Integration getJiraIntegration(UUID projectId) {
-        return integrationRepository.findByProject_IdAndProvider(projectId, IntegrationProvider.JIRA)
-                .orElseThrow(() -> new NotFoundException("Jira integration not found."));
+    private Integration getIntegration(UUID projectId, IntegrationProvider provider) {
+        return integrationRepository.findByProject_IdAndProvider(projectId, provider)
+                .orElseThrow(() -> new NotFoundException(provider.displayName() + " integration not found."));
     }
+
+    // 선택 확정 요청 한 건 — 값과 화면 표시 이름
+    public record SelectionInput(String value, String label) {}
 
     private Integration saveSlackWorkspace(
             UUID ownerId,
@@ -328,7 +416,7 @@ public class IntegrationService {
         Optional<Integration> existing = integrationRepository.findByProject_IdAndProvider(projectId, IntegrationProvider.JIRA);
         if (existing.isPresent()) {
             Integration integration = existing.get();
-            if (!integration.isJiraPendingProject()) {
+            if (!integration.isPendingSelection()) {
                 // 사전 검사와 저장 사이 경합으로 그 사이 확정된 경우
                 throw integrationAlreadyExists(IntegrationProvider.JIRA);
             }
@@ -336,7 +424,8 @@ public class IntegrationService {
             return integrationRepository.saveAndFlush(integration);
         }
         try {
-            return integrationRepository.saveAndFlush(Integration.jiraPending(project, encryptedCredential));
+            return integrationRepository.saveAndFlush(
+                    Integration.pendingSelection(project, IntegrationProvider.JIRA, encryptedCredential));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
             throw integrationAlreadyExists(IntegrationProvider.JIRA);
@@ -371,19 +460,15 @@ public class IntegrationService {
         });
     }
 
-    // GitHub은 폐기 대상이 없다 — App 설치는 계정 단위(다른 프로젝트도 쓴다)라 유지하고,
-    // installation token은 1시간짜리 캐시라 방치해도 곧 만료된다. 제거는 GitHub 설정에서 한다.
+    // 폐기 방법은 provider의 ProviderCredentialLifecycle이 소유한다. GitHub은 폐기 대상이 없어
+    // 구현이 없다 — App 설치는 계정 단위(다른 프로젝트도 쓴다)라 유지하고, installation token은
+    // 1시간짜리 캐시라 방치해도 곧 만료된다. 제거는 GitHub 설정에서 한다.
     private void revokeProviderAccess(Integration integration, IntegrationProvider provider) {
         byte[] encryptedCredential = integration.getEncryptedCredential();
         if (encryptedCredential == null) {
             return;
         }
-        switch (provider) {
-            case SLACK -> slackClient.revoke(credentialCryptoService.decrypt(encryptedCredential));
-            // refresh token을 폐기하면 파생된 access token도 함께 무효화된다
-            case JIRA -> jiraOAuthClient.revoke(jiraCredentialCodec.decrypt(encryptedCredential).refreshToken());
-            case GITHUB -> { }
-        }
+        credentialLifecycles.get(provider).revoke(encryptedCredential);
     }
 
     // 프로젝트당 provider별 1개 연동 제한 검증

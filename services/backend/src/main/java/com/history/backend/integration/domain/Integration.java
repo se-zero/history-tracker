@@ -38,12 +38,10 @@ public class Integration {
     public static final String GITHUB_BRANCH = "branch";
     public static final String SLACK_WORKSPACE_ID = "workspace_id";
     public static final String SLACK_WORKSPACE_NAME = "workspace_name";
-    public static final String JIRA_PROJECT_KEY = "project_key";
-    public static final String JIRA_PROJECT_NAME = "project_name";
-    public static final String JIRA_CLOUD_ID = "cloud_id";
-    public static final String JIRA_SITE_NAME = "site_name";
-    public static final String JIRA_STATUS = "status";
-    public static final String JIRA_STATUS_PENDING_PROJECT = "pending_project";
+    public static final String STATUS = "status";
+    public static final String STATUS_PENDING_SELECTION = "pending_selection";
+    // 중립 값 이전에 Jira가 쓰던 값 — 저장된 행 호환을 위해 읽기에서만 인정한다
+    private static final String STATUS_LEGACY_PENDING_PROJECT = "pending_project";
 
     @Id
     @GeneratedValue
@@ -97,34 +95,42 @@ public class Integration {
         );
     }
 
+    // OAuth로 붙는 연동의 공통 생성자 — provider가 늘어도 팩토리를 새로 만들 필요가 없다.
+    // GitHub만 예외다(App installation 참조를 쓰고 자격증명은 github_installations에 캐시된다).
+    public static Integration oauth(
+            Project project,
+            IntegrationProvider provider,
+            Map<String, Object> externalRef,
+            byte[] encryptedCredential
+    ) {
+        return new Integration(project, provider, Map.copyOf(externalRef), null, encryptedCredential);
+    }
+
     public static Integration slack(
             Project project,
             String workspaceId,
             String workspaceName,
             byte[] encryptedCredential
     ) {
-        return new Integration(
+        return oauth(
                 project,
                 IntegrationProvider.SLACK,
                 Map.of(
                         SLACK_WORKSPACE_ID, workspaceId,
                         SLACK_WORKSPACE_NAME, workspaceName
                 ),
-                null,
                 encryptedCredential
         );
     }
 
-    // Jira는 동의 직후 사이트·프로젝트를 아직 모르므로 토큰만 담은 pending 행으로 시작한다.
-    // 사용자가 사이트·프로젝트를 고르면 completeJiraProject로 확정한다.
-    public static Integration jiraPending(Project project, byte[] encryptedCredential) {
-        return new Integration(
-                project,
-                IntegrationProvider.JIRA,
-                Map.of(JIRA_STATUS, JIRA_STATUS_PENDING_PROJECT),
-                null,
-                encryptedCredential
-        );
+    // 선택 단계가 있는 provider는 동의 직후 대상을 아직 모르므로 토큰만 담은 pending 행으로 시작한다.
+    // 사용자가 대상을 고르면 applySelections로 확정한다.
+    public static Integration pendingSelection(
+            Project project,
+            IntegrationProvider provider,
+            byte[] encryptedCredential
+    ) {
+        return oauth(project, provider, Map.of(STATUS, STATUS_PENDING_SELECTION), encryptedCredential);
     }
 
     private Integration(
@@ -179,44 +185,21 @@ public class Integration {
         return getRequiredString(SLACK_WORKSPACE_NAME, "Slack workspace_name");
     }
 
-    public String getJiraProjectKey() {
-        return getRequiredString(JIRA_PROJECT_KEY, "Jira project_key");
-    }
-
-    public String getJiraProjectName() {
-        Object value = externalRef.get(JIRA_PROJECT_NAME);
-        if (value instanceof String text && !text.isBlank()) {
-            return text;
-        }
-        if (value == null) {
-            return null;
-        }
-        throw new IllegalStateException("Unexpected Jira project_name type: " + value.getClass());
-    }
-
-    public String getJiraSiteName() {
-        Object value = externalRef.get(JIRA_SITE_NAME);
+    // 선택 단계로 저장된 값 읽기 (external_ref 키 기준). 키 이름은 provider의 SelectionStep이 정한다.
+    public String selectionValue(String key) {
+        Object value = externalRef.get(key);
         return value instanceof String text && !text.isBlank() ? text : null;
     }
 
-    public String getJiraCloudId() {
-        Object value = externalRef.get(JIRA_CLOUD_ID);
-        return value instanceof String text && !text.isBlank() ? text : null;
-    }
-
-    public boolean isJiraPendingProject() {
-        return JIRA_STATUS_PENDING_PROJECT.equals(externalRef.get(JIRA_STATUS));
-    }
-
-    // 갱신 실패로 pending 복귀한 행인지 판별 — cloud_id·project_key가 남아 있으면 자동 복원 대상이다.
-    // 최초 연결의 pending 행(status만 있음)은 이 값들이 없어 자연히 자동 복원 분기를 타지 않는다.
-    public boolean hasRestorableJiraProject() {
-        return getJiraCloudId() != null && hasJiraProjectKey();
-    }
-
-    private boolean hasJiraProjectKey() {
-        Object value = externalRef.get(JIRA_PROJECT_KEY);
-        return value instanceof String text && !text.isBlank();
+    /**
+     * 아직 쓸 수 없는 연동인지 — 동의만 하고 대상을 고르지 않았거나, 토큰 갱신이 영구 실패해 되돌아온 경우.
+     *
+     * <p>구 Jira 전용 값(`pending_project`)도 pending으로 읽는다 — 이미 저장된 행이 있어
+     * 데이터 마이그레이션 없이 중립 값으로 넘어가기 위함이다. 쓰기는 항상 중립 값으로 한다.</p>
+     */
+    public boolean isPendingSelection() {
+        Object status = externalRef.get(STATUS);
+        return STATUS_PENDING_SELECTION.equals(status) || STATUS_LEGACY_PENDING_PROJECT.equals(status);
     }
 
     // pending 행 재동의 시 토큰 교체 (토큰 갱신도 이 메서드를 재사용한다)
@@ -224,26 +207,18 @@ public class Integration {
         this.encryptedCredential = Arrays.copyOf(encryptedCredential, encryptedCredential.length);
     }
 
-    // 토큰 갱신 영구 실패 시 미확정으로 되돌린다. cloud_id·site_name·project_key·project_name은 그대로
-    // 남겨 재동의 성공 시 자동 복원(IntegrationService)이 다시 쓸 수 있게 한다 — completeJiraProject처럼
-    // external_ref를 통째로 교체하지 않는다.
-    public void markJiraPendingProject() {
+    // 토큰 갱신 영구 실패 시 미확정으로 되돌린다. 이미 고른 값들은 그대로 남겨 재동의 성공 시
+    // 자동 복원(IntegrationService)이 다시 쓸 수 있게 한다 — applySelections처럼 통째로 교체하지 않는다.
+    public void markPendingSelection() {
         Map<String, Object> reverted = new HashMap<>(externalRef);
-        reverted.put(JIRA_STATUS, JIRA_STATUS_PENDING_PROJECT);
+        reverted.put(STATUS, STATUS_PENDING_SELECTION);
         this.externalRef = Map.copyOf(reverted);
     }
 
-    // 사이트·프로젝트 선택 확정 — external_ref를 통째로 교체해 status를 자연히 제거한다
-    public void completeJiraProject(String cloudId, String siteName, String projectKey, String projectName) {
-        Map<String, Object> updated = new HashMap<>();
-        updated.put(JIRA_CLOUD_ID, cloudId);
-        updated.put(JIRA_SITE_NAME, siteName);
-        updated.put(JIRA_PROJECT_KEY, projectKey);
-        if (projectName != null && !projectName.isBlank()) {
-            updated.put(JIRA_PROJECT_NAME, projectName);
-        }
+    // 선택 확정 — external_ref를 통째로 교체해 status를 자연히 제거한다
+    public void applySelections(Map<String, Object> selections) {
         // externalRef는 Map.copyOf로 불변이라 새 Map을 할당해야 Hibernate dirty checking이 필드 참조 변경을 잡는다
-        this.externalRef = Map.copyOf(updated);
+        this.externalRef = Map.copyOf(selections);
     }
 
     private String getRequiredString(String key, String label) {

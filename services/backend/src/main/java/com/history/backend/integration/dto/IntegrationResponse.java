@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.jira.service.JiraSelectionFlow;
 
 public record IntegrationResponse(
         UUID id,
@@ -44,12 +45,12 @@ public record IntegrationResponse(
             case GITHUB -> integration.getGitHubRepositoryFullName();
             case SLACK -> integration.getSlackWorkspaceName();
             case JIRA -> {
-                // pending 행은 project_key가 없어 getJiraProjectKey()가 던진다 — 목록 조회 전체가 500이 되는 것을 막는다
-                if (integration.isJiraPendingProject()) {
-                    yield integration.getJiraSiteName();
+                // pending 행은 아직 프로젝트를 고르지 않아 사이트 이름만 보여준다
+                if (integration.isPendingSelection()) {
+                    yield integration.selectionValue(JiraSelectionFlow.SITE_NAME);
                 }
-                String projectName = integration.getJiraProjectName();
-                yield projectName == null ? integration.getJiraProjectKey() : projectName;
+                String projectName = integration.selectionValue(JiraSelectionFlow.PROJECT_NAME);
+                yield projectName == null ? integration.selectionValue(JiraSelectionFlow.PROJECT_KEY) : projectName;
             }
         };
     }

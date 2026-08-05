@@ -164,10 +164,10 @@ class JiraTokenServiceTest {
         assertThatThrownBy(() -> service.getAccessToken(PROJECT_ID))
                 .isInstanceOf(UnauthorizedException.class);
 
-        assertThat(integration.isJiraPendingProject()).isTrue();
+        assertThat(integration.isPendingSelection()).isTrue();
         // 사이트·프로젝트 정보는 남아 있어야 재동의 시 자동 복원이 가능하다
-        assertThat(integration.getJiraCloudId()).isEqualTo("cloud-1");
-        assertThat(integration.getJiraProjectKey()).isEqualTo("PROJ");
+        assertThat(integration.selectionValue("cloud_id")).isEqualTo("cloud-1");
+        assertThat(integration.selectionValue("project_key")).isEqualTo("PROJ");
     }
 
     @Test
@@ -187,7 +187,7 @@ class JiraTokenServiceTest {
         assertThatThrownBy(() -> service.getAccessToken(PROJECT_ID))
                 .isInstanceOf(BadGatewayException.class);
 
-        assertThat(integration.isJiraPendingProject()).isFalse();
+        assertThat(integration.isPendingSelection()).isFalse();
         verify(integrationRepository, never()).findById(integration.getId());
     }
 
@@ -273,8 +273,9 @@ class JiraTokenServiceTest {
         Project project = new Project(owner, "History Tracker", null);
         ReflectionTestUtils.setField(project, "id", PROJECT_ID);
 
-        Integration integration = Integration.jiraPending(project, encryptedCredential);
-        integration.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        Integration integration = Integration.pendingSelection(project, IntegrationProvider.JIRA, encryptedCredential);
+        integration.applySelections(java.util.Map.of(
+                "cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         ReflectionTestUtils.setField(integration, "id", UUID.randomUUID());
         return integration;
     }

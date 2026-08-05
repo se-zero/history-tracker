@@ -10,7 +10,7 @@ cd services/backend
 
 ## 패키지 구조
 
-패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시한다. `jira`는 OAuth 클라이언트(동의 코드 교환·토큰 갱신·사이트/프로젝트 조회)를, `slack`은 연동 검증용 client(config/service/dto)만 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
+패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시한다. `jira`는 OAuth 클라이언트(동의 코드 교환·토큰 갱신·사이트/프로젝트 조회)와 provider 전략 구현을, `slack`은 연동 검증용 client와 provider 전략 구현을 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
 
 `dto`에는 직렬화 경계 타입(프론트 요청·응답, ai-engine 클라이언트 DTO, opaque 커서)만 두고 필드에 도메인 엔티티를 노출하지 않는다(엔티티는 `from()` 매핑 파라미터로만 받는다). 도메인 엔티티를 필드로 담는 서비스 반환·중간 타입(예: `ConversationStart`, `ConversationPage`, `ConversationDetail`)은 `service`에 둔다.
 
@@ -49,7 +49,45 @@ cd services/backend
 
 ## 외부 연동 (OAuth)
 
+### provider 전략 — 새 연동 추가 지점
+
+provider별 차이는 두 SPI 구현으로만 표현한다. `integration` 패키지의 오케스트레이션(컨트롤러·
+`IntegrationOAuthService`·`IntegrationService`)에는 provider 분기(switch)를 두지 않는다.
+
+| SPI | 책임 | 의존 방향 |
+|-----|------|-----------|
+| `OAuthConnectFlow` | 동의 URL 조립, code 교환 후 연동 저장 | → `IntegrationService` |
+| `ProviderCredentialLifecycle` | 자격증명 폐기(`revoke`), access token 갱신(`ensureFreshAccessToken`) | leaf (provider client만) |
+| `IntegrationSelectionFlow` | 동의 후 "무엇을 수집할지" 고르는 **단계 선언**과 단계별 후보 조회 | leaf (provider client만) |
+
+두 SPI를 한 레지스트리에 담지 않는 이유: `IntegrationService`가 lifecycle 레지스트리에 의존하는데
+connect flow는 `IntegrationService`에 의존하므로, 합치면 빈 순환 의존이 된다.
+`ProviderCredentialLifecycle`의 두 메서드는 기본 no-op이라 **해당 동작이 없는 provider는 선언만으로
+흡수된다** (Slack은 폐기만, 비만료 토큰 provider는 둘 다 없음, GitHub은 빈 자체가 없다).
+
+라우트는 `{provider}` 하나로 합쳐져 있고 **기존 URL은 그대로 해석된다** —
+`/api/v1/integrations/slack/callback`은 Slack·Atlassian 앱에 등록된 redirect URI라 바꾸면 배포된 연동이 깨진다.
+알 수 없거나 OAuth로 붙지 않는 provider는 라우트가 없던 것과 같게 404다.
+
+### 다단 선택 (선택 단계가 있는 provider)
+
+동의만으로 끝나지 않는 provider는 `IntegrationSelectionFlow`로 자기 단계를 선언한다. 백엔드·프론트는
+단계 수나 이름을 하드코딩하지 않는다 — 조사해 보니 Linear는 1단(team), Jira·Asana·monday는 2단,
+ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이고 **중간 단계를 건너뛸 수 있다**.
+
+- `SelectionStep.key`·`labelKey`는 그대로 `external_ref` 키가 된다 — pipeline-worker가 수집할 때 읽는
+  키와 같아야 하므로 provider가 자기 키 이름을 정한다(Jira는 `cloud_id`·`project_key`를 그대로 유지한다).
+- 확정 전 상태는 `external_ref.status = pending_selection`이다. 구 Jira 전용 값(`pending_project`)도
+  읽기에서 pending으로 인정한다 — 이미 저장된 행이 있어 데이터 마이그레이션 없이 넘어가기 위함이다.
+- 확정은 한 번에 한다(부분 저장 상태를 만들지 않는다): 단계 선언 조회 → 단계별 후보 조회 → 전체 선택 제출.
+- 재동의 시 자동 복원은 **필수 단계를 전부** 다시 확인한다 — 사이트는 살아 있는데 프로젝트가 지워진
+  경우까지 걸러야 하기 때문이다.
+
+### 공통 규칙
+
 - GitHub은 App installation, Slack·Jira는 OAuth 동의 흐름으로만 붙인다. **토큰을 사용자가 직접 입력하는 경로는 없다.**
+- 선택 단계 API는 `GET .../integrations/{provider}/selection/steps`,
+  `GET .../selection/options?step=&{앞 단계 키}=`, `POST .../selection`이다.
 - `POST /api/v1/projects`에 `github` 블록이 있으면 프로젝트 생성과 GitHub 연동을 **한 트랜잭션**으로 처리한다
   (`IntegrationService.createProjectWithGitHubRepository`). 온보딩에서 프로젝트만 만들어지고 사용자가 이탈해
   GitHub 없는 빈 프로젝트가 남는 것을 막기 위함이다. 설치 토큰 발급(외부 호출)은 트랜잭션 시작 전에 끝내고,
@@ -77,7 +115,7 @@ cd services/backend
 - `/api/v1/internal/**`는 사용자 JWT가 아니라 `X-Internal-Service-Token` 헤더로 인증한다.
 - `InternalServiceAuthenticationFilter`는 `security.internal-service.token`과 요청 헤더를 timing-safe 방식으로 비교한다.
 - `POST /api/v1/internal/github/installations/{installationId}/token`은 GitHub installation access token이 없거나 만료 임박한 경우 갱신해 DB 캐시를 보장하고 `204`를 반환한다. 토큰 평문은 응답하지 않는다.
-- `POST /api/v1/internal/integrations/{projectId}/jira/token`은 Jira access token이 없거나 만료 임박한 경우 refresh token으로 갱신해 저장하고 `204`를 반환한다. refresh token이 폐기돼 갱신이 영구 실패하면 연동을 pending 상태로 되돌린다. 토큰 평문은 응답하지 않는다.
+- `POST /api/v1/internal/integrations/{projectId}/{provider}/token`은 access token이 없거나 만료 임박한 경우 갱신해 저장하고 `204`를 반환한다(Jira는 refresh token으로 갱신하며, 폐기돼 영구 실패하면 연동을 pending 상태로 되돌린다). 갱신 수단이 없는 provider는 조용한 `204` 대신 `404`를 반환한다 — 호출부가 갱신됐다고 오인한 채 만료된 토큰으로 수집하는 것을 막는다. 토큰 평문은 응답하지 않는다.
 - `POST /api/v1/internal/atlassian/consent`는 봇 계정 동의 code를 앱 수준 자격증명으로 교환·저장한다(최초 1회). 토큰 평문은 응답하지 않는다.
 - backend와 pipeline-worker에는 동일한 `INTERNAL_SERVICE_TOKEN`을 배포해야 한다.
 - GitHub App private key는 backend에만 두고 pipeline-worker와 공유하지 않는다.

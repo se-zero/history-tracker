@@ -17,46 +17,46 @@ class IntegrationTest {
     @Test
     @DisplayName("jiraPending 생성 시 status=pending_project 한 줄만 담긴다")
     void jiraPendingCreatesRowWithPendingStatusOnly() {
-        Integration integration = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
 
-        assertThat(integration.isJiraPendingProject()).isTrue();
+        assertThat(integration.isPendingSelection()).isTrue();
         assertThat(integration.getExternalRef())
-                .containsExactly(Map.entry(Integration.JIRA_STATUS, Integration.JIRA_STATUS_PENDING_PROJECT));
+                .containsExactly(Map.entry(Integration.STATUS, Integration.STATUS_PENDING_SELECTION));
         assertThat(integration.getEncryptedCredential()).containsExactly(1, 2, 3);
     }
 
     @Test
     @DisplayName("completeJiraProject 호출 후 status가 사라지고 사이트·프로젝트 정보로 통째로 교체된다")
     void completeJiraProjectReplacesExternalRefAndClearsStatus() {
-        Integration integration = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
 
-        integration.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        integration.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
 
-        assertThat(integration.isJiraPendingProject()).isFalse();
-        assertThat(integration.getJiraProjectKey()).isEqualTo("PROJ");
-        assertThat(integration.getJiraProjectName()).isEqualTo("Project");
-        assertThat(integration.getExternalRef()).doesNotContainKey(Integration.JIRA_STATUS);
+        assertThat(integration.isPendingSelection()).isFalse();
+        assertThat(integration.selectionValue("project_key")).isEqualTo("PROJ");
+        assertThat(integration.selectionValue("project_name")).isEqualTo("Project");
+        assertThat(integration.getExternalRef()).doesNotContainKey(Integration.STATUS);
     }
 
     @Test
     @DisplayName("markJiraPendingProject 호출 후에도 사이트·프로젝트 정보는 남고 status만 pending으로 바뀐다")
     void markJiraPendingProjectKeepsSiteAndProjectInfo() {
-        Integration integration = Integration.jiraPending(project(), new byte[] {1, 2, 3});
-        integration.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        integration.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
 
-        integration.markJiraPendingProject();
+        integration.markPendingSelection();
 
-        assertThat(integration.isJiraPendingProject()).isTrue();
-        assertThat(integration.getJiraCloudId()).isEqualTo("cloud-1");
-        assertThat(integration.getJiraSiteName()).isEqualTo("acme");
-        assertThat(integration.getJiraProjectKey()).isEqualTo("PROJ");
-        assertThat(integration.getJiraProjectName()).isEqualTo("Project");
+        assertThat(integration.isPendingSelection()).isTrue();
+        assertThat(integration.selectionValue("cloud_id")).isEqualTo("cloud-1");
+        assertThat(integration.selectionValue("site_name")).isEqualTo("acme");
+        assertThat(integration.selectionValue("project_key")).isEqualTo("PROJ");
+        assertThat(integration.selectionValue("project_name")).isEqualTo("Project");
     }
 
     @Test
     @DisplayName("updateCredential은 새 바이트 배열을 방어적으로 복사해 저장한다")
     void updateCredentialDefensivelyCopiesBytes() {
-        Integration integration = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
         byte[] newCredential = new byte[] {4, 5, 6};
 
         integration.updateCredential(newCredential);

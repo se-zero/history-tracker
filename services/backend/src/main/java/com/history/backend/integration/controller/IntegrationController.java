@@ -1,14 +1,17 @@
 package com.history.backend.integration.controller;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.history.backend.common.error.BadRequestException;
-import com.history.backend.integration.dto.CompleteJiraProjectRequest;
+import com.history.backend.integration.dto.CompleteSelectionRequest;
 import com.history.backend.integration.dto.ConnectGitHubIntegrationRequest;
 import com.history.backend.integration.dto.IntegrationResponse;
-import com.history.backend.integration.dto.JiraProjectResponse;
-import com.history.backend.integration.dto.JiraSiteResponse;
+import com.history.backend.integration.dto.SelectionOptionResponse;
+import com.history.backend.integration.dto.SelectionStepResponse;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.service.IntegrationService;
 import com.history.backend.security.AuthenticatedUser;
@@ -78,40 +81,53 @@ public class IntegrationController {
         }
     }
 
-    @GetMapping("/jira/sites")
-    public List<JiraSiteResponse> listJiraSites(
+    // provider가 선언한 선택 단계 — 프론트는 단계 수·이름을 하드코딩하지 않고 이 응답으로 화면을 만든다
+    @GetMapping("/{provider}/selection/steps")
+    public List<SelectionStepResponse> selectionSteps(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PathVariable UUID projectId
+            @PathVariable UUID projectId,
+            @PathVariable String provider
     ) {
-        return integrationService.listJiraSites(authenticatedUser.id(), projectId).stream()
-                .map(JiraSiteResponse::from)
+        return integrationService.selectionSteps(authenticatedUser.id(), projectId, parseProvider(provider)).stream()
+                .map(SelectionStepResponse::from)
                 .toList();
     }
 
-    @GetMapping("/jira/projects")
-    public List<JiraProjectResponse> listJiraProjects(
+    // 한 단계의 후보 조회. 앞선 단계에서 고른 값은 쿼리 파라미터로 함께 온다(자식 목록에 부모 id가 필요하다).
+    @GetMapping("/{provider}/selection/options")
+    public List<SelectionOptionResponse> selectionOptions(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @PathVariable UUID projectId,
-            @RequestParam String cloudId
+            @PathVariable String provider,
+            @RequestParam String step,
+            @RequestParam Map<String, String> queryParams
     ) {
-        return integrationService.listJiraProjects(authenticatedUser.id(), projectId, cloudId).stream()
-                .map(JiraProjectResponse::from)
+        Map<String, String> selected = new LinkedHashMap<>(queryParams);
+        selected.remove("step");
+        return integrationService.selectionOptions(
+                        authenticatedUser.id(), projectId, parseProvider(provider), step, selected).stream()
+                .map(SelectionOptionResponse::from)
                 .toList();
     }
 
-    @PostMapping("/jira/project")
-    public IntegrationResponse completeJiraProject(
+    @PostMapping("/{provider}/selection")
+    public IntegrationResponse completeSelection(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @PathVariable UUID projectId,
-            @Valid @RequestBody CompleteJiraProjectRequest request
+            @PathVariable String provider,
+            @Valid @RequestBody CompleteSelectionRequest request
     ) {
-        return IntegrationResponse.from(integrationService.completeJiraProject(
+        IntegrationProvider integrationProvider = parseProvider(provider);
+        Map<String, IntegrationService.SelectionInput> submitted = request.selections().entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> new IntegrationService.SelectionInput(
+                                entry.getValue().value(), entry.getValue().label())));
+        return IntegrationResponse.from(integrationService.completeSelection(
                 authenticatedUser.id(),
                 projectId,
-                request.cloudId(),
-                request.siteName(),
-                request.projectKey(),
-                request.projectName()
+                integrationProvider,
+                integrationService.buildSelectionExternalRef(integrationProvider, submitted)
         ));
     }
 }

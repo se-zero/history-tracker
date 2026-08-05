@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.UUID;
 
+import com.history.backend.common.error.NotFoundException;
+import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.service.IntegrationOAuthService;
 import com.history.backend.integration.service.OAuthCallbackOutcome;
 import com.history.backend.security.AuthenticatedUser;
@@ -25,7 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@DisplayName("IntegrationOAuthController: Slack OAuth 동의·콜백 HTTP API")
+@DisplayName("IntegrationOAuthController: OAuth 동의·콜백 HTTP API")
 class IntegrationOAuthControllerTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -48,7 +50,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("authorize 호출 → 200과 authorizeUrl 본문 반환")
     void authorizeSlackReturnsAuthorizeUrl() throws Exception {
-        when(integrationOAuthService.buildSlackAuthorizeUrl(USER_ID, PROJECT_ID))
+        when(integrationOAuthService.buildAuthorizeUrl(USER_ID, PROJECT_ID, IntegrationProvider.SLACK))
                 .thenReturn("https://slack.com/oauth/v2/authorize?client_id=cid&state=signed-state");
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/slack/authorize", PROJECT_ID)
@@ -69,7 +71,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("콜백 성공 → 302, Location에 ?connected=slack")
     void callbackSlackRedirectsWithConnectedQueryOnSuccess() throws Exception {
-        when(integrationOAuthService.completeSlackCallback("auth-code", "signed-state", null))
+        when(integrationOAuthService.completeCallback(IntegrationProvider.SLACK, "auth-code", "signed-state", null))
                 .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "slack", null, false));
 
         mockMvc.perform(get("/api/v1/integrations/slack/callback")
@@ -85,7 +87,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("잘못된 state → 302, Location에 error=invalid_state&provider=slack (projectId 없이 루트로)")
     void callbackSlackRedirectsToRootWithInvalidStateError() throws Exception {
-        when(integrationOAuthService.completeSlackCallback("auth-code", "bad-state", null))
+        when(integrationOAuthService.completeCallback(IntegrationProvider.SLACK, "auth-code", "bad-state", null))
                 .thenReturn(new OAuthCallbackOutcome(null, "slack", "invalid_state", false));
 
         mockMvc.perform(get("/api/v1/integrations/slack/callback")
@@ -98,7 +100,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("동의 거부(error=access_denied) → 302, Location에 error=access_denied&provider=slack")
     void callbackSlackRedirectsWithAccessDeniedError() throws Exception {
-        when(integrationOAuthService.completeSlackCallback(null, "signed-state", "access_denied"))
+        when(integrationOAuthService.completeCallback(IntegrationProvider.SLACK, null, "signed-state", "access_denied"))
                 .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "slack", "access_denied", false));
 
         mockMvc.perform(get("/api/v1/integrations/slack/callback")
@@ -114,7 +116,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("Jira authorize 호출 → 200과 authorizeUrl 본문 반환")
     void authorizeJiraReturnsAuthorizeUrl() throws Exception {
-        when(integrationOAuthService.buildJiraAuthorizeUrl(USER_ID, PROJECT_ID))
+        when(integrationOAuthService.buildAuthorizeUrl(USER_ID, PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn("https://auth.atlassian.com/authorize?client_id=cid&state=signed-state");
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/jira/authorize", PROJECT_ID)
@@ -135,7 +137,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("Jira 콜백 성공(선택 필요) → 302, Location에 ?connected=jira")
     void callbackJiraRedirectsWithConnectedQueryOnSuccess() throws Exception {
-        when(integrationOAuthService.completeJiraCallback("auth-code", "signed-state", null))
+        when(integrationOAuthService.completeCallback(IntegrationProvider.JIRA, "auth-code", "signed-state", null))
                 .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "jira", null, false));
 
         mockMvc.perform(get("/api/v1/integrations/jira/callback")
@@ -151,7 +153,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("Jira 콜백 성공(자동 복원 완료) → 302, Location에 ?connected=jira&restored=true")
     void callbackJiraRedirectsWithRestoredQueryWhenAutoConfirmed() throws Exception {
-        when(integrationOAuthService.completeJiraCallback("auth-code", "signed-state", null))
+        when(integrationOAuthService.completeCallback(IntegrationProvider.JIRA, "auth-code", "signed-state", null))
                 .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "jira", null, true));
 
         mockMvc.perform(get("/api/v1/integrations/jira/callback")
@@ -167,7 +169,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("Jira 잘못된 state → 302, Location에 error=invalid_state&provider=jira (projectId 없이 루트로)")
     void callbackJiraRedirectsToRootWithInvalidStateError() throws Exception {
-        when(integrationOAuthService.completeJiraCallback("auth-code", "bad-state", null))
+        when(integrationOAuthService.completeCallback(IntegrationProvider.JIRA, "auth-code", "bad-state", null))
                 .thenReturn(new OAuthCallbackOutcome(null, "jira", "invalid_state", false));
 
         mockMvc.perform(get("/api/v1/integrations/jira/callback")
@@ -180,7 +182,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("Jira 동의 거부(error=access_denied) → 302, Location에 error=access_denied&provider=jira")
     void callbackJiraRedirectsWithAccessDeniedError() throws Exception {
-        when(integrationOAuthService.completeJiraCallback(null, "signed-state", "access_denied"))
+        when(integrationOAuthService.completeCallback(IntegrationProvider.JIRA, null, "signed-state", "access_denied"))
                 .thenReturn(new OAuthCallbackOutcome(PROJECT_ID, "jira", "access_denied", false));
 
         mockMvc.perform(get("/api/v1/integrations/jira/callback")
@@ -191,5 +193,25 @@ class IntegrationOAuthControllerTest {
                         "Location",
                         "/projects/" + PROJECT_ID + "/sources?error=access_denied&provider=jira"
                 ));
+    }
+
+    @Test
+    @DisplayName("OAuth 동의 흐름이 없는 provider(github) authorize → 404")
+    void authorizeRejectsProviderWithoutOAuthFlow() throws Exception {
+        // {provider} 범용 라우트가 생겼어도 OAuth로 붙지 않는 provider는 예전처럼 404여야 한다
+        when(integrationOAuthService.buildAuthorizeUrl(USER_ID, PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenThrow(new NotFoundException("GitHub does not support the OAuth connect flow."));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/github/authorize", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("알 수 없는 provider authorize → 404")
+    void authorizeRejectsUnknownProvider() throws Exception {
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/linear/authorize", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNotFound());
     }
 }

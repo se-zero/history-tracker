@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -27,15 +28,20 @@ import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.integration.domain.SelectionStep;
+import com.history.backend.common.error.BadRequestException;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.jira.service.JiraClient;
+import com.history.backend.jira.service.JiraCredentialLifecycle;
 import com.history.backend.jira.service.JiraOAuthClient;
+import com.history.backend.jira.service.JiraSelectionFlow;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.shared.domain.Checkpoint;
 import com.history.backend.shared.repository.CheckpointRepository;
 import com.history.backend.slack.service.SlackClient;
+import com.history.backend.slack.service.SlackCredentialLifecycle;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -479,7 +485,7 @@ class IntegrationServiceTest {
 
         assertThat(result.getProject()).isSameAs(project);
         assertThat(result.getProvider()).isEqualTo(IntegrationProvider.JIRA);
-        assertThat(result.isJiraPendingProject()).isTrue();
+        assertThat(result.isPendingSelection()).isTrue();
         assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
         assertThat(credentialCaptor.getValue().accessToken()).isEqualTo("atl-access-token");
         assertThat(credentialCaptor.getValue().refreshToken()).isEqualTo("atl-refresh-token");
@@ -495,10 +501,10 @@ class IntegrationServiceTest {
     void connectJiraSiteAutoRestoresWhenExistingPendingProjectIsStillAccessible() {
         IntegrationService service = service();
         Project project = project();
-        Integration revertedPending = Integration.jiraPending(project, new byte[] {1, 2, 3});
-        revertedPending.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        Integration revertedPending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        revertedPending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         // 갱신 실패로 pending 되돌아온 행을 재현 — cloud_id·project_key는 남아 있다
-        revertedPending.markJiraPendingProject();
+        revertedPending.markPendingSelection();
         byte[] newEncryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
@@ -508,15 +514,19 @@ class IntegrationServiceTest {
         when(jiraCredentialCodec.encrypt(any(JiraCredential.class))).thenReturn(newEncryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(jiraTokenService.getAccessToken(PROJECT_ID)).thenReturn("new-access-token");
         when(jiraOAuthClient.listAccessibleResources("new-access-token"))
                 .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net")));
+        // 첫 단계만이 아니라 필수 단계를 전부 확인한다 — 사이트는 살아 있는데 프로젝트가 지워진 경우도 걸러진다
+        when(jiraClient.listProjects("cloud-1", "new-access-token"))
+                .thenReturn(List.of(new JiraClient.JiraProject("PROJ", "Project")));
 
         Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
 
         assertThat(result).isSameAs(revertedPending);
-        assertThat(result.isJiraPendingProject()).isFalse();
-        assertThat(result.getJiraProjectKey()).isEqualTo("PROJ");
-        assertThat(result.getJiraProjectName()).isEqualTo("Project");
+        assertThat(result.isPendingSelection()).isFalse();
+        assertThat(result.selectionValue("project_key")).isEqualTo("PROJ");
+        assertThat(result.selectionValue("project_name")).isEqualTo("Project");
         verify(jiraTokenService).ensureAccessToken(PROJECT_ID);
         verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
     }
@@ -526,9 +536,9 @@ class IntegrationServiceTest {
     void connectJiraSiteKeepsPendingWhenRestoredCloudIdIsNoLongerAccessible() {
         IntegrationService service = service();
         Project project = project();
-        Integration revertedPending = Integration.jiraPending(project, new byte[] {1, 2, 3});
-        revertedPending.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
-        revertedPending.markJiraPendingProject();
+        Integration revertedPending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        revertedPending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        revertedPending.markPendingSelection();
         byte[] newEncryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
@@ -538,13 +548,14 @@ class IntegrationServiceTest {
         when(jiraCredentialCodec.encrypt(any(JiraCredential.class))).thenReturn(newEncryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(jiraTokenService.getAccessToken(PROJECT_ID)).thenReturn("new-access-token");
         when(jiraOAuthClient.listAccessibleResources("new-access-token"))
                 .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-2", "other-site", "https://other.atlassian.net")));
 
         Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
 
         assertThat(result).isSameAs(revertedPending);
-        assertThat(result.isJiraPendingProject()).isTrue();
+        assertThat(result.isPendingSelection()).isTrue();
         verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
         verify(jiraTokenService, never()).ensureAccessToken(any());
     }
@@ -557,9 +568,9 @@ class IntegrationServiceTest {
         // 사이트·프로젝트를 고를 수 있게 한다.
         IntegrationService service = service();
         Project project = project();
-        Integration revertedPending = Integration.jiraPending(project, new byte[] {1, 2, 3});
-        revertedPending.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
-        revertedPending.markJiraPendingProject();
+        Integration revertedPending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        revertedPending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        revertedPending.markPendingSelection();
         byte[] newEncryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
@@ -569,13 +580,14 @@ class IntegrationServiceTest {
         when(jiraCredentialCodec.encrypt(any(JiraCredential.class))).thenReturn(newEncryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(jiraTokenService.getAccessToken(PROJECT_ID)).thenReturn("new-access-token");
         when(jiraOAuthClient.listAccessibleResources("new-access-token"))
                 .thenThrow(new BadGatewayException("Jira accessible resources request failed."));
 
         Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
 
         assertThat(result).isSameAs(revertedPending);
-        assertThat(result.isJiraPendingProject()).isTrue();
+        assertThat(result.isPendingSelection()).isTrue();
         verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
         verify(jiraTokenService, never()).ensureAccessToken(any());
     }
@@ -585,7 +597,7 @@ class IntegrationServiceTest {
     void connectJiraSiteOverwritesExistingPendingIntegration() {
         IntegrationService service = service();
         Project project = project();
-        Integration pending = Integration.jiraPending(project, new byte[] {1, 2, 3});
+        Integration pending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
         byte[] newEncryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
@@ -599,7 +611,7 @@ class IntegrationServiceTest {
         Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
 
         assertThat(result).isSameAs(pending);
-        assertThat(result.isJiraPendingProject()).isTrue();
+        assertThat(result.isPendingSelection()).isTrue();
         assertThat(result.getEncryptedCredential()).containsExactly(newEncryptedCredential);
     }
 
@@ -607,8 +619,8 @@ class IntegrationServiceTest {
     @DisplayName("이미 확정된 Jira 연동에 재연결 시도 → 409, code 교환 안 함")
     void connectJiraSiteRejectsWhenAlreadyConfirmedWithoutExchangingCode() {
         IntegrationService service = service();
-        Integration confirmed = Integration.jiraPending(project(), new byte[] {1, 2, 3});
-        confirmed.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        Integration confirmed = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        confirmed.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(confirmed));
@@ -629,9 +641,10 @@ class IntegrationServiceTest {
         when(jiraOAuthClient.listAccessibleResources("atl-access-token"))
                 .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net")));
 
-        List<JiraOAuthClient.JiraSite> result = service.listJiraSites(OWNER_ID, PROJECT_ID);
+        List<SelectionOption> result = service.selectionOptions(
+                OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA, "cloud_id", Map.of());
 
-        assertThat(result).containsExactly(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net"));
+        assertThat(result).containsExactly(new SelectionOption("cloud-1", "acme"));
     }
 
     @Test
@@ -643,16 +656,18 @@ class IntegrationServiceTest {
         when(jiraClient.listProjects("cloud-1", "atl-access-token"))
                 .thenReturn(List.of(new JiraClient.JiraProject("PROJ", "Project")));
 
-        List<JiraClient.JiraProject> result = service.listJiraProjects(OWNER_ID, PROJECT_ID, "cloud-1");
+        // 뒤 단계의 후보는 앞 단계에서 고른 값으로 조회된다 (부모 id 없이는 자식 목록을 못 만든다)
+        List<SelectionOption> result = service.selectionOptions(
+                OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA, "project_key", Map.of("cloud_id", "cloud-1"));
 
-        assertThat(result).containsExactly(new JiraClient.JiraProject("PROJ", "Project"));
+        assertThat(result).containsExactly(new SelectionOption("PROJ", "Project"));
     }
 
     @Test
     @DisplayName("pending 행 확정 저장 후 커밋 뒤(트랜잭션 밖) 토큰 확보·초기 수집 트리거 순서로 진행")
     void completeJiraProjectSavesAndTriggersCollectionOutsideTransaction() {
         IntegrationService service = service();
-        Integration pending = Integration.jiraPending(project(), new byte[] {1, 2, 3});
+        Integration pending = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(pending));
@@ -670,12 +685,13 @@ class IntegrationServiceTest {
             return null;
         }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
 
-        Integration result = service.completeJiraProject(OWNER_ID, PROJECT_ID, "cloud-1", "acme", "PROJ", "Project");
+        Integration result = service.completeSelection(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA, Map.of(
+                "cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
 
         assertThat(result).isSameAs(pending);
-        assertThat(result.isJiraPendingProject()).isFalse();
-        assertThat(result.getJiraProjectKey()).isEqualTo("PROJ");
-        assertThat(result.getJiraProjectName()).isEqualTo("Project");
+        assertThat(result.isPendingSelection()).isFalse();
+        assertThat(result.selectionValue("project_key")).isEqualTo("PROJ");
+        assertThat(result.selectionValue("project_name")).isEqualTo("Project");
         // GitHub이 트리거 직전에 토큰을 갱신하는 것과 같은 자리 — 토큰 확보가 먼저, 수집 트리거가 그다음이다
         InOrder inOrder = inOrder(jiraTokenService, pipelineWorkerClient);
         inOrder.verify(jiraTokenService).ensureAccessToken(PROJECT_ID);
@@ -686,15 +702,14 @@ class IntegrationServiceTest {
     @DisplayName("이미 확정된 행에 다시 확정 시도 → 409, 토큰 확보·트리거 호출 안 함")
     void completeJiraProjectRejectsWhenAlreadyConfirmed() {
         IntegrationService service = service();
-        Integration confirmed = Integration.jiraPending(project(), new byte[] {1, 2, 3});
-        confirmed.completeJiraProject("cloud-1", "acme", "PROJ", "Project");
+        Integration confirmed = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        confirmed.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(confirmed));
 
-        assertThatThrownBy(() -> service.completeJiraProject(
-                OWNER_ID, PROJECT_ID, "cloud-2", "other-site", "OTHER", "Other"
-        ))
+        assertThatThrownBy(() -> service.completeSelection(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA, Map.of(
+                "cloud_id", "cloud-2", "site_name", "other-site", "project_key", "OTHER", "project_name", "Other")))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Jira integration already exists.");
         verify(jiraTokenService, never()).ensureAccessToken(any());
@@ -757,7 +772,7 @@ class IntegrationServiceTest {
     @DisplayName("Jira 해제는 refresh token을 폐기한다 (파생 access token도 함께 무효화)")
     void disconnectRevokesJiraRefreshToken() {
         IntegrationService service = service();
-        Integration integration = Integration.jiraPending(project(), new byte[] {9});
+        Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {9});
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
@@ -849,6 +864,88 @@ class IntegrationServiceTest {
         return checkpoint;
     }
 
+    @Test
+    @DisplayName("선택적 중간 단계는 건너뛸 수 있다 — ClickUp의 folder처럼 없어도 하위 단계로 간다")
+    void buildSelectionExternalRefSkipsOptionalStep() {
+        IntegrationService service = serviceWithSelectionFlow(stubFlow(List.of(
+                SelectionStep.required("workspace_id", "workspace_name", "워크스페이스"),
+                SelectionStep.optional("folder_id", "folder_name", "폴더"),
+                SelectionStep.required("list_id", "list_name", "리스트"))));
+
+        Map<String, Object> externalRef = service.buildSelectionExternalRef(
+                IntegrationProvider.JIRA,
+                Map.of(
+                        "workspace_id", new IntegrationService.SelectionInput("W1", "Acme"),
+                        "list_id", new IntegrationService.SelectionInput("L1", "Backlog")));
+
+        assertThat(externalRef).containsOnly(
+                Map.entry("workspace_id", "W1"),
+                Map.entry("workspace_name", "Acme"),
+                Map.entry("list_id", "L1"),
+                Map.entry("list_name", "Backlog"));
+    }
+
+    @Test
+    @DisplayName("필수 단계가 비면 400 — 확정 후 수집이 대상을 못 찾는 상태를 만들지 않는다")
+    void buildSelectionExternalRefRejectsMissingRequiredStep() {
+        IntegrationService service = serviceWithSelectionFlow(stubFlow(List.of(
+                SelectionStep.required("workspace_id", "workspace_name", "워크스페이스"),
+                SelectionStep.required("list_id", "list_name", "리스트"))));
+
+        assertThatThrownBy(() -> service.buildSelectionExternalRef(
+                IntegrationProvider.JIRA,
+                Map.of("workspace_id", new IntegrationService.SelectionInput("W1", "Acme"))))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("list_id");
+    }
+
+    @Test
+    @DisplayName("선택 단계가 없는 provider의 단계 조회는 빈 목록 (동의 직후 곧바로 확정)")
+    void selectionStepsIsEmptyForProviderWithoutFlow() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+
+        assertThat(service.selectionSteps(OWNER_ID, PROJECT_ID, IntegrationProvider.SLACK)).isEmpty();
+    }
+
+    private IntegrationSelectionFlow stubFlow(List<SelectionStep> steps) {
+        return new IntegrationSelectionFlow() {
+            @Override
+            public IntegrationProvider provider() {
+                return IntegrationProvider.JIRA;
+            }
+
+            @Override
+            public List<SelectionStep> steps() {
+                return steps;
+            }
+
+            @Override
+            public List<SelectionOption> options(UUID projectId, String stepKey, Map<String, String> selected) {
+                return List.of();
+            }
+        };
+    }
+
+    private IntegrationService serviceWithSelectionFlow(IntegrationSelectionFlow flow) {
+        return new IntegrationService(
+                integrationRepository,
+                checkpointRepository,
+                projectService,
+                gitHubInstallationService,
+                installationTokenService,
+                credentialCryptoService,
+                slackClient,
+                jiraOAuthClient,
+                jiraCredentialCodec,
+                pipelineWorkerClient,
+                aiEngineGraphClient,
+                new ProviderCredentialLifecycleRegistry(List.of()),
+                new IntegrationSelectionFlowRegistry(List.of(flow)),
+                new TransactionTemplate(transactionManager)
+        );
+    }
+
     private IntegrationService service() {
         return new IntegrationService(
                 integrationRepository,
@@ -859,11 +956,16 @@ class IntegrationServiceTest {
                 credentialCryptoService,
                 slackClient,
                 jiraOAuthClient,
-                jiraClient,
                 jiraCredentialCodec,
-                jiraTokenService,
                 pipelineWorkerClient,
                 aiEngineGraphClient,
+                // 실제 lifecycle 구현을 물려 폐기 경로가 provider 클라이언트까지 닿는지 그대로 검증한다
+                new ProviderCredentialLifecycleRegistry(List.of(
+                        new SlackCredentialLifecycle(slackClient, credentialCryptoService),
+                        new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec, jiraTokenService)
+                )),
+                new IntegrationSelectionFlowRegistry(List.of(
+                        new JiraSelectionFlow(jiraOAuthClient, jiraClient, jiraTokenService))),
                 new TransactionTemplate(transactionManager)
         );
     }

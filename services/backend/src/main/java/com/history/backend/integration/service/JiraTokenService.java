@@ -81,7 +81,7 @@ public class JiraTokenService {
             // 별도 트랜잭션으로 되돌려도 자기 자신의 잠금과 교착되지 않는다.
             revertTransactionTemplate.executeWithoutResult(status ->
                     integrationRepository.findById(exception.integrationId())
-                            .ifPresent(Integration::markJiraPendingProject));
+                            .ifPresent(Integration::markPendingSelection));
             throw new UnauthorizedException("Jira refresh token is invalid or revoked.");
         }
     }

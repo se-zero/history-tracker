@@ -161,6 +161,72 @@ class IntegrationSchemaTest {
     }
 
     @Test
+    @DisplayName("등록되지 않은 provider도 마이그레이션 없이 저장된다 (열거형 CHECK 제거)")
+    void unknownProviderIsAcceptedWithoutMigration() {
+        // 새 연동을 붙일 때마다 CHECK 제약 마이그레이션을 강제하지 않는 것이 V12의 목적이다.
+        // 유효한 provider 값은 애플리케이션(IntegrationProvider enum)이 보증한다.
+        UUID ownerId = insertUser("owner11@example.com");
+        UUID projectId = insertProject(ownerId);
+
+        UUID integrationId = jdbcTemplate.queryForObject(
+                """
+                        INSERT INTO integrations (
+                            project_id, provider, external_ref, encrypted_credential
+                        )
+                        VALUES (?, 'linear', ?, ?)
+                        RETURNING id
+                        """,
+                UUID.class,
+                projectId,
+                "{\"team_id\":\"TEAM\"}",
+                new byte[] {1, 2, 3}
+        );
+
+        assertThat(integrationId).isNotNull();
+    }
+
+    @Test
+    @DisplayName("새 provider도 자격증명 규칙은 동일 — credential 없으면 거부")
+    void unknownProviderStillRequiresEncryptedCredential() {
+        UUID ownerId = insertUser("owner12@example.com");
+        UUID projectId = insertProject(ownerId);
+
+        assertThatThrownBy(() -> jdbcTemplate.queryForObject(
+                """
+                        INSERT INTO integrations (project_id, provider, external_ref)
+                        VALUES (?, 'linear', ?)
+                        RETURNING id
+                        """,
+                UUID.class,
+                projectId,
+                "{\"team_id\":\"TEAM\"}"
+        )).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("새 provider도 installation 참조는 거부 (installation은 GitHub 전용)")
+    void unknownProviderRejectsInstallationReference() {
+        UUID ownerId = insertUser("owner13@example.com");
+        UUID projectId = insertProject(ownerId);
+        UUID installationId = insertGitHubInstallation(ownerId, 1013L);
+
+        assertThatThrownBy(() -> jdbcTemplate.queryForObject(
+                """
+                        INSERT INTO integrations (
+                            project_id, provider, external_ref, installation_id, encrypted_credential
+                        )
+                        VALUES (?, 'linear', ?, ?, ?)
+                        RETURNING id
+                        """,
+                UUID.class,
+                projectId,
+                "{\"team_id\":\"TEAM\"}",
+                installationId,
+                new byte[] {1, 2, 3}
+        )).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
     @DisplayName("프로젝트별 provider 유니크 제약")
     void providerIsUniquePerProject() {
         UUID ownerId = insertUser("owner5@example.com");

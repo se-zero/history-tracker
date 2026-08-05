@@ -13,6 +13,7 @@ import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.integration.domain.Integration;
+import com.history.backend.jira.service.JiraSelectionFlow;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.dto.EraseAccount;
 import com.history.backend.integration.dto.PrivacyDueAccount;
@@ -215,7 +216,7 @@ public class JiraPersonalDataReportService {
         boolean transientFailure = false;
 
         for (Integration integration : integrations) {
-            String cloudId = integration.getJiraCloudId();
+            String cloudId = integration.selectionValue(JiraSelectionFlow.CLOUD_ID);
             if (cloudId == null) {
                 continue;
             }
