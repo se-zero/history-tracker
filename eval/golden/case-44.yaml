@@ -10,7 +10,7 @@ question: "2026년 6월 12일부터 13일 사이에 멀티턴 대화 기능이 �
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
 expected_evidence_ids:
 - "message:1781224211.716939"    # 2026-06-12T00:30 발단 — "이전 대화기록 참고 안하고 대답한다"
 - "commit:3e1d00e"               # 2026-06-12T11:19 AI 엔진 멀티턴 대화 이력 입력 지원 (첫 구현)

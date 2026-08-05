@@ -34,7 +34,7 @@ EVAL_DIR = os.path.dirname(os.path.abspath(__file__))
 VALID_LABELS = {"relevant", "irrelevant", "unsure"}
 
 # 타입별 "이 노드 쌍에 시맨틱 엣지가 존재하나?" 질의. sample_edges의 추출 규칙과 동일한
-# 노드 식별(커밋 hash 앞 7자 / message conversation_id / issue jira_key)·시맨틱 필터를 쓴다.
+# 노드 식별(커밋 hash 앞 7자 / message conversation_id / issue issue_key)·시맨틱 필터를 쓴다.
 # 같은 쌍에 엣지가 여러 개면 최고 confidence(샘플러의 dedupe와 일치).
 EXISTS_Q = {
     "REFERENCE": (
@@ -44,12 +44,12 @@ EXISTS_Q = {
     ),
     "DISCUSSED_IN": (
         "MATCH (i:Issue {project_id:$pid})-[r:DISCUSSED_IN]->(comm:Communication) "
-        "WHERE i.jira_key=$src AND comm.conversation_id=$dst AND r.confidence IS NOT NULL "
+        "WHERE i.issue_key=$src AND comm.conversation_id=$dst AND r.confidence IS NOT NULL "
         "RETURN r.confidence AS confidence ORDER BY r.confidence DESC LIMIT 1"
     ),
     "TRIGGERED_BY": (
         "MATCH (c:ChangeSet {project_id:$pid})-[r:TRIGGERED_BY]->(i:Issue) "
-        "WHERE left(c.hash,7)=$src AND i.jira_key=$dst AND r.source='semantic' "
+        "WHERE left(c.hash,7)=$src AND i.issue_key=$dst AND r.source='semantic' "
         "RETURN r.confidence AS confidence ORDER BY r.confidence DESC LIMIT 1"
     ),
 }

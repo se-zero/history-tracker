@@ -13,7 +13,7 @@ question: "서준수가 작성한 커밋·PR과 담당한 이슈를 함께 정�
 focus_evidence: []
 
 # 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
-#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> jira_key / message -> conversation_id(루트 ts)
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
 # 코드 측(JunsuSeo PR)과 이슈 측(서준수 담당) 양쪽의 대표 작업. 한 신원만 해석하면 절반을 놓친다.
 expected_evidence_ids:
 # --- 코드 측 (JunsuSeo AUTHORED PR) — "서준수"로 조회 시 현재 도달 불가 ---

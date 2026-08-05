@@ -16,7 +16,7 @@ question: "서준수가 2026년 4월에 어떤 이슈와 논의를 진행했어?
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
 # 4월 활동의 축(이슈 생성/완료 + 슬랙 논의) — actor="서준수"(JIRA/SLACK)로 실제 도달 가능한 근거만.
 expected_evidence_ids:
 - "issue:HT-19"                  # 4/1 생성 → 4/9 완료, LLM 요약 테스트

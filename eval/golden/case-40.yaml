@@ -9,7 +9,7 @@ question: "프로젝트를 선택할 때 브랜치를 선택할 수 있게 하�
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
 expected_evidence_ids:
 - "issue:HT-81"                    # Jira: 브랜치 선택 기능 추가 (프론트/백엔드 요구)
 - "message:1781533811.868749"     # Slack: 브랜치 수집 불일치 발견 + 프론트/백엔드 결정 (배경=왜)

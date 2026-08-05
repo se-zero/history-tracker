@@ -8,7 +8,7 @@ question: "conversation·message 페이지네이션은 왜 적용했고 슬랙�
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts)
+# issue -> issue_key, message -> conversation_id(루트 ts)
 expected_evidence_ids:
 - "issue:HT-97"                    # 배경(왜): 데이터 증가 시 초기 로딩 비용 선형 증가
 - "message:1782650084.848469"     # Slack: "Backend 대화랑 메세지 페이지네이션 적용한거 pr 날렸어"

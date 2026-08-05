@@ -2,7 +2,7 @@
 
 validate_golden.py(존재 검증)와 grader.py(LLM judge에 줄 evidence 원문 조회)가 공유한다.
 id 표기는 골든셋/'/query' 응답 규칙을 따른다:
-  issue -> jira_key / pull_request -> #번호 / commit -> hash 앞 7자 / message -> conversation_id(루트 ts)
+  issue -> issue_key / pull_request -> #번호 / commit -> hash 앞 7자 / message -> conversation_id(루트 ts)
 
 접속 정보는 NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD 환경변수로 덮어쓸 수 있다.
 """
@@ -17,7 +17,7 @@ ID_RE = re.compile(r"^(issue|pull_request|commit|message):(.+)$")
 
 # id 타입별 (형식 검사 정규식, 설명)
 FORMAT_RULES = {
-    "issue": (re.compile(r"^HT-\d+$"), "jira_key (예: HT-3)"),
+    "issue": (re.compile(r"^HT-\d+$"), "issue_key (예: HT-3)"),
     "pull_request": (re.compile(r"^#\d+$"), "#번호 (예: #19)"),
     "commit": (re.compile(r"^[0-9a-f]{7}$"), "hash 앞 7자 소문자"),
     "message": (re.compile(r"^\d+\.\d+$"), "conversation_id = 스레드 루트 ts"),
@@ -48,7 +48,7 @@ def detect_project_id(session) -> str:
 def resolve(session, pid: str, id_type: str, value: str) -> tuple[int, str]:
     """id가 그래프 노드로 해석되는지 확인. (매치 수, 부가 설명) 반환."""
     if id_type == "issue":
-        q = "MATCH (n:Issue {project_id:$pid, jira_key:$v}) RETURN count(n) AS c"
+        q = "MATCH (n:Issue {project_id:$pid, issue_key:$v}) RETURN count(n) AS c"
         return session.run(q, pid=pid, v=value).single()["c"], ""
     if id_type == "pull_request":
         q = ("MATCH (n:PullRequest {project_id:$pid}) "
@@ -82,8 +82,8 @@ def fetch_evidence_body(session, pid: str, id_type: str, value: str) -> dict | N
     """
     if id_type == "issue":
         row = session.run(
-            "MATCH (n:Issue {project_id:$pid, jira_key:$v}) "
-            "RETURN n.jira_key AS key, n.title AS title, n.body AS body, n.status AS status "
+            "MATCH (n:Issue {project_id:$pid, issue_key:$v}) "
+            "RETURN n.issue_key AS key, n.title AS title, n.body AS body, n.status AS status "
             "LIMIT 1",
             pid=pid, v=value,
         ).single()

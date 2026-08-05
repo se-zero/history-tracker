@@ -4,8 +4,8 @@
 #
 # 작성 규칙 (edge_eval.py의 edge_exists() 질의와 맞춰야 함):
 # - REFERENCE   : src = 커밋 해시 앞 7자,  dst = 스레드 루트 conversation_id
-# - DISCUSSED_IN: src = 이슈 jira_key,    dst = 스레드 루트 conversation_id
-# - TRIGGERED_BY: src = 커밋 해시 앞 7자,  dst = 이슈 jira_key
+# - DISCUSSED_IN: src = 이슈 issue_key,    dst = 스레드 루트 conversation_id
+# - TRIGGERED_BY: src = 커밋 해시 앞 7자,  dst = 이슈 issue_key
 #   ⚠ TRIGGERED_BY는 semantic 엣지만 인정된다 (r.source='semantic').
 #     커밋 메시지에 HT-xx가 명시된 쌍은 키 매칭으로 연결되므로 넣지 말 것 — 영원한 miss가 된다.
 # - id에 "commit:" 같은 접두사를 붙이지 않는다 (precision 라벨셋과 동일한 bare id).

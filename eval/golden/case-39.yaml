@@ -9,7 +9,7 @@ question: "글로벌 검색이 도입된 배경이 뭐야?"
 # 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
 focus_evidence: []
 
-# issue -> jira_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
 expected_evidence_ids:
 - "issue:HT-102"                   # 배경/목표 본문: 대화·그래프 노드를 chatGPT처럼 통합 검색 (핵심 근거)
 
