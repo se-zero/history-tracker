@@ -42,9 +42,12 @@ src/
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
     sources/        GitHubCard(설치 기반 전용) · OAuthSourceCard(OAuth 소스 공용 행 — backend가
                     선언한 선택 단계를 그대로 렌더, provider별 카드를 만들지 않는다) ·
-                    sourceCatalog(소스 메타 단일 출처 — 11종의 마크·설명은 이미 등재돼 있고, 연동이
-                    붙은 소스만 connectable·deletedData를 채운다. 신규 소스의 프론트 작업은 보통 이 두 필드가
-                    전부다 — 전체 순서는 docs/integration-abstraction.md 「커넥터 엔드투엔드 체크리스트」)
+                    sourceCatalog(소스 메타 단일 출처 — 11종의 마크·설명은 이미 등재돼 있고, 항목은
+                    status로 갈리는 판별 유니온이다. 신규 소스의 프론트 작업은 보통 status를
+                    "planned"→"wired"로 바꾸고 connect·deletedData를 채우는 게 전부다. **"wired"라고
+                    선언하면 두 필드가 없을 때 컴파일이 깨진다** — 반쪽 배선(연결 버튼이 no-op이거나
+                    해제 고지가 뭉뚱그려지는 무증상 실패)을 타입으로 막는 자리다
+                    — 전체 순서는 docs/integration-abstraction.md 「커넥터 엔드투엔드 체크리스트」)
                     · IngestStatus · ActorManagementCard
                     useOAuthCallbackError — 동의 후 돌아온 리다이렉트의 실패 안내(URL 쿼리 캡처)
                     DisconnectIntegration — 해제 버튼 + 사전 경고 다이얼로그(연동 행 공용).

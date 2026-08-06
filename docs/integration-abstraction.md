@@ -195,8 +195,13 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 - `components/sources/OAuthSourceCard.tsx` — pending이면 선언된 단계를 순서대로 렌더:
   앞 단계를 골라야 다음 단계가 열리고, 앞 단계를 바꾸면 뒤 단계 선택은 버린다.
   필수 단계 후보가 1개면 자동 선택(Atlassian resource-level grant형). 확정은 전 단계 일괄 제출.
-- `sourceCatalog`에 `connectable`(OAuth 배선 여부)·`deletedData`(해제 다이얼로그 문구)를 추가 —
+- `sourceCatalog` 항목을 `status`로 갈리는 판별 유니온으로 — `"wired"`라고 선언하면
+  `connect`(연결 방식)·`deletedData`(해제 다이얼로그 문구)를 반드시 함께 적어야 컴파일이 통과한다.
   **신규 provider의 프론트 작업은 브랜드 마크 + 카탈로그 한 줄이 전부다.**
+  처음에는 두 필드가 optional이었는데, 그러면 하나만 채운 반쪽 배선이 **무증상으로 통과한다**
+  (연결 버튼이 조용히 no-op이거나, 해제 다이얼로그가 "수집한 데이터" 같은 뭉뚱그린 폴백 문구를 띄운다).
+  provider별 카드를 공용 하나로 합치면서 "카드가 없으면 안 붙는다"는 컴파일 안전망이 사라진 자리라,
+  타입으로 되살렸다 — backend `IntegrationResponse.displayName`의 exhaustive switch와 같은 역할이다.
 - `useIntegrationAuthorize`는 provider를 mutate 인자로 받는 단일 훅으로 통합.
 
 ## 4. 진행 순서
@@ -293,8 +298,10 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
 
 **3. web-dashboard — 화면 (`clients/web-dashboard/CLAUDE.md`)**
 
-- [ ] `components/sources/sourceCatalog.tsx`의 해당 항목에 `connectable: true`와 `deletedData`(해제 시
-      무엇이 지워지는지) 추가. **11종의 브랜드 마크와 카탈로그 항목은 이미 있다** — 보통 이 두 필드가 전부다.
+- [ ] `components/sources/sourceCatalog.tsx`의 해당 항목을 `status: "planned"` → `"wired"`로 바꾸고
+      `connect`("oauth")와 `deletedData`(해제 시 무엇이 지워지는지)를 채운다.
+      **11종의 브랜드 마크와 카탈로그 항목은 이미 있다** — 보통 이 한 줄이 전부다.
+      `"wired"`인데 두 필드가 없으면 **컴파일이 깨진다**(의도된 안전망 — 반쪽 배선은 화면에서 조용히 실패한다).
 - [ ] 연동 행·선택 폼·타일·해제 다이얼로그는 `OAuthSourceCard`가 backend 단계 선언으로 렌더하므로
       **provider별 컴포넌트를 만들지 않는다.**
 - [ ] 검증: `npm run typecheck && npm run build`
@@ -316,6 +323,10 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
 
 `IntegrationResponse.displayName`의 switch **하나뿐**이며, 의도적으로 남긴 것이다. exhaustive switch라
 새 provider가 표시 이름을 정하지 않으면 컴파일이 깨져서, 화면에 빈 이름이 나가는 걸 막는다.
+
+프론트의 `sourceCatalog` 판별 유니온도 같은 성격의 안전망이다(분기가 아니라 타입 제약이라 provider별
+코드가 늘지는 않는다). 원칙은 하나다 — **provider별로 반드시 정해야 하는 값은 빠뜨렸을 때 화면에서
+조용히 이상해지는 대신 컴파일에서 깨지게 한다.**
 
 그 밖의 provider 분기는 Part A에서 모두 제거했다. `EventPublisher`의 source switch와
 `routing-key-{provider}` 설정 3줄도 없앴고(routing key를 `source`에서 유도), 새 소스가

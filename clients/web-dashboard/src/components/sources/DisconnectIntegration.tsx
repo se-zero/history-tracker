@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { InlineError } from "@/components/ui/InlineError";
-import { findSource, sourceName } from "@/components/sources/sourceCatalog";
+import { deletedDataOf, sourceName } from "@/components/sources/sourceCatalog";
 import { useDisconnectIntegration } from "@/hooks/useIntegrations";
 import type { IntegrationProvider } from "@/api/integrations";
 
@@ -21,9 +21,9 @@ export function DisconnectIntegration({
   const [confirming, setConfirming] = useState(false);
   const disconnect = useDisconnectIntegration(projectId);
   const label = sourceName(provider);
-  // "무엇이 지워지는지"는 소스마다 다르다 — 문구는 sourceCatalog가 소유하고, 아직 문구가 없는
-  // 소스는 뭉뚱그린 폴백으로라도 파괴적 동작임을 알린다.
-  const deletedData = findSource(provider)?.deletedData ?? "수집한 데이터와 그 그래프";
+  // "무엇이 지워지는지"는 소스마다 다르다 — 문구는 sourceCatalog가 소유한다
+  // (연동이 붙은 소스는 타입상 반드시 갖는다. deletedDataOf의 폴백은 배포 시차용이다).
+  const deletedData = deletedDataOf(provider);
 
   // 다이얼로그를 닫았다 다시 열면 지난 실패 문구가 남아 있지 않게 한다.
   useEffect(() => {
