@@ -66,6 +66,8 @@ class IntegrationServiceTest {
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
     private static final UUID INTEGRATION_ID = UUID.fromString("2f0f1c2e-9a4e-4f0e-9d1a-6b0f8c3d7a55");
+    // 중립 값(pending_selection) 이전에 Jira가 쓰던 status 값
+    private static final String LEGACY_PENDING_PROJECT = "pending_project";
 
     @Mock
     private IntegrationRepository integrationRepository;
@@ -844,6 +846,119 @@ class IntegrationServiceTest {
         verify(integrationRepository, never()).deleteById(any());
         verify(checkpointRepository, never()).deleteByProject_IdAndId_Provider(any(), any());
         assertThat(transactionManager.beginCount).isZero();
+    }
+
+    // --- 구 status 값(pending_project) 호환 ---
+    // 중립 값 이전 배포가 저장한 행이 남아 있어 데이터 마이그레이션 없이 넘어가는 것이 전제다.
+    // 호환을 걷어낼 때 이 블록을 통째로 지우면 된다.
+
+    @Test
+    @DisplayName("구 status 값 pending 행에 재동의 → 409가 아니라 자격증명을 덮어쓰고 pending을 유지한다")
+    void connectOAuthOverwritesLegacyPendingIntegration() {
+        IntegrationService service = service();
+        Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
+        Integration legacyPending = legacyPendingJira(project, Map.of(Integration.STATUS, LEGACY_PENDING_PROJECT));
+        byte[] newEncryptedCredential = new byte[] {7, 8, 9};
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(legacyPending));
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("jira-credential"));
+        when(credentialCryptoService.encrypt("jira-credential")).thenReturn(newEncryptedCredential);
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
+
+        // 옛 값을 pending으로 못 읽으면 "확정된 연동"으로 오인해 409가 나가고, 사용자는 재연결도 해제도 못 한다
+        assertThat(result.integration()).isSameAs(legacyPending);
+        assertThat(result.integration().isPendingSelection()).isTrue();
+        assertThat(result.integration().getEncryptedCredential()).containsExactly(newEncryptedCredential);
+    }
+
+    @Test
+    @DisplayName("구 status 값 pending 행도 재동의 시 자동 복원된다")
+    void connectOAuthAutoRestoresFromLegacyPendingRow() {
+        IntegrationService service = service();
+        Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
+        Integration legacyPending = legacyPendingJira(project, Map.of(
+                Integration.STATUS, LEGACY_PENDING_PROJECT,
+                "cloud_id", "cloud-1",
+                "site_name", "acme",
+                "project_key", "PROJ",
+                "project_name", "Project"));
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(legacyPending));
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("jira-credential"));
+        when(credentialCryptoService.encrypt("jira-credential")).thenReturn(new byte[] {7, 8, 9});
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(jiraTokenService.getAccessToken(PROJECT_ID)).thenReturn("new-access-token");
+        when(jiraOAuthClient.listAccessibleResources("new-access-token"))
+                .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net")));
+        when(jiraClient.listProjects("cloud-1", "new-access-token"))
+                .thenReturn(List.of(new JiraClient.JiraProject("PROJ", "Project")));
+
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
+
+        assertThat(result.integration().isPendingSelection()).isFalse();
+        assertThat(result.selectionRestored()).isTrue();
+        // 확정하면서 external_ref가 통째로 교체돼 옛 status 값 자체가 사라진다
+        assertThat(result.integration().getExternalRef()).doesNotContainKey(Integration.STATUS);
+        verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("구 status 값 pending 행도 선택 확정이 가능하다 — 409로 막히지 않는다")
+    void completeSelectionAcceptsLegacyPendingRow() {
+        IntegrationService service = service();
+        Integration legacyPending = legacyPendingJira(project(), Map.of(Integration.STATUS, LEGACY_PENDING_PROJECT));
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(legacyPending));
+        when(integrationRepository.saveAndFlush(legacyPending))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Integration result = service.completeSelection(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA, Map.of(
+                "cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+
+        assertThat(result.isPendingSelection()).isFalse();
+        assertThat(result.externalRefValue("project_key")).isEqualTo("PROJ");
+        verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("구 status 값 pending 행의 표시 이름은 사이트까지만 — 확정되지 않은 프로젝트를 연결된 것처럼 보여주지 않는다")
+    void listIntegrationsShowsSiteOnlyForLegacyPendingRow() {
+        IntegrationService service = service();
+        Project project = project();
+        // 갱신 영구 실패로 pending 복귀한 행 — 고른 값이 남아 있어, 옛 status를 pending으로 못 읽으면
+        // 화면에 "acme / Project"가 떠 아직 못 쓰는 연동이 정상 연결된 것처럼 보인다
+        Integration legacyPending = legacyPendingJira(project, Map.of(
+                Integration.STATUS, LEGACY_PENDING_PROJECT,
+                "cloud_id", "cloud-1",
+                "site_name", "acme",
+                "project_key", "PROJ",
+                "project_name", "Project"));
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID))
+                .thenReturn(List.of(legacyPending));
+        when(checkpointRepository.findAllByProject_Id(PROJECT_ID)).thenReturn(List.of());
+
+        List<IntegrationResponse> result = service.listIntegrations(OWNER_ID, PROJECT_ID);
+
+        assertThat(result.get(0).displayName()).isEqualTo("acme");
+    }
+
+    // 중립 값 이전 배포가 저장한 행 재현. 엔티티 상수가 아니라 문자열 리터럴을 쓰는 이유는 DB에 실제로
+    // 들어 있는 값이 계약이기 때문이다 — 상수를 참조하면 상수가 바뀔 때 테스트가 따라가 호환이 깨진 걸 놓친다.
+    private Integration legacyPendingJira(Project project, Map<String, Object> externalRef) {
+        Integration integration = Integration.pendingSelection(
+                project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        integration.applyExternalRef(externalRef);
+        return integration;
     }
 
     private User user() {

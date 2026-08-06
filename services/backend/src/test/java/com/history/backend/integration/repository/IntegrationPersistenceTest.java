@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.Map;
 import java.util.Optional;
 
+import jakarta.persistence.EntityManager;
+
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.github.domain.GitHubInstallation;
@@ -50,6 +52,9 @@ class IntegrationPersistenceTest {
     private static String postgresJdbcUrl() {
         return postgres.getJdbcUrl() + "&stringtype=unspecified";
     }
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Autowired
     private UserRepository userRepository;
@@ -142,6 +147,27 @@ class IntegrationPersistenceTest {
         assertThat(result.orElseThrow().isPendingSelection()).isFalse();
         assertThat(result.orElseThrow().getInstallation()).isNull();
         assertThat(result.orElseThrow().getEncryptedCredential()).containsExactly(40, 50, 60);
+    }
+
+    @Test
+    @DisplayName("구 status 값(pending_project)으로 저장된 행도 JSONB 왕복 후 pending으로 읽힌다")
+    void legacyPendingProjectRowIsReadAsPendingAfterRoundTrip() {
+        // 중립 값 이전 배포가 저장한 행을 그대로 재현한다 — 데이터 마이그레이션 없이 넘어가는 것이 전제라
+        // Hibernate/JSONB를 실제로 통과시켜 확인한다(문자열 리터럴이 곧 DB에 들어 있는 계약이다).
+        ProjectFixture fixture = createProjectFixture();
+        Integration pending = Integration.pendingSelection(
+                fixture.project(), IntegrationProvider.JIRA, new byte[] {40, 50, 60});
+        pending.applyExternalRef(Map.of("status", "pending_project", "cloud_id", "cloud-1", "site_name", "acme"));
+        integrationRepository.saveAndFlush(pending);
+        entityManager.clear();
+
+        Integration result = integrationRepository.findByProject_IdAndProvider(
+                fixture.project().getId(),
+                IntegrationProvider.JIRA
+        ).orElseThrow();
+
+        assertThat(result.isPendingSelection()).isTrue();
+        assertThat(result.externalRefValue("cloud_id")).isEqualTo("cloud-1");
     }
 
     @Test
