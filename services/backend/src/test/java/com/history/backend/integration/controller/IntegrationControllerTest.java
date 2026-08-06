@@ -348,7 +348,7 @@ class IntegrationControllerTest {
         ReflectionTestUtils.setField(project, "id", PROJECT_ID);
 
         Integration integration = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {4, 5, 6});
-        integration.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        integration.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);

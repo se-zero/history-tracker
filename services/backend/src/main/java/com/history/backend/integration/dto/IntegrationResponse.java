@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.jira.service.JiraSelectionFlow;
+import com.history.backend.slack.service.SlackOAuthConnectFlow;
 
 public record IntegrationResponse(
         UUID id,
@@ -51,19 +52,19 @@ public record IntegrationResponse(
         IntegrationProvider provider = integration.getProvider();
         return switch (provider) {
             case GITHUB -> integration.getGitHubRepositoryFullName();
-            case SLACK -> integration.getSlackWorkspaceName();
+            case SLACK -> integration.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_NAME);
             // 사이트 / 프로젝트 — 여러 Atlassian 사이트를 쓰는 조직에서는 프로젝트 이름만으로
             // 어느 사이트의 것인지 알 수 없다. pending 행은 프로젝트가 아직 없어 사이트만 남는다.
             case JIRA -> joinNonBlank(
-                    integration.selectionValue(JiraSelectionFlow.SITE_NAME),
+                    integration.externalRefValue(JiraSelectionFlow.SITE_NAME),
                     integration.isPendingSelection() ? null : jiraProjectLabel(integration));
         };
     }
 
     // 프로젝트 이름이 없으면 키로 대체한다 (이름을 못 받아온 연동도 무엇인지는 보이게)
     private static String jiraProjectLabel(Integration integration) {
-        String projectName = integration.selectionValue(JiraSelectionFlow.PROJECT_NAME);
-        return projectName == null ? integration.selectionValue(JiraSelectionFlow.PROJECT_KEY) : projectName;
+        String projectName = integration.externalRefValue(JiraSelectionFlow.PROJECT_NAME);
+        return projectName == null ? integration.externalRefValue(JiraSelectionFlow.PROJECT_KEY) : projectName;
     }
 
     // null·공백을 걸러 " / "로 잇는다. 남는 게 없으면 null — 프론트가 폴백 문구를 쓴다.

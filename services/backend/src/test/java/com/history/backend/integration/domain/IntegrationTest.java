@@ -30,11 +30,11 @@ class IntegrationTest {
     void completeJiraProjectReplacesExternalRefAndClearsStatus() {
         Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
 
-        integration.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        integration.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
 
         assertThat(integration.isPendingSelection()).isFalse();
-        assertThat(integration.selectionValue("project_key")).isEqualTo("PROJ");
-        assertThat(integration.selectionValue("project_name")).isEqualTo("Project");
+        assertThat(integration.externalRefValue("project_key")).isEqualTo("PROJ");
+        assertThat(integration.externalRefValue("project_name")).isEqualTo("Project");
         assertThat(integration.getExternalRef()).doesNotContainKey(Integration.STATUS);
     }
 
@@ -42,15 +42,15 @@ class IntegrationTest {
     @DisplayName("markJiraPendingProject 호출 후에도 사이트·프로젝트 정보는 남고 status만 pending으로 바뀐다")
     void markJiraPendingProjectKeepsSiteAndProjectInfo() {
         Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
-        integration.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        integration.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
 
         integration.markPendingSelection();
 
         assertThat(integration.isPendingSelection()).isTrue();
-        assertThat(integration.selectionValue("cloud_id")).isEqualTo("cloud-1");
-        assertThat(integration.selectionValue("site_name")).isEqualTo("acme");
-        assertThat(integration.selectionValue("project_key")).isEqualTo("PROJ");
-        assertThat(integration.selectionValue("project_name")).isEqualTo("Project");
+        assertThat(integration.externalRefValue("cloud_id")).isEqualTo("cloud-1");
+        assertThat(integration.externalRefValue("site_name")).isEqualTo("acme");
+        assertThat(integration.externalRefValue("project_key")).isEqualTo("PROJ");
+        assertThat(integration.externalRefValue("project_name")).isEqualTo("Project");
     }
 
     @Test

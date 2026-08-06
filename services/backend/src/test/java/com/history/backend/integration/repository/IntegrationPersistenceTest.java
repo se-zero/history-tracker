@@ -101,10 +101,10 @@ class IntegrationPersistenceTest {
     void saveAndFindSlackIntegration() {
         ProjectFixture fixture = createProjectFixture();
         byte[] encryptedCredential = new byte[] {10, 20, 30};
-        Integration integration = integrationRepository.saveAndFlush(Integration.slack(
+        Integration integration = integrationRepository.saveAndFlush(Integration.oauth(
                 fixture.project(),
-                "T123",
-                "Acme",
+                IntegrationProvider.SLACK,
+                Map.of("workspace_id", "T123", "workspace_name", "Acme"),
                 encryptedCredential
         ));
 
@@ -115,8 +115,8 @@ class IntegrationPersistenceTest {
 
         assertThat(result).contains(integration);
         assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.SLACK);
-        assertThat(result.orElseThrow().getSlackWorkspaceId()).isEqualTo("T123");
-        assertThat(result.orElseThrow().getSlackWorkspaceName()).isEqualTo("Acme");
+        assertThat(result.orElseThrow().externalRefValue("workspace_id")).isEqualTo("T123");
+        assertThat(result.orElseThrow().externalRefValue("workspace_name")).isEqualTo("Acme");
         assertThat(result.orElseThrow().getInstallation()).isNull();
         assertThat(result.orElseThrow().getEncryptedCredential()).containsExactly(10, 20, 30);
     }
@@ -127,7 +127,7 @@ class IntegrationPersistenceTest {
         ProjectFixture fixture = createProjectFixture();
         byte[] encryptedCredential = new byte[] {40, 50, 60};
         Integration pending = Integration.pendingSelection(fixture.project(), IntegrationProvider.JIRA, encryptedCredential);
-        pending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PLAT", "project_name", "Platform"));
+        pending.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PLAT", "project_name", "Platform"));
         Integration integration = integrationRepository.saveAndFlush(pending);
 
         Optional<Integration> result = integrationRepository.findByProject_IdAndProvider(
@@ -137,8 +137,8 @@ class IntegrationPersistenceTest {
 
         assertThat(result).contains(integration);
         assertThat(result.orElseThrow().getProvider()).isEqualTo(IntegrationProvider.JIRA);
-        assertThat(result.orElseThrow().selectionValue("project_key")).isEqualTo("PLAT");
-        assertThat(result.orElseThrow().selectionValue("project_name")).isEqualTo("Platform");
+        assertThat(result.orElseThrow().externalRefValue("project_key")).isEqualTo("PLAT");
+        assertThat(result.orElseThrow().externalRefValue("project_name")).isEqualTo("Platform");
         assertThat(result.orElseThrow().isPendingSelection()).isFalse();
         assertThat(result.orElseThrow().getInstallation()).isNull();
         assertThat(result.orElseThrow().getEncryptedCredential()).containsExactly(40, 50, 60);
@@ -190,10 +190,10 @@ class IntegrationPersistenceTest {
     @DisplayName("Slack external_ref는 JSONB로 저장")
     void slackExternalRefIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
-        Integration integration = integrationRepository.saveAndFlush(Integration.slack(
+        Integration integration = integrationRepository.saveAndFlush(Integration.oauth(
                 fixture.project(),
-                "T123",
-                "Acme",
+                IntegrationProvider.SLACK,
+                Map.of("workspace_id", "T123", "workspace_name", "Acme"),
                 new byte[] {1, 2, 3}
         ));
 
@@ -211,7 +211,7 @@ class IntegrationPersistenceTest {
     void jiraExternalRefIsStoredAsJsonb() {
         ProjectFixture fixture = createProjectFixture();
         Integration pending = Integration.pendingSelection(fixture.project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
-        pending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PLAT", "project_name", "Platform"));
+        pending.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PLAT", "project_name", "Platform"));
         Integration integration = integrationRepository.saveAndFlush(pending);
 
         String projectKey = jdbcTemplate.queryForObject(
@@ -265,17 +265,16 @@ class IntegrationPersistenceTest {
     }
 
     @Test
-    @DisplayName("Slack workspace_id 누락 시 IllegalStateException")
-    void slackWorkspaceIdFailsWhenExternalRefIsMissingWorkspaceId() {
+    @DisplayName("없는 키를 읽으면 null — 표시 이름이 없는 연동도 목록 조회를 깨뜨리지 않는다")
+    void externalRefValueReturnsNullWhenKeyIsMissing() {
         ProjectFixture fixture = createProjectFixture();
-        Integration integration = Integration.slack(fixture.project(), "T123", "Acme", new byte[] {1, 2, 3});
-        ReflectionTestUtils.setField(integration, "externalRef", Map.of(
-                Integration.SLACK_WORKSPACE_NAME, "Acme"
-        ));
+        Integration integration = Integration.oauth(
+                fixture.project(),
+                IntegrationProvider.SLACK,
+                Map.of("workspace_id", "T123"),
+                new byte[] {1, 2, 3});
 
-        assertThatThrownBy(integration::getSlackWorkspaceId)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Missing Slack workspace_id.");
+        assertThat(integration.externalRefValue("workspace_name")).isNull();
     }
 
     @Test
@@ -287,7 +286,7 @@ class IntegrationPersistenceTest {
                 "project_key", 123
         ));
 
-        assertThat(integration.selectionValue("project_key")).isNull();
+        assertThat(integration.externalRefValue("project_key")).isNull();
     }
 
     private ProjectFixture createProjectFixture() {

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -391,16 +392,17 @@ class IntegrationServiceTest {
     }
 
     @Test
-    @DisplayName("Slack code 교환 후 소유 프로젝트에 연동 저장")
-    void connectSlackWorkspaceExchangesCodeAndSavesIntegrationForOwnedProject() {
+    @DisplayName("선택 단계가 없는 provider — 교환 결과를 그대로 확정 저장하고 수집을 트리거한다")
+    void connectOAuthSavesConfirmedIntegrationForProviderWithoutSelectionStep() {
         IntegrationService service = service();
         Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.SLACK);
         byte[] encryptedCredential = new byte[] {1, 2, 3};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
-        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
-                .thenReturn(false);
-        when(slackClient.exchangeCode("auth-code"))
-                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme", "xoxp-token"));
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code")).thenReturn(new OAuthConnection(
+                "xoxp-token", Map.of("workspace_id", "T123", "workspace_name", "Acme")));
         when(credentialCryptoService.encrypt("xoxp-token")).thenReturn(encryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -409,109 +411,124 @@ class IntegrationServiceTest {
             return null;
         }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.SLACK, PROJECT_ID);
 
-        Integration result = service.connectSlackWorkspace(
-                OWNER_ID,
-                PROJECT_ID,
-                "auth-code"
-        );
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
 
-        assertThat(result.getProject()).isSameAs(project);
-        assertThat(result.getInstallation()).isNull();
-        assertThat(result.getProvider()).isEqualTo(IntegrationProvider.SLACK);
-        assertThat(result.getSlackWorkspaceId()).isEqualTo("T123");
-        assertThat(result.getSlackWorkspaceName()).isEqualTo("Acme");
-        assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
+        Integration integration = result.integration();
+        assertThat(integration.getProject()).isSameAs(project);
+        assertThat(integration.getInstallation()).isNull();
+        assertThat(integration.getProvider()).isEqualTo(IntegrationProvider.SLACK);
+        assertThat(integration.isPendingSelection()).isFalse();
+        // flow가 담아 넘긴 external_ref가 그대로 저장된다 (키 이름은 provider가 정한다)
+        assertThat(integration.externalRefValue("workspace_id")).isEqualTo("T123");
+        assertThat(integration.externalRefValue("workspace_name")).isEqualTo("Acme");
+        assertThat(integration.getEncryptedCredential()).containsExactly(encryptedCredential);
+        // 자동 복원 개념이 없는 provider는 "복원 완료" 배너 대상이 아니다
+        assertThat(result.selectionRestored()).isFalse();
         verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.SLACK, PROJECT_ID);
     }
 
     @Test
-    @DisplayName("중복 Slack 연동 거부 (code 교환 호출 안 함)")
-    void connectSlackWorkspaceRejectsDuplicateSlackProviderWithoutExchangingCode() {
+    @DisplayName("이미 확정된 연동 → 409, code 교환 호출 안 함")
+    void connectOAuthRejectsAlreadyConnectedProviderWithoutExchangingCode() {
         IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.SLACK);
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
-                .thenReturn(true);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.of(Integration.oauth(
+                        project(),
+                        IntegrationProvider.SLACK,
+                        Map.of("workspace_id", "T123", "workspace_name", "Acme"),
+                        new byte[] {1, 2, 3})));
 
-        assertThatThrownBy(() -> service.connectSlackWorkspace(
-                OWNER_ID,
-                PROJECT_ID,
-                "auth-code"
-        ))
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Slack integration already exists.");
-        // 이미 연동된 프로젝트라면 Slack API 호출로 코드를 낭비하지 않는다
-        verify(slackClient, never()).exchangeCode(anyString());
+        // 이미 연동된 프로젝트라면 1회용 code를 낭비하지 않는다
+        verify(flow, never()).exchangeCode(anyString());
     }
 
     @Test
-    @DisplayName("Slack 연동 시 유니크 제약 위반을 ConflictException으로 변환")
-    void connectSlackWorkspaceConvertsUniqueConstraintViolationToConflict() {
+    @DisplayName("연동 저장 시 유니크 제약 위반을 ConflictException으로 변환")
+    void connectOAuthConvertsUniqueConstraintViolationToConflict() {
         IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.SLACK);
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
-                .thenReturn(false);
-        when(slackClient.exchangeCode("auth-code"))
-                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme", "xoxp-token"));
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code")).thenReturn(new OAuthConnection(
+                "xoxp-token", Map.of("workspace_id", "T123", "workspace_name", "Acme")));
         when(credentialCryptoService.encrypt("xoxp-token")).thenReturn(new byte[] {1, 2, 3});
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate integration"));
 
-        assertThatThrownBy(() -> service.connectSlackWorkspace(
-                OWNER_ID,
-                PROJECT_ID,
-                "auth-code"
-        ))
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Slack integration already exists.");
     }
 
     @Test
-    @DisplayName("code 교환 후 새 pending Jira 연동 생성")
-    void connectJiraSiteCreatesNewPendingIntegration() {
+    @DisplayName("선택 단계를 선언한 provider — 자격증명만 담은 pending 행으로 저장하고 수집은 미룬다")
+    void connectOAuthSavesPendingIntegrationForProviderWithSelectionStep() {
         IntegrationService service = service();
         Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
         byte[] encryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.empty());
-        when(jiraOAuthClient.exchangeCode("auth-code"))
-                .thenReturn(new JiraOAuthClient.JiraTokens("atl-access-token", "atl-refresh-token", 3600L));
-        ArgumentCaptor<JiraCredential> credentialCaptor = ArgumentCaptor.forClass(JiraCredential.class);
-        when(jiraCredentialCodec.encrypt(credentialCaptor.capture())).thenReturn(encryptedCredential);
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("jira-credential"));
+        when(credentialCryptoService.encrypt("jira-credential")).thenReturn(encryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
 
-        assertThat(result.getProject()).isSameAs(project);
-        assertThat(result.getProvider()).isEqualTo(IntegrationProvider.JIRA);
-        assertThat(result.isPendingSelection()).isTrue();
-        assertThat(result.getEncryptedCredential()).containsExactly(encryptedCredential);
-        assertThat(credentialCaptor.getValue().accessToken()).isEqualTo("atl-access-token");
-        assertThat(credentialCaptor.getValue().refreshToken()).isEqualTo("atl-refresh-token");
-        assertThat(credentialCaptor.getValue().expiresAt()).isAfter(Instant.now());
-        // 확정 전이므로 초기 수집 트리거는 completeJiraProject의 책임이다
+        Integration integration = result.integration();
+        assertThat(integration.getProject()).isSameAs(project);
+        assertThat(integration.getProvider()).isEqualTo(IntegrationProvider.JIRA);
+        assertThat(integration.isPendingSelection()).isTrue();
+        assertThat(integration.getEncryptedCredential()).containsExactly(encryptedCredential);
+        assertThat(result.selectionRestored()).isFalse();
+        // 확정 전이므로 초기 수집 트리거는 completeSelection의 책임이다
         verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
-        // 최초 연결의 pending 행에는 cloud_id가 없으므로 자동 복원 분기를 타지 않는다
+        // 최초 연결의 pending 행에는 고른 값이 없으므로 자동 복원 분기를 타지 않는다
         verify(jiraOAuthClient, never()).listAccessibleResources(anyString());
     }
 
     @Test
+    @DisplayName("선택 단계를 선언한 provider가 확정 external_ref를 돌려주면 배선 오류로 막는다")
+    void connectOAuthRejectsExternalRefFromProviderWithSelectionStep() {
+        IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code"))
+                .thenReturn(new OAuthConnection("jira-credential", Map.of("cloud_id", "cloud-1")));
+
+        // 저장했다면 확정 시 통째로 덮어써져 조용히 사라진다 — 두 SPI의 선언이 어긋난 것을 바로 알린다
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("pendingSelection");
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+    }
+
+    @Test
     @DisplayName("재동의 시 pending 행에 cloud_id·project_key가 남아 있고 새 토큰으로 여전히 접근 가능하면 자동 복원 후 확정한다")
-    void connectJiraSiteAutoRestoresWhenExistingPendingProjectIsStillAccessible() {
+    void connectOAuthAutoRestoresWhenExistingPendingSelectionIsStillAccessible() {
         IntegrationService service = service();
         Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
         Integration revertedPending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
-        revertedPending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        revertedPending.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         // 갱신 실패로 pending 되돌아온 행을 재현 — cloud_id·project_key는 남아 있다
         revertedPending.markPendingSelection();
         byte[] newEncryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(revertedPending));
-        when(jiraOAuthClient.exchangeCode("auth-code"))
-                .thenReturn(new JiraOAuthClient.JiraTokens("new-access-token", "new-refresh-token", 3600L));
-        when(jiraCredentialCodec.encrypt(any(JiraCredential.class))).thenReturn(newEncryptedCredential);
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("jira-credential"));
+        when(credentialCryptoService.encrypt("jira-credential")).thenReturn(newEncryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(jiraTokenService.getAccessToken(PROJECT_ID)).thenReturn("new-access-token");
@@ -521,115 +538,100 @@ class IntegrationServiceTest {
         when(jiraClient.listProjects("cloud-1", "new-access-token"))
                 .thenReturn(List.of(new JiraClient.JiraProject("PROJ", "Project")));
 
-        Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
 
-        assertThat(result).isSameAs(revertedPending);
-        assertThat(result.isPendingSelection()).isFalse();
-        assertThat(result.selectionValue("project_key")).isEqualTo("PROJ");
-        assertThat(result.selectionValue("project_name")).isEqualTo("Project");
+        assertThat(result.integration()).isSameAs(revertedPending);
+        assertThat(result.integration().isPendingSelection()).isFalse();
+        assertThat(result.integration().externalRefValue("project_key")).isEqualTo("PROJ");
+        assertThat(result.integration().externalRefValue("project_name")).isEqualTo("Project");
+        // 프론트가 "선택하세요" 대신 "복원 완료" 배너를 띄우는 유일한 경로다
+        assertThat(result.selectionRestored()).isTrue();
         verify(jiraTokenService).ensureAccessToken(PROJECT_ID);
         verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
     }
 
     @Test
     @DisplayName("재동의로 얻은 새 토큰의 접근 목록에 기존 cloudId가 없으면(다른 Atlassian 계정) pending을 유지한다")
-    void connectJiraSiteKeepsPendingWhenRestoredCloudIdIsNoLongerAccessible() {
+    void connectOAuthKeepsPendingWhenRestoredSelectionIsNoLongerAccessible() {
         IntegrationService service = service();
         Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
         Integration revertedPending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
-        revertedPending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        revertedPending.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         revertedPending.markPendingSelection();
-        byte[] newEncryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(revertedPending));
-        when(jiraOAuthClient.exchangeCode("auth-code"))
-                .thenReturn(new JiraOAuthClient.JiraTokens("new-access-token", "new-refresh-token", 3600L));
-        when(jiraCredentialCodec.encrypt(any(JiraCredential.class))).thenReturn(newEncryptedCredential);
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("jira-credential"));
+        when(credentialCryptoService.encrypt("jira-credential")).thenReturn(new byte[] {7, 8, 9});
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(jiraTokenService.getAccessToken(PROJECT_ID)).thenReturn("new-access-token");
         when(jiraOAuthClient.listAccessibleResources("new-access-token"))
                 .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-2", "other-site", "https://other.atlassian.net")));
 
-        Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
 
-        assertThat(result).isSameAs(revertedPending);
-        assertThat(result.isPendingSelection()).isTrue();
+        assertThat(result.integration()).isSameAs(revertedPending);
+        assertThat(result.integration().isPendingSelection()).isTrue();
+        assertThat(result.selectionRestored()).isFalse();
         verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
         verify(jiraTokenService, never()).ensureAccessToken(any());
     }
 
     @Test
-    @DisplayName("자동 복원 중 사이트 목록 조회가 예외를 던져도 연결 자체는 성공 처리하고 pending을 반환한다")
-    void connectJiraSiteKeepsPendingWhenAccessibleResourcesLookupFails() {
+    @DisplayName("자동 복원 중 후보 조회가 예외를 던져도 연결 자체는 성공 처리하고 pending을 반환한다")
+    void connectOAuthKeepsPendingWhenSelectionOptionLookupFails() {
         // 토큰 저장 트랜잭션은 이미 커밋된 뒤이므로(동의 자체는 성공) 조회 실패를 "연결 실패"로
         // 알리면 실제 상태와 어긋난다 — 복원만 포기하고 pending으로 남겨 사용자가 그 자리에서
         // 사이트·프로젝트를 고를 수 있게 한다.
         IntegrationService service = service();
         Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
         Integration revertedPending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
-        revertedPending.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        revertedPending.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         revertedPending.markPendingSelection();
-        byte[] newEncryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(revertedPending));
-        when(jiraOAuthClient.exchangeCode("auth-code"))
-                .thenReturn(new JiraOAuthClient.JiraTokens("new-access-token", "new-refresh-token", 3600L));
-        when(jiraCredentialCodec.encrypt(any(JiraCredential.class))).thenReturn(newEncryptedCredential);
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("jira-credential"));
+        when(credentialCryptoService.encrypt("jira-credential")).thenReturn(new byte[] {7, 8, 9});
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(jiraTokenService.getAccessToken(PROJECT_ID)).thenReturn("new-access-token");
         when(jiraOAuthClient.listAccessibleResources("new-access-token"))
                 .thenThrow(new BadGatewayException("Jira accessible resources request failed."));
 
-        Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
 
-        assertThat(result).isSameAs(revertedPending);
-        assertThat(result.isPendingSelection()).isTrue();
+        assertThat(result.integration()).isSameAs(revertedPending);
+        assertThat(result.integration().isPendingSelection()).isTrue();
+        assertThat(result.selectionRestored()).isFalse();
         verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
         verify(jiraTokenService, never()).ensureAccessToken(any());
     }
 
     @Test
-    @DisplayName("pending 행 재시도 시 기존 행의 자격증명을 덮어쓴다")
-    void connectJiraSiteOverwritesExistingPendingIntegration() {
+    @DisplayName("pending 행 재동의 시 기존 행의 자격증명을 덮어쓴다")
+    void connectOAuthOverwritesCredentialOfExistingPendingIntegration() {
         IntegrationService service = service();
         Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
         Integration pending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
         byte[] newEncryptedCredential = new byte[] {7, 8, 9};
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(pending));
-        when(jiraOAuthClient.exchangeCode("auth-code"))
-                .thenReturn(new JiraOAuthClient.JiraTokens("new-access-token", "new-refresh-token", 3600L));
-        when(jiraCredentialCodec.encrypt(any(JiraCredential.class))).thenReturn(newEncryptedCredential);
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("jira-credential"));
+        when(credentialCryptoService.encrypt("jira-credential")).thenReturn(newEncryptedCredential);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        Integration result = service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code");
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
 
-        assertThat(result).isSameAs(pending);
-        assertThat(result.isPendingSelection()).isTrue();
-        assertThat(result.getEncryptedCredential()).containsExactly(newEncryptedCredential);
-    }
-
-    @Test
-    @DisplayName("이미 확정된 Jira 연동에 재연결 시도 → 409, code 교환 안 함")
-    void connectJiraSiteRejectsWhenAlreadyConfirmedWithoutExchangingCode() {
-        IntegrationService service = service();
-        Integration confirmed = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
-        confirmed.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
-        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
-                .thenReturn(Optional.of(confirmed));
-
-        assertThatThrownBy(() -> service.connectJiraSite(OWNER_ID, PROJECT_ID, "auth-code"))
-                .isInstanceOf(ConflictException.class)
-                .hasMessage("Jira integration already exists.");
-        // 1회용 code를 낭비하지 않도록 확정 여부를 code 교환 전에 확인한다
-        verify(jiraOAuthClient, never()).exchangeCode(anyString());
+        assertThat(result.integration()).isSameAs(pending);
+        assertThat(result.integration().isPendingSelection()).isTrue();
+        assertThat(result.integration().getEncryptedCredential()).containsExactly(newEncryptedCredential);
     }
 
     @Test
@@ -690,8 +692,8 @@ class IntegrationServiceTest {
 
         assertThat(result).isSameAs(pending);
         assertThat(result.isPendingSelection()).isFalse();
-        assertThat(result.selectionValue("project_key")).isEqualTo("PROJ");
-        assertThat(result.selectionValue("project_name")).isEqualTo("Project");
+        assertThat(result.externalRefValue("project_key")).isEqualTo("PROJ");
+        assertThat(result.externalRefValue("project_name")).isEqualTo("Project");
         // GitHub이 트리거 직전에 토큰을 갱신하는 것과 같은 자리 — 토큰 확보가 먼저, 수집 트리거가 그다음이다
         InOrder inOrder = inOrder(jiraTokenService, pipelineWorkerClient);
         inOrder.verify(jiraTokenService).ensureAccessToken(PROJECT_ID);
@@ -703,7 +705,7 @@ class IntegrationServiceTest {
     void completeJiraProjectRejectsWhenAlreadyConfirmed() {
         IntegrationService service = service();
         Integration confirmed = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {1, 2, 3});
-        confirmed.applySelections(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        confirmed.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(confirmed));
@@ -753,7 +755,11 @@ class IntegrationServiceTest {
     @DisplayName("Slack 해제는 우리 토큰 삭제 전에 provider 권한을 폐기한다")
     void disconnectRevokesSlackTokenBeforeDeletingIt() {
         IntegrationService service = service();
-        Integration integration = Integration.slack(project(), "T1", "acme", new byte[] {1, 2, 3});
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.SLACK,
+                Map.of("workspace_id", "T1", "workspace_name", "acme"),
+                new byte[] {1, 2, 3});
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
@@ -908,6 +914,13 @@ class IntegrationServiceTest {
         assertThat(service.selectionSteps(OWNER_ID, PROJECT_ID, IntegrationProvider.SLACK)).isEmpty();
     }
 
+    // 저장 정책만 검증하므로 provider 프로토콜은 스텁으로 둔다 (교환 결과는 각 flow 테스트가 검증한다)
+    private OAuthConnectFlow connectFlow(IntegrationProvider provider) {
+        OAuthConnectFlow flow = mock(OAuthConnectFlow.class);
+        when(flow.provider()).thenReturn(provider);
+        return flow;
+    }
+
     private IntegrationSelectionFlow stubFlow(List<SelectionStep> steps) {
         return new IntegrationSelectionFlow() {
             @Override
@@ -935,9 +948,6 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 installationTokenService,
                 credentialCryptoService,
-                slackClient,
-                jiraOAuthClient,
-                jiraCredentialCodec,
                 pipelineWorkerClient,
                 aiEngineGraphClient,
                 new ProviderCredentialLifecycleRegistry(List.of()),
@@ -954,9 +964,6 @@ class IntegrationServiceTest {
                 gitHubInstallationService,
                 installationTokenService,
                 credentialCryptoService,
-                slackClient,
-                jiraOAuthClient,
-                jiraCredentialCodec,
                 pipelineWorkerClient,
                 aiEngineGraphClient,
                 // 실제 lifecycle 구현을 물려 폐기 경로가 provider 클라이언트까지 닿는지 그대로 검증한다

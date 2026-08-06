@@ -59,12 +59,20 @@ provider별 차이는 두 SPI 구현으로만 표현한다. `integration` 패키
 
 | SPI | 책임 | 의존 방향 |
 |-----|------|-----------|
-| `OAuthConnectFlow` | 동의 URL 조립, code 교환 후 연동 저장 | → `IntegrationService` |
+| `OAuthConnectFlow` | 동의 URL 조립, code → `OAuthConnection`(자격증명 평문 + 수집 대상 참조) 교환 | leaf (provider client만) |
 | `ProviderCredentialLifecycle` | 자격증명 폐기(`revoke`), access token 갱신(`ensureFreshAccessToken`) | leaf (provider client만) |
 | `IntegrationSelectionFlow` | 동의 후 "무엇을 수집할지" 고르는 **단계 선언**과 단계별 후보 조회 | leaf (provider client만) |
 
-두 SPI를 한 레지스트리에 담지 않는 이유: `IntegrationService`가 lifecycle 레지스트리에 의존하는데
-connect flow는 `IntegrationService`에 의존하므로, 합치면 빈 순환 의존이 된다.
+세 SPI 모두 provider client에만 의존하는 leaf다 — `IntegrationService`가 이들을 주입받으므로
+구현체에서 다시 `IntegrationService`를 참조하면 순환 의존이 된다. 레지스트리는 SPI마다 하나씩 둔다.
+
+**저장 정책은 `IntegrationService.connectOAuth`가 소유한다** — 확정 연동 409 선검사(1회용 code를
+교환 전에 지킨다) → code 교환 → 자격증명 암호화 → 저장(pending 행이면 재동의로 덮어쓰기, unique 위반은
+409로 변환) → 수집 트리거. 새 connect flow는 이 메서드를 고치지 않는다.
+자격증명 **형태**만 provider 몫이다(토큰 문자열 하나든, 갱신값을 담은 JSON이든 평문으로 넘기면
+암호화는 공용 코드가 한다). pending 여부도 flow가 신고하지 않고 `IntegrationSelectionFlow` 등록
+여부로 갈린다 — 두 SPI의 선언이 어긋나 영영 확정할 수 없는 행이 생기는 것을 막기 위함이다.
+
 `ProviderCredentialLifecycle`의 두 메서드는 기본 no-op이라 **해당 동작이 없는 provider는 선언만으로
 흡수된다** (Slack은 폐기만, 비만료 토큰 provider는 둘 다 없음, GitHub은 빈 자체가 없다).
 

@@ -36,8 +36,6 @@ public class Integration {
     public static final String GITHUB_REPOSITORY_ID = "repository_id";
     public static final String GITHUB_REPOSITORY_FULL_NAME = "repository_full_name";
     public static final String GITHUB_BRANCH = "branch";
-    public static final String SLACK_WORKSPACE_ID = "workspace_id";
-    public static final String SLACK_WORKSPACE_NAME = "workspace_name";
     public static final String STATUS = "status";
     public static final String STATUS_PENDING_SELECTION = "pending_selection";
     // 중립 값 이전에 Jira가 쓰던 값 — 저장된 행 호환을 위해 읽기에서만 인정한다
@@ -106,25 +104,8 @@ public class Integration {
         return new Integration(project, provider, Map.copyOf(externalRef), null, encryptedCredential);
     }
 
-    public static Integration slack(
-            Project project,
-            String workspaceId,
-            String workspaceName,
-            byte[] encryptedCredential
-    ) {
-        return oauth(
-                project,
-                IntegrationProvider.SLACK,
-                Map.of(
-                        SLACK_WORKSPACE_ID, workspaceId,
-                        SLACK_WORKSPACE_NAME, workspaceName
-                ),
-                encryptedCredential
-        );
-    }
-
     // 선택 단계가 있는 provider는 동의 직후 대상을 아직 모르므로 토큰만 담은 pending 행으로 시작한다.
-    // 사용자가 대상을 고르면 applySelections로 확정한다.
+    // 사용자가 대상을 고르면 applyExternalRef로 확정한다.
     public static Integration pendingSelection(
             Project project,
             IntegrationProvider provider,
@@ -177,16 +158,9 @@ public class Integration {
         return branch instanceof String value ? value : null;
     }
 
-    public String getSlackWorkspaceId() {
-        return getRequiredString(SLACK_WORKSPACE_ID, "Slack workspace_id");
-    }
-
-    public String getSlackWorkspaceName() {
-        return getRequiredString(SLACK_WORKSPACE_NAME, "Slack workspace_name");
-    }
-
-    // 선택 단계로 저장된 값 읽기 (external_ref 키 기준). 키 이름은 provider의 SelectionStep이 정한다.
-    public String selectionValue(String key) {
+    // external_ref에 저장된 문자열 값 읽기. 키 이름은 provider가 정한다
+    // (선택 단계가 있으면 SelectionStep이, 없으면 OAuthConnectFlow가 담아 넣은 키다).
+    public String externalRefValue(String key) {
         Object value = externalRef.get(key);
         return value instanceof String text && !text.isBlank() ? text : null;
     }
@@ -208,17 +182,17 @@ public class Integration {
     }
 
     // 토큰 갱신 영구 실패 시 미확정으로 되돌린다. 이미 고른 값들은 그대로 남겨 재동의 성공 시
-    // 자동 복원(IntegrationService)이 다시 쓸 수 있게 한다 — applySelections처럼 통째로 교체하지 않는다.
+    // 자동 복원(IntegrationService)이 다시 쓸 수 있게 한다 — applyExternalRef처럼 통째로 교체하지 않는다.
     public void markPendingSelection() {
         Map<String, Object> reverted = new HashMap<>(externalRef);
         reverted.put(STATUS, STATUS_PENDING_SELECTION);
         this.externalRef = Map.copyOf(reverted);
     }
 
-    // 선택 확정 — external_ref를 통째로 교체해 status를 자연히 제거한다
-    public void applySelections(Map<String, Object> selections) {
+    // 수집 대상 확정 — external_ref를 통째로 교체해 pending status를 자연히 제거한다
+    public void applyExternalRef(Map<String, Object> externalRef) {
         // externalRef는 Map.copyOf로 불변이라 새 Map을 할당해야 Hibernate dirty checking이 필드 참조 변경을 잡는다
-        this.externalRef = Map.copyOf(selections);
+        this.externalRef = Map.copyOf(externalRef);
     }
 
     private String getRequiredString(String key, String label) {

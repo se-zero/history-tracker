@@ -104,6 +104,12 @@ public interface SourceCollector {
   추출하고, 컨트롤러는 `/integrations/{provider}/authorize`·`/callback` 범용 라우트 하나로
   통합한다. `OAuthStateService`·콜백 302 리다이렉트·에러 코드 규약은 이미 공용이라 그대로
   재사용한다.
+  **→ `OAuthConnectFlow`로 구현.** 저장 정책(409 선검사 → 암호화 → 저장 → 수집 트리거)은 전략이 아니라
+  `IntegrationService.connectOAuth`가 provider 공통으로 소유한다 — 전략은 `exchangeCode`가
+  `OAuthConnection`(자격증명 평문 + 수집 대상 참조)을 돌려주는 데서 끝난다. 처음에는 전략이
+  `IntegrationService`의 provider별 메서드(`connectSlackWorkspace`·`connectJiraSite`)를 호출하는 형태였는데,
+  그러면 커넥터 담당자가 공용 서비스에 자기 메서드를 계속 덧붙여야 해서 뒤집었다.
+  덕분에 세 SPI가 모두 leaf가 됐다(전략 → `IntegrationService` 의존이 사라졌다).
 - **2단계 선택(pending) 일반화**: Jira 전용인 `pending_project` 상태머신을 provider 중립
   `pending_selection`으로 승격 — 신규 이슈 트래커 4종이 전부 이 패턴(동의 → 워크스페이스/
   프로젝트 선택)을 쓴다. 범용 엔드포인트:
@@ -250,8 +256,11 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
 - [ ] `IntegrationProvider` enum에 상수 추가 (`LINEAR("linear", "Linear")`).
       **DB 마이그레이션은 불필요** — V12에서 provider CHECK 제약을 제거했다.
 - [ ] `{provider}/AtlassianProperties`형 `@ConfigurationProperties` 레코드 + `application.yaml` 블록 추가.
-- [ ] `OAuthConnectFlow` 구현 — 동의 URL 조립, code 교환 후 연동 저장.
-      선택 단계가 있으면 `Integration.pendingSelection(...)`으로 저장하고 `connect`가 `false`를 반환한다.
+- [ ] `OAuthConnectFlow` 구현 — 동의 URL 조립, `exchangeCode`가 `OAuthConnection`(자격증명 평문 +
+      수집 대상 참조)을 돌려준다. 참조의 키 이름은 provider가 정하고 pipeline-worker가 같은 키를 읽는다(2번과 합의).
+      선택 단계가 있으면 `OAuthConnection.pendingSelection(...)`으로 자격증명만 넘긴다.
+      **저장·암호화·수집 트리거는 `IntegrationService.connectOAuth`가 공통으로 하므로 손대지 않는다** —
+      고쳐야 한다면 추상화가 새는 것이므로 먼저 상의한다.
 - [ ] `ProviderCredentialLifecycle` 구현 — **해당 동작이 없으면 생략 가능**(기본 no-op).
       토큰이 만료되면 `ensureFreshAccessToken`, 해제 시 원격 폐기가 있으면 `revoke`.
 - [ ] `IntegrationSelectionFlow` 구현 — 선택 단계가 있는 provider만.
