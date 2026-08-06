@@ -33,6 +33,7 @@ import com.history.backend.integration.domain.SelectionStep;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
+import com.history.backend.jira.service.JiraAccessTokenRefresher;
 import com.history.backend.jira.service.JiraClient;
 import com.history.backend.jira.service.JiraCredentialLifecycle;
 import com.history.backend.jira.service.JiraOAuthClient;
@@ -951,6 +952,7 @@ class IntegrationServiceTest {
                 pipelineWorkerClient,
                 aiEngineGraphClient,
                 new ProviderCredentialLifecycleRegistry(List.of()),
+                new AccessTokenRefresherRegistry(List.of()),
                 new IntegrationSelectionFlowRegistry(List.of(flow)),
                 new TransactionTemplate(transactionManager)
         );
@@ -969,8 +971,10 @@ class IntegrationServiceTest {
                 // 실제 lifecycle 구현을 물려 폐기 경로가 provider 클라이언트까지 닿는지 그대로 검증한다
                 new ProviderCredentialLifecycleRegistry(List.of(
                         new SlackCredentialLifecycle(slackClient, credentialCryptoService),
-                        new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec, jiraTokenService)
+                        new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec)
                 )),
+                // 갱신은 별도 SPI다 — Slack은 폐기만 있고 갱신 등록이 없다
+                new AccessTokenRefresherRegistry(List.of(new JiraAccessTokenRefresher(jiraTokenService))),
                 new IntegrationSelectionFlowRegistry(List.of(
                         new JiraSelectionFlow(jiraOAuthClient, jiraClient, jiraTokenService))),
                 new TransactionTemplate(transactionManager)

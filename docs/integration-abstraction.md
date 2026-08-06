@@ -149,8 +149,12 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
   여부)을 선언하는 형태로 확장. Teams/Google Chat은 Jira처럼 만료+갱신형,
   Notion/Discord는 비만료형이라 정책 선언만으로 흡수된다. 내부 API도
   `/internal/integrations/{projectId}/{provider}/token`으로 범용화한다.
-  **→ `ProviderCredentialLifecycle.ensureFreshAccessToken`으로 구현.** 기본 no-op이라 비만료형은
-  선언조차 필요 없고, 갱신 수단이 없는 provider는 조용한 204 대신 404를 받는다.
+  **→ 전용 SPI `AccessTokenRefresher`로 구현.** 비만료형은 구현하지 않으면 그만이고, 갱신 수단이
+  없는 provider는 조용한 204 대신 404를 받는다.
+  처음에는 `ProviderCredentialLifecycle.ensureFreshAccessToken`(기본 no-op)이었는데, 그러면 404 판정이
+  "갱신을 지원하는가"가 아니라 "자격증명 빈이 있는가"가 돼 **폐기만 있고 갱신은 없는 Slack이 조용한 204를
+  받았다** — 호출부는 갱신됐다고 믿고 만료된 토큰으로 수집한다. 기본 no-op은 "지원하지 않음"과
+  "아무 일도 필요 없음"을 호출부가 구분할 수 없게 만들어서, 능력은 빈 등록 여부로 표현하도록 분리했다.
 - **Integration 엔티티 다이어트**: provider별 팩토리·typed getter를 각 provider 패키지의
   external_ref 뷰 클래스로 이동, 엔티티는 범용 상태(externalRef Map + pending 플래그)만
   유지한다.
@@ -261,8 +265,10 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
       선택 단계가 있으면 `OAuthConnection.pendingSelection(...)`으로 자격증명만 넘긴다.
       **저장·암호화·수집 트리거는 `IntegrationService.connectOAuth`가 공통으로 하므로 손대지 않는다** —
       고쳐야 한다면 추상화가 새는 것이므로 먼저 상의한다.
-- [ ] `ProviderCredentialLifecycle` 구현 — **해당 동작이 없으면 생략 가능**(기본 no-op).
-      토큰이 만료되면 `ensureFreshAccessToken`, 해제 시 원격 폐기가 있으면 `revoke`.
+- [ ] `ProviderCredentialLifecycle` 구현 — 연동 해제 시 원격 폐기 수단이 있는 provider만. 없으면 만들지 않는다.
+- [ ] `AccessTokenRefresher` 구현 — **만료되는 토큰을 쓰는 provider만**(Teams·Google Chat형).
+      비만료형(Notion·Discord형)은 만들지 않는다 — 빈이 없으면 내부 토큰 API가 404로 답해
+      호출부가 "갱신 못 함"을 알 수 있다. **폐기가 있다고 이걸 함께 만들면 안 된다**(Slack이 조용한 204를 받던 원인).
 - [ ] `IntegrationSelectionFlow` 구현 — 선택 단계가 있는 provider만.
       `SelectionStep.key`가 **그대로 `external_ref` 키**가 되고 pipeline-worker가 같은 키를 읽는다(2번과 합의).
       선택이 없는 provider(동의 즉시 확정, Slack형)는 이 SPI를 만들지 않는다.

@@ -45,6 +45,7 @@ public class IntegrationService {
     private final PipelineWorkerClient pipelineWorkerClient;
     private final AiEngineGraphClient aiEngineGraphClient;
     private final ProviderCredentialLifecycleRegistry credentialLifecycles;
+    private final AccessTokenRefresherRegistry accessTokenRefreshers;
     private final IntegrationSelectionFlowRegistry selectionFlows;
     private final TransactionTemplate transactionTemplate;
 
@@ -314,7 +315,10 @@ public class IntegrationService {
         });
         // GitHub이 connectGitHubRepository에서 트리거 직전에 토큰을 갱신하는 것과 같은 자리 —
         // 방금 발급된 토큰이라 대개 그대로 재사용되지만, 사용자가 선택 화면에 오래 머문 경우를 대비한다.
-        credentialLifecycles.get(provider).ensureFreshAccessToken(projectId);
+        // 만료되지 않는 토큰을 쓰는 provider는 등록이 없어 건너뛴다(여기서는 no-op이 옳은 동작이다 —
+        // 갱신 수단 부재를 오류로 알려야 하는 내부 토큰 API와 다르다).
+        accessTokenRefreshers.find(provider)
+                .ifPresent(refresher -> refresher.ensureFreshAccessToken(projectId));
         pipelineWorkerClient.triggerCollection(provider, projectId);
         return integration;
     }
