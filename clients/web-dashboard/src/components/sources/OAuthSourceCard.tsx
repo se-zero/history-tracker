@@ -128,6 +128,11 @@ export function OAuthSourceCard({
                 {stepsQuery.isError && (
                   <InlineError>선택 단계를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</InlineError>
                 )}
+                {/* OAuth 콜백 직후에는 integrations가 먼저 도착하고 단계 선언(steps)이 한 왕복 뒤에
+                    온다 — 그 사이를 비워 두면 빈 점선 상자가 깜빡인다. 자리 표시로 채워 둔다. */}
+                {stepsQuery.isLoading && (
+                  <div className="selection-loading">선택 단계를 불러오는 중…</div>
+                )}
                 {steps.map((step, index) => {
                   if (!isStepReachable(steps, index, selectedValues)) return null;
                   const query = optionQueries[index];
