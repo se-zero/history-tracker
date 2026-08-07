@@ -1,9 +1,9 @@
 import { api } from "./client";
 import type { Integration, SelectionOption, SelectionStep } from "@/types/api";
 
-// provider 식별자는 backend가 검증한다(모르는 값은 400/404) — 새 provider가 붙을 때마다
-// 프론트 타입을 고치지 않도록 union으로 고정하지 않는다. 어떤 소스가 연결 가능한지는
-// sourceCatalog의 connectable이 정한다.
+// provider 식별자는 backend가 검증한다(모르는 값은 400/404) — 배포 시차로 프론트가 모르는
+// provider가 올 수 있어 union으로 고정하지 않는다. 어떤 소스가 연결 가능한지는
+// sourceCatalog 항목의 status가 정하고, 누락은 그쪽에서 컴파일 에러로 막는다.
 export type IntegrationProvider = string;
 
 export interface ConnectGitHubPayload {

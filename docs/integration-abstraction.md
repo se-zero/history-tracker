@@ -104,6 +104,12 @@ public interface SourceCollector {
   추출하고, 컨트롤러는 `/integrations/{provider}/authorize`·`/callback` 범용 라우트 하나로
   통합한다. `OAuthStateService`·콜백 302 리다이렉트·에러 코드 규약은 이미 공용이라 그대로
   재사용한다.
+  **→ `OAuthConnectFlow`로 구현.** 저장 정책(409 선검사 → 암호화 → 저장 → 수집 트리거)은 전략이 아니라
+  `IntegrationService.connectOAuth`가 provider 공통으로 소유한다 — 전략은 `exchangeCode`가
+  `OAuthConnection`(자격증명 평문 + 수집 대상 참조)을 돌려주는 데서 끝난다. 처음에는 전략이
+  `IntegrationService`의 provider별 메서드(`connectSlackWorkspace`·`connectJiraSite`)를 호출하는 형태였는데,
+  그러면 커넥터 담당자가 공용 서비스에 자기 메서드를 계속 덧붙여야 해서 뒤집었다.
+  덕분에 세 SPI가 모두 leaf가 됐다(전략 → `IntegrationService` 의존이 사라졌다).
 - **2단계 선택(pending) 일반화**: Jira 전용인 `pending_project` 상태머신을 provider 중립
   `pending_selection`으로 승격 — 신규 이슈 트래커 4종이 전부 이 패턴(동의 → 워크스페이스/
   프로젝트 선택)을 쓴다. 범용 엔드포인트:
@@ -143,8 +149,12 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
   여부)을 선언하는 형태로 확장. Teams/Google Chat은 Jira처럼 만료+갱신형,
   Notion/Discord는 비만료형이라 정책 선언만으로 흡수된다. 내부 API도
   `/internal/integrations/{projectId}/{provider}/token`으로 범용화한다.
-  **→ `ProviderCredentialLifecycle.ensureFreshAccessToken`으로 구현.** 기본 no-op이라 비만료형은
-  선언조차 필요 없고, 갱신 수단이 없는 provider는 조용한 204 대신 404를 받는다.
+  **→ 전용 SPI `AccessTokenRefresher`로 구현.** 비만료형은 구현하지 않으면 그만이고, 갱신 수단이
+  없는 provider는 조용한 204 대신 404를 받는다.
+  처음에는 `ProviderCredentialLifecycle.ensureFreshAccessToken`(기본 no-op)이었는데, 그러면 404 판정이
+  "갱신을 지원하는가"가 아니라 "자격증명 빈이 있는가"가 돼 **폐기만 있고 갱신은 없는 Slack이 조용한 204를
+  받았다** — 호출부는 갱신됐다고 믿고 만료된 토큰으로 수집한다. 기본 no-op은 "지원하지 않음"과
+  "아무 일도 필요 없음"을 호출부가 구분할 수 없게 만들어서, 능력은 빈 등록 여부로 표현하도록 분리했다.
 - **Integration 엔티티 다이어트**: provider별 팩토리·typed getter를 각 provider 패키지의
   external_ref 뷰 클래스로 이동, 엔티티는 범용 상태(externalRef Map + pending 플래그)만
   유지한다.
@@ -185,8 +195,13 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 - `components/sources/OAuthSourceCard.tsx` — pending이면 선언된 단계를 순서대로 렌더:
   앞 단계를 골라야 다음 단계가 열리고, 앞 단계를 바꾸면 뒤 단계 선택은 버린다.
   필수 단계 후보가 1개면 자동 선택(Atlassian resource-level grant형). 확정은 전 단계 일괄 제출.
-- `sourceCatalog`에 `connectable`(OAuth 배선 여부)·`deletedData`(해제 다이얼로그 문구)를 추가 —
+- `sourceCatalog` 항목을 `status`로 갈리는 판별 유니온으로 — `"wired"`라고 선언하면
+  `connect`(연결 방식)·`deletedData`(해제 다이얼로그 문구)를 반드시 함께 적어야 컴파일이 통과한다.
   **신규 provider의 프론트 작업은 브랜드 마크 + 카탈로그 한 줄이 전부다.**
+  처음에는 두 필드가 optional이었는데, 그러면 하나만 채운 반쪽 배선이 **무증상으로 통과한다**
+  (연결 버튼이 조용히 no-op이거나, 해제 다이얼로그가 "수집한 데이터" 같은 뭉뚱그린 폴백 문구를 띄운다).
+  provider별 카드를 공용 하나로 합치면서 "카드가 없으면 안 붙는다"는 컴파일 안전망이 사라진 자리라,
+  타입으로 되살렸다 — backend `IntegrationResponse.displayName`의 exhaustive switch와 같은 역할이다.
 - `useIntegrationAuthorize`는 provider를 mutate 인자로 받는 단일 훅으로 통합.
 
 ## 4. 진행 순서
@@ -250,10 +265,15 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
 - [ ] `IntegrationProvider` enum에 상수 추가 (`LINEAR("linear", "Linear")`).
       **DB 마이그레이션은 불필요** — V12에서 provider CHECK 제약을 제거했다.
 - [ ] `{provider}/AtlassianProperties`형 `@ConfigurationProperties` 레코드 + `application.yaml` 블록 추가.
-- [ ] `OAuthConnectFlow` 구현 — 동의 URL 조립, code 교환 후 연동 저장.
-      선택 단계가 있으면 `Integration.pendingSelection(...)`으로 저장하고 `connect`가 `false`를 반환한다.
-- [ ] `ProviderCredentialLifecycle` 구현 — **해당 동작이 없으면 생략 가능**(기본 no-op).
-      토큰이 만료되면 `ensureFreshAccessToken`, 해제 시 원격 폐기가 있으면 `revoke`.
+- [ ] `OAuthConnectFlow` 구현 — 동의 URL 조립, `exchangeCode`가 `OAuthConnection`(자격증명 평문 +
+      수집 대상 참조)을 돌려준다. 참조의 키 이름은 provider가 정하고 pipeline-worker가 같은 키를 읽는다(2번과 합의).
+      선택 단계가 있으면 `OAuthConnection.pendingSelection(...)`으로 자격증명만 넘긴다.
+      **저장·암호화·수집 트리거는 `IntegrationService.connectOAuth`가 공통으로 하므로 손대지 않는다** —
+      고쳐야 한다면 추상화가 새는 것이므로 먼저 상의한다.
+- [ ] `ProviderCredentialLifecycle` 구현 — 연동 해제 시 원격 폐기 수단이 있는 provider만. 없으면 만들지 않는다.
+- [ ] `AccessTokenRefresher` 구현 — **만료되는 토큰을 쓰는 provider만**(Teams·Google Chat형).
+      비만료형(Notion·Discord형)은 만들지 않는다 — 빈이 없으면 내부 토큰 API가 404로 답해
+      호출부가 "갱신 못 함"을 알 수 있다. **폐기가 있다고 이걸 함께 만들면 안 된다**(Slack이 조용한 204를 받던 원인).
 - [ ] `IntegrationSelectionFlow` 구현 — 선택 단계가 있는 provider만.
       `SelectionStep.key`가 **그대로 `external_ref` 키**가 되고 pipeline-worker가 같은 키를 읽는다(2번과 합의).
       선택이 없는 provider(동의 즉시 확정, Slack형)는 이 SPI를 만들지 않는다.
@@ -278,8 +298,10 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
 
 **3. web-dashboard — 화면 (`clients/web-dashboard/CLAUDE.md`)**
 
-- [ ] `components/sources/sourceCatalog.tsx`의 해당 항목에 `connectable: true`와 `deletedData`(해제 시
-      무엇이 지워지는지) 추가. **11종의 브랜드 마크와 카탈로그 항목은 이미 있다** — 보통 이 두 필드가 전부다.
+- [ ] `components/sources/sourceCatalog.tsx`의 해당 항목을 `status: "planned"` → `"wired"`로 바꾸고
+      `connect`("oauth")와 `deletedData`(해제 시 무엇이 지워지는지)를 채운다.
+      **11종의 브랜드 마크와 카탈로그 항목은 이미 있다** — 보통 이 한 줄이 전부다.
+      `"wired"`인데 두 필드가 없으면 **컴파일이 깨진다**(의도된 안전망 — 반쪽 배선은 화면에서 조용히 실패한다).
 - [ ] 연동 행·선택 폼·타일·해제 다이얼로그는 `OAuthSourceCard`가 backend 단계 선언으로 렌더하므로
       **provider별 컴포넌트를 만들지 않는다.**
 - [ ] 검증: `npm run typecheck && npm run build`
@@ -301,6 +323,10 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
 
 `IntegrationResponse.displayName`의 switch **하나뿐**이며, 의도적으로 남긴 것이다. exhaustive switch라
 새 provider가 표시 이름을 정하지 않으면 컴파일이 깨져서, 화면에 빈 이름이 나가는 걸 막는다.
+
+프론트의 `sourceCatalog` 판별 유니온도 같은 성격의 안전망이다(분기가 아니라 타입 제약이라 provider별
+코드가 늘지는 않는다). 원칙은 하나다 — **provider별로 반드시 정해야 하는 값은 빠뜨렸을 때 화면에서
+조용히 이상해지는 대신 컴파일에서 깨지게 한다.**
 
 그 밖의 provider 분기는 Part A에서 모두 제거했다. `EventPublisher`의 source switch와
 `routing-key-{provider}` 설정 3줄도 없앴고(routing key를 `source`에서 유도), 새 소스가

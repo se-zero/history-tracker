@@ -146,6 +146,19 @@
   font-family: var(--font-mono);
 }
 
+/* 단계 선언이 아직 안 온 동안의 자리 표시 — selection-select와 같은 높이라 단계가 도착해도
+   컨트롤 자리가 흔들리지 않는다(빈 상자를 그렸다 채우는 대신 처음부터 채워서 그린다). */
+.selection-loading {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg-subtle);
+}
+
 /* 후보가 1개뿐인 필수 단계는 자동 선택하고 select 대신 이 정적 텍스트로 보여준다 —
    selection-select와 같은 크기·톤을 유지해 1개↔여러 개 전환 시 레이아웃이 흔들리지 않는다. */
 .selection-value {

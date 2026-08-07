@@ -11,8 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 // OAuth 동의 URL 조립과 콜백 처리를 오케스트레이션한다 (컨트롤러에 로직을 두지 않기 위한 얇은 계층).
-// provider별 차이는 OAuthConnectFlow가 담당하고, 여기서는 state 검증·에러 코드 매핑처럼 모든
-// provider가 공유하는 부분만 다룬다.
+// provider별 차이는 OAuthConnectFlow가, 연동 저장은 IntegrationService가 담당하고, 여기서는
+// state 검증·에러 코드 매핑처럼 모든 provider가 공유하는 부분만 다룬다.
 // 콜백 요청에는 JWT가 없으므로, state 서명이 신원·프로젝트 소유권을 증명하는 유일한 수단이다.
 @Slf4j
 @Service
@@ -22,6 +22,7 @@ public class IntegrationOAuthService {
     private final ProjectService projectService;
     private final OAuthStateService oauthStateService;
     private final OAuthConnectFlowRegistry connectFlows;
+    private final IntegrationService integrationService;
 
     // 소유권 확인 후 state를 발급해 동의 화면 URL을 조립한다
     public String buildAuthorizeUrl(UUID userId, UUID projectId, IntegrationProvider provider) {
@@ -65,8 +66,10 @@ public class IntegrationOAuthService {
         }
 
         try {
-            boolean confirmed = flow.connect(claims.userId(), claims.projectId(), code);
-            return new OAuthCallbackOutcome(claims.projectId(), providerValue, null, confirmed);
+            IntegrationService.ConnectResult result =
+                    integrationService.connectOAuth(claims.userId(), claims.projectId(), flow, code);
+            return new OAuthCallbackOutcome(
+                    claims.projectId(), providerValue, null, result.selectionRestored());
         } catch (ConflictException exception) {
             return new OAuthCallbackOutcome(claims.projectId(), providerValue, "already_connected", false);
         } catch (RuntimeException exception) {

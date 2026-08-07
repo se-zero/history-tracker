@@ -21,12 +21,10 @@ import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.domain.SelectionStep;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
-import com.history.backend.jira.service.JiraOAuthClient;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.shared.domain.Checkpoint;
 import com.history.backend.shared.repository.CheckpointRepository;
-import com.history.backend.slack.service.SlackClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -44,12 +42,10 @@ public class IntegrationService {
     private final GitHubInstallationService gitHubInstallationService;
     private final InstallationTokenService installationTokenService;
     private final CredentialCryptoService credentialCryptoService;
-    private final SlackClient slackClient;
-    private final JiraOAuthClient jiraOAuthClient;
-    private final JiraCredentialCodec jiraCredentialCodec;
     private final PipelineWorkerClient pipelineWorkerClient;
     private final AiEngineGraphClient aiEngineGraphClient;
     private final ProviderCredentialLifecycleRegistry credentialLifecycles;
+    private final AccessTokenRefresherRegistry accessTokenRefreshers;
     private final IntegrationSelectionFlowRegistry selectionFlows;
     private final TransactionTemplate transactionTemplate;
 
@@ -172,50 +168,60 @@ public class IntegrationService {
         }
     }
 
-    // Slack code 교환 후 workspace 연동 추가
-    public Integration connectSlackWorkspace(
-            UUID ownerId,
-            UUID projectId,
-            String code
-    ) {
+    /**
+     * OAuth 동의 결과 저장 — 모든 OAuth provider가 공유하는 저장 정책.
+     *
+     * <p>확정 연동 409 선검사 → code 교환 → 자격증명 암호화 → 저장 → 수집 트리거까지가 여기 있고,
+     * provider가 다른 부분은 flow가 돌려주는 {@link OAuthConnection}뿐이다 — 새 연동을 붙일 때
+     * 이 메서드를 고칠 일이 없어야 한다.</p>
+     *
+     * <p>선택 단계 유무는 {@link IntegrationSelectionFlow} 등록 여부로 갈린다(선언한 provider는
+     * pending 행으로 저장하고 수집은 {@link #completeSelection} 뒤로 미룬다) — flow가 따로 신고하게
+     * 하면 두 SPI의 선언이 어긋나 영영 확정할 수 없는 행이 생길 수 있다.</p>
+     */
+    public ConnectResult connectOAuth(UUID ownerId, UUID projectId, OAuthConnectFlow flow, String code) {
+        IntegrationProvider provider = flow.provider();
         projectService.getProject(ownerId, projectId);
-        // 이미 연동된 프로젝트라면 code 교환으로 낭비하지 않도록 외부 호출 전에 선검증
-        validateProviderAvailable(projectId, IntegrationProvider.SLACK);
-        SlackClient.SlackWorkspace workspace = slackClient.exchangeCode(code);
-        byte[] encryptedCredential = credentialCryptoService.encrypt(workspace.accessToken());
+        boolean requiresSelection = selectionFlows.find(provider).isPresent();
+        // 이미 확정된 연동이면 code 교환으로 1회용 code를 낭비하지 않도록 외부 호출 전에 선검증
+        rejectIfAlreadyConnected(projectId, provider);
+
+        OAuthConnection connection = flow.exchangeCode(code);
+        if (requiresSelection && !connection.externalRef().isEmpty()) {
+            // 두 SPI의 선언이 어긋난 배선 오류 — 저장했다면 확정 시 어차피 덮어써져 조용히 사라진다
+            throw new IllegalStateException(provider.value()
+                    + " declares selection steps, so exchangeCode must return OAuthConnection.pendingSelection().");
+        }
+        byte[] encryptedCredential = credentialCryptoService.encrypt(connection.credential());
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        Integration integration = transactionTemplate.execute(status -> saveSlackWorkspace(
+        Integration integration = transactionTemplate.execute(status -> saveOAuthIntegration(
                 ownerId,
                 projectId,
-                workspace,
-                encryptedCredential
+                provider,
+                connection.externalRef(),
+                encryptedCredential,
+                requiresSelection
         ));
-        pipelineWorkerClient.triggerCollection(IntegrationProvider.SLACK, projectId);
-        return integration;
-    }
 
-    // Atlassian code 교환 후 Jira 연동을 pending 상태로 생성/재시도한다.
-    // 확정된 연동이면 code 교환 전에 걸러 1회용 code를 낭비하지 않는다(Slack과 동일한 방침).
-    public Integration connectJiraSite(UUID ownerId, UUID projectId, String code) {
-        projectService.getProject(ownerId, projectId);
-        rejectIfJiraAlreadyConnected(projectId);
-
-        JiraOAuthClient.JiraTokens tokens = jiraOAuthClient.exchangeCode(code);
-        JiraCredential credential = new JiraCredential(
-                tokens.accessToken(),
-                tokens.refreshToken(),
-                Instant.now().plusSeconds(tokens.expiresIn())
-        );
-        byte[] encryptedCredential = jiraCredentialCodec.encrypt(credential);
-
-        // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        Integration integration = transactionTemplate.execute(status -> saveJiraPending(ownerId, projectId, encryptedCredential));
-
+        if (!requiresSelection) {
+            pipelineWorkerClient.triggerCollection(provider, projectId);
+            return new ConnectResult(integration, false);
+        }
         // 갱신 실패로 pending 복귀한 행(고른 값 보존)이면 재동의 직후 자동 복원을 시도한다.
         // 최초 연결의 pending 행에는 고른 값이 없으므로 이 분기를 자연히 타지 않는다.
-        return tryRestoreSelection(ownerId, projectId, IntegrationProvider.JIRA, integration);
+        Integration restored = tryRestoreSelection(ownerId, projectId, provider, integration);
+        return new ConnectResult(restored, !restored.isPendingSelection());
     }
+
+    /**
+     * 연동 저장 결과.
+     *
+     * @param selectionRestored 재동의로 이전 선택이 자동 복원돼 곧바로 확정됐는지. 프론트가 "선택하세요"
+     *                          대신 "복원 완료" 배너를 띄우는 조건이라, 선택 단계가 없는 provider와
+     *                          최초 연결에서는 false다.
+     */
+    public record ConnectResult(Integration integration, boolean selectionRestored) {}
 
     /**
      * 재동의로 얻은 새 토큰으로 이전 선택이 여전히 유효한지 확인해 자동 복원한다.
@@ -304,12 +310,15 @@ public class IntegrationService {
             if (!target.isPendingSelection()) {
                 throw integrationAlreadyExists(provider);
             }
-            target.applySelections(selections);
+            target.applyExternalRef(selections);
             return integrationRepository.saveAndFlush(target);
         });
         // GitHub이 connectGitHubRepository에서 트리거 직전에 토큰을 갱신하는 것과 같은 자리 —
         // 방금 발급된 토큰이라 대개 그대로 재사용되지만, 사용자가 선택 화면에 오래 머문 경우를 대비한다.
-        credentialLifecycles.get(provider).ensureFreshAccessToken(projectId);
+        // 만료되지 않는 토큰을 쓰는 provider는 등록이 없어 건너뛴다(여기서는 no-op이 옳은 동작이다 —
+        // 갱신 수단 부재를 오류로 알려야 하는 내부 토큰 API와 다르다).
+        accessTokenRefreshers.find(provider)
+                .ifPresent(refresher -> refresher.ensureFreshAccessToken(projectId));
         pipelineWorkerClient.triggerCollection(provider, projectId);
         return integration;
     }
@@ -346,7 +355,7 @@ public class IntegrationService {
     private Map<String, String> storedSelections(Integration integration, IntegrationSelectionFlow flow) {
         Map<String, String> stored = new LinkedHashMap<>();
         for (SelectionStep step : flow.steps()) {
-            String value = integration.selectionValue(step.key());
+            String value = integration.externalRefValue(step.key());
             if (value != null) {
                 stored.put(step.key(), value);
             }
@@ -358,11 +367,11 @@ public class IntegrationService {
     private Map<String, Object> storedExternalRef(Integration integration, IntegrationSelectionFlow flow) {
         Map<String, Object> externalRef = new LinkedHashMap<>();
         for (SelectionStep step : flow.steps()) {
-            String value = integration.selectionValue(step.key());
+            String value = integration.externalRefValue(step.key());
             if (value == null) continue;
             externalRef.put(step.key(), value);
             if (step.labelKey() != null) {
-                String label = integration.selectionValue(step.labelKey());
+                String label = integration.externalRefValue(step.labelKey());
                 if (label != null) {
                     externalRef.put(step.labelKey(), label);
                 }
@@ -371,12 +380,12 @@ public class IntegrationService {
         return externalRef;
     }
 
-    // 재시도는 pending 행에만 허용한다 — 확정된 연동에는 409로 code 교환 전에 막는다
-    private void rejectIfJiraAlreadyConnected(UUID projectId) {
-        integrationRepository.findByProject_IdAndProvider(projectId, IntegrationProvider.JIRA)
+    // 재동의는 pending 행에만 허용한다 — 확정된 연동에는 409로 code 교환 전에 막는다
+    private void rejectIfAlreadyConnected(UUID projectId, IntegrationProvider provider) {
+        integrationRepository.findByProject_IdAndProvider(projectId, provider)
                 .filter(integration -> !integration.isPendingSelection())
                 .ifPresent(integration -> {
-                    throw integrationAlreadyExists(IntegrationProvider.JIRA);
+                    throw integrationAlreadyExists(provider);
                 });
     }
 
@@ -388,47 +397,39 @@ public class IntegrationService {
     // 선택 확정 요청 한 건 — 값과 화면 표시 이름
     public record SelectionInput(String value, String label) {}
 
-    private Integration saveSlackWorkspace(
+    // pending 행 재동의(경합 방어를 위해 트랜잭션 안에서 재확인) 또는 신규 생성
+    private Integration saveOAuthIntegration(
             UUID ownerId,
             UUID projectId,
-            SlackClient.SlackWorkspace workspace,
-            byte[] encryptedCredential
+            IntegrationProvider provider,
+            Map<String, Object> externalRef,
+            byte[] encryptedCredential,
+            boolean requiresSelection
     ) {
         Project project = projectService.getProject(ownerId, projectId);
-        validateProviderAvailable(projectId, IntegrationProvider.SLACK);
-
-        try {
-            return integrationRepository.saveAndFlush(Integration.slack(
-                    project,
-                    workspace.id(),
-                    workspace.name(),
-                    encryptedCredential
-            ));
-        } catch (DataIntegrityViolationException exception) {
-            // 동시 연결 경합 시 unique 제약 위반을 409로 변환
-            throw integrationAlreadyExists(IntegrationProvider.SLACK);
-        }
-    }
-
-    // pending 재시도(경합 방어를 위해 트랜잭션 안에서 재확인) 또는 신규 생성
-    private Integration saveJiraPending(UUID ownerId, UUID projectId, byte[] encryptedCredential) {
-        Project project = projectService.getProject(ownerId, projectId);
-        Optional<Integration> existing = integrationRepository.findByProject_IdAndProvider(projectId, IntegrationProvider.JIRA);
+        Optional<Integration> existing = integrationRepository.findByProject_IdAndProvider(projectId, provider);
         if (existing.isPresent()) {
             Integration integration = existing.get();
             if (!integration.isPendingSelection()) {
                 // 사전 검사와 저장 사이 경합으로 그 사이 확정된 경우
-                throw integrationAlreadyExists(IntegrationProvider.JIRA);
+                throw integrationAlreadyExists(provider);
             }
             integration.updateCredential(encryptedCredential);
+            // 선택 단계가 있으면 pending을 유지한다 — 이미 고른 값이 남아 있으면 자동 복원이 다시 쓴다.
+            // 없으면 동의만으로 대상이 정해지므로 방금 교환한 값으로 확정한다(토큰 갱신 영구 실패로
+            // pending 복귀한 행을 재동의로 되살리는 경로 — 이 provider에는 확정할 다른 수단이 없다).
+            if (!requiresSelection) {
+                integration.applyExternalRef(externalRef);
+            }
             return integrationRepository.saveAndFlush(integration);
         }
         try {
-            return integrationRepository.saveAndFlush(
-                    Integration.pendingSelection(project, IntegrationProvider.JIRA, encryptedCredential));
+            return integrationRepository.saveAndFlush(requiresSelection
+                    ? Integration.pendingSelection(project, provider, encryptedCredential)
+                    : Integration.oauth(project, provider, externalRef, encryptedCredential));
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
-            throw integrationAlreadyExists(IntegrationProvider.JIRA);
+            throw integrationAlreadyExists(provider);
         }
     }
 

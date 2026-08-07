@@ -2,21 +2,18 @@ package com.history.backend.slack.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-import java.util.UUID;
+import java.util.Map;
 
 import com.history.backend.integration.domain.IntegrationProvider;
-import com.history.backend.integration.service.IntegrationService;
+import com.history.backend.integration.service.OAuthConnection;
 import com.history.backend.slack.SlackProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("SlackOAuthConnectFlow: Slack 동의 URL 조립·연동")
+@DisplayName("SlackOAuthConnectFlow: Slack 동의 URL 조립·code 교환")
 class SlackOAuthConnectFlowTest {
-
-    private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
-    private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
 
     private final SlackProperties slackProperties = new SlackProperties(
             "test-client-id",
@@ -28,8 +25,8 @@ class SlackOAuthConnectFlowTest {
             "https://slack.test/api/auth.revoke"
     );
 
-    private final IntegrationService integrationService = mock(IntegrationService.class);
-    private final SlackOAuthConnectFlow flow = new SlackOAuthConnectFlow(slackProperties, integrationService);
+    private final SlackClient slackClient = mock(SlackClient.class);
+    private final SlackOAuthConnectFlow flow = new SlackOAuthConnectFlow(slackProperties, slackClient);
 
     @Test
     void providerIsSlack() {
@@ -49,11 +46,16 @@ class SlackOAuthConnectFlowTest {
     }
 
     @Test
-    @DisplayName("연동 후 confirmed=false — Slack은 선택 단계가 없어 '복원 완료' 배너 대상이 아니다")
-    void connectDelegatesAndReportsNotAutoRestored() {
-        boolean confirmed = flow.connect(USER_ID, PROJECT_ID, "auth-code");
+    @DisplayName("code 교환 결과는 토큰과 workspace 참조 — 선택 단계가 없어 동의만으로 대상이 정해진다")
+    void exchangeCodeReturnsTokenWithWorkspaceReference() {
+        when(slackClient.exchangeCode("auth-code"))
+                .thenReturn(new SlackClient.SlackWorkspace("T123", "Acme", "xoxp-token"));
 
-        assertThat(confirmed).isFalse();
-        verify(integrationService).connectSlackWorkspace(USER_ID, PROJECT_ID, "auth-code");
+        OAuthConnection connection = flow.exchangeCode("auth-code");
+
+        assertThat(connection.credential()).isEqualTo("xoxp-token");
+        assertThat(connection.externalRef()).containsOnly(
+                Map.entry(SlackOAuthConnectFlow.WORKSPACE_ID, "T123"),
+                Map.entry(SlackOAuthConnectFlow.WORKSPACE_NAME, "Acme"));
     }
 }

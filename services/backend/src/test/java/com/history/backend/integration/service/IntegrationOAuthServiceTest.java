@@ -26,7 +26,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * provider 공통 오케스트레이션만 검증한다 — state 검증, provider 에러 매핑, confirmed 전달.
- * 동의 URL 조립과 연동 저장 방식은 provider별 OAuthConnectFlow 테스트가 담당한다.
+ * 동의 URL 조립·code 교환은 provider별 OAuthConnectFlow 테스트가, 저장 정책은
+ * IntegrationServiceTest가 담당한다.
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("IntegrationOAuthService: OAuth 동의 URL 발급·콜백 처리")
@@ -43,6 +44,9 @@ class IntegrationOAuthServiceTest {
 
     @Mock
     private OAuthConnectFlow slackFlow;
+
+    @Mock
+    private IntegrationService integrationService;
 
     @Test
     @DisplayName("authorize URL 발급 — 소유권 확인 후 state를 발급해 flow에 넘긴다")
@@ -74,6 +78,8 @@ class IntegrationOAuthServiceTest {
         IntegrationOAuthService service = service();
         when(oauthStateService.verify("signed-state", "slack"))
                 .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "slack"));
+        when(integrationService.connectOAuth(USER_ID, PROJECT_ID, slackFlow, "auth-code"))
+                .thenReturn(new IntegrationService.ConnectResult(null, false));
 
         OAuthCallbackOutcome outcome = service.completeCallback(
                 IntegrationProvider.SLACK, "auth-code", "signed-state", null);
@@ -82,16 +88,17 @@ class IntegrationOAuthServiceTest {
         assertThat(outcome.provider()).isEqualTo("slack");
         assertThat(outcome.errorCode()).isNull();
         assertThat(outcome.confirmed()).isFalse();
-        verify(slackFlow).connect(USER_ID, PROJECT_ID, "auth-code");
+        verify(integrationService).connectOAuth(USER_ID, PROJECT_ID, slackFlow, "auth-code");
     }
 
     @Test
-    @DisplayName("flow가 자동 복원을 보고하면 confirmed=true로 전달한다")
-    void completeCallbackPropagatesConfirmedFromFlow() {
+    @DisplayName("저장 결과가 자동 복원을 보고하면 confirmed=true로 전달한다")
+    void completeCallbackPropagatesConfirmedFromConnectResult() {
         IntegrationOAuthService service = service();
         when(oauthStateService.verify("signed-state", "slack"))
                 .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "slack"));
-        when(slackFlow.connect(USER_ID, PROJECT_ID, "auth-code")).thenReturn(true);
+        when(integrationService.connectOAuth(USER_ID, PROJECT_ID, slackFlow, "auth-code"))
+                .thenReturn(new IntegrationService.ConnectResult(null, true));
 
         OAuthCallbackOutcome outcome = service.completeCallback(
                 IntegrationProvider.SLACK, "auth-code", "signed-state", null);
@@ -113,7 +120,7 @@ class IntegrationOAuthServiceTest {
         assertThat(outcome.projectId()).isNull();
         assertThat(outcome.provider()).isEqualTo("slack");
         assertThat(outcome.errorCode()).isEqualTo("invalid_state");
-        verify(slackFlow, never()).connect(any(), any(), any());
+        verify(integrationService, never()).connectOAuth(any(), any(), any(), any());
     }
 
     @Test
@@ -128,7 +135,7 @@ class IntegrationOAuthServiceTest {
 
         assertThat(outcome.projectId()).isEqualTo(PROJECT_ID);
         assertThat(outcome.errorCode()).isEqualTo("access_denied");
-        verify(slackFlow, never()).connect(any(), any(), any());
+        verify(integrationService, never()).connectOAuth(any(), any(), any(), any());
     }
 
     @Test
@@ -143,7 +150,7 @@ class IntegrationOAuthServiceTest {
 
         assertThat(outcome.projectId()).isEqualTo(PROJECT_ID);
         assertThat(outcome.errorCode()).isEqualTo("connect_failed");
-        verify(slackFlow, never()).connect(any(), any(), any());
+        verify(integrationService, never()).connectOAuth(any(), any(), any(), any());
     }
 
     @Test
@@ -152,7 +159,7 @@ class IntegrationOAuthServiceTest {
         IntegrationOAuthService service = service();
         when(oauthStateService.verify("signed-state", "slack"))
                 .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "slack"));
-        when(slackFlow.connect(USER_ID, PROJECT_ID, "auth-code"))
+        when(integrationService.connectOAuth(USER_ID, PROJECT_ID, slackFlow, "auth-code"))
                 .thenThrow(new ConflictException("Slack integration already exists."));
 
         OAuthCallbackOutcome outcome = service.completeCallback(
@@ -168,7 +175,7 @@ class IntegrationOAuthServiceTest {
         IntegrationOAuthService service = service();
         when(oauthStateService.verify("signed-state", "slack"))
                 .thenReturn(new OAuthStateClaims(PROJECT_ID, USER_ID, "slack"));
-        when(slackFlow.connect(USER_ID, PROJECT_ID, "auth-code"))
+        when(integrationService.connectOAuth(USER_ID, PROJECT_ID, slackFlow, "auth-code"))
                 .thenThrow(new BadGatewayException("Slack OAuth code exchange request failed."));
 
         OAuthCallbackOutcome outcome = service.completeCallback(
@@ -191,7 +198,8 @@ class IntegrationOAuthServiceTest {
         return new IntegrationOAuthService(
                 projectService,
                 oauthStateService,
-                new OAuthConnectFlowRegistry(List.of(slackFlow))
+                new OAuthConnectFlowRegistry(List.of(slackFlow)),
+                integrationService
         );
     }
 }

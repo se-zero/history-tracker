@@ -54,19 +54,34 @@ cd services/backend
 > 커넥터 1개의 전체 순서(외부 앱 등록 → backend → pipeline-worker → 프론트)는
 > `docs/integration-abstraction.md`의 「커넥터 엔드투엔드 체크리스트」에 있다. 아래는 그중 backend 몫이다.
 
-provider별 차이는 두 SPI 구현으로만 표현한다. `integration` 패키지의 오케스트레이션(컨트롤러·
+provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지의 오케스트레이션(컨트롤러·
 `IntegrationOAuthService`·`IntegrationService`)에는 provider 분기(switch)를 두지 않는다.
 
-| SPI | 책임 | 의존 방향 |
-|-----|------|-----------|
-| `OAuthConnectFlow` | 동의 URL 조립, code 교환 후 연동 저장 | → `IntegrationService` |
-| `ProviderCredentialLifecycle` | 자격증명 폐기(`revoke`), access token 갱신(`ensureFreshAccessToken`) | leaf (provider client만) |
-| `IntegrationSelectionFlow` | 동의 후 "무엇을 수집할지" 고르는 **단계 선언**과 단계별 후보 조회 | leaf (provider client만) |
+| SPI | 책임 | 구현하는 provider |
+|-----|------|------------------|
+| `OAuthConnectFlow` | 동의 URL 조립, code → `OAuthConnection`(자격증명 평문 + 수집 대상 참조) 교환 | OAuth로 붙는 전부 |
+| `ProviderCredentialLifecycle` | 연동 해제 시 자격증명 폐기(`revoke`) | 원격 폐기 수단이 있는 provider |
+| `AccessTokenRefresher` | 만료 임박 access token 갱신(`ensureFreshAccessToken`) | **만료되는 토큰을 쓰는 provider만** |
+| `IntegrationSelectionFlow` | 동의 후 "무엇을 수집할지" 고르는 **단계 선언**과 단계별 후보 조회 | 선택 단계가 있는 provider만 |
 
-두 SPI를 한 레지스트리에 담지 않는 이유: `IntegrationService`가 lifecycle 레지스트리에 의존하는데
-connect flow는 `IntegrationService`에 의존하므로, 합치면 빈 순환 의존이 된다.
-`ProviderCredentialLifecycle`의 두 메서드는 기본 no-op이라 **해당 동작이 없는 provider는 선언만으로
-흡수된다** (Slack은 폐기만, 비만료 토큰 provider는 둘 다 없음, GitHub은 빈 자체가 없다).
+전부 provider client에만 의존하는 leaf다 — `IntegrationService`가 이들을 주입받으므로 구현체에서
+다시 `IntegrationService`를 참조하면 순환 의존이 된다. 레지스트리는 SPI마다 하나씩 둔다.
+
+**provider가 무엇을 지원하는지는 빈 등록 여부로 표현하고, boolean 플래그나 기본 no-op 메서드로
+신고하지 않는다.** 플래그는 구현하고 켜는 것을 빠뜨릴 수 있고, 기본 no-op은 "지원하지 않음"과
+"아무 일도 필요 없음"을 호출부가 구분할 수 없게 만든다 — 둘 다 조용히 틀린 동작으로 끝난다.
+`AccessTokenRefresher`를 `ProviderCredentialLifecycle`에서 떼어낸 이유가 이것이다
+(아래 「내부 서비스 API」 참고).
+
+**저장 정책은 `IntegrationService.connectOAuth`가 소유한다** — 확정 연동 409 선검사(1회용 code를
+교환 전에 지킨다) → code 교환 → 자격증명 암호화 → 저장(pending 행이면 재동의로 덮어쓰기, unique 위반은
+409로 변환) → 수집 트리거. 새 connect flow는 이 메서드를 고치지 않는다.
+자격증명 **형태**만 provider 몫이다(토큰 문자열 하나든, 갱신값을 담은 JSON이든 평문으로 넘기면
+암호화는 공용 코드가 한다). pending 여부도 flow가 신고하지 않고 `IntegrationSelectionFlow` 등록
+여부로 갈린다 — 두 SPI의 선언이 어긋나 영영 확정할 수 없는 행이 생기는 것을 막기 위함이다.
+
+해당 동작이 없는 provider는 **빈을 만들지 않으면 된다** — Slack은 폐기만 있고 갱신은 없어
+`ProviderCredentialLifecycle`만, Jira는 둘 다 있어 양쪽 다, GitHub은 자격증명이 없어 어느 쪽도 없다.
 
 라우트는 `{provider}` 하나로 합쳐져 있고 **기존 URL은 그대로 해석된다** —
 `/api/v1/integrations/slack/callback`은 Slack·Atlassian 앱에 등록된 redirect URI라 바꾸면 배포된 연동이 깨진다.
@@ -118,7 +133,9 @@ ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이�
 - `/api/v1/internal/**`는 사용자 JWT가 아니라 `X-Internal-Service-Token` 헤더로 인증한다.
 - `InternalServiceAuthenticationFilter`는 `security.internal-service.token`과 요청 헤더를 timing-safe 방식으로 비교한다.
 - `POST /api/v1/internal/github/installations/{installationId}/token`은 GitHub installation access token이 없거나 만료 임박한 경우 갱신해 DB 캐시를 보장하고 `204`를 반환한다. 토큰 평문은 응답하지 않는다.
-- `POST /api/v1/internal/integrations/{projectId}/{provider}/token`은 access token이 없거나 만료 임박한 경우 갱신해 저장하고 `204`를 반환한다(Jira는 refresh token으로 갱신하며, 폐기돼 영구 실패하면 연동을 pending 상태로 되돌린다). 갱신 수단이 없는 provider는 조용한 `204` 대신 `404`를 반환한다 — 호출부가 갱신됐다고 오인한 채 만료된 토큰으로 수집하는 것을 막는다. 토큰 평문은 응답하지 않는다.
+- `POST /api/v1/internal/integrations/{projectId}/{provider}/token`은 access token이 없거나 만료 임박한 경우 갱신해 저장하고 `204`를 반환한다(Jira는 refresh token으로 갱신하며, 폐기돼 영구 실패하면 연동을 pending 상태로 되돌린다). 토큰 평문은 응답하지 않는다.
+  갱신 수단이 없는 provider는 조용한 `204` 대신 `404`를 반환한다 — 호출부가 갱신됐다고 오인한 채 만료된 토큰으로 수집하는 것을 막는다.
+  **판정 기준은 `AccessTokenRefresher` 등록 여부다.** 폐기 등 다른 자격증명 동작이 있다는 이유로 통과시키면 안 된다 — 폐기만 있고 갱신은 없는 Slack이 그 경우 조용한 `204`를 받았다. 호출부(pipeline-worker `JiraTokenClient`)는 `404`를 "이 provider는 건너뛴다"로 처리하므로 404가 수집을 깨지 않는다.
 - `POST /api/v1/internal/atlassian/consent`는 봇 계정 동의 code를 앱 수준 자격증명으로 교환·저장한다(최초 1회). 토큰 평문은 응답하지 않는다.
 - backend와 pipeline-worker에는 동일한 `INTERNAL_SERVICE_TOKEN`을 배포해야 한다.
 - GitHub App private key는 backend에만 두고 pipeline-worker와 공유하지 않는다.

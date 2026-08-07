@@ -9,13 +9,7 @@ import java.util.Optional;
 import com.history.backend.integration.domain.IntegrationProvider;
 import org.springframework.stereotype.Component;
 
-/**
- * provider → {@link OAuthConnectFlow} 조회.
- *
- * <p>{@link ProviderCredentialLifecycleRegistry}와 분리해 둔다 — connect 흐름은 IntegrationService에
- * 의존하고 IntegrationService는 자격증명 수명주기 레지스트리에 의존하므로, 한 레지스트리에 둘을 함께
- * 담으면 빈 순환 의존이 된다.</p>
- */
+// provider → OAuthConnectFlow 조회 (SPI마다 레지스트리를 하나씩 둔다)
 @Component
 public class OAuthConnectFlowRegistry {
 

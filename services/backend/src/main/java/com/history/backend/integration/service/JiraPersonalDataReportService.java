@@ -216,7 +216,7 @@ public class JiraPersonalDataReportService {
         boolean transientFailure = false;
 
         for (Integration integration : integrations) {
-            String cloudId = integration.selectionValue(JiraSelectionFlow.CLOUD_ID);
+            String cloudId = integration.externalRefValue(JiraSelectionFlow.CLOUD_ID);
             if (cloudId == null) {
                 continue;
             }

@@ -166,8 +166,8 @@ class JiraTokenServiceTest {
 
         assertThat(integration.isPendingSelection()).isTrue();
         // 사이트·프로젝트 정보는 남아 있어야 재동의 시 자동 복원이 가능하다
-        assertThat(integration.selectionValue("cloud_id")).isEqualTo("cloud-1");
-        assertThat(integration.selectionValue("project_key")).isEqualTo("PROJ");
+        assertThat(integration.externalRefValue("cloud_id")).isEqualTo("cloud-1");
+        assertThat(integration.externalRefValue("project_key")).isEqualTo("PROJ");
     }
 
     @Test
@@ -274,7 +274,7 @@ class JiraTokenServiceTest {
         ReflectionTestUtils.setField(project, "id", PROJECT_ID);
 
         Integration integration = Integration.pendingSelection(project, IntegrationProvider.JIRA, encryptedCredential);
-        integration.applySelections(java.util.Map.of(
+        integration.applyExternalRef(java.util.Map.of(
                 "cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
         ReflectionTestUtils.setField(integration, "id", UUID.randomUUID());
         return integration;

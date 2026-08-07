@@ -1,11 +1,12 @@
 package com.history.backend.jira.service;
 
-import java.util.UUID;
+import java.time.Instant;
 
-import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
-import com.history.backend.integration.service.IntegrationService;
+import com.history.backend.integration.service.JiraCredential;
+import com.history.backend.integration.service.JiraCredentialCodec;
 import com.history.backend.integration.service.OAuthConnectFlow;
+import com.history.backend.integration.service.OAuthConnection;
 import com.history.backend.jira.AtlassianProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,7 +17,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class JiraOAuthConnectFlow implements OAuthConnectFlow {
 
     private final AtlassianProperties atlassianProperties;
-    private final IntegrationService integrationService;
+    private final JiraOAuthClient jiraOAuthClient;
+    private final JiraCredentialCodec jiraCredentialCodec;
 
     @Override
     public IntegrationProvider provider() {
@@ -39,10 +41,21 @@ public class JiraOAuthConnectFlow implements OAuthConnectFlow {
                 .toUriString();
     }
 
+    /**
+     * Atlassian access token은 1시간 만료라 갱신에 필요한 refresh token·만료 시각까지 함께 담아 저장한다
+     * (해석은 {@link JiraCredentialCodec}·{@link JiraTokenService}가 한다).
+     *
+     * <p>수집 대상인 사이트·프로젝트는 동의 시점에 알 수 없으므로 pending으로 시작한다 —
+     * 단계 선언은 {@link JiraSelectionFlow}에 있다.</p>
+     */
     @Override
-    public boolean connect(UUID userId, UUID projectId, String code) {
-        Integration integration = integrationService.connectJiraSite(userId, projectId, code);
-        // 자동 복원으로 이미 확정된 경우에만 true — 사이트·프로젝트 선택이 남아 있으면 false
-        return !integration.isPendingSelection();
+    public OAuthConnection exchangeCode(String code) {
+        JiraOAuthClient.JiraTokens tokens = jiraOAuthClient.exchangeCode(code);
+        JiraCredential credential = new JiraCredential(
+                tokens.accessToken(),
+                tokens.refreshToken(),
+                Instant.now().plusSeconds(tokens.expiresIn())
+        );
+        return OAuthConnection.pendingSelection(jiraCredentialCodec.serialize(credential));
     }
 }

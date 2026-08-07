@@ -19,8 +19,13 @@ public class JiraCredentialCodec {
     }
 
     public byte[] encrypt(JiraCredential credential) {
+        return credentialCryptoService.encrypt(serialize(credential));
+    }
+
+    // 암호화 없이 직렬화만 — 연결 시점의 암호화는 IntegrationService가 provider 공통으로 처리한다
+    public String serialize(JiraCredential credential) {
         try {
-            return credentialCryptoService.encrypt(objectMapper.writeValueAsString(credential));
+            return objectMapper.writeValueAsString(credential);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to serialize Jira credential.", exception);
         }

@@ -1,6 +1,6 @@
 import { InlineError } from "@/components/ui/InlineError";
 import { SourceTile } from "@/components/sources/SourceTile";
-import { sourceCatalog, sourceName } from "@/components/sources/sourceCatalog";
+import { isOAuthConnectable, sourceCatalog, sourceName } from "@/components/sources/sourceCatalog";
 import { useIntegrationAuthorize } from "@/hooks/useIntegrationOAuth";
 
 // "추가 가능" 타일 그리드. GitHub는 항상 행이라 제외하고, 이미 연동 중(행)인 소스도 제외한다 —
@@ -29,9 +29,9 @@ export function SourceTileGrid({
           <SourceTile
             key={source.id}
             source={source}
-            onConnect={source.connectable ? () => authorize.mutate(source.id) : undefined}
+            onConnect={isOAuthConnectable(source) ? () => authorize.mutate(source.id) : undefined}
             pending={
-              Boolean(source.connectable) &&
+              isOAuthConnectable(source) &&
               authorize.variables === source.id &&
               (authorize.isPending || authorize.isSuccess)
             }

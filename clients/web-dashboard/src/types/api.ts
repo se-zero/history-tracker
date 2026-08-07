@@ -117,7 +117,9 @@ export interface SelectionOption {
 export interface Integration {
   id: string;
   projectId: string;
-  provider: "github" | "slack" | "jira" | string;
+  // union에 string을 더하면 union이 무너져 검사되지 않는다 — 자동완성만 얻고 안전망은 없는
+  // 형태였어서 정직하게 string으로 둔다. 연결 가능 여부·해제 고지는 sourceCatalog가 타입으로 강제한다.
+  provider: string;
   displayName: string | null;
   metadata: Record<string, unknown> | null;
   installationId: string | null;
