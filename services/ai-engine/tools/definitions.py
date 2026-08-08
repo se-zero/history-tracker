@@ -14,7 +14,7 @@ TOOLS = [
                 "properties": {
                     "issue_key": {
                         "type": "string",
-                        "description": "이슈 트래커 키 (예: HT-12)",
+                        "description": "이슈 트래커의 사람용 키 (예: HT-12)",
                     }
                 },
                 "required": ["issue_key"],
@@ -407,7 +407,7 @@ TOOLS = [
                     "cypher": {
                         "type": "string",
                         "description": (
-                            "실행할 Cypher. 예: MATCH (i:Issue) WHERE i.status <> '완료' "
+                            "실행할 Cypher. 예: MATCH (i:Issue) WHERE i.status_category <> 'closed' "
                             "RETURN i.issue_key, i.title, i.status ORDER BY i.createdAt"
                         ),
                     },
@@ -429,7 +429,8 @@ TOOLS = [
                 "노드 수, 실제로 존재하는 속성 목록, 주요 속성의 실제 값과 빈도를 반환한다. "
                 "status·issue_type·channel 같은 값은 프로젝트마다 다르므로, 값으로 거르는 "
                 "쿼리를 쓰기 전에 이 도구로 실제 값을 확인한다 "
-                "(예: 완료 상태가 'Done'인지 '완료'인지)."
+                "(예: status 원문 값이 'Done'인지 '완료'인지. 단, 이슈 종료 판정은 이 도구 없이 "
+                "status_category <> 'closed'로 바로 거른다)."
             ),
             "parameters": {
                 "type": "object",

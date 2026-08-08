@@ -141,7 +141,7 @@ JQL `updated >= checkpoint`는 Jira 서버에서 분 단위로 반올림될 수 
 
 이슈 상태가 바뀌면 동일 이슈가 다시 수집되어 재발행된다.
 
-- **문제**: ai-engine이 동일 Jira key의 이벤트를 upsert로 처리하지 않으면 노드가 중복 생성된다.
+- **문제**: ai-engine이 동일 이슈(`(project_id, source, external_id)` 키)의 이벤트를 upsert로 처리하지 않으면 노드가 중복 생성된다.
 - **방법 선택 이유**: `created` 기준으로만 수집하면 기존 이슈의 상태 변경이 그래프에 반영되지 않는다. 변경 이력 추적이 이 프로젝트의 핵심 목적이므로 중복 발행이 누락보다 낫다. ai-engine의 upsert 처리가 전제 조건.
 
 #### `app.jira.max-pages-per-run` 상한 — 처리 지연

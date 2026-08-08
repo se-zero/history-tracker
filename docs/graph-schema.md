@@ -7,13 +7,16 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 - pipeline-worker가 발행하는 모든 NormalizedEvent는 최상위에 `projectId`(프로젝트 UUID)를 갖는다.
   ai-engine은 `projectId` 없는 이벤트를 그래프에 쓰지 않고 건너뛴다.
 - 모든 도메인 노드는 `project_id` 속성을 가지며, MERGE 키는 `(project_id, 자연키)` 복합 키다.
-  `pr_number`, `path`, `issue_key` 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하기 때문.
+  `pr_number`, `path` 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하기 때문.
+- Issue만 자연키에 `source`가 추가로 들어간다 — 한 프로젝트에 이슈 소스가 둘 이상 붙을 수
+  있고(예: Jira+Linear), 사람용 키(`HT-7`)는 가변이라 플랫폼 **불변 ID**(`external_id`)를 쓴다.
+  사람용 키는 표시·검색용 속성 `issue_key`(nullable)로 강등됐다 (보조 인덱스 `issue_display_key`).
 
 | 노드 | 복합 유니크 키 |
 |------|----------------|
 | ChangeSet | (project_id, hash) |
 | PullRequest | (project_id, pr_number) |
-| Issue | (project_id, issue_key) |
+| Issue | (project_id, source, external_id) — `issue_key`는 표시용 속성 |
 | Communication | (project_id, url) |
 | File | (project_id, path) |
 | Actor | uuid (단일) — 단, 생성/조회는 project_id 스코프 |
@@ -35,11 +38,12 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 | 프로젝트 삭제 · 회원 탈퇴 | `DELETE /graph/projects/{project_id}` | 그 프로젝트의 모든 노드(Actor 포함) |
 | 연동 해제 | `DELETE /graph/projects/{project_id}/sources/{source}` | 그 소스에서 수집한 노드만 |
 
-**소스 단위 삭제(`delete_project_source_graph`)는 네 단계다.** `source` 속성 하나로 지우고
+**소스 단위 삭제(`delete_project_source_graph`)는 다섯 단계다.** `source` 속성 하나로 지우고
 끝낼 수 없는 이유가 각 단계에 있다.
 
 1. **도메인 노드** — `source` 속성으로 스코프한다. `Communication`이 SLACK·GITHUB 공용이라
-   라벨이 아니라 속성으로 걸러야 한다.
+   라벨이 아니라 속성으로 걸러야 한다. Issue 실노드·parent pre-node는 여기서 잡히지만,
+   `__stub__` 센티널은 특정 소스 소속이 아니라 안 잡힌다 — 5단계 참고.
 2. **고아 File** — `File`은 `(project_id, path)`뿐이라 `source`가 없다(GitHub 전용 파생 노드).
    ChangeSet이 사라지면 `MODIFIED`가 끊긴 채 남으므로 별도로 정리한다.
 3. **Actor** — 소스를 가로지른다(`aliases: ["GITHUB:x", "SLACK:y"]`). 가진 alias가 **전부**
@@ -50,6 +54,14 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
    표시 이름의 출처였다면 그 개인정보가 `Actor.name`에 남기 때문이다.
 4. **ActorDecision** — 수동 병합·분리 기록 중 한쪽 alias 묶음이 통째로 사라진 것은 적용
    대상이 없어 삭제한다. 양쪽 모두 남아 있으면 보존한다(재수집 후 다시 적용돼야 한다).
+5. **고아 `__stub__` Issue** — 센티널 stub은 특정 소스 소속이 아니므로 원칙적으로 남긴다
+   (타 소스 이벤트가 만든 미해결 참조일 수 있다). 1단계에서 참조하던 노드가 지워져 엣지가
+   하나도 안 남은 stub만 의미를 잃었으므로 여기서 수거한다.
+
+**소스 삭제 후 같은 소스를 재수집해도 타 소스 이벤트가 만들었던 크로스 엣지는 복원되지
+않는다** — 예: JIRA 삭제 시 커밋→이슈 text `TRIGGERED_BY`가 함께 지워지는데(DETACH), Jira
+재수집은 Issue 노드만 되살리고 커밋 이벤트는 재처리되지 않는다. 시맨틱 엣지는 다음 Layer 4
+빌드가 다시 만들지만, text 엣지의 완전 복원은 참조 소스(GitHub) 재수집이 필요하다.
 
 RDB 쪽(연동 행·checkpoint) 삭제는 backend가 담당한다 — `services/backend/CLAUDE.md` 참고.
 
@@ -103,28 +115,41 @@ Actor가 가진 소스 계정 하나 (예: `GITHUB:se-zero`, `JIRA:5b10a2`). 개
 ---
 
 ### Issue
-Jira 티켓.
+이슈 트래커의 작업 단위 (Jira 티켓, Linear 이슈 등).
 
 ```json
 {
   "projectId": "",                     // 프로젝트 UUID — 노드 project_id로 저장 (격리 기준)
   "nodeType": "Issue",
-  "source": "",                        // JIRA
-  "occurredAt": "",                    // ISO-8601 — Jira updated 시각 기준 (변경 이력 반영); 생성만 있으면 created 사용
+  "source": "",                        // JIRA | LINEAR | ...
+  "occurredAt": "",                    // ISO-8601 — 최종 수정 시각 기준 (변경 이력 반영); 생성만 있으면 created 사용
   "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
-    "issue_key": "",                    // 외부 트래커 이슈 키 (예: HT-7)
+    "external_id": "",                 // 플랫폼 불변 ID (Jira issue id 등) — (project_id, source, external_id) MERGE 키. 필수
+    "issue_key": "",                    // 사람용 표시 키 (예: HT-7) — 검색·표시·텍스트 링크 매칭용, 키 없는 소스는 생략
     "title": "",                       // 티켓 제목
     "body": "",                        // 티켓 본문
-    "status": "",                      // 현재 상태 (예: 진행 중)
+    "status": "",                      // 워크플로 상태 원문 (예: 진행 중) — 표시·답변용, 기계 판정에 안 씀
+    "status_category": "",             // open | in_progress | closed — 종료 판정·closed_at 유도의 단일 축
     "issue_type": "",                  // Task | Bug | Story ...
     "priority": "",                    // 우선순위 (예: Medium)
     "created_at": "",                  // 티켓 최초 생성 시각 (ISO-8601); occurredAt이 updated 기준이므로 보존
-    "closed_at": ""                    // 종료 시각 (ISO-8601, terminal status일 때만 전달) → 노드 closedAt 저장. TRIGGERED_BY 비대칭 윈도우 계산에 사용
+    "closed_at": ""                    // 종료 시각 (ISO-8601, status_category=closed일 때만 전달) → 노드 closedAt 저장. TRIGGERED_BY 비대칭 윈도우 계산에 사용
   },
-  "refs": {}                            // 예: { "issueKey": "PAYMENT-301", "parentIssueKey": "HT-1", "assigneeId": "abc123" }
+  "refs": {}                            // 예: { "issueKey": "PAYMENT-301", "parentExternalId": "10050", "parentIssueKey": "HT-1", "assignees": [{ "id": "abc123", "name": "...", "email": "..." }] }
 }
 ```
+
+**미해결 참조 stub 규약 (`source='__stub__'`)** — 커밋·PR·대화 텍스트가 참조한 이슈
+키(`HT-7`)의 실노드가 아직 없으면, `(project_id, source='__stub__', external_id=<사람용 키>)`
+센티널 Issue를 만들어 텍스트 엣지를 걸어둔다 (유니크 제약이 성립하도록 세 키 속성을 전부
+채우고, `issue_key`에도 같은 값을 SET). stub은 title/body/embedding이 없어 시맨틱 후보·임베딩
+백필에서 자연히 빠지고, 검색·랭킹·evidence 조회는 명시적으로 제외한다. 실제 이슈 이벤트가
+도착하면 `absorb_issue_stub`이 stub의 엣지 — 텍스트 경로 산물 2종(TRIGGERED_BY 유입,
+DISCUSSED_IN 유출)뿐 — 를 실노드로 이관하고 stub을 지운다. parent 참조는 stub이 아니라 실키
+pre-node다(`refs.parentExternalId`로 MERGE, 본 이벤트가 나머지를 채움). 같은 사람용 키를 여러
+소스가 쓰는 경우 텍스트 참조는 본질적으로 모호하다 — 링크는 매칭되는 모든 실노드에 걸고,
+흡수는 먼저 도착한 실노드가 가져간다(알려진 한계).
 
 ---
 
@@ -234,13 +259,13 @@ GitHub 저장소 내 파일.
 
 | 관계 | 방향 | 속성 | 설명 |
 |------|------|------|------|
-| `CREATED` | `(Actor)→(Issue)` | — | Actor가 Jira 티켓을 생성 |
+| `CREATED` | `(Actor)→(Issue)` | — | Actor가 이슈를 생성 |
 | `WROTE` | `(Actor)→(Communication)` | — | Actor가 메시지/이슈를 작성 |
 | `AUTHORED` | `(Actor)→(PullRequest)`, `(Actor)→(ChangeSet)` | — | Actor가 PR/commit을 생성 |
-| `ASSIGNED_TO` | `(Issue)→(Actor)` | — | Jira 이슈의 담당자 |
+| `ASSIGNED_TO` | `(Issue)→(Actor)` | — | 이슈의 담당자 (복수 가능 — `refs.assignees` 스냅샷을 통째로 반영) |
 | `ALIAS_OF` | `(ActorAlias)→(Actor)` | — | ActorAlias(소스 계정)가 속한 Actor. Step 0 조회, 수동 병합·복원·분리의 재연결 대상 |
 | `DISCUSSED_IN` | `(Issue)→(Communication)` | `confidence: Float` (시맨틱 엣지만) | 이슈가 대화에서 언급됨. text(`refs.issueKey`)·스레드 전파 엣지는 속성 없음, 시맨틱 엣지만 confidence 부여 |
-| `CHILD_OF` | `(Issue)→(Issue)` | — | 이슈 계층 구조 (Sub-task → Parent). `refs.parentIssueKey` 기반 |
+| `CHILD_OF` | `(Issue)→(Issue)` | — | 이슈 계층 구조 (Sub-task → Parent). `refs.parentExternalId` 기반 (parent는 실키 pre-node) |
 | `CHILD_OF` | `(ChangeSet)→(ChangeSet)` _(미구현)_ | — | 커밋 계층 구조 — 현재 미구현 |
 | `TRIGGERED_BY` | `(ChangeSet)→(Issue)` | `source: String (text\|semantic)`, `confidence: Float` | 이슈에 대한 커밋. text=1.0 고정, semantic=코사인 유사도. text가 semantic보다 우선 |
 | `CONTAINS` | `(PullRequest)→(ChangeSet)` | — | PR에 포함된 커밋 |
@@ -300,8 +325,8 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | 레이어 | 관계 | 생성 조건 | 근거 |
 |--------|------|-----------|------|
 | Layer 1 | `CREATED` / `WROTE` / `AUTHORED` | 모든 이벤트 | `actor` 필드 |
-| Layer 2 | `CHILD_OF` (Issue) | `refs.parentIssueKey` 존재 시 | Issue의 refs (Jira Sub-task → Parent) |
-| Layer 2 | `ASSIGNED_TO` | `refs.assigneeId` 존재 시 | Issue의 refs (Jira 담당자 ID) |
+| Layer 2 | `CHILD_OF` (Issue) | `refs.parentExternalId` 존재 시 | Issue의 refs (Sub-task → Parent). parent는 실키 pre-node로 선생성 |
+| Layer 2 | `ASSIGNED_TO` | Issue 이벤트마다 (스냅샷 반영) | `refs.assignees` 배열 — 담당자 수만큼 엣지, 배열에서 빠진 담당자는 해제, 부재·빈 배열이면 전원 해제 |
 | Layer 2 | `DISCUSSED_IN` (text) | `refs.issueKey` 존재 시 | Communication의 refs |
 | Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.issueKey`, 또는 PR `issue_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
@@ -310,8 +335,9 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | Layer 4 | `DISCUSSED_IN` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.48 (기본값), 이슈 생애 윈도우 `[createdAt-4d, closedAt+3d / 진행중이면 now]` |
 | Layer 4 | `TRIGGERED_BY` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ 0.34 (기본값). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행중이면 now]`, ChangeSet당 top-1, text 엣지 있는 커밋은 제외 |
 
-> **순서 보장**: Layer 2에서 참조 대상 노드가 아직 없으면 PK만 가진 stub 노드를 생성하고,
-> 해당 이벤트가 도착하면 Layer 1에서 properties를 채움.
+> **순서 보장**: Layer 2에서 참조 대상 Issue가 아직 없으면 `__stub__` 센티널을 만들어 엣지를
+> 걸어두고, 본 이벤트 도착 시 `absorb_issue_stub`이 엣지를 실노드로 이관한다 (위 Issue 절의
+> stub 규약 참고). parent 참조는 실키 pre-node로 선생성 후 본 이벤트가 properties를 채운다.
 
 ---
 

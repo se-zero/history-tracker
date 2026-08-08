@@ -104,7 +104,7 @@ async def get_conflict_context(project_id: str, hash: str) -> dict:
                    cs.message AS commit_message,
                    toString(cs.occurredAt) AS occurredAt,
                    collect(DISTINCT {
-                       source: coalesce(i.source, 'JIRA'),
+                       source: i.source,
                        id: i.issue_key,
                        text: i.title + '\n' + coalesce(i.body, ''),
                        confidence: tb.confidence,

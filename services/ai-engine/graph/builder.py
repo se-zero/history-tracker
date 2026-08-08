@@ -38,16 +38,21 @@ from graph.maintenance import (
     verify_actor_name_consistency,
 )
 from graph.reference_store import make_neo4j_reference_store
-from graph.schema import drop_node_search_index, ensure_constraints, ensure_vector_indexes
+from graph.schema import (
+    drop_legacy_issue_constraint,
+    drop_node_search_index,
+    ensure_constraints,
+    ensure_vector_indexes,
+)
 from graph.writes import (
+    absorb_issue_stub,
     link_changeset_to_issue,
     link_changeset_to_pr_issues,
-    link_issue_to_assignee,
     link_issue_to_communication,
     link_issue_to_parent,
     link_pr_changesets_to_issues,
     link_pr_to_changeset,
-    unlink_issue_assignees,
+    set_issue_assignees,
     upsert_changeset,
     upsert_communication,
     upsert_file_with_modified_edge,
@@ -62,6 +67,7 @@ __all__ = [
     "close_driver",
     "ensure_vector_indexes",
     "drop_node_search_index",
+    "drop_legacy_issue_constraint",
     "ensure_constraints",
     # writes (upsert)
     "upsert_changeset",
@@ -77,8 +83,8 @@ __all__ = [
     "link_pr_changesets_to_issues",
     "link_issue_to_communication",
     "link_issue_to_parent",
-    "link_issue_to_assignee",
-    "unlink_issue_assignees",
+    "set_issue_assignees",
+    "absorb_issue_stub",
     # maintenance / migrations
     "propagate_thread_discussed_in",
     "backfill_triggered_by_source",

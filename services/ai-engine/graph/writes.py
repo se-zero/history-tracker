@@ -11,6 +11,11 @@ from typing import Optional
 
 from graph.driver import get_driver
 
+# Jira status_category가 이 값이면 이슈가 종료 상태다. writes.py는 그래프 쓰기 경로의
+# 최하층이라 여기 둔다 — issue_linker.py(상위 계층)가 이 정규 위치에서 import해 재사용할
+# 예정(writes → issue_linker 방향 import는 없으므로 순환 위험이 없다).
+STATUS_CATEGORY_CLOSED = "closed"
+
 
 # ── Layer 1 + Layer 3 upserts ─────────────────────────────────────────────
 
@@ -168,26 +173,32 @@ async def upsert_pull_request(
 async def upsert_issue(
     *,
     project_id: str,
-    issue_key: str,
+    source: str,
+    external_id: str,
+    issue_key: Optional[str],
     title: str,
     body: str,
-    status: str,
+    status: Optional[str],
+    status_category: str,
     issue_type: str,
     priority: str,
     occurred_at: str,
     created_at: Optional[str],
     closed_at: Optional[str] = None,
-    source: str,
     actor_uuid: str,
     embedding: list[float],
 ) -> None:
     """Issue 노드 upsert.
 
-    closed_at 정책 (status-aware):
-      - closed_at 값 있음                            → 그 값으로 덮어씀
-      - closed_at 값 없음(None) + status가 TERMINAL → 기존 i.closedAt 보존
+    MERGE 키는 (project_id, source, external_id) — Jira issue id(external_id)는 불변이라
+    사람용 키(issue_key, 예: HT-7)가 바뀌어도 같은 노드를 계속 가리킨다. issue_key는
+    표시·텍스트 링크 매칭용 속성으로만 SET한다.
+
+    closed_at 정책 (status_category 기반):
+      - closed_at 값 있음                                      → 그 값으로 덮어씀
+      - closed_at 값 없음(None) + status_category == closed   → 기존 i.closedAt 보존
         (pipeline-worker가 아직 closed_at을 안 보내는 마이그레이션 단계 안전망)
-      - closed_at 값 없음(None) + status가 non-TERMINAL → null 로 클리어
+      - closed_at 값 없음(None) + status_category != closed   → null 로 클리어
         (재오픈된 이슈가 비대칭 시간 윈도우 계산에서 오래된 종료 시각을 쓰지 않도록 함)
 
     createdAt 정책: 원래대로 — 값 있으면 SET, 없으면 null (이벤트 소스가 항상 보내는 게 정상).
@@ -196,35 +207,39 @@ async def upsert_issue(
         await session.run(
             """
             MATCH (a:Actor {uuid: $actor_uuid})
-            MERGE (i:Issue {project_id: $project_id, issue_key: $issue_key})
-            SET i.title = $title,
+            MERGE (i:Issue {project_id: $project_id, source: $source, external_id: $external_id})
+            SET i.issue_key = $issue_key,
+                i.title = $title,
                 i.body = $body,
                 i.status = $status,
+                i.status_category = $status_category,
                 i.issue_type = $issue_type,
                 i.priority = $priority,
                 i.occurredAt = datetime($occurred_at),
                 i.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
+                i.embedding  = $embedding,
                 i.closedAt   = CASE
                                   WHEN $closed_at IS NOT NULL THEN datetime($closed_at)
-                                  WHEN $status IN ['완료', 'Done', 'Closed', 'Resolved', '해결됨'] THEN i.closedAt
+                                  WHEN $status_category = $closed_category THEN i.closedAt
                                   ELSE null
-                               END,
-                i.source = $source,
-                i.embedding = $embedding
+                               END
             MERGE (a)-[:CREATED]->(i)
             """,
             actor_uuid=actor_uuid,
             project_id=project_id,
+            source=source,
+            external_id=external_id,
             issue_key=issue_key,
             title=title,
             body=body,
             status=status,
+            status_category=status_category,
             issue_type=issue_type,
             priority=priority,
             occurred_at=occurred_at,
             created_at=created_at,
             closed_at=closed_at,
-            source=source,
+            closed_category=STATUS_CATEGORY_CLOSED,
             embedding=embedding,
         )
 
@@ -282,15 +297,39 @@ async def upsert_communication(
 async def link_changeset_to_issue(project_id: str, changeset_hash: str, issue_key: str) -> None:
     """TRIGGERED_BY (text): ChangeSet refs.issueKey 존재 시.
 
+    실노드(같은 issue_key, source <> '__stub__') 우선 매칭 — 있으면 거기에 건다. 없으면
+    __stub__ 센티널 Issue를 만들어 걸어 두고, 실제 이슈 이벤트가 나중에 도착하면
+    absorb_issue_stub이 이 엣지를 실노드로 이관한다.
+
     명시적 텍스트 참조이므로 source='text', confidence=1.0으로 고정한다.
     같은 (changeset, issue) 쌍에 시맨틱 엣지가 먼저 만들어져 있어도 텍스트가 우선이므로 덮어쓴다.
+
+    두 문(실노드 매칭 → stub 폴백)은 각각 MERGE/SET이라 멱등이다 — 문 사이에 컨슈머가
+    죽어도 재시도가 나머지를 채운다.
     """
     async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
+            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
+            WHERE i.source <> '__stub__'
+            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            SET r.source = 'text', r.confidence = 1.0
+            RETURN count(i) AS matched
+            """,
+            project_id=project_id,
+            issue_key=issue_key,
+            hash=changeset_hash,
+        )
+        record = await result.single()
+        if record and record["matched"] > 0:
+            return
+
         await session.run(
             """
-            MERGE (i:Issue {project_id: $project_id, issue_key: $issue_key})
-            WITH i
             MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
+            MERGE (i:Issue {project_id: $project_id, source: '__stub__', external_id: $issue_key})
+            ON CREATE SET i.issue_key = $issue_key
             MERGE (c)-[r:TRIGGERED_BY]->(i)
             SET r.source = 'text', r.confidence = 1.0
             """,
@@ -323,10 +362,14 @@ async def link_changeset_to_pr_issues(project_id: str, pr_number: int, changeset
     O(N)으로 만든다. PR 전체 전파는 PR 도착 시(_handle_pull_request)에만 1회 수행한다.
 
     PR.issue_keys가 비었거나 (pr)-[:CONTAINS]->(이 커밋)이 아직 없으면 noop.
-    모든 절은 MERGE/SET이라 idempotent.
+
+    실노드 우선 매칭 → 매칭 안 된 키만 __stub__ 센티널로 폴백한다. 같은 세션 2문:
+    ①에서 UNWIND + OPTIONAL MATCH 실노드로 매칭·미매칭 키를 가르고, 매칭된 키는 그
+    자리에서 엣지를 건다 → ②에서 미매칭 키만 UNWIND해 stub Issue를 만들고 엣지를 건다.
+    두 문 모두 MERGE/SET이라 멱등 — 문 사이에 컨슈머가 죽어도 재시도가 나머지를 채운다.
 
     Returns:
-        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수.
+        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수(실노드 매칭 + stub 생성의 합, 근사치).
     """
     async with get_driver().session() as session:
         result = await session.run(
@@ -335,17 +378,46 @@ async def link_changeset_to_pr_issues(project_id: str, pr_number: int, changeset
             WHERE pr.issue_keys IS NOT NULL AND size(pr.issue_keys) > 0
             MATCH (pr)-[:CONTAINS]->(c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
             UNWIND pr.issue_keys AS issue_key
-            MERGE (i:Issue {project_id: $project_id, issue_key: issue_key})
-            MERGE (c)-[r:TRIGGERED_BY]->(i)
-            SET r.source = 'text', r.confidence = 1.0
-            RETURN count(r) AS n
+            OPTIONAL MATCH (i:Issue {project_id: $project_id, issue_key: issue_key})
+            WHERE i.source <> '__stub__'
+            FOREACH (_ IN CASE WHEN i IS NOT NULL THEN [1] ELSE [] END |
+                MERGE (c)-[r:TRIGGERED_BY]->(i)
+                SET r.source = 'text', r.confidence = 1.0
+            )
+            RETURN
+                sum(CASE WHEN i IS NOT NULL THEN 1 ELSE 0 END) AS matched,
+                collect(DISTINCT CASE WHEN i IS NULL THEN issue_key ELSE null END) AS unmatched_raw
             """,
             project_id=project_id,
             pr_number=pr_number,
             changeset_hash=changeset_hash,
         )
         row = await result.single()
-        return row["n"] if row else 0
+        matched = row["matched"] if row and row["matched"] is not None else 0
+        unmatched_keys = [k for k in (row["unmatched_raw"] if row else []) if k is not None]
+
+        created = 0
+        if unmatched_keys:
+            result2 = await session.run(
+                """
+                MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+                MATCH (pr)-[:CONTAINS]->(c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+                UNWIND $unmatched_keys AS issue_key
+                MERGE (i:Issue {project_id: $project_id, source: '__stub__', external_id: issue_key})
+                ON CREATE SET i.issue_key = issue_key
+                MERGE (c)-[r:TRIGGERED_BY]->(i)
+                SET r.source = 'text', r.confidence = 1.0
+                RETURN count(r) AS created
+                """,
+                project_id=project_id,
+                pr_number=pr_number,
+                changeset_hash=changeset_hash,
+                unmatched_keys=unmatched_keys,
+            )
+            row2 = await result2.single()
+            created = row2["created"] if row2 else 0
+
+        return matched + created
 
 
 async def link_pr_changesets_to_issues(project_id: str, pr_number: int) -> int:
@@ -356,33 +428,70 @@ async def link_pr_changesets_to_issues(project_id: str, pr_number: int) -> int:
       - PR 이벤트 처리 직후 (PR.issue_keys 갱신 직후 — 기존 CONTAINS 커밋에 전파)
       - ChangeSet 이벤트 처리 중 link_pr_to_changeset 직후 (PR이 먼저 도착했으면 새 커밋이 즉시 전파됨)
 
-    PR.issue_keys가 비어있거나 CONTAINS 커밋이 없으면 noop. 모든 절은 MERGE/SET 기반이라 idempotent.
+    PR.issue_keys가 비어있거나 CONTAINS 커밋이 없으면 noop.
+
+    실노드 우선 매칭 → 매칭 안 된 키만 __stub__ 센티널로 폴백한다(같은 세션 2문 구조는
+    link_changeset_to_pr_issues와 동일 — 차이는 커밋 하나가 아니라 PR의 모든 CONTAINS
+    커밋에 전파한다는 것). 두 문 모두 MERGE/SET이라 멱등.
 
     Returns:
-        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수.
+        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수(실노드 매칭 + stub 생성의 합, 근사치).
     """
     async with get_driver().session() as session:
         result = await session.run(
             """
             MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
             WHERE pr.issue_keys IS NOT NULL AND size(pr.issue_keys) > 0
+            OPTIONAL MATCH (pr)-[:CONTAINS]->(cs:ChangeSet)
+            WITH pr, [x IN collect(DISTINCT cs) WHERE x IS NOT NULL] AS changesets
             UNWIND pr.issue_keys AS issue_key
-            MERGE (i:Issue {project_id: $project_id, issue_key: issue_key})
-            WITH pr, i
-            MATCH (pr)-[:CONTAINS]->(c:ChangeSet)
-            MERGE (c)-[r:TRIGGERED_BY]->(i)
-            SET r.source = 'text', r.confidence = 1.0
-            RETURN count(r) AS n
+            OPTIONAL MATCH (i:Issue {project_id: $project_id, issue_key: issue_key})
+            WHERE i.source <> '__stub__'
+            FOREACH (c IN CASE WHEN i IS NOT NULL THEN changesets ELSE [] END |
+                MERGE (c)-[r:TRIGGERED_BY]->(i)
+                SET r.source = 'text', r.confidence = 1.0
+            )
+            RETURN
+                sum(CASE WHEN i IS NOT NULL THEN size(changesets) ELSE 0 END) AS matched,
+                collect(DISTINCT CASE WHEN i IS NULL THEN issue_key ELSE null END) AS unmatched_raw
             """,
             project_id=project_id,
             pr_number=pr_number,
         )
         row = await result.single()
-        return row["n"] if row else 0
+        matched = row["matched"] if row and row["matched"] is not None else 0
+        unmatched_keys = [k for k in (row["unmatched_raw"] if row else []) if k is not None]
+
+        created = 0
+        if unmatched_keys:
+            result2 = await session.run(
+                """
+                MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+                UNWIND $unmatched_keys AS issue_key
+                MERGE (i:Issue {project_id: $project_id, source: '__stub__', external_id: issue_key})
+                ON CREATE SET i.issue_key = issue_key
+                WITH pr, i
+                MATCH (pr)-[:CONTAINS]->(c:ChangeSet)
+                MERGE (c)-[r:TRIGGERED_BY]->(i)
+                SET r.source = 'text', r.confidence = 1.0
+                RETURN count(r) AS created
+                """,
+                project_id=project_id,
+                pr_number=pr_number,
+                unmatched_keys=unmatched_keys,
+            )
+            row2 = await result2.single()
+            created = row2["created"] if row2 else 0
+
+        return matched + created
 
 
 async def link_issue_to_communication(project_id: str, issue_key: str, comm_url: str) -> None:
     """DISCUSSED_IN: Communication refs.issueKey 존재 시.
+
+    실노드(같은 issue_key, source <> '__stub__') 우선 매칭 → 없으면 __stub__ 센티널
+    Issue로 폴백한다(link_changeset_to_issue와 동일한 2문 구조). absorb_issue_stub이
+    실제 이슈 도착 시 이 엣지를 실노드로 이관한다.
 
     명시적 텍스트 참조이므로 source='text'로 고정한다 — 시맨틱 재구축(clear)이 이 엣지를
     지우지 않게 하는 표식이다. confidence는 부여하지 않는다: DISCUSSED_IN에서 confidence는
@@ -393,11 +502,29 @@ async def link_issue_to_communication(project_id: str, issue_key: str, comm_url:
     잔존 confidence가 영구히 남고, 채점이 이 엣지를 시맨틱으로 오인한다.
     """
     async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
+            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
+            WHERE i.source <> '__stub__'
+            MERGE (i)-[r:DISCUSSED_IN]->(comm)
+            SET r.source = 'text'
+            REMOVE r.confidence
+            RETURN count(i) AS matched
+            """,
+            project_id=project_id,
+            issue_key=issue_key,
+            comm_url=comm_url,
+        )
+        record = await result.single()
+        if record and record["matched"] > 0:
+            return
+
         await session.run(
             """
-            MERGE (i:Issue {project_id: $project_id, issue_key: $issue_key})
-            WITH i
             MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
+            MERGE (i:Issue {project_id: $project_id, source: '__stub__', external_id: $issue_key})
+            ON CREATE SET i.issue_key = $issue_key
             MERGE (i)-[r:DISCUSSED_IN]->(comm)
             SET r.source = 'text'
             REMOVE r.confidence
@@ -408,56 +535,116 @@ async def link_issue_to_communication(project_id: str, issue_key: str, comm_url:
         )
 
 
-async def link_issue_to_parent(project_id: str, child_key: str, parent_key: str) -> None:
-    """CHILD_OF: Issue Jira parent 필드 존재 시"""
+async def link_issue_to_parent(
+    project_id: str, source: str, child_external_id: str,
+    parent_external_id: str, parent_issue_key: Optional[str],
+) -> None:
+    """CHILD_OF: Issue Jira parent 필드 존재 시.
+
+    parent는 __stub__ 센티널이 아니라 실키 (project_id, source, external_id) pre-node로
+    미리 만든다 — 부모 이슈의 본 이벤트가 도착하면 upsert_issue가 같은 키로 MERGE해 채운다.
+    child는 이 함수 호출 전에 upsert_issue로 이미 존재하므로 MATCH.
+    """
     async with get_driver().session() as session:
         await session.run(
             """
-            MERGE (parent:Issue {project_id: $project_id, issue_key: $parent_key})
+            MERGE (parent:Issue {project_id: $project_id, source: $source, external_id: $parent_external_id})
+            ON CREATE SET parent.issue_key = $parent_issue_key
             WITH parent
-            MERGE (child:Issue {project_id: $project_id, issue_key: $child_key})
+            MATCH (child:Issue {project_id: $project_id, source: $source, external_id: $child_external_id})
             MERGE (child)-[:CHILD_OF]->(parent)
             """,
             project_id=project_id,
-            parent_key=parent_key,
-            child_key=child_key,
+            source=source,
+            parent_external_id=parent_external_id,
+            parent_issue_key=parent_issue_key,
+            child_external_id=child_external_id,
         )
 
-async def link_issue_to_assignee(project_id: str, issue_key: str, actor_uuid: str) -> None:
-    """ASSIGNED_TO: Issue assignee 존재 시. event_handler가 resolve_actor로 확정한 Actor uuid를 받는다.
 
-    Jira 이슈 이벤트는 그 이슈의 최신 스냅샷이라 항상 담당자 최대 1명을 가리켜야 한다.
-    재배정(A→B) 시 새 엣지만 MERGE하면 이전 담당자 엣지가 남아 "현재 담당자" 조회·활동량
-    집계가 과거 담당자까지 잡으므로, 새 담당자로 향하지 않는 기존 ASSIGNED_TO 엣지를 먼저 지운다.
+async def set_issue_assignees(
+    project_id: str, source: str, external_id: str, actor_uuids: list[str],
+) -> None:
+    """ASSIGNED_TO: Issue assignees 스냅샷을 통째로 반영한다. event_handler가 resolve_actor로
+    확정한 Actor uuid 목록을 받는다.
+
+    Jira 이슈 이벤트는 그 이슈의 최신 스냅샷이라 담당자 목록 전체를 이 호출 하나로
+    대체해야 한다 — 목록 밖으로 빠진 기존 ASSIGNED_TO 엣지를 먼저 지우고, 목록의 각
+    uuid로 새로 MERGE한다. 빈 리스트를 주면 담당자 전원 해제.
+
+    이슈 이벤트가 아닌, 이슈를 참조만 하는 이벤트(코멘트 등)에서 호출하면 안 된다 — 그
+    경우 assignees 정보 부재가 "해제"를 뜻하지 않는다.
+
+    삭제와 연결을 세션 2문으로 분리한다 — 한 문에서 빈 actor_uuids를 UNWIND하면 그 행이
+    사라져(Cypher UNWIND 빈 리스트는 결과 행을 0개로 만든다) 뒤에 이어붙인 DELETE까지
+    실행되지 않을 수 있다.
     """
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (a:Actor {uuid: $actor_uuid, project_id: $project_id})
-            WITH a
-            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
-            OPTIONAL MATCH (i)-[r:ASSIGNED_TO]->(other:Actor)
-            WHERE other.uuid <> $actor_uuid
+            MATCH (i:Issue {project_id: $project_id, source: $source, external_id: $external_id})
+                  -[r:ASSIGNED_TO]->(other:Actor)
+            WHERE NOT other.uuid IN $actor_uuids
             DELETE r
+            """,
+            project_id=project_id,
+            source=source,
+            external_id=external_id,
+            actor_uuids=actor_uuids,
+        )
+        if not actor_uuids:
+            return
+        await session.run(
+            """
+            MATCH (i:Issue {project_id: $project_id, source: $source, external_id: $external_id})
+            UNWIND $actor_uuids AS uuid
+            MATCH (a:Actor {uuid: uuid, project_id: $project_id})
             MERGE (i)-[:ASSIGNED_TO]->(a)
             """,
             project_id=project_id,
-            issue_key=issue_key,
-            actor_uuid=actor_uuid,
+            source=source,
+            external_id=external_id,
+            actor_uuids=actor_uuids,
         )
 
 
-async def unlink_issue_assignees(project_id: str, issue_key: str) -> None:
-    """이슈 스냅샷 이벤트에 assigneeId가 없을 때(담당자 해제) 그 이슈의 기존 ASSIGNED_TO
-    엣지를 전부 지운다. 이슈 이벤트가 아닌, 이슈를 참조만 하는 이벤트(코멘트 등)에서
-    호출하면 안 된다 — 그 경우 assignee 정보 부재가 "해제"를 뜻하지 않는다.
+async def absorb_issue_stub(project_id: str, source: str, external_id: str, issue_key: str) -> None:
+    """실노드 upsert 직후 호출 — 같은 issue_key의 __stub__ Issue가 있으면 거기 붙은
+    텍스트 링크 엣지를 실노드로 이관하고 stub을 지운다.
+
+    stub에는 텍스트 링크 함수(link_changeset_to_issue, link_changeset_to_pr_issues,
+    link_pr_changesets_to_issues, link_issue_to_communication)가 만든 2종 엣지만 붙는다 —
+    유입 TRIGGERED_BY(ChangeSet→stub), 유출 DISCUSSED_IN(stub→Communication). 센티널
+    stub은 이벤트가 없어 refs.parentExternalId를 가질 수 없으므로 CHILD_OF가 stub에
+    붙는 경로 자체가 없다.
+
+    MATCH s로 시작하므로 멱등이다 — 이미 이관돼 stub이 없으면 전체가 no-op.
     """
     async with get_driver().session() as session:
         await session.run(
             """
-            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})-[r:ASSIGNED_TO]->()
-            DELETE r
+            MATCH (s:Issue {project_id: $project_id, source: '__stub__', external_id: $issue_key})
+            MATCH (real:Issue {project_id: $project_id, source: $source, external_id: $external_id})
+            WITH s, real
+            OPTIONAL MATCH (c:ChangeSet)-[:TRIGGERED_BY]->(s)
+            WITH s, real, [x IN collect(DISTINCT c) WHERE x IS NOT NULL] AS triggering_changesets
+            FOREACH (c IN triggering_changesets |
+                MERGE (c)-[r2:TRIGGERED_BY]->(real)
+                SET r2.source = 'text', r2.confidence = 1.0
+            )
+            WITH s, real
+            OPTIONAL MATCH (s)-[:DISCUSSED_IN]->(comm:Communication)
+            WITH s, real, [x IN collect(DISTINCT comm) WHERE x IS NOT NULL] AS discussed_comms
+            FOREACH (comm IN discussed_comms |
+                MERGE (real)-[r4:DISCUSSED_IN]->(comm)
+                SET r4.source = 'text'
+                REMOVE r4.confidence
+            )
+            WITH s
+            DETACH DELETE s
             """,
             project_id=project_id,
+            source=source,
+            external_id=external_id,
             issue_key=issue_key,
         )

@@ -78,11 +78,14 @@ async def backfill_triggered_by_source() -> dict:
 
         # 3) commit message에 issue_key가 직접 들어있는 시맨틱 엣지를 텍스트로 승격
         #    (pipeline-worker가 refs.issueKey 추출에 실패했어도 후속 정정)
+        #    issue_key가 NULL이면 CONTAINS가 null이라 이미 걸러지지만, 키 없는 소스 도입 후
+        #    의도를 명시적으로 남긴다.
         result = await session.run(
             """
             MATCH (c:ChangeSet)-[r:TRIGGERED_BY]->(i:Issue)
             WHERE r.source = 'semantic'
               AND c.message IS NOT NULL
+              AND i.issue_key IS NOT NULL
               AND c.message CONTAINS i.issue_key
             SET r.source = 'text', r.confidence = 1.0
             RETURN count(r) AS n
@@ -121,11 +124,14 @@ async def backfill_discussed_in_source() -> dict:
     """
     async with get_driver().session() as session:
         # 1) confidence 없음 + 본문이 issue_key를 직접 언급 → 텍스트 참조
+        #    issue_key가 NULL이면 CONTAINS가 null이라 이미 걸러지지만, 키 없는 소스 도입 후
+        #    의도를 명시적으로 남긴다.
         result = await session.run(
             """
             MATCH (i:Issue)-[r:DISCUSSED_IN]->(comm:Communication)
             WHERE r.source IS NULL AND r.confidence IS NULL
-              AND comm.body IS NOT NULL AND comm.body CONTAINS i.issue_key
+              AND comm.body IS NOT NULL AND i.issue_key IS NOT NULL
+              AND comm.body CONTAINS i.issue_key
             SET r.source = 'text'
             RETURN count(r) AS n
             """
@@ -155,11 +161,14 @@ async def backfill_discussed_in_source() -> dict:
         semantic_backfilled = (await result.single())["n"]
 
         # 4) 본문에 issue_key가 있는 시맨틱 엣지를 텍스트로 승격 (confidence 오염 복구)
+        #    issue_key가 NULL이면 CONTAINS가 null이라 이미 걸러지지만, 키 없는 소스 도입 후
+        #    의도를 명시적으로 남긴다.
         result = await session.run(
             """
             MATCH (i:Issue)-[r:DISCUSSED_IN]->(comm:Communication)
             WHERE r.source = 'semantic'
               AND comm.body IS NOT NULL
+              AND i.issue_key IS NOT NULL
               AND comm.body CONTAINS i.issue_key
             SET r.source = 'text'
             REMOVE r.confidence
@@ -428,11 +437,12 @@ async def delete_project_source_graph(
     """한 소스(GITHUB|SLACK|JIRA)에서 수집한 노드만 삭제한다. 연동 해제 cascade.
 
     delete_project_graph와 달리 프로젝트는 남기고 그 소스의 흔적만 지운다. 소스가 겹치는
-    구조 때문에 단순히 `source` 속성으로 한 번 지우고 끝낼 수 없어 네 단계로 나눈다.
+    구조 때문에 단순히 `source` 속성으로 한 번 지우고 끝낼 수 없어 다섯 단계로 나눈다.
 
-    1. 도메인 노드 — `source` 속성으로 스코프된다(Issue=JIRA, PullRequest/ChangeSet=GITHUB,
-       Communication=SLACK|GITHUB). Communication이 두 소스 공용이라 라벨이 아니라 속성으로
-       걸러야 한다.
+    1. 도메인 노드 — `source` 속성으로 스코프된다(Issue 실노드·pre-node=JIRA 등,
+       PullRequest/ChangeSet=GITHUB, Communication=SLACK|GITHUB). Communication이 두 소스
+       공용이라 라벨이 아니라 속성으로 걸러야 한다. __stub__ 센티널 Issue는 특정 소스에
+       속하지 않아(source='__stub__') 이 단계에서 잡히지 않는다 — 5단계 참고.
     2. 고아 File — File은 `{project_id, path}`뿐이라 source가 없다(스키마상 GitHub 전용
        파생 노드). ChangeSet이 사라지면 MODIFIED가 끊긴 채 남으므로 여기서 정리한다.
     3. Actor alias — Actor는 소스를 가로지른다(aliases=["GITHUB:x", "SLACK:y"]). 지우는
@@ -442,6 +452,10 @@ async def delete_project_source_graph(
        표시 이름의 출처였다면(예: GitHub 프로필 이름) 그 개인정보가 Actor.name에 남기 때문이다.
     4. ActorDecision — 수동 병합·분리 기록 중 삭제된 alias만 참조하는 것은 대상이 사라져
        무의미하므로 제거한다. 한쪽이라도 남아 있으면 보존한다(재수집 후 다시 적용돼야 한다).
+    5. 고아 __stub__ Issue — 센티널 stub은 특정 소스 소속이 아니므로 원칙적으로 삭제 대상이
+       아니다(다른 소스의 미해결 텍스트 참조를 여전히 붙들고 있을 수 있다). 다만 1단계에서
+       참조하던 도메인 노드(ChangeSet/Communication 등)가 지워져 엣지가 하나도 안 남은 stub은
+       더 이상 아무 의미가 없으므로 여기서만 수거한다.
 
     개인정보(이름·이메일)는 ActorAlias의 pd_* 필드에 소스별로 저장되므로, 3단계의 ActorAlias
     삭제가 곧 그 소스에서 받은 개인정보 삭제를 겸한다 — Actor.emails가 출처를 기록하지 않아
@@ -451,10 +465,10 @@ async def delete_project_source_graph(
     멱등 — 이미 지워진 소스를 다시 호출하면 전부 0이다.
 
     Returns:
-        단계별 삭제 수 {"nodes", "files", "actors", "decisions"}.
+        단계별 삭제 수 {"nodes", "files", "actors", "decisions", "stubs"}.
     """
     if not project_id or not source:
-        return {"nodes": 0, "files": 0, "actors": 0, "decisions": 0}
+        return {"nodes": 0, "files": 0, "actors": 0, "decisions": 0, "stubs": 0}
 
     normalized_source = source.upper()
     alias_prefix = f"{normalized_source}:"
@@ -550,14 +564,28 @@ async def delete_project_source_graph(
         )
         decisions = (await result.consume()).counters.nodes_deleted
 
+        # 고아 __stub__ 정리 — 참조하던 노드가 1단계에서 지워져 엣지가 0개가 된 것만 수거한다
+        # (stub 자체는 소스 스코프가 아니므로 조건 없이는 절대 지우지 않는다).
+        result = await session.run(
+            """
+            MATCH (s:Issue {project_id: $project_id, source: '__stub__'})
+            WHERE NOT (s)--()
+            CALL (s) { DETACH DELETE s } IN TRANSACTIONS OF $batch_size ROWS
+            """,
+            project_id=project_id,
+            batch_size=batch_size,
+        )
+        stubs = (await result.consume()).counters.nodes_deleted
+
     logger.info(
-        "소스 그래프 삭제 완료: project=%s, source=%s, nodes=%d, files=%d, actors=%d, decisions=%d, recomputed=%d",
+        "소스 그래프 삭제 완료: project=%s, source=%s, nodes=%d, files=%d, actors=%d, decisions=%d, stubs=%d, recomputed=%d",
         project_id,
         normalized_source,
         nodes,
         files,
         actors,
         decisions,
+        stubs,
         len(survivor_uuids),
     )
     return {
@@ -565,6 +593,7 @@ async def delete_project_source_graph(
         "files": files,
         "actors": actors,
         "decisions": decisions,
+        "stubs": stubs,
     }
 
 

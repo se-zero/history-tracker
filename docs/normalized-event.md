@@ -89,28 +89,31 @@ record ActorDto(String id, String name, String email)
 
 `occurredAt`: 머지 시각(없으면 생성 시각).
 
-### Issue — 이슈/티켓 (자연키: `issue_key`)
+### Issue — 이슈/티켓 (자연키: `external_id` — source와 함께 유니크)
 
 | 키 | 타입 | 비고 |
 |----|------|------|
-| `issue_key` | string | **자연키**. 외부 트래커의 이슈 키 (Jira `HT-7`, Linear `ENG-42` 등) |
+| `external_id` | string | **자연키. 없으면 ai-engine이 이벤트를 버린다.** 플랫폼 **불변 ID** (Jira issue id, Linear UUID, Asana gid 등). 그래프 MERGE 키는 `(project_id, source, external_id)` |
+| `issue_key` | string \| 생략 | 사람용 표시 키 (Jira `HT-7`, Linear `ENG-42`). 검색·표시·텍스트 링크 매칭용. 키가 없는 소스(Asana·monday)는 생략 |
 | `title` · `body` | string | 합쳐서 임베딩된다 |
-| `status` | string | |
+| `status` | string \| null | 워크플로 상태 **원문** (팀 어휘, 예: "배포 대기"). 표시·답변용 — 기계 판정에는 쓰지 않는다 |
+| `status_category` | string | **필수.** 소스 중립 3값 `open \| in_progress \| closed`. 종료 판정·`closed_at` 유도는 이 축 하나로 한다. `closed`는 완료+취소를 포함한 "닫힘". 세분 신호가 없는 소스는 열린 이슈를 전부 `open`으로 둔다 |
 | `issue_type` · `priority` | string | |
 | `created_at` | string | |
-| `closed_at` | string | **종료 상태일 때만 넣는다.** 아래 3-상태 규약 참고 |
+| `closed_at` | string | **`status_category == closed`일 때만 넣는다.** 아래 3-상태 규약 참고 |
 
 `occurredAt`: 최종 수정 시각(없으면 생성 시각).
 
-**`closed_at` 3-상태 규약** — ai-engine이 `status`와 조합해 해석한다:
+**`closed_at` 3-상태 규약** — ai-engine이 `status_category`와 조합해 해석한다:
 
-| `closed_at` | `status` | 결과 |
+| `closed_at` | `status_category` | 결과 |
 |-------------|----------|------|
-| 있음 | terminal | `closedAt` 기록 |
-| 없음 | non-terminal | `closedAt`을 **null로 클리어** (재오픈 처리) |
-| 없음 | terminal | 기존 `closedAt` **보존** (구버전 호환) |
+| 있음 | `closed` | `closedAt` 기록 |
+| 없음 | `closed` 아님 | `closedAt`을 **null로 클리어** (재오픈 처리) |
+| 없음 | `closed` | 기존 `closedAt` **보존** (안전망) |
 
-terminal 상태 집합은 커넥터와 ai-engine 양쪽이 같은 값을 유지해야 한다.
+과거의 terminal 상태 문자열 집합(커넥터·ai-engine 양쪽 하드코딩)은 폐기됐다 — 종료 판정은
+각 커넥터의 normalizer가 `status_category`를 채우면서 한 번만 내린다.
 
 ### Communication — 대화 (자연키: `url`)
 
@@ -136,15 +139,17 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 
 | 키 | 타입 | 소비처 | 효과 |
 |----|------|--------|------|
-| `issueKey` | string | ChangeSet, Communication | 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN` |
+| `issueKey` | string | ChangeSet, Communication | 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN`. 사람용 키로 실노드를 찾고, 없으면 `__stub__` 센티널 Issue에 걸어둔다 (stub 규약은 `docs/graph-schema.md`) |
 | `issueKeys` | string[] | PullRequest | PR이 머지한 모든 커밋에 이슈 연결 전파 |
 | `prNumber` | string | ChangeSet | PR → 커밋 `CONTAINS` |
-| `parentIssueKey` | string | Issue | 부모 이슈 `CHILD_OF` |
-| `assigneeId` / `assigneeName` / `assigneeEmail` | string | Issue | 담당자를 Actor로 승격 후 `ASSIGNED_TO` |
+| `parentExternalId` | string | Issue | 부모 이슈의 **불변 ID** — `CHILD_OF` 매칭 키. 이 값이 있어야 링크된다 |
+| `parentIssueKey` | string | Issue | 부모 pre-node의 표시 키 (노드 생성 시에만 기록) |
+| `assignees` | {id, name, email}[] | Issue | 각 담당자를 Actor로 승격 후 `ASSIGNED_TO` (담당자 수만큼 엣지). `id`가 null인 항목은 발행 측에서 제외한다 |
 
-**담당자 해제 규약**: Issue 이벤트는 최신 스냅샷이다. `assigneeId`가 없으면 "담당자 없음"으로
-해석돼 기존 `ASSIGNED_TO`가 제거된다. 담당자 정보를 못 가져온 경우와 구분되지 않으므로,
-**조회 실패 시에는 Issue 이벤트 자체를 발행하지 않는** 편이 안전하다.
+**담당자 해제 규약**: Issue 이벤트는 최신 스냅샷이다. `assignees`가 없거나 빈 배열이면 "담당자
+없음"으로 해석돼 기존 `ASSIGNED_TO`가 전부 제거되고, 배열에서 빠진 기존 담당자도 해제된다.
+담당자 정보를 못 가져온 경우와 구분되지 않으므로, **조회 실패 시에는 Issue 이벤트 자체를
+발행하지 않는** 편이 안전하다.
 
 ---
 
@@ -159,8 +164,8 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 **소비 (ai-engine)**
 - 실패한 이벤트는 지연 재시도 큐 → 소진 시 DLQ로 보관한다(조용히 버리지 않는다).
 - 같은 프로젝트의 이벤트는 직렬 처리(노드 경합·Actor race 방지), 프로젝트 간은 병렬이다.
-- 모든 쓰기는 `(project_id, 자연키)` 복합키 MERGE라 **재발행은 멱등**이다.
-  커넥터는 중복 발행을 두려워하지 말고 누락을 두려워해야 한다.
+- 모든 쓰기는 `(project_id, 자연키)` 복합키 MERGE라(Issue는 `(project_id, source, external_id)`)
+  **재발행은 멱등**이다. 커넥터는 중복 발행을 두려워하지 말고 누락을 두려워해야 한다.
 
 ---
 
@@ -176,8 +181,10 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
    기존 아키타입이면 ai-engine 무변경이다.
 2. `CollectionProvider`에 provider 추가, routing key 설정 추가 (§표기 규칙).
 3. `source/{provider}` 패키지에 `SourceCollector` 구현 — fetch·normalize·publish·checkpoint.
-4. 자연키가 **프로젝트 안에서 고유**한지 확인. 자연키는 소스가 아니라 `(project_id, 자연키)`로
-   격리되므로, 프로젝트 간 충돌은 문제없지만 프로젝트 안 충돌은 데이터 병합 사고다.
+4. 자연키가 **프로젝트 안에서 고유하고 불변**인지 확인. Issue는 `(project_id, source,
+   external_id)` 키라 소스 간 충돌이 없지만, Communication(`url`)처럼 source가 키에 없는
+   아키타입은 프로젝트 안 충돌이 데이터 병합 사고다. 사람용 키(`HT-7`)처럼 **바뀔 수 있는
+   값은 자연키로 쓰지 않는다** — 표시용 속성(`issue_key`)으로 따로 싣는다.
 5. `actor.id`가 안정적·고유한지 확인 (§actor).
 6. `occurredAt`이 실제 발생 시각인지 확인 — checkpoint 정확도가 여기 달렸다.
 7. `refs` 추출 패턴 기여 (이슈 키 형식 / URL 형식).
@@ -192,15 +199,16 @@ Jira 유래 명칭은 `docs/integration-abstraction.md` A6에서 소스 중립 �
 
 | 옛 이름 (더 이상 발행 금지) | 현행 |
 |------|------|
-| `properties.jira_key` | `issue_key` |
+| `properties.jira_key` | `issue_key` (표시용으로 강등 — 자연키는 `external_id`) |
 | `refs.jiraKey` / `jiraKeys` | `issueKey` / `issueKeys` |
-| `refs.parentJiraKey` | `parentIssueKey` |
+| `refs.parentJiraKey` | `parentIssueKey` (+ 매칭 키는 `parentExternalId`) |
+| `refs.assigneeId` / `assigneeName` / `assigneeEmail` | `assignees: [{id, name, email}]` |
 
 **저장된 그래프에 이행 장치는 없다.** 개발 단계라 보존할 데이터가 없어 기동 시 마이그레이션을
-두지 않기로 했다 — 옛 키(`jira_key`)로 저장된 노드가 남아 있는 환경은 **그래프를 새로 구축한다**
+두지 않기로 했다 — 옛 키로 저장된 노드가 남아 있는 환경은 **그래프를 새로 구축한다**
 (`DELETE /graph/projects/{id}` 후 재수집). 이행 장치를 되살리는 편이 나은 시점이 오면
 배치 처리·옛/새 키 중복 노드 검증·테스트가 함께 필요하다.
 
-인플라이트 이벤트 호환만 남아 있다 — `graph/event_handler.py`의 `_normalize_legacy_keys`가
-브로커·retry 큐·DLQ에 남은 옛 키 이벤트를 진입점에서 새 이름으로 정규화한다.
-옛 키가 더는 관측되지 않으면 이것도 제거해도 된다.
+인플라이트 이벤트 호환 레이어(`_normalize_legacy_keys`)는 Issue 키 일반화
+(`(project_id, source, external_id)` 전환) 때 **제거됐다** — 옛 형식 이벤트는 `external_id`가
+없어 소비 진입점에서 자연 폐기된다.

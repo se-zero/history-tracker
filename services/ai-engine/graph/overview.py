@@ -221,6 +221,7 @@ def _to_graph_node(row: dict) -> dict:
             "meta": row.get("issue_key") or "",
             "source": src.lower() or "jira",
             "snippet": _truncate(row.get("body")),
+            # ref는 issue_key 기준 — 키 없는(issue_key nullable) 소스가 도입되면 재검토 필요.
             "ref": _node_ref("issue", row.get("issue_key")),
         }
 
@@ -542,7 +543,7 @@ WHERE n.project_id = $project_id
   AND (
     (n:ChangeSet AND any(p IN $commit_prefixes WHERE n.hash STARTS WITH p))
     OR (n:PullRequest AND n.pr_number IN $pr_numbers)
-    OR (n:Issue AND n.issue_key IN $issue_keys)
+    OR (n:Issue AND n.issue_key IN $issue_keys AND n.source <> '__stub__')
     OR (n:Communication AND (
         replace(n.conversation_id, '.', '') IN $conv_ids
         OR split(coalesce(n.url, ''), '/p')[-1] IN $conv_ids
@@ -650,9 +651,11 @@ def _resolve_seed_ids(evidence: list[dict], node_rows: list[dict]) -> list[str |
                     None,
                 )
             elif etype == "issue":
+                # stub(source='__stub__')은 이웃 확장으로 딸려올 수 있어 행 자체에서도 걸러낸다.
                 match = next(
                     (r["id"] for r in node_rows
-                     if r.get("label") == "Issue" and r.get("issue_key") == key),
+                     if r.get("label") == "Issue" and r.get("issue_key") == key
+                     and r.get("source") != "__stub__"),
                     None,
                 )
             elif etype == "message":

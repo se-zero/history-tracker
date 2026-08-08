@@ -69,6 +69,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
         result = await session.run(
             """
             MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
+            WHERE i.source <> '__stub__'
             OPTIONAL MATCH (creator:Actor)-[:CREATED]->(i)
             OPTIONAL MATCH (assignee:Actor)<-[:ASSIGNED_TO]-(i)
             RETURN i.issue_key AS issue_key, i.title AS title, i.body AS body,
@@ -88,6 +89,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
         result = await session.run(
             f"""
             MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
+            WHERE root.source <> '__stub__'
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH root, collect(DISTINCT desc) AS descs
             UNWIND ([root] + descs) AS i
@@ -103,6 +105,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
         result = await session.run(
             f"""
             MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
+            WHERE root.source <> '__stub__'
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
             UNWIND issues_raw AS i
@@ -134,6 +137,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
         result = await session.run(
             f"""
             MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
+            WHERE root.source <> '__stub__'
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
             UNWIND issues_raw AS i
@@ -205,7 +209,7 @@ async def rank_issues(project_id: str, by: str = "discussion", top_k: int = 5) -
         result = await session.run(
             """
             MATCH (i:Issue {project_id: $project_id})
-            WHERE i.title IS NOT NULL
+            WHERE i.title IS NOT NULL AND i.source <> '__stub__'
             OPTIONAL MATCH (i)-[:DISCUSSED_IN]->(c:Communication)
             WITH i, count(DISTINCT c) AS disc
             WITH i, disc,
@@ -637,7 +641,7 @@ async def _project_events(session, project_id: str) -> list[dict]:
         "source: n.source, conversation_id: n.conversation_id}) AS r",
         p=project_id)).single()
     iss = await (await session.run(
-        "MATCH (n:Issue {project_id: $p}) "
+        "MATCH (n:Issue {project_id: $p}) WHERE n.source <> '__stub__' "
         "RETURN collect({createdAt: toString(n.createdAt), closedAt: toString(n.closedAt), "
         "issue_key: n.issue_key, title: n.title, status: n.status}) AS r",
         p=project_id)).single()

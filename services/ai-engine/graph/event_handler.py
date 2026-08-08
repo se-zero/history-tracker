@@ -19,25 +19,6 @@ def _is_bot_actor(actor_id: str) -> bool:
     return bool(actor_id) and actor_id.endswith("[bot]")
 
 
-# 키 중립화(jira_key → issue_key) 이전 pipeline-worker가 발행한 이벤트의 키 이름.
-# 브로커에 남아 있던 이벤트·retry 큐·DLQ replay가 옛 키로 도착할 수 있어 진입점에서
-# 새 이름으로 정규화한다 — 핸들러들은 새 키만 안다. 옛 키가 더는 관측되지 않으면 지워도 된다.
-_LEGACY_REF_KEYS = {"jiraKey": "issueKey", "jiraKeys": "issueKeys", "parentJiraKey": "parentIssueKey"}
-_LEGACY_PROP_KEYS = {"jira_key": "issue_key"}
-
-
-def _normalize_legacy_keys(event: dict) -> None:
-    """옛 키를 새 키로 옮긴다(새 키가 이미 있으면 새 키 우선). event를 제자리 수정한다."""
-    for mapping, field in ((_LEGACY_REF_KEYS, "refs"), (_LEGACY_PROP_KEYS, "properties")):
-        section = event.get(field)
-        if not isinstance(section, dict):
-            continue
-        for old_key, new_key in mapping.items():
-            if old_key in section:
-                section.setdefault(new_key, section[old_key])
-                del section[old_key]
-
-
 async def handle(event: dict) -> None:
     """NormalizedEvent를 nodeType에 따라 분기 처리한다."""
     node_type = event.get("nodeType", "unknown")
@@ -53,9 +34,6 @@ async def handle(event: dict) -> None:
         return
 
     logger.info("[%s/%s] actor=%s 수신", source, node_type, actor_id)
-
-    # 옛 키(jira_key·jiraKey 계열)로 도착한 이벤트를 새 이름으로 정규화
-    _normalize_legacy_keys(event)
 
     # GitHub 봇 커밋/PR은 그래프에서 제외 (의사결정 맥락 노이즈)
     if source == "GITHUB" and node_type in ("ChangeSet", "PullRequest") and _is_bot_actor(actor_id):
@@ -201,50 +179,65 @@ async def _handle_issue(event: dict) -> None:
     title       = props.get("title", "")
     body        = props.get("body", "")
 
-    logger.debug("Issue 수신: issue_key=%s", props.get("issue_key"))
+    # external_id(Jira issue id)는 불변 MERGE 키라 필수 — 없으면 이 이벤트로는 어떤 노드도
+    # 특정할 수 없다. projectId 부재와 동일한 폐기 정책(구 형식 브로커 잔여 이벤트 자연 폐기).
+    external_id = props.get("external_id")
+    if not external_id:
+        logger.warning("Issue external_id 없음 — 건너뜀 (source=%s)", source)
+        return
+    issue_key = props.get("issue_key")
+
+    logger.debug("Issue 수신: external_id=%s issue_key=%s", external_id, issue_key)
 
     resolved  = await resolve_actor(actor, source, make_neo4j_actor_store(project_id), event)
     embedding = await embed_text(f"{title}\n\n{body}")
 
     await builder.upsert_issue(
         project_id=project_id,
-        issue_key=props.get("issue_key", ""),
+        source=source,
+        external_id=external_id,
+        issue_key=issue_key,
         title=title,
         body=body,
-        status=props.get("status", ""),
+        status=props.get("status"),
+        status_category=props.get("status_category", ""),
         issue_type=props.get("issue_type", ""),
         priority=props.get("priority", ""),
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
-        # pipeline-worker는 status가 terminal일 때만 closed_at을 보낸다.
-        # None + non-terminal status → builder가 i.closedAt을 null로 클리어 (재오픈 케이스).
-        # None + terminal status     → 기존 i.closedAt 보존 (구버전 호환).
+        # pipeline-worker는 status_category가 closed일 때만 closed_at을 보낸다.
+        # None + non-closed category → builder가 i.closedAt을 null로 클리어 (재오픈 케이스).
+        # None + closed category     → 기존 i.closedAt 보존 (구버전 호환).
         closed_at=props.get("closed_at"),
-        source=source,
         actor_uuid=resolved["uuid"],
         embedding=embedding,
     )
 
-    # Layer 2: Jira parent → CHILD_OF
-    if refs.get("parentIssueKey"):
-        await builder.link_issue_to_parent(project_id, props["issue_key"], refs["parentIssueKey"])
+    # 텍스트 링크가 먼저 도착해 만든 __stub__ Issue가 있으면 이 실노드로 흡수한다.
+    # stub은 issue_key(사람용 키)로만 찾을 수 있으므로 issue_key가 없으면 흡수할 stub도 없다.
+    if issue_key:
+        await builder.absorb_issue_stub(project_id, source, external_id, issue_key)
 
-    # Layer 2: Jira assignee → ASSIGNED_TO
+    # Layer 2: Jira parent → CHILD_OF
+    parent_external_id = refs.get("parentExternalId")
+    if parent_external_id:
+        await builder.link_issue_to_parent(
+            project_id, source, external_id, parent_external_id, refs.get("parentIssueKey"),
+        )
+
+    # Layer 2: Jira assignees → ASSIGNED_TO
     # 담당자도 작성자와 동일하게 resolve_actor를 거쳐 Actor로 승격한다 (이름 문자열을
-    # Issue 속성에 저장하지 않기 위함). 이미 아는 담당자면 Step 0 alias 조회로 끝나 LLM 비용이 없다.
-    if refs.get("assigneeId"):
-        assignee_actor = {
-            "id": refs["assigneeId"],
-            "name": refs.get("assigneeName"),
-            "email": refs.get("assigneeEmail"),
-        }
-        assigned = await resolve_actor(assignee_actor, source, make_neo4j_actor_store(project_id), event)
-        await builder.link_issue_to_assignee(project_id, props["issue_key"], assigned["uuid"])
-    else:
-        # 이슈 이벤트는 최신 스냅샷이므로 assigneeId가 없다는 건 담당자가 해제됐다는 뜻이다.
-        # 이 분기는 handle()에서 nodeType == "Issue"일 때만 타는 _handle_issue 안에 있으므로,
-        # 이슈를 참조만 하는 다른 이벤트(코멘트 등)가 잘못 해제를 트리거할 일은 없다.
-        await builder.unlink_issue_assignees(project_id, props["issue_key"])
+    # Issue 속성에 저장하지 않기 위함). 순차 처리는 작성자 resolve와 같은 이유(Actor MERGE
+    # 경합 회피) — consumer가 project 단위로 직렬 처리되므로 순차라도 병목이 되지 않는다.
+    # 이슈 이벤트는 최신 스냅샷이므로 refs.assignees가 없거나 비어 있으면 담당자 전원 해제다.
+    assignee_uuids = []
+    for assignee in refs.get("assignees") or []:
+        assigned = await resolve_actor(
+            {"id": assignee.get("id"), "name": assignee.get("name"), "email": assignee.get("email")},
+            source, make_neo4j_actor_store(project_id), event,
+        )
+        assignee_uuids.append(assigned["uuid"])
+    await builder.set_issue_assignees(project_id, source, external_id, assignee_uuids)
 
 
 async def _handle_communication(event: dict) -> None:

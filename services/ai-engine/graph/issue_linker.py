@@ -28,6 +28,7 @@ from typing import Awaitable, Callable
 import numpy as np
 
 from graph.embedder import embed_batch, similarity_matrix
+from graph.writes import STATUS_CATEGORY_CLOSED
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +72,6 @@ ISSUE_POST_BUFFER_DAYS = 3                         # closedAt 이후 허용 (마
 DISCUSSED_IN_PRE_BUFFER_DAYS  = 4
 DISCUSSED_IN_POST_BUFFER_DAYS = 3
 
-TERMINAL_STATUSES = {"완료", "Done", "Closed", "Resolved", "해결됨"}
-
 
 def _compute_issue_window(
     issue: dict,
@@ -83,21 +82,21 @@ def _compute_issue_window(
 
     start: createdAt(or occurredAt) - pre_days
     end:   closedAt + post_days  (closedAt이 명시되어 있을 때)
-           or occurredAt + post_days  (status가 terminal일 때 fallback)
+           or occurredAt + post_days  (status_category가 closed일 때 fallback)
            or now (그 외 — 진행 중인 이슈)
 
     버퍼는 호출자가 정한다 — 커밋과 대화는 이슈 생애 대비 분포가 다르다 (위 상수 참고).
     """
-    occurred = issue["occurred_at"]
-    created  = issue.get("created_at") or occurred
-    closed   = issue.get("closed_at")
-    status   = issue.get("status")
+    occurred        = issue["occurred_at"]
+    created         = issue.get("created_at") or occurred
+    closed          = issue.get("closed_at")
+    status_category = issue.get("status_category")
 
     start = created - timedelta(days=pre_days)
 
     if closed is not None:
         end = closed + timedelta(days=post_days)
-    elif status in TERMINAL_STATUSES:
+    elif status_category == STATUS_CATEGORY_CLOSED:
         # pipeline-worker가 closedAt을 아직 안 보내는 경우 fallback
         end = occurred + timedelta(days=post_days)
     else:
@@ -114,7 +113,8 @@ class IssueLinkStore:
     fetch_issue_embeddings: Callable[[], Awaitable[list[dict]]]
     """embedding이 있는 모든 Issue 노드 반환.
     Returns:
-        [{"project_id": str, "id": str (issue_key), "embedding": list[float], "occurred_at": datetime}, ...]
+        [{"project_id": str, "id": str (복합 식별자 "{SOURCE}:{external_id}", 불투명 문자열 —
+          ActorAlias source_id 관례와 동일), "embedding": list[float], "occurred_at": datetime}, ...]
     """
 
     fetch_modified_embeddings: Callable[[], Awaitable[list[dict]]]
@@ -136,7 +136,7 @@ class IssueLinkStore:
     Args:
         project_id:   프로젝트 UUID (노드 매칭 스코프)
         changeset_id: ChangeSet hash
-        issue_key:     Issue issue_key
+        issue_key:     Issue의 복합 id (fetch_issue_embeddings가 준 값을 그대로 되돌려준다)
         confidence:   코사인 유사도 (0~1)
     """
 
@@ -144,7 +144,7 @@ class IssueLinkStore:
     """DISCUSSED_IN 엣지 생성 또는 갱신.
     Args:
         project_id: 프로젝트 UUID (노드 매칭 스코프)
-        issue_key: Issue issue_key
+        issue_key: Issue의 복합 id (fetch_issue_embeddings가 준 값을 그대로 되돌려준다)
         comm_url: Communication url
         confidence: 코사인 유사도 (0~1)
     """
@@ -164,14 +164,14 @@ class IssueLinkStore:
     Args:
         force: True면 embedding이 이미 있는 노드까지 전부 반환 (모델 교체 시 전량 재임베딩)
     Returns:
-        [{"project_id": str, "id": str (issue_key), "title": str, "body": str}, ...]
+        [{"project_id": str, "id": str (복합 식별자 "{SOURCE}:{external_id}"), "title": str, "body": str}, ...]
     """
 
     save_issue_embedding: Callable[[str, str, list[float]], Awaitable[None]]
     """Issue 노드에 embedding 저장.
     Args:
         project_id: 프로젝트 UUID
-        issue_key:   Issue issue_key
+        issue_key:   Issue의 복합 id (fetch_unembedded_issues가 준 값을 그대로 되돌려준다)
         embedding:  임베딩 벡터
     """
 

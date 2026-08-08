@@ -125,11 +125,12 @@ class ReferenceFilteredTest(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(store.created[0][3], 0.95, places=5)
 
 
-def _issue(issue_key, embedding, project_id="p1", occurred_at=NOW):
+def _issue(issue_id, embedding, project_id="p1", occurred_at=NOW):
+    """issue_id는 복합 id("{SOURCE}:{external_id}") 형태 — 링커/검수기는 이를 불투명하게만 다룬다."""
     return {
-        "project_id": project_id, "id": issue_key, "title": f"{issue_key} 제목",
-        "body": f"{issue_key} 본문", "embedding": embedding, "occurred_at": occurred_at,
-        "created_at": occurred_at, "closed_at": None, "status": "진행 중",
+        "project_id": project_id, "id": issue_id, "title": f"{issue_id} 제목",
+        "body": f"{issue_id} 본문", "embedding": embedding, "occurred_at": occurred_at,
+        "created_at": occurred_at, "closed_at": None, "status_category": "open",
     }
 
 
@@ -171,7 +172,7 @@ class TriggeredByVerifiedTest(unittest.IsolatedAsyncioTestCase):
         """
         from graph import issue_verifier
         store = _FakeIssueStore(
-            [_issue("HT-1", _vec(1.0))],
+            [_issue("JIRA:HT-1", _vec(1.0))],
             [_modified("c1", "a.py", _vec(0.35))],
             messages=[_message_row("c1", _vec(0.40), "fix: 세션 만료 처리")],
         )
@@ -190,7 +191,7 @@ class TriggeredByVerifiedTest(unittest.IsolatedAsyncioTestCase):
         """커밋당 top-1 — 두 이슈가 모두 통과하면 LLM confidence가 높은 쪽만 남는다."""
         from graph import issue_verifier
         store = _FakeIssueStore(
-            [_issue("HT-1", _vec(1.0)), _issue("HT-2", _vec(0.99))],
+            [_issue("JIRA:HT-1", _vec(1.0)), _issue("JIRA:HT-2", _vec(0.99))],
             [_modified("c1", "a.py", _vec(0.9))],
         )
         with patch.object(issue_verifier, "judge_pair", _judge([0.75, 0.95])):
@@ -198,7 +199,7 @@ class TriggeredByVerifiedTest(unittest.IsolatedAsyncioTestCase):
                 store.as_store(), threshold=0.30, top_k=5, llm_threshold=0.7, message_mode="off",
             )
         self.assertEqual(created, 1)
-        self.assertEqual(store.triggered[0][2], "HT-2")
+        self.assertEqual(store.triggered[0][2], "JIRA:HT-2")
         self.assertEqual(store.triggered[0][3], 0.95)
 
 
@@ -208,7 +209,7 @@ class DiscussedInFilteredTest(unittest.IsolatedAsyncioTestCase):
     async def test_only_judges_embedding_selected_pairs(self):
         from graph import issue_verifier
         store = _FakeIssueStore(
-            [_issue("HT-1", _vec(1.0))], [],
+            [_issue("JIRA:HT-1", _vec(1.0))], [],
             comms=[_comm("m1", _vec(0.9)), _comm("m2", _vec(0.2))],
         )
         judge = _judge([0.9])
@@ -221,7 +222,7 @@ class DiscussedInFilteredTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_removes_pair_when_llm_rejects(self):
         from graph import issue_verifier
-        store = _FakeIssueStore([_issue("HT-1", _vec(1.0))], [], comms=[_comm("m1", _vec(0.9))])
+        store = _FakeIssueStore([_issue("JIRA:HT-1", _vec(1.0))], [], comms=[_comm("m1", _vec(0.9))])
         with patch.object(issue_verifier, "judge_pair", _judge([0.3])):
             created = await issue_verifier.build_issue_communication_links_filtered(
                 store.as_store(), threshold=0.40, llm_threshold=0.7,
@@ -232,7 +233,7 @@ class DiscussedInFilteredTest(unittest.IsolatedAsyncioTestCase):
     async def test_keeps_pair_when_judgement_skipped(self):
         """일시 오류로 판정 못 한 엣지는 남긴다 — 장애가 골든 엣지를 지우면 안 된다."""
         from graph import issue_verifier
-        store = _FakeIssueStore([_issue("HT-1", _vec(1.0))], [], comms=[_comm("m1", _vec(0.9))])
+        store = _FakeIssueStore([_issue("JIRA:HT-1", _vec(1.0))], [], comms=[_comm("m1", _vec(0.9))])
         with patch.object(issue_verifier, "judge_pair", _judge([None])):
             created = await issue_verifier.build_issue_communication_links_filtered(
                 store.as_store(), threshold=0.40, llm_threshold=0.7,

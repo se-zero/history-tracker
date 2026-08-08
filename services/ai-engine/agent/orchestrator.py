@@ -174,7 +174,7 @@ GitHub(커밋, PR), Jira(이슈), Slack(메시지) 데이터가 Neo4j 지식 그
 [그래프 타임스탬프 의미 사전 — 필드명을 추정으로 해석하지 말 것]
 - Issue.occurredAt   = 이슈 최종 업데이트 시각  (event_meaning = issue_updated)
 - Issue.createdAt    = 이슈 생성 시각          (event_meaning = issue_created)
-- Issue.closedAt     = 이슈 종료 시각          (event_meaning = issue_closed; status가 완료/Done/Closed/Resolved일 때만 존재)
+- Issue.closedAt     = 이슈 종료 시각          (event_meaning = issue_closed; status_category가 'closed'일 때만 존재)
 - ChangeSet.occurredAt    = commit 시각        (event_meaning = commit_authored)
 - PullRequest.occurredAt  = 머지 시각          (event_meaning = pr_merged; open PR은 null)
 - PullRequest.createdAt   = PR 생성 시각       (event_meaning = pr_opened)
@@ -252,7 +252,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - **"이 이슈/작업이 얼마 동안 진행됐어" 류 기간 질문은 scope.created_at ~ scope.closed_at으로
   답한다.** 이건 이슈 노드의 생애 속성이라 잘림과 무관한 권위값이다. events 목록의 처음·마지막
   시각으로 기간을 계산하지 말 것 — 이벤트는 잘릴 수 있고, 자식 이슈·커밋 활동이 섞여 있다.
-  closed_at이 null이면 아직 진행 중(status 참고).
+  closed_at이 null이면 아직 진행 중(status_category 참고).
 - 반환은 {scope, window, total_events, events, truncated} 구조다.
   - events[*].event_meaning을 그대로 쓴다 (시각만 보고 추정 금지).
   - occurredAt은 전부 UTC로 정규화돼 있다.
@@ -316,8 +316,8 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - **전용 도구가 있는 질문에 쓰지 말 것.** 이슈·커밋·PR·스레드·파일이력·사람활동·시간순·
   이슈랭킹·키워드탐색은 전부 전용 도구가 있고, Cypher로 대체하면 인용할 본문이 빠져 답이
   나빠진다.
-- 값으로 거르기 전에 describe_graph로 **실제 값**을 확인한다(완료 상태가 'Done'인지 '완료'인지는
-  프로젝트마다 다르다).
+- 값으로 거르기 전에 describe_graph로 **실제 값**을 확인한다(status 원문 값이 'Done'인지 '완료'인지는
+  프로젝트마다 다르다 — 단, 이슈 종료 판정은 describe_graph 없이 status_category로 바로 거른다).
 - 결과 행은 개요다. 인용할 항목은 식별자(hash·pr_number·issue_key·conversation_id)로 상세
   도구를 호출해 본문을 얻은 뒤 인용한다 — 행에 본문이 없으면 quote를 지어내지 말 것.
 - 질의당 최대 __MAX_GQ__회까지만 호출할 수 있다.
