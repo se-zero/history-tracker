@@ -40,7 +40,7 @@ backend의 연동 관리 계층이다.
 | 아키타입 | 레퍼런스 | 신규 | nodeType | 연결 플로우 |
 |----------|---------|------|----------|------------|
 | 이슈 트래커 | Jira | Linear, Asana, monday, ClickUp | `Issue` (기존) | OAuth → 대상 선택 (provider마다 1~4단) |
-| 대화 | Slack | Teams, Google Chat, Discord | `Communication` (기존) | OAuth/봇 설치 → 즉시 확정 |
+| 대화 | Slack | Teams, Google Chat, Discord | `Communication` (기존) | provider마다 갈린다 — Slack·Discord는 동의 즉시 확정, Teams는 1단 선택(§3-2 조사 결과) |
 | 문서 | — | Notion | `Document` (**신규**) | OAuth → 즉시 확정 |
 
 함의: **Notion만 ai-engine 신규 작업이 크고, 나머지 7개는 pipeline-worker 커넥터 +
@@ -144,6 +144,11 @@ public interface SourceCollector {
 
 대화 3종(Teams·Google Chat·Discord)도 1단 선택(팀/스페이스/길드)이 필요해 보이지만 권위 있는 문서로
 확인하지 못했다 — 같은 메커니즘을 재사용할 수 있는지는 해당 커넥터 착수 전에 확인한다.
+**→ Teams·Discord 확인 완료.** Teams는 `/me/joinedTeams` 기반 **1단(team) 선택**으로 A4 메커니즘을
+그대로 재사용한다(`docs/teams-integration.md`). Discord는 반대로 **선택 단계가 없다** — 자기 동의
+화면에서 서버를 고르게 하고 콜백/토큰 응답으로 길드를 알려주므로 Slack형이다
+(`docs/discord-integration.md`). 즉 대화 3종이 한 모양이 아니며, 나머지 Google Chat은 여전히
+착수 전 확인 대상이다.
 Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없다.
 - **토큰 갱신 일반화**: `JiraTokenService`를 provider별 갱신 정책(만료 여부·refresh 회전
   여부)을 선언하는 형태로 확장. Teams/Google Chat은 Jira처럼 만료+갱신형,
@@ -227,6 +232,20 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 A4가 이 단계의 핵심이다 — 이슈 트래커 4종이 **전부** 이 경로를 지나므로, 여기가 provider별로 갈리면
 담당자 4명이 같은 자리를 각자 고치게 된다.
 
+#### A8 (추가 발견, 2026-08-08) — `ProviderCredentialLifecycle.revoke`가 external_ref를 못 받는다
+
+Part A의 완료 판정 기준은 "커넥터 담당자가 공용 코드를 고치지 않고 자기 provider 파일만 추가하면
+되는 상태"인데, Discord 조사에서 이 기준을 깨는 구멍이 하나 나왔다.
+
+현재 시그니처는 `revoke(byte[] encryptedCredential)`로 자격증명만 받는다. Slack(`auth.revoke`)과
+Jira(refresh token 폐기)는 이걸로 충분했지만, **Discord의 의미 있는 폐기는 "봇이 서버를 떠나는 것"**
+(`DELETE /users/@me/guilds/{guild_id}`)이라 `external_ref.guild_id`가 필요하다. 즉 Discord는 폐기에
+수집 대상 참조가 필요한 첫 provider다. 그냥 두면 연동을 해제해도 **봇이 사용자 서버에 남는다.**
+
+`revoke(byte[] encryptedCredential, Map<String, Object> externalRef)`로 넓힌다. 기존 두 구현체는 새
+인자를 무시하면 되고 호출부는 이미 연동 행을 들고 있어 추가 조회가 필요 없다. **Discord 커넥터 PR과
+분리한 선행 PR로 처리한다** — 상세 근거는 `docs/discord-integration.md` §2.
+
 ### Part B — 커넥터별 구현 (팀원 분담, 커넥터당 1 PR)
 
 Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없이 병렬로 진행한다.
@@ -237,12 +256,27 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
 | 이슈 트래커 | Linear · Asana · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
-| 대화 | MS Teams · Google Chat · Discord | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
+| 대화 | **Discord** · MS Teams · Google Chat | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
 | 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.
-backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대화 아키타입 1호 자리다.
+
+**대화 아키타입 1호는 Discord다** (2026-08-08 결정). 원래 MS Teams 자리였고 빈 `teams` 디렉터리도
+그래서 만들어 뒀지만, 조사 결과 Teams Graph API는 **유료 조직 테넌트 라이선스 + 테넌트 관리자 동의**를
+개발자와 최종 사용자 양쪽에 요구한다(개인 계정은 우회 불가 — `docs/teams-integration.md` §1-0의 실측).
+아키타입이 성립하는지를 증명하는 데 그 비용을 먼저 치를 이유가 없다. Discord는 서버 생성·봇 등록이
+무료이고 관리자 동의 절차가 없다. Teams는 계획 문서가 이미 완성돼 있으므로 라이선스가 확보되는 대로
+2호로 착수한다.
+
+**단, Discord가 검증하는 범위는 처음 생각과 다르다**(`docs/discord-integration.md` 조사 결과).
+Discord는 자기 동의 화면에서 서버를 고르게 해 **선택 단계가 아예 없으므로**(Slack형),
+"대화형에서도 A4 다단 선택이 통하는가"는 Discord로 확인되지 않는다 — 그 검증은 Teams(1단 team)나
+Google Chat 몫으로 남는다. Discord가 실제로 검증하는 것은 ① 대화 아키타입이 Slack 외 소스로도
+성립하는가 ② **비만료형 provider의 404 경로**(봇 토큰은 만료되지 않아 `AccessTokenRefresher`를
+만들지 않는다 — Slack의 조용한 204 사건 이후 만든 안전망을 두 번째 provider로 확인) ③ 앱 수준 봇 +
+프로젝트별 설치 대상이라는 GitHub App형 자격증명 모델이 OAuth 프레임워크에 얹히는가, 셋이다.
+③에서 공용 SPI의 구멍이 하나 드러났다 — 위 Part A의 「A8」 참고.
 
 각 단계마다 대응 문서(data-collection.md, DB.md, graph-schema.md, 각 CLAUDE.md) 동반 갱신이 필요하다.
 
