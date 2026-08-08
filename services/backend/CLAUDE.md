@@ -60,7 +60,7 @@ provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지�
 | SPI | 책임 | 구현하는 provider |
 |-----|------|------------------|
 | `OAuthConnectFlow` | 동의 URL 조립, code → `OAuthConnection`(자격증명 평문 + 수집 대상 참조) 교환 | OAuth로 붙는 전부 |
-| `ProviderCredentialLifecycle` | 연동 해제 시 자격증명 폐기(`revoke`) | 원격 폐기 수단이 있는 provider |
+| `ProviderCredentialLifecycle` | 연동 해제 시 자격증명 폐기(`revoke(encryptedCredential, externalRef)`) | 원격 폐기 수단이 있는 provider |
 | `AccessTokenRefresher` | 만료 임박 access token 갱신(`ensureFreshAccessToken`) | **만료되는 토큰을 쓰는 provider만** |
 | `IntegrationSelectionFlow` | 동의 후 "무엇을 수집할지" 고르는 **단계 선언**과 단계별 후보 조회 | 선택 단계가 있는 provider만 |
 

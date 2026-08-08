@@ -1,5 +1,7 @@
 package com.history.backend.integration.service;
 
+import java.util.Map;
+
 import com.history.backend.integration.domain.IntegrationProvider;
 
 /**
@@ -18,9 +20,14 @@ public interface ProviderCredentialLifecycle {
     /**
      * 연동 해제 시 provider 쪽 권한 폐기.
      *
+     * <p>{@code externalRef}는 자격증명만으로 폐기가 안 되는 provider를 위해 받는다 — 예를 들어
+     * Discord의 의미 있는 폐기는 "봇이 서버를 떠나는 것"({@code DELETE /users/@me/guilds/{guild_id}})이라
+     * {@code external_ref.guild_id}가 필요하다. Slack·Jira처럼 자격증명만으로 충분한 provider는
+     * 이 인자를 무시하면 된다.</p>
+     *
      * <p>실패는 구현이 삼킨다 — 이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를
      * 지울 방법을 잃는다.</p>
      */
-    default void revoke(byte[] encryptedCredential) {
+    default void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
     }
 }

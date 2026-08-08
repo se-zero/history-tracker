@@ -469,7 +469,7 @@ public class IntegrationService {
         if (encryptedCredential == null) {
             return;
         }
-        credentialLifecycles.get(provider).revoke(encryptedCredential);
+        credentialLifecycles.get(provider).revoke(encryptedCredential, integration.getExternalRef());
     }
 
     // 프로젝트당 provider별 1개 연동 제한 검증

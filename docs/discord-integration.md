@@ -37,7 +37,7 @@ MS Teams를 1호에서 밀어낸 이유는 비용이다(유료 조직 테넌트 
 | 수집 주체 | **앱 수준 봇 토큰** (`Authorization: Bot {token}`) | 사용자 OAuth 토큰으로는 REST 메시지 히스토리를 못 읽는다. `messages.read` scope는 로컬 RPC 전용 |
 | 행 자격증명 | 사용자 OAuth 토큰 JSON(`access_token`·`refresh_token`·`expires_at`) | V12 제약(`그 외 → encrypted_credential 필수`)을 만족시키면서, 해제 시 grant 폐기에 실제로 쓰인다 |
 | 토큰 갱신 | `AccessTokenRefresher` **미구현** | 봇 토큰은 만료되지 않는다. 수집이 사용자 토큰에 의존하지 않으므로 갱신할 이유가 없다 |
-| 원격 폐기 | `ProviderCredentialLifecycle` **구현** — 봇이 서버를 떠난다 | 해제 후 봇이 남으면 사용자 서버에 방치된다. **단 SPI 시그니처 확장이 필요하다(§2)** |
+| 원격 폐기 | `ProviderCredentialLifecycle` **구현** — 봇이 서버를 떠난다 | 해제 후 봇이 남으면 사용자 서버에 방치된다. SPI 시그니처 확장을 선행 완료했다(§2) |
 | 증분 | snowflake `after` 커서 — checkpoint의 `Instant`를 snowflake로 변환 | checkpoint 저장소 계약(`Instant`)을 건드리지 않는다 |
 | 필수 게이트 | **MESSAGE_CONTENT privileged intent** | REST에도 적용된다 — 켜지 않으면 `content`가 **빈 문자열**로 온다. 100서버 미만은 포털에서 자기 승인 |
 | 개인정보 | `actor.email`을 **못 얻는다** | 봇은 타인의 이메일에 접근할 수 없다(`email` scope는 자기 자신만). 동일인 판단이 이름에만 의존 |
@@ -65,9 +65,9 @@ MS Teams를 1호에서 밀어낸 이유는 비용이다(유료 조직 테넌트 
 봇을 서버에 넣는 것은 사용자가 동의 화면에서 하므로, 개발자가 미리 준비할 것은 위가 전부다.
 테스트용 서버는 Discord 클라이언트에서 무료로 만들면 된다.
 
-## 2. 선행 상의 — `ProviderCredentialLifecycle.revoke`가 external_ref를 못 받는다
+## 2. 선행 작업 — `ProviderCredentialLifecycle.revoke`가 external_ref를 못 받았다 (✅ 완료, 2026-08-08)
 
-현재 시그니처는 자격증명만 받는다.
+시그니처가 자격증명만 받았다.
 
 ```java
 default void revoke(byte[] encryptedCredential) {}
@@ -75,19 +75,15 @@ default void revoke(byte[] encryptedCredential) {}
 
 Slack(`auth.revoke`)과 Jira(refresh token 폐기)는 자격증명만으로 폐기가 끝나서 이 모양으로 충분했다.
 **Discord의 의미 있는 폐기는 "봇이 서버를 떠나는 것"**(`DELETE /users/@me/guilds/{guild_id}`,
-봇 토큰으로 호출)인데, 여기엔 `external_ref.guild_id`가 필요하다. 즉 Discord는 **폐기에 수집 대상
-참조가 필요한 첫 provider**다.
+봇 토큰으로 호출)인데, 여기엔 `external_ref.guild_id`가 필요했다. 즉 Discord는 **폐기에 수집 대상
+참조가 필요한 첫 provider**였다. 그냥 두면 연동을 해제해도 봇이 사용자 서버에 그대로 남는 문제였다.
 
-이걸 그냥 넘기면 연동을 해제해도 **봇이 사용자 서버에 그대로 남는다.** 화면에서는 연동이 사라졌는데
-서버 멤버 목록에는 우리 봇이 계속 보이고, 재연결 시 권한도 남아 있다. 조용히 이상해지는 종류의
-문제라 피해야 한다.
-
-- **권장**: `revoke(byte[] encryptedCredential, Map<String, Object> externalRef)`로 시그니처를 넓힌다.
-  기존 두 구현체는 새 인자를 무시하면 되고, 호출부(`IntegrationService`)는 이미 연동 행을 들고 있어
-  전달에 추가 조회가 필요 없다. 공용 코드 변경이라 **커넥터 PR과 분리한 선행 PR로 처리한다.**
-- **대안**(공용 변경 0): 자격증명 JSON에 `guild_id`를 함께 담는다. `OAuthConnection`의 계약상
-  "형태는 provider가 정한다"이므로 규약 위반은 아니지만, external_ref와 같은 값을 두 곳에 두게 되어
-  둘이 어긋날 여지가 생긴다.
+**처리 내용**: `revoke(byte[] encryptedCredential, Map<String, Object> externalRef)`로 시그니처를
+넓혔다. 기존 두 구현체(`SlackCredentialLifecycle`·`JiraCredentialLifecycle`)는 새 인자를 무시하도록
+수정했고, 호출부(`IntegrationService.revokeProviderAccess`)는 이미 들고 있는 연동 행에서
+`integration.getExternalRef()`를 그대로 전달하도록 고쳐 추가 조회가 필요 없었다. `./gradlew test`
+전체 그린(Testcontainers 스키마 검증 포함). Discord 커넥터 PR과 분리한 선행 PR로 처리했다 —
+`docs/integration-abstraction.md`의 A8 항목도 함께 완료 표시했다.
 
 **Teams 문서 §2(webhook 토큰 확보 일반화)는 Discord에 필요 없다.** 현재 코드는 Jira만 특별 취급하고
 나머지 provider는 그냥 지나가므로, 갱신이 없는 Discord는 지금 구조에서도 정상 동작한다.
@@ -106,8 +102,8 @@ Slack(`auth.revoke`)과 Jira(refresh token 폐기)는 자격증명만으로 폐�
   - `exchangeCode` — `POST /oauth2/token`(client_secret basic) → 응답에서 토큰과 **`guild` 객체**를
     꺼내 `OAuthConnection(자격증명 JSON, {guild_id, guild_name})`을 돌려준다.
     선택 단계가 없으므로 `pendingSelection`이 아니라 확정 형태다.
-    **`guild` 객체가 응답에 없으면 설계가 바뀐다 — 「구현 시 확인」 1번이 이 커넥터의 최대 리스크다.**
-- `DiscordCredentialLifecycle`(`ProviderCredentialLifecycle`) — §2 결론에 따라
+    **`guild` 객체가 응답에 오는 것은 실측 확정됐다** — 「확인 완료」 1번.
+- `DiscordCredentialLifecycle`(`ProviderCredentialLifecycle`) — §2에서 넓힌 시그니처로
   봇 길드 퇴장 + `POST /oauth2/token/revoke`(`token_type_hint=refresh_token`). 실패는 삼킨다.
 - `AccessTokenRefresher`·`IntegrationSelectionFlow`는 **만들지 않는다.**
   전자는 봇 토큰이 만료되지 않아서, 후자는 서버 선택이 Discord 동의 화면에서 끝나서다.
@@ -139,7 +135,10 @@ Optional<RawFetchRequest> resolveFetchRequest(IntegrationRow integration) {
 GET /guilds/{guild_id}/channels                 # 텍스트 채널 (type 0·5) 필터
 GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도 채널이다)
 채널·스레드별:
-  GET /channels/{id}/messages?after={snowflake(checkpoint)}&limit=100   # 페이지 순회
+  1회차: GET /channels/{id}/messages?after={snowflake(checkpoint)}&limit=100
+  반환 개수 == 100(가득 찬 페이지)이면:
+    반복: GET /channels/{id}/messages?before={직전 배치의 가장 오래된 id}&limit=100
+    가장 오래된 id ≤ checkpoint 이거나 반환 개수 < 100이 될 때까지
 → normalize → publish → 전 채널 최대 occurredAt으로 checkpoint 1회 갱신
 ```
 
@@ -147,13 +146,18 @@ GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도
   `(epochMilli - 1420070400000) << 22`(Discord epoch 2015-01-01)로 바꿔 `after`에 넣는다.
   덕분에 **checkpoint 저장소의 `Instant` 계약을 그대로 두고도 서버사이드 증분 필터가 된다** —
   Slack이 채널 히스토리를 끝까지 훑던 문제가 여기서는 발생하지 않는다.
+- **`after` 페이지네이션은 항상 "가장 최신"부터 내림차순으로 채운다(실측 확정, 아래 참고).**
+  체크포인트 이후 새 메시지가 `limit`(최대 100)보다 많으면 **1회 호출로 전부 못 받는다** — 가장 최신
+  100개만 오고 체크포인트 바로 다음 구간은 비어 있다. `before`·`after`·`around`가 상호 배타적이라
+  한 호출에 섞을 수 없으므로, 가득 찬 페이지를 받으면 그 배치의 가장 오래된 id로 **`before`로 바꿔서**
+  체크포인트에 닿을 때까지 내려가야 한다. 위 수집 흐름의 2단계가 이 보정이다.
 - checkpoint: `discord/discord_messages` 단일 커서. Slack·Teams와 같은 이유로 채널을 가로질러
   마지막에 한 번만 전진시킨다.
 - 봇이 접근 권한(View Channel·Read Message History)을 갖지 못한 채널은 403이거나 빈 결과다.
   **채널 단위 실패는 삼키고 다음 채널로 넘어간다** — 한 채널의 권한 누락이 전체 수집을 막으면 안 된다.
   단 발행 예외는 삼키지 않는다(계약대로 checkpoint를 전진시키지 않아야 재발행된다).
 - 아카이브된 스레드(`GET /channels/{id}/threads/archived/public`)는 1차 범위에서 제외한다 —
-  활성 스레드만으로 시작하고, 누락이 문제가 되면 확장한다(「구현 시 확인」 4번).
+  활성 스레드만으로 시작하고, 누락이 문제가 되면 확장한다(「구현 시 확인」 1번).
 
 ### NormalizedEvent 매핑 (`docs/normalized-event.md` 계약)
 
@@ -232,20 +236,49 @@ Atlassian식 개인정보 보고 의무는 없다.
   봇이 못 보는 비공개 채널이 수집을 막지 않는지 → 해제 시 DISCORD 노드만 삭제되고 **봇이 서버에서
   나가는지** 확인.
 
-## 구현 시 확인 (미확정)
+## 확인 완료 (2026-08-08 실측)
 
-1. **`POST /oauth2/token` 응답에 `guild` 객체가 오는가** — 이 커넥터 설계의 전제다.
-   `bot` scope를 함께 요청하면 응답에 봇이 추가된 길드가 담기는 것으로 보이지만 실측이 필요하다.
-   오지 않는다면 `guild_id`는 **콜백 쿼리스트링**으로만 들어오는데, 현재 `OAuthConnectFlow.exchangeCode`는
-   `code`만 받으므로 **공용 시그니처 변경이 필요해진다**(§2와 같은 성격의 선행 상의 항목이 하나 더 생긴다).
-   가장 먼저 확인할 것.
-2. **`after` 페이지네이션의 정렬** — 목록은 기본적으로 최신→과거지만 `after`를 줬을 때 어느 쪽 끝부터
-   채워지는지 실측해 순회 방향을 정한다. 여기가 틀리면 증분이 조용히 일부만 수집한다.
-3. **redirect URI에 `http://localhost` 허용 여부** — 허용되면 Slack·Jira와 달리 로컬 개발에 터널이
-   필요 없다. 포털에서 등록해 보면 바로 안다.
-4. **아카이브 스레드 누락 범위** — 활성 스레드만 수집할 때 실제로 얼마나 놓치는지 보고, 크면
+1. **`POST /oauth2/token` 응답에 `guild` 객체가 온다 — 확정.** 실제 교환 응답:
+
+   ```json
+   {
+     "token_type": "Bearer",
+     "access_token": "...",
+     "expires_in": 604800,
+     "refresh_token": "...",
+     "scope": "identify",
+     "guild": { "id": "1535519139987456092", "name": "history_tracker님의 서버", "...": "..." }
+   }
+   ```
+
+   `guild.id`·`guild.name`이 그대로 온다. **`exchangeCode(String code)`는 code 하나만으로 충분하다** —
+   시그니처를 넓힐 필요가 없다(§2의 A8과 별개로, 이 항목 때문에 생길 뻔했던 두 번째 공용 변경은 없다).
+   덤으로 확인된 것: `scope`가 `identify` 하나뿐이다 — `bot` scope는 "봇을 서버에 추가"라는 부수효과로
+   소비되고 반환 토큰에는 안 남는다. §0에 적은 "행 자격증명은 identify 권한뿐이라 수집에 못 쓰고 해제
+   시 grant 폐기용으로만 남는다"는 설계가 실측으로 확인됐다.
+2. **redirect URI에 `http://localhost` 허용됨 — 확정.** 포털이 `http://localhost:8080/api/v1/integrations/discord/callback`
+   등록을 그대로 받았다. Slack·Jira와 달리 로컬 개발에 터널이 필요 없다.
+3. **MESSAGE_CONTENT 적용 확인 — 확정.** `GET /channels/{id}/messages`를 봇 토큰으로 호출한 실제 응답:
+   `type: 0`(일반 메시지) 세 건 모두 `content`에 실제 텍스트가 채워져 왔다. `type: 7`(멤버 가입 시스템
+   알림)만 `content`가 빈 문자열인데, 이는 인텐트 미적용이 아니라 시스템 메시지 자체가 본문이 없는
+   정상 동작이다 — §4 정규화 제외 규칙(`type`이 0·19가 아닌 것 제외)이 정확히 걸러야 할 사례다.
+
+   부수 발견: 사람이 자동완성 없이 그냥 타이핑한 `@이름`은 `mentions` 배열이 비고 `content`에도
+   평문 그대로 남는다(`<@id>` 형식이 아니다). 실제 Discord 멘션 기능을 쓴 경우만 `mentions`가 채워지고
+   `content`에 `<@1535516144784642048>` 같은 snowflake 형식이 들어간다. **멘션 치환은 `mentions`
+   배열이 비어있지 않을 때만 동작하면 된다** — 나머지 `@텍스트`는 이미 최종 형태라 손댈 필요 없다.
+
+4. **`after` 페이지네이션의 정렬 — 확정.** 체크포인트 id로 `after` 호출 시, 반환된 메시지는 전부
+   체크포인트보다 최신이었고(필터링 자체는 맞다), 순서는 **최신→과거 내림차순**이었다(오름차순 아님).
+   `limit`보다 적은 결과였어서 "100개 넘는 백로그"에서 최신 쪽만 잘려 오는지까지는 이 테스트로 직접
+   확인되지 않았지만, 이 정렬 방향과 Discord 문서의 커서 상호 배타 규칙을 근거로 §4 수집 흐름에
+   `before` 전환 로직을 반영했다.
+
+## 구현 시 확인 (미확정 — 제품 결정, 코드 착수를 막지 않는다)
+
+1. **아카이브 스레드 누락 범위** — 활성 스레드만 수집할 때 실제로 얼마나 놓치는지 보고, 크면
    `threads/archived/public`을 증분 대상에 넣는다.
-5. **포럼 채널(type 15)** — 각 포스트가 스레드인 구조라 별도 취급이 필요한지 확인. 팀이 포럼 채널을
+2. **포럼 채널(type 15)** — 각 포스트가 스레드인 구조라 별도 취급이 필요한지 확인. 팀이 포럼 채널을
    쓰지 않으면 범위 밖으로 둔다.
 
 ## 참고 (Discord Developer Docs, v10)

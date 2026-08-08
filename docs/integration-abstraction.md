@@ -232,19 +232,21 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 A4가 이 단계의 핵심이다 — 이슈 트래커 4종이 **전부** 이 경로를 지나므로, 여기가 provider별로 갈리면
 담당자 4명이 같은 자리를 각자 고치게 된다.
 
-#### A8 (추가 발견, 2026-08-08) — `ProviderCredentialLifecycle.revoke`가 external_ref를 못 받는다
+#### ~~A8~~ ✅ (추가 발견, 2026-08-08 발견 · 같은 날 완료) — `ProviderCredentialLifecycle.revoke`가 external_ref를 못 받았다
 
 Part A의 완료 판정 기준은 "커넥터 담당자가 공용 코드를 고치지 않고 자기 provider 파일만 추가하면
 되는 상태"인데, Discord 조사에서 이 기준을 깨는 구멍이 하나 나왔다.
 
-현재 시그니처는 `revoke(byte[] encryptedCredential)`로 자격증명만 받는다. Slack(`auth.revoke`)과
+시그니처가 `revoke(byte[] encryptedCredential)`로 자격증명만 받았다. Slack(`auth.revoke`)과
 Jira(refresh token 폐기)는 이걸로 충분했지만, **Discord의 의미 있는 폐기는 "봇이 서버를 떠나는 것"**
 (`DELETE /users/@me/guilds/{guild_id}`)이라 `external_ref.guild_id`가 필요하다. 즉 Discord는 폐기에
 수집 대상 참조가 필요한 첫 provider다. 그냥 두면 연동을 해제해도 **봇이 사용자 서버에 남는다.**
 
-`revoke(byte[] encryptedCredential, Map<String, Object> externalRef)`로 넓힌다. 기존 두 구현체는 새
-인자를 무시하면 되고 호출부는 이미 연동 행을 들고 있어 추가 조회가 필요 없다. **Discord 커넥터 PR과
-분리한 선행 PR로 처리한다** — 상세 근거는 `docs/discord-integration.md` §2.
+**→ 완료.** `revoke(byte[] encryptedCredential, Map<String, Object> externalRef)`로 넓혔다. 기존
+두 구현체(`SlackCredentialLifecycle`·`JiraCredentialLifecycle`)는 새 인자를 무시하도록 수정했고,
+호출부(`IntegrationService.revokeProviderAccess`)는 이미 들고 있는 연동 행에서 `integration.getExternalRef()`를
+그대로 전달한다 — 추가 조회가 필요 없었다. `./gradlew test` 전체 그린(Testcontainers 스키마 검증 포함).
+Discord 커넥터 PR과 분리한 선행 PR로 처리했다.
 
 ### Part B — 커넥터별 구현 (팀원 분담, 커넥터당 1 PR)
 
