@@ -131,6 +131,12 @@ services:
       ATLASSIAN_PDR_ENABLED: ${ATLASSIAN_PDR_ENABLED:-false}
       ATLASSIAN_PDR_CRON: ${ATLASSIAN_PDR_CRON:-0 30 3 * * *}
       ATLASSIAN_PDR_CYCLE_PERIOD: ${ATLASSIAN_PDR_CYCLE_PERIOD:-P7D}
+
+      # Discord App — infra/docker/.env 에서 forward. BOT_TOKEN은 pipeline-worker 블록에도 같은 값이 필요하다.
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy

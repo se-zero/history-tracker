@@ -7,6 +7,9 @@ ai-engine은 무변경이다(`Communication` 노드 재사용). 전체 순서는
 Discord Developer Docs 조사(2026-08, v10 기준)를 근거로 작성했다. 미확정 항목은 맨 아래
 「구현 시 확인」에 모았다.
 
+**진행 상황(2026-08-08)**: §3 backend 연결 완료(`./gradlew test` 536개 그린). §4 pipeline-worker
+수집·§5 web-dashboard 화면은 아직 시작 전이다.
+
 ## 이 커넥터가 검증하는 것 (1호로 고른 이유)
 
 MS Teams를 1호에서 밀어낸 이유는 비용이다(유료 조직 테넌트 + 관리자 동의 —
@@ -35,7 +38,7 @@ MS Teams를 1호에서 밀어낸 이유는 비용이다(유료 조직 테넌트 
 | API | Discord REST **v10** (`https://discord.com/api/v10`) | |
 | 연결 플로우 | OAuth2 `bot`+`identify` → **Discord 동의 화면에서 서버 선택** → 즉시 확정 | 선택 단계 없음(Slack형). `IntegrationSelectionFlow`를 만들지 않는다 |
 | 수집 주체 | **앱 수준 봇 토큰** (`Authorization: Bot {token}`) | 사용자 OAuth 토큰으로는 REST 메시지 히스토리를 못 읽는다. `messages.read` scope는 로컬 RPC 전용 |
-| 행 자격증명 | 사용자 OAuth 토큰 JSON(`access_token`·`refresh_token`·`expires_at`) | V12 제약(`그 외 → encrypted_credential 필수`)을 만족시키면서, 해제 시 grant 폐기에 실제로 쓰인다 |
+| 행 자격증명 | `refresh_token` **평문 문자열** (Slack형 — JSON 아님) | 구현 중 정리: `access_token`·`expires_at`은 어디서도 읽지 않는다(수집은 봇 토큰, 갱신기 없음) — YAGNI로 Jira식 JSON 코덱 없이 Slack처럼 단일 문자열만 저장한다. refresh token 하나로 V12 제약도 만족한다 |
 | 토큰 갱신 | `AccessTokenRefresher` **미구현** | 봇 토큰은 만료되지 않는다. 수집이 사용자 토큰에 의존하지 않으므로 갱신할 이유가 없다 |
 | 원격 폐기 | `ProviderCredentialLifecycle` **구현** — 봇이 서버를 떠난다 | 해제 후 봇이 남으면 사용자 서버에 방치된다. SPI 시그니처 확장을 선행 완료했다(§2) |
 | 증분 | snowflake `after` 커서 — checkpoint의 `Instant`를 snowflake로 변환 | checkpoint 저장소 계약(`Instant`)을 건드리지 않는다 |
@@ -89,27 +92,33 @@ Slack(`auth.revoke`)과 Jira(refresh token 폐기)는 자격증명만으로 폐�
 나머지 provider는 그냥 지나가므로, 갱신이 없는 Discord는 지금 구조에서도 정상 동작한다.
 그 일반화는 Teams·Google Chat 같은 만료 토큰형이 붙을 때 필요해진다.
 
-## 3. backend — 연결
+## 3. backend — 연결 (✅ 완료, 2026-08-08)
 
-`com.history.backend.discord` 패키지를 새로 만든다. SPI는 **둘만** 구현한다.
+`com.history.backend.discord` 패키지. SPI는 **둘만** 구현했다(`AccessTokenRefresher`·
+`IntegrationSelectionFlow`는 계획대로 만들지 않았다). `./gradlew test` 536개 전체 그린.
 
 - `IntegrationProvider.DISCORD("discord", "Discord")` 추가. DB 마이그레이션 불필요.
-- `DiscordProperties`(@ConfigurationProperties) + `application.yaml` 블록, `DiscordClient`
-  (code 교환, grant 폐기, 봇 길드 퇴장).
+- `DiscordProperties`(@ConfigurationProperties, `PropertiesConfig`의 `@EnableConfigurationProperties`
+  목록에 등록 — 빠뜨리면 `NoSuchBeanDefinitionException`으로 전체 컨텍스트 테스트가 죽는다) +
+  `application.yaml`(운영·테스트 양쪽) 블록, `DiscordClient`(code 교환, grant 폐기, 봇 길드 퇴장).
 - `DiscordOAuthConnectFlow`
-  - `buildAuthorizeUrl` — `https://discord.com/oauth2/authorize`에
-    `client_id`·`response_type=code`·`redirect_uri`·`scope=bot identify`·`permissions=66560`·`state`.
-  - `exchangeCode` — `POST /oauth2/token`(client_secret basic) → 응답에서 토큰과 **`guild` 객체**를
-    꺼내 `OAuthConnection(자격증명 JSON, {guild_id, guild_name})`을 돌려준다.
-    선택 단계가 없으므로 `pendingSelection`이 아니라 확정 형태다.
+  - `buildAuthorizeUrl` — `client_id`·`response_type=code`·`redirect_uri`·`scope=bot identify`·
+    `permissions=66560`·`state`. Jira 패턴대로 `UriComponentsBuilder.encode()`라 scope의 공백은
+    `%20`으로 인코딩된다(테스트로 고정).
+  - `exchangeCode` — `POST /oauth2/token`(client_secret basic, form) → 응답의 `refresh_token`과
+    **`guild` 객체**(`id`·`name`)를 꺼내 `OAuthConnection(refreshToken, {guild_id, guild_name})`을
+    돌려준다. 선택 단계가 없으므로 `pendingSelection`이 아니라 확정 형태다.
     **`guild` 객체가 응답에 오는 것은 실측 확정됐다** — 「확인 완료」 1번.
+  - `access_token`·`expires_at`은 어디서도 안 읽어 `DiscordTokenResponse`에 매핑하지 않았다
+    (YAGNI — 저장 자격증명은 §0에서 정리한 대로 `refresh_token` 평문 하나뿐이다).
 - `DiscordCredentialLifecycle`(`ProviderCredentialLifecycle`) — §2에서 넓힌 시그니처로
-  봇 길드 퇴장 + `POST /oauth2/token/revoke`(`token_type_hint=refresh_token`). 실패는 삼킨다.
-- `AccessTokenRefresher`·`IntegrationSelectionFlow`는 **만들지 않는다.**
-  전자는 봇 토큰이 만료되지 않아서, 후자는 서버 선택이 Discord 동의 화면에서 끝나서다.
-- `IntegrationResponse.displayName` switch에 `DISCORD` case — `selectionValue("guild_name")`.
+  `revokeToken(refreshToken)`(`POST /oauth2/token/revoke`) 후 `externalRef`에서 꺼낸 `guild_id`로
+  `leaveGuild`. `guild_id`가 없으면(이론상 도달하지 않지만 방어적으로) 퇴장은 건너뛰고 grant 폐기는
+  그대로 한다 — 단위 테스트로 두 분기 모두 고정.
+- `IntegrationResponse.displayName` switch에 `DISCORD` case — `externalRefValue("guild_name")`.
   단계가 하나뿐이라 상위 단계 병기는 없다.
-- 검증: `./gradlew test`
+- `IntegrationServiceTest`에 Slack·Jira 해제 테스트와 나란히 Discord 해제 테스트를 추가해
+  "폐기 → 길드 퇴장 → RDB 삭제" 순서와 A8의 `externalRef` 전달을 실제 lifecycle 구현으로 검증한다.
 
 ## 4. pipeline-worker — 수집
 

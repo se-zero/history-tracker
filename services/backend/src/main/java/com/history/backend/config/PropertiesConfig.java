@@ -2,6 +2,7 @@ package com.history.backend.config;
 
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.common.crypto.CredentialCryptoProperties;
+import com.history.backend.discord.DiscordProperties;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.jira.AtlassianPersonalDataReportProperties;
 import com.history.backend.jira.AtlassianProperties;
@@ -18,7 +19,8 @@ import org.springframework.context.annotation.Configuration;
         SlackProperties.class,
         AtlassianProperties.class,
         AtlassianPersonalDataReportProperties.class,
-        UserPurgeProperties.class
+        UserPurgeProperties.class,
+        DiscordProperties.class
 })
 public class PropertiesConfig {
 }

@@ -23,6 +23,9 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.discord.service.DiscordClient;
+import com.history.backend.discord.service.DiscordCredentialLifecycle;
+import com.history.backend.discord.service.DiscordOAuthConnectFlow;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
@@ -101,6 +104,9 @@ class IntegrationServiceTest {
 
     @Mock
     private JiraTokenService jiraTokenService;
+
+    @Mock
+    private DiscordClient discordClient;
 
     @Mock
     private PipelineWorkerClient pipelineWorkerClient;
@@ -795,6 +801,30 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("Discord 해제는 OAuth grant를 폐기하고 봇이 길드를 나간다 (A8: externalRef 전달 검증)")
+    void disconnectRevokesDiscordTokenAndLeavesGuild() {
+        IntegrationService service = service();
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.DISCORD,
+                Map.of(DiscordOAuthConnectFlow.GUILD_ID, "G1", DiscordOAuthConnectFlow.GUILD_NAME, "Acme"),
+                new byte[] {7, 8, 9});
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.DISCORD))
+                .thenReturn(Optional.of(integration));
+        when(credentialCryptoService.decrypt(new byte[] {7, 8, 9})).thenReturn("discord-refresh-token");
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.DISCORD);
+
+        // 폐기가 삭제보다 앞서야 한다 — 행을 먼저 지우면 폐기에 쓸 토큰이 사라진다
+        InOrder inOrder = inOrder(discordClient, integrationRepository);
+        inOrder.verify(discordClient).revokeToken("discord-refresh-token");
+        inOrder.verify(discordClient).leaveGuild("G1");
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
+    }
+
+    @Test
     @DisplayName("GitHub 해제는 폐기 호출이 없다 — App 설치는 계정 단위라 유지")
     void disconnectDoesNotRevokeForGitHub() {
         IntegrationService service = service();
@@ -1086,7 +1116,8 @@ class IntegrationServiceTest {
                 // 실제 lifecycle 구현을 물려 폐기 경로가 provider 클라이언트까지 닿는지 그대로 검증한다
                 new ProviderCredentialLifecycleRegistry(List.of(
                         new SlackCredentialLifecycle(slackClient, credentialCryptoService),
-                        new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec)
+                        new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec),
+                        new DiscordCredentialLifecycle(discordClient, credentialCryptoService)
                 )),
                 // 갱신은 별도 SPI다 — Slack은 폐기만 있고 갱신 등록이 없다
                 new AccessTokenRefresherRegistry(List.of(new JiraAccessTokenRefresher(jiraTokenService))),

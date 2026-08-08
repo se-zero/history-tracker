@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.history.backend.discord.service.DiscordOAuthConnectFlow;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.jira.service.JiraSelectionFlow;
@@ -58,6 +59,8 @@ public record IntegrationResponse(
             case JIRA -> joinNonBlank(
                     integration.externalRefValue(JiraSelectionFlow.SITE_NAME),
                     integration.isPendingSelection() ? null : jiraProjectLabel(integration));
+            // 선택 단계가 없다 — 동의 화면에서 고른 서버 이름이 곧 표시 이름이다
+            case DISCORD -> integration.externalRefValue(DiscordOAuthConnectFlow.GUILD_NAME);
         };
     }
 

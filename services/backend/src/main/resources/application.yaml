@@ -87,3 +87,18 @@ atlassian:
     cycle-period: ${ATLASSIAN_PDR_CYCLE_PERIOD:P7D}
     # 트레일링 슬래시는 스파이크에서 204로 검증된 실제 호출 형태
     report-url: ${ATLASSIAN_PDR_REPORT_URL:https://api.atlassian.com/app/report-accounts/}
+
+discord:
+  client-id: ${DISCORD_CLIENT_ID:}
+  client-secret: ${DISCORD_CLIENT_SECRET:}
+  redirect-uri: ${DISCORD_REDIRECT_URI:}
+  # 앱 전체가 공유하는 봇 토큰 — pipeline-worker에도 같은 값을 배포해야 한다(수집 주체가 봇이다).
+  bot-token: ${DISCORD_BOT_TOKEN:}
+  # bot(서버에 봇 추가) + identify(연동한 사용자 식별, 해제 시 grant 폐기에만 쓰인다)
+  scopes: "${DISCORD_SCOPES:bot identify}"
+  # View Channels(1024) + Read Message History(65536) — 최소 권한만 요청한다
+  permissions: ${DISCORD_PERMISSIONS:66560}
+  authorize-url: ${DISCORD_AUTHORIZE_URL:https://discord.com/oauth2/authorize}
+  token-url: ${DISCORD_TOKEN_URL:https://discord.com/api/v10/oauth2/token}
+  revoke-url: ${DISCORD_REVOKE_URL:https://discord.com/api/v10/oauth2/token/revoke}
+  api-base-url: ${DISCORD_API_BASE_URL:https://discord.com/api/v10}

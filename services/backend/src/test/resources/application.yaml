@@ -76,3 +76,15 @@ atlassian:
     cron: "0 30 3 * * *"
     cycle-period: P7D
     report-url: https://atlassian.test/app/report-accounts
+
+discord:
+  client-id: test-client-id
+  client-secret: test-client-secret
+  redirect-uri: https://discord.test/callback
+  bot-token: test-bot-token
+  scopes: "bot identify"
+  permissions: "66560"
+  authorize-url: https://discord.test/oauth2/authorize
+  token-url: https://discord.test/api/v10/oauth2/token
+  revoke-url: https://discord.test/api/v10/oauth2/token/revoke
+  api-base-url: https://discord.test/api/v10

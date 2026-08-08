@@ -14,6 +14,7 @@ class IntegrationProviderTest {
         assertThat(IntegrationProvider.GITHUB.displayName()).isEqualTo("GitHub");
         assertThat(IntegrationProvider.SLACK.displayName()).isEqualTo("Slack");
         assertThat(IntegrationProvider.JIRA.displayName()).isEqualTo("Jira");
+        assertThat(IntegrationProvider.DISCORD.displayName()).isEqualTo("Discord");
     }
 
     // provider 추가 시 displayName 누락 방지 가드

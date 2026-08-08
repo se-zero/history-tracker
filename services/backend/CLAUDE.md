@@ -10,7 +10,7 @@ cd services/backend
 
 ## 패키지 구조
 
-패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시한다. `jira`는 OAuth 클라이언트(동의 코드 교환·토큰 갱신·사이트/프로젝트 조회)와 provider 전략 구현을, `slack`은 연동 검증용 client와 provider 전략 구현을 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
+패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시한다. `jira`는 OAuth 클라이언트(동의 코드 교환·토큰 갱신·사이트/프로젝트 조회)와 provider 전략 구현을, `slack`은 연동 검증용 client와 provider 전략 구현을 둔다. `discord`는 OAuth 클라이언트(code 교환·grant 폐기·봇 길드 퇴장)와 provider 전략 구현을 둔다 — 수집은 앱 전체가 공유하는 봇 토큰으로 하고, 행에 저장하는 사용자 OAuth 토큰(refresh token만)은 해제 시 grant 폐기에만 쓰인다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
 
 `dto`에는 직렬화 경계 타입(프론트 요청·응답, ai-engine 클라이언트 DTO, opaque 커서)만 두고 필드에 도메인 엔티티를 노출하지 않는다(엔티티는 `from()` 매핑 파라미터로만 받는다). 도메인 엔티티를 필드로 담는 서비스 반환·중간 타입(예: `ConversationStart`, `ConversationPage`, `ConversationDetail`)은 `service`에 둔다.
 
@@ -80,8 +80,10 @@ provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지�
 암호화는 공용 코드가 한다). pending 여부도 flow가 신고하지 않고 `IntegrationSelectionFlow` 등록
 여부로 갈린다 — 두 SPI의 선언이 어긋나 영영 확정할 수 없는 행이 생기는 것을 막기 위함이다.
 
-해당 동작이 없는 provider는 **빈을 만들지 않으면 된다** — Slack은 폐기만 있고 갱신은 없어
+해당 동작이 없는 provider는 **빈을 만들지 않으면 된다** — Slack·Discord는 폐기만 있고 갱신은 없어
 `ProviderCredentialLifecycle`만, Jira는 둘 다 있어 양쪽 다, GitHub은 자격증명이 없어 어느 쪽도 없다.
+Discord의 `revoke`는 자격증명(refresh token)뿐 아니라 `externalRef`의 `guild_id`도 쓴다 — 봇이 길드를
+나가는 것이 실질적인 폐기라서다(A8로 시그니처를 넓힌 이유).
 
 라우트는 `{provider}` 하나로 합쳐져 있고 **기존 URL은 그대로 해석된다** —
 `/api/v1/integrations/slack/callback`은 Slack·Atlassian 앱에 등록된 redirect URI라 바꾸면 배포된 연동이 깨진다.
@@ -103,7 +105,10 @@ ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이�
 
 ### 공통 규칙
 
-- GitHub은 App installation, Slack·Jira는 OAuth 동의 흐름으로만 붙인다. **토큰을 사용자가 직접 입력하는 경로는 없다.**
+- GitHub은 App installation, Slack·Jira·Discord는 OAuth 동의 흐름으로만 붙인다. **토큰을 사용자가 직접 입력하는 경로는 없다.**
+  Discord만 예외적으로 수집 자체는 OAuth 토큰이 아니라 앱 전체가 공유하는 봇 토큰으로 한다(REST로 메시지
+  히스토리를 읽으려면 봇 토큰이 필요하다) — 행에 저장하는 사용자 OAuth 토큰(refresh token)은 해제 시
+  grant 폐기에만 쓰인다.
 - 선택 단계 API는 `GET .../integrations/{provider}/selection/steps`,
   `GET .../selection/options?step=&{앞 단계 키}=`, `POST .../selection`이다.
 - `POST /api/v1/projects`에 `github` 블록이 있으면 프로젝트 생성과 GitHub 연동을 **한 트랜잭션**으로 처리한다
