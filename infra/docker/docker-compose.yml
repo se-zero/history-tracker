@@ -170,6 +170,9 @@ services:
       # GitHub App settings의 Webhook secret과 동일한 값이어야 서명 검증이 통과한다.
       # 미설정 시 webhook만 동작하지 않고 초기 수집은 정상이라 필수(:?)로 두지 않는다.
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+
+      # backend와 동일한 값이어야 함 — 수집(이 worker)과 연동 해제 시 길드 퇴장(backend) 양쪽이 같은 봇이어야 한다.
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy

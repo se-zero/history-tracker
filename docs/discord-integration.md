@@ -7,8 +7,8 @@ ai-engine은 무변경이다(`Communication` 노드 재사용). 전체 순서는
 Discord Developer Docs 조사(2026-08, v10 기준)를 근거로 작성했다. 미확정 항목은 맨 아래
 「구현 시 확인」에 모았다.
 
-**진행 상황(2026-08-08)**: §3 backend 연결 완료(`./gradlew test` 536개 그린). §4 pipeline-worker
-수집·§5 web-dashboard 화면은 아직 시작 전이다.
+**진행 상황(2026-08-08)**: §3 backend 연결·§4 pipeline-worker 수집 완료(backend `./gradlew test` 536개,
+pipeline-worker `./gradlew test` 218개 전체 그린). §5 web-dashboard 화면만 남았다.
 
 ## 이 커넥터가 검증하는 것 (1호로 고른 이유)
 
@@ -120,10 +120,11 @@ Slack(`auth.revoke`)과 Jira(refresh token 폐기)는 자격증명만으로 폐�
 - `IntegrationServiceTest`에 Slack·Jira 해제 테스트와 나란히 Discord 해제 테스트를 추가해
   "폐기 → 길드 퇴장 → RDB 삭제" 순서와 A8의 `externalRef` 전달을 실제 lifecycle 구현으로 검증한다.
 
-## 4. pipeline-worker — 수집
+## 4. pipeline-worker — 수집 (✅ 완료, 2026-08-08)
 
 `source/discord` 패키지에 `DiscordCollector` · `DiscordRawService` · `DiscordNormalizer` ·
 `DiscordRateLimiter`. `CollectionProvider.DISCORD` 추가 외에 오케스트레이션 계층은 무변경이다.
+`./gradlew test` 218개 전체 그린(`PipelineWorkerApplicationTests` context load 포함).
 
 ### 자격증명 해석의 비대칭
 
@@ -135,8 +136,11 @@ Optional<RawFetchRequest> resolveFetchRequest(IntegrationRow integration) {
 }
 ```
 
-`AuthHeaders`는 Bearer 전용이므로 `bot(String)`을 **추가**한다(기존 동작 불변이라 안전한 추가다).
-행의 `encrypted_credential`을 복호화하지 않는 유일한 커넥터가 되므로, 위 주석으로 이유를 남긴다.
+`AuthHeaders`는 Bearer 전용이므로 `bot(String)`을 **추가**했다(기존 동작 불변이라 안전한 추가). 행의
+`encrypted_credential`을 복호화하지 않는 유일한 커넥터다 — `botToken`은 `DiscordCollector` 생성자가
+`@Value("${app.discord.bot-token}")`로 worker 자신의 설정에서 직접 받는다(DB 조회가 아니다).
+`DISCORD_BOT_TOKEN`은 backend·pipeline-worker 두 docker-compose 블록에 동일하게 forward한다 —
+backend는 해제 시 길드 퇴장에, worker는 수집에 쓴다.
 
 ### 수집 흐름
 
@@ -163,10 +167,16 @@ GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도
 - checkpoint: `discord/discord_messages` 단일 커서. Slack·Teams와 같은 이유로 채널을 가로질러
   마지막에 한 번만 전진시킨다.
 - 봇이 접근 권한(View Channel·Read Message History)을 갖지 못한 채널은 403이거나 빈 결과다.
-  **채널 단위 실패는 삼키고 다음 채널로 넘어간다** — 한 채널의 권한 누락이 전체 수집을 막으면 안 된다.
+  **채널 단위 실패는 삼키고 다음 채널로 넘어간다** — `DiscordCollector.collect`의 채널 루프가
+  `WebClientResponseException.Forbidden`을 잡아 그 채널만 건너뛴다(`DiscordRawService`는 예외를
+  그대로 던지기만 한다 — 삼킬지는 provider가 아니라 오케스트레이션 계층에 가까운 Collector가 정한다).
   단 발행 예외는 삼키지 않는다(계약대로 checkpoint를 전진시키지 않아야 재발행된다).
 - 아카이브된 스레드(`GET /channels/{id}/threads/archived/public`)는 1차 범위에서 제외한다 —
   활성 스레드만으로 시작하고, 누락이 문제가 되면 확장한다(「구현 시 확인」 1번).
+- **before 배치의 checkpoint 경계 필터링**: `after`로 받은 첫 페이지는 서버가 이미 checkpoint
+  이후만 걸러주지만, `before`로 이어받는 배치는 서버가 checkpoint를 모르므로 클라이언트가
+  `timestamp`로 직접 걸러낸다(`DiscordRawServiceTest`의 경계 테스트로 고정 — 페이지 안에 checkpoint
+  전후가 섞인 경우 120시간 전 체크포인트 예시로 정확히 갈리는지 확인했다).
 
 ### NormalizedEvent 매핑 (`docs/normalized-event.md` 계약)
 
@@ -174,7 +184,7 @@ GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도
 |-----------|-----------|------|
 | `source` | `DISCORD` | |
 | `properties.url` (자연키) | `https://discord.com/channels/{guild_id}/{channel_id}/{message_id}` | Discord는 URL 필드를 주지 않아 **조립**한다. 결정적이고 프로젝트 안에서 고유 |
-| `properties.body` | `content` | 이미 평문이다(Teams의 HTML 변환이 불필요). `<@123>` 멘션만 표시 이름으로 치환 |
+| `properties.body` | `content` | 이미 평문이다(Teams의 HTML 변환이 불필요). `<@\d+>`(실제 멘션)만 `mentions` 배열의 표시 이름으로 치환하고, `mentions`가 비어 있는 평문 `@이름`은 그대로 둔다 |
 | `properties.channel` | 채널 `name` (스레드면 스레드 `name`) | |
 | `properties.conversation_id` | 스레드 안 메시지면 스레드 채널 id / 답글(type 19)이면 `message_reference.message_id` / 그 외 자기 `id` | |
 | `properties.created_at` · `occurredAt` | `timestamp` | `edited_timestamp`는 커서를 되돌리지 않도록 쓰지 않는다 |
@@ -186,16 +196,16 @@ GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도
 정규화 제외: `author.bot == true`(봇·웹훅 메시지), 시스템 메시지(`type`이 0·19가 아닌 것).
 Slack normalizer의 관례와 같다.
 
-### Rate limit
+### Rate limit (구현 결과 — 계획 대비 단순화)
 
-`DiscordRateLimiter`는 두 층을 지킨다.
-
-- **전역**: 봇당 초당 50요청. 보수적으로 고정 딜레이를 깔고 시작한다.
-- **버킷별**: 라우트 rate limit이 최상위 리소스(여기서는 `channel_id`)별로 잡히므로, 채널을 순차
-  처리하는 현재 설계에서는 충돌이 적다. `X-RateLimit-Remaining`·`X-RateLimit-Reset-After`를 보고
-  남은 양이 적으면 대기한다.
-- **429**: 응답 본문 `retry_after`(초, 소수)와 `X-RateLimit-Scope`를 존중해 재시도한다.
-  GitHub 수집기의 `X-RateLimit-Reset` 대기와 같은 패턴이다.
+- **전역**: 호출마다 고정 딜레이(`app.rate-limit.discord.default-delay-ms`, 기본 250ms) — 봇당 초당
+  50요청 상한에 보수적인 여유를 둔다. GitHub처럼 `X-RateLimit-Remaining`을 읽어 적응적으로 늦추는
+  대신 Slack과 같은 고정 딜레이로 시작했다 — 채널을 순차 처리하는 현재 설계에서는 버킷 충돌이
+  드물어 헤더 기반 정교화의 이득이 크지 않다고 판단했다. 실사용에서 429가 잦아지면 그때 GitHub
+  패턴으로 옮긴다.
+- **429**: `WebClientResponseException.TooManyRequests`를 잡아 응답 본문의 `retry_after`(초, 소수)만큼
+  대기 후 재시도한다. 최대 3회까지 재시도하고 그래도 실패하면 예외를 전파한다(`DiscordRawServiceTest`로
+  재시도-성공 경로를 고정).
 
 ## 5. web-dashboard — 화면
 

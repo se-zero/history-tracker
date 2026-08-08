@@ -24,6 +24,7 @@ cd services/pipeline-worker
 | `source.github` | GitHub 자격증명 해석·수집·정규화·rate limit (`GitHubCollector`). |
 | `source.jira` | Jira 자격증명 해석·수집·정규화·rate limit (`JiraCollector`). |
 | `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). |
+| `source.discord` | Discord 수집·정규화·rate limit (`DiscordCollector`). 자격증명은 DB가 아니라 이 worker의 설정(`app.discord.bot-token`)에서 온다 — 수집 주체가 앱 전체 공유 봇이라서다. |
 | `normalizer` | 여러 source가 공유하는 정규화 보조 유틸. 현재 `RefsExtractor` 유지. |
 | `checkpoint` | DB `checkpoints` 테이블 기반 커서 조회/갱신 경계 + 배치의 커서 전진 값 계산(`CursorProgress`). |
 | `messaging` | RabbitMQ publish. |
@@ -127,6 +128,7 @@ Jira 토큰 확보 요청이 실패하거나(연동 없음·backend 오류) 예�
 | GitHub | `event.github` |
 | Jira | `event.jira` |
 | Slack | `event.slack` |
+| Discord | `event.discord` |
 
 Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 새 routing key는 브로커 설정 변경 없이 소비된다)
 
@@ -137,20 +139,23 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
 - **GitHub**: 기본 300ms 고정 딜레이. `X-RateLimit-Remaining`이 임계값 이하이면 `X-RateLimit-Reset`까지 대기.
 - **Slack**: endpoint별 고정 딜레이 (`conversations.list` / `history` / `replies`).
 - **Jira**: 호출당 200ms 고정 딜레이.
+- **Discord**: 호출마다 기본 250ms 고정 딜레이(봇당 초당 50요청 상한에 여유). 429 응답은 본문의
+  `retry_after`(초)만큼 대기 후 최대 3회 재시도한다.
 
 Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비싸므로(Tier 2, 페이지당 3s), auth별로 `app.slack.user-map-cache-ttl`(기본 5m) 동안 캐시해 실행 간 재사용한다. 트레이드오프: TTL 윈도우 안에 가입한 신규 멤버의 메시지는 그 동안 `userName`/`userEmail` 보강 없이 수집될 수 있으며, ai-engine의 Actor 보정이 backstop이다. 정합성을 더 조이려면 TTL을 줄이거나(0=비활성) miss-refresh로 발전시킨다.
 
 ## Checkpoint
 
 - cursor_key는 **provider가 소유한다**. `CheckpointService`는 `(project, provider, cursor_key)` 키-값 저장소일 뿐
-  키를 해석하지 않으므로, provider마다 커서를 몇 개 쓰든(GitHub 3개, Jira·Slack 1개) 저장소는 그대로다.
+  키를 해석하지 않으므로, provider마다 커서를 몇 개 쓰든(GitHub 3개, Jira·Slack·Discord 1개) 저장소는 그대로다.
 - 현재는 DB `checkpoints` 테이블을 사용한다.
 - 재시작 시 마지막 수집 시각 이후 데이터만 수집해 누락을 방지하고 중복을 최소화한다.
 - checkpoint 기준은 `Instant.now()`가 아니라 이벤트 실제 발생 시각인 `occurredAt`이다.
 - GitHub는 타입별 checkpoint를 사용한다: `github/github_commits`, `github/github_pull_requests`, `github/github_issues`.
-- Jira는 `jira/jira_updated`, Slack은 `slack/slack_messages` cursor를 사용한다.
+- Jira는 `jira/jira_updated`, Slack은 `slack/slack_messages`, Discord는 `discord/discord_messages` cursor를 사용한다.
 - GitHub PR checkpoint는 commit 처리 성공 후 갱신해 재시작 시 `sha → prNumber` 매핑을 다시 만들 수 있게 한다.
-- Slack은 전체 실행 중 최대 `occurredAt`을 마지막에 한 번 갱신한다.
+- Slack·Discord는 전체 실행 중 최대 `occurredAt`을 마지막에 한 번 갱신한다(채널별로 갱신하면 늦은
+  채널이 이른 채널의 커서를 덮는다).
 - Jira는 `updated` 기준으로 수집하고, 페이지 단위 publish 후 checkpoint를 갱신한다.
 - checkpoint는 project 단위로 저장한다.
 - cursor 갱신은 기존 값보다 과거 시각으로 되돌아가지 않게 저장한다.
@@ -164,7 +169,8 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 - credential 복호화 키 (`security.credentials.key`)
 - backend 내부 API URL (`backend.url`)
 - 내부 서비스 인증 token (`security.internal-service.token`)
-- GitHub/Jira/Slack base URL (Jira는 `app.jira.gateway-base-url`도 포함 — OAuth cloudId 게이트웨이 주소)
+- GitHub/Jira/Slack/Discord base URL (Jira는 `app.jira.gateway-base-url`도 포함 — OAuth cloudId 게이트웨이 주소)
+- Discord 봇 토큰 (`app.discord.bot-token`, 환경변수 `DISCORD_BOT_TOKEN`)
 - rate limit 값
 - GitHub webhook secret
 - webhook executor 종료 대기 시간
@@ -173,6 +179,10 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 
 사용자/프로젝트별 credential은 `application.yaml`에 두지 않는다. DB의 project integration 정보에서 조회하고 `security.credentials.key`로 복호화한다.
 GitHub/Slack/Jira credential은 모두 Bearer 토큰으로 사용한다. Jira는 OAuth 전환 후 DB에 JSON(`access_token`·`refresh_token`·`expires_at`)으로 저장되며, `ProjectIntegrationService`가 복호화해 `access_token`만 꺼내 Bearer로 감싼다. 사용자가 토큰을 직접 입력하는 경로가 없으므로 `JiraRawService.resolveAuth`는 **Bearer 외 포맷을 거부한다** — 과거 `email:token`(Basic) 지원은 제거됐다.
+
+**Discord는 이 패턴의 예외다** — DB row의 `encrypted_credential`(사용자 OAuth refresh token)을 전혀
+복호화하지 않는다. 수집 주체가 프로젝트별 사용자가 아니라 앱 전체가 공유하는 봇이라, `DiscordCollector`는
+`resolveFetchRequest`에서 `app.discord.bot-token`을 `Bot {token}`으로 감싸 쓰고, DB에서는 `external_ref.guild_id`만 읽는다.
 
 로컬 실행과 배포 시 다음 환경변수를 설정한다.
 

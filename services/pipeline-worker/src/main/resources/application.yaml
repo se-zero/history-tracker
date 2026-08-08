@@ -41,6 +41,10 @@ app:
   slack:
     base-url: https://slack.com/api
     user-map-cache-ttl: 5m  # users.list 결과 캐시 TTL. webhook 수집마다 전체 멤버 재조회 방지(0 = 캐시 비활성).
+  discord:
+    api-base-url: https://discord.com/api/v10
+    # 앱 전체가 공유하는 봇 토큰 — backend와 동일한 값이어야 한다(수집은 이 토큰으로 한다).
+    bot-token: ${DISCORD_BOT_TOKEN:}
 
   rabbitmq:
     exchange: history.exchange
@@ -76,3 +80,5 @@ app:
       conversations-replies-delay-ms: 1200  # Tier 3: 50/min
     jira:
       delay-ms: 200
+    discord:
+      default-delay-ms: 250  # 봇당 초당 50요청 상한에 여유를 두고 보수적으로 시작
