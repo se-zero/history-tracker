@@ -7,8 +7,10 @@ ai-engine은 무변경이다(`Communication` 노드 재사용). 전체 순서는
 Discord Developer Docs 조사(2026-08, v10 기준)를 근거로 작성했다. 미확정 항목은 맨 아래
 「구현 시 확인」에 모았다.
 
-**진행 상황(2026-08-08)**: §3 backend 연결·§4 pipeline-worker 수집 완료(backend `./gradlew test` 536개,
-pipeline-worker `./gradlew test` 218개 전체 그린). §5 web-dashboard 화면만 남았다.
+**진행 상황(2026-08-08)**: §3 backend 연결·§4 pipeline-worker 수집·§5 web-dashboard 화면 코드 작업
+완료(backend `./gradlew test` 536개, pipeline-worker `./gradlew test` 218개, 프론트
+`typecheck && build` 전체 그린). 남은 건 §9의 실기동 시나리오뿐이다 — 여기까지는 전부 mock 기반
+단위 테스트라 실제로 눌러본 적은 없다.
 
 ## 이 커넥터가 검증하는 것 (1호로 고른 이유)
 
@@ -207,15 +209,19 @@ Slack normalizer의 관례와 같다.
   대기 후 재시도한다. 최대 3회까지 재시도하고 그래도 실패하면 예외를 전파한다(`DiscordRawServiceTest`로
   재시도-성공 경로를 고정).
 
-## 5. web-dashboard — 화면
+## 5. web-dashboard — 화면 (✅ 완료, 2026-08-08)
 
-`sourceCatalog.tsx`의 `discord` 항목(브랜드 마크 `DiscordMark`와 함께 이미 있다)을
-`status: "wired"`로 바꾸고 `connect: "oauth"`와 `deletedData`를 채우면 끝이다.
-선택 단계가 없으므로 `OAuthSourceCard`는 Slack과 동일하게 렌더한다.
+`sourceCatalog.tsx`의 `discord` 항목(브랜드 마크 `DiscordMark`와 함께 이미 있었다)을
+`status: "wired"`로 바꾸고 `connect: "oauth"`와 `deletedData`를 채웠다. 계획대로 provider 전용
+컴포넌트는 만들지 않았다 — 선택 단계가 없어 `OAuthSourceCard`가 Slack과 동일하게 렌더한다.
 
-`deletedData` 문구에는 **봇이 서버에서 나간다**는 사실을 넣는다(§2 구현 후) — 사용자가 해제 버튼을
-누르면 서버 멤버 목록에서도 봇이 사라지므로, 미리 알리는 편이 맞다.
-검증: `npm run typecheck && npm run build`.
+`deletedData`에 **봇이 서버에서 나간다**는 사실을 넣었다: "수집한 채널 메시지·스레드와 그 그래프,
+그리고 서버에 추가된 봇" — 사용자가 해제 버튼을 누르면 서버 멤버 목록에서도 봇이 사라지므로 미리
+알리는 편이 맞다고 판단했다.
+
+프론트에 provider 문자열이 하드코딩된 곳이 없어(`types/api.ts`의 `provider`가 판별 유니온이 아닌
+평문 `string`으로 이미 정리돼 있음 — `docs/integration-abstraction.md` §3-4 참고) 이 한 항목 수정이
+전부였다. 검증: `npm run typecheck && npm run build` 그린.
 
 ## 6. ai-engine — 무변경
 
@@ -236,14 +242,14 @@ Discord 봇은 다른 사용자의 이메일에 접근할 수 없다(`email` sco
 
 Atlassian식 개인정보 보고 의무는 없다.
 
-## 8. 문서 동반 갱신 (커넥터 PR에 포함)
+## 8. 문서 동반 갱신 (✅ 완료, 2026-08-08)
 
-- `docs/data-collection.md` — Discord 섹션(수집 대상·snowflake 증분·rate limit·트레이드오프).
-- `docs/integration-abstraction.md` — Part B 표의 Discord 완료 표시.
-- `services/backend/CLAUDE.md`(패키지 구조에 `discord`) · `services/pipeline-worker/CLAUDE.md`
-  (`source.discord` 행, 라우팅 표, checkpoint 목록, 봇 토큰 설정).
-- §2를 선행 PR로 처리했다면 `services/backend/CLAUDE.md`의 SPI 표도 함께 고친다.
-- `docs/graph-schema.md`·`docs/DB.md`는 변경 없음(새 노드·테이블 없음)을 확인만 한다.
+- ~~`docs/data-collection.md`~~ ✅ Discord 섹션(수집 대상·snowflake 증분·rate limit·트레이드오프) 추가.
+- ~~`docs/integration-abstraction.md`~~ ✅ Part B 표의 Discord 진행 표시.
+- ~~`services/backend/CLAUDE.md`~~ ✅ (패키지 구조에 `discord`, SPI 표 시그니처, provider 공통 규칙)
+  · ~~`services/pipeline-worker/CLAUDE.md`~~ ✅ (`source.discord` 행, 라우팅 표, checkpoint 목록,
+  rate limit, 봇 토큰 설정 — DB에서 안 읽는 예외 케이스로 명시).
+- `docs/graph-schema.md`·`docs/DB.md`는 변경 없음(새 노드·테이블 없음) 확인함 — 실제로 손대지 않았다.
 
 ## 9. 검증 계획
 

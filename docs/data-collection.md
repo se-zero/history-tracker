@@ -227,3 +227,72 @@ Slack checkpoint는 `checkpoints` 테이블에서 `provider=slack`, `cursor_key=
 
 - **문제**: 수백 개 채널이 있는 대형 워크스페이스에서 conversations.list 페이지 순회 + 채널당 history 호출로 수집 시간이 채널 수에 비례해 증가한다.
 - **방법 선택 이유**: 어떤 채널에 관련 맥락이 있을지 사전에 알 수 없어 전체 채널을 대상으로 한다.
+
+---
+
+## Discord
+
+상세 설계 근거(Graph API 실측 결과 포함)는 `docs/discord-integration.md` 참고. 여기서는 수집 전략만 다룬다.
+
+### 수집 대상
+
+| 타입 | 엔드포인트 |
+|------|-----------|
+| 텍스트 채널 목록 | `GET /guilds/{guild_id}/channels` (type 0·5만) |
+| 활성 스레드 목록 | `GET /guilds/{guild_id}/threads/active` |
+| 채널·스레드 메시지 | `GET /channels/{channel_id}/messages` |
+
+DB checkpoint: `discord/discord_messages` (Slack과 같은 이유로 채널을 가로질러 마지막에 한 번만 갱신).
+
+### 증분 전략 — snowflake 기반 서버사이드 필터
+
+Discord 메시지 ID(snowflake)는 생성 시각을 품고 있어, checkpoint의 `Instant`를 snowflake로 변환해
+`after` 파라미터에 넣으면 **서버가 직접 걸러준다** — Slack처럼 채널 히스토리를 끝까지 훑을 필요가 없다.
+
+다만 실측(2026-08-08) 결과 `after`도 항상 최신 → 과거 내림차순으로 채운다. 체크포인트 이후 새 메시지가
+페이지 크기(100)를 넘으면 1회 호출로 못 받으므로, 가득 찬 페이지를 받으면 그 배치의 가장 오래된 id로
+`before`로 전환해 체크포인트에 닿을 때까지 내려간다(`before`·`after`·`around`는 상호 배타적이라 한
+호출에 섞을 수 없다). `before`로 받은 배치는 서버가 체크포인트를 모르므로 클라이언트가 `timestamp`로
+직접 걸러낸다.
+
+### occurredAt 기준
+
+메시지 `timestamp`(ISO-8601). `edited_timestamp`는 커서를 되돌리지 않도록 쓰지 않는다.
+
+### Rate Limiting
+
+호출마다 고정 250ms 딜레이(봇당 초당 50요청 상한에 여유). 429 응답은 본문 `retry_after`(초)만큼
+대기 후 최대 3회 재시도한다.
+
+### Tradeoff & 예상 문제점
+
+#### 채널 단위 403은 건너뛰고 계속 진행
+
+봇이 View Channel·Read Message History 권한을 못 받은 채널은 403이거나 빈 결과다.
+
+- **문제**: 서버 관리자가 일부 채널을 봇에게 안 보이게 설정할 수 있다. 이걸 전체 수집 실패로 처리하면
+  권한 있는 나머지 채널의 맥락까지 놓친다.
+- **방법 선택 이유**: 채널 단위 실패를 삼키고 다음 채널로 넘어간다 — 한 채널의 권한 누락이 전체 수집을
+  막으면 안 된다. 단 RabbitMQ 발행 예외는 삼키지 않는다(계약대로 checkpoint를 전진시키지 않아야
+  재발행된다).
+
+#### 자격증명이 프로젝트별이 아니라 앱 전역
+
+수집은 DB에 저장된 프로젝트별 자격증명이 아니라, pipeline-worker 자신의 설정(`app.discord.bot-token`)에
+있는 봇 토큰으로 한다.
+
+- **문제**: Slack·Jira·GitHub는 전부 "이 프로젝트가 연결한 자격증명으로 그 프로젝트 데이터만 수집"이라는
+  모델인데, Discord는 봇 하나가 여러 서버(=여러 프로젝트)에 동시에 들어가 있다.
+- **방법 선택 이유**: Discord REST API는 사용자 OAuth 토큰으로 메시지 히스토리를 못 읽는다 — 봇 토큰만
+  가능하다. DB 행에는 `external_ref.guild_id`(수집 대상 식별)만 있고, 사용자 OAuth 토큰(refresh
+  token)은 연동 해제 시 grant 폐기 용도로만 쓰인다.
+
+#### 아카이브된 스레드는 1차 범위에서 제외
+
+`GET /channels/{id}/threads/archived/public`은 호출하지 않는다.
+
+- **문제**: 활성 스레드 목록에는 없지만 아카이브된 스레드에 새 메시지가 있을 수 있다(Discord는 스레드를
+  자동 아카이브한다).
+- **방법 선택 이유**: 활성 스레드만으로 시작하고 실사용에서 누락이 문제가 되면 확장한다 —
+  `docs/discord-integration.md`의 「구현 시 확인」에 남겨둔 제품 결정이다.
+- **방법 선택 이유**: 어떤 채널에 관련 맥락이 있을지 사전에 알 수 없어 전체 채널을 대상으로 한다.

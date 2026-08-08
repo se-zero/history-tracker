@@ -88,7 +88,15 @@ export const sourceCatalog: SourceCatalogItem[] = [
     Mark: GoogleChatMark,
     status: "planned",
   },
-  { id: "discord", name: "Discord", description: "대화 맥락", Mark: DiscordMark, status: "planned" },
+  {
+    id: "discord",
+    name: "Discord",
+    description: "대화 맥락",
+    Mark: DiscordMark,
+    status: "wired",
+    connect: "oauth",
+    deletedData: "수집한 채널 메시지·스레드와 그 그래프, 그리고 서버에 추가된 봇",
+  },
 ];
 
 export function findSource(id: string | null | undefined): SourceCatalogItem | undefined {
