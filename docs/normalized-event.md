@@ -16,9 +16,9 @@ pipeline-worker가 발행하고 ai-engine이 소비하는 **유일한 수집 계
 {
   "projectId": "UUID",
   "nodeType": "ChangeSet | PullRequest | Issue | Communication",
-  "source":   "GITHUB | JIRA | SLACK | ...",
+  "source":   "GITHUB | JIRA | SLACK | LINEAR | ...",
   "occurredAt": "ISO-8601 Instant",
-  "actor":  { "id": "", "name": "", "email": null },
+  "actor":  { "id": "", "name": "", "email": null, "bot": null },
   "properties": { },
   "refs": { }
 }
@@ -39,15 +39,17 @@ pipeline-worker가 발행하고 ai-engine이 소비하는 **유일한 수집 계
 ### actor
 
 ```java
-record ActorDto(String id, String name, String email)
+record ActorDto(String id, String name, String email, Boolean bot)
 ```
 
-- `id` — 소스별 사용자 ID (GitHub `login`, Jira `accountId`, Slack `userId`).
+- `id` — 소스별 사용자 ID (GitHub `login`, Jira `accountId`, Slack `userId`, Linear `botActor.id`/`creator.id`).
   `SOURCE:id`가 `ActorAlias`의 자연키가 되므로 **소스 안에서 안정적·고유**해야 한다.
   사람이 바꿀 수 있는 표시 이름을 id로 쓰면 안 된다.
 - `name` — 표시 이름. 개인정보라 `ActorAlias.pd_name`에만 저장된다.
 - `email` — 없으면 `null`. 동일인 판단의 가장 강한 신호라 수집 가능하면 채운다.
   단 **협업 툴 계정의 이메일만** 쓴다 (예: git config 이메일은 개인정보라 사용 금지).
+- `bot` — 선택. 봇/앱 계정이면 `true`, 소스가 판정할 수 없으면 미설정(`null`)으로 둔다.
+  `refs.assignees[].bot`도 같은 의미로 쓴다 — 담당자 각각의 봇 여부.
 
 ### source · 표기 규칙
 
@@ -115,6 +117,22 @@ record ActorDto(String id, String name, String email)
 과거의 terminal 상태 문자열 집합(커넥터·ai-engine 양쪽 하드코딩)은 폐기됐다 — 종료 판정은
 각 커넥터의 normalizer가 `status_category`를 채우면서 한 번만 내린다.
 
+**Linear 매핑** (`source = "LINEAR"`) — Jira와 같은 Issue 스키마를 공유하며, 아래 필드만 소스별로 다르다.
+
+| 정규화 키 | Linear 원본 필드 |
+|-----------|------------------|
+| `external_id` | `id` (UUID) |
+| `issue_key` | `identifier` (예: `ENG-42`) |
+| `status` | `state.name` (팀 커스텀 워크플로 이름 원문) |
+| `status_category` | `state.type` — `backlog`\|`unstarted` → `open`, `started` → `in_progress`, `completed`\|`canceled` → `closed`, 그 외 알 수 없는 값은 방어적으로 `open` |
+| `closed_at` | `status_category == closed`일 때만 `completedAt`(없으면 `canceledAt`)으로 채운다 |
+| `priority` | `priorityLabel` 원문 (Urgent/High/Medium/Low) — `priority == 0`(No priority)이면 키 생략 |
+| `actor` | `botActor`(워크플로 자동화가 만든 이슈)가 있으면 그 정보로 `bot=true`. 없고 `creator`가 있으면 그 정보로 `bot=creator.app`. 둘 다 없으면 전 필드 `null` |
+| `refs.assignees` | Linear는 담당자가 단일 필드(`assignee`)라 배열로 감싸 스냅샷화한다. 없으면 빈 배열(키는 유지) |
+| `refs.parentExternalId` / `parentIssueKey` | `parent.id` / `parent.identifier` |
+
+`occurredAt`: `updatedAt`.
+
 ### Communication — 대화 (자연키: `url`)
 
 Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별 삭제가 라벨이 아니라
@@ -144,7 +162,7 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 | `prNumber` | string | ChangeSet | PR → 커밋 `CONTAINS` |
 | `parentExternalId` | string | Issue | 부모 이슈의 **불변 ID** — `CHILD_OF` 매칭 키. 이 값이 있어야 링크된다 |
 | `parentIssueKey` | string | Issue | 부모 pre-node의 표시 키 (노드 생성 시에만 기록) |
-| `assignees` | {id, name, email}[] | Issue | 각 담당자를 Actor로 승격 후 `ASSIGNED_TO` (담당자 수만큼 엣지). `id`가 null인 항목은 발행 측에서 제외한다 |
+| `assignees` | {id, name, email, bot}[] | Issue | 각 담당자를 Actor로 승격 후 `ASSIGNED_TO` (담당자 수만큼 엣지). `id`가 null인 항목은 발행 측에서 제외한다. `bot`은 선택(§actor) |
 
 **담당자 해제 규약**: Issue 이벤트는 최신 스냅샷이다. `assignees`가 없거나 빈 배열이면 "담당자
 없음"으로 해석돼 기존 `ASSIGNED_TO`가 전부 제거되고, 배열에서 빠진 기존 담당자도 해제된다.

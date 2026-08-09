@@ -127,4 +127,21 @@ class RefsExtractorTest {
     void extract_plainText_noRefs() {
         assertThat(extractor.extract("just a regular commit message")).isEmpty();
     }
+
+    // ─── Linear 이슈 URL 경로의 identifier (갭 4) ──────────────────────────────────
+    // linear.app 이슈 URL은 https://linear.app/{workspace}/issue/{identifier}/{slug} 형태다.
+    // identifier(ENG-42)의 앞뒤는 항상 "/"(비단어 문자)라서 기존 \b([A-Z]{2,}-\d+)\b 패턴의
+    // 단어 경계 조건이 그대로 성립한다 — 별도의 URL 전용 패턴 없이도 이미 추출된다.
+    // 이 테스트는 프로덕션 변경 없이 그 사실을 고정한다(red 아님).
+
+    @Test
+    @DisplayName("linear.app 이슈 URL 경로 안의 identifier(ENG-42)도 기존 이슈 키 패턴이 이미 추출한다 "
+            + "— 슬래시가 단어 경계 역할을 하므로 linear.app 전용 패턴을 추가할 필요가 없다")
+    void extract_linearIssueUrlIdentifier_alreadyMatchedByExistingIssueKeyPattern() {
+        Map<String, Object> refs = extractor.extract(
+                "See https://linear.app/acme/issue/ENG-42/fix-login-bug for context");
+
+        assertThat(refs).containsEntry("issueKey", "ENG-42");
+        assertThat(refs).containsEntry("issueKeys", List.of("ENG-42"));
+    }
 }

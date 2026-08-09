@@ -41,6 +41,9 @@ app:
   slack:
     base-url: https://slack.com/api
     user-map-cache-ttl: 5m  # users.list 결과 캐시 TTL. webhook 수집마다 전체 멤버 재조회 방지(0 = 캐시 비활성).
+  linear:
+    base-url: https://api.linear.app
+    max-pages-per-run: 50
 
   rabbitmq:
     exchange: history.exchange
@@ -76,3 +79,5 @@ app:
       conversations-replies-delay-ms: 1200  # Tier 3: 50/min
     jira:
       delay-ms: 200
+    linear:
+      delay-ms: 720  # 5,000 req/h 한도 대응 (3,600,000ms / 5,000)
