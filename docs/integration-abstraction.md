@@ -147,8 +147,11 @@ public interface SourceCollector {
 **→ Teams·Discord 확인 완료.** Teams는 `/me/joinedTeams` 기반 **1단(team) 선택**으로 A4 메커니즘을
 그대로 재사용한다(`docs/teams-integration.md`). Discord는 반대로 **선택 단계가 없다** — 자기 동의
 화면에서 서버를 고르게 하고 콜백/토큰 응답으로 길드를 알려주므로 Slack형이다
-(`docs/discord-integration.md`). 즉 대화 3종이 한 모양이 아니며, 나머지 Google Chat은 여전히
-착수 전 확인 대상이다.
+(`docs/discord-integration.md`). 즉 대화 3종이 한 모양이 아니다.
+**→ Google Chat도 확인 완료.** `spaces.list`(`spaceType = "SPACE"`) 기반 **1단(space) 선택**으로
+Teams와 같은 모양이다(`docs/google-chat-integration.md`). 정리하면 대화 3종은 선택 없음(Discord) /
+1단(Teams·Google Chat)으로 갈리며, **대화형에서 A4 메커니즘을 실제로 검증하는 것은 둘 중 먼저
+착수하는 쪽**이다.
 Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없다.
 - **토큰 갱신 일반화**: `JiraTokenService`를 provider별 갱신 정책(만료 여부·refresh 회전
   여부)을 선언하는 형태로 확장. Teams/Google Chat은 Jira처럼 만료+갱신형,
@@ -248,6 +251,39 @@ Jira(refresh token 폐기)는 이걸로 충분했지만, **Discord의 의미 있
 그대로 전달한다 — 추가 조회가 필요 없었다. `./gradlew test` 전체 그린(Testcontainers 스키마 검증 포함).
 Discord 커넥터 PR과 분리한 선행 PR로 처리했다.
 
+#### ~~A9~~ ✅ (2026-08-09 발견 · 같은 날 완료) — `checkpoints.provider`에 열거형 CHECK가 남아 있었다
+
+A8과 **정확히 같은 성격의 구멍**이며, 이번에는 실기동에서 드러났다. V12가 `integrations.provider`의
+열거형 CHECK를 없앴지만, V5가 만든 `checkpoints` 테이블의 제약은 그대로다.
+
+```sql
+CONSTRAINT chk_checkpoints_provider CHECK (provider IN ('github','jira','slack'))
+```
+
+그래서 Discord 수집은 **fetch·normalize·publish까지 정상으로 끝난 뒤 마지막 checkpoint 쓰기에서
+터진다.**
+
+```
+ERROR: new row for relation "checkpoints" violates check constraint "chk_checkpoints_provider"
+  Detail: Failing row contains (0c626ddc-…, discord, discord_messages, …)
+```
+
+증상이 고약한 이유는 실패 지점이 맨 끝이라서다. 이벤트는 이미 발행됐으므로 그래프에는 데이터가
+들어가지만 **커서가 영원히 전진하지 못해**, 수집을 돌릴 때마다 같은 구간을 다시 긁고 같은 자리에서
+다시 실패한다(재발행이 멱등이라 데이터 사고는 아니다). 로그를 보지 않으면 "연동은 됐는데 왜 계속
+같은 것만 들어오지?"로 보인다.
+
+**Part A의 완료 판정 기준("공용 코드를 고치지 않고 자기 provider 파일만 추가")을 깨는 항목**이며,
+Discord뿐 아니라 **Linear·Google Chat·Teams 등 앞으로의 모든 커넥터가 같은 벽에 부딪힌다.**
+
+**→ 완료.** `V13__drop_checkpoints_provider_constraint.sql`로 `chk_checkpoints_provider`를 제거했다
+(V12가 `integrations`에 적용한 논리와 동일 — 유효성은 `CollectionProvider` enum이 보증).
+`PipelineSharedSchemaTest.checkpointProviderRejectsUnexpectedValue`(옛 CHECK 거부를 고정하던 테스트)를
+`checkpointAcceptsNewProviderValueWithoutSchemaMigration`으로 교체해 반대 방향(새 provider 값도
+저장 가능)을 고정했다 — V12 때 `integrations`만 보고 같은 테이블 계열을 함께 훑지 않아 생긴 누락이었다.
+`./gradlew test` 그린. 배포된 DB에도 반영해 Discord 재수집으로 checkpoint 정상 갱신을 실측 확인했다
+(`docs/discord-integration.md` §9 참고).
+
 ### Part B — 커넥터별 구현 (팀원 분담, 커넥터당 1 PR)
 
 Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없이 병렬로 진행한다.
@@ -258,7 +294,7 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
 | 이슈 트래커 | Linear · Asana · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
-| 대화 | **Discord**(코드 작업 전부 완료 ✅ — backend·pipeline-worker·web-dashboard. 실기동 시나리오만 남음) · MS Teams · Google Chat | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
+| 대화 | **Discord**(코드 작업 완료 ✅ — 연결·수집(A9 수정 후 checkpoint 갱신 실측 확인) 전부 정상) · MS Teams(계획 완료, 라이선스 대기) · **Google Chat**(계획 완료 — `docs/google-chat-integration.md`. 착수 전 Workspace 계정 게이트 실측 필요) | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
 | 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
@@ -373,6 +409,8 @@ ai-engine의 소스 표시 라벨(`graph/overview.py`)도 대문자 snake에서 
 ## 5. 미리 정할 것
 
 1. ~~**`jira_key` → `issue_key` 개명 여부**~~ — "개명"으로 결정, A6에서 실행 완료. (§3-3 참고)
-2. **provider ID 표기 통일** — RDB/API는 소문자(`linear`), 그래프 source는 대문자(`LINEAR`),
-   alias 접두는 `LINEAR:` — 현행 규칙을 계약 문서에 명문화한다. Google Chat처럼 두 단어인
-   경우의 표기(`google-chat` vs `GOOGLE_CHAT`)만 지금 정해 둔다.
+2. ~~**provider ID 표기 통일**~~ — 확정. 계층별 관례를 그대로 따른다: RDB/HTTP 경로는 소문자 kebab
+   (`linear`·`google-chat`), 그래프 source·alias 접두는 대문자 snake(`LINEAR`·`GOOGLE_CHAT`),
+   routing key는 소문자 snake(`event.google_chat`), Java 패키지는 구분자 없음(`googlechat`).
+   단일 출처는 `docs/normalized-event.md`의 「source · 표기 규칙」이며,
+   두 단어 케이스의 근거·전 계층 대조표는 `docs/google-chat-integration.md` §10에 있다.

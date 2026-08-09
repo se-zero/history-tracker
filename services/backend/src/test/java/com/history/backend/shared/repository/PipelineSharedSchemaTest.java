@@ -142,17 +142,19 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
-    @DisplayName("checkpoints provider 허용되지 않는 값 거부")
-    void checkpointProviderRejectsUnexpectedValue() {
+    @DisplayName("checkpoints provider는 DB 열거형 제약 없이 저장 가능 (V13 — 유효성은 애플리케이션 enum이 보증)")
+    void checkpointAcceptsNewProviderValueWithoutSchemaMigration() {
         UUID ownerId = insertUser("owner8@example.com");
         UUID projectId = insertProject(ownerId);
 
-        assertThatThrownBy(() -> insertCheckpoint(
+        int inserted = insertCheckpoint(
                 projectId,
                 "linear",
                 "linear_issues",
                 Instant.parse("2024-01-03T00:00:00Z")
-        )).isInstanceOf(DataIntegrityViolationException.class);
+        );
+
+        assertThat(inserted).isOne();
     }
 
     @Test

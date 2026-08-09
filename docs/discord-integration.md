@@ -7,10 +7,13 @@ ai-engine은 무변경이다(`Communication` 노드 재사용). 전체 순서는
 Discord Developer Docs 조사(2026-08, v10 기준)를 근거로 작성했다. 미확정 항목은 맨 아래
 「구현 시 확인」에 모았다.
 
-**진행 상황(2026-08-08)**: §3 backend 연결·§4 pipeline-worker 수집·§5 web-dashboard 화면 코드 작업
+**진행 상황(2026-08-09)**: §3 backend 연결·§4 pipeline-worker 수집·§5 web-dashboard 화면 코드 작업
 완료(backend `./gradlew test` 536개, pipeline-worker `./gradlew test` 218개, 프론트
-`typecheck && build` 전체 그린). 남은 건 §9의 실기동 시나리오뿐이다 — 여기까지는 전부 mock 기반
-단위 테스트라 실제로 눌러본 적은 없다.
+`typecheck && build` 전체 그린). §9 실기동 시나리오도 연결·초기 수집까지 확인 완료 —
+연결(redirect URI 오리진 사고 포함, §1) 다음으로 **수집이 checkpoint 쓰기에서 매번 실패하는 공용
+버그(A9 — `checkpoints.provider` 열거형 CHECK 잔존)를 발견해 당일 수정했다**
+(`docs/integration-abstraction.md`의 A9, V13 마이그레이션). 수정 후 재트리거로 checkpoint 정상 갱신
+실측 확인.
 
 ## 이 커넥터가 검증하는 것 (1호로 고른 이유)
 
@@ -59,6 +62,10 @@ MS Teams를 1호에서 밀어낸 이유는 비용이다(유료 조직 테넌트 
   봇이 100개 서버 미만이면 토글만으로 되고, 그 이상은 앱 인증(verification)과 승인이 필요하다.
 - **OAuth2 → Redirects**에 `{BASE}/api/v1/integrations/discord/callback` 등록.
   경로의 `discord`는 소문자 kebab이며 이후 바꿀 수 없다.
+  `{BASE}`는 **프론트 오리진**이다(Slack·Jira와 동일). 콜백이 돌려주는 302가 상대 경로
+  (`/projects/{id}/sources?connected=discord`)라 이 URI의 오리진이 곧 사용자가 착지하는 오리진이고,
+  `/api/` 프록시와 SPA fallback을 동시에 가진 곳은 프론트(nginx)뿐이기 때문이다.
+  backend(:8080)를 직접 등록하면 연동은 성공해도 마지막 리다이렉트가 401로 끝난다.
 - OAuth2 URL Generator로 만들 동의 URL의 구성:
   scope `bot identify`, bot permissions는 **View Channels(1024) + Read Message History(65536)**
   = `permissions=66560`. 최소 권한만 준다 — 메시지 전송·관리 권한은 요청하지 않는다.
@@ -256,10 +263,11 @@ Atlassian식 개인정보 보고 의무는 없다.
 - 단위: backend·pipeline-worker `./gradlew test`, 프론트 `typecheck && build`.
 - **본문 존재 단언** — MESSAGE_CONTENT를 끈 채로도 수집은 성공해 버리므로, 정규화 테스트에서
   `body`가 비지 않음을 반드시 확인한다(§1의 조용한 실패 지점).
-- 실기동 시나리오(무료 테스트 서버): 연결 → 동의 화면에서 서버 선택 → 초기 수집 →
-  그래프에 DISCORD Communication 확인 → 새 메시지·스레드 답글 추가 후 PR 머지 웹훅으로 증분 →
-  봇이 못 보는 비공개 채널이 수집을 막지 않는지 → 해제 시 DISCORD 노드만 삭제되고 **봇이 서버에서
-  나가는지** 확인.
+- 실기동 시나리오(무료 테스트 서버): 연결 ✅ → 동의 화면에서 서버 선택 ✅ → 초기 수집 ✅
+  (A9 수정 후 checkpoint 정상 갱신 확인) → 그래프에 DISCORD Communication 확인 ✅ →
+  새 메시지·스레드 답글 추가 후 PR 머지 웹훅으로 증분(미확인) →
+  봇이 못 보는 비공개 채널이 수집을 막지 않는지(확인됨 — 접근 없는 채널은 로그만 남기고 건너뜀) →
+  해제 시 DISCORD 노드만 삭제되고 **봇이 서버에서 나가는지**(미확인) 확인.
 
 ## 확인 완료 (2026-08-08 실측)
 
@@ -282,7 +290,10 @@ Atlassian식 개인정보 보고 의무는 없다.
    소비되고 반환 토큰에는 안 남는다. §0에 적은 "행 자격증명은 identify 권한뿐이라 수집에 못 쓰고 해제
    시 grant 폐기용으로만 남는다"는 설계가 실측으로 확인됐다.
 2. **redirect URI에 `http://localhost` 허용됨 — 확정.** 포털이 `http://localhost:8080/api/v1/integrations/discord/callback`
-   등록을 그대로 받았다. Slack·Jira와 달리 로컬 개발에 터널이 필요 없다.
+   등록을 그대로 받았다. Slack·Jira와 달리 Discord 쪽에서는 로컬 개발에 터널이 필요 없다.
+   **다만 포트를 backend(:8080)로 두면 안 된다** — 실제로 이 값으로 연동해 보니 토큰 교환·저장까지는
+   성공하는데 콜백의 상대 302가 `localhost:8080/projects/...`로 해석돼 401로 끝났다. 오리진은 항상
+   프론트여야 하므로 로컬이라면 `http://localhost:5173/...`, 터널을 쓰면 터널 도메인이다.
 3. **MESSAGE_CONTENT 적용 확인 — 확정.** `GET /channels/{id}/messages`를 봇 토큰으로 호출한 실제 응답:
    `type: 0`(일반 메시지) 세 건 모두 `content`에 실제 텍스트가 채워져 왔다. `type: 7`(멤버 가입 시스템
    알림)만 `content`가 빈 문자열인데, 이는 인텐트 미적용이 아니라 시스템 메시지 자체가 본문이 없는
