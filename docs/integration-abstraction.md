@@ -236,12 +236,13 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
-| 이슈 트래커 | Linear · Asana · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
+| 이슈 트래커 | ~~Linear~~ ✅ · Asana · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
 | 대화 | MS Teams · Google Chat · Discord | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
 | 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.
+**→ 완료.** Linear 커넥터가 A4의 단계 선언 메커니즘 위에서 그대로 동작함을 확인했다.
 backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대화 아키타입 1호 자리다.
 
 각 단계마다 대응 문서(data-collection.md, DB.md, graph-schema.md, 각 CLAUDE.md) 동반 갱신이 필요하다.
@@ -263,7 +264,9 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
 **1. backend — 연결 (`services/backend/CLAUDE.md` 「provider 전략」·「다단 선택」)**
 
 - [ ] `IntegrationProvider` enum에 상수 추가 (`LINEAR("linear", "Linear")`).
-      **DB 마이그레이션은 불필요** — V12에서 provider CHECK 제약을 제거했다.
+      **`integrations` 테이블은 마이그레이션 불필요** — V12에서 provider CHECK 제약을 제거했다.
+      단 `checkpoints.chk_checkpoints_provider`처럼 provider CHECK가 남아 있는 테이블은 여전히
+      마이그레이션이 필요하다 — 운영(`db/migration`)·테스트(`db/test-migration`) 양쪽을 함께 챙긴다.
 - [ ] `{provider}/AtlassianProperties`형 `@ConfigurationProperties` 레코드 + `application.yaml` 블록 추가.
 - [ ] `OAuthConnectFlow` 구현 — 동의 URL 조립, `exchangeCode`가 `OAuthConnection`(자격증명 평문 +
       수집 대상 참조)을 돌려준다. 참조의 키 이름은 provider가 정하고 pipeline-worker가 같은 키를 읽는다(2번과 합의).

@@ -164,6 +164,64 @@ JQL 서버 필터 + `filterIssuesByUpdated` 클라이언트 필터의 이중 구
 
 - **이유**: Jira JQL의 날짜 비교가 분 단위 반올림될 수 있다. `"2024-01-01 10:30"` 기준으로 JQL을 날려도 `10:30:29`인 이슈가 결과에 포함될 수 있다. 클라이언트 필터로 초 단위 정밀도를 보완한다. 성능 비용은 이미 받아온 응답 내 필터링이므로 무시 가능한 수준.
 
+## Linear
+
+### 수집 대상
+
+Linear 이슈를 GraphQL API로 조회한다. 코멘트는 수집하지 않고(이슈만), 삭제 이벤트도 수집하지 않는다.
+
+Linear checkpoint는 `checkpoints` 테이블에서 `provider=linear`, `cursor_key=linear_updated` row에 저장한다.
+
+GraphQL 엔드포인트는 `{base}/graphql` 하나뿐이다(REST처럼 리소스별 엔드포인트가 나뉘지 않는다). 연동 시 선택한 team으로 `team(id:)` 스코프를 걸고, 아래 형태로 조회한다.
+
+```
+team(id: $teamId) {
+  issues(filter: {updatedAt: {gte: $since}}, orderBy: updatedAt, after: $cursor) { ... }
+}
+```
+
+- `filter: {updatedAt: {gte: $since}}`: checkpoint 이후 변경분만 조회한다.
+- `orderBy: updatedAt`: 최신 변경이 먼저 오는 내림차순 고정이다 — 방향을 제어하는 파라미터가 없다(Jira의 `ORDER BY updated ASC`와 반대). 이 정렬 방향이 checkpoint 전진 시점에 영향을 준다 (아래 checkpoint 갱신·Tradeoff 참고).
+- Linear API 오류는 HTTP 200 + `errors` 배열로도 온다. `errors`가 있으면 `data`가 함께 와도 전체 응답을 거부한다.
+
+### 페이지네이션
+
+- Relay 커서(`after`) 기반.
+- 한 번 실행에서 처리할 최대 페이지 수: `app.linear.max-pages-per-run` (기본값 50)
+  - 상한 도달 시 `limitReached=true` 반환, checkpoint는 전진시키지 않는다 (아래 참고).
+
+### checkpoint 갱신
+
+Slack과 동일하게 페이지 단위가 아니라 **전체 실행 성공 후 1회** 갱신한다 — 이번 실행에서 관측한 최대 `occurredAt`을 한 번만 반영한다. `limitReached=true`(페이지 상한 도달)면 이번 실행에서는 전진시키지 않는다. 초기 수집은 `since=EPOCH`로 시작한다.
+
+### occurredAt 기준
+
+이슈 `updatedAt` 시각.
+
+### Rate Limiting
+
+호출당 720ms 고정 딜레이 (Linear API 한도 5,000 req/h 기준).
+
+### 수집 트리거
+
+webhook·스케줄러 없이, 연동 직후 1회 초기 수집과 GitHub PR 머지 웹훅 처리에 편승한 증분 수집만 있다(Jira·Slack과 동일한 패턴 — `services/pipeline-worker/CLAUDE.md` 「Webhook 수집 흐름」 참고).
+
+### Tradeoff & 예상 문제점
+
+#### `orderBy: updatedAt` 내림차순 고정 — 페이지 단위 checkpoint 전진 불가
+
+Linear GraphQL API의 `orderBy`에는 방향 제어 파라미터가 없어 항상 최신 변경이 먼저 온다.
+
+- **문제**: GitHub PR·Jira처럼 페이지 단위로 checkpoint를 전진시키면, 중간에 중단(truncation)됐을 때 아직 받지 못한 과거 페이지의 변경분이 checkpoint 이후로 밀려 영구 누락된다.
+- **방법 선택 이유**: Slack과 동일하게 전체 실행 성공 후 최대 occurredAt을 한 번만 전진시켜 truncation 시 재시도가 처음부터 다시 돌게 한다. 이미 처리한 항목의 재발행(중복) 가능성을 감수하고 누락을 막는다.
+
+#### `app.linear.max-pages-per-run` 상한 — 처리 지연
+
+한 번 실행에서 처리 못 한 페이지는 checkpoint가 전진하지 않아 다음 호출에서 처음부터 다시 받는다.
+
+- **문제**: 초기 전체 수집 또는 대규모 업데이트 배치 직후에는 여러 번 호출해야 완료될 수 있다.
+- **방법 선택 이유**: 상한 없이 처리하면 페이지당 720ms 딜레이가 누적돼 장시간 블로킹된다. Jira의 `app.jira.max-pages-per-run`과 같은 이유다.
+
 ---
 
 ## Slack

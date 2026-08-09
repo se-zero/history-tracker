@@ -70,6 +70,7 @@ export function PrivacyPage() {
                       Slack — 연동한 워크스페이스의 채널 목록, 채널 메시지와 스레드 답글,
                       멤버의 표시 이름·이메일
                     </li>
+                    <li>Linear — 연동한 팀의 이슈 제목·본문·상태·담당자·작성자</li>
                   </ul>
                 </td>
                 <td>연동 직후 최초 수집 및 이후 증분 수집</td>
@@ -176,6 +177,24 @@ export function PrivacyPage() {
           <LegalSourceRow label="삭제">
             연동을 해제하면 Atlassian에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과
             해당 프로젝트에서 수집한 이슈 데이터를 삭제합니다.
+          </LegalSourceRow>
+        </LegalSourceBlock>
+
+        <LegalSourceBlock id="linear" name="Linear">
+          <LegalSourceRow label="요청 권한">
+            <code>read</code> 권한 하나만 요청합니다 — 연동한 팀의 이슈를 읽기 위함이며, 이슈를
+            생성·수정하는 쓰기 권한은 요청하지 않습니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="수집하는 정보">
+            연동한 팀의 이슈(제목, 본문, 상태, 담당자, 작성자). 연동 직후 한 차례 전체 수집하고,
+            이후에는 GitHub Pull Request가 머지될 때 증분 수집합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="이용 목적">
+            이슈에 적힌 요구사항·결정을 코드 변경과 연결하기 위함입니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="삭제">
+            연동을 해제하면 Linear에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과 해당
+            팀에서 수집한 이슈 데이터를 삭제합니다.
           </LegalSourceRow>
         </LegalSourceBlock>
       </LegalSection>
