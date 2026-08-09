@@ -517,6 +517,23 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("선택 단계를 선언하지 않은 provider가 pendingSelection(빈 external_ref)을 돌려주면 배선 오류로 막는다")
+    void connectOAuthRejectsPendingSelectionFromProviderWithoutSelectionStep() {
+        IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.SLACK);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("slack-credential"));
+
+        // 선택 단계를 신고하지 않은 provider가 external_ref 없이 pendingSelection을 돌려주면 확정할
+        // 방법이 없는 pending 행이 영구히 남는다 — 두 SPI의 선언이 어긋난 배선 오류를 여기서도 막아야 한다.
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
+                .isInstanceOf(IllegalStateException.class);
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+    }
+
+    @Test
     @DisplayName("재동의 시 pending 행에 cloud_id·project_key가 남아 있고 새 토큰으로 여전히 접근 가능하면 자동 복원 후 확정한다")
     void connectOAuthAutoRestoresWhenExistingPendingSelectionIsStillAccessible() {
         IntegrationService service = service();

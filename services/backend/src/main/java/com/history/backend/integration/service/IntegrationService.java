@@ -192,6 +192,11 @@ public class IntegrationService {
             throw new IllegalStateException(provider.value()
                     + " declares selection steps, so exchangeCode must return OAuthConnection.pendingSelection().");
         }
+        if (!requiresSelection && connection.externalRef().isEmpty()) {
+            // 반대 방향의 배선 오류 — 확정할 selection flow가 없으니 pending 행이 영영 확정되지 못한다
+            throw new IllegalStateException(provider.value()
+                    + " does not declare selection steps, so exchangeCode must not return OAuthConnection.pendingSelection().");
+        }
         byte[] encryptedCredential = credentialCryptoService.encrypt(connection.credential());
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
