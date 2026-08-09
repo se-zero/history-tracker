@@ -71,7 +71,9 @@ provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지�
 신고하지 않는다.** 플래그는 구현하고 켜는 것을 빠뜨릴 수 있고, 기본 no-op은 "지원하지 않음"과
 "아무 일도 필요 없음"을 호출부가 구분할 수 없게 만든다 — 둘 다 조용히 틀린 동작으로 끝난다.
 `AccessTokenRefresher`를 `ProviderCredentialLifecycle`에서 떼어낸 이유가 이것이다
-(아래 「내부 서비스 API」 참고).
+(아래 「내부 서비스 API」 참고). `ProviderCredentialLifecycle`도 같은 원칙을 따른다 —
+레지스트리는 `find(provider): Optional`로 등록 여부를 신고하고, 미등록 provider는 폐기를
+건너뛴다(`IntegrationService.revokeProviderAccess`가 `find`+`ifPresent`로 호출).
 
 **저장 정책은 `IntegrationService.connectOAuth`가 소유한다** — 확정 연동 409 선검사(1회용 code를
 교환 전에 지킨다) → code 교환 → 자격증명 암호화 → 저장(pending 행이면 재동의로 덮어쓰기, unique 위반은
@@ -115,7 +117,8 @@ ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이�
   토큰을 지우면 폐기에 쓸 값 자체가 사라진다. Slack은 `auth.revoke`, Jira는 refresh token 폐기
   (파생 access token도 함께 무효화)이며, 폐기 실패는 각 client가 로그만 남기고 삼킨다 —
   이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
-  GitHub은 폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시).
+  Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, GitHub은
+  폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시).
   **그래프가 RDB보다 먼저** — 프로젝트 삭제와 같은 이유다(외부 HTTP를 트랜잭션 밖에 두고,
   그래프 삭제가 멱등이라 재시도로 수렴).
   checkpoint를 반드시 함께 지운다 — 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이
