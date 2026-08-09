@@ -6,7 +6,8 @@ import java.util.Optional;
 public enum CollectionProvider {
     GITHUB("github"),
     JIRA("jira"),
-    SLACK("slack");
+    SLACK("slack"),
+    LINEAR("linear");
 
     private final String value;
 
