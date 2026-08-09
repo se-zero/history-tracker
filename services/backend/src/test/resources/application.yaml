@@ -76,3 +76,11 @@ atlassian:
     cron: "0 30 3 * * *"
     cycle-period: P7D
     report-url: https://atlassian.test/app/report-accounts
+
+linear:
+  client-id: test-linear-client-id
+  client-secret: test-linear-client-secret
+  redirect-uri: https://linear.test/callback
+  token-url: https://api.linear.app/oauth/token
+  revoke-url: https://api.linear.app/oauth/revoke
+  refresh-skew: PT30M

@@ -5,7 +5,8 @@ import java.util.Arrays;
 public enum IntegrationProvider {
     GITHUB("github", "GitHub"),
     SLACK("slack", "Slack"),
-    JIRA("jira", "Jira");
+    JIRA("jira", "Jira"),
+    LINEAR("linear", "Linear");
 
     private final String value;
     private final String displayName;

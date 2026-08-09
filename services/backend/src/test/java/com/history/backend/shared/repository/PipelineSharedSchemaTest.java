@@ -142,17 +142,19 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
-    @DisplayName("checkpoints provider 허용되지 않는 값 거부")
-    void checkpointProviderRejectsUnexpectedValue() {
+    @DisplayName("checkpoints provider 'linear' 허용")
+    void checkpointProviderAcceptsLinearValue() {
         UUID ownerId = insertUser("owner8@example.com");
         UUID projectId = insertProject(ownerId);
 
-        assertThatThrownBy(() -> insertCheckpoint(
+        int inserted = insertCheckpoint(
                 projectId,
                 "linear",
                 "linear_issues",
                 Instant.parse("2024-01-03T00:00:00Z")
-        )).isInstanceOf(DataIntegrityViolationException.class);
+        );
+
+        assertThat(inserted).isOne();
     }
 
     @Test

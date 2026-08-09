@@ -24,4 +24,11 @@ class IntegrationProviderTest {
             assertThat(provider.displayName()).isNotBlank();
         }
     }
+
+    @Test
+    @DisplayName("linear 값은 LINEAR provider로 매핑")
+    void fromValueMapsLinearToLinearProvider() {
+        assertThat(IntegrationProvider.LINEAR).isNotNull();
+        assertThat(IntegrationProvider.fromValue("linear")).isEqualTo(IntegrationProvider.LINEAR);
+    }
 }

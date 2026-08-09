@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.jira.service.JiraSelectionFlow;
+import com.history.backend.linear.service.LinearSelectionFlow;
 import com.history.backend.slack.service.SlackOAuthConnectFlow;
 
 public record IntegrationResponse(
@@ -58,6 +59,11 @@ public record IntegrationResponse(
             case JIRA -> joinNonBlank(
                     integration.externalRefValue(JiraSelectionFlow.SITE_NAME),
                     integration.isPendingSelection() ? null : jiraProjectLabel(integration));
+            // 확정 전(pending)에는 team을 아직 몰라 고정 문구로 폴백한다
+            case LINEAR -> {
+                String teamName = integration.externalRefValue(LinearSelectionFlow.TEAM_NAME);
+                yield teamName == null ? "Linear" : teamName;
+            }
         };
     }
 
