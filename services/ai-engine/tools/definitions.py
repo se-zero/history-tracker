@@ -27,7 +27,7 @@ TOOLS = [
             "name": "get_changeset_context",
             "description": (
                 "Git commit hash로 해당 커밋의 변경 이유를 조회한다. "
-                "연결된 Jira 이슈, Slack 논의, PR, 파일별 diff 요약(diffSummary)을 반환. "
+                "연결된 Jira/Linear 이슈, Slack 논의, PR, 파일별 diff 요약(diffSummary)을 반환. "
                 "코드가 왜 바뀌었는지 파악할 때 사용."
             ),
             "parameters": {
@@ -69,7 +69,7 @@ TOOLS = [
             "name": "get_timeline",
             "description": (
                 "'언제', '어떤 순서로', '시간순으로', '과정' 류 질문의 기본 도구. "
-                "Slack 논의·Jira 생성/완료·커밋·PR 오픈/머지를 UTC 오름차순으로 반환하며 "
+                "Slack 논의·Jira/Linear 생성/완료·커밋·PR 오픈/머지를 UTC 오름차순으로 반환하며 "
                 "각 이벤트에 event_meaning 라벨이 붙는다(시각만 보고 추정하지 말 것). "
                 "스코프는 넷 중 하나를 고른다 — issue_key(이슈) / path(파일) / actor(사람) / "
                 "전부 생략(프로젝트 전체). from_time·to_time으로 기간을 좁힐 수 있다. "
@@ -178,7 +178,7 @@ TOOLS = [
         "function": {
             "name": "get_actor_activity",
             "description": (
-                "특정 사람의 커밋, PR, Slack 메시지, Jira 이슈 활동을 2계층으로 조회한다: "
+                "특정 사람의 커밋, PR, Slack 메시지, Jira/Linear 이슈 활동을 2계층으로 조회한다: "
                 "detail(본문 포함 인용 대상 — 커밋·PR은 최신순, 메시지는 질문 관련도순)과 "
                 "context(나머지 활동의 시간순 개요 — 본문 없음). 각 항목은 kind 필드로 구분. "
                 "인용은 detail에서, context 항목을 인용하려면 kind별 상세 도구"
@@ -241,7 +241,7 @@ TOOLS = [
         "function": {
             "name": "check_missing_context",
             "description": (
-                "Jira 이슈와도 Slack 논의와도 연결되지 않은 '고아 커밋'을 탐지한다. "
+                "Jira/Linear 이슈와도 Slack 논의와도 연결되지 않은 '고아 커밋'을 탐지한다. "
                 "데이터 공백 구간 확인, 컨텍스트 없는 커밋 식별에 사용."
             ),
             "parameters": {
@@ -271,7 +271,7 @@ TOOLS = [
             "name": "inspect_actor",
             "description": (
                 "Actor 통합 결과를 확인한다. "
-                "jkim@co.com(Jira), john-dev(GitHub), John Kim(Slack)이 하나의 노드로 통합됐는지, "
+                "jkim@co.com(Jira/Linear), john-dev(GitHub), John Kim(Slack)이 하나의 노드로 통합됐는지, "
                 "통합 confidence는 얼마인지 반환. Identity Resolution 검증에 사용."
             ),
             "parameters": {
@@ -291,7 +291,7 @@ TOOLS = [
         "function": {
             "name": "get_conflict_context",
             "description": (
-                "하나의 커밋에 대해 Jira, Slack, PR이 각각 다른 맥락을 설명할 때 "
+                "하나의 커밋에 대해 Jira/Linear, Slack, PR이 각각 다른 맥락을 설명할 때 "
                 "이를 출처별로 나란히 반환한다. "
                 "컨텍스트 충돌 처리, 다중 관점 제시에 사용."
             ),
@@ -313,7 +313,7 @@ TOOLS = [
             "name": "get_recent_activity",
             "description": (
                 "'최근에 뭐가 바뀌었어?', '이번 주 변경사항은?' 처럼 범위가 모호한 질문에 사용. "
-                "지정 기간 내 커밋, PR, Jira 이슈, Slack 메시지를 최신순으로 반환."
+                "지정 기간 내 커밋, PR, Jira/Linear 이슈, Slack 메시지를 최신순으로 반환."
             ),
             "parameters": {
                 "type": "object",
@@ -341,7 +341,7 @@ TOOLS = [
         "function": {
             "name": "get_pr_context",
             "description": (
-                "PR 번호로 해당 PR에 포함된 커밋, 연결 Jira 이슈, Slack 논의, 파일 변경을 조회한다. "
+                "PR 번호로 해당 PR에 포함된 커밋, 연결 Jira/Linear 이슈, Slack 논의, 파일 변경을 조회한다. "
                 "PR 번호만 알고 있을 때 사용."
             ),
             "parameters": {

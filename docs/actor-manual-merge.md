@@ -115,6 +115,12 @@ Actor에서 alias 일부를 새 Actor로 떼어낸다 (수동 병합 이력이 �
 4. distinct 결정 자동 생성(재병합 방지).
 5. 새 Actor·원 Actor 양쪽 표시 이름 재계산.
 
+**알려진 공백 — 봇 플래그 미승계**: unmerge·split이 만드는 새 Actor에 `bot` 속성
+(`docs/graph-schema.md` Actor 절의 봇 격리)이 복사되지 않는다. 봇 격리 도입 이전에 사람과
+병합돼 버린 봇을 분리로 교정해도 분리된 Actor가 bot 없이 태어나 다시 사람 매칭 후보가 된다.
+병합된 노드만으로는 어느 alias가 봇인지 판별할 수 없어 자동 복사로는 풀리지 않고, 분리 요청에
+봇 지정 입력을 받는 설계가 필요하다 — 필요해질 때 붙인다(격리 이전 오염을 정리할 때만 밟는 경로).
+
 ## 이름 변경 (rename)
 
 `POST /actors/rename` `{project_id, actor_uuid, name}` — Actor 표시 이름을 운영자가 정정한다.

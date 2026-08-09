@@ -68,7 +68,7 @@ RDB 쪽(연동 행·checkpoint) 삭제는 backend가 담당한다 — `services/
 ## 노드 목록
 
 ### Actor
-모든 소스(GitHub, Jira, Slack)의 사용자. ai-engine이 alias를 통합해 동일인을 하나의 노드로 합침.
+모든 소스(GitHub, Jira, Slack, Linear)의 사용자. ai-engine이 alias를 통합해 동일인을 하나의 노드로 합침.
 개인정보(이름·이메일)는 담지 않는다 — 아래 ActorAlias에 소스별로 저장하고, Actor는 거기서
 유도한 표시 이름과 조회 키(aliases)만 갖는다.
 
@@ -79,13 +79,19 @@ RDB 쪽(연동 행·checkpoint) 삭제는 backend가 담당한다 — `services/
   "name": "",             // 표시 이름 — ActorAlias로부터 파생되는 값 (derive_display_name)
   "aliases": [""],        // source-scoped ID 목록 (예: "GITHUB:se-zero", "JIRA:123abc")
   "manual_name": false,   // (수동 변경 시에만) 운영자가 표시 이름을 직접 확정했는지
-  "name_updated_at": ""   // (수동 변경 시에만) 마지막 수동 변경 시각 (ISO-8601)
+  "name_updated_at": "",  // (수동 변경 시에만) 마지막 수동 변경 시각 (ISO-8601)
+  "bot": false            // 봇 계정 여부 (예: Linear AI 에이전트 위임). 없으면 false로 간주
 }
 ```
 
 표시 이름 유도 규칙(`derive_display_name`, `graph/actor_store.py`): 수동 확정(manual_name) >
 GitHub 프로필 이름(login 대체값 제외) > 이름 있는 소스 중 활동량 최다(동률은 소스명 사전순) >
-GitHub login > "(삭제된 사용자)".
+GitHub login > "(삭제된 사용자)". `bot=true`면 유도된 이름 뒤에 "(봇)"을 붙인다(수동 확정 시는 제외).
+
+봇 격리(`graph/actor_resolver.py`): `actor.bot=true`로 도착한 이벤트는 이메일/이름 기반 동일인
+매칭(Step 1~3)을 건너뛰고 alias 기반으로 곧장 생성/조회된다. 반대로 사람 동일인 매칭
+(`_lookup_actor_by_email`/`_lookup_actor_by_name`, `graph/actor_store.py`)도 봇 Actor를 후보에서
+제외한다 — 봇이 사람에 병합되는 것과 사람이 봇에 병합되는 것을 양방향으로 막는다.
 
 ---
 
@@ -150,6 +156,13 @@ DISCUSSED_IN 유출)뿐 — 를 실노드로 이관하고 stub을 지운다. par
 pre-node다(`refs.parentExternalId`로 MERGE, 본 이벤트가 나머지를 채움). 같은 사람용 키를 여러
 소스가 쓰는 경우 텍스트 참조는 본질적으로 모호하다 — 링크는 매칭되는 모든 실노드에 걸고,
 흡수는 먼저 도착한 실노드가 가져간다(알려진 한계).
+
+텍스트 링크 매칭(`link_issue_to_communication`·`link_changeset_to_issue` 등)도 실노드를
+`(project_id, issue_key)`로만 찾고 `source`는 걸러내지 않는다. 서로 다른 이슈 소스(예: Jira와
+Linear)를 같은 프로젝트에 동시 연동했는데 두 소스의 키 접두사가 우연히 겹치면, 텍스트 속
+키만으로는 소스를 구분할 수 없어 다른 소스의 이슈로 오연결될 수 있다. 텍스트에는 소스 정보가
+없어 단순한 해결책이 없고, 실사용(프로젝트당 이슈 트래커 1개)에서는 드물게 발생해 알려진
+한계로 남겨 둔다.
 
 ---
 

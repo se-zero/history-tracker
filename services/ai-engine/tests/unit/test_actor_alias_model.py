@@ -122,6 +122,20 @@ class DeriveDisplayName(unittest.TestCase):
         ]
         self.assertEqual(derive_display_name(aliases, False, None), "Younghee Kim")
 
+    def test_is_bot_appends_bot_suffix_to_derived_name(self):
+        """봇 격리 — is_bot=True면 유도된 표시 이름 뒤에 봇 표기가 붙는다."""
+        aliases = [{"source_id": "LINEAR:agent-1", "source": "LINEAR", "pd_name": "Cursor Agent"}]
+        self.assertEqual(
+            derive_display_name(aliases, False, None, is_bot=True), "Cursor Agent (봇)"
+        )
+
+    def test_is_bot_does_not_override_manual_name(self):
+        """manual_name=true면 운영자가 확정한 이름을 그대로 쓴다 — 봇 표기를 강제로 덧붙이지 않는다."""
+        aliases = [{"source_id": "LINEAR:agent-1", "source": "LINEAR", "pd_name": "Cursor Agent"}]
+        self.assertEqual(
+            derive_display_name(aliases, True, "커스텀 봇 이름", is_bot=True), "커스텀 봇 이름"
+        )
+
 
 # ── resolve_actor Step 0 — 이름 갱신 ──────────────────────────────────────
 
@@ -231,6 +245,100 @@ class ResolveActorStep0NameUpdate(unittest.TestCase):
             resolve_actor({"id": "5b10a2", "name": "다른이름"}, "JIRA", store)
         )
         self.assertEqual(result["uuid"], "u1")
+
+
+# ── resolve_actor 봇 격리 — Step 1~3(이메일/이름 매칭) 스킵 ───────────────
+
+
+class ResolveActorBotBypass(unittest.TestCase):
+    def test_bot_actor_skips_matching_and_creates_via_alias(self):
+        """actor.bot=True면 email/name 매칭(Step 1~3)을 건너뛰고 곧장 생성한다."""
+        calls = {"lookup_by_email": 0, "lookup_by_name": 0, "create_actor": []}
+
+        async def lookup_by_alias(source_id):
+            return None
+
+        async def lookup_by_email(email):
+            calls["lookup_by_email"] += 1
+            return None
+
+        async def lookup_by_name(name):
+            calls["lookup_by_name"] += 1
+            return []
+
+        async def lookup_activities(actor):
+            return []
+
+        async def merge_actor(actor, new_alias, new_email, new_name):
+            raise AssertionError("봇 액터는 merge_actor(동일인 병합)를 타면 안 된다")
+
+        async def create_actor(name, source_id, email, bot=False):
+            created = (name, source_id, email, bot)
+            calls["create_actor"].append(created)
+            return {"uuid": "bot-uuid", "name": name}
+
+        store = ActorStore(
+            lookup_by_alias=lookup_by_alias, lookup_by_email=lookup_by_email,
+            lookup_by_name=lookup_by_name, lookup_activities=lookup_activities,
+            merge_actor=merge_actor, create_actor=create_actor,
+        )
+        result = asyncio.run(resolve_actor(
+            {"id": "agent-1", "name": "Cursor Agent", "email": "agent@linear.app", "bot": True},
+            "LINEAR", store,
+        ))
+
+        self.assertEqual(calls["lookup_by_email"], 0)
+        self.assertEqual(calls["lookup_by_name"], 0)
+        self.assertEqual(
+            calls["create_actor"],
+            [("Cursor Agent", "LINEAR:agent-1", "agent@linear.app", True)],
+        )
+        self.assertEqual(result["uuid"], "bot-uuid")
+
+    def test_bot_actor_alias_hit_reuses_existing_without_matching(self):
+        """이미 등록된 봇 alias는 Step 0에서 그대로 반환 — 별도 봇 처리가 불필요하다."""
+        alias_hit = {
+            "uuid": "bot-uuid", "name": "Cursor Agent (봇)", "aliases": ["LINEAR:agent-1"],
+            "alias_pd_name": "Cursor Agent", "alias_pd_erased": None,
+        }
+        store, calls = _step0_store(alias_hit=alias_hit, with_update_alias_name=True)
+        result = asyncio.run(resolve_actor(
+            {"id": "agent-1", "name": "Cursor Agent", "bot": True}, "LINEAR", store,
+        ))
+        self.assertEqual(result["uuid"], "bot-uuid")
+
+    def test_non_bot_actor_unaffected_takes_normal_matching_path(self):
+        """bot 필드가 없거나 false면 기존 매칭 경로(Step 1~3)를 그대로 탄다 — 회귀 방지."""
+        calls = {"lookup_by_email": 0}
+
+        async def lookup_by_alias(source_id):
+            return None
+
+        async def lookup_by_email(email):
+            calls["lookup_by_email"] += 1
+            return None
+
+        async def lookup_by_name(name):
+            return []
+
+        async def lookup_activities(actor):
+            return []
+
+        async def merge_actor(actor, new_alias, new_email, new_name):
+            pass
+
+        async def create_actor(name, source_id, email):
+            return {"uuid": "human-uuid", "name": name}
+
+        store = ActorStore(
+            lookup_by_alias=lookup_by_alias, lookup_by_email=lookup_by_email,
+            lookup_by_name=lookup_by_name, lookup_activities=lookup_activities,
+            merge_actor=merge_actor, create_actor=create_actor,
+        )
+        asyncio.run(resolve_actor(
+            {"id": "se-zero", "name": "Younghee Kim", "email": "yh@corp.com"}, "GITHUB", store,
+        ))
+        self.assertEqual(calls["lookup_by_email"], 1)
 
 
 # ── resolve_actor Step 1/3/4 — ActorStore 새 시그니처 ─────────────────────

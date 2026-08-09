@@ -1,7 +1,7 @@
 """Issue 이벤트 담당자(assignees) 처리 단위 테스트.
 
 전반부(HandleIssueAssigneeTest)는 오프라인 — event_handler 의존성 mock 패치로, refs.assignees
-배열(각 {id, name, email})의 각 항목을 순차 resolve_actor에 태워 Actor로 승격하고, 확정된
+배열(각 {id, name, email, bot})의 각 항목을 순차 resolve_actor에 태워 Actor로 승격하고, 확정된
 uuid 리스트를 통째로 set_issue_assignees에 넘기는지 검증한다. 배열이 없거나 비어 있으면
 빈 리스트로 호출해 담당자 전원 해제를 표현하고, external_id가 없는 이벤트는 아무 그래프
 쓰기도 호출하지 않아야 한다.
@@ -73,9 +73,26 @@ class HandleIssueAssigneeTest(unittest.TestCase):
         assignee_call_actor = resolve_mock.await_args_list[1].args[0]
         self.assertEqual(
             assignee_call_actor,
-            {"id": "assignee1", "name": "Assignee One", "email": "assignee1@example.com"},
+            {"id": "assignee1", "name": "Assignee One", "email": "assignee1@example.com", "bot": None},
         )
         set_assignees_mock.assert_awaited_once_with("p1", "JIRA", "JIRA-100", ["assignee-uuid"])
+
+    def test_assignee_bot_flag_passed_through_to_resolve(self):
+        """봇 격리 — 담당자 dict 재구성이 bot을 떨어뜨리면 봇 담당자가 사람 매칭(Step 1~3)을 탄다.
+
+        Linear 봇의 주 유입로는 작성자보다 담당자다(AI 에이전트에게 이슈를 할당하는 흐름).
+        """
+        event = _issue_event(refs={
+            "assignees": [{"id": "agent-1", "name": "Cursor Agent", "email": None, "bot": True}],
+        })
+
+        resolve_mock, _upsert_issue_mock, set_assignees_mock = self._run(
+            event, resolved_uuids=["author-uuid", "bot-uuid"],
+        )
+
+        assignee_call_actor = resolve_mock.await_args_list[1].args[0]
+        self.assertTrue(assignee_call_actor["bot"])
+        set_assignees_mock.assert_awaited_once_with("p1", "JIRA", "JIRA-100", ["bot-uuid"])
 
     def test_multiple_assignees_resolved_in_order(self):
         event = _issue_event(refs={

@@ -233,7 +233,10 @@ async def _handle_issue(event: dict) -> None:
     assignee_uuids = []
     for assignee in refs.get("assignees") or []:
         assigned = await resolve_actor(
-            {"id": assignee.get("id"), "name": assignee.get("name"), "email": assignee.get("email")},
+            # bot을 함께 넘긴다 — Linear 봇의 주 유입로가 담당자(AI 에이전트 할당)라,
+            # 여기서 떨어뜨리면 봇 담당자가 사람 동일인 매칭을 타 격리가 뚫린다.
+            {"id": assignee.get("id"), "name": assignee.get("name"), "email": assignee.get("email"),
+             "bot": assignee.get("bot")},
             source, make_neo4j_actor_store(project_id), event,
         )
         assignee_uuids.append(assigned["uuid"])

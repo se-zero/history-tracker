@@ -24,6 +24,7 @@ def derive_display_name(
     manual_name: bool,
     current_name: Optional[str],
     activity_by_source: Optional[dict[str, int]] = None,
+    is_bot: bool = False,
 ) -> str:
     """alias 목록에서 표시 이름을 폴백 체인으로 유도한다.
 
@@ -42,14 +43,22 @@ def derive_display_name(
     마지막 "GitHub login" 폴백 단계에서 어차피 다시 쓰인다(실제 프로필 이름을 우연히 login과
     똑같이 지은 경우도 login 취급으로 무해하다).
 
+    is_bot=True면 유도된 이름 뒤에 "(봇)"을 붙인다 — Linear AI 에이전트 위임처럼 사람과
+    구분되는 계정임을 목록·대화 인용에서 한눈에 알 수 있게 한다. manual_name으로 운영자가
+    이름을 직접 확정한 경우는 그 값을 그대로 쓴다(강제로 덧붙이지 않는다).
+
     Args:
         aliases: 이 Actor에 붙은 alias 목록. 각 항목 {"source_id", "source", "pd_name"}
         manual_name: 운영자가 이름을 수동 확정했는지 (true면 자동 유도를 건너뛴다)
         current_name: 현재 Actor.name (manual_name=true일 때 유지할 값)
         activity_by_source: {"JIRA": 96, "SLACK": 12}처럼 소스별 활동량. None이면 빈 dict 취급.
+        is_bot: 봇 Actor 여부 (기본 False)
     """
     if manual_name and current_name:
         return current_name
+
+    def _with_bot_suffix(name: str) -> str:
+        return f"{name} (봇)" if is_bot else name
 
     activity_by_source = activity_by_source or {}
 
@@ -64,23 +73,23 @@ def derive_display_name(
         key=lambda a: a["source_id"],
     )
     if github_named:
-        return github_named[0]["pd_name"]
+        return _with_bot_suffix(github_named[0]["pd_name"])
 
     named = sorted(
         (a for a in aliases if a.get("pd_name") and not _is_github_login_placeholder(a)),
         key=lambda a: (-activity_by_source.get(a.get("source"), 0), a.get("source") or "", a["source_id"]),
     )
     if named:
-        return named[0]["pd_name"]
+        return _with_bot_suffix(named[0]["pd_name"])
 
     github_aliases = sorted(
         (a for a in aliases if a.get("source") == "GITHUB"),
         key=lambda a: a["source_id"],
     )
     if github_aliases:
-        return github_aliases[0]["source_id"].split(":", 1)[-1]
+        return _with_bot_suffix(github_aliases[0]["source_id"].split(":", 1)[-1])
 
-    return _DELETED_USER_LABEL
+    return _with_bot_suffix(_DELETED_USER_LABEL)
 
 
 async def _compute_display_name(tx, actor_uuid: str) -> Optional[tuple[str, str]]:
@@ -101,7 +110,7 @@ async def _compute_display_name(tx, actor_uuid: str) -> Optional[tuple[str, str]
         """
         MATCH (a:Actor {uuid: $actor_uuid})
         OPTIONAL MATCH (al:ActorAlias)-[:ALIAS_OF]->(a)
-        RETURN a.manual_name AS manual_name, a.name AS name,
+        RETURN a.manual_name AS manual_name, a.name AS name, a.bot AS bot,
                collect(CASE WHEN al IS NULL THEN null ELSE
                    {source_id: al.source_id, source: al.source, pd_name: al.pd_name}
                END) AS aliases
@@ -133,8 +142,11 @@ async def _compute_display_name(tx, actor_uuid: str) -> Optional[tuple[str, str]
     for row in await incoming.data():
         activity_by_source[row["source"]] = activity_by_source.get(row["source"], 0) + row["cnt"]
 
+    # record.get("bot")로 읽는다 — 봇 격리 이전에 만들어진 Actor는 이 필드가 없을 수 있고,
+    # Neo4j Record와 테스트 fake 양쪽에서 안전하게 기본값(None → False)으로 처리하기 위함이다.
     expected = derive_display_name(
-        aliases, bool(record["manual_name"]), record["name"], activity_by_source
+        aliases, bool(record["manual_name"]), record["name"], activity_by_source,
+        is_bot=bool(record.get("bot")),
     )
     return record["name"], expected
 
@@ -181,11 +193,16 @@ async def _lookup_actor_by_alias(project_id: str, source_id: str) -> Optional[di
 
 async def _lookup_actor_by_email(project_id: str, email: str) -> Optional[dict]:
     """alias의 pd_email로 Actor를 찾는다. 여러 Actor가 걸리면 첫 1명만 본다
-    (기존 단일 Actor.emails 배열 스캔 시절의 single() 의미를 그대로 유지)."""
+    (기존 단일 Actor.emails 배열 스캔 시절의 single() 의미를 그대로 유지).
+
+    봇 Actor는 후보에서 제외한다 — 사람 매칭이 봇 Actor에 붙는 역방향(봇 격리는
+    양방향이어야 한다: 봇이 사람에 병합되는 것도, 사람이 봇에 병합되는 것도 막는다)을 차단한다.
+    """
     async with get_driver().session() as session:
         result = await session.run(
             """
             MATCH (al:ActorAlias {project_id: $project_id, pd_email: $email})-[:ALIAS_OF]->(a:Actor)
+            WHERE a.bot IS NULL OR a.bot = false
             WITH a LIMIT 1
             MATCH (other:ActorAlias)-[:ALIAS_OF]->(a)
             RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases,
@@ -200,11 +217,15 @@ async def _lookup_actor_by_email(project_id: str, email: str) -> Optional[dict]:
 
 async def _lookup_actor_by_name(project_id: str, normalized_name: str) -> list[dict]:
     """alias의 pd_normalized_name으로 Actor 후보를 찾는다. 후보당 추가 왕복 없이
-    같은 쿼리에서 각 후보의 전체 alias pd_email을 모아 Step 2 스코어링 재료로 반환한다."""
+    같은 쿼리에서 각 후보의 전체 alias pd_email을 모아 Step 2 스코어링 재료로 반환한다.
+
+    봇 Actor는 후보에서 제외한다 — _lookup_actor_by_email과 동일한 양방향 격리 이유.
+    """
     async with get_driver().session() as session:
         result = await session.run(
             """
             MATCH (al:ActorAlias {project_id: $project_id, pd_normalized_name: $normalized_name})-[:ALIAS_OF]->(a:Actor)
+            WHERE a.bot IS NULL OR a.bot = false
             MATCH (other:ActorAlias)-[:ALIAS_OF]->(a)
             WITH a, [x IN collect(DISTINCT other.pd_email) WHERE x IS NOT NULL] AS emails
             RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases, emails
@@ -307,7 +328,9 @@ async def _merge_actor(
         await recompute_display_name(session, actor.get("uuid"))
 
 
-async def _create_actor(project_id: str, source_id: str, name: str, email: Optional[str]) -> dict:
+async def _create_actor(
+    project_id: str, source_id: str, name: str, email: Optional[str], bot: bool = False
+) -> dict:
     """신규 Actor를 생성하되 ActorAlias로 멱등화한다.
 
     resolve_actor는 alias 1개(source_id)와 함께 호출한다. 그 alias로 ActorAlias를
@@ -315,6 +338,9 @@ async def _create_actor(project_id: str, source_id: str, name: str, email: Optio
     (project_id, source_id) 유니크 제약이 동시 MERGE를 직렬화하므로, 같은 alias로
     동시에 들어온 두 이벤트 중 하나만 Actor를 만들고 둘 다 같은 Actor를 돌려받는다
     — #1 동시 수집의 중복 Actor 생성 race를 막는다.
+
+    bot=True(봇 액터 격리)면 Actor.bot에 저장한다 — _lookup_actor_by_email/_lookup_actor_by_name의
+    제외 필터가 이 값을 읽는다.
     """
     from graph.actor_resolver import normalize_name
     actor_uuid = str(uuid.uuid4())
@@ -325,6 +351,7 @@ async def _create_actor(project_id: str, source_id: str, name: str, email: Optio
         [{"source_id": source_id, "source": source, "pd_name": name}],
         manual_name=False,
         current_name=None,
+        is_bot=bot,
     )
     async with get_driver().session() as session:
         result = await session.run(
@@ -335,7 +362,8 @@ async def _create_actor(project_id: str, source_id: str, name: str, email: Optio
                     uuid: $uuid,
                     project_id: $project_id,
                     name: $display_name,
-                    aliases: [$source_id]
+                    aliases: [$source_id],
+                    bot: $bot
                 })
                 MERGE (al)-[:ALIAS_OF]->(a)
             )
@@ -362,6 +390,7 @@ async def _create_actor(project_id: str, source_id: str, name: str, email: Optio
             normalized=normalized,
             email=email,
             source=source,
+            bot=bot,
         )
         record = await result.single()
     return dict(record)
@@ -423,8 +452,8 @@ def make_neo4j_actor_store(project_id: str):
         lookup_by_name=lambda name: _lookup_actor_by_name(project_id, name),
         lookup_activities=_lookup_actor_activities,
         merge_actor=_merge_actor,
-        create_actor=lambda name, source_id, email: _create_actor(
-            project_id, source_id, name, email
+        create_actor=lambda name, source_id, email, bot=False: _create_actor(
+            project_id, source_id, name, email, bot
         ),
         lookup_vetoes=lambda source_id: _lookup_veto_uuids(project_id, source_id),
         update_alias_name=lambda source_id, name, email: _update_alias_name(
