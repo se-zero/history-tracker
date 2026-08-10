@@ -29,6 +29,10 @@ import com.history.backend.discord.service.DiscordOAuthConnectFlow;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
+import com.history.backend.googlechat.service.GoogleChatAccessTokenRefresher;
+import com.history.backend.googlechat.service.GoogleChatClient;
+import com.history.backend.googlechat.service.GoogleChatCredentialLifecycle;
+import com.history.backend.googlechat.service.GoogleChatSelectionFlow;
 import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
@@ -107,6 +111,15 @@ class IntegrationServiceTest {
 
     @Mock
     private DiscordClient discordClient;
+
+    @Mock
+    private GoogleChatClient googleChatClient;
+
+    @Mock
+    private GoogleChatCredentialCodec googleChatCredentialCodec;
+
+    @Mock
+    private GoogleChatTokenService googleChatTokenService;
 
     @Mock
     private PipelineWorkerClient pipelineWorkerClient;
@@ -825,6 +838,30 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("Google Chat 해제는 refresh token(grant)을 폐기한다 (파생 access token도 함께 무효화)")
+    void disconnectRevokesGoogleChatRefreshToken() {
+        IntegrationService service = service();
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.GOOGLE_CHAT,
+                Map.of(GoogleChatSelectionFlow.SPACE_ID, "spaces/AAAA", GoogleChatSelectionFlow.SPACE_NAME, "engineering"),
+                new byte[] {4, 5, 6});
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GOOGLE_CHAT))
+                .thenReturn(Optional.of(integration));
+        when(googleChatCredentialCodec.decrypt(new byte[] {4, 5, 6}))
+                .thenReturn(new GoogleChatCredential("access", "refresh", Instant.parse("2026-08-01T00:00:00Z")));
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.GOOGLE_CHAT);
+
+        // 폐기가 삭제보다 앞서야 한다 — 행을 먼저 지우면 폐기에 쓸 토큰이 사라진다
+        InOrder inOrder = inOrder(googleChatClient, integrationRepository);
+        inOrder.verify(googleChatClient).revoke("refresh");
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
+    }
+
+    @Test
     @DisplayName("GitHub 해제는 폐기 호출이 없다 — App 설치는 계정 단위라 유지")
     void disconnectDoesNotRevokeForGitHub() {
         IntegrationService service = service();
@@ -1117,12 +1154,16 @@ class IntegrationServiceTest {
                 new ProviderCredentialLifecycleRegistry(List.of(
                         new SlackCredentialLifecycle(slackClient, credentialCryptoService),
                         new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec),
-                        new DiscordCredentialLifecycle(discordClient, credentialCryptoService)
+                        new DiscordCredentialLifecycle(discordClient, credentialCryptoService),
+                        new GoogleChatCredentialLifecycle(googleChatClient, googleChatCredentialCodec)
                 )),
-                // 갱신은 별도 SPI다 — Slack은 폐기만 있고 갱신 등록이 없다
-                new AccessTokenRefresherRegistry(List.of(new JiraAccessTokenRefresher(jiraTokenService))),
+                // 갱신은 별도 SPI다 — Slack·Discord는 폐기만 있고 갱신 등록이 없다
+                new AccessTokenRefresherRegistry(List.of(
+                        new JiraAccessTokenRefresher(jiraTokenService),
+                        new GoogleChatAccessTokenRefresher(googleChatTokenService))),
                 new IntegrationSelectionFlowRegistry(List.of(
-                        new JiraSelectionFlow(jiraOAuthClient, jiraClient, jiraTokenService))),
+                        new JiraSelectionFlow(jiraOAuthClient, jiraClient, jiraTokenService),
+                        new GoogleChatSelectionFlow(googleChatClient, googleChatTokenService))),
                 new TransactionTemplate(transactionManager)
         );
     }

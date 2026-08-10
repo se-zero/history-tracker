@@ -88,3 +88,14 @@ discord:
   token-url: https://discord.test/api/v10/oauth2/token
   revoke-url: https://discord.test/api/v10/oauth2/token/revoke
   api-base-url: https://discord.test/api/v10
+
+google-chat:
+  client-id: test-client-id
+  client-secret: test-client-secret
+  redirect-uri: https://googlechat.test/callback
+  scopes: "https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/chat.messages.readonly https://www.googleapis.com/auth/directory.readonly"
+  authorize-url: https://googlechat.test/o/oauth2/v2/auth
+  token-url: https://googlechat.test/token
+  revoke-url: https://googlechat.test/revoke
+  api-base-url: https://googlechat.test/v1
+  refresh-skew: PT5M

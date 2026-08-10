@@ -4,6 +4,7 @@ import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.common.crypto.CredentialCryptoProperties;
 import com.history.backend.discord.DiscordProperties;
 import com.history.backend.github.GitHubAppProperties;
+import com.history.backend.googlechat.GoogleChatProperties;
 import com.history.backend.jira.AtlassianPersonalDataReportProperties;
 import com.history.backend.jira.AtlassianProperties;
 import com.history.backend.security.JwtProperties;
@@ -20,7 +21,8 @@ import org.springframework.context.annotation.Configuration;
         AtlassianProperties.class,
         AtlassianPersonalDataReportProperties.class,
         UserPurgeProperties.class,
-        DiscordProperties.class
+        DiscordProperties.class,
+        GoogleChatProperties.class
 })
 public class PropertiesConfig {
 }

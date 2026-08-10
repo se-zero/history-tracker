@@ -6,7 +6,8 @@ public enum IntegrationProvider {
     GITHUB("github", "GitHub"),
     SLACK("slack", "Slack"),
     JIRA("jira", "Jira"),
-    DISCORD("discord", "Discord");
+    DISCORD("discord", "Discord"),
+    GOOGLE_CHAT("google-chat", "Google Chat");
 
     private final String value;
     private final String displayName;
