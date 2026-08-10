@@ -47,6 +47,9 @@ app:
   asana:
     base-url: https://app.asana.com/api/1.0
     max-pages-per-run: 50
+  clickup:
+    base-url: https://api.clickup.com/api/v2
+    max-pages-per-run: 50
 
   rabbitmq:
     exchange: history.exchange
@@ -86,3 +89,5 @@ app:
       delay-ms: 720  # 5,000 req/h 한도 대응 (3,600,000ms / 5,000)
     asana:
       delay-ms: 400  # 무료 워크스페이스 150 req/min 한도 대응 (60,000ms / 150)
+    clickup:
+      delay-ms: 600  # 무료 워크스페이스 100 req/min 한도 대응 (60,000ms / 100)
