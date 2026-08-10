@@ -117,7 +117,8 @@ ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이�
   토큰을 지우면 폐기에 쓸 값 자체가 사라진다. Slack은 `auth.revoke`, Jira는 refresh token 폐기
   (파생 access token도 함께 무효화)이며, 폐기 실패는 각 client가 로그만 남기고 삼킨다 —
   이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
-  Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, GitHub은
+  Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, Asana도 refresh
+  token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은
   폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시).
   **그래프가 RDB보다 먼저** — 프로젝트 삭제와 같은 이유다(외부 HTTP를 트랜잭션 밖에 두고,
   그래프 삭제가 멱등이라 재시도로 수렴).
@@ -130,6 +131,8 @@ ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이�
 - Jira만 2단계다: 동의 직후에는 토큰만 담은 pending 행을 만들고, 사용자가 사이트·프로젝트를 고르면 확정한다.
 - Jira access token은 1시간짜리라 `JiraTokenService`가 갱신을 전담한다. Atlassian refresh token은 회전하므로
   **갱신 주체가 둘이면 서로의 토큰을 무효화한다** — pipeline-worker는 직접 갱신하지 않고 아래 내부 API로 위임한다.
+- Asana access token도 1시간짜리라 `AsanaTokenService`가 갱신을 전담한다. Asana refresh token은 회전하지
+  않으므로 Jira 같은 무효화 문제는 없다.
 
 ## 내부 서비스 API
 

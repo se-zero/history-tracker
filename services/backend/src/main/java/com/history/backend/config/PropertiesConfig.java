@@ -1,5 +1,6 @@
 package com.history.backend.config;
 
+import com.history.backend.asana.AsanaProperties;
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.common.crypto.CredentialCryptoProperties;
 import com.history.backend.github.GitHubAppProperties;
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.Configuration;
         AtlassianProperties.class,
         AtlassianPersonalDataReportProperties.class,
         LinearProperties.class,
+        AsanaProperties.class,
         UserPurgeProperties.class
 })
 public class PropertiesConfig {

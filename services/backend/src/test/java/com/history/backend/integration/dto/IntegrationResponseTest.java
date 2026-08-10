@@ -41,6 +41,30 @@ class IntegrationResponseTest {
         assertThat(response.displayName()).isEqualTo("Linear");
     }
 
+    @Test
+    @DisplayName("확정된 Asana 연동은 external_ref의 workspace_name / project_name을 표시한다")
+    void confirmedAsanaIntegrationDisplaysWorkspaceAndProjectNames() {
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.ASANA,
+                Map.of("workspace_name", "Acme Inc", "project_name", "Website Redesign"),
+                new byte[] {1});
+
+        IntegrationResponse response = IntegrationResponse.from(integration);
+
+        assertThat(response.displayName()).isEqualTo("Acme Inc / Website Redesign");
+    }
+
+    @Test
+    @DisplayName("미확정(pending) Asana 연동은 workspace/project를 아직 몰라 고정 문구 \"Asana\"로 폴백한다")
+    void pendingAsanaIntegrationFallsBackToProviderDisplayName() {
+        Integration integration = Integration.pendingSelection(project(), IntegrationProvider.ASANA, new byte[] {1});
+
+        IntegrationResponse response = IntegrationResponse.from(integration);
+
+        assertThat(response.displayName()).isEqualTo("Asana");
+    }
+
     private Project project() {
         User owner = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(owner, "id", UUID.randomUUID());

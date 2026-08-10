@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.history.backend.asana.service.AsanaSelectionFlow;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.jira.service.JiraSelectionFlow;
@@ -63,6 +64,14 @@ public record IntegrationResponse(
             case LINEAR -> {
                 String teamName = integration.externalRefValue(LinearSelectionFlow.TEAM_NAME);
                 yield teamName == null ? "Linear" : teamName;
+            }
+            // workspace / project — 확정 전(pending)에는 둘 다 없어 joinNonBlank가 null을 돌려주므로
+            // 고정 문구로 폴백한다.
+            case ASANA -> {
+                String display = joinNonBlank(
+                        integration.externalRefValue(AsanaSelectionFlow.WORKSPACE_NAME),
+                        integration.externalRefValue(AsanaSelectionFlow.PROJECT_NAME));
+                yield display == null ? "Asana" : display;
             }
         };
     }

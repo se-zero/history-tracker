@@ -96,3 +96,12 @@ linear:
   revoke-url: ${LINEAR_REVOKE_URL:https://api.linear.app/oauth/revoke}
   # 만료 전 미리 갱신할 여유 시간. 로컬에서 크게 잡으면(예: PT23H) 갱신 경로를 즉시 검증할 수 있다.
   refresh-skew: ${LINEAR_REFRESH_SKEW:PT30M}
+
+asana:
+  client-id: ${ASANA_CLIENT_ID:}
+  client-secret: ${ASANA_CLIENT_SECRET:}
+  redirect-uri: ${ASANA_REDIRECT_URI:}
+  token-url: ${ASANA_TOKEN_URL:https://app.asana.com/-/oauth_token}
+  revoke-url: ${ASANA_REVOKE_URL:https://app.asana.com/-/oauth_revoke}
+  # 만료 전 미리 갱신할 여유 시간. access token 수명이 1시간이라 Linear(24h/PT30M)보다 훨씬 짧게 잡는다.
+  refresh-skew: ${ASANA_REFRESH_SKEW:PT10M}

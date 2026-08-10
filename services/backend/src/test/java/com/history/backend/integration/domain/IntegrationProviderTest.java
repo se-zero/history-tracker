@@ -31,4 +31,11 @@ class IntegrationProviderTest {
         assertThat(IntegrationProvider.LINEAR).isNotNull();
         assertThat(IntegrationProvider.fromValue("linear")).isEqualTo(IntegrationProvider.LINEAR);
     }
+
+    @Test
+    @DisplayName("asana 값은 ASANA provider로 매핑")
+    void fromValueMapsAsanaToAsanaProvider() {
+        assertThat(IntegrationProvider.ASANA).isNotNull();
+        assertThat(IntegrationProvider.fromValue("asana")).isEqualTo(IntegrationProvider.ASANA);
+    }
 }
