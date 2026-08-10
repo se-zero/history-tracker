@@ -222,6 +222,66 @@ Linear GraphQL API의 `orderBy`에는 방향 제어 파라미터가 없어 항�
 - **문제**: 초기 전체 수집 또는 대규모 업데이트 배치 직후에는 여러 번 호출해야 완료될 수 있다.
 - **방법 선택 이유**: 상한 없이 처리하면 페이지당 720ms 딜레이가 누적돼 장시간 블로킹된다. Jira의 `app.jira.max-pages-per-run`과 같은 이유다.
 
+## Asana
+
+### 수집 대상
+
+Asana 태스크를 REST API로 조회한다. 코멘트(story)는 수집하지 않고(태스크만), 삭제 이벤트도 수집하지 않는다.
+
+Asana checkpoint는 `checkpoints` 테이블에서 `provider=asana`, `cursor_key=asana_updated` row에 저장한다.
+
+```
+GET {base}/tasks?project={gid}&modified_since={checkpoint}&limit=100&opt_fields=name,notes,completed,completed_at,created_at,modified_at,created_by.name,created_by.email,assignee.name,assignee.email,parent
+```
+
+- `modified_since`: checkpoint 이후 변경분만 조회한다.
+- 연동 시 선택한 project로 스코프한다 — `/tasks?project=`는 해당 project에 직속(multi-home 포함)된 태스크만 반환하고 서브태스크는 포함하지 않는다.
+
+### 페이지네이션
+
+- `next_page.offset` 토큰 기반.
+- 한 번 실행에서 처리할 최대 페이지 수: `app.asana.max-pages-per-run` (기본값 50)
+  - 상한 도달 시 `limitReached=true` 반환, checkpoint는 전진시키지 않는다 (아래 참고).
+
+### checkpoint 갱신
+
+Slack·Linear와 동일하게 페이지 단위가 아니라 **전체 실행 성공 후 1회** 갱신한다 — 이번 실행에서 관측한 최대 `occurredAt`을 한 번만 반영한다. `limitReached=true`(페이지 상한 도달)면 이번 실행에서는 전진시키지 않는다. 초기 수집은 `EPOCH`부터 시작한다.
+
+### occurredAt 기준
+
+태스크 `modified_at` 시각. `created_at`은 별도 property로 보존한다.
+
+### Rate Limiting
+
+호출당 400ms 고정 딜레이 (무료 워크스페이스 한도 150 req/min 기준 — 유료 워크스페이스는 1,500 req/min이라 여유가 있다).
+
+### 수집 트리거
+
+webhook·스케줄러 없이, 연동 직후 1회 초기 수집과 GitHub PR 머지 웹훅 처리에 편승한 증분 수집만 있다(Jira·Slack·Linear와 동일한 패턴 — `services/pipeline-worker/CLAUDE.md` 「Webhook 수집 흐름」 참고).
+
+### Tradeoff & 예상 문제점
+
+#### multi-home 태스크의 `modified_since` 맹점
+
+Asana 태스크는 여러 project에 동시에 속할 수 있다(multi-home). 기존 태스크를 나중에 수집 대상 project에 추가해도 `modified_at`이 그 시점에 갱신된다는 보장이 없다 — Asana 공식 문서에 이 갱신 규약이 명시돼 있지 않다.
+
+- **문제**: 이미 checkpoint를 지난 시각에 생성된 태스크가 이후 수집 대상 project로 옮겨져도 `modified_since` 필터에 걸리지 않으면 다음 증분 수집에서 영구히 누락될 수 있다.
+- **방법 선택 이유**: webhook 없는 설계에서는 project 멤버십 변경을 별도로 감지할 방법이 없다. 다른 provider와 마찬가지로 API가 제공하는 필터에 의존하는 트레이드오프를 감수한다.
+
+#### 서브태스크 미수집
+
+`/tasks?project=`는 project에 직속된 태스크만 반환하고 서브태스크는 포함하지 않는다.
+
+- **문제**: 서브태스크를 수집하려면 태스크당 `/tasks/{gid}/subtasks` 추가 호출이 필요하다 — 태스크 수만큼 호출이 선형 증가해 400ms 고정 딜레이 기준 rate 예산이 붕괴한다.
+- **방법 선택 이유**: 서브태스크는 범위 밖으로 두고 수집하지 않는다. 서브태스크의 `parent` refs는 발행하되(수집 대상 프로젝트 밖의 부모라도), 범위 밖 부모 태스크는 pre-node로 잔존하는 것을 감수한다.
+
+#### 이슈 키 부재 → URL 참조 의존
+
+Asana 태스크에는 Jira `HT-7`·Linear `ENG-42` 같은 사람용 표시 키가 없다(`gid` 불변 ID만 있다).
+
+- **문제**: 커밋·PR·Slack 텍스트에서 태스크를 참조하려면 키 매칭이 불가능하다.
+- **방법 선택 이유**: Asana 태스크 URL(`app.asana.com/0/.../{task}`, `app.asana.com/1/.../{task}`)에서 gid를 추출하는 `refs.issueExternalRefs` 경로로 대체한다 (`docs/normalized-event.md` 참고). 이슈 키 형식 참조가 아니라 URL 형식 참조에 전적으로 의존하는 첫 사례다.
+
 ---
 
 ## Slack

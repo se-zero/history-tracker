@@ -157,6 +157,16 @@ pre-node다(`refs.parentExternalId`로 MERGE, 본 이벤트가 나머지를 채�
 소스가 쓰는 경우 텍스트 참조는 본질적으로 모호하다 — 링크는 매칭되는 모든 실노드에 걸고,
 흡수는 먼저 도착한 실노드가 가져간다(알려진 한계).
 
+**URL 유래 참조도 stub이 아니라 실키 pre-node다** — `refs.issueExternalRefs`(예: Asana 태스크
+URL)는 parent 참조와 동일한 메커니즘으로 `(project_id, source, external_id)` 실키를 직접
+MERGE한다. `__stub__` 센티널·흡수 절차가 필요 없다(자연키 자체가 실키라 나중에 본 이벤트가
+도착하면 같은 키로 그대로 병합된다). 소스 단위 삭제의 1단계(도메인 노드, `source` 속성 스코프)에
+포함되므로 5단계의 고아 `__stub__` 정리 대상이 아니다. 사람용 표시 키가 없는 소스(Asana 등)의
+텍스트 링크는 이 경로로만 회복된다. PR 이벤트가 자기 커밋 이벤트보다 먼저 소비되는
+경우(수집기가 PR을 먼저 발행하는 정상 순서) PR 시점의 전체 전파는 CONTAINS 커밋 존재를
+확인해 건너뛰어 엣지 없는 pre-node를 만들지 않으며, 커밋 도착 시 단건 전파가 pre-node
+생성과 연결을 함께 수행한다.
+
 텍스트 링크 매칭(`link_issue_to_communication`·`link_changeset_to_issue` 등)도 실노드를
 `(project_id, issue_key)`로만 찾고 `source`는 걸러내지 않는다. 서로 다른 이슈 소스(예: Jira와
 Linear)를 같은 프로젝트에 동시 연동했는데 두 소스의 키 접두사가 우연히 겹치면, 텍스트 속
@@ -212,7 +222,9 @@ GitHub Pull Request. 머지된 PR만 수집한다.
     "created_at": "",                  // PR 최초 생성 시각 (ISO-8601)
     "url": ""                          // PR 링크
   },
-  "refs": {}                            // 예: { "issueKeys": ["PAYMENT-301", "HT-7"] } — 제목/본문에서 추출. 이벤트 처리 시 pr.issue_keys 노드 속성으로 저장되어, 그 PR의 CONTAINS 커밋에 text TRIGGERED_BY 전파에 사용
+  "refs": {}                            // 예: { "issueKeys": ["PAYMENT-301", "HT-7"], "issueExternalRefs": [{"source": "ASANA", "externalId": "123"}] }
+                                         // issueKeys → pr.issue_keys, issueExternalRefs → pr.issue_external_ids("SOURCE:externalId" 문자열 배열, 맵 배열은 Neo4j 속성으로 저장 불가)
+                                         // 제목/본문에서 추출. 그 PR의 CONTAINS 커밋에 text TRIGGERED_BY 전파에 사용
 }
 ```
 

@@ -133,6 +133,24 @@ record ActorDto(String id, String name, String email, Boolean bot)
 
 `occurredAt`: `updatedAt`.
 
+**Asana 매핑** (`source = "ASANA"`) — Jira와 같은 Issue 스키마를 공유하며, 아래 필드만 소스별로 다르다.
+
+| 정규화 키 | Asana 원본 필드 |
+|-----------|------------------|
+| `external_id` | `gid` (불변) |
+| `issue_key` | 생략 — Asana는 사람용 표시 키가 없다 |
+| `status` | 미발행 — sections는 팀 자유 어휘라 워크플로 상태 원문이 없다 |
+| `status_category` | `completed` — `true` → `closed`, `false` → `open`. 필드 부재 시 방어적으로 `open` (`in_progress` 없음) |
+| `closed_at` | `status_category == closed`일 때만 `completed_at`으로 채운다 |
+| `priority` | 생략 — Asana Issue 스키마에 우선순위 개념이 없다 |
+| `actor` | `created_by` → `{id, name, email, bot: null}`. **Asana API에 봇/앱 구분 신호가 없어 `bot`은 항상 미설정(null)이다.** `created_by`가 없으면 전 필드 `null` |
+| `refs.assignees` | Asana도 담당자가 단일 필드(`assignee`)라 배열로 감싸 스냅샷화한다. 없으면 빈 배열(키는 유지), 조회 실패 시 이벤트 자체를 발행하지 않는다(§담당자 해제 규약) |
+| `refs.parentExternalId` | `parent.gid` — `parentIssueKey`는 발행하지 않는다(Asana에 표시 키가 없다) |
+
+`occurredAt`: `modified_at`(`created_at`은 별도 property로 보존).
+
+Asana에는 이슈 키가 없어 커밋·PR·Slack 텍스트의 태스크 참조는 `refs.issueExternalRefs`(아래 「refs — 교차 참조」)로 회복한다.
+
 ### Communication — 대화 (자연키: `url`)
 
 Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별 삭제가 라벨이 아니라
@@ -159,6 +177,7 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 |----|------|--------|------|
 | `issueKey` | string | ChangeSet, Communication | 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN`. 사람용 키로 실노드를 찾고, 없으면 `__stub__` 센티널 Issue에 걸어둔다 (stub 규약은 `docs/graph-schema.md`) |
 | `issueKeys` | string[] | PullRequest | PR이 머지한 모든 커밋에 이슈 연결 전파 |
+| `issueExternalRefs` | {source, externalId}[] | ChangeSet, PullRequest, Communication | 이슈 키가 없는 소스(Asana 등)의 URL 참조. `(project_id, source, external_id)` **실키**로 직접 Issue pre-node를 MERGE하고(부모 참조와 동일 메커니즘, `__stub__` 센티널 불필요) 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN` text 엣지를 건다. PullRequest는 `"SOURCE:externalId"` 문자열 배열로 `issue_external_ids` 속성에 저장해 CONTAINS 커밋에 전파한다 |
 | `prNumber` | string | ChangeSet | PR → 커밋 `CONTAINS` |
 | `parentExternalId` | string | Issue | 부모 이슈의 **불변 ID** — `CHILD_OF` 매칭 키. 이 값이 있어야 링크된다 |
 | `parentIssueKey` | string | Issue | 부모 pre-node의 표시 키 (노드 생성 시에만 기록) |
@@ -205,7 +224,7 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
    값은 자연키로 쓰지 않는다** — 표시용 속성(`issue_key`)으로 따로 싣는다.
 5. `actor.id`가 안정적·고유한지 확인 (§actor).
 6. `occurredAt`이 실제 발생 시각인지 확인 — checkpoint 정확도가 여기 달렸다.
-7. `refs` 추출 패턴 기여 (이슈 키 형식 / URL 형식).
+7. `refs` 추출 패턴 기여 (이슈 키 형식 / URL 형식). URL 형식 소스는 `issueExternalRefs`로 수렴한다 — 첫 사례는 Asana.
 8. 개인정보(이름·이메일) 취급이 `docs/graph-schema.md`의 ActorAlias 규약을 따르는지 확인.
 9. 연동 해제 시 소스별 그래프 삭제가 동작하는지 확인 —
    `DELETE /graph/projects/{id}/sources/{SOURCE}`는 `source` 속성 기반이라 자동으로 맞는다.

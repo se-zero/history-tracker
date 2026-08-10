@@ -1,7 +1,7 @@
 # DB 스키마
 
 backend 서비스(`services/backend`)의 PostgreSQL 테이블 정의 및 관계를 기술한다.
-마이그레이션 파일: `src/main/resources/db/migration/V1~V12`
+마이그레이션 파일: `src/main/resources/db/migration/V1~V14`
 
 ---
 
@@ -282,7 +282,7 @@ pipeline-worker의 수집 커서 위치를 저장한다. `(project_id, provider,
 | 컬럼 | 타입 | 제약 | 설명 |
 |------|------|------|------|
 | `project_id` | UUID | PK 일부, FK → `projects.id` CASCADE | 체크포인트가 속한 프로젝트 |
-| `provider` | TEXT | PK 일부, CHECK IN (`github`, `jira`, `slack`) | 외부 시스템 종류 |
+| `provider` | TEXT | PK 일부, CHECK IN (`github`, `jira`, `slack`, `linear`(V13), `asana`(V14)) | 외부 시스템 종류 |
 | `cursor_key` | TEXT | PK 일부 | 수집 종류 (`github_commits`, `github_pull_requests` 등) |
 | `cursor_value` | TIMESTAMPTZ | NOT NULL | 마지막으로 처리한 cursor 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 마지막 갱신 시각 |

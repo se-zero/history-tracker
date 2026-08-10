@@ -90,8 +90,10 @@ public interface SourceCollector {
   동일 패턴에 걸리는 반면, Asana/ClickUp/Notion은 URL 기반 참조라 provider별 패턴 기여가
   필요하다. `refs.issueKeys`처럼 중립 키로 수렴한다.
   **→ 키 이름 중립화는 A6에서 완료** (ref 키 `jiraKey → issueKey` 계열, ai-engine과 동시 이행).
-  URL 기반 참조 소스(Asana/ClickUp/Notion)를 위한 패턴 레지스트리화는 해당 커넥터 착수 시
-  Part B에서 한다 — 지금은 정규식 하나뿐이라 등록 지점을 미리 만들 실익이 없다.
+  **→ URL 기반 참조 완료** — Asana에서 산출 키 `issueExternalRefs`(소스 중립, `{source, externalId}[]`)로
+  구현했다. 등록 지점의 레지스트리화(패턴을 provider별로 분리 관리)는 다음 URL 기반 소스
+  (ClickUp/Notion) 착수 시 한다 — 지금은 패턴 두 벌(Jira 키 형식, Asana URL 형식)뿐이라 미리
+  만들 실익이 없다.
 
 ### 3-2. backend — 연동 프레임워크
 
@@ -236,7 +238,7 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
-| 이슈 트래커 | ~~Linear~~ ✅ · Asana · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
+| 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
 | 대화 | MS Teams · Google Chat · Discord | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
 | 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
 
