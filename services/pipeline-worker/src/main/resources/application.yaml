@@ -44,6 +44,9 @@ app:
   linear:
     base-url: https://api.linear.app
     max-pages-per-run: 50
+  asana:
+    base-url: https://app.asana.com/api/1.0
+    max-pages-per-run: 50
 
   rabbitmq:
     exchange: history.exchange
@@ -81,3 +84,5 @@ app:
       delay-ms: 200
     linear:
       delay-ms: 720  # 5,000 req/h 한도 대응 (3,600,000ms / 5,000)
+    asana:
+      delay-ms: 400  # 무료 워크스페이스 150 req/min 한도 대응 (60,000ms / 150)
