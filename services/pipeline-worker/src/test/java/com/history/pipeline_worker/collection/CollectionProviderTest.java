@@ -13,6 +13,7 @@ class CollectionProviderTest {
         assertThat(CollectionProvider.JIRA.value()).isEqualTo("jira");
         assertThat(CollectionProvider.SLACK.value()).isEqualTo("slack");
         assertThat(CollectionProvider.LINEAR.value()).isEqualTo("linear");
+        assertThat(CollectionProvider.ASANA.value()).isEqualTo("asana");
     }
 
     @Test
@@ -21,18 +22,20 @@ class CollectionProviderTest {
         assertThat(CollectionProvider.find("jira")).contains(CollectionProvider.JIRA);
         assertThat(CollectionProvider.find("slack")).contains(CollectionProvider.SLACK);
         assertThat(CollectionProvider.find("linear")).contains(CollectionProvider.LINEAR);
+        assertThat(CollectionProvider.find("asana")).contains(CollectionProvider.ASANA);
     }
 
     // PipelineService는 CollectionProvider 선언 순서(EnumMap)로 순차 수집하고, 한 provider가 실패하면
-    // 이후 provider는 돌지 않는다. 신규 소스는 항상 마지막에 선언해 기존 3소스(github/jira/slack)의
+    // 이후 provider는 돌지 않는다. 신규 소스는 항상 마지막에 선언해 기존 4소스(github/jira/slack/linear)의
     // 수집 순서·장애 격리를 건드리지 않는다.
     @Test
-    void values_declaresLinearLastToProtectExistingProviders() {
+    void values_declaresAsanaLastToProtectExistingProviders() {
         assertThat(CollectionProvider.values()).containsExactly(
                 CollectionProvider.GITHUB,
                 CollectionProvider.JIRA,
                 CollectionProvider.SLACK,
-                CollectionProvider.LINEAR
+                CollectionProvider.LINEAR,
+                CollectionProvider.ASANA
         );
     }
 
@@ -47,6 +50,7 @@ class CollectionProviderTest {
     @Test
     void fromPath_returnsProviderForKnownValue() {
         assertThat(CollectionProvider.fromPath("slack")).isEqualTo(CollectionProvider.SLACK);
+        assertThat(CollectionProvider.fromPath("asana")).isEqualTo(CollectionProvider.ASANA);
     }
 
     // URL 경로 변수용 — 미지원이면 예외 (컨트롤러가 400으로 변환)

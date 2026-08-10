@@ -144,4 +144,140 @@ class RefsExtractorTest {
         assertThat(refs).containsEntry("issueKey", "ENG-42");
         assertThat(refs).containsEntry("issueKeys", List.of("ENG-42"));
     }
+
+    // ─── Asana 태스크 URL의 gid (묶음 3) ────────────────────────────────────────
+    // Asana는 이슈 키(ABC-123)가 없어 태스크 URL에서 gid를 추출한다.
+    // V0: https://app.asana.com/0/{project_gid}/{task_gid} — 마지막 숫자 세그먼트가 task gid
+    // V1: https://app.asana.com/1/{workspace_gid}/task/{task_gid}
+    //     https://app.asana.com/1/{workspace_gid}/project/{project_gid}/task/{task_gid} — "/task/" 다음 숫자가 task gid
+    // refs.get("issueExternalRefs") = List<Map<String,Object>> [{source: "ASANA", externalId: "<gid>"}], 매치 없으면 키 자체 부재.
+
+    @Test
+    @DisplayName("Asana V0 URL(/0/{project}/{task}) → 두 번째 숫자 세그먼트(task gid)를 추출 (project gid 아님)")
+    void extract_asanaV0Url_secondSegmentIsTaskGid() {
+        Map<String, Object> refs = extractor.extract(
+                "See https://app.asana.com/0/1201111111111111/1201222222222222 for details");
+
+        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        assertThat(issueExternalRefs).hasSize(1);
+        assertThat(issueExternalRefs.get(0))
+                .containsEntry("source", "ASANA")
+                .containsEntry("externalId", "1201222222222222");
+    }
+
+    @Test
+    @DisplayName("Asana V1 URL(/1/{workspace}/project/{project}/task/{task}) → task gid 추출")
+    void extract_asanaV1UrlWithProjectSegment_taskGidExtracted() {
+        Map<String, Object> refs = extractor.extract(
+                "https://app.asana.com/1/98765/project/1201333333333333/task/1201444444444444");
+
+        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        assertThat(issueExternalRefs).hasSize(1);
+        assertThat(issueExternalRefs.get(0))
+                .containsEntry("source", "ASANA")
+                .containsEntry("externalId", "1201444444444444");
+    }
+
+    @Test
+    @DisplayName("Asana V1 URL(/1/{workspace}/task/{task}, project 세그먼트 없음) → task gid 추출")
+    void extract_asanaV1UrlWithoutProjectSegment_taskGidExtracted() {
+        Map<String, Object> refs = extractor.extract("https://app.asana.com/1/98765/task/1201555555555555");
+
+        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        assertThat(issueExternalRefs).hasSize(1);
+        assertThat(issueExternalRefs.get(0))
+                .containsEntry("source", "ASANA")
+                .containsEntry("externalId", "1201555555555555");
+    }
+
+    @Test
+    @DisplayName("V0 URL 뒤에 /f 접미가 붙어도(.../0/123/456/f) task gid 추출")
+    void extract_asanaV0UrlWithTrailingSlashF_taskGidExtracted() {
+        Map<String, Object> refs = extractor.extract("https://app.asana.com/0/123/456/f");
+
+        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        assertThat(issueExternalRefs).hasSize(1);
+        assertThat(issueExternalRefs.get(0))
+                .containsEntry("source", "ASANA")
+                .containsEntry("externalId", "456");
+    }
+
+    @Test
+    @DisplayName("쿼리스트링이 붙은 Asana URL도 gid 정상 추출")
+    void extract_asanaUrlWithQueryString_taskGidExtracted() {
+        Map<String, Object> refs = extractor.extract("https://app.asana.com/0/123/456?focus=true");
+
+        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        assertThat(issueExternalRefs).hasSize(1);
+        assertThat(issueExternalRefs.get(0))
+                .containsEntry("source", "ASANA")
+                .containsEntry("externalId", "456");
+    }
+
+    @Test
+    @DisplayName("Slack 링크 래핑(<url|텍스트>) 안의 Asana URL도 gid 추출")
+    void extract_asanaUrlWrappedInSlackLink_taskGidExtracted() {
+        Map<String, Object> refs = extractor.extract("<https://app.asana.com/0/123/456|태스크 이름>");
+
+        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        assertThat(issueExternalRefs).hasSize(1);
+        assertThat(issueExternalRefs.get(0))
+                .containsEntry("source", "ASANA")
+                .containsEntry("externalId", "456");
+    }
+
+    @Test
+    @DisplayName("같은 Asana URL이 2회 등장해도 issueExternalRefs 원소는 1개 (중복 제거)")
+    void extract_duplicateAsanaUrl_deduplicated() {
+        Map<String, Object> refs = extractor.extract(
+                "https://app.asana.com/0/123/456 mentioned again at https://app.asana.com/0/123/456");
+
+        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        assertThat(issueExternalRefs).hasSize(1);
+        assertThat(issueExternalRefs.get(0))
+                .containsEntry("source", "ASANA")
+                .containsEntry("externalId", "456");
+    }
+
+    @Test
+    @DisplayName("프로젝트만 있는 V0 URL(세그먼트 1개, .../0/123)은 태스크가 아니므로 매치하지 않음")
+    void extract_asanaV0ProjectOnlyUrl_notMatched() {
+        Map<String, Object> refs = extractor.extract("https://app.asana.com/0/123 project overview");
+
+        assertThat(refs).doesNotContainKey("issueExternalRefs");
+    }
+
+    @Test
+    @DisplayName("task 세그먼트가 없는 V1 URL(.../1/{workspace}/project/{project})은 매치하지 않음")
+    void extract_asanaV1WithoutTaskSegment_notMatched() {
+        Map<String, Object> refs = extractor.extract("https://app.asana.com/1/777/project/123 project overview");
+
+        assertThat(refs).doesNotContainKey("issueExternalRefs");
+    }
+
+    @Test
+    @DisplayName("Asana URL이 없는 텍스트 → issueExternalRefs 키 자체 부재")
+    void extract_noAsanaUrl_noIssueExternalRefsKey() {
+        Map<String, Object> refs = extractor.extract("just a regular commit message");
+
+        assertThat(refs).doesNotContainKey("issueExternalRefs");
+    }
+
+    @Test
+    @DisplayName("Jira 이슈 키와 Asana URL이 한 텍스트에 공존하면 issueKey·issueExternalRefs 둘 다 산출")
+    void extract_issueKeyAndAsanaUrl_bothExtracted() {
+        Map<String, Object> refs = extractor.extract("HT-7 relates to https://app.asana.com/0/123/456");
+
+        assertThat(refs).containsEntry("issueKey", "HT-7");
+        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        assertThat(issueExternalRefs).hasSize(1);
+        assertThat(issueExternalRefs.get(0))
+                .containsEntry("source", "ASANA")
+                .containsEntry("externalId", "456");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> asanaRefs(Map<String, Object> refs) {
+        return (List<Map<String, Object>>) refs.get("issueExternalRefs");
+    }
 }
