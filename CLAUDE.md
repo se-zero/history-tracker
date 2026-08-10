@@ -95,7 +95,7 @@ cd infra/docker
 - `docs/normalized-event.md` - pipeline-worker ↔ ai-engine 수집 계약 (nodeType별 properties·refs·source 표기). **새 커넥터 작업의 체크리스트**
 - `docs/integration-abstraction.md` - 신규 integration(Linear·Teams·Notion 등) 추가를 위한 provider 추상화 계획 — 아키타입 분류, 서비스별 SPI 설계, 진행 순서
 - `docs/discord-integration.md` - Discord 커넥터(**대화 아키타입 1호**) 계획 — 봇 토큰 수집 모델, 선택 단계 없는 연결(Slack형), snowflake 증분, MESSAGE_CONTENT intent 게이트, 선행 공용 변경(revoke 시그니처)
-- `docs/google-chat-integration.md` - Google Chat 커넥터 계획 — **대화 아키타입에서 A4 다단 선택(1단 space)을 처음 검증**하는 커넥터. 사용자 OAuth 수집, `createTime` 서버사이드 증분, 만료 토큰형이라 webhook 토큰 확보 일반화가 선행 필수. 착수 전 Workspace 계정 게이트 실측 필요
+- `docs/google-chat-integration.md` - Google Chat 커넥터(**대화 아키타입에서 A4 다단 선택(1단 space)을 처음 검증**) — 코드 작업 완료(backend·pipeline-worker·web-dashboard, 선행 PR 2건 포함). Workspace 계정 게이트 실측·실기동은 미착수
 - `docs/teams-integration.md` - MS Teams 커넥터 계획(**착수 보류 — 유료 테넌트·관리자 동의 필요로 2호로 연기**) — Graph API 조사 근거의 결정 사항, 1단 team 선택, 정렬 기반 증분 전략, 선행 공용 변경(webhook 토큰 확보 일반화)
 - `docs/actor-node-design.md` - Actor 동일인 판단 파이프라인 상세 설계 (스코어링 로직, LLM 프롬프트, Neo4j 쿼리)
 - `docs/actor-manual-merge.md` - Actor 수동 병합·분리 설계 (ActorDecision 영속화, resolver veto, unmerge/split)

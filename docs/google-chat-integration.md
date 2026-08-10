@@ -5,12 +5,22 @@ ai-engine은 무변경이다(`Communication` 노드 재사용). 전체 순서는
 따르고, 이 문서는 그 체크리스트를 Google Chat에 대입했을 때의 **결정 사항과 Google Chat 고유 설계**만
 다룬다.
 
-Google Workspace Chat API 공식 문서 조사(2026-08, v1 기준)를 근거로 작성했다. **아직 실측은 하지
-않았다** — Discord 문서의 「확인 완료」에 해당하는 절이 여기엔 없고, 대신 착수 직전에 반드시 재보는
-항목을 「착수 전 실측」에 모았다. 특히 §1-0의 계정 게이트는 **코드를 한 줄도 쓰기 전에** 확인해야 한다.
+Google Workspace Chat API 공식 문서 조사(2026-08, v1 기준)로 초안을 작성한 뒤, `g.seoultech.ac.kr`
+계정(OAuth Playground 기반 수동 호출)으로 §1-0 계정 게이트와 핵심 API 응답 형태를 실측했다 —
+Discord 문서의 「확인 완료」에 해당하는 절이 §11에 있다. 실측 중 계획서의 가정 하나가 뒤집혔다
+(§7 참고 — People API 보강이 "선택"이 아니라 "필수"가 됐다).
 
-**순서**: 문서상 3호지만 Teams가 라이선스 확보를 기다리는 중이라 실제 착수는 2호가 될 수 있다.
+**순서**: 문서상 3호지만 Teams가 라이선스 확보를 기다리는 중이라 실제 착수는 2호가 됐다.
 Discord와 Teams 중 어느 쪽이 앞서든 이 커넥터가 맡는 검증 항목은 그대로다(아래).
+
+**진행 상황(2026-08-09)**: §3 backend 연결·§4 pipeline-worker 수집·§5 web-dashboard 화면 코드 작업과
+People API 보강(§7) 코드까지 완료(backend `./gradlew test` 562개, pipeline-worker `./gradlew test`
+245개, 프론트 `typecheck && build` 전체 그린 — 전부 mock/Testcontainers 기반 단위 테스트다). §2의
+두 선행 변경(webhook 토큰 확보 일반화, `checkpoints` provider CHECK 제거)도 함께 처리했다.
+§1-0 계정 게이트는 OAuth Playground로 수동 실측해 **통과 확인**했다(§11). **다만 우리 앱을 통한
+실기동(§1-1의 실제 OAuth 클라이언트 등록 → backend 연결 → 초기 수집)은 아직 하지 않았다** —
+지금까지의 실측은 Google 자체 테스트 클라이언트(OAuth Playground)로 API 응답 형태만 확인한 것이라,
+§1-1을 실제로 밟아야 알 수 있는 항목(Chat 앱 구성 필요 여부 등)은 여전히 열려 있다(§12).
 
 ## 이 커넥터가 검증하는 것
 
@@ -38,14 +48,20 @@ Discord와 Teams 중 어느 쪽이 앞서든 이 커넥터가 맡는 검증 항�
 | 원격 폐기 | `ProviderCredentialLifecycle` **구현** | Google은 `POST https://oauth2.googleapis.com/revoke`로 grant를 폐기할 수 있다(Teams와 달리 수단이 있다) |
 | 증분 | `filter=createTime > "{RFC-3339}"` + `orderBy=createTime ASC` | 서버사이드 필터라 checkpoint `Instant`를 그대로 넣는다. 클라이언트 경계 필터링 불필요 |
 | 선행 공용 변경 | ~~① `checkpoints` provider CHECK 제거(A9)~~ ✅ 완료 · ② webhook 토큰 확보 일반화 — **필수 선행** | ②는 Jira 하드코딩(`ensureFreshJiraToken`) 때문에 만료 토큰형 두 번째 provider가 증분에서 401을 맞는다 (§2) |
-| **진입 장벽** | **Google Workspace 계정 필요**(개인 gmail.com 불가) — 단 무료 경로가 있을 수 있다 | Chat API는 Workspace 조직에 속한 계정만 구성할 수 있다. 비용은 Teams보다 낮지만 0은 아니다 (§1-0) |
-| 개인정보 | `actor.email`을 **기본적으로 못 얻는다** | Chat API `User` 리소스에 email 필드가 없다. Discord와 같은 처지 (§7) |
+| **진입 장벽** | **Google Workspace 계정 필요**(개인 gmail.com 불가) — 학교 계정으로 실측 통과 | Chat API는 Workspace 조직에 속한 계정만 구성할 수 있다. `g.seoultech.ac.kr`(Google Workspace for Education)로 확인 완료 (§1-0·§11) |
+| 개인정보 | `actor.email`·`actor.name` 모두 **People API 보강으로 확보** | Chat API의 `Message.sender`는 사용자 인증 시 `name`·`type`만 준다(공식 문서 확인) — People API(`directory.readonly`)로 별도 조회해야 한다. 결과적으로 대화 소스 중 **이메일까지 확보되는 유일한 경우**가 됐다 (§7) |
 
 ## 1. 사전 준비
 
-### 1-0. 선행 조건 — Google Workspace 계정 게이트 (**착수 전 실측 필수**)
+### 1-0. 선행 조건 — Google Workspace 계정 게이트 (✅ 확인 완료, 2026-08-09)
 
 Teams §1-0과 같은 성격의 관문이 여기에도 있다. 다만 **정도가 다르다**.
+
+**결론: `g.seoultech.ac.kr`(서울과기대 Google Workspace for Education 계정)로 통과 확인됨.**
+학교 공식 웹메일(`@seoultech.ac.kr`, 자체 웹메일 시스템으로 추정)과는 별개로, 학교가 제공하는
+Google Workspace 서브도메인(`g.seoultech.ac.kr`)이 있었고 여기서 Chat API가 정상적으로 열렸다.
+과정에서 진짜 장벽은 계획 단계에서 예상한 "Chat API 자체가 막힘"이 아니라 **다른 지점**이었다 —
+아래 실측 절차의 1번 참고.
 
 - Google 문서의 오류 메시지가 명시적이다 — *"Google Chat API is only available to Google Workspace
   users"* 는 **Chat API를 구성하는 데 쓴 계정이 Workspace 조직에 속하지 않을 때** 뜬다.
@@ -63,23 +79,30 @@ Teams §1-0과 같은 성격의 관문이 여기에도 있다. 다만 **정도�
 | **Workspace Essentials Starter** | 무료(문서상). 단 **gmail.com이 아닌 자체 도메인 이메일**로 가입해야 하고 Gmail은 포함되지 않는다 | 이 에디션에서 Chat **API**가 열리는지. 저가/무료 에디션은 API가 빠지는 경우가 있어 여기가 핵심 미확인점이다 |
 | **Business Starter 체험** | 14일 무료, 이후 유료 | 체험 기간이 끝나면 연동이 죽으므로 검증용으로만 |
 
-**실측 절차(코드 착수 전).**
+**실측 절차와 결과(2026-08-09, `g.seoultech.ac.kr`).**
 
 1. 후보 계정으로 Google Cloud 프로젝트를 만들고 **Chat API를 사용 설정**한다.
    여기서 *"only available to Google Workspace users"* 가 뜨면 그 계정은 탈락이다.
-2. OAuth 클라이언트를 만들고 [OAuth Playground](https://developers.google.com/oauthplayground)나
-   임시 스크립트로 `chat.spaces.readonly` 동의를 받아 `GET /v1/spaces?filter=spaceType = "SPACE"`를
-   호출한다. **스페이스 목록이 오면 §3의 선택 단계가 성립한다.**
-3. 그 중 하나로 `GET /v1/spaces/{id}/messages?filter=createTime > "..."` 를 호출해
-   본문(`text`)·`sender`·`thread`가 실제로 채워져 오는지 본다. Discord의 MESSAGE_CONTENT처럼
-   **조용히 비는 필드가 없는지**가 확인 목적이다.
-
-1·2단계에서 막히면 그 시점에 계정 경로를 갈아타는 게 전부다 — 코드는 아직 없다.
+   → **진짜 장벽은 이게 아니었다.** "조직 없음"으로 프로젝트를 만들려 하니
+   `resourcemanager.projects.create` 권한이 없다는 에러가 났다 — 학교 Cloud Identity 조직이 이미
+   있어서, 도메인 소속 계정은 조직 밖에 독립 프로젝트를 못 만들게 막혀 있었다(Google이 shadow IT
+   방지로 잠근 기본값). **조직을 명시적으로 `g.seoultech.ac.kr`로 선택하고 상위 리소스도 그 조직
+   루트로 지정하니 생성됐다** — 학생 계정에 조직 루트에서의 프로젝트 생성 권한 자체는 열려 있었던
+   것. 이후 Chat API 사용 설정은 에러 없이 바로 됐다(Workspace 제한에 걸리지 않았다).
+   **팀에서 비슷한 시도를 한다면**: "조직 없음"에서 권한 에러가 나도 포기하지 말고 조직을 명시
+   선택해서 조직 루트에 만들어 본다 — 우리 학교에선 이 경로가 뚫려 있었다.
+2. OAuth 클라이언트를 만들고 [OAuth Playground](https://developers.google.com/oauthplayground)로
+   `chat.spaces.readonly` 동의를 받아 `GET /v1/spaces?filter=spaceType = "SPACE"`를 호출했다.
+   ✅ 스페이스 목록이 정상적으로 왔다(§3의 선택 단계 성립 확인).
+3. `GET /v1/spaces/{id}/messages`를 호출해 본문(`text`)·`sender`·`thread`가 채워져 오는지 확인했다.
+   ✅ `text`는 채워져 왔지만(Discord의 MESSAGE_CONTENT 같은 숨은 게이트 없음), **`sender`에
+   `displayName`이 없었다** — 계획을 뒤집는 발견이다. 상세는 §7.
 
 ### 1-1. Google Cloud 프로젝트·OAuth 앱 등록
 
 - Google Cloud 프로젝트에서 **Google Chat API 사용 설정** 후 Chat 앱 구성(이름·아바타·설명)을
-  채운다. 사용자 인증만 쓰더라도 Chat API 구성 페이지를 요구하는지는 「착수 전 실측」 2번이다.
+  채운다. 사용자 인증만 쓰더라도 Chat API 구성 페이지를 요구하는지는 §12 1번(미확인 — OAuth
+  Playground는 Google 자체 테스트 클라이언트를 써서 이 페이지를 거치지 않았다)이다.
 - **OAuth 동의 화면의 User type이 운영 난이도를 가른다.**
 
   | User type | 검증 | refresh token 수명 | 쓸 곳 |
@@ -103,10 +126,12 @@ Teams §1-0과 같은 성격의 관문이 여기에도 있다. 다만 **정도�
   |-------|------|------|
   | `.../auth/chat.spaces.readonly` | `spaces.list` — 선택 단계 후보, `spaces.get`(스페이스 이름) | |
   | `.../auth/chat.messages.readonly` | `spaces.messages.list` — 메시지·스레드 답글 | |
-  | `.../auth/directory.readonly` | (선택·2차) People API로 `actor.email` 보강 | §7. 1차 범위에서는 **요청하지 않는다** |
+  | `.../auth/directory.readonly` | People API로 `actor.name`·`actor.email` 보강 | **필수로 승격** — 계획 초안엔 "선택·2차"였으나, 사용자 인증에서 `sender.displayName`이 아예 안 온다는 게 실측으로 드러나 이것 없이는 이름조차 못 채운다(§7) |
 
   동의 URL에 **`access_type=offline`과 `prompt=consent`를 반드시 넣는다** — 없으면 refresh token이
   발급되지 않아(또는 두 번째 동의부터 빠져) 갱신 자체가 불가능해진다.
+- **People API도 Cloud Console에서 별도로 사용 설정해야 한다** — Chat API와는 다른 API라 잊기 쉽다.
+  scope만 요청하고 API를 안 켜면 `directory.readonly` 동의는 받아지는데 실제 조회 호출이 실패한다.
 - 환경변수(`ATLASSIAN_*` 패턴): `GOOGLE_CHAT_CLIENT_ID` · `GOOGLE_CHAT_CLIENT_SECRET` ·
   `GOOGLE_CHAT_REDIRECT_URI`. backend에만 필요하다(Discord와 달리 pipeline-worker는 DB의 사용자
   토큰으로 수집한다). `infra/docker/docker-compose.yml` backend 블록에 추가하고 실제 값은 `.env`.
@@ -145,7 +170,7 @@ backend 내부 API는 이미 범용(`/api/v1/internal/integrations/{projectId}/{
 - 오케스트레이션 계층 수정이므로 **커넥터 PR에 섞지 않고 선행 PR로 뺀다**(체크리스트의 "공용 코드를
   고쳐야 한다면 먼저 상의한다" 케이스를 문서로 합의하는 것이 이 절이다).
 
-## 3. backend — 연결
+## 3. backend — 연결 (✅ 완료, 2026-08-09)
 
 `com.history.backend.googlechat` 패키지(신규). SPI **4개 모두** 구현하는 첫 provider다 —
 Jira(선택+갱신+폐기)에 없던 조합은 아니지만, 대화 아키타입에서는 처음이다.
@@ -199,7 +224,7 @@ A4의 선택 단계는 **단계당 단일 선택**이다(`SelectionStep`에 다�
   아니고, 필요해지면 별도 안건으로 올린다(같은 요구가 Slack 채널 한정 수집에서도 나올 수 있으니
   그때 함께 설계하는 편이 낫다).
 
-## 4. pipeline-worker — 수집
+## 4. pipeline-worker — 수집 (✅ 완료, 2026-08-09)
 
 `source/googlechat` 패키지(신규)에 `GoogleChatCollector` · `GoogleChatRawService` ·
 `GoogleChatNormalizer` · `GoogleChatRateLimiter`. `CollectionProvider.GOOGLE_CHAT("google-chat")`
@@ -217,7 +242,10 @@ collect:
           &orderBy=createTime ASC
           &pageSize=1000
           &pageToken={직전 응답의 nextPageToken}
-  → normalize → publish → 최대 occurredAt으로 checkpoint 갱신
+  → 등장한 sender 집합 추출 (중복 제거)
+  → people.googleapis.com people:batchGet?resourceNames=people/{id}&...&personFields=names,emailAddresses
+      (최대 200개/호출, TTL 캐시 — sender id 단위로 지연 조회. §7)
+  → normalize(actorInfo 포함) → publish → 최대 occurredAt으로 checkpoint 갱신
 ```
 
 - **증분이 서버사이드 한 방에 끝난다.** `filter`는 `createTime`(RFC-3339)에 `>`·`<`를 지원하고
@@ -242,14 +270,14 @@ collect:
 | 계약 필드 | Google Chat 값 | 비고 |
 |-----------|---------------|------|
 | `source` | `GOOGLE_CHAT` | |
-| `properties.url` (자연키) | `message.name`(`spaces/{space}/messages/{id}`)에서 **조립** | Chat API는 permalink 필드를 주지 않는다. `name`이 고유·결정적이라 자연키 역할은 충족한다. 사람이 클릭 가능한 형태로 만들 수 있는지는 「착수 전 실측」 3번 |
-| `properties.body` | `text` | 이미 평문이다(Teams의 HTML 변환 불필요). 멘션도 `text`에 표시 이름으로 들어오므로 Discord식 `<@id>` 치환이 필요 없다 — 실측으로 확인한다 |
+| `properties.url` (자연키) | `message.name`(`spaces/{space}/messages/{id}`)에서 **조립** | 실측 확인 — Message 리소스에 permalink 필드가 아예 없다(Space에는 `spaceUri`가 있지만 메시지 단위 딥링크는 없음). `name`이 고유·결정적이라 자연키 역할은 충족하므로 이대로 확정 |
+| `properties.body` | `text` | 이미 평문이다(Teams의 HTML 변환 불필요). 실측 확인 — 본문이 조용히 비지 않는다(Discord의 MESSAGE_CONTENT 같은 숨은 게이트 없음) |
 | `properties.channel` | `spaces.get`의 `displayName` | `external_ref.space_name`을 쓰지 않고 매 수집 1회 조회한다 — 스페이스 이름이 바뀌어도 따라간다 |
-| `properties.conversation_id` | `thread.name` | 루트·답글이 같은 값을 공유한다. **대화 아키타입 중 가장 단순한 매핑**(Slack·Discord는 분기가 필요했다) |
+| `properties.conversation_id` | `thread.name` | 루트·답글이 같은 값을 공유한다. 실측 확인 — **루트 메시지도 자기 자신의 thread.name을 갖는다**(Discord처럼 "루트는 자기 자신, 답글만 별도"로 나뉘지 않는다). 대화 아키타입 중 가장 단순한 매핑 |
 | `properties.created_at` · `occurredAt` | `createTime` | `lastUpdateTime`은 쓰지 않는다 — 커서를 되돌리지 않기 위함 |
 | `actor.id` | `sender.name`의 `users/` 뒤 id | 안정적·고유. 표시 이름을 id로 쓰지 않는다 |
-| `actor.name` | `sender.displayName` | `isAnonymous`(탈퇴·비공개 프로필)면 빈 값일 수 있다 |
-| `actor.email` | **`null`** | `User` 리소스에 email이 없다. §7 |
+| `actor.name` | People API 보강(`GoogleChatRawService.resolveSenders`) — 임베디드 `sender.displayName`이 있으면 그게 우선 | 실측 확인 — 사용자 인증에서는 `sender.displayName`이 **오지 않는다**(공식 문서 확인). People API `people/{id}` 조회로 채운다. 조회 실패·프로필 비공개 시 null(Discord와 같은 수동 병합 대상) |
+| `actor.email` | People API 보강(`emailAddresses`, primary 우선) | 계획을 뒤집는 실측 발견 — 애초 "Discord처럼 항상 null"로 문서화했으나, People API로 **실제 이메일이 나온다**(protocol 계정 이메일, verified). §7 |
 | `refs` | `text`에 `RefsExtractor` 그대로 | 평문이라 전처리가 필요 없다 |
 
 정규화 제외: `sender.type == "BOT"`(앱·웹훅 메시지), `deletionMetadata`가 있는 메시지,
@@ -261,10 +289,15 @@ Slack·Discord normalizer의 관례와 같다.
 `GoogleChatRateLimiter` — 메시지·스페이스 읽기 쿼터는 **Cloud 프로젝트당 60초에 3,000요청**으로
 넉넉하다. 다만 이 쿼터는 **우리 앱을 쓰는 모든 사용자가 공유**한다(Discord의 봇당 한도와 달리
 사용자 수만큼 늘지 않는다). 그래서 초기값은 호출당 100ms 고정 딜레이로 두고, 429에는 문서 권고대로
-**지수 백오프**(`min((2^n + jitter), max)`)로 최대 3회 재시도한다. 429가 잦아지면 딜레이가 아니라
+**지수 백오프**(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다. 429가 잦아지면 딜레이가 아니라
 쿼터 증설이나 프로젝트 분리를 검토한다.
 
-## 5. web-dashboard — 화면
+People API 호출(`resolveSenders`)도 새 rate limiter를 만들지 않고 같은 `GoogleChatRateLimiter`를
+재사용한다 — Chat API와 별도 쿼터를 쓰는 다른 API지만, 보수적으로 페이싱한다는 목적은 같기 때문이다.
+sender 단위 TTL 캐시(§7)가 있어 People API 호출 자체가 페이지당 최대 200개 배치 1~2회로 적어,
+전용 리미터를 둘 실익이 크지 않다.
+
+## 5. web-dashboard — 화면 (✅ 완료, 2026-08-09)
 
 `sourceCatalog.tsx`의 `google-chat` 항목(브랜드 마크 `GoogleChatMark`와 함께 이미 있다)을
 `status: "wired"`로 바꾸고 `connect: "oauth"`와 `deletedData`(예: "수집한 스페이스 메시지·스레드와
@@ -283,58 +316,90 @@ Slack·Discord normalizer의 관례와 같다.
 routing key도 `EventPublisher`가 `event.google_chat`으로 유도한다(같은 예시가 주석에 있다).
 확인은 스모크 테스트 하나면 된다.
 
-## 7. 개인정보 — 이메일 없음(Discord와 같은 처지)
+## 7. 개인정보 — People API 보강 (계획을 뒤집은 실측 발견)
 
-Chat API의 `User` 리소스는 `name`·`displayName`·`domainId`·`type`·`isAnonymous`뿐이고 **email이
-없다.** 따라서 1차 범위에서 `actor.email`은 항상 `null`이며, 동일인 판단이 표시 이름에만 의존한다.
-`docs/actor-node-design.md`의 스코어링에서 이메일이 가장 강한 신호이므로, Google Chat Actor는
-다른 소스의 동일인과 자동으로 묶이지 않을 가능성이 높다 — Discord와 마찬가지로
-`docs/actor-manual-merge.md`의 **수동 병합이 예외가 아니라 정상 경로**라고 보고 연동 후 안내한다.
+**계획 초안은 "Discord처럼 email이 항상 null"이었다. 실측 결과 정반대로, People API 보강을 넣으면
+이름은 물론 이메일까지 확보된다 — 대화 아키타입 3종(Slack·Discord·Google Chat) 중 이메일까지
+얻는 유일한 경우가 됐다.**
 
-2차 옵션으로 People API 보강 경로가 있다: `directory.readonly` scope로 같은 도메인 프로필의
-`emailAddresses`를 조회한다. **1차에서는 넣지 않는다** — scope가 하나 늘어 동의 화면이 무거워지고,
-`sender.name`의 id가 People API의 `people/{id}`와 같은 값인지 실측되지 않았다(「착수 전 실측」 4번).
-넣는다면 Slack user map처럼 TTL 캐시로 등장한 id만 조회한다.
+### 실측으로 드러난 진짜 문제 — 이름조차 기본으로 안 온다
+
+계획 당시엔 "email만 없고 이름(`sender.displayName`)은 온다"고 가정했는데, 이게 틀렸다. 공식 문서로
+확인된 사실:
+
+> "if your Chat app authenticates as a user, the output for a User resource only populates
+> the user's name and type."
+
+즉 사용자 인증(우리 방식)으로는 `Message.sender`·`Membership.member`에 담기는 `User`에
+**`name`·`type`만 오고 `displayName`은 절대 오지 않는다.** 이걸 놓치면 모든 메시지의
+`actor.name`이 조용히 null로 저장된다 — Discord의 MESSAGE_CONTENT처럼 "돌긴 도는데 핵심 필드만
+빠지는" 종류의 함정이다.
+
+### 해법 — People API
+
+Chat API의 `users/{id}`는 People API의 `people/{id}`와 **동일 인물**이다(실측 확인). `directory.readonly`
+scope로 `people.get`(또는 여러 명을 한 번에 묶는 `people.getBatchGet`, 최대 200개/호출)을
+`personFields=names,emailAddresses`로 호출하면 이름과 이메일이 모두 채워져 온다. 실측 응답 예:
+
+```json
+{
+  "emailAddresses": [{ "value": "junesue02@g.seoultech.ac.kr", "metadata": { "primary": true, "verified": true } }],
+  "names": [{ "displayName": "서준수, 컴퓨터공학과" }]
+}
+```
+
+이 이메일은 Workspace 계정 이메일(도메인 프로필 소스, verified)이라 `docs/graph-schema.md`
+ActorAlias 규약("협업 툴 계정 이메일만 사용")에 그대로 부합한다.
+
+**구현**(`GoogleChatRawService.resolveSenders`) — Slack의 `users.list` 전체 캐싱과 같은 목적(API
+호출 절감)이지만 방식이 다르다. People API에는 조직 전체를 한 번에 내려주는 API가 없어(권한 범위상),
+메시지에 **실제로 등장한 sender만** 지연 조회한다: sender id 단위 TTL 캐시(`app.google-chat.person-cache-ttl`,
+기본 30분) → 캐시에 없는 것만 `people.getBatchGet`으로 묶어 조회 → 캐시에 채우고 반환. 조회 실패한
+sender(프로필 비공개 등)는 그 실행에서만 이름·이메일 null로 두고 **캐시하지 않는다** — 다음 실행에서
+재시도되게 하기 위함이다(일시적 실패를 영구 캐시하지 않음).
+
+`actor.name` 결정 순서는 ① 임베디드 `sender.displayName`이 어쩌다 채워져 있으면 그걸 우선(향후
+API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더 싸다) ② 없으면 People API 보강 결과
+③ 그것도 없으면 null. null이 남는 경우(조회 실패·프로필 비공개)는 여전히 있을 수 있으므로,
+`docs/actor-manual-merge.md`의 **수동 병합이 예외가 아니라 정상 경로**라는 원칙은 유지한다 — 다만
+실제로는 Discord보다 훨씬 드물게 발생할 것으로 예상한다(이메일까지 있으면 자동 동일인 판단 성공률이
+높아진다).
 
 이름·이메일은 기존대로 `ActorAlias.pd_*`에만 저장한다. Atlassian식 개인정보 보고 의무는 없다.
 
 ## 8. 문서 동반 갱신 (커넥터 PR에 포함)
 
-- `docs/data-collection.md` — Google Chat 섹션(수집 대상·`createTime` 증분·rate limit·트레이드오프).
+- `docs/data-collection.md` — Google Chat 섹션(수집 대상·`createTime` 증분·People API 보강·rate
+  limit·트레이드오프).
 - `docs/integration-abstraction.md` — Part B 표의 Google Chat 완료 표시, §5-2 표기 항목 확정 반영.
 - `services/backend/CLAUDE.md`(패키지 구조에 `googlechat`, SPI 4종 구현 provider로 기재) ·
-  `services/pipeline-worker/CLAUDE.md`(`source.googlechat` 행, 라우팅 표, checkpoint 목록, rate limit).
+  `services/pipeline-worker/CLAUDE.md`(`source.googlechat` 행 — People API 보강 언급, 라우팅 표,
+  checkpoint 목록, rate limit).
 - `docs/graph-schema.md`·`docs/DB.md`는 변경 없음(새 노드·테이블 없음)을 확인만 한다.
 
 ## 9. 검증 계획
 
-- 단위: backend `./gradlew test` / pipeline-worker `./gradlew test` / 프론트 `typecheck && build`.
+- 단위: ✅ backend `./gradlew test` 562개 · pipeline-worker `./gradlew test` 245개 · 프론트
+  `typecheck && build` 전체 그린.
 - 선행 PR(§2-0): ✅ 완료 — `PipelineSharedSchemaTest`에 새 provider 값 저장 가능 회귀 테스트 반영됨.
-- 선행 PR(§2-1): "404 → 저장 자격증명으로 진행(Slack·Discord 보존)" 회귀 테스트 필수.
-- **갱신 시 refresh token 보존 단언** — Google은 갱신 응답에 refresh token을 주지 않는다.
-  Jira 코드를 본떠 쓰면 조용히 null로 덮어써 다음 갱신부터 영구 실패하므로, 단위 테스트로 고정한다.
-- **본문 존재 단언** — 정규화 테스트에서 `body`가 비지 않음을 확인한다(Discord의 MESSAGE_CONTENT
-  같은 조용한 실패를 대화 아키타입 공통으로 방어).
-- 실기동 시나리오: 연결 → 스페이스 선택 → 초기 수집 → 그래프에 GOOGLE_CHAT Communication 확인 →
-  스레드 답글이 같은 `conversation_id`로 묶이는지 → 새 메시지 추가 후 PR 머지 웹훅으로 증분
-  (**1시간 뒤 토큰 갱신 경로 포함** — §2 선행 PR이 실제로 도는지 보는 유일한 지점) →
-  해제 시 GOOGLE_CHAT 노드만 삭제되고 Google 계정의 앱 권한도 사라지는지 확인.
-
-## 착수 전 실측 (미확정 — 여기서 막히면 계정 경로부터 갈아탄다)
-
-1. **계정 게이트**(§1-0) — 후보 계정으로 Chat API 사용 설정이 되는지, Essentials Starter 같은 무료
-   에디션에서도 API가 열리는지. **다른 모든 항목보다 먼저 본다.**
-2. **사용자 인증만 쓸 때도 Chat 앱 구성이 필요한지** — 구성 페이지(이름·아바타)를 채우지 않아도
-   `spaces.list`·`messages.list`가 도는지. 필요하다면 §1-1에 필수 절차로 승격한다.
-   함께 볼 것: 사용자 인증 읽기에 **Chat 앱이 그 스페이스에 설치돼 있어야 하는지**(문서가 명시하지
-   않는다). 필요하다면 Discord처럼 "앱을 스페이스에 추가" 단계가 연결 UX에 생긴다.
-3. **메시지 permalink 형식** — UI의 '링크 복사'가 만드는 URL 형태를 확인해 `properties.url`을
-   사람이 클릭 가능한 값으로 만든다. 불가능하면 `name` 기반 결정적 문자열을 그대로 쓴다
-   (자연키 역할에는 지장이 없다).
-4. **`sender.name`의 id ↔ People API `people/{id}` 동일성** — §7의 email 보강 가능 여부가 여기 달렸다.
-5. **`text`의 멘션 표기** — 표시 이름으로 들어오는지, 별도 치환이 필요한지(`annotations`의
-   `USER_MENTION`은 `text` 기준 `startIndex`·`length`를 준다). Discord는 `<@id>` 치환이 필요했다.
-6. **`pageSize` 상한 실효값** — 문서상 최대 1000이지만 실제로 얼마나 채워 오는지 본다.
+- 선행 PR(§2-1): ✅ 완료 — `GitHubWebhookServiceTest`에 "Slack NOT_SUPPORTED → 저장 자격증명 그대로
+  진행" 회귀 테스트 추가(`handle_slackTokenNotSupported_keepsStoredCredentialAndProceedsWithoutReResolving`),
+  `IntegrationTokenClientTest`가 REFRESHED/NOT_SUPPORTED/FAILED 3상태를 각각 고정한다.
+- **갱신 시 refresh token 보존 단언**: ✅ 완료 — `GoogleChatTokenServiceTest`·`GoogleChatClientTest`에서
+  갱신 응답이 refresh_token 없이 와도 기존 값을 그대로 보존함을 고정했다(Jira 코드를 그대로 복사하면
+  조용히 null로 덮어써 다음 갱신부터 영구 실패하는 지점이라 특히 신경 썼다).
+- **본문 존재 단언**: ✅ 완료 — `GoogleChatNormalizerTest`가 `body`(=`text`) 매핑을 확인한다.
+- **People API 보강 단언**(§7, A9급 실측 발견의 후속 조치): ✅ 완료 —
+  `GoogleChatRawServiceTest`가 `people:batchGet` 요청 형태(`users/`→`people/` 치환·`personFields`),
+  TTL 캐시 히트/만료, primary 이메일 우선 선택, 조회 실패 sender의 미캐싱(재시도 허용)을 고정한다.
+  `GoogleChatNormalizerTest`가 actorInfo 반영·임베디드 displayName 우선순위·미해결 시 null 폴백을
+  고정한다. `GoogleChatCollectorTest`가 raw 메시지의 고유 sender 집합만 조회 대상으로 삼는지 고정한다.
+- 실기동 시나리오(**미착수** — §11에서 API 응답 형태는 수동 확인했지만, 우리 앱을 통한 연결·수집은
+  아직이다): 실제 OAuth 클라이언트 등록(§1-1) → 연결 → 스페이스 선택 → 초기 수집 → 그래프에
+  GOOGLE_CHAT Communication과 이름·이메일이 채워진 Actor 확인 → 스레드 답글이 같은
+  `conversation_id`로 묶이는지 → 새 메시지 추가 후 PR 머지 웹훅으로 증분(**1시간 뒤 토큰 갱신 경로
+  포함** — §2-1 선행 PR이 실제로 도는지 보는 유일한 지점) → 해제 시 GOOGLE_CHAT 노드만 삭제되고
+  Google 계정의 앱 권한도 사라지는지 확인.
 
 ## 10. 미리 정한 것 — provider 표기 (`integration-abstraction.md` §5-2 종결)
 
@@ -352,13 +417,53 @@ Chat API의 `User` 리소스는 `name`·`displayName`·`domainId`·`type`·`isAn
 경로만 kebab, 나머지는 snake인 것이 헷갈릴 수 있으나 **계층별 관례를 그대로 따른 결과**이며,
 `EventPublisher`(소문자 변환)와 `_source_label`(snake → 단어) 양쪽이 이 조합을 이미 예시로 다룬다.
 
+## 11. 확인 완료 (2026-08-09 실측, `g.seoultech.ac.kr` + OAuth Playground)
+
+1. **계정 게이트 통과.** Google Workspace for Education 서브도메인(`g.seoultech.ac.kr`)에서
+   Chat API가 정상적으로 열렸다. 진짜 막힌 지점은 Chat API 자체가 아니라 **Cloud 프로젝트 생성**이었다
+   — "조직 없음"으로 만들면 `resourcemanager.projects.create` 권한 에러가 났고, 조직을
+   `g.seoultech.ac.kr`로 명시하고 상위 리소스도 그 조직 루트로 지정하니 만들어졌다(§1-0).
+2. **`spaces.list`(`spaceType = "SPACE"`) 정상 동작.** `displayName`·`name`이 채워져 왔고, 덤으로
+   `spaceUri`(`https://chat.google.com/room/{id}?cls=11`) 필드를 확인했다 — 다만 이건 **스페이스
+   단위** 링크고 메시지 단위 permalink는 아니다(3번 참고).
+3. **`spaces.messages.list` 응답에 permalink 필드가 없다.** `name`·`text`·`formattedText`·
+   `argumentText`·`thread`·`space`·`sender`·`createTime`·`markupSyntax`가 전부이며, URL류 필드는
+   없다. `properties.url`을 `message.name` 원문으로 쓰는 결정이 최종 확정됐다.
+4. **루트 메시지도 `thread.name`을 갖는다.** Discord처럼 "루트는 자기 자신, 답글만 thread 참조"로
+   나뉘지 않고, 스페이스의 첫 메시지부터 자기 스레드를 갖는다 — 코드의 "thread.name 있으면 그걸
+   conversation_id로, 없으면 자기 name" 로직이 실제로는 **거의 항상 thread.name 경로를 탄다**(우연히
+   두 동작이 일치해 버그는 아니었다).
+5. **`sender`에 `displayName`이 없다 — 공식 문서로 원인 확인.** "if your Chat app authenticates as
+   a user, the output for a User resource only populates the user's name and type." Membership의
+   `member`도 마찬가지로 비어 있었다(둘 다 실측 확인). §7 People API 보강의 근거.
+6. **People API로 이름·이메일 모두 해결됨.** `users/{id}` = `people/{id}`, `directory.readonly`
+   scope + `personFields=names,emailAddresses`로 조회하면 이름(`서준수, 컴퓨터공학과` 형식 — 학과가
+   붙는 건 학교 디렉터리 프로필 설정으로 보인다)과 verified primary 이메일이 둘 다 나온다.
+   `people.getBatchGet`은 최대 200개 resourceNames/호출을 지원해 배치 조회로 구현했다.
+
+## 12. 구현 시 확인 (미확정 — 실제 OAuth 앱 등록·실기동 때 확인)
+
+1. **사용자 인증만 쓸 때도 Chat 앱 구성이 필요한지** — OAuth Playground는 Google 자체 테스트
+   클라이언트를 썼기 때문에 우리 앱의 Chat 앱 구성 페이지(이름·아바타·설명)를 거치지 않았다.
+   실제로 `GOOGLE_CHAT_CLIENT_ID`를 등록할 때 이 페이지가 강제되는지 확인이 필요하다.
+   함께 볼 것: 사용자 인증 읽기에 **Chat 앱이 그 스페이스에 설치돼 있어야 하는지**(문서가 명시하지
+   않는다). 필요하다면 Discord처럼 "앱을 스페이스에 추가" 단계가 연결 UX에 생긴다.
+2. **`text`의 멘션 표기** — 표시 이름으로 들어오는지, 별도 치환이 필요한지(`annotations`의
+   `USER_MENTION`은 `text` 기준 `startIndex`·`length`를 준다). Discord는 `<@id>` 치환이 필요했다.
+   테스트 스페이스에서 멘션을 직접 써보지 않아 미확인이다.
+3. **`pageSize` 상한 실효값** — 문서상 최대 1000이지만 실제로 얼마나 채워 오는지 본다(테스트
+   스페이스엔 메시지가 1건뿐이라 페이지네이션 자체가 실측되지 않았다).
+
 ## 참고 (Google Chat API v1, 2026-08 조사)
 
 - List messages(필터·정렬·scope): developers.google.com/workspace/chat/api/reference/rest/v1/spaces.messages/list
 - List spaces(spaceType 필터): developers.google.com/workspace/chat/api/reference/rest/v1/spaces/list
-- User 리소스(email 없음): developers.google.com/workspace/chat/api/reference/rest/v1/User
+- User 리소스(사용자 인증 시 name·type만 채워짐 — 실측으로 확인): developers.google.com/workspace/chat/api/reference/rest/v1/User
 - 인증 모델(앱 인증 vs 사용자 인증): developers.google.com/workspace/chat/authenticate-authorize
 - 쿼터(3,000/분·429 백오프): developers.google.com/workspace/chat/limits
 - Workspace 계정 요건 오류: developers.google.com/workspace/chat/troubleshoot-chat-apps
 - refresh token 수명(Testing 7일·6개월 미사용): developers.google.com/identity/protocols/oauth2
 - Essentials Starter(무료 에디션 요건): support.google.com/a/answer/7681288
+- People API — 단건 조회(scope·personFields): developers.google.com/people/api/rest/v1/people/get
+- People API — 배치 조회(최대 200개/호출): developers.google.com/people/api/rest/v1/people/getBatchGet
+- Chat ↔ People 사용자 참조 매핑(users/{id} = people/{id}): developers.google.com/workspace/chat/identify-reference-users

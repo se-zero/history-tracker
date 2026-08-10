@@ -137,6 +137,13 @@ services:
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
       DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+
+      # Google Chat OAuth — infra/docker/.env 에서 forward. pipeline-worker는 DB의 사용자별 access
+      # token으로 수집하므로(Discord와 달리 앱 공유 자격증명이 없다) pipeline-worker 블록에는 불필요.
+      GOOGLE_CHAT_CLIENT_ID: ${GOOGLE_CHAT_CLIENT_ID:-}
+      GOOGLE_CHAT_CLIENT_SECRET: ${GOOGLE_CHAT_CLIENT_SECRET:-}
+      GOOGLE_CHAT_REDIRECT_URI: ${GOOGLE_CHAT_REDIRECT_URI:-}
+      GOOGLE_CHAT_REFRESH_SKEW: ${GOOGLE_CHAT_REFRESH_SKEW:-PT5M}
     depends_on:
       postgres:
         condition: service_healthy

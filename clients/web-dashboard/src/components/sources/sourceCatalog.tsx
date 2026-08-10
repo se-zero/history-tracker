@@ -86,7 +86,9 @@ export const sourceCatalog: SourceCatalogItem[] = [
     name: "Google Chat",
     description: "대화 맥락",
     Mark: GoogleChatMark,
-    status: "planned",
+    status: "wired",
+    connect: "oauth",
+    deletedData: "수집한 스페이스 메시지·스레드와 그 그래프 연결",
   },
   {
     id: "discord",
