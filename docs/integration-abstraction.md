@@ -238,7 +238,7 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
-| 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
+| 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ~~ClickUp~~ ✅ | `Issue` 노드 재사용, ai-engine 무변경 |
 | 대화 | MS Teams · Google Chat · Discord | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
 | 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
 

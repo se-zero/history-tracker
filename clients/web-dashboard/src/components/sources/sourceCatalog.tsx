@@ -95,7 +95,15 @@ export const sourceCatalog: SourceCatalogItem[] = [
     deletedData: "수집한 작업(태스크)과 그 그래프",
   },
   { id: "monday", name: "monday.com", description: "작업 맥락", Mark: MondayMark, status: "planned" },
-  { id: "clickup", name: "ClickUp", description: "작업 맥락", Mark: ClickUpMark, status: "planned" },
+  {
+    id: "clickup",
+    name: "ClickUp",
+    description: "작업 맥락",
+    Mark: ClickUpMark,
+    status: "wired",
+    connect: "oauth",
+    deletedData: "수집한 태스크와 그 그래프",
+  },
   { id: "teams", name: "MS Teams", description: "대화 맥락", Mark: MicrosoftTeamsMark, status: "planned" },
   {
     id: "google-chat",

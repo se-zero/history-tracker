@@ -74,6 +74,9 @@ export function PrivacyPage() {
                     <li>
                       Asana — 연동한 프로젝트의 태스크 제목·본문·완료 상태·담당자·작성자
                     </li>
+                    <li>
+                      ClickUp — 연동한 리스트의 태스크 제목·본문·상태·우선순위·담당자·작성자
+                    </li>
                   </ul>
                 </td>
                 <td>연동 직후 최초 수집 및 이후 증분 수집</td>
@@ -229,6 +232,26 @@ export function PrivacyPage() {
           <LegalSourceRow label="삭제">
             연동을 해제하면 Asana에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과 해당
             프로젝트에서 수집한 태스크 데이터를 삭제합니다.
+          </LegalSourceRow>
+        </LegalSourceBlock>
+
+        <LegalSourceBlock id="clickup" name="ClickUp">
+          <LegalSourceRow label="요청 권한">
+            ClickUp은 세분화된 권한 범위(scope) 개념을 제공하지 않습니다. 동의하면 승인한
+            워크스페이스 전체에 대한 API 접근 권한이 앱에 부여되며, 서비스는 그중 이용자가
+            선택한 리스트의 태스크만 실제로 수집합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="수집하는 정보">
+            선택한 리스트의 태스크(제목, 본문, 상태, 우선순위, 생성·완료 시각, 부모 태스크
+            관계), 작성자·담당자의 이름과 이메일
+          </LegalSourceRow>
+          <LegalSourceRow label="이용 목적">
+            태스크에 적힌 요구사항·결정을 코드 변경과 연결하기 위함입니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="삭제">
+            연동을 해제하면 저장된 자격증명과 해당 리스트에서 수집한 그래프 데이터를
+            삭제합니다. 다만 ClickUp은 원격으로 토큰을 폐기하는 API를 제공하지 않아, 앱 자체의
+            접근 권한을 끊으려면 ClickUp 설정(Apps)에서 직접 연동을 해제해야 합니다.
           </LegalSourceRow>
         </LegalSourceBlock>
       </LegalSection>

@@ -284,6 +284,50 @@ Asana 태스크에는 Jira `HT-7`·Linear `ENG-42` 같은 사람용 표시 키�
 
 ---
 
+## ClickUp
+
+### 수집 대상
+
+ClickUp 태스크를 Filtered Team Tasks 단일 엔드포인트로 조회한다. 연동 스코프는 List 단위(4단 선택의 마지막 단계)라 `list_ids[]`로 필터한다.
+
+ClickUp checkpoint는 `checkpoints` 테이블에서 `provider=clickup`, `cursor_key=clickup_updated` row에 저장한다.
+
+```
+GET {base}/team/{workspace_id}/task?page={page}&date_updated_gt={checkpoint_epoch_ms}&list_ids[]={list_id}&include_closed=true&subtasks=true
+```
+
+- `date_updated_gt`: checkpoint 이후 변경분만 조회한다.
+- `include_closed=true`·`subtasks=true`는 **반드시 명시해야 한다** — ClickUp API 기본값이 각각 종료 상태 태스크와 서브태스크를 응답에서 제외하므로, 빠뜨리면 Done/Closed 태스크와 서브태스크가 통째로 누락된다.
+
+### 페이지네이션
+
+- `page` 번호 기반(0부터 시작) — offset 토큰이 아니다.
+- 페이지당 100건. API 응답에 마지막 페이지 표시가 없어 **응답 태스크 건수가 100건 미만이면 마지막 페이지로 판정**한다.
+- 한 번 실행에서 처리할 최대 페이지 수: `app.clickup.max-pages-per-run` (기본값 50)
+  - 상한 도달 시 `limitReached=true` 반환, checkpoint는 전진시키지 않는다 (아래 참고).
+
+### checkpoint 갱신
+
+Slack·Linear·Asana와 동일하게 페이지 단위가 아니라 **전체 실행 성공 후 1회** 갱신한다 — API 응답에 정렬 보장이 문서화돼 있지 않아 페이지 단위 전진이 불가능하기 때문이다(Asana와 같은 이유). 이번 실행에서 관측한 최대 `occurredAt`을 한 번만 반영하며, `limitReached=true`(페이지 상한 도달)이거나 발행이 실패하면 이번 실행에서는 전진시키지 않는다. 초기 수집은 `EPOCH`부터 시작한다.
+
+### occurredAt 기준
+
+태스크 `date_updated` 시각(epoch ms 문자열 → `Instant` 변환).
+
+### Rate Limiting
+
+호출당 600ms 고정 딜레이 (무료 워크스페이스 한도 100 req/min 기준).
+
+### 토큰
+
+ClickUp access token은 만료·갱신·원격 폐기가 없다(ClickUp 공식 문서 확정) — Jira·Linear·Asana와 달리 `AccessTokenRefresher`·`ProviderCredentialLifecycle` 빈을 등록하지 않는다.
+
+### 수집 트리거
+
+webhook·스케줄러 없이, 연동 직후 1회 초기 수집과 GitHub PR 머지 웹훅 처리에 편승한 증분 수집만 있다(Jira·Slack·Linear·Asana와 동일한 패턴 — `services/pipeline-worker/CLAUDE.md` 「Webhook 수집 흐름」 참고).
+
+---
+
 ## Slack
 
 ### 수집 대상

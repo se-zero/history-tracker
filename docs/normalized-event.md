@@ -151,6 +151,27 @@ record ActorDto(String id, String name, String email, Boolean bot)
 
 Asana에는 이슈 키가 없어 커밋·PR·Slack 텍스트의 태스크 참조는 `refs.issueExternalRefs`(아래 「refs — 교차 참조」)로 회복한다.
 
+**ClickUp 매핑** (`source = "CLICKUP"`) — Jira와 같은 Issue 스키마를 공유하며, 아래 필드만 소스별로 다르다.
+
+| 정규화 키 | ClickUp 원본 필드 |
+|-----------|------------------|
+| `external_id` | `id` (불변 task id) |
+| `issue_key` | `custom_id` — 있을 때만 채운다. Custom Task ID는 ClickUp Business+ 이상 유료 요금제에서만 켤 수 있는 옵션이라 없는 워크스페이스가 많다 |
+| `status` | `status.status` 원문 |
+| `status_category` | `status.type` — `open` → `open`, `custom` → `in_progress`, `done`\|`closed` → `closed`, 그 외 알 수 없는 값·status 부재는 방어적으로 `open`. **`done`을 `closed`로 묶는 이유**: 이 서비스는 코드 변경 추적이 목적이라, Done 그룹 진입(작업 완료 — 태스크는 열어둔 채 남을 수 있다)이 곧 코드 작업 종료 신호다. `closed`(완전 종료)는 그 이후에 오는 부가 단계일 뿐이다 |
+| `closed_at` | `status_category == closed`일 때만 `date_closed`(없으면 `date_done`)로 채운다. **ClickUp 날짜 필드는 전부 epoch ms 문자열**이라 ISO-8601로 변환해 발행한다(`created_at`도 동일 변환) |
+| `priority` | `priority.priority` 원문 — 없으면 키 생략 |
+| `actor` | `creator` → `{id, name(username), email, bot}`. `username`이 `"ClickBot"`(ClickUp 자동화 전용 프로필)이면 `bot=true`, 그 외에는 `bot=null`(ClickUp API에 별도 봇 플래그가 없다). `creator`가 없으면 전 필드 `null` |
+| `refs.assignees` | `assignees` 배열을 그대로 스냅샷화한다 — Multiple Assignees ClickApp 활성 여부와 무관하게 API가 항상 배열로 반환한다. 없으면 빈 배열(키는 유지) |
+| `refs.parentExternalId` | `parent`(문자열 task id) — `parentIssueKey`는 발행하지 않는다 |
+
+`occurredAt`: `date_updated`.
+
+ClickUp도 Custom Task ID가 없는 워크스페이스에서는 이슈 키가 없어, 공유 태스크 URL
+(`app.clickup.com/t/{task_id}`)에서 태스크 참조를 추출해 `refs.issueExternalRefs`로 회복한다
+(Asana에 이은 둘째 사례). Custom Task ID URL(`app.clickup.com/t/{team_id}/{ABC-123}`)에 담긴
+키는 기존 이슈 키 정규식(`ISSUE_KEY`)이 커버한다.
+
 ### Communication — 대화 (자연키: `url`)
 
 Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별 삭제가 라벨이 아니라
