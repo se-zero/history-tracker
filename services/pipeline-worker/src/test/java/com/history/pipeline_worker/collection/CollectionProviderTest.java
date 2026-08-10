@@ -13,6 +13,7 @@ class CollectionProviderTest {
         assertThat(CollectionProvider.JIRA.value()).isEqualTo("jira");
         assertThat(CollectionProvider.SLACK.value()).isEqualTo("slack");
         assertThat(CollectionProvider.DISCORD.value()).isEqualTo("discord");
+        assertThat(CollectionProvider.GOOGLE_CHAT.value()).isEqualTo("google-chat");
     }
 
     @Test
@@ -21,6 +22,7 @@ class CollectionProviderTest {
         assertThat(CollectionProvider.find("jira")).contains(CollectionProvider.JIRA);
         assertThat(CollectionProvider.find("slack")).contains(CollectionProvider.SLACK);
         assertThat(CollectionProvider.find("discord")).contains(CollectionProvider.DISCORD);
+        assertThat(CollectionProvider.find("google-chat")).contains(CollectionProvider.GOOGLE_CHAT);
     }
 
     // DB row 처리용 — 미지원/대소문자 불일치/null은 조용히 empty (구버전 worker 호환)

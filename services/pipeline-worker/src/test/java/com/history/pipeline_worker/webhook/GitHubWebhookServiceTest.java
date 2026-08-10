@@ -3,7 +3,7 @@ package com.history.pipeline_worker.webhook;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.collection.CollectionProvider;
 import com.history.pipeline_worker.collection.GitHubWebhookIntegrationResolution;
-import com.history.pipeline_worker.collection.JiraTokenClient;
+import com.history.pipeline_worker.collection.IntegrationTokenClient;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.dto.RawFetchRequest;
@@ -28,7 +28,7 @@ class GitHubWebhookServiceTest {
     private GitHubWebhookVerifier verifier;
     private WebhookDeliveryService webhookDeliveryService;
     private GitHubInstallationTokenClient installationTokenClient;
-    private JiraTokenClient jiraTokenClient;
+    private IntegrationTokenClient integrationTokenClient;
     private ProjectIntegrationService projectIntegrationService;
     private PipelineService pipelineService;
     private GitHubWebhookService service;
@@ -38,7 +38,11 @@ class GitHubWebhookServiceTest {
         verifier = mock(GitHubWebhookVerifier.class);
         webhookDeliveryService = mock(WebhookDeliveryService.class);
         installationTokenClient = mock(GitHubInstallationTokenClient.class);
-        jiraTokenClient = mock(JiraTokenClient.class);
+        integrationTokenClient = mock(IntegrationTokenClient.class);
+        // 대부분의 테스트는 갱신 자체를 검증 대상으로 삼지 않는다 — 기본값을 NOT_SUPPORTED로 두어
+        // (Slack·Discord처럼 갱신 수단이 없는 provider) context가 손대지 않은 채 그대로 흘러가게 한다.
+        // 갱신을 검증하는 테스트는 필요한 provider만 개별 stub으로 덮어쓴다.
+        when(integrationTokenClient.ensure(any(), any())).thenReturn(IntegrationTokenClient.TokenStatus.NOT_SUPPORTED);
         projectIntegrationService = mock(ProjectIntegrationService.class);
         pipelineService = mock(PipelineService.class);
         service = new GitHubWebhookService(
@@ -46,7 +50,7 @@ class GitHubWebhookServiceTest {
                 verifier,
                 webhookDeliveryService,
                 installationTokenClient,
-                jiraTokenClient,
+                integrationTokenClient,
                 projectIntegrationService,
                 pipelineService,
                 new SyncTaskExecutor(),
@@ -205,7 +209,8 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithStaleJira));
-        when(jiraTokenClient.ensureJiraToken(UUID.fromString(projectId()))).thenReturn(true);
+        when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.JIRA))
+                .thenReturn(IntegrationTokenClient.TokenStatus.REFRESHED);
         when(projectIntegrationService.resolveFetchRequest(UUID.fromString(projectId()), CollectionProvider.JIRA))
                 .thenReturn(refreshedJira);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
@@ -214,7 +219,7 @@ class GitHubWebhookServiceTest {
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(jiraTokenClient).ensureJiraToken(UUID.fromString(projectId()));
+        verify(integrationTokenClient).ensure(UUID.fromString(projectId()), CollectionProvider.JIRA);
         verify(pipelineService).collectIncremental(expectedContext);
     }
 
@@ -228,7 +233,8 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithJira));
-        when(jiraTokenClient.ensureJiraToken(UUID.fromString(projectId()))).thenReturn(false);
+        when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.JIRA))
+                .thenReturn(IntegrationTokenClient.TokenStatus.FAILED);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(pipelineService.collectIncremental(contextWithoutJira)).thenReturn(collectionResult(1, 0, 3));
 
@@ -239,26 +245,49 @@ class GitHubWebhookServiceTest {
         verify(projectIntegrationService, never()).resolveFetchRequest(any(), any());
     }
 
+    // IntegrationTokenClient는 예외를 던지지 않고 실패를 FAILED로 흡수한다(계약·검증은
+    // IntegrationTokenClientTest 몫). 이 테스트는 그 계약이 아니라 "만료 토큰형이 아닌 provider도
+    // 같은 반복문을 지난다"는 일반화 자체를 고정한다 — Jira가 유일하던 시절엔 없던 경로다.
     @Test
-    void handle_jiraTokenEnsureThrows_skipsJiraButContinuesGitHubCollection() {
+    void handle_slackTokenNotSupported_keepsStoredCredentialAndProceedsWithoutReResolving() {
         HttpHeaders headers = headers();
         String payload = payload(true, "closed");
-        ProjectCollectionContext contextWithJira = collectionContextWithJira(jiraRequest("Bearer stale-jira-token"));
-        ProjectCollectionContext contextWithoutJira = contextWithJira.without(CollectionProvider.JIRA);
+        ProjectCollectionContext context = collectionContext();
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithJira));
-        when(jiraTokenClient.ensureJiraToken(UUID.fromString(projectId())))
-                .thenThrow(new RuntimeException("backend 500"));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
-        when(pipelineService.collectIncremental(contextWithoutJira)).thenReturn(collectionResult(1, 0, 3));
+        when(pipelineService.collectIncremental(context)).thenReturn(collectionResult(1, 0, 3));
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(pipelineService).collectIncremental(contextWithoutJira);
-        verify(projectIntegrationService, never()).resolveFetchRequest(any(), any());
+        verify(integrationTokenClient).ensure(UUID.fromString(projectId()), CollectionProvider.SLACK);
+        verify(projectIntegrationService, never()).resolveFetchRequest(any(), eq(CollectionProvider.SLACK));
+        // 저장된 자격증명 그대로인 원본 context가 그대로 넘어간다 — 재조립되지 않는다
+        verify(pipelineService).collectIncremental(context);
+    }
+
+    @Test
+    void handle_slackTokenEnsureFails_excludesSlackButContinuesGitHubCollection() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext context = collectionContext();
+        ProjectCollectionContext contextWithoutSlack = context.without(CollectionProvider.SLACK);
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
+        when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.SLACK))
+                .thenReturn(IntegrationTokenClient.TokenStatus.FAILED);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextWithoutSlack)).thenReturn(collectionResult(1, 0, 0));
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
+        verify(pipelineService).collectIncremental(contextWithoutSlack);
     }
 
     @Test
@@ -291,7 +320,7 @@ class GitHubWebhookServiceTest {
                 verifier,
                 webhookDeliveryService,
                 installationTokenClient,
-                jiraTokenClient,
+                integrationTokenClient,
                 projectIntegrationService,
                 pipelineService,
                 rejectingExecutor,

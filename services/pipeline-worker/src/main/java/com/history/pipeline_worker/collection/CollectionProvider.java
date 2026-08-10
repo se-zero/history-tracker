@@ -7,7 +7,8 @@ public enum CollectionProvider {
     GITHUB("github"),
     JIRA("jira"),
     SLACK("slack"),
-    DISCORD("discord");
+    DISCORD("discord"),
+    GOOGLE_CHAT("google-chat");
 
     private final String value;
 

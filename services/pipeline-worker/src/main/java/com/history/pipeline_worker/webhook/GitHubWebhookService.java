@@ -3,7 +3,7 @@ package com.history.pipeline_worker.webhook;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.collection.CollectionProvider;
-import com.history.pipeline_worker.collection.JiraTokenClient;
+import com.history.pipeline_worker.collection.IntegrationTokenClient;
 import com.history.pipeline_worker.collection.ProjectCollectionContext;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.collection.GitHubWebhookIntegrationResolution;
@@ -26,7 +26,7 @@ public class GitHubWebhookService {
     private final GitHubWebhookVerifier verifier;
     private final WebhookDeliveryService webhookDeliveryService;
     private final GitHubInstallationTokenClient installationTokenClient;
-    private final JiraTokenClient jiraTokenClient;
+    private final IntegrationTokenClient integrationTokenClient;
     private final ProjectIntegrationService projectIntegrationService;
     private final PipelineService pipelineService;
     private final TaskExecutor taskExecutor;
@@ -37,7 +37,7 @@ public class GitHubWebhookService {
             GitHubWebhookVerifier verifier,
             WebhookDeliveryService webhookDeliveryService,
             GitHubInstallationTokenClient installationTokenClient,
-            JiraTokenClient jiraTokenClient,
+            IntegrationTokenClient integrationTokenClient,
             ProjectIntegrationService projectIntegrationService,
             PipelineService pipelineService,
             @Qualifier("webhookTaskExecutor") TaskExecutor taskExecutor,
@@ -47,7 +47,7 @@ public class GitHubWebhookService {
         this.verifier = verifier;
         this.webhookDeliveryService = webhookDeliveryService;
         this.installationTokenClient = installationTokenClient;
-        this.jiraTokenClient = jiraTokenClient;
+        this.integrationTokenClient = integrationTokenClient;
         this.projectIntegrationService = projectIntegrationService;
         this.pipelineService = pipelineService;
         this.taskExecutor = taskExecutor;
@@ -95,7 +95,7 @@ public class GitHubWebhookService {
         if (resolution.status() != GitHubWebhookIntegrationResolution.Status.READY) {
             return new WebhookResult(WebhookStatus.NOT_FOUND, "no project integration found");
         }
-        ProjectCollectionContext collectionContext = ensureFreshJiraToken(resolution.context());
+        ProjectCollectionContext collectionContext = ensureFreshTokens(resolution.context());
 
         if (!webhookDeliveryService.tryClaim(deliveryId, collectionContext.projectId())) {
             return new WebhookResult(WebhookStatus.DUPLICATE, "duplicate delivery");
@@ -117,30 +117,37 @@ public class GitHubWebhookService {
         return new WebhookResult(WebhookStatus.ACCEPTED, "collection queued");
     }
 
-    // Jira는 선택 연동이다 — 토큰 확보에 실패해도 GitHub·Slack 수집은 계속 진행해야 하므로 예외를
-    // 삼키고 Jira만 컨텍스트에서 뺀다. 죽은 토큰으로 시도해 401을 내는 것보다 낫다.
-    private ProjectCollectionContext ensureFreshJiraToken(ProjectCollectionContext context) {
-        if (context.request(CollectionProvider.JIRA).isEmpty()) {
-            return context;
+    // GitHub은 앵커라 이미 신선한 토큰으로 context에 들어와 있다 — 나머지 provider만 확인한다.
+    // context에 담긴 provider 집합을 고정해 순회한다(중간에 without으로 만들어지는 새 context가
+    // 다음 순회 대상에 영향을 주면 안 되므로 원본 context.requests()를 기준으로 돈다).
+    private ProjectCollectionContext ensureFreshTokens(ProjectCollectionContext context) {
+        ProjectCollectionContext updated = context;
+        for (CollectionProvider provider : context.requests().keySet()) {
+            if (provider == CollectionProvider.GITHUB) {
+                continue;
+            }
+            updated = ensureFreshToken(updated, provider);
         }
-        UUID projectId = UUID.fromString(context.projectId());
-        if (!ensureJiraToken(projectId)) {
-            log.warn("Jira 토큰 확보 실패로 이번 수집에서 Jira를 건너뜁니다: projectId={}", context.projectId());
-            return context.without(CollectionProvider.JIRA);
-        }
-        // 갱신된 토큰으로 Jira 요청만 다시 만든다 — 재해석이 실패하면 Jira만 빼고 진행한다.
-        return projectIntegrationService.resolveFetchRequest(projectId, CollectionProvider.JIRA)
-                .map(request -> context.with(CollectionProvider.JIRA, request))
-                .orElseGet(() -> context.without(CollectionProvider.JIRA));
+        return updated;
     }
 
-    private boolean ensureJiraToken(UUID projectId) {
-        try {
-            return jiraTokenClient.ensureJiraToken(projectId);
-        } catch (RuntimeException e) {
-            log.warn("Jira 토큰 확보 요청이 실패했습니다: projectId={}", projectId, e);
-            return false;
-        }
+    // 만료 토큰형 provider(Jira·Google Chat 등)만 갱신 대상이다. 갱신 수단이 없는 provider
+    // (Slack·Discord)는 NOT_SUPPORTED를 받아 저장된 자격증명 그대로 진행한다 — '수집 제외'로
+    // 해석하면 비만료형 provider가 매 웹훅마다 끊긴다. 갱신 실패(FAILED)는 죽은 토큰으로 401을 내는
+    // 것보다 이번 수집에서 해당 provider만 제외하는 편이 낫다.
+    private ProjectCollectionContext ensureFreshToken(ProjectCollectionContext context, CollectionProvider provider) {
+        UUID projectId = UUID.fromString(context.projectId());
+        IntegrationTokenClient.TokenStatus status = integrationTokenClient.ensure(projectId, provider);
+        return switch (status) {
+            case REFRESHED -> projectIntegrationService.resolveFetchRequest(projectId, provider)
+                    .map(request -> context.with(provider, request))
+                    .orElseGet(() -> context.without(provider));
+            case NOT_SUPPORTED -> context;
+            case FAILED -> {
+                log.warn("{} 토큰 확보 실패로 이번 수집에서 건너뜁니다: projectId={}", provider.value(), context.projectId());
+                yield context.without(provider);
+            }
+        };
     }
 
     private GitHubWebhookPayload parsePullRequestWebhook(String payload) {
