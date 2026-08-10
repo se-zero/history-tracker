@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import com.history.backend.asana.service.AsanaSelectionFlow;
+import com.history.backend.clickup.service.ClickUpSelectionFlow;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.jira.service.JiraSelectionFlow;
@@ -72,6 +73,16 @@ public record IntegrationResponse(
                         integration.externalRefValue(AsanaSelectionFlow.WORKSPACE_NAME),
                         integration.externalRefValue(AsanaSelectionFlow.PROJECT_NAME));
                 yield display == null ? "Asana" : display;
+            }
+            // workspace / space / folder(선택) / list — folder를 건너뛴 경우 null이 joinNonBlank에서
+            // 자연히 걸러져 3단만 병기된다. 확정 전(pending)에는 전부 없어 고정 문구로 폴백한다.
+            case CLICKUP -> {
+                String display = joinNonBlank(
+                        integration.externalRefValue(ClickUpSelectionFlow.WORKSPACE_NAME),
+                        integration.externalRefValue(ClickUpSelectionFlow.SPACE_NAME),
+                        integration.externalRefValue(ClickUpSelectionFlow.FOLDER_NAME),
+                        integration.externalRefValue(ClickUpSelectionFlow.LIST_NAME));
+                yield display == null ? "ClickUp" : display;
             }
         };
     }

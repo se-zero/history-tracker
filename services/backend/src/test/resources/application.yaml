@@ -92,3 +92,9 @@ asana:
   token-url: https://app.asana.com/-/oauth_token
   revoke-url: https://app.asana.com/-/oauth_revoke
   refresh-skew: PT30M
+
+clickup:
+  client-id: test-clickup-client-id
+  client-secret: test-clickup-client-secret
+  redirect-uri: https://clickup.test/callback
+  token-url: https://api.clickup.com/api/v2/oauth/token

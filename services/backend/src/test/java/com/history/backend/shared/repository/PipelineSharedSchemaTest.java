@@ -158,6 +158,22 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("checkpoints provider 'clickup' 허용")
+    void checkpointProviderAcceptsClickUpValue() {
+        UUID ownerId = insertUser("owner10@example.com");
+        UUID projectId = insertProject(ownerId);
+
+        int inserted = insertCheckpoint(
+                projectId,
+                "clickup",
+                "clickup_tasks",
+                Instant.parse("2024-01-03T00:00:00Z")
+        );
+
+        assertThat(inserted).isOne();
+    }
+
+    @Test
     @DisplayName("프로젝트 삭제 시 체크포인트 cascade 삭제")
     void deletingProjectCascadesCheckpoints() {
         UUID ownerId = insertUser("owner9@example.com");

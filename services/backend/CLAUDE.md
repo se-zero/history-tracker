@@ -119,7 +119,9 @@ ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이�
   이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
   Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, Asana도 refresh
   token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은
-  폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시).
+  폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시). ClickUp도
+  폐기 대상이 없다(원격 revoke API 자체가 없음 — 앱 권한 해제는 사용자가 ClickUp 설정의
+  Apps에서 직접 한다).
   **그래프가 RDB보다 먼저** — 프로젝트 삭제와 같은 이유다(외부 HTTP를 트랜잭션 밖에 두고,
   그래프 삭제가 멱등이라 재시도로 수렴).
   checkpoint를 반드시 함께 지운다 — 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이

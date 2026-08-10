@@ -65,6 +65,53 @@ class IntegrationResponseTest {
         assertThat(response.displayName()).isEqualTo("Asana");
     }
 
+    @Test
+    @DisplayName("확정된 ClickUp 연동은 external_ref의 workspace_name / space_name / folder_name / list_name을 표시한다")
+    void confirmedClickUpIntegrationDisplaysFullHierarchy() {
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.CLICKUP,
+                Map.of(
+                        "workspace_name", "Acme Inc",
+                        "space_name", "Engineering",
+                        "folder_name", "Sprint Backlog",
+                        "list_name", "To Do"
+                ),
+                new byte[] {1});
+
+        IntegrationResponse response = IntegrationResponse.from(integration);
+
+        assertThat(response.displayName()).isEqualTo("Acme Inc / Engineering / Sprint Backlog / To Do");
+    }
+
+    @Test
+    @DisplayName("폴더를 건너뛴 ClickUp 연동은 folder_name 없이 workspace/space/list만 이어붙인다 (빈 구간이 남지 않는다)")
+    void confirmedClickUpIntegrationWithoutFolderSkipsFolderSegment() {
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.CLICKUP,
+                Map.of(
+                        "workspace_name", "Acme Inc",
+                        "space_name", "Engineering",
+                        "list_name", "To Do"
+                ),
+                new byte[] {1});
+
+        IntegrationResponse response = IntegrationResponse.from(integration);
+
+        assertThat(response.displayName()).isEqualTo("Acme Inc / Engineering / To Do");
+    }
+
+    @Test
+    @DisplayName("미확정(pending) ClickUp 연동은 대상을 아직 몰라 고정 문구 \"ClickUp\"으로 폴백한다")
+    void pendingClickUpIntegrationFallsBackToProviderDisplayName() {
+        Integration integration = Integration.pendingSelection(project(), IntegrationProvider.CLICKUP, new byte[] {1});
+
+        IntegrationResponse response = IntegrationResponse.from(integration);
+
+        assertThat(response.displayName()).isEqualTo("ClickUp");
+    }
+
     private Project project() {
         User owner = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(owner, "id", UUID.randomUUID());

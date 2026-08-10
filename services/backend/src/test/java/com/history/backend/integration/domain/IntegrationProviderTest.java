@@ -38,4 +38,11 @@ class IntegrationProviderTest {
         assertThat(IntegrationProvider.ASANA).isNotNull();
         assertThat(IntegrationProvider.fromValue("asana")).isEqualTo(IntegrationProvider.ASANA);
     }
+
+    @Test
+    @DisplayName("clickup 값은 CLICKUP provider로 매핑")
+    void fromValueMapsClickUpToClickUpProvider() {
+        assertThat(IntegrationProvider.CLICKUP).isNotNull();
+        assertThat(IntegrationProvider.fromValue("clickup")).isEqualTo(IntegrationProvider.CLICKUP);
+    }
 }

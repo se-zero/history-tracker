@@ -105,3 +105,9 @@ asana:
   revoke-url: ${ASANA_REVOKE_URL:https://app.asana.com/-/oauth_revoke}
   # 만료 전 미리 갱신할 여유 시간. access token 수명이 1시간이라 Linear(24h/PT30M)보다 훨씬 짧게 잡는다.
   refresh-skew: ${ASANA_REFRESH_SKEW:PT10M}
+
+clickup:
+  client-id: ${CLICKUP_CLIENT_ID:}
+  client-secret: ${CLICKUP_CLIENT_SECRET:}
+  redirect-uri: ${CLICKUP_REDIRECT_URI:}
+  token-url: ${CLICKUP_TOKEN_URL:https://api.clickup.com/api/v2/oauth/token}

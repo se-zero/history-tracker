@@ -7,7 +7,8 @@ public enum IntegrationProvider {
     SLACK("slack", "Slack"),
     JIRA("jira", "Jira"),
     LINEAR("linear", "Linear"),
-    ASANA("asana", "Asana");
+    ASANA("asana", "Asana"),
+    CLICKUP("clickup", "ClickUp");
 
     private final String value;
     private final String displayName;
