@@ -7,11 +7,14 @@ ai-engine은 무변경이다(`Communication` 노드 재사용). 전체 순서는
 Microsoft Graph API 조사(2026-08, v1.0 문서 기준)를 근거로 작성했다. 미확정 항목은 맨 아래
 「구현 시 확인」에 모았다.
 
-> **착수 보류 (2026-08-08).** 대화 아키타입 1호를 Discord로 바꾸고 Teams는 2호로 미뤘다.
-> §1-0에서 실측했듯 Teams는 **유료 조직 테넌트 라이선스 + 관리자 동의**가 개발자·최종 사용자 양쪽에
-> 필요해, 아키타입 성립 검증을 여기서 먼저 할 이유가 없다. **이 문서의 설계는 그대로 유효하며**,
-> 라이선스가 확보되면 §1-1부터 바로 착수할 수 있다. 단 §2(webhook 토큰 확보 일반화)는 Teams 전용이
-> 아니므로 Discord 진행 중에도 선행 PR로 처리해 두면 좋다.
+> **착수 보류 (2026-08-08 결정, 2026-08-10 실측으로 재확인).** 대화 아키타입 1호를 Discord로
+> 바꾸고 Teams는 2호로 미뤘다. 착수 보류 근거가 2026-08-10 실측으로 **더 명확해졌다** — 애초
+> "유료 조직 테넌트 라이선스"가 장벽이라고 봤는데, 실측해보니 **라이선스는 학교 같은 교육기관
+> 계정(Office 365 A1)이면 무료로도 통과된다.** 진짜 장벽은 그다음 단계인 **테넌트 관리자 동의**였고,
+> 이건 라이선스를 사든 안 사든 **일반(비관리자) 사용자 전원에게 동일하게 적용되는 구조적 제약**이라는
+> 게 이번에 확정됐다 — 상세는 §1-0 하단과 §1-2. **이 문서의 설계는 그대로 유효하며**, §1-1부터
+> 바로 착수할 수 있다. 단 §2(webhook 토큰 확보 일반화)는 Teams 전용이 아니므로 Discord·Google Chat
+> 진행 중에 이미 선행 PR로 처리됐다.
 
 ## 0. 결정 사항 요약
 
@@ -23,8 +26,8 @@ Microsoft Graph API 조사(2026-08, v1.0 문서 기준)를 근거로 작성했�
 | 수집 범위 | 선택한 팀의 **전체 채널**(사용자가 접근 가능한 채널). chat(개인·그룹 DM)은 제외 | 채널 자동 수집은 Slack 철학과 동일. chat 읽기는 delegated 미지원 + metered API라 범위 밖 |
 | 토큰 | 만료+갱신형 — `AccessTokenRefresher` **구현** | access token ~1시간, refresh token은 사용 시 교체(회전). `offline_access` scope 필수 |
 | 원격 폐기 | `ProviderCredentialLifecycle` **구현하지 않음** | Microsoft identity platform에는 앱 주도 개별 토큰 폐기 endpoint가 없다(`revokeSignInSessions`는 사용자 전체 세션 폐기라 과격). 해제는 DB·그래프 삭제만 |
-| 선행 공용 변경 | webhook 경로 토큰 확보의 Jira 하드코딩 일반화 (§2) | Teams는 "만료 토큰을 쓰는 **두 번째** provider" — 지금 구조로는 웹훅 증분 수집이 만료 토큰으로 401을 맞는다 |
-| **진입 장벽** | 유료 조직 테넌트 + 테넌트 관리자 동의가 **개발자·최종 사용자 양쪽에** 필요 (§1-0) | Teams Graph API는 라이선스로 먼저 게이트된다. 개인 계정은 우회 불가 — 커넥터 착수 순서를 정할 때 이 비용을 함께 본다 |
+| 선행 공용 변경 | ~~webhook 경로 토큰 확보의 Jira 하드코딩 일반화 (§2)~~ ✅ 완료 | Google Chat이 "만료 토큰을 쓰는 두 번째 provider"가 되면서 이미 일반화됐다 — Teams는 이 선행 조건이 필요 없다 |
+| **진입 장벽** | 두 단계로 갈린다 — ① 라이선스(교육기관 계정은 **무료로 통과 가능**, 실측 확인) ② **테넌트 관리자 동의**(라이선스와 무관하게 비관리자 사용자 전원을 막음, 실측 확인) | Teams Graph API는 라이선스로 먼저 게이트되고(개인 계정은 우회 불가), 그다음 관리자 동의로 다시 게이트된다. **①만 뚫려도 ②가 남는다** — 이게 개발 계정 문제가 아니라 제품 채택률 문제인 이유(§1-0·§1-2) |
 
 ## 1. 사전 준비 — 테넌트·라이선스 확보와 Entra ID 앱 등록
 
@@ -58,6 +61,33 @@ GUID면 조직 계정이다.** `/organization`이 위 오류를 내면 소속 �
 M365 Developer Program 샌드박스는 2024년부터 Visual Studio Professional/Enterprise 구독자와
 파트너 프로그램 가입사로 제한되어 일반적인 무료 경로가 아니다.
 
+### 1-0-1. 추가 실측 (2026-08-10) — 교육기관 계정으로 라이선스 게이트 무료 통과, 관리자 동의에서 확정 차단
+
+Google Chat 실측 중 확보한 서울과기대 Microsoft 365 계정(`@officestu.seoultech.ac.kr`, **학생용
+Office 365 A1** 라이선스 — 교육기관에 무료 제공되는 티어)으로 위 §1-0의 라이선스 게이트를 다시
+찔러봤다. **A1에는 Teams가 기본 포함돼 있어 라이선스 구매 없이 게이트를 통과했다** — §1-0의
+가정("유료 조직 테넌트 필요")보다 나은 결과다.
+
+Graph Explorer로 실측한 순서와 결과:
+
+```
+GET /v1.0/me/joinedTeams
+  → 200 OK, {"value": []}                      # 라이선스 게이트 통과. 가입한 팀이 없어 빈 배열
+(Teams 앱에서 테스트 팀 "history tracker test" 생성 후 재호출)
+GET /v1.0/me/joinedTeams
+  → 200 OK, {"value": [{ "id": "...", "displayName": "history tracker test", ... }]}
+GET /v1.0/teams/{team-id}/channels
+  → 200 OK, "General" 채널 반환                  # Channel.ReadBasic.All, admin consent 불필요 — 그대로 통과
+GET /v1.0/teams/{team-id}/channels/{channel-id}/messages
+  → Graph Explorer "Modify Permissions"에서 ChannelMessage.Read.All 동의 시도
+  → "관리자 승인이 필요합니다(Need admin approval)" 화면 — 동의 자체가 불가, "승인 요청"만 가능
+```
+
+**결론**: §1-0이 예상한 "라이선스"와 "관리자 동의"를 하나의 장벽으로 뭉뚱그렸었는데, 실측해보니
+**서로 다른 두 장벽**이었다. 라이선스는 교육기관 계정으로 무료 우회가 가능하지만, `ChannelMessage.Read.All`의
+관리자 동의는 라이선스와 무관하게 **비관리자 사용자 전원을 막는다** — 이 계정이 소속 테넌트에서
+관리자 권한이 없어 "승인 요청"만 가능하고 스스로 동의를 내릴 수 없었다. 상세 함의는 §1-2.
+
 ### 1-1. Entra ID 앱 등록
 
 - 앱 유형: **multi-tenant** ("Accounts in any organizational directory"). Teams는 조직(work/school)
@@ -86,10 +116,47 @@ M365 Developer Program 샌드박스는 2024년부터 Visual Studio Professional/
 - 환경변수(`ATLASSIAN_*` 패턴): `TEAMS_CLIENT_ID` · `TEAMS_CLIENT_SECRET` · `TEAMS_REDIRECT_URI`.
   `infra/docker/docker-compose.yml` backend 블록에 추가, 실제 값은 `.env`.
 
-## 2. 선행 공용 변경 — webhook 토큰 확보 일반화 (커넥터 PR과 분리)
+### 1-2. 일반 사용자 채택 한계 (2026-08-10 실측으로 확정 — 개발 계정만의 문제가 아니다)
 
-`GitHubWebhookService.ensureFreshJiraToken` + `JiraTokenClient`가 Jira 하드코딩이다. backend 내부
-API는 이미 범용(`/api/v1/internal/integrations/{projectId}/{provider}/token`)이므로 호출부만 일반화한다.
+§1-0-1에서 확인한 사실이 만드는 실제 함의를 짚는다. **"라이선스를 사면(또는 이미 있으면) 연결된다"는
+가정이 틀렸다.** 라이선스와 관리자 동의는 서로 다른 축이다.
+
+| 그 사용자가… | 결과 |
+|---|---|
+| 라이선스 있음 + 소속 조직의 관리자 아님 + 그 조직이 우리 앱을 사전 승인 안 함 | **막힘** — §1-0-1에서 실측한 그대로. 라이선스 유무는 무관하다 |
+| 라이선스 있음 + 소속 조직의 관리자임(Global Admin 등) | 통과 — 스스로 즉시 동의 가능 |
+| 라이선스 있음 + 관리자 아님 + 그 조직 IT가 우리 앱을 이미 사전 승인함 | 통과 — 조직 단위 동의는 그 조직 구성원 전체에 적용된다 |
+
+`ChannelMessage.Read.All`은 Microsoft가 **모든 테넌트에 대해 전역적으로** "관리자 동의 필수"로
+분류해 둔 scope라, 개별 사용자나 우리 쪽에서 이 분류를 바꿀 방법이 없다. 즉:
+
+- **셀프서비스 가입 흐름과 근본적으로 안 맞는다.** 다른 provider(Slack·Jira·Discord·Google Chat)는
+  사용자 본인이 "연결" 버튼만 누르면 끝나는데, Teams는 **일반 사용자 대다수(관리자가 아닌 대부분의
+  구성원)가 자기 조직 IT의 사전 승인 없이는 스스로 못 넘는 벽**을 만난다.
+- **"우리가 도메인을 사서 자체 테넌트를 만들면 되지 않나"는 우리 쪽 개발·테스트 편의만 해결한다.**
+  자체 테넌트를 만들면 만든 사람이 Global Admin이 되어 관리자 동의를 스스로 낼 수 있지만(§1-0-1의
+  "승인 요청" 벽이 우리 개발 계정에서는 사라진다), **그건 우리가 검증할 때 이야기고, 실제 최종
+  사용자는 여전히 각자 자기 조직에서 이 벽을 만난다.** 즉 도메인 구매는 개발 단계의 마찰을
+  줄여줄 뿐 제품 채택률 문제를 해결하지 않는다.
+- 현실적인 채택 경로는 둘뿐이다: ① 그 조직의 관리자가 직접 연결(첫 사용자가 관리자이거나, 관리자에게
+  대신 연결해 달라고 요청) ② 조직 IT가 사전에 조직 전체 동의를 내려줌(엔터프라이즈 영업/온보딩
+  성격의 절차 — Jira의 `docs/jira-personal-data-policy.md` 봇 계정 등록처럼 배포 시 1회성 관리
+  작업으로 다룰 수 있지만, **고객사마다 반복해야 한다**는 점이 다르다).
+
+착수 보류 결정(맨 위 인용문)은 이 발견으로 오히려 강화된다 — 단순히 "라이선스 비용" 문제였다면
+누군가 돈을 내면 해결됐겠지만, 실제로는 **관리자 동의라는 조직 정책 문제**라 개인 사용자 대상
+셀프서비스 제품에는 구조적으로 안 맞는다. 다시 착수한다면 이 제약을 안고 갈지(관리자 온보딩 전제),
+아니면 대화 아키타입은 Slack·Discord·Google Chat 세 개로 충분하다고 보고 Teams를 아예 접을지를
+먼저 정해야 한다.
+
+## 2. 선행 공용 변경 — webhook 토큰 확보 일반화 (✅ 완료, 2026-08-09 — Google Chat 작업 중 처리됨)
+
+`GitHubWebhookService.ensureFreshJiraToken` + `JiraTokenClient`가 Jira 하드코딩이었다. Google Chat이
+Jira 외의 두 번째 만료 토큰형 provider가 되면서 이 절의 설계 그대로 처리했다 —
+`docs/google-chat-integration.md` §2-1 참고. **Teams가 착수될 때는 이미 해결된 상태이므로 아래는
+과거 설계 기록으로만 남긴다.**
+
+backend 내부 API는 이미 범용(`/api/v1/internal/integrations/{projectId}/{provider}/token`)이므로 호출부만 일반화한다.
 
 - `JiraTokenClient` → `IntegrationTokenClient.ensure(projectId, provider)`로 개명·범용화.
   결과는 3값으로 구분한다: **REFRESHED**(204) / **NOT_SUPPORTED**(404) / **FAILED**(그 외·예외).
@@ -224,8 +291,11 @@ Graph의 delta API를 쓰지 않는 이유: ① checkpoint 저장소가 `(projec
 ## 9. 검증 계획
 
 - 단위: backend `./gradlew test` / pipeline-worker `./gradlew test` / 프론트 `typecheck && build`.
-- 선행 PR(§2): "404 → 저장 자격증명으로 진행(Slack 보존)" 회귀 테스트 필수.
-- 실기동 시나리오(테스트 테넌트): 연결 → admin consent → 팀 선택 → 초기 수집 → 그래프에 TEAMS
+- 선행 PR(§2): ✅ 완료 — Google Chat 작업 때 함께 처리됨(`IntegrationTokenClientTest`가
+  REFRESHED/NOT_SUPPORTED/FAILED 3상태를, `GitHubWebhookServiceTest`가 "404 → 저장 자격증명으로
+  진행(Slack·Discord 보존)"을 고정한다). Teams 착수 시 별도 조치 불필요.
+- 실기동 시나리오(관리자 권한이 있는 테스트 테넌트 — §1-2에 따라 **비관리자 계정으로는 admin
+  consent 단계에서 끝까지 진행 불가**): 연결 → admin consent → 팀 선택 → 초기 수집 → 그래프에 TEAMS
   Communication 확인 → PR 머지 웹훅으로 증분(1시간 뒤 토큰 갱신 경로 포함) → 오래된 스레드에 새 답글
   → 다음 증분에서 수집됨 확인 → 해제 시 TEAMS 노드만 삭제 확인.
 
