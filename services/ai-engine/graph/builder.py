@@ -47,9 +47,13 @@ from graph.schema import (
 from graph.writes import (
     absorb_issue_stub,
     link_changeset_to_issue,
+    link_changeset_to_issue_external,
+    link_changeset_to_pr_issue_externals,
     link_changeset_to_pr_issues,
+    link_issue_external_to_communication,
     link_issue_to_communication,
     link_issue_to_parent,
+    link_pr_changesets_to_issue_externals,
     link_pr_changesets_to_issues,
     link_pr_to_changeset,
     set_issue_assignees,
@@ -85,6 +89,11 @@ __all__ = [
     "link_issue_to_parent",
     "set_issue_assignees",
     "absorb_issue_stub",
+    # writes (link — issueExternalRefs 실키 pre-node)
+    "link_changeset_to_issue_external",
+    "link_issue_external_to_communication",
+    "link_changeset_to_pr_issue_externals",
+    "link_pr_changesets_to_issue_externals",
     # maintenance / migrations
     "propagate_thread_discussed_in",
     "backfill_triggered_by_source",

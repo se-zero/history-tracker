@@ -83,6 +83,12 @@ async def _handle_changeset(event: dict) -> None:
     # Layer 2: refs 기반 엣지
     if refs.get("issueKey"):
         await builder.link_changeset_to_issue(project_id, hash_, refs["issueKey"])
+    # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를 쓴다.
+    for external_ref in refs.get("issueExternalRefs") or []:
+        ref_source = external_ref.get("source")
+        ref_external_id = external_ref.get("externalId")
+        if ref_source and ref_external_id:
+            await builder.link_changeset_to_issue_external(project_id, hash_, ref_source, ref_external_id)
     if refs.get("prNumber"):
         pr_num = int(refs["prNumber"])
         await builder.link_pr_to_changeset(project_id, pr_num, hash_)
@@ -90,6 +96,7 @@ async def _handle_changeset(event: dict) -> None:
         # 커밋마다 PR 전체에 재전파하면 O(N²)라, 전체 전파는 PR 도착 시(_handle_pull_request)에만 한다.
         # PR이 아직 안 도착했으면(CONTAINS 없음) noop — PR 도착 시 전체 전파가 처리한다.
         await builder.link_changeset_to_pr_issues(project_id, pr_num, hash_)
+        await builder.link_changeset_to_pr_issue_externals(project_id, pr_num, hash_)
 
     # Layer 3: 파일별 diff 요약 → 배치 임베딩 → UNWIND 배치 upsert (#2/#6)
     #   1) 요약: 입력만의 함수라 파일별 동시(gather) — LLM N콜은 불가피(파일별 요약 필수)
@@ -146,6 +153,18 @@ async def _handle_pull_request(event: dict) -> None:
     if issue_keys is None and refs.get("issueKey"):
         issue_keys = [refs["issueKey"]]
 
+    # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를
+    # "SOURCE:externalId" 문자열로 인코딩해 저장한다(graph.writes._parse_issue_external_refs가
+    # 역파싱). 키 자체가 없으면(refs에 issueExternalRefs가 없으면) None을 넘겨 기존 값을 보존한다.
+    raw_issue_external_refs = refs.get("issueExternalRefs")
+    issue_external_ids = None
+    if raw_issue_external_refs is not None:
+        issue_external_ids = [
+            f"{ref['source']}:{ref['externalId']}"
+            for ref in raw_issue_external_refs
+            if ref.get("source") and ref.get("externalId")
+        ]
+
     await builder.upsert_pull_request(
         project_id=project_id,
         pr_number=pr_number,
@@ -159,6 +178,7 @@ async def _handle_pull_request(event: dict) -> None:
         source=source,
         actor_uuid=resolved["uuid"],
         issue_keys=issue_keys,
+        issue_external_ids=issue_external_ids,
     )
 
     # Layer 2 전파: PR에 등록된 issue_keys를 그 PR이 머지한 모든 CONTAINS 커밋에 text TRIGGERED_BY로 적용.
@@ -167,6 +187,10 @@ async def _handle_pull_request(event: dict) -> None:
         propagated = await builder.link_pr_changesets_to_issues(project_id, int(pr_number))
         if propagated:
             logger.info("PR #%s text TRIGGERED_BY 전파: %d개 갱신", pr_number, propagated)
+    if pr_number is not None and issue_external_ids:
+        propagated_external = await builder.link_pr_changesets_to_issue_externals(project_id, int(pr_number))
+        if propagated_external:
+            logger.info("PR #%s issueExternalRefs TRIGGERED_BY 전파: %d개 갱신", pr_number, propagated_external)
 
 
 async def _handle_issue(event: dict) -> None:
@@ -283,3 +307,9 @@ async def _handle_communication(event: dict) -> None:
     # Layer 2: refs.issueKey → DISCUSSED_IN
     if refs.get("issueKey"):
         await builder.link_issue_to_communication(project_id, refs["issueKey"], url)
+    # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를 쓴다.
+    for external_ref in refs.get("issueExternalRefs") or []:
+        ref_source = external_ref.get("source")
+        ref_external_id = external_ref.get("externalId")
+        if ref_source and ref_external_id:
+            await builder.link_issue_external_to_communication(project_id, ref_source, ref_external_id, url)
