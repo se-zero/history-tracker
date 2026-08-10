@@ -15,8 +15,16 @@ export function SourceTile({
   error?: boolean;
 }) {
   const Mark = source.Mark;
+  // onConnect가 없으면 아직 연결할 수 없는 소스다(예: Teams — status가 "planned") — 호버 반응을
+  // 죽이고 타일 전체를 무디게 낮춰 "지원 안 함"이 조용히 보이게 한다(DESIGN.md: 경고색이 아니라
+  // muted로 표현하는 상태).
+  const unavailable = !onConnect;
   return (
-    <div className={"source-tile" + (error ? " oauth-error" : "")}>
+    <div
+      className={
+        "source-tile" + (unavailable ? " source-tile--unavailable" : "") + (error ? " oauth-error" : "")
+      }
+    >
       <div className="source-logo-chip sm">
         <Mark size={18} />
       </div>
@@ -27,7 +35,7 @@ export function SourceTile({
       <button
         className="btn btn-ghost"
         onClick={onConnect}
-        disabled={pending}
+        disabled={pending || unavailable}
         aria-busy={Boolean(pending)}
       >
         <BusyLabel busy={Boolean(pending)} label="연결" busyLabel="이동 중…" />
