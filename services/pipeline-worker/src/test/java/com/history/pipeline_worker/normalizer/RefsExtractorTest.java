@@ -158,7 +158,7 @@ class RefsExtractorTest {
         Map<String, Object> refs = extractor.extract(
                 "See https://app.asana.com/0/1201111111111111/1201222222222222 for details");
 
-        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
         assertThat(issueExternalRefs).hasSize(1);
         assertThat(issueExternalRefs.get(0))
                 .containsEntry("source", "ASANA")
@@ -171,7 +171,7 @@ class RefsExtractorTest {
         Map<String, Object> refs = extractor.extract(
                 "https://app.asana.com/1/98765/project/1201333333333333/task/1201444444444444");
 
-        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
         assertThat(issueExternalRefs).hasSize(1);
         assertThat(issueExternalRefs.get(0))
                 .containsEntry("source", "ASANA")
@@ -183,7 +183,7 @@ class RefsExtractorTest {
     void extract_asanaV1UrlWithoutProjectSegment_taskGidExtracted() {
         Map<String, Object> refs = extractor.extract("https://app.asana.com/1/98765/task/1201555555555555");
 
-        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
         assertThat(issueExternalRefs).hasSize(1);
         assertThat(issueExternalRefs.get(0))
                 .containsEntry("source", "ASANA")
@@ -195,7 +195,7 @@ class RefsExtractorTest {
     void extract_asanaV0UrlWithTrailingSlashF_taskGidExtracted() {
         Map<String, Object> refs = extractor.extract("https://app.asana.com/0/123/456/f");
 
-        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
         assertThat(issueExternalRefs).hasSize(1);
         assertThat(issueExternalRefs.get(0))
                 .containsEntry("source", "ASANA")
@@ -207,7 +207,7 @@ class RefsExtractorTest {
     void extract_asanaUrlWithQueryString_taskGidExtracted() {
         Map<String, Object> refs = extractor.extract("https://app.asana.com/0/123/456?focus=true");
 
-        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
         assertThat(issueExternalRefs).hasSize(1);
         assertThat(issueExternalRefs.get(0))
                 .containsEntry("source", "ASANA")
@@ -219,7 +219,7 @@ class RefsExtractorTest {
     void extract_asanaUrlWrappedInSlackLink_taskGidExtracted() {
         Map<String, Object> refs = extractor.extract("<https://app.asana.com/0/123/456|태스크 이름>");
 
-        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
         assertThat(issueExternalRefs).hasSize(1);
         assertThat(issueExternalRefs.get(0))
                 .containsEntry("source", "ASANA")
@@ -232,7 +232,7 @@ class RefsExtractorTest {
         Map<String, Object> refs = extractor.extract(
                 "https://app.asana.com/0/123/456 mentioned again at https://app.asana.com/0/123/456");
 
-        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
         assertThat(issueExternalRefs).hasSize(1);
         assertThat(issueExternalRefs.get(0))
                 .containsEntry("source", "ASANA")
@@ -269,15 +269,117 @@ class RefsExtractorTest {
         Map<String, Object> refs = extractor.extract("HT-7 relates to https://app.asana.com/0/123/456");
 
         assertThat(refs).containsEntry("issueKey", "HT-7");
-        List<Map<String, Object>> issueExternalRefs = asanaRefs(refs);
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
         assertThat(issueExternalRefs).hasSize(1);
         assertThat(issueExternalRefs.get(0))
                 .containsEntry("source", "ASANA")
                 .containsEntry("externalId", "456");
     }
 
+    // ─── ClickUp 태스크 URL의 task id (묶음 1) ──────────────────────────────────
+    // ClickUp도 이슈 키(ABC-123) 체계가 없어 공유 태스크 URL에서 task id를 추출한다.
+    // 공유 URL: https://app.clickup.com/t/{task_id} — task id는 소문자 영숫자 (예: 868czp8t3)
+    // Custom Task ID(유료) URL: https://app.clickup.com/t/{team_id}/{CUSTOM-123} — team_id는 숫자,
+    //   custom key는 대문자·숫자·언더스코어 접두 + "-" + 숫자 (예: ABC-123). 이 형식에서 숫자 team_id를
+    //   task id로 오인하면 안 되므로 배타 처리 대상이며, 대신 기존 ISSUE_KEY 패턴이 CUSTOM-123을 잡는다
+    //   (linear.app URL 경로의 identifier를 잡는 것과 같은 전례).
+    // 리스트 뷰 등 비태스크 URL(.../{team_id}/v/li/{list_id})은 태스크 참조가 아니다.
+    // refs.get("issueExternalRefs") = List<Map<String,Object>> [{source: "CLICKUP", externalId: "<task id>"}].
+
+    @Test
+    @DisplayName("ClickUp 공유 태스크 URL(/t/{task_id}) → task id 추출")
+    void extract_clickupTaskUrl_taskIdExtracted() {
+        Map<String, Object> refs = extractor.extract("https://app.clickup.com/t/868czp8t3");
+
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
+        assertThat(issueExternalRefs).containsExactly(
+                Map.of("source", "CLICKUP", "externalId", "868czp8t3")
+        );
+    }
+
+    @Test
+    @DisplayName("쿼리스트링이 붙은 ClickUp URL도 task id 정상 추출")
+    void extract_clickupUrlWithQueryString_taskIdExtracted() {
+        Map<String, Object> refs = extractor.extract("https://app.clickup.com/t/868czp8t3?comment=456");
+
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
+        assertThat(issueExternalRefs).containsExactly(
+                Map.of("source", "CLICKUP", "externalId", "868czp8t3")
+        );
+    }
+
+    @Test
+    @DisplayName("Slack 링크 래핑(<url|텍스트>) 안의 ClickUp URL도 task id 추출")
+    void extract_clickupUrlWrappedInSlackLink_taskIdExtracted() {
+        Map<String, Object> refs = extractor.extract("<https://app.clickup.com/t/868czp8t3|태스크 보기>");
+
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
+        assertThat(issueExternalRefs).containsExactly(
+                Map.of("source", "CLICKUP", "externalId", "868czp8t3")
+        );
+    }
+
+    @Test
+    @DisplayName("Custom Task ID URL(/t/{team_id}/{CUSTOM-123})은 숫자 team_id를 task id로 오인하지 않는다 "
+            + "— issueExternalRefs에 CLICKUP 항목이 생기지 않고, 대신 기존 issueKey 패턴이 URL 안의 "
+            + "CUSTOM-123을 잡는다 (linear.app URL 전례와 동일)")
+    void extract_clickupCustomTaskIdUrl_teamIdNotMisidentifiedAsTaskId() {
+        Map<String, Object> refs = extractor.extract("https://app.clickup.com/t/1234567/ABC-123");
+
+        assertThat(refs).doesNotContainKey("issueExternalRefs");
+        assertThat(refs).containsEntry("issueKey", "ABC-123");
+        assertThat(refs).containsEntry("issueKeys", List.of("ABC-123"));
+    }
+
+    @Test
+    @DisplayName("세그먼트 1개짜리 전체 숫자 ClickUp URL(/t/1234567)은 legacy 숫자 task id로 간주해 추출한다 "
+            + "— 배타 처리는 team_id+CUSTOM-key 두 세그먼트 형식에만 적용된다")
+    void extract_clickupSingleNumericSegmentUrl_taskIdExtracted() {
+        Map<String, Object> refs = extractor.extract("https://app.clickup.com/t/1234567");
+
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
+        assertThat(issueExternalRefs).containsExactly(
+                Map.of("source", "CLICKUP", "externalId", "1234567")
+        );
+    }
+
+    @Test
+    @DisplayName("같은 ClickUp 태스크 URL이 2회 등장해도 issueExternalRefs 원소는 1개 (중복 제거)")
+    void extract_duplicateClickupUrl_deduplicated() {
+        Map<String, Object> refs = extractor.extract(
+                "https://app.clickup.com/t/868czp8t3 mentioned again at https://app.clickup.com/t/868czp8t3");
+
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
+        assertThat(issueExternalRefs).containsExactly(
+                Map.of("source", "CLICKUP", "externalId", "868czp8t3")
+        );
+    }
+
+    @Test
+    @DisplayName("ClickUp 리스트 뷰 URL(/{team_id}/v/li/{list_id})은 태스크 참조가 아니므로 매치하지 않음")
+    void extract_clickupListViewUrl_notMatched() {
+        Map<String, Object> refs = extractor.extract("https://app.clickup.com/1234567/v/li/90112345");
+
+        assertThat(refs).doesNotContainKey("issueExternalRefs");
+    }
+
+    @Test
+    @DisplayName("Asana URL·ClickUp URL·Jira 키가 한 텍스트에 공존하면 셋 다 정확히 추출 (오추출·누락 없음)")
+    void extract_asanaUrlClickupUrlAndIssueKey_allExtractedExactly() {
+        Map<String, Object> refs = extractor.extract(
+                "HT-7 relates to https://app.asana.com/0/123/456 and https://app.clickup.com/t/868czp8t3");
+
+        assertThat(refs).containsEntry("issueKey", "HT-7");
+        assertThat(refs).containsEntry("issueKeys", List.of("HT-7"));
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
+        assertThat(issueExternalRefs).containsExactlyInAnyOrder(
+                Map.of("source", "ASANA", "externalId", "456"),
+                Map.of("source", "CLICKUP", "externalId", "868czp8t3")
+        );
+    }
+
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> asanaRefs(Map<String, Object> refs) {
+    private List<Map<String, Object>> externalRefs(Map<String, Object> refs) {
         return (List<Map<String, Object>>) refs.get("issueExternalRefs");
     }
 }
