@@ -29,6 +29,7 @@ import com.history.backend.discord.service.DiscordOAuthConnectFlow;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
+import com.history.backend.googlechat.dto.GoogleChatSpaceListResponse;
 import com.history.backend.googlechat.service.GoogleChatAccessTokenRefresher;
 import com.history.backend.googlechat.service.GoogleChatClient;
 import com.history.backend.googlechat.service.GoogleChatCredentialLifecycle;
@@ -720,6 +721,72 @@ class IntegrationServiceTest {
         InOrder inOrder = inOrder(jiraTokenService, pipelineWorkerClient);
         inOrder.verify(jiraTokenService).ensureAccessToken(PROJECT_ID);
         inOrder.verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("GoogleChatTokenService가 보장한 access token으로 연동 가능한 Google Chat 스페이스 목록 조회")
+    void listGoogleChatSpacesReturnsAccessibleSpaces() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(googleChatTokenService.getAccessToken(PROJECT_ID)).thenReturn("gc-access-token");
+        when(googleChatClient.listSpaces("gc-access-token")).thenReturn(List.of(
+                new GoogleChatSpaceListResponse.GoogleChatSpace("spaces/AAAA", "engineering")));
+
+        List<SelectionOption> result = service.selectionOptions(
+                OWNER_ID, PROJECT_ID, IntegrationProvider.GOOGLE_CHAT, GoogleChatSelectionFlow.SPACE_ID, Map.of());
+
+        assertThat(result).containsExactly(new SelectionOption("spaces/AAAA", "engineering"));
+    }
+
+    @Test
+    @DisplayName("displayName이 비어 있는 스페이스는 리소스 이름(spaces/{id})으로 폴백해 표시")
+    void listGoogleChatSpacesFallsBackToResourceNameWhenDisplayNameBlank() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(googleChatTokenService.getAccessToken(PROJECT_ID)).thenReturn("gc-access-token");
+        when(googleChatClient.listSpaces("gc-access-token")).thenReturn(List.of(
+                new GoogleChatSpaceListResponse.GoogleChatSpace("spaces/AAAA", null)));
+
+        List<SelectionOption> result = service.selectionOptions(
+                OWNER_ID, PROJECT_ID, IntegrationProvider.GOOGLE_CHAT, GoogleChatSelectionFlow.SPACE_ID, Map.of());
+
+        assertThat(result).containsExactly(new SelectionOption("spaces/AAAA", "spaces/AAAA"));
+    }
+
+    @Test
+    @DisplayName("pending 행 확정 저장 후 커밋 뒤(트랜잭션 밖) 토큰 확보·초기 수집 트리거 순서로 진행 — Google Chat")
+    void completeGoogleChatSpaceSavesAndTriggersCollectionOutsideTransaction() {
+        IntegrationService service = service();
+        Integration pending = Integration.pendingSelection(project(), IntegrationProvider.GOOGLE_CHAT, new byte[] {1, 2, 3});
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GOOGLE_CHAT))
+                .thenReturn(Optional.of(pending));
+        when(integrationRepository.saveAndFlush(pending))
+                .thenAnswer(invocation -> {
+                    assertThat(transactionManager.transactionActive).isTrue();
+                    return invocation.getArgument(0);
+                });
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(googleChatTokenService).ensureAccessToken(PROJECT_ID);
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.GOOGLE_CHAT, PROJECT_ID);
+
+        Integration result = service.completeSelection(OWNER_ID, PROJECT_ID, IntegrationProvider.GOOGLE_CHAT, Map.of(
+                GoogleChatSelectionFlow.SPACE_ID, "spaces/AAAA", GoogleChatSelectionFlow.SPACE_NAME, "engineering"));
+
+        assertThat(result).isSameAs(pending);
+        assertThat(result.isPendingSelection()).isFalse();
+        assertThat(result.externalRefValue(GoogleChatSelectionFlow.SPACE_ID)).isEqualTo("spaces/AAAA");
+        assertThat(result.externalRefValue(GoogleChatSelectionFlow.SPACE_NAME)).isEqualTo("engineering");
+        // GitHub이 트리거 직전에 토큰을 갱신하는 것과 같은 자리 — 토큰 확보가 먼저, 수집 트리거가 그다음이다.
+        // GoogleChatAccessTokenRefresher가 실제 등록돼 있어(service()) 이 경로가 배선까지 검증한다.
+        InOrder inOrder = inOrder(googleChatTokenService, pipelineWorkerClient);
+        inOrder.verify(googleChatTokenService).ensureAccessToken(PROJECT_ID);
+        inOrder.verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.GOOGLE_CHAT, PROJECT_ID);
     }
 
     @Test
