@@ -1,16 +1,28 @@
 package com.history.pipeline_worker.source.jira;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.codec.HttpMessageWriter;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.mock.http.client.reactive.MockClientHttpRequest;
+import org.springframework.web.reactive.function.BodyInserter;
+import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,5 +119,73 @@ class JiraRawServiceTest {
 
         assertThat(page.limitReached()).isTrue();
         assertThat(page.nextPageToken()).isNull();
+    }
+
+    @Test
+    @DisplayName("검색 요청 바디의 fields 목록에 resolutiondate 포함 — closed_at 계산에 필요")
+    @SuppressWarnings("unchecked")
+    void fetchSearchPage_requestBody_includesResolutiondateField() {
+        List<Map<String, Object>> capturedBodies = new ArrayList<>();
+        WebClient client = WebClient.builder()
+                .exchangeFunction(request -> {
+                    capturedBodies.add(captureRequestBody(request));
+                    return Mono.just(ClientResponse.create(HttpStatus.OK)
+                            .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                            .body("""
+                                    { "issues": [] }
+                                    """)
+                            .build());
+                })
+                .baseUrl("https://example.atlassian.net")
+                .build();
+        JiraRawService service = new JiraRawService(
+                WebClient.builder(),
+                "",
+                50,
+                new JiraRateLimiter(0)
+        );
+        JiraRawService.JiraFetchContext context = new JiraRawService.JiraFetchContext(
+                client,
+                "Bearer token",
+                "PROJ",
+                null
+        );
+
+        service.fetchSearchPage(context, null, 1);
+
+        assertThat(capturedBodies).hasSize(1);
+        List<String> fields = (List<String>) capturedBodies.get(0).get("fields");
+        assertThat(fields).contains("resolutiondate");
+    }
+
+    // ExchangeFunction은 이미 직렬화 완료된 ClientRequest만 받으므로, bodyValue(Map)로 만든
+    // 요청 바디를 검증하려면 BodyInserter를 MockClientHttpRequest에 직접 써서 JSON 문자열로
+    // 복원해야 한다.
+    private Map<String, Object> captureRequestBody(ClientRequest request) {
+        MockClientHttpRequest httpRequest = new MockClientHttpRequest(request.method(), request.url());
+        BodyInserter.Context context = new BodyInserter.Context() {
+            @Override
+            public List<HttpMessageWriter<?>> messageWriters() {
+                return ExchangeStrategies.withDefaults().messageWriters();
+            }
+
+            @Override
+            public Optional<ServerHttpRequest> serverRequest() {
+                return Optional.empty();
+            }
+
+            @Override
+            public Map<String, Object> hints() {
+                return Collections.emptyMap();
+            }
+        };
+        request.body().insert(httpRequest, context).block();
+
+        String json = httpRequest.getBodyAsString().block();
+        try {
+            return new ObjectMapper().readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

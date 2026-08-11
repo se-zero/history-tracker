@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JiraNormalizerTest {
 
     private static final String PROJECT_ID = "11111111-1111-1111-1111-111111111111";
+    private static final String DEFAULT_ISSUE_ID = "10000";
 
     private JiraNormalizer normalizer;
 
@@ -121,6 +122,79 @@ class JiraNormalizerTest {
         assertThat(event.actor().email()).isNull();
     }
 
+    // ─── external_id / status_category (신 계약) ─────────────────────────────────
+
+    @Test
+    @DisplayName("issue 최상위 id → properties.external_id")
+    void normalizeIssues_hasTopLevelId_setsExternalId() {
+        Map<String, Object> issue = buildIssue("10042", "PROJ-30", "External id test", null,
+                "To Do", "new", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).containsEntry("external_id", "10042");
+    }
+
+    @Test
+    @DisplayName("statusCategory.key='new' → status_category='open'")
+    void normalizeIssues_statusCategoryNew_mapsToOpen() {
+        Map<String, Object> issue = buildIssue(DEFAULT_ISSUE_ID, "PROJ-31", "To do issue", null,
+                "To Do", "new", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).containsEntry("status_category", "open");
+    }
+
+    @Test
+    @DisplayName("statusCategory.key='indeterminate' → status_category='in_progress'")
+    void normalizeIssues_statusCategoryIndeterminate_mapsToInProgress() {
+        Map<String, Object> issue = buildIssue(DEFAULT_ISSUE_ID, "PROJ-32", "In progress issue", null,
+                "In Progress", "indeterminate", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).containsEntry("status_category", "in_progress");
+    }
+
+    @Test
+    @DisplayName("statusCategory.key='done' → status_category='closed'")
+    void normalizeIssues_statusCategoryDone_mapsToClosed() {
+        Map<String, Object> issue = buildIssue(DEFAULT_ISSUE_ID, "PROJ-33", "Done issue", null,
+                "Done", "done", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).containsEntry("status_category", "closed");
+    }
+
+    @Test
+    @DisplayName("statusCategory 자체가 없음 → status_category는 방어적으로 'open'")
+    void normalizeIssues_missingStatusCategory_defaultsToOpen() {
+        Map<String, Object> issue = buildIssue("PROJ-34", "No category info", null, "Custom Status", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).containsEntry("status_category", "open");
+    }
+
+    @Test
+    @DisplayName("statusCategory.key가 알 수 없는 값 → status_category는 방어적으로 'open'")
+    void normalizeIssues_unknownStatusCategoryKey_defaultsToOpen() {
+        Map<String, Object> issue = buildIssue(DEFAULT_ISSUE_ID, "PROJ-35", "Weird category", null,
+                "Custom Status", "some_future_category", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.properties()).containsEntry("status_category", "open");
+    }
+
     // ─── extractPlainText (description 파싱) ────────────────────────────────────
 
     @Test
@@ -207,24 +281,43 @@ class JiraNormalizerTest {
         assertThat(event.refs()).containsEntry("issueKey", "AUTH-99");
     }
 
+    // ─── refs: parent (신 계약 — parentIssueKey + parentExternalId) ──────────────
+
     @Test
-    @DisplayName("parent 필드 있는 이슈 → refs에 parentIssueKey 포함")
-    void normalizeIssues_withParent_parentKeyInRefs() {
+    @DisplayName("parent 필드 있는 이슈 → refs에 parentIssueKey·parentExternalId 둘 다 포함")
+    void normalizeIssues_withParent_parentKeyAndExternalIdInRefs() {
         Map<String, Object> issue = buildIssue("PROJ-9", "Child story", null, "Open", "Story", "Medium",
                 "id1", "Name", "email@test.com");
 
         @SuppressWarnings("unchecked")
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
-        fields.put("parent", Map.of("key", "EPIC-1"));
+        fields.put("parent", Map.of("key", "EPIC-1", "id", "10050"));
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.refs()).containsEntry("parentIssueKey", "EPIC-1");
+        assertThat(event.refs())
+                .containsEntry("parentIssueKey", "EPIC-1")
+                .containsEntry("parentExternalId", "10050");
     }
 
     @Test
-    @DisplayName("assignee 있는 이슈 → refs에 assigneeId·assigneeName·assigneeEmail 포함, properties에는 assignee 키 없음")
-    void normalizeIssues_withAssignee_assigneeIdNameEmailInRefsNotProperties() {
+    @DisplayName("parent 필드 없는 이슈 → refs에 parentIssueKey·parentExternalId 모두 없음")
+    void normalizeIssues_withoutParent_noParentKeyInRefs() {
+        Map<String, Object> result = buildSearchResult(List.of(
+                buildIssue("PROJ-10", "Root epic", null, "Open", "Epic", "High",
+                        "id1", "Name", "email@test.com")
+        ));
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,result).get(0);
+
+        assertThat(event.refs()).doesNotContainKeys("parentIssueKey", "parentExternalId");
+    }
+
+    // ─── refs: assignees (신 계약 — 객체 리스트, 구 3키 폐기) ─────────────────────
+
+    @Test
+    @DisplayName("assignee 있는 이슈 → refs.assignees에 담당자 1명, 구 assigneeId/Name/Email 키는 없음")
+    void normalizeIssues_withAssignee_assigneesListInRefs() {
         Map<String, Object> issue = buildIssue("PROJ-11", "Assigned issue", null, "Open", "Task", "Medium",
                 "reporter-id", "Reporter", "reporter@test.com");
 
@@ -238,16 +331,41 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.refs()).containsEntry("assigneeId", "assignee-account-id")
-                .containsEntry("assigneeName", "Assignee Name")
-                .containsEntry("assigneeEmail", "assignee@test.com");
+        assertThat(event.refs()).containsKey("assignees");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> assignees = (List<Map<String, Object>>) event.refs().get("assignees");
+        assertThat(assignees).hasSize(1);
+        assertThat(assignees.get(0))
+                .containsEntry("id", "assignee-account-id")
+                .containsEntry("name", "Assignee Name")
+                .containsEntry("email", "assignee@test.com");
+        assertThat(event.refs()).doesNotContainKeys("assigneeId", "assigneeName", "assigneeEmail");
         // Issue 노드에 이름 문자열을 저장하지 않기 위해 properties에는 assignee 키 자체를 두지 않는다
         assertThat(event.properties()).doesNotContainKey("assignee");
     }
 
     @Test
-    @DisplayName("assignee null → refs에 assigneeId·assigneeName·assigneeEmail 모두 없음")
-    void normalizeIssues_nullAssignee_noAssigneeKeysInRefs() {
+    @DisplayName("assignee의 accountId가 null → refs에 assignees 키 없음")
+    void normalizeIssues_assigneeWithoutAccountId_noAssigneesKey() {
+        Map<String, Object> issue = buildIssue("PROJ-13", "Assignee missing accountId", null, "Open", "Task", "Medium",
+                "reporter-id", "Reporter", "reporter@test.com");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
+        Map<String, Object> assignee = new HashMap<>();
+        assignee.put("accountId", null);
+        assignee.put("displayName", "Ghost Assignee");
+        assignee.put("emailAddress", "ghost@test.com");
+        fields.put("assignee", assignee);
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.refs()).doesNotContainKey("assignees");
+    }
+
+    @Test
+    @DisplayName("assignee null → refs에 assignees 키 없음")
+    void normalizeIssues_nullAssignee_noAssigneesKeyInRefs() {
         Map<String, Object> result = buildSearchResult(List.of(
                 buildIssue("PROJ-12", "Unassigned issue", null, "Open", "Task", "Medium",
                         "reporter-id", "Reporter", "reporter@test.com")
@@ -255,16 +373,17 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, result).get(0);
 
-        assertThat(event.refs()).doesNotContainKeys("assigneeId", "assigneeName", "assigneeEmail");
+        assertThat(event.refs()).doesNotContainKey("assignees");
     }
 
-    // ─── closed_at 추론 (status terminal 여부 + resolutiondate fallback) ────────
+    // ─── closed_at 추론 (status_category 기반 + resolutiondate fallback) ────────
 
     @Test
-    @DisplayName("status='완료' + resolutiondate 있음 → closed_at = resolutiondate")
+    @DisplayName("status_category='closed' + resolutiondate 있음 → closed_at = resolutiondate")
     @SuppressWarnings("unchecked")
-    void normalizeIssues_terminalStatusWithResolutionDate_setsClosedAt() {
-        Map<String, Object> issue = buildIssue("PROJ-100", "Resolved issue", null, "완료", "Task", "Medium",
+    void normalizeIssues_doneCategoryWithResolutionDate_setsClosedAt() {
+        Map<String, Object> issue = buildIssue(DEFAULT_ISSUE_ID, "PROJ-100", "Resolved issue", null,
+                "Done", "done", "Task", "Medium",
                 "id1", "Name", "email@test.com");
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("resolutiondate", "2026-04-06T10:00:00.000+0900");
@@ -272,14 +391,17 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.properties()).containsEntry("closed_at", "2026-04-06T10:00:00.000+0900");
+        assertThat(event.properties())
+                .containsEntry("status_category", "closed")
+                .containsEntry("closed_at", "2026-04-06T10:00:00.000+0900");
     }
 
     @Test
-    @DisplayName("status='Done' + resolutiondate 없음 → closed_at = updated (fallback)")
+    @DisplayName("status_category='closed' + resolutiondate 없음 → closed_at = updated (fallback)")
     @SuppressWarnings("unchecked")
-    void normalizeIssues_terminalStatusWithoutResolutionDate_fallsBackToUpdated() {
-        Map<String, Object> issue = buildIssue("PROJ-101", "Done without resolution", null, "Done", "Bug", "Low",
+    void normalizeIssues_doneCategoryWithoutResolutionDate_fallsBackToUpdated() {
+        Map<String, Object> issue = buildIssue(DEFAULT_ISSUE_ID, "PROJ-101", "Done without resolution", null,
+                "Done", "done", "Bug", "Low",
                 "id1", "Name", "email@test.com");
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("resolutiondate", null);
@@ -287,34 +409,42 @@ class JiraNormalizerTest {
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.properties()).containsEntry("closed_at", "2026-04-10T09:00:00.000+0900");
+        assertThat(event.properties())
+                .containsEntry("status_category", "closed")
+                .containsEntry("closed_at", "2026-04-10T09:00:00.000+0900");
     }
 
     @Test
-    @DisplayName("status가 terminal이 아니면 properties에 closed_at 키 자체가 없음")
+    @DisplayName("status_category가 closed가 아니면 resolutiondate가 있어도 closed_at 키 자체가 없음")
     @SuppressWarnings("unchecked")
-    void normalizeIssues_nonTerminalStatus_noClosedAtKey() {
-        Map<String, Object> issue = buildIssue("PROJ-102", "In progress", null, "In Progress", "Task", "Medium",
+    void normalizeIssues_nonDoneCategory_noClosedAtKey() {
+        Map<String, Object> issue = buildIssue(DEFAULT_ISSUE_ID, "PROJ-102", "In progress", null,
+                "In Progress", "indeterminate", "Task", "Medium",
                 "id1", "Name", "email@test.com");
         Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
         fields.put("resolutiondate", "2026-04-06T10:00:00.000+0900"); // 진행 중인데 resolutiondate가 남아있어도 무시
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
+        assertThat(event.properties()).containsEntry("status_category", "in_progress");
         assertThat(event.properties()).doesNotContainKey("closed_at");
     }
 
     @Test
-    @DisplayName("parent 필드 없는 이슈 → refs에 parentIssueKey 없음")
-    void normalizeIssues_withoutParent_noParentKeyInRefs() {
-        Map<String, Object> result = buildSearchResult(List.of(
-                buildIssue("PROJ-10", "Root epic", null, "Open", "Epic", "High",
-                        "id1", "Name", "email@test.com")
-        ));
+    @DisplayName("TERMINAL_STATUSES 문자열 집합에 없는 상태명이라도 statusCategory=done이면 closed_at이 채워진다")
+    @SuppressWarnings("unchecked")
+    void normalizeIssues_nonTerminalStatusNameWithDoneCategory_setsClosedAt() {
+        Map<String, Object> issue = buildIssue(DEFAULT_ISSUE_ID, "PROJ-103", "Custom deployed status", null,
+                "배포 완료", "done", "Task", "Medium",
+                "id1", "Name", "email@test.com");
+        Map<String, Object> fields = (Map<String, Object>) issue.get("fields");
+        fields.put("resolutiondate", "2026-04-06T10:00:00.000+0900");
 
-        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,result).get(0);
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID,buildSearchResult(List.of(issue))).get(0);
 
-        assertThat(event.refs()).doesNotContainKey("parentIssueKey");
+        assertThat(event.properties())
+                .containsEntry("status_category", "closed")
+                .containsEntry("closed_at", "2026-04-06T10:00:00.000+0900");
     }
 
     // ─── 헬퍼 메서드 ───────────────────────────────────────────────────────────
@@ -325,8 +455,18 @@ class JiraNormalizerTest {
         return result;
     }
 
+    // statusCategory를 신경 쓰지 않는 기존 테스트용 — statusCategory 없이 이슈를 만든다.
     private Map<String, Object> buildIssue(String key, String summary, String description,
                                             String statusName, String typeName, String priorityName,
+                                            String reporterAccountId, String reporterDisplayName,
+                                            String reporterEmail) {
+        return buildIssue(DEFAULT_ISSUE_ID, key, summary, description, statusName, null,
+                typeName, priorityName, reporterAccountId, reporterDisplayName, reporterEmail);
+    }
+
+    private Map<String, Object> buildIssue(String id, String key, String summary, String description,
+                                            String statusName, String statusCategoryKey,
+                                            String typeName, String priorityName,
                                             String reporterAccountId, String reporterDisplayName,
                                             String reporterEmail) {
         Map<String, Object> fields = new HashMap<>();
@@ -334,7 +474,7 @@ class JiraNormalizerTest {
         fields.put("description", description);
         fields.put("created", "2024-03-15T10:30:00.000+0900");
         fields.put("updated", "2024-03-15T10:30:00.000+0900");
-        fields.put("status", Map.of("name", statusName));
+        fields.put("status", buildStatus(statusName, statusCategoryKey));
         fields.put("issuetype", Map.of("name", typeName));
         fields.put("priority", Map.of("name", priorityName));
         fields.put("assignee", null);
@@ -350,8 +490,18 @@ class JiraNormalizerTest {
         }
 
         Map<String, Object> issue = new HashMap<>();
+        issue.put("id", id);
         issue.put("key", key);
         issue.put("fields", fields);
         return issue;
+    }
+
+    private Map<String, Object> buildStatus(String statusName, String statusCategoryKey) {
+        Map<String, Object> status = new HashMap<>();
+        status.put("name", statusName);
+        if (statusCategoryKey != null) {
+            status.put("statusCategory", Map.of("key", statusCategoryKey));
+        }
+        return status;
     }
 }

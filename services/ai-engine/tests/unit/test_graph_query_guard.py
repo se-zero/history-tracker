@@ -85,6 +85,8 @@ ACCEPTED = [
     "MATCH (i:Issue {status: 'Done'}) RETURN i.issue_key",
     "MATCH (c:ChangeSet)-[:MODIFIED]->(f:File) RETURN f.path, count(*) AS n ORDER BY n DESC",
     "MATCH (a:Actor)-[:CREATED]->(i:Issue) WHERE i.status <> 'Done' RETURN a.name, i.issue_key",
+    # 종료 판정 축은 status_category(open|in_progress|closed) — status는 원문 표시용으로 남는다.
+    "MATCH (i:Issue) WHERE i.status_category <> 'closed' RETURN i.issue_key",
     "MATCH (i:Issue) OPTIONAL MATCH (c:ChangeSet)-[r:TRIGGERED_BY]->(i) RETURN i.issue_key, c.hash",
     "MATCH (i:Issue)-[:CHILD_OF*1..5]->(p:Issue) RETURN p.issue_key",
     "MATCH p = (pr:PullRequest)-[:CONTAINS]->(c:ChangeSet) RETURN c.hash",

@@ -6,9 +6,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.history.backend.asana.service.AsanaSelectionFlow;
+import com.history.backend.clickup.service.ClickUpSelectionFlow;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.jira.service.JiraSelectionFlow;
+import com.history.backend.linear.service.LinearSelectionFlow;
 import com.history.backend.slack.service.SlackOAuthConnectFlow;
 
 public record IntegrationResponse(
@@ -58,6 +61,29 @@ public record IntegrationResponse(
             case JIRA -> joinNonBlank(
                     integration.externalRefValue(JiraSelectionFlow.SITE_NAME),
                     integration.isPendingSelection() ? null : jiraProjectLabel(integration));
+            // 확정 전(pending)에는 team을 아직 몰라 고정 문구로 폴백한다
+            case LINEAR -> {
+                String teamName = integration.externalRefValue(LinearSelectionFlow.TEAM_NAME);
+                yield teamName == null ? "Linear" : teamName;
+            }
+            // workspace / project — 확정 전(pending)에는 둘 다 없어 joinNonBlank가 null을 돌려주므로
+            // 고정 문구로 폴백한다.
+            case ASANA -> {
+                String display = joinNonBlank(
+                        integration.externalRefValue(AsanaSelectionFlow.WORKSPACE_NAME),
+                        integration.externalRefValue(AsanaSelectionFlow.PROJECT_NAME));
+                yield display == null ? "Asana" : display;
+            }
+            // workspace / space / folder(선택) / list — folder를 건너뛴 경우 null이 joinNonBlank에서
+            // 자연히 걸러져 3단만 병기된다. 확정 전(pending)에는 전부 없어 고정 문구로 폴백한다.
+            case CLICKUP -> {
+                String display = joinNonBlank(
+                        integration.externalRefValue(ClickUpSelectionFlow.WORKSPACE_NAME),
+                        integration.externalRefValue(ClickUpSelectionFlow.SPACE_NAME),
+                        integration.externalRefValue(ClickUpSelectionFlow.FOLDER_NAME),
+                        integration.externalRefValue(ClickUpSelectionFlow.LIST_NAME));
+                yield display == null ? "ClickUp" : display;
+            }
         };
     }
 

@@ -127,6 +127,20 @@ def test_resolve_seed_ids_message_matches_reply_own_ts_via_url():
     assert _resolve_seed_ids(evidence, rows) == ["n1", "n1", "n1"]
 
 
+def test_resolve_seed_ids_excludes_stub_issue():
+    # stub(source='__stub__')은 title/body 없는 센티널이라 evidence 클릭 타깃에서 제외한다 —
+    # 실이슈(n3)가 있으면 그걸 잡고, 실이슈 없이 stub만 있으면 미해석(None) 처리.
+    rows = [
+        {"id": "n1", "label": "Issue", "issue_key": "HT-37", "source": "__stub__"},
+        {"id": "n2", "label": "Issue", "issue_key": "HT-99", "source": "JIRA"},
+    ]
+    evidence = [
+        {"type": "issue", "id": "HT-37"},
+        {"type": "issue", "id": "HT-99"},
+    ]
+    assert _resolve_seed_ids(evidence, rows) == [None, "n2"]
+
+
 def test_resolve_seed_ids_unresolved_is_none():
     rows = [{"id": "n1", "label": "ChangeSet", "hash": "abc1234def"}]
     evidence = [

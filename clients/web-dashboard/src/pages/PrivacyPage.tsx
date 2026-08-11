@@ -70,6 +70,13 @@ export function PrivacyPage() {
                       Slack — 연동한 워크스페이스의 채널 목록, 채널 메시지와 스레드 답글,
                       멤버의 표시 이름·이메일
                     </li>
+                    <li>Linear — 연동한 팀의 이슈 제목·본문·상태·담당자·작성자</li>
+                    <li>
+                      Asana — 연동한 프로젝트의 태스크 제목·본문·완료 상태·담당자·작성자
+                    </li>
+                    <li>
+                      ClickUp — 연동한 리스트의 태스크 제목·본문·상태·우선순위·담당자·작성자
+                    </li>
                   </ul>
                 </td>
                 <td>연동 직후 최초 수집 및 이후 증분 수집</td>
@@ -176,6 +183,75 @@ export function PrivacyPage() {
           <LegalSourceRow label="삭제">
             연동을 해제하면 Atlassian에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과
             해당 프로젝트에서 수집한 이슈 데이터를 삭제합니다.
+          </LegalSourceRow>
+        </LegalSourceBlock>
+
+        <LegalSourceBlock id="linear" name="Linear">
+          <LegalSourceRow label="요청 권한">
+            <code>read</code> 권한 하나만 요청합니다 — 연동한 팀의 이슈를 읽기 위함이며, 이슈를
+            생성·수정하는 쓰기 권한은 요청하지 않습니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="수집하는 정보">
+            연동한 팀의 이슈(제목, 본문, 상태), 작성자·담당자의 이름과 이메일. 연동 직후 한 차례
+            전체 수집하고, 이후에는 GitHub Pull Request가 머지될 때 증분 수집합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="이용 목적">
+            이슈에 적힌 요구사항·결정을 코드 변경과 연결하기 위함입니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="삭제">
+            연동을 해제하면 Linear에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과 해당
+            팀에서 수집한 이슈 데이터를 삭제합니다.
+          </LegalSourceRow>
+        </LegalSourceBlock>
+
+        <LegalSourceBlock id="asana" name="Asana">
+          <LegalSourceRow label="요청 권한">
+            <ul>
+              <li>
+                <code>workspaces:read</code> — 연동 가능한 워크스페이스 목록을 확인하기 위함
+              </li>
+              <li>
+                <code>projects:read</code> — 워크스페이스의 프로젝트 목록을 확인해 수집 대상을
+                정하기 위함
+              </li>
+              <li>
+                <code>tasks:read</code> — 연동한 프로젝트의 태스크를 읽기 위함
+              </li>
+              <li>
+                <code>users:read</code> — 태스크의 작성자·담당자를 사람 단위로 식별하기 위함
+              </li>
+            </ul>
+          </LegalSourceRow>
+          <LegalSourceRow label="수집하는 정보">
+            연동한 프로젝트의 태스크(제목, 본문, 완료 상태, 시각), 작성자·담당자의 이름과 이메일.
+            연동 직후 한 차례 전체 수집하고, 이후에는 GitHub Pull Request가 머지될 때 증분 수집합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="이용 목적">
+            태스크에 적힌 요구사항·결정을 코드 변경과 연결하기 위함입니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="삭제">
+            연동을 해제하면 Asana에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과 해당
+            프로젝트에서 수집한 태스크 데이터를 삭제합니다.
+          </LegalSourceRow>
+        </LegalSourceBlock>
+
+        <LegalSourceBlock id="clickup" name="ClickUp">
+          <LegalSourceRow label="요청 권한">
+            ClickUp은 세분화된 권한 범위(scope) 개념을 제공하지 않습니다. 동의하면 승인한
+            워크스페이스 전체에 대한 API 접근 권한이 앱에 부여되며, 서비스는 그중 이용자가
+            선택한 리스트의 태스크만 실제로 수집합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="수집하는 정보">
+            선택한 리스트의 태스크(제목, 본문, 상태, 우선순위, 생성·완료 시각, 부모 태스크
+            관계), 작성자·담당자의 이름과 이메일
+          </LegalSourceRow>
+          <LegalSourceRow label="이용 목적">
+            태스크에 적힌 요구사항·결정을 코드 변경과 연결하기 위함입니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="삭제">
+            연동을 해제하면 저장된 자격증명과 해당 리스트에서 수집한 그래프 데이터를
+            삭제합니다. 다만 ClickUp은 원격으로 토큰을 폐기하는 API를 제공하지 않아, 앱 자체의
+            접근 권한을 끊으려면 ClickUp 설정(Apps)에서 직접 연동을 해제해야 합니다.
           </LegalSourceRow>
         </LegalSourceBlock>
       </LegalSection>

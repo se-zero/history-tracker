@@ -210,7 +210,7 @@ class IntegrationOAuthControllerTest {
     @Test
     @DisplayName("알 수 없는 provider authorize → 404")
     void authorizeRejectsUnknownProvider() throws Exception {
-        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/linear/authorize", PROJECT_ID)
+        mockMvc.perform(get("/api/v1/projects/{projectId}/integrations/unknown-provider/authorize", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isNotFound());
     }

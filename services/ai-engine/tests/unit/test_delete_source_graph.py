@@ -2,9 +2,9 @@
 
 실제 Cypher 의미론(Actor가 정말 살아남는지 등)은 live Neo4j가 필요해 integration 영역이다.
 여기서는 그 Cypher를 결정하는 **파라미터와 단계 구성**을 고정한다 — 소스 대문자 정규화,
-alias 접두사(`SLACK:`), 네 단계(도메인 노드 → 고아 File → Actor → ActorDecision)가 모두
-실행되는지, 그리고 살아남은 Actor의 alias 제거가 표시 이름 재계산(recompute_display_name)을
-같은 세션으로 트리거하는지.
+alias 접두사(`SLACK:`), 다섯 단계(도메인 노드 → 고아 File → Actor → ActorDecision → 고아
+__stub__)가 모두 실행되는지, 그리고 살아남은 Actor의 alias 제거가 표시 이름 재계산
+(recompute_display_name)을 같은 세션으로 트리거하는지.
 """
 
 import asyncio
@@ -88,7 +88,7 @@ class _FakeDriver:
         return self._session
 
 
-def _run(project_id, source, deleted_counts=(0, 0, 0, 0, 0, 0), survivor_uuids=()):
+def _run(project_id, source, deleted_counts=(0, 0, 0, 0, 0, 0, 0), survivor_uuids=()):
     session = _FakeSession(deleted_counts, survivor_uuids=survivor_uuids)
     # recompute_display_name은 실제 Neo4j 트랜잭션(MATCH/OPTIONAL MATCH 여러 단계)을 필요로 해
     # 이 fake session으로는 동작할 수 없다 — 여기서는 "호출되는지·어떤 인자로"만 확인하는
@@ -125,26 +125,41 @@ class DeleteProjectSourceGraph(unittest.TestCase):
             ["SLACK:", "SLACK:", "SLACK:", "SLACK:"],
         )
 
-    def test_runs_all_four_cleanup_stages(self):
+    def test_runs_all_five_cleanup_stages(self):
         _, session, _mock_recompute = _run("p1", "GITHUB")
 
         queries = [query for query, _params in session.calls]
         joined = "\n".join(queries)
-        # 도메인 노드 / 고아 File / ActorAlias 인덱스 / Actor / ActorDecision
+        # 도메인 노드 / 고아 File / ActorAlias 인덱스 / Actor / ActorDecision / 고아 __stub__
         self.assertIn("{project_id: $project_id, source: $source}", queries[0])
         self.assertIn(":File", joined)
         self.assertIn("NOT (f)<-[:MODIFIED]-()", joined)
         self.assertIn(":ActorAlias", joined)
         self.assertIn(":Actor {project_id: $project_id}", joined)
         self.assertIn(":ActorDecision", joined)
+        self.assertIn(":Issue {project_id: $project_id, source: '__stub__'}", joined)
+
+    def test_orphan_stub_cleanup_only_targets_edgeless_stubs(self):
+        # 마지막 단계는 __stub__ 센티널 중 엣지가 하나도 안 남은 것만 지운다 — 다른 소스가
+        # 여전히 참조 중인 stub(엣지 있음)은 이 조건에 걸리지 않아 살아남는다.
+        _, session, _mock_recompute = _run("p1", "GITHUB")
+
+        stub_query = next(
+            query for query, _params in session.calls
+            if "source: '__stub__'" in query
+        )
+        self.assertIn("NOT (s)--()", stub_query)
+        self.assertIn("DETACH DELETE s", stub_query)
 
     def test_returns_counts_per_stage(self):
-        # 삭제 수를 읽는 단계는 넷(노드·File·Actor·Decision) — 사이 두 쿼리는 수를 세지 않는다
+        # 삭제 수를 읽는 단계는 다섯(노드·File·Actor·Decision·stub) — 사이 두 쿼리는 수를 세지 않는다
         result, _session, _mock_recompute = _run(
-            "p1", "JIRA", deleted_counts=(12, 3, 0, 2, 0, 1)
+            "p1", "JIRA", deleted_counts=(12, 3, 0, 2, 0, 1, 4)
         )
 
-        self.assertEqual(result, {"nodes": 12, "files": 3, "actors": 2, "decisions": 1})
+        self.assertEqual(
+            result, {"nodes": 12, "files": 3, "actors": 2, "decisions": 1, "stubs": 4}
+        )
 
     def test_blank_input_is_noop(self):
         # backend가 빈 값을 넘겨도 프로젝트 전체를 쓸어가는 쿼리가 나가면 안 된다
@@ -152,7 +167,9 @@ class DeleteProjectSourceGraph(unittest.TestCase):
             session = _FakeSession([])
             with patch("graph.maintenance.get_driver", return_value=_FakeDriver(session)):
                 result = asyncio.run(delete_project_source_graph(project_id, source))
-            self.assertEqual(result, {"nodes": 0, "files": 0, "actors": 0, "decisions": 0})
+            self.assertEqual(
+                result, {"nodes": 0, "files": 0, "actors": 0, "decisions": 0, "stubs": 0}
+            )
             self.assertEqual(session.calls, [])
 
     def test_survivor_alias_removal_recomputes_display_name(self):

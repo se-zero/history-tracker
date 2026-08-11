@@ -6,7 +6,12 @@ import java.util.Optional;
 public enum CollectionProvider {
     GITHUB("github"),
     JIRA("jira"),
-    SLACK("slack");
+    SLACK("slack"),
+    LINEAR("linear"),
+    // PipelineService가 선언 순서(EnumMap)로 순차 수집하므로 신규 provider는 항상 마지막에 추가한다
+    // — 앞 provider가 실패해도 이후 수집 순서·장애 격리가 흔들리지 않는다.
+    ASANA("asana"),
+    CLICKUP("clickup");
 
     private final String value;
 

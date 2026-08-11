@@ -12,16 +12,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
 public class JiraNormalizer {
-
-    // ai-engine TERMINAL_STATUSES와 동일하게 유지. closed_at 추론용.
-    private static final Set<String> TERMINAL_STATUSES = Set.of(
-            "완료", "Done", "Closed", "Resolved", "해결됨"
-    );
 
     private final RefsExtractor refsExtractor;
 
@@ -46,6 +40,7 @@ public class JiraNormalizer {
             Map<String, Object> priority = (Map<String, Object>) fields.get("priority");
             Map<String, Object> parent = (Map<String, Object>) fields.get("parent");
             String parentKey = parent != null ? (String) parent.get("key") : null;
+            String parentExternalId = parent != null ? (String) parent.get("id") : null;
 
             String createdAt = (String) fields.get("created");
             String updatedAt = (String) fields.get("updated");
@@ -55,19 +50,24 @@ public class JiraNormalizer {
             String descriptionText = extractPlainText(description);
 
             String statusName = status != null ? (String) status.get("name") : null;
-            String closedAt = resolveClosedAt(statusName, resolutionDate, updatedAt);
+            String statusCategory = mapStatusCategory(extractStatusCategoryKey(status));
+            String closedAt = "closed".equals(statusCategory)
+                    ? (resolutionDate != null ? resolutionDate : updatedAt)
+                    : null;
 
             Map<String, Object> properties = new HashMap<>();
+            properties.put("external_id", issue.get("id"));
             properties.put("issue_key", issue.get("key"));
             properties.put("title", summary);
             properties.put("body", descriptionText);
             properties.put("status", statusName);
+            properties.put("status_category", statusCategory);
             properties.put("issue_type", issueType != null ? issueType.get("name") : null);
             properties.put("priority", priority != null ? priority.get("name") : null);
             properties.put("created_at", createdAt);
             // 종료된 이슈만 closed_at을 채운다.
-            // 미종료(재오픈 포함) 상태에서는 키를 넣지 않으면 ai-engine builder가 status를 보고
-            // i.closedAt을 null로 클리어한다 (status-aware Cypher).
+            // 미종료(재오픈 포함) 상태에서는 키를 넣지 않으면 ai-engine builder가 status_category를
+            // 보고 i.closedAt을 null로 클리어한다 (status-aware Cypher).
             if (closedAt != null) {
                 properties.put("closed_at", closedAt);
             }
@@ -81,13 +81,16 @@ public class JiraNormalizer {
 
             Map<String, Object> refs = new HashMap<>(refsExtractor.extract(summary + " " + descriptionText));
             if (parentKey != null) refs.put("parentIssueKey", parentKey);
+            if (parentExternalId != null) refs.put("parentExternalId", parentExternalId);
             if (assigneeField != null) {
                 String assigneeId = (String) assigneeField.get("accountId");
-                String assigneeName = (String) assigneeField.get("displayName");
-                String assigneeEmail = (String) assigneeField.get("emailAddress");
-                if (assigneeId != null) refs.put("assigneeId", assigneeId);
-                if (assigneeName != null) refs.put("assigneeName", assigneeName);
-                if (assigneeEmail != null) refs.put("assigneeEmail", assigneeEmail);
+                if (assigneeId != null) {
+                    Map<String, Object> assignee = new HashMap<>();
+                    assignee.put("id", assigneeId);
+                    assignee.put("name", assigneeField.get("displayName"));
+                    assignee.put("email", assigneeField.get("emailAddress"));
+                    refs.put("assignees", List.of(assignee));
+                }
             }
 
             events.add(new NormalizedEvent(
@@ -109,20 +112,20 @@ public class JiraNormalizer {
         return Instant.now();
     }
 
-    /**
-     * 종료된 이슈의 closed_at을 추론한다.
-     *
-     *   - status가 TERMINAL이 아닌 경우     → null (closed_at 미설정)
-     *   - resolutiondate가 있으면          → 그 값을 사용 (Jira가 명시한 해결 시각)
-     *   - resolutiondate가 없으면          → updated를 fallback (관찰된 종료 시각)
-     *
-     * resolutiondate조차 없을 때는 updated를 쓰는 것이 정확도는 떨어지지만
-     * "종료 시각 추정치"라도 있는 편이 ai-engine 비대칭 윈도우 계산에 도움 된다.
-     */
-    private String resolveClosedAt(String statusName, String resolutionDate, String updatedAt) {
-        if (statusName == null || !TERMINAL_STATUSES.contains(statusName)) return null;
-        if (resolutionDate != null) return resolutionDate;
-        return updatedAt;
+    @SuppressWarnings("unchecked")
+    private String extractStatusCategoryKey(Map<String, Object> status) {
+        if (status == null) return null;
+        Map<String, Object> statusCategory = (Map<String, Object>) status.get("statusCategory");
+        return statusCategory != null ? (String) statusCategory.get("key") : null;
+    }
+
+    // Jira statusCategory.key는 new/indeterminate/done 세 값만 정의돼 있으나,
+    // 커스텀 워크플로우 등 예상 밖 값이 오면 진행 중이 아닌 open으로 방어한다.
+    private String mapStatusCategory(String statusCategoryKey) {
+        if ("new".equals(statusCategoryKey)) return "open";
+        if ("indeterminate".equals(statusCategoryKey)) return "in_progress";
+        if ("done".equals(statusCategoryKey)) return "closed";
+        return "open";
     }
 
     @SuppressWarnings("unchecked")

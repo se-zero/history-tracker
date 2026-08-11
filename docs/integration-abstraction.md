@@ -90,8 +90,10 @@ public interface SourceCollector {
   동일 패턴에 걸리는 반면, Asana/ClickUp/Notion은 URL 기반 참조라 provider별 패턴 기여가
   필요하다. `refs.issueKeys`처럼 중립 키로 수렴한다.
   **→ 키 이름 중립화는 A6에서 완료** (ref 키 `jiraKey → issueKey` 계열, ai-engine과 동시 이행).
-  URL 기반 참조 소스(Asana/ClickUp/Notion)를 위한 패턴 레지스트리화는 해당 커넥터 착수 시
-  Part B에서 한다 — 지금은 정규식 하나뿐이라 등록 지점을 미리 만들 실익이 없다.
+  **→ URL 기반 참조 완료** — Asana에서 산출 키 `issueExternalRefs`(소스 중립, `{source, externalId}[]`)로
+  구현했다. 등록 지점의 레지스트리화(패턴을 provider별로 분리 관리)는 다음 URL 기반 소스
+  (ClickUp/Notion) 착수 시 한다 — 지금은 패턴 두 벌(Jira 키 형식, Asana URL 형식)뿐이라 미리
+  만들 실익이 없다.
 
 ### 3-2. backend — 연동 프레임워크
 
@@ -236,12 +238,13 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
-| 이슈 트래커 | Linear · Asana · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
+| 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ~~ClickUp~~ ✅ | `Issue` 노드 재사용, ai-engine 무변경 |
 | 대화 | MS Teams · Google Chat · Discord | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
 | 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.
+**→ 완료.** Linear 커넥터가 A4의 단계 선언 메커니즘 위에서 그대로 동작함을 확인했다.
 backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대화 아키타입 1호 자리다.
 
 각 단계마다 대응 문서(data-collection.md, DB.md, graph-schema.md, 각 CLAUDE.md) 동반 갱신이 필요하다.
@@ -263,7 +266,9 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
 **1. backend — 연결 (`services/backend/CLAUDE.md` 「provider 전략」·「다단 선택」)**
 
 - [ ] `IntegrationProvider` enum에 상수 추가 (`LINEAR("linear", "Linear")`).
-      **DB 마이그레이션은 불필요** — V12에서 provider CHECK 제약을 제거했다.
+      **`integrations` 테이블은 마이그레이션 불필요** — V12에서 provider CHECK 제약을 제거했다.
+      단 `checkpoints.chk_checkpoints_provider`처럼 provider CHECK가 남아 있는 테이블은 여전히
+      마이그레이션이 필요하다 — 운영(`db/migration`)·테스트(`db/test-migration`) 양쪽을 함께 챙긴다.
 - [ ] `{provider}/AtlassianProperties`형 `@ConfigurationProperties` 레코드 + `application.yaml` 블록 추가.
 - [ ] `OAuthConnectFlow` 구현 — 동의 URL 조립, `exchangeCode`가 `OAuthConnection`(자격증명 평문 +
       수집 대상 참조)을 돌려준다. 참조의 키 이름은 provider가 정하고 pipeline-worker가 같은 키를 읽는다(2번과 합의).

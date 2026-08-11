@@ -71,7 +71,9 @@ provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지�
 신고하지 않는다.** 플래그는 구현하고 켜는 것을 빠뜨릴 수 있고, 기본 no-op은 "지원하지 않음"과
 "아무 일도 필요 없음"을 호출부가 구분할 수 없게 만든다 — 둘 다 조용히 틀린 동작으로 끝난다.
 `AccessTokenRefresher`를 `ProviderCredentialLifecycle`에서 떼어낸 이유가 이것이다
-(아래 「내부 서비스 API」 참고).
+(아래 「내부 서비스 API」 참고). `ProviderCredentialLifecycle`도 같은 원칙을 따른다 —
+레지스트리는 `find(provider): Optional`로 등록 여부를 신고하고, 미등록 provider는 폐기를
+건너뛴다(`IntegrationService.revokeProviderAccess`가 `find`+`ifPresent`로 호출).
 
 **저장 정책은 `IntegrationService.connectOAuth`가 소유한다** — 확정 연동 409 선검사(1회용 code를
 교환 전에 지킨다) → code 교환 → 자격증명 암호화 → 저장(pending 행이면 재동의로 덮어쓰기, unique 위반은
@@ -115,7 +117,11 @@ ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이�
   토큰을 지우면 폐기에 쓸 값 자체가 사라진다. Slack은 `auth.revoke`, Jira는 refresh token 폐기
   (파생 access token도 함께 무효화)이며, 폐기 실패는 각 client가 로그만 남기고 삼킨다 —
   이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
-  GitHub은 폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시).
+  Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, Asana도 refresh
+  token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은
+  폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시). ClickUp도
+  폐기 대상이 없다(원격 revoke API 자체가 없음 — 앱 권한 해제는 사용자가 ClickUp 설정의
+  Apps에서 직접 한다).
   **그래프가 RDB보다 먼저** — 프로젝트 삭제와 같은 이유다(외부 HTTP를 트랜잭션 밖에 두고,
   그래프 삭제가 멱등이라 재시도로 수렴).
   checkpoint를 반드시 함께 지운다 — 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이
@@ -127,6 +133,8 @@ ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이�
 - Jira만 2단계다: 동의 직후에는 토큰만 담은 pending 행을 만들고, 사용자가 사이트·프로젝트를 고르면 확정한다.
 - Jira access token은 1시간짜리라 `JiraTokenService`가 갱신을 전담한다. Atlassian refresh token은 회전하므로
   **갱신 주체가 둘이면 서로의 토큰을 무효화한다** — pipeline-worker는 직접 갱신하지 않고 아래 내부 API로 위임한다.
+- Asana access token도 1시간짜리라 `AsanaTokenService`가 갱신을 전담한다. Asana refresh token은 회전하지
+  않으므로 Jira 같은 무효화 문제는 없다.
 
 ## 내부 서비스 API
 

@@ -23,6 +23,9 @@ cd services/pipeline-worker
 | `webhook` | GitHub webhook 검증, 필터링, delivery 중복 처리, 비동기 수집 트리거. |
 | `source.github` | GitHub 자격증명 해석·수집·정규화·rate limit (`GitHubCollector`). |
 | `source.jira` | Jira 자격증명 해석·수집·정규화·rate limit (`JiraCollector`). |
+| `source.linear` | Linear 자격증명 해석·수집·정규화·rate limit (`LinearCollector`). |
+| `source.asana` | Asana 자격증명 해석·수집·정규화·rate limit (`AsanaCollector`). |
+| `source.clickup` | ClickUp 자격증명 해석·수집·정규화·rate limit (`ClickUpCollector`). |
 | `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). |
 | `normalizer` | 여러 source가 공유하는 정규화 보조 유틸. 현재 `RefsExtractor` 유지. |
 | `checkpoint` | DB `checkpoints` 테이블 기반 커서 조회/갱신 경계 + 배치의 커서 전진 값 계산(`CursorProgress`). |
@@ -72,7 +75,7 @@ backend·프론트까지 포함한 커넥터 전체 순서는 `docs/integration-
 진입점별 상세 동작은 아래 흐름 다이어그램을 참고한다.
 
 - `POST /api/v1/webhook/github` — GitHub webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거.
-- `POST /api/v1/collect/{provider}` — backend 연동 완료 후 `github`/`jira`/`slack` 중 단일 provider 초기 수집을 비동기로 요청(`202` 반환, 완료를 기다리지 않음).
+- `POST /api/v1/collect/{provider}` — backend 연동 완료 후 `github`/`jira`/`slack`/`linear`/`asana`/`clickup` 중 단일 provider 초기 수집을 비동기로 요청(`202` 반환, 완료를 기다리지 않음).
 - `POST /api/v1/raw/{provider}` — 디버그용 raw 샘플(1페이지). DB checkpoint를 사용하지 않으며 전체 수집 용도가 아니다.
 
 ## 초기 수집 트리거 흐름
@@ -101,8 +104,9 @@ GitHub PR merge webhook
   -> ProjectIntegrationService로 integration과 installation token freshness 조회
   -> token이 없거나 만료 5분 이내면 backend 내부 API로 token 갱신
   -> 갱신한 경우 ProjectIntegrationService로 DB integration 재조회
-  -> context에 Jira 연동이 있으면 backend 내부 API로 Jira 토큰 확보 요청
-     -> 성공 시 Jira 부분만 재해석해 context 교체, 실패 시 Jira만 제외하고 진행
+  -> GitHub을 제외한 나머지 provider(Jira·Slack·Linear 등)를 순회하며 backend 내부 API로 토큰 확보 요청
+     -> 404(갱신 수단 없는 provider, 예: Slack)면 기존 요청을 유지한 채 진행
+     -> 성공 시 해당 provider 부분만 재해석해 context 교체, 예외가 나면 해당 provider만 제외하고 진행
   -> WebhookDeliveryService.tryClaim(deliveryId, projectId)
   -> webhookTaskExecutor에서 비동기 실행
   -> PipelineService.collectIncremental(context)
@@ -114,8 +118,8 @@ GitHub PR merge webhook
 `ProjectIntegrationService`가 GitHub installation/repository 정보를 DB의 project/integration row와 매칭한다. 매칭되는 integration이 없으면 `404`를 반환한다.
 installation token이 충분히 유효하면 backend를 호출하지 않는다. token이 없거나 만료 5분 이내면 `GitHubInstallationTokenClient`가 `X-Internal-Service-Token`으로 backend의 token 보장 API를 호출한 뒤 DB를 재조회한다. backend는 token 평문을 반환하지 않는다.
 backend에 installation이 없으면 `404`, backend 호출 실패 또는 token 갱신 실패는 `500`으로 처리해 GitHub 재시도를 허용한다.
-Jira/Slack 연동은 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
-Jira 토큰 확보 요청이 실패하거나(연동 없음·backend 오류) 예외가 나면 Jira만 건너뛰고 GitHub·Slack 수집은 계속한다.
+Jira/Slack/Linear 연동은 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
+GitHub을 제외한 provider의 토큰 확보 요청에서 404가 오면(갱신 수단이 없는 provider, 예: Slack) 기존 요청을 유지한 채 진행하고, 요청이 실패하거나(연동 없음·backend 오류) 예외가 나면 해당 provider만 건너뛰고 나머지 provider 수집은 계속한다.
 `webhookTaskExecutor`가 작업을 받을 수 없으면 `IN_PROGRESS` claim을 해제해 GitHub 재시도가 다시 claim할 수 있게 한다.
 애플리케이션 시작 시 `app.webhook.delivery.stale-in-progress-timeout`보다 오래된 `IN_PROGRESS` delivery는 `FAILED`로 정리한다.
 `webhookTaskExecutor`는 `app.webhook.executor.pool-size`(기본 4)로 여러 프로젝트 webhook을 병렬 처리한다. 단 동일 프로젝트의 동시 수집은 `ProjectCollectionSerializer`(project id striped lock)가 직렬화해 같은 구간 중복 풀스캔을 막는다. 초기 수집(`collectionTaskExecutor`)은 provider별 병렬이 의도라 직렬화 대상이 아니다.
@@ -127,6 +131,9 @@ Jira 토큰 확보 요청이 실패하거나(연동 없음·backend 오류) 예�
 | GitHub | `event.github` |
 | Jira | `event.jira` |
 | Slack | `event.slack` |
+| Linear | `event.linear` |
+| Asana | `event.asana` |
+| ClickUp | `event.clickup` |
 
 Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 새 routing key는 브로커 설정 변경 없이 소비된다)
 
@@ -137,6 +144,9 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
 - **GitHub**: 기본 300ms 고정 딜레이. `X-RateLimit-Remaining`이 임계값 이하이면 `X-RateLimit-Reset`까지 대기.
 - **Slack**: endpoint별 고정 딜레이 (`conversations.list` / `history` / `replies`).
 - **Jira**: 호출당 200ms 고정 딜레이.
+- **Linear**: 호출당 720ms 고정 딜레이 (API 한도 5,000 req/h 기준).
+- **Asana**: 호출당 400ms 고정 딜레이 (무료 워크스페이스 한도 150 req/min 기준).
+- **ClickUp**: 호출당 600ms 고정 딜레이 (무료 워크스페이스 한도 100 req/min 기준).
 
 Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비싸므로(Tier 2, 페이지당 3s), auth별로 `app.slack.user-map-cache-ttl`(기본 5m) 동안 캐시해 실행 간 재사용한다. 트레이드오프: TTL 윈도우 안에 가입한 신규 멤버의 메시지는 그 동안 `userName`/`userEmail` 보강 없이 수집될 수 있으며, ai-engine의 Actor 보정이 backstop이다. 정합성을 더 조이려면 TTL을 줄이거나(0=비활성) miss-refresh로 발전시킨다.
 
@@ -148,9 +158,9 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 - 재시작 시 마지막 수집 시각 이후 데이터만 수집해 누락을 방지하고 중복을 최소화한다.
 - checkpoint 기준은 `Instant.now()`가 아니라 이벤트 실제 발생 시각인 `occurredAt`이다.
 - GitHub는 타입별 checkpoint를 사용한다: `github/github_commits`, `github/github_pull_requests`, `github/github_issues`.
-- Jira는 `jira/jira_updated`, Slack은 `slack/slack_messages` cursor를 사용한다.
+- Jira는 `jira/jira_updated`, Slack은 `slack/slack_messages`, Linear는 `linear/linear_updated`, Asana는 `asana/asana_updated`, ClickUp은 `clickup/clickup_updated` cursor를 사용한다.
 - GitHub PR checkpoint는 commit 처리 성공 후 갱신해 재시작 시 `sha → prNumber` 매핑을 다시 만들 수 있게 한다.
-- Slack은 전체 실행 중 최대 `occurredAt`을 마지막에 한 번 갱신한다.
+- Slack·Linear·Asana·ClickUp은 전체 실행 중 최대 `occurredAt`을 마지막에 한 번(성공 시에만) 갱신한다. Linear는 `orderBy: updatedAt`이 내림차순 고정이라 페이지 단위로 전진시키면 truncation 시 과거 변경분이 영구 누락되기 때문이고, Asana·ClickUp은 API 응답에 정렬 보장이 없어 페이지 단위 전진 자체가 불가능하기 때문이다.
 - Jira는 `updated` 기준으로 수집하고, 페이지 단위 publish 후 checkpoint를 갱신한다.
 - checkpoint는 project 단위로 저장한다.
 - cursor 갱신은 기존 값보다 과거 시각으로 되돌아가지 않게 저장한다.

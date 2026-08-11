@@ -198,6 +198,7 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
             return await queries.get_issue_context(
                 project_id=project_id,
                 issue_key=args["issue_key"],
+                source=args.get("source"),
             )
 
         case "get_changeset_context":
@@ -221,6 +222,7 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
                 actor=args.get("actor"),
                 from_time=args.get("from_time"),
                 to_time=args.get("to_time"),
+                source=args.get("source"),
             )
 
         case "rank_issues":

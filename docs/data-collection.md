@@ -141,7 +141,7 @@ JQL `updated >= checkpoint`는 Jira 서버에서 분 단위로 반올림될 수 
 
 이슈 상태가 바뀌면 동일 이슈가 다시 수집되어 재발행된다.
 
-- **문제**: ai-engine이 동일 Jira key의 이벤트를 upsert로 처리하지 않으면 노드가 중복 생성된다.
+- **문제**: ai-engine이 동일 이슈(`(project_id, source, external_id)` 키)의 이벤트를 upsert로 처리하지 않으면 노드가 중복 생성된다.
 - **방법 선택 이유**: `created` 기준으로만 수집하면 기존 이슈의 상태 변경이 그래프에 반영되지 않는다. 변경 이력 추적이 이 프로젝트의 핵심 목적이므로 중복 발행이 누락보다 낫다. ai-engine의 upsert 처리가 전제 조건.
 
 #### `app.jira.max-pages-per-run` 상한 — 처리 지연
@@ -163,6 +163,168 @@ JQL `updated >= checkpoint`는 Jira 서버에서 분 단위로 반올림될 수 
 JQL 서버 필터 + `filterIssuesByUpdated` 클라이언트 필터의 이중 구조.
 
 - **이유**: Jira JQL의 날짜 비교가 분 단위 반올림될 수 있다. `"2024-01-01 10:30"` 기준으로 JQL을 날려도 `10:30:29`인 이슈가 결과에 포함될 수 있다. 클라이언트 필터로 초 단위 정밀도를 보완한다. 성능 비용은 이미 받아온 응답 내 필터링이므로 무시 가능한 수준.
+
+## Linear
+
+### 수집 대상
+
+Linear 이슈를 GraphQL API로 조회한다. 코멘트는 수집하지 않고(이슈만), 삭제 이벤트도 수집하지 않는다.
+
+Linear checkpoint는 `checkpoints` 테이블에서 `provider=linear`, `cursor_key=linear_updated` row에 저장한다.
+
+GraphQL 엔드포인트는 `{base}/graphql` 하나뿐이다(REST처럼 리소스별 엔드포인트가 나뉘지 않는다). 연동 시 선택한 team으로 `team(id:)` 스코프를 걸고, 아래 형태로 조회한다.
+
+```
+team(id: $teamId) {
+  issues(filter: {updatedAt: {gte: $since}}, orderBy: updatedAt, after: $cursor) { ... }
+}
+```
+
+- `filter: {updatedAt: {gte: $since}}`: checkpoint 이후 변경분만 조회한다.
+- `orderBy: updatedAt`: 최신 변경이 먼저 오는 내림차순 고정이다 — 방향을 제어하는 파라미터가 없다(Jira의 `ORDER BY updated ASC`와 반대). 이 정렬 방향이 checkpoint 전진 시점에 영향을 준다 (아래 checkpoint 갱신·Tradeoff 참고).
+- Linear API 오류는 HTTP 200 + `errors` 배열로도 온다. `errors`가 있으면 `data`가 함께 와도 전체 응답을 거부한다.
+
+### 페이지네이션
+
+- Relay 커서(`after`) 기반.
+- 한 번 실행에서 처리할 최대 페이지 수: `app.linear.max-pages-per-run` (기본값 50)
+  - 상한 도달 시 `limitReached=true` 반환, checkpoint는 전진시키지 않는다 (아래 참고).
+
+### checkpoint 갱신
+
+Slack과 동일하게 페이지 단위가 아니라 **전체 실행 성공 후 1회** 갱신한다 — 이번 실행에서 관측한 최대 `occurredAt`을 한 번만 반영한다. `limitReached=true`(페이지 상한 도달)면 이번 실행에서는 전진시키지 않는다. 초기 수집은 `since=EPOCH`로 시작한다.
+
+### occurredAt 기준
+
+이슈 `updatedAt` 시각.
+
+### Rate Limiting
+
+호출당 720ms 고정 딜레이 (Linear API 한도 5,000 req/h 기준).
+
+### 수집 트리거
+
+webhook·스케줄러 없이, 연동 직후 1회 초기 수집과 GitHub PR 머지 웹훅 처리에 편승한 증분 수집만 있다(Jira·Slack과 동일한 패턴 — `services/pipeline-worker/CLAUDE.md` 「Webhook 수집 흐름」 참고).
+
+### Tradeoff & 예상 문제점
+
+#### `orderBy: updatedAt` 내림차순 고정 — 페이지 단위 checkpoint 전진 불가
+
+Linear GraphQL API의 `orderBy`에는 방향 제어 파라미터가 없어 항상 최신 변경이 먼저 온다.
+
+- **문제**: GitHub PR·Jira처럼 페이지 단위로 checkpoint를 전진시키면, 중간에 중단(truncation)됐을 때 아직 받지 못한 과거 페이지의 변경분이 checkpoint 이후로 밀려 영구 누락된다.
+- **방법 선택 이유**: Slack과 동일하게 전체 실행 성공 후 최대 occurredAt을 한 번만 전진시켜 truncation 시 재시도가 처음부터 다시 돌게 한다. 이미 처리한 항목의 재발행(중복) 가능성을 감수하고 누락을 막는다.
+
+#### `app.linear.max-pages-per-run` 상한 — 처리 지연
+
+한 번 실행에서 처리 못 한 페이지는 checkpoint가 전진하지 않아 다음 호출에서 처음부터 다시 받는다.
+
+- **문제**: 초기 전체 수집 또는 대규모 업데이트 배치 직후에는 여러 번 호출해야 완료될 수 있다.
+- **방법 선택 이유**: 상한 없이 처리하면 페이지당 720ms 딜레이가 누적돼 장시간 블로킹된다. Jira의 `app.jira.max-pages-per-run`과 같은 이유다.
+
+## Asana
+
+### 수집 대상
+
+Asana 태스크를 REST API로 조회한다. 코멘트(story)는 수집하지 않고(태스크만), 삭제 이벤트도 수집하지 않는다.
+
+Asana checkpoint는 `checkpoints` 테이블에서 `provider=asana`, `cursor_key=asana_updated` row에 저장한다.
+
+```
+GET {base}/tasks?project={gid}&modified_since={checkpoint}&limit=100&opt_fields=name,notes,completed,completed_at,created_at,modified_at,created_by.name,created_by.email,assignee.name,assignee.email,parent
+```
+
+- `modified_since`: checkpoint 이후 변경분만 조회한다.
+- 연동 시 선택한 project로 스코프한다 — `/tasks?project=`는 해당 project에 직속(multi-home 포함)된 태스크만 반환하고 서브태스크는 포함하지 않는다.
+
+### 페이지네이션
+
+- `next_page.offset` 토큰 기반.
+- 한 번 실행에서 처리할 최대 페이지 수: `app.asana.max-pages-per-run` (기본값 50)
+  - 상한 도달 시 `limitReached=true` 반환, checkpoint는 전진시키지 않는다 (아래 참고).
+
+### checkpoint 갱신
+
+Slack·Linear와 동일하게 페이지 단위가 아니라 **전체 실행 성공 후 1회** 갱신한다 — 이번 실행에서 관측한 최대 `occurredAt`을 한 번만 반영한다. `limitReached=true`(페이지 상한 도달)면 이번 실행에서는 전진시키지 않는다. 초기 수집은 `EPOCH`부터 시작한다.
+
+### occurredAt 기준
+
+태스크 `modified_at` 시각. `created_at`은 별도 property로 보존한다.
+
+### Rate Limiting
+
+호출당 400ms 고정 딜레이 (무료 워크스페이스 한도 150 req/min 기준 — 유료 워크스페이스는 1,500 req/min이라 여유가 있다).
+
+### 수집 트리거
+
+webhook·스케줄러 없이, 연동 직후 1회 초기 수집과 GitHub PR 머지 웹훅 처리에 편승한 증분 수집만 있다(Jira·Slack·Linear와 동일한 패턴 — `services/pipeline-worker/CLAUDE.md` 「Webhook 수집 흐름」 참고).
+
+### Tradeoff & 예상 문제점
+
+#### multi-home 태스크의 `modified_since` 맹점
+
+Asana 태스크는 여러 project에 동시에 속할 수 있다(multi-home). 기존 태스크를 나중에 수집 대상 project에 추가해도 `modified_at`이 그 시점에 갱신된다는 보장이 없다 — Asana 공식 문서에 이 갱신 규약이 명시돼 있지 않다.
+
+- **문제**: 이미 checkpoint를 지난 시각에 생성된 태스크가 이후 수집 대상 project로 옮겨져도 `modified_since` 필터에 걸리지 않으면 다음 증분 수집에서 영구히 누락될 수 있다.
+- **방법 선택 이유**: webhook 없는 설계에서는 project 멤버십 변경을 별도로 감지할 방법이 없다. 다른 provider와 마찬가지로 API가 제공하는 필터에 의존하는 트레이드오프를 감수한다.
+
+#### 서브태스크 미수집
+
+`/tasks?project=`는 project에 직속된 태스크만 반환하고 서브태스크는 포함하지 않는다.
+
+- **문제**: 서브태스크를 수집하려면 태스크당 `/tasks/{gid}/subtasks` 추가 호출이 필요하다 — 태스크 수만큼 호출이 선형 증가해 400ms 고정 딜레이 기준 rate 예산이 붕괴한다.
+- **방법 선택 이유**: 서브태스크는 범위 밖으로 두고 수집하지 않는다. 서브태스크의 `parent` refs는 발행하되(수집 대상 프로젝트 밖의 부모라도), 범위 밖 부모 태스크는 pre-node로 잔존하는 것을 감수한다.
+
+#### 이슈 키 부재 → URL 참조 의존
+
+Asana 태스크에는 Jira `HT-7`·Linear `ENG-42` 같은 사람용 표시 키가 없다(`gid` 불변 ID만 있다).
+
+- **문제**: 커밋·PR·Slack 텍스트에서 태스크를 참조하려면 키 매칭이 불가능하다.
+- **방법 선택 이유**: Asana 태스크 URL(`app.asana.com/0/.../{task}`, `app.asana.com/1/.../{task}`)에서 gid를 추출하는 `refs.issueExternalRefs` 경로로 대체한다 (`docs/normalized-event.md` 참고). 이슈 키 형식 참조가 아니라 URL 형식 참조에 전적으로 의존하는 첫 사례다.
+
+---
+
+## ClickUp
+
+### 수집 대상
+
+ClickUp 태스크를 Filtered Team Tasks 단일 엔드포인트로 조회한다. 연동 스코프는 List 단위(4단 선택의 마지막 단계)라 `list_ids[]`로 필터한다.
+
+ClickUp checkpoint는 `checkpoints` 테이블에서 `provider=clickup`, `cursor_key=clickup_updated` row에 저장한다.
+
+```
+GET {base}/team/{workspace_id}/task?page={page}&date_updated_gt={checkpoint_epoch_ms}&list_ids[]={list_id}&include_closed=true&subtasks=true
+```
+
+- `date_updated_gt`: checkpoint 이후 변경분만 조회한다.
+- `include_closed=true`·`subtasks=true`는 **반드시 명시해야 한다** — ClickUp API 기본값이 각각 종료 상태 태스크와 서브태스크를 응답에서 제외하므로, 빠뜨리면 Done/Closed 태스크와 서브태스크가 통째로 누락된다.
+
+### 페이지네이션
+
+- `page` 번호 기반(0부터 시작) — offset 토큰이 아니다.
+- 페이지당 100건. API 응답에 마지막 페이지 표시가 없어 **응답 태스크 건수가 100건 미만이면 마지막 페이지로 판정**한다.
+- 한 번 실행에서 처리할 최대 페이지 수: `app.clickup.max-pages-per-run` (기본값 50)
+  - 상한 도달 시 `limitReached=true` 반환, checkpoint는 전진시키지 않는다 (아래 참고).
+
+### checkpoint 갱신
+
+Slack·Linear·Asana와 동일하게 페이지 단위가 아니라 **전체 실행 성공 후 1회** 갱신한다 — API 응답에 정렬 보장이 문서화돼 있지 않아 페이지 단위 전진이 불가능하기 때문이다(Asana와 같은 이유). 이번 실행에서 관측한 최대 `occurredAt`을 한 번만 반영하며, `limitReached=true`(페이지 상한 도달)이거나 발행이 실패하면 이번 실행에서는 전진시키지 않는다. 초기 수집은 `EPOCH`부터 시작한다.
+
+### occurredAt 기준
+
+태스크 `date_updated` 시각(epoch ms 문자열 → `Instant` 변환).
+
+### Rate Limiting
+
+호출당 600ms 고정 딜레이 (무료 워크스페이스 한도 100 req/min 기준).
+
+### 토큰
+
+ClickUp access token은 만료·갱신·원격 폐기가 없다(ClickUp 공식 문서 확정) — Jira·Linear·Asana와 달리 `AccessTokenRefresher`·`ProviderCredentialLifecycle` 빈을 등록하지 않는다.
+
+### 수집 트리거
+
+webhook·스케줄러 없이, 연동 직후 1회 초기 수집과 GitHub PR 머지 웹훅 처리에 편승한 증분 수집만 있다(Jira·Slack·Linear·Asana와 동일한 패턴 — `services/pipeline-worker/CLAUDE.md` 「Webhook 수집 흐름」 참고).
 
 ---
 

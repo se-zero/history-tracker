@@ -76,11 +76,11 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 
 ### 1. `get_issue_context`
 
-Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
+이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| `issue_key` | string | ✔ | Jira 티켓 키 (예: `HT-12`) |
+| `issue_key` | string | ✔ | 이슈 트래커의 사람용 키 (예: `HT-12`) — 표시용 속성으로 매칭하며 `__stub__` 센티널은 제외 |
 
 - 반환: 이슈 메타(`title`/`body`/`status`/`creator`/`assignee` 등) + root 이슈에 직접 연결된
   `changesets` / `pull_requests` / `discussions`, 그리고 **`descendants[]`**.
@@ -118,7 +118,7 @@ Jira 이슈를 기준으로 관련 커밋·PR·논의를 조회한다.
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| `issue_key` | string | | 이슈 스코프 — 생명주기 + 연결 커밋·PR·논의 |
+| `issue_key` | string | | 이슈 스코프(사람용 키) — 생명주기 + 연결 커밋·PR·논의 |
 | `path` | string | | 파일 스코프 — 그 파일을 바꾼 커밋 + 담은 PR |
 | `actor` | string | | 사람 스코프 — 이름·alias·이메일 |
 | `from_time` / `to_time` | string | | ISO-8601 기간 한정. 어느 스코프와도 조합 가능 |
