@@ -281,6 +281,22 @@ class ClickUpNormalizerTest {
         assertThat(event.actor().bot()).isNull();
     }
 
+    @Test
+    @DisplayName("creator의 id가 null이면 actor.id는 문자열 \"null\"이 아니라 실제 null이어야 한다 — " +
+            "String.valueOf(null)로 변환하면 진짜 null과 구분되지 않는 오염된 값이 발행된다")
+    void normalizeTasks_creatorIdNull_actorIdIsRealNullNotStringLiteral() {
+        Map<String, Object> creator = new HashMap<>();
+        creator.put("id", null);
+        creator.put("username", "Jerry");
+        creator.put("email", "j@example.com");
+        Map<String, Object> task = buildTaskNode("id-1", "Title", "Body", "open", "open");
+        task.put("creator", creator);
+
+        NormalizedEvent event = normalizer.normalizeTasks(PROJECT_ID, buildResponseBody(List.of(task))).get(0);
+
+        assertThat(event.actor().id()).isNull();
+    }
+
     // ─── refs: assignees (정수 id → String 변환, 담당자 배열 스냅샷) ──────────────
 
     @Test
@@ -333,6 +349,22 @@ class ClickUpNormalizerTest {
     void normalizeTasks_emptyAssigneesArray_assigneesListEmpty() {
         Map<String, Object> task = buildTaskNode("id-1", "Title", "Body", "open", "open");
         task.put("assignees", List.of());
+
+        NormalizedEvent event = normalizer.normalizeTasks(PROJECT_ID, buildResponseBody(List.of(task))).get(0);
+
+        assertThat((List<?>) event.refs().get("assignees")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("assignees 항목의 id가 null이면 그 항목은 refs.assignees에서 제외된다 — " +
+            "String.valueOf(null)로 변환하면 문자열 \"null\"이 유효한 id처럼 들어간다")
+    void normalizeTasks_assigneeIdNull_excludedFromAssigneesList() {
+        Map<String, Object> assignee = new HashMap<>();
+        assignee.put("id", null);
+        assignee.put("username", "Kim");
+        assignee.put("email", "k@example.com");
+        Map<String, Object> task = buildTaskNode("id-1", "Title", "Body", "open", "open");
+        task.put("assignees", List.of(assignee));
 
         NormalizedEvent event = normalizer.normalizeTasks(PROJECT_ID, buildResponseBody(List.of(task))).get(0);
 

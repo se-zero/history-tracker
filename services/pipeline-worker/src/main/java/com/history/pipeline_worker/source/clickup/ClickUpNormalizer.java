@@ -96,8 +96,11 @@ public class ClickUpNormalizer {
             return new ActorDto(null, null, null, null);
         }
         String username = (String) creator.get("username");
+        // id가 null이면 String.valueOf가 문자열 "null"을 만들어 진짜 null과 구분되지 않으므로
+        // null일 때만 그대로 null을 전달한다.
+        Object id = creator.get("id");
         return new ActorDto(
-                String.valueOf(creator.get("id")),
+                id != null ? String.valueOf(id) : null,
                 username,
                 (String) creator.get("email"),
                 "ClickBot".equals(username) ? Boolean.TRUE : null);
@@ -110,9 +113,13 @@ public class ClickUpNormalizer {
         List<Map<String, Object>> assigneeEntries = new ArrayList<>();
         if (assignees != null) {
             for (Map<String, Object> assignee : assignees) {
+                // id가 없는 항목을 String.valueOf로 변환하면 문자열 "null"이 유효한 id처럼 들어가므로
+                // id가 있는 항목만 넣는다(해제 규약 유지).
+                Object id = assignee.get("id");
+                if (id == null) continue;
                 String username = (String) assignee.get("username");
                 Map<String, Object> entry = new HashMap<>();
-                entry.put("id", String.valueOf(assignee.get("id")));
+                entry.put("id", String.valueOf(id));
                 entry.put("name", username);
                 entry.put("email", assignee.get("email"));
                 if ("ClickBot".equals(username)) {

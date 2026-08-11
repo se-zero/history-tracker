@@ -94,6 +94,30 @@ class AsanaNormalizerTest {
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-15T10:30:00Z"));
     }
 
+    @Test
+    @DisplayName("modified_at=null → occurredAt은 created_at 파싱값으로 폴백한다")
+    void normalizeTasks_modifiedAtNull_occurredAtFallsBackToCreatedAt() {
+        Map<String, Object> task = buildTaskNode("id-1", "Title", "Body", false, null, null, null);
+        task.put("modified_at", null);
+
+        NormalizedEvent event = normalizer.normalizeTasks(PROJECT_ID, buildResponseBody(List.of(task))).get(0);
+
+        assertThat(event.occurredAt()).isEqualTo(Instant.parse(CREATED_AT));
+    }
+
+    @Test
+    @DisplayName("modified_at·created_at 둘 다 null이어도 예외 없이 이벤트가 생성되고 occurredAt은 null이 아니다")
+    void normalizeTasks_modifiedAtAndCreatedAtBothNull_eventCreatedWithNonNullOccurredAt() {
+        Map<String, Object> task = buildTaskNode("id-1", "Title", "Body", false, null, null, null);
+        task.put("modified_at", null);
+        task.put("created_at", null);
+
+        List<NormalizedEvent> events = normalizer.normalizeTasks(PROJECT_ID, buildResponseBody(List.of(task)));
+
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).occurredAt()).isNotNull();
+    }
+
     // ─── status_category (completed bool → 소스 중립 3값, Asana는 open/closed 2값만 신호) ───
 
     @Test
@@ -208,6 +232,19 @@ class AsanaNormalizerTest {
             "담당자 없음을 명시적 빈 배열로 나타내야 기존 ASSIGNED_TO가 해제된다")
     void normalizeTasks_noAssignee_assigneesListEmptySnapshotSemantics() {
         Map<String, Object> task = buildTaskNode("id-1", "Title", "Body", false, null, null, null);
+
+        NormalizedEvent event = normalizer.normalizeTasks(PROJECT_ID, buildResponseBody(List.of(task))).get(0);
+
+        assertThat(event.refs()).containsKey("assignees");
+        assertThat((List<?>) event.refs().get("assignees")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("assignee의 gid가 null이면 refs.assignees는 그 담당자를 제외한 빈 배열이어야 한다 — " +
+            "gid 없는 항목을 그대로 넣으면 해제(unassign) 규약이 깨진다")
+    void normalizeTasks_assigneeGidNull_excludedFromAssigneesList() {
+        Map<String, Object> assignee = buildPerson(null, "Assignee Name", "assignee@test.com");
+        Map<String, Object> task = buildTaskNode("id-1", "Title", "Body", false, assignee, null, null);
 
         NormalizedEvent event = normalizer.normalizeTasks(PROJECT_ID, buildResponseBody(List.of(task))).get(0);
 

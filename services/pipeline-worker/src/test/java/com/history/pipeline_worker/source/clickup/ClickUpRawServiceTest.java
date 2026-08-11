@@ -28,8 +28,9 @@ class ClickUpRawServiceTest {
 
     @Test
     @DisplayName("1페이지(page=0) 요청은 base-url 서브패스를 포함한 전체 경로(/api/v2/team/{workspace_id}/task)와 " +
-            "date_updated_gt·list_ids[]·include_closed=true·subtasks=true 쿼리, Bearer 인증 헤더를 담는다")
-    void fetchTaskPage_firstPageRequest_includesFullPathAndQueryParamsAndAuthHeader() {
+            "date_updated_gt(경계 포함을 위해 since-1ms)·list_ids[]·include_closed=true·subtasks=true 쿼리, " +
+            "Bearer 인증 헤더를 담는다")
+    void fetchTaskPage_firstPageRequest_dateUpdatedGtIsSinceMinusOneMsForInclusiveBoundary() {
         List<String> capturedPaths = new ArrayList<>();
         List<String> capturedQueries = new ArrayList<>();
         List<String> capturedAuthHeaders = new ArrayList<>();
@@ -58,13 +59,42 @@ class ClickUpRawServiceTest {
         // 실제 ClickUp 엔드포인트 도달 경로(/api/v2/team/{workspace_id}/task) 전체를 단언한다.
         assertThat(capturedPaths).containsExactly("/api/v2/team/" + WORKSPACE_ID + "/task");
         String query = capturedQueries.get(0);
+        // ClickUp API에는 gte 파라미터가 없어(gt만 지원) since에서 1ms를 뺀 값을 보내야
+        // Jira의 updated>=since / Linear의 updatedAt gte:since와 동일하게 since와 정확히 같은
+        // 밀리초에 일어난 작업까지 경계 포함으로 수집된다.
         assertThat(query)
                 .contains("page=0")
-                .contains("date_updated_gt=" + since.toEpochMilli())
+                .contains("date_updated_gt=" + (since.toEpochMilli() - 1))
                 .contains("list_ids[]=" + LIST_ID)
                 .contains("include_closed=true")
                 .contains("subtasks=true");
         assertThat(capturedAuthHeaders).containsExactly("Bearer clickup-token");
+    }
+
+    @Test
+    @DisplayName("since가 Instant.EPOCH이면 date_updated_gt=-1이 된다 — 경계 포함 보정(-1ms)이 " +
+            "epoch 밀리초 0에서도 그대로 적용된다")
+    void fetchTaskPage_sinceEpoch_dateUpdatedGtIsMinusOne() {
+        List<String> capturedQueries = new ArrayList<>();
+        WebClient client = WebClient.builder()
+                .exchangeFunction(request -> {
+                    capturedQueries.add(request.url().getQuery());
+                    return Mono.just(ClientResponse.create(HttpStatus.OK)
+                            .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                            .body("""
+                                    { "tasks": [] }
+                                    """)
+                            .build());
+                })
+                .baseUrl(BASE_URL)
+                .build();
+        ClickUpRawService service = new ClickUpRawService(WebClient.builder(), BASE_URL, 50, new ClickUpRateLimiter(0));
+        ClickUpRawService.ClickUpFetchContext context = new ClickUpRawService.ClickUpFetchContext(
+                client, "Bearer clickup-token", WORKSPACE_ID, LIST_ID, Instant.EPOCH);
+
+        service.fetchTaskPage(context, 0);
+
+        assertThat(capturedQueries.get(0)).contains("date_updated_gt=-1");
     }
 
     @Test

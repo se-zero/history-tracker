@@ -70,13 +70,21 @@ public class LinearNormalizer {
                     projectId,
                     "Issue",
                     "LINEAR",
-                    Instant.parse(updatedAt),
+                    resolveOccurredAt(updatedAt, createdAt),
                     resolveActor(botActor, creator),
                     properties,
                     resolveRefs(description, assignee, parent)
             ));
         }
         return events;
+    }
+
+    // Linear 타임스탬프는 ISO-8601이라 Instant.parse 그대로 사용한다.
+    // updatedAt → createdAt → now 순으로 폴백한다(JiraNormalizer.resolveOccurredAt 미러).
+    private Instant resolveOccurredAt(String updatedAt, String createdAt) {
+        if (updatedAt != null) return Instant.parse(updatedAt);
+        if (createdAt != null) return Instant.parse(createdAt);
+        return Instant.now();
     }
 
     // botActor(워크플로 자동화가 만든 이슈) 우선, 없으면 creator, 둘 다 없으면 작성자 부재로 전부 null.
@@ -99,7 +107,7 @@ public class LinearNormalizer {
 
         // Issue는 최신 스냅샷이라 담당자 없음도 명시적 빈 배열로 나타내야 기존 ASSIGNED_TO가 해제된다.
         List<Map<String, Object>> assignees = new ArrayList<>();
-        if (assignee != null) {
+        if (assignee != null && assignee.get("id") != null) {
             Map<String, Object> assigneeEntry = new HashMap<>();
             assigneeEntry.put("id", assignee.get("id"));
             assigneeEntry.put("name", assignee.get("name"));

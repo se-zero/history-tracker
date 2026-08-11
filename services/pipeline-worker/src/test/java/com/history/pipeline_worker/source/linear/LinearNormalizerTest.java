@@ -89,6 +89,32 @@ class LinearNormalizerTest {
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-15T10:30:00Z"));
     }
 
+    @Test
+    @DisplayName("updatedAt=null → occurredAt은 createdAt 파싱값으로 폴백한다")
+    void normalizeIssues_updatedAtNull_occurredAtFallsBackToCreatedAt() {
+        Map<String, Object> issue = buildIssueNode("id-1", "ENG-4", "Title", "Body", "Todo", "unstarted",
+                null, null, null, null);
+        issue.put("updatedAt", null);
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.occurredAt()).isEqualTo(Instant.parse(CREATED_AT));
+    }
+
+    @Test
+    @DisplayName("updatedAt·createdAt 둘 다 null이어도 예외 없이 이벤트가 생성되고 occurredAt은 null이 아니다")
+    void normalizeIssues_updatedAtAndCreatedAtBothNull_eventCreatedWithNonNullOccurredAt() {
+        Map<String, Object> issue = buildIssueNode("id-1", "ENG-5", "Title", "Body", "Todo", "unstarted",
+                null, null, null, null);
+        issue.put("updatedAt", null);
+        issue.put("createdAt", null);
+
+        List<NormalizedEvent> events = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue)));
+
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).occurredAt()).isNotNull();
+    }
+
     // ─── status_category 매핑 (state.type → 소스 중립 3값) ───────────────────────
 
     @Test
@@ -281,6 +307,20 @@ class LinearNormalizerTest {
     void normalizeIssues_noAssignee_assigneesListEmptySnapshotSemantics() {
         Map<String, Object> issue = buildIssueNode("id-1", "ENG-17", "Title", "Body", "Todo", "unstarted",
                 null, null, null, null);
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
+
+        assertThat(event.refs()).containsKey("assignees");
+        assertThat((List<?>) event.refs().get("assignees")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("assignee의 id가 null이면 refs.assignees는 그 담당자를 제외한 빈 배열이어야 한다 — " +
+            "id 없는 항목을 그대로 넣으면 해제(unassign) 규약이 깨진다")
+    void normalizeIssues_assigneeIdNull_excludedFromAssigneesList() {
+        Map<String, Object> assignee = buildPerson(null, "Assignee Name", "assignee@test.com", false);
+        Map<String, Object> issue = buildIssueNode("id-1", "ENG-21", "Title", "Body", "Todo", "unstarted",
+                assignee, null, null, null);
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, buildSearchResult(List.of(issue))).get(0);
 

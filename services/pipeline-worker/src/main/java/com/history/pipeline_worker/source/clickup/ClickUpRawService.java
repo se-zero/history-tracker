@@ -58,7 +58,9 @@ public class ClickUpRawService {
         Map<String, Object> response = context.client().get()
                 .uri(uriBuilder -> uriBuilder.path("/team/{workspaceId}/task")
                         .queryParam("page", page)
-                        .queryParam("date_updated_gt", context.since().toEpochMilli())
+                        // ClickUp API에는 gte가 없고 gt만 있어 -1ms 보정으로 Jira updated>=/Linear updatedAt
+                        // gte:since와 동일한 경계 포함(since와 같은 밀리초 갱신도 누락 없이 수집) 의미를 만든다.
+                        .queryParam("date_updated_gt", context.since().toEpochMilli() - 1)
                         .queryParam("list_ids[]", context.listId())
                         .queryParam("include_closed", true)
                         .queryParam("subtasks", true)

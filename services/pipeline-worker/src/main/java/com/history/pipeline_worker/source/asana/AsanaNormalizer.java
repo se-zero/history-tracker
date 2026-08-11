@@ -61,13 +61,21 @@ public class AsanaNormalizer {
                     projectId,
                     "Issue",
                     "ASANA",
-                    Instant.parse(modifiedAt),
+                    resolveOccurredAt(modifiedAt, createdAt),
                     resolveActor(createdBy),
                     properties,
                     resolveRefs(notes, assignee, parent)
             ));
         }
         return events;
+    }
+
+    // Asana 타임스탬프는 ISO-8601이라 Instant.parse 그대로 사용한다.
+    // modified_at → created_at → now 순으로 폴백한다(JiraNormalizer.resolveOccurredAt 미러).
+    private Instant resolveOccurredAt(String modifiedAt, String createdAt) {
+        if (modifiedAt != null) return Instant.parse(modifiedAt);
+        if (createdAt != null) return Instant.parse(createdAt);
+        return Instant.now();
     }
 
     // Asana에는 봇 판정 신호가 없어 actor.bot은 항상 null이다.
@@ -88,7 +96,7 @@ public class AsanaNormalizer {
         // Issue는 최신 스냅샷이라 담당자 없음도 명시적 빈 배열로 나타내야 기존 ASSIGNED_TO가 해제된다.
         // Asana는 단일 assignee이며 bot 판정 신호가 없어 bot 키는 채우지 않는다.
         List<Map<String, Object>> assignees = new ArrayList<>();
-        if (assignee != null) {
+        if (assignee != null && assignee.get("gid") != null) {
             Map<String, Object> assigneeEntry = new HashMap<>();
             assigneeEntry.put("id", assignee.get("gid"));
             assigneeEntry.put("name", assignee.get("name"));
