@@ -164,6 +164,25 @@ class DiscordCollectorTest {
     }
 
     @Test
+    @DisplayName("길드 접근 불가(403 — 봇이 추방된 경우)면 이번 실행은 Discord만 건너뛰고 checkpoint를 전진시키지 않는다")
+    void collect_guildForbidden_skipsRunWithoutAdvancingCheckpoint() {
+        RawFetchRequest request = new RawFetchRequest("Bot test-bot-token", "G1", Map.of());
+        DiscordRawService.DiscordFetchContext context =
+                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null);
+
+        when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD)).thenReturn(Map.of());
+        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.fetchChannels(context)).thenThrow(
+                WebClientResponseException.create(HttpStatus.FORBIDDEN.value(), "Forbidden", null, null, null));
+
+        int published = collector.collect(PROJECT_ID, request);
+
+        assertThat(published).isZero();
+        verify(eventPublisher, never()).publishAll(anyList());
+        verify(checkpointService, never()).updateCursor(any(), any(), any(), any());
+    }
+
+    @Test
     void collect_passesStoredCursorToFetchContext() {
         RawFetchRequest request = new RawFetchRequest("Bot test-bot-token", "G1", Map.of());
         Instant lastScannedAt = Instant.parse("2026-08-01T00:00:00Z");

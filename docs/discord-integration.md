@@ -181,6 +181,13 @@ GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도
   `WebClientResponseException.Forbidden`을 잡아 그 채널만 건너뛴다(`DiscordRawService`는 예외를
   그대로 던지기만 한다 — 삼킬지는 provider가 아니라 오케스트레이션 계층에 가까운 Collector가 정한다).
   단 발행 예외는 삼키지 않는다(계약대로 checkpoint를 전진시키지 않아야 재발행된다).
+- **길드 단위 실패도 같은 철학으로 삼킨다.** 관리자가 연동 해제 없이 봇을 서버에서 추방하면(흔한
+  시나리오) 봇이 길드 멤버가 아니게 되어 `fetchChannels`의 두 호출(`/channels`, `/threads/active`)
+  자체가 403이다. `DiscordCollector.collect`가 `rawService.fetchChannels(context)` 호출을 감싸
+  `WebClientResponseException.Forbidden`이면 이번 실행은 Discord만 건너뛰고(checkpoint 미전진)
+  `0`을 반환한다. 이걸 삼키지 않으면 `PipelineService.collectIncremental`이 예외를 그대로
+  전파해(오케스트레이션은 provider 하나의 실패로 이후 provider를 멈춘다) `CollectionProvider` 선언
+  순서상 Discord 바로 다음인 Google Chat까지 그 프로젝트의 매 웹훅마다 함께 실패한다.
 - 아카이브된 스레드(`GET /channels/{id}/threads/archived/public`)는 1차 범위에서 제외한다 —
   활성 스레드만으로 시작하고, 누락이 문제가 되면 확장한다(「구현 시 확인」 1번).
 - **다음 커서는 배열 위치가 아니라 최대 id로 뽑는다**(`DiscordRawService.maxMessageId`). 응답 정렬에

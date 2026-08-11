@@ -67,10 +67,24 @@ public class DiscordCollector implements SourceCollector {
         Instant lastScannedAt = checkpointService.loadCursors(projectId, provider()).get(MESSAGES_CURSOR);
         DiscordRawService.DiscordFetchContext context = rawService.prepareFetchContext(request, lastScannedAt);
         String guildId = request.projectKey();
+
+        List<Map<String, Object>> channels;
+        try {
+            channels = rawService.fetchChannels(context);
+        } catch (WebClientResponseException.Forbidden exception) {
+            // 관리자가 연동 해제 없이 봇을 서버에서 추방한 경우 — 봇이 더는 길드 멤버가 아니라
+            // 채널 목록 조회 자체가 403이다. 채널 단위 403과 같은 철학으로 이번 실행은 Discord만
+            // 건너뛴다(checkpoint 미전진 — 봇이 재초대되면 그 사이 메시지를 놓치지 않고 다시 수집한다).
+            // 여기서 삼키지 않으면 PipelineService.collectIncremental이 예외를 그대로 전파해, 선언
+            // 순서상 Discord 바로 다음인 Google Chat까지 이 프로젝트의 매 웹훅마다 함께 실패한다.
+            log.warn("Discord 길드 접근 권한 없음(봇이 추방됐을 수 있음) — 이번 실행은 건너뜀: guildId={}", guildId);
+            return 0;
+        }
+
         int published = 0;
         Instant cursor = null;
 
-        for (Object rawChannel : rawService.fetchChannels(context)) {
+        for (Object rawChannel : channels) {
             @SuppressWarnings("unchecked")
             Map<String, Object> channel = (Map<String, Object>) rawChannel;
 
