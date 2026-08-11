@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -20,6 +21,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class GoogleChatRawServiceTest {
 
@@ -148,6 +150,59 @@ class GoogleChatRawServiceTest {
 
         assertThat(messages).hasSize(1);
         assertThat(callCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("People API가 403(미설정 등)이면 빈 맵을 반환한다 — 이미 받아온 메시지를 폐기하지 않도록 예외를 던지지 않는다")
+    void resolveSenders_forbidden_returnsEmptyMapInsteadOfThrowing() {
+        WebClient.Builder builder = WebClient.builder().exchangeFunction(
+                request -> Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN).build()));
+        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+
+        Map<String, GoogleChatRawService.PersonInfo> result =
+                service.resolveSenders("Bearer token", Set.of("users/U1"));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("People API가 403이면 캐시하지 않는다 — 다음 호출에서 같은 sender를 다시 조회한다")
+    void resolveSenders_forbidden_doesNotCacheSoNextCallRetries() {
+        AtomicInteger callCount = new AtomicInteger();
+        WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
+            callCount.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN).build());
+        });
+        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+
+        service.resolveSenders("Bearer token", Set.of("users/U1"));
+        service.resolveSenders("Bearer token", Set.of("users/U1"));
+
+        assertThat(callCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("People API가 500이어도 빈 맵을 반환한다 — 403 외 다른 오류 상태도 같은 규약을 따른다")
+    void resolveSenders_internalServerError_returnsEmptyMapInsteadOfThrowing() {
+        WebClient.Builder builder = WebClient.builder().exchangeFunction(
+                request -> Mono.just(ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR).build()));
+        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+
+        Map<String, GoogleChatRawService.PersonInfo> result =
+                service.resolveSenders("Bearer token", Set.of("users/U1"));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("429는 재시도 상한을 넘기면 여전히 예외로 전파한다 — 403·500과 달리 조용히 넘기지 않는다")
+    void resolveSenders_rateLimitExhausted_stillThrows() {
+        WebClient.Builder builder = WebClient.builder().exchangeFunction(
+                request -> Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS).build()));
+        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+
+        assertThatThrownBy(() -> service.resolveSenders("Bearer token", Set.of("users/U1")))
+                .isInstanceOf(WebClientResponseException.TooManyRequests.class);
     }
 
     @Test

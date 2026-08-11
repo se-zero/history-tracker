@@ -197,18 +197,34 @@ public class GoogleChatRawService {
     @SuppressWarnings("unchecked")
     private Map<String, PersonInfo> fetchPersonBatch(String auth, List<String> senderResourceNames) {
         Map<String, PersonInfo> result = new HashMap<>();
-        Map<String, Object> response = executeWithRateLimitRetry(() -> peopleWebClient.get()
-                .uri(uriBuilder -> {
-                    uriBuilder.path("/people:batchGet").queryParam("personFields", PERSON_FIELDS);
-                    for (String senderName : senderResourceNames) {
-                        uriBuilder.queryParam("resourceNames", toPersonResourceName(senderName));
-                    }
-                    return uriBuilder.build();
-                })
-                .header("Authorization", auth)
-                .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
-                .block());
+        Map<String, Object> response;
+        try {
+            response = executeWithRateLimitRetry(() -> peopleWebClient.get()
+                    .uri(uriBuilder -> {
+                        uriBuilder.path("/people:batchGet").queryParam("personFields", PERSON_FIELDS);
+                        for (String senderName : senderResourceNames) {
+                            uriBuilder.queryParam("resourceNames", toPersonResourceName(senderName));
+                        }
+                        return uriBuilder.build();
+                    })
+                    .header("Authorization", auth)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block());
+        } catch (WebClientResponseException exception) {
+            if (exception instanceof WebClientResponseException.TooManyRequests) {
+                // executeWithRateLimitRetry가 재시도 상한까지 소진한 뒤에도 실패한 경우 — 지속적인
+                // rate limit은 조용히 넘기지 않고 그대로 전파한다
+                throw exception;
+            }
+            // People API는 Cloud Console에서 별도 활성화가 필요해 미설정 환경에서 403이 흔하다.
+            // 여기서 전파하면 이미 fetchMessages로 받아온 메시지 전체가 collect()에서 폐기되므로,
+            // §7의 "조회 실패 sender는 그 실행만 null, 캐시하지 않음" 규약을 HTTP 오류 경로에도
+            // 그대로 적용해 이름·이메일 없이 수집을 이어간다(다음 실행에서 재시도된다).
+            log.warn("Google Chat People API 호출 실패({}) — 이번 배치는 이름·이메일 없이 진행: batchSize={}",
+                    exception.getStatusCode(), senderResourceNames.size());
+            return result;
+        }
 
         if (response == null || !(response.get("responses") instanceof List<?> responses)) {
             return result;

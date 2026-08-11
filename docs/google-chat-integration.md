@@ -358,6 +358,14 @@ ActorAlias 규약("협업 툴 계정 이메일만 사용")에 그대로 부합�
 sender(프로필 비공개 등)는 그 실행에서만 이름·이메일 null로 두고 **캐시하지 않는다** — 다음 실행에서
 재시도되게 하기 위함이다(일시적 실패를 영구 캐시하지 않음).
 
+같은 규약을 **배치 호출 자체가 HTTP 오류로 실패하는 경우**(429 외 — People API는 Cloud Console에서
+별도 활성화가 필요해 미설정 환경에서 403이 흔하다)에도 적용한다. `GoogleChatCollector.collect`는
+`fetchMessages`로 메시지를 먼저 받은 뒤 `resolveSenders`를 호출하므로, 여기서 예외가 전파되면
+이미 받아온 메시지·발행·checkpoint 전진이 통째로 무산된다 — People API 미설정만으로 수집이 영구
+0건이 되는 것을 막기 위해 `fetchPersonBatch`는 403·500 등을 잡아 warn 로그 후 빈 맵을 반환한다
+(캐시하지 않아 다음 실행에서 재시도). 429는 `executeWithRateLimitRetry`가 재시도 상한까지 이미
+시도한 뒤이므로 예외로 그대로 전파한다 — 지속적인 rate limit은 조용히 넘길 문제가 아니다.
+
 `actor.name` 결정 순서는 ① 임베디드 `sender.displayName`이 어쩌다 채워져 있으면 그걸 우선(향후
 API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더 싸다) ② 없으면 People API 보강 결과
 ③ 그것도 없으면 null. null이 남는 경우(조회 실패·프로필 비공개)는 여전히 있을 수 있으므로,
@@ -392,6 +400,9 @@ API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더
 - **People API 보강 단언**(§7, A9급 실측 발견의 후속 조치): ✅ 완료 —
   `GoogleChatRawServiceTest`가 `people:batchGet` 요청 형태(`users/`→`people/` 치환·`personFields`),
   TTL 캐시 히트/만료, primary 이메일 우선 선택, 조회 실패 sender의 미캐싱(재시도 허용)을 고정한다.
+  배치 호출 자체가 403·500으로 실패해도 예외를 던지지 않고 빈 맵으로 수집을 이어가는지, 429는
+  재시도 상한 소진 후 여전히 예외로 전파하는지도 회귀 테스트로 고정했다(미설정 People API가 수집
+  전체를 0건으로 만들던 문제의 재발 방지).
   `GoogleChatNormalizerTest`가 actorInfo 반영·임베디드 displayName 우선순위·미해결 시 null 폴백을
   고정한다. `GoogleChatCollectorTest`가 raw 메시지의 고유 sender 집합만 조회 대상으로 삼는지 고정한다.
 - 실기동 시나리오(**미착수** — §11에서 API 응답 형태는 수동 확인했지만, 우리 앱을 통한 연결·수집은
