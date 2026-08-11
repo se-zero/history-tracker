@@ -70,9 +70,12 @@ src/
     ※ Terms(`/terms`)·Privacy(`/privacy`)도 AuthGate 밖 공개 라우트다. 랜딩과 같은 `.lp` 스코프를
       쓰며 헤더·푸터를 공유한다(LegalLayout). 내용은 실제 수집 항목·권한 scope·보유 기간을
       반영하므로 **수집 코드나 purge 설정이 바뀌면 이 두 페이지도 함께 고친다**.
-      Privacy 하나로 GitHub App·Slack·Atlassian 세 앱 심사의 개인정보처리방침 URL을 모두 감당한다
-      (서비스별로 나누면 문서가 갈라진다). 제출 URL이 `#github`·`#slack`·`#jira` 앵커라
-      **이 id는 바꾸지 않는다** — 바꾸면 심사에 제출된 링크가 깨진다.
+      Privacy 하나로 연동 앱 심사의 개인정보처리방침 URL을 모두 감당한다(서비스별로 나누면
+      문서가 갈라진다). 제2조에 소스별 앵커를 두며 — `#github`·`#slack`·`#jira`·`#discord`·
+      `#google-chat` — 앞의 셋은 **이미 심사에 제출돼 있어 그 id는 바꾸지 않는다**(바꾸면
+      제출된 링크가 깨진다). **새 커넥터를 배선하면 제1조 자격증명 행·수집 기록 목록과
+      제2조 소스 블록을 함께 추가한다** — 고지 없이 수집하는 상태가 배포 기준 공백이다.
+      Google Chat의 `directory.readonly`는 민감 범위라 OAuth 검증에서 이 URL을 요구한다.
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
                     constellation(성좌 배치: 별성 force + 위성 궤도) · canvasColor(CSS 토큰 → Canvas RGB)
