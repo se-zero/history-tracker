@@ -95,8 +95,15 @@ GET /v1.0/teams/{team-id}/channels/{channel-id}/messages
   (personal 계정 허용 불필요).
 - redirect URI: `{BASE}/api/v1/integrations/teams/callback` — 소문자 kebab, 이후 변경 불가.
   **Entra는 localhost에 한해 http를 허용**하므로 로컬 개발에 터널이 필요 없다
-  (`http://localhost:8080/api/v1/integrations/teams/callback`). `.env.example`이 Slack·Jira에
+  (`http://localhost:5173/api/v1/integrations/teams/callback`). `.env.example`이 Slack·Jira에
   안내하는 터널 도메인은 Teams에는 해당하지 않는다.
+  **포트는 backend(:8080)가 아니라 프론트(:5173)다** — `IntegrationOAuthController.callback`이
+  `/projects/...`로 **상대 경로** 302를 돌려주므로, 브라우저는 이 콜백 요청이 도착한 origin
+  기준으로 그 경로를 해석한다. redirect URI를 :8080으로 등록하면 최종 302가
+  `localhost:8080/projects/...`로 풀려 401로 끝난다(Discord에서 실측 확정된 함정 —
+  `docs/discord-integration.md` 「확인 완료」 2). :5173으로 등록해야 하는 이유는 Vite dev
+  proxy(`vite.config.ts`)가 `/api/*`를 :8080으로 투명하게 전달하면서도 브라우저의 origin은 계속
+  :5173에 머물게 하기 때문이다 — 그래야 상대 302가 프론트 SPA로 정확히 돌아온다.
 - delegated scope (최소 권한):
 
   | scope | 용도 | admin consent |

@@ -75,12 +75,6 @@ export const sourceCatalog: SourceCatalogItem[] = [
     connect: "oauth",
     deletedData: "수집한 채널 메시지·스레드와 그 그래프",
   },
-  { id: "notion", name: "Notion", description: "문서 맥락", Mark: NotionMark, status: "planned" },
-  { id: "linear", name: "Linear", description: "이슈 맥락", Mark: LinearMark, status: "planned" },
-  { id: "asana", name: "Asana", description: "작업 맥락", Mark: AsanaMark, status: "planned" },
-  { id: "monday", name: "monday.com", description: "작업 맥락", Mark: MondayMark, status: "planned" },
-  { id: "clickup", name: "ClickUp", description: "작업 맥락", Mark: ClickUpMark, status: "planned" },
-  { id: "teams", name: "MS Teams", description: "대화 맥락", Mark: MicrosoftTeamsMark, status: "planned" },
   {
     id: "google-chat",
     name: "Google Chat",
@@ -99,6 +93,12 @@ export const sourceCatalog: SourceCatalogItem[] = [
     connect: "oauth",
     deletedData: "수집한 채널 메시지·스레드와 그 그래프, 그리고 서버에 추가된 봇",
   },
+  { id: "notion", name: "Notion", description: "문서 맥락", Mark: NotionMark, status: "planned" },
+  { id: "linear", name: "Linear", description: "이슈 맥락", Mark: LinearMark, status: "planned" },
+  { id: "asana", name: "Asana", description: "작업 맥락", Mark: AsanaMark, status: "planned" },
+  { id: "monday", name: "monday.com", description: "작업 맥락", Mark: MondayMark, status: "planned" },
+  { id: "clickup", name: "ClickUp", description: "작업 맥락", Mark: ClickUpMark, status: "planned" },
+  { id: "teams", name: "MS Teams", description: "대화 맥락", Mark: MicrosoftTeamsMark, status: "planned" },
 ];
 
 export function findSource(id: string | null | undefined): SourceCatalogItem | undefined {

@@ -232,7 +232,7 @@ Slack checkpoint는 `checkpoints` 테이블에서 `provider=slack`, `cursor_key=
 
 ## Discord
 
-상세 설계 근거(Graph API 실측 결과 포함)는 `docs/discord-integration.md` 참고. 여기서는 수집 전략만 다룬다.
+상세 설계 근거(Discord API 실측 결과 포함)는 `docs/discord-integration.md` 참고. 여기서는 수집 전략만 다룬다.
 
 ### 수집 대상
 
@@ -304,7 +304,6 @@ Slack과 마찬가지로 **채널 전체를 모으지 않고 페이지마다 발
   자동 아카이브한다).
 - **방법 선택 이유**: 활성 스레드만으로 시작하고 실사용에서 누락이 문제가 되면 확장한다 —
   `docs/discord-integration.md`의 「구현 시 확인」에 남겨둔 제품 결정이다.
-- **방법 선택 이유**: 어떤 채널에 관련 맥락이 있을지 사전에 알 수 없어 전체 채널을 대상으로 한다.
 
 ## Google Chat
 
