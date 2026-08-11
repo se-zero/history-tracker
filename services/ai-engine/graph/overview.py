@@ -78,6 +78,7 @@ def _node_query(content_pred: str, neighbor_pred: str) -> str:
 MATCH (n)
 WHERE n.project_id = $project_id
   AND ({content_pred})
+  AND NOT (n:Issue AND n.source = '__stub__')
 WITH n ORDER BY n.occurredAt DESC LIMIT $limit
 WITH collect(n) AS content
 CALL (content) {{
@@ -364,6 +365,7 @@ _RECENT_CONTENT_QUERY = f"""
 MATCH (n)
 WHERE n.project_id = $project_id
   AND ({_ALL_CONTENT_PRED})
+  AND NOT (n:Issue AND n.source = '__stub__')
 WITH n ORDER BY n.occurredAt DESC LIMIT $limit
 RETURN {_NODE_RETURN_FIELDS}
 """
@@ -374,6 +376,7 @@ def _work_unit_query(label: str) -> str:
     return f"""
 MATCH (n:{label})
 WHERE n.project_id = $project_id
+  AND NOT (n:Issue AND n.source = '__stub__')
 WITH n ORDER BY n.occurredAt DESC LIMIT $work_limit
 RETURN {_NODE_RETURN_FIELDS}
 """
@@ -492,7 +495,7 @@ CALL (h2) {{
 WITH [w] + h1 + h2 + h3 AS found
 UNWIND found AS n
 WITH DISTINCT n
-WHERE NOT n:Actor
+WHERE NOT n:Actor AND NOT (n:Issue AND n.source = '__stub__')
 WITH n LIMIT $node_limit
 RETURN {_NODE_RETURN_FIELDS}
 """

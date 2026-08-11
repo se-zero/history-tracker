@@ -14,7 +14,7 @@ async def get_changeset_context(project_id: str, hash: str) -> dict:
             MATCH (cs:ChangeSet {project_id: $project_id, hash: $hash})
             MATCH (a:Actor)-[:AUTHORED]->(cs)
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
-                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf AND i.source <> '__stub__'
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
@@ -95,7 +95,7 @@ async def get_conflict_context(project_id: str, hash: str) -> dict:
             """
             MATCH (cs:ChangeSet {project_id: $project_id, hash: $hash})
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
-                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf AND i.source <> '__stub__'
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
@@ -150,7 +150,7 @@ async def get_pr_context(project_id: str, pr_number: int) -> dict:
             OPTIONAL MATCH (pr)-[:CONTAINS]->(cs:ChangeSet)
             OPTIONAL MATCH (cs_author:Actor)-[:AUTHORED]->(cs)
             OPTIONAL MATCH (cs)-[tb:TRIGGERED_BY]->(i:Issue)
-                WHERE coalesce(tb.confidence, 1.0) >= $min_conf
+                WHERE coalesce(tb.confidence, 1.0) >= $min_conf AND i.source <> '__stub__'
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
             OPTIONAL MATCH (cs)-[m:MODIFIED]->(f:File)

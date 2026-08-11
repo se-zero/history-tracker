@@ -260,7 +260,9 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
     양끝(시작·끝)은 보존하고 가운데만 생략하므로, covered_from~covered_to를 전체 기간으로
     그대로 쓸 수 있다. 다만 **중간 사건**은 빠졌을 수 있으니, 중간 흐름이 필요하면 truncated
     안내대로 from_time/to_time으로 구간을 좁혀 다시 호출한다.
-  - scope.candidates가 있으면 경로가 모호한 것이니 후보 중 하나로 재호출한다.
+  - scope.candidates가 있으면 스코프가 모호한 것이니(path 스코프는 경로, issue_key 스코프는
+    같은 키가 여러 이슈 트래커에 걸침) 후보 중 하나로 재호출한다. issue_key 스코프의 candidates는
+    source를 지정해 재호출하고, 문맥상 특정이 안 되면 후보(소스 포함)를 사용자에게 제시해 되묻는다.
     scope.resolved_path가 있으면 인용에 그 값을 쓴다(추정한 path 금지).
 
 [파일 경로 모호 처리]
@@ -268,6 +270,14 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - 결과에 '_resolved_via' = 'basename_match' 또는 'stem_match'이 있으면, evidence 또는 summary의
   파일 경로 인용에 LLM이 추정한 path가 아니라 '_resolved_path' 값을 사용하세요.
 - 파일명 확장자를 모르면 확장자 없이 호출해도 됨 (자동 stem 매칭).
+
+[이슈 키 모호 처리 — get_issue_context · get_timeline(issue_key 스코프)]
+- 결과에 'candidates' 필드가 있으면, 같은 이슈 키가 여러 이슈 트래커(source)에 걸쳐 있다는
+  뜻이다. candidates는 {source, issue_key, title, status} 목록.
+- 질문 문맥(제목·이전 대화에서 언급된 트래커명 등)으로 어느 source인지 특정할 수 있으면,
+  그 source로 같은 도구를 재호출하세요.
+- 특정할 수 없으면 넘겨짚지 말고, candidates를 사용자에게 제시해 어느 트래커의 이슈인지
+  되물으세요.
 
 [2계층 결과 처리 — get_file_history · get_actor_activity]
 - 이 도구들의 결과는 {detail:[...], context:[...]} 2계층이다. detail은 본문 포함(인용 대상),

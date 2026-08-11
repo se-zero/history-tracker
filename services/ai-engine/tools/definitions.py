@@ -15,7 +15,16 @@ TOOLS = [
                     "issue_key": {
                         "type": "string",
                         "description": "이슈 트래커의 사람용 키 (예: HT-12)",
-                    }
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "이슈 트래커 소스(예: JIRA, LINEAR). 여러 이슈 트래커가 연동된 "
+                            "프로젝트에서 같은 issue_key가 트래커마다 겹칠 때만 지정한다. "
+                            "생략했는데 후보가 둘 이상이면 결과가 {message, candidates}로 오니, "
+                            "candidates 중 하나의 source로 재호출한다."
+                        ),
+                    },
                 },
                 "required": ["issue_key"],
             },
@@ -103,6 +112,16 @@ TOOLS = [
                     "to_time": {
                         "type": "string",
                         "description": "조회 종료 시각 ISO-8601. 생략 시 끝까지",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "issue_key 스코프 전용. 이슈 트래커 소스(예: JIRA, LINEAR). "
+                            "여러 이슈 트래커가 연동된 프로젝트에서 같은 issue_key가 트래커마다 "
+                            "겹칠 때만 지정한다. 생략했는데 후보가 둘 이상이면 결과가 "
+                            "{scope: {..., message, candidates}}로 오니, candidates 중 하나의 "
+                            "source로 재호출한다."
+                        ),
                     },
                 },
                 "required": [],

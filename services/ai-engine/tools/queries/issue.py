@@ -40,12 +40,44 @@ def _first_line(text: str | None, cap: int) -> str | None:
         return None
     return text.splitlines()[0][:cap] or None
 
-async def get_issue_context(project_id: str, issue_key: str) -> dict:
+async def _resolve_issue_root(
+    session, project_id: str, issue_key: str, source: str | None
+) -> list[dict]:
+    """issue_key로 매칭되는 실 Issue 후보를 소스별로 전수 조회한다.
+
+    Issue 유니크 키가 (project_id, source, external_id)로 바뀌면서 같은 프로젝트에 다른
+    트래커(JIRA/LINEAR 등)의 동일 issue_key가 공존할 수 있다. 호출부는 이 결과 건수로
+    "유일하게 해석됐는지 / 모호한지 / 없는지"를 판단한다. source가 주어지면 대문자로
+    정규화해 그 소스로만 좁힌다 (저장값이 "JIRA"/"LINEAR" 대문자).
+    """
+    params = {"project_id": project_id, "issue_key": issue_key}
+    query = (
+        "MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key}) "
+        "WHERE i.source <> '__stub__'"
+    )
+    if source:
+        query += " AND i.source = $source"
+        params["source"] = source.upper()
+    query += (
+        " RETURN i.source AS source, i.issue_key AS issue_key, "
+        "i.title AS title, i.status AS status"
+    )
+    result = await session.run(query, **params)
+    return await result.data()
+
+
+async def get_issue_context(project_id: str, issue_key: str, source: str | None = None) -> dict:
     """이슈 단일 키로 직속 작업 + 자식 이슈 작업까지 모두 집계해서 반환.
 
     진입 Issue를 project_id로 스코프한다 — issue_key는 프로젝트 간 충돌하므로 필수.
     여기서 도달하는 ChangeSet/PR/Communication/자식 Issue는 프로젝트 내부 엣지로만
     연결되므로(Phase A 보장) 추가 스코프 불필요.
+
+    Issue 유니크 키가 (project_id, source, external_id)로 바뀌면서 같은 프로젝트에 다른
+    이슈 트래커(JIRA·LINEAR 등)의 issue_key가 우연히 겹칠 수 있다. source 없이 호출했는데
+    후보가 둘 이상이면 실제 조회 대신 {candidates, message}를 반환하니, candidates 중
+    하나의 source로 다시 호출한다. 후보가 1건이면 그 source로 스코프해 기존과 동일한
+    구조를 반환한다(하위 호환).
 
     반환 구조:
       {
@@ -65,11 +97,21 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
       - CHILD_OF 재귀 깊이 상한 _CHILD_DEPTH
     """
     async with get_driver().session() as session:
+        candidates = await _resolve_issue_root(session, project_id, issue_key, source)
+        if not candidates:
+            return {"message": f"이슈를 찾을 수 없습니다: {issue_key}"}
+        if len(candidates) > 1:
+            return {
+                "candidates": candidates,
+                "message": "이 키에 해당하는 이슈가 여러 소스에 있습니다. source를 지정해 다시 호출하세요.",
+            }
+        resolved_source = candidates[0]["source"]
+
         # 1단계: 이슈 + creator + assignee
         result = await session.run(
             """
             MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
-            WHERE i.source <> '__stub__'
+            WHERE i.source <> '__stub__' AND i.source = $source
             OPTIONAL MATCH (creator:Actor)-[:CREATED]->(i)
             OPTIONAL MATCH (assignee:Actor)<-[:ASSIGNED_TO]-(i)
             RETURN i.issue_key AS issue_key, i.title AS title, i.body AS body,
@@ -79,6 +121,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
             """,
             project_id=project_id,
             issue_key=issue_key,
+            source=resolved_source,
         )
         row = await result.single()
         if not row:
@@ -89,7 +132,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
         result = await session.run(
             f"""
             MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
-            WHERE root.source <> '__stub__'
+            WHERE root.source <> '__stub__' AND root.source = $source
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH root, collect(DISTINCT desc) AS descs
             UNWIND ([root] + descs) AS i
@@ -98,6 +141,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
             """,
             project_id=project_id,
             issue_key=issue_key,
+            source=resolved_source,
         )
         scope_issues = await result.data()  # 첫 항목이 root, 이후가 descendants
 
@@ -105,7 +149,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
         result = await session.run(
             f"""
             MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
-            WHERE root.source <> '__stub__'
+            WHERE root.source <> '__stub__' AND root.source = $source
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
             UNWIND issues_raw AS i
@@ -129,6 +173,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
             """,
             project_id=project_id,
             issue_key=issue_key,
+            source=resolved_source,
             min_conf=_MIN_CONFIDENCE,
         )
         work_rows = {r["issue_key"]: r for r in await result.data()}
@@ -137,7 +182,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
         result = await session.run(
             f"""
             MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
-            WHERE root.source <> '__stub__'
+            WHERE root.source <> '__stub__' AND root.source = $source
             OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
             WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
             UNWIND issues_raw AS i
@@ -155,6 +200,7 @@ async def get_issue_context(project_id: str, issue_key: str) -> dict:
             """,
             project_id=project_id,
             issue_key=issue_key,
+            source=resolved_source,
         )
         disc_rows = {r["issue_key"]: r["discussions"] for r in await result.data()}
 
@@ -266,12 +312,17 @@ async def get_timeline(
     actor: str | None = None,
     from_time: str | None = None,
     to_time: str | None = None,
+    source: str | None = None,
 ) -> dict:
     """시간순 이벤트를 스코프별로 반환한다.
 
     스코프 우선순위: issue_key > path > actor > (전부 생략 시) 프로젝트 전체.
     from_time/to_time은 어느 스코프와도 조합 가능하며 **이벤트 단위**로 적용된다 —
     노드 단위로 자르면 창 이전에 생성돼 창 안에서 종료된 이슈의 종료 이벤트를 잃는다.
+
+    source는 issue_key 스코프에서만 쓰인다 — 같은 issue_key가 다른 이슈 트래커(JIRA·LINEAR 등)에
+    걸쳐 있을 때 좁히는 용도다. 지정 없이 후보가 둘 이상이면 scope에 candidates가 실려
+    반환되니(get_issue_context와 동일 정책), 후보 중 하나의 source로 다시 호출한다.
 
     각 이벤트에는 event_meaning 라벨이 붙어 LLM이 occurredAt만 보고 생성/완료/머지를
     추정하지 않는다 (매핑 단일 출처는 _common.EVENT_SPECS).
@@ -287,7 +338,7 @@ async def get_timeline(
     """
     async with get_driver().session() as session:
         if issue_key:
-            scope, events = await _issue_events(session, project_id, issue_key)
+            scope, events = await _issue_events(session, project_id, issue_key, source)
         elif path:
             scope, events = await _path_events(session, project_id, path)
         elif actor:
@@ -431,7 +482,9 @@ def _issue_lifecycle_events(rows: list[dict]) -> list[dict]:
     ]
 
 
-async def _issue_events(session, project_id: str, issue_key: str) -> tuple[dict, list[dict] | None]:
+async def _issue_events(
+    session, project_id: str, issue_key: str, source: str | None = None
+) -> tuple[dict, list[dict] | None]:
     """이슈 스코프 — 이슈 생명주기 + 연결된 커밋·PR·논의.
 
     **CHILD_OF 자식 이슈까지 포함**한다 (get_issue_context와 같은 범위). epic 아래
@@ -442,10 +495,25 @@ async def _issue_events(session, project_id: str, issue_key: str) -> tuple[dict,
     scope에 **root 이슈의 created_at/closed_at**을 실어 준다 — "이 이슈 얼마 동안 진행됐어"의
     권위 있는 답은 이벤트 목록(잘릴 수 있음)이 아니라 이슈 노드의 생애 속성이다. 잘림과
     무관하게 기간을 정확히 계산하게 한다(HT-3 41일 오답 방지).
+
+    같은 issue_key가 다른 트래커(source)에도 있으면 _resolve_issue_root로 먼저 후보를 가려낸다
+    — 후보가 둘 이상이면 candidates를 scope에 실어 반환하고(events=None) 본문 쿼리는 건너뛴다.
     """
+    candidates = await _resolve_issue_root(session, project_id, issue_key, source)
+    if not candidates:
+        return {"type": "issue", "value": issue_key}, None
+    if len(candidates) > 1:
+        return {
+            "type": "issue", "value": issue_key,
+            "candidates": candidates,
+            "message": "이 키에 해당하는 이슈가 여러 소스에 있습니다. source를 지정해 다시 호출하세요.",
+        }, None
+    resolved_source = candidates[0]["source"]
+
     result = await session.run(
         f"""
         MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
+        WHERE root.source <> '__stub__' AND root.source = $source
         OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
         WITH root, collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
         UNWIND issues_raw AS i
@@ -471,7 +539,7 @@ async def _issue_events(session, project_id: str, issue_key: str) -> tuple[dict,
                    pr_number: pr.pr_number, title: pr.title, url: pr.url
                }}) AS pull_requests
         """,
-        project_id=project_id, issue_key=issue_key, min_conf=_MIN_CONFIDENCE,
+        project_id=project_id, issue_key=issue_key, source=resolved_source, min_conf=_MIN_CONFIDENCE,
     )
     row = await result.single()
     if not row or not row["issues"] or not any(i.get("issue_key") for i in row["issues"]):
@@ -494,6 +562,7 @@ async def _issue_events(session, project_id: str, issue_key: str) -> tuple[dict,
     result2 = await session.run(
         f"""
         MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
+        WHERE root.source <> '__stub__' AND root.source = $source
         OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
         WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
         UNWIND issues_raw AS i
@@ -505,7 +574,7 @@ async def _issue_events(session, project_id: str, issue_key: str) -> tuple[dict,
             conversation_id: c.conversation_id
         }}) AS communications
         """,
-        project_id=project_id, issue_key=issue_key,
+        project_id=project_id, issue_key=issue_key, source=resolved_source,
     )
     row2 = await result2.single()
     if row2:
