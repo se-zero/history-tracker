@@ -9,6 +9,8 @@ import com.history.backend.linear.dto.LinearTeamsQueryResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -55,6 +57,9 @@ public class LinearApiClient {
                     .retrieve()
                     .body(LinearTeamsQueryResponse.class);
         } catch (RestClientResponseException exception) {
+            if (isTransientFailure(exception)) {
+                throw new BadGatewayException("Linear team list request failed.", exception);
+            }
             log.warn("Linear team list request failed. status={}", exception.getStatusCode());
             throw new UnauthorizedException("Invalid Linear access token.");
         } catch (RestClientException exception) {
@@ -73,6 +78,11 @@ public class LinearApiClient {
         return response.data().teams().nodes().stream()
                 .map(node -> new LinearTeam(node.id(), node.name()))
                 .toList();
+    }
+
+    private static boolean isTransientFailure(RestClientResponseException exception) {
+        HttpStatusCode status = exception.getStatusCode();
+        return status.equals(HttpStatus.TOO_MANY_REQUESTS) || status.is5xxServerError();
     }
 
     public record LinearTeam(String id, String name) {

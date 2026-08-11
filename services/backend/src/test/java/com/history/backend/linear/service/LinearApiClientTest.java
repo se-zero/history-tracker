@@ -9,7 +9,9 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withTooManyRequests;
 
 import java.util.List;
 
@@ -66,6 +68,30 @@ class LinearApiClientTest {
 
         assertThatThrownBy(() -> fixture.client.listTeams("bad-token"))
                 .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("HTTP 429(rate limit) 응답 → BadGatewayException 발생 (일시 장애, 토큰 무효 오진단 방지)")
+    void listTeamsRejectsTooManyRequestsAsBadGateway() {
+        LinearApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.linear.app/graphql"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listTeams("linear-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("HTTP 5xx 응답 → BadGatewayException 발생")
+    void listTeamsRejectsServerErrorAsBadGateway() {
+        LinearApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.linear.app/graphql"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.listTeams("linear-access-token"))
+                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 

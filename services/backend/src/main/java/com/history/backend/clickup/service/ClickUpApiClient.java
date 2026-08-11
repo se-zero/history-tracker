@@ -11,6 +11,8 @@ import com.history.backend.common.error.UnauthorizedException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -42,6 +44,9 @@ public class ClickUpApiClient {
                     .retrieve()
                     .body(ClickUpTeamListResponse.class);
         } catch (RestClientResponseException exception) {
+            if (isTransientFailure(exception)) {
+                throw new BadGatewayException("ClickUp workspace list request failed.", exception);
+            }
             log.warn("ClickUp workspace list request failed. status={}", exception.getStatusCode());
             throw new UnauthorizedException("Invalid ClickUp access token.");
         } catch (RestClientException exception) {
@@ -67,6 +72,9 @@ public class ClickUpApiClient {
                     .retrieve()
                     .body(ClickUpSpaceListResponse.class);
         } catch (RestClientResponseException exception) {
+            if (isTransientFailure(exception)) {
+                throw new BadGatewayException("ClickUp space list request failed.", exception);
+            }
             log.warn("ClickUp space list request failed. status={}", exception.getStatusCode());
             throw new UnauthorizedException("Invalid ClickUp access token.");
         } catch (RestClientException exception) {
@@ -92,6 +100,9 @@ public class ClickUpApiClient {
                     .retrieve()
                     .body(ClickUpFolderListResponse.class);
         } catch (RestClientResponseException exception) {
+            if (isTransientFailure(exception)) {
+                throw new BadGatewayException("ClickUp folder list request failed.", exception);
+            }
             log.warn("ClickUp folder list request failed. status={}", exception.getStatusCode());
             throw new UnauthorizedException("Invalid ClickUp access token.");
         } catch (RestClientException exception) {
@@ -117,6 +128,9 @@ public class ClickUpApiClient {
                     .retrieve()
                     .body(ClickUpListsResponse.class);
         } catch (RestClientResponseException exception) {
+            if (isTransientFailure(exception)) {
+                throw new BadGatewayException("ClickUp folder list-of-lists request failed.", exception);
+            }
             log.warn("ClickUp folder list-of-lists request failed. status={}", exception.getStatusCode());
             throw new UnauthorizedException("Invalid ClickUp access token.");
         } catch (RestClientException exception) {
@@ -142,6 +156,9 @@ public class ClickUpApiClient {
                     .retrieve()
                     .body(ClickUpListsResponse.class);
         } catch (RestClientResponseException exception) {
+            if (isTransientFailure(exception)) {
+                throw new BadGatewayException("ClickUp folderless list-of-lists request failed.", exception);
+            }
             log.warn("ClickUp folderless list-of-lists request failed. status={}", exception.getStatusCode());
             throw new UnauthorizedException("Invalid ClickUp access token.");
         } catch (RestClientException exception) {
@@ -154,6 +171,11 @@ public class ClickUpApiClient {
         return response.lists().stream()
                 .map(item -> new ClickUpList(item.id(), item.name()))
                 .toList();
+    }
+
+    private static boolean isTransientFailure(RestClientResponseException exception) {
+        HttpStatusCode status = exception.getStatusCode();
+        return status.equals(HttpStatus.TOO_MANY_REQUESTS) || status.is5xxServerError();
     }
 
     public record ClickUpWorkspace(String id, String name) {

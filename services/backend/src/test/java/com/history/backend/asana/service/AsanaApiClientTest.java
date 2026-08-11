@@ -7,7 +7,9 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withTooManyRequests;
 
 import java.util.List;
 
@@ -63,6 +65,30 @@ class AsanaApiClientTest {
     }
 
     @Test
+    @DisplayName("워크스페이스 목록 조회 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (일시 장애, 토큰 무효 오진단 방지)")
+    void listWorkspacesRejectsTooManyRequestsAsBadGateway() {
+        AsanaApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://app.asana.com/api/1.0/workspaces?limit=100"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listWorkspaces("asana-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("워크스페이스 목록 조회 HTTP 5xx 응답 → BadGatewayException 발생")
+    void listWorkspacesRejectsServerErrorAsBadGateway() {
+        AsanaApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://app.asana.com/api/1.0/workspaces?limit=100"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.listWorkspaces("asana-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("워크스페이스 목록 응답에 data 누락 → BadGatewayException 발생")
     void listWorkspacesRejectsMissingData() {
         AsanaApiClientFixture fixture = fixture();
@@ -110,6 +136,32 @@ class AsanaApiClientTest {
 
         assertThatThrownBy(() -> fixture.client.listProjects("ws-1", "bad-token"))
                 .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("프로젝트 목록 조회 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (일시 장애, 토큰 무효 오진단 방지)")
+    void listProjectsRejectsTooManyRequestsAsBadGateway() {
+        AsanaApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(
+                        "https://app.asana.com/api/1.0/projects?workspace=ws-1&archived=false&limit=100"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listProjects("ws-1", "asana-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("프로젝트 목록 조회 HTTP 5xx 응답 → BadGatewayException 발생")
+    void listProjectsRejectsServerErrorAsBadGateway() {
+        AsanaApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(
+                        "https://app.asana.com/api/1.0/projects?workspace=ws-1&archived=false&limit=100"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.listProjects("ws-1", "asana-access-token"))
+                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 

@@ -174,6 +174,22 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
+    @DisplayName("checkpoints provider 허용되지 않는 값 거부")
+    void checkpointProviderRejectsUnexpectedValue() {
+        UUID ownerId = insertUser("owner11@example.com");
+        UUID projectId = insertProject(ownerId);
+
+        // CHECK 제약(chk_checkpoints_provider)이 provider 이름 오타를 잡는 안전망이다 —
+        // 없으면 오타 provider가 조용히 저장돼 수집기가 영영 그 체크포인트를 못 찾는다.
+        assertThatThrownBy(() -> insertCheckpoint(
+                projectId,
+                "__invalid__",
+                "some_cursor",
+                Instant.parse("2024-01-03T00:00:00Z")
+        )).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
     @DisplayName("프로젝트 삭제 시 체크포인트 cascade 삭제")
     void deletingProjectCascadesCheckpoints() {
         UUID ownerId = insertUser("owner9@example.com");

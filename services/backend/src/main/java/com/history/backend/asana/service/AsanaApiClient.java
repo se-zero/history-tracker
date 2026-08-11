@@ -8,6 +8,8 @@ import com.history.backend.common.error.UnauthorizedException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -38,6 +40,9 @@ public class AsanaApiClient {
                     .retrieve()
                     .body(AsanaListResponse.class);
         } catch (RestClientResponseException exception) {
+            if (isTransientFailure(exception)) {
+                throw new BadGatewayException("Asana workspace list request failed.", exception);
+            }
             log.warn("Asana workspace list request failed. status={}", exception.getStatusCode());
             throw new UnauthorizedException("Invalid Asana access token.");
         } catch (RestClientException exception) {
@@ -63,6 +68,9 @@ public class AsanaApiClient {
                     .retrieve()
                     .body(AsanaListResponse.class);
         } catch (RestClientResponseException exception) {
+            if (isTransientFailure(exception)) {
+                throw new BadGatewayException("Asana project list request failed.", exception);
+            }
             log.warn("Asana project list request failed. status={}", exception.getStatusCode());
             throw new UnauthorizedException("Invalid Asana access token.");
         } catch (RestClientException exception) {
@@ -75,6 +83,11 @@ public class AsanaApiClient {
         return response.data().stream()
                 .map(item -> new AsanaProject(item.gid(), item.name()))
                 .toList();
+    }
+
+    private static boolean isTransientFailure(RestClientResponseException exception) {
+        HttpStatusCode status = exception.getStatusCode();
+        return status.equals(HttpStatus.TOO_MANY_REQUESTS) || status.is5xxServerError();
     }
 
     public record AsanaWorkspace(String gid, String name) {

@@ -7,10 +7,13 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withTooManyRequests;
 
 import java.util.List;
 
+import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,6 +66,30 @@ class ClickUpApiClientTest {
     }
 
     @Test
+    @DisplayName("워크스페이스 목록 조회 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (일시 장애, 토큰 무효 오진단 방지)")
+    void listWorkspacesRejectsTooManyRequestsAsBadGateway() {
+        ClickUpApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.clickup.com/api/v2/team"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listWorkspaces("clickup-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("워크스페이스 목록 조회 HTTP 5xx 응답 → BadGatewayException 발생")
+    void listWorkspacesRejectsServerErrorAsBadGateway() {
+        ClickUpApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.clickup.com/api/v2/team"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.listWorkspaces("clickup-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("스페이스 목록 조회 성공 → Bearer 헤더로 GET /team/{id}/space, spaces 언래핑해 목록 반환")
     void listSpacesReturnsSpaceListForTeam() {
         ClickUpApiClientFixture fixture = fixture();
@@ -96,6 +123,18 @@ class ClickUpApiClientTest {
 
         assertThatThrownBy(() -> fixture.client.listSpaces("team-1", "bad-token"))
                 .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("스페이스 목록 조회 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (일시 장애, 토큰 무효 오진단 방지)")
+    void listSpacesRejectsTooManyRequestsAsBadGateway() {
+        ClickUpApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.clickup.com/api/v2/team/team-1/space"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listSpaces("team-1", "clickup-access-token"))
+                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 
@@ -137,6 +176,18 @@ class ClickUpApiClientTest {
     }
 
     @Test
+    @DisplayName("폴더 목록 조회 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (일시 장애, 토큰 무효 오진단 방지)")
+    void listFoldersRejectsTooManyRequestsAsBadGateway() {
+        ClickUpApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.clickup.com/api/v2/space/space-1/folder"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listFolders("space-1", "clickup-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("폴더 안 리스트 목록 조회 성공 → Bearer 헤더로 GET /folder/{id}/list, lists 언래핑해 목록 반환")
     void listFolderListsReturnsListsForFolder() {
         ClickUpApiClientFixture fixture = fixture();
@@ -174,6 +225,18 @@ class ClickUpApiClientTest {
     }
 
     @Test
+    @DisplayName("폴더 안 리스트 목록 조회 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (일시 장애, 토큰 무효 오진단 방지)")
+    void listFolderListsRejectsTooManyRequestsAsBadGateway() {
+        ClickUpApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.clickup.com/api/v2/folder/folder-1/list"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listFolderLists("folder-1", "clickup-access-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("폴더 없는(folderless) 리스트 목록 조회 성공 → Bearer 헤더로 GET /space/{id}/list, lists 언래핑해 목록 반환")
     void listFolderlessListsReturnsListsForSpace() {
         ClickUpApiClientFixture fixture = fixture();
@@ -203,6 +266,18 @@ class ClickUpApiClientTest {
 
         assertThatThrownBy(() -> fixture.client.listFolderlessLists("space-1", "bad-token"))
                 .isInstanceOf(UnauthorizedException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("폴더 없는(folderless) 리스트 목록 조회 HTTP 429(rate limit) 응답 → BadGatewayException 발생 (일시 장애, 토큰 무효 오진단 방지)")
+    void listFolderlessListsRejectsTooManyRequestsAsBadGateway() {
+        ClickUpApiClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.clickup.com/api/v2/space/space-1/list"))
+                .andRespond(withTooManyRequests());
+
+        assertThatThrownBy(() -> fixture.client.listFolderlessLists("space-1", "clickup-access-token"))
+                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 
