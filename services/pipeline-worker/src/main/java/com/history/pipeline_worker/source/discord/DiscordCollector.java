@@ -55,6 +55,14 @@ public class DiscordCollector implements SourceCollector {
     // 여기서 복호화하지 않는다. 자격증명은 이 worker 설정의 봇 토큰뿐이다.
     @Override
     public Optional<RawFetchRequest> resolveFetchRequest(ProjectIntegrationRepository.IntegrationRow integration) {
+        // botToken은 이 worker 자신의 설정이라 guild_id처럼 행마다 다르지 않다 — 누락이면 이
+        // 배포 전체가 대상이므로 개별 external_ref보다 먼저 확인한다. application.yaml의
+        // ${DISCORD_BOT_TOKEN:} 기본값이 빈 문자열이라, 여기서 막지 않으면 AuthHeaders.bot("")이
+        // "Bot "(트레일링 스페이스뿐인) 헤더로 조용히 요청을 만들고 수집 시점 401로만 드러난다 —
+        // guild_id 누락은 여기서 즉시 예외인 것과 비대칭이라 fail-fast로 맞춘다.
+        if (botToken == null || botToken.isBlank()) {
+            throw new IllegalStateException("Missing app.discord.bot-token (DISCORD_BOT_TOKEN) configuration.");
+        }
         Object guildId = integration.externalRef().get(GUILD_ID_KEY);
         if (!(guildId instanceof String id) || id.isBlank()) {
             throw new IllegalStateException("Missing guild_id for provider: " + integration.provider());

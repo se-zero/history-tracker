@@ -140,6 +140,8 @@ Slack(`auth.revoke`)과 Jira(refresh token 폐기)는 자격증명만으로 폐�
 ```java
 // 수집 주체는 앱 수준 봇이다 — 행의 사용자 OAuth 토큰은 해제 시 grant 폐기용이라 여기서 쓰지 않는다.
 Optional<RawFetchRequest> resolveFetchRequest(IntegrationRow integration) {
+    // botToken 누락(빈 문자열) — 없으면 IllegalStateException. guild_id보다 먼저 본다: worker 자신의
+    // 설정이라 행마다 다르지 않고, 누락이면 이 배포 전체가 대상이기 때문이다.
     String guildId = /* external_ref.guild_id — 없으면 IllegalStateException */;
     return Optional.of(new RawFetchRequest("Bot " + botToken, guildId, Map.of()));
 }
@@ -149,7 +151,11 @@ Optional<RawFetchRequest> resolveFetchRequest(IntegrationRow integration) {
 `encrypted_credential`을 복호화하지 않는 유일한 커넥터다 — `botToken`은 `DiscordCollector` 생성자가
 `@Value("${app.discord.bot-token}")`로 worker 자신의 설정에서 직접 받는다(DB 조회가 아니다).
 `DISCORD_BOT_TOKEN`은 backend·pipeline-worker 두 docker-compose 블록에 동일하게 forward한다 —
-backend는 해제 시 길드 퇴장에, worker는 수집에 쓴다.
+backend는 해제 시 길드 퇴장에, worker는 수집에 쓴다. **양쪽에 각자 설정해야 하는 특이 케이스라 한쪽만
+빠뜨리는 실수가 나오기 쉽다.** worker 쪽이 빠지면 `application.yaml`의 `${DISCORD_BOT_TOKEN:}` 기본값이
+빈 문자열이라, 여기서 막지 않으면 `AuthHeaders.bot("")`이 `"Bot "`(트레일링 스페이스뿐인) 헤더로 조용히
+요청을 만들고 실패가 수집 시점 401로만 드러난다 — `guild_id` 누락은 여기서 즉시 예외인 것과 비대칭이라
+`resolveFetchRequest`에서 fail-fast로 맞췄다(`resolveSafely`가 삼켜 이 provider만 건너뛴다, §4 위 참고).
 
 ### 수집 흐름
 

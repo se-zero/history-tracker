@@ -69,6 +69,18 @@ class DiscordCollectorTest {
     }
 
     @Test
+    @DisplayName("봇 토큰이 빈 문자열이면(application.yaml의 ${DISCORD_BOT_TOKEN:} 기본값) guild_id가 있어도 즉시 예외 — 수집 시점 401로 미루지 않는다")
+    void resolveFetchRequest_blankBotToken_throwsConfigurationErrorImmediately() {
+        DiscordCollector collectorWithoutToken =
+                new DiscordCollector(rawService, normalizer, eventPublisher, checkpointService, "");
+
+        assertThatThrownBy(() -> collectorWithoutToken.resolveFetchRequest(discordRow(Map.of("guild_id", "G1"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("bot-token");
+        verifyNoInteractions(rawService);
+    }
+
+    @Test
     @DisplayName("채널별로 발행하고 전체 최대 occurredAt으로 커서를 한 번 갱신한다")
     void collect_publishesPerChannelAndAdvancesCursorOnce() {
         RawFetchRequest request = new RawFetchRequest("Bot test-bot-token", "G1", Map.of());
