@@ -9,8 +9,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -93,37 +91,49 @@ public class DiscordRawService {
         return channels;
     }
 
+    public record DiscordMessagePage(List<Map<String, Object>> messages, String nextCursor) {}
+
     /**
-     * 체크포인트 이후 새 메시지 전체를 수집한다. {@code after}는 항상 최신부터 내림차순으로 채우므로
-     * (실측 확정 — docs/discord-integration.md 「확인 완료」), 체크포인트 이후 메시지가 페이지 크기(100)를
-     * 넘으면 1회 호출로 못 받는다. 가득 찬 페이지를 받으면 그 배치의 가장 오래된 id로 {@code before}로
-     * 바꿔 체크포인트에 닿을 때까지 내려간다 — {@code before}·{@code after}·{@code around}가 상호
-     * 배타적이라 한 호출에 섞을 수 없다.
+     * 채널 메시지를 <b>한 페이지</b> 받는다. {@code cursor}가 {@code null}이면 체크포인트에서 시작하고,
+     * 이후에는 직전 페이지의 {@code nextCursor}를 그대로 넘긴다. {@code nextCursor}가 {@code null}이면
+     * 그 채널은 끝이다.
+     * <p>
+     * {@code after}는 커서 바로 다음부터 앞으로 전진하며 채운다 — 백로그가 페이지 크기(100)를 넘으면
+     * <b>가장 오래된 쪽 100개</b>가 먼저 오고, 최신→과거 내림차순은 배치 <b>안쪽</b> 정렬일 뿐이다
+     * (실측 확정 — docs/discord-integration.md 「확인 완료」 4). 따라서 가득 찬 페이지를 받으면 그 배치의
+     * 가장 큰 id가 다음 커서가 된다. 서버가 커서 이후만 걸러 주므로 클라이언트 경계 필터링은 필요 없다.
+     * <p>
+     * 채널 전체를 모아 반환하지 않는 이유는 Slack과 같다 — 발행 배치와 메모리 점유가 채널 크기에
+     * 비례하면 큰 채널에서 confirm 타임아웃으로 영구 실패한다. 호출부가 페이지마다 발행한다.
      */
-    public List<Map<String, Object>> fetchChannelMessages(DiscordFetchContext context, Map<String, Object> channel) {
+    public DiscordMessagePage fetchMessagePage(DiscordFetchContext context, Map<String, Object> channel, String cursor) {
         String channelId = (String) channel.get("id");
-        Instant checkpoint = context.lastScannedAt();
+        String after = cursor == null ? afterCursor(context.lastScannedAt()) : cursor;
 
-        List<Map<String, Object>> collected = new ArrayList<>();
-        List<Map<String, Object>> page = fetchMessagesPage(context.auth(), channelId, "after", afterCursor(checkpoint));
-        collected.addAll(page);
+        List<Map<String, Object>> page = requestMessages(context.auth(), channelId, after);
 
-        while (page.size() == PAGE_SIZE) {
-            String oldestId = lastMessageId(page);
-            if (checkpoint != null && !snowflakeToInstant(oldestId).isAfter(checkpoint)) {
-                break;
+        String nextCursor = null;
+        if (page.size() >= PAGE_SIZE) {
+            // 다음 커서는 노이즈 필터 이전 원본에서 뽑는다 — 100건이 전부 봇/시스템 메시지인 페이지에서
+            // 필터 결과로 커서를 정하면 전진하지 못해 같은 페이지를 무한히 다시 받는다.
+            nextCursor = maxMessageId(page);
+            if (!advances(nextCursor, after)) {
+                // after가 커서 자신을 제외하므로 여기 도달하면 안 된다. 다만 이 코드는 이미 한 번 Discord의
+                // 커서 의미를 잘못 읽은 적이 있어(「확인 완료」 4) 방어한다. 조용히 그 채널만 끊으면
+                // 다른 채널이 공용 커서를 전진시켜 남은 구간이 영구 누락된다 — 그게 이번에 고친 버그다.
+                // 그래서 예외로 올려 checkpoint 전체를 멈춘다(계약: 전진하지 않아야 다음 수집에서 재시도).
+                throw new IllegalStateException(
+                        "Discord 커서가 전진하지 않는다 — channelId=" + channelId
+                                + ", after=" + after + ", maxId=" + nextCursor);
             }
-            page = fetchMessagesPage(context.auth(), channelId, "before", oldestId);
-            collected.addAll(filterAfterCheckpoint(page, checkpoint));
         }
-
-        return filterNoise(collected);
+        return new DiscordMessagePage(filterNoise(page), nextCursor);
     }
 
-    private List<Map<String, Object>> fetchMessagesPage(String auth, String channelId, String cursorParam, String cursorValue) {
+    private List<Map<String, Object>> requestMessages(String auth, String channelId, String afterCursor) {
         List<Map<String, Object>> page = executeWithRateLimitRetry(() -> webClient.get()
-                .uri("/channels/{channelId}/messages?limit=" + PAGE_SIZE + "&" + cursorParam + "={cursorValue}",
-                        channelId, cursorValue)
+                .uri("/channels/{channelId}/messages?limit=" + PAGE_SIZE + "&after={afterCursor}",
+                        channelId, afterCursor)
                 .header("Authorization", auth)
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
@@ -149,34 +159,29 @@ public class DiscordRawService {
         return entry;
     }
 
-    private static String lastMessageId(List<Map<String, Object>> page) {
-        return (String) page.get(page.size() - 1).get("id");
-    }
-
-    // before로 받은 배치는 서버가 체크포인트를 모르므로, 경계에 걸친 메시지를 직접 걸러낸다
-    private static List<Map<String, Object>> filterAfterCheckpoint(List<Map<String, Object>> page, Instant checkpoint) {
-        if (checkpoint == null) {
-            return page;
-        }
-        List<Map<String, Object>> filtered = new ArrayList<>();
+    // 다음 커서는 배치의 최대 id다. 응답 정렬(최신→과거)에 기대 첫 원소를 집지 않는다 — 정렬을
+    // 선택 구간으로 오해한 것이 애초 페이지네이션 버그의 원인이었다. max는 순서와 무관하고 비용도 없다.
+    private static String maxMessageId(List<Map<String, Object>> page) {
+        String max = null;
         for (Map<String, Object> message : page) {
-            Instant timestamp = parseMessageTimestamp(message);
-            if (timestamp != null && timestamp.isAfter(checkpoint)) {
-                filtered.add(message);
+            if (message.get("id") instanceof String id && advances(id, max)) {
+                max = id;
             }
         }
-        return filtered;
+        return max;
     }
 
-    private static Instant parseMessageTimestamp(Map<String, Object> message) {
-        Object timestamp = message.get("timestamp");
-        if (!(timestamp instanceof String text)) {
-            return null;
+    // candidate가 current보다 뒤인가. current가 null이면 첫 후보라 참. snowflake로 못 읽으면 거짓 —
+    // 판단이 안 서면 전진하지 않는 쪽이 안전하다(무한 루프 대신 멈춘다).
+    private static boolean advances(String candidate, String current) {
+        if (candidate == null) {
+            return false;
         }
         try {
-            return OffsetDateTime.parse(text).toInstant();
-        } catch (DateTimeParseException exception) {
-            return null;
+            long value = Long.parseLong(candidate);
+            return current == null || value > Long.parseLong(current);
+        } catch (NumberFormatException exception) {
+            return false;
         }
     }
 
@@ -205,11 +210,6 @@ public class DiscordRawService {
     // 생성된 실제 id보다 작거나 같아 "그 시각 이후 전부"를 놓치지 않는 경계값이 된다.
     static String instantToSnowflake(Instant instant) {
         return Long.toString((instant.toEpochMilli() - DISCORD_EPOCH_MS) << 22);
-    }
-
-    static Instant snowflakeToInstant(String snowflake) {
-        long value = Long.parseLong(snowflake);
-        return Instant.ofEpochMilli((value >> 22) + DISCORD_EPOCH_MS);
     }
 
     private <T> T executeWithRateLimitRetry(Supplier<T> request) {

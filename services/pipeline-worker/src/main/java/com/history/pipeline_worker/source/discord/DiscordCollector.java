@@ -74,18 +74,25 @@ public class DiscordCollector implements SourceCollector {
             @SuppressWarnings("unchecked")
             Map<String, Object> channel = (Map<String, Object>) rawChannel;
 
-            List<Map<String, Object>> messages;
-            try {
-                messages = rawService.fetchChannelMessages(context, channel);
-            } catch (WebClientResponseException.Forbidden exception) {
-                // 봇이 View Channel·Read Message History 권한을 못 받은 채널 — 이 채널만 건너뛴다
-                log.warn("Discord 채널 접근 권한 없음 — 건너뜀: channelId={}", channel.get("id"));
-                continue;
-            }
+            // 채널 전체를 모으지 않고 페이지마다 발행한다(Slack과 같은 이유) — 발행 배치와 메모리가
+            // 채널 크기에 비례하면 큰 채널이 confirm 타임아웃에 걸려 재시도해도 계속 실패한다.
+            String pageCursor = null;
+            do {
+                DiscordRawService.DiscordMessagePage page;
+                try {
+                    page = rawService.fetchMessagePage(context, channel, pageCursor);
+                } catch (WebClientResponseException.Forbidden exception) {
+                    // 봇이 View Channel·Read Message History 권한을 못 받은 채널 — 이 채널만 건너뛴다
+                    log.warn("Discord 채널 접근 권한 없음 — 건너뜀: channelId={}", channel.get("id"));
+                    break;
+                }
 
-            List<NormalizedEvent> events = normalizer.normalizeChannel(projectId, guildId, channel, messages);
-            published += eventPublisher.publishAll(events);
-            cursor = CursorProgress.later(cursor, CursorProgress.maxOccurredAt(events).orElse(null));
+                List<NormalizedEvent> events =
+                        normalizer.normalizeChannel(projectId, guildId, channel, page.messages());
+                published += eventPublisher.publishAll(events);
+                cursor = CursorProgress.later(cursor, CursorProgress.maxOccurredAt(events).orElse(null));
+                pageCursor = page.nextCursor();
+            } while (pageCursor != null);
         }
 
         // 채널을 가로질러 한 번만 전진시킨다 — 채널별로 갱신하면 늦은 채널이 이른 채널의 커서를 덮는다.

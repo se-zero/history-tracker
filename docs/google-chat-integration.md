@@ -31,8 +31,8 @@ People API 보강(§7) 코드까지 완료(backend `./gradlew test` 562개, pipe
    일반화)이 여기서 **필수가 된다**(§2). Jira 외의 두 번째 만료 토큰 provider라, 그 일반화 없이는
    증분 수집이 만료된 access token으로 401을 맞는다.
 3. **서버사이드 시간 필터 증분** — `filter=createTime > {checkpoint}`가 checkpoint 저장소의 `Instant`
-   계약과 정확히 맞물린다. Slack의 히스토리 풀스캔도, Discord의 `before` 역방향 보정도 필요 없는
-   가장 단순한 형태라, 대화 아키타입 증분 전략 3종(풀스캔 / snowflake 역방향 / 시간 필터)의 마지막
+   계약과 정확히 맞물린다. Slack의 히스토리 풀스캔도, Discord의 snowflake 변환도 필요 없는 가장
+   단순한 형태라, 대화 아키타입 증분 전략 3종(풀스캔 / snowflake 커서 / 시간 필터)의 마지막
    조각이 채워진다.
 
 ## 0. 결정 사항 요약
@@ -250,8 +250,8 @@ collect:
 
 - **증분이 서버사이드 한 방에 끝난다.** `filter`는 `createTime`(RFC-3339)에 `>`·`<`를 지원하고
   기본 정렬이 `createTime ASC`라, checkpoint `Instant`를 그대로 문자열로 넣고 앞으로만 페이지를
-  넘기면 된다. Slack처럼 히스토리를 되짚을 필요도, Discord처럼 `before`로 방향을 뒤집을 필요도 없다.
-  `>`가 strict이므로 경계 메시지가 중복 발행되지도 않는다.
+  넘기면 된다. Slack처럼 히스토리를 되짚을 필요도, Discord처럼 `Instant`를 snowflake로 바꿔 커서에
+  넣을 필요도 없다. `>`가 strict이므로 경계 메시지가 중복 발행되지도 않는다.
 - **스레드 답글을 위한 별도 호출이 없다.** `spaces.messages.list`는 루트와 답글을 모두 돌려주고
   각 메시지가 `thread.name`을 들고 있다. Slack의 `conversations.replies`, Teams의 `$expand=replies`에
   해당하는 2차 호출이 없어 호출 수가 채널 수와 무관하게 페이지 수로만 결정된다.

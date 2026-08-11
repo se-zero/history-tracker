@@ -156,23 +156,24 @@ backend는 해제 시 길드 퇴장에, worker는 수집에 쓴다.
 ```
 GET /guilds/{guild_id}/channels                 # 텍스트 채널 (type 0·5) 필터
 GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도 채널이다)
-채널·스레드별:
+채널·스레드별로 페이지 단위 반복:
   1회차: GET /channels/{id}/messages?after={snowflake(checkpoint)}&limit=100
-  반환 개수 == 100(가득 찬 페이지)이면:
-    반복: GET /channels/{id}/messages?before={직전 배치의 가장 오래된 id}&limit=100
-    가장 오래된 id ≤ checkpoint 이거나 반환 개수 < 100이 될 때까지
-→ normalize → publish → 전 채널 최대 occurredAt으로 checkpoint 1회 갱신
+  이후 : GET /channels/{id}/messages?after={직전 페이지의 최대 id}&limit=100
+  페이지마다 normalize → publish (발행 배치 = 페이지)
+  반환 개수 < 100이면 그 채널 종료
+→ 전 채널 최대 occurredAt으로 checkpoint 1회 갱신
 ```
 
 - **snowflake 변환** — Discord ID는 생성 시각을 품은 snowflake라, checkpoint의 `Instant`를
   `(epochMilli - 1420070400000) << 22`(Discord epoch 2015-01-01)로 바꿔 `after`에 넣는다.
   덕분에 **checkpoint 저장소의 `Instant` 계약을 그대로 두고도 서버사이드 증분 필터가 된다** —
   Slack이 채널 히스토리를 끝까지 훑던 문제가 여기서는 발생하지 않는다.
-- **`after` 페이지네이션은 항상 "가장 최신"부터 내림차순으로 채운다(실측 확정, 아래 참고).**
-  체크포인트 이후 새 메시지가 `limit`(최대 100)보다 많으면 **1회 호출로 전부 못 받는다** — 가장 최신
-  100개만 오고 체크포인트 바로 다음 구간은 비어 있다. `before`·`after`·`around`가 상호 배타적이라
-  한 호출에 섞을 수 없으므로, 가득 찬 페이지를 받으면 그 배치의 가장 오래된 id로 **`before`로 바꿔서**
-  체크포인트에 닿을 때까지 내려가야 한다. 위 수집 흐름의 2단계가 이 보정이다.
+- **`after`는 커서 바로 다음 구간부터 앞으로 전진하며 채운다(실측 확정, 아래 참고).** 백로그가
+  `limit`(최대 100)보다 많으면 **가장 오래된 쪽 100개**가 먼저 온다. 배치 안쪽 정렬만 최신→과거
+  내림차순이고, 이 정렬은 **선택 구간과 무관하다** — 초기 설계는 이 둘을 혼동해 "최신 100개만 온다"고
+  보고 `before` 역방향 보정을 넣었으나, 재실측으로 뒤집혔다. 따라서 가득 찬 페이지를 받으면 그 배치의
+  **최대 id를 다음 `after`로** 삼아 이어받는다. 서버가 커서 이후만 걸러 주므로 클라이언트 경계
+  필터링도 필요 없다.
 - checkpoint: `discord/discord_messages` 단일 커서. Slack·Teams와 같은 이유로 채널을 가로질러
   마지막에 한 번만 전진시킨다.
 - 봇이 접근 권한(View Channel·Read Message History)을 갖지 못한 채널은 403이거나 빈 결과다.
@@ -182,10 +183,33 @@ GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도
   단 발행 예외는 삼키지 않는다(계약대로 checkpoint를 전진시키지 않아야 재발행된다).
 - 아카이브된 스레드(`GET /channels/{id}/threads/archived/public`)는 1차 범위에서 제외한다 —
   활성 스레드만으로 시작하고, 누락이 문제가 되면 확장한다(「구현 시 확인」 1번).
-- **before 배치의 checkpoint 경계 필터링**: `after`로 받은 첫 페이지는 서버가 이미 checkpoint
-  이후만 걸러주지만, `before`로 이어받는 배치는 서버가 checkpoint를 모르므로 클라이언트가
-  `timestamp`로 직접 걸러낸다(`DiscordRawServiceTest`의 경계 테스트로 고정 — 페이지 안에 checkpoint
-  전후가 섞인 경우 120시간 전 체크포인트 예시로 정확히 갈리는지 확인했다).
+- **다음 커서는 배열 위치가 아니라 최대 id로 뽑는다**(`DiscordRawService.maxMessageId`). 응답 정렬에
+  기대 첫 원소를 집으면 정렬이 뒤집힌 순간 커서가 뒤로 가 무한 반복이 된다 — 정렬 가정을 믿은 것이
+  애초 버그의 원인이었으므로 순서와 무관한 max로 고정하고, 오름차순 응답을 넣는 회귀 테스트
+  (`fetchMessagePage_nextCursorUsesMaxId_notArrayPosition`)로 잠갔다.
+- **커서는 노이즈 필터 이전 원본에서 뽑는다.** 100건이 전부 봇/시스템 메시지인 페이지에서 필터 결과로
+  커서를 정하면 전진하지 못해 같은 페이지를 무한히 다시 받는다
+  (`fetchMessagePage_fullPageOfNoise_stillAdvancesCursor`).
+- **커서 전진을 매 페이지 검사하고, 전진하지 않으면 예외를 던진다**(`advances`). `after`가 커서 자신을
+  제외하므로 최대 id는 항상 요청 커서보다 커야 하지만, **그게 정확히 이 코드가 한 번 틀렸던 종류의
+  가정이다.** 최대 id가 전진하지 않거나 snowflake로 파싱되지 않으면 `IllegalStateException`으로 올린다.
+
+  경고만 남기고 그 채널만 조용히 끊는 선택지는 **일부러 버렸다** — 다른 채널이 공용 커서를 전진시켜
+  남은 구간이 영구 누락되는데, 그게 바로 이번에 고친 버그다. 예외로 올리면 `collect` 전체가 실패해
+  checkpoint가 전진하지 않고(SPI 계약), 다음 수집에서 같은 커서로 재시도된다. 무한 루프(스레드 점유 +
+  API 연타)도, 조용한 누락도 만들지 않는 유일한 선택지다
+  (`fetchMessagePage_cursorWouldNotAdvance_throwsInsteadOfLooping`,
+  `fetchMessagePage_unparseableIds_throwsInsteadOfSilentlyTruncating`).
+- **채널 전체를 모으지 않고 페이지마다 발행한다**(Slack `SlackCollector`와 같은 모양). `DiscordRawService`는
+  한 페이지 + `nextCursor`만 돌려주고(`DiscordMessagePage`), `DiscordCollector`가 페이지마다
+  normalize → publish → 커서 전진을 돈다. 채널 전체를 모아 한 번에 발행하면 **발행 배치와 메모리 점유가
+  채널 크기에 비례**하는데, `EventPublisher.awaitConfirms`는 배치 크기와 무관하게 단일
+  `publish-confirm-timeout-ms`(10초) 안에서 기다리므로 큰 채널은 타임아웃 → checkpoint 미전진 →
+  다음 실행이 **같은 크기 배치를 다시 시도해 또 실패**하는 영구 루프가 된다. 페이지 단위로 묶으면
+  발행 배치가 최대 100건으로 고정된다.
+
+  > 이 위험은 페이지네이션 버그가 채널당 ~100건으로 우연히 상한을 걸고 있던 동안 가려져 있었다.
+  > 전진 페이지네이션으로 고치면서 함께 드러나 같은 변경에서 처리했다.
 
 ### NormalizedEvent 매핑 (`docs/normalized-event.md` 계약)
 
@@ -304,11 +328,38 @@ Atlassian식 개인정보 보고 의무는 없다.
    `content`에 `<@1535516144784642048>` 같은 snowflake 형식이 들어간다. **멘션 치환은 `mentions`
    배열이 비어있지 않을 때만 동작하면 된다** — 나머지 `@텍스트`는 이미 최종 형태라 손댈 필요 없다.
 
-4. **`after` 페이지네이션의 정렬 — 확정.** 체크포인트 id로 `after` 호출 시, 반환된 메시지는 전부
-   체크포인트보다 최신이었고(필터링 자체는 맞다), 순서는 **최신→과거 내림차순**이었다(오름차순 아님).
-   `limit`보다 적은 결과였어서 "100개 넘는 백로그"에서 최신 쪽만 잘려 오는지까지는 이 테스트로 직접
-   확인되지 않았지만, 이 정렬 방향과 Discord 문서의 커서 상호 배타 규칙을 근거로 §4 수집 흐름에
-   `before` 전환 로직을 반영했다.
+4. **`after`의 선택 구간 — 확정(2026-08-11 재실측으로 정정).** 1차 실측(2026-08-08)에서 확인된 것은
+   **배치 안쪽 정렬**(최신→과거 내림차순)뿐이었는데, 이를 **선택 구간**("최신 100개만 온다")으로
+   확대 해석해 §4에 `before` 역방향 보정을 넣었다. 이 해석은 틀렸다.
+
+   **재실측에 100건 초과 채널은 필요 없다** — 선택 규칙이 `limit`의 숫자값에 의존할 수 없으므로
+   `limit=1`이면 메시지 3건짜리 채널로 1회 호출에 판별된다. 메시지 4건(M1…M4, 오름차순) 채널에서:
+
+   | 호출 | 반환 | 해석 |
+   |------|------|------|
+   | `?limit=1&after={M1}` | `[M2]` | 커서 **바로 다음** 것 → 전진형 |
+   | `?limit=2&after={M1}` | `[M3, M2]` | 오래된 쪽부터 2건, 배치 안에서만 내림차순 |
+
+   "최신 100개" 가설이 맞았다면 각각 `[M4]`, `[M4, M3]`이 왔어야 한다. 다른 채널(3건)에서도 동일.
+   커뮤니티 문서의 서술과도 일치한다 — Get Channel Messages는 "`before`에는 last id, `after`에는
+   **first id**를 쓴다"(discord/discord-api-docs discussion #6789). 배열이 내림차순이므로 first id는
+   배치의 최신 id이고, 그것으로 전진한다는 뜻이다.
+
+   **영향 — 지연이 아니라 유실이었다.** 채널당 1회 수집에 100건만 받고 끝나는 것 자체는 느릴 뿐이지만,
+   checkpoint가 **채널을 가로지르는 단일 커서**(`DiscordCollector.collect`)라는 점과 겹치면서 유실이 된다.
+   단일 커서는 *모든 채널이 매 실행마다 끝까지 비워진다*는 전제에서만 안전한데, 이 버그가 그 전제를 깼다.
+
+   > 채널 A(150건, 1년치) + 채널 B(3건, 어제)인 초기 수집: A는 오래된 100건에서 끊기고(6개월 전),
+   > B는 3건 전부 수집된다. 커서는 두 채널의 최대 `occurredAt`이므로 **어제**로 점프하고,
+   > 다음 실행은 `after=어제`라 **A의 6개월 전~어제 구간이 영구 유실**된다. `after` 커서는 앞으로만
+   > 가고 `updateCursor`도 과거로 되돌리지 않아 재수집 경로가 없다.
+
+   단일 채널 길드에서만 "유실 없이 느리기만" 했다. 다채널 + 100건 초과 채널이면 유실이다.
+   전진형 교체로 채널이 매번 완전히 비워지므로 단일 커서의 전제가 복원된다.
+
+   **마이그레이션**: 이 수정 이전에 수집한 적이 있는 프로젝트는 checkpoint가 손상 지점에 멈춰 있으므로
+   `discord/discord_messages` 커서를 삭제하고 재수집해야 한다(새 코드만으로는 따라잡지 못한다).
+   2026-08-11 시점에 Discord 연동 프로젝트는 존재하지 않아 실제 수행 대상은 없었다.
 
 ## 구현 시 확인 (미확정 — 제품 결정, 코드 착수를 막지 않는다)
 

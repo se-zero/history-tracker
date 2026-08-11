@@ -84,8 +84,10 @@ class DiscordCollectorTest {
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD)).thenReturn(Map.of());
         when(rawService.prepareFetchContext(request, null)).thenReturn(context);
         when(rawService.fetchChannels(context)).thenReturn(List.of(channel1, channel2));
-        when(rawService.fetchChannelMessages(context, channel1)).thenReturn(rawMessages1);
-        when(rawService.fetchChannelMessages(context, channel2)).thenReturn(rawMessages2);
+        when(rawService.fetchMessagePage(context, channel1, null))
+                .thenReturn(new DiscordRawService.DiscordMessagePage(rawMessages1, null));
+        when(rawService.fetchMessagePage(context, channel2, null))
+                .thenReturn(new DiscordRawService.DiscordMessagePage(rawMessages2, null));
         when(normalizer.normalizeChannel(PROJECT_ID, "G1", channel1, rawMessages1)).thenReturn(events1);
         when(normalizer.normalizeChannel(PROJECT_ID, "G1", channel2, rawMessages2)).thenReturn(events2);
         when(eventPublisher.publishAll(anyList()))
@@ -97,6 +99,39 @@ class DiscordCollectorTest {
         verify(eventPublisher, times(2)).publishAll(anyList());
         verify(checkpointService).updateCursor(PROJECT_ID, CollectionProvider.DISCORD,
                 DiscordCollector.MESSAGES_CURSOR, Instant.parse("2026-08-08T01:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("여러 페이지짜리 채널은 페이지마다 발행한다 — 채널 전체를 모아 한 번에 보내지 않는다")
+    void collect_publishesPerPageNotPerChannel() {
+        RawFetchRequest request = new RawFetchRequest("Bot test-bot-token", "G1", Map.of());
+        DiscordRawService.DiscordFetchContext context =
+                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null);
+        Map<String, Object> channel = Map.of("id", "C1", "name", "일반", "isThread", false);
+        List<Map<String, Object>> rawPage1 = List.of(Map.of("id", "M1"));
+        List<Map<String, Object>> rawPage2 = List.of(Map.of("id", "M2"));
+        List<NormalizedEvent> events1 = List.of(event(Instant.parse("2026-08-08T00:00:00Z")));
+        List<NormalizedEvent> events2 = List.of(event(Instant.parse("2026-08-08T02:00:00Z")));
+
+        when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD)).thenReturn(Map.of());
+        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.fetchChannels(context)).thenReturn(List.of(channel));
+        when(rawService.fetchMessagePage(context, channel, null))
+                .thenReturn(new DiscordRawService.DiscordMessagePage(rawPage1, "CURSOR1"));
+        when(rawService.fetchMessagePage(context, channel, "CURSOR1"))
+                .thenReturn(new DiscordRawService.DiscordMessagePage(rawPage2, null));
+        when(normalizer.normalizeChannel(PROJECT_ID, "G1", channel, rawPage1)).thenReturn(events1);
+        when(normalizer.normalizeChannel(PROJECT_ID, "G1", channel, rawPage2)).thenReturn(events2);
+        when(eventPublisher.publishAll(anyList()))
+                .thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
+
+        int published = collector.collect(PROJECT_ID, request);
+
+        assertThat(published).isEqualTo(2);
+        // 채널은 하나인데 발행은 두 번 — 발행 배치가 채널 크기가 아니라 페이지 크기에 묶인다
+        verify(eventPublisher, times(2)).publishAll(anyList());
+        verify(checkpointService).updateCursor(PROJECT_ID, CollectionProvider.DISCORD,
+                DiscordCollector.MESSAGES_CURSOR, Instant.parse("2026-08-08T02:00:00Z"));
     }
 
     @Test
@@ -113,9 +148,10 @@ class DiscordCollectorTest {
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD)).thenReturn(Map.of());
         when(rawService.prepareFetchContext(request, null)).thenReturn(context);
         when(rawService.fetchChannels(context)).thenReturn(List.of(forbiddenChannel, okChannel));
-        when(rawService.fetchChannelMessages(context, forbiddenChannel)).thenThrow(
+        when(rawService.fetchMessagePage(context, forbiddenChannel, null)).thenThrow(
                 WebClientResponseException.create(HttpStatus.FORBIDDEN.value(), "Forbidden", null, null, null));
-        when(rawService.fetchChannelMessages(context, okChannel)).thenReturn(rawMessages);
+        when(rawService.fetchMessagePage(context, okChannel, null))
+                .thenReturn(new DiscordRawService.DiscordMessagePage(rawMessages, null));
         when(normalizer.normalizeChannel(PROJECT_ID, "G1", okChannel, rawMessages)).thenReturn(events);
         when(eventPublisher.publishAll(anyList()))
                 .thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
