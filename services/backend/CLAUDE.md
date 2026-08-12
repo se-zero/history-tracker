@@ -159,8 +159,12 @@ Jira·Asana·monday는 2단, ClickUp은 workspace → space → *folder(선택)*
 - `InternalServiceAuthenticationFilter`는 `security.internal-service.token`과 요청 헤더를 timing-safe 방식으로 비교한다.
 - `POST /api/v1/internal/github/installations/{installationId}/token`은 GitHub installation access token이 없거나 만료 임박한 경우 갱신해 DB 캐시를 보장하고 `204`를 반환한다. 토큰 평문은 응답하지 않는다.
 - `POST /api/v1/internal/integrations/{projectId}/{provider}/token`은 access token이 없거나 만료 임박한 경우 갱신해 저장하고 `204`를 반환한다(Jira·Google Chat은 refresh token으로 갱신하며, 폐기돼 영구 실패하면 연동을 pending 상태로 되돌린다). 토큰 평문은 응답하지 않는다.
-  갱신 수단이 없는 provider는 조용한 `204` 대신 `404`를 반환한다 — 호출부가 갱신됐다고 오인한 채 만료된 토큰으로 수집하는 것을 막는다.
-  **판정 기준은 `AccessTokenRefresher` 등록 여부다.** 폐기 등 다른 자격증명 동작이 있다는 이유로 통과시키면 안 된다 — 폐기만 있고 갱신은 없는 Slack·Discord가 그 경우 조용한 `204`를 받았다. 호출부(pipeline-worker `IntegrationTokenClient` — Google Chat 추가를 계기로 Jira 전용이던 `JiraTokenClient`를 provider 인자를 받는 형태로 일반화했다)는 `404`를 "이 provider는 갱신 없이 저장된 자격증명 그대로 진행"으로 처리하므로 404가 Slack·Discord 수집을 깨지 않는다.
+  **실패 응답은 두 뜻을 서로 다른 코드로 갈라 답한다 — 섞으면 안 된다.**
+  - `501` — 이 provider에는 갱신 수단이 없다(**능력**에 대한 답). 조용한 `204` 대신 이걸 반환해 호출부가 갱신됐다고 오인한 채 만료된 토큰으로 수집하는 것을 막는다. **판정 기준은 `AccessTokenRefresher` 등록 여부이며**, 폐기 등 다른 자격증명 동작이 있다는 이유로 통과시키면 안 된다(폐기만 있고 갱신은 없는 Slack·Discord가 그 경우 조용한 `204`를 받았다). 호출부는 저장된 자격증명 그대로 진행하므로 Slack·Discord 수집이 깨지지 않는다.
+  - `404` — 연동 행이 없거나(해제 직후 레이스) 알 수 없는 provider다(**리소스**에 대한 답). 호출부는 이번 수집에서 그 provider를 건너뛴다.
+
+  둘 다 `404`이던 시절에는 해제 직후 레이스가 "갱신 불필요"로 읽혀 폐기된 토큰으로 수집을 진행했다(폐기가 실패해 토큰이 살아 있으면 방금 지운 그래프가 되살아난다). Jira 전용이던 시절에는 Jira에 갱신기가 항상 있어 `404`의 뜻이 하나뿐이라 문제가 없었는데, 갱신기 없는 provider까지 이 API를 쓰면서 한 코드에 두 뜻이 겹쳤다.
+  호출부는 pipeline-worker `IntegrationTokenClient`다(Google Chat 추가를 계기로 Jira 전용이던 `JiraTokenClient`를 provider 인자를 받는 형태로 일반화했다).
 - `POST /api/v1/internal/atlassian/consent`는 봇 계정 동의 code를 앱 수준 자격증명으로 교환·저장한다(최초 1회). 토큰 평문은 응답하지 않는다.
 - backend와 pipeline-worker에는 동일한 `INTERNAL_SERVICE_TOKEN`을 배포해야 한다.
 - GitHub App private key는 backend에만 두고 pipeline-worker와 공유하지 않는다.

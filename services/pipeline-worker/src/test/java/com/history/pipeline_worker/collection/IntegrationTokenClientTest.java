@@ -51,16 +51,32 @@ class IntegrationTokenClientTest {
         fixture.server.verify();
     }
 
+    // 501 = "이 provider에는 갱신 수단이 없다"(능력) — 저장된 자격증명 그대로 진행해야 한다.
     @Test
     void returnsNotSupportedWhenBackendHasNoRefresherForProvider() {
         Fixture fixture = fixture();
         fixture.server.expect(once(), requestTo(
                         "https://backend.test/api/v1/internal/integrations/" + PROJECT_ID + "/slack/token"
                 ))
-                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+                .andRespond(withStatus(HttpStatus.NOT_IMPLEMENTED));
 
         assertThat(fixture.client.ensure(PROJECT_ID, CollectionProvider.SLACK))
                 .isEqualTo(IntegrationTokenClient.TokenStatus.NOT_SUPPORTED);
+        fixture.server.verify();
+    }
+
+    // 404 = "연동 행이 없다"(리소스) — 해제 직후 레이스다. NOT_SUPPORTED로 읽으면 폐기된 토큰으로
+    // 수집을 진행하게 되므로 FAILED로 떨어져 그 provider를 건너뛰어야 한다.
+    @Test
+    void returnsFailedWhenIntegrationRowIsGone() {
+        Fixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(
+                        "https://backend.test/api/v1/internal/integrations/" + PROJECT_ID + "/jira/token"
+                ))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThat(fixture.client.ensure(PROJECT_ID, CollectionProvider.JIRA))
+                .isEqualTo(IntegrationTokenClient.TokenStatus.FAILED);
         fixture.server.verify();
     }
 

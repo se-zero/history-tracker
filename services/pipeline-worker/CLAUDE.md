@@ -105,8 +105,8 @@ GitHub PR merge webhook
   -> 갱신한 경우 ProjectIntegrationService로 DB integration 재조회
   -> context에 담긴 provider(GitHub 제외) 각각에 대해 backend 내부 API로 토큰 확보 요청
      -> REFRESHED: 그 provider 부분만 재해석해 context 교체
-     -> NOT_SUPPORTED(갱신 수단 없음 — Slack·Discord): 저장된 자격증명 그대로 context 유지
-     -> FAILED(오류): 그 provider만 context에서 제외
+     -> NOT_SUPPORTED(501, 갱신 수단 없음 — Slack·Discord): 저장된 자격증명 그대로 context 유지
+     -> FAILED(404 연동 행 없음 · 그 밖의 오류): 그 provider만 context에서 제외
   -> WebhookDeliveryService.tryClaim(deliveryId, projectId)
   -> webhookTaskExecutor에서 비동기 실행
   -> PipelineService.collectIncremental(context)
@@ -119,7 +119,7 @@ GitHub PR merge webhook
 installation token이 충분히 유효하면 backend를 호출하지 않는다. token이 없거나 만료 5분 이내면 `GitHubInstallationTokenClient`가 `X-Internal-Service-Token`으로 backend의 token 보장 API를 호출한 뒤 DB를 재조회한다. backend는 token 평문을 반환하지 않는다.
 backend에 installation이 없으면 `404`, backend 호출 실패 또는 token 갱신 실패는 `500`으로 처리해 GitHub 재시도를 허용한다.
 GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
-만료 토큰형 provider(Jira·Google Chat)는 `IntegrationTokenClient.ensure(projectId, provider)`로 토큰 확보를 시도한다 — 갱신 성공(REFRESHED)이면 그 provider만 재해석, 갱신 수단이 없는 provider(Slack·Discord, NOT_SUPPORTED)는 저장된 자격증명 그대로 진행, 확보 실패(FAILED — 연동 없음·backend 오류·예외 전부 이 하나로 흡수된다)면 그 provider만 건너뛰고 나머지 수집은 계속한다. `IntegrationTokenClient`는 원래 Jira 전용(`JiraTokenClient.ensureJiraToken`)이었으나 Google Chat 추가를 계기로 provider를 인자로 받는 형태로 일반화했다(선행 PR).
+만료 토큰형 provider(Jira·Google Chat)는 `IntegrationTokenClient.ensure(projectId, provider)`로 토큰 확보를 시도한다 — 갱신 성공(`204` → REFRESHED)이면 그 provider만 재해석, 갱신 수단이 없는 provider(Slack·Discord, `501` → NOT_SUPPORTED)는 저장된 자격증명 그대로 진행, 확보 실패(FAILED — **연동 행 없음 `404`**·backend 오류·네트워크 예외가 이 하나로 흡수된다)면 그 provider만 건너뛰고 나머지 수집은 계속한다. **`404`를 NOT_SUPPORTED로 읽으면 안 된다** — 해제 직후 레이스가 "갱신 불필요"로 읽혀 폐기된 토큰으로 수집을 진행하게 된다(backend가 능력 없음은 `501`, 리소스 없음은 `404`로 갈라 답하는 이유다). `IntegrationTokenClient`는 원래 Jira 전용(`JiraTokenClient.ensureJiraToken`)이었으나 Google Chat 추가를 계기로 provider를 인자로 받는 형태로 일반화했다(선행 PR).
 `webhookTaskExecutor`가 작업을 받을 수 없으면 `IN_PROGRESS` claim을 해제해 GitHub 재시도가 다시 claim할 수 있게 한다.
 애플리케이션 시작 시 `app.webhook.delivery.stale-in-progress-timeout`보다 오래된 `IN_PROGRESS` delivery는 `FAILED`로 정리한다.
 `webhookTaskExecutor`는 `app.webhook.executor.pool-size`(기본 4)로 여러 프로젝트 webhook을 병렬 처리한다. 단 동일 프로젝트의 동시 수집은 `ProjectCollectionSerializer`(project id striped lock)가 직렬화해 같은 구간 중복 풀스캔을 막는다. 초기 수집(`collectionTaskExecutor`)은 provider별 병렬이 의도라 직렬화 대상이 아니다.
