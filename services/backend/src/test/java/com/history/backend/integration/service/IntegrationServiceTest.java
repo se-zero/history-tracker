@@ -490,6 +490,53 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("저장 경합으로 409면 방금 교환한 자격증명을 폐기한다 — Discord는 grant 폐기 + 봇 길드 퇴장")
+    void connectOAuthDiscardsExchangedCredentialWhenSaveConflicts() {
+        IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.DISCORD);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.DISCORD))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code")).thenReturn(new OAuthConnection(
+                "discord-refresh-token",
+                Map.of(DiscordOAuthConnectFlow.GUILD_ID, "G1", DiscordOAuthConnectFlow.GUILD_NAME, "Acme")));
+        when(credentialCryptoService.encrypt("discord-refresh-token")).thenReturn(new byte[] {1, 2, 3});
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate integration"));
+        when(credentialCryptoService.decrypt(new byte[] {1, 2, 3})).thenReturn("discord-refresh-token");
+
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
+                .isInstanceOf(ConflictException.class);
+
+        // 저장되지 않은 자격증명을 그대로 두면 provider 쪽에 grant가, Discord는 서버에 봇이 남는다
+        verify(discordClient).revokeToken("discord-refresh-token");
+        verify(discordClient).leaveGuild("G1");
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+    }
+
+    @Test
+    @DisplayName("정리 실패가 원래의 409를 가리지 않는다 — 사용자는 실패 이유를 잃지 않아야 한다")
+    void connectOAuthStillReportsConflictWhenDiscardFails() {
+        IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.DISCORD);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.DISCORD))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code")).thenReturn(new OAuthConnection(
+                "discord-refresh-token",
+                Map.of(DiscordOAuthConnectFlow.GUILD_ID, "G1", DiscordOAuthConnectFlow.GUILD_NAME, "Acme")));
+        when(credentialCryptoService.encrypt("discord-refresh-token")).thenReturn(new byte[] {1, 2, 3});
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate integration"));
+        when(credentialCryptoService.decrypt(new byte[] {1, 2, 3}))
+                .thenThrow(new IllegalStateException("decrypt failed"));
+
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Discord integration already exists.");
+    }
+
+    @Test
     @DisplayName("선택 단계를 선언한 provider — 자격증명만 담은 pending 행으로 저장하고 수집은 미룬다")
     void connectOAuthSavesPendingIntegrationForProviderWithSelectionStep() {
         IntegrationService service = service();

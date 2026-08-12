@@ -39,6 +39,10 @@ export type SourceCatalogItem = SourceBase &
         // 연동 해제 다이얼로그에서 "무엇이 지워지는지" 구체적으로 알려줄 문구 — "데이터가 삭제됩니다"
         // 같은 뭉뚱그린 문구는 사용자가 무엇을 잃는지 판단할 수 없어 파괴적 동작의 고지로 부족하다.
         deletedData: string;
+        // 동의 승인만으로 provider 쪽에 생기는 부수효과 — 우리 응답과 무관하게 일어나므로 연결이
+        // 실패로 끝나도 남을 수 있다(Discord: 동의 순간 봇이 서버에 들어간다). 그중 서버가 정리할
+        // 수단이 없는 경우를 사용자에게 알리는 문구다. 부수효과가 없는 소스는 비워 둔다.
+        consentSideEffect?: string;
       }
     // backend 연동이 아직 없는 소스 — 타일 자리만 잡는다.
     | { status: "planned" }
@@ -92,6 +96,8 @@ export const sourceCatalog: SourceCatalogItem[] = [
     status: "wired",
     connect: "oauth",
     deletedData: "수집한 채널 메시지·스레드와 그 그래프, 그리고 서버에 추가된 봇",
+    consentSideEffect:
+      "방금 동의로 봇이 서버에 추가되었을 수 있어요. 사용하지 않으신다면 Discord 서버 설정에서 제거해 주세요.",
   },
   { id: "notion", name: "Notion", description: "문서 맥락", Mark: NotionMark, status: "planned" },
   { id: "linear", name: "Linear", description: "이슈 맥락", Mark: LinearMark, status: "planned" },
@@ -126,4 +132,10 @@ export function isOAuthConnectable(source: SourceCatalogItem): boolean {
 export function deletedDataOf(id: string | null | undefined): string {
   const source = findSource(id);
   return source?.status === "wired" ? source.deletedData : "수집한 데이터와 그 그래프";
+}
+
+// 동의만으로 생겨 서버가 정리하지 못하는 부수효과 안내 문구 (없으면 null)
+export function consentSideEffectOf(id: string | null | undefined): string | null {
+  const source = findSource(id);
+  return source?.status === "wired" ? (source.consentSideEffect ?? null) : null;
 }

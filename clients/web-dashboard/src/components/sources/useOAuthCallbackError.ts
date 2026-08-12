@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { sourceName } from "@/components/sources/sourceCatalog";
+import { consentSideEffectOf, sourceName } from "@/components/sources/sourceCatalog";
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_state: "연결 요청이 만료되었거나 올바르지 않아요. 다시 시도해 주세요.",
@@ -12,6 +12,14 @@ const ERROR_MESSAGES: Record<string, string> = {
 function errorMessage(errorCode: string, provider: string | null): string {
   if (errorCode === "access_denied") {
     return `${sourceName(provider)} 연결 요청을 취소했어요.`;
+  }
+  // 확정 연동은 code 교환 전에 409로 막으므로 서버가 동의 부수효과를 되돌릴 수단이 없다
+  // (어느 서버에 봇이 들어갔는지조차 모른다) — 치울 수 없으면 숨기지 말고 알린다.
+  if (errorCode === "already_connected") {
+    const sideEffect = consentSideEffectOf(provider);
+    if (sideEffect) {
+      return `${ERROR_MESSAGES.already_connected} ${sideEffect}`;
+    }
   }
   return ERROR_MESSAGES[errorCode] ?? "연결 중 문제가 발생했어요.";
 }

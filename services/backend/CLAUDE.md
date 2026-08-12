@@ -76,6 +76,18 @@ provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지�
 **저장 정책은 `IntegrationService.connectOAuth`가 소유한다** — 확정 연동 409 선검사(1회용 code를
 교환 전에 지킨다) → code 교환 → 자격증명 암호화 → 저장(pending 행이면 재동의로 덮어쓰기, unique 위반은
 409로 변환) → 수집 트리거. 새 connect flow는 이 메서드를 고치지 않는다.
+
+저장이 409로 끝나면(선검사와 저장 사이 경합) **방금 교환한 자격증명을 해제와 같은
+`ProviderCredentialLifecycle.revoke`로 폐기한 뒤 409를 올린다** — 저장되지 않았으니 나중에 폐기할
+수단이 없고, 그대로 두면 provider 쪽에 grant가 남는다(Discord는 동의 승인 순간 서버에 들어간 봇까지
+남는데 `guild_id`를 저장하지 않아 내보낼 방법이 사라진다). 정리 실패는 삼키고 로그만 남긴다 —
+원래의 409를 가리면 사용자가 실패 이유를 잃는다.
+
+**단 선검사(code 교환 전) 경로는 정리할 수 없다.** Discord는 동의 승인만으로 봇이 서버에 들어가는데
+code를 교환하지 않아 어느 서버인지 모른다. 여기서 정리하려면 검증 전 외부 호출 금지라는 이 메서드의
+성질을 뒤집어야 하고, 교환으로 생긴 grant까지 따로 폐기해야 해서 에러 경로에 외부 호출이 3번 붙는다.
+10분(state TTL) 안의 중복 개시 경합에서만 생기는 상태라 자동 정리 대신 **프론트가 사용자에게 알린다**
+(`sourceCatalog`의 `consentSideEffect` → `already_connected` 안내에 덧붙는다).
 자격증명 **형태**만 provider 몫이다(토큰 문자열 하나든, 갱신값을 담은 JSON이든 평문으로 넘기면
 암호화는 공용 코드가 한다). pending 여부도 flow가 신고하지 않고 `IntegrationSelectionFlow` 등록
 여부로 갈린다 — 두 SPI의 선언이 어긋나 영영 확정할 수 없는 행이 생기는 것을 막기 위함이다.

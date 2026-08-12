@@ -46,7 +46,10 @@ src/
                     status로 갈리는 판별 유니온이다. 신규 소스의 프론트 작업은 보통 status를
                     "planned"→"wired"로 바꾸고 connect·deletedData를 채우는 게 전부다. **"wired"라고
                     선언하면 두 필드가 없을 때 컴파일이 깨진다** — 반쪽 배선(연결 버튼이 no-op이거나
-                    해제 고지가 뭉뚱그려지는 무증상 실패)을 타입으로 막는 자리다
+                    해제 고지가 뭉뚱그려지는 무증상 실패)을 타입으로 막는 자리다.
+                    선택 필드 consentSideEffect는 "동의 승인만으로 provider 쪽에 생겨 서버가 되돌리지
+                    못하는 것"을 적는다(Discord: 봇이 서버에 추가된다) — already_connected 안내에
+                    덧붙는다. 공용 문구 코드에 provider 분기를 두지 않으려고 여기에 선언형으로 둔다
                     — 전체 순서는 docs/integration-abstraction.md 「커넥터 엔드투엔드 체크리스트」)
                     · IngestStatus · ActorManagementCard
                     useOAuthCallbackError — 동의 후 돌아온 리다이렉트의 실패 안내(URL 쿼리 캡처)
