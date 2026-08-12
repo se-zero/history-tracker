@@ -63,7 +63,8 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
 
-        service.fetchMessages(new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null));
+        service.fetchMessagePage(
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null), null);
     }
 
     @Test
@@ -79,12 +80,13 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
 
-        service.fetchMessages(new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, checkpoint));
+        service.fetchMessagePage(
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, checkpoint), null);
     }
 
     @Test
-    @DisplayName("nextPageToken이 있으면 이어서 다음 페이지를 요청해 모두 합친다")
-    void fetchMessages_followsPagination() {
+    @DisplayName("nextPageToken을 그대로 돌려주고, 넘겨받은 pageToken을 요청에 담는다")
+    void fetchMessagePage_returnsNextPageTokenAndSendsGivenPageToken() {
         AtomicInteger callCount = new AtomicInteger();
         WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
             Map<String, String> params = queryParams(request.url());
@@ -100,13 +102,41 @@ class GoogleChatRawServiceTest {
                     """));
         });
         GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null);
 
-        List<Map<String, Object>> messages = service.fetchMessages(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null));
+        GoogleChatRawService.GoogleChatMessagePage first = service.fetchMessagePage(context, null);
+        assertThat(first.messages()).extracting(m -> m.get("name"))
+                .containsExactly("spaces/AAAA/messages/1");
+        assertThat(first.nextPageToken()).isEqualTo("page-2");
 
-        assertThat(messages).extracting(m -> m.get("name"))
-                .containsExactly("spaces/AAAA/messages/1", "spaces/AAAA/messages/2");
+        GoogleChatRawService.GoogleChatMessagePage second =
+                service.fetchMessagePage(context, first.nextPageToken());
+        assertThat(second.messages()).extracting(m -> m.get("name"))
+                .containsExactly("spaces/AAAA/messages/2");
+        assertThat(second.nextPageToken()).isNull();
         assertThat(callCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("한 페이지가 전부 노이즈여도 nextPageToken은 그대로 살아 페이지네이션이 멈추지 않는다")
+    void fetchMessagePage_allNoisePage_stillCarriesNextPageToken() {
+        WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> Mono.just(jsonResponse("""
+                {
+                  "messages": [
+                    {"name": "m1", "text": "봇 메시지", "sender": {"type": "BOT"}},
+                    {"name": "m2", "text": "삭제됨", "deletionMetadata": {"deletionType": "CREATOR"}}
+                  ],
+                  "nextPageToken": "page-2"
+                }
+                """)));
+        GoogleChatRawService service = service(builder);
+
+        GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null), null);
+
+        assertThat(page.messages()).isEmpty();
+        assertThat(page.nextPageToken()).isEqualTo("page-2");
     }
 
     @Test
@@ -125,10 +155,10 @@ class GoogleChatRawServiceTest {
                 """)));
         GoogleChatRawService service = service(builder);
 
-        List<Map<String, Object>> messages = service.fetchMessages(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null));
+        GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null), null);
 
-        assertThat(messages).extracting(m -> m.get("name")).containsExactly("m1");
+        assertThat(page.messages()).extracting(m -> m.get("name")).containsExactly("m1");
     }
 
     @Test
@@ -145,10 +175,10 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
 
-        List<Map<String, Object>> messages = service.fetchMessages(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null));
+        GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null), null);
 
-        assertThat(messages).hasSize(1);
+        assertThat(page.messages()).hasSize(1);
         assertThat(callCount.get()).isEqualTo(2);
     }
 

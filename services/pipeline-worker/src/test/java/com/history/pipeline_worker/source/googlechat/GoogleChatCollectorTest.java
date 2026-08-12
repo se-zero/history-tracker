@@ -107,7 +107,8 @@ class GoogleChatCollectorTest {
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT)).thenReturn(Map.of());
         when(rawService.prepareFetchContext(request, null)).thenReturn(context);
         when(rawService.fetchSpaceDisplayName(context)).thenReturn("engineering");
-        when(rawService.fetchMessages(context)).thenReturn(rawMessages);
+        when(rawService.fetchMessagePage(context, null))
+                .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawMessages, null));
         when(rawService.resolveSenders("Bearer token", Set.of("users/U1"))).thenReturn(actorInfo);
         when(normalizer.normalizeMessages(PROJECT_ID, "engineering", rawMessages, actorInfo)).thenReturn(events);
         when(eventPublisher.publishAll(anyList()))
@@ -135,13 +136,80 @@ class GoogleChatCollectorTest {
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT)).thenReturn(Map.of());
         when(rawService.prepareFetchContext(request, null)).thenReturn(context);
         when(rawService.fetchSpaceDisplayName(context)).thenReturn("engineering");
-        when(rawService.fetchMessages(context)).thenReturn(rawMessages);
+        when(rawService.fetchMessagePage(context, null))
+                .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawMessages, null));
         when(rawService.resolveSenders(anyString(), anySet())).thenReturn(Map.of());
         when(normalizer.normalizeMessages(any(), any(), any(), any())).thenReturn(List.of());
 
         collector.collect(PROJECT_ID, request);
 
         verify(rawService).resolveSenders("Bearer token", Set.of("users/U1", "users/U2"));
+    }
+
+    @Test
+    @DisplayName("여러 페이지짜리 스페이스는 페이지마다 발행하고 checkpoint는 마지막에 한 번만 전진한다")
+    void collect_publishesPerPageAndAdvancesCursorOnce() {
+        RawFetchRequest request = new RawFetchRequest("Bearer token", "spaces/AAAA", Map.of());
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null);
+        List<Map<String, Object>> rawPage1 = List.of(
+                Map.of("name", "spaces/AAAA/messages/M1", "sender", Map.of("name", "users/U1", "type", "HUMAN")));
+        List<Map<String, Object>> rawPage2 = List.of(
+                Map.of("name", "spaces/AAAA/messages/M2", "sender", Map.of("name", "users/U2", "type", "HUMAN")));
+        List<NormalizedEvent> events1 = List.of(event(Instant.parse("2026-08-08T00:00:00Z")));
+        List<NormalizedEvent> events2 = List.of(event(Instant.parse("2026-08-08T03:00:00Z")));
+
+        when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT)).thenReturn(Map.of());
+        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.fetchSpaceDisplayName(context)).thenReturn("engineering");
+        when(rawService.fetchMessagePage(context, null))
+                .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawPage1, "page-2"));
+        when(rawService.fetchMessagePage(context, "page-2"))
+                .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawPage2, null));
+        when(rawService.resolveSenders(anyString(), anySet())).thenReturn(Map.of());
+        when(normalizer.normalizeMessages(PROJECT_ID, "engineering", rawPage1, Map.of())).thenReturn(events1);
+        when(normalizer.normalizeMessages(PROJECT_ID, "engineering", rawPage2, Map.of())).thenReturn(events2);
+        when(eventPublisher.publishAll(anyList()))
+                .thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
+
+        int published = collector.collect(PROJECT_ID, request);
+
+        assertThat(published).isEqualTo(2);
+        // 스페이스는 하나인데 발행은 두 번 — 발행 배치가 스페이스 크기가 아니라 페이지 크기에 묶인다
+        verify(eventPublisher, times(2)).publishAll(anyList());
+        // checkpoint는 전체 성공 후 한 번, 전 페이지 최대 occurredAt으로만 전진한다
+        verify(checkpointService, times(1)).updateCursor(PROJECT_ID, CollectionProvider.GOOGLE_CHAT,
+                GoogleChatCollector.MESSAGES_CURSOR, Instant.parse("2026-08-08T03:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("중간 페이지 발행이 실패하면 예외가 전파되고 checkpoint는 전진하지 않는다")
+    void collect_publishFailureOnLaterPage_doesNotAdvanceCheckpoint() {
+        RawFetchRequest request = new RawFetchRequest("Bearer token", "spaces/AAAA", Map.of());
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null);
+        List<Map<String, Object>> rawPage1 = List.of(Map.of("name", "spaces/AAAA/messages/M1"));
+        List<Map<String, Object>> rawPage2 = List.of(Map.of("name", "spaces/AAAA/messages/M2"));
+
+        when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT)).thenReturn(Map.of());
+        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.fetchSpaceDisplayName(context)).thenReturn("engineering");
+        when(rawService.fetchMessagePage(context, null))
+                .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawPage1, "page-2"));
+        when(rawService.fetchMessagePage(context, "page-2"))
+                .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawPage2, null));
+        when(rawService.resolveSenders(anyString(), anySet())).thenReturn(Map.of());
+        when(normalizer.normalizeMessages(any(), any(), any(), any()))
+                .thenReturn(List.of(event(Instant.parse("2026-08-08T00:00:00Z"))));
+        when(eventPublisher.publishAll(anyList()))
+                .thenReturn(1)
+                .thenThrow(new IllegalStateException("broker nack"));
+
+        assertThatThrownBy(() -> collector.collect(PROJECT_ID, request))
+                .isInstanceOf(IllegalStateException.class);
+
+        // 전량 축적하던 때와 같은 보증 — 실패하면 checkpoint가 그대로라 다음 실행에서 재발행된다
+        verify(checkpointService, never()).updateCursor(any(), any(), any(), any());
     }
 
     @Test
@@ -152,7 +220,8 @@ class GoogleChatCollectorTest {
                 .thenReturn(Map.of(GoogleChatCollector.MESSAGES_CURSOR, lastScannedAt));
         when(rawService.prepareFetchContext(request, lastScannedAt)).thenReturn(
                 new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", lastScannedAt));
-        when(rawService.fetchMessages(any())).thenReturn(List.of());
+        when(rawService.fetchMessagePage(any(), any()))
+                .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(List.of(), null));
         when(rawService.resolveSenders(anyString(), anySet())).thenReturn(Map.of());
         when(normalizer.normalizeMessages(eq(PROJECT_ID), any(), anyList(), any())).thenReturn(List.of());
 

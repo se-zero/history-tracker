@@ -82,22 +82,36 @@ public class GoogleChatCollector implements SourceCollector {
         GoogleChatRawService.GoogleChatFetchContext context = rawService.prepareFetchContext(request, lastScannedAt);
 
         String spaceDisplayName = rawService.fetchSpaceDisplayName(context);
-        List<Map<String, Object>> messages = rawService.fetchMessages(context);
-        // 사용자 인증으로는 Message.sender에 displayName이 오지 않는다(실측 확인) — People API로
-        // 별도 보강한다. 메시지에 실제 등장한 sender만 조회해 불필요한 호출을 피한다.
-        Map<String, GoogleChatRawService.PersonInfo> actorInfo =
-                rawService.resolveSenders(context.auth(), senderNames(messages));
-        List<NormalizedEvent> events = normalizer.normalizeMessages(projectId, spaceDisplayName, messages, actorInfo);
 
-        int published = eventPublisher.publishAll(events);
-        CursorProgress.maxOccurredAt(events).ifPresent(cursor ->
-                checkpointService.updateCursor(projectId, provider(), MESSAGES_CURSOR, cursor));
+        // 스페이스 전체를 모으지 않고 페이지마다 발행한다(Slack·Discord와 같은 이유) — 발행 배치와
+        // 메모리가 스페이스 크기에 비례하면 수년치 스페이스가 confirm 타임아웃에 걸려 재시도해도
+        // 계속 실패한다. 페이지 크기(1000)가 곧 발행 배치 상한이 된다.
+        int published = 0;
+        Instant cursor = null;
+        String pageToken = null;
+        do {
+            GoogleChatRawService.GoogleChatMessagePage page = rawService.fetchMessagePage(context, pageToken);
+            // 사용자 인증으로는 Message.sender에 displayName이 오지 않는다(실측 확인) — People API로
+            // 별도 보강한다. 페이지마다 불러도 sender 단위 TTL 캐시가 흡수해 호출 수가 페이지 수에
+            // 비례하지 않는다(첫 페이지 이후로는 대부분 캐시 히트다).
+            Map<String, GoogleChatRawService.PersonInfo> actorInfo =
+                    rawService.resolveSenders(context.auth(), senderNames(page.messages()));
+            List<NormalizedEvent> events =
+                    normalizer.normalizeMessages(projectId, spaceDisplayName, page.messages(), actorInfo);
+
+            published += eventPublisher.publishAll(events);
+            cursor = CursorProgress.later(cursor, CursorProgress.maxOccurredAt(events).orElse(null));
+            pageToken = page.nextPageToken();
+        } while (pageToken != null && !pageToken.isBlank());
+
+        // 전체 성공 후 한 번만 전진한다 — 중간 페이지 발행이 실패하면 예외가 전파돼 여기 도달하지
+        // 못하므로 checkpoint가 그대로 남고 다음 실행에서 재발행된다(전량 축적하던 때와 같은 보증).
+        checkpointService.updateCursor(projectId, provider(), MESSAGES_CURSOR, cursor);
 
         log.info("Google Chat 이벤트 발행: {}", published);
         return published;
     }
 
-    @SuppressWarnings("unchecked")
     private static Set<String> senderNames(List<Map<String, Object>> messages) {
         Set<String> senderNames = new HashSet<>();
         for (Map<String, Object> message : messages) {

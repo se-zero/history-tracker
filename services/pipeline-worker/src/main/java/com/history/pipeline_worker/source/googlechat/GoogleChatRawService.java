@@ -81,26 +81,22 @@ public class GoogleChatRawService {
         return displayName instanceof String name ? name : null;
     }
 
+    public record GoogleChatMessagePage(List<Map<String, Object>> messages, String nextPageToken) {}
+
     /**
-     * checkpoint 이후 메시지 전체를 수집한다. {@code filter=createTime > "{checkpoint}"}가 서버사이드로
-     * strict 필터링해 주므로 Discord·Slack과 달리 클라이언트 쪽 경계 필터링이 필요 없다.
-     * {@code orderBy=createTime ASC}라 이어받는 페이지의 순서도 안정적이다.
+     * checkpoint 이후 메시지를 <b>한 페이지</b> 받는다. {@code pageToken}이 {@code null}이면 처음부터
+     * 시작하고, 이후에는 직전 페이지의 {@code nextPageToken}을 그대로 넘긴다. 그 값이 비면 끝이다.
+     * <p>
+     * {@code filter=createTime > "{checkpoint}"}가 서버사이드로 strict 필터링해 주므로 Discord·Slack과
+     * 달리 클라이언트 쪽 경계 필터링이 필요 없다. {@code orderBy=createTime ASC}라 이어받는 페이지의
+     * 순서도 안정적이다.
+     * <p>
+     * 스페이스 전체를 모아 반환하지 않는 이유는 Slack·Discord와 같다 — 발행 배치와 메모리 점유가
+     * 스페이스 크기에 비례하면 큰 스페이스에서 confirm 타임아웃으로 영구 실패한다. 호출부가 페이지마다
+     * 발행한다.
      */
-    public List<Map<String, Object>> fetchMessages(GoogleChatFetchContext context) {
-        List<Map<String, Object>> collected = new ArrayList<>();
-        String pageToken = null;
-        do {
-            MessagesPage page = fetchMessagesPage(context, pageToken);
-            collected.addAll(page.messages());
-            pageToken = page.nextPageToken();
-        } while (pageToken != null && !pageToken.isBlank());
-        return filterNoise(collected);
-    }
-
-    private record MessagesPage(List<Map<String, Object>> messages, String nextPageToken) {}
-
     @SuppressWarnings("unchecked")
-    private MessagesPage fetchMessagesPage(GoogleChatFetchContext context, String pageToken) {
+    public GoogleChatMessagePage fetchMessagePage(GoogleChatFetchContext context, String pageToken) {
         String filter = filterExpression(context.lastScannedAt());
         Map<String, Object> response = executeWithRateLimitRetry(() -> webClient.get()
                 .uri(uriBuilder -> {
@@ -122,14 +118,17 @@ public class GoogleChatRawService {
                 .block());
 
         if (response == null) {
-            return new MessagesPage(List.of(), null);
+            return new GoogleChatMessagePage(List.of(), null);
         }
         Object rawMessages = response.get("messages");
         List<Map<String, Object>> messages = rawMessages instanceof List<?> list
                 ? (List<Map<String, Object>>) list
                 : List.of();
         Object nextPageToken = response.get("nextPageToken");
-        return new MessagesPage(messages, nextPageToken instanceof String token ? token : null);
+        // 노이즈 필터는 페이지 단위로 적용한다 — nextPageToken은 필터 이전 응답에서 그대로 뽑으므로
+        // 한 페이지가 전부 노이즈여도 페이지네이션이 멈추지 않는다.
+        return new GoogleChatMessagePage(
+                filterNoise(messages), nextPageToken instanceof String token ? token : null);
     }
 
     // checkpoint가 없으면(초기 수집) filter를 아예 생략해 전체 히스토리를 대상으로 한다

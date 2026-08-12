@@ -360,11 +360,14 @@ sender(프로필 비공개 등)는 그 실행에서만 이름·이메일 null로
 
 같은 규약을 **배치 호출 자체가 HTTP 오류로 실패하는 경우**(429 외 — People API는 Cloud Console에서
 별도 활성화가 필요해 미설정 환경에서 403이 흔하다)에도 적용한다. `GoogleChatCollector.collect`는
-`fetchMessages`로 메시지를 먼저 받은 뒤 `resolveSenders`를 호출하므로, 여기서 예외가 전파되면
+페이지를 받은 뒤 그 페이지의 sender로 `resolveSenders`를 호출하므로, 여기서 예외가 전파되면
 이미 받아온 메시지·발행·checkpoint 전진이 통째로 무산된다 — People API 미설정만으로 수집이 영구
 0건이 되는 것을 막기 위해 `fetchPersonBatch`는 403·500 등을 잡아 warn 로그 후 빈 맵을 반환한다
 (캐시하지 않아 다음 실행에서 재시도). 429는 `executeWithRateLimitRetry`가 재시도 상한까지 이미
 시도한 뒤이므로 예외로 그대로 전파한다 — 지속적인 rate limit은 조용히 넘길 문제가 아니다.
+
+보강 호출은 페이지마다 일어나지만 sender 단위 TTL 캐시가 흡수해 호출 수가 페이지 수에 비례하지
+않는다 — 스페이스의 화자 수는 메시지 수보다 훨씬 적어 첫 페이지 이후로는 대부분 캐시 히트다.
 
 `actor.name` 결정 순서는 ① 임베디드 `sender.displayName`이 어쩌다 채워져 있으면 그걸 우선(향후
 API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더 싸다) ② 없으면 People API 보강 결과
