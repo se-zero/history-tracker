@@ -232,7 +232,7 @@ GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도
 | `properties.url` (자연키) | `https://discord.com/channels/{guild_id}/{channel_id}/{message_id}` | Discord는 URL 필드를 주지 않아 **조립**한다. 결정적이고 프로젝트 안에서 고유 |
 | `properties.body` | `content` | 이미 평문이다(Teams의 HTML 변환이 불필요). `<@\d+>`(실제 멘션)만 `mentions` 배열의 표시 이름으로 치환하고, `mentions`가 비어 있는 평문 `@이름`은 그대로 둔다 |
 | `properties.channel` | 채널 `name` (스레드면 스레드 `name`) | |
-| `properties.conversation_id` | 스레드 안 메시지면 스레드 채널 id / 답글(type 19)이면 `message_reference.message_id` / 그 외 자기 `id` | |
+| `properties.conversation_id` | 스레드 안 메시지면 스레드 채널 id / 답글(type 19)이면 부모 체인의 **해소된** conversation_id / 그 외 자기 `id` | 아래 「답글 체인 해소」 참고 |
 | `properties.created_at` · `occurredAt` | `timestamp` | `edited_timestamp`는 커서를 되돌리지 않도록 쓰지 않는다 |
 | `actor.id` | `author.id` (snowflake) | 안정적·고유. 사용자명은 변경 가능하므로 id로 쓰지 않는다 |
 | `actor.name` | `author.global_name` (없으면 `username`) | |
@@ -241,6 +241,31 @@ GET /guilds/{guild_id}/threads/active           # 활성 스레드 (스레드도
 
 정규화 제외: `author.bot == true`(봇·웹훅 메시지), 시스템 메시지(`type`이 0·19가 아닌 것).
 Slack normalizer의 관례와 같다.
+
+### 답글 체인 해소 — 직접 부모만 보면 대화가 쪼개진다
+
+Discord의 `message_reference.message_id`는 **직접 부모**만 가리킨다(Slack은 항상 스레드 루트를
+가리켜 이 문제가 없다). A←B←C처럼 답글에 답글이 달리면, B의 `conversation_id`는 A로 정확히
+묶이지만 C는 B로만 묶여 **한 대화가 둘로 쪼개진다**. 답글에 답글은 흔한 패턴이라 방치하면 그래프
+품질에 영향이 있다.
+
+`DiscordNormalizer`는 채널 하나의 수집 실행 동안(페이지를 가로질러) `messageId → 해소된
+conversation_id` 맵을 유지한다. 답글은 부모의 **해소된** 값을 물려받으므로(부모 자신이 답글이면
+그 부모도 이미 해소돼 있다) 체인 전체가 한 conversation_id로 접힌다.
+
+- **처리 순서가 핵심이다.** 부모를 자식보다 먼저 해소해야 하는데, 한 페이지 안에서 Discord 응답은
+  최신→과거 내림차순이다(배치 안쪽 정렬 — 「확인 완료」 4). id는 snowflake라 오름차순=생성 순
+  오름차순이므로, 정규화 직전에 id로 정렬해 처리 순서만 바꾼다. 반환하는 이벤트 목록 자체의 순서는
+  발행·checkpoint 어느 쪽도 기대지 않아 안전하다.
+- **맵은 페이지를 가로질러 살아야 한다.** 채널 전체를 모으지 않고 페이지마다 발행하므로(§4 위
+  「채널 전체를 모으지 않고 페이지마다 발행한다」), `DiscordCollector.collect`가 채널마다 새 맵을
+  만들어 그 채널의 `do-while` 페이지 루프 전체에 넘긴다. 답글은 같은 채널 안에서만 걸리므로 채널
+  경계에서 초기화해도 정확하다.
+- **부모가 맵에 없으면 직접 부모 id로 폴백한다** — 지금까지의 동작과 같다. 이전 실행에서 이미
+  수집된 부모, 또는 노이즈로 필터된 부모(봇 메시지 등)가 이 경우다. 초기 수집은 채널 전체를 한
+  실행에서 훑으므로 사실상 완전히 해소되고, 증분도 활동이 몰려 들어오므로 대부분 잡힌다. 남는
+  잔여(체인 중간이 다른 실행에 걸친 경우)는 **기존 동작과 동일한 수준**이라 이 수정으로 더 나빠지는
+  경우는 없다.
 
 ### Rate limit (구현 결과 — 계획 대비 단순화)
 

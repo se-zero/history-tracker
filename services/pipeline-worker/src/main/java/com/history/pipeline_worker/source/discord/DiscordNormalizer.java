@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,18 +30,45 @@ public class DiscordNormalizer {
 
     private final RefsExtractor refsExtractor;
 
+    // 단발 호출용 — 이 호출 하나로 닫힌 맵을 새로 만든다. 답글의 답글(A←B←C)이 이 호출 안에
+    // 전부 들어 있으면 그대로 한 대화로 접히지만, 페이지를 가로지르는 체인은 여기서 해소되지
+    // 않는다(그러려면 호출 사이에 맵이 살아 있어야 한다 — 아래 5-인자 버전 참고).
     public List<NormalizedEvent> normalizeChannel(
             String projectId,
             String guildId,
             Map<String, Object> channel,
             List<Map<String, Object>> messages
     ) {
+        return normalizeChannel(projectId, guildId, channel, messages, new HashMap<>());
+    }
+
+    /**
+     * {@code resolvedConversationIds}는 messageId → 해소된 conversation_id 맵이다. Discord 답글은
+     * message_reference로 <b>직접 부모</b>만 가리켜, A←B←C 체인을 그대로 두면 B가 A로 묶인 뒤 C는
+     * B로만 묶여 대화가 둘로 쪼개진다(Slack은 항상 스레드 루트를 가리켜 이 문제가 없다). 이 맵을
+     * 채널 하나의 수집 실행 동안(페이지를 가로질러) 유지하면서 자식이 부모의 <b>해소된</b> 값을
+     * 물려받게 하면 체인 전체가 한 conversation_id로 접힌다. 부모가 이 맵에 없으면(다른 실행에서
+     * 수집됐거나 노이즈로 필터된 메시지) 직접 부모 id로 폴백한다 — 그 잔여는 기존 동작과 같다.
+     */
+    public List<NormalizedEvent> normalizeChannel(
+            String projectId,
+            String guildId,
+            Map<String, Object> channel,
+            List<Map<String, Object>> messages,
+            Map<String, String> resolvedConversationIds
+    ) {
         List<NormalizedEvent> events = new ArrayList<>();
         if (messages == null) {
             return events;
         }
-        for (Map<String, Object> message : messages) {
-            events.add(normalizeMessage(projectId, guildId, channel, message));
+        // 부모를 자식보다 먼저 해소해야 하는데, 한 페이지 안에서 Discord 응답은 최신→과거
+        // 내림차순이다(배치 안쪽 정렬 — docs/discord-integration.md 「확인 완료」 4). id는 snowflake라
+        // 오름차순=생성 순 오름차순이므로 처리 순서만 id로 정렬한다 — 반환하는 이벤트 목록 자체의
+        // 순서는 발행·checkpoint 어느 쪽도 기대지 않는다.
+        List<Map<String, Object>> ordered = new ArrayList<>(messages);
+        ordered.sort(Comparator.comparingLong(m -> parseSnowflake((String) m.get("id"))));
+        for (Map<String, Object> message : ordered) {
+            events.add(normalizeMessage(projectId, guildId, channel, message, resolvedConversationIds));
         }
         return events;
     }
@@ -50,7 +78,8 @@ public class DiscordNormalizer {
             String projectId,
             String guildId,
             Map<String, Object> channel,
-            Map<String, Object> message
+            Map<String, Object> message,
+            Map<String, String> resolvedConversationIds
     ) {
         String channelId = (String) channel.get("id");
         String channelName = (String) channel.get("name");
@@ -66,7 +95,7 @@ public class DiscordNormalizer {
         properties.put("url", "https://discord.com/channels/" + guildId + "/" + channelId + "/" + messageId);
         properties.put("body", content);
         properties.put("channel", channelName);
-        properties.put("conversation_id", conversationId(message, channel, messageId));
+        properties.put("conversation_id", conversationId(message, channel, messageId, resolvedConversationIds));
         properties.put("created_at", timestamp);
 
         return new NormalizedEvent(
@@ -82,19 +111,40 @@ public class DiscordNormalizer {
     }
 
     @SuppressWarnings("unchecked")
-    private static String conversationId(Map<String, Object> message, Map<String, Object> channel, String messageId) {
+    private static String conversationId(
+            Map<String, Object> message,
+            Map<String, Object> channel,
+            String messageId,
+            Map<String, String> resolvedConversationIds
+    ) {
+        String resolved;
         // 스레드 안 메시지는 전부 그 스레드(채널) id로 묶는다 — 루트든 답글이든 같은 대화다
         if (Boolean.TRUE.equals(channel.get("isThread"))) {
-            return (String) channel.get("id");
-        }
-        Object type = message.get("type");
-        if (type instanceof Number number && number.intValue() == TYPE_REPLY) {
-            Map<String, Object> reference = (Map<String, Object>) message.get("message_reference");
-            if (reference != null && reference.get("message_id") != null) {
-                return (String) reference.get("message_id");
+            resolved = (String) channel.get("id");
+        } else {
+            Object type = message.get("type");
+            if (type instanceof Number number && number.intValue() == TYPE_REPLY) {
+                Map<String, Object> reference = (Map<String, Object>) message.get("message_reference");
+                String parentId = reference == null ? null : (String) reference.get("message_id");
+                // 부모가 이미 해소돼 있으면 그 값을 물려받아 체인 전체를 한 대화로 접는다.
+                // 못 찾으면(다른 실행에서 수집·필터된 메시지) 직접 부모 id로 폴백한다.
+                resolved = parentId == null ? messageId : resolvedConversationIds.getOrDefault(parentId, parentId);
+            } else {
+                resolved = messageId;
             }
         }
-        return messageId;
+        resolvedConversationIds.put(messageId, resolved);
+        return resolved;
+    }
+
+    // 실제 Discord id는 항상 숫자 snowflake다 — 파싱 실패는 정렬 순서를 보장하지 않을 뿐(원본 순서로
+    // 남는다) 예외로 이어지지 않는다. DiscordRawService.advances()와 같은 방어적 파싱이다.
+    private static long parseSnowflake(String id) {
+        try {
+            return Long.parseLong(id);
+        } catch (NumberFormatException exception) {
+            return 0L;
+        }
     }
 
     @SuppressWarnings("unchecked")

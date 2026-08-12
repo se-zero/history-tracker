@@ -100,8 +100,10 @@ class DiscordCollectorTest {
                 .thenReturn(new DiscordRawService.DiscordMessagePage(rawMessages1, null));
         when(rawService.fetchMessagePage(context, channel2, null))
                 .thenReturn(new DiscordRawService.DiscordMessagePage(rawMessages2, null));
-        when(normalizer.normalizeChannel(PROJECT_ID, "G1", channel1, rawMessages1)).thenReturn(events1);
-        when(normalizer.normalizeChannel(PROJECT_ID, "G1", channel2, rawMessages2)).thenReturn(events2);
+        when(normalizer.normalizeChannel(eq(PROJECT_ID), eq("G1"), eq(channel1), eq(rawMessages1), anyMap()))
+                .thenReturn(events1);
+        when(normalizer.normalizeChannel(eq(PROJECT_ID), eq("G1"), eq(channel2), eq(rawMessages2), anyMap()))
+                .thenReturn(events2);
         when(eventPublisher.publishAll(anyList()))
                 .thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
 
@@ -132,8 +134,10 @@ class DiscordCollectorTest {
                 .thenReturn(new DiscordRawService.DiscordMessagePage(rawPage1, "CURSOR1"));
         when(rawService.fetchMessagePage(context, channel, "CURSOR1"))
                 .thenReturn(new DiscordRawService.DiscordMessagePage(rawPage2, null));
-        when(normalizer.normalizeChannel(PROJECT_ID, "G1", channel, rawPage1)).thenReturn(events1);
-        when(normalizer.normalizeChannel(PROJECT_ID, "G1", channel, rawPage2)).thenReturn(events2);
+        when(normalizer.normalizeChannel(eq(PROJECT_ID), eq("G1"), eq(channel), eq(rawPage1), anyMap()))
+                .thenReturn(events1);
+        when(normalizer.normalizeChannel(eq(PROJECT_ID), eq("G1"), eq(channel), eq(rawPage2), anyMap()))
+                .thenReturn(events2);
         when(eventPublisher.publishAll(anyList()))
                 .thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
 
@@ -164,7 +168,8 @@ class DiscordCollectorTest {
                 WebClientResponseException.create(HttpStatus.FORBIDDEN.value(), "Forbidden", null, null, null));
         when(rawService.fetchMessagePage(context, okChannel, null))
                 .thenReturn(new DiscordRawService.DiscordMessagePage(rawMessages, null));
-        when(normalizer.normalizeChannel(PROJECT_ID, "G1", okChannel, rawMessages)).thenReturn(events);
+        when(normalizer.normalizeChannel(eq(PROJECT_ID), eq("G1"), eq(okChannel), eq(rawMessages), anyMap()))
+                .thenReturn(events);
         when(eventPublisher.publishAll(anyList()))
                 .thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size());
 
@@ -172,7 +177,8 @@ class DiscordCollectorTest {
 
         assertThat(published).isEqualTo(1);
         verify(eventPublisher, times(1)).publishAll(anyList());
-        verify(normalizer, never()).normalizeChannel(eq(PROJECT_ID), eq("G1"), eq(forbiddenChannel), any());
+        verify(normalizer, never())
+                .normalizeChannel(eq(PROJECT_ID), eq("G1"), eq(forbiddenChannel), any(), anyMap());
     }
 
     @Test

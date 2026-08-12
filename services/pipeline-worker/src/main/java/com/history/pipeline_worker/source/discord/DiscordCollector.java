@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -96,6 +97,11 @@ public class DiscordCollector implements SourceCollector {
             @SuppressWarnings("unchecked")
             Map<String, Object> channel = (Map<String, Object>) rawChannel;
 
+            // 답글의 답글(A←B←C) 체인을 한 대화로 접으려면 이 채널의 페이지를 가로질러 같은 맵을
+            // 넘겨야 한다(DiscordNormalizer 참고) — 채널마다 새로 만든다. 답글은 같은 채널
+            // 안에서만 걸리므로 채널 경계에서 초기화해도 정확하다.
+            Map<String, String> resolvedConversationIds = new HashMap<>();
+
             // 채널 전체를 모으지 않고 페이지마다 발행한다(Slack과 같은 이유) — 발행 배치와 메모리가
             // 채널 크기에 비례하면 큰 채널이 confirm 타임아웃에 걸려 재시도해도 계속 실패한다.
             String pageCursor = null;
@@ -109,8 +115,8 @@ public class DiscordCollector implements SourceCollector {
                     break;
                 }
 
-                List<NormalizedEvent> events =
-                        normalizer.normalizeChannel(projectId, guildId, channel, page.messages());
+                List<NormalizedEvent> events = normalizer.normalizeChannel(
+                        projectId, guildId, channel, page.messages(), resolvedConversationIds);
                 published += eventPublisher.publishAll(events);
                 cursor = CursorProgress.later(cursor, CursorProgress.maxOccurredAt(events).orElse(null));
                 pageCursor = page.nextCursor();

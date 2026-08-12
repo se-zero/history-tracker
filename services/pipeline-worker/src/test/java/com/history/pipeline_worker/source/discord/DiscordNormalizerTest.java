@@ -127,6 +127,79 @@ class DiscordNormalizerTest {
     }
 
     @Test
+    @DisplayName("답글의 답글(A←B←C)은 한 conversation_id로 접힌다 — 직접 부모만 보면 둘로 쪼개진다")
+    void normalizeChannel_replyChain_foldsIntoSingleConversationId() {
+        Map<String, Object> messageA = message("1000", "U1", "Alice", "루트 메시지",
+                "2026-08-08T05:25:00.000000+00:00", 0);
+        Map<String, Object> messageB = reply("1001", "U2", "Bob", "A에 대한 답글", "1000",
+                "2026-08-08T05:26:00.000000+00:00");
+        Map<String, Object> messageC = reply("1002", "U3", "Carol", "B에 대한 답글", "1001",
+                "2026-08-08T05:27:00.000000+00:00");
+        // 페이지네이션 안쪽 정렬(최신→과거)을 그대로 흉내낸다 — 정렬 로직이 이 순서에 기대면 안 된다
+        List<Map<String, Object>> messagesNewestFirst = List.of(messageC, messageB, messageA);
+
+        List<NormalizedEvent> events = normalizer.normalizeChannel(
+                PROJECT_ID, GUILD_ID, channel("일반", "C1", false), messagesNewestFirst);
+
+        assertThat(events).extracting(e -> e.properties().get("conversation_id"))
+                .containsOnly("1000");
+    }
+
+    @Test
+    @DisplayName("답글 체인은 페이지를 가로질러도 접힌다 — 맵을 다음 호출에 그대로 넘겨야 한다")
+    void normalizeChannel_replyChainAcrossPages_stillFoldsWhenMapIsCarriedOver() {
+        Map<String, Object> messageA = message("2000", "U1", "Alice", "루트 메시지",
+                "2026-08-08T05:25:00.000000+00:00", 0);
+        Map<String, Object> messageB = reply("2001", "U2", "Bob", "A에 대한 답글", "2000",
+                "2026-08-08T05:26:00.000000+00:00");
+        Map<String, Object> messageC = reply("2002", "U3", "Carol", "B에 대한 답글", "2001",
+                "2026-08-08T05:27:00.000000+00:00");
+        Map<String, Object> channel = channel("일반", "C1", false);
+        Map<String, String> resolvedConversationIds = new HashMap<>();
+
+        // 1페이지: A, B (오래된 쪽 먼저 — 실제 페이지네이션 순서)
+        normalizer.normalizeChannel(PROJECT_ID, GUILD_ID, channel, List.of(messageA, messageB), resolvedConversationIds);
+        // 2페이지: C만 — 부모 B는 1페이지에서 이미 처리됐고 맵에만 남아 있다
+        List<NormalizedEvent> page2Events = normalizer.normalizeChannel(
+                PROJECT_ID, GUILD_ID, channel, List.of(messageC), resolvedConversationIds);
+
+        assertThat(page2Events.get(0).properties()).containsEntry("conversation_id", "2000");
+    }
+
+    @Test
+    @DisplayName("부모가 이번 실행에 없으면(다른 실행에서 수집·필터된 메시지) 직접 부모 id로 폴백한다 — 기존 동작과 같다")
+    void normalizeChannel_replyToUnknownParent_fallsBackToDirectParentId() {
+        Map<String, Object> orphanReply = reply("3001", "U2", "Bob", "이전 실행에서 수집된 메시지에 대한 답글",
+                "2999", "2026-08-08T05:26:00.000000+00:00");
+
+        NormalizedEvent event = normalizer.normalizeChannel(
+                PROJECT_ID, GUILD_ID, channel("일반", "C1", false), List.of(orphanReply)).get(0);
+
+        assertThat(event.properties()).containsEntry("conversation_id", "2999");
+    }
+
+    @Test
+    @DisplayName("답글이 아닌 정렬 불가능한 id(비-snowflake)도 예외 없이 처리된다")
+    void normalizeChannel_nonNumericIds_doesNotThrow() {
+        Map<String, Object> message1 = message("M1", "U1", "Alice", "text1",
+                "2026-08-08T05:25:00.000000+00:00", 0);
+        Map<String, Object> message2 = message("M2", "U2", "Bob", "text2",
+                "2026-08-08T05:26:00.000000+00:00", 0);
+
+        List<NormalizedEvent> events = normalizer.normalizeChannel(
+                PROJECT_ID, GUILD_ID, channel("일반", "C1", false), List.of(message1, message2));
+
+        assertThat(events).hasSize(2);
+    }
+
+    private Map<String, Object> reply(String id, String authorId, String authorName, String content,
+                                       String parentMessageId, String timestamp) {
+        Map<String, Object> message = message(id, authorId, authorName, content, timestamp, 19);
+        message.put("message_reference", Map.of("message_id", parentMessageId));
+        return message;
+    }
+
+    @Test
     @DisplayName("<@id> 실제 멘션은 mentions 배열의 표시 이름으로 치환된다")
     void normalizeChannel_realMention_substitutedWithDisplayName() {
         Map<String, Object> mentionedUser = new HashMap<>();
