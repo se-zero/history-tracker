@@ -660,7 +660,7 @@ def _canon(text: str) -> str:
 def _drop_unverified_quotes(
     structured: dict, messages: list, current_turn_start: int, debug: dict | None
 ) -> dict:
-    """evidence[*].quote가 이번 턴 tool 결과에 실존하는지 검증하고, 없으면 그 evidence를 제거한다.
+    """evidence[*].quote·id가 이번 턴 tool 결과에 실존하는지 검증하고, 없으면 그 evidence를 제거한다.
 
     프롬프트 지시("카드를 인용하지 마라")만으로는 답변 모델이 대화 맥락 카드나 과거 대화의
     텍스트를 quote로 베껴 "이번 턴 근거"처럼 위장하는 걸 막지 못한다 — 이번 턴 tool 결과
@@ -669,7 +669,14 @@ def _drop_unverified_quotes(
     quote는 말줄임(…, ...)으로 중간을 생략하거나 앞부분만 잘라 인용할 수 있으므로(스키마 허용),
     말줄임 토큰으로 조각을 나눠 조각 전부가 haystack의 부분 문자열인지 확인한다.
 
-    이번 턴에 tool 호출이 없었다면 haystack이 빈 문자열이 되어, 비어있지 않은 quote는 전부
+    id(커밋 해시·PR 번호·이슈 키)는 quote와 별개로 검증한다 — quote만 검증하면 모델이 낸
+    id 오타(실기 사례: 커밋 해시 8cdb0ca ↔ 실제 8cdb0cc)가 그대로 통과해, UI에서 그 id를
+    클릭하면 존재하지 않는 대상을 가리키게 된다. id는 원자적 식별자라 말줄임 분할 없이
+    haystack에 대한 통짜 부분 문자열 검사만 한다 — 짧은 해시(7자리)는 tool 결과의 전체 해시
+    문자열에 부분 문자열로 포함되므로 자동으로 통과한다. id가 빈 문자열이면 검증할 것이
+    없으므로(quote와 동일한 정책) 통과시킨다.
+
+    이번 턴에 tool 호출이 없었다면 haystack이 빈 문자열이 되어, 비어있지 않은 quote·id는 전부
     제거된다 — 의도된 동작이다: 이번 턴 도구 결과 밖에서 온 인용(과거 대화·맥락 카드 등)은
     신뢰하지 않는다.
     """
@@ -688,22 +695,31 @@ def _drop_unverified_quotes(
     dropped: list[dict] = []
     for item in structured.get("evidence") or []:
         quote = (item.get("quote") or "").strip()
-        if not quote:
-            # 검증할 텍스트가 없으므로 통과.
-            kept.append(item)
+        if quote:
+            fragments = [f for f in (_canon(part) for part in _ELLIPSIS_RE.split(quote)) if f]
+            if not all(fragment in haystack for fragment in fragments):
+                dropped.append({**item, "reason": "quote"})
+                continue
+
+        eid = _canon(item.get("id") or "")
+        if eid and eid not in haystack:
+            dropped.append({**item, "reason": "id"})
             continue
-        fragments = [f for f in (_canon(part) for part in _ELLIPSIS_RE.split(quote)) if f]
-        if all(fragment in haystack for fragment in fragments):
-            kept.append(item)
-        else:
-            dropped.append(item)
+
+        kept.append(item)
 
     if dropped:
         for item in dropped:
-            logger.warning(
-                "검증 실패 evidence quote 제거: type=%s id=%s quote=%.80s",
-                item.get("type"), item.get("id"), item.get("quote"),
-            )
+            if item["reason"] == "quote":
+                logger.warning(
+                    "검증 실패 evidence quote 제거: type=%s id=%s quote=%.80s",
+                    item.get("type"), item.get("id"), item.get("quote"),
+                )
+            else:
+                logger.warning(
+                    "검증 실패 evidence id 제거: type=%s id=%s",
+                    item.get("type"), item.get("id"),
+                )
         if isinstance(debug, dict):
             debug.setdefault("dropped_evidence", []).extend(dropped)
 
