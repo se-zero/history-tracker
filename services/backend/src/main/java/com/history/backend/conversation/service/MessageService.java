@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.conversation.ChatMemoryProperties;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.domain.MessageRole;
@@ -21,8 +22,10 @@ import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
 import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.project.service.ProjectService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -32,10 +35,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class MessageService {
 
-    private static final int MAX_HISTORY_TURNS = 5;
     private static final int MESSAGE_PAGE_SIZE = 30;
     // focus 노드는 user 입력이 그대로 ai-engine system 메시지에 실리므로 경계에서 방어한다.
     private static final Set<String> ALLOWED_FOCUS_TYPES = Set.of("commit", "pull_request", "issue", "message");
@@ -52,7 +53,31 @@ public class MessageService {
     private final ConversationRepository conversationRepository;
     private final ProjectService projectService;
     private final AiEngineQueryClient aiEngineQueryClient;
+    private final ChatMemoryProperties chatMemoryProperties;
+    private final SummaryBackoffTracker summaryBackoffTracker;
+    private final TaskExecutor summaryTaskExecutor;
     private final TransactionTemplate transactionTemplate;
+
+    // lombok @RequiredArgsConstructor는 @Qualifier를 생성자 파라미터에 복사하지 못해 명시 생성자를 쓴다.
+    public MessageService(
+            MessageRepository messageRepository,
+            ConversationRepository conversationRepository,
+            ProjectService projectService,
+            AiEngineQueryClient aiEngineQueryClient,
+            ChatMemoryProperties chatMemoryProperties,
+            SummaryBackoffTracker summaryBackoffTracker,
+            @Qualifier("summaryTaskExecutor") TaskExecutor summaryTaskExecutor,
+            TransactionTemplate transactionTemplate
+    ) {
+        this.messageRepository = messageRepository;
+        this.conversationRepository = conversationRepository;
+        this.projectService = projectService;
+        this.aiEngineQueryClient = aiEngineQueryClient;
+        this.chatMemoryProperties = chatMemoryProperties;
+        this.summaryBackoffTracker = summaryBackoffTracker;
+        this.summaryTaskExecutor = summaryTaskExecutor;
+        this.transactionTemplate = transactionTemplate;
+    }
 
     // 사용자 메시지 저장 → AI 질의 → 응답 저장 (트랜잭션 2단계 분리)
     // focusEvidence: 관련 그래프에서 지정한 focus 노드. 현재 턴 한정이라 history/영속화에 넣지 않고 질의로만 전달.
@@ -73,18 +98,14 @@ public class MessageService {
             Message userMessage = appendUserMessageInCurrentTransaction(conversation, normalizedContent);
             return new PendingQuery(userMessage, queryContext);
         });
-        Map<String, Object> runningSummary = refreshRunningSummary(
-                projectId,
-                conversationId,
-                pendingQuery.queryContext()
-        );
+        maybeScheduleSummaryRefresh(conversationId, pendingQuery.queryContext());
         Message assistantMessage = appendAssistantMessageAfterQuery(
                 projectId,
                 conversationId,
                 normalizedContent,
                 pendingQuery.queryContext().history(),
                 pendingQuery.queryContext().priorEvidence(),
-                runningSummary,
+                pendingQuery.queryContext().runningSummary(),
                 sanitizeFocusEvidence(focusEvidence)
         );
         return new MessageExchange(pendingQuery.userMessage(), assistantMessage);
@@ -204,15 +225,59 @@ public class MessageService {
     // AI 질의 컨텍스트와 새로 요약할 오래된 완성 턴 구성
     private QueryContext loadQueryContext(Conversation conversation) {
         List<HistoryTurn> completedTurns = completedHistoryTurns(loadContextMessages(conversation));
-        int fromIndex = Math.max(0, completedTurns.size() - MAX_HISTORY_TURNS);
-        List<AiEngineHistoryMessage> history = completedTurns.subList(fromIndex, completedTurns.size()).stream()
+        int windowFromIndex = historyFromIndex(completedTurns);
+        int historyStart = backlogCarryStartIndex(completedTurns, windowFromIndex);
+        List<AiEngineHistoryMessage> history = completedTurns.subList(historyStart, completedTurns.size()).stream()
                 .flatMap(turn -> turn.messages().stream())
                 .toList();
         List<AiEnginePriorEvidence> priorEvidence = completedTurns.isEmpty()
                 ? List.of()
                 : extractPriorEvidence(completedTurns.get(completedTurns.size() - 1).assistant());
-        SummaryTask summaryTask = summaryTask(conversation, completedTurns.subList(0, fromIndex));
+        SummaryTask summaryTask = summaryTask(conversation, completedTurns.subList(0, windowFromIndex));
         return new QueryContext(history, priorEvidence, conversation.getRunningSummary(), summaryTask);
+    }
+
+    // 최신 턴부터 거꾸로 글자 수를 누적해 예산 내 턴만 history로 포함할 시작 인덱스 산출.
+    // 턴은 항상 통째 단위(부분 포함 없음)이고, 최신 턴은 예산을 넘겨도 최소 1턴 보장을 위해 무조건 포함한다.
+    private int historyFromIndex(List<HistoryTurn> turns) {
+        if (turns.isEmpty()) {
+            return 0;
+        }
+        int budget = chatMemoryProperties.historyBudgetChars();
+        int fromIndex = turns.size() - 1;
+        int cumulativeChars = turnChars(turns.get(fromIndex));
+        for (int index = fromIndex - 1; index >= 0; index--) {
+            int chars = turnChars(turns.get(index));
+            if (cumulativeChars + chars > budget) {
+                break;
+            }
+            cumulativeChars += chars;
+            fromIndex = index;
+        }
+        return fromIndex;
+    }
+
+    private int turnChars(HistoryTurn turn) {
+        return turn.user().getContent().length() + turn.assistant().getContent().length();
+    }
+
+    // 예산 창(windowFromIndex) 밖이지만 아직 요약 트리거를 채우지 못한 백로그 턴은 질의 payload 어디에도
+    // 실리지 않는 사각지대가 된다. 이를 없애기 위해 history 앞쪽에 원문 그대로 동승시킨다. 캡은 별도 설정
+    // 없이 summaryTriggerChars를 재사용한다 - 요약을 미루는 한계량과 캡이 같은 의미이기 때문이다.
+    // 턴은 항상 통째 단위이며, 캡을 넘기는 턴에서 중단하고 그보다 오래된 턴도 함께 제외한다.
+    private int backlogCarryStartIndex(List<HistoryTurn> turns, int windowFromIndex) {
+        int cap = chatMemoryProperties.summaryTriggerChars();
+        int historyStart = windowFromIndex;
+        int cumulativeChars = 0;
+        for (int index = windowFromIndex - 1; index >= 0; index--) {
+            int chars = turnChars(turns.get(index));
+            if (cumulativeChars + chars > cap) {
+                break;
+            }
+            cumulativeChars += chars;
+            historyStart = index;
+        }
+        return historyStart;
     }
 
     // 누적 요약 커서 이후의 AI 문맥 대상 메시지 조회
@@ -248,39 +313,72 @@ public class MessageService {
         return new SummaryTask(history, throughMessageId, conversation.getSummaryVersion());
     }
 
-    // 요약 실패 또는 동시 갱신 충돌이 현재 질문 실패로 이어지지 않는 보조 문맥 갱신
-    private Map<String, Object> refreshRunningSummary(
-            UUID projectId,
-            UUID conversationId,
-            QueryContext queryContext
-    ) {
-        if (queryContext.summaryTask() == null) {
-            return queryContext.runningSummary();
+    // 백로그가 트리거 기준 이상이고 백오프 스킵 대상이 아니면 요약 갱신을 별도 풀에 비동기 제출.
+    // 이번 턴의 ask는 항상 queryContext.runningSummary()(호출 시점에 저장돼 있던 기존 요약)를 그대로 쓴다.
+    // executor 람다에는 영속 엔티티(Message/Conversation)를 캡처하지 않는다 — 트랜잭션 밖 워커 스레드에서
+    // lazy 로딩·detached 엔티티 문제가 나지 않도록 SummaryTask의 DTO/UUID/long/Map만 넘긴다.
+    private void maybeScheduleSummaryRefresh(UUID conversationId, QueryContext queryContext) {
+        SummaryTask summaryTask = queryContext.summaryTask();
+        if (summaryTask == null) {
+            return;
         }
-        Map<String, Object> generatedSummary = aiEngineQueryClient.summarize(
-                queryContext.runningSummary(),
-                queryContext.summaryTask().history()
-        );
-        if (generatedSummary == null) {
-            return queryContext.runningSummary();
+        int backlogChars = summaryTask.history().stream()
+                .mapToInt(message -> message.content().length())
+                .sum();
+        if (backlogChars < chatMemoryProperties.summaryTriggerChars()) {
+            return;
         }
+        if (summaryBackoffTracker.shouldSkip(conversationId)) {
+            return;
+        }
+        Map<String, Object> existingSummary = queryContext.runningSummary();
+        try {
+            summaryTaskExecutor.execute(() -> runSummaryRefresh(conversationId, existingSummary, summaryTask));
+        } catch (TaskRejectedException exception) {
+            // 풀 포화로 제출 자체가 거부돼도 유실이 아니다 - 커서가 전진하지 않아 다음 턴에 재평가된다.
+            log.warn("요약 executor 제출 거부 - 다음 턴에 재시도: {}", exception.getMessage());
+        }
+    }
+
+    // 요약 생성·갱신 전체를 방어적으로 감싼다 - SyncTaskExecutor로 실행되는 테스트를 포함해
+    // 이 메서드의 예외가 addMessage 호출부로 전파되면 안 된다.
+    private void runSummaryRefresh(UUID conversationId, Map<String, Object> existingSummary, SummaryTask summaryTask) {
+        try {
+            Map<String, Object> generatedSummary;
+            try {
+                generatedSummary = aiEngineQueryClient.summarize(existingSummary, summaryTask.history());
+            } catch (RuntimeException exception) {
+                log.warn("요약 생성 실패 - 백오프 기록: {}", exception.getMessage());
+                summaryBackoffTracker.recordFailure(conversationId);
+                return;
+            }
+            if (generatedSummary == null) {
+                log.warn("요약 생성 결과 없음 - 백오프 기록: conversationId={}", conversationId);
+                summaryBackoffTracker.recordFailure(conversationId);
+                return;
+            }
+            summaryBackoffTracker.recordSuccess(conversationId);
+            applyGeneratedSummary(conversationId, summaryTask, generatedSummary);
+        } catch (RuntimeException exception) {
+            log.error("요약 갱신 처리 중 예상치 못한 오류: {}", exception.getMessage(), exception);
+        }
+    }
+
+    // CAS 갱신 - 0건(동시 전진) 또는 DB 예외는 LLM 요약 자체의 실패가 아니므로 백오프 대상이 아니다.
+    private void applyGeneratedSummary(UUID conversationId, SummaryTask summaryTask, Map<String, Object> generatedSummary) {
         try {
             Integer updated = transactionTemplate.execute(status -> conversationRepository.updateRunningSummary(
                     conversationId,
-                    queryContext.summaryTask().expectedVersion(),
+                    summaryTask.expectedVersion(),
                     generatedSummary,
-                    queryContext.summaryTask().throughMessageId(),
+                    summaryTask.throughMessageId(),
                     Instant.now()
             ));
-            if (updated != null && updated == 1) {
-                return generatedSummary;
+            if (updated == null || updated != 1) {
+                log.warn("running summary CAS 갱신 충돌 - 다음 턴에 재시도: conversationId={}", conversationId);
             }
-            return transactionTemplate.execute(
-                    status -> findConversation(projectId, conversationId).getRunningSummary()
-            );
         } catch (RuntimeException exception) {
-            log.warn("running summary 갱신 실패 - 기존 요약으로 진행: {}", exception.getMessage());
-            return queryContext.runningSummary();
+            log.warn("running summary 갱신 실패: {}", exception.getMessage());
         }
     }
 

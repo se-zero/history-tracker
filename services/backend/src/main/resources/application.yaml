@@ -20,6 +20,13 @@ ai:
   engine:
     url: http://localhost:8000
 
+conversation:
+  memory:
+    history-budget-chars: ${HISTORY_BUDGET_CHARS:32000}
+    summary-trigger-chars: ${SUMMARY_TRIGGER_CHARS:8000}
+    summary-failure-threshold: ${SUMMARY_FAILURE_THRESHOLD:3}
+    summary-skip-turns: ${SUMMARY_SKIP_TURNS:3}
+
 pipeline:
   worker:
     url: ${PIPELINE_WORKER_URL:http://localhost:8081}

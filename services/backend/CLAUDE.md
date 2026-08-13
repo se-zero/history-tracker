@@ -43,8 +43,8 @@ cd services/backend
 ## 대화(conversation) 처리
 
 - `MessageService.addMessage`는 트랜잭션을 2단계로 분리한다: (1) 사용자 메시지 저장, (2) ai-engine 질의(트랜잭션 밖) 후 assistant 응답 저장. 느린 AI 질의 중 DB 커넥션 점유를 피하고, 질의 실패와 무관하게 사용자 메시지를 보존하기 위함이다.
-- 최근 `MAX_HISTORY_TURNS`(5) 완성 턴만 history로 ai-engine에 전달하고, 그보다 오래된 턴은 running summary로 누적 압축한다. fallback/blank로 끝난 턴은 history·요약에서 제외한다.
-- running summary 갱신은 version 기반 낙관적 충돌 처리로, 실패하거나 충돌해도 현재 질문 응답을 막지 않는다.
+- 최신 턴부터 거꾸로 글자 수(user+assistant content 길이)를 누적해 `conversation.memory.history-budget-chars`(기본 32000자) 이내에 드는 완성 턴만 history로 ai-engine에 전달하고, 그보다 오래된 턴은 running summary로 누적 압축한다. 턴은 항상 통째 단위(부분 포함 없음)이며 최신 턴은 예산을 넘겨도 무조건 포함한다. fallback/blank로 끝난 턴은 history·요약에서 제외한다. 예산 창 밖으로 밀렸지만 아직 요약 트리거를 못 채운 백로그 턴(사각지대)은 `summary-trigger-chars`를 캡으로 재사용해 history 앞쪽에 원문 그대로 동승시키고, 캡을 넘는 턴부터는 통째로 제외한다(요약 대상 범위에는 영향 없음).
+- running summary 갱신은 백로그(요약 대상 턴의 content 길이 합)가 `conversation.memory.summary-trigger-chars`(기본 8000자) 이상일 때만 `summaryTaskExecutor` 전용 풀에서 비동기로 실행한다. 이번 턴의 질의는 갱신 완료를 기다리지 않고 항상 저장돼 있던 기존 요약을 사용한다. version 기반 CAS로 동시 갱신 충돌을 막으며, 요약 생성이 연속 실패하면 `SummaryBackoffTracker`(인메모리, 재시작 시 리셋)가 일정 턴 동안 재시도를 건너뛴다.
 - 직전 정상 응답의 `structured.evidence`에서 후속 질문 대상 식별용 prior evidence를 추출해 함께 전달한다.
 
 ## 외부 연동 (OAuth)

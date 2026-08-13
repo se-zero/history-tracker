@@ -75,14 +75,26 @@ async def query_config():
     수동 라벨(--model-label)과 실제 설정이 어긋난 무효 런을 방지한다
     (실례: QUERY_REASONING_EFFORT=low 사고 — docs/query-followups.md 2번).
     """
-    from agent.orchestrator import _MAX_ITERATIONS, _MODEL, _REASONING_EFFORT
+    from agent.orchestrator import (
+        _CONTEXT_CARD_BUDGET_CHARS,
+        _MAX_ITERATIONS,
+        _MODEL,
+        _QUERY_HISTORY_BUDGET_CHARS,
+        _REASONING_EFFORT,
+        _REWRITE_MODEL,
+        _SUMMARY_MODEL,
+    )
     from tools.queries._common import _MIN_CONFIDENCE
     from tools.queries.files import _CONTEXT_CAP, _DETAIL_BUDGET, _DETAIL_K_MAX, _MAX_COMMITS
 
     return {
         "query_model": _MODEL,
+        "summary_model": _SUMMARY_MODEL,
+        "rewrite_model": _REWRITE_MODEL,
         "reasoning_effort": _REASONING_EFFORT,  # 빈 문자열 = 파라미터 미전송(API 기본값)
         "max_iterations": _MAX_ITERATIONS,
+        "query_history_budget_chars": _QUERY_HISTORY_BUDGET_CHARS,
+        "context_card_budget_chars": _CONTEXT_CARD_BUDGET_CHARS,
         "tools_min_confidence": _MIN_CONFIDENCE,
         "file_history": {
             "detail_budget": _DETAIL_BUDGET,

@@ -3,8 +3,10 @@ package com.history.backend.conversation.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -18,6 +20,7 @@ import java.util.UUID;
 import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.conversation.ChatMemoryProperties;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.domain.MessageRole;
@@ -35,6 +38,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.task.SyncTaskExecutor;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionDefinition;
@@ -61,6 +67,11 @@ class MessageServiceTest {
 
     @Mock
     private AiEngineQueryClient aiEngineQueryClient;
+
+    @Mock
+    private SummaryBackoffTracker summaryBackoffTracker;
+
+    private final TaskExecutor summaryTaskExecutor = new SyncTaskExecutor();
 
     private final TransactionTemplate transactionTemplate = new TransactionTemplate(new NoopTransactionManager());
 
@@ -258,9 +269,11 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("최근 5개 완성 턴만 히스토리로 전송")
-    void addMessageSendsOnlyFiveMostRecentCompletedTurns() {
-        MessageService service = service();
+    @DisplayName("예산(100자) 밖 백로그도 캡(8000자) 이내면 히스토리에 동승")
+    void addMessageSendsOnlyRecentCompletedTurnsWithinBudget() {
+        // 턴당 18자("Question N"+"Answer N") × 5턴 = 90자(예산 이내), 6턴째부터 108자로 예산 초과 → window는 turn3-7
+        // 창 밖 백로그(turn1-2, 36자)는 캡(summaryTriggerChars=8000)보다 훨씬 작아 전부 동승 → 최종 history는 turn1-7 전체
+        MessageService service = service(new ChatMemoryProperties(100, 8000, 3, 3));
         Conversation conversation = conversation();
         List<Message> messages = new java.util.ArrayList<>();
         for (int turn = 1; turn <= 7; turn++) {
@@ -269,6 +282,10 @@ class MessageServiceTest {
         }
         messages.add(Message.user(conversation, "Incomplete question"));
         List<AiEngineHistoryMessage> expectedHistory = List.of(
+                new AiEngineHistoryMessage("user", "Question 1"),
+                new AiEngineHistoryMessage("assistant", "Answer 1"),
+                new AiEngineHistoryMessage("user", "Question 2"),
+                new AiEngineHistoryMessage("assistant", "Answer 2"),
                 new AiEngineHistoryMessage("user", "Question 3"),
                 new AiEngineHistoryMessage("assistant", "Answer 3"),
                 new AiEngineHistoryMessage("user", "Question 4"),
@@ -296,9 +313,218 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("최근 5개 이전 턴은 running summary로 압축")
-    void addMessageSummarizesTurnsOlderThanRecentFive() {
-        MessageService service = service();
+    @DisplayName("최신 턴이 단독으로 예산을 초과해도 히스토리에 포함")
+    void addMessageIncludesLatestTurnAloneWhenItAloneExceedsBudget() {
+        // 이전 턴 18자는 예산(50자) 이내지만, 최신 턴 단독 80자는 예산을 초과 → 그래도 반드시 포함(window=최신 턴만)
+        // 이전 턴(18자)은 캡(summaryTriggerChars=8000) 이내라 백로그로 동승 → 최종 history엔 이전 턴도 포함
+        MessageService service = service(new ChatMemoryProperties(50, 8000, 3, 3));
+        Conversation conversation = conversation();
+        Message olderUser = Message.user(conversation, "Question 1");
+        Message olderAssistant = Message.assistant(conversation, "Answer 1", null);
+        String bigUserContent = "X".repeat(40);
+        String bigAssistantContent = "Y".repeat(40);
+        Message latestUser = Message.user(conversation, bigUserContent);
+        Message latestAssistant = Message.assistant(conversation, bigAssistantContent, null);
+        List<AiEngineHistoryMessage> expectedHistory = List.of(
+                new AiEngineHistoryMessage("user", "Question 1"),
+                new AiEngineHistoryMessage("assistant", "Answer 1"),
+                new AiEngineHistoryMessage("user", bigUserContent),
+                new AiEngineHistoryMessage("assistant", bigAssistantContent)
+        );
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of(olderUser, olderAssistant, latestUser, latestAssistant));
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of());
+    }
+
+    @Test
+    @DisplayName("예산에 일부만 걸치는 턴은 창(window)에서 통째로 제외되지만, 캡 이내라 백로그로 동승")
+    void addMessageExcludesWholeTurnWhenOnlyPartiallyFitsBudget() {
+        // 최신 턴(12자)만 예산(25자) 이내. 경계 턴(20자)은 합산 시 32자로 초과하므로
+        // user(10자)만 따로 보면 22자로 예산 이내지만, 턴 전체를 통째로 제외해야 한다(window=최신 턴만).
+        // 단, oldest+boundary(24자)는 캡(summaryTriggerChars=8000) 이내라 백로그로 동승 → 최종 history는 전체 포함
+        MessageService service = service(new ChatMemoryProperties(25, 8000, 3, 3));
+        Conversation conversation = conversation();
+        Message oldestUser = Message.user(conversation, "Q1");
+        Message oldestAssistant = Message.assistant(conversation, "A1", null);
+        Message boundaryUser = Message.user(conversation, "U2U2U2U2U2");
+        Message boundaryAssistant = Message.assistant(conversation, "A2A2A2A2A2", null);
+        String latestUserContent = "U3U3U3";
+        String latestAssistantContent = "A3A3A3";
+        Message latestUser = Message.user(conversation, latestUserContent);
+        Message latestAssistant = Message.assistant(conversation, latestAssistantContent, null);
+        List<AiEngineHistoryMessage> expectedHistory = List.of(
+                new AiEngineHistoryMessage("user", "Q1"),
+                new AiEngineHistoryMessage("assistant", "A1"),
+                new AiEngineHistoryMessage("user", "U2U2U2U2U2"),
+                new AiEngineHistoryMessage("assistant", "A2A2A2A2A2"),
+                new AiEngineHistoryMessage("user", latestUserContent),
+                new AiEngineHistoryMessage("assistant", latestAssistantContent)
+        );
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of(
+                        oldestUser, oldestAssistant, boundaryUser, boundaryAssistant, latestUser, latestAssistant
+                ));
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of());
+    }
+
+    @Test
+    @DisplayName("백로그가 캡 이내면 원문 그대로 history에 동승하고 summaryTask는 창 밖 전체를 유지")
+    void addMessageRidesAlongBacklogWithinCapWhileSummaryTaskCoversFullBacklog() {
+        // 턴당 18자 × 5턴. 예산(40자)엔 turn4,5만 들어가고(window), 백로그(turn1-3, 54자)는
+        // 캡(summaryTriggerChars=54)과 정확히 같아 전부 동승. 캡=trigger를 재사용하므로 백로그(54자)가
+        // 트리거(54)도 충족해 summarize가 호출된다 — 그 호출 인자(oldHistory)로 summaryTask 범위가
+        // 동승과 무관하게 창 밖 전체(turn1-3)인지 함께 확인한다.
+        MessageService service = service(new ChatMemoryProperties(40, 54, 3, 3));
+        Conversation conversation = conversation();
+        List<Message> messages = completedTurns(conversation, 5);
+        List<AiEngineHistoryMessage> expectedHistory = historyTurns(1, 5);
+        List<AiEngineHistoryMessage> oldHistory = historyTurns(1, 3);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of());
+        // summaryTask는 동승 여부와 무관하게 창 밖 전체(turn1-3)를 그대로 요약 대상으로 삼는다
+        verify(aiEngineQueryClient).summarize(null, oldHistory);
+    }
+
+    @Test
+    @DisplayName("백로그가 캡을 초과하면 가장 오래된 턴부터 제외하되 summaryTask는 백로그 전체를 유지")
+    void addMessageExcludesOldestBacklogTurnsBeyondCapButKeepsFullSummaryTaskRange() {
+        // 턴당 18자 × 6턴. 예산(18자)엔 turn6만 들어가고(window), 백로그(turn1-5, 90자)는
+        // 캡(summaryTriggerChars=72)을 초과해 가장 오래된 turn1(18자)만 제외되고 turn2-5(72자)만 동승한다.
+        // 캡=trigger를 재사용하므로 백로그 전체(90자)가 트리거(72)를 충족해 summarize가 호출되는데,
+        // 그 인자(oldHistory)가 캡으로 줄어들지 않고 백로그 전체(turn1-5)인지로 요약 커버리지 축소를 방지한다.
+        MessageService service = service(new ChatMemoryProperties(18, 72, 3, 3));
+        Conversation conversation = conversation();
+        List<Message> messages = completedTurns(conversation, 6);
+        List<AiEngineHistoryMessage> expectedHistory = historyTurns(2, 6);
+        List<AiEngineHistoryMessage> oldHistory = historyTurns(1, 5);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+
+        // 가장 오래된 백로그 턴(turn1)은 history에서 제외되고, 캡 이내의 turn2-5만 동승한다
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of());
+        // summaryTask는 캡과 무관하게 백로그 전체(turn1-5)를 그대로 요약 대상으로 유지한다 — 요약 커버리지가 줄면 안 된다
+        verify(aiEngineQueryClient).summarize(null, oldHistory);
+    }
+
+    @Test
+    @DisplayName("캡에 일부만 걸치는 백로그 턴은 통째로 제외(부분 포함 없음)")
+    void addMessageExcludesWholeBacklogTurnWhenOnlyPartiallyFitsCap() {
+        // 백로그는 오래된 순으로 oldest(4자)+boundary(20자)+near(12자). 캡(25자)은 창에 가장 가까운
+        // near(12자)까지는 담지만, 그다음(더 오래된) boundary(20자)를 더하면 32자로 캡을 넘으므로
+        // boundary는 통째로 제외되고(부분 포함 없음), 누적이 중단되어 그 이전 oldest도 함께 제외된다.
+        // 예산(2자)엔 latest 턴만 들어간다(window).
+        MessageService service = service(new ChatMemoryProperties(2, 25, 3, 3));
+        Conversation conversation = conversation();
+        Message oldestUser = Message.user(conversation, "Q1");
+        Message oldestAssistant = Message.assistant(conversation, "A1", null);
+        Message boundaryUser = Message.user(conversation, "U2U2U2U2U2");
+        Message boundaryAssistant = Message.assistant(conversation, "A2A2A2A2A2", null);
+        Message nearUser = Message.user(conversation, "U3U3U3");
+        Message nearAssistant = Message.assistant(conversation, "A3A3A3", null);
+        Message latestUser = Message.user(conversation, "L");
+        Message latestAssistant = Message.assistant(conversation, "L", null);
+        List<AiEngineHistoryMessage> expectedHistory = List.of(
+                new AiEngineHistoryMessage("user", "U3U3U3"),
+                new AiEngineHistoryMessage("assistant", "A3A3A3"),
+                new AiEngineHistoryMessage("user", "L"),
+                new AiEngineHistoryMessage("assistant", "L")
+        );
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of(
+                        oldestUser, oldestAssistant, boundaryUser, boundaryAssistant,
+                        nearUser, nearAssistant, latestUser, latestAssistant
+                ));
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, expectedHistory, List.of(), null, List.of());
+    }
+
+    @Test
+    @DisplayName("트리거 미달 시 요약 백그라운드 제출 없이 저장된 요약으로 질의")
+    void addMessageSkipsSummarizationWhenBacklogBelowTrigger() {
+        // 턴당 18자 × 5턴 = 90자(예산 이내), 6턴째부터 108자로 예산 초과 → window는 turn2-6, 최고령 턴(turn1,18자)만 요약 대상
+        // trigger(8000)가 백로그(18자)보다 훨씬 커 요약 자체가 제출되지 않아야 한다.
+        // 단, 캡도 같은 값(8000)을 재사용하므로 turn1은 캡 이내로 백로그 동승 → 최종 history는 turn1-6 전체
+        MessageService service = service(new ChatMemoryProperties(100, 8000, 3, 3));
+        Conversation conversation = conversation();
+        Map<String, Object> existingSummary = summary("existing");
+        setSummaryState(conversation, existingSummary, null, 2L);
+        List<Message> messages = completedTurns(conversation, 6);
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(1, 6);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+
+        verify(summaryBackoffTracker, never()).shouldSkip(any());
+        verify(aiEngineQueryClient, never()).summarize(any(), any());
+        verify(conversationRepository, never()).updateRunningSummary(any(), anyLong(), any(), any(), any());
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
+    }
+
+    @Test
+    @DisplayName("트리거 충족 시 요약을 백그라운드로 제출하되 이번 턴 질의는 저장된 기존 요약 사용")
+    void addMessageTriggersBackgroundSummarizationButAsksWithStoredSummary() {
+        // 턴당 18자 × 5턴 = 90자(예산 이내), 6턴째부터 108자로 예산 초과 → 최고령 턴(18자)만 요약 대상
+        // trigger를 1로 낮춰 백로그(18자)가 항상 트리거를 충족하게 한다
+        MessageService service = service(new ChatMemoryProperties(100, 1, 3, 3));
         Conversation conversation = conversation();
         Map<String, Object> existingSummary = summary("existing");
         Map<String, Object> generatedSummary = summary("merged");
@@ -316,6 +542,7 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
         when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(generatedSummary);
         when(conversationRepository.updateRunningSummary(
                 eq(CONVERSATION_ID),
@@ -325,7 +552,7 @@ class MessageServiceTest {
                 any(Instant.class)
         ))
                 .thenReturn(1);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary, List.of()))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -339,21 +566,51 @@ class MessageServiceTest {
                 eq(throughMessageId),
                 any(Instant.class)
         );
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary, List.of());
+        verify(summaryBackoffTracker).recordSuccess(CONVERSATION_ID);
+        verify(summaryBackoffTracker, never()).recordFailure(any());
+        // ask에는 새로 생성된 요약이 아니라 이번 턴 시작 시점에 저장돼 있던 기존 요약이 전달돼야 한다
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
     }
 
     @Test
-    @DisplayName("요약 갱신 충돌 시 최신 저장 요약 사용")
-    void addMessageUsesLatestSummaryWhenConditionalUpdateConflicts() {
-        MessageService service = service();
-        Conversation initialConversation = conversation();
-        Conversation latestConversation = conversation();
+    @DisplayName("백오프 트래커가 스킵을 지시하면 요약을 제출하지 않고 저장된 요약으로 질의")
+    void addMessageSkipsSummarizationWhenBackoffTrackerSignalsSkip() {
+        MessageService service = service(new ChatMemoryProperties(100, 1, 3, 3));
+        Conversation conversation = conversation();
+        Map<String, Object> existingSummary = summary("existing");
+        setSummaryState(conversation, existingSummary, null, 2L);
+        List<Message> messages = completedTurns(conversation, 6);
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(2, 6);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(true);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+
+        verify(summaryBackoffTracker).shouldSkip(CONVERSATION_ID);
+        verify(aiEngineQueryClient, never()).summarize(any(), any());
+        verify(conversationRepository, never()).updateRunningSummary(any(), anyLong(), any(), any(), any());
+        verify(summaryBackoffTracker, never()).recordSuccess(any());
+        verify(summaryBackoffTracker, never()).recordFailure(any());
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
+    }
+
+    @Test
+    @DisplayName("CAS 갱신 충돌(0건)은 요약 실패로 기록하지 않음")
+    void addMessageDoesNotRecordFailureWhenCasUpdateConflicts() {
+        MessageService service = service(new ChatMemoryProperties(100, 1, 3, 3));
+        Conversation conversation = conversation();
         Map<String, Object> existingSummary = summary("existing");
         Map<String, Object> generatedSummary = summary("generated by current request");
-        Map<String, Object> latestSummary = summary("stored by concurrent request");
-        setSummaryState(initialConversation, existingSummary, null, 3L);
-        setSummaryState(latestConversation, latestSummary, null, 4L);
-        List<Message> messages = completedTurns(initialConversation, 6);
+        setSummaryState(conversation, existingSummary, null, 3L);
+        List<Message> messages = completedTurns(conversation, 6);
         List<AiEngineHistoryMessage> oldHistory = List.of(
                 new AiEngineHistoryMessage("user", "Question 1"),
                 new AiEngineHistoryMessage("assistant", "Answer 1")
@@ -362,11 +619,11 @@ class MessageServiceTest {
         UUID throughMessageId = messages.get(1).getId();
         when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
-                .thenReturn(Optional.of(initialConversation))
-                .thenReturn(Optional.of(latestConversation))
-                .thenReturn(Optional.of(latestConversation));
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
         when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(generatedSummary);
         when(conversationRepository.updateRunningSummary(
                 eq(CONVERSATION_ID),
@@ -376,19 +633,97 @@ class MessageServiceTest {
                 any(Instant.class)
         ))
                 .thenReturn(0);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), latestSummary, List.of()))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), latestSummary, List.of());
+        // LLM 요약 자체는 성공했으므로(CAS 충돌은 동시 전진일 뿐) 실패로 기록하지 않는다
+        verify(summaryBackoffTracker).recordSuccess(CONVERSATION_ID);
+        verify(summaryBackoffTracker, never()).recordFailure(any());
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
     }
 
     @Test
-    @DisplayName("저장된 커서 이후 턴만 추가 요약")
+    @DisplayName("CAS 갱신 예외는 DB 사정이므로 요약 실패로 기록하지 않고 addMessage는 정상 완료")
+    void addMessageCompletesWithoutRecordingFailureWhenCasUpdateThrows() {
+        MessageService service = service(new ChatMemoryProperties(100, 1, 3, 3));
+        Conversation conversation = conversation();
+        Map<String, Object> existingSummary = summary("existing");
+        Map<String, Object> generatedSummary = summary("generated");
+        setSummaryState(conversation, existingSummary, null, 1L);
+        List<Message> messages = completedTurns(conversation, 6);
+        List<AiEngineHistoryMessage> oldHistory = List.of(
+                new AiEngineHistoryMessage("user", "Question 1"),
+                new AiEngineHistoryMessage("assistant", "Answer 1")
+        );
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(2, 6);
+        UUID throughMessageId = messages.get(1).getId();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
+        when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(generatedSummary);
+        when(conversationRepository.updateRunningSummary(
+                eq(CONVERSATION_ID),
+                eq(1L),
+                eq(generatedSummary),
+                eq(throughMessageId),
+                any(Instant.class)
+        )).thenThrow(new RuntimeException("database unavailable"));
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MessageExchange result = service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+
+        assertThat(result.assistantMessage().getContent()).isEqualTo("Current answer");
+        verify(summaryBackoffTracker, never()).recordFailure(any());
+    }
+
+    @Test
+    @DisplayName("요약 executor가 작업을 거부해도 addMessage는 정상 완료")
+    void addMessageCompletesWhenSummaryExecutorRejectsTask() {
+        MessageService service = service(new ChatMemoryProperties(100, 1, 3, 3), new RejectingTaskExecutor());
+        Conversation conversation = conversation();
+        Map<String, Object> existingSummary = summary("existing");
+        setSummaryState(conversation, existingSummary, null, 2L);
+        List<Message> messages = completedTurns(conversation, 6);
+        List<AiEngineHistoryMessage> recentHistory = historyTurns(2, 6);
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Current answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MessageExchange result = service.addMessage(
+                USER_ID,
+                PROJECT_ID,
+                CONVERSATION_ID,
+                "Current question",
+                List.of()
+        );
+
+        assertThat(result.assistantMessage().getContent()).isEqualTo("Current answer");
+        verify(aiEngineQueryClient, never()).summarize(any(), any());
+        verify(summaryBackoffTracker, never()).recordSuccess(any());
+        verify(summaryBackoffTracker, never()).recordFailure(any());
+    }
+
+    @Test
+    @DisplayName("저장된 커서 이후 턴만 추가 요약하되 질의는 저장된 기존 요약 사용")
     void addMessageSummarizesOnlyTurnsAfterStoredCursor() {
-        MessageService service = service();
+        // trigger를 1로 낮춰 커서 이후 백로그(턴2, 18자)가 항상 트리거를 충족하게 한다
+        MessageService service = service(new ChatMemoryProperties(100, 1, 3, 3));
         Conversation conversation = conversation();
         Map<String, Object> existingSummary = summary("through turn 1");
         Map<String, Object> generatedSummary = summary("through turn 2");
@@ -407,6 +742,7 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllFromCursor(CONVERSATION_ID, storedCursor))
                 .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
         when(aiEngineQueryClient.summarize(existingSummary, newlyOldHistory)).thenReturn(generatedSummary);
         when(conversationRepository.updateRunningSummary(
                 eq(CONVERSATION_ID),
@@ -415,20 +751,21 @@ class MessageServiceTest {
                 eq(nextCursor),
                 any(Instant.class)
         )).thenReturn(1);
-        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary, List.of()))
+        when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
         verify(aiEngineQueryClient).summarize(existingSummary, newlyOldHistory);
-        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), generatedSummary, List.of());
+        verify(summaryBackoffTracker).recordSuccess(CONVERSATION_ID);
+        verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
     }
 
     @Test
     @DisplayName("요약 커서 누락 시 전체 히스토리 폴백")
     void addMessageFallsBackToFullHistoryWhenSummaryCursorIsMissing() {
-        MessageService service = service();
+        MessageService service = service(new ChatMemoryProperties(100, 8000, 3, 3));
         Conversation conversation = conversation();
         UUID missingCursor = UUID.randomUUID();
         setSummaryState(conversation, summary("existing"), missingCursor, 1L);
@@ -466,9 +803,9 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("요약 생성 실패 시 기존 요약 유지하고 계속 진행")
-    void addMessageContinuesWithExistingSummaryWhenSummarizationFails() {
-        MessageService service = service();
+    @DisplayName("요약 생성 null 반환 시 실패로 기록하고 addMessage는 정상 완료")
+    void addMessageRecordsFailureWhenSummarizeReturnsNull() {
+        MessageService service = service(new ChatMemoryProperties(100, 1, 3, 3));
         Conversation conversation = conversation();
         Map<String, Object> existingSummary = summary("existing");
         setSummaryState(conversation, existingSummary, null, 1L);
@@ -484,23 +821,26 @@ class MessageServiceTest {
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
         when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(null);
         when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
+        MessageExchange result = service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
+        assertThat(result.assistantMessage().getContent()).isEqualTo("Current answer");
+        verify(summaryBackoffTracker).recordFailure(CONVERSATION_ID);
+        verify(conversationRepository, never()).updateRunningSummary(any(), anyLong(), any(), any(), any());
         verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
     }
 
     @Test
-    @DisplayName("요약 갱신 예외 시 기존 요약 유지하고 계속 진행")
-    void addMessageContinuesWithExistingSummaryWhenSummaryUpdateThrows() {
-        MessageService service = service();
+    @DisplayName("요약 생성 예외 시 실패로 기록하고 addMessage는 정상 완료")
+    void addMessageRecordsFailureWhenSummarizeThrows() {
+        MessageService service = service(new ChatMemoryProperties(100, 1, 3, 3));
         Conversation conversation = conversation();
         Map<String, Object> existingSummary = summary("existing");
-        Map<String, Object> generatedSummary = summary("generated");
         setSummaryState(conversation, existingSummary, null, 1L);
         List<Message> messages = completedTurns(conversation, 6);
         List<AiEngineHistoryMessage> oldHistory = List.of(
@@ -508,34 +848,24 @@ class MessageServiceTest {
                 new AiEngineHistoryMessage("assistant", "Answer 1")
         );
         List<AiEngineHistoryMessage> recentHistory = historyTurns(2, 6);
-        UUID throughMessageId = messages.get(1).getId();
         when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
         when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
                 .thenReturn(Optional.of(conversation))
                 .thenReturn(Optional.of(conversation));
         when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
                 .thenReturn(messages);
-        when(aiEngineQueryClient.summarize(existingSummary, oldHistory)).thenReturn(generatedSummary);
-        when(conversationRepository.updateRunningSummary(
-                eq(CONVERSATION_ID),
-                eq(1L),
-                eq(generatedSummary),
-                eq(throughMessageId),
-                any(Instant.class)
-        )).thenThrow(new RuntimeException("database unavailable"));
+        when(summaryBackoffTracker.shouldSkip(CONVERSATION_ID)).thenReturn(false);
+        when(aiEngineQueryClient.summarize(existingSummary, oldHistory))
+                .thenThrow(new RuntimeException("ai-engine unavailable"));
         when(aiEngineQueryClient.ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of()))
                 .thenReturn(AiEngineQueryResult.success("Current answer", null));
         when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        MessageExchange result = service.addMessage(
-                USER_ID,
-                PROJECT_ID,
-                CONVERSATION_ID,
-                "Current question",
-                List.of()
-        );
+        MessageExchange result = service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Current question", List.of());
 
         assertThat(result.assistantMessage().getContent()).isEqualTo("Current answer");
+        verify(summaryBackoffTracker).recordFailure(CONVERSATION_ID);
+        verify(conversationRepository, never()).updateRunningSummary(any(), anyLong(), any(), any(), any());
         verify(aiEngineQueryClient).ask("Current question", PROJECT_ID, recentHistory, List.of(), existingSummary, List.of());
     }
 
@@ -704,11 +1034,22 @@ class MessageServiceTest {
     }
 
     private MessageService service() {
+        return service(new ChatMemoryProperties(32000, 8000, 3, 3));
+    }
+
+    private MessageService service(ChatMemoryProperties chatMemoryProperties) {
+        return service(chatMemoryProperties, summaryTaskExecutor);
+    }
+
+    private MessageService service(ChatMemoryProperties chatMemoryProperties, TaskExecutor taskExecutor) {
         return new MessageService(
                 messageRepository,
                 conversationRepository,
                 projectService,
                 aiEngineQueryClient,
+                chatMemoryProperties,
+                summaryBackoffTracker,
+                taskExecutor,
                 transactionTemplate
         );
     }
@@ -801,6 +1142,14 @@ class MessageServiceTest {
 
         @Override
         protected void doRollback(DefaultTransactionStatus status) {
+        }
+    }
+
+    // 요약 executor 포화 시나리오 검증용 — SyncTaskExecutor 기반으로 execute() 호출 자체가 즉시 거부되게 한다
+    private static class RejectingTaskExecutor extends SyncTaskExecutor {
+        @Override
+        public void execute(Runnable task) {
+            throw new TaskRejectedException("summary executor full");
         }
     }
 }

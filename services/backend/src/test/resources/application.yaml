@@ -15,6 +15,13 @@ ai:
   engine:
     url: http://localhost:8000
 
+conversation:
+  memory:
+    history-budget-chars: 32000
+    summary-trigger-chars: 8000
+    summary-failure-threshold: 3
+    summary-skip-turns: 3
+
 pipeline:
   worker:
     url: http://localhost:8081
