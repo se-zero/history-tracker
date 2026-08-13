@@ -24,6 +24,10 @@ uvicorn main:app --reload --port 8000
 필요 환경변수: `OPENAI_API_KEY`(필수), `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD`, `RABBITMQ_URL`,
 `QUERY_MODEL`(선택, 기본 `gpt-5.4-mini`), `GITHUB_REPO`/`GITHUB_TOKEN`(선택, 프로젝트 컨텍스트 pre-warm용).
 
+세션 메모리 노브(선택, 전부 `/query/config`로 노출): `SUMMARY_MODEL`/`REWRITE_MODEL`(요약·질문 재작성 모델,
+기본 `gpt-5.4-mini`), `QUERY_HISTORY_BUDGET_CHARS`(tool 루프 history 글자 예산, 기본 `16000`),
+`CONTEXT_CARD_BUDGET_CHARS`(최종 답변 맥락 카드 글자 예산, 기본 `6000`).
+
 수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_PREFETCH`(기본 = 동시성 값).
 consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호), project 간은
 `INGEST_MAX_CONCURRENCY`까지 동시 처리한다. OpenAI 호출은 rate_limiter가 페이싱하므로
