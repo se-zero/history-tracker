@@ -4,6 +4,7 @@ import com.history.backend.asana.AsanaProperties;
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.clickup.ClickUpProperties;
 import com.history.backend.common.crypto.CredentialCryptoProperties;
+import com.history.backend.conversation.ChatMemoryProperties;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.jira.AtlassianPersonalDataReportProperties;
 import com.history.backend.jira.AtlassianProperties;
@@ -16,6 +17,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @EnableConfigurationProperties({
         CredentialCryptoProperties.class,
+        ChatMemoryProperties.class,
         JwtProperties.class,
         GitHubAppProperties.class,
         SlackProperties.class,
