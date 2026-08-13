@@ -39,6 +39,10 @@ class GitHubWebhookServiceTest {
         webhookDeliveryService = mock(WebhookDeliveryService.class);
         installationTokenClient = mock(GitHubInstallationTokenClient.class);
         integrationTokenClient = mock(IntegrationTokenClient.class);
+        // 대부분의 테스트는 갱신 자체를 검증 대상으로 삼지 않는다 — 기본값을 NOT_SUPPORTED로 두어
+        // (Slack·Discord처럼 갱신 수단이 없는 provider) context가 손대지 않은 채 그대로 흘러가게 한다.
+        // 갱신을 검증하는 테스트는 필요한 provider만 개별 stub으로 덮어쓴다.
+        when(integrationTokenClient.ensure(any(), any())).thenReturn(IntegrationTokenClient.TokenStatus.NOT_SUPPORTED);
         projectIntegrationService = mock(ProjectIntegrationService.class);
         pipelineService = mock(PipelineService.class);
         service = new GitHubWebhookService(
@@ -192,7 +196,7 @@ class GitHubWebhookServiceTest {
         verifyNoInteractions(installationTokenClient);
         // GitHub는 별도 installation token 플로우로 이미 처리되므로, 일반화된 토큰 확보 루프
         // 대상에서 제외되어야 한다 (재조회 endpoint가 없는 provider라 404를 유발할 뿐이다).
-        verify(integrationTokenClient, never()).ensureToken(any(), eq(CollectionProvider.GITHUB));
+        verify(integrationTokenClient, never()).ensure(any(), eq(CollectionProvider.GITHUB));
         verify(webhookDeliveryService).markProcessed("delivery-1");
     }
 
@@ -208,7 +212,8 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithStaleJira));
-        when(integrationTokenClient.ensureToken(UUID.fromString(projectId()), CollectionProvider.JIRA)).thenReturn(true);
+        when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.JIRA))
+                .thenReturn(IntegrationTokenClient.TokenStatus.REFRESHED);
         when(projectIntegrationService.resolveFetchRequest(UUID.fromString(projectId()), CollectionProvider.JIRA))
                 .thenReturn(refreshedJira);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
@@ -217,7 +222,7 @@ class GitHubWebhookServiceTest {
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(integrationTokenClient).ensureToken(UUID.fromString(projectId()), CollectionProvider.JIRA);
+        verify(integrationTokenClient).ensure(UUID.fromString(projectId()), CollectionProvider.JIRA);
         verify(pipelineService).collectIncremental(expectedContext);
     }
 
@@ -233,7 +238,8 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithStaleLinear));
-        when(integrationTokenClient.ensureToken(UUID.fromString(projectId()), CollectionProvider.LINEAR)).thenReturn(true);
+        when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.LINEAR))
+                .thenReturn(IntegrationTokenClient.TokenStatus.REFRESHED);
         when(projectIntegrationService.resolveFetchRequest(UUID.fromString(projectId()), CollectionProvider.LINEAR))
                 .thenReturn(refreshedLinear);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
@@ -242,77 +248,53 @@ class GitHubWebhookServiceTest {
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(integrationTokenClient).ensureToken(UUID.fromString(projectId()), CollectionProvider.LINEAR);
+        verify(integrationTokenClient).ensure(UUID.fromString(projectId()), CollectionProvider.LINEAR);
         verify(pipelineService).collectIncremental(expectedContext);
     }
 
-    // provider 순회를 일반형으로 바꾸면 Slack처럼 만료 토큰 개념이 없는 provider도 같은 확보 endpoint를
-    // 탄다. 이 404를 Jira 전용이었던 "실패 → 제외" 해석으로 처리하면 Slack이 매 webhook마다 context에서
-    // 빠져 Slack 수집이 영구히 멈춘다. 404는 "이 provider는 갱신할 게 없다"는 뜻이므로 기존 요청을 그대로
-    // 두고 계속 진행해야 한다 — 이 케이스가 그 회귀를 고정한다.
+    // IntegrationTokenClient는 예외를 던지지 않고 실패를 FAILED로 흡수한다(계약·검증은
+    // IntegrationTokenClientTest 몫). 이 테스트는 그 계약이 아니라 "만료 토큰형이 아닌 provider도
+    // 같은 반복문을 지난다"는 일반화 자체를 고정한다 — Jira가 유일하던 시절엔 없던 경로다.
     @Test
-    void handle_tokenEnsure404NotApplicable_keepsExistingRequestAndDoesNotBreakCollection() {
+    void handle_slackTokenNotSupported_keepsStoredCredentialAndProceedsWithoutReResolving() {
         HttpHeaders headers = headers();
         String payload = payload(true, "closed");
-        ProjectCollectionContext context = collectionContext(); // github + slack
+        ProjectCollectionContext context = collectionContext();
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
-        when(integrationTokenClient.ensureToken(UUID.fromString(projectId()), CollectionProvider.SLACK)).thenReturn(false);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(pipelineService.collectIncremental(context)).thenReturn(collectionResult(1, 0, 3));
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(pipelineService).collectIncremental(context); // slack 요청이 그대로인 context로 수집됨
+        verify(integrationTokenClient).ensure(UUID.fromString(projectId()), CollectionProvider.SLACK);
         verify(projectIntegrationService, never()).resolveFetchRequest(any(), eq(CollectionProvider.SLACK));
+        // 저장된 자격증명 그대로인 원본 context가 그대로 넘어간다 — 재조립되지 않는다
+        verify(pipelineService).collectIncremental(context);
     }
 
-    // 일반화 전에는 Jira의 404를 "실패"로 해석해 Jira를 context에서 제거했다. 일반화 후에는 404가
-    // provider 공통으로 "갱신 수단 없음"을 뜻하므로, Jira도 예외 없이는 제거하지 않고 기존(만료됐을 수
-    // 있는) 요청을 그대로 유지한 채 진행한다.
     @Test
-    void handle_jiraTokenEnsure404NotApplicable_keepsStaleJiraRequestAndContinuesCollection() {
+    void handle_slackTokenEnsureFails_excludesSlackButContinuesGitHubCollection() {
         HttpHeaders headers = headers();
         String payload = payload(true, "closed");
-        ProjectCollectionContext contextWithJira = collectionContextWithJira(jiraRequest("Bearer stale-jira-token"));
+        ProjectCollectionContext context = collectionContext();
+        ProjectCollectionContext contextWithoutSlack = context.without(CollectionProvider.SLACK);
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithJira));
-        when(integrationTokenClient.ensureToken(UUID.fromString(projectId()), CollectionProvider.JIRA)).thenReturn(false);
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
+        when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.SLACK))
+                .thenReturn(IntegrationTokenClient.TokenStatus.FAILED);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
-        when(pipelineService.collectIncremental(contextWithJira)).thenReturn(collectionResult(1, 2, 3));
+        when(pipelineService.collectIncremental(contextWithoutSlack)).thenReturn(collectionResult(1, 0, 0));
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(pipelineService).collectIncremental(contextWithJira);
-        verify(projectIntegrationService, never()).resolveFetchRequest(any(), any());
-    }
-
-    @Test
-    void handle_jiraTokenEnsureThrows_skipsJiraButContinuesGitHubCollection() {
-        HttpHeaders headers = headers();
-        String payload = payload(true, "closed");
-        ProjectCollectionContext contextWithJira = collectionContextWithJira(jiraRequest("Bearer stale-jira-token"));
-        ProjectCollectionContext contextWithoutJira = contextWithJira.without(CollectionProvider.JIRA);
-
-        when(verifier.verify(payload, "sig")).thenReturn(true);
-        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithJira));
-        when(integrationTokenClient.ensureToken(UUID.fromString(projectId()), CollectionProvider.JIRA))
-                .thenThrow(new RuntimeException("backend 500"));
-        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
-        when(pipelineService.collectIncremental(contextWithoutJira)).thenReturn(collectionResult(1, 0, 3));
-
-        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
-
-        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(pipelineService).collectIncremental(contextWithoutJira);
-        verify(projectIntegrationService, never()).resolveFetchRequest(any(), any());
+        verify(pipelineService).collectIncremental(contextWithoutSlack);
     }
 
     @Test

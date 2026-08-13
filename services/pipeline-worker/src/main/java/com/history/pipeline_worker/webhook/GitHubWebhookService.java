@@ -117,41 +117,37 @@ public class GitHubWebhookService {
         return new WebhookResult(WebhookStatus.ACCEPTED, "collection queued");
     }
 
-    // GitHub은 별도 installation token 플로우로 이미 처리되므로 여기서는 건너뛴다. 나머지 provider는
-    // 선택 연동이다 — 토큰 확보에 실패해도 GitHub·다른 provider 수집은 계속 진행해야 하므로 예외를
-    // 삼키고 해당 provider만 컨텍스트에서 뺀다. 죽은 토큰으로 시도해 401을 내는 것보다 낫다.
+    // GitHub은 앵커라 이미 신선한 토큰으로 context에 들어와 있다 — 나머지 provider만 확인한다.
+    // context에 담긴 provider 집합을 고정해 순회한다(중간에 without으로 만들어지는 새 context가
+    // 다음 순회 대상에 영향을 주면 안 되므로 원본 context.requests()를 기준으로 돈다).
     private ProjectCollectionContext ensureFreshTokens(ProjectCollectionContext context) {
-        ProjectCollectionContext result = context;
+        ProjectCollectionContext updated = context;
         for (CollectionProvider provider : context.requests().keySet()) {
             if (provider == CollectionProvider.GITHUB) {
                 continue;
             }
-            result = ensureFreshToken(result, provider);
+            updated = ensureFreshToken(updated, provider);
         }
-        return result;
+        return updated;
     }
 
+    // 만료 토큰형 provider(Jira·Google Chat·Linear 등)만 갱신 대상이다. 갱신 수단이 없는 provider
+    // (Slack·Discord)는 NOT_SUPPORTED를 받아 저장된 자격증명 그대로 진행한다 — '수집 제외'로
+    // 해석하면 비만료형 provider가 매 웹훅마다 끊긴다. 갱신 실패(FAILED)는 죽은 토큰으로 401을 내는
+    // 것보다 이번 수집에서 해당 provider만 제외하는 편이 낫다.
     private ProjectCollectionContext ensureFreshToken(ProjectCollectionContext context, CollectionProvider provider) {
         UUID projectId = UUID.fromString(context.projectId());
-        boolean ensured;
-        try {
-            ensured = integrationTokenClient.ensureToken(projectId, provider);
-        } catch (RuntimeException e) {
-            // 예외(5xx·네트워크)는 확보 실패다 — 죽었을 수 있는 토큰으로 시도해 401을 내는 것보다
-            // 해당 provider를 이번 수집에서 빼는 게 낫다.
-            log.warn("{} 토큰 확보 요청이 실패했습니다: projectId={}", provider.value(), projectId, e);
-            return context.without(provider);
-        }
-        if (!ensured) {
-            // 404는 "이 provider는 갱신할 게 없다"는 뜻이다(Slack형). 예외와 달리 실패가 아니므로
-            // 기존 요청을 그대로 두고 진행한다 — 여기서 제거하면 만료 개념이 없는 provider가 매
-            // webhook마다 컨텍스트에서 빠져 그 provider 수집이 영구히 멈춘다.
-            return context;
-        }
-        // 갱신된 토큰으로 요청만 다시 만든다 — 재해석이 실패하면 해당 provider만 빼고 진행한다.
-        return projectIntegrationService.resolveFetchRequest(projectId, provider)
-                .map(request -> context.with(provider, request))
-                .orElseGet(() -> context.without(provider));
+        IntegrationTokenClient.TokenStatus status = integrationTokenClient.ensure(projectId, provider);
+        return switch (status) {
+            case REFRESHED -> projectIntegrationService.resolveFetchRequest(projectId, provider)
+                    .map(request -> context.with(provider, request))
+                    .orElseGet(() -> context.without(provider));
+            case NOT_SUPPORTED -> context;
+            case FAILED -> {
+                log.warn("{} 토큰 확보 실패로 이번 수집에서 건너뜁니다: projectId={}", provider.value(), context.projectId());
+                yield context.without(provider);
+            }
+        };
     }
 
     private GitHubWebhookPayload parsePullRequestWebhook(String payload) {

@@ -8,6 +8,8 @@ import java.util.stream.Collectors;
 
 import com.history.backend.asana.service.AsanaSelectionFlow;
 import com.history.backend.clickup.service.ClickUpSelectionFlow;
+import com.history.backend.discord.service.DiscordOAuthConnectFlow;
+import com.history.backend.googlechat.service.GoogleChatSelectionFlow;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.jira.service.JiraSelectionFlow;
@@ -61,6 +63,10 @@ public record IntegrationResponse(
             case JIRA -> joinNonBlank(
                     integration.externalRefValue(JiraSelectionFlow.SITE_NAME),
                     integration.isPendingSelection() ? null : jiraProjectLabel(integration));
+            // 선택 단계가 없다 — 동의 화면에서 고른 서버 이름이 곧 표시 이름이다
+            case DISCORD -> integration.externalRefValue(DiscordOAuthConnectFlow.GUILD_NAME);
+            // 1단 선택 — 고른 스페이스 이름이 표시 이름이다
+            case GOOGLE_CHAT -> integration.externalRefValue(GoogleChatSelectionFlow.SPACE_NAME);
             // 확정 전(pending)에는 team을 아직 몰라 고정 문구로 폴백한다
             case LINEAR -> {
                 String teamName = integration.externalRefValue(LinearSelectionFlow.TEAM_NAME);

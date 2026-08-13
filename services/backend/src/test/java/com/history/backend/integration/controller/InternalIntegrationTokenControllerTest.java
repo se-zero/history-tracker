@@ -2,7 +2,9 @@ package com.history.backend.integration.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -35,24 +37,40 @@ class InternalIntegrationTokenControllerTest {
     }
 
     @Test
-    @DisplayName("폐기만 있고 갱신은 없는 provider(Slack) → 404, 조용한 204로 넘기지 않는다")
-    void ensureAccessTokenRejectsProviderThatOnlySupportsRevoke() {
+    @DisplayName("폐기만 있고 갱신은 없는 provider(Slack) → 501, 조용한 204로 넘기지 않는다")
+    void ensureAccessTokenReportsNotImplementedForProviderThatOnlySupportsRevoke() {
         // 판정 기준이 "자격증명 빈이 있는가"였을 때 Slack이 통과해 조용한 204를 받던 회귀를 고정한다 —
         // 호출부가 갱신됐다고 오인한 채 만료된 토큰으로 수집하게 된다.
-        InternalIntegrationTokenController controller = controller(refresher(IntegrationProvider.JIRA));
+        AccessTokenRefresher jira = refresher(IntegrationProvider.JIRA);
+        InternalIntegrationTokenController controller = controller(jira);
 
-        assertThatThrownBy(() -> controller.ensureAccessToken(PROJECT_ID, "slack"))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("does not support access token refresh");
+        ResponseEntity<Void> response = controller.ensureAccessToken(PROJECT_ID, "slack");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(501);
+        verify(jira, never()).ensureFreshAccessToken(PROJECT_ID);
     }
 
     @Test
-    @DisplayName("자격증명이 없는 provider(GitHub) → 404")
-    void ensureAccessTokenRejectsProviderWithoutCredential() {
+    @DisplayName("자격증명이 없는 provider(GitHub) → 501")
+    void ensureAccessTokenReportsNotImplementedForProviderWithoutCredential() {
         InternalIntegrationTokenController controller = controller(refresher(IntegrationProvider.JIRA));
 
-        assertThatThrownBy(() -> controller.ensureAccessToken(PROJECT_ID, "github"))
-                .isInstanceOf(NotFoundException.class);
+        assertThat(controller.ensureAccessToken(PROJECT_ID, "github").getStatusCode().value())
+                .isEqualTo(501);
+    }
+
+    @Test
+    @DisplayName("갱신기는 있는데 연동 행이 없으면 404 — 501(갱신 수단 없음)과 구분된다")
+    void ensureAccessTokenPropagatesNotFoundWhenIntegrationRowIsMissing() {
+        // 해제 직후 레이스. 호출부가 이걸 "갱신 불필요"로 읽으면 폐기된 토큰으로 수집을 진행한다.
+        AccessTokenRefresher jira = refresher(IntegrationProvider.JIRA);
+        doThrow(new NotFoundException("Jira integration not found."))
+                .when(jira).ensureFreshAccessToken(PROJECT_ID);
+        InternalIntegrationTokenController controller = controller(jira);
+
+        assertThatThrownBy(() -> controller.ensureAccessToken(PROJECT_ID, "jira"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("integration not found");
     }
 
     @Test
@@ -60,7 +78,9 @@ class InternalIntegrationTokenControllerTest {
     void ensureAccessTokenRejectsUnknownProvider() {
         InternalIntegrationTokenController controller = controller();
 
-        assertThatThrownBy(() -> controller.ensureAccessToken(PROJECT_ID, "linear"))
+        // "notion"은 아직 IntegrationProvider에 없다 — 있는 값을 쓰면 parseProvider를 통과해
+        // 버려 이 테스트가 검증하려는 "알 수 없는 provider" 경로 자체가 사라진다.
+        assertThatThrownBy(() -> controller.ensureAccessToken(PROJECT_ID, "notion"))
                 .isInstanceOf(NotFoundException.class);
     }
 

@@ -3,7 +3,9 @@ package com.history.backend.integration.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -23,9 +25,17 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.discord.service.DiscordClient;
+import com.history.backend.discord.service.DiscordCredentialLifecycle;
+import com.history.backend.discord.service.DiscordOAuthConnectFlow;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
+import com.history.backend.googlechat.dto.GoogleChatSpaceListResponse;
+import com.history.backend.googlechat.service.GoogleChatAccessTokenRefresher;
+import com.history.backend.googlechat.service.GoogleChatClient;
+import com.history.backend.googlechat.service.GoogleChatCredentialLifecycle;
+import com.history.backend.googlechat.service.GoogleChatSelectionFlow;
 import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
@@ -101,6 +111,18 @@ class IntegrationServiceTest {
 
     @Mock
     private JiraTokenService jiraTokenService;
+
+    @Mock
+    private DiscordClient discordClient;
+
+    @Mock
+    private GoogleChatClient googleChatClient;
+
+    @Mock
+    private GoogleChatCredentialCodec googleChatCredentialCodec;
+
+    @Mock
+    private GoogleChatTokenService googleChatTokenService;
 
     @Mock
     private PipelineWorkerClient pipelineWorkerClient;
@@ -470,6 +492,53 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("저장 경합으로 409면 방금 교환한 자격증명을 폐기한다 — Discord는 grant 폐기 + 봇 길드 퇴장")
+    void connectOAuthDiscardsExchangedCredentialWhenSaveConflicts() {
+        IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.DISCORD);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.DISCORD))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code")).thenReturn(new OAuthConnection(
+                "discord-refresh-token",
+                Map.of(DiscordOAuthConnectFlow.GUILD_ID, "G1", DiscordOAuthConnectFlow.GUILD_NAME, "Acme")));
+        when(credentialCryptoService.encrypt("discord-refresh-token")).thenReturn(new byte[] {1, 2, 3});
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate integration"));
+        when(credentialCryptoService.decrypt(new byte[] {1, 2, 3})).thenReturn("discord-refresh-token");
+
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
+                .isInstanceOf(ConflictException.class);
+
+        // 저장되지 않은 자격증명을 그대로 두면 provider 쪽에 grant가, Discord는 서버에 봇이 남는다
+        verify(discordClient).revokeToken("discord-refresh-token");
+        verify(discordClient).leaveGuild("G1");
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+    }
+
+    @Test
+    @DisplayName("정리 실패가 원래의 409를 가리지 않는다 — 사용자는 실패 이유를 잃지 않아야 한다")
+    void connectOAuthStillReportsConflictWhenDiscardFails() {
+        IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.DISCORD);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.DISCORD))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code")).thenReturn(new OAuthConnection(
+                "discord-refresh-token",
+                Map.of(DiscordOAuthConnectFlow.GUILD_ID, "G1", DiscordOAuthConnectFlow.GUILD_NAME, "Acme")));
+        when(credentialCryptoService.encrypt("discord-refresh-token")).thenReturn(new byte[] {1, 2, 3});
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate integration"));
+        when(credentialCryptoService.decrypt(new byte[] {1, 2, 3}))
+                .thenThrow(new IllegalStateException("decrypt failed"));
+
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Discord integration already exists.");
+    }
+
+    @Test
     @DisplayName("선택 단계를 선언한 provider — 자격증명만 담은 pending 행으로 저장하고 수집은 미룬다")
     void connectOAuthSavesPendingIntegrationForProviderWithSelectionStep() {
         IntegrationService service = service();
@@ -721,6 +790,72 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("GoogleChatTokenService가 보장한 access token으로 연동 가능한 Google Chat 스페이스 목록 조회")
+    void listGoogleChatSpacesReturnsAccessibleSpaces() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(googleChatTokenService.getAccessToken(PROJECT_ID)).thenReturn("gc-access-token");
+        when(googleChatClient.listSpaces("gc-access-token")).thenReturn(List.of(
+                new GoogleChatSpaceListResponse.GoogleChatSpace("spaces/AAAA", "engineering")));
+
+        List<SelectionOption> result = service.selectionOptions(
+                OWNER_ID, PROJECT_ID, IntegrationProvider.GOOGLE_CHAT, GoogleChatSelectionFlow.SPACE_ID, Map.of());
+
+        assertThat(result).containsExactly(new SelectionOption("spaces/AAAA", "engineering"));
+    }
+
+    @Test
+    @DisplayName("displayName이 비어 있는 스페이스는 리소스 이름(spaces/{id})으로 폴백해 표시")
+    void listGoogleChatSpacesFallsBackToResourceNameWhenDisplayNameBlank() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(googleChatTokenService.getAccessToken(PROJECT_ID)).thenReturn("gc-access-token");
+        when(googleChatClient.listSpaces("gc-access-token")).thenReturn(List.of(
+                new GoogleChatSpaceListResponse.GoogleChatSpace("spaces/AAAA", null)));
+
+        List<SelectionOption> result = service.selectionOptions(
+                OWNER_ID, PROJECT_ID, IntegrationProvider.GOOGLE_CHAT, GoogleChatSelectionFlow.SPACE_ID, Map.of());
+
+        assertThat(result).containsExactly(new SelectionOption("spaces/AAAA", "spaces/AAAA"));
+    }
+
+    @Test
+    @DisplayName("pending 행 확정 저장 후 커밋 뒤(트랜잭션 밖) 토큰 확보·초기 수집 트리거 순서로 진행 — Google Chat")
+    void completeGoogleChatSpaceSavesAndTriggersCollectionOutsideTransaction() {
+        IntegrationService service = service();
+        Integration pending = Integration.pendingSelection(project(), IntegrationProvider.GOOGLE_CHAT, new byte[] {1, 2, 3});
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GOOGLE_CHAT))
+                .thenReturn(Optional.of(pending));
+        when(integrationRepository.saveAndFlush(pending))
+                .thenAnswer(invocation -> {
+                    assertThat(transactionManager.transactionActive).isTrue();
+                    return invocation.getArgument(0);
+                });
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(googleChatTokenService).ensureAccessToken(PROJECT_ID);
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.GOOGLE_CHAT, PROJECT_ID);
+
+        Integration result = service.completeSelection(OWNER_ID, PROJECT_ID, IntegrationProvider.GOOGLE_CHAT, Map.of(
+                GoogleChatSelectionFlow.SPACE_ID, "spaces/AAAA", GoogleChatSelectionFlow.SPACE_NAME, "engineering"));
+
+        assertThat(result).isSameAs(pending);
+        assertThat(result.isPendingSelection()).isFalse();
+        assertThat(result.externalRefValue(GoogleChatSelectionFlow.SPACE_ID)).isEqualTo("spaces/AAAA");
+        assertThat(result.externalRefValue(GoogleChatSelectionFlow.SPACE_NAME)).isEqualTo("engineering");
+        // GitHub이 트리거 직전에 토큰을 갱신하는 것과 같은 자리 — 토큰 확보가 먼저, 수집 트리거가 그다음이다.
+        // GoogleChatAccessTokenRefresher가 실제 등록돼 있어(service()) 이 경로가 배선까지 검증한다.
+        InOrder inOrder = inOrder(googleChatTokenService, pipelineWorkerClient);
+        inOrder.verify(googleChatTokenService).ensureAccessToken(PROJECT_ID);
+        inOrder.verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.GOOGLE_CHAT, PROJECT_ID);
+    }
+
+    @Test
     @DisplayName("이미 확정된 행에 다시 확정 시도 → 409, 토큰 확보·트리거 호출 안 함")
     void completeJiraProjectRejectsWhenAlreadyConfirmed() {
         IntegrationService service = service();
@@ -812,6 +947,54 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("Discord 해제는 OAuth grant를 폐기하고 봇이 길드를 나간다 (A8: externalRef 전달 검증)")
+    void disconnectRevokesDiscordTokenAndLeavesGuild() {
+        IntegrationService service = service();
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.DISCORD,
+                Map.of(DiscordOAuthConnectFlow.GUILD_ID, "G1", DiscordOAuthConnectFlow.GUILD_NAME, "Acme"),
+                new byte[] {7, 8, 9});
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.DISCORD))
+                .thenReturn(Optional.of(integration));
+        when(credentialCryptoService.decrypt(new byte[] {7, 8, 9})).thenReturn("discord-refresh-token");
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.DISCORD);
+
+        // 폐기가 삭제보다 앞서야 한다 — 행을 먼저 지우면 폐기에 쓸 토큰이 사라진다
+        InOrder inOrder = inOrder(discordClient, integrationRepository);
+        inOrder.verify(discordClient).revokeToken("discord-refresh-token");
+        inOrder.verify(discordClient).leaveGuild("G1");
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
+    }
+
+    @Test
+    @DisplayName("Google Chat 해제는 refresh token(grant)을 폐기한다 (파생 access token도 함께 무효화)")
+    void disconnectRevokesGoogleChatRefreshToken() {
+        IntegrationService service = service();
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.GOOGLE_CHAT,
+                Map.of(GoogleChatSelectionFlow.SPACE_ID, "spaces/AAAA", GoogleChatSelectionFlow.SPACE_NAME, "engineering"),
+                new byte[] {4, 5, 6});
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GOOGLE_CHAT))
+                .thenReturn(Optional.of(integration));
+        when(googleChatCredentialCodec.decrypt(new byte[] {4, 5, 6}))
+                .thenReturn(new GoogleChatCredential("access", "refresh", Instant.parse("2026-08-01T00:00:00Z")));
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.GOOGLE_CHAT);
+
+        // 폐기가 삭제보다 앞서야 한다 — 행을 먼저 지우면 폐기에 쓸 토큰이 사라진다
+        InOrder inOrder = inOrder(googleChatClient, integrationRepository);
+        inOrder.verify(googleChatClient).revoke("refresh");
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
+    }
+
+    @Test
     @DisplayName("GitHub 해제는 폐기 호출이 없다 — App 설치는 계정 단위라 유지")
     void disconnectDoesNotRevokeForGitHub() {
         IntegrationService service = service();
@@ -843,7 +1026,9 @@ class IntegrationServiceTest {
 
         service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA);
 
-        verify(lifecycle).revoke(new byte[] {9});
+        // externalRef 전달 자체는 Discord 케이스(connectOAuthDiscardsExchangedCredentialWhenSaveConflicts
+        // 등)가 별도로 검증한다 — 여기는 find(Optional) 조회 경로만 고정한다.
+        verify(lifecycle).revoke(eq(new byte[] {9}), anyMap());
     }
 
     @Test
@@ -1156,12 +1341,17 @@ class IntegrationServiceTest {
                 // 실제 lifecycle 구현을 물려 폐기 경로가 provider 클라이언트까지 닿는지 그대로 검증한다
                 new ProviderCredentialLifecycleRegistry(List.of(
                         new SlackCredentialLifecycle(slackClient, credentialCryptoService),
-                        new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec)
+                        new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec),
+                        new DiscordCredentialLifecycle(discordClient, credentialCryptoService),
+                        new GoogleChatCredentialLifecycle(googleChatClient, googleChatCredentialCodec)
                 )),
-                // 갱신은 별도 SPI다 — Slack은 폐기만 있고 갱신 등록이 없다
-                new AccessTokenRefresherRegistry(List.of(new JiraAccessTokenRefresher(jiraTokenService))),
+                // 갱신은 별도 SPI다 — Slack·Discord는 폐기만 있고 갱신 등록이 없다
+                new AccessTokenRefresherRegistry(List.of(
+                        new JiraAccessTokenRefresher(jiraTokenService),
+                        new GoogleChatAccessTokenRefresher(googleChatTokenService))),
                 new IntegrationSelectionFlowRegistry(List.of(
-                        new JiraSelectionFlow(jiraOAuthClient, jiraClient, jiraTokenService))),
+                        new JiraSelectionFlow(jiraOAuthClient, jiraClient, jiraTokenService),
+                        new GoogleChatSelectionFlow(googleChatClient, googleChatTokenService))),
                 new TransactionTemplate(transactionManager)
         );
     }

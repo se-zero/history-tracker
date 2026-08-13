@@ -88,6 +88,35 @@ atlassian:
     # 트레일링 슬래시는 스파이크에서 204로 검증된 실제 호출 형태
     report-url: ${ATLASSIAN_PDR_REPORT_URL:https://api.atlassian.com/app/report-accounts/}
 
+discord:
+  client-id: ${DISCORD_CLIENT_ID:}
+  client-secret: ${DISCORD_CLIENT_SECRET:}
+  redirect-uri: ${DISCORD_REDIRECT_URI:}
+  # 앱 전체가 공유하는 봇 토큰 — pipeline-worker에도 같은 값을 배포해야 한다(수집 주체가 봇이다).
+  bot-token: ${DISCORD_BOT_TOKEN:}
+  # bot(서버에 봇 추가) + identify(연동한 사용자 식별, 해제 시 grant 폐기에만 쓰인다)
+  scopes: "${DISCORD_SCOPES:bot identify}"
+  # View Channels(1024) + Read Message History(65536) — 최소 권한만 요청한다
+  permissions: ${DISCORD_PERMISSIONS:66560}
+  authorize-url: ${DISCORD_AUTHORIZE_URL:https://discord.com/oauth2/authorize}
+  token-url: ${DISCORD_TOKEN_URL:https://discord.com/api/v10/oauth2/token}
+  revoke-url: ${DISCORD_REVOKE_URL:https://discord.com/api/v10/oauth2/token/revoke}
+  api-base-url: ${DISCORD_API_BASE_URL:https://discord.com/api/v10}
+
+google-chat:
+  client-id: ${GOOGLE_CHAT_CLIENT_ID:}
+  client-secret: ${GOOGLE_CHAT_CLIENT_SECRET:}
+  redirect-uri: ${GOOGLE_CHAT_REDIRECT_URI:}
+  # directory.readonly는 필수다 — 사용자 인증으로는 Chat API의 sender에 표시 이름이 오지 않아
+  # People API(다른 API, Cloud Console에서 별도 사용 설정 필요)로 이름·이메일을 보강해야 한다(실측 확인).
+  scopes: "${GOOGLE_CHAT_SCOPES:https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/chat.messages.readonly https://www.googleapis.com/auth/directory.readonly}"
+  authorize-url: ${GOOGLE_CHAT_AUTHORIZE_URL:https://accounts.google.com/o/oauth2/v2/auth}
+  token-url: ${GOOGLE_CHAT_TOKEN_URL:https://oauth2.googleapis.com/token}
+  revoke-url: ${GOOGLE_CHAT_REVOKE_URL:https://oauth2.googleapis.com/revoke}
+  api-base-url: ${GOOGLE_CHAT_API_BASE_URL:https://chat.googleapis.com/v1}
+  # 만료 전 미리 갱신할 여유 시간. 로컬에서 크게 잡으면(예: PT2H) 갱신 경로를 즉시 검증할 수 있다.
+  refresh-skew: ${GOOGLE_CHAT_REFRESH_SKEW:PT5M}
+
 linear:
   client-id: ${LINEAR_CLIENT_ID:}
   client-secret: ${LINEAR_CLIENT_SECRET:}
