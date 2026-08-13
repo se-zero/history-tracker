@@ -144,8 +144,9 @@ Google Chat 고유 항목은 아니었지만 착수 전 반드시 처리해야 �
 `chk_checkpoints_provider CHECK (provider IN ('github','jira','slack'))`가 남아 있어 새 provider의
 checkpoint 쓰기가 제약 위반으로 터지는 문제였다(2026-08-09 Discord 실기동에서 발견 — 발행은 끝난
 뒤라 그래프에는 데이터가 들어가고 커서만 전진하지 못해 매 수집이 같은 구간을 다시 긁는 증상이었다).
-`V13__drop_checkpoints_provider_constraint.sql`로 제거하고 Discord 재수집으로 정상 동작을 실측
-확인했다. 상세는 `docs/integration-abstraction.md`의 **A9**.
+이 마이그레이션(develop과의 병합 과정에서 버전 번호가 겹쳐 최종적으로
+`V16__drop_checkpoints_provider_constraint.sql`로 자리 잡았다)으로 제거하고 Discord 재수집으로
+정상 동작을 실측 확인했다. 상세는 `docs/integration-abstraction.md`의 **A9**.
 **Google Chat 커넥터 착수 시점에는 이미 해결된 상태이므로 별도 조치 불필요.**
 
 ### 2-1. webhook 토큰 확보 일반화 (만료 토큰형 provider)

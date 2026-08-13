@@ -1,5 +1,7 @@
 package com.history.backend.asana.service;
 
+import java.util.Map;
+
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.service.AsanaCredentialCodec;
 import com.history.backend.integration.service.ProviderCredentialLifecycle;
@@ -18,8 +20,10 @@ public class AsanaCredentialLifecycle implements ProviderCredentialLifecycle {
         return IntegrationProvider.ASANA;
     }
 
+    // refresh token을 폐기하면 파생된 access token도 함께 무효화된다 — externalRef는 필요 없다
+    // (Discord와 달리 해제 시 별도로 나가야 할 봇이 없다).
     @Override
-    public void revoke(byte[] encryptedCredential) {
+    public void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
         asanaOAuthClient.revoke(asanaCredentialCodec.decrypt(encryptedCredential).refreshToken());
     }
 }

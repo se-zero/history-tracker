@@ -3,7 +3,9 @@ package com.history.backend.integration.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -1024,7 +1026,9 @@ class IntegrationServiceTest {
 
         service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA);
 
-        verify(lifecycle).revoke(new byte[] {9});
+        // externalRef 전달 자체는 Discord 케이스(connectOAuthDiscardsExchangedCredentialWhenSaveConflicts
+        // 등)가 별도로 검증한다 — 여기는 find(Optional) 조회 경로만 고정한다.
+        verify(lifecycle).revoke(eq(new byte[] {9}), anyMap());
     }
 
     @Test
