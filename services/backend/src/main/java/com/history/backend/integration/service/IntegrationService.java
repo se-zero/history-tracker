@@ -200,14 +200,24 @@ public class IntegrationService {
         byte[] encryptedCredential = credentialCryptoService.encrypt(connection.credential());
 
         // 외부 API 호출 중 DB 커넥션 점유를 피하기 위해 저장만 트랜잭션으로 분리
-        Integration integration = transactionTemplate.execute(status -> saveOAuthIntegration(
-                ownerId,
-                projectId,
-                provider,
-                connection.externalRef(),
-                encryptedCredential,
-                requiresSelection
-        ));
+        Integration integration;
+        try {
+            integration = transactionTemplate.execute(status -> saveOAuthIntegration(
+                    ownerId,
+                    projectId,
+                    provider,
+                    connection.externalRef(),
+                    encryptedCredential,
+                    requiresSelection
+            ));
+        } catch (ConflictException exception) {
+            // 사전 검사와 저장 사이 경합으로 확정 행이 생긴 경우 — 방금 교환한 자격증명은 저장되지
+            // 않으므로 그대로 두면 provider 쪽에 grant만 남는다(Discord는 동의 승인 순간 서버에
+            // 들어간 봇까지 남는데, guild_id를 저장하지 않았으니 나중에는 내보낼 수단도 없다).
+            // 트랜잭션이 이미 끝난 자리라 외부 HTTP가 DB 커넥션을 점유하지 않는다.
+            discardUnsavedConnection(provider, encryptedCredential, connection.externalRef());
+            throw exception;
+        }
 
         if (!requiresSelection) {
             pipelineWorkerClient.triggerCollection(provider, projectId);
@@ -473,13 +483,31 @@ public class IntegrationService {
     // credential이 없다) find(provider)로만 걸러도 안전하다.
     private void revokeProviderAccess(Integration integration, IntegrationProvider provider) {
         credentialLifecycles.find(provider)
-                .ifPresent(lifecycle -> lifecycle.revoke(integration.getEncryptedCredential()));
+                .ifPresent(lifecycle -> lifecycle.revoke(
+                        integration.getEncryptedCredential(), integration.getExternalRef()));
     }
 
     // 프로젝트당 provider별 1개 연동 제한 검증
     private void validateProviderAvailable(UUID projectId, IntegrationProvider provider) {
         if (integrationRepository.existsByProject_IdAndProvider(projectId, provider)) {
             throw integrationAlreadyExists(provider);
+        }
+    }
+
+    // 저장되지 못한 자격증명 폐기 — 해제와 같은 SPI를 쓴다(등록이 없는 provider는 find()가 비어
+    // 아무 일도 하지 않는다).
+    // 정리 실패가 원래의 409를 가리면 사용자는 "왜 실패했는지"를 잃으므로 예외를 삼키고 로그만 남긴다.
+    private void discardUnsavedConnection(
+            IntegrationProvider provider,
+            byte[] encryptedCredential,
+            Map<String, Object> externalRef
+    ) {
+        try {
+            credentialLifecycles.find(provider)
+                    .ifPresent(lifecycle -> lifecycle.revoke(encryptedCredential, externalRef));
+        } catch (RuntimeException exception) {
+            log.warn("Failed to discard unsaved OAuth connection. provider={}, error={}",
+                    provider.value(), exception.getMessage());
         }
     }
 

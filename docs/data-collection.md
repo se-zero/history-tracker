@@ -389,3 +389,175 @@ Slack checkpoint는 `checkpoints` 테이블에서 `provider=slack`, `cursor_key=
 
 - **문제**: 수백 개 채널이 있는 대형 워크스페이스에서 conversations.list 페이지 순회 + 채널당 history 호출로 수집 시간이 채널 수에 비례해 증가한다.
 - **방법 선택 이유**: 어떤 채널에 관련 맥락이 있을지 사전에 알 수 없어 전체 채널을 대상으로 한다.
+
+---
+
+## Discord
+
+상세 설계 근거(Discord API 실측 결과 포함)는 `docs/discord-integration.md` 참고. 여기서는 수집 전략만 다룬다.
+
+### 수집 대상
+
+| 타입 | 엔드포인트 |
+|------|-----------|
+| 텍스트 채널 목록 | `GET /guilds/{guild_id}/channels` (type 0·5만) |
+| 활성 스레드 목록 | `GET /guilds/{guild_id}/threads/active` |
+| 채널·스레드 메시지 | `GET /channels/{channel_id}/messages` |
+
+DB checkpoint: `discord/discord_messages` (Slack과 같은 이유로 채널을 가로질러 마지막에 한 번만 갱신).
+
+### 증분 전략 — snowflake 기반 서버사이드 필터
+
+Discord 메시지 ID(snowflake)는 생성 시각을 품고 있어, checkpoint의 `Instant`를 snowflake로 변환해
+`after` 파라미터에 넣으면 **서버가 직접 걸러준다** — Slack처럼 채널 히스토리를 끝까지 훑을 필요가 없다.
+
+`after`는 커서 바로 다음 구간부터 앞으로 전진하며 채운다(재실측 2026-08-11 — `docs/discord-integration.md`
+「확인 완료」 4). 백로그가 페이지 크기(100)를 넘으면 가장 오래된 쪽 100개가 먼저 오고, 최신→과거
+내림차순은 배치 안쪽 정렬일 뿐 선택 구간과 무관하다. 따라서 가득 찬 페이지를 받으면 그 배치의
+**최대 id를 다음 `after`로** 삼아 이어받고, 100건 미만이 오면 멈춘다. 서버가 커서 이후만 걸러 주므로
+클라이언트 쪽 경계 필터링은 없다. 커서는 노이즈 필터 이전 원본에서 뽑는다 — 한 페이지가 전부
+봇/시스템 메시지여도 전진해야 한다.
+
+Slack과 마찬가지로 **채널 전체를 모으지 않고 페이지마다 발행한다**. 발행 배치가 채널 크기에 비례하면
+`EventPublisher`의 단일 confirm 타임아웃(10초)에 걸려 재시도해도 계속 실패하기 때문이다.
+
+> 초기 설계는 정렬 방향을 선택 구간으로 오해해 "최신 100개만 온다"고 보고 `before` 역방향 보정을
+> 넣었다. 채널당 100건에서 수집이 끊기는데 checkpoint는 채널을 가로지르는 단일 커서라, 다른 채널의
+> 더 최신 메시지가 커서를 끌어올려 **끊긴 채널의 중간 구간이 영구 유실**됐다(단일 채널 길드에서만
+> 무해했다). 전진형으로 교체해 채널이 매번 완전히 비워지도록 했다 — 단일 커서의 전제가 그것이다.
+
+### occurredAt 기준
+
+메시지 `timestamp`(ISO-8601). `edited_timestamp`는 커서를 되돌리지 않도록 쓰지 않는다.
+
+### Rate Limiting
+
+호출마다 고정 250ms 딜레이(봇당 초당 50요청 상한에 여유). 429 응답은 본문 `retry_after`(초)만큼
+대기 후 최대 3회 재시도한다.
+
+### Tradeoff & 예상 문제점
+
+#### 채널 단위 403은 건너뛰고 계속 진행
+
+봇이 View Channel·Read Message History 권한을 못 받은 채널은 403이거나 빈 결과다.
+
+- **문제**: 서버 관리자가 일부 채널을 봇에게 안 보이게 설정할 수 있다. 이걸 전체 수집 실패로 처리하면
+  권한 있는 나머지 채널의 맥락까지 놓친다.
+- **방법 선택 이유**: 채널 단위 실패를 삼키고 다음 채널로 넘어간다 — 한 채널의 권한 누락이 전체 수집을
+  막으면 안 된다. 단 RabbitMQ 발행 예외는 삼키지 않는다(계약대로 checkpoint를 전진시키지 않아야
+  재발행된다).
+
+#### 자격증명이 프로젝트별이 아니라 앱 전역
+
+수집은 DB에 저장된 프로젝트별 자격증명이 아니라, pipeline-worker 자신의 설정(`app.discord.bot-token`)에
+있는 봇 토큰으로 한다.
+
+- **문제**: Slack·Jira·GitHub는 전부 "이 프로젝트가 연결한 자격증명으로 그 프로젝트 데이터만 수집"이라는
+  모델인데, Discord는 봇 하나가 여러 서버(=여러 프로젝트)에 동시에 들어가 있다.
+- **방법 선택 이유**: Discord REST API는 사용자 OAuth 토큰으로 메시지 히스토리를 못 읽는다 — 봇 토큰만
+  가능하다. DB 행에는 `external_ref.guild_id`(수집 대상 식별)만 있고, 사용자 OAuth 토큰(refresh
+  token)은 연동 해제 시 grant 폐기 용도로만 쓰인다.
+
+#### 아카이브된 스레드는 1차 범위에서 제외
+
+`GET /channels/{id}/threads/archived/public`은 호출하지 않는다.
+
+- **문제**: 활성 스레드 목록에는 없지만 아카이브된 스레드에 새 메시지가 있을 수 있다(Discord는 스레드를
+  자동 아카이브한다).
+- **방법 선택 이유**: 활성 스레드만으로 시작하고 실사용에서 누락이 문제가 되면 확장한다 —
+  `docs/discord-integration.md`의 「구현 시 확인」에 남겨둔 제품 결정이다.
+
+## Google Chat
+
+상세 설계 근거(계정 게이트·인증 모델 조사 포함)는 `docs/google-chat-integration.md` 참고.
+여기서는 수집 전략만 다룬다.
+
+### 수집 대상
+
+| 타입 | 엔드포인트 |
+|------|-----------|
+| 스페이스 표시 이름 | `GET /v1/{space_id}` (매 수집 1회 — 이름 변경 추적용) |
+| 스페이스 메시지 | `GET /v1/{space_id}/messages` |
+
+수집 범위는 연동 시 선택한 **스페이스 1개**다(선택 단계 1단). DM·그룹챗은 `spaces.list` 후보 조회
+단계에서 `spaceType = "SPACE"` 필터로 이미 제외된다. DB checkpoint: `google-chat/google_chat_messages`
+단일 커서(스페이스가 하나라 여러 채널을 가로질러 갱신할 필요가 없다).
+
+### 증분 전략 — createTime 서버사이드 strict 필터
+
+`filter=createTime > "{checkpoint RFC-3339}"` + `orderBy=createTime ASC`로 서버가 직접 걸러
+오름차순으로 내려준다. Slack의 히스토리 풀스캔도, Discord처럼 커서를 snowflake로 변환하는 단계도
+필요 없다 — 대화 아키타입 3종 중 증분 구현이 가장 단순하다. `pageToken`으로 이어받는 페이지도 이미
+checkpoint 이후로 필터링된 결과라 클라이언트 쪽 경계 필터링이 불필요하다.
+
+Slack·Discord와 마찬가지로 **스페이스 전체를 모으지 않고 페이지마다 발행한다**. 발행 배치가 스페이스
+크기에 비례하면 수년치 스페이스의 초기 수집이 `EventPublisher`의 단일 confirm 타임아웃(10초)에 걸려
+재시도해도 계속 실패한다 — 페이지 크기(1000)가 곧 발행 배치 상한이 된다. People API 보강은 페이지마다
+호출해도 sender 단위 TTL 캐시가 흡수해 호출 수가 페이지 수에 비례하지 않는다.
+
+**checkpoint는 전체 성공 후 한 번만 전진한다**(전 페이지의 최대 `occurredAt`). 중간 페이지 발행이
+실패하면 예외가 전파돼 갱신에 도달하지 못하므로, 전량 축적하던 때와 같은 보증("전체 성공 후 전진")이
+그대로 유지된다.
+
+checkpoint가 없으면(초기 수집) `filter` 파라미터 자체를 생략해 전체 히스토리를 대상으로 한다.
+
+### occurredAt 기준
+
+메시지 `createTime`(RFC-3339). 편집된 메시지의 `lastUpdateTime`은 `filter`가 지원하지 않아
+재수집 대상 판별에 쓰지 못한다 — 편집 추적은 대화 아키타입 공통 미지원 과제로 남는다(Teams만
+정렬 기반 조기 종료 덕에 예외적으로 지원한다).
+
+### Rate Limiting
+
+호출마다 고정 100ms 딜레이(Cloud 프로젝트당 60초 3,000요청 쿼터 — 사용자 수와 무관하게 앱 전체가
+공유하므로 보수적으로 시작한다). 429 응답에는 Discord처럼 재시도 대기 시간을 알려주는 필드가 없어
+문서 권고대로 지수 백오프(`min((2^n)+jitter, max)`, 최대 5회)로 재시도한다.
+
+### Tradeoff & 예상 문제점
+
+#### 스페이스 1개 제한
+
+프로젝트 하나에 스페이스 하나만 연결할 수 있다(A4 선택 단계는 단계당 단일 선택).
+
+- **문제**: 팀이 여러 스페이스를 쓰면 하나만 수집되고 나머지는 놓친다.
+- **방법 선택 이유**: 전체 자동 수집(Slack형)은 사용자 인증이라 `spaces.list`가 프로젝트와 무관한
+  회사 전체 스페이스·DM까지 돌려줘 개인정보 위험이 있다. 다중 선택 지원은 A4 인터페이스 확장(공용
+  코드 변경)이라 커넥터 PR 범위를 벗어난다 — 필요해지면 별도 안건으로 다룬다
+  (`docs/google-chat-integration.md` §3 참고).
+
+#### 자격증명이 만료되는 사용자 토큰 — Jira와 같은 모양
+
+수집은 봇 토큰이 아니라 DB에 저장된 프로젝트별 사용자 access token(JSON, ~1시간 만료)으로 한다.
+
+- **문제**: Discord와 반대로, 이 access token은 주기적으로 갱신돼야 한다. 웹훅 경로로 도는 증분
+  수집에서 죽은 토큰으로 401을 낼 위험이 있다.
+- **방법 선택 이유**: backend(`GoogleChatTokenService`)가 갱신을 전담하고, pipeline-worker는 내부
+  토큰 API(`ensure`)로만 위임한다 — Jira와 동일한 구조다. 이 경로가 정상 동작하려면 webhook 토큰
+  확보 로직이 Jira 전용에서 provider 일반화로 먼저 바뀌어야 했다(선행 PR, `docs/google-chat-integration.md` §2).
+  Google 갱신 응답은 refresh_token을 다시 주지 않아(회전하지 않음) 기존 값을 보존해야 하는 점이
+  Jira(회전형)와 정반대라, 코드를 그대로 복사하면 조용히 깨진다.
+
+#### 메시지 URL이 permalink가 아니라 리소스 이름 원문
+
+`properties.url`은 `message.name`(`spaces/{space}/messages/{id}`)을 그대로 쓴다.
+
+- **문제**: 다른 소스(Discord의 딥링크, Teams의 `webUrl`)와 달리 클릭해서 원본으로 이동할 수 없다.
+- **방법 선택 이유**: 실측 확인(2026-08-09) — Message 리소스 응답에 permalink류 필드가 아예 없다
+  (Space에는 `spaceUri`가 있지만 메시지 단위 딥링크는 없음). URL을 지어낼 근거가 없으므로 결정적·
+  고유한 리소스 이름을 그대로 자연키로 쓴다(`docs/google-chat-integration.md` §11).
+
+#### actor 이름·이메일 확보에 People API 보강이 필요
+
+Chat API 응답만으로는 `actor.name`이 항상 비고 `actor.email`도 없다 — 사용자 인증으로는
+`Message.sender`에 `name`(id)·`type`만 오고 `displayName`은 오지 않는다(실측 및 공식 문서 확인,
+`docs/google-chat-integration.md` §7).
+
+- **문제**: People API(`people.googleapis.com`, `directory.readonly` scope)를 별도로 호출해야
+  하고, 매 메시지마다 부르면 비용이 크다.
+- **방법 선택 이유**: Slack의 `users.list` 전체 캐싱과 같은 목적이지만, People API에는 조직 전체를
+  한 번에 내려주는 API가 없어(권한 범위상) 메시지에 실제로 등장한 sender만 지연 조회한다 —
+  sender id 단위 TTL 캐시(`app.google-chat.person-cache-ttl`, 기본 30분) → 캐시 미스만
+  `people.getBatchGet`(최대 200개/호출)으로 묶어 조회. 조회 실패한 sender는 그 실행에서만 이름·
+  이메일 null로 두고 캐시하지 않아 다음 실행에서 재시도된다. Slack(`users.list`)처럼 이름·이메일을
+  둘 다 확보하지만, Discord는 봇 토큰 모델이라 타인의 이메일 자체를 얻을 수단이 없어 이름만 남는다
+  (`docs/discord-integration.md` §0).

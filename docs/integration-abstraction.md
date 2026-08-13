@@ -40,7 +40,7 @@ backend의 연동 관리 계층이다.
 | 아키타입 | 레퍼런스 | 신규 | nodeType | 연결 플로우 |
 |----------|---------|------|----------|------------|
 | 이슈 트래커 | Jira | Linear, Asana, monday, ClickUp | `Issue` (기존) | OAuth → 대상 선택 (provider마다 1~4단) |
-| 대화 | Slack | Teams, Google Chat, Discord | `Communication` (기존) | OAuth/봇 설치 → 즉시 확정 |
+| 대화 | Slack | Teams, Google Chat, Discord | `Communication` (기존) | provider마다 갈린다 — Slack·Discord는 동의 즉시 확정, Teams는 1단 선택(§3-2 조사 결과) |
 | 문서 | — | Notion | `Document` (**신규**) | OAuth → 즉시 확정 |
 
 함의: **Notion만 ai-engine 신규 작업이 크고, 나머지 7개는 pipeline-worker 커넥터 +
@@ -146,6 +146,14 @@ public interface SourceCollector {
 
 대화 3종(Teams·Google Chat·Discord)도 1단 선택(팀/스페이스/길드)이 필요해 보이지만 권위 있는 문서로
 확인하지 못했다 — 같은 메커니즘을 재사용할 수 있는지는 해당 커넥터 착수 전에 확인한다.
+**→ Teams·Discord 확인 완료.** Teams는 `/me/joinedTeams` 기반 **1단(team) 선택**으로 A4 메커니즘을
+그대로 재사용한다(`docs/teams-integration.md`). Discord는 반대로 **선택 단계가 없다** — 자기 동의
+화면에서 서버를 고르게 하고 콜백/토큰 응답으로 길드를 알려주므로 Slack형이다
+(`docs/discord-integration.md`). 즉 대화 3종이 한 모양이 아니다.
+**→ Google Chat도 확인 완료.** `spaces.list`(`spaceType = "SPACE"`) 기반 **1단(space) 선택**으로
+Teams와 같은 모양이다(`docs/google-chat-integration.md`). 정리하면 대화 3종은 선택 없음(Discord) /
+1단(Teams·Google Chat)으로 갈리며, **대화형에서 A4 메커니즘을 실제로 검증하는 것은 둘 중 먼저
+착수하는 쪽**이다.
 Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없다.
 - **토큰 갱신 일반화**: `JiraTokenService`를 provider별 갱신 정책(만료 여부·refresh 회전
   여부)을 선언하는 형태로 확장. Teams/Google Chat은 Jira처럼 만료+갱신형,
@@ -229,6 +237,59 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 A4가 이 단계의 핵심이다 — 이슈 트래커 4종이 **전부** 이 경로를 지나므로, 여기가 provider별로 갈리면
 담당자 4명이 같은 자리를 각자 고치게 된다.
 
+#### ~~A8~~ ✅ (추가 발견, 2026-08-08 발견 · 같은 날 완료) — `ProviderCredentialLifecycle.revoke`가 external_ref를 못 받았다
+
+Part A의 완료 판정 기준은 "커넥터 담당자가 공용 코드를 고치지 않고 자기 provider 파일만 추가하면
+되는 상태"인데, Discord 조사에서 이 기준을 깨는 구멍이 하나 나왔다.
+
+시그니처가 `revoke(byte[] encryptedCredential)`로 자격증명만 받았다. Slack(`auth.revoke`)과
+Jira(refresh token 폐기)는 이걸로 충분했지만, **Discord의 의미 있는 폐기는 "봇이 서버를 떠나는 것"**
+(`DELETE /users/@me/guilds/{guild_id}`)이라 `external_ref.guild_id`가 필요하다. 즉 Discord는 폐기에
+수집 대상 참조가 필요한 첫 provider다. 그냥 두면 연동을 해제해도 **봇이 사용자 서버에 남는다.**
+
+**→ 완료.** `revoke(byte[] encryptedCredential, Map<String, Object> externalRef)`로 넓혔다. 기존
+두 구현체(`SlackCredentialLifecycle`·`JiraCredentialLifecycle`)는 새 인자를 무시하도록 수정했고,
+호출부(`IntegrationService.revokeProviderAccess`)는 이미 들고 있는 연동 행에서 `integration.getExternalRef()`를
+그대로 전달한다 — 추가 조회가 필요 없었다. `./gradlew test` 전체 그린(Testcontainers 스키마 검증 포함).
+Discord 커넥터 PR과 분리한 선행 PR로 처리했다.
+
+#### ~~A9~~ ✅ (2026-08-09 발견 · 같은 날 완료) — `checkpoints.provider`에 열거형 CHECK가 남아 있었다
+
+A8과 **정확히 같은 성격의 구멍**이며, 이번에는 실기동에서 드러났다. V12가 `integrations.provider`의
+열거형 CHECK를 없앴지만, V5가 만든 `checkpoints` 테이블의 제약은 그대로다.
+
+```sql
+CONSTRAINT chk_checkpoints_provider CHECK (provider IN ('github','jira','slack'))
+```
+
+그래서 Discord 수집은 **fetch·normalize·publish까지 정상으로 끝난 뒤 마지막 checkpoint 쓰기에서
+터진다.**
+
+```
+ERROR: new row for relation "checkpoints" violates check constraint "chk_checkpoints_provider"
+  Detail: Failing row contains (0c626ddc-…, discord, discord_messages, …)
+```
+
+증상이 고약한 이유는 실패 지점이 맨 끝이라서다. 이벤트는 이미 발행됐으므로 그래프에는 데이터가
+들어가지만 **커서가 영원히 전진하지 못해**, 수집을 돌릴 때마다 같은 구간을 다시 긁고 같은 자리에서
+다시 실패한다(재발행이 멱등이라 데이터 사고는 아니다). 로그를 보지 않으면 "연동은 됐는데 왜 계속
+같은 것만 들어오지?"로 보인다.
+
+**Part A의 완료 판정 기준("공용 코드를 고치지 않고 자기 provider 파일만 추가")을 깨는 항목**이며,
+Discord뿐 아니라 **Linear·Google Chat·Teams 등 앞으로의 모든 커넥터가 같은 벽에 부딪힌다.**
+
+**→ 완료.** `chk_checkpoints_provider`를 제거하는 마이그레이션으로 해소했다(V12가 `integrations`에
+적용한 논리와 동일 — 유효성은 `CollectionProvider` enum이 보증). 원래 `V13`으로 작성했으나, develop에
+병렬로 병합된 다른 브랜치가 독자적으로 `V13`~`V15`(linear/asana/clickup을 CHECK 허용 목록에 하나씩
+추가 — 이 마이그레이션이 없애려는 바로 그 트레드밀)를 먼저 차지해 버전 번호가 겹쳤다. 파일명이 달라
+git이 충돌로 잡지 못하는 종류라 머지 시 별도로 발견해 `V16__drop_checkpoints_provider_constraint.sql`로
+리네임했다 — 그 세 마이그레이션 뒤에 적용돼도 결과(제약 삭제)는 같아 무해하다.
+`PipelineSharedSchemaTest.checkpointProviderRejectsUnexpectedValue`(옛 CHECK 거부를 고정하던 테스트)를
+`checkpointAcceptsNewProviderValueWithoutSchemaMigration`으로 교체해 반대 방향(새 provider 값도
+저장 가능)을 고정했다 — V12 때 `integrations`만 보고 같은 테이블 계열을 함께 훑지 않아 생긴 누락이었다.
+`./gradlew test` 그린. 배포된 DB에도 반영해 Discord 재수집으로 checkpoint 정상 갱신을 실측 확인했다
+(`docs/discord-integration.md` §9 참고).
+
 ### Part B — 커넥터별 구현 (팀원 분담, 커넥터당 1 PR)
 
 Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없이 병렬로 진행한다.
@@ -239,13 +300,28 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
 | 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ~~ClickUp~~ ✅ | `Issue` 노드 재사용, ai-engine 무변경 |
-| 대화 | MS Teams · Google Chat · Discord | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
+| 대화 | **Discord**(코드 작업 완료 ✅ — 연결·수집(A9 수정 후 checkpoint 갱신 실측 확인) 전부 정상) · MS Teams(계획 완료, 라이선스 대기) · **Google Chat**(코드 작업 완료 ✅ — backend·pipeline-worker·web-dashboard, 선행 PR 2건(webhook 토큰 확보 일반화·A9) 포함. `docs/google-chat-integration.md`. §1-0 Workspace 계정 게이트 실측·실기동은 미착수) | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
 | 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.
 **→ 완료.** Linear 커넥터가 A4의 단계 선언 메커니즘 위에서 그대로 동작함을 확인했다.
-backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대화 아키타입 1호 자리다.
+
+**대화 아키타입 1호는 Discord다** (2026-08-08 결정). 원래 MS Teams 자리였고 빈 `teams` 디렉터리도
+그래서 만들어 뒀지만, 조사 결과 Teams Graph API는 **유료 조직 테넌트 라이선스 + 테넌트 관리자 동의**를
+개발자와 최종 사용자 양쪽에 요구한다(개인 계정은 우회 불가 — `docs/teams-integration.md` §1-0의 실측).
+아키타입이 성립하는지를 증명하는 데 그 비용을 먼저 치를 이유가 없다. Discord는 서버 생성·봇 등록이
+무료이고 관리자 동의 절차가 없다. Teams는 계획 문서가 이미 완성돼 있으므로 라이선스가 확보되는 대로
+2호로 착수한다.
+
+**단, Discord가 검증하는 범위는 처음 생각과 다르다**(`docs/discord-integration.md` 조사 결과).
+Discord는 자기 동의 화면에서 서버를 고르게 해 **선택 단계가 아예 없으므로**(Slack형),
+"대화형에서도 A4 다단 선택이 통하는가"는 Discord로 확인되지 않는다 — 그 검증은 Teams(1단 team)나
+Google Chat 몫으로 남는다. Discord가 실제로 검증하는 것은 ① 대화 아키타입이 Slack 외 소스로도
+성립하는가 ② **비만료형 provider의 404 경로**(봇 토큰은 만료되지 않아 `AccessTokenRefresher`를
+만들지 않는다 — Slack의 조용한 204 사건 이후 만든 안전망을 두 번째 provider로 확인) ③ 앱 수준 봇 +
+프로젝트별 설치 대상이라는 GitHub App형 자격증명 모델이 OAuth 프레임워크에 얹히는가, 셋이다.
+③에서 공용 SPI의 구멍이 하나 드러났다 — 위 Part A의 「A8」 참고.
 
 각 단계마다 대응 문서(data-collection.md, DB.md, graph-schema.md, 각 CLAUDE.md) 동반 갱신이 필요하다.
 
@@ -309,6 +385,14 @@ backend·pipeline-worker에 이미 만들어 둔 빈 `teams` 디렉터리는 대
       `"wired"`인데 두 필드가 없으면 **컴파일이 깨진다**(의도된 안전망 — 반쪽 배선은 화면에서 조용히 실패한다).
 - [ ] 연동 행·선택 폼·타일·해제 다이얼로그는 `OAuthSourceCard`가 backend 단계 선언으로 렌더하므로
       **provider별 컴포넌트를 만들지 않는다.**
+- [ ] **`pages/PrivacyPage.tsx` 고지 추가 — 배포 기준이다.** 카탈로그와 달리 자동으로 채워지지 않고
+      컴파일도 막아주지 않아, 빠뜨리면 **고지 없이 개인정보를 수집하는 상태로 배포된다**
+      (Discord·Google Chat이 실제로 이렇게 새어 이 항목이 생겼다). 세 곳을 함께 고친다 —
+      제1조 「연동 자격증명」 행(저장하는 토큰 종류가 provider마다 다르다),
+      제1조 「연동으로 수집되는 기록」 목록, 제2조 `LegalSourceBlock`(요청 권한·수집하는 정보·
+      이용 목적·삭제·쓰기 권한). 이름·이메일을 수집하면 **어느 API로 얻는지까지 밝힌다**
+      (예: Google Chat은 Chat API가 이름을 주지 않아 People API를 따로 호출한다).
+      해제 시 원격에서 일어나는 일도 적는다(예: Discord는 봇이 서버에서 나간다).
 - [ ] 검증: `npm run typecheck && npm run build`
 
 **4. ai-engine — 기존 아키타입이면 무변경**
@@ -342,6 +426,8 @@ ai-engine의 소스 표시 라벨(`graph/overview.py`)도 대문자 snake에서 
 ## 5. 미리 정할 것
 
 1. ~~**`jira_key` → `issue_key` 개명 여부**~~ — "개명"으로 결정, A6에서 실행 완료. (§3-3 참고)
-2. **provider ID 표기 통일** — RDB/API는 소문자(`linear`), 그래프 source는 대문자(`LINEAR`),
-   alias 접두는 `LINEAR:` — 현행 규칙을 계약 문서에 명문화한다. Google Chat처럼 두 단어인
-   경우의 표기(`google-chat` vs `GOOGLE_CHAT`)만 지금 정해 둔다.
+2. ~~**provider ID 표기 통일**~~ — 확정. 계층별 관례를 그대로 따른다: RDB/HTTP 경로는 소문자 kebab
+   (`linear`·`google-chat`), 그래프 source·alias 접두는 대문자 snake(`LINEAR`·`GOOGLE_CHAT`),
+   routing key는 소문자 snake(`event.google_chat`), Java 패키지는 구분자 없음(`googlechat`).
+   단일 출처는 `docs/normalized-event.md`의 「source · 표기 규칙」이며,
+   두 단어 케이스의 근거·전 계층 대조표는 `docs/google-chat-integration.md` §10에 있다.

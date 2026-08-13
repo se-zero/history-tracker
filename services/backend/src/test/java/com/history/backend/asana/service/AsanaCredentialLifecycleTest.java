@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.Map;
 
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.service.AsanaCredential;
@@ -35,7 +36,8 @@ class AsanaCredentialLifecycleTest {
         when(asanaCredentialCodec.decrypt(encryptedCredential))
                 .thenReturn(new AsanaCredential("access-token", "refresh-token", Instant.parse("2026-08-01T00:00:00Z")));
 
-        lifecycle.revoke(encryptedCredential);
+        // Asana는 externalRef를 쓰지 않는다(Discord와 달리 해제 시 별도로 나가야 할 봇이 없다) — 빈 맵으로 충분하다.
+        lifecycle.revoke(encryptedCredential, Map.of());
 
         verify(asanaOAuthClient).revoke("refresh-token");
     }

@@ -12,13 +12,17 @@ import {
 import { PATHS } from "@/routes";
 
 // 개인정보처리방침 — 공개 라우트(/privacy). 초안이며 법률 검토 전이다.
-// GitHub App·Slack·Atlassian 세 앱 심사가 모두 이 페이지 하나를 개인정보처리방침 URL로 쓴다
-// (서비스별로 문서를 나누면 수집 코드가 바뀔 때 세 곳이 갈라진다). 심사자가 자기 서비스만
-// 바로 보도록 제2조에 앵커를 뒀다 — /privacy#github · #slack · #jira.
+// 연동 앱 심사가 모두 이 페이지 하나를 개인정보처리방침 URL로 쓴다 (서비스별로 문서를 나누면
+// 수집 코드가 바뀔 때 여러 곳이 갈라진다). 심사자가 자기 서비스만 바로 보도록 제2조에 앵커를
+// 뒀다 — /privacy#github · #slack · #jira · #discord · #google-chat.
+// 앞의 셋은 이미 심사에 제출된 URL이라 **그 id는 바꾸지 않는다**. Google Chat의
+// directory.readonly는 민감 범위라 OAuth 검증에서 이 URL을 요구한다.
 //
 // 항목·보유기간·위탁처는 실제 구현에서 확인한 값이다(docs/DB.md, services/*/CLAUDE.md):
-//   수집 대상  → pipeline-worker의 GitHub/Jira/Slack 정규화 코드
-//   요청 권한  → backend application.yaml의 slack.user-scopes / atlassian.scopes
+//   수집 대상  → pipeline-worker source/*의 정규화 코드 (CollectionProvider 등재 provider 전부)
+//   자격증명   → provider별 저장 형태가 다르다(Slack·Discord 평문 토큰 / Jira·Google Chat JSON)
+//   요청 권한  → backend application.yaml의 slack.user-scopes / atlassian.scopes /
+//                discord.scopes·permissions / google-chat.scopes
 //   위탁       → ai-engine의 OpenAI 임베딩·질의 모델
 //   파기 기한  → backend user-lifecycle.purge.grace-period (P30D)
 //   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
@@ -53,7 +57,8 @@ export function PrivacyPage() {
               <tr>
                 <td>연동 자격증명</td>
                 <td>
-                  GitHub App 설치 토큰, Slack 액세스 토큰, Jira 액세스·리프레시 토큰
+                  GitHub App 설치 토큰, Slack·ClickUp 액세스 토큰, Jira·Google Chat·Linear·Asana
+                  액세스·리프레시 토큰, Discord 리프레시 토큰
                 </td>
                 <td>이용자가 각 서비스에서 연동에 동의할 때 발급</td>
               </tr>
@@ -69,6 +74,14 @@ export function PrivacyPage() {
                     <li>
                       Slack — 연동한 워크스페이스의 채널 목록, 채널 메시지와 스레드 답글,
                       멤버의 표시 이름·이메일
+                    </li>
+                    <li>
+                      Discord — 연동한 서버의 채널·스레드 목록, 채널 메시지와 스레드 답글,
+                      작성자의 표시 이름 (이메일은 수집하지 않습니다)
+                    </li>
+                    <li>
+                      Google Chat — 연동한 스페이스의 메시지와 스레드 답글, 작성자의
+                      표시 이름·이메일
                     </li>
                     <li>Linear — 연동한 팀의 이슈 제목·본문·상태·담당자·작성자</li>
                     <li>
@@ -183,6 +196,84 @@ export function PrivacyPage() {
           <LegalSourceRow label="삭제">
             연동을 해제하면 Atlassian에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과
             해당 프로젝트에서 수집한 이슈 데이터를 삭제합니다.
+          </LegalSourceRow>
+        </LegalSourceBlock>
+
+        <LegalSourceBlock id="discord" name="Discord">
+          <LegalSourceRow label="요청 권한">
+            <ul>
+              <li>
+                <code>bot</code> — 이용자가 선택한 서버에 봇을 추가하기 위함입니다. 봇에는{" "}
+                <strong>채널 보기(View Channels)</strong>와{" "}
+                <strong>메시지 기록 읽기(Read Message History)</strong> 두 가지 권한만
+                요청합니다.
+              </li>
+              <li>
+                <code>identify</code> — 연동한 이용자를 식별하기 위함이며, 연동을 해제할 때
+                발급된 권한을 폐기하는 데에만 사용합니다.
+              </li>
+            </ul>
+          </LegalSourceRow>
+          <LegalSourceRow label="수집 주체">
+            메시지를 읽는 주체는 <strong>서버에 추가된 봇</strong>이며, 연동할 때 저장한
+            이용자의 토큰은 수집에 사용하지 않습니다. 그 토큰은 연동을 해제할 때 발급된
+            권한을 폐기하는 용도로만 보관합니다. 따라서 봇이 서버에 있는 동안에는 연동을
+            설정한 이용자의 접속 여부와 관계없이 위 권한 범위의 채널이 수집됩니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="수집하는 정보">
+            연동한 서버의 텍스트·공지 채널 목록과 활성 스레드, 그 안의 메시지(본문, 작성자
+            식별자와 표시 이름, 시각). 봇이 보낸 메시지와 입장 알림 같은 시스템 메시지는
+            수집하지 않습니다. <strong>이메일은 수집하지 않습니다</strong> — Discord 봇은
+            다른 구성원의 이메일에 접근할 수 없어, 동일 인물 판단은 표시 이름에만 의존합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="이용 목적">
+            대화에 남은 결정의 이유를 커밋·이슈와 연결하기 위함입니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="삭제">
+            연동을 해제하면 Discord에 발급된 권한의 폐기를 요청하고,{" "}
+            <strong>봇이 해당 서버에서 나갑니다</strong>. 저장된 토큰과 그 서버에서 수집한
+            메시지 데이터도 함께 삭제합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="쓰기 권한">
+            요청하지 않습니다. 봇은 메시지를 보내거나 채널·서버 설정을 바꾸지 않으며,
+            위의 읽기 권한 두 가지 외에는 아무 권한도 갖지 않습니다.
+          </LegalSourceRow>
+        </LegalSourceBlock>
+
+        <LegalSourceBlock id="google-chat" name="Google Chat">
+          <LegalSourceRow label="요청 권한">
+            <ul>
+              <li>
+                <code>chat.spaces.readonly</code> — 연동할 스페이스를 확인해 수집 대상을
+                정하기 위함
+              </li>
+              <li>
+                <code>chat.messages.readonly</code> — 선택한 스페이스의 메시지와 스레드
+                답글을 읽어 의사결정 맥락을 추출하기 위함
+              </li>
+              <li>
+                <code>directory.readonly</code> — 메시지 작성자를 사람 단위로 식별하기 위함.
+                Google Chat API 응답에는 작성자의 식별자만 오고 이름이 포함되지 않아,{" "}
+                <strong>Google People API</strong>로 표시 이름과 이메일을 따로 조회합니다.
+              </li>
+            </ul>
+          </LegalSourceRow>
+          <LegalSourceRow label="수집하는 정보">
+            선택한 스페이스의 메시지와 스레드 답글(본문, 작성자, 시각), 그리고 그 메시지
+            작성자의 <strong>표시 이름과 이메일</strong>. 이름·이메일 조회는 수집한 메시지에
+            실제로 등장한 사람만 대상으로 하며, 조직 구성원 전체를 내려받지 않습니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="이용 목적">
+            대화에 남은 결정의 이유를 커밋·이슈와 연결하기 위함입니다. 이메일은 동일 인물
+            판단에만 사용하며, 마케팅 발송이나 외부 제공에 쓰지 않습니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="삭제">
+            연동을 해제하면 Google에 토큰 폐기를 요청해 접근 권한을 끊고(리프레시 토큰을
+            폐기하면 그로부터 발급된 액세스 토큰도 함께 무효화됩니다), 저장된 토큰과 해당
+            스페이스에서 수집한 메시지·작성자 데이터를 삭제합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="쓰기 권한">
+            요청하지 않습니다. 요청하는 세 가지 권한은 모두 읽기 전용(readonly)입니다.
           </LegalSourceRow>
         </LegalSourceBlock>
 
@@ -335,7 +426,7 @@ export function PrivacyPage() {
 
       <LegalSection index={7} heading="이용자 외 구성원의 정보">
         <p>
-          서비스가 수집하는 기록에는 커밋 작성자, 이슈 담당자, Slack 메시지 작성자 등 연동을
+          서비스가 수집하는 기록에는 커밋 작성자, 이슈 담당자, 대화 메시지 작성자 등 연동을
           설정한 이용자 본인이 아닌 사람의 이름·이메일·작성 내용이 포함됩니다. 이 정보는
           이용자가 소속 조직의 협업 도구를 연결함으로써 서비스에 반입되므로, 조직 내부의
           고지·동의 절차를 지킬 책임은 연동을 설정한 이용자와 그 조직에 있습니다(

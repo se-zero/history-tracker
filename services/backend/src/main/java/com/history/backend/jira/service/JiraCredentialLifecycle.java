@@ -1,5 +1,7 @@
 package com.history.backend.jira.service;
 
+import java.util.Map;
+
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.service.JiraCredentialCodec;
 import com.history.backend.integration.service.ProviderCredentialLifecycle;
@@ -18,9 +20,9 @@ public class JiraCredentialLifecycle implements ProviderCredentialLifecycle {
         return IntegrationProvider.JIRA;
     }
 
-    // refresh token을 폐기하면 파생된 access token도 함께 무효화된다
+    // refresh token을 폐기하면 파생된 access token도 함께 무효화된다 — externalRef는 필요 없다
     @Override
-    public void revoke(byte[] encryptedCredential) {
+    public void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
         jiraOAuthClient.revoke(jiraCredentialCodec.decrypt(encryptedCredential).refreshToken());
     }
 }

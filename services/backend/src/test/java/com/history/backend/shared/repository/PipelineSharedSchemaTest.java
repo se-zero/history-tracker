@@ -142,8 +142,8 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
-    @DisplayName("checkpoints provider 'linear' 허용")
-    void checkpointProviderAcceptsLinearValue() {
+    @DisplayName("checkpoints provider는 DB 열거형 제약 없이 저장 가능 (V16 — 유효성은 애플리케이션 enum이 보증)")
+    void checkpointAcceptsNewProviderValueWithoutSchemaMigration() {
         UUID ownerId = insertUser("owner8@example.com");
         UUID projectId = insertProject(ownerId);
 
@@ -158,7 +158,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
-    @DisplayName("checkpoints provider 'clickup' 허용")
+    @DisplayName("checkpoints provider 'clickup' 허용 — V16 이후에도 다른 신규 provider와 마찬가지로 저장된다")
     void checkpointProviderAcceptsClickUpValue() {
         UUID ownerId = insertUser("owner10@example.com");
         UUID projectId = insertProject(ownerId);
@@ -171,22 +171,6 @@ class PipelineSharedSchemaTest {
         );
 
         assertThat(inserted).isOne();
-    }
-
-    @Test
-    @DisplayName("checkpoints provider 허용되지 않는 값 거부")
-    void checkpointProviderRejectsUnexpectedValue() {
-        UUID ownerId = insertUser("owner11@example.com");
-        UUID projectId = insertProject(ownerId);
-
-        // CHECK 제약(chk_checkpoints_provider)이 provider 이름 오타를 잡는 안전망이다 —
-        // 없으면 오타 provider가 조용히 저장돼 수집기가 영영 그 체크포인트를 못 찾는다.
-        assertThatThrownBy(() -> insertCheckpoint(
-                projectId,
-                "__invalid__",
-                "some_cursor",
-                Instant.parse("2024-01-03T00:00:00Z")
-        )).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
