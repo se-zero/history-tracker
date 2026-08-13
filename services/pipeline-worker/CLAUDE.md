@@ -23,6 +23,9 @@ cd services/pipeline-worker
 | `webhook` | GitHub webhook 검증, 필터링, delivery 중복 처리, 비동기 수집 트리거. |
 | `source.github` | GitHub 자격증명 해석·수집·정규화·rate limit (`GitHubCollector`). |
 | `source.jira` | Jira 자격증명 해석·수집·정규화·rate limit (`JiraCollector`). |
+| `source.linear` | Linear 자격증명 해석·수집·정규화·rate limit (`LinearCollector`). |
+| `source.asana` | Asana 자격증명 해석·수집·정규화·rate limit (`AsanaCollector`). |
+| `source.clickup` | ClickUp 자격증명 해석·수집·정규화·rate limit (`ClickUpCollector`). |
 | `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). |
 | `source.discord` | Discord 수집·정규화·rate limit (`DiscordCollector`). 자격증명은 DB가 아니라 이 worker의 설정(`app.discord.bot-token`)에서 온다 — 수집 주체가 앱 전체 공유 봇이라서다. |
 | `source.googlechat` | Google Chat 수집·정규화·rate limit (`GoogleChatCollector`). Jira와 같은 모양 — DB의 사용자별 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고, 만료 시 backend(`GoogleChatTokenService`)가 갱신한다. 사용자 인증으로는 메시지 작성자 표시 이름이 Chat API 응답에 오지 않아(실측 확인) `GoogleChatRawService`가 People API(`people.googleapis.com`, 별도 호스트)로 이름·이메일을 보강한다 — 메시지에 등장한 sender만 TTL 캐시로 지연 조회(`app.google-chat.person-cache-ttl`). |
@@ -74,7 +77,7 @@ backend·프론트까지 포함한 커넥터 전체 순서는 `docs/integration-
 진입점별 상세 동작은 아래 흐름 다이어그램을 참고한다.
 
 - `POST /api/v1/webhook/github` — GitHub webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거.
-- `POST /api/v1/collect/{provider}` — backend 연동 완료 후 해당 단일 provider의 초기 수집을 비동기로 요청(`202` 반환, 완료를 기다리지 않음). `{provider}`는 `CollectionProvider`가 아는 값이면 전부 받는다(github/jira/slack/discord/google-chat).
+- `POST /api/v1/collect/{provider}` — backend 연동 완료 후 해당 단일 provider의 초기 수집을 비동기로 요청(`202` 반환, 완료를 기다리지 않음). `{provider}`는 `CollectionProvider`가 아는 값이면 전부 받는다(github/jira/slack/discord/google-chat/linear/asana/clickup).
 - `POST /api/v1/raw/{provider}` — 디버그용 raw 샘플(1페이지). DB checkpoint를 사용하지 않으며 전체 수집 용도가 아니다.
 
 ## 초기 수집 트리거 흐름
@@ -105,7 +108,7 @@ GitHub PR merge webhook
   -> 갱신한 경우 ProjectIntegrationService로 DB integration 재조회
   -> context에 담긴 provider(GitHub 제외) 각각에 대해 backend 내부 API로 토큰 확보 요청
      -> REFRESHED: 그 provider 부분만 재해석해 context 교체
-     -> NOT_SUPPORTED(501, 갱신 수단 없음 — Slack·Discord): 저장된 자격증명 그대로 context 유지
+     -> NOT_SUPPORTED(501, 갱신 수단 없음 — Slack·Discord·ClickUp): 저장된 자격증명 그대로 context 유지
      -> FAILED(404 연동 행 없음 · 그 밖의 오류): 그 provider만 context에서 제외
   -> WebhookDeliveryService.tryClaim(deliveryId, projectId)
   -> webhookTaskExecutor에서 비동기 실행
@@ -119,7 +122,7 @@ GitHub PR merge webhook
 installation token이 충분히 유효하면 backend를 호출하지 않는다. token이 없거나 만료 5분 이내면 `GitHubInstallationTokenClient`가 `X-Internal-Service-Token`으로 backend의 token 보장 API를 호출한 뒤 DB를 재조회한다. backend는 token 평문을 반환하지 않는다.
 backend에 installation이 없으면 `404`, backend 호출 실패 또는 token 갱신 실패는 `500`으로 처리해 GitHub 재시도를 허용한다.
 GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
-만료 토큰형 provider(Jira·Google Chat)는 `IntegrationTokenClient.ensure(projectId, provider)`로 토큰 확보를 시도한다 — 갱신 성공(`204` → REFRESHED)이면 그 provider만 재해석, 갱신 수단이 없는 provider(Slack·Discord, `501` → NOT_SUPPORTED)는 저장된 자격증명 그대로 진행, 확보 실패(FAILED — **연동 행 없음 `404`**·backend 오류·네트워크 예외가 이 하나로 흡수된다)면 그 provider만 건너뛰고 나머지 수집은 계속한다. **`404`를 NOT_SUPPORTED로 읽으면 안 된다** — 해제 직후 레이스가 "갱신 불필요"로 읽혀 폐기된 토큰으로 수집을 진행하게 된다(backend가 능력 없음은 `501`, 리소스 없음은 `404`로 갈라 답하는 이유다). `IntegrationTokenClient`는 원래 Jira 전용(`JiraTokenClient.ensureJiraToken`)이었으나 Google Chat 추가를 계기로 provider를 인자로 받는 형태로 일반화했다(선행 PR).
+만료 토큰형 provider(Jira·Google Chat·Linear·Asana)는 `IntegrationTokenClient.ensure(projectId, provider)`로 토큰 확보를 시도한다 — 갱신 성공(`204` → REFRESHED)이면 그 provider만 재해석, 갱신 수단이 없는 provider(Slack·Discord·ClickUp, `501` → NOT_SUPPORTED)는 저장된 자격증명 그대로 진행, 확보 실패(FAILED — **연동 행 없음 `404`**·backend 오류·네트워크 예외가 이 하나로 흡수된다)면 그 provider만 건너뛰고 나머지 수집은 계속한다. **`404`를 NOT_SUPPORTED로 읽으면 안 된다** — 해제 직후 레이스가 "갱신 불필요"로 읽혀 폐기된 토큰으로 수집을 진행하게 된다(backend가 능력 없음은 `501`, 리소스 없음은 `404`로 갈라 답하는 이유다). `IntegrationTokenClient`는 원래 Jira 전용(`JiraTokenClient.ensureJiraToken`)이었으나 Google Chat 추가를 계기로 provider를 인자로 받는 형태로 일반화했다(선행 PR).
 `webhookTaskExecutor`가 작업을 받을 수 없으면 `IN_PROGRESS` claim을 해제해 GitHub 재시도가 다시 claim할 수 있게 한다.
 애플리케이션 시작 시 `app.webhook.delivery.stale-in-progress-timeout`보다 오래된 `IN_PROGRESS` delivery는 `FAILED`로 정리한다.
 `webhookTaskExecutor`는 `app.webhook.executor.pool-size`(기본 4)로 여러 프로젝트 webhook을 병렬 처리한다. 단 동일 프로젝트의 동시 수집은 `ProjectCollectionSerializer`(project id striped lock)가 직렬화해 같은 구간 중복 풀스캔을 막는다. 초기 수집(`collectionTaskExecutor`)은 provider별 병렬이 의도라 직렬화 대상이 아니다.
@@ -133,6 +136,9 @@ GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 cr
 | Slack | `event.slack` |
 | Discord | `event.discord` |
 | Google Chat | `event.google_chat` |
+| Linear | `event.linear` |
+| Asana | `event.asana` |
+| ClickUp | `event.clickup` |
 
 Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 새 routing key는 브로커 설정 변경 없이 소비된다)
 
@@ -148,6 +154,9 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
 - **Google Chat**: 호출마다 기본 100ms 고정 딜레이(Cloud 프로젝트당 60초 3,000요청 쿼터 — 사용자 수와
   무관하게 앱 전체가 공유). 429 응답에는 Discord처럼 재시도 대기 시간을 알려주는 필드가 없어 지수
   백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다.
+- **Linear**: 호출당 720ms 고정 딜레이 (API 한도 5,000 req/h 기준).
+- **Asana**: 호출당 400ms 고정 딜레이 (무료 워크스페이스 한도 150 req/min 기준).
+- **ClickUp**: 호출당 600ms 고정 딜레이 (무료 워크스페이스 한도 100 req/min 기준).
 
 Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비싸므로(Tier 2, 페이지당 3s), auth별로 `app.slack.user-map-cache-ttl`(기본 5m) 동안 캐시해 실행 간 재사용한다. 트레이드오프: TTL 윈도우 안에 가입한 신규 멤버의 메시지는 그 동안 `userName`/`userEmail` 보강 없이 수집될 수 있으며, ai-engine의 Actor 보정이 backstop이다. 정합성을 더 조이려면 TTL을 줄이거나(0=비활성) miss-refresh로 발전시킨다.
 
@@ -160,11 +169,15 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 - checkpoint 기준은 `Instant.now()`가 아니라 이벤트 실제 발생 시각인 `occurredAt`이다.
 - GitHub는 타입별 checkpoint를 사용한다: `github/github_commits`, `github/github_pull_requests`, `github/github_issues`.
 - Jira는 `jira/jira_updated`, Slack은 `slack/slack_messages`, Discord는 `discord/discord_messages`,
-  Google Chat은 `google-chat/google_chat_messages` cursor를 사용한다.
+  Google Chat은 `google-chat/google_chat_messages`, Linear는 `linear/linear_updated`, Asana는
+  `asana/asana_updated`, ClickUp은 `clickup/clickup_updated` cursor를 사용한다.
 - GitHub PR checkpoint는 commit 처리 성공 후 갱신해 재시작 시 `sha → prNumber` 매핑을 다시 만들 수 있게 한다.
-- Slack·Discord는 전체 실행 중 최대 `occurredAt`을 마지막에 한 번 갱신한다(채널별로 갱신하면 늦은
-  채널이 이른 채널의 커서를 덮는다). Google Chat은 스페이스가 하나뿐이라 이 문제 자체가 없지만,
-  배치의 최대 `occurredAt`으로 갱신하는 공용 규약은 그대로 따른다.
+- Slack·Discord·Linear·Asana·ClickUp은 전체 실행 중 최대 `occurredAt`을 마지막에 한 번(성공 시에만)
+  갱신한다. Slack·Discord는 채널별로 갱신하면 늦은 채널이 이른 채널의 커서를 덮기 때문이고, Linear는
+  `orderBy: updatedAt`이 내림차순 고정이라 페이지 단위로 전진시키면 truncation 시 과거 변경분이 영구
+  누락되기 때문이며, Asana·ClickUp은 API 응답에 정렬 보장이 없어 페이지 단위 전진 자체가 불가능하기
+  때문이다. Google Chat은 스페이스가 하나뿐이라 이 문제 자체가 없지만, 배치의 최대 `occurredAt`으로
+  갱신하는 공용 규약은 그대로 따른다.
 - Jira는 `updated` 기준으로 수집하고, 페이지 단위 publish 후 checkpoint를 갱신한다.
 - checkpoint는 project 단위로 저장한다.
 - cursor 갱신은 기존 값보다 과거 시각으로 되돌아가지 않게 저장한다.

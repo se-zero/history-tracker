@@ -90,8 +90,10 @@ public interface SourceCollector {
   동일 패턴에 걸리는 반면, Asana/ClickUp/Notion은 URL 기반 참조라 provider별 패턴 기여가
   필요하다. `refs.issueKeys`처럼 중립 키로 수렴한다.
   **→ 키 이름 중립화는 A6에서 완료** (ref 키 `jiraKey → issueKey` 계열, ai-engine과 동시 이행).
-  URL 기반 참조 소스(Asana/ClickUp/Notion)를 위한 패턴 레지스트리화는 해당 커넥터 착수 시
-  Part B에서 한다 — 지금은 정규식 하나뿐이라 등록 지점을 미리 만들 실익이 없다.
+  **→ URL 기반 참조 완료** — Asana에서 산출 키 `issueExternalRefs`(소스 중립, `{source, externalId}[]`)로
+  구현했다. 등록 지점의 레지스트리화(패턴을 provider별로 분리 관리)는 다음 URL 기반 소스
+  (ClickUp/Notion) 착수 시 한다 — 지금은 패턴 두 벌(Jira 키 형식, Asana URL 형식)뿐이라 미리
+  만들 실익이 없다.
 
 ### 3-2. backend — 연동 프레임워크
 
@@ -276,8 +278,12 @@ ERROR: new row for relation "checkpoints" violates check constraint "chk_checkpo
 **Part A의 완료 판정 기준("공용 코드를 고치지 않고 자기 provider 파일만 추가")을 깨는 항목**이며,
 Discord뿐 아니라 **Linear·Google Chat·Teams 등 앞으로의 모든 커넥터가 같은 벽에 부딪힌다.**
 
-**→ 완료.** `V13__drop_checkpoints_provider_constraint.sql`로 `chk_checkpoints_provider`를 제거했다
-(V12가 `integrations`에 적용한 논리와 동일 — 유효성은 `CollectionProvider` enum이 보증).
+**→ 완료.** `chk_checkpoints_provider`를 제거하는 마이그레이션으로 해소했다(V12가 `integrations`에
+적용한 논리와 동일 — 유효성은 `CollectionProvider` enum이 보증). 원래 `V13`으로 작성했으나, develop에
+병렬로 병합된 다른 브랜치가 독자적으로 `V13`~`V15`(linear/asana/clickup을 CHECK 허용 목록에 하나씩
+추가 — 이 마이그레이션이 없애려는 바로 그 트레드밀)를 먼저 차지해 버전 번호가 겹쳤다. 파일명이 달라
+git이 충돌로 잡지 못하는 종류라 머지 시 별도로 발견해 `V16__drop_checkpoints_provider_constraint.sql`로
+리네임했다 — 그 세 마이그레이션 뒤에 적용돼도 결과(제약 삭제)는 같아 무해하다.
 `PipelineSharedSchemaTest.checkpointProviderRejectsUnexpectedValue`(옛 CHECK 거부를 고정하던 테스트)를
 `checkpointAcceptsNewProviderValueWithoutSchemaMigration`으로 교체해 반대 방향(새 provider 값도
 저장 가능)을 고정했다 — V12 때 `integrations`만 보고 같은 테이블 계열을 함께 훑지 않아 생긴 누락이었다.
@@ -293,12 +299,13 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
-| 이슈 트래커 | Linear · Asana · monday.com · ClickUp | `Issue` 노드 재사용, ai-engine 무변경 |
+| 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ~~ClickUp~~ ✅ | `Issue` 노드 재사용, ai-engine 무변경 |
 | 대화 | **Discord**(코드 작업 완료 ✅ — 연결·수집(A9 수정 후 checkpoint 갱신 실측 확인) 전부 정상) · MS Teams(계획 완료, 라이선스 대기) · **Google Chat**(코드 작업 완료 ✅ — backend·pipeline-worker·web-dashboard, 선행 PR 2건(webhook 토큰 확보 일반화·A9) 포함. `docs/google-chat-integration.md`. §1-0 Workspace 계정 게이트 실측·실기동은 미착수) | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
 | 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.
+**→ 완료.** Linear 커넥터가 A4의 단계 선언 메커니즘 위에서 그대로 동작함을 확인했다.
 
 **대화 아키타입 1호는 Discord다** (2026-08-08 결정). 원래 MS Teams 자리였고 빈 `teams` 디렉터리도
 그래서 만들어 뒀지만, 조사 결과 Teams Graph API는 **유료 조직 테넌트 라이선스 + 테넌트 관리자 동의**를
@@ -335,7 +342,9 @@ Google Chat 몫으로 남는다. Discord가 실제로 검증하는 것은 ① �
 **1. backend — 연결 (`services/backend/CLAUDE.md` 「provider 전략」·「다단 선택」)**
 
 - [ ] `IntegrationProvider` enum에 상수 추가 (`LINEAR("linear", "Linear")`).
-      **DB 마이그레이션은 불필요** — V12에서 provider CHECK 제약을 제거했다.
+      **`integrations` 테이블은 마이그레이션 불필요** — V12에서 provider CHECK 제약을 제거했다.
+      단 `checkpoints.chk_checkpoints_provider`처럼 provider CHECK가 남아 있는 테이블은 여전히
+      마이그레이션이 필요하다 — 운영(`db/migration`)·테스트(`db/test-migration`) 양쪽을 함께 챙긴다.
 - [ ] `{provider}/AtlassianProperties`형 `@ConfigurationProperties` 레코드 + `application.yaml` 블록 추가.
 - [ ] `OAuthConnectFlow` 구현 — 동의 URL 조립, `exchangeCode`가 `OAuthConnection`(자격증명 평문 +
       수집 대상 참조)을 돌려준다. 참조의 키 이름은 provider가 정하고 pipeline-worker가 같은 키를 읽는다(2번과 합의).

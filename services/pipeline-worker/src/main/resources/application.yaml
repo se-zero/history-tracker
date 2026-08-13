@@ -53,6 +53,15 @@ app:
     people-api-base-url: https://people.googleapis.com/v1
     # sender id 단위 People API 조회 결과 캐시 TTL — 메시지마다 반복 조회하지 않도록.
     person-cache-ttl: 30m
+  linear:
+    base-url: https://api.linear.app
+    max-pages-per-run: 50
+  asana:
+    base-url: https://app.asana.com/api/1.0
+    max-pages-per-run: 50
+  clickup:
+    base-url: https://api.clickup.com/api/v2
+    max-pages-per-run: 50
 
   rabbitmq:
     exchange: history.exchange
@@ -92,3 +101,9 @@ app:
       default-delay-ms: 250  # 봇당 초당 50요청 상한에 여유를 두고 보수적으로 시작
     google-chat:
       default-delay-ms: 100  # Cloud 프로젝트당 60초 3,000요청 쿼터에 여유를 두고 보수적으로 시작
+    linear:
+      delay-ms: 720  # 5,000 req/h 한도 대응 (3,600,000ms / 5,000)
+    asana:
+      delay-ms: 400  # 무료 워크스페이스 150 req/min 한도 대응 (60,000ms / 150)
+    clickup:
+      delay-ms: 600  # 무료 워크스페이스 100 req/min 한도 대응 (60,000ms / 100)

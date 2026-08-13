@@ -142,7 +142,7 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
-    @DisplayName("checkpoints provider는 DB 열거형 제약 없이 저장 가능 (V13 — 유효성은 애플리케이션 enum이 보증)")
+    @DisplayName("checkpoints provider는 DB 열거형 제약 없이 저장 가능 (V16 — 유효성은 애플리케이션 enum이 보증)")
     void checkpointAcceptsNewProviderValueWithoutSchemaMigration() {
         UUID ownerId = insertUser("owner8@example.com");
         UUID projectId = insertProject(ownerId);
@@ -151,6 +151,22 @@ class PipelineSharedSchemaTest {
                 projectId,
                 "linear",
                 "linear_issues",
+                Instant.parse("2024-01-03T00:00:00Z")
+        );
+
+        assertThat(inserted).isOne();
+    }
+
+    @Test
+    @DisplayName("checkpoints provider 'clickup' 허용 — V16 이후에도 다른 신규 provider와 마찬가지로 저장된다")
+    void checkpointProviderAcceptsClickUpValue() {
+        UUID ownerId = insertUser("owner10@example.com");
+        UUID projectId = insertProject(ownerId);
+
+        int inserted = insertCheckpoint(
+                projectId,
+                "clickup",
+                "clickup_tasks",
                 Instant.parse("2024-01-03T00:00:00Z")
         );
 

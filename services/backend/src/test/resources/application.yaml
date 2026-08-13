@@ -99,3 +99,25 @@ google-chat:
   revoke-url: https://googlechat.test/revoke
   api-base-url: https://googlechat.test/v1
   refresh-skew: PT5M
+
+linear:
+  client-id: test-linear-client-id
+  client-secret: test-linear-client-secret
+  redirect-uri: https://linear.test/callback
+  token-url: https://api.linear.app/oauth/token
+  revoke-url: https://api.linear.app/oauth/revoke
+  refresh-skew: PT30M
+
+asana:
+  client-id: test-asana-client-id
+  client-secret: test-asana-client-secret
+  redirect-uri: https://asana.test/callback
+  token-url: https://app.asana.com/-/oauth_token
+  revoke-url: https://app.asana.com/-/oauth_revoke
+  refresh-skew: PT30M
+
+clickup:
+  client-id: test-clickup-client-id
+  client-secret: test-clickup-client-secret
+  redirect-uri: https://clickup.test/callback
+  token-url: https://api.clickup.com/api/v2/oauth/token

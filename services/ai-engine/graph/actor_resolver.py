@@ -11,6 +11,10 @@ Actor 동일인 판단 파이프라인.
 수동 distinct 결정(docs/actor-manual-merge.md)이 금지한 Actor는 Step 1 매칭과
 Step 2 후보에서 제외된다 — 수동 결정이 자동 판단을 이긴다.
 
+actor.bot=true(봇 계정 — 예: Linear AI 에이전트 위임)는 Step 1~3(이메일/이름 기반
+동일인 매칭)을 전부 스킵하고 Step 0(alias 조회)→Step 4(생성)로 직행한다. 봇은
+이메일·이름 유사도로 사람과 같은 사람일 수 없고, 매칭되면 안 된다.
+
 Neo4j 직접 호출 없이 ActorStore 인터페이스로 주입받아 테스트 가능하게 설계.
 """
 
@@ -38,10 +42,11 @@ class ActorStore:
     lookup_by_email: Callable[[str], Awaitable[Optional[dict]]]
     """email 정확 매칭으로 Actor 조회. 어느 alias든 pd_email이 일치하면 반환. 없으면 None.
     반환 dict의 emails는 그 Actor의 전체 alias에서 모은 pd_email 목록(중복 제거)이다.
+    봇 Actor는 후보에서 제외한다 — 사람 매칭이 봇 Actor에 붙는 역방향을 막는다(양방향 격리).
     """
 
     lookup_by_name: Callable[[str], Awaitable[list[dict]]]
-    """정규화된 이름으로 Actor 후보 목록 반환.
+    """정규화된 이름으로 Actor 후보 목록 반환. 봇 Actor는 후보에서 제외한다(양방향 격리).
     Args:
         normalized_name: normalize_name() 결과 (예: 'johndoe', '김철수')
     Returns:
@@ -66,12 +71,14 @@ class ActorStore:
         new_name:   이 계정에서 받은 이름 — ActorAlias.pd_name으로 저장, 표시 이름 재계산에 반영
     """
 
-    create_actor: Callable[[str, str, Optional[str]], Awaitable[dict]]
+    create_actor: Callable[..., Awaitable[dict]]
     """신규 Actor 노드를 생성하고 반환한다.
     Args:
         name:      표시 이름 (첫 alias의 pd_name)
         source_id: source-scoped alias (예: 'GITHUB:se-zero')
         email:     확인된 이메일 (없으면 None)
+        bot:       (키워드 인자, 기본 False) 봇 계정 여부 — True면 Actor.bot=true로 저장.
+                   사람 Actor 생성(Step 4)은 이 인자를 넘기지 않는다.
     """
 
     lookup_vetoes: Optional[Callable[[str], Awaitable[list[str]]]] = None
@@ -175,6 +182,14 @@ async def resolve_actor(actor: dict, source: str, store: ActorStore, event: Opti
         ):
             await store.update_alias_name(source_id, name, email)
         return existing
+
+    # ── 봇 액터: 동일인 매칭(Step 1~3)을 전부 스킵 ────────────────────────
+    # 봇 계정(예: Linear AI 에이전트 위임)은 이메일/이름 유사도로 사람과 매칭될 수
+    # 없고, 매칭되면 안 된다 — alias 기반 생성으로 곧장 직행한다.
+    if actor.get("bot"):
+        new_actor = await store.create_actor(name, source_id, email, bot=True)
+        logger.info("[Bot] 신규 Actor 생성 (매칭 스킵): name=%s, alias=%s", name, source_id)
+        return new_actor
 
     # ── 수동 분리 결정(veto) 조회 ─────────────────────────────────────────
     # distinct 결정이 금지한 Actor로는 Step 1/3의 자동 병합을 하지 않는다

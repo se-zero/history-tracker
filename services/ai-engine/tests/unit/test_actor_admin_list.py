@@ -154,5 +154,52 @@ class GetActorDetail(unittest.TestCase):
         self.assertEqual(result["aliases"], [])
 
 
+class ListActorsBotFlag(unittest.TestCase):
+    def test_query_returns_bot_flag_via_coalesce(self):
+        """봇 격리 — 관리 목록 조회가 bot 플래그를 노출한다(레거시 Actor는 coalesce로 false)."""
+        driver = _FakeDriver(_FakeDataResult, [])
+
+        with patch("graph.actor_admin.get_driver", return_value=driver):
+            asyncio.run(list_actors("p1"))
+
+        query = driver.session_obj.last_query
+        self.assertIn("coalesce(a.bot, false) AS bot", query)
+
+    def test_bot_flag_passed_through_in_result(self):
+        rows = [
+            {
+                "uuid": "a1", "name": "Cursor Agent (봇)", "bot": True,
+                "activity_count": 3, "source_names": [],
+            }
+        ]
+        driver = _FakeDriver(_FakeDataResult, rows)
+
+        with patch("graph.actor_admin.get_driver", return_value=driver):
+            result = asyncio.run(list_actors("p1"))
+
+        self.assertTrue(result[0]["bot"])
+
+
+class GetActorDetailBotFlag(unittest.TestCase):
+    def test_bot_flag_included_when_present(self):
+        record = {"uuid": "a1", "name": "Cursor Agent (봇)", "bot": True, "aliases": []}
+        driver = _FakeDriver(_FakeSingleResult, record)
+
+        with patch("graph.actor_admin.get_driver", return_value=driver):
+            result = asyncio.run(get_actor_detail("p1", "a1"))
+
+        self.assertTrue(result["bot"])
+
+    def test_bot_flag_defaults_false_when_absent_from_legacy_result(self):
+        """레거시 fake/구버전 응답처럼 bot 키가 아예 없어도 안전하게 false로 취급한다."""
+        record = {"uuid": "a1", "name": "Younghee Kim", "aliases": []}
+        driver = _FakeDriver(_FakeSingleResult, record)
+
+        with patch("graph.actor_admin.get_driver", return_value=driver):
+            result = asyncio.run(get_actor_detail("p1", "a1"))
+
+        self.assertFalse(result["bot"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -131,7 +131,7 @@ public class GitHubWebhookService {
         return updated;
     }
 
-    // 만료 토큰형 provider(Jira·Google Chat 등)만 갱신 대상이다. 갱신 수단이 없는 provider
+    // 만료 토큰형 provider(Jira·Google Chat·Linear 등)만 갱신 대상이다. 갱신 수단이 없는 provider
     // (Slack·Discord)는 NOT_SUPPORTED를 받아 저장된 자격증명 그대로 진행한다 — '수집 제외'로
     // 해석하면 비만료형 provider가 매 웹훅마다 끊긴다. 갱신 실패(FAILED)는 죽은 토큰으로 401을 내는
     // 것보다 이번 수집에서 해당 provider만 제외하는 편이 낫다.

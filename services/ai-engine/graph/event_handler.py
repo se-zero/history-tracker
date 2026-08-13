@@ -19,25 +19,6 @@ def _is_bot_actor(actor_id: str) -> bool:
     return bool(actor_id) and actor_id.endswith("[bot]")
 
 
-# 키 중립화(jira_key → issue_key) 이전 pipeline-worker가 발행한 이벤트의 키 이름.
-# 브로커에 남아 있던 이벤트·retry 큐·DLQ replay가 옛 키로 도착할 수 있어 진입점에서
-# 새 이름으로 정규화한다 — 핸들러들은 새 키만 안다. 옛 키가 더는 관측되지 않으면 지워도 된다.
-_LEGACY_REF_KEYS = {"jiraKey": "issueKey", "jiraKeys": "issueKeys", "parentJiraKey": "parentIssueKey"}
-_LEGACY_PROP_KEYS = {"jira_key": "issue_key"}
-
-
-def _normalize_legacy_keys(event: dict) -> None:
-    """옛 키를 새 키로 옮긴다(새 키가 이미 있으면 새 키 우선). event를 제자리 수정한다."""
-    for mapping, field in ((_LEGACY_REF_KEYS, "refs"), (_LEGACY_PROP_KEYS, "properties")):
-        section = event.get(field)
-        if not isinstance(section, dict):
-            continue
-        for old_key, new_key in mapping.items():
-            if old_key in section:
-                section.setdefault(new_key, section[old_key])
-                del section[old_key]
-
-
 async def handle(event: dict) -> None:
     """NormalizedEvent를 nodeType에 따라 분기 처리한다."""
     node_type = event.get("nodeType", "unknown")
@@ -53,9 +34,6 @@ async def handle(event: dict) -> None:
         return
 
     logger.info("[%s/%s] actor=%s 수신", source, node_type, actor_id)
-
-    # 옛 키(jira_key·jiraKey 계열)로 도착한 이벤트를 새 이름으로 정규화
-    _normalize_legacy_keys(event)
 
     # GitHub 봇 커밋/PR은 그래프에서 제외 (의사결정 맥락 노이즈)
     if source == "GITHUB" and node_type in ("ChangeSet", "PullRequest") and _is_bot_actor(actor_id):
@@ -105,6 +83,12 @@ async def _handle_changeset(event: dict) -> None:
     # Layer 2: refs 기반 엣지
     if refs.get("issueKey"):
         await builder.link_changeset_to_issue(project_id, hash_, refs["issueKey"])
+    # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를 쓴다.
+    for external_ref in refs.get("issueExternalRefs") or []:
+        ref_source = external_ref.get("source")
+        ref_external_id = external_ref.get("externalId")
+        if ref_source and ref_external_id:
+            await builder.link_changeset_to_issue_external(project_id, hash_, ref_source, ref_external_id)
     if refs.get("prNumber"):
         pr_num = int(refs["prNumber"])
         await builder.link_pr_to_changeset(project_id, pr_num, hash_)
@@ -112,6 +96,7 @@ async def _handle_changeset(event: dict) -> None:
         # 커밋마다 PR 전체에 재전파하면 O(N²)라, 전체 전파는 PR 도착 시(_handle_pull_request)에만 한다.
         # PR이 아직 안 도착했으면(CONTAINS 없음) noop — PR 도착 시 전체 전파가 처리한다.
         await builder.link_changeset_to_pr_issues(project_id, pr_num, hash_)
+        await builder.link_changeset_to_pr_issue_externals(project_id, pr_num, hash_)
 
     # Layer 3: 파일별 diff 요약 → 배치 임베딩 → UNWIND 배치 upsert (#2/#6)
     #   1) 요약: 입력만의 함수라 파일별 동시(gather) — LLM N콜은 불가피(파일별 요약 필수)
@@ -168,6 +153,18 @@ async def _handle_pull_request(event: dict) -> None:
     if issue_keys is None and refs.get("issueKey"):
         issue_keys = [refs["issueKey"]]
 
+    # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를
+    # "SOURCE:externalId" 문자열로 인코딩해 저장한다(graph.writes._parse_issue_external_refs가
+    # 역파싱). 키 자체가 없으면(refs에 issueExternalRefs가 없으면) None을 넘겨 기존 값을 보존한다.
+    raw_issue_external_refs = refs.get("issueExternalRefs")
+    issue_external_ids = None
+    if raw_issue_external_refs is not None:
+        issue_external_ids = [
+            f"{ref['source']}:{ref['externalId']}"
+            for ref in raw_issue_external_refs
+            if ref.get("source") and ref.get("externalId")
+        ]
+
     await builder.upsert_pull_request(
         project_id=project_id,
         pr_number=pr_number,
@@ -181,6 +178,7 @@ async def _handle_pull_request(event: dict) -> None:
         source=source,
         actor_uuid=resolved["uuid"],
         issue_keys=issue_keys,
+        issue_external_ids=issue_external_ids,
     )
 
     # Layer 2 전파: PR에 등록된 issue_keys를 그 PR이 머지한 모든 CONTAINS 커밋에 text TRIGGERED_BY로 적용.
@@ -189,6 +187,10 @@ async def _handle_pull_request(event: dict) -> None:
         propagated = await builder.link_pr_changesets_to_issues(project_id, int(pr_number))
         if propagated:
             logger.info("PR #%s text TRIGGERED_BY 전파: %d개 갱신", pr_number, propagated)
+    if pr_number is not None and issue_external_ids:
+        propagated_external = await builder.link_pr_changesets_to_issue_externals(project_id, int(pr_number))
+        if propagated_external:
+            logger.info("PR #%s issueExternalRefs TRIGGERED_BY 전파: %d개 갱신", pr_number, propagated_external)
 
 
 async def _handle_issue(event: dict) -> None:
@@ -201,50 +203,68 @@ async def _handle_issue(event: dict) -> None:
     title       = props.get("title", "")
     body        = props.get("body", "")
 
-    logger.debug("Issue 수신: issue_key=%s", props.get("issue_key"))
+    # external_id(Jira issue id)는 불변 MERGE 키라 필수 — 없으면 이 이벤트로는 어떤 노드도
+    # 특정할 수 없다. projectId 부재와 동일한 폐기 정책(구 형식 브로커 잔여 이벤트 자연 폐기).
+    external_id = props.get("external_id")
+    if not external_id:
+        logger.warning("Issue external_id 없음 — 건너뜀 (source=%s)", source)
+        return
+    issue_key = props.get("issue_key")
+
+    logger.debug("Issue 수신: external_id=%s issue_key=%s", external_id, issue_key)
 
     resolved  = await resolve_actor(actor, source, make_neo4j_actor_store(project_id), event)
     embedding = await embed_text(f"{title}\n\n{body}")
 
     await builder.upsert_issue(
         project_id=project_id,
-        issue_key=props.get("issue_key", ""),
+        source=source,
+        external_id=external_id,
+        issue_key=issue_key,
         title=title,
         body=body,
-        status=props.get("status", ""),
+        status=props.get("status"),
+        status_category=props.get("status_category", ""),
         issue_type=props.get("issue_type", ""),
         priority=props.get("priority", ""),
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
-        # pipeline-worker는 status가 terminal일 때만 closed_at을 보낸다.
-        # None + non-terminal status → builder가 i.closedAt을 null로 클리어 (재오픈 케이스).
-        # None + terminal status     → 기존 i.closedAt 보존 (구버전 호환).
+        # pipeline-worker는 status_category가 closed일 때만 closed_at을 보낸다.
+        # None + non-closed category → builder가 i.closedAt을 null로 클리어 (재오픈 케이스).
+        # None + closed category     → 기존 i.closedAt 보존 (구버전 호환).
         closed_at=props.get("closed_at"),
-        source=source,
         actor_uuid=resolved["uuid"],
         embedding=embedding,
     )
 
-    # Layer 2: Jira parent → CHILD_OF
-    if refs.get("parentIssueKey"):
-        await builder.link_issue_to_parent(project_id, props["issue_key"], refs["parentIssueKey"])
+    # 텍스트 링크가 먼저 도착해 만든 __stub__ Issue가 있으면 이 실노드로 흡수한다.
+    # stub은 issue_key(사람용 키)로만 찾을 수 있으므로 issue_key가 없으면 흡수할 stub도 없다.
+    if issue_key:
+        await builder.absorb_issue_stub(project_id, source, external_id, issue_key)
 
-    # Layer 2: Jira assignee → ASSIGNED_TO
+    # Layer 2: Jira parent → CHILD_OF
+    parent_external_id = refs.get("parentExternalId")
+    if parent_external_id:
+        await builder.link_issue_to_parent(
+            project_id, source, external_id, parent_external_id, refs.get("parentIssueKey"),
+        )
+
+    # Layer 2: Jira assignees → ASSIGNED_TO
     # 담당자도 작성자와 동일하게 resolve_actor를 거쳐 Actor로 승격한다 (이름 문자열을
-    # Issue 속성에 저장하지 않기 위함). 이미 아는 담당자면 Step 0 alias 조회로 끝나 LLM 비용이 없다.
-    if refs.get("assigneeId"):
-        assignee_actor = {
-            "id": refs["assigneeId"],
-            "name": refs.get("assigneeName"),
-            "email": refs.get("assigneeEmail"),
-        }
-        assigned = await resolve_actor(assignee_actor, source, make_neo4j_actor_store(project_id), event)
-        await builder.link_issue_to_assignee(project_id, props["issue_key"], assigned["uuid"])
-    else:
-        # 이슈 이벤트는 최신 스냅샷이므로 assigneeId가 없다는 건 담당자가 해제됐다는 뜻이다.
-        # 이 분기는 handle()에서 nodeType == "Issue"일 때만 타는 _handle_issue 안에 있으므로,
-        # 이슈를 참조만 하는 다른 이벤트(코멘트 등)가 잘못 해제를 트리거할 일은 없다.
-        await builder.unlink_issue_assignees(project_id, props["issue_key"])
+    # Issue 속성에 저장하지 않기 위함). 순차 처리는 작성자 resolve와 같은 이유(Actor MERGE
+    # 경합 회피) — consumer가 project 단위로 직렬 처리되므로 순차라도 병목이 되지 않는다.
+    # 이슈 이벤트는 최신 스냅샷이므로 refs.assignees가 없거나 비어 있으면 담당자 전원 해제다.
+    assignee_uuids = []
+    for assignee in refs.get("assignees") or []:
+        assigned = await resolve_actor(
+            # bot을 함께 넘긴다 — Linear 봇의 주 유입로가 담당자(AI 에이전트 할당)라,
+            # 여기서 떨어뜨리면 봇 담당자가 사람 동일인 매칭을 타 격리가 뚫린다.
+            {"id": assignee.get("id"), "name": assignee.get("name"), "email": assignee.get("email"),
+             "bot": assignee.get("bot")},
+            source, make_neo4j_actor_store(project_id), event,
+        )
+        assignee_uuids.append(assigned["uuid"])
+    await builder.set_issue_assignees(project_id, source, external_id, assignee_uuids)
 
 
 async def _handle_communication(event: dict) -> None:
@@ -287,3 +307,9 @@ async def _handle_communication(event: dict) -> None:
     # Layer 2: refs.issueKey → DISCUSSED_IN
     if refs.get("issueKey"):
         await builder.link_issue_to_communication(project_id, refs["issueKey"], url)
+    # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를 쓴다.
+    for external_ref in refs.get("issueExternalRefs") or []:
+        ref_source = external_ref.get("source")
+        ref_external_id = external_ref.get("externalId")
+        if ref_source and ref_external_id:
+            await builder.link_issue_external_to_communication(project_id, ref_source, ref_external_id, url)

@@ -555,6 +555,7 @@ async def list_actors(project_id: str) -> list[dict]:
     소스별 이름(source_names)만 판단 재료로 내려준다 — 이메일·계정ID(source_id)는
     "같은 사람인가" 판단에 쓸모없는 개인정보라 목록에 깔지 않는다. 필요하면
     get_actor_detail(병합·분리 폼)로 별도 조회한다.
+    bot(봇 액터 격리 이전에 만들어진 Actor는 coalesce로 false)도 함께 반환한다.
     """
     async with get_driver().session() as session:
         result = await session.run(
@@ -574,7 +575,8 @@ async def list_actors(project_id: str) -> list[dict]:
                  [x IN collect(CASE WHEN al IS NULL THEN null ELSE
                      {source: al.source, name: al.pd_name, erased: al.pd_erased}
                  END) WHERE x IS NOT NULL] AS source_names
-            RETURN a.uuid AS uuid, a.name AS name, activity_count, source_names
+            RETURN a.uuid AS uuid, a.name AS name, coalesce(a.bot, false) AS bot,
+                   activity_count, source_names
             ORDER BY activity_count DESC, name
             """,
             project_id=project_id,
@@ -596,7 +598,7 @@ async def get_actor_detail(project_id: str, actor_uuid: str) -> dict:
             OPTIONAL MATCH (al:ActorAlias)-[:ALIAS_OF]->(a)
             WITH a, al
             ORDER BY al.source_id
-            RETURN a.uuid AS uuid, a.name AS name,
+            RETURN a.uuid AS uuid, a.name AS name, coalesce(a.bot, false) AS bot,
                    collect(CASE WHEN al IS NULL THEN null ELSE
                        {source_id: al.source_id, source: al.source, name: al.pd_name,
                         email: al.pd_email, erased: al.pd_erased}
@@ -611,6 +613,9 @@ async def get_actor_detail(project_id: str, actor_uuid: str) -> dict:
     return {
         "uuid": record["uuid"],
         "name": record["name"],
+        # .get()으로 읽는다 — 실제 Cypher는 항상 coalesce로 채우지만, 옛 테스트 fake처럼
+        # bot 키가 아예 없는 응답도 안전하게 false로 취급하기 위함이다.
+        "bot": bool(record.get("bot", False)),
         "aliases": [a for a in (record["aliases"] or []) if a is not None],
     }
 

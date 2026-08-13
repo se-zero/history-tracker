@@ -194,6 +194,9 @@ class GitHubWebhookServiceTest {
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
         verify(pipelineService).collectIncremental(context);
         verifyNoInteractions(installationTokenClient);
+        // GitHub는 별도 installation token 플로우로 이미 처리되므로, 일반화된 토큰 확보 루프
+        // 대상에서 제외되어야 한다 (재조회 endpoint가 없는 provider라 404를 유발할 뿐이다).
+        verify(integrationTokenClient, never()).ensure(any(), eq(CollectionProvider.GITHUB));
         verify(webhookDeliveryService).markProcessed("delivery-1");
     }
 
@@ -224,25 +227,29 @@ class GitHubWebhookServiceTest {
     }
 
     @Test
-    void handle_jiraTokenEnsureFails_skipsJiraButContinuesGitHubCollection() {
+    void handle_readyWithLinearIntegration_ensuresLinearTokenAndReResolvesLinearContext() {
         HttpHeaders headers = headers();
         String payload = payload(true, "closed");
-        ProjectCollectionContext contextWithJira = collectionContextWithJira(jiraRequest("Bearer stale-jira-token"));
-        ProjectCollectionContext contextWithoutJira = contextWithJira.without(CollectionProvider.JIRA);
+        ProjectCollectionContext contextWithStaleLinear = collectionContextWithLinear(linearRequest("Bearer stale-linear-token"));
+        Optional<RawFetchRequest> refreshedLinear = Optional.of(linearRequest("Bearer fresh-linear-token"));
+        ProjectCollectionContext expectedContext =
+                contextWithStaleLinear.with(CollectionProvider.LINEAR, refreshedLinear.orElseThrow());
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithJira));
-        when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.JIRA))
-                .thenReturn(IntegrationTokenClient.TokenStatus.FAILED);
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithStaleLinear));
+        when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.LINEAR))
+                .thenReturn(IntegrationTokenClient.TokenStatus.REFRESHED);
+        when(projectIntegrationService.resolveFetchRequest(UUID.fromString(projectId()), CollectionProvider.LINEAR))
+                .thenReturn(refreshedLinear);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
-        when(pipelineService.collectIncremental(contextWithoutJira)).thenReturn(collectionResult(1, 0, 3));
+        when(pipelineService.collectIncremental(expectedContext)).thenReturn(collectionResult(1, 2, 3));
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(pipelineService).collectIncremental(contextWithoutJira);
-        verify(projectIntegrationService, never()).resolveFetchRequest(any(), any());
+        verify(integrationTokenClient).ensure(UUID.fromString(projectId()), CollectionProvider.LINEAR);
+        verify(pipelineService).collectIncremental(expectedContext);
     }
 
     // IntegrationTokenClient는 예외를 던지지 않고 실패를 FAILED로 흡수한다(계약·검증은
@@ -370,8 +377,16 @@ class GitHubWebhookServiceTest {
         return collectionContext().with(CollectionProvider.JIRA, jira);
     }
 
+    private ProjectCollectionContext collectionContextWithLinear(RawFetchRequest linear) {
+        return collectionContext().with(CollectionProvider.LINEAR, linear);
+    }
+
     private RawFetchRequest jiraRequest(String credentials) {
         return new RawFetchRequest(credentials, "PROJ", Map.of("baseUrl", "https://jira.example.com"));
+    }
+
+    private RawFetchRequest linearRequest(String credentials) {
+        return new RawFetchRequest(credentials, "TEAM-1", Map.of());
     }
 
     private CollectionResult collectionResult(int github, int jira, int slack) {

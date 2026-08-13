@@ -51,13 +51,33 @@ async def drop_node_search_index() -> None:
         logger.warning("node_search 인덱스 제거 실패 — 색인 갱신 비용만 남는다", exc_info=True)
 
 
+async def drop_legacy_issue_constraint() -> None:
+    """구 Issue 유니크 제약 issue_project_issue_key((project_id, issue_key))를 제거한다.
+
+    Issue MERGE 키가 (project_id, issue_key)에서 (project_id, source, external_id)로
+    바뀌면서, 구 제약이 남아 있으면 같은 issue_key를 쓰는 stub(source='__stub__')과
+    실노드가 동시에 존재할 때 제약 위반이 난다 — 새 제약을 만들기 전에 반드시 먼저
+    제거해야 한다(main.py lifespan에서 ensure_constraints() 앞에 호출).
+
+    ensure_constraints가 제약 생성 실패 시 만드는 폴백 range 인덱스도 함께 제거한다.
+    둘 다 IF EXISTS라 매 기동 반복해도 안전하고, 이미 정리된 배포에서는 no-op다.
+    """
+    try:
+        async with get_driver().session() as session:
+            await session.run("DROP CONSTRAINT issue_project_issue_key IF EXISTS")
+            await session.run("DROP INDEX issue_project_issue_key_idx IF EXISTS")
+        logger.info("구 Issue 유니크 제약(issue_project_issue_key) 제거 확인 완료")
+    except Exception:
+        logger.warning("구 Issue 유니크 제약 제거 실패 — 새 제약 생성이 충돌할 수 있다", exc_info=True)
+
+
 # 프로젝트 격리의 핵심 — 모든 도메인 노드는 (project_id, 자연키) 복합 유니크.
 # pr_number/path/issue_key 같은 자연키는 프로젝트(레포/워크스페이스)마다 충돌하므로
 # project_id 없이 MERGE하면 서로 다른 프로젝트의 데이터가 같은 노드로 병합된다.
 _UNIQUE_CONSTRAINTS: list[tuple[str, str, list[str]]] = [
     ("changeset_project_hash",      "ChangeSet",     ["project_id", "hash"]),
     ("pull_request_project_number", "PullRequest",   ["project_id", "pr_number"]),
-    ("issue_project_issue_key",      "Issue",         ["project_id", "issue_key"]),
+    ("issue_project_source_external", "Issue",        ["project_id", "source", "external_id"]),
     ("communication_project_url",   "Communication", ["project_id", "url"]),
     ("file_project_path",           "File",          ["project_id", "path"]),
     ("actor_uuid",                  "Actor",         ["uuid"]),
@@ -76,6 +96,9 @@ _RANGE_INDEXES: list[tuple[str, str, list[str]]] = [
     ("actor_alias_pd_normalized_name", "ActorAlias", ["project_id", "pd_normalized_name"]),
     ("actor_alias_pd_email",           "ActorAlias", ["project_id", "pd_email"]),
     ("actor_alias_source_reported",    "ActorAlias", ["source", "pd_reported_at"]),
+    # Issue의 사람용 키(issue_key)는 더 이상 유니크 키가 아니지만, 텍스트 링크의 실노드
+    # MATCH·검색에서 여전히 issue_key로 조회한다 — 배열 스캔이 아닌 인덱스 조회용.
+    ("issue_display_key",              "Issue",       ["project_id", "issue_key"]),
 ]
 
 

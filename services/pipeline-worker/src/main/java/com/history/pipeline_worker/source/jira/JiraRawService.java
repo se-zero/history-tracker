@@ -163,7 +163,7 @@ public class JiraRawService {
         body.put("jql", buildJql(projectKey, lastScannedAt));
         body.put("maxResults", PAGE_SIZE);
         body.put("fields", List.of("summary", "status", "assignee", "reporter", "issuetype",
-                "priority", "created", "updated", "description", "labels", "parent"));
+                "priority", "created", "updated", "description", "labels", "parent", "resolutiondate"));
         if (nextPageToken != null && !nextPageToken.isBlank()) {
             body.put("nextPageToken", nextPageToken);
         }

@@ -10,8 +10,9 @@ import com.history.backend.integration.domain.IntegrationProvider;
  * 선택 단계가 있으면 {@link IntegrationSelectionFlow}).
  *
  * <p>폐기 대상이 없는 provider(예: GitHub App 설치는 계정 단위라 유지한다)는 빈을 만들지 않는다 —
- * {@code revoke}가 기본 no-op이라 선언만으로 흡수된다. 구현체는 provider 클라이언트에만 의존하는
- * leaf여야 한다.</p>
+ * 레지스트리 조회가 비어 호출 자체가 일어나지 않는다. 기본 no-op을 두지 않는 이유는
+ * {@link AccessTokenRefresher}와 같다: 기본값이 "할 일 없음"이면 지원하지 않는 것과 구현을
+ * 깜빡한 것을 구분할 수 없다. 구현체는 provider 클라이언트에만 의존하는 leaf여야 한다.</p>
  */
 public interface ProviderCredentialLifecycle {
 
@@ -28,6 +29,5 @@ public interface ProviderCredentialLifecycle {
      * <p>실패는 구현이 삼킨다 — 이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를
      * 지울 방법을 잃는다.</p>
      */
-    default void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
-    }
+    void revoke(byte[] encryptedCredential, Map<String, Object> externalRef);
 }

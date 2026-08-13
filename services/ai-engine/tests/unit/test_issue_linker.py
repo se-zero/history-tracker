@@ -41,10 +41,10 @@ _UNSET = object()   # None("필드 없음")과 "기본값 쓰기"를 구분하�
 
 
 def _issue(issue_key, embedding=None, project_id="p1", occurred_at=NOW,
-           created_at=_UNSET, closed_at=_UNSET, status="완료"):
+           created_at=_UNSET, closed_at=_UNSET, status_category="closed"):
     """기본값은 NOW에 생성돼 NOW에 종료된 이슈 — 윈도우가 wall-clock에 의존하지 않게 한다.
 
-    (status가 terminal이 아니고 closed_at도 없으면 '진행 중'으로 간주돼 윈도우 상한이
+    (status_category가 closed가 아니고 closed_at도 없으면 '진행 중'으로 간주돼 윈도우 상한이
     now()가 되고, 그러면 테스트 결과가 실행 시각에 따라 달라진다.)
     created_at/closed_at에 None을 명시하면 그 필드가 실제로 비어 있는 이슈가 된다.
     """
@@ -55,7 +55,7 @@ def _issue(issue_key, embedding=None, project_id="p1", occurred_at=NOW,
         "occurred_at": occurred_at,
         "created_at": occurred_at if created_at is _UNSET else created_at,
         "closed_at": occurred_at if closed_at is _UNSET else closed_at,
-        "status": status,
+        "status_category": status_category,
     }
 
 
@@ -300,7 +300,7 @@ class DiscussedInIssueLifetimeWindowTest(unittest.TestCase):
         created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
         fake = _FakeStore(
             issues=[_issue("HT-1", occurred_at=created_at, created_at=created_at,
-                           closed_at=None, status="진행 중")],
+                           closed_at=None, status_category="open")],
             comms=[_comm("m1", _vec(0.90), conversation_id="t1",
                          occurred_at=created_at + timedelta(days=90))],
         )
@@ -308,6 +308,25 @@ class DiscussedInIssueLifetimeWindowTest(unittest.TestCase):
         created = self._run(fake, pre_days=3, post_days=3)
 
         self.assertEqual(created, 1)
+
+    def test_closed_status_without_closed_at_falls_back_to_occurred_plus_post_buffer(self):
+        # pipeline-worker가 closedAt을 아직 안 보내는 마이그레이션 단계 안전망 —
+        # status_category만 closed면 occurred_at + post_days를 상한으로 쓴다.
+        occurred_at = NOW
+        fake = _FakeStore(
+            issues=[_issue("HT-1", occurred_at=occurred_at, created_at=occurred_at,
+                           closed_at=None, status_category="closed")],
+            comms=[
+                _comm("in", _vec(0.90), conversation_id="t1",
+                      occurred_at=occurred_at + timedelta(days=2)),   # post=3 안
+                _comm("out", _vec(0.90), conversation_id="t2",
+                      occurred_at=occurred_at + timedelta(days=4)),   # post=3 밖
+            ],
+        )
+
+        self._run(fake, pre_days=3, post_days=3)
+
+        self.assertEqual(fake.linked_comms(), {"in"})
 
     def test_created_at_missing_falls_back_to_occurred_at(self):
         # pipeline-worker가 createdAt을 안 보낸 이슈 — occurred_at을 생성 시각으로 본다

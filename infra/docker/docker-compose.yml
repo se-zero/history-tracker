@@ -144,6 +144,25 @@ services:
       GOOGLE_CHAT_CLIENT_SECRET: ${GOOGLE_CHAT_CLIENT_SECRET:-}
       GOOGLE_CHAT_REDIRECT_URI: ${GOOGLE_CHAT_REDIRECT_URI:-}
       GOOGLE_CHAT_REFRESH_SKEW: ${GOOGLE_CHAT_REFRESH_SKEW:-PT5M}
+
+      # Linear App — infra/docker/.env 에서 forward
+      LINEAR_CLIENT_ID: ${LINEAR_CLIENT_ID:-}
+      LINEAR_CLIENT_SECRET: ${LINEAR_CLIENT_SECRET:-}
+      LINEAR_REDIRECT_URI: ${LINEAR_REDIRECT_URI:-}
+      # 빈 문자열이 넘어가면 Duration 파싱이 깨지므로 Spring 기본값(PT30M)과 같은 compose 기본값을 둔다.
+      LINEAR_REFRESH_SKEW: ${LINEAR_REFRESH_SKEW:-PT30M}
+
+      # Asana App — infra/docker/.env 에서 forward
+      ASANA_CLIENT_ID: ${ASANA_CLIENT_ID:-}
+      ASANA_CLIENT_SECRET: ${ASANA_CLIENT_SECRET:-}
+      ASANA_REDIRECT_URI: ${ASANA_REDIRECT_URI:-}
+      # 빈 문자열이 넘어가면 Duration 파싱이 깨지므로 Spring 기본값(PT10M)과 같은 compose 기본값을 둔다.
+      ASANA_REFRESH_SKEW: ${ASANA_REFRESH_SKEW:-PT10M}
+
+      # ClickUp App — infra/docker/.env 에서 forward
+      CLICKUP_CLIENT_ID: ${CLICKUP_CLIENT_ID:-}
+      CLICKUP_CLIENT_SECRET: ${CLICKUP_CLIENT_SECRET:-}
+      CLICKUP_REDIRECT_URI: ${CLICKUP_REDIRECT_URI:-}
     depends_on:
       postgres:
         condition: service_healthy

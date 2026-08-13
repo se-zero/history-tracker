@@ -51,6 +51,21 @@ class IntegrationTokenClientTest {
         fixture.server.verify();
     }
 
+    // 만료 토큰형 provider가 Jira·Google Chat 둘 뿐이던 시절 이후 늘어난 provider(Linear)로도
+    // 경로 유도가 흔들리지 않는지 고정한다.
+    @Test
+    void routesLinearIntoPath() {
+        Fixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(
+                        "https://backend.test/api/v1/internal/integrations/" + PROJECT_ID + "/linear/token"
+                ))
+                .andRespond(withNoContent());
+
+        assertThat(fixture.client.ensure(PROJECT_ID, CollectionProvider.LINEAR))
+                .isEqualTo(IntegrationTokenClient.TokenStatus.REFRESHED);
+        fixture.server.verify();
+    }
+
     // 501 = "이 provider에는 갱신 수단이 없다"(능력) — 저장된 자격증명 그대로 진행해야 한다.
     @Test
     void returnsNotSupportedWhenBackendHasNoRefresherForProvider() {

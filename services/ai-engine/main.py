@@ -16,6 +16,7 @@ logging.basicConfig(
 from graph.builder import (
     backfill_actor_aliases,
     close_driver,
+    drop_legacy_issue_constraint,
     drop_node_search_index,
     ensure_constraints,
     ensure_vector_indexes,
@@ -52,6 +53,9 @@ async def lifespan(app: FastAPI):
         for attempt in range(1, max_retries + 1):
             try:
                 get_driver()  # 연결 검증 겸 초기화
+                # Issue MERGE 키가 (project_id, issue_key)에서 (project_id, source, external_id)로
+                # 바뀌어 구 제약이 남아 있으면 새 제약 생성이 충돌한다 — 반드시 먼저 제거한다.
+                await drop_legacy_issue_constraint()
                 await ensure_constraints()
                 await ensure_vector_indexes()
                 # 옛 통합 검색이 쓰던 full-text 인덱스 제거 (읽는 코드가 없어 색인 비용만 남는다).
