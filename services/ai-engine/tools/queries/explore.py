@@ -496,13 +496,13 @@ SCHEMA_CARD = """\
 - (Issue)-[:DISCUSSED_IN]->(Communication)  confidence(시맨틱 엣지만)
 - (ChangeSet)-[:TRIGGERED_BY]->(Issue)      source('text'|'semantic'), confidence
 - (ChangeSet)-[:MODIFIED]->(File)           diffSummary
-- (ChangeSet)-[:REFERENCE]->(Communication) confidence
+- (ChangeSet)-[:REFERENCE]->(Communication) source('text'|'semantic'), confidence
 - (PullRequest)-[:CONTAINS]->(ChangeSet)
 
 주의
 - 모든 시각은 Neo4j datetime이다. 문자열 비교가 필요하면 toString()을 쓴다.
-- confidence가 있는 엣지(TRIGGERED_BY·DISCUSSED_IN·REFERENCE)는 유사도 기반 추정이다.
-  전용 도구는 0.5 미만을 걸러내므로, 직접 조회할 때도 WHERE r.confidence >= 0.5를 권장한다.
+- source='semantic'인 엣지의 confidence는 유사도 기반 추정이다. source='text'는 명시 참조이며
+  confidence=1.0이다. 직접 조회에서 추론만 고르려면 WHERE r.source = 'semantic' AND r.confidence >= 0.5를 쓴다.
 """
 
 

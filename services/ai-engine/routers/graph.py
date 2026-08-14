@@ -130,11 +130,11 @@ async def trigger_graph_build(project_id: str, verify: bool = False):
     인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
 
     verify=false (기본): 임베딩 유사도만 (빠름, LLM 비용 없음).
-    verify=true:         시맨틱 엣지(TRIGGERED_BY·DISCUSSED_IN·REFERENCE)를 clear한 뒤
+    verify=true:         시맨틱 엣지(TRIGGERED_BY·DISCUSSED_IN·REFERENCE)만 clear한 뒤
                          LLM이 개입하는 빌더로 재구축한다. 엣지 타입별로 채택 방식이 다르다 —
                          TRIGGERED_BY는 추천형(후보를 넓게 잡고 LLM이 최종 선택),
                          DISCUSSED_IN·REFERENCE는 필터형(임베딩이 확정한 쌍만 LLM이 검수).
-                         false positive 감소, 호출당 LLM 비용. '정밀 재구축' 버튼용.
+                         text 참조는 보존된다. false positive 감소, 호출당 LLM 비용. '정밀 재구축' 버튼용.
     """
     return trigger_build(project_id, verify)
 

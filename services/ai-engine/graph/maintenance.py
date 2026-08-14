@@ -408,10 +408,11 @@ async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
 
 
 async def clear_reference(project_id: str | None = None) -> int:
-    """REFERENCE 엣지를 일괄 삭제한다.
+    """시맨틱 REFERENCE 엣지만 일괄 삭제한다.
 
-    REFERENCE는 텍스트 참조 경로가 없어 전부 시맨틱(임베딩 유사도) 산물이므로 조건 없이 지운다.
-    임계값·top-k 정책을 바꾼 뒤 깨끗한 그래프에서 build_reference_edges를 다시 돌리기 위한 지우개.
+    명시 URL 참조(source='text')는 참조 소스 이벤트를 재수집해야만 복구할 수 있으므로 보존한다.
+    source 도입 전의 REFERENCE는 전부 시맨틱 산물이었으므로 source가 없으면 semantic으로 간주한다.
+    임계값·top-k 정책을 바꾼 뒤 깨끗한 그래프에서 build_reference_edges를 다시 돌리기 위한 지우개다.
     project_id를 주면 그 프로젝트 엣지만 삭제한다(per-project 재구축).
 
     Returns:
@@ -420,14 +421,15 @@ async def clear_reference(project_id: str | None = None) -> int:
     # REFERENCE는 항상 ChangeSet→Communication이라 c:ChangeSet 바인딩으로 project_id 스코프를 건다.
     query = """
         MATCH (c:ChangeSet)-[r:REFERENCE]->()
+        WHERE coalesce(r.source, 'semantic') = 'semantic'
         __PROJECT_FILTER__
         DELETE r
-    """.replace("__PROJECT_FILTER__", "WHERE c.project_id = $project_id" if project_id else "")
+    """.replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
         result = await session.run(query, project_id=project_id)
         summary = await result.consume()
         deleted = summary.counters.relationships_deleted
-    logger.info("REFERENCE 엣지 삭제 완료: %d개", deleted)
+    logger.info("시맨틱 REFERENCE 엣지 삭제 완료: %d개", deleted)
     return deleted
 
 

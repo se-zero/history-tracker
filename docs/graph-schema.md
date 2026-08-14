@@ -295,7 +295,7 @@ GitHub 저장소 내 파일.
 | `TRIGGERED_BY` | `(ChangeSet)→(Issue)` | `source: String (text\|semantic)`, `confidence: Float` | 이슈에 대한 커밋. text=1.0 고정, semantic=코사인 유사도. text가 semantic보다 우선 |
 | `CONTAINS` | `(PullRequest)→(ChangeSet)` | — | PR에 포함된 커밋 |
 | `MODIFIED` | `(ChangeSet)→(File)` | `diffSummary: String`, `embedding: Float[]` | 커밋이 파일을 변경. LLM이 생성한 diff 요약문과 그 임베딩 저장 |
-| `REFERENCE` | `(ChangeSet)→(Communication)` | `confidence: Float (0-1)` | 벡터 유사도 기반 의미적 연결. `diffSummary`와 `body` 임베딩 코사인 유사도가 임계값 이상일 때 생성 |
+| `REFERENCE` | `(ChangeSet)→(Communication)` | `source: String (text\|semantic)`, `confidence: Float` | 커밋의 명시 URL 참조 또는 벡터 유사도 기반 연결. text=1.0 고정, semantic=유사도/LLM 점수. text가 우선 |
 | `DESCRIBED_IN` | `(Issue)→(Document)` | — | _(미래)_ Actor가 문서에 기술됨 |
 
 ---
@@ -356,7 +356,7 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.issueKey`, 또는 PR `issue_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
 | Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary; 임베딩은 MODIFIED 엣지 속성으로 저장 |
-| Layer 4 | `REFERENCE` | 배치 처리 | `MODIFIED.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.44 (기본값), 시간 범위 ±5일 |
+| Layer 4 | `REFERENCE` (semantic) | 배치 처리 | `MODIFIED.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.44 (기본값), 시간 범위 ±5일. `source='semantic'` |
 | Layer 4 | `DISCUSSED_IN` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.48 (기본값), 이슈 생애 윈도우 `[createdAt-4d, closedAt+3d / 진행중이면 now]` |
 | Layer 4 | `TRIGGERED_BY` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ 0.34 (기본값). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행중이면 now]`, ChangeSet당 top-1, text 엣지 있는 커밋은 제외 |
 
@@ -413,7 +413,7 @@ refs(`issueKey`/`prNumber`)는 커밋·메시지에 명시될 때만 텍스트�
   | DISCUSSED_IN | 필터형 (`build_issue_communication_links_filtered`) | 임베딩이 확정한 쌍만 검수 — 걸러내기만 하고 **추가는 없다** |
   | REFERENCE | 필터형 (`build_reference_edges_filtered`) | 위와 동일 |
 
-  clear 범위는 타입마다 다르다. TRIGGERED_BY·DISCUSSED_IN은 `source='semantic'`인 엣지만 지워 text(refs)·스레드 전파 엣지는 보존된다. 반면 REFERENCE는 텍스트 경로가 없어 전부 시맨틱 산물이므로 **전량 삭제 후 재생성**된다.
+  clear 범위는 타입마다 다르다. TRIGGERED_BY·DISCUSSED_IN·REFERENCE 모두 `source='semantic'`인 엣지만 지워 명시 text 참조(및 DISCUSSED_IN의 스레드 전파)는 보존된다. REFERENCE의 source 없는 기존 엣지는 도입 전에는 모두 시맨틱 산물이었으므로 semantic으로 간주해 삭제한다.
 
 ### API — `POST /issue-links/build` (하위 단계 직접 호출)
 
