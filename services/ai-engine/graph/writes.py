@@ -132,6 +132,7 @@ async def upsert_pull_request(
     actor_uuid: str,
     issue_keys: Optional[list[str]] = None,
     issue_external_ids: Optional[list[str]] = None,
+    document_external_ids: Optional[list[str]] = None,
 ) -> None:
     """PullRequest 노드 upsert.
 
@@ -145,6 +146,12 @@ async def upsert_pull_request(
       결합 문자열 배열로 저장한다(Neo4j 속성은 맵 배열 불가 — 복합 id 관례, 예: "ASANA:123").
       issue_keys와 동일한 보존/갱신 규칙 — None이면 기존 pr.issue_external_ids 값을 보존,
       명시되면 갱신. link_pr_changesets_to_issue_externals가 전파에 사용한다.
+
+    document_external_ids:
+      PR 제목/본문의 Notion URL에서 추출한 참조. issue_external_ids와 같은 "SOURCE:external_id"
+      인코딩·보존/갱신 규칙을 쓴다. link_pr_changesets_to_documents가 REFERENCE(text) 전파에
+      사용한다(docs/notion-integration.md §2-5 — PR 본문이 커밋 메시지보다 흔한 Notion 링크
+      유입로다).
     """
     async with get_driver().session() as session:
         await session.run(
@@ -160,6 +167,7 @@ async def upsert_pull_request(
                 pr.createdAt  = CASE WHEN $created_at  IS NOT NULL THEN datetime($created_at)  ELSE null END,
                 pr.issue_keys  = CASE WHEN $issue_keys   IS NOT NULL THEN $issue_keys              ELSE pr.issue_keys END,
                 pr.issue_external_ids = CASE WHEN $issue_external_ids IS NOT NULL THEN $issue_external_ids ELSE pr.issue_external_ids END,
+                pr.document_external_ids = CASE WHEN $document_external_ids IS NOT NULL THEN $document_external_ids ELSE pr.document_external_ids END,
                 pr.source = $source
             MERGE (a)-[:AUTHORED]->(pr)
             """,
@@ -175,6 +183,7 @@ async def upsert_pull_request(
             created_at=created_at,
             issue_keys=issue_keys,
             issue_external_ids=issue_external_ids,
+            document_external_ids=document_external_ids,
             source=source,
         )
 
@@ -296,6 +305,105 @@ async def upsert_communication(
             source=source,
             embedding=embedding,
             llm_filtered=llm_filtered,
+        )
+
+
+async def upsert_document(
+    *,
+    project_id: str,
+    source: str,
+    external_id: str,
+    title: str,
+    body: str,
+    url: str,
+    occurred_at: str,
+    created_at: Optional[str],
+    parent_type: str,
+    parent_external_id: Optional[str],
+    actor_uuid: str,
+) -> None:
+    """Document 노드 upsert와 작성자 WROTE 연결.
+
+    page id는 제목·URL과 달리 불변이므로 `(project_id, source, external_id)`를 MERGE 키로
+    쓴다. Document 자체에는 embedding을 저장하지 않는다 — 긴 본문의 검색 벡터는
+    DocumentSection에만 둔다.
+    """
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (a:Actor {uuid: $actor_uuid})
+            MERGE (d:Document {project_id: $project_id, source: $source, external_id: $external_id})
+            SET d.title = $title,
+                d.body = $body,
+                d.url = $url,
+                d.occurredAt = datetime($occurred_at),
+                d.createdAt = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
+                d.parent_type = $parent_type,
+                d.parent_external_id = $parent_external_id
+            MERGE (a)-[:WROTE]->(d)
+            """,
+            actor_uuid=actor_uuid,
+            project_id=project_id,
+            source=source,
+            external_id=external_id,
+            title=title,
+            body=body,
+            url=url,
+            occurred_at=occurred_at,
+            created_at=created_at,
+            parent_type=parent_type,
+            parent_external_id=parent_external_id,
+        )
+
+
+async def replace_document_sections(
+    *,
+    project_id: str,
+    source: str,
+    document_external_id: str,
+    sections: list[dict],
+) -> None:
+    """문서의 DocumentSection을 전량 교체한다.
+
+    본문 중간 편집은 이후 ordinal을 전부 밀 수 있어 부분 upsert가 안전하지 않다. 삭제 후
+    생성 사이에 실패해도 이벤트 재시도는 멱등적으로 다시 채우므로, 두 문으로 분리해 Cypher의
+    빈 UNWIND 함정을 피한다.
+    """
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (s:DocumentSection {
+                project_id: $project_id,
+                source: $source,
+                document_external_id: $document_external_id
+            })
+            DETACH DELETE s
+            """,
+            project_id=project_id,
+            source=source,
+            document_external_id=document_external_id,
+        )
+        if not sections:
+            return
+        await session.run(
+            """
+            MATCH (d:Document {project_id: $project_id, source: $source, external_id: $document_external_id})
+            UNWIND $sections AS section
+            MERGE (s:DocumentSection {
+                project_id: $project_id,
+                source: $source,
+                document_external_id: $document_external_id,
+                ordinal: section.ordinal
+            })
+            SET s.heading_path = section.heading_path,
+                s.text = section.text,
+                s.embedding = section.embedding
+            MERGE (s)-[:PART_OF]->(d)
+            """,
+            project_id=project_id,
+            source=source,
+            document_external_id=document_external_id,
+            sections=sections,
         )
 
 
@@ -571,6 +679,54 @@ async def link_issue_to_parent(
         )
 
 
+async def link_document_to_parent(
+    project_id: str, source: str, child_external_id: str, parent_external_id: str,
+) -> None:
+    """CHILD_OF: Document의 부모 page를 실키 pre-node로 연결한다."""
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MERGE (parent:Document {
+                project_id: $project_id, source: $source, external_id: $parent_external_id
+            })
+            WITH parent
+            MATCH (child:Document {
+                project_id: $project_id, source: $source, external_id: $child_external_id
+            })
+            MERGE (child)-[:CHILD_OF]->(parent)
+            """,
+            project_id=project_id,
+            source=source,
+            child_external_id=child_external_id,
+            parent_external_id=parent_external_id,
+        )
+
+
+async def set_document_editors(
+    project_id: str, source: str, external_id: str, actor_uuids: list[str],
+) -> None:
+    """EDITED: 마지막 편집자 스냅샷을 누적 이력으로 반영한다.
+
+    Notion은 마지막 편집자만 주므로 Issue ASSIGNED_TO처럼 기존 엣지를 지우면 과거 편집자가
+    사라진다. 따라서 새 actor만 MERGE하고 해제는 하지 않는다.
+    """
+    if not actor_uuids:
+        return
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (d:Document {project_id: $project_id, source: $source, external_id: $external_id})
+            UNWIND $actor_uuids AS uuid
+            MATCH (a:Actor {uuid: uuid})
+            MERGE (a)-[:EDITED]->(d)
+            """,
+            project_id=project_id,
+            source=source,
+            external_id=external_id,
+            actor_uuids=list(dict.fromkeys(actor_uuids)),
+        )
+
+
 async def set_issue_assignees(
     project_id: str, source: str, external_id: str, actor_uuids: list[str],
 ) -> None:
@@ -622,10 +778,10 @@ async def absorb_issue_stub(project_id: str, source: str, external_id: str, issu
     텍스트 링크 엣지를 실노드로 이관하고 stub을 지운다.
 
     stub에는 텍스트 링크 함수(link_changeset_to_issue, link_changeset_to_pr_issues,
-    link_pr_changesets_to_issues, link_issue_to_communication)가 만든 2종 엣지만 붙는다 —
-    유입 TRIGGERED_BY(ChangeSet→stub), 유출 DISCUSSED_IN(stub→Communication). 센티널
-    stub은 이벤트가 없어 refs.parentExternalId를 가질 수 없으므로 CHILD_OF가 stub에
-    붙는 경로 자체가 없다.
+    link_pr_changesets_to_issues, link_issue_to_communication, link_issue_to_document)가 만든
+    3종 엣지만 붙는다 — 유입 TRIGGERED_BY(ChangeSet→stub), 유출 DISCUSSED_IN(대화),
+    DESCRIBED_IN(문서). 센티널 stub은 이벤트가 없어 refs.parentExternalId를 가질 수 없으므로
+    CHILD_OF가 stub에 붙는 경로 자체가 없다.
 
     MATCH s로 시작하므로 멱등이다 — 이미 이관돼 stub이 없으면 전체가 no-op.
     """
@@ -649,6 +805,14 @@ async def absorb_issue_stub(project_id: str, source: str, external_id: str, issu
                 SET r4.source = 'text'
                 REMOVE r4.confidence
             )
+            WITH s, real
+            OPTIONAL MATCH (s)-[:DESCRIBED_IN]->(doc:Document)
+            WITH s, real, [x IN collect(DISTINCT doc) WHERE x IS NOT NULL] AS described_docs
+            FOREACH (doc IN described_docs |
+                MERGE (real)-[r5:DESCRIBED_IN]->(doc)
+                SET r5.source = 'text', r5.confidence = 1.0
+                REMOVE r5.section
+            )
             WITH s
             DETACH DELETE s
             """,
@@ -666,13 +830,14 @@ async def absorb_issue_stub(project_id: str, source: str, external_id: str, issu
 # 같은 방식으로 (project_id, source, external_id) 실키에 곧바로 pre-node MERGE한다.
 
 
-def _parse_issue_external_refs(values: Optional[list[str]]) -> list[dict]:
-    """PullRequest.issue_external_ids(예: ["ASANA:123"])를 (source, external_id) 맵 리스트로 파싱한다.
+def _parse_prefixed_refs(values: Optional[list[str]]) -> list[dict]:
+    """"SOURCE:external_id" 콜론 결합 문자열 배열을 (source, external_id) 맵 리스트로 파싱한다.
 
-    Neo4j 노드 속성은 맵 배열을 지원하지 않아 "SOURCE:external_id" 콜론 결합 문자열로
-    저장한다(복합 id 관례). 콜론 첫 등장을 기준으로 분리한다 — external_id(gid 등) 자체에
-    콜론이 섞여 있을 가능성을 배제하지 않기 위함. 콜론이 없거나 source/external_id 중
-    하나라도 비면 그 원소는 건너뛴다(잘못된 형식 방어).
+    Neo4j 노드 속성은 맵 배열을 지원하지 않아 PullRequest.issue_external_ids ·
+    PullRequest.document_external_ids가 공통으로 쓰는 인코딩이다(복합 id 관례). 콜론 첫
+    등장을 기준으로 분리한다 — external_id(gid 등) 자체에 콜론이 섞여 있을 가능성을 배제하지
+    않기 위함. 콜론이 없거나 source/external_id 중 하나라도 비면 그 원소는 건너뛴다(잘못된
+    형식 방어).
     """
     refs = []
     for value in values or []:
@@ -740,6 +905,83 @@ async def link_issue_external_to_communication(
         )
 
 
+async def link_issue_to_document(
+    project_id: str, issue_key: str, document_source: str, document_external_id: str,
+) -> None:
+    """DESCRIBED_IN (text): Document refs.issueKeys 존재 시.
+
+    issue_key로 실노드를 먼저 찾고, 아직 수집되지 않았으면 기존 Issue stub 규약을 따른다.
+    text가 semantic보다 우선하므로 confidence와 section 근거를 명시 참조 규약으로 교체한다.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (d:Document {
+                project_id: $project_id, source: $document_source, external_id: $document_external_id
+            })
+            MATCH (i:Issue {project_id: $project_id, issue_key: $issue_key})
+            WHERE i.source <> '__stub__'
+            MERGE (i)-[r:DESCRIBED_IN]->(d)
+            SET r.source = 'text', r.confidence = 1.0
+            REMOVE r.section
+            RETURN count(i) AS matched
+            """,
+            project_id=project_id,
+            issue_key=issue_key,
+            document_source=document_source,
+            document_external_id=document_external_id,
+        )
+        record = await result.single()
+        if record and record["matched"] > 0:
+            return
+
+        await session.run(
+            """
+            MATCH (d:Document {
+                project_id: $project_id, source: $document_source, external_id: $document_external_id
+            })
+            MERGE (i:Issue {project_id: $project_id, source: '__stub__', external_id: $issue_key})
+            ON CREATE SET i.issue_key = $issue_key
+            MERGE (i)-[r:DESCRIBED_IN]->(d)
+            SET r.source = 'text', r.confidence = 1.0
+            REMOVE r.section
+            """,
+            project_id=project_id,
+            issue_key=issue_key,
+            document_source=document_source,
+            document_external_id=document_external_id,
+        )
+
+
+async def link_issue_external_to_document(
+    project_id: str,
+    issue_source: str,
+    issue_external_id: str,
+    document_source: str,
+    document_external_id: str,
+) -> None:
+    """DESCRIBED_IN (text): URL 기반 이슈 참조를 실키 pre-node로 연결한다."""
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (d:Document {
+                project_id: $project_id, source: $document_source, external_id: $document_external_id
+            })
+            MERGE (i:Issue {
+                project_id: $project_id, source: $issue_source, external_id: $issue_external_id
+            })
+            MERGE (i)-[r:DESCRIBED_IN]->(d)
+            SET r.source = 'text', r.confidence = 1.0
+            REMOVE r.section
+            """,
+            project_id=project_id,
+            issue_source=issue_source,
+            issue_external_id=issue_external_id,
+            document_source=document_source,
+            document_external_id=document_external_id,
+        )
+
+
 async def link_changeset_to_pr_issue_externals(project_id: str, pr_number: int, changeset_hash: str) -> int:
     """TRIGGERED_BY (text, 실키) 전파 — 단건: PR.issue_external_ids를 '이 커밋 하나'에만 연결한다.
 
@@ -750,7 +992,7 @@ async def link_changeset_to_pr_issue_externals(project_id: str, pr_number: int, 
     실키 pre-node라 실노드/stub 구분이 필요 없어(모듈 상단 절 설명 참고) issue_keys류와
     세션 2문의 목적이 다르다: ①에서 PR.issue_external_ids를 조회하면서
     (pr)-[:CONTAINS]->(이 커밋) 관계도 함께 확인해 둘 중 하나라도 없으면 noop으로 끝낸다 →
-    파싱은 Python에서(_parse_issue_external_refs) → ②에서 UNWIND한 각 참조를 pre-node
+    파싱은 Python에서(_parse_prefixed_refs) → ②에서 UNWIND한 각 참조를 pre-node
     MERGE하고 이 커밋에 TRIGGERED_BY를 건다.
 
     Returns:
@@ -772,7 +1014,7 @@ async def link_changeset_to_pr_issue_externals(project_id: str, pr_number: int, 
         if not row:
             return 0
 
-        refs = _parse_issue_external_refs(row["raw_refs"])
+        refs = _parse_prefixed_refs(row["raw_refs"])
         if not refs:
             return 0
 
@@ -825,7 +1067,7 @@ async def link_pr_changesets_to_issue_externals(project_id: str, pr_number: int)
         if not row:
             return 0
 
-        refs = _parse_issue_external_refs(row["raw_refs"])
+        refs = _parse_prefixed_refs(row["raw_refs"])
         if not refs:
             return 0
 
@@ -838,6 +1080,164 @@ async def link_pr_changesets_to_issue_externals(project_id: str, pr_number: int)
             MERGE (i:Issue {project_id: $project_id, source: ref.source, external_id: ref.external_id})
             FOREACH (c IN changesets |
                 MERGE (c)-[r:TRIGGERED_BY]->(i)
+                SET r.source = 'text', r.confidence = 1.0
+            )
+            RETURN sum(size(changesets)) AS created
+            """,
+            project_id=project_id,
+            pr_number=pr_number,
+            refs=refs,
+        )
+        row2 = await result2.single()
+        return row2["created"] if row2 else 0
+
+
+# ── documentExternalRefs (실키 pre-node) ─────────────────────────────────
+# Notion 링크는 issueExternalRefs와 같은 "SOURCE:external_id" 인코딩을 쓴다(§2-5).
+# REFERENCE는 이 커넥터 전까지 전부 시맨틱 산물이었다(N0가 source 필드만 준비해 뒀다) —
+# 아래가 그 첫 text 작성자다.
+
+
+async def link_changeset_to_document(
+    project_id: str, changeset_hash: str, document_source: str, document_external_id: str,
+) -> None:
+    """REFERENCE (text): ChangeSet refs.documentExternalRefs 존재 시 — 커밋 메시지의 Notion URL.
+
+    link_changeset_to_issue_external과 동일한 이유로 실노드/stub 구분 없이 실키로 곧바로
+    pre-node MERGE한다. Document 본 이벤트가 나중에 도착하면 upsert_document가 같은 키로
+    MERGE해 채운다.
+    """
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
+            MERGE (d:Document {
+                project_id: $project_id, source: $document_source, external_id: $document_external_id
+            })
+            MERGE (c)-[r:REFERENCE]->(d)
+            SET r.source = 'text', r.confidence = 1.0
+            """,
+            project_id=project_id,
+            hash=changeset_hash,
+            document_source=document_source,
+            document_external_id=document_external_id,
+        )
+
+
+async def link_document_to_communication(
+    project_id: str, document_source: str, document_external_id: str, communication_url: str,
+) -> None:
+    """DISCUSSED_IN (text): Communication refs.documentExternalRefs 존재 시 — 대화 본문의 Notion URL.
+
+    link_issue_external_to_communication과 같은 규약으로 confidence를 두지 않는다 — text
+    DISCUSSED_IN은 confidence 유무로 시맨틱과 구분된다.
+    """
+    async with get_driver().session() as session:
+        await session.run(
+            """
+            MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
+            MERGE (d:Document {
+                project_id: $project_id, source: $document_source, external_id: $document_external_id
+            })
+            MERGE (d)-[r:DISCUSSED_IN]->(comm)
+            SET r.source = 'text'
+            REMOVE r.confidence
+            """,
+            project_id=project_id,
+            comm_url=communication_url,
+            document_source=document_source,
+            document_external_id=document_external_id,
+        )
+
+
+async def link_changeset_to_pr_documents(project_id: str, pr_number: int, changeset_hash: str) -> int:
+    """REFERENCE (text, 실키) 전파 — 단건: PR.document_external_ids를 '이 커밋 하나'에만 연결한다.
+
+    link_changeset_to_pr_issue_externals(975)와 완전히 대칭인 O(N) 단건 버전. 커밋마다 PR
+    전체에 재전파하면 O(N²)라, PR 전체 전파는 PR 도착 시(link_pr_changesets_to_documents)에만
+    수행한다.
+
+    Returns:
+        새로 생성 또는 갱신된 REFERENCE 엣지 수.
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            WHERE pr.document_external_ids IS NOT NULL AND size(pr.document_external_ids) > 0
+            MATCH (pr)-[:CONTAINS]->(c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+            RETURN pr.document_external_ids AS raw_refs
+            """,
+            project_id=project_id,
+            pr_number=pr_number,
+            changeset_hash=changeset_hash,
+        )
+        row = await result.single()
+        if not row:
+            return 0
+
+        refs = _parse_prefixed_refs(row["raw_refs"])
+        if not refs:
+            return 0
+
+        result2 = await session.run(
+            """
+            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+            UNWIND $refs AS ref
+            MERGE (d:Document {project_id: $project_id, source: ref.source, external_id: ref.external_id})
+            MERGE (c)-[r:REFERENCE]->(d)
+            SET r.source = 'text', r.confidence = 1.0
+            RETURN count(r) AS created
+            """,
+            project_id=project_id,
+            changeset_hash=changeset_hash,
+            refs=refs,
+        )
+        row2 = await result2.single()
+        return row2["created"] if row2 else 0
+
+
+async def link_pr_changesets_to_documents(project_id: str, pr_number: int) -> int:
+    """REFERENCE (text, 실키) 전파: PR.document_external_ids에 등록된 각 참조를 그 PR이
+    머지한 모든 ChangeSet에 동일하게 연결한다. link_pr_changesets_to_issue_externals(1028)와
+    완전히 대칭이다 — PR 본문에 박힌 Notion 링크가 커밋 메시지보다 흔하므로(§2-5) 이 전파가
+    Document REFERENCE의 주 유입로다.
+
+    ①에서 CONTAINS 커밋 존재까지 확인해, PR이 자기 커밋들보다 먼저 소비되는 정상 순서에서
+    엣지 없는 pre-node가 먼저 생기지 않게 한다. 커밋이 도착하면 단건 전파
+    (link_changeset_to_pr_documents)가 pre-node 생성과 연결을 함께 수행하므로 잃는 링크는 없다.
+
+    Returns:
+        새로 생성 또는 갱신된 REFERENCE 엣지 수(근사치 — 참조 수 × CONTAINS 커밋 수).
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            """
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            WHERE pr.document_external_ids IS NOT NULL AND size(pr.document_external_ids) > 0
+              AND EXISTS { (pr)-[:CONTAINS]->(:ChangeSet) }
+            RETURN pr.document_external_ids AS raw_refs
+            """,
+            project_id=project_id,
+            pr_number=pr_number,
+        )
+        row = await result.single()
+        if not row:
+            return 0
+
+        refs = _parse_prefixed_refs(row["raw_refs"])
+        if not refs:
+            return 0
+
+        result2 = await session.run(
+            """
+            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
+            OPTIONAL MATCH (pr)-[:CONTAINS]->(cs:ChangeSet)
+            WITH [x IN collect(DISTINCT cs) WHERE x IS NOT NULL] AS changesets
+            UNWIND $refs AS ref
+            MERGE (d:Document {project_id: $project_id, source: ref.source, external_id: ref.external_id})
+            FOREACH (c IN changesets |
+                MERGE (c)-[r:REFERENCE]->(d)
                 SET r.source = 'text', r.confidence = 1.0
             )
             RETURN sum(size(changesets)) AS created

@@ -4,6 +4,7 @@ import logging
 from graph import builder
 from graph.actor_resolver import resolve_actor
 from graph.builder import make_neo4j_actor_store
+from graph.document_chunker import chunk_document
 from graph.embedder import embed_batch, embed_text
 from graph.path_filter import should_skip
 from graph.slack_filter import should_skip_slack
@@ -48,6 +49,8 @@ async def handle(event: dict) -> None:
         await _handle_issue(event)
     elif node_type == "Communication":
         await _handle_communication(event)
+    elif node_type == "Document":
+        await _handle_document(event)
     else:
         logger.warning("알 수 없는 nodeType: %s", node_type)
 
@@ -89,6 +92,12 @@ async def _handle_changeset(event: dict) -> None:
         ref_external_id = external_ref.get("externalId")
         if ref_source and ref_external_id:
             await builder.link_changeset_to_issue_external(project_id, hash_, ref_source, ref_external_id)
+    # 커밋 메시지의 Notion URL — REFERENCE(text). issueExternalRefs와 같은 인코딩(§2-5).
+    for external_ref in refs.get("documentExternalRefs") or []:
+        doc_source = external_ref.get("source")
+        doc_external_id = external_ref.get("externalId")
+        if doc_source and doc_external_id:
+            await builder.link_changeset_to_document(project_id, hash_, doc_source, doc_external_id)
     if refs.get("prNumber"):
         pr_num = int(refs["prNumber"])
         await builder.link_pr_to_changeset(project_id, pr_num, hash_)
@@ -97,6 +106,7 @@ async def _handle_changeset(event: dict) -> None:
         # PR이 아직 안 도착했으면(CONTAINS 없음) noop — PR 도착 시 전체 전파가 처리한다.
         await builder.link_changeset_to_pr_issues(project_id, pr_num, hash_)
         await builder.link_changeset_to_pr_issue_externals(project_id, pr_num, hash_)
+        await builder.link_changeset_to_pr_documents(project_id, pr_num, hash_)
 
     # Layer 3: 파일별 diff 요약 → 배치 임베딩 → UNWIND 배치 upsert (#2/#6)
     #   1) 요약: 입력만의 함수라 파일별 동시(gather) — LLM N콜은 불가피(파일별 요약 필수)
@@ -154,7 +164,7 @@ async def _handle_pull_request(event: dict) -> None:
         issue_keys = [refs["issueKey"]]
 
     # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를
-    # "SOURCE:externalId" 문자열로 인코딩해 저장한다(graph.writes._parse_issue_external_refs가
+    # "SOURCE:externalId" 문자열로 인코딩해 저장한다(graph.writes._parse_prefixed_refs가
     # 역파싱). 키 자체가 없으면(refs에 issueExternalRefs가 없으면) None을 넘겨 기존 값을 보존한다.
     raw_issue_external_refs = refs.get("issueExternalRefs")
     issue_external_ids = None
@@ -162,6 +172,17 @@ async def _handle_pull_request(event: dict) -> None:
         issue_external_ids = [
             f"{ref['source']}:{ref['externalId']}"
             for ref in raw_issue_external_refs
+            if ref.get("source") and ref.get("externalId")
+        ]
+
+    # PR 본문/제목의 Notion URL. issue_external_ids와 동일한 인코딩·보존 규칙(§2-5) —
+    # PR 본문이 커밋 메시지보다 흔한 Notion 링크 유입로라 이 전파가 REFERENCE(text)의 주 경로다.
+    raw_document_external_refs = refs.get("documentExternalRefs")
+    document_external_ids = None
+    if raw_document_external_refs is not None:
+        document_external_ids = [
+            f"{ref['source']}:{ref['externalId']}"
+            for ref in raw_document_external_refs
             if ref.get("source") and ref.get("externalId")
         ]
 
@@ -179,6 +200,7 @@ async def _handle_pull_request(event: dict) -> None:
         actor_uuid=resolved["uuid"],
         issue_keys=issue_keys,
         issue_external_ids=issue_external_ids,
+        document_external_ids=document_external_ids,
     )
 
     # Layer 2 전파: PR에 등록된 issue_keys를 그 PR이 머지한 모든 CONTAINS 커밋에 text TRIGGERED_BY로 적용.
@@ -191,6 +213,10 @@ async def _handle_pull_request(event: dict) -> None:
         propagated_external = await builder.link_pr_changesets_to_issue_externals(project_id, int(pr_number))
         if propagated_external:
             logger.info("PR #%s issueExternalRefs TRIGGERED_BY 전파: %d개 갱신", pr_number, propagated_external)
+    if pr_number is not None and document_external_ids:
+        propagated_documents = await builder.link_pr_changesets_to_documents(project_id, int(pr_number))
+        if propagated_documents:
+            logger.info("PR #%s documentExternalRefs REFERENCE 전파: %d개 갱신", pr_number, propagated_documents)
 
 
 async def _handle_issue(event: dict) -> None:
@@ -267,6 +293,94 @@ async def _handle_issue(event: dict) -> None:
     await builder.set_issue_assignees(project_id, source, external_id, assignee_uuids)
 
 
+async def _handle_document(event: dict) -> None:
+    """Document 이벤트를 Document + DocumentSection 그래프로 소비한다."""
+    props = event.get("properties") or {}
+    refs = event.get("refs") or {}
+    actor = event.get("actor") or {}
+    project_id = event.get("projectId", "")
+    source = event.get("source", "")
+    external_id = props.get("external_id")
+
+    # Document도 Issue와 같이 provider의 불변 ID 없이는 재수집 멱등성을 보장할 수 없다.
+    if not external_id:
+        logger.warning("Document external_id 없음 — 건너뜀 (source=%s)", source)
+        return
+
+    title = props.get("title", "")
+    body = props.get("body", "")
+    occurred_at = event.get("occurredAt", "")
+    logger.debug("Document 수신: external_id=%s", external_id)
+
+    resolved = await resolve_actor(actor, source, make_neo4j_actor_store(project_id), event)
+    await builder.upsert_document(
+        project_id=project_id,
+        source=source,
+        external_id=external_id,
+        title=title,
+        body=body,
+        url=props.get("url", ""),
+        occurred_at=occurred_at,
+        created_at=props.get("created_at"),
+        parent_type=props.get("parent_type", ""),
+        parent_external_id=props.get("parent_external_id"),
+        actor_uuid=resolved["uuid"],
+    )
+
+    sections = chunk_document(title, body)
+    embeddings = await embed_batch([
+        f"{section.heading_path}\n\n{section.text}" for section in sections
+    ]) if sections else []
+    await builder.replace_document_sections(
+        project_id=project_id,
+        source=source,
+        document_external_id=external_id,
+        sections=[
+            {
+                "ordinal": ordinal,
+                "heading_path": section.heading_path,
+                "text": section.text,
+                "embedding": embedding,
+            }
+            for ordinal, (section, embedding) in enumerate(zip(sections, embeddings))
+        ],
+    )
+
+    # editors는 마지막 편집자 스냅샷이지만 Document의 EDITED는 누적 관계다.
+    editor_uuids = []
+    for editor in refs.get("editors") or []:
+        resolved_editor = await resolve_actor(
+            {
+                "id": editor.get("id"),
+                "name": editor.get("name"),
+                "email": editor.get("email"),
+                "bot": editor.get("bot"),
+            },
+            source,
+            make_neo4j_actor_store(project_id),
+            event,
+        )
+        editor_uuids.append(resolved_editor["uuid"])
+    await builder.set_document_editors(project_id, source, external_id, editor_uuids)
+
+    parent_external_id = props.get("parent_external_id")
+    if parent_external_id:
+        await builder.link_document_to_parent(project_id, source, external_id, parent_external_id)
+
+    # 문서에는 여러 이슈가 명시될 수 있다. 구 형식의 단수 issueKey도 읽어 마이그레이션 중
+    # 이벤트를 잃지 않는다.
+    issue_keys = refs.get("issueKeys") or ([] if not refs.get("issueKey") else [refs["issueKey"]])
+    for issue_key in dict.fromkeys(key for key in issue_keys if key):
+        await builder.link_issue_to_document(project_id, issue_key, source, external_id)
+    for external_ref in refs.get("issueExternalRefs") or []:
+        issue_source = external_ref.get("source")
+        issue_external_id = external_ref.get("externalId")
+        if issue_source and issue_external_id:
+            await builder.link_issue_external_to_document(
+                project_id, issue_source, issue_external_id, source, external_id,
+            )
+
+
 async def _handle_communication(event: dict) -> None:
     props       = event.get("properties") or {}
     refs        = event.get("refs") or {}
@@ -313,3 +427,9 @@ async def _handle_communication(event: dict) -> None:
         ref_external_id = external_ref.get("externalId")
         if ref_source and ref_external_id:
             await builder.link_issue_external_to_communication(project_id, ref_source, ref_external_id, url)
+    # 대화 본문의 Notion URL — DISCUSSED_IN(text). issueExternalRefs와 같은 인코딩(§2-5).
+    for external_ref in refs.get("documentExternalRefs") or []:
+        doc_source = external_ref.get("source")
+        doc_external_id = external_ref.get("externalId")
+        if doc_source and doc_external_id:
+            await builder.link_document_to_communication(project_id, doc_source, doc_external_id, url)
