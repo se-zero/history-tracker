@@ -10,7 +10,8 @@ public enum IntegrationProvider {
     GOOGLE_CHAT("google-chat", "Google Chat"),
     LINEAR("linear", "Linear"),
     ASANA("asana", "Asana"),
-    CLICKUP("clickup", "ClickUp");
+    CLICKUP("clickup", "ClickUp"),
+    NOTION("notion", "Notion");
 
     private final String value;
     private final String displayName;

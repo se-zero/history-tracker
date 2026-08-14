@@ -140,7 +140,7 @@ class IntegrationControllerTest {
     @Test
     @DisplayName("알 수 없는 provider 해제 → 400 (500 아님)")
     void disconnectRejectsUnknownProvider() throws Exception {
-        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/notion", PROJECT_ID)
+        mockMvc.perform(delete("/api/v1/projects/{projectId}/integrations/not-a-real-provider", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isBadRequest());
 

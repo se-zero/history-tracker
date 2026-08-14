@@ -10,6 +10,7 @@ import com.history.backend.googlechat.GoogleChatProperties;
 import com.history.backend.jira.AtlassianPersonalDataReportProperties;
 import com.history.backend.jira.AtlassianProperties;
 import com.history.backend.linear.LinearProperties;
+import com.history.backend.notion.NotionProperties;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.slack.SlackProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -28,7 +29,8 @@ import org.springframework.context.annotation.Configuration;
         GoogleChatProperties.class,
         LinearProperties.class,
         AsanaProperties.class,
-        ClickUpProperties.class
+        ClickUpProperties.class,
+        NotionProperties.class
 })
 public class PropertiesConfig {
 }

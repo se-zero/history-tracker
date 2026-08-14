@@ -78,9 +78,9 @@ class InternalIntegrationTokenControllerTest {
     void ensureAccessTokenRejectsUnknownProvider() {
         InternalIntegrationTokenController controller = controller();
 
-        // "notion"은 아직 IntegrationProvider에 없다 — 있는 값을 쓰면 parseProvider를 통과해
+        // IntegrationProvider에 실재하지 않는 값을 쓴다 — 있는 값을 쓰면 parseProvider를 통과해
         // 버려 이 테스트가 검증하려는 "알 수 없는 provider" 경로 자체가 사라진다.
-        assertThatThrownBy(() -> controller.ensureAccessToken(PROJECT_ID, "notion"))
+        assertThatThrownBy(() -> controller.ensureAccessToken(PROJECT_ID, "not-a-real-provider"))
                 .isInstanceOf(NotFoundException.class);
     }
 
