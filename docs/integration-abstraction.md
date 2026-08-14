@@ -189,7 +189,13 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 - **Notion `Document` 노드는 별도 설계 단계**: 스키마 제약, upsert+임베딩, Layer 2(문서
   본문의 이슈 키/PR 참조), Layer 4 REFERENCE 대상 편입, tool 정의 추가, 성좌 뷰 렌더링까지
   걸리는 실제 신규 기능이다. 추상화 PR에 섞지 않는다.
-  communication·issue 노드와의 연결 방식은 설계 단계에서 확정한다(추후 변경 가능).
+  **→ 설계 완료 — `docs/notion-integration.md`.** communication·issue 노드와의 연결 방식도 거기서
+  확정했다(`(Issue)-[:DESCRIBED_IN]->(Document)` · `(Document)-[:DISCUSSED_IN]->(Communication)` ·
+  `(ChangeSet)-[:REFERENCE]->(Document)` — 기존 어휘 재사용, 신규는 `EDITED`·`PART_OF` 둘뿐).
+  설계 과정에서 공용 코드의 구멍이 하나 더 나왔다(A8·A9와 같은 성격) — `REFERENCE`는 "전부
+  시맨틱 산물"을 전제해 `clear_reference`가 전량 삭제하는데, 문서는 URL 참조라는 text 경로가
+  있어 **정밀 재구축 한 번에 명시적 링크가 영구 소실된다**. `TRIGGERED_BY`처럼 `source` 속성을
+  도입해 semantic만 지우도록 좁히는 선행 PR(N0)로 처리한다.
 - Slack 노이즈 필터(`slack_filter` 계열)는 이미 모든 Communication에 적용되므로
   Teams/Discord도 자동으로 통과한다 — 이름만 나중에 `communication_filter`로 정리 후보.
 
@@ -301,7 +307,7 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 |----------|------|------|
 | 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ~~ClickUp~~ ✅ | `Issue` 노드 재사용, ai-engine 무변경 |
 | 대화 | **Discord**(코드 작업 완료 ✅ — 연결·수집(A9 수정 후 checkpoint 갱신 실측 확인) 전부 정상) · MS Teams(계획 완료, 라이선스 대기) · **Google Chat**(코드 작업 완료 ✅ — backend·pipeline-worker·web-dashboard, 선행 PR 2건(webhook 토큰 확보 일반화·A9) 포함. `docs/google-chat-integration.md`. §1-0 Workspace 계정 게이트 실측·실기동은 미착수) | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
-| 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
+| 문서 | Notion(계획 완료 — `docs/notion-integration.md`) | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막이며, **커넥터 1개 = 1 PR 규칙의 예외로 4개(N0~N3)로 나눈다** |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.

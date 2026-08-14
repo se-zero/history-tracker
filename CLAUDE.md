@@ -97,6 +97,7 @@ cd infra/docker
 - `docs/discord-integration.md` - Discord 커넥터(**대화 아키타입 1호**) 계획 — 봇 토큰 수집 모델, 선택 단계 없는 연결(Slack형), snowflake 증분, MESSAGE_CONTENT intent 게이트, 선행 공용 변경(revoke 시그니처)
 - `docs/google-chat-integration.md` - Google Chat 커넥터(**대화 아키타입에서 A4 다단 선택(1단 space)을 처음 검증**) — 코드 작업 완료(backend·pipeline-worker·web-dashboard, 선행 PR 2건 포함). Workspace 계정 게이트 실측·실기동은 미착수
 - `docs/teams-integration.md` - MS Teams 커넥터 계획(**착수 보류 — 유료 테넌트·관리자 동의 필요로 2호로 연기**) — Graph API 조사 근거의 결정 사항, 1단 team 선택, 정렬 기반 증분 전략, 선행 공용 변경(webhook 토큰 확보 일반화)
+- `docs/notion-integration.md` - Notion 커넥터(**문서 아키타입 1호 — 유일하게 ai-engine 신규 설계가 선행하는 예외**) 계획 — `Document`/`DocumentSection` 노드 설계, 섹션 단위 청킹·임베딩, Layer 4 시간 윈도우 재설계, 선행 공용 변경(REFERENCE의 text/semantic 분리), PR 4분할
 - `docs/actor-node-design.md` - Actor 동일인 판단 파이프라인 상세 설계 (스코어링 로직, LLM 프롬프트, Neo4j 쿼리)
 - `docs/actor-manual-merge.md` - Actor 수동 병합·분리 설계 (ActorDecision 영속화, resolver veto, unmerge/split)
 - `docs/jira-personal-data-policy.md` - Jira 개인정보 보고 정책 — 보고 사이클, closed/access_lost 삭제 규칙, 배포 시 봇 계정 등록 절차
