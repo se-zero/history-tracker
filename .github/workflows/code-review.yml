@@ -1,0 +1,67 @@
+# PR 리뷰 봇
+#
+# 공식 액션의 "배선"(트리거·체크아웃·인증·인라인 코멘트 MCP 서버)은 그대로 쓰고,
+# "판단 기준"만 우리 것(.claude/skills/pr-review)으로 바꾼다.
+# 스톡 리뷰 플러그인을 쓰지 않는 이유: 우리 severity 4등급과 차원 4개가 적용되지 않고,
+# 이 레포의 서비스 간 계약·개인정보 정책을 모르기 때문.
+
+name: Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+    # 문서만 바뀐 push는 리뷰하지 않는다. 문서와 코드가 같은 커밋에 섞이면 정상적으로 돈다.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+
+# 연달아 push하면(오타 수정 3연타 등) 앞 리뷰를 취소하고 마지막 것만 돌린다.
+concurrency:
+  group: code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Draft에서는 돌지 않는다. Ready 전환(ready_for_review) 때 시작된다.
+    # 스킬 안에도 같은 가드가 있지만, 여기서 막으면 러너를 아예 안 띄운다.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      # 봇은 커밋을 만들지 않으므로 contents는 read로 충분하다 (체크아웃용).
+      contents: read
+      # 코멘트를 "게시"하려면 write가 필요하다.
+      #   pull-requests: write → 인라인 리뷰 코멘트
+      #   issues: write        → 종합(sticky) 코멘트. PR 일반 코멘트는 issues API를 쓴다.
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 리뷰는 gh CLI(API)로 diff를 받으므로 전체 히스토리가 필요 없다.
+          # 체크아웃의 목적은 diff 밖 파일과 .claude/ 스킬을 읽는 것이다.
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          # 스킬이 gh CLI로 PR 본문·기존 코멘트를 읽고 종합 코멘트를 갱신한다.
+          GH_TOKEN: ${{ github.token }}
+        with:
+          # 구독 연동. `claude setup-token`으로 발급하거나 /install-github-app으로 자동 설정.
+          # 종량 과금으로 바꾸려면 이 줄을 anthropic_api_key로 교체하면 된다.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # 우리 스킬. checkout 뒤이므로 러너의 .claude/skills/pr-review 가 읽힌다.
+          # --comment 가 없으면 스킬이 결과를 로그에만 남기고 게시하지 않는다.
+          prompt: "/pr-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+
+          # --allowedTools 에 인라인 도구를 명시해야 액션이 해당 MCP 서버를 띄운다.
+          # 빠지면 인라인 코멘트가 조용히 안 달린다.
+          # 나머지는 스킬이 실제로 쓰는 도구들 — 읽기, PR 조회, 코멘트 게시, 본문 파일 작성.
+          # effort는 아직 지정하지 않는다. high로 시작해 medium까지 내려보며 실측할 예정(§5.2).
+          claude_args: >-
+            --model claude-opus-5
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Write,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*)"
