@@ -1,0 +1,26 @@
+{
+  "skill_name": "spring-unit-test",
+  "evals": [
+    {
+      "id": 1,
+      "name": "tdd-new-service-method",
+      "prompt": "services/backend의 ProjectService에 특정 소유자가 가진 프로젝트 개수를 세는 countByOwner(UUID ownerId) 메서드를 추가하려고 해. 아직 구현은 안 했고, TDD로 가고 싶으니까 테스트부터 작성해줘.",
+      "expected_output": "ProjectServiceTest에 Mockito 단위 테스트(@ExtendWith(MockitoExtension.class), @Mock ProjectRepository, AssertJ assertThat)를 추가. 인접 테스트 스타일을 따르고, SUT 팩토리 메서드 사용. 구현이 없으므로 컴파일 실패/실패가 예상되며 그것을 확인하는 TDD 흐름. 정상 경로와 0건 경계 케이스 포함.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "controller-test-existing",
+      "prompt": "pipeline-worker의 RawDataController에 아직 테스트가 없네. POST /api/v1/raw/{provider} 엔드포인트 동작을 검증하는 테스트 좀 써줄래?",
+      "expected_output": "@SpringBootTest + @AutoConfigureMockMvc + MockMvc + @MockitoBean 패턴의 컨트롤러 테스트. 정상 응답 상태코드/JSON 검증, 잘못된 provider 등 에러 경로, service 위임 verify. 컨트롤러/서비스 실제 소스를 읽고 동작에 맞춰 작성.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "http-client-test-existing",
+      "prompt": "backend의 GitHubOAuthClient에 단위 테스트를 추가해줘. authorization code 교환(exchangeCode)이랑 사용자 정보 조회(fetchUser)를 검증하고 싶어.",
+      "expected_output": "MockRestServiceServer + RestClient 패턴. exchangeCode의 정상 응답 매핑과 빈/누락 토큰 시 UnauthorizedException, fetchUser 요청 헤더/URL 검증. GitHubOAuthClient가 RestClient를 내부 생성하므로 현재 구조로는 MockRestServiceServer 바인딩이 불가능함을 인지하고, RestClient 주입 리팩터링을 제안하거나 사용자에게 확인하는 것이 이상적.",
+      "files": []
+    }
+  ]
+}
