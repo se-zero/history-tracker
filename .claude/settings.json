@@ -1,0 +1,76 @@
+{
+  "env": { "TDD_GUARD": "on" },
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(grep -v \"//\")",
+      "Bash(./gradlew test *)",
+      "Bash(.\\gradlew test *)",
+      "Bash(./gradlew dependencies *)",
+      "Bash(.\\gradlew dependencies *)",
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest *)",
+      "Bash(./.venv/Scripts/python.exe -m pytest *)",
+      "Bash(/d/git/history_tracker/services/ai-engine/.venv/Scripts/python.exe -m pytest *)",
+      "Bash(docker compose logs *)",
+      "Bash(docker compose ps *)",
+      "Bash(./dev.sh logs *)",
+      "Bash(./dev.sh ps)",
+      "Bash(docker exec history-tracker-postgres *)",
+      "Bash(docker exec history-graph-neo4j cypher-shell *)",
+      "Bash(docker exec history-graph-rabbitmq rabbitmqctl list_queues *)",
+      "Bash(D:/git/history_tracker/services/ai-engine/.venv/Scripts/python.exe D:/git/history_tracker/eval/grader.py *)"
+    ],
+    "ask": [
+      "Bash(git commit *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard *)",
+      "Bash(rm -rf *)",
+      "Bash(docker system prune *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/enforce-tdd.sh\"",
+            "shell": "bash",
+            "statusMessage": "TDD 검사 중..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/unit-test-on-edit.sh\"",
+            "shell": "bash",
+            "statusMessage": "테스트 실행 중..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/run-suite-on-stop.sh\"",
+            "shell": "bash",
+            "statusMessage": "전체 테스트 실행 중...",
+            "timeout": 900
+          }
+        ]
+      }
+    ]
+  }
+}
