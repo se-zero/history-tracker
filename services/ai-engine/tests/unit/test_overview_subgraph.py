@@ -177,6 +177,15 @@ def test_to_graph_node_ref_carries_query_key():
     )
     assert slack["ref"] == {"type": "message", "id": "1700000000.123"}
 
+    # Document → external_id를 ref로, type은 "doc"(성좌 별성이 아니라 주변 노드 취급).
+    doc = _to_graph_node(
+        {"id": "n10", "label": "Document", "source": "NOTION",
+         "external_id": "page-1", "title": "설계 문서", "body": "본문"}
+    )
+    assert doc["type"] == "doc"
+    assert doc["ref"] == {"type": "document", "id": "page-1"}
+    assert doc["source"] == "notion"
+
 
 def test_to_graph_node_ref_none_for_non_query_targets():
     # actor/file은 질의 도구 대상이 아니라 ref 없음 — 프론트가 텍스트 폴백으로 처리한다.
@@ -192,6 +201,8 @@ def test_to_graph_node_ref_none_when_key_missing():
     assert pr["ref"] is None
     slack = _to_graph_node({"id": "n9", "label": "Communication", "source": "SLACK"})
     assert slack["ref"] is None
+    doc = _to_graph_node({"id": "n11", "label": "Document", "source": "NOTION"})
+    assert doc["ref"] is None
 
 
 def test_source_label_derives_new_sources_without_registration():

@@ -66,6 +66,8 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | 13 | `get_thread_context` | Slack 스레드를 conversation_id로 전체 조회 | `get_thread_context` |
 | 14 | `run_graph_query` | 전용 도구가 없는 질문에 Cypher 직접 실행 (범용 탈출구) | `explore.run_graph_query` |
 | 15 | `describe_graph` | 라벨의 노드 수·속성·실제 값 분포 조회 | `explore.describe_graph` |
+| 16 | `get_document_context` | 문서(Notion) external_id로 본문·작성자·편집자·연결된 이슈/커밋/대화 조회 | `document.get_document_context` |
+| 17 | `search_documents` | 자연어 질의로 DocumentSection 시맨틱 검색 (문서+최고점 섹션 발췌) | `document.search_documents` |
 
 ---
 

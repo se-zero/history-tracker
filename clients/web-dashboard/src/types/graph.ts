@@ -5,12 +5,13 @@ export type GraphNodeType =
   | "slack"
   | "jira"
   | "actor"
-  | "code";
+  | "code"
+  | "doc";
 
 // focus 질의로 노드를 가리키는 도메인 키 — ai-engine 도구/evidence 어휘(프론트 GraphNodeType과 다름).
 // 질의 도구 대상이 아닌 노드(actor/code)는 ref 없음(null) → 텍스트 폴백 처리.
 export type NodeRef = {
-  type: "commit" | "pull_request" | "issue" | "message";
+  type: "commit" | "pull_request" | "issue" | "message" | "document";
   id: string;
 };
 
@@ -58,6 +59,9 @@ export interface GraphBuildResult {
   discussed_in: number;
   reference: number;
   thread_propagated: number;
+  // 문서 아키타입(Notion) 시맨틱 링크 — verify 여부와 무관하게 항상 자동구축(임베딩 전용)이다.
+  document_reference: number;
+  described_in_document: number;
 }
 
 export type GraphBuildState = "idle" | "running" | "succeeded" | "failed";
@@ -92,4 +96,5 @@ export const NODE_TYPE_INFO: Record<
   jira: { label: "Jira", cssVar: "var(--node-jira)" },
   actor: { label: "Person", cssVar: "var(--node-actor)" },
   code: { label: "File", cssVar: "var(--node-code)" },
+  doc: { label: "Document", cssVar: "var(--node-doc)" },
 };

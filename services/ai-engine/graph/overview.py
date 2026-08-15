@@ -40,8 +40,11 @@ _CONTENT_TYPE_PREDICATES = {
     "issue":  "(n:Communication AND n.source = 'GITHUB')",
     # coalesce — source가 빈 레거시 노드도 대화로 본다(_to_graph_node가 그렇게 렌더한다)
     "slack":  "(n:Communication AND coalesce(n.source, '') <> 'GITHUB')",
+    "doc":    "n:Document",
 }
-_ALL_CONTENT_PRED = "n:ChangeSet OR n:PullRequest OR n:Issue OR n:Communication"
+# DocumentSection은 의도적으로 뺐다 — 검색 내부 단위지 사용자가 볼 개체가 아니다
+# (docs/notion-integration.md §6-5). content/확장 술어 어디에도 넣지 않는다.
+_ALL_CONTENT_PRED = "n:ChangeSet OR n:PullRequest OR n:Issue OR n:Communication OR n:Document"
 
 # 확장(이웃) 타입 — content 노드에 매달린 Actor/File만.
 _EXPANSION_LABELS = {"actor": "nb:Actor", "code": "nb:File"}
@@ -65,6 +68,7 @@ _NODE_RETURN_FIELDS = """elementId(n)        AS id,
        n.name              AS name,
        n.aliases           AS aliases,
        n.path              AS path,
+       n.external_id       AS external_id,
        toString(n.occurredAt) AS occurred_at"""
 
 
@@ -254,6 +258,19 @@ def _to_graph_node(row: dict) -> dict:
             "snippet": _truncate(row.get("body")),
             # meta엔 conversation_id가 없어 텍스트로는 못 가리키므로 ref로 표면화한다.
             "ref": _node_ref("message", row.get("conversation_id")),
+        }
+
+    if label == "Document":
+        # meta는 날짜만 쓴다(부모 페이지 경로는 추가 조인이 필요해 카드 서브타이틀
+        # 용도로는 과하다 — 부모 관계 자체는 CHILD_OF 엣지로 이미 그려진다).
+        return {
+            "id": row["id"],
+            "type": "doc",
+            "title": row.get("title") or "(문서)",
+            "meta": _date_part(row.get("occurred_at")),
+            "source": src.lower() or "notion",
+            "snippet": _truncate(row.get("body")),
+            "ref": _node_ref("document", row.get("external_id")),
         }
 
     if label == "Actor":

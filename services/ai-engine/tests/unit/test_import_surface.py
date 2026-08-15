@@ -33,6 +33,8 @@ MODULES = [
     "graph.communication_store",
     "graph.consumer",
     "graph.document_chunker",
+    "graph.document_linker",
+    "graph.document_link_store",
     "graph.driver",
     "graph.embedder",
     "graph.event_handler",
@@ -96,6 +98,7 @@ BUILDER_PUBLIC = [
     "clear_reference",
     "clear_semantic_triggered_by",
     "clear_semantic_discussed_in",
+    "clear_semantic_described_in",
     "set_issue_assignees",
     "absorb_issue_stub",
     "link_changeset_to_issue_external",
@@ -116,6 +119,7 @@ BUILDER_PUBLIC = [
     "verify_actor_name_consistency",
     "make_neo4j_reference_store",
     "make_neo4j_issue_link_store",
+    "make_neo4j_document_link_store",
     "make_neo4j_actor_store",
     "fetch_unfiltered_communications",
     "mark_communication_llm_filtered",
@@ -142,6 +146,8 @@ QUERIES_PUBLIC = [
     "run_graph_query",
     "describe_graph",
     "SCHEMA_CARD",
+    "get_document_context",
+    "search_documents",
 ]
 
 ORCHESTRATOR_PUBLIC = ["run", "summarize_history"]

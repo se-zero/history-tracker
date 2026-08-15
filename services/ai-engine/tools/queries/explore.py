@@ -30,20 +30,27 @@ logger = logging.getLogger(__name__)
 
 
 # ─── 화이트리스트 ─────────────────────────────────────────────────────────────
-# docs/graph-schema.md의 노드·관계 목록과 일치해야 한다. 스키마에 노드가 추가되면
-# (예: 미래의 Document) 여기도 함께 갱신한다.
+# docs/graph-schema.md의 노드·관계 목록과 일치해야 한다. 스키마에 노드가 추가되면 여기도
+# 함께 갱신한다.
 #
 # ActorAlias·ActorDecision은 **의도적으로 뺐다** — 동일인 판단·수동 병합의 내부 운영
 # 노드라 질의로 열 이유가 없다. project_id는 갖고 있으므로 격리 문제는 아니고, 노출 범위
 # 문제다.
+#
+# DocumentSection도 허용은 하되(부모 Document 조인·집계에 필요할 수 있어 완전히 막지는
+# 않는다) SCHEMA_CARD에서 "본문 확인은 Document.body를 보라"고 안내한다 — text 속성은
+# _STRIPPED_KEYS가 막는 embedding과 달리 정상적인 콘텐츠라 걸러지지 않는데, 섹션 하나가
+# 1,500자에 달해 RETURN하면 그것만으로 컨텍스트를 잡아먹는다.
 
 NODE_LABELS = frozenset({
     "ChangeSet", "PullRequest", "Issue", "Communication", "File", "Actor",
+    "Document", "DocumentSection",
 })
 
 REL_TYPES = frozenset({
     "CREATED", "WROTE", "AUTHORED", "ASSIGNED_TO", "DISCUSSED_IN",
     "CHILD_OF", "TRIGGERED_BY", "CONTAINS", "MODIFIED", "REFERENCE",
+    "EDITED", "PART_OF", "DESCRIBED_IN",
 })
 
 # 반환 행에서 지우는 속성 — 1536차원 임베딩이 컨텍스트를 통째로 잡아먹는다.
@@ -486,23 +493,32 @@ SCHEMA_CARD = """\
 - Communication(Slack/GitHub 메시지): body, channel, url, conversation_id, createdAt, occurredAt, source, llm_filtered
 - File: path
 - Actor(사람): uuid, name, aliases
+- Document(문서, 예: Notion 페이지): external_id(불변 ID, source와 함께 유니크 키), source, title, body(평문 전체 — 길다, 필요하면 get_document_context를 우선 고려), url, createdAt, occurredAt(=최종 수정), parent_type, parent_external_id
+- DocumentSection(문서 내부 섹션 — 검색 단위): heading_path, text(섹션 본문 — 이것도 길다. **본문 확인은 여기가 아니라 Document.body나 get_document_context를 쓴다**), document_external_id, ordinal
 
 관계 (방향 주의)
 - (Actor)-[:AUTHORED]->(ChangeSet | PullRequest)
 - (Actor)-[:CREATED]->(Issue)
-- (Actor)-[:WROTE]->(Communication)
+- (Actor)-[:WROTE]->(Communication | Document)
+- (Actor)-[:EDITED]->(Document)              누적 관계(최종 편집자뿐 아니라 과거 편집자도 남음)
 - (Issue)-[:ASSIGNED_TO]->(Actor)
 - (Issue)-[:CHILD_OF]->(Issue)            부모 방향. 하위 작업 조회는 역방향으로
+- (Document)-[:CHILD_OF]->(Document)      부모 페이지 방향
+- (DocumentSection)-[:PART_OF]->(Document)
 - (Issue)-[:DISCUSSED_IN]->(Communication)  confidence(시맨틱 엣지만)
+- (Document)-[:DISCUSSED_IN]->(Communication) source('text'만 — 이 방향은 semantic 변형이 없다)
+- (Issue)-[:DESCRIBED_IN]->(Document)      source('text'|'semantic'), confidence, section(semantic만 — 근거 섹션의 heading_path)
 - (ChangeSet)-[:TRIGGERED_BY]->(Issue)      source('text'|'semantic'), confidence
 - (ChangeSet)-[:MODIFIED]->(File)           diffSummary
-- (ChangeSet)-[:REFERENCE]->(Communication) source('text'|'semantic'), confidence
+- (ChangeSet)-[:REFERENCE]->(Communication | Document) source('text'|'semantic'), confidence, section(Document 대상 semantic만)
 - (PullRequest)-[:CONTAINS]->(ChangeSet)
 
 주의
 - 모든 시각은 Neo4j datetime이다. 문자열 비교가 필요하면 toString()을 쓴다.
 - source='semantic'인 엣지의 confidence는 유사도 기반 추정이다. source='text'는 명시 참조이며
   confidence=1.0이다. 직접 조회에서 추론만 고르려면 WHERE r.source = 'semantic' AND r.confidence >= 0.5를 쓴다.
+- 문서 하나·문서 탐색은 이 도구보다 get_document_context/search_documents를 우선 쓴다 — 본문이
+  잘리지 않고, DESCRIBED_IN/REFERENCE의 text·semantic 구분도 이미 정리해서 준다.
 """
 
 

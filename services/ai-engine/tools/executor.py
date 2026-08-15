@@ -243,6 +243,23 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
                 threshold=args.get("threshold", 0.30),
             )
 
+        case "search_documents":
+            # search_by_keyword와 동일한 경로 — LLM이 query 문자열을 전달하면 executor에서 임베딩한다.
+            embedding = await embed_text(args["query"], priority=Priority.INTERACTIVE)
+            return await queries.search_documents(
+                project_id=project_id,
+                embedding=embedding,
+                top_k=args.get("top_k", 5),
+                threshold=args.get("threshold", 0.30),
+            )
+
+        case "get_document_context":
+            return await queries.get_document_context(
+                project_id=project_id,
+                external_id=args["external_id"],
+                source=args.get("source"),
+            )
+
         case "get_actor_activity":
             # limit은 의도적으로 전달하지 않는다 — 조회 창은 서버 정책(ACTOR_ACTIVITY_MAX)이
             # 결정하고, LLM이 지어낸 limit 인자가 창을 옛 컷(20)으로 되돌리지 못하게 한다

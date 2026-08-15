@@ -202,7 +202,7 @@ class GraphControllerTest {
     void returnsBuildStatus() throws Exception {
         GraphBuildStatusResponse buildStatus = new GraphBuildStatusResponse(
                 "succeeded", false, "2026-06-24T00:00:00+00:00",
-                new GraphBuildResponse(1, 2, 3, 4, 5), null);
+                new GraphBuildResponse(1, 2, 3, 4, 5, 6, 7), null);
         when(graphService.getBuildStatus(USER_ID, PROJECT_ID)).thenReturn(buildStatus);
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/graph/build/status", PROJECT_ID)

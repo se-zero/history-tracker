@@ -176,23 +176,33 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
          노이즈를 먼저 제거해 backfill/링크 대상에 끼지 않게 한다
       0.5(verify만). 시맨틱 TRIGGERED_BY/DISCUSSED_IN + REFERENCE clear — 임베딩 전용 빌드의
          결과를 비우고 재구축한다. 필터형은 "만들지 않는" 방식이라 삭제 동작이 없어서,
-         clear가 없으면 이전 엣지가 남아 필터가 아무 효과도 내지 못한다
+         clear가 없으면 이전 엣지가 남아 필터가 아무 효과도 내지 못한다. REFERENCE clear는
+         Document 대상 시맨틱 엣지도 함께 비운다(끝 라벨을 제한하지 않는 쿼리라서다).
+         DESCRIBED_IN(Issue→Document) semantic도 여기서 함께 비운다 — 이 엣지는 LLM 검수
+         빌더가 없어(아래 5) verify에서도 항상 자동구축으로만 다시 채워진다.
       1. 임베딩 누락 Communication 보정 (이후 비교 대상에 포함되도록)
       2. TRIGGERED_BY + DISCUSSED_IN 시맨틱 링크 (GitHub↔Jira, Jira↔Slack)
       3. REFERENCE 시맨틱 링크 (GitHub↔Slack/GitHub이슈)
       4. DISCUSSED_IN 스레드 전파 (2에서 만든 엣지를 같은 스레드로 확장)
+      5. REFERENCE(ChangeSet→Document) + DESCRIBED_IN(Issue→Document) 시맨틱 링크(문서 아키타입,
+         Notion) — verify 여부와 무관하게 항상 임베딩 전용 자동구축이다. LLM 검수 빌더는
+         Phase 1에 없다(false positive 비율을 eval로 본 뒤 도입 여부를 판단한다,
+         docs/notion-integration.md §6-2).
 
     모든 단계가 project_id로 스코프되고 idempotent. 동시성·상태 관리는 호출자
     (_execute_build / 디바운스 루프)가 담당한다 — 이 함수는 순수 시퀀스다.
     """
     from graph.builder import (
         clear_reference,
+        clear_semantic_described_in,
         clear_semantic_discussed_in,
         clear_semantic_triggered_by,
+        make_neo4j_document_link_store,
         make_neo4j_issue_link_store,
         make_neo4j_reference_store,
         propagate_thread_discussed_in,
     )
+    from graph.document_linker import build_described_in_document_edges, build_document_reference_edges
     from graph.reference_builder import backfill_communication_embeddings
     from graph.slack_batch_filter import run_slack_llm_filter
 
@@ -213,18 +223,27 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
 
     ref_store = make_neo4j_reference_store(project_id)
     link_store = make_neo4j_issue_link_store(project_id)
+    doc_store = make_neo4j_document_link_store(project_id)
 
     # 같은 시퀀스 안에서 동일 임베딩을 두 번 읽지 않도록 공유 메모이즈한다.
-    #   - issue 임베딩: triggered_by·discussed_in 두 빌더가 동일 쿼리로 읽음
+    #   - issue 임베딩: triggered_by·discussed_in·described_in(문서) 세 빌더가 동일 쿼리로 읽음
     #   - communication 임베딩: discussed_in·reference 두 빌더가 동일 쿼리로 읽음
     #     (comm 메모이즈는 backfill 이후 첫 호출되므로 보정된 임베딩까지 반영됨)
-    # modified 임베딩은 issue-linking용(text TRIGGERED_BY 제외)과 reference용(전체)이
-    # 서로 다른 쿼리라 공유 대상이 아니다 — 각자 1회 그대로 둔다.
+    #   - modified 임베딩(전체, text TRIGGERED_BY 제외 없음): reference·reference(문서) 두 빌더가
+    #     동일 쿼리로 읽음. issue-linking용(text TRIGGERED_BY 제외)은 여전히 다른 쿼리라 별도.
     shared_issue_fetch = _memoize_async(link_store.fetch_issue_embeddings)
     shared_comm_fetch = _memoize_async(ref_store.fetch_communication_embeddings)
+    shared_modified_fetch = _memoize_async(ref_store.fetch_modified_embeddings)
     link_store.fetch_issue_embeddings = shared_issue_fetch
     link_store.fetch_communication_embeddings = shared_comm_fetch
     ref_store.fetch_communication_embeddings = shared_comm_fetch
+    ref_store.fetch_modified_embeddings = shared_modified_fetch
+    doc_store.fetch_issue_embeddings = shared_issue_fetch
+    doc_store.fetch_modified_embeddings = shared_modified_fetch
+    # documents·sections는 doc_store 내부에서만 REFERENCE·DESCRIBED_IN 두 빌더가 공유하면 된다
+    # (다른 store는 이 데이터를 쓰지 않는다).
+    doc_store.fetch_documents = _memoize_async(doc_store.fetch_documents)
+    doc_store.fetch_document_sections = _memoize_async(doc_store.fetch_document_sections)
 
     # 0) Slack 노이즈 정제 — 신규 Slack 메시지만 LLM을 거친다(llm_filtered로 증분).
     # 링크보다 먼저 돌려 노이즈가 backfill/링크 대상에 끼지 않게 한다.
@@ -243,6 +262,10 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
         await clear_semantic_triggered_by(project_id)
         await clear_semantic_discussed_in(project_id)
         await clear_reference(project_id)
+        # DESCRIBED_IN(Issue→Document)은 LLM 검수 빌더가 없어 verify에서도 항상 자동구축으로만
+        # 다시 채워진다 — clear는 여전히 필요하다(정밀 재구축 시 이전 빌드의 false positive가
+        # 남지 않도록, 나머지 세 clear와 같은 이유).
+        await clear_semantic_described_in(project_id)
 
     results = {
         "slack_kept":        slack["kept"],
@@ -254,6 +277,9 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
         "discussed_in":      await build_discussed_in(link_store),
         "reference":         await build_reference(ref_store),
         "thread_propagated": await propagate_thread_discussed_in(project_id),
+        # 문서 아키타입(Notion) — verify 여부와 무관하게 항상 자동구축(임베딩 전용)이다.
+        "document_reference":   await build_document_reference_edges(doc_store),
+        "described_in_document": await build_described_in_document_edges(doc_store),
     }
     return results
 

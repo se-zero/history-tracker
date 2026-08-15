@@ -65,6 +65,10 @@ colors:
   node-jira:   "#7C93C9"   # slate-blue
   node-person: "#C77D9E"   # rose
   node-file:   "#7E8794"   # cool grey (가장 수가 많음 — 중립 유지)
+  node-doc:    "#B86FB8"   # orchid — hue 300°(HSL), node-slack(270°)·node-person(333°) 사이의
+                           # 빈 구간에서 채도(34%)·명도(58%)를 패밀리 평균에 맞춰 재선정. 앰버
+                           # 예약 구간(hue 60~90)과 멀어 액센트와 충돌하지 않는다(문서 아키타입,
+                           # docs/notion-integration.md §7).
 
   # 시맨틱 — 시스템 상태 전용 (노드 지시에는 쓰지 않는다).
   # warning은 의도적으로 존재하지 않는다. 액센트와 같은 hue 영역이라
@@ -112,6 +116,8 @@ colors-light:
   node-jira:   "#4C67A9"
   node-person: "#A4517A"
   node-file:   "#6F7987"   # 여전히 가장 조용하게
+  node-doc:    "#823082"   # 같은 hue(300°), 저명도 재선정(S46%/L35%) — 다크 대응 색과 같은
+                           # 패턴(node-commit 등)을 따른다.
 
   success: "#2F7D54"   # node-commit(라이트)과 같은 hex — 네임스페이스 분리는 테마 무관
   # danger 라이트 값은 미정 — 라이트에 danger 사용처가 등장할 때 확정한다.

@@ -35,6 +35,7 @@
   --node-jira:     oklch(0.52 0.109 266);  /* slate-blue #4C67A9 */
   --node-actor:    oklch(0.55 0.119 351);  /* rose       #A4517A */
   --node-code:     oklch(0.57 0.025 257);  /* cool grey  #6F7987 — 가장 수가 많아 가장 조용하게 */
+  --node-doc:      oklch(0.46 0.153 328);  /* orchid     #823082 — node-slack(301)과 node-actor(351) 사이 빈 hue */
 
   /* galaxy.css(.gd-item.active)가 아직 --primary-soft를 참조해 완전 제거가 보류됐다 —
      상세 사유는 tokens.css 하단 --primary-soft 선언부 주석 참고. */
@@ -315,6 +316,7 @@ body:has(.lp[data-theme="light"]) {
   --node-jira:     oklch(0.67 0.085 266);  /* slate-blue #7C93C9 */
   --node-actor:    oklch(0.68 0.100 352);  /* rose       #C77D9E */
   --node-code:     oklch(0.62 0.022 257);  /* cool grey  #7E8794 */
+  --node-doc:      oklch(0.65 0.133 327);  /* orchid     #B86FB8 — node-slack(307)과 node-actor(352) 사이 빈 hue */
 
   /* 그래프 우물 — 사다리보다 한 칸 더 내린다. 노드가 더 떠 보인다. */
   --surface-canvas: oklch(0.14 0.008 256);  /* #07090C — 틴트 유지, 순수 검정 금지 */

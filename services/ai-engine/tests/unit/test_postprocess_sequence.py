@@ -30,10 +30,17 @@ class _CallLog:
 
 
 def _fake_store():
-    """postprocess가 메모이즈 wrapper를 대입하므로 속성 대입이 가능한 대역이어야 한다."""
+    """postprocess가 메모이즈 wrapper를 대입하므로 속성 대입이 가능한 대역이어야 한다.
+
+    ref_store·link_store·doc_store 셋이 필요로 하는 필드의 합집합이다 — 어느 store로 쓰이든
+    같은 모양이면 충분하다(실제 타입은 dataclass지만 SimpleNamespace로도 속성 대입·호출이 된다).
+    """
     return SimpleNamespace(
         fetch_issue_embeddings=AsyncMock(return_value=[]),
         fetch_communication_embeddings=AsyncMock(return_value=[]),
+        fetch_modified_embeddings=AsyncMock(return_value=[]),
+        fetch_documents=AsyncMock(return_value=[]),
+        fetch_document_sections=AsyncMock(return_value=[]),
     )
 
 
@@ -56,6 +63,9 @@ def _run_sequence(verify: bool) -> list[str]:
             patch("graph.builder.make_neo4j_issue_link_store", lambda project_id=None: _fake_store())
         )
         stack.enter_context(
+            patch("graph.builder.make_neo4j_document_link_store", lambda project_id=None: _fake_store())
+        )
+        stack.enter_context(
             patch(
                 "graph.slack_batch_filter.run_slack_llm_filter",
                 AsyncMock(return_value={"kept": 0, "deleted": 0}),
@@ -65,6 +75,7 @@ def _run_sequence(verify: bool) -> list[str]:
         step("graph.builder.clear_semantic_triggered_by", "clear_triggered_by")
         step("graph.builder.clear_semantic_discussed_in", "clear_discussed_in")
         step("graph.builder.clear_reference", "clear_reference")
+        step("graph.builder.clear_semantic_described_in", "clear_described_in")
         step("graph.builder.propagate_thread_discussed_in", "propagate")
         # backfill만 {"saved", "total"}를 반환한다 — 시퀀스가 saved를 꺼내 쓴다
         step(
@@ -77,6 +88,9 @@ def _run_sequence(verify: bool) -> list[str]:
         step("graph.issue_linker.build_issue_changeset_links", "tb_embedding")
         step("graph.issue_linker.build_issue_communication_links", "di_embedding")
         step("graph.reference_builder.build_reference_edges", "ref_embedding")
+        # 문서(Notion) 빌더 — LLM 검수 변형이 없어 verify 여부와 무관하게 항상 이 경로다
+        step("graph.document_linker.build_document_reference_edges", "doc_reference")
+        step("graph.document_linker.build_described_in_document_edges", "doc_described_in")
 
         # LLM 개입(정밀 재구축) 빌더 — 채택된 것과 미채택된 것을 함께 감시한다
         step("graph.issue_verifier.build_issue_changeset_links_verified", "tb_verified")
@@ -105,8 +119,13 @@ class AutoRebuildSequenceTest(unittest.TestCase):
 
     def test_clears_nothing(self):
         # 자동 경로가 엣지를 지우면 웹훅 증분마다 그래프가 흔들린다
-        for name in ("clear_triggered_by", "clear_discussed_in", "clear_reference"):
+        for name in ("clear_triggered_by", "clear_discussed_in", "clear_reference", "clear_described_in"):
             self.assertNotIn(name, self.calls)
+
+    def test_uses_document_builders(self):
+        # 문서(Notion) 빌더는 LLM 검수 변형이 없어 verify=False에서도 항상 돈다
+        self.assertIn("doc_reference", self.calls)
+        self.assertIn("doc_described_in", self.calls)
 
 
 class VerifiedRebuildSequenceTest(unittest.TestCase):
@@ -124,8 +143,8 @@ class VerifiedRebuildSequenceTest(unittest.TestCase):
         for name in ("tb_embedding", "di_embedding", "ref_embedding"):
             self.assertNotIn(name, self.calls)
 
-    def test_clears_all_three_edge_types(self):
-        for name in ("clear_triggered_by", "clear_discussed_in", "clear_reference"):
+    def test_clears_all_edge_types(self):
+        for name in ("clear_triggered_by", "clear_discussed_in", "clear_reference", "clear_described_in"):
             self.assertIn(name, self.calls)
 
     def test_clear_reference_runs_before_reference_builder(self):
@@ -138,6 +157,16 @@ class VerifiedRebuildSequenceTest(unittest.TestCase):
     def test_clears_run_before_their_builders(self):
         self.assertLess(self.calls.index("clear_triggered_by"), self.calls.index("tb_verified"))
         self.assertLess(self.calls.index("clear_discussed_in"), self.calls.index("di_filtered"))
+
+    def test_clear_described_in_runs_before_document_builder(self):
+        # DESCRIBED_IN(Document)은 LLM 검수 변형이 없어 verify=True에서도 항상 자동구축인데,
+        # clear가 먼저 돌지 않으면 이전 빌드의 false positive가 재구축 결과에 섞여 남는다.
+        self.assertLess(self.calls.index("clear_described_in"), self.calls.index("doc_described_in"))
+
+    def test_still_uses_document_builders(self):
+        # 문서 빌더는 verify 여부와 무관하게 항상 임베딩 전용이다(LLM 검수 변형 없음)
+        self.assertIn("doc_reference", self.calls)
+        self.assertIn("doc_described_in", self.calls)
 
 
 if __name__ == "__main__":

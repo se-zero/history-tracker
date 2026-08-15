@@ -36,9 +36,26 @@ AUC +0.0026(95% CI [−0.005, +0.010])으로 **측정 해상도 안에서 구분
 | `Communication` 노드 | `body` | `Communication.embedding` | REFERENCE 엣지 생성 + 쿼리 시맨틱 검색 (`comm_embedding` 인덱스) |
 | `MODIFIED` 엣지 | LLM이 생성한 `diffSummary` | `MODIFIED.embedding` | REFERENCE 엣지 생성 (벡터 인덱스 없음 — 브루트포스 비교) |
 | `Issue` 노드 | `title + "\n\n" + body` | `Issue.embedding` | 쿼리 시맨틱 검색 (`issue_embedding` 인덱스); refs 없는 시맨틱 엣지 생성은 향후 |
+| `DocumentSection` 노드 | `heading_path + "\n\n" + text` | `DocumentSection.embedding` | REFERENCE(ChangeSet→Document)·DESCRIBED_IN(Issue→Document) 엣지 생성 + 쿼리 시맨틱 검색 (`doc_section_embedding` 인덱스) |
 
 > `MODIFIED` 엣지에는 `diffSummary`(사람이 읽는 텍스트)와 `embedding`(벡터)이 **둘 다** 저장된다.
 > LLM은 임베딩 벡터가 아닌 원본 텍스트를 읽고 답변을 생성한다.
+
+### `DocumentSection` 청킹 규칙 (`graph/document_chunker.py`)
+
+`Communication`·`Issue`는 노드 하나에 임베딩 하나지만, `Document`(Notion 등 장기 문서)는 본문이
+길어 통짜 임베딩이 다주제 문서에서 의미가 평균화된다. 그래서 본문을 `DocumentSection`으로 쪼개
+섹션 단위로 임베딩한다(매칭은 섹션 단위, 그래프 엣지는 문서 단위 — `document_linker.py`).
+
+- Notion normalizer가 보존한 Markdown 유사 heading(`#`~`###`)을 경계로 1차 분할한다.
+  h1~h3 계층은 `상위 > 하위` 형태(`heading_path`)로 보존해 섹션 텍스트만으로 빠지는 맥락을 보탠다.
+- 한 섹션이 `MAX_SECTION_CHARS`(1,500자)를 넘으면 문단 → 줄 → 문자 경계 순으로 다시 자른다
+  (내용 손실보다 상한 보장이 우선).
+- `MIN_SECTION_CHARS`(200자) 미만인 조각은 다음 섹션에 병합한다 — 짧은 전제·목차가 heading_path만
+  남기고 사라지지 않게 한다.
+- 이 모듈은 Neo4j·OpenAI를 모르는 순수 함수라 문서 구조 규칙만 단위 테스트로 고정할 수 있다.
+- 임베딩은 이벤트 수신 시 `event_handler._handle_document`가 섹션 전체를 `embed_batch`로 1콜 처리한다
+  (Communication/Issue처럼 콜당 1건이 아니라, 문서 하나가 여러 섹션이라 배치로 묶는다).
 
 ---
 
@@ -72,7 +89,19 @@ Issue 이벤트         → embed_text(title + body)   → Issue.embedding 저�
 스윕으로 엣지 타입별로 재조정했다 (`docs/measurement.md` 4.5, `eval/improvement-log.md`).
 **임계값은 임베딩 모델에 종속**이라 위 표의 점수대는 3-large로 바꾼 지금은 그대로 적용되지 않는다 —
 모델을 교체하면 전 임계값 재스윕이 전제다. 현행 채택값은 코드 상수가 단일 출처다
-(`reference_builder.DEFAULT_THRESHOLD`, `issue_linker.DISCUSSED_IN_THRESHOLD`/`TRIGGERED_BY_THRESHOLD`).
+(`reference_builder.DEFAULT_THRESHOLD`, `issue_linker.DISCUSSED_IN_THRESHOLD`/`TRIGGERED_BY_THRESHOLD`,
+`document_linker.DOCUMENT_REFERENCE_THRESHOLD`/`DESCRIBED_IN_THRESHOLD`).
+
+`document_linker.py`의 두 임계값은 자체 실측이 아니라 **같은 성격의 기존 쌍에서 초기값을 물려받은
+잠정값**이다 — Document는 도입 초기라 정답지가 아직 없다.
+
+| 임계값 | 값 | 물려받은 쪽 | 근거 |
+|---|---|---|---|
+| `DOCUMENT_REFERENCE_THRESHOLD` (ChangeSet↔Document) | 0.44 | `reference_builder.DEFAULT_THRESHOLD`(ChangeSet↔Communication) | 둘 다 "diff 요약 대 텍스트" 비교 |
+| `DESCRIBED_IN_THRESHOLD` (Issue↔Document) | 0.48 | `issue_linker.DISCUSSED_IN_THRESHOLD`(Issue↔Communication) | 둘 다 "텍스트 대 텍스트" 비교. `TRIGGERED_BY_THRESHOLD`(0.34, 이슈-코드diff)가 아니다 |
+
+섹션 단위 비교가 통짜 비교보다 점수가 높게 나오는 경향이 있어, eval 재스윕 전까지는 위 값을
+그대로 굳히지 않는다(`docs/notion-integration.md` §2-6).
 
 ---
 
@@ -89,6 +118,16 @@ occurredAt 차이 5일 이내인 쌍만 코사인 유사도 계산  ← 시간 �
 유사도 ≥ 0.44 → REFERENCE 엣지 생성 (confidence = 유사도)
 ```
 
+이 5일 양방향 윈도우는 **ChangeSet↔Communication 전용**이다. `document_linker.py`(ChangeSet/Issue↔
+Document)는 다른 윈도우를 쓴다 — 문서는 오래 살아 상한을 두지 않는 대신, 문서당 top-k(5) 컷으로
+후보 폭증을 막는다:
+
+```
+[document.createdAt - 7일, ∞)  ← 하한만(문서가 쓰이기 전 활동은 근거로 보지 않음), 상한 없음
+  ↓
+문서당 top-5 매칭만 유지 (반대편 ChangeSet/Issue는 열어 둠 — 문서 하나가 여러 변경의 근거인 게 정상)
+```
+
 ---
 
 ## 구현 파일
@@ -96,7 +135,9 @@ occurredAt 차이 5일 이내인 쌍만 코사인 유사도 계산  ← 시간 �
 | 파일 | 역할 |
 |------|------|
 | `graph/embedder.py` | `embed_text()`, `embed_batch()`, `cosine_similarity()` |
-| `graph/reference_builder.py` | REFERENCE 엣지 배치 생성, Communication 임베딩 보정 |
+| `graph/reference_builder.py` | REFERENCE(ChangeSet↔Communication) 엣지 배치 생성, Communication 임베딩 보정 |
+| `graph/document_chunker.py` | Document 본문을 `DocumentSection` 단위로 청킹(순수 함수, Neo4j·OpenAI 미의존) |
+| `graph/document_linker.py` | REFERENCE(ChangeSet↔Document)·DESCRIBED_IN(Issue↔Document) 엣지 배치 생성 |
 | `graph/event_handler.py` | 이벤트 처리 시 임베딩 호출 |
 
 ---
