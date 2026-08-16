@@ -38,7 +38,7 @@ async def get_changeset_context(project_id: str, hash: str) -> dict:
                        confidence: ref.confidence
                    }) AS communications,
                    collect(DISTINCT {
-                       title: d.title, url: d.url, source: d.source,
+                       external_id: d.external_id, title: d.title, url: d.url, source: d.source,
                        confidence: docref.confidence
                    }) AS documents,
                    {pr_number: pr.pr_number, title: pr.title, url: pr.url} AS pull_request,
@@ -193,7 +193,7 @@ async def get_pr_context(project_id: str, pr_number: int) -> dict:
                        author: c_author.name, confidence: ref.confidence
                    }) AS discussions,
                    collect(DISTINCT {
-                       title: d.title, url: d.url, source: d.source,
+                       external_id: d.external_id, title: d.title, url: d.url, source: d.source,
                        confidence: docref.confidence
                    }) AS documents,
                    collect(DISTINCT {path: f.path, diff_summary: m.diffSummary}) AS file_changes

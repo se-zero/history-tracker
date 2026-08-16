@@ -301,7 +301,9 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   text/semantic 구분 적용). "이 이슈의 설계 배경이 뭐야"류 질문은 이슈를 먼저 조회했다면
   별도 검색 없이 이 필드로 답하세요 — 필요하면 external_id로 get_document_context를 이어서
   호출해 본문 전체를 봅니다(Document.body에는 커밋 메시지·이슈 설명보다 상세한 배경이 실려
-  있습니다).
+  있습니다). get_changeset_context·get_pr_context 결과의 documents[]도 마찬가지로
+  external_id를 실어 주니, 커밋·PR에서 발견한 문서도 같은 방식으로 본문까지 파고들 수
+  있습니다.
 
 [2계층 결과 처리 — get_file_history · get_actor_activity]
 - 이 도구들의 결과는 {detail:[...], context:[...]} 2계층이다. detail은 본문 포함(인용 대상),

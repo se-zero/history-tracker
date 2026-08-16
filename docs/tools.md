@@ -102,8 +102,11 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | `hash` | string | ✔ | Git commit hash |
 
 - 반환: `hash`, `commit_message`, `author`, `issues[]`(연결 이슈, confidence/link_source),
-  `communications`(스레드 그룹핑), `pull_request`(단일), `file_changes[]`(`path`+`diffSummary`).
+  `communications`(스레드 그룹핑), `documents[]`(연결 문서, `REFERENCE` 엣지 기준),
+  `pull_request`(단일), `file_changes[]`(`path`+`diffSummary`).
 - 논의는 `REFERENCE` 엣지 기준(커밋→Communication).
+- `documents[*]`에 `external_id`(`title`/`url`/`source`/`confidence`와 함께) 포함 — 이 값으로
+  `get_document_context`를 호출해 본문 전체를 조회한다.
 
 ### 3. `find_expert`
 
@@ -346,7 +349,8 @@ PR 번호로 시작하는 탐색.
 | `pr_number` | integer | ✔ | GitHub PR 번호 |
 
 - 반환: PR 메타(`title`/`body`/`merged_at`/`created_at`/`url`/`author`) + `changesets[]` +
-  `issues[]`(confidence/link_source) + `discussions`(스레드 그룹핑) + `file_changes[]`.
+  `issues[]`(confidence/link_source) + `discussions`(스레드 그룹핑) + `documents[]`(연결 문서,
+  `external_id` 포함 — `get_document_context`로 이어 조회) + `file_changes[]`.
 
 ### 13. `get_thread_context`
 
