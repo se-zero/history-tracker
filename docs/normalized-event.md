@@ -201,7 +201,7 @@ Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 �
 | `url` | string | 표시·링크용. **자연키가 아니다**(제목이 바뀌면 URL도 바뀐다) |
 | `created_at` | string | 생성 시각 |
 | `parent_type` | string | `page_id` \| `database_id` \| `data_source_id` \| `workspace` |
-| `parent_external_id` | string \| 생략 | 부모 **page** id. 부모가 page가 아니면 생략 — `CHILD_OF` 매칭 키 |
+| `parent_external_id` | string \| 생략 | 부모 **page** id. 부모가 page가 아니면 생략 — `CHILD_OF` 매칭 키. **`properties`에 둔다** — Issue의 부모 키(`refs.parentExternalId`, 아래 「refs — 교차 참조」)와 위치가 다르니 혼동하지 말 것 |
 
 `occurredAt`: 최종 수정 시각 — checkpoint 전진 기준. 편집된 문서는 이 값이 갱신돼 다시
 수집 대상 상단으로 올라온다(대화 아키타입에는 없는, 문서 아키타입만의 재수집 신호).
@@ -220,7 +220,7 @@ Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 �
 | `issueExternalRefs` | {source, externalId}[] | ChangeSet, PullRequest, Communication, Document | 이슈 키가 없는 소스(Asana 등)의 URL 참조. `(project_id, source, external_id)` **실키**로 직접 Issue pre-node를 MERGE하고(부모 참조와 동일 메커니즘, `__stub__` 센티널 불필요) 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN` / `DESCRIBED_IN`(Document) text 엣지를 건다. PullRequest는 `"SOURCE:externalId"` 문자열 배열로 `issue_external_ids` 속성에 저장해 CONTAINS 커밋에 전파한다 |
 | `documentExternalRefs` | {source, externalId}[] | ChangeSet, PullRequest, Communication | **역방향** 문서 참조 — 커밋/PR/대화 텍스트에 박힌 Notion URL(§normalizer가 문서 URL 패턴에서 추출). `issueExternalRefs`와 동일한 실키 pre-node 메커니즘으로 Document를 향해 text `REFERENCE`(ChangeSet)/`DISCUSSED_IN`(Communication)를 건다. PullRequest는 `issue_external_ids`와 같은 인코딩으로 `document_external_ids` 속성에 저장해 CONTAINS 커밋에 text `REFERENCE`로 전파한다 — 실무에서 Notion 링크는 커밋 메시지보다 PR 본문에 흔하다 |
 | `prNumber` | string | ChangeSet | PR → 커밋 `CONTAINS` |
-| `parentExternalId` | string | Issue, Document | 부모의 **불변 ID** — `CHILD_OF` 매칭 키. 이 값이 있어야 링크된다. Document는 부모 **page**만 대상이다(부모가 database 등이면 이 키 자체를 생략) |
+| `parentExternalId` | string | Issue | 부모의 **불변 ID** — `CHILD_OF` 매칭 키. 이 값이 있어야 링크된다. **Document는 이 refs 키를 쓰지 않는다** — `properties.parent_external_id`다(위 Document 표 참고). 같은 이름의 키가 nodeType마다 다른 곳에 있으니 새 문서 소스를 붙일 때 이 표만 보고 Document의 부모 키를 refs에 넣지 않도록 주의 |
 | `parentIssueKey` | string | Issue | 부모 pre-node의 표시 키 (노드 생성 시에만 기록) |
 | `assignees` | {id, name, email, bot}[] | Issue | 각 담당자를 Actor로 승격 후 `ASSIGNED_TO` (담당자 수만큼 엣지). `id`가 null인 항목은 발행 측에서 제외한다. `bot`은 선택(§actor) |
 | `editors` | {id, name, email, bot}[] | Document | 최종 편집자(Notion `last_edited_by`) 1명을 배열로 감싼 것. 각 편집자를 Actor로 승격 후 `EDITED`. **누적 규약** — 아래 참고 |

@@ -350,7 +350,7 @@ Document에 걸어 두므로(관계 목록 참고) 섹션이 통째로 갈려도
 | `WROTE` | `(Actor)→(Document)` | — | Actor가 문서를 작성 (`created_by`). Communication과 같은 동사 — 둘 다 텍스트 작성 |
 | `EDITED` | `(Actor)→(Document)` | — | Actor가 문서를 편집 (`last_edited_by`). **누적** — `refs.editors`가 최종 편집자 1명뿐이라도 과거 편집자를 지우지 않는다(ASSIGNED_TO의 스냅샷 교체와 반대) |
 | `PART_OF` | `(DocumentSection)→(Document)` | — | 섹션이 속한 문서. 내부 구조, 재수집 시 섹션은 전량 교체 |
-| `CHILD_OF` | `(Document)→(Document)` | — | 문서 계층 구조(부모 page). `refs.parentExternalId` 기반, Issue CHILD_OF와 같은 pre-node MERGE |
+| `CHILD_OF` | `(Document)→(Document)` | — | 문서 계층 구조(부모 page). `properties.parent_external_id` 기반(Issue와 달리 refs가 아니다), Issue CHILD_OF와 같은 pre-node MERGE |
 | `DESCRIBED_IN` | `(Issue)→(Document)` | `source: String (text\|semantic)`, `confidence: Float`, `section: String` (semantic만) | 이슈가 문서에 기술됨. text(`refs.issueKeys`/`issueExternalRefs`)=1.0 고정, semantic=`DocumentSection.embedding` 유사도(임베딩 전용 자동구축, `verify` 여부와 무관 — LLM 검수 빌더 없음). text가 우선. `section`은 semantic 매칭의 최고점 heading_path(근거 위치) |
 | `DISCUSSED_IN` | `(Document)→(Communication)` | `source: String (text)` | 대화 본문의 문서 URL(`refs.documentExternalRefs`). Issue DISCUSSED_IN(text)와 같은 규약 — confidence 없음 |
 | `REFERENCE` | `(ChangeSet)→(Document)` | `source: String (text\|semantic)`, `confidence: Float`, `section: String` (semantic만) | 커밋(또는 그 커밋을 포함한 PR 본문)의 문서 URL. text=1.0 고정, semantic=`MODIFIED.embedding` ↔ `DocumentSection.embedding` 유사도(임베딩 전용 자동구축, `verify` 여부와 무관 — LLM 검수 빌더 없음). PR `refs.documentExternalRefs`는 `pr.document_external_ids`에 실어 그 PR의 CONTAINS 커밋에 전파(TRIGGERED_BY의 PR 전파와 동일 메커니즘) |
@@ -420,7 +420,7 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | Layer 2 | `DISCUSSED_IN` (text) | `refs.issueKey` 존재 시 | Communication의 refs |
 | Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.issueKey`, 또는 PR `issue_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
-| Layer 2 | `CHILD_OF` (Document) | `refs.parentExternalId` 존재 시 | Document의 refs (부모 page). parent는 실키 pre-node로 선생성 |
+| Layer 2 | `CHILD_OF` (Document) | `properties.parent_external_id` 존재 시 | Document의 properties (부모 page) — Issue와 달리 refs가 아니다. parent는 실키 pre-node로 선생성 |
 | Layer 2 | `DESCRIBED_IN` (text) | Document `refs.issueKeys`/`issueExternalRefs` 존재 시 | Document의 refs — 이슈 실노드 없으면 `__stub__` 폴백(issueKeys) 또는 실키 pre-node(issueExternalRefs). `source='text'`, `confidence=1.0` |
 | Layer 2 | `DISCUSSED_IN` (Document, text) | Communication `refs.documentExternalRefs` 존재 시 | 대화 본문의 문서 URL. `source='text'`, confidence 없음 |
 | Layer 2 | `REFERENCE` (ChangeSet→Document, text) | ChangeSet `refs.documentExternalRefs`, 또는 PR `document_external_ids`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 URL. `source='text'`, `confidence=1.0` — REFERENCE의 첫 text 경로(N0가 `source` 필드를 선행 도입) |

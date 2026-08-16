@@ -579,7 +579,7 @@ resolve_actor(created_by)                       → WROTE
 upsert_document(...)                            → 노드
 chunk(body) → embed_batch(섹션들)               → replace_document_sections (전량 교체)
 refs.editors → resolve_actor → set_document_editors (누적)
-refs.parentExternalId → link_document_to_parent  (CHILD_OF, pre-node)
+properties.parent_external_id → link_document_to_parent  (CHILD_OF, pre-node — Issue와 달리 refs가 아니다)
 refs.issueKeys / issueExternalRefs → DESCRIBED_IN(source='text', confidence=1.0)
 ```
 
