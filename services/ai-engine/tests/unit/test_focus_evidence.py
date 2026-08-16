@@ -70,8 +70,11 @@ class OrchestratorFocusEvidenceTest(unittest.IsolatedAsyncioTestCase):
         )
         focus_msg = captured_exploration_messages[1]
         self.assertIn("abc1234def5678", focus_msg["content"])
-        # 유형별 도구를 명시해 지정 노드를 먼저 조회하도록 유도한다.
+        # 유형별 도구를 명시해 지정 노드를 먼저 조회하도록 유도한다 — Notion 문서 노드도
+        # 첨부 가능해졌으므로 document→get_document_context 매핑이 빠지면 첨부한 문서를
+        # 무시하고 다른 도구로 새는 경로가 열린다.
         self.assertIn("get_changeset_context", focus_msg["content"])
+        self.assertIn("get_document_context", focus_msg["content"])
 
         # prior_evidence와 정반대 — focus 지시는 최종 structured 근거 호출까지 살아남는다.
         self.assertEqual(
@@ -156,6 +159,30 @@ class OrchestratorFocusEvidenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("abc1234def5678", str(captured_structured))
         self.assertNotIn("OAuth callback update", str(captured_structured))
         self.assertNotIn("이전 답변 PR #18", str(captured_structured))
+
+
+class GroundedAnswerDocumentEvidenceTest(unittest.TestCase):
+    """document 노드를 채팅에 첨부해 get_document_context로 조회해도, 최종 structured
+    답변의 evidence[].type enum에 "document"가 없으면 인용 자체가 불가능하다 — focus 지시의
+    도구 라우팅만 고쳐서는 문서를 근거로 답하는 경로가 완성되지 않는다.
+    """
+
+    def test_evidence_type_enum_includes_document(self):
+        self.assertIn("document", orchestrator._EVIDENCE_TYPES)
+        self.assertIn(
+            "document",
+            orchestrator._GROUNDED_ANSWER_SCHEMA["schema"]["properties"]["evidence"]["items"]
+            ["properties"]["type"]["enum"],
+        )
+
+    def test_event_meanings_include_document_created_and_updated(self):
+        self.assertIn("document_created", orchestrator._EVENT_MEANINGS)
+        self.assertIn("document_updated", orchestrator._EVENT_MEANINGS)
+        self.assertIn(
+            "document_created",
+            orchestrator._GROUNDED_ANSWER_SCHEMA["schema"]["properties"]["evidence"]["items"]
+            ["properties"]["event_meaning"]["enum"],
+        )
 
 
 if __name__ == "__main__":

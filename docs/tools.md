@@ -147,7 +147,10 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
   (case-05: 자식 이슈 4건 조회가 타임라인 1회로 대체되며 recall 0.778 → 0.111).
 - **노드 ≠ 이벤트**: 한 노드가 이벤트를 여러 개 낳는다. 매핑 단일 출처는
   `tools/queries/_common.py`의 `EVENT_SPECS`이며, `agent/orchestrator.py`의 타임스탬프 의미
-  사전과 함께 움직여야 한다.
+  사전과 함께 움직여야 한다. 단, `orchestrator.py` 쪽은 Document(`document_created`/
+  `document_updated`)를 하나 더 갖는 상위집합이다 — Document는 작업 단위가 아니라 맥락이라
+  `get_timeline`엔 들어가지 않지만, `get_issue_context.documents[]`·`get_document_context`로
+  조회된 뒤엔 evidence로 인용될 수 있어야 하기 때문이다.
 
   | 노드 | 시각 속성 | `event_meaning` |
   |---|---|---|

@@ -10,8 +10,12 @@ from graph.driver import get_driver
 
 # ─── 시간축: 노드 → 이벤트 펼치기 ──────────────────────────────────────────────
 # 한 노드는 시간 이벤트를 여러 개 낳는다 — Issue는 생성·종료, PR은 오픈·머지.
-# 이 표가 단일 출처다 (docs/timeline-scope.md의 매핑 표, agent/orchestrator.py의
-# 타임스탬프 의미 사전과 일치해야 한다).
+# 이 표가 get_timeline 이벤트 매핑의 단일 출처다 (docs/timeline-scope.md의 매핑 표와
+# 일치해야 한다). agent/orchestrator.py의 타임스탬프 의미 사전은 이 표를 그대로 담되,
+# Document 한 종류를 더 갖는 상위집합이다 — Document는 작업 단위가 아니라 맥락이라
+# get_timeline엔 들어가지 않지만(graph/overview.py의 _WORK_UNIT_LABELS와 같은 판단),
+# get_issue_context.documents[]·get_document_context로 조회한 뒤엔 evidence로 인용될 수
+# 있어 그쪽 사전에만 document_created/document_updated가 있다.
 #
 # Issue.occurredAt(최종 업데이트)은 생성도 종료도 아니라 의미가 모호하므로 이벤트로
 # 만들지 않는다 — 라벨 없이 노출하면 모델이 생성/완료로 추정해 뒤집는다

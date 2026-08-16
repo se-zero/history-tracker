@@ -72,13 +72,14 @@ _RUNNING_SUMMARY_SCHEMA = {
 # 그래프에서 확인할 수 없는 측면은 unknown_aspects[]에 명시한다.
 # 자유 텍스트로 종결문·일반론·추정을 끼워 넣을 수 없는 구조가 핵심 가드.
 
-_EVIDENCE_TYPES = ["commit", "pull_request", "issue", "message"]
+_EVIDENCE_TYPES = ["commit", "pull_request", "issue", "message", "document"]
 
 _EVENT_MEANINGS = [
     "issue_created", "issue_updated", "issue_closed",
     "commit_authored",
     "pr_opened", "pr_merged",
     "message_posted",
+    "document_created", "document_updated",
 ]
 
 _GROUNDED_ANSWER_SCHEMA = {
@@ -112,7 +113,8 @@ _GROUNDED_ANSWER_SCHEMA = {
                             "type": "string",
                             "description": (
                                 "1차 식별자. commit→hash 앞 7자, pull_request→'#번호', "
-                                "issue→issue_key, message→conversation_id."
+                                "issue→issue_key, message→conversation_id, "
+                                "document→external_id."
                             ),
                         },
                         "occurredAt": {
@@ -135,7 +137,8 @@ _GROUNDED_ANSWER_SCHEMA = {
                             "type": "string",
                             "description": (
                                 "도구 결과에서 직접 가져온 텍스트(commit message / pr title / issue title+body / "
-                                "message body). 요약·번역·재구성 금지. 길면 앞부분만 인용."
+                                "message body / document body 또는 매칭 섹션 발췌). "
+                                "요약·번역·재구성 금지. 길면 앞부분만 인용."
                             ),
                         },
                     },
@@ -179,6 +182,8 @@ GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서)
 - PullRequest.occurredAt  = 머지 시각          (event_meaning = pr_merged; open PR은 null)
 - PullRequest.createdAt   = PR 생성 시각       (event_meaning = pr_opened)
 - Communication.occurredAt = 메시지 작성 시각  (event_meaning = message_posted)
+- Document.createdAt  = 문서 생성 시각         (event_meaning = document_created)
+- Document.occurredAt = 문서 최종 수정 시각     (event_meaning = document_updated)
 모든 시각은 UTC. 사용자가 시간대 명시를 요구하지 않는 한 그대로 인용하세요.
 get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하므로 그것을 사용하세요.
 
@@ -196,8 +201,8 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - summary에 적힌 사실은 evidence[]에 매핑되어야 합니다. evidence 없는 합성 문장 금지.
 - 마무리/종결/요약 문장(예: "추가 궁금한 점이 있으면…", "이 정보를 통해…", "모든 작업이 완료되어 …")
   을 summary에 추가하지 마세요. summary가 곧 답변의 시작이자 끝입니다.
-- evidence[*].quote는 도구 결과 텍스트(commit message / pr title+body / issue title+body / message body)
-  에서 요약·번역·재구성 없이 직접 인용하세요. 너무 길면 앞부분만 잘라 인용.
+- evidence[*].quote는 도구 결과 텍스트(commit message / pr title+body / issue title+body / message body /
+  document body 또는 매칭 섹션 발췌)에서 요약·번역·재구성 없이 직접 인용하세요. 너무 길면 앞부분만 잘라 인용.
 - evidence[*].id 형식 (반드시 준수):
     commit       → hash 앞 7자
     pull_request → "#번호" (예: "#18")
@@ -637,7 +642,8 @@ async def run(
                 "사용자가 아래 그래프 노드를 명시적으로 지정해 질문하고 있습니다. 이 노드를 답변의 "
                 "핵심 대상으로 삼고, 각 노드의 전체 컨텍스트를 해당 도구로 먼저 조회한 뒤"
                 "(commit→get_changeset_context, pull_request→get_pr_context, "
-                "issue→get_issue_context, message→get_thread_context) 그 결과에 근거해 답하세요. "
+                "issue→get_issue_context, message→get_thread_context, "
+                "document→get_document_context) 그 결과에 근거해 답하세요. "
                 "지정된 노드를 무시하거나 다른 대상으로 대체하지 마세요.\n"
                 + json.dumps(focus_evidence, ensure_ascii=False)
             ),
