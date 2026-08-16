@@ -346,12 +346,24 @@ webhook·스케줄러 없이, 연동 직후 1회 초기 수집과 GitHub PR 머�
 1. `reply_count > 0`
 2. **메시지가 checkpoint 이후** 또는 **`latest_reply`가 checkpoint 이후**
 
-`conversations.replies` 호출 시 `oldest=lastScannedAt` 파라미터를 붙여 서버사이드 필터링한다.
+`conversations.replies` 호출 시 `oldest=채널 커서` 파라미터를 붙여 서버사이드 필터링한다.
 
 수집 대상(발행할 메시지)과 reply 확인 대상(오래된 스레드 포함)을 `ChannelMessages` record로 분리해 처리한다.
 normalize 경로는 `conversations.history`를 page 단위로 가져오고, 해당 page의 메시지와 thread replies를 정규화·발행한다.
-Slack checkpoint는 채널별로 갱신하지 않고 전체 실행 중 최대 `occurredAt`을 마지막에 한 번 갱신한다.
-Slack checkpoint는 `checkpoints` 테이블에서 `provider=slack`, `cursor_key=slack_messages` row에 저장한다.
+
+### Checkpoint — 채널별 커서
+
+Slack checkpoint는 `checkpoints` 테이블에 **채널별로** 저장한다: `provider=slack`, `cursor_key=slack_messages:<channelId>`.
+채널의 history를 끝까지 걸은(완주한) 직후 그 채널의 최대 `occurredAt`으로 갱신한다 — history가 최신→과거
+순이라 최대값이 1페이지에 오므로 페이지 단위 전진은 불가하고, **채널 완주가 안전한 최소 단위**다. 중간에
+실행이 죽어도 완주한 채널의 진행은 보존되어 다음 실행이 그 채널을 (아래 14일 되돌아보기만 남기고) 건너뛴다 —
+429가 잦은 신규 한도 체제에서 초기 수집을 여러 실행에 나눠 끝내기 위한 구조다.
+
+- 채널 키가 없으면 레거시 전역 키(`slack_messages`)를 fallback으로 읽는다(채널별 도입 전 데이터의 이관 경로).
+  이벤트가 없는 채널도 시작 커서를 그대로 자기 키로 저장하므로, 무예외 완주 1회면 전 채널이 자기 키를
+  갖게 되고 그 시점에 레거시 키를 삭제한다. 채널 목록이 비어 있으면 워터마크 보호를 위해 삭제하지 않는다.
+- 채널 목록에 없는 채널의 키(삭제·아카이브된 채널의 고아 커서)는 목록 조회 직후 삭제한다. 봇이 쫓겨난
+  private 채널이 재초대되면 그 채널만 처음부터 다시 수집된다(다운스트림 중복 제거 전제로 수용).
 
 ### occurredAt 기준
 
@@ -363,14 +375,32 @@ Slack checkpoint는 `checkpoints` 테이블에서 `provider=slack`, `cursor_key=
 - `conversations.list`: 3,000ms
 - `conversations.history` · `conversations.replies`: 1,200ms
 
+429 응답은 `Retry-After` **헤더**(정수 초, 없거나 형식이 어긋나면 60초 폴백)만큼 대기 후 최대 3회
+재시도한다. 첫 429부터는 그 실행 동안 해당 엔드포인트의 호출 간격을 Retry-After 값으로 승격한다
+(실행 단위 `SlackPacing`). 배경: 2025-05-29 이후 생성된 비마켓플레이스 배포형 앱은 `history`/`replies`가
+분당 1회·요청당 15건으로 제한되는데(Marketplace 승인 시 해제), 고정 딜레이는 구 한도 기준을 유지하고
+신규 한도는 429 적응으로 흡수해 어느 체제든 설정 변경 없이 동작한다. `ok:false`/null 응답은 빈 페이지로
+삼키지 않고 즉시 예외로 실패시킨다 — 조용히 넘기면 "채널 완주"로 위장돼 채널 커서를 잘못 전진시킨다.
+
 ### Tradeoff & 예상 문제점
 
-#### `conversations.history`에 `oldest` 파라미터 없음 — 채널 히스토리 순회
+#### `conversations.history`의 `oldest` — 커서 − 14일 되돌아보기
 
-`fetchHistoryPage`의 URI에 `oldest=lastScannedAt`이 없다. 매번 채널의 메시지 히스토리를 최신순으로 cursor 페이지네이션으로 순회한다.
+`fetchHistoryPage`는 채널 커서가 있으면 URI에 `oldest = 채널커서 − 14일`(`THREAD_LOOKBACK`)을 붙여
+서버사이드로 자른다. 커서가 없으면(초기 수집) oldest 없이 전체를 걷는다.
 
-- **문제**: 채널 메시지가 수만 건인 경우 checkpoint 시각에 도달할 때까지 수십 페이지를 API로 가져온다. 대형 워크스페이스에서 수집 시간과 API 호출량이 선형 증가하며 현실적으로 수 시간이 걸릴 수 있다. 더 심각한 문제는 **조기 종료 로직이 없다**는 점 — checkpoint 이전 메시지가 나와도 루프가 계속 돌아 채널 전체 히스토리를 끝까지 받아온다.
-- **방법 선택 이유**: `threadCandidates` 수집을 위해 checkpoint 이전 메시지도 `latest_reply` 체크가 필요하다. 단순히 `oldest` 파라미터를 추가하면 오래된 스레드에 달린 새 reply를 놓친다.
+- **왜 커서 그대로가 아니라 14일을 빼는가**: history는 스레드 답글을 반환하지 않는다(루트만 옴). 오래된
+  루트에 새 답글이 달렸는지는 루트의 `latest_reply`를 봐야 아는데, 커서로 그대로 자르면 커서 이전 루트가
+  응답에서 사라져 기존 스레드의 새 답글을 전부 놓친다. 14일 창 안의 루트는 다시 보이지만 클라이언트
+  필터(`isBeforeCheckpoint`)가 재발행을 막고, replies의 `oldest`는 커서 그대로라 새 답글만 온다.
+- **알려진 한계**: 루트가 14일보다 오래된 스레드에 달리는 새 답글은 놓친다. 창을 넓히면 실행당 호출 수가
+  비례해 늘어나는 트레이드오프라 14일 고정으로 정했다(설정으로 빼지 않음).
+
+#### `ts` 파싱 실패 시 `Instant.now()` 폴백 — 커서 오염 가능성 (보류 중)
+
+`SlackNormalizer.tsToInstant`는 `ts`가 없거나 파싱에 실패하면 `Instant.now()`를 반환한다. 이 값이
+`occurredAt`으로 흘러 채널 커서를 미래로 끌어올리면 `oldest` 필터가 실제로 안 본 구간을 건너뛸 수 있다.
+정상 응답에서는 발생하지 않는 경로라 수정을 미뤘다 — 후속 작업 후보.
 
 #### Slack — 실행 중 유지 데이터
 
@@ -404,12 +434,13 @@ Slack checkpoint는 `checkpoints` 테이블에서 `provider=slack`, `cursor_key=
 | 활성 스레드 목록 | `GET /guilds/{guild_id}/threads/active` |
 | 채널·스레드 메시지 | `GET /channels/{channel_id}/messages` |
 
-DB checkpoint: `discord/discord_messages` (Slack과 같은 이유로 채널을 가로질러 마지막에 한 번만 갱신).
+DB checkpoint: `discord/discord_messages` (채널을 가로지르는 커서가 하나라, 채널별로 갱신하면 늦은
+채널이 이른 채널의 커서를 덮으므로 전체 실행 마지막에 한 번만 갱신한다).
 
 ### 증분 전략 — snowflake 기반 서버사이드 필터
 
 Discord 메시지 ID(snowflake)는 생성 시각을 품고 있어, checkpoint의 `Instant`를 snowflake로 변환해
-`after` 파라미터에 넣으면 **서버가 직접 걸러준다** — Slack처럼 채널 히스토리를 끝까지 훑을 필요가 없다.
+`after` 파라미터에 넣으면 **서버가 직접 걸러준다** — Slack의 14일 되돌아보기 같은 보정 없이 커서 그대로 자를 수 있다(스레드가 채널로 분리된 모델이라 답글 유실 문제가 없다).
 
 `after`는 커서 바로 다음 구간부터 앞으로 전진하며 채운다(재실측 2026-08-11 — `docs/discord-integration.md`
 「확인 완료」 4). 백로그가 페이지 크기(100)를 넘으면 가장 오래된 쪽 100개가 먼저 오고, 최신→과거
