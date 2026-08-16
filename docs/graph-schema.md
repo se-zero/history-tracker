@@ -351,9 +351,9 @@ Document에 걸어 두므로(관계 목록 참고) 섹션이 통째로 갈려도
 | `EDITED` | `(Actor)→(Document)` | — | Actor가 문서를 편집 (`last_edited_by`). **누적** — `refs.editors`가 최종 편집자 1명뿐이라도 과거 편집자를 지우지 않는다(ASSIGNED_TO의 스냅샷 교체와 반대) |
 | `PART_OF` | `(DocumentSection)→(Document)` | — | 섹션이 속한 문서. 내부 구조, 재수집 시 섹션은 전량 교체 |
 | `CHILD_OF` | `(Document)→(Document)` | — | 문서 계층 구조(부모 page). `refs.parentExternalId` 기반, Issue CHILD_OF와 같은 pre-node MERGE |
-| `DESCRIBED_IN` | `(Issue)→(Document)` | `source: String (text\|semantic)`, `confidence: Float`, `section: String` (semantic만) | 이슈가 문서에 기술됨. text(`refs.issueKeys`/`issueExternalRefs`)=1.0 고정, semantic(미구현 — N3 예정)=`DocumentSection.embedding` 유사도. text가 우선. `section`은 semantic 매칭의 최고점 heading_path(근거 위치) |
+| `DESCRIBED_IN` | `(Issue)→(Document)` | `source: String (text\|semantic)`, `confidence: Float`, `section: String` (semantic만) | 이슈가 문서에 기술됨. text(`refs.issueKeys`/`issueExternalRefs`)=1.0 고정, semantic=`DocumentSection.embedding` 유사도(임베딩 전용 자동구축, `verify` 여부와 무관 — LLM 검수 빌더 없음). text가 우선. `section`은 semantic 매칭의 최고점 heading_path(근거 위치) |
 | `DISCUSSED_IN` | `(Document)→(Communication)` | `source: String (text)` | 대화 본문의 문서 URL(`refs.documentExternalRefs`). Issue DISCUSSED_IN(text)와 같은 규약 — confidence 없음 |
-| `REFERENCE` | `(ChangeSet)→(Document)` | `source: String (text\|semantic)`, `confidence: Float`, `section: String` (semantic만) | 커밋(또는 그 커밋을 포함한 PR 본문)의 문서 URL. text=1.0 고정, semantic(미구현 — N3 예정)=`MODIFIED.embedding` ↔ `DocumentSection.embedding` 유사도. PR `refs.documentExternalRefs`는 `pr.document_external_ids`에 실어 그 PR의 CONTAINS 커밋에 전파(TRIGGERED_BY의 PR 전파와 동일 메커니즘) |
+| `REFERENCE` | `(ChangeSet)→(Document)` | `source: String (text\|semantic)`, `confidence: Float`, `section: String` (semantic만) | 커밋(또는 그 커밋을 포함한 PR 본문)의 문서 URL. text=1.0 고정, semantic=`MODIFIED.embedding` ↔ `DocumentSection.embedding` 유사도(임베딩 전용 자동구축, `verify` 여부와 무관 — LLM 검수 빌더 없음). PR `refs.documentExternalRefs`는 `pr.document_external_ids`에 실어 그 PR의 CONTAINS 커밋에 전파(TRIGGERED_BY의 PR 전파와 동일 메커니즘) |
 
 ---
 
@@ -401,8 +401,9 @@ graph LR
 > 실선: 명시적 관계 (refs 추출·구조적 포함 관계, 또는 명시 URL 참조인 text REFERENCE)
 > 점선: 순수 시맨틱/미구현 관계 (`REFERENCE`(ChangeSet→Communication) — 벡터 유사도 전용,
 > `CHILD_OF`(ChangeSet→ChangeSet) — 미구현). `REFERENCE`(ChangeSet→Document)와
-> `DESCRIBED_IN`(Issue→Document)은 text 경로가 이미 있어 실선이다 — semantic 변형은 아직
-> 없다(N3 예정)
+> `DESCRIBED_IN`(Issue→Document)은 text 경로가 이미 있어 실선이다 — semantic 변형도 이미
+> 구현돼 있으며(postprocess가 `verify` 여부와 무관하게 항상 자동구축), text 우선이라 표시만
+> text 경로 기준으로 실선을 유지한다
 
 ---
 
@@ -428,6 +429,8 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | Layer 4 | `REFERENCE` (semantic, ChangeSet→Communication) | 배치 처리 | `MODIFIED.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.44 (기본값), 시간 범위 ±5일. `source='semantic'` |
 | Layer 4 | `DISCUSSED_IN` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.48 (기본값), 이슈 생애 윈도우 `[createdAt-4d, closedAt+3d / 진행중이면 now]` |
 | Layer 4 | `TRIGGERED_BY` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ 0.34 (기본값). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행중이면 now]`, ChangeSet당 top-1, text 엣지 있는 커밋은 제외 |
+| Layer 4 | `REFERENCE` (semantic, ChangeSet→Document) | 배치 처리(항상 자동구축 — LLM 검수 빌더 없음) | `MODIFIED.embedding` ↔ `DocumentSection.embedding` 코사인 유사도 ≥ 0.44 (기본값), 문서당 top-5, 시간 윈도우 `[document.createdAt-7d, ∞)` |
+| Layer 4 | `DESCRIBED_IN` (semantic, Issue→Document) | 배치 처리(항상 자동구축 — LLM 검수 빌더 없음) | `Issue.embedding` ↔ `DocumentSection.embedding` 코사인 유사도 ≥ 0.48 (기본값), 문서당 top-5, 시간 윈도우 `[document.createdAt-7d, ∞)` |
 
 > **순서 보장**: Layer 2에서 참조 대상 Issue가 아직 없으면 `__stub__` 센티널을 만들어 엣지를
 > 걸어두고, 본 이벤트 도착 시 `absorb_issue_stub`이 엣지를 실노드로 이관한다 (위 Issue 절의
@@ -449,6 +452,16 @@ refs(`issueKey`/`prNumber`)는 커밋·메시지에 명시될 때만 텍스트�
 
 1. **text** — ChangeSet `refs.issueKey`, 그리고 PR 제목/본문의 `issue_keys`를 그 PR이 머지한 CONTAINS 커밋들에 전파. `source='text'`, `confidence=1.0` (`link_changeset_to_issue`, `link_pr_changesets_to_issues`)
 2. **시맨틱** — `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ `triggered_by_threshold`(기본 0.34 — text 엣지가 전혀 없는 커밋만 후보라 낮은 값이 안전하다). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행 중이면 now]`, ChangeSet당 top-1만 유지, text 엣지가 이미 있는 커밋은 제외(text 우선). `source='semantic'`, `confidence=점수` (`build_issue_changeset_links`)
+
+### REFERENCE / DESCRIBED_IN (Document, 문서 아키타입)
+
+매칭은 `DocumentSection` 단위로 하되 엣지는 `Document`에 건다(통짜 임베딩이 다주제 문서에서
+평균화되는 문제를 섹션 분할로 피한 것뿐 — 그래프 질의 단위는 여전히 문서다).
+
+1. **text** — ChangeSet/PR `refs.documentExternalRefs`(REFERENCE), Document `refs.issueKeys`/`issueExternalRefs`(DESCRIBED_IN)로 직접 연결. `source='text'`, `confidence=1.0`
+2. **시맨틱** — `MODIFIED.embedding`/`Issue.embedding` ↔ `DocumentSection.embedding` 코사인 유사도 ≥ threshold(REFERENCE는 `document_reference_threshold` 기본 0.44, DESCRIBED_IN은 `described_in_threshold` 기본 0.48). 문서는 오래 살아 다른 Layer 4 빌더와 시간 윈도우 모양이 다르다 — 하한만 두고 상한을 두지 않는다: `[document.createdAt - 7일, ∞)`. 대신 문서당 top-5 컷으로 후보 폭증을 막는다(반대편인 ChangeSet/Issue는 열어 둔다). text인 쌍은 write 시점에 쌍 단위로 배제한다(노드 단위 배제인 TRIGGERED_BY와 달리, 같은 ChangeSet이 문서 A엔 text로 문서 B엔 semantic으로 동시에 연결될 수 있어서다). `source='semantic'`, `confidence=점수`, `section=최고점 섹션의 heading_path` (`build_document_reference_edges`/`build_described_in_document_edges`, `graph/document_linker.py`)
+
+   LLM 검수(verify) 빌더가 없다 — `/graph/build`의 `verify` 플래그와 무관하게 항상 이 자동구축(임베딩 전용) 경로만 돈다.
 
 ### 실행 트리거 — 자동(디바운스) + 수동
 

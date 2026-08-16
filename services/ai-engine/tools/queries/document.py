@@ -5,12 +5,13 @@ SET돼 있다(Notion 도입 시점부터 존재한 관계라 레거시 source-le
 쓰는 coalesce(r.source, ...) 폴백이 여기선 필요 없다.
 """
 
-from tools.queries._common import _MIN_CONFIDENCE, _group_communications_by_thread, get_driver
-
-# 벡터 인덱스 over-fetch 배수 — discovery.search_by_keyword와 동일한 이유
-# (project_id 사전 필터 불가라 top_k보다 넉넉히 받아 후처리로 자른다).
-_VECTOR_OVERFETCH = 20
-_VECTOR_OVERFETCH_CAP = 500
+from tools.queries._common import (
+    _MIN_CONFIDENCE,
+    _VECTOR_OVERFETCH,
+    _VECTOR_OVERFETCH_CAP,
+    _group_communications_by_thread,
+    get_driver,
+)
 
 
 async def _resolve_document_root(

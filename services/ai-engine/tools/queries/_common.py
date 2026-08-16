@@ -142,6 +142,13 @@ def _detail_count_for_budget(
 # eval 스윕용으로 env 외부화 — 시스템 프롬프트의 임계값 안내 문구도 이 값으로 렌더링된다.
 _MIN_CONFIDENCE = float(os.environ.get("TOOLS_MIN_CONFIDENCE", "0.5"))
 
+# 벡터 인덱스 over-fetch 배수 — discovery.search_by_keyword·document.search_documents가 공유.
+# db.index.vector.queryNodes는 전역 top-K만 반환하고 project_id 사전 필터가 불가능하다.
+# 단일 Neo4j에 여러 프로젝트가 섞여 있으므로, project_id 필터 후에도 충분한 후보가
+# 남도록 top_k의 배수만큼 넉넉히 가져온 뒤 후처리로 잘라낸다.
+_VECTOR_OVERFETCH = 20
+_VECTOR_OVERFETCH_CAP = 500
+
 def _group_communications_by_thread(comms: list[dict]) -> list[dict]:
     """flat Communication 리스트를 conversation_id 기준으로 그룹핑한다.
 

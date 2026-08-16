@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Awaitable, Callable
 
 from graph import builder
 from graph.actor_resolver import resolve_actor
@@ -18,6 +19,36 @@ def _is_bot_actor(actor_id: str) -> bool:
     예: dependabot[bot], renovate[bot], github-actions[bot]
     """
     return bool(actor_id) and actor_id.endswith("[bot]")
+
+
+def _encode_prefixed_refs(refs: dict, key: str) -> list[str] | None:
+    """refs[key](=[{source, externalId}, ...])를 "SOURCE:externalId" 문자열 목록으로
+    인코딩한다(graph.writes._parse_prefixed_refs가 역파싱) — PullRequest.issue_external_ids·
+    document_external_ids가 공유하는 인코딩. 키 자체가 없으면 None을 돌려줘 upsert가
+    기존 값을 보존하게 한다.
+    """
+    raw = refs.get(key)
+    if raw is None:
+        return None
+    return [
+        f"{ref['source']}:{ref['externalId']}"
+        for ref in raw
+        if ref.get("source") and ref.get("externalId")
+    ]
+
+
+async def _link_external_refs(
+    refs: dict, key: str, link: Callable[[str, str], Awaitable[None]],
+) -> None:
+    """refs[key](=[{source, externalId}, ...]) 각 원소마다 link(source, externalId)를 건다.
+    이슈 키가 없는 소스(Asana 등)의 태스크 URL이나 Notion 문서 URL처럼, source·external_id를
+    이미 아는 실키 참조를 실노드/__stub__ 폴백 없이 곧바로 연결하는 호출부가 공유한다.
+    """
+    for external_ref in refs.get(key) or []:
+        ref_source = external_ref.get("source")
+        ref_external_id = external_ref.get("externalId")
+        if ref_source and ref_external_id:
+            await link(ref_source, ref_external_id)
 
 
 async def handle(event: dict) -> None:
@@ -87,17 +118,15 @@ async def _handle_changeset(event: dict) -> None:
     if refs.get("issueKey"):
         await builder.link_changeset_to_issue(project_id, hash_, refs["issueKey"])
     # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를 쓴다.
-    for external_ref in refs.get("issueExternalRefs") or []:
-        ref_source = external_ref.get("source")
-        ref_external_id = external_ref.get("externalId")
-        if ref_source and ref_external_id:
-            await builder.link_changeset_to_issue_external(project_id, hash_, ref_source, ref_external_id)
+    await _link_external_refs(
+        refs, "issueExternalRefs",
+        lambda s, e: builder.link_changeset_to_issue_external(project_id, hash_, s, e),
+    )
     # 커밋 메시지의 Notion URL — REFERENCE(text). issueExternalRefs와 같은 인코딩(§2-5).
-    for external_ref in refs.get("documentExternalRefs") or []:
-        doc_source = external_ref.get("source")
-        doc_external_id = external_ref.get("externalId")
-        if doc_source and doc_external_id:
-            await builder.link_changeset_to_document(project_id, hash_, doc_source, doc_external_id)
+    await _link_external_refs(
+        refs, "documentExternalRefs",
+        lambda s, e: builder.link_changeset_to_document(project_id, hash_, s, e),
+    )
     if refs.get("prNumber"):
         pr_num = int(refs["prNumber"])
         await builder.link_pr_to_changeset(project_id, pr_num, hash_)
@@ -163,28 +192,12 @@ async def _handle_pull_request(event: dict) -> None:
     if issue_keys is None and refs.get("issueKey"):
         issue_keys = [refs["issueKey"]]
 
-    # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를
-    # "SOURCE:externalId" 문자열로 인코딩해 저장한다(graph.writes._parse_prefixed_refs가
-    # 역파싱). 키 자체가 없으면(refs에 issueExternalRefs가 없으면) None을 넘겨 기존 값을 보존한다.
-    raw_issue_external_refs = refs.get("issueExternalRefs")
-    issue_external_ids = None
-    if raw_issue_external_refs is not None:
-        issue_external_ids = [
-            f"{ref['source']}:{ref['externalId']}"
-            for ref in raw_issue_external_refs
-            if ref.get("source") and ref.get("externalId")
-        ]
-
+    # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를 인코딩해
+    # 저장한다. 키 자체가 없으면(refs에 issueExternalRefs가 없으면) None을 넘겨 기존 값을 보존한다.
+    issue_external_ids = _encode_prefixed_refs(refs, "issueExternalRefs")
     # PR 본문/제목의 Notion URL. issue_external_ids와 동일한 인코딩·보존 규칙(§2-5) —
     # PR 본문이 커밋 메시지보다 흔한 Notion 링크 유입로라 이 전파가 REFERENCE(text)의 주 경로다.
-    raw_document_external_refs = refs.get("documentExternalRefs")
-    document_external_ids = None
-    if raw_document_external_refs is not None:
-        document_external_ids = [
-            f"{ref['source']}:{ref['externalId']}"
-            for ref in raw_document_external_refs
-            if ref.get("source") and ref.get("externalId")
-        ]
+    document_external_ids = _encode_prefixed_refs(refs, "documentExternalRefs")
 
     await builder.upsert_pull_request(
         project_id=project_id,
@@ -319,10 +332,12 @@ async def _handle_document(event: dict) -> None:
         external_id=external_id,
         title=title,
         body=body,
-        url=props.get("url", ""),
+        # NotionNormalizer가 parent.type/url이 없거나 비정상이면 JSON null로 채워 보낼 수 있다 —
+        # 키는 존재하고 값만 None이라 dict.get(key, default)의 default가 적용되지 않는다.
+        url=props.get("url") or "",
         occurred_at=occurred_at,
         created_at=props.get("created_at"),
-        parent_type=props.get("parent_type", ""),
+        parent_type=props.get("parent_type") or "",
         parent_external_id=props.get("parent_external_id"),
         actor_uuid=resolved["uuid"],
     )
@@ -372,13 +387,10 @@ async def _handle_document(event: dict) -> None:
     issue_keys = refs.get("issueKeys") or ([] if not refs.get("issueKey") else [refs["issueKey"]])
     for issue_key in dict.fromkeys(key for key in issue_keys if key):
         await builder.link_issue_to_document(project_id, issue_key, source, external_id)
-    for external_ref in refs.get("issueExternalRefs") or []:
-        issue_source = external_ref.get("source")
-        issue_external_id = external_ref.get("externalId")
-        if issue_source and issue_external_id:
-            await builder.link_issue_external_to_document(
-                project_id, issue_source, issue_external_id, source, external_id,
-            )
+    await _link_external_refs(
+        refs, "issueExternalRefs",
+        lambda s, e: builder.link_issue_external_to_document(project_id, s, e, source, external_id),
+    )
 
 
 async def _handle_communication(event: dict) -> None:
@@ -422,14 +434,12 @@ async def _handle_communication(event: dict) -> None:
     if refs.get("issueKey"):
         await builder.link_issue_to_communication(project_id, refs["issueKey"], url)
     # 이슈 키가 없는 소스(Asana 등)는 태스크 URL에서 추출한 (source, externalId) 참조를 쓴다.
-    for external_ref in refs.get("issueExternalRefs") or []:
-        ref_source = external_ref.get("source")
-        ref_external_id = external_ref.get("externalId")
-        if ref_source and ref_external_id:
-            await builder.link_issue_external_to_communication(project_id, ref_source, ref_external_id, url)
+    await _link_external_refs(
+        refs, "issueExternalRefs",
+        lambda s, e: builder.link_issue_external_to_communication(project_id, s, e, url),
+    )
     # 대화 본문의 Notion URL — DISCUSSED_IN(text). issueExternalRefs와 같은 인코딩(§2-5).
-    for external_ref in refs.get("documentExternalRefs") or []:
-        doc_source = external_ref.get("source")
-        doc_external_id = external_ref.get("externalId")
-        if doc_source and doc_external_id:
-            await builder.link_document_to_communication(project_id, doc_source, doc_external_id, url)
+    await _link_external_refs(
+        refs, "documentExternalRefs",
+        lambda s, e: builder.link_document_to_communication(project_id, s, e, url),
+    )

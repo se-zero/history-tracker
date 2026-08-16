@@ -105,6 +105,7 @@ def chunk_document(title: str, body: str) -> list[DocumentSection]:
     heading_stack: list[str | None] = [None, None, None]
     current_path = document_title
     current_lines: list[str] = []
+    in_code_fence = False
 
     def flush() -> None:
         text = "\n".join(current_lines).strip()
@@ -112,7 +113,14 @@ def chunk_document(title: str, body: str) -> list[DocumentSection]:
             groups.append((current_path, text))
 
     for line in (body or "").splitlines():
-        matched = _HEADING.match(line)
+        # NotionBlockFlattener.renderCode가 ``` 펜스로 코드를 감싸 body에 그대로 심는다.
+        # 펜스 안의 '# comment' 같은 줄이 heading으로 오인되지 않도록 펜스 상태를 추적한다.
+        if line.lstrip().startswith("```"):
+            in_code_fence = not in_code_fence
+            current_lines.append(line)
+            continue
+
+        matched = None if in_code_fence else _HEADING.match(line)
         if not matched:
             current_lines.append(line)
             continue

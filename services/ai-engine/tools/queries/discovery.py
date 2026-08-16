@@ -1,14 +1,12 @@
 """키워드/최근/스레드 탐색 — 특정 엔티티 키에 묶이지 않은 폭넓은 조회."""
 
-from tools.queries._common import _MIN_CONFIDENCE, get_driver
+from tools.queries._common import (
+    _MIN_CONFIDENCE,
+    _VECTOR_OVERFETCH,
+    _VECTOR_OVERFETCH_CAP,
+    get_driver,
+)
 
-
-# 벡터 인덱스 over-fetch 배수.
-# db.index.vector.queryNodes는 전역 top-K만 반환하고 project_id 사전 필터가 불가능하다.
-# 단일 Neo4j에 여러 프로젝트가 섞여 있으므로, project_id 필터 후에도 충분한 후보가
-# 남도록 top_k의 배수만큼 넉넉히 가져온 뒤 후처리로 잘라낸다.
-_VECTOR_OVERFETCH = 20
-_VECTOR_OVERFETCH_CAP = 500
 
 async def search_by_keyword(project_id: str, embedding: list[float], top_k: int = 5, threshold: float = 0.30) -> list[dict]:
     fetch_k = min(top_k * _VECTOR_OVERFETCH, _VECTOR_OVERFETCH_CAP)
@@ -97,11 +95,13 @@ async def get_recent_activity(
         result = await session.run(
             """
             MATCH (n)
-            WHERE (n:ChangeSet OR n:PullRequest OR n:Communication OR n:Issue)
+            WHERE (n:ChangeSet OR n:PullRequest OR n:Communication OR n:Issue OR n:Document)
               AND n.project_id = $project_id
               AND n.occurredAt >= datetime($from_time)
               AND ($to_time IS NULL OR n.occurredAt <= datetime($to_time))
             WITH n, labels(n)[0] AS node_type
+            // Document의 EDITED는 누적 관계라 여러 Actor가 붙을 수 있어 UNION에 넣지 않는다
+            // (넣으면 편집자 수만큼 같은 문서가 중복 행으로 나온다) — WROTE(작성자)만 취한다.
             OPTIONAL MATCH (a:Actor)-[:AUTHORED|WROTE|CREATED]->(n)
             RETURN node_type AS type,
                    toString(n.occurredAt) AS occurredAt,
@@ -111,12 +111,14 @@ async def get_recent_activity(
                      WHEN 'PullRequest'   THEN toString(n.pr_number)
                      WHEN 'Communication' THEN n.url
                      WHEN 'Issue'         THEN n.issue_key
+                     WHEN 'Document'      THEN n.external_id
                    END AS id,
                    CASE node_type
                      WHEN 'ChangeSet'     THEN n.message
                      WHEN 'PullRequest'   THEN n.title
                      WHEN 'Communication' THEN left(n.body, 200)
                      WHEN 'Issue'         THEN n.title
+                     WHEN 'Document'      THEN n.title
                    END AS summary
             ORDER BY occurredAt DESC
             LIMIT $limit

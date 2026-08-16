@@ -823,11 +823,18 @@ async def absorb_issue_stub(project_id: str, source: str, external_id: str, issu
         )
 
 
-# ── issueExternalRefs (실키 pre-node) ────────────────────────────────────
+# ── issueExternalRefs / documentExternalRefs (실키 pre-node) ────────────
 # Asana처럼 사람용 이슈 키가 없는 소스는 커밋/PR/Slack 텍스트의 태스크 URL에서
-# (source, external_id) 쌍을 직접 추출한다. 이미 소스와 불변 ID를 알고 있으므로
-# link_changeset_to_issue류의 실노드/__stub__ 폴백이 필요 없다 — link_issue_to_parent(538)와
-# 같은 방식으로 (project_id, source, external_id) 실키에 곧바로 pre-node MERGE한다.
+# (source, external_id) 쌍을 직접 추출한다. Notion 링크(§2-5)도 같은 "SOURCE:external_id"
+# 인코딩을 쓴다. 이미 소스와 불변 ID를 알고 있으므로 link_changeset_to_issue류의
+# 실노드/__stub__ 폴백이 필요 없다 — link_issue_to_parent(538)와 같은 방식으로
+# (project_id, source, external_id) 실키에 곧바로 pre-node MERGE한다.
+#
+# Issue(TRIGGERED_BY/DISCUSSED_IN)와 Document(REFERENCE/DISCUSSED_IN)는 대상 라벨·관계
+# 타입만 다를 뿐 나머지 Cypher·세션 구조가 완전히 같아, 아래 두 헬퍼를 두 라벨이 공유한다.
+# 병합 변수명은 라벨 첫 글자를 그대로 쓴다(Issue→i, Document→d). node_label·rel_type은 이
+# 모듈 안의 리터럴 상수만 호출부에서 넘긴다(사용자 입력이 Cypher 라벨·관계 타입 위치에
+# 도달하지 않는다) — Cypher는 라벨·관계 타입을 파라미터로 바인딩할 수 없어 f-string으로 심는다.
 
 
 def _parse_prefixed_refs(values: Optional[list[str]]) -> list[dict]:
@@ -850,59 +857,105 @@ def _parse_prefixed_refs(values: Optional[list[str]]) -> list[dict]:
     return refs
 
 
-async def link_changeset_to_issue_external(
-    project_id: str, changeset_hash: str, source: str, external_id: str,
+async def _link_changeset_to_external_ref(
+    project_id: str, changeset_hash: str, ref_source: str, ref_external_id: str, *,
+    node_label: str, rel_type: str,
 ) -> None:
-    """TRIGGERED_BY (text): ChangeSet refs.issueExternalRefs 존재 시.
+    """{rel_type} (text): ChangeSet refs.{issue,document}ExternalRefs 존재 시.
 
     link_changeset_to_issue(297)와 달리 URL에서 추출한 참조는 소스와 불변 external_id를
     이미 알고 있어 실노드/__stub__ 폴백 2문이 필요 없다 — (project_id, source, external_id)
-    실키로 곧바로 pre-node MERGE한다(link_issue_to_parent, 538과 동일한 메커니즘). 이슈 본
-    이벤트가 나중에 도착하면 upsert_issue가 같은 키로 MERGE해 채운다.
+    실키로 곧바로 pre-node MERGE한다(link_issue_to_parent, 538과 동일한 메커니즘). 본
+    이벤트가 나중에 도착하면 해당 upsert가 같은 키로 MERGE해 채운다.
 
     MATCH c로 시작해 커밋이 아직 없으면 고아 pre-node를 만들지 않는다.
     """
+    var = node_label[0].lower()
     async with get_driver().session() as session:
         await session.run(
-            """
-            MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
-            MERGE (i:Issue {project_id: $project_id, source: $source, external_id: $external_id})
-            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            f"""
+            MATCH (c:ChangeSet {{project_id: $project_id, hash: $hash}})
+            MERGE ({var}:{node_label} {{project_id: $project_id, source: $source, external_id: $external_id}})
+            MERGE (c)-[r:{rel_type}]->({var})
             SET r.source = 'text', r.confidence = 1.0
             """,
             project_id=project_id,
             hash=changeset_hash,
-            source=source,
-            external_id=external_id,
+            source=ref_source,
+            external_id=ref_external_id,
         )
 
 
-async def link_issue_external_to_communication(
-    project_id: str, source: str, external_id: str, comm_url: str,
+async def link_changeset_to_issue_external(
+    project_id: str, changeset_hash: str, source: str, external_id: str,
 ) -> None:
-    """DISCUSSED_IN (text): Communication refs.issueExternalRefs 존재 시.
+    """TRIGGERED_BY (text): ChangeSet refs.issueExternalRefs 존재 시. 코어는
+    _link_changeset_to_external_ref 공유."""
+    await _link_changeset_to_external_ref(
+        project_id, changeset_hash, source, external_id,
+        node_label="Issue", rel_type="TRIGGERED_BY",
+    )
 
-    link_changeset_to_issue_external과 동일한 이유로 실노드/__stub__ 구분 없이 실키로
+
+async def link_changeset_to_document(
+    project_id: str, changeset_hash: str, document_source: str, document_external_id: str,
+) -> None:
+    """REFERENCE (text): ChangeSet refs.documentExternalRefs 존재 시 — 커밋 메시지의 Notion
+    URL. REFERENCE는 이 커넥터 전까지 전부 시맨틱 산물이었다(N0가 source 필드만 준비해
+    뒀다) — 이게 그 첫 text 작성자다. 코어는 _link_changeset_to_external_ref 공유."""
+    await _link_changeset_to_external_ref(
+        project_id, changeset_hash, document_source, document_external_id,
+        node_label="Document", rel_type="REFERENCE",
+    )
+
+
+async def _link_external_ref_to_communication(
+    project_id: str, ref_source: str, ref_external_id: str, comm_url: str, *, node_label: str,
+) -> None:
+    """DISCUSSED_IN (text): Communication refs.{issue,document}ExternalRefs 존재 시.
+
+    _link_changeset_to_external_ref와 동일한 이유로 실노드/__stub__ 구분 없이 실키로
     pre-node MERGE한다. DISCUSSED_IN의 text 엣지는 confidence를 갖지 않는다는 기존 규약
     (link_issue_to_communication, 498)을 그대로 따른다 — confidence는 시맨틱 엣지의 유사도
     점수이고 채점(eval)이 그 유무로 시맨틱을 판별한다. 시맨틱 엣지를 덮어쓸 때 남아 있던
     값을 REMOVE로 지우는 이유도 같다 — 안 지우면 'text' 표식 때문에 clear·백필이 둘 다
     건너뛰어 영구 잔존하고, 채점이 이 엣지를 시맨틱으로 오인한다.
     """
+    var = node_label[0].lower()
     async with get_driver().session() as session:
         await session.run(
-            """
-            MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
-            MERGE (i:Issue {project_id: $project_id, source: $source, external_id: $external_id})
-            MERGE (i)-[r:DISCUSSED_IN]->(comm)
+            f"""
+            MATCH (comm:Communication {{project_id: $project_id, url: $comm_url}})
+            MERGE ({var}:{node_label} {{project_id: $project_id, source: $source, external_id: $external_id}})
+            MERGE ({var})-[r:DISCUSSED_IN]->(comm)
             SET r.source = 'text'
             REMOVE r.confidence
             """,
             project_id=project_id,
             comm_url=comm_url,
-            source=source,
-            external_id=external_id,
+            source=ref_source,
+            external_id=ref_external_id,
         )
+
+
+async def link_issue_external_to_communication(
+    project_id: str, source: str, external_id: str, comm_url: str,
+) -> None:
+    """DISCUSSED_IN (text): Communication refs.issueExternalRefs 존재 시. 코어는
+    _link_external_ref_to_communication 공유."""
+    await _link_external_ref_to_communication(
+        project_id, source, external_id, comm_url, node_label="Issue",
+    )
+
+
+async def link_document_to_communication(
+    project_id: str, document_source: str, document_external_id: str, communication_url: str,
+) -> None:
+    """DISCUSSED_IN (text): Communication refs.documentExternalRefs 존재 시 — 대화 본문의
+    Notion URL. 코어는 _link_external_ref_to_communication 공유."""
+    await _link_external_ref_to_communication(
+        project_id, document_source, document_external_id, communication_url, node_label="Document",
+    )
 
 
 async def link_issue_to_document(
@@ -982,29 +1035,33 @@ async def link_issue_external_to_document(
         )
 
 
-async def link_changeset_to_pr_issue_externals(project_id: str, pr_number: int, changeset_hash: str) -> int:
-    """TRIGGERED_BY (text, 실키) 전파 — 단건: PR.issue_external_ids를 '이 커밋 하나'에만 연결한다.
+async def _link_changeset_to_pr_refs(
+    project_id: str, pr_number: int, changeset_hash: str, *,
+    pr_field: str, node_label: str, rel_type: str,
+) -> int:
+    """{rel_type} (text, 실키) 전파 — 단건: PR.{pr_field}를 '이 커밋 하나'에만 연결한다.
 
     link_changeset_to_pr_issues(357)와 대칭인 O(N) 단건 버전 — 커밋마다 PR 전체에
     재전파하면 O(N²)가 되므로, 이 함수는 그 커밋 하나만 연결한다. PR 전체 전파는 PR
-    도착 시(link_pr_changesets_to_issue_externals)에만 수행한다.
+    도착 시(_link_pr_changesets_to_refs)에만 수행한다.
 
     실키 pre-node라 실노드/stub 구분이 필요 없어(모듈 상단 절 설명 참고) issue_keys류와
-    세션 2문의 목적이 다르다: ①에서 PR.issue_external_ids를 조회하면서
+    세션 2문의 목적이 다르다: ①에서 PR.{pr_field}를 조회하면서
     (pr)-[:CONTAINS]->(이 커밋) 관계도 함께 확인해 둘 중 하나라도 없으면 noop으로 끝낸다 →
     파싱은 Python에서(_parse_prefixed_refs) → ②에서 UNWIND한 각 참조를 pre-node
-    MERGE하고 이 커밋에 TRIGGERED_BY를 건다.
+    MERGE하고 이 커밋에 관계를 건다.
 
     Returns:
-        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수.
+        새로 생성 또는 갱신된 엣지 수.
     """
+    var = node_label[0].lower()
     async with get_driver().session() as session:
         result = await session.run(
-            """
-            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
-            WHERE pr.issue_external_ids IS NOT NULL AND size(pr.issue_external_ids) > 0
-            MATCH (pr)-[:CONTAINS]->(c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
-            RETURN pr.issue_external_ids AS raw_refs
+            f"""
+            MATCH (pr:PullRequest {{project_id: $project_id, pr_number: $pr_number}})
+            WHERE pr.{pr_field} IS NOT NULL AND size(pr.{pr_field}) > 0
+            MATCH (pr)-[:CONTAINS]->(c:ChangeSet {{project_id: $project_id, hash: $changeset_hash}})
+            RETURN pr.{pr_field} AS raw_refs
             """,
             project_id=project_id,
             pr_number=pr_number,
@@ -1019,16 +1076,91 @@ async def link_changeset_to_pr_issue_externals(project_id: str, pr_number: int, 
             return 0
 
         result2 = await session.run(
-            """
-            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
+            f"""
+            MATCH (c:ChangeSet {{project_id: $project_id, hash: $changeset_hash}})
             UNWIND $refs AS ref
-            MERGE (i:Issue {project_id: $project_id, source: ref.source, external_id: ref.external_id})
-            MERGE (c)-[r:TRIGGERED_BY]->(i)
+            MERGE ({var}:{node_label} {{project_id: $project_id, source: ref.source, external_id: ref.external_id}})
+            MERGE (c)-[r:{rel_type}]->({var})
             SET r.source = 'text', r.confidence = 1.0
             RETURN count(r) AS created
             """,
             project_id=project_id,
             changeset_hash=changeset_hash,
+            refs=refs,
+        )
+        row2 = await result2.single()
+        return row2["created"] if row2 else 0
+
+
+async def link_changeset_to_pr_issue_externals(project_id: str, pr_number: int, changeset_hash: str) -> int:
+    """TRIGGERED_BY (text, 실키) 전파 — 단건. 코어는 _link_changeset_to_pr_refs 공유."""
+    return await _link_changeset_to_pr_refs(
+        project_id, pr_number, changeset_hash,
+        pr_field="issue_external_ids", node_label="Issue", rel_type="TRIGGERED_BY",
+    )
+
+
+async def link_changeset_to_pr_documents(project_id: str, pr_number: int, changeset_hash: str) -> int:
+    """REFERENCE (text, 실키) 전파 — 단건. link_changeset_to_pr_issue_externals와 완전히
+    대칭 — 코어는 _link_changeset_to_pr_refs 공유."""
+    return await _link_changeset_to_pr_refs(
+        project_id, pr_number, changeset_hash,
+        pr_field="document_external_ids", node_label="Document", rel_type="REFERENCE",
+    )
+
+
+async def _link_pr_changesets_to_refs(
+    project_id: str, pr_number: int, *, pr_field: str, node_label: str, rel_type: str,
+) -> int:
+    """{rel_type} (text, 실키) 전파: PR.{pr_field}에 등록된 각 참조를 그 PR이 머지한 모든
+    ChangeSet에 동일하게 연결한다.
+
+    실키 pre-node라 실노드/stub 구분이 없다는 차이만 있고, 세션 2문 구조(① 조회+Python
+    파싱 → ② UNWIND 반영)는 _link_changeset_to_pr_refs와 동일하다.
+
+    ①에서 CONTAINS 커밋 존재까지 확인한다 — PR 이벤트가 자기 커밋들보다 먼저 소비되는
+    정상 순서(수집기가 PR을 먼저 발행)에서는 이 시점에 연결할 커밋이 없으므로, 건너뛰어야
+    엣지 없는 pre-node가 먼저 생기지 않는다. 커밋이 도착하면 단건 전파
+    (_link_changeset_to_pr_refs)가 pre-node 생성과 연결을 함께 수행하므로 잃는 링크는 없다.
+
+    Returns:
+        새로 생성 또는 갱신된 엣지 수(근사치 — 참조 수 × CONTAINS 커밋 수).
+    """
+    var = node_label[0].lower()
+    async with get_driver().session() as session:
+        result = await session.run(
+            f"""
+            MATCH (pr:PullRequest {{project_id: $project_id, pr_number: $pr_number}})
+            WHERE pr.{pr_field} IS NOT NULL AND size(pr.{pr_field}) > 0
+              AND EXISTS {{ (pr)-[:CONTAINS]->(:ChangeSet) }}
+            RETURN pr.{pr_field} AS raw_refs
+            """,
+            project_id=project_id,
+            pr_number=pr_number,
+        )
+        row = await result.single()
+        if not row:
+            return 0
+
+        refs = _parse_prefixed_refs(row["raw_refs"])
+        if not refs:
+            return 0
+
+        result2 = await session.run(
+            f"""
+            MATCH (pr:PullRequest {{project_id: $project_id, pr_number: $pr_number}})
+            OPTIONAL MATCH (pr)-[:CONTAINS]->(cs:ChangeSet)
+            WITH [x IN collect(DISTINCT cs) WHERE x IS NOT NULL] AS changesets
+            UNWIND $refs AS ref
+            MERGE ({var}:{node_label} {{project_id: $project_id, source: ref.source, external_id: ref.external_id}})
+            FOREACH (c IN changesets |
+                MERGE (c)-[r:{rel_type}]->({var})
+                SET r.source = 'text', r.confidence = 1.0
+            )
+            RETURN sum(size(changesets)) AS created
+            """,
+            project_id=project_id,
+            pr_number=pr_number,
             refs=refs,
         )
         row2 = await result2.single()
@@ -1036,215 +1168,20 @@ async def link_changeset_to_pr_issue_externals(project_id: str, pr_number: int, 
 
 
 async def link_pr_changesets_to_issue_externals(project_id: str, pr_number: int) -> int:
-    """TRIGGERED_BY (text, 실키) 전파: PR.issue_external_ids에 등록된 각 참조를 그 PR이
-    머지한 모든 ChangeSet에 동일하게 연결한다.
-
-    link_pr_changesets_to_issues(423)와 대칭. 실키 pre-node라 실노드/stub 구분이 없다는
-    차이만 있고, 세션 2문 구조(① 조회+Python 파싱 → ② UNWIND 반영)는
-    link_changeset_to_pr_issue_externals와 동일하다.
-
-    ①에서 CONTAINS 커밋 존재까지 확인한다 — PR 이벤트가 자기 커밋들보다 먼저 소비되는
-    정상 순서(수집기가 PR을 먼저 발행)에서는 이 시점에 연결할 커밋이 없으므로, 건너뛰어야
-    엣지 없는 pre-node가 먼저 생기지 않는다. 커밋이 도착하면 단건 전파
-    (link_changeset_to_pr_issue_externals)가 pre-node 생성과 연결을 함께 수행하므로 잃는
-    링크는 없다.
-
-    Returns:
-        새로 생성 또는 갱신된 TRIGGERED_BY 엣지 수(근사치 — 참조 수 × CONTAINS 커밋 수).
-    """
-    async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
-            WHERE pr.issue_external_ids IS NOT NULL AND size(pr.issue_external_ids) > 0
-              AND EXISTS { (pr)-[:CONTAINS]->(:ChangeSet) }
-            RETURN pr.issue_external_ids AS raw_refs
-            """,
-            project_id=project_id,
-            pr_number=pr_number,
-        )
-        row = await result.single()
-        if not row:
-            return 0
-
-        refs = _parse_prefixed_refs(row["raw_refs"])
-        if not refs:
-            return 0
-
-        result2 = await session.run(
-            """
-            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
-            OPTIONAL MATCH (pr)-[:CONTAINS]->(cs:ChangeSet)
-            WITH [x IN collect(DISTINCT cs) WHERE x IS NOT NULL] AS changesets
-            UNWIND $refs AS ref
-            MERGE (i:Issue {project_id: $project_id, source: ref.source, external_id: ref.external_id})
-            FOREACH (c IN changesets |
-                MERGE (c)-[r:TRIGGERED_BY]->(i)
-                SET r.source = 'text', r.confidence = 1.0
-            )
-            RETURN sum(size(changesets)) AS created
-            """,
-            project_id=project_id,
-            pr_number=pr_number,
-            refs=refs,
-        )
-        row2 = await result2.single()
-        return row2["created"] if row2 else 0
-
-
-# ── documentExternalRefs (실키 pre-node) ─────────────────────────────────
-# Notion 링크는 issueExternalRefs와 같은 "SOURCE:external_id" 인코딩을 쓴다(§2-5).
-# REFERENCE는 이 커넥터 전까지 전부 시맨틱 산물이었다(N0가 source 필드만 준비해 뒀다) —
-# 아래가 그 첫 text 작성자다.
-
-
-async def link_changeset_to_document(
-    project_id: str, changeset_hash: str, document_source: str, document_external_id: str,
-) -> None:
-    """REFERENCE (text): ChangeSet refs.documentExternalRefs 존재 시 — 커밋 메시지의 Notion URL.
-
-    link_changeset_to_issue_external과 동일한 이유로 실노드/stub 구분 없이 실키로 곧바로
-    pre-node MERGE한다. Document 본 이벤트가 나중에 도착하면 upsert_document가 같은 키로
-    MERGE해 채운다.
-    """
-    async with get_driver().session() as session:
-        await session.run(
-            """
-            MATCH (c:ChangeSet {project_id: $project_id, hash: $hash})
-            MERGE (d:Document {
-                project_id: $project_id, source: $document_source, external_id: $document_external_id
-            })
-            MERGE (c)-[r:REFERENCE]->(d)
-            SET r.source = 'text', r.confidence = 1.0
-            """,
-            project_id=project_id,
-            hash=changeset_hash,
-            document_source=document_source,
-            document_external_id=document_external_id,
-        )
-
-
-async def link_document_to_communication(
-    project_id: str, document_source: str, document_external_id: str, communication_url: str,
-) -> None:
-    """DISCUSSED_IN (text): Communication refs.documentExternalRefs 존재 시 — 대화 본문의 Notion URL.
-
-    link_issue_external_to_communication과 같은 규약으로 confidence를 두지 않는다 — text
-    DISCUSSED_IN은 confidence 유무로 시맨틱과 구분된다.
-    """
-    async with get_driver().session() as session:
-        await session.run(
-            """
-            MATCH (comm:Communication {project_id: $project_id, url: $comm_url})
-            MERGE (d:Document {
-                project_id: $project_id, source: $document_source, external_id: $document_external_id
-            })
-            MERGE (d)-[r:DISCUSSED_IN]->(comm)
-            SET r.source = 'text'
-            REMOVE r.confidence
-            """,
-            project_id=project_id,
-            comm_url=communication_url,
-            document_source=document_source,
-            document_external_id=document_external_id,
-        )
-
-
-async def link_changeset_to_pr_documents(project_id: str, pr_number: int, changeset_hash: str) -> int:
-    """REFERENCE (text, 실키) 전파 — 단건: PR.document_external_ids를 '이 커밋 하나'에만 연결한다.
-
-    link_changeset_to_pr_issue_externals(975)와 완전히 대칭인 O(N) 단건 버전. 커밋마다 PR
-    전체에 재전파하면 O(N²)라, PR 전체 전파는 PR 도착 시(link_pr_changesets_to_documents)에만
-    수행한다.
-
-    Returns:
-        새로 생성 또는 갱신된 REFERENCE 엣지 수.
-    """
-    async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
-            WHERE pr.document_external_ids IS NOT NULL AND size(pr.document_external_ids) > 0
-            MATCH (pr)-[:CONTAINS]->(c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
-            RETURN pr.document_external_ids AS raw_refs
-            """,
-            project_id=project_id,
-            pr_number=pr_number,
-            changeset_hash=changeset_hash,
-        )
-        row = await result.single()
-        if not row:
-            return 0
-
-        refs = _parse_prefixed_refs(row["raw_refs"])
-        if not refs:
-            return 0
-
-        result2 = await session.run(
-            """
-            MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
-            UNWIND $refs AS ref
-            MERGE (d:Document {project_id: $project_id, source: ref.source, external_id: ref.external_id})
-            MERGE (c)-[r:REFERENCE]->(d)
-            SET r.source = 'text', r.confidence = 1.0
-            RETURN count(r) AS created
-            """,
-            project_id=project_id,
-            changeset_hash=changeset_hash,
-            refs=refs,
-        )
-        row2 = await result2.single()
-        return row2["created"] if row2 else 0
+    """TRIGGERED_BY (text, 실키) 전파: PR.issue_external_ids 전체를 CONTAINS 커밋에 전파.
+    코어는 _link_pr_changesets_to_refs 공유."""
+    return await _link_pr_changesets_to_refs(
+        project_id, pr_number,
+        pr_field="issue_external_ids", node_label="Issue", rel_type="TRIGGERED_BY",
+    )
 
 
 async def link_pr_changesets_to_documents(project_id: str, pr_number: int) -> int:
-    """REFERENCE (text, 실키) 전파: PR.document_external_ids에 등록된 각 참조를 그 PR이
-    머지한 모든 ChangeSet에 동일하게 연결한다. link_pr_changesets_to_issue_externals(1028)와
-    완전히 대칭이다 — PR 본문에 박힌 Notion 링크가 커밋 메시지보다 흔하므로(§2-5) 이 전파가
-    Document REFERENCE의 주 유입로다.
-
-    ①에서 CONTAINS 커밋 존재까지 확인해, PR이 자기 커밋들보다 먼저 소비되는 정상 순서에서
-    엣지 없는 pre-node가 먼저 생기지 않게 한다. 커밋이 도착하면 단건 전파
-    (link_changeset_to_pr_documents)가 pre-node 생성과 연결을 함께 수행하므로 잃는 링크는 없다.
-
-    Returns:
-        새로 생성 또는 갱신된 REFERENCE 엣지 수(근사치 — 참조 수 × CONTAINS 커밋 수).
-    """
-    async with get_driver().session() as session:
-        result = await session.run(
-            """
-            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
-            WHERE pr.document_external_ids IS NOT NULL AND size(pr.document_external_ids) > 0
-              AND EXISTS { (pr)-[:CONTAINS]->(:ChangeSet) }
-            RETURN pr.document_external_ids AS raw_refs
-            """,
-            project_id=project_id,
-            pr_number=pr_number,
-        )
-        row = await result.single()
-        if not row:
-            return 0
-
-        refs = _parse_prefixed_refs(row["raw_refs"])
-        if not refs:
-            return 0
-
-        result2 = await session.run(
-            """
-            MATCH (pr:PullRequest {project_id: $project_id, pr_number: $pr_number})
-            OPTIONAL MATCH (pr)-[:CONTAINS]->(cs:ChangeSet)
-            WITH [x IN collect(DISTINCT cs) WHERE x IS NOT NULL] AS changesets
-            UNWIND $refs AS ref
-            MERGE (d:Document {project_id: $project_id, source: ref.source, external_id: ref.external_id})
-            FOREACH (c IN changesets |
-                MERGE (c)-[r:REFERENCE]->(d)
-                SET r.source = 'text', r.confidence = 1.0
-            )
-            RETURN sum(size(changesets)) AS created
-            """,
-            project_id=project_id,
-            pr_number=pr_number,
-            refs=refs,
-        )
-        row2 = await result2.single()
-        return row2["created"] if row2 else 0
+    """REFERENCE (text, 실키) 전파: PR.document_external_ids 전체를 CONTAINS 커밋에 전파 —
+    link_pr_changesets_to_issue_externals와 완전히 대칭이다. PR 본문에 박힌 Notion 링크가
+    커밋 메시지보다 흔하므로(§2-5) 이 전파가 Document REFERENCE의 주 유입로다. 코어는
+    _link_pr_changesets_to_refs 공유."""
+    return await _link_pr_changesets_to_refs(
+        project_id, pr_number,
+        pr_field="document_external_ids", node_label="Document", rel_type="REFERENCE",
+    )

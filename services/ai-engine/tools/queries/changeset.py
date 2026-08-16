@@ -17,6 +17,7 @@ async def get_changeset_context(project_id: str, hash: str) -> dict:
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf AND i.source <> '__stub__'
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
+            OPTIONAL MATCH (cs)-[docref:REFERENCE]->(d:Document)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
             OPTIONAL MATCH (cs)-[m:MODIFIED]->(f:File)
             RETURN cs.hash AS hash,
@@ -36,6 +37,10 @@ async def get_changeset_context(project_id: str, hash: str) -> dict:
                        author: c_author.name,
                        confidence: ref.confidence
                    }) AS communications,
+                   collect(DISTINCT {
+                       title: d.title, url: d.url, source: d.source,
+                       confidence: docref.confidence
+                   }) AS documents,
                    {pr_number: pr.pr_number, title: pr.title, url: pr.url} AS pull_request,
                    collect(DISTINCT {path: f.path, diffSummary: m.diffSummary}) AS file_changes
             """,
@@ -66,6 +71,7 @@ async def check_missing_context(
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf
               }
               AND NOT (cs)-[:REFERENCE]->(:Communication)
+              AND NOT (cs)-[:REFERENCE]->(:Document)
               AND ($from_time IS NULL OR cs.occurredAt >= datetime($from_time))
               AND ($to_time IS NULL OR cs.occurredAt <= datetime($to_time))
             MATCH (a:Actor)-[:AUTHORED]->(cs)
@@ -98,6 +104,7 @@ async def get_conflict_context(project_id: str, hash: str) -> dict:
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf AND i.source <> '__stub__'
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
+            OPTIONAL MATCH (cs)-[docref:REFERENCE]->(d:Document)
             OPTIONAL MATCH (pr:PullRequest)-[:CONTAINS]->(cs)
             OPTIONAL MATCH (cs)-[m:MODIFIED]->(f:File)
             RETURN cs.hash AS hash,
@@ -125,6 +132,12 @@ async def get_conflict_context(project_id: str, hash: str) -> dict:
                        text: pr.title + '\n' + coalesce(pr.body, ''),
                        confidence: 1.0
                    }) AS pr_contexts,
+                   collect(DISTINCT {
+                       source: d.source,
+                       id: d.external_id,
+                       text: d.title + '\n' + left(coalesce(d.body, ''), 500),
+                       confidence: docref.confidence
+                   }) AS doc_contexts,
                    collect(DISTINCT {path: f.path, diff_summary: m.diffSummary}) AS file_changes
             """,
             project_id=project_id,
@@ -153,6 +166,7 @@ async def get_pr_context(project_id: str, pr_number: int) -> dict:
                 WHERE coalesce(tb.confidence, 1.0) >= $min_conf AND i.source <> '__stub__'
             OPTIONAL MATCH (cs)-[ref:REFERENCE]->(c:Communication)
             OPTIONAL MATCH (c_author:Actor)-[:WROTE]->(c)
+            OPTIONAL MATCH (cs)-[docref:REFERENCE]->(d:Document)
             OPTIONAL MATCH (cs)-[m:MODIFIED]->(f:File)
             RETURN pr.pr_number AS pr_number,
                    pr.title AS title,
@@ -178,6 +192,10 @@ async def get_pr_context(project_id: str, pr_number: int) -> dict:
                        conversation_id: c.conversation_id,
                        author: c_author.name, confidence: ref.confidence
                    }) AS discussions,
+                   collect(DISTINCT {
+                       title: d.title, url: d.url, source: d.source,
+                       confidence: docref.confidence
+                   }) AS documents,
                    collect(DISTINCT {path: f.path, diff_summary: m.diffSummary}) AS file_changes
             """,
             project_id=project_id,

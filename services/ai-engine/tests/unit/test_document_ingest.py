@@ -190,7 +190,9 @@ class DocumentTextReferenceTest(unittest.TestCase):
         self.assertIn("MERGE (c)-[r:REFERENCE]->(d)", query)
         self.assertIn("SET r.source = 'text', r.confidence = 1.0", query)
         self.assertEqual(params["hash"], "abc123")
-        self.assertEqual(params["document_external_id"], "page-1")
+        # link_changeset_to_document는 이제 link_changeset_to_issue_external과 코어를 공유해
+        # (_link_changeset_to_external_ref) 파라미터 키도 라벨 중립인 external_id를 쓴다.
+        self.assertEqual(params["external_id"], "page-1")
 
     def test_document_discussed_in_communication_removes_confidence(self):
         session = _FakeSession()

@@ -85,20 +85,10 @@ public class NotionNormalizer {
                 continue;
             }
             if (property.get("title") instanceof List<?> richText) {
-                return plainTextOf((List<Object>) richText);
+                return NotionBlockFlattener.plainTextOf((List<Object>) richText);
             }
         }
         return "";
-    }
-
-    private static String plainTextOf(List<Object> richText) {
-        StringBuilder sb = new StringBuilder();
-        for (Object element : richText) {
-            if (element instanceof Map<?, ?> map && map.get("plain_text") instanceof String text) {
-                sb.append(text);
-            }
-        }
-        return sb.toString();
     }
 
     private static String partialUserId(Object partialUser) {

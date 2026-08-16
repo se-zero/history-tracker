@@ -23,7 +23,7 @@ interface Props {
 }
 
 /** 세부 노드 목록 표시 순서 — 안쪽 궤도(코드)부터 바깥(논의)으로. */
-const GROUP_ORDER: GraphNodeType[] = ["commit", "code", "jira", "issue", "slack"];
+const GROUP_ORDER: GraphNodeType[] = ["commit", "code", "jira", "issue", "doc", "slack"];
 
 export function ConstellationDetail({
   star,

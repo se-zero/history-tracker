@@ -36,7 +36,7 @@ TOOLS = [
             "name": "get_changeset_context",
             "description": (
                 "Git commit hash로 해당 커밋의 변경 이유를 조회한다. "
-                "연결된 Jira/Linear 이슈, Slack 논의, PR, 파일별 diff 요약(diffSummary)을 반환. "
+                "연결된 Jira/Linear 이슈, Slack 논의, Notion 문서, PR, 파일별 diff 요약(diffSummary)을 반환. "
                 "코드가 왜 바뀌었는지 파악할 때 사용."
             ),
             "parameters": {
@@ -374,7 +374,7 @@ TOOLS = [
         "function": {
             "name": "get_conflict_context",
             "description": (
-                "하나의 커밋에 대해 Jira/Linear, Slack, PR이 각각 다른 맥락을 설명할 때 "
+                "하나의 커밋에 대해 Jira/Linear, Slack, Notion 문서, PR이 각각 다른 맥락을 설명할 때 "
                 "이를 출처별로 나란히 반환한다. "
                 "컨텍스트 충돌 처리, 다중 관점 제시에 사용."
             ),
@@ -396,7 +396,7 @@ TOOLS = [
             "name": "get_recent_activity",
             "description": (
                 "'최근에 뭐가 바뀌었어?', '이번 주 변경사항은?' 처럼 범위가 모호한 질문에 사용. "
-                "지정 기간 내 커밋, PR, Jira/Linear 이슈, Slack 메시지를 최신순으로 반환."
+                "지정 기간 내 커밋, PR, Jira/Linear 이슈, Slack 메시지, Notion 문서를 최신순으로 반환."
             ),
             "parameters": {
                 "type": "object",
@@ -424,8 +424,8 @@ TOOLS = [
         "function": {
             "name": "get_pr_context",
             "description": (
-                "PR 번호로 해당 PR에 포함된 커밋, 연결 Jira/Linear 이슈, Slack 논의, 파일 변경을 조회한다. "
-                "PR 번호만 알고 있을 때 사용."
+                "PR 번호로 해당 PR에 포함된 커밋, 연결 Jira/Linear 이슈, Slack 논의, Notion 문서, "
+                "파일 변경을 조회한다. PR 번호만 알고 있을 때 사용."
             ),
             "parameters": {
                 "type": "object",

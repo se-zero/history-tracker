@@ -34,17 +34,10 @@ from typing import Awaitable, Callable
 
 import numpy as np
 
+from graph._layer4_common import group_by_project
 from graph.embedder import similarity_matrix
 
 logger = logging.getLogger(__name__)
-
-
-def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
-    """project_id 기준 그룹핑 — 프로젝트 간 임베딩 비교(크로스 테넌트 엣지)를 차단한다."""
-    grouped: dict[str, list[dict]] = defaultdict(list)
-    for row in rows:
-        grouped[row.get("project_id") or ""].append(row)
-    return grouped
 
 
 # 문서가 쓰이기 전 커밋/이슈를 근거로 보지 않기 위한 하한 버퍼(회고성 문서를 위한 여유).
@@ -127,9 +120,9 @@ def _select_document_pairs(
     Returns:
         [(project_id, source_id, document_id, score, section_heading_path), ...]
     """
-    docs_by_project = _group_by_project(documents)
-    sections_by_project = _group_by_project(sections)
-    sources_by_project = _group_by_project(source_rows)
+    docs_by_project = group_by_project(documents)
+    sections_by_project = group_by_project(sections)
+    sources_by_project = group_by_project(source_rows)
 
     selected: list[tuple[str, str, str, float, str]] = []
     for project_id, project_docs in docs_by_project.items():

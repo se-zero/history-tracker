@@ -42,7 +42,12 @@ final class NotionBlockFlattener {
             case "table_row" -> renderTableRow(block);
             case "child_page" -> title(block, "child_page");
             case "child_database" -> title(block, "child_database");
-            default -> CAPTION_ONLY_TYPES.contains(type) ? caption(block, type) : "";
+            // toggle 등 별도 케이스가 없는 타입도 typed(block, type)에 rich_text가 있으면 그대로
+            // 읽는다 — richText()는 rich_text 키가 없으면 안전하게 ""를 돌려주므로(synced_block·
+            // column_list 등) 회귀 없이 toggle 같은 "rich_text는 있지만 case가 없는" 타입의
+            // 라벨 유실만 막는다. appendChildren은 이 타입들도 그대로 재귀하므로, 라벨을 버리면
+            // 자식 텍스트만 맥락 없이 본문에 섞여 들어갔었다.
+            default -> CAPTION_ONLY_TYPES.contains(type) ? caption(block, type) : richText(block, type);
         };
     }
 
@@ -94,8 +99,9 @@ final class NotionBlockFlattener {
     }
 
     // 각 rich_text 원소의 plain_text만 이어붙인다(annotation·색은 버린다 — §2-2).
+    // package-private — NotionNormalizer.extractTitle도 이 로직을 그대로 재사용한다.
     @SuppressWarnings("unchecked")
-    private static String plainTextOf(List<Object> richText) {
+    static String plainTextOf(List<Object> richText) {
         StringBuilder sb = new StringBuilder();
         for (Object element : richText) {
             if (element instanceof Map<?, ?> map) {

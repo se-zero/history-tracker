@@ -45,6 +45,24 @@ class DocumentChunkerTest(unittest.TestCase):
 
         self.assertEqual([section.heading_path for section in sections], ["제목"])
 
+    def test_hash_comment_inside_code_fence_is_not_treated_as_heading(self):
+        body = "\n".join([
+            "# 실제 헤딩",
+            "설명 " * 40,
+            "```python",
+            "# 이건 코드 주석이지 헤딩이 아니다",
+            "def foo():",
+            "    pass",
+            "```",
+            "펜스 뒤 본문 " * 40,
+        ])
+
+        sections = chunk_document("문서", body)
+
+        self.assertEqual([section.heading_path for section in sections], ["실제 헤딩"])
+        self.assertIn("# 이건 코드 주석이지 헤딩이 아니다", sections[0].text)
+        self.assertIn("펜스 뒤 본문", sections[0].text)
+
 
 if __name__ == "__main__":
     unittest.main()

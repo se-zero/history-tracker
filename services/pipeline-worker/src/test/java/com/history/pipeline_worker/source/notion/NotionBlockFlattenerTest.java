@@ -98,6 +98,20 @@ class NotionBlockFlattenerTest {
     }
 
     @Test
+    @DisplayName("toggle은 전용 case가 없어도 rich_text가 있으면 라벨 텍스트를 그대로 낸다 — 없으면 자식만 맥락 없이 섞여 들어간다")
+    void toggle_rendersOwnRichTextViaFallback() {
+        Map<String, Object> block = blockOf("toggle", "rich_text", richText("마이그레이션 노트"));
+        assertThat(NotionBlockFlattener.render(block)).isEqualTo("마이그레이션 노트");
+    }
+
+    @Test
+    @DisplayName("rich_text가 없는 미지원 타입(synced_block 등)은 fallback에서도 빈 문자열 — 회귀 없음")
+    void unknownTypeWithoutRichText_stillRendersEmptyString() {
+        Map<String, Object> block = Map.of("type", "synced_block", "synced_block", Map.of("synced_from", Map.of()));
+        assertThat(NotionBlockFlattener.render(block)).isEmpty();
+    }
+
+    @Test
     @DisplayName("annotation·색은 버리고 plain_text만 이어붙인다 (여러 rich_text 세그먼트 결합)")
     void multipleRichTextSegments_concatenatedByPlainTextOnly() {
         List<Object> richText = List.of(

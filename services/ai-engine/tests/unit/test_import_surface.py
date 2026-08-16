@@ -29,6 +29,7 @@ MODULES = [
     "graph.actor_llm",
     "graph.actor_resolver",
     "graph.actor_store",
+    "graph._layer4_common",
     "graph.builder",
     "graph.communication_store",
     "graph.consumer",
