@@ -37,4 +37,9 @@ public class CheckpointService {
             repository.upsertCursor(UUID.fromString(projectId), provider.value(), cursorKey, cursorValue);
         }
     }
+
+    // provider가 자기 키의 생애를 관리하기 위한 삭제(예: Slack이 삭제된 채널의 고아 커서 정리) — cursor_key 해석은 여전히 provider 소유다.
+    public void deleteCursor(String projectId, CollectionProvider provider, String cursorKey) {
+        repository.deleteCursor(UUID.fromString(projectId), provider.value(), cursorKey);
+    }
 }

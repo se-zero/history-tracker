@@ -75,6 +75,20 @@ public class CheckpointRepository {
                 .addValue("updatedAt", OffsetDateTime.now(ZoneOffset.UTC)));
     }
 
+    public int deleteCursor(UUID projectId, String provider, String cursorKey) {
+        String sql = """
+                DELETE FROM checkpoints
+                WHERE project_id = :projectId
+                  AND provider = :provider
+                  AND cursor_key = :cursorKey
+                """;
+
+        return jdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("projectId", projectId)
+                .addValue("provider", provider)
+                .addValue("cursorKey", cursorKey));
+    }
+
     private RowMapper<CheckpointRow> checkpointRowMapper() {
         return (rs, rowNum) -> new CheckpointRow(
                 rs.getObject("project_id", UUID.class),

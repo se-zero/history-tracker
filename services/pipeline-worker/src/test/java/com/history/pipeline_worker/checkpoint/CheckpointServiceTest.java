@@ -63,6 +63,13 @@ class CheckpointServiceTest {
         verify(repository, never()).upsertCursor(any(), anyString(), anyString(), any());
     }
 
+    @Test
+    void deleteCursor_delegatesProviderValueAndKey() {
+        service.deleteCursor(PROJECT_ID.toString(), CollectionProvider.SLACK, "slack_messages:C123");
+
+        verify(repository).deleteCursor(PROJECT_ID, "slack", "slack_messages:C123");
+    }
+
     private CheckpointRepository.CheckpointRow row(String provider, String cursorKey, String cursorValue) {
         Instant cursor = Instant.parse(cursorValue);
         return new CheckpointRepository.CheckpointRow(PROJECT_ID, provider, cursorKey, cursor, cursor);
