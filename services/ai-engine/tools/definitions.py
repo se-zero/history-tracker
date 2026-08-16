@@ -6,8 +6,9 @@ TOOLS = [
         "function": {
             "name": "get_issue_context",
             "description": (
-                "이슈 키로 관련 커밋, PR, Slack/GitHub 논의를 한 번에 조회한다. "
-                "크로스 소스 연결(이슈→커밋→PR→Slack) 확인에 사용."
+                "이슈 키로 관련 커밋, PR, Slack/GitHub 논의, 연결된 Notion 문서를 한 번에 조회한다. "
+                "크로스 소스 연결(이슈→커밋→PR→Slack) 확인과 '이 이슈의 설계 배경 문서' 같은 "
+                "이슈→문서 질문에 사용."
             ),
             "parameters": {
                 "type": "object",

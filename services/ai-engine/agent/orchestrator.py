@@ -292,8 +292,11 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   'semantic'(임베딩 유사도로 추론된 연결)인지 함께 옵니다. text는 확정 사실로 서술하고,
   semantic은 [증거 인용 규칙]의 추론 서술 지침을 그대로 적용하세요(단정형 금지, 근거가
   추정임을 밝힐 것).
-- 이슈 키로 이미 get_issue_context를 호출했다면, 그 이슈에 연결된 문서가 있는지도 확인하는
-  편이 좋습니다 — Document.body에는 커밋 메시지·이슈 설명보다 상세한 배경이 실려 있습니다.
+- get_issue_context 결과의 documents[]도 DESCRIBED_IN 관계로 연결된 문서입니다(같은
+  text/semantic 구분 적용). "이 이슈의 설계 배경이 뭐야"류 질문은 이슈를 먼저 조회했다면
+  별도 검색 없이 이 필드로 답하세요 — 필요하면 external_id로 get_document_context를 이어서
+  호출해 본문 전체를 봅니다(Document.body에는 커밋 메시지·이슈 설명보다 상세한 배경이 실려
+  있습니다).
 
 [2계층 결과 처리 — get_file_history · get_actor_activity]
 - 이 도구들의 결과는 {detail:[...], context:[...]} 2계층이다. detail은 본문 포함(인용 대상),

@@ -14,6 +14,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
+from tools.queries._common import _MIN_CONFIDENCE
 from tools.queries.issue import get_issue_context, get_timeline
 
 
@@ -82,13 +83,16 @@ class GetIssueContextAmbiguityTest(unittest.TestCase):
         scope_issues = [{"issue_key": "ENG-123", "title": "linear title", "status": "Todo"}]
         work_rows = [{"issue_key": "ENG-123", "changesets": [], "pull_requests": []}]
         disc_rows = [{"issue_key": "ENG-123", "discussions": []}]
-        session = _FakeSession(records=[candidates, base_row, scope_issues, work_rows, disc_rows])
+        doc_rows = [{"issue_key": "ENG-123", "documents": []}]
+        session = _FakeSession(
+            records=[candidates, base_row, scope_issues, work_rows, disc_rows, doc_rows]
+        )
 
         # 소문자 입력("linear")도 저장값(대문자 "LINEAR")과 매칭되도록 대문자 정규화한다.
         with patch("tools.queries.issue.get_driver", return_value=_FakeDriver(session)):
             result = asyncio.run(get_issue_context("p1", "ENG-123", source="linear"))
 
-        self.assertEqual(len(session.calls), 5)  # 해석 1 + 기존 4단계
+        self.assertEqual(len(session.calls), 6)  # 해석 1 + 기존 5단계
 
         resolve_query, resolve_params = session.calls[0]
         self.assertIn("i.source = $source", resolve_query)
@@ -111,19 +115,22 @@ class GetIssueContextAmbiguityTest(unittest.TestCase):
         scope_issues = [{"issue_key": "ENG-123", "title": "jira title", "status": "open"}]
         work_rows = [{"issue_key": "ENG-123", "changesets": [], "pull_requests": []}]
         disc_rows = [{"issue_key": "ENG-123", "discussions": []}]
-        session = _FakeSession(records=[candidates, base_row, scope_issues, work_rows, disc_rows])
+        doc_rows = [{"issue_key": "ENG-123", "documents": []}]
+        session = _FakeSession(
+            records=[candidates, base_row, scope_issues, work_rows, disc_rows, doc_rows]
+        )
 
         with patch("tools.queries.issue.get_driver", return_value=_FakeDriver(session)):
             result = asyncio.run(get_issue_context("p1", "ENG-123"))
 
-        self.assertEqual(len(session.calls), 5)
-        # 하위 호환: 기존 단일 매칭 시 반환 구조(키 목록)가 그대로 유지된다.
+        self.assertEqual(len(session.calls), 6)
+        # 하위 호환: 기존 단일 매칭 시 반환 구조(키 목록)가 그대로 유지된다(documents는 신규 추가).
         self.assertEqual(
             set(result.keys()),
             {
                 "issue_key", "title", "body", "status", "issue_type", "priority",
                 "occurredAt", "creator", "assignee", "changesets", "pull_requests",
-                "discussions", "descendants",
+                "discussions", "documents", "descendants",
             },
         )
         self.assertEqual(result["descendants"], [])
@@ -135,6 +142,48 @@ class GetIssueContextAmbiguityTest(unittest.TestCase):
 
         self.assertEqual(len(session.calls), 1)
         self.assertEqual(result, {"message": "이슈를 찾을 수 없습니다: ENG-999"})
+
+
+class GetIssueContextDocumentsTest(unittest.TestCase):
+    """get_issue_context의 documents 필드 — DESCRIBED_IN(Issue→Document) 유입 조회.
+
+    문서→이슈 방향은 document.get_document_context의 issues 필드가 이미 커버한다
+    (test_document_queries.py). 이 테스트는 그 반대 방향, 이슈→문서 경로가 실제로
+    연결·필터링되는지 검증한다.
+    """
+
+    def test_documents_query_scoped_by_described_in_and_filters_empty_rows(self):
+        candidates = [_CANDIDATES_TWO[0]]
+        base_row = {
+            "issue_key": "ENG-123", "title": "jira title", "body": "body",
+            "status": "open", "issue_type": "Task", "priority": "Medium",
+            "occurredAt": None, "creator": None, "assignee": None,
+        }
+        scope_issues = [{"issue_key": "ENG-123", "title": "jira title", "status": "open"}]
+        work_rows = [{"issue_key": "ENG-123", "changesets": [], "pull_requests": []}]
+        disc_rows = [{"issue_key": "ENG-123", "discussions": []}]
+        doc_rows = [{"issue_key": "ENG-123", "documents": [
+            {"external_id": "page-1", "title": "설계 문서", "source": "NOTION",
+             "confidence": 1.0, "link_source": "text", "section": None},
+            # OPTIONAL MATCH 미매치 잔재 — 전 필드 None 더미는 걸러져야 한다.
+            {"external_id": None, "title": None, "source": None,
+             "confidence": None, "link_source": None, "section": None},
+        ]}]
+        session = _FakeSession(
+            records=[candidates, base_row, scope_issues, work_rows, disc_rows, doc_rows]
+        )
+
+        with patch("tools.queries.issue.get_driver", return_value=_FakeDriver(session)):
+            result = asyncio.run(get_issue_context("p1", "ENG-123"))
+
+        doc_query, doc_params = session.calls[5]
+        self.assertIn("DESCRIBED_IN", doc_query)
+        self.assertIn("r.source = 'text' OR r.confidence >= $min_conf", doc_query)
+        self.assertEqual(doc_params["min_conf"], _MIN_CONFIDENCE)
+
+        self.assertEqual(len(result["documents"]), 1)
+        self.assertEqual(result["documents"][0]["external_id"], "page-1")
+        self.assertEqual(result["documents"][0]["link_source"], "text")
 
 
 class GetTimelineIssueScopeAmbiguityTest(unittest.TestCase):

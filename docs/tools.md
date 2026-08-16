@@ -50,7 +50,7 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 
 | # | 도구 | 역할 | queries.py |
 |---|------|------|-----------|
-| 1 | `get_issue_context` | Jira 이슈 + 자식 이슈까지 관련 작업/논의 집계 | `get_issue_context` |
+| 1 | `get_issue_context` | Jira 이슈 + 자식 이슈까지 관련 작업/논의/문서 집계 | `get_issue_context` |
 | 2 | `get_changeset_context` | 커밋 hash로 변경 이유(이슈/논의/PR/diff) 조회 | `get_changeset_context` |
 | 3 | `find_expert` | 파일/디렉토리 최다 기여자 식별 (최근 6개월 2배 가중) | `find_expert` |
 | 4 | `get_timeline` | 시간순 이벤트를 스코프별(이슈/파일/사람/전체 ±기간)로 반환 | `get_timeline` |
@@ -85,10 +85,13 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | `issue_key` | string | ✔ | 이슈 트래커의 사람용 키 (예: `HT-12`) — 표시용 속성으로 매칭하며 `__stub__` 센티널은 제외 |
 
 - 반환: 이슈 메타(`title`/`body`/`status`/`creator`/`assignee` 등) + root 이슈에 직접 연결된
-  `changesets` / `pull_requests` / `discussions`, 그리고 **`descendants[]`**.
+  `changesets` / `pull_requests` / `discussions` / `documents`, 그리고 **`descendants[]`**.
 - **CHILD_OF 자식 이슈까지 집계**: epic/스토리 구조를 따라 `CHILD_OF*1..5`로 자식 이슈를 모아
-  각각의 작업/논의를 `descendants`에 담는다 (root 작업은 하위 호환을 위해 top-level에도 그대로 둠).
+  각각의 작업/논의/문서를 `descendants`에 담는다 (root 작업은 하위 호환을 위해 top-level에도 그대로 둠).
 - `changesets[*]`에 `confidence` + `link_source` 포함. `discussions`는 스레드 그룹핑 구조.
+- `documents[*]`는 `DESCRIBED_IN`(Issue→Document) 유입 — `confidence`/`link_source`('text'|'semantic')/
+  `section` 포함, `get_document_context`의 `issues` 필드와 반대 방향의 같은 관계다. 문서 id를
+  몰라도 이슈에서 바로 연결된 문서(설계 배경 등)를 찾을 수 있다.
 
 ### 2. `get_changeset_context`
 

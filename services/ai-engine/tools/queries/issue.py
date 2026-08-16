@@ -85,8 +85,9 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
         changesets:    [...],   # root 이슈에 직접 연결된 커밋
         pull_requests: [...],
         discussions:   [...],
+        documents:     [{external_id, title, source, confidence, link_source, section}, ...],
         descendants: [
-          {issue_key, title, status, changesets, pull_requests, discussions},
+          {issue_key, title, status, changesets, pull_requests, discussions, documents},
           ...
         ]
       }
@@ -94,6 +95,9 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
     필터 정책:
       - TRIGGERED_BY 엣지는 confidence >= _MIN_CONFIDENCE 만 통과 (텍스트 매칭은 항상 1.0)
       - 각 changeset 항목에 source('text' | 'semantic') 노출하여 LLM이 신뢰도 구분 가능
+      - documents는 DESCRIBED_IN(Issue→Document) 유입 — confidence >= _MIN_CONFIDENCE만 통과
+        (텍스트 매칭은 항상 1.0). document.get_document_context의 issues 필드와 반대 방향의
+        같은 관계라, 문서 id를 몰라도 이슈에서 바로 연결된 문서를 찾을 수 있다.
       - CHILD_OF 재귀 깊이 상한 _CHILD_DEPTH
     """
     async with get_driver().session() as session:
@@ -204,6 +208,32 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
         )
         disc_rows = {r["issue_key"]: r["discussions"] for r in await result.data()}
 
+        # 5단계: 스코프 내 각 이슈의 연결 문서 일괄 조회 (issue_key 기준 grouping)
+        # — DESCRIBED_IN 유입(text+semantic). get_document_context가 문서→이슈 방향만 제공해서
+        # 문서 id를 모르면 "이 이슈의 설계 배경 문서" 질문에 답할 경로가 없었다 — 그 반대 방향.
+        result = await session.run(
+            f"""
+            MATCH (root:Issue {{project_id: $project_id, issue_key: $issue_key}})
+            WHERE root.source <> '__stub__' AND root.source = $source
+            OPTIONAL MATCH (desc:Issue)-[:CHILD_OF*1..{_CHILD_DEPTH}]->(root)
+            WITH collect(DISTINCT root) + collect(DISTINCT desc) AS issues_raw
+            UNWIND issues_raw AS i
+            WITH i WHERE i IS NOT NULL
+            OPTIONAL MATCH (i)-[r:DESCRIBED_IN]->(d:Document)
+                WHERE r IS NULL OR r.source = 'text' OR r.confidence >= $min_conf
+            RETURN i.issue_key AS issue_key,
+                   collect(DISTINCT {{
+                       external_id: d.external_id, title: d.title, source: d.source,
+                       confidence: r.confidence, link_source: r.source, section: r.section
+                   }}) AS documents
+            """,
+            project_id=project_id,
+            issue_key=issue_key,
+            source=resolved_source,
+            min_conf=_MIN_CONFIDENCE,
+        )
+        doc_rows = {r["issue_key"]: r["documents"] for r in await result.data()}
+
         def _filter_empty(items: list[dict]) -> list[dict]:
             """collect로 OPTIONAL MATCH가 비었을 때 들어오는 전 필드 None 더미 제거."""
             return [it for it in items if any(v is not None for v in it.values())]
@@ -215,6 +245,7 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
                 "changesets":    _filter_empty(w.get("changesets", [])),
                 "pull_requests": _filter_empty(w.get("pull_requests", [])),
                 "discussions":   _group_communications_by_thread(disc_rows.get(key, [])),
+                "documents":     _filter_empty(doc_rows.get(key, [])),
             }
 
         # root 자체의 작업은 top-level에 그대로 배치 (하위 호환)
