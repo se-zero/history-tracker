@@ -107,6 +107,11 @@ class OverviewEmptyDocumentGuardTest(unittest.TestCase):
     def test_work_unit_neighborhood_query_excludes_empty_document(self):
         self.assertIn(_EMPTY_DOCUMENT_PRED, _WORK_UNIT_NEIGHBORHOOD_QUERY)
 
+    def test_subgraph_query_matches_document_evidence_by_external_id(self):
+        # _EVIDENCE_TYPES에 "document"가 추가됐는데(agent/orchestrator.py) 이 매칭절이
+        # 없으면 문서 인용 카드의 시드가 항상 None으로 남는다 — 2번 항목에서 파생된 빈틈.
+        self.assertIn("n:Document AND n.external_id IN $document_external_ids", _SUBGRAPH_QUERY)
+
     def test_evidence_subgraph_query_excludes_empty_document(self):
         self.assertIn(_EMPTY_DOCUMENT_PRED, _SUBGRAPH_QUERY)
 

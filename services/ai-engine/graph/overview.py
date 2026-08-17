@@ -568,8 +568,9 @@ async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
 
 # ── 답변 evidence → 관련 서브그래프 ────────────────────────────────────────────
 # 채팅 답변의 evidence는 도메인 키로 노드를 가리킨다(commit→hash 앞 7자, pull_request→
-# "#번호", issue→issue_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로
-# 둘을 잇는 공통 키가 없다 — 여기서 도메인 키로 노드를 resolve해 서브그래프를 만든다.
+# "#번호", issue→issue_key, document→external_id, message→conversation_id). 그래프 노드는
+# elementId로 식별되므로 둘을 잇는 공통 키가 없다 — 여기서 도메인 키로 노드를 resolve해
+# 서브그래프를 만든다.
 
 # 시드 노드(evidence가 가리키는 노드) + 1홉 이웃을 모으고, 그 집합 내부 엣지만 수집한다.
 # 빈 파라미터 리스트는 각 술어를 false로 만들어 안전하다(any(... IN [])=false, x IN []=false).
@@ -580,6 +581,7 @@ WHERE n.project_id = $project_id
     (n:ChangeSet AND any(p IN $commit_prefixes WHERE n.hash STARTS WITH p))
     OR (n:PullRequest AND n.pr_number IN $pr_numbers)
     OR (n:Issue AND n.issue_key IN $issue_keys AND n.source <> '__stub__')
+    OR (n:Document AND n.external_id IN $document_external_ids)
     OR (n:Communication AND (
         replace(n.conversation_id, '.', '') IN $conv_ids
         OR split(coalesce(n.url, ''), '/p')[-1] IN $conv_ids
@@ -622,7 +624,7 @@ def _normalize_evidence(item: dict) -> tuple[str, str] | None:
     빈 id·미지 타입·숫자 아닌 PR 번호·숫자로 환원 안 되는 message는 무효로 None. 파싱 규칙을
     한 곳에 모아, 한쪽만 바뀌어 "group은 수집했는데 resolve는 못 찾는" drift를 구조적으로 막는다.
     pull_request는 "#42"/"42"를 "42"로, message는 ts/퍼머링크/점없는 ts를 숫자 정규형으로,
-    나머지는 strip한 id를 그대로 키로 쓴다.
+    나머지(document 포함, id=external_id)는 strip한 id를 그대로 키로 쓴다.
     """
     etype = (item.get("type") or "").strip()
     eid = (item.get("id") or "").strip()
@@ -635,6 +637,8 @@ def _normalize_evidence(item: dict) -> tuple[str, str] | None:
         return ("pull_request", num) if num.isdigit() else None
     if etype == "issue":
         return ("issue", eid)
+    if etype == "document":
+        return ("document", eid)
     if etype == "message":
         key = _slack_ts_key(eid)
         return ("message", key) if key else None
@@ -647,6 +651,7 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
         "commit_prefixes": [],
         "pr_numbers": [],
         "issue_keys": [],
+        "document_external_ids": [],
         "conv_ids": [],
     }
     for item in evidence:
@@ -660,6 +665,8 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
             keys["pr_numbers"].append(int(key))
         elif etype == "issue":
             keys["issue_keys"].append(key)
+        elif etype == "document":
+            keys["document_external_ids"].append(key)
         elif etype == "message":
             keys["conv_ids"].append(key)
     return keys
@@ -694,6 +701,13 @@ def _resolve_seed_ids(evidence: list[dict], node_rows: list[dict]) -> list[str |
                     (r["id"] for r in node_rows
                      if r.get("label") == "Issue" and r.get("issue_key") == key
                      and r.get("source") != "__stub__"),
+                    None,
+                )
+            elif etype == "document":
+                # 빈 부모 pre-node는 _SUBGRAPH_QUERY가 이미 걸러내므로 여기서 따로 안 뺀다.
+                match = next(
+                    (r["id"] for r in node_rows
+                     if r.get("label") == "Document" and r.get("external_id") == key),
                     None,
                 )
             elif etype == "message":

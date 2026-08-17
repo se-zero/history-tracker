@@ -66,7 +66,7 @@ async def graph_work_unit(project_id: str, node_id: str):
 async def graph_subgraph(req: SubgraphRequest):
     """답변 evidence(도메인 키)로 관련 서브그래프를 조회한다 (대화 화면 그래프 패널용).
 
-    evidence가 가리키는 노드(commit/PR/issue/message) + 1홉 이웃을 project_id 스코프로
+    evidence가 가리키는 노드(commit/PR/issue/document/message) + 1홉 이웃을 project_id 스코프로
     {nodes, edges, seeds}로 반환한다. seeds는 입력 evidence 순서의 노드 id(인용 카드 매핑용).
     인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
     """
