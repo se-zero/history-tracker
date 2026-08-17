@@ -343,8 +343,15 @@ async def _handle_document(event: dict) -> None:
     )
 
     sections = chunk_document(title, body)
+    # heading_path는 heading 하나만 지나도 문서 제목을 잃는다(예: "배경") — 그 표시 라벨은
+    # 그대로 두고, 임베딩 입력에만 문서 제목을 매 섹션 앞에 별도로 보탠다. 그러지 않으면
+    # "배경"·"개요" 같은 흔한 소제목이 문서 정체성 없이 벡터 공간에서 서로 뭉친다.
+    # document_title 계산은 chunk_document 내부 규칙(공백 제목 → "제목 없는 문서")과 맞춘다.
+    document_title = title.strip() or "제목 없는 문서"
     embeddings = await embed_batch([
-        f"{section.heading_path}\n\n{section.text}" for section in sections
+        f"{document_title}\n\n{section.text}" if section.heading_path == document_title
+        else f"{document_title}\n{section.heading_path}\n\n{section.text}"
+        for section in sections
     ]) if sections else []
     await builder.replace_document_sections(
         project_id=project_id,

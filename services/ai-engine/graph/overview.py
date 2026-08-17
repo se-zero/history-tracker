@@ -46,6 +46,19 @@ _CONTENT_TYPE_PREDICATES = {
 # (docs/notion-integration.md §6-5). content/확장 술어 어디에도 넣지 않는다.
 _ALL_CONTENT_PRED = "n:ChangeSet OR n:PullRequest OR n:Issue OR n:Communication OR n:Document"
 
+# 내용이 빈 Document pre-node를 응답에서 감춘다.
+# writes.link_document_to_parent가 부모 page를 실키 pre-node로 MERGE하는데, Notion에서는
+# 하위 페이지만 연동에 공유하고 상위는 공유하지 않는 사용이 흔하다 — 그러면 부모의 본
+# 이벤트가 영영 오지 않아 external_id만 있는 빈 노드로 남고, 노드가 적은 초기 그래프에서
+# "(문서)" 카드로 그려진다. 부모가 나중에 공유되면 upsert_document가 같은 MERGE 키로 채우므로
+# 이 가드는 저절로 풀린다(__stub__ Issue가 흡수되는 것과 같은 성질).
+#
+# 판별을 title이 아니라 occurredAt으로 하는 이유: 실제 문서도 normalizer가 title을 JSON null로
+# 보내면 title이 NULL이 될 수 있어(_handle_document의 url 주석과 같은 함정) 진짜 문서를 감출
+# 위험이 있다. occurredAt은 checkpoint 전진 기준이라 실제 문서에는 항상 있다(없으면 수집 자체가
+# 실패한다).
+_EMPTY_DOCUMENT_PRED = "(n:Document AND n.occurredAt IS NULL)"
+
 # 확장(이웃) 타입 — content 노드에 매달린 Actor/File만.
 _EXPANSION_LABELS = {"actor": "nb:Actor", "code": "nb:File"}
 _ALL_EXPANSION_PRED = "nb:Actor OR nb:File"
@@ -83,6 +96,7 @@ MATCH (n)
 WHERE n.project_id = $project_id
   AND ({content_pred})
   AND NOT (n:Issue AND n.source = '__stub__')
+  AND NOT {_EMPTY_DOCUMENT_PRED}
 WITH n ORDER BY n.occurredAt DESC LIMIT $limit
 WITH collect(n) AS content
 CALL (content) {{
@@ -383,6 +397,7 @@ MATCH (n)
 WHERE n.project_id = $project_id
   AND ({_ALL_CONTENT_PRED})
   AND NOT (n:Issue AND n.source = '__stub__')
+  AND NOT {_EMPTY_DOCUMENT_PRED}
 WITH n ORDER BY n.occurredAt DESC LIMIT $limit
 RETURN {_NODE_RETURN_FIELDS}
 """
@@ -513,6 +528,7 @@ WITH [w] + h1 + h2 + h3 AS found
 UNWIND found AS n
 WITH DISTINCT n
 WHERE NOT n:Actor AND NOT (n:Issue AND n.source = '__stub__')
+  AND NOT {_EMPTY_DOCUMENT_PRED}
 WITH n LIMIT $node_limit
 RETURN {_NODE_RETURN_FIELDS}
 """
@@ -579,6 +595,8 @@ CALL (seeds) {{
 WITH seeds + neighbors AS nodes
 UNWIND nodes AS n
 WITH DISTINCT n
+// 이웃 확장은 라벨을 가리지 않으므로, 문서 시드의 CHILD_OF 부모가 빈 pre-node일 수 있다.
+WHERE NOT {_EMPTY_DOCUMENT_PRED}
 RETURN {_NODE_RETURN_FIELDS}
 """
 

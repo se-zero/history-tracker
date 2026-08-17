@@ -83,6 +83,7 @@ class HandleDocumentTest(unittest.TestCase):
         parent = AsyncMock()
         issue_link = AsyncMock()
         external_issue_link = AsyncMock()
+        embed = AsyncMock(return_value=[[0.1, 0.2]])
         with patch("graph.event_handler.builder.upsert_document", upsert), \
              patch("graph.event_handler.builder.replace_document_sections", replace), \
              patch("graph.event_handler.builder.set_document_editors", editors), \
@@ -92,7 +93,7 @@ class HandleDocumentTest(unittest.TestCase):
              patch("graph.event_handler.resolve_actor", AsyncMock(side_effect=[{"uuid": "creator-uuid"}, {"uuid": "editor-uuid"}])), \
              patch("graph.event_handler.make_neo4j_actor_store", return_value="STORE"), \
              patch("graph.event_handler.chunk_document", return_value=[DocumentSection("토큰", "갱신 정책")]), \
-             patch("graph.event_handler.embed_batch", AsyncMock(return_value=[[0.1, 0.2]])):
+             patch("graph.event_handler.embed_batch", embed):
             asyncio.run(handle(_document_event()))
 
         self.assertEqual(upsert.await_args.kwargs["external_id"], "page-1")
@@ -105,6 +106,29 @@ class HandleDocumentTest(unittest.TestCase):
         parent.assert_awaited_once_with("project-1", "NOTION", "page-1", "parent-1")
         issue_link.assert_awaited_once_with("project-1", "HT-1", "NOTION", "page-1")
         external_issue_link.assert_awaited_once_with("project-1", "ASANA", "task-1", "NOTION", "page-1")
+        # heading_path("토큰")만으로는 벡터가 문서 정체성을 잃는다("배경"류 흔한 소제목이
+        # 다른 문서와 뭉친다) — 임베딩 입력에는 heading_path와 별개로 문서 제목이 붙어야 한다.
+        # 저장되는 DocumentSection.heading_path 자체(위 assertEqual)는 "토큰" 그대로다.
+        embed.assert_awaited_once_with(["인증 설계\n토큰\n\n갱신 정책"])
+
+    def test_embedding_input_avoids_duplicate_title_for_preamble_section(self):
+        # 서두(heading 앞) 섹션은 heading_path가 이미 문서 제목과 같다 — "제목\n제목\n\n텍스트"로
+        # 중복되지 않고 한 번만 실려야 한다.
+        upsert = AsyncMock()
+        embed = AsyncMock(return_value=[[0.1]])
+        with patch("graph.event_handler.builder.upsert_document", upsert), \
+             patch("graph.event_handler.builder.replace_document_sections", AsyncMock()), \
+             patch("graph.event_handler.builder.set_document_editors", AsyncMock()), \
+             patch("graph.event_handler.builder.link_document_to_parent", AsyncMock()), \
+             patch("graph.event_handler.builder.link_issue_to_document", AsyncMock()), \
+             patch("graph.event_handler.builder.link_issue_external_to_document", AsyncMock()), \
+             patch("graph.event_handler.resolve_actor", AsyncMock(side_effect=[{"uuid": "creator-uuid"}, {"uuid": "editor-uuid"}])), \
+             patch("graph.event_handler.make_neo4j_actor_store", return_value="STORE"), \
+             patch("graph.event_handler.chunk_document", return_value=[DocumentSection("인증 설계", "서두 본문")]), \
+             patch("graph.event_handler.embed_batch", embed):
+            asyncio.run(handle(_document_event()))
+
+        embed.assert_awaited_once_with(["인증 설계\n\n서두 본문"])
 
     def test_missing_external_id_drops_event_before_any_write(self):
         upsert = AsyncMock()

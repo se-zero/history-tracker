@@ -213,9 +213,9 @@ MODIFIED처럼 엣지 속성에 담지 않고 **별도 노드**로 두는 이유
   "project_id": "", "source": "NOTION",
   "document_external_id": "",  // 소속 Document
   "ordinal": 0,                // 문서 내 순번
-  "heading_path": "",          // "인증 > 토큰 갱신" — 임베딩 입력 앞에 붙인다(맥락 보존)
+  "heading_path": "",          // "인증 > 토큰 갱신" — 저장·표시·인용(section 필드)용 라벨
   "text": "",                  // 섹션 본문
-  "embedding": []              // heading_path + "\n\n" + text 임베딩
+  "embedding": []              // 문서 제목 + heading_path + "\n\n" + text 임베딩(아래 참고)
 }
 ```
 
@@ -227,6 +227,13 @@ MODIFIED처럼 엣지 속성에 담지 않고 **별도 노드**로 두는 이유
 - 섹션이 **1,500자를 넘으면** 문단 경계로 재분할(같은 heading_path 유지, ordinal만 증가).
 - 섹션이 **200자 미만이면** 다음 섹션과 병합 — 목차·한 줄 heading이 벡터 공간을 오염시키지 않게.
 - heading이 하나도 없는 문서는 문단 경계로만 1,500자 단위 분할.
+- **저장되는 `heading_path`와 임베딩 입력은 다르다.** `heading_path`는 서두 섹션만 문서 제목이고
+  그 다음 heading부터는 heading 계층만 남는다(예: "배경") — 그대로 임베딩하면 "배경"·"개요" 같은
+  흔한 소제목이 문서 정체성 없이 다른 문서와 벡터 공간에서 뭉친다. 그래서 `graph/event_handler.py`의
+  `_handle_document`가 임베딩 입력에는 **매 섹션마다** 문서 제목을 별도로 앞에 붙인다
+  (서두 섹션처럼 `heading_path`가 이미 제목과 같으면 중복 없이 한 번만). `heading_path` 자체(저장값·
+  `search_documents`의 `section` 필드·`DESCRIBED_IN`/`REFERENCE`의 `section` 속성)는 이 처리와
+  무관하게 heading 계층 그대로 유지한다.
 
 **재수집 시 섹션은 전량 교체한다**(upsert가 아니라 delete-then-create). 문서 중간에 문단이 하나
 추가되면 이후 ordinal이 전부 밀려 부분 갱신이 의미가 없기 때문이다. 이게 안전한 이유가 바로
@@ -641,6 +648,16 @@ refs.issueKeys / issueExternalRefs → DESCRIBED_IN(source='text', confidence=1.
     넣지 않는다. 내부 검색 단위지 사용자가 볼 개체가 아니다.
   - `_WORK_UNIT_LABELS`(`PullRequest`·`Issue`·`ChangeSet`)에는 **넣지 않는다** — 문서는 작업 단위가
     아니라 맥락이라 성좌의 별성이 아니라 주변 노드다.
+  - **빈 부모 page pre-node를 감춘다** (`_EMPTY_DOCUMENT_PRED`). `link_document_to_parent`가
+    부모를 실키 pre-node로 MERGE하는데, Notion에서는 하위 페이지만 공유하고 상위는 공유하지
+    않는 사용이 흔해 부모의 본 이벤트가 영영 오지 않을 수 있다 — 그러면 `external_id`만 있는
+    빈 노드가 남아 노드 적은 초기 그래프에서 "(문서)" 카드로 그려진다. `__stub__` Issue 가드와
+    같은 성질이고, 부모가 나중에 공유되면 같은 MERGE 키로 채워져 저절로 풀린다.
+    노출 경로 4개 전부에 걸어야 한다 — 목록 2개(`_node_query`·`_RECENT_CONTENT_QUERY`)와
+    이웃 확장 2개(`_WORK_UNIT_NEIGHBORHOOD_QUERY`·`_SUBGRAPH_QUERY` — 자식 문서의 `CHILD_OF`
+    부모로 딸려온다). 판별은 `title`이 아니라 `occurredAt IS NULL`로 한다 — normalizer가 title을
+    JSON null로 보내면 실제 문서도 title이 NULL이 될 수 있어 진짜 문서를 감출 위험이 있고,
+    `occurredAt`은 checkpoint 전진 기준이라 실제 문서에는 항상 있다.
 - `tests/unit/test_import_surface.py`의 `MODULES`에 신규 모듈 등록,
   `tests/unit/test_api_routes.py`는 라우트를 추가하지 않으면 무변경.
 
