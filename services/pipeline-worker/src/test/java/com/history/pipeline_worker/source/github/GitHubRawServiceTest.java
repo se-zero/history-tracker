@@ -629,6 +629,38 @@ class GitHubRawServiceTest {
     }
 
     @Test
+    @DisplayName("프로필 조회가 non-2xx로 실패해도 rate limiter 페이싱(acquire)은 호출된다")
+    void fetchCommitPage_userProfileFails_pacingStillApplied() {
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(errorResponse(HttpStatus.NOT_FOUND));  // 삭제된 계정 등 — 실패는 캐시 안 됨
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                Duration.ofMinutes(30),
+                detailExecutor()
+        );
+
+        service.fetchCommitPage(fetchContext(), 1, Map.of());
+
+        // 목록 1 + 상세 1 + 프로필(실패) 1 = acquire 3회 — 실패 응답도 예산을 소모하므로 페이싱 유지
+        verify(rateLimiter, times(3)).acquire(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     @DisplayName("403은 Retry-After 또는 remaining=0일 때만, 429는 항상 rate limit으로 분류한다")
     void isRateLimitResponse_classifiesByStatusAndHeaders() {
         HttpHeaders retryAfter = new HttpHeaders();

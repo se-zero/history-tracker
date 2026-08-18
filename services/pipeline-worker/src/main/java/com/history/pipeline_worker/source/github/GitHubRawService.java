@@ -320,31 +320,27 @@ public class GitHubRawService {
         // computeIfAbsent는 매핑 함수의 반환값을 무조건 캐시하므로 실패(에러 상태·예외) 케이스를
         // 걸러낼 수 없다. get으로 조회 후 미스/만료일 때만 호출하고 성공한 결과만 캐시에 반영하는 패턴으로
         // 바꿔, 일시 장애가 그 계정의 신원 보강을 재시작 전까지 영구히 결손시키지 않도록 한다.
+        AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
         try {
             // 프로필은 부가 데이터라 재시도 대상을 429(명백한 rate limit)로만 좁힌다 — 403 등 나머지
             // non-2xx는 즉시 실패시켜 아래 catch가 흡수하고(캐시 미기록으로 다음 호출에서 재조회), 계정당
             // 최대 3×Retry-After초를 태우지 않는다.
-            Map<String, Object> result = executeWithRateLimitRetry(() -> {
-                AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
-                Map<String, Object> body = webClient.get()
-                        .uri("/users/{login}", login)
-                        .header("Authorization", auth)
-                        .exchangeToMono(resp -> {
-                            headersRef.set(resp.headers().asHttpHeaders());
-                            if (resp.statusCode().is2xxSuccessful()) {
-                                return resp.bodyToMono(Map.class);
-                            }
-                            if (resp.statusCode().value() == 429) {
-                                return Mono.error(new GitHubRateLimitedException(
-                                        resolveRetryWaitSeconds(resp.headers().asHttpHeaders())));
-                            }
-                            return Mono.error(new IllegalStateException(
-                                    "GitHub API error: status=" + resp.statusCode().value() + ", path=/users/" + login));
-                        })
-                        .block();
-                rateLimiter.acquire(headersRef.get());
-                return body;
-            });
+            Map<String, Object> result = executeWithRateLimitRetry(() -> webClient.get()
+                    .uri("/users/{login}", login)
+                    .header("Authorization", auth)
+                    .exchangeToMono(resp -> {
+                        headersRef.set(resp.headers().asHttpHeaders());
+                        if (resp.statusCode().is2xxSuccessful()) {
+                            return resp.bodyToMono(Map.class);
+                        }
+                        if (resp.statusCode().value() == 429) {
+                            return Mono.error(new GitHubRateLimitedException(
+                                    resolveRetryWaitSeconds(resp.headers().asHttpHeaders())));
+                        }
+                        return Mono.error(new IllegalStateException(
+                                "GitHub API error: status=" + resp.statusCode().value() + ", path=/users/" + login));
+                    })
+                    .block());
 
             Map<String, String> profile = new HashMap<>();
             if (result != null) {
@@ -359,6 +355,10 @@ public class GitHubRawService {
             // 프로필은 부가 데이터라 조회 실패로 커밋/이슈 수집 자체를 막지 않는다.
             log.warn("GitHub user profile 조회 실패 (login={}): {}", login, e.getMessage());
             return Map.of();
+        } finally {
+            // 성공·실패 공통 1회 페이싱 — 실패 응답(404 등)도 rate limit 예산을 소모하고,
+            // 실패는 캐시하지 않아 같은 계정으로 반복 호출될 수 있으므로 페이싱을 유지한다.
+            rateLimiter.acquire(headersRef.get());
         }
     }
 
