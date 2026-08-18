@@ -15,7 +15,9 @@ import os
 from graph.embedder import embed_batch
 
 # env 노브 — consumer.py의 관행을 따른다 (INGEST_* 접두사, 하한 클램프).
-COALESCE_MAX = max(1, int(os.environ.get("INGEST_EMBED_COALESCE_MAX", "16")))
+# 기본 8 = INGEST_CHANGESET_LOOKAHEAD 기본값과 정렬 — 배치에 합류하는 주체가 동시 실행 중인
+# prepare들뿐이라 그 상한(lookahead)보다 큰 값은 개수 flush 경로를 사문화시킨다.
+COALESCE_MAX = max(1, int(os.environ.get("INGEST_EMBED_COALESCE_MAX", "8")))
 COALESCE_WINDOW_MS = max(0, int(os.environ.get("INGEST_EMBED_COALESCE_WINDOW_MS", "50")))
 
 _pending: list[tuple[str, asyncio.Future]] = []
@@ -131,20 +133,31 @@ async def _flush() -> None:
     # 실패 반경 축소: 콜 하나가 통째로 거절되면(예: 8,192토큰 초과 입력 1건 → 400 → 청크 전체 [])
     # 같이 탄 정상 텍스트까지 전부 결손된다. 빈 벡터로 남은 항목만 1건씩 재시도해
     # 단건 호출 시절의 격리 수준을 복원한다 — 정상 경로 비용 0, 실패 시에만 추가 콜.
-    for (text, fut), vector in zip(batch, vectors):
-        if not vector and not fut.done():
-            try:
-                single = await embed_batch([text])
-            except Exception:
-                single = []
-            if not fut.done():
-                fut.set_result(single[0] if single else [])
+    # 재시도는 gather로 동시 실행한다 — API 전면 장애 시 직렬 재시도(각각 SDK 백오프 포함)가
+    # 프리페치 슬롯을 오래 붙들어 파티션 워커까지 지연시키는 것을 막는다.
+    retries = [
+        _retry_single(text, fut)
+        for (text, fut), vector in zip(batch, vectors)
+        if not vector and not fut.done()
+    ]
+    if retries:
+        await asyncio.gather(*retries)
 
     # embed_batch가 입력보다 짧게 반환하면(계약 파손) zip이 조용히 멈춰 남은 waiter가
     # 영원히 잠든다 — 워커 정지로 이어지므로 빈 벡터로 마저 깨운다.
     for _, fut in batch:
         if not fut.done():
             fut.set_result([])
+
+
+async def _retry_single(text: str, fut: asyncio.Future) -> None:
+    """배치 실패로 빈 벡터가 된 텍스트 1건을 단독 콜로 재시도해 waiter를 깨운다."""
+    try:
+        single = await embed_batch([text])
+    except Exception:
+        single = []
+    if not fut.done():
+        fut.set_result(single[0] if single else [])
 
 
 def _spawn_tracked(coro) -> asyncio.Task:

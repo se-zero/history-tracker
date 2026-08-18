@@ -28,8 +28,9 @@ INGEST_CHANGESET_LOOKAHEAD = max(0, int(os.environ.get("INGEST_CHANGESET_LOOKAHE
 # 합친 만큼은 받아둬야 워커가 놀지 않는다 — 브로커 미ack 한도가 look-ahead 깊이의 물리적 상한이다.
 # 트레이드오프: 재시작 시 최대 INGEST_PREFETCH건이 재배달될 수 있다. 쓰기가 전부 MERGE라 멱등이라
 # 그래프는 안전하고, LLM 준비 비용만 재발생한다(재계산일 뿐 데이터 손상 없음).
-# 미설정 시 동시성+look-ahead 합과 동일하게 둔다.
-INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH", str(INGEST_MAX_CONCURRENCY + INGEST_CHANGESET_LOOKAHEAD))))
+# 미설정 시 동시성+look-ahead 합으로 파생한다. 빈 문자열도 미설정 취급(or 폴백) —
+# compose가 `${INGEST_PREFETCH:-}`로 빈 값을 넘겨 파생 규칙을 살릴 수 있게 한다.
+INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH") or (INGEST_MAX_CONCURRENCY + INGEST_CHANGESET_LOOKAHEAD)))
 
 # 처리 실패 재시도/보관 큐. handle() 실패 시 consumer가 재시도 횟수를 헤더로 관리하며 직접 재발행한다
 # (imperative). 메인 큐(history.events)는 변경하지 않는다 — 신규 큐만 추가하며 consumer만 선언·사용한다.
@@ -150,6 +151,10 @@ class _PartitionedDispatcher:
                 await task
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                # 예외로 방금 끝난 태스크는 done callback(discard)이 아직 안 돌아 set에 남아 있을 수
+                # 있다 — 그 예외가 close() 밖으로 새 종료 사유를 덮지 않게 여기서 삼키고 기록만 한다.
+                logger.exception("프리페치 태스크가 예외로 종료된 채 남아 있었음 — 종료 계속")
         self._prefetch_tasks.clear()
 
 

@@ -29,8 +29,9 @@ uvicorn main:app --reload --port 8000
 `CONTEXT_CARD_BUDGET_CHARS`(최종 답변 맥락 카드 글자 예산, 기본 `6000`).
 
 수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_CHANGESET_LOOKAHEAD`(기본 `8`, `0`=비활성),
-`INGEST_EMBED_COALESCE_MAX`/`INGEST_EMBED_COALESCE_WINDOW_MS`(커밋 메시지 임베딩 코얼레싱, 기본 `16`/`50ms`,
-`MAX=1`이면 대기창 없이 단건 호출), `INGEST_PREFETCH`(기본 = 동시성 + look-ahead 합, 기본 `12`).
+`INGEST_EMBED_COALESCE_MAX`/`INGEST_EMBED_COALESCE_WINDOW_MS`(커밋 메시지 임베딩 코얼레싱, 기본 `8`/`50ms` —
+`MAX` 기본은 look-ahead와 정렬, `MAX=1`이면 대기창 없이 단건 호출), `INGEST_PREFETCH`(기본 = 동시성 +
+look-ahead 합 = `12`, 빈 값은 미설정 취급 — compose가 빈 값을 넘겨 파생 규칙을 유지한다).
 킬스위치: `INGEST_CHANGESET_LOOKAHEAD=0`으로 프리페치가 꺼지고, **완전한 기존 동작 복원**에는
 `INGEST_EMBED_COALESCE_MAX=1`을 병행한다(아니면 커밋당 코얼레싱 대기창 50ms가 남는다).
 consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호), project 간은
