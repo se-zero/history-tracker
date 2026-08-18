@@ -141,13 +141,13 @@ def test_process_event_success_acks(monkeypatch):
     msg = _FakeMessage(body=b'{"projectId":"p1"}')
     calls = {}
 
-    async def fake_handle(event):
+    async def fake_handle(event, prepared=None):
         calls["handled"] = event
 
     monkeypatch.setattr(consumer, "handle", fake_handle)
     monkeypatch.setattr(consumer, "mark_dirty", lambda pid: calls.__setitem__("dirty", pid))
 
-    asyncio.run(_process_event((msg, {"projectId": "p1"}), ch))
+    asyncio.run(_process_event((msg, {"projectId": "p1"}), None, ch))
 
     assert calls["handled"] == {"projectId": "p1"}
     assert calls["dirty"] == "p1"
@@ -159,12 +159,12 @@ def test_process_event_failure_routes_to_retry(monkeypatch):
     ch = _FakeChannel()
     msg = _FakeMessage(headers={"x-retry-count": 0})
 
-    async def boom_handle(event):
+    async def boom_handle(event, prepared=None):
         raise RuntimeError("neo4j down")
 
     monkeypatch.setattr(consumer, "handle", boom_handle)
 
-    asyncio.run(_process_event((msg, {"projectId": "p1"}), ch))
+    asyncio.run(_process_event((msg, {"projectId": "p1"}), None, ch))
 
     published_msg, routing_key = ch.default_exchange.published[0]
     assert routing_key == RETRY_QUEUE

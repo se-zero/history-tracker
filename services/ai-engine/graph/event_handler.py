@@ -1,9 +1,11 @@
 import asyncio
 import logging
+from dataclasses import dataclass
 
 from graph import builder
 from graph.actor_resolver import resolve_actor
 from graph.builder import make_neo4j_actor_store
+from graph.embed_batcher import embed_text_batched
 from graph.embedder import embed_batch, embed_text
 from graph.path_filter import should_skip
 from graph.slack_filter import should_skip_slack
@@ -19,8 +21,13 @@ def _is_bot_actor(actor_id: str) -> bool:
     return bool(actor_id) and actor_id.endswith("[bot]")
 
 
-async def handle(event: dict) -> None:
-    """NormalizedEvent를 nodeType에 따라 분기 처리한다."""
+async def handle(event: dict, *, prepared: "ChangesetPrepared | None" = None) -> None:
+    """NormalizedEvent를 nodeType에 따라 분기 처리한다.
+
+    prepared: ChangeSet 프리페치(LLM 준비 단계 look-ahead) 결과. ChangeSet 분기에만 전달되고
+    다른 분기는 무시한다. None이면 _handle_changeset이 인라인으로 재계산한다
+    (routers/admin.py 등 prepared를 모르는 기존 호출부와 호환).
+    """
     node_type = event.get("nodeType", "unknown")
     source    = event.get("source", "unknown")
     actor     = event.get("actor") or {}
@@ -41,7 +48,7 @@ async def handle(event: dict) -> None:
         return
 
     if node_type == "ChangeSet":
-        await _handle_changeset(event)
+        await _handle_changeset(event, prepared)
     elif node_type == "PullRequest":
         await _handle_pull_request(event)
     elif node_type == "Issue":
@@ -52,7 +59,87 @@ async def handle(event: dict) -> None:
         logger.warning("알 수 없는 nodeType: %s", node_type)
 
 
-async def _handle_changeset(event: dict) -> None:
+@dataclass
+class ChangesetPrepared:
+    """ChangeSet의 LLM 준비 단계(메시지 임베딩 + 파일별 diff 요약·임베딩) 결과.
+
+    prepare_changeset()이 Neo4j 무관하게 미리 계산해두면 _handle_changeset()의 쓰기 단계가
+    그대로 소비한다. 준비 단계의 실패는 이미 폴백 값으로 흡수돼 있어 쓰기 단계는
+    별도 방어 없이 그대로 사용한다.
+    """
+    message_embedding: list[float]   # 실패 시 [] (upsert의 CASE가 기존 값 보존)
+    file_rows: list[dict]            # [{"file_path","diff_summary","embedding"}] — 요약 성공분만
+
+
+def is_prefetchable_changeset(event: dict) -> bool:
+    """ChangeSet 프리페치(LLM 준비 단계 look-ahead) 대상인지 판별.
+
+    handle()의 가드(projectId 필수, GitHub 봇 제외)를 미러링한다 — 어차피 건너뛸 이벤트를
+    미리 준비해 LLM 호출을 낭비하지 않기 위해서다. handle() 자체의 가드는 이중 안전으로 남긴다.
+    """
+    if event.get("nodeType") != "ChangeSet":
+        return False
+    if not (event.get("projectId") or ""):
+        return False
+    actor = event.get("actor") or {}
+    if event.get("source") == "GITHUB" and _is_bot_actor(actor.get("id", "unknown")):
+        return False
+    return True
+
+
+async def prepare_changeset(event: dict) -> ChangesetPrepared:
+    """ChangeSet의 LLM 준비 단계(메시지 임베딩 + 파일별 diff 요약·임베딩)만 실행한다.
+
+    Neo4j 무관한 순수 함수 — 디스패처가 쓰기 순서와 무관하게 look-ahead로 미리 실행할 수 있다.
+    어떤 실패도 폴백 값으로 흡수해 절대 raise하지 않는다(쓰기 단계가 실패를 방어할 필요가 없게).
+    """
+    props   = event.get("properties") or {}
+    hash_   = props.get("hash", "")
+    message = props.get("message", "")
+
+    # 커밋 메시지 임베딩 — 이슈·Slack과 어휘가 가장 잘 맞는 텍스트라 시맨틱 링커의 비교 대상이 된다.
+    # 실패 시 빈 리스트 → upsert가 기존 값을 보존하고, backfill이 나중에 채운다.
+    # embed_text_batched: 커밋마다 단건 호출 대신 짧은 대기창 동안 코얼레싱해 1콜로 묶는다.
+    message_embedding = await embed_text_batched(message)
+
+    # Layer 3: 파일별 diff 요약 → 배치 임베딩 (#2/#6)
+    #   1) 요약: 입력만의 함수라 파일별 동시(gather) — LLM N콜은 불가피(파일별 요약 필수)
+    #   2) 임베딩: 요약 N개를 embed_batch로 1콜 (단건 N콜 대비 요청·rate-limit 절감)
+    files = [f for f in (props.get("files") or []) if not should_skip(f.get("path", ""))]
+
+    async def summarize_file(file: dict) -> tuple[str, str] | None:
+        path = file.get("path", "")
+        try:
+            summary = await summarize_diff(
+                path, file.get("diff", ""), file.get("additions", 0), file.get("deletions", 0), message,
+            )
+            return (path, summary)
+        except Exception:
+            logger.exception("ChangeSet 파일 요약 실패 (건너뜀): hash=%s path=%s", hash_, path)
+            return None
+
+    summarized = [r for r in await asyncio.gather(*[summarize_file(f) for f in files]) if r is not None]
+    if not summarized:
+        return ChangesetPrepared(message_embedding=message_embedding, file_rows=[])
+
+    # embed_batch는 원래 실패해도 안 던지지만(빈 벡터로 채워 반환), 방어적으로 감싼다.
+    try:
+        embeddings = await embed_batch([summary for _, summary in summarized])
+    except Exception:
+        logger.exception("ChangeSet 파일 배치 임베딩 실패 (빈 임베딩으로 대체): hash=%s", hash_)
+        embeddings = [[] for _ in summarized]
+
+    file_rows = [
+        {"file_path": path, "diff_summary": summary, "embedding": embedding}
+        for (path, summary), embedding in zip(summarized, embeddings)
+    ]
+    return ChangesetPrepared(message_embedding=message_embedding, file_rows=file_rows)
+
+
+async def _handle_changeset(event: dict, prepared: ChangesetPrepared | None = None) -> None:
+    if prepared is None:
+        prepared = await prepare_changeset(event)
+
     props       = event.get("properties") or {}
     refs        = event.get("refs") or {}
     actor       = event.get("actor") or {}
@@ -66,10 +153,6 @@ async def _handle_changeset(event: dict) -> None:
 
     resolved = await resolve_actor(actor, source, make_neo4j_actor_store(project_id), event)
 
-    # 커밋 메시지 임베딩 — 이슈·Slack과 어휘가 가장 잘 맞는 텍스트라 시맨틱 링커의 비교 대상이 된다.
-    # 실패 시 빈 리스트 → upsert가 기존 값을 보존하고, backfill이 나중에 채운다.
-    message_embedding = await embed_text(message)
-
     await builder.upsert_changeset(
         project_id=project_id,
         hash=hash_,
@@ -77,7 +160,7 @@ async def _handle_changeset(event: dict) -> None:
         occurred_at=occurred_at,
         source=source,
         actor_uuid=resolved["uuid"],
-        embedding=message_embedding,
+        embedding=prepared.message_embedding,
     )
 
     # Layer 2: refs 기반 엣지
@@ -98,40 +181,19 @@ async def _handle_changeset(event: dict) -> None:
         await builder.link_changeset_to_pr_issues(project_id, pr_num, hash_)
         await builder.link_changeset_to_pr_issue_externals(project_id, pr_num, hash_)
 
-    # Layer 3: 파일별 diff 요약 → 배치 임베딩 → UNWIND 배치 upsert (#2/#6)
-    #   1) 요약: 입력만의 함수라 파일별 동시(gather) — LLM N콜은 불가피(파일별 요약 필수)
-    #   2) 임베딩: 요약 N개를 embed_batch로 1콜 (단건 N콜 대비 요청·rate-limit 절감)
-    #   3) 저장: UNWIND로 세션 1번 (단건 N세션·락 경합 제거)
-    files = [f for f in (props.get("files") or []) if not should_skip(f.get("path", ""))]
-
-    async def summarize_file(file: dict) -> tuple[str, str] | None:
-        path = file.get("path", "")
-        try:
-            summary = await summarize_diff(
-                path, file.get("diff", ""), file.get("additions", 0), file.get("deletions", 0), message,
-            )
-            return (path, summary)
-        except Exception:
-            logger.exception("ChangeSet 파일 요약 실패 (건너뜀): hash=%s path=%s", hash_, path)
-            return None
-
-    summarized = [r for r in await asyncio.gather(*[summarize_file(f) for f in files]) if r is not None]
-    if not summarized:
+    # 파일별 diff 요약·임베딩(prepared.file_rows)이 없으면 여기서 끝 — 노드·Layer 2는 이미 기록됨.
+    if not prepared.file_rows:
         return
 
-    # 임베딩·저장 실패는 이벤트 전체를 실패시키지 않는다(노드·Layer 2는 이미 기록됨).
+    # Layer 3 저장: UNWIND로 세션 1번 (단건 N세션·락 경합 제거). 저장 실패는 이벤트 전체를
+    # 실패시키지 않는다(노드·Layer 2는 이미 기록됨).
     try:
-        embeddings = await embed_batch([summary for _, summary in summarized])
-        file_rows = [
-            {"file_path": path, "diff_summary": summary, "embedding": embedding}
-            for (path, summary), embedding in zip(summarized, embeddings)
-        ]
         await builder.upsert_files_with_modified_edges(
-            project_id=project_id, changeset_hash=hash_, files=file_rows,
+            project_id=project_id, changeset_hash=hash_, files=prepared.file_rows,
         )
-        logger.debug("ChangeSet 파일 %d개 배치 처리 완료: hash=%s", len(file_rows), hash_)
+        logger.debug("ChangeSet 파일 %d개 배치 처리 완료: hash=%s", len(prepared.file_rows), hash_)
     except Exception:
-        logger.exception("ChangeSet 파일 배치 임베딩/저장 실패 (건너뜀): hash=%s", hash_)
+        logger.exception("ChangeSet 파일 배치 저장 실패 (건너뜀): hash=%s", hash_)
 
 
 async def _handle_pull_request(event: dict) -> None:
