@@ -3,8 +3,10 @@ package com.history.pipeline_worker.source.github;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -47,7 +49,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
 
         Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
@@ -74,7 +77,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
 
         Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
@@ -102,7 +106,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
 
         service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of("branch", "develop")));
@@ -126,7 +131,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
 
         service.fetchSample(new RawFetchRequest("Bearer token", "owner/repo", Map.of()));
@@ -158,7 +164,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -197,7 +204,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -241,7 +249,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -277,7 +286,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(5)
+                Duration.ofMinutes(5),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -313,7 +323,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ZERO
+                Duration.ZERO,
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -352,7 +363,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -401,7 +413,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -440,7 +453,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -473,7 +487,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -515,7 +530,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -545,7 +561,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -582,7 +599,8 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30)
+                Duration.ofMinutes(30),
+                detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
 
@@ -609,6 +627,178 @@ class GitHubRawServiceTest {
         assertThat(GitHubRawService.parseRetryAfterSeconds(null)).isEqualTo(60L);
         assertThat(GitHubRawService.parseRetryAfterSeconds("abc")).isEqualTo(60L);
         assertThat(GitHubRawService.parseRetryAfterSeconds("-5")).isEqualTo(60L);
+    }
+
+    @Test
+    @DisplayName("커밋 상세 조회가 병렬로 실행돼도 반환 순서는 입력 순서를 유지하고 files가 교차 배선되지 않는다")
+    @SuppressWarnings("unchecked")
+    void fetchCommitPage_parallelDetailFetch_preservesInputOrderAndFileMapping() {
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(threeCommitsPageJson()));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-1")) {
+                        return Mono.just(jsonResponse(detailFilesJson("sha-1"))).delayElement(Duration.ofMillis(150));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-2")) {
+                        return Mono.just(jsonResponse(detailFilesJson("sha-2"))).delayElement(Duration.ofMillis(75));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-3")) {
+                        return Mono.just(jsonResponse(detailFilesJson("sha-3")));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                Duration.ofMinutes(30),
+                detailExecutor()
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        GitHubRawService.GitHubPage page = service.fetchCommitPage(context, 1, Map.of());
+
+        List<Map<String, Object>> items = (List<Map<String, Object>>) (List<?>) page.items();
+        assertThat(items).extracting(item -> item.get("sha")).containsExactly("sha-1", "sha-2", "sha-3");
+        for (Map<String, Object> item : items) {
+            String sha = (String) item.get("sha");
+            List<Map<String, Object>> files = (List<Map<String, Object>>) item.get("files");
+            assertThat(files.get(0).get("filename")).isEqualTo(sha + ".txt");
+        }
+    }
+
+    @Test
+    @DisplayName("커밋 상세 조회 2건이 동시에 in-flight 상태가 된다(순차 실행이면 서로를 기다리다 타임아웃한다)")
+    void fetchCommitPage_detailFetch_runsConcurrently() {
+        CountDownLatch bothInFlight = new CountDownLatch(2);
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(twoCommitsPageJson()));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-a") || path.equals("/repos/owner/repo/commits/sha-b")) {
+                        bothInFlight.countDown();
+                        boolean bothArrived;
+                        try {
+                            bothArrived = bothInFlight.await(2, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            bothArrived = false;
+                        }
+                        if (!bothArrived) {
+                            return Mono.just(errorResponse(HttpStatus.INTERNAL_SERVER_ERROR));
+                        }
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                Duration.ofMinutes(30),
+                detailExecutor()
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        GitHubRawService.GitHubPage page = service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(page.items()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("커밋 2개 중 1개의 상세 조회가 실패하면 원 예외를 언랩해 페이지 전체를 실패시킨다")
+    void fetchCommitPage_oneOfTwoDetailFetchesFails_propagatesUnwrappedCause() {
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(twoCommitsPageJson()));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-a")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-b")) {
+                        return Mono.just(errorResponse(HttpStatus.NOT_FOUND));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                Duration.ofMinutes(30),
+                detailExecutor()
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        assertThatThrownBy(() -> service.fetchCommitPage(context, 1, Map.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(ExecutionException.class);
+    }
+
+    @Test
+    @DisplayName("merge 커밋은 병렬화 이후에도 상세 조회 대상에서 제외되고, 나머지 커밋의 반환 순서는 입력 순서를 유지한다")
+    @SuppressWarnings("unchecked")
+    void fetchCommitPage_mergeFilterAndParallelFetch_skipsMergeAndPreservesOrder() {
+        Map<String, AtomicInteger> detailCallCounts = new ConcurrentHashMap<>();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(mergeAndTwoNormalCommitsPageJson()));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-x")) {
+                        detailCallCounts.computeIfAbsent("sha-x", k -> new AtomicInteger()).incrementAndGet();
+                        return Mono.just(jsonResponse(detailFilesJson("sha-x")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-y")) {
+                        detailCallCounts.computeIfAbsent("sha-y", k -> new AtomicInteger()).incrementAndGet();
+                        return Mono.just(jsonResponse(detailFilesJson("sha-y")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-merge")) {
+                        detailCallCounts.computeIfAbsent("sha-merge", k -> new AtomicInteger()).incrementAndGet();
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                Duration.ofMinutes(30),
+                detailExecutor()
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        GitHubRawService.GitHubPage page = service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(detailCallCounts.getOrDefault("sha-merge", new AtomicInteger()).get()).isEqualTo(0);
+        assertThat(detailCallCounts.get("sha-x").get()).isEqualTo(1);
+        assertThat(detailCallCounts.get("sha-y").get()).isEqualTo(1);
+
+        List<Map<String, Object>> items = (List<Map<String, Object>>) (List<?>) page.items();
+        assertThat(items).extracting(item -> item.get("sha")).containsExactly("sha-x", "sha-y");
     }
 
     private String mergeCommitsPageJson() {
@@ -641,6 +831,123 @@ class GitHubRawServiceTest {
     private GitHubRawService.GitHubFetchContext fetchContext() {
         return new GitHubRawService.GitHubFetchContext(
                 "Bearer token", "owner", "repo", null, GitHubCheckpoint.empty());
+    }
+
+    // 커밋 상세 조회 병렬화(동시성 3) 검증용 소형 executor — githubCommitDetailExecutor 빈을 흉내낸다.
+    private static AsyncTaskExecutor detailExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("test-commit-detail-");
+        executor.setCorePoolSize(3);
+        executor.setMaxPoolSize(3);
+        executor.initialize();
+        return executor;
+    }
+
+    private String threeCommitsPageJson() {
+        return """
+                [
+                  {
+                    "sha": "sha-1",
+                    "commit": {
+                      "message": "feat: work1",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"},
+                    "parents": [{"sha": "parent"}]
+                  },
+                  {
+                    "sha": "sha-2",
+                    "commit": {
+                      "message": "feat: work2",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"},
+                    "parents": [{"sha": "parent"}]
+                  },
+                  {
+                    "sha": "sha-3",
+                    "commit": {
+                      "message": "feat: work3",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"},
+                    "parents": [{"sha": "parent"}]
+                  }
+                ]
+                """;
+    }
+
+    private String twoCommitsPageJson() {
+        return """
+                [
+                  {
+                    "sha": "sha-a",
+                    "commit": {
+                      "message": "feat: work-a",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"},
+                    "parents": [{"sha": "parent"}]
+                  },
+                  {
+                    "sha": "sha-b",
+                    "commit": {
+                      "message": "feat: work-b",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"},
+                    "parents": [{"sha": "parent"}]
+                  }
+                ]
+                """;
+    }
+
+    private String mergeAndTwoNormalCommitsPageJson() {
+        return """
+                [
+                  {
+                    "sha": "sha-x",
+                    "commit": {
+                      "message": "feat: x",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"},
+                    "parents": [{"sha": "parent"}]
+                  },
+                  {
+                    "sha": "sha-merge",
+                    "commit": {
+                      "message": "Merge branch 'main'",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"},
+                    "parents": [{"sha": "p1"}, {"sha": "p2"}]
+                  },
+                  {
+                    "sha": "sha-y",
+                    "commit": {
+                      "message": "feat: y",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"},
+                    "parents": [{"sha": "parent"}]
+                  }
+                ]
+                """;
+    }
+
+    private String detailFilesJson(String sha) {
+        return """
+                {"files": [{"filename": "%s.txt", "additions": 1, "deletions": 0}]}
+                """.formatted(sha);
     }
 
     private String commitsPageJson(String sha, String login) {

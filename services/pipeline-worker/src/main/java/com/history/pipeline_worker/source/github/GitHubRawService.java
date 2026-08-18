@@ -2,7 +2,9 @@ package com.history.pipeline_worker.source.github;
 
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -15,6 +17,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -41,6 +45,7 @@ public class GitHubRawService {
 
     private final WebClient webClient;
     private final GitHubRateLimiter rateLimiter;
+    private final AsyncTaskExecutor commitDetailExecutor;
 
     // login → {email, name} 캐시 — 동일 user에 대한 반복 API 호출 방지
     private final Map<String, CachedProfile> userProfileCache = new ConcurrentHashMap<>();
@@ -52,7 +57,8 @@ public class GitHubRawService {
             WebClient.Builder webClientBuilder,
             @Value("${app.github.base-url}") String baseUrl,
             GitHubRateLimiter rateLimiter,
-            @Value("${app.github.user-profile-cache-ttl:30m}") Duration userProfileCacheTtl
+            @Value("${app.github.user-profile-cache-ttl:30m}") Duration userProfileCacheTtl,
+            @Qualifier("githubCommitDetailExecutor") AsyncTaskExecutor commitDetailExecutor
     ) {
         this.webClient = webClientBuilder
                 .baseUrl(baseUrl)
@@ -61,6 +67,7 @@ public class GitHubRawService {
                 .build();
         this.rateLimiter = rateLimiter;
         this.userProfileCacheTtl = userProfileCacheTtl;
+        this.commitDetailExecutor = commitDetailExecutor;
     }
 
     public GitHubFetchContext prepareFetchContext(
@@ -172,11 +179,19 @@ public class GitHubRawService {
         return new GitHubPage(items, pageItems.size() < PER_PAGE);
     }
 
-    /** commit.author(GitHub 계정)에 프로필 name/email 보강. login별 캐시로 기여자 수만큼만 호출한다. */
+    /**
+     * commit.author(GitHub 계정)에 프로필 name/email 보강. login별 캐시로 기여자 수만큼만 호출한다.
+     * 상세 조회(GET /commits/{sha})는 페이지당 최대 100건이라 caller 스레드에서 순차 호출하면 지연이
+     * 커져 전용 풀(githubCommitDetailExecutor, 동시 3)에 병렬 제출한다(2-phase).
+     */
     @SuppressWarnings("unchecked")
     private List<Object> enrichCommits(String auth, List<Object> commits, String owner, String repo,
                                        Map<String, String> commitPrNumbers) {
-        List<Object> result = new ArrayList<>();
+        // phase 1: merge 필터(기존 유지) 통과 커밋만 입력 순서대로 상세 조회를 제출한다.
+        // Future 리스트가 입력 순서와 같으므로 phase 2에서 순서대로 join하면 반환 순서도
+        // 기존 순차 처리와 동일하게 유지된다(발행 순서 결정성 유지).
+        List<Map<String, Object>> filtered = new ArrayList<>();
+        List<Future<Map<String, Object>>> detailFutures = new ArrayList<>();
         for (Object raw : commits) {
             Map<String, Object> commit = new HashMap<>((Map<String, Object>) raw);
 
@@ -187,7 +202,16 @@ public class GitHubRawService {
             if (parents != null && parents.size() > 1) continue;
 
             String sha = (String) commit.get("sha");
-            Map<String, Object> detail = fetchCommitDetail(auth, owner, repo, sha);
+            filtered.add(commit);
+            detailFutures.add(commitDetailExecutor.submit(() -> fetchCommitDetail(auth, owner, repo, sha)));
+        }
+
+        // phase 2: 입력 순서대로 join → 기존 병합 로직 적용. 프로필 보강은 기존대로 caller 스레드에서 순차 호출한다.
+        List<Object> result = new ArrayList<>();
+        for (int i = 0; i < filtered.size(); i++) {
+            Map<String, Object> commit = filtered.get(i);
+            String sha = (String) commit.get("sha");
+            Map<String, Object> detail = joinCommitDetail(detailFutures, i);
             if (detail != null) {
                 commit.put("files", detail.get("files"));
             }
@@ -209,6 +233,32 @@ public class GitHubRawService {
             result.add(commit);
         }
         return result;
+    }
+
+    // future.get()의 ExecutionException은 cause를 언랩해 RuntimeException이면 그대로, checked면 감싸
+    // 전파한다(1건 실패 = 페이지 전체 실패 = 기존 순차 처리와 동일 동작, checkpoint 미전진).
+    // 실패가 확정되면 아직 join하지 않은 나머지 future를 전부 취소해 rate limit 예산 낭비를 막는다.
+    private Map<String, Object> joinCommitDetail(List<Future<Map<String, Object>>> detailFutures, int index) {
+        try {
+            return detailFutures.get(index).get();
+        } catch (ExecutionException e) {
+            cancelRemaining(detailFutures, index);
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException(cause);
+        } catch (InterruptedException e) {
+            cancelRemaining(detailFutures, index);
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void cancelRemaining(List<Future<Map<String, Object>>> detailFutures, int fromIndex) {
+        for (int i = fromIndex; i < detailFutures.size(); i++) {
+            detailFutures.get(i).cancel(true);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -314,6 +364,7 @@ public class GitHubRawService {
 
     // 재시도 소진 시 예외가 그대로 전파돼 이 커밋의 collect가 실패한다 — checkpoint가 전진하지 않아
     // 다음 수집에서 재시도된다("발행 예외를 삼키지 않는다"와 같은 원리, 조용한 데이터 결손보다 낫다).
+    // commitDetailExecutor의 worker 스레드에서 호출된다 — rateLimiter.acquire(무상태)·403/429 재시도는 스레드별로 그대로 동작한다.
     @SuppressWarnings("unchecked")
     private Map<String, Object> fetchCommitDetail(String auth, String owner, String repo, String sha) {
         return executeWithRateLimitRetry(() -> {

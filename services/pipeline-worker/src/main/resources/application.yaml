@@ -32,6 +32,7 @@ app:
   github:
     base-url: https://api.github.com
     user-profile-cache-ttl: 30m  # login별 프로필(email/name) 캐시 TTL. 프로필 변경이 드물고 GitHub rate limit도 고려해 길게 잡음(0 = 캐시 비활성).
+    commit-detail-concurrency: 3  # 커밋 상세 조회(githubCommitDetailExecutor) 전용 풀 크기. secondary limit 여유를 고려한 값.
   jira:
     base-url: ""  # 요청의 options.baseUrl로 전달
     max-pages-per-run: 50
