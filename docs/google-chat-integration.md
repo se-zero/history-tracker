@@ -352,23 +352,26 @@ scope로 `people.get`(또는 여러 명을 한 번에 묶는 `people.getBatchGet
 이 이메일은 Workspace 계정 이메일(도메인 프로필 소스, verified)이라 `docs/graph-schema.md`
 ActorAlias 규약("협업 툴 계정 이메일만 사용")에 그대로 부합한다.
 
-**구현**(`GoogleChatRawService.resolveSenders`) — Slack의 `users.list` 전체 캐싱과 같은 목적(API
+**구현**(`GoogleChatRawService.resolveSenders`) — Slack의 `users.list` 조회와 같은 목적(API
 호출 절감)이지만 방식이 다르다. People API에는 조직 전체를 한 번에 내려주는 API가 없어(권한 범위상),
-메시지에 **실제로 등장한 sender만** 지연 조회한다: sender id 단위 TTL 캐시(`app.google-chat.person-cache-ttl`,
-기본 30분) → 캐시에 없는 것만 `people.getBatchGet`으로 묶어 조회 → 캐시에 채우고 반환. 조회 실패한
-sender(프로필 비공개 등)는 그 실행에서만 이름·이메일 null로 두고 **캐시하지 않는다** — 다음 실행에서
-재시도되게 하기 위함이다(일시적 실패를 영구 캐시하지 않음).
+메시지에 **실제로 등장한 sender만** 지연 조회한다: 그 수집 실행(`GoogleChatFetchContext.resolvedPersons`)
+안에서만 재사용하는 맵에 없는 것만 `people.getBatchGet`으로 묶어 조회 → 맵에 채우고 반환. 실행이
+끝나면 맵도 context와 함께 버려지므로 TTL 같은 만료 개념이 필요 없다. 조회 실패한 sender(프로필
+비공개 등)는 그 실행에서도 이름·이메일 null로 두고 맵에 채우지 않는다 — 다음 실행은 어차피 새
+맵으로 시작하므로 다시 시도된다.
 
 같은 규약을 **배치 호출 자체가 HTTP 오류로 실패하는 경우**(429 외 — People API는 Cloud Console에서
 별도 활성화가 필요해 미설정 환경에서 403이 흔하다)에도 적용한다. `GoogleChatCollector.collect`는
 페이지를 받은 뒤 그 페이지의 sender로 `resolveSenders`를 호출하므로, 여기서 예외가 전파되면
 이미 받아온 메시지·발행·checkpoint 전진이 통째로 무산된다 — People API 미설정만으로 수집이 영구
 0건이 되는 것을 막기 위해 `fetchPersonBatch`는 403·500 등을 잡아 warn 로그 후 빈 맵을 반환한다
-(캐시하지 않아 다음 실행에서 재시도). 429는 `executeWithRateLimitRetry`가 재시도 상한까지 이미
-시도한 뒤이므로 예외로 그대로 전파한다 — 지속적인 rate limit은 조용히 넘길 문제가 아니다.
+(`resolvedPersons`에 채우지 않아 다음 실행에서 다시 시도된다). 429는 `executeWithRateLimitRetry`가
+재시도 상한까지 이미 시도한 뒤이므로 예외로 그대로 전파한다 — 지속적인 rate limit은 조용히 넘길
+문제가 아니다.
 
-보강 호출은 페이지마다 일어나지만 sender 단위 TTL 캐시가 흡수해 호출 수가 페이지 수에 비례하지
-않는다 — 스페이스의 화자 수는 메시지 수보다 훨씬 적어 첫 페이지 이후로는 대부분 캐시 히트다.
+보강 호출은 페이지마다 일어나지만 그 실행 안에서만 사는 `resolvedPersons` 맵이 흡수해 호출 수가
+페이지 수에 비례하지 않는다 — 스페이스의 화자 수는 메시지 수보다 훨씬 적어 첫 페이지 이후로는
+대부분 맵 히트다(단, 실행 간에는 재사용되지 않으므로 다음 실행은 처음부터 다시 조회한다).
 
 `actor.name` 결정 순서는 ① 임베디드 `sender.displayName`이 어쩌다 채워져 있으면 그걸 우선(향후
 API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더 싸다) ② 없으면 People API 보강 결과

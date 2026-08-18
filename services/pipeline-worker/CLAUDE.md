@@ -28,8 +28,8 @@ cd services/pipeline-worker
 | `source.clickup` | ClickUp 자격증명 해석·수집·정규화·rate limit (`ClickUpCollector`). |
 | `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). |
 | `source.discord` | Discord 수집·정규화·rate limit (`DiscordCollector`). 자격증명은 DB가 아니라 이 worker의 설정(`app.discord.bot-token`)에서 온다 — 수집 주체가 앱 전체 공유 봇이라서다. |
-| `source.googlechat` | Google Chat 수집·정규화·rate limit (`GoogleChatCollector`). Jira와 같은 모양 — DB의 사용자별 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고, 만료 시 backend(`GoogleChatTokenService`)가 갱신한다. 사용자 인증으로는 메시지 작성자 표시 이름이 Chat API 응답에 오지 않아(실측 확인) `GoogleChatRawService`가 People API(`people.googleapis.com`, 별도 호스트)로 이름·이메일을 보강한다 — 메시지에 등장한 sender만 TTL 캐시로 지연 조회(`app.google-chat.person-cache-ttl`). |
-| `source.notion` | Notion 수집·정규화·rate limit (`NotionCollector`, **문서 아키타입 1호** — `Document` nodeType 발행). ClickUp과 같은 모양 — DB의 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고 만료 판정을 하지 않는다(갱신 응답에 만료 정보가 없어 비만료 취급). `POST /v1/search`(최신 API 버전은 `Notion-Version` 헤더로 고정)를 `last_edited_time` 내림차순으로 훑고, 페이지마다 `GET /v1/blocks/{id}/children`을 재귀 조회해 `NotionBlockFlattener`로 평문화한다(깊이 5·블록 2,000·본문 100,000자 상한). `created_by`/`last_edited_by`는 partial user(id만)라 `GET /v1/users` 전량 조회 결과(TTL 캐시, `app.notion.user-cache-ttl`)로 이름·이메일·bot 여부를 보강한다 — capability 미설정으로 인한 403은 삼키고 빈 맵으로 계속한다. |
+| `source.googlechat` | Google Chat 수집·정규화·rate limit (`GoogleChatCollector`). Jira와 같은 모양 — DB의 사용자별 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고, 만료 시 backend(`GoogleChatTokenService`)가 갱신한다. 사용자 인증으로는 메시지 작성자 표시 이름이 Chat API 응답에 오지 않아(실측 확인) `GoogleChatRawService`가 People API(`people.googleapis.com`, 별도 호스트)로 이름·이메일을 보강한다 — 메시지에 등장한 sender만, 그 실행(컨텍스트) 안에서만 재사용하며 지연 조회한다. |
+| `source.notion` | Notion 수집·정규화·rate limit (`NotionCollector`, **문서 아키타입 1호** — `Document` nodeType 발행). ClickUp과 같은 모양 — DB의 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고 만료 판정을 하지 않는다(갱신 응답에 만료 정보가 없어 비만료 취급). `POST /v1/search`(최신 API 버전은 `Notion-Version` 헤더로 고정)를 `last_edited_time` 내림차순으로 훑고, 페이지마다 `GET /v1/blocks/{id}/children`을 재귀 조회해 `NotionBlockFlattener`로 평문화한다(깊이 5·블록 2,000·본문 100,000자 상한). `created_by`/`last_edited_by`는 partial user(id만)라, 처리할 페이지가 실제로 나온 뒤 실행당 한 번 지연 조회하는 `GET /v1/users` 전량 결과로 이름·이메일·bot 여부를 보강한다 — capability 미설정으로 인한 403은 삼키고 빈 맵으로 계속한다. |
 | `normalizer` | 여러 source가 공유하는 정규화 보조 유틸. 현재 `RefsExtractor` 유지 — URL 기반 참조 레지스트리(`issueExternalRefs`/`documentExternalRefs`)로 Asana·ClickUp·Notion을 함께 다룬다. |
 | `checkpoint` | DB `checkpoints` 테이블 기반 커서 조회/갱신 경계 + 배치의 커서 전진 값 계산(`CursorProgress`). |
 | `messaging` | RabbitMQ publish. |
@@ -170,7 +170,11 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
   달리 서버가 `Retry-After` 헤더(초)로 대기 시간을 알려주므로 있으면 그대로 따르고, 없을 때만 지수
   백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다.
 
-Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비싸므로(Tier 2, 페이지당 3s), auth별로 `app.slack.user-map-cache-ttl`(기본 5m) 동안 캐시해 실행 간 재사용한다. 트레이드오프: TTL 윈도우 안에 가입한 신규 멤버의 메시지는 그 동안 `userName`/`userEmail` 보강 없이 수집될 수 있으며, ai-engine의 Actor 보정이 backstop이다. 정합성을 더 조이려면 TTL을 줄이거나(0=비활성) miss-refresh로 발전시킨다.
+Slack `users.list`는 실행(webhook 수집)마다 전체 멤버를 다시 조회한다(캐시 없음). 과거에는 access
+token을 키로 auth별 TTL 캐시로 실행 간 재사용했지만, 캐시 키가 access token이라 연동을 해제해도
+그 항목이 지워지지 않고 프로세스 재시작 전까지 힙에 구성원 이름·이메일이 남는 문제가 있어
+제거했다. 그 대가로 비용이 늘었다 — Tier 2 한도(페이지 크기 200, 페이지당 고정 딜레이 3초)라
+실행마다 워크스페이스 구성원 200명당 `users.list` 호출 1회와 약 3초가 추가된다.
 
 ## Checkpoint
 
@@ -217,7 +221,7 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
   cloudId 게이트웨이 주소, Google Chat·Notion은 각각 `app.google-chat.api-base-url`·
   `app.notion.api-base-url` 하나뿐 — 앱 수준 자격증명은 backend만 쓴다)
 - Discord 봇 토큰 (`app.discord.bot-token`, 환경변수 `DISCORD_BOT_TOKEN`)
-- Notion API 버전 헤더 고정값 (`app.notion.version`) · 사용자 전량 캐시 TTL (`app.notion.user-cache-ttl`)
+- Notion API 버전 헤더 고정값 (`app.notion.version`)
 - rate limit 값
 - GitHub webhook secret
 - webhook executor 종료 대기 시간
