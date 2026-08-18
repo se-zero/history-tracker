@@ -1,0 +1,9 @@
+.gradle/
+build/
+bin/
+.idea/
+*.iml
+.DS_Store
+.env
+*.pem
+implementation-plan.md

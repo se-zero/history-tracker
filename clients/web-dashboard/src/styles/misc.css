@@ -1,0 +1,14 @@
+/* ============================================================
+   Scrollbar polish
+   ============================================================ */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--r-full);
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* Tweaks panel host overrides */
+:root { --om-tweaks-bg: var(--surface); }

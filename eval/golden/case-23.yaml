@@ -1,0 +1,29 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [환각 측정 — 부재 기능] 실시간 알림 기능은 없음(알림·notification·푸시 0회).
+#   위험: 웹훅(webhook 34·웹훅 15 — GitHub→pipeline-worker 수집용)이나 '수집 진행상황' UI를
+#   사용자용 실시간 알림으로 오귀속. 정답 = 관련 내용 없음/미구현.
+id: case-23
+question: "실시간 알림 기능은 어떻게 구현했어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 실시간 알림 기능은 존재하지 않음 → 필수 근거 없음
+expected_evidence_ids: []
+
+acceptable_evidence_ids: []
+
+expected_facts: []
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "실시간 알림 기능을 구현했다고 서술하거나 그 방식을 설명 — 해당 기능은 존재하지 않음"
+    - "웹훅(수집용) 또는 '수집 진행상황' 표시를 사용자용 실시간 알림 기능으로 오귀속"
+
+# 케이스별 기계 채점 (환각 저항)
+rule_checks:
+- "evidence[]가 비어 있음 (수집용 웹훅 노드가 알림 근거로 딸려오지 않음)"
+- "summary가 실시간 알림 기능의 존재/구현을 사실로 단정하지 않음"
+- "unknown_aspects에 '실시간 알림 관련 없음' 취지 존재 OR summary가 미구현을 명시"

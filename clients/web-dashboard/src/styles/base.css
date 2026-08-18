@@ -1,0 +1,43 @@
+/* base */
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+  text-rendering: optimizeLegibility;
+  /* Korean: preserve word boundaries, only break on whitespace */
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+/* short UI labels — never wrap */
+.nav-item,
+.convo-item,
+.crumbs span,
+.btn,
+.badge,
+.filter-chip,
+.composer-foot span,
+.sidebar-label,
+.kbd,
+.repo-row .repo-meta,
+.cite-card .cite-meta,
+.nd-meta { white-space: nowrap; }
+
+.nav-item { overflow: hidden; }
+.nav-item > :not(.nav-icon) { overflow: hidden; text-overflow: ellipsis; }
+button { font-family: inherit; cursor: pointer; }
+input, textarea { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+
+::selection { background: var(--accent-soft); color: var(--fg); }
+
+/* utility */
+.mono { font-family: var(--font-mono); font-feature-settings: "ss01", "ss02"; }
+.muted { color: var(--fg-muted); }
+.subtle { color: var(--fg-subtle); }

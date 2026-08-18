@@ -1,0 +1,237 @@
+/* ===== Sidebar ===== */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+.sidebar-section { padding: 12px; }
+.sidebar-divider { height: 1px; background: var(--border); margin: 0 12px; }
+
+.project-switcher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+}
+.project-switcher:hover, .project-switcher.open { background: var(--surface-3); border-color: var(--border); }
+.project-switcher-wrap { position: relative; }
+
+.project-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  /* 다크에서 그림자가 none이 되는 대신 상단 1px 인셋으로 빛을 받는다(edge-highlight, DESIGN.md) */
+  box-shadow: inset 0 1px 0 0 var(--edge-highlight), var(--shadow-lg);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: dd-in 0.12s ease-out;
+}
+@keyframes dd-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.dropdown-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+  padding: 8px 8px 4px;
+}
+.dropdown-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 13px;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  text-align: left;
+  width: 100%;
+  font-weight: 500;
+}
+.dropdown-item:hover { background: var(--surface-2); }
+.dropdown-item.project { padding: 8px; cursor: grab; }
+.dropdown-item.project:active { cursor: grabbing; }
+
+/* 프로젝트 목록: 개수가 많으면 스크롤 (전환창 크기 제한) */
+.project-dropdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 264px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 드래그로 순서 변경 */
+.dropdown-item.project.dragging { opacity: 0.45; }
+.dropdown-item.project.drag-over { box-shadow: inset 0 0 0 1.5px var(--accent-ink); }
+.dropdown-item .drag-handle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin: 0 -2px;
+  color: var(--fg-subtle);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.dropdown-item.project:hover .drag-handle,
+.dropdown-item.project.dragging .drag-handle { opacity: 1; }
+.dropdown-item.selected { background: var(--surface-2); }
+.dropdown-item .check { margin-left: auto; color: var(--accent-ink); flex-shrink: 0; }
+.dropdown-item .dropdown-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px;
+  color: var(--fg-muted);
+}
+.project-mark.sm { width: 24px; height: 24px; font-size: 10.5px; }
+.project-mark {
+  width: 28px; height: 28px;
+  border-radius: var(--r-sm);
+  display: grid; place-items: center;
+  font-weight: 600;
+  font-size: 12px;
+  /* 프로젝트 이니셜 = 아이덴티티(라이브 상태가 아님) — 무채로 */
+  color: var(--fg);
+  background: var(--surface-3);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.project-name { flex: 1; min-width: 0; font-weight: 550; font-size: 13.5px; }
+.project-name .role { font-weight: 400; color: var(--fg-subtle); font-size: 11.5px; display:block; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.1s, color 0.1s;
+  user-select: none;
+}
+.nav-item:hover { background: var(--surface-3); color: var(--fg); }
+.nav-item.active { background: var(--surface-3); color: var(--fg); }
+.nav-item .nav-icon { color: var(--fg-subtle); display: inline-flex; }
+.nav-item.active .nav-icon { color: var(--accent-ink); }
+.nav-item .nav-shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--fg-subtle);
+}
+
+.sidebar-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+  padding: 8px 10px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-label .add-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-subtle);
+  padding: 2px;
+  border-radius: var(--r-xs);
+  display: inline-flex;
+}
+.sidebar-label .add-btn:hover { background: var(--surface-3); color: var(--fg); }
+
+.convo-list { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
+.convo-sentinel { height: 1px; }
+.convo-item {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.convo-item:hover { background: var(--surface-3); color: var(--fg); }
+.convo-item.active { background: var(--surface-3); color: var(--fg); }
+.convo-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convo-time { font-size: 11px; color: var(--fg-subtle); font-family: var(--font-mono); }
+
+/* ⋯ 메뉴 버튼: 평소엔 숨기고 hover 시 노출, 노출 시 time을 가린다 */
+.convo-menu-btn {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border: none; background: transparent; border-radius: var(--r-sm);
+  color: var(--fg-muted); cursor: pointer;
+  opacity: 0;
+}
+.convo-item:hover .convo-menu-btn { opacity: 1; }
+.convo-menu-btn:hover { background: var(--surface-2); color: var(--fg); }
+.convo-item:hover .convo-time { display: none; }
+
+.convo-dropdown {
+  left: auto; right: 6px;
+  top: calc(100% - 2px);
+  width: 150px;
+}
+.dropdown-item.convo-delete { color: var(--danger); }
+.dropdown-item.convo-delete .dropdown-icon { color: var(--danger); }
+
+.convo-edit-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--accent-ink);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.user-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  /* 아이덴티티 표시일 뿐 상태가 아니라서 무채로 (DESIGN.md: 라이브가 아니면 앰버를 쓰지 않는다) */
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+.user-name { font-size: 13px; font-weight: 550; }
+.user-handle { font-size: 11px; color: var(--fg-subtle); }

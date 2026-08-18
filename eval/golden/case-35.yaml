@@ -1,0 +1,40 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [3소스(Jira+Slack+GitHub) — 배경+구현] HT-67 그래프 조회 API.
+#   Slack 1781158602(착수 "내가 그래프 조회 api 만들어볼게") + 1781268987(PR 공지)
+#   → 이슈 HT-67(명세) → 커밋 f4a27e4(자체키 HT-67, PR #33 소속). 슬랙 2개 회수가 포인트.
+id: case-35
+question: "HT-67 그래프 조회 API 작업의 배경과 구현 내용을 알려줘."
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-67"                    # Jira: 그래프 조회 API + 인가 게이트 명세
+- "message:1781158602.670189"     # Slack: "내가 그래프 조회하는 api 만들어볼게" (착수)
+- "message:1781268987.825499"     # Slack: "그래프 조회랑 격리하는거 pr 날렸어" (PR 공지)
+- "pull_request:#33"              # GitHub: 프로젝트 단위 그래프 격리 + 조회 API
+- "commit:f4a27e4"               # GitHub: 프로젝트 그래프 조회 API + 인가 게이트 추가 (HT-67)
+
+# 인용 무방 (같은 작업의 주변부)
+acceptable_evidence_ids:
+- "commit:083e0a9"                 # fix(test): V7 마이그레이션 H2 호환 (HT-67)
+- "issue:HT-64"                    # PR #33이 참조하는 부모(격리) 이슈
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "그래프 조회 API는 GET /api/v1/projects/{projectId}/graph 이며 GraphController→GraphService로 구현됐다"
+- "조회 API에 프로젝트 소유자 인가 게이트가 적용되어 비소유자 요청은 403(Forbidden)으로 차단된다"
+- "이 작업은 프로젝트 단위 그래프 격리를 도입한 PR #33의 일부이며, Slack에서 착수와 PR 제출이 공유됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "인가 게이트를 적용하지 않았다거나, 그래프 격리와 무관한 작업으로 서술"
+
+# 케이스별 기계 채점 (3소스 + 배경/구현)
+rule_checks:
+- "evidence에 issue, message, (pull_request 또는 commit)이 모두 존재 (3소스)"
+- "evidence에 슬랙 메시지 2개(1781158602·1781268987)가 모두 존재"
+- "summary가 API 경로·인가 게이트(403)·PR #33 격리 맥락을 담음"

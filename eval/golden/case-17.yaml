@@ -1,0 +1,74 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-17
+question: "pipeline-worker 리팩토링(HT-25)에서 어떤 개선들이 있었어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+# 커밋이 27개(PR#12 16 + PR#13 11)로 매우 많아, 실질 개선 헤드라인만 expected.
+expected_evidence_ids:
+- "issue:HT-25"        # 부모 이슈 (제목: pipeline-worker 리팩토링 및 로직 개선)
+- "commit:21870f9"     # refactor: raw 수집과 파이프라인 오케스트레이션 책임 분리 (구조 개선 헤드라인)
+- "commit:d79d890"     # fix: 지라 페이지 단위 파이프라인 처리 (페이지/배치 스트리밍 처리 대표)
+- "commit:e9387db"     # fix: 발행 이벤트 시각 기준 체크포인트 갱신 (증분 정확성)
+- "commit:df59a35"     # fix: 체크포인트 실패 처리 안정화 (예외 전파·롤백)
+- "commit:7664128"     # fix: 기존 슬랙 스레드의 신규 답글 수집 (증분 누락 보완)
+- "commit:6a4f17e"     # fix: 머지된 GitHub PR만 수집하고 커밋 관계 보강
+- "commit:527c697"     # fix: GitHub 수집에서 Search API 외부 의존성 제거
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "pull_request:#12"   # 1차 리팩토링 PR (HT-25 커밋 컨테이너)
+- "pull_request:#13"   # 2차 리팩토링 PR (HT-25 커밋 컨테이너)
+- "message:1778159471.925499"  # 페이지 단위 리팩토링·체크포인트 저장실패 롤백 논의 (HT-25 관련 슬랙)
+# --- 페이지/배치 단위 처리 유사 커밋 (d79d890 대표) ---
+- "commit:406da21"     # 지라 업데이트 기준 페이지네이션 수집
+- "commit:aaafbb2"     # GitHub 수집 페이지 단위 처리
+- "commit:b0c902b"     # Slack 이벤트 배치 발행
+- "commit:e5194c7"     # Slack 메시지 페이지 단위 발행
+# --- 정규화 정리·일관성 ---
+- "commit:a845323"     # 지라 정규화 응답과 이벤트 시각 정리
+- "commit:5501dfc"     # Communication 속성 일치화용 Slack 정규화 수정
+- "commit:c46451b"     # Slack 채널 단위 정규화 분리
+- "commit:7864f4e"     # Jira 미사용 changelog 확장 제거
+# --- raw 응답 샘플화 (저장 효율) ---
+- "commit:69b1ba9"     # GitHub raw 응답 샘플화
+- "commit:3236a9a"     # Slack raw 응답 샘플화
+# --- 기타 후속 fix/refactor ---
+- "commit:954603a"     # GitHub 이벤트 타입별 발행
+- "commit:7609b46"     # GitHub·Slack normalize 응답 큐잉 건수로 변경
+- "commit:b35913d"     # GitHub 이벤트 중복 시간 필드 제거
+- "commit:abb4fe2"     # JiraRawService fetch → fetchSample 이름 변경
+# --- test/docs/chore ---
+- "commit:93fa6d9"     # test: unit test 작성
+- "commit:0c52137"     # test: 테스트 코드 추가 작성
+- "commit:0edf90d"     # docs: pipeline-worker md 업데이트
+- "commit:f4c785a"     # docs 문서 업데이트
+- "commit:8b31ecb"     # docs: 문서 최신화
+- "commit:c77ff34"     # docs: GitHub 수집 전략 문서 갱신
+- "commit:776d0c6"     # docs: 문서 업데이트
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "raw 데이터 수집과 파이프라인 오케스트레이션 책임을 분리해 구조를 정리했다"
+- "API 호출·정규화·큐 발행을 페이지(배치) 단위로 처리하도록 리팩토링했다(지라·GitHub·Slack 전반)"
+- "체크포인트를 발행된 이벤트 시각 기준으로 갱신하고, 저장 실패 시 예외 전파·롤백으로 안정화했다"
+- "기존 슬랙 스레드의 신규 답글까지 수집하도록 증분 수집 누락을 보완했다"
+- "GitHub는 머지된 PR만 수집하고 커밋 관계를 보강했으며, 수집에서 Search API 외부 의존성을 제거했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # HT-25에 오연결된 무관 슬랙 (false-positive DISCUSSED_IN)
+    - "message:1776952202.875279"  # 테트리스 정규화 예시 데이터 생성 논의 — 리팩토링 개선과 무관
+    - "message:1779967008.121469"  # 체크포인트·웹훅 backend DB 연동 PR 공지·curl UUID — 별개 backend 연동 작업
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "수집을 병렬(멀티스레드)로 처리하도록 바꿨다 — 실제론 페이지 단위 순차 처리이며 병렬화 근거 없음"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "summary가 개선 영역을 제시하면 근거로 type: commit evidence가 2건 이상 존재"

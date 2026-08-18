@@ -1,0 +1,161 @@
+spring:
+  application:
+    name: backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/history_tracker?stringtype=unspecified}
+    username: ${DB_USERNAME:history_tracker}
+    password: ${DB_PASSWORD:history_tracker}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+ai:
+  engine:
+    url: http://localhost:8000
+
+conversation:
+  memory:
+    history-budget-chars: ${HISTORY_BUDGET_CHARS:32000}
+    summary-trigger-chars: ${SUMMARY_TRIGGER_CHARS:8000}
+    summary-failure-threshold: ${SUMMARY_FAILURE_THRESHOLD:3}
+    summary-skip-turns: ${SUMMARY_SKIP_TURNS:3}
+
+pipeline:
+  worker:
+    url: ${PIPELINE_WORKER_URL:http://localhost:8081}
+
+security:
+  internal-service:
+    token: ${INTERNAL_SERVICE_TOKEN}
+  credentials:
+    key: ${BACKEND_CREDENTIAL_KEY}
+  jwt:
+    secret: ${JWT_SECRET:local-development-jwt-secret-must-be-changed}
+    access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT15M}
+    refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:P14D}
+
+user-lifecycle:
+  purge:
+    enabled: ${USER_PURGE_ENABLED:true}
+    grace-period: ${USER_PURGE_GRACE_PERIOD:P30D}
+    cron: "${USER_PURGE_CRON:0 0 3 * * *}"
+    batch-size: ${USER_PURGE_BATCH_SIZE:100}
+
+github:
+  app:
+    app-id: ${GITHUB_APP_ID:}
+    app-slug: ${GITHUB_APP_SLUG:}
+    private-key: ${GITHUB_APP_PRIVATE_KEY:}
+    client-id: ${GITHUB_CLIENT_ID:}
+    client-secret: ${GITHUB_CLIENT_SECRET:}
+    redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/v1/auth/github/callback}
+    installation-url: ${GITHUB_INSTALLATION_URL:}
+    authorize-url: ${GITHUB_AUTHORIZE_URL:https://github.com/login/oauth/authorize}
+    access-token-url: ${GITHUB_ACCESS_TOKEN_URL:https://github.com/login/oauth/access_token}
+    user-url: ${GITHUB_USER_URL:https://api.github.com/user}
+    installations-url: ${GITHUB_INSTALLATIONS_URL:https://api.github.com/user/installations}
+    installation-access-token-url: ${GITHUB_INSTALLATION_ACCESS_TOKEN_URL:https://api.github.com/app/installations/{installation_id}/access_tokens}
+    installation-repositories-url: ${GITHUB_INSTALLATION_REPOSITORIES_URL:https://api.github.com/installation/repositories}
+    repository-branches-url: ${GITHUB_REPOSITORY_BRANCHES_URL:https://api.github.com/repos/{owner}/{repo}/branches}
+
+slack:
+  client-id: ${SLACK_CLIENT_ID:}
+  client-secret: ${SLACK_CLIENT_SECRET:}
+  redirect-uri: ${SLACK_REDIRECT_URI:}
+  user-scopes: "${SLACK_USER_SCOPES:channels:read,groups:read,channels:history,groups:history,users:read,users:read.email}"
+  authorize-url: ${SLACK_AUTHORIZE_URL:https://slack.com/oauth/v2/authorize}
+  oauth-access-url: ${SLACK_OAUTH_ACCESS_URL:https://slack.com/api/oauth.v2.access}
+  revoke-url: ${SLACK_REVOKE_URL:https://slack.com/api/auth.revoke}
+
+atlassian:
+  client-id: ${ATLASSIAN_CLIENT_ID:}
+  client-secret: ${ATLASSIAN_CLIENT_SECRET:}
+  redirect-uri: ${ATLASSIAN_REDIRECT_URI:}
+  # Atlassian scope 구분자는 공백(Slack의 user-scopes는 콤마) — 콜론이 들어가므로 따옴표로 감싼다.
+  scopes: "${ATLASSIAN_SCOPES:read:jira-work read:jira-user offline_access}"
+  authorize-url: ${ATLASSIAN_AUTHORIZE_URL:https://auth.atlassian.com/authorize}
+  token-url: ${ATLASSIAN_TOKEN_URL:https://auth.atlassian.com/oauth/token}
+  accessible-resources-url: ${ATLASSIAN_ACCESSIBLE_RESOURCES_URL:https://api.atlassian.com/oauth/token/accessible-resources}
+  revoke-url: ${ATLASSIAN_REVOKE_URL:https://auth.atlassian.com/oauth/revoke}
+  api-gateway-url: ${ATLASSIAN_API_GATEWAY_URL:https://api.atlassian.com/ex/jira}
+  # 만료 전 미리 갱신할 여유 시간. 로컬에서 크게 잡으면(예: PT2H) 갱신 경로를 즉시 검증할 수 있다.
+  refresh-skew: ${ATLASSIAN_REFRESH_SKEW:PT5M}
+  personal-data-report:
+    # 봇 계정 동의(내부 consent 엔드포인트) 완료 후 켠다
+    enabled: ${ATLASSIAN_PDR_ENABLED:false}
+    cron: "${ATLASSIAN_PDR_CRON:0 30 3 * * *}"
+    cycle-period: ${ATLASSIAN_PDR_CYCLE_PERIOD:P7D}
+    # 트레일링 슬래시는 스파이크에서 204로 검증된 실제 호출 형태
+    report-url: ${ATLASSIAN_PDR_REPORT_URL:https://api.atlassian.com/app/report-accounts/}
+
+discord:
+  client-id: ${DISCORD_CLIENT_ID:}
+  client-secret: ${DISCORD_CLIENT_SECRET:}
+  redirect-uri: ${DISCORD_REDIRECT_URI:}
+  # 앱 전체가 공유하는 봇 토큰 — pipeline-worker에도 같은 값을 배포해야 한다(수집 주체가 봇이다).
+  bot-token: ${DISCORD_BOT_TOKEN:}
+  # bot(서버에 봇 추가) + identify(연동한 사용자 식별, 해제 시 grant 폐기에만 쓰인다)
+  scopes: "${DISCORD_SCOPES:bot identify}"
+  # View Channels(1024) + Read Message History(65536) — 최소 권한만 요청한다
+  permissions: ${DISCORD_PERMISSIONS:66560}
+  authorize-url: ${DISCORD_AUTHORIZE_URL:https://discord.com/oauth2/authorize}
+  token-url: ${DISCORD_TOKEN_URL:https://discord.com/api/v10/oauth2/token}
+  revoke-url: ${DISCORD_REVOKE_URL:https://discord.com/api/v10/oauth2/token/revoke}
+  api-base-url: ${DISCORD_API_BASE_URL:https://discord.com/api/v10}
+
+google-chat:
+  client-id: ${GOOGLE_CHAT_CLIENT_ID:}
+  client-secret: ${GOOGLE_CHAT_CLIENT_SECRET:}
+  redirect-uri: ${GOOGLE_CHAT_REDIRECT_URI:}
+  # directory.readonly는 필수다 — 사용자 인증으로는 Chat API의 sender에 표시 이름이 오지 않아
+  # People API(다른 API, Cloud Console에서 별도 사용 설정 필요)로 이름·이메일을 보강해야 한다(실측 확인).
+  scopes: "${GOOGLE_CHAT_SCOPES:https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/chat.messages.readonly https://www.googleapis.com/auth/directory.readonly}"
+  authorize-url: ${GOOGLE_CHAT_AUTHORIZE_URL:https://accounts.google.com/o/oauth2/v2/auth}
+  token-url: ${GOOGLE_CHAT_TOKEN_URL:https://oauth2.googleapis.com/token}
+  revoke-url: ${GOOGLE_CHAT_REVOKE_URL:https://oauth2.googleapis.com/revoke}
+  api-base-url: ${GOOGLE_CHAT_API_BASE_URL:https://chat.googleapis.com/v1}
+  # 만료 전 미리 갱신할 여유 시간. 로컬에서 크게 잡으면(예: PT2H) 갱신 경로를 즉시 검증할 수 있다.
+  refresh-skew: ${GOOGLE_CHAT_REFRESH_SKEW:PT5M}
+
+linear:
+  client-id: ${LINEAR_CLIENT_ID:}
+  client-secret: ${LINEAR_CLIENT_SECRET:}
+  redirect-uri: ${LINEAR_REDIRECT_URI:}
+  token-url: ${LINEAR_TOKEN_URL:https://api.linear.app/oauth/token}
+  revoke-url: ${LINEAR_REVOKE_URL:https://api.linear.app/oauth/revoke}
+  # 만료 전 미리 갱신할 여유 시간. 로컬에서 크게 잡으면(예: PT23H) 갱신 경로를 즉시 검증할 수 있다.
+  refresh-skew: ${LINEAR_REFRESH_SKEW:PT30M}
+
+asana:
+  client-id: ${ASANA_CLIENT_ID:}
+  client-secret: ${ASANA_CLIENT_SECRET:}
+  redirect-uri: ${ASANA_REDIRECT_URI:}
+  token-url: ${ASANA_TOKEN_URL:https://app.asana.com/-/oauth_token}
+  revoke-url: ${ASANA_REVOKE_URL:https://app.asana.com/-/oauth_revoke}
+  # 만료 전 미리 갱신할 여유 시간. access token 수명이 1시간이라 Linear(24h/PT30M)보다 훨씬 짧게 잡는다.
+  refresh-skew: ${ASANA_REFRESH_SKEW:PT10M}
+
+clickup:
+  client-id: ${CLICKUP_CLIENT_ID:}
+  client-secret: ${CLICKUP_CLIENT_SECRET:}
+  redirect-uri: ${CLICKUP_REDIRECT_URI:}
+  token-url: ${CLICKUP_TOKEN_URL:https://api.clickup.com/api/v2/oauth/token}
+
+notion:
+  client-id: ${NOTION_CLIENT_ID:}
+  client-secret: ${NOTION_CLIENT_SECRET:}
+  redirect-uri: ${NOTION_REDIRECT_URI:}
+  authorize-url: ${NOTION_AUTHORIZE_URL:https://api.notion.com/v1/oauth/authorize}
+  token-url: ${NOTION_TOKEN_URL:https://api.notion.com/v1/oauth/token}
+  revoke-url: ${NOTION_REVOKE_URL:https://api.notion.com/v1/oauth/revoke}
+  api-base-url: ${NOTION_API_BASE_URL:https://api.notion.com/v1}
+  # 조사 시점(2026-08) 최신 버전. URL이 아니라 헤더로 갈리므로 상수로 고정한다 — 바꾸지 않는 한
+  # 배포 환경변수로 흔들 이유가 없다(docs/notion-integration.md §1-2).
+  version: ${NOTION_VERSION:2026-03-11}

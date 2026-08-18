@@ -1,0 +1,341 @@
+/* ============================================================
+   Sources page
+   ============================================================ */
+.sources-page { padding: 32px 40px; max-width: 1100px; }
+.page-title { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.02em; }
+.page-sub { color: var(--fg-muted); margin: 0 0 28px; font-size: 14px; }
+
+/* 섹션 라벨(eyebrow) — 한글 콘텐츠라 트래킹은 0으로 고정한다(DESIGN.md eyebrow-ko). */
+.sources-section-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 28px 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--fg-subtle);
+}
+.sources-section-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* 연동 중 — 넓은 행. surface-2(카드층 --surface) + 헤어라인 + 상단 엣지 하이라이트(다크)/shadow-sm(라이트).
+   DESIGN.md "들린 표면" 규칙 — edge-highlight는 라이트에서 transparent, shadow-sm은 다크에서 no-op이라
+   하나의 선언으로 두 테마가 공존한다. */
+.source-rows { display: flex; flex-direction: column; gap: 12px; }
+.source-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 var(--edge-highlight), var(--shadow-sm);
+  padding: 18px 20px;
+}
+/* 재연결 등 즉시 처리가 필요한 행 — accent 토큰에서 파생한 저알파 테두리(raw rgba 금지) */
+.source-row.warn { border-color: color-mix(in srgb, var(--accent-ink) 35%, transparent); }
+.source-row-top { display: flex; align-items: flex-start; gap: 14px; }
+.source-row-main { flex: 1; min-width: 0; }
+.source-row-name { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.source-row-sub { color: var(--fg-muted); font-size: 13px; margin-top: 3px; }
+.source-row-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+
+/* 오른쪽 상태 영역 — 위: 상태 pill, 아래: 마지막 수집 시각(있을 때만). 세로 스택 + 우측 정렬. */
+.source-row-status { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
+.source-row-synced { color: var(--fg-subtle); font-size: 12px; text-align: right; }
+
+/* 추가 가능 — 균일 타일. 이름·설명은 한 줄 고정, 로고·버튼 크기 고정으로 내용 길이와 무관하게 동일한 모양을 유지한다. */
+.source-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+.source-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 var(--edge-highlight), var(--shadow-sm);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.15s;
+}
+.source-tile:hover { border-color: var(--border-strong); }
+/* OAuth 콜백 에러가 이 타일의 소스를 가리킬 때 — warn 행 테두리와 같은 기법, hue만 danger */
+.source-tile.oauth-error { border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+/* 아직 연결할 수 없는 소스(예: Teams) — DESIGN.md의 "지원 안 함은 경고색이 아니라 muted로"
+   원칙대로 타일 전체를 낮춰 브랜드 로고까지 함께 조용해지게 한다. 호버는 반응하지 않는다 —
+   눌러도 아무 일도 안 나는데 인터랙티브해 보이면 그 자체가 혼란이다. */
+.source-tile--unavailable { opacity: 0.55; }
+.source-tile--unavailable:hover { border-color: var(--border); }
+.source-tile-main { flex: 1; min-width: 0; }
+.source-tile-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.source-tile-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 로고 칩 — 11개 소스 전부 동일 처리(surface-3 + 헤어라인 + 실색 브랜드 마크). 브랜드별 틴트 배경은
+   쓰지 않는다(마크 자체가 브랜드 색을 담는다). 행 40px / 타일 36px(.sm). */
+.source-logo-chip {
+  width: 40px; height: 40px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.source-logo-chip.sm { width: 36px; height: 36px; }
+
+/* 상태 pill — 연결됨(success)·미연결(muted)·재연결 필요(accent-ink) 세 톤만 쓴다. */
+.src-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.src-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.src-pill.connected { color: var(--success); background: color-mix(in oklab, var(--success) 12%, transparent); }
+.src-pill.disconnected { color: var(--fg-subtle); background: var(--surface-3); }
+.src-pill.warn { color: var(--accent-ink); background: var(--accent-soft); }
+
+@media (max-width: 700px) {
+  .source-row-top { flex-direction: column; align-items: flex-start; }
+  .source-row-status { align-items: flex-start; }
+  .source-row-synced { text-align: left; }
+  .source-tiles { grid-template-columns: 1fr; }
+  /* 세로 스택에선 세로 구분선이 성립하지 않는다 */
+  .src-divider { display: none; }
+  .src-disconnect { align-self: flex-start; }
+}
+
+.repo-list {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.repo-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.repo-row:last-child { border-bottom: none; }
+.repo-row .repo-name { flex: 1; font-family: var(--font-mono); }
+.repo-row .repo-meta { color: var(--fg-subtle); font-size: 11px; font-family: var(--font-mono); }
+.branch-select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  max-width: 170px;
+}
+
+/* 연동 대상 선택 단계의 select — branch-select와 달리 카드 폭 전체를 쓴다 */
+.selection-select {
+  width: 100%;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-mono);
+}
+
+/* 단계 선언이 아직 안 온 동안의 자리 표시 — selection-select와 같은 높이라 단계가 도착해도
+   컨트롤 자리가 흔들리지 않는다(빈 상자를 그렸다 채우는 대신 처음부터 채워서 그린다). */
+.selection-loading {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg-subtle);
+}
+
+/* 후보가 1개뿐인 필수 단계는 자동 선택하고 select 대신 이 정적 텍스트로 보여준다 —
+   selection-select와 같은 크기·톤을 유지해 1개↔여러 개 전환 시 레이아웃이 흔들리지 않는다. */
+.selection-value {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-mono);
+}
+
+.repo-toggle {
+  display: flex; align-items: center; justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--fg-muted);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.repo-toggle:hover { background: var(--surface-3); color: var(--fg); }
+
+.connect-form {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+}
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 11.5px; font-weight: 600; color: var(--fg-muted); letter-spacing: 0.02em; }
+.field input {
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--fg);
+  outline: none;
+  font-family: var(--font-mono);
+}
+.field input:focus { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
+.field .hint { font-size: 11px; color: var(--fg-subtle); }
+
+/* 공용 "설정 카드" — SourcesPage 전용이 아니라 SettingsPage·AccountPage·DangerZone이 공유하는
+   범용 섹션 카드다(이번 데이터 소스 재설계 대상 밖 — 그대로 유지). */
+.source-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.source-card .src-head { display: flex; align-items: center; gap: 12px; }
+.source-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; }
+.source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; font-family: var(--font-mono); }
+
+/* 액터 관리 카드(좌, 넓게) + 병합 결정 이력 카드(우, 고정폭) 2열 배치 */
+.actors-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .actors-layout { grid-template-columns: 1fr; }
+}
+
+.actor-card {
+  margin-top: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+}
+.actor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.actor-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.actor-head p, .actor-form > p { margin: 4px 0 0; color: var(--fg-muted); font-size: 12px; }
+.actor-empty { margin: 16px 0; color: var(--fg-muted); font-size: 13px; }
+.actor-list { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+/* position: relative — useCollapsedRows가 행의 offsetTop을 이 래퍼 기준으로 재는 offsetParent가 되도록 한다. */
+.actor-list-rows { display: flex; flex-direction: column; position: relative; }
+/* 접힘 높이는 useCollapsedRows가 실측한 px을 인라인 style로 준다 — 여기서는 스크롤만 담당. */
+.actor-list-collapsed { overflow-y: auto; }
+.actor-row, .actor-decision { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
+.actor-row:last-child, .actor-decision:last-child { border-bottom: none; }
+.actor-info { min-width: 0; }
+.actor-info strong, .actor-decision strong { display: block; font-size: 13px; }
+.actor-row-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* 한글 문구와 이메일(라틴 토큰)을 겸용한다 — 이메일 자리에는 호출부에서 .mono를 덧붙인다. */
+.actor-meta { color: var(--fg-subtle); font-size: 11px; }
+.actor-source-names { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.actor-source-name { padding: 2px 5px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-muted); font-size: 11px; }
+.actor-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; padding: 16px; border: 1px dashed var(--border-strong); border-radius: var(--r-md); background: var(--surface-2); }
+.actor-form h3, .actor-form > p, .actor-form > .actor-compare, .actor-form > .actor-alias-picker, .actor-form > .actor-form-actions, .actor-form > [role="alert"] { grid-column: 1 / -1; }
+.actor-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.actor-compare-col { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+.actor-compare-col strong { font-size: 12.5px; }
+.actor-alias-detail { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-muted); }
+.actor-alias-detail code { color: var(--fg); background: var(--surface-2); padding: 2px 5px; border-radius: var(--r-sm); }
+.actor-rename-form { grid-template-columns: 1fr; }
+.actor-form h3 { margin: 0; font-size: 13px; }
+.actor-form label { display: flex; flex-direction: column; gap: 5px; color: var(--fg-muted); font-size: 11.5px; font-weight: 600; }
+.actor-form label span { color: var(--fg-subtle); font-weight: 400; }
+.actor-form input, .actor-form select { min-width: 0; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; }
+.actor-form input:focus, .actor-form select:focus { outline: none; border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
+.actor-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.actor-alias-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.actor-alias-picker label { flex-direction: row; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--fg-muted); font-size: 11px; font-weight: 400; }
+.actor-alias-picker input { min-width: auto; padding: 0; }
+.actor-decision p { margin: 4px 0 0; color: var(--fg-muted); font-size: 11px; }
+/* 분리 항목의 효과 부연("다시 안 합쳐짐") — 한글 문장이라 모노가 아닌 본문 서체로 둔다(span인 이유). */
+.actor-decision-hint { display: block; margin-top: 3px; color: var(--fg-subtle); font-size: 11px; }
+
+@media (max-width: 700px) {
+  .actor-head, .actor-row, .actor-decision { align-items: flex-start; flex-direction: column; }
+  .actor-form, .actor-compare { grid-template-columns: 1fr; }
+}
+
+/* ── 연동 해제 ─────────────────────────────────────────────────────────
+   해제는 자격증명뿐 아니라 수집된 그래프까지 지우는 파괴적 동작이라, 행에서는 조용히
+   (ghost, 평소 fg-subtle) 있다가 확인 다이얼로그에서 danger로 말한다 — 행에 danger 버튼을
+   상시 노출하면 연결 상태 행 전체가 경고처럼 읽힌다.
+   --------------------------------------------------------------------- */
+.src-disconnect { padding: 4px 10px; font-size: 12px; color: var(--fg-subtle); align-self: center; }
+.src-disconnect:hover { color: var(--danger); background: color-mix(in oklab, var(--danger) 8%, transparent); }
+/* 상태 정보와 해제 액션을 가르는 세로 헤어라인 — 행 정보는 위 정렬이지만 액션은 세로중앙에 둔다. */
+.src-divider { width: 1px; height: 36px; background: var(--border); align-self: center; flex-shrink: 0; margin: 0 2px; }
+
+/* 오버레이·다이얼로그는 통합 검색(search.css)과 같은 기법 — scrim + blur, 다크에서
+   그림자 대신 상단 인셋 하이라이트로 표면을 띄운다(DESIGN.md). 위치만 중앙 정렬이다. */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(13 16 20 / 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.confirm-dialog {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 0 var(--edge-highlight), var(--shadow-lg);
+}
+
+.confirm-title { margin: 0 0 14px; font-size: 15px; }
+
+.confirm-points { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.confirm-points li { display: flex; gap: 9px; color: var(--fg-muted); font-size: 13px; line-height: 1.65; word-break: keep-all; }
+
+/* 불릿을 문자 대신 점으로 — 첫 항목만 danger라 "이것이 손실"이 한눈에 잡힌다. */
+.confirm-mark {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: var(--fg-subtle);
+}
+.confirm-mark.danger { background: var(--danger); }
+
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }

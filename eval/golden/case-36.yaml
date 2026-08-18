@@ -1,0 +1,33 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [3소스(Jira+Slack+GitHub) — 구현+공유] Slack 데이터 전처리(필터링) = HT-22.
+#   Slack 1776405432(필터링 PR 공지) → 이슈 HT-22 → PR #8 → 커밋 79dcae4. 단일이슈 PR로 깨끗.
+id: case-36
+question: "Slack 데이터 전처리(필터링)는 어떻게 구현했고 슬랙에서 어떻게 공유됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-22"                    # Jira: Slack 데이터 전처리
+- "message:1776405432.933819"     # Slack: "슬랙 메세지 필터링 하는거 pr 날렸어" (+ approve/머지)
+- "pull_request:#8"               # GitHub: Slack 메시지 2단계 필터링 파이프라인
+- "commit:79dcae4"               # GitHub: Slack 메시지 룰 기반 + LLM 2단계 필터링 구현
+
+acceptable_evidence_ids: []
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "Slack 잡담을 1단계 규칙 기반 + 2단계 LLM 기반으로 2단계 필터링한다"
+- "스레드 단위로 노드를 생성하는 방식이다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "필터링을 단일 단계(규칙만 또는 LLM만)로 서술하거나, 무관한 작업으로 서술"
+
+# 케이스별 기계 채점 (3소스 + 2단계 필터링)
+rule_checks:
+- "evidence에 issue, message, (pull_request 또는 commit)이 모두 존재 (3소스)"
+- "summary가 규칙 기반 + LLM 기반 2단계 필터링을 담음"

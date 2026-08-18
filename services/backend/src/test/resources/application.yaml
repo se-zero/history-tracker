@@ -1,0 +1,140 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:backend_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password:
+  flyway:
+    enabled: true
+    locations: classpath:db/test-migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+ai:
+  engine:
+    url: http://localhost:8000
+
+conversation:
+  memory:
+    history-budget-chars: 32000
+    summary-trigger-chars: 8000
+    summary-failure-threshold: 3
+    summary-skip-turns: 3
+
+pipeline:
+  worker:
+    url: http://localhost:8081
+
+security:
+  internal-service:
+    token: test-internal-service-token
+  credentials:
+    key: dGVzdC1jcmVkZW50aWFsLWtleS0zMi1ieXRlcyEhISE=
+  jwt:
+    secret: test-jwt-secret-for-backend-security-tests
+    access-token-ttl: PT15M
+    refresh-token-ttl: P14D
+
+user-lifecycle:
+  purge:
+    enabled: false
+    grace-period: P30D
+    cron: "0 0 3 * * *"
+    batch-size: 100
+
+github:
+  app:
+    app-id: test-app-id
+    app-slug: test-history-tracker
+    private-key: ""
+    client-id: test-client-id
+    client-secret: test-client-secret
+    redirect-uri: http://localhost/api/v1/auth/github/callback
+    installation-url: https://github.com/apps/test-history-tracker/installations/new
+    authorize-url: https://github.com/login/oauth/authorize
+    access-token-url: https://github.com/login/oauth/access_token
+    user-url: https://api.github.com/user
+    installations-url: https://api.github.com/user/installations
+    installation-access-token-url: https://api.github.com/app/installations/{installation_id}/access_tokens
+    installation-repositories-url: https://api.github.com/installation/repositories
+    repository-branches-url: https://api.github.com/repos/{owner}/{repo}/branches
+
+slack:
+  client-id: test-client-id
+  client-secret: test-client-secret
+  redirect-uri: https://slack.test/callback
+  user-scopes: "channels:read,groups:read,channels:history,groups:history,users:read,users:read.email"
+  authorize-url: https://slack.test/oauth/v2/authorize
+  oauth-access-url: https://slack.test/api/oauth.v2.access
+
+atlassian:
+  client-id: test-client-id
+  client-secret: test-client-secret
+  redirect-uri: https://atlassian.test/callback
+  scopes: "read:jira-work read:jira-user offline_access"
+  authorize-url: https://atlassian.test/authorize
+  token-url: https://atlassian.test/oauth/token
+  accessible-resources-url: https://atlassian.test/oauth/token/accessible-resources
+  api-gateway-url: https://atlassian.test/ex/jira
+  refresh-skew: PT5M
+  personal-data-report:
+    enabled: false
+    cron: "0 30 3 * * *"
+    cycle-period: P7D
+    report-url: https://atlassian.test/app/report-accounts
+
+discord:
+  client-id: test-client-id
+  client-secret: test-client-secret
+  redirect-uri: https://discord.test/callback
+  bot-token: test-bot-token
+  scopes: "bot identify"
+  permissions: "66560"
+  authorize-url: https://discord.test/oauth2/authorize
+  token-url: https://discord.test/api/v10/oauth2/token
+  revoke-url: https://discord.test/api/v10/oauth2/token/revoke
+  api-base-url: https://discord.test/api/v10
+
+google-chat:
+  client-id: test-client-id
+  client-secret: test-client-secret
+  redirect-uri: https://googlechat.test/callback
+  scopes: "https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/chat.messages.readonly https://www.googleapis.com/auth/directory.readonly"
+  authorize-url: https://googlechat.test/o/oauth2/v2/auth
+  token-url: https://googlechat.test/token
+  revoke-url: https://googlechat.test/revoke
+  api-base-url: https://googlechat.test/v1
+  refresh-skew: PT5M
+
+linear:
+  client-id: test-linear-client-id
+  client-secret: test-linear-client-secret
+  redirect-uri: https://linear.test/callback
+  token-url: https://api.linear.app/oauth/token
+  revoke-url: https://api.linear.app/oauth/revoke
+  refresh-skew: PT30M
+
+asana:
+  client-id: test-asana-client-id
+  client-secret: test-asana-client-secret
+  redirect-uri: https://asana.test/callback
+  token-url: https://app.asana.com/-/oauth_token
+  revoke-url: https://app.asana.com/-/oauth_revoke
+  refresh-skew: PT30M
+
+clickup:
+  client-id: test-clickup-client-id
+  client-secret: test-clickup-client-secret
+  redirect-uri: https://clickup.test/callback
+  token-url: https://api.clickup.com/api/v2/oauth/token
+
+notion:
+  client-id: test-notion-client-id
+  client-secret: test-notion-client-secret
+  redirect-uri: https://notion.test/callback
+  authorize-url: https://notion.test/v1/oauth/authorize
+  token-url: https://notion.test/v1/oauth/token
+  revoke-url: https://notion.test/v1/oauth/revoke
+  api-base-url: https://notion.test/v1
+  version: "2026-03-11"

@@ -1,0 +1,68 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-11
+question: "services/ai-engine/graph/event_handler.py의 변경 이력을 시간순으로 정리해줘"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+# 파일 변경 이력 질문 → 정답은 get_file_history: event_handler.py를 실제 MODIFIED한
+# 커밋(시간순) + 그 커밋이 TRIGGERED_BY한 이슈. search_by_keyword로 파일을 언급만 한
+# 노드를 끌어오면 안 된다 (query-quality-issues.md 케이스6 도구선택 오류 가드).
+# 그래프 MODIFIED 15건 = 사용자 제공 커밋 15건과 완전 일치. 커밋은 여러 이슈에 fan-out되므로
+# 커밋 메시지 기준 primary 이슈만 expected로 올리고, 부수 fan-out 이슈는 acceptable로 내린다.
+expected_evidence_ids:
+- "commit:73a40f7"                 # 04-15 RabbitMQ consumer·이벤트 핸들러 뼈대 최초 구현 (HT-23)
+- "commit:610ef4c"                 # 04-25 event_handler에 임베딩·diff 요약 통합 (HT-24)
+- "commit:e9e717a"                 # 05-01 Neo4j 그래프 빌더 구현·핸들러 연결 (HT-26)
+- "commit:c9338b0"                 # 05-05 ReferenceStore Neo4j 구현·테스트 엔드포인트 (HT-26)
+- "commit:fe5ba81"                 # 05-06 컨슈머 안정성·처리 속도 개선 (HT-26)
+- "commit:ea334e9"                 # 05-07 pipeline-worker 정규화 변경에 맞춘 정합성 수정 (HT-26)
+- "commit:e6eeb98"                 # 05-08 Actor 동일인 파이프라인 연결·GitHub 브랜치 옵션 (HT-26)
+- "commit:56a5492"                 # 05-12 prNumber 타입 불일치로 CONTAINS 엣지 미생성 수정 (tool fan-out)
+- "commit:b5ad923"                 # 05-13 Slack 필터링 파이프라인 연결·LLM 배치 필터 (HT-40)
+- "commit:d9978e2"                 # 05-13 GitHub 파이프라인 LLM 요약 안정성·봇 커밋 제외 (HT-41)
+- "commit:16879e4"                 # 05-17 이슈-커밋 연결(TRIGGERED_BY) 정확도 개선 (HT-47)
+- "commit:5a6643e"                 # 06-11 그래프 데이터 project_id 단위 격리 (HT-65)
+- "issue:HT-23"                    # Actor 노드 생성 (consumer·핸들러 뼈대 계기)
+- "issue:HT-24"                    # 임베딩 기능 구현
+- "issue:HT-26"                    # 그래프 생성 (핸들러→그래프 빌드 경로 대부분)
+- "issue:HT-40"                    # 슬랙 파이프라인 수정
+- "issue:HT-41"                    # 깃허브 파이프라인 수정
+- "issue:HT-47"                    # 이슈-커밋 연결 정확도 개선
+- "issue:HT-65"                    # 데이터 모델에 project_id 도입
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+# 파일을 바꾸긴 했으나 인프라·플러밍·성능 성격(rate limiter·동시성·전파 최적화)이라 부차.
+acceptable_evidence_ids:
+- "commit:84b83f9"                 # 06-24 OpenAI RPM·TPM rate limiter 도입 (HT-95, 인프라)
+- "commit:d58e361"                 # 06-25 수집 동시성 활성화 perf (HT-94)
+- "commit:7f55999"                 # 06-26 PR 이슈 전파 O(N²)→O(N) 최적화 perf (HT-94)
+- "issue:HT-95"                    # rate limiter + 타임아웃
+- "issue:HT-94"                    # ai-engine 최적화
+- "issue:HT-33"                    # Tool 생성 (56a5492 fan-out — 부수)
+- "issue:HT-35"                    # Tool 생성·파이프라인 연결 (56a5492 fan-out — 부수)
+- "issue:HT-68"                    # 기존 배치/질의 스코핑 (5a6643e fan-out)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정) — 커밋 메시지 근거, 시간순 흐름
+expected_facts:
+- "RabbitMQ consumer의 이벤트 핸들러 뼈대로 처음 생겼다 (73a40f7, HT-23)"
+- "임베딩·diff 요약 통합(610ef4c) 후 Neo4j 그래프 빌더에 연결(e9e717a)돼 수집 이벤트를 그래프로 구축하는 핵심 경로가 됐다"
+- "이후 컨슈머 안정성·정규화 정합성·Actor 파이프라인 연결 등 수집 파이프라인 연동 수정이 이어졌다 (fe5ba81, ea334e9, e6eeb98)"
+- "그래프 데이터를 project_id 단위로 격리하도록 바뀌었다 (5a6643e, HT-65)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []   # 파일을 안 바꿨는데 단순 언급으로 끌려올 노드 — 확실치 않아 비움
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "event_handler.py를 실제로 바꾸지 않고 단순 언급만 한 이슈·대화를 변경 이력으로 제시한다"
+    - "rate limiter·수집 동시성 로직 자체를 event_handler.py에 구현했다고 단정한다 (실제로는 OpenAI 호출부·수집 경로 변경이 파일에 스친 것)"
+
+# 케이스별 기계 채점 (get_file_history vs search_by_keyword 구분 — 핵심)
+rule_checks:
+- "summary가 event_handler.py를 실제 변경한 커밋과 그 연결 이슈를 근거로 제시하며, 파일을 단순 언급만 한 이슈로 대체하지 않는다"
+- "evidence에 event_handler.py를 MODIFIED한 커밋(commit:73a40f7·610ef4c·e9e717a 등)이 1건 이상 존재한다"

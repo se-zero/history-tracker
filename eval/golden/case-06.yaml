@@ -1,0 +1,50 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-06
+question: "PR #19는 어떤 작업이고 어떤 이슈와 연결돼?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+# PR→이슈 직접 TRIGGERED_BY 엣지는 없음(검증). PR#19 CONTAINS 커밋 → 커밋 TRIGGERED_BY 로만 이슈에 연결됨.
+# 질문이 "어떤 이슈와 연결돼?" → 연결 이슈 HT-33·34·35·36 열거가 정답의 절반.
+expected_evidence_ids:
+- "pull_request:#19"                # 질문 대상 PR
+- "issue:HT-33"                     # 부모: Tool 생성
+- "issue:HT-34"                     # 하위: Tool 목록 정의(문서작성)
+- "issue:HT-35"                     # 하위: Tool 생성 및 파이프라인에 연결
+- "issue:HT-36"                     # 하위: 전체 테스트
+- "commit:9ef0504"                  # 핵심: GraphRAG tool calling 구현(13개 도구 정의·executor·orchestrator·POST /query)
+- "commit:c407972"                  # backend QueryService의 ai-engine /query 연동
+- "commit:f2cbe44"                  # 서버 시작 시 Neo4j 벡터 인덱스 자동 생성
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "commit:8b5d72d"                  # tool definitions 첫 커밋 — 9ef0504에 흡수됨
+- "commit:56a5492"                  # fix: prNumber 타입 불일치로 CONTAINS 엣지 미생성 수정(부차적 플러밍)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정) — 커밋 메시지·이슈 제목 기반, 초안
+expected_facts:
+- "PR #19는 GraphRAG tool calling 기반 자연어 질문 처리를 구현한다 — OpenAI Function schema 도구 정의, 도구별 Neo4j Cypher 실행, LLM tool calling 오케스트레이터 루프, POST /query 엔드포인트"
+- "backend QueryService가 ai-engine의 POST /query를 호출하도록 연동했다"
+- "서버 시작 시 Neo4j 벡터 인덱스를 자동 생성한다"
+- "연결된 이슈는 HT-33(Tool 생성, 부모)과 하위 HT-34(도구 목록 정의)·HT-35(도구 생성·파이프라인 연결)·HT-36(전체 테스트)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # HT-33/34/35/36에 오연결된 무관한 슬랙 (내용 확인 후 선정, false-positive DISCUSSED_IN)
+    - "message:1776180884.595899"  # Actor 노드 생성 파이프라인 스코어링(0.8 임계값)·이메일 권한 — tool calling 무관
+    - "message:1777615886.638969"  # occurredAt/created_at 노드 속성·그래프 스키마 논의 — 무관
+    - "message:1779974653.606249"  # 임베딩 모델 large 테스트·환경변수 주입 — 무관
+    - "message:1780206867.542399"  # env파일·깃허브 로그인 access token·502 인프라 디버깅 — 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "PR #19 도구 설계·확정이 슬랙 논의를 통해 이뤄졌다 — 실제 슬랙엔 'tool pr 날렸어' 공지·타 주제(액터/임베딩/인프라)뿐, 도구 설계 논의 없음"
+
+# 케이스별 기계 채점 (연결 이슈 열거 + 작업 성격 서술 검증)
+rule_checks:
+- "summary가 연결 이슈로 HT-33·34·35·36을 열거하고 '연결된 이슈 없음'류 결론이 없음"
+- "summary가 PR#19를 GraphRAG tool calling / 자연어 질문 처리 작업으로 설명"

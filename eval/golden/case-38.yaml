@@ -1,0 +1,37 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [3소스(Jira+Slack+GitHub) — 구현] 임베딩 기능 = HT-24.
+#   Slack 1777122552(임베딩·유사도 작업 PR 공지) → 이슈 HT-24 → PR #10. 단일이슈 PR로 깨끗.
+id: case-38
+question: "임베딩 기능은 어떻게 구현됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-24"                    # Jira: 임베딩 기능 구현
+- "message:1777122552.353609"     # Slack: "임베딩이랑 유사도 판단 작업 pr 날렸어" (+ approve/머지)
+- "pull_request:#10"              # GitHub: Feat/embedding
+
+# PR #10 소속 핵심 커밋 (인용 무방)
+acceptable_evidence_ids:
+- "commit:4b0f63e"                 # 임베딩 유틸리티 모듈 추가
+- "commit:610ef4c"                 # event_handler에 임베딩 및 diff 요약 통합
+- "commit:4289805"                 # REFERENCE 엣지 배치 생성 모듈 추가
+- "commit:9a0c2e2"                 # REFERENCE 엣지에 5일 시간 윈도우 필터 추가
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "RAG를 위한 임베딩 기능을 구현한 작업이다"
+- "임베딩 유틸리티, event_handler 통합, REFERENCE 엣지 배치 생성이 포함됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "임베딩과 무관한 작업으로 서술하거나, REFERENCE 엣지/유사도 맥락을 누락"
+
+# 케이스별 기계 채점 (3소스 + 임베딩 구현)
+rule_checks:
+- "evidence에 issue, message, (pull_request 또는 commit)이 모두 존재 (3소스)"
+- "summary가 임베딩 기능 구현(유틸리티·event_handler 통합·REFERENCE 엣지)을 담음"

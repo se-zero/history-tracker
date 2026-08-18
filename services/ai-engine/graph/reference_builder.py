@@ -1,0 +1,351 @@
+"""
+REFERENCE 엣지 배치 생성 (Layer 4).
+
+그래프 스키마의 Layer 4:
+  (ChangeSet)-[MODIFIED]->(File) 엣지의 diffSummary 임베딩
+  ↔ (Communication) 노드의 body 임베딩
+  코사인 유사도 ≥ threshold 인 쌍에 REFERENCE 엣지 생성.
+
+실행 타이밍:
+  이벤트 처리와 별개로 수동 또는 스케줄 호출.
+  Neo4j에 embedding이 충분히 쌓인 뒤 실행하는 것을 권장.
+
+Neo4j 직접 호출 없이 ReferenceStore 인터페이스로 주입받아 테스트 가능하게 설계.
+"""
+
+import logging
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Awaitable, Callable
+
+import numpy as np
+
+from graph._layer4_common import group_by_project
+from graph.embedder import embed_batch, similarity_matrix
+
+logger = logging.getLogger(__name__)
+
+
+DEFAULT_THRESHOLD = 0.44
+TIME_WINDOW_DAYS = 5
+# 커밋당 유지할 최대 스레드 수 (fan-out 컷)
+DEFAULT_TOP_K = 5
+# 커밋 메시지 임베딩을 diff 행과 함께 비교(쌍별 max)하는 기본 모드. 메시지 주입의 점수 상승이
+# 정답 쌍에 선별적(노이즈 상승은 미미)이라는 측정 근거로 채택 — off는 도입 전 동작(측정 재현용).
+DEFAULT_MESSAGE_MODE = "max"
+
+
+@dataclass
+class ReferenceStore:
+    """Neo4j 조회·생성 함수 묶음. 테스트 시 mock으로 교체 가능."""
+
+    fetch_modified_embeddings: Callable[[], Awaitable[list[dict]]]
+    """embedding이 있는 모든 MODIFIED 엣지 반환.
+    Returns:
+        [{"project_id": str, "changeset_id": str, "file_path": str, "diff_summary": str,
+          "embedding": list[float], "occurred_at": datetime}, ...]
+    """
+
+    fetch_communication_embeddings: Callable[[], Awaitable[list[dict]]]
+    """embedding이 있는 모든 Communication 노드 반환.
+    Returns:
+        [{"project_id": str, "id": str, "conversation_id": str | None, "body": str,
+          "embedding": list[float], "occurred_at": datetime}, ...]
+        conversation_id는 top-k 스레드 컷의 그룹 키다 (없으면 그 메시지가 곧 스레드).
+    """
+
+    create_reference_edge: Callable[[str, str, str, float], Awaitable[None]]
+    """REFERENCE 엣지 생성 또는 갱신.
+    Args:
+        project_id:        프로젝트 UUID (노드 매칭 스코프)
+        changeset_id:      ChangeSet 노드 ID
+        communication_id:  Communication 노드 ID
+        confidence:        코사인 유사도 값 (0.0~1.0)
+    """
+
+    fetch_unembedded_communications: Callable[[bool], Awaitable[list[dict]]]
+    """embedding 프로퍼티가 없는 Communication 노드 반환 (보정용).
+    Args:
+        force: True면 embedding이 이미 있는 노드까지 전부 반환 (모델 교체 시 전량 재임베딩)
+    Returns:
+        [{"project_id": str, "id": str, "body": str}, ...]
+    """
+
+    save_communication_embedding: Callable[[str, str, list[float]], Awaitable[None]]
+    """Communication 노드에 embedding 저장.
+    Args:
+        project_id:       프로젝트 UUID
+        communication_id: Communication 노드 ID
+        embedding:        임베딩 벡터
+    """
+
+    fetch_unembedded_changeset_messages: Callable[[bool], Awaitable[list[dict]]]
+    """message는 있는데 embedding 프로퍼티가 없는 ChangeSet 노드 반환 (보정용).
+    Args:
+        force: True면 embedding이 이미 있는 노드까지 전부 반환 (모델 교체 시 전량 재임베딩)
+    Returns:
+        [{"project_id": str, "id": str (hash), "message": str}, ...]
+    """
+
+    save_changeset_message_embedding: Callable[[str, str, list[float]], Awaitable[None]]
+    """ChangeSet 노드에 커밋 메시지 embedding 저장.
+    Args:
+        project_id:   프로젝트 UUID
+        changeset_id: ChangeSet hash
+        embedding:    임베딩 벡터
+    """
+
+    fetch_changeset_message_embeddings: Callable[[], Awaitable[list[dict]]]
+    """embedding(커밋 메시지)이 있는 모든 ChangeSet 노드 반환 — REFERENCE의 메시지 비교 행.
+    Returns:
+        [{"project_id": str, "changeset_id": str, "message": str, "embedding": list[float],
+          "occurred_at": datetime}, ...]
+        message는 원문이다 — 수동 정밀 구축이 LLM에게 커밋을 보여줄 때 쓴다(임베딩 비교에는 불필요).
+    """
+
+    fetch_unembedded_modified_edges: Callable[[bool], Awaitable[list[dict]]]
+    """diffSummary는 있는데 embedding 프로퍼티가 없는 MODIFIED 엣지 반환 (보정용).
+    Args:
+        force: True면 embedding이 이미 있는 엣지까지 전부 반환 (모델 교체 시 전량 재임베딩)
+    Returns:
+        [{"project_id": str, "changeset_id": str, "file_path": str, "diff_summary": str}, ...]
+    """
+
+    save_modified_embedding: Callable[[str, str, str, list[float]], Awaitable[None]]
+    """MODIFIED 엣지에 embedding 저장.
+    Args:
+        project_id:   프로젝트 UUID
+        changeset_id: ChangeSet hash
+        file_path:    File path — 엣지는 (changeset, file) 쌍으로 식별된다
+        embedding:    임베딩 벡터
+    """
+
+
+def select_reference_pairs(
+    candidate_rows: list[dict],
+    comm_list: list[dict],
+    threshold: float = DEFAULT_THRESHOLD,
+    top_k: int = DEFAULT_TOP_K,
+) -> list[tuple[str, str, str, float]]:
+    """자동구축의 REFERENCE 후보 선별 — 시간 윈도우·임계값·쌍별 max·스레드 fan-out 컷.
+
+    엣지 생성과 분리된 순수 함수다. 자동구축(build_reference_edges)과 수동 정밀 구축(LLM 검수)이
+    같은 후보 선별을 쓰게 하려고 뽑았다 — 두 방식이 갈리는 지점을 "선별 이후"로 한정해야
+    측정 델타를 방식 차이에 귀속할 수 있다.
+
+    Args:
+        candidate_rows: 비교 행 (파일 diff 행 + 커밋 메시지 행 — message_mode에 따라 호출자가 구성)
+        comm_list:      Communication 행
+        threshold:      엣지 생성 최소 유사도
+        top_k:          커밋당 유지할 최대 스레드 수 (fan-out 컷)
+
+    Returns:
+        [(project_id, changeset_id, communication_id, score), ...]
+    """
+    window_s = timedelta(days=TIME_WINDOW_DAYS).total_seconds()
+
+    # 같은 프로젝트 안에서만 비교 — 다른 프로젝트의 커밋과 메시지가 의미상 비슷해도
+    # 엣지를 만들면 안 된다 (그래프 격리 위반).
+    mods_by_project = group_by_project(candidate_rows)
+    comms_by_project = group_by_project(comm_list)
+
+    selected: list[tuple[str, str, str, float]] = []
+    for project_id, mods in mods_by_project.items():
+        comms = comms_by_project.get(project_id, [])
+        # 빈 임베딩은 제외 — 유사도 0이라 어차피 임계값 미달이고, 행렬화도 깨진다
+        p_mods  = [m for m in mods if m.get("embedding")]
+        p_comms = [c for c in comms if c.get("embedding")]
+        if not p_mods or not p_comms:
+            continue
+
+        # 전체 쌍 코사인 유사도를 numpy로 일괄 계산 (MODIFIED × communications)
+        sim = similarity_matrix(
+            [m["embedding"] for m in p_mods],
+            [c["embedding"] for c in p_comms],
+        )
+
+        # 시간 윈도우(5일) 마스크 + 임계값.
+        mod_ts  = np.array([m["occurred_at"].timestamp() for m in p_mods])
+        comm_ts = np.array([c["occurred_at"].timestamp() for c in p_comms])
+        in_window = np.abs(mod_ts[:, None] - comm_ts[None, :]) <= window_s
+        valid = in_window & (sim >= threshold)
+
+        # 비교 단위는 파일(MODIFIED)이지만 엣지는 커밋 단위다 — 한 커밋의 여러 파일이 같은
+        # 메시지에 매칭되면 같은 엣지에 파일별 점수를 덮어써 "마지막에 계산된 값"이 남는다.
+        # 쌍의 대표값은 파일 중 최고 점수이므로 (changeset, communication)별 max로 집계한 뒤 1회 생성.
+        best_per_pair: dict[tuple[str, str], float] = {}
+        for i, j in np.argwhere(valid):
+            i, j = int(i), int(j)
+            pair = (p_mods[i]["changeset_id"], p_comms[j]["id"])
+            score = float(sim[i, j])
+            if score > best_per_pair.get(pair, -1.0):
+                best_per_pair[pair] = score
+
+        # fan-out 컷 — 커밋당 상위 top_k개 스레드만 남긴다. 스레드의 대표값은 그 안의 최고 점수.
+        thread_of = {c["id"]: (c.get("conversation_id") or c["id"]) for c in p_comms}
+        thread_best: dict[str, dict[str, float]] = defaultdict(dict)
+        for (changeset_id, comm_id), score in best_per_pair.items():
+            threads = thread_best[changeset_id]
+            thread = thread_of[comm_id]
+            if score > threads.get(thread, -1.0):
+                threads[thread] = score
+        kept_threads = {
+            changeset_id: {t for t, _ in sorted(threads.items(), key=lambda x: -x[1])[:top_k]}
+            for changeset_id, threads in thread_best.items()
+        }
+
+        for (changeset_id, comm_id), score in best_per_pair.items():
+            if thread_of[comm_id] not in kept_threads[changeset_id]:
+                continue
+            selected.append((project_id, changeset_id, comm_id, score))
+
+    return selected
+
+
+async def build_reference_edges(
+    store: ReferenceStore,
+    threshold: float = DEFAULT_THRESHOLD,
+    top_k: int = DEFAULT_TOP_K,
+    message_mode: str = DEFAULT_MESSAGE_MODE,
+) -> int:
+    """MODIFIED.embedding ↔ Communication.embedding 코사인 유사도로 REFERENCE 엣지 생성.
+
+    Args:
+        store:     Neo4j 접근 인터페이스
+        threshold: 엣지 생성 최소 유사도
+        top_k:     커밋당 유지할 최대 스레드 수 (fan-out 컷). 자르는 단위가 메시지가 아니라
+                   스레드인 이유 — 수다스러운 스레드 하나가 k칸을 독식하면 다른 스레드의
+                   진짜 배경 논의가 밀려난다.
+        message_mode: 커밋 메시지 임베딩(ChangeSet.embedding)을 비교 행에 넣는 방식.
+                   max  — 기본: 메시지 행을 파일 행에 추가, 기존 쌍별 max 집계가
+                          diff·메시지 중 최고점을 취한다
+                   off  — 파일(diff) 임베딩만 비교 (도입 전 동작, 측정 재현용)
+                   only — 메시지 임베딩만 비교 (diff는 fetch하지 않음)
+
+    Returns:
+        생성(또는 갱신)된 REFERENCE 엣지 수
+    """
+    if message_mode not in ("off", "max", "only"):
+        raise ValueError(f"지원하지 않는 message_mode: {message_mode!r} (off/max/only)")
+
+    modified_list = [] if message_mode == "only" else await store.fetch_modified_embeddings()
+    message_list = [] if message_mode == "off" else await store.fetch_changeset_message_embeddings()
+    candidate_rows = modified_list + message_list
+    comm_list = await store.fetch_communication_embeddings()
+
+    if not candidate_rows or not comm_list:
+        logger.info("REFERENCE 엣지 생성 스킵: candidates=%d, comm=%d", len(candidate_rows), len(comm_list))
+        return 0
+
+    created = 0
+    for project_id, changeset_id, comm_id, score in select_reference_pairs(
+        candidate_rows, comm_list, threshold, top_k
+    ):
+        await store.create_reference_edge(project_id, changeset_id, comm_id, score)
+        created += 1
+        logger.debug(
+            "REFERENCE 생성: changeset=%s comm=%s score=%.3f",
+            changeset_id, comm_id, score,
+        )
+
+    logger.info("REFERENCE 엣지 생성 완료: %d개 (threshold=%.2f, top_k=%d, message_mode=%s)",
+                created, threshold, top_k, message_mode)
+    return created
+
+
+async def backfill_communication_embeddings(store: ReferenceStore, force: bool = False) -> dict:
+    """embedding이 없는 Communication 노드를 배치 임베딩으로 보정.
+
+    실시간 처리 중 임베딩이 누락된 노드나 초기 대량 데이터 적재 후 실행.
+
+    Args:
+        force: 이미 embedding이 있는 노드까지 다시 임베딩한다. 임베딩 모델을 바꾸면 구 모델
+               벡터는 신 모델 벡터와 코사인 비교가 무의미해서 전량 교체가 필요하다. 지우고
+               다시 채우지 않고 덮어쓰는 이유 — 그 사이 질의가 임베딩 없는 그래프를 탄다.
+               기본 False는 기존 동작(수집 중 누락분만 보정) 유지.
+
+    Returns:
+        {"saved": 저장된 노드 수, "total": 대상 노드 수}
+        embed_batch는 청크가 실패해도 예외 대신 빈 벡터를 채우므로, 저장 수만 봐서는
+        완주 여부를 알 수 없다. total을 함께 돌려줘 saved != total로 드러나게 한다
+        (모델 교체 시 신·구 벡터가 같은 1536차원이라 섞여도 조용히 계산된다).
+    """
+    nodes = await store.fetch_unembedded_communications(force)
+    if not nodes:
+        logger.info("보정할 Communication 노드 없음")
+        return {"saved": 0, "total": 0}
+
+    bodies = [n["body"] for n in nodes]
+    vectors = await embed_batch(bodies)
+
+    saved = 0
+    for node, vec in zip(nodes, vectors):
+        if vec:
+            await store.save_communication_embedding(node.get("project_id") or "", node["id"], vec)
+            saved += 1
+
+    logger.info("Communication 임베딩 보정 완료: %d/%d개", saved, len(nodes))
+    return {"saved": saved, "total": len(nodes)}
+
+
+async def backfill_changeset_message_embeddings(store: ReferenceStore, force: bool = False) -> dict:
+    """message는 있는데 embedding이 없는 ChangeSet 노드를 배치 임베딩으로 보정.
+
+    커밋 메시지 임베딩 도입 이전에 수집된 노드는 message 원문이 이미 저장돼 있어
+    이벤트 재주입 없이 여기서 채운다. 수집 중 임베딩이 실패한 노드의 보정도 겸한다.
+
+    Args:
+        force: 전량 재임베딩 (근거는 backfill_communication_embeddings 참고)
+
+    Returns:
+        {"saved": 저장된 노드 수, "total": 대상 노드 수} — 완주 판정 근거는
+        backfill_communication_embeddings 참고
+    """
+    nodes = await store.fetch_unembedded_changeset_messages(force)
+    if not nodes:
+        logger.info("보정할 ChangeSet 노드 없음")
+        return {"saved": 0, "total": 0}
+
+    vectors = await embed_batch([n["message"] for n in nodes])
+
+    saved = 0
+    for node, vec in zip(nodes, vectors):
+        if vec:
+            await store.save_changeset_message_embedding(node.get("project_id") or "", node["id"], vec)
+            saved += 1
+
+    logger.info("ChangeSet 메시지 임베딩 보정 완료: %d/%d개", saved, len(nodes))
+    return {"saved": saved, "total": len(nodes)}
+
+
+async def backfill_modified_embeddings(store: ReferenceStore, force: bool = False) -> dict:
+    """diffSummary는 있는데 embedding이 없는 MODIFIED 엣지를 배치 임베딩으로 보정.
+
+    임베딩 대상은 저장된 diffSummary 원문이다 — 수집 경로(event_handler)가 임베딩한 것과
+    같은 텍스트라야 수집 엣지와 백필 엣지의 벡터가 같은 기준이 된다(요약 LLM 재호출 없음).
+
+    Args:
+        force: 전량 재임베딩 (근거는 backfill_communication_embeddings 참고)
+
+    Returns:
+        {"saved": 저장된 엣지 수, "total": 대상 엣지 수} — 완주 판정 근거는
+        backfill_communication_embeddings 참고
+    """
+    edges = await store.fetch_unembedded_modified_edges(force)
+    if not edges:
+        logger.info("보정할 MODIFIED 엣지 없음")
+        return {"saved": 0, "total": 0}
+
+    vectors = await embed_batch([e["diff_summary"] for e in edges])
+
+    saved = 0
+    for edge, vec in zip(edges, vectors):
+        if vec:
+            await store.save_modified_embedding(
+                edge.get("project_id") or "", edge["changeset_id"], edge["file_path"], vec
+            )
+            saved += 1
+
+    logger.info("MODIFIED 임베딩 보정 완료: %d/%d개", saved, len(edges))
+    return {"saved": saved, "total": len(edges)}

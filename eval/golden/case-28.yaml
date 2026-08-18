@@ -1,0 +1,35 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [2소스(GitHub↔Jira) — 커밋→이슈] b9e921e 자체키 HT-104. 단, PR #54(HT-103) 소속이라
+#   PR 전파로 HT-103에도 붙음 → 정답은 HT-104, HT-103 인용 시 과연결 감점.
+id: case-28
+question: "커밋 b9e921e은 어떤 이슈 작업이야?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# commit -> hash 앞 7자, issue -> issue_key
+expected_evidence_ids:
+- "commit:b9e921e"                 # fix: GitHub 로그인 시 계정 선택 화면 강제 (HT-104)
+- "issue:HT-104"                   # 커밋 자체키 = 정답 이슈
+
+# 같은 GitHub 소스 컨테이너 (인용 무방)
+acceptable_evidence_ids:
+- "pull_request:#54"
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "HT-104 작업으로, GitHub 로그인 시 계정 선택 화면을 강제하는 변경이다"
+- "authorize URL에 prompt=select_account를 추가해, 브라우저에 남은 GitHub 세션으로 자동 로그인돼 계정 전환이 안 되던 문제를 해결한다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # PR #54 전파로 붙지만 이 커밋의 실제 작업이 아닌 이슈
+    - "issue:HT-103"  # PR #54의 주제(프로젝트 전환창 reorder) — b9e921e(계정 선택)와 무관
+  facts:
+    - "b9e921e를 HT-103(프로젝트 전환창) 등 다른 이슈 작업으로 서술"
+
+# 케이스별 기계 채점 (2소스 + 정확한 이슈 귀속)
+rule_checks:
+- "evidence에 commit:b9e921e 와 issue:HT-104 가 함께 존재 (2소스)"
+- "evidence에 issue:HT-103 이 포함되지 않음 (PR 전파 과연결 차단)"
+- "summary가 계정 선택 강제(prompt=select_account) 내용을 담음"

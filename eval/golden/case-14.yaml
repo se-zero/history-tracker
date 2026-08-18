@@ -1,0 +1,43 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-14
+question: "backend에서 ai-engine 호출 타임아웃과 그래프 비동기 빌드는 슬랙에서 어떻게 논의됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+expected_evidence_ids:
+- "message:1782286987.165039"      # 6/24 타임아웃·비동기 빌드·rate limit 논의 스레드 (HT-95에 DISCUSSED_IN)
+- "issue:HT-95"                    # 부모 이슈 "그래프 빌드 비동기화 + OpenAI rate limiter + ai-engine timeout 작업"
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "commit:0949dc6"                 # backend aiEngineRestClient connect/read timeout 설정 (hang 시 풀 소진 방지)
+- "commit:f570da7"                 # ai-engine 그래프 빌드 per-project 비동기 전환 (202 + 상태 폴링)
+- "commit:b7c5c5e"                 # backend 그래프 빌드 비동기 202 + 상태 폴링 전환
+- "commit:84b83f9"                 # OpenAI 호출 RPM·TPM rate limiter 도입
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "backend에서 ai-engine 호출 타임아웃을 설정하는데, 스레드 풀 관리 때문에 그래프 구축을 비동기로 전환할 필요가 있다고 논의됐다"
+- "OpenAI API rate limit 때문에 동시 처리가 걸려, LLM 호출 부분은 현행 유지가 낫다는 의견이 나왔다"
+- "OpenAI 호출을 관리하는 파일을 확장해 실제 한도(RPM·TPM)에 맞춰 호출하도록 하는 방향으로 정했다"
+- "정확한 한도 관리를 위해 토큰 추정이 필요하다고 언급했다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # HT-95에 DISCUSSED_IN으로 붙었지만 이 논의와 무관한 슬랙 스레드
+    - "message:1782191866.823469"  # 비용(달러)·7/20 보고서·질의응답 테스트 횟수 논의 — 무관
+    - "message:1782102320.056619"  # 데이터 소스 연결 해제 기능 논의 — 무관
+    - "message:1782194759.806139"  # 처리속도·효율성 병목 문서 결정란 채우기 — 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "이 스레드에서 OpenAI rate limiter 도입을 최종 확정·완료하기로 결정했다 (실제론 토큰 추정이 필요해 우선 다른 부분부터 작업하기로 미룸)"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "summary가 논의 내용을 제시하면 type: message evidence가 1건 이상 존재"
+- "슬랙 스레드 근거 없이 타임아웃·비동기 전환 결정을 단정하지 않는다"

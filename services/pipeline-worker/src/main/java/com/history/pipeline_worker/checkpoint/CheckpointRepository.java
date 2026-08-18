@@ -1,0 +1,110 @@
+package com.history.pipeline_worker.checkpoint;
+
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public class CheckpointRepository {
+
+    private final NamedParameterJdbcTemplate jdbcTemplate;
+
+    public CheckpointRepository(NamedParameterJdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public List<CheckpointRow> findAllByProjectId(UUID projectId) {
+        String sql = """
+                SELECT project_id, provider, cursor_key, cursor_value, updated_at
+                FROM checkpoints
+                WHERE project_id = :projectId
+                ORDER BY provider, cursor_key
+                """;
+
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("projectId", projectId),
+                checkpointRowMapper()
+        );
+    }
+
+    public List<CheckpointRow> findAllByProjectIdAndProvider(UUID projectId, String provider) {
+        String sql = """
+                SELECT project_id, provider, cursor_key, cursor_value, updated_at
+                FROM checkpoints
+                WHERE project_id = :projectId
+                  AND provider = :provider
+                ORDER BY cursor_key
+                """;
+
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("projectId", projectId)
+                        .addValue("provider", provider),
+                checkpointRowMapper()
+        );
+    }
+
+    public int upsertCursor(UUID projectId, String provider, String cursorKey, Instant cursorValue) {
+        String sql = """
+                INSERT INTO checkpoints (project_id, provider, cursor_key, cursor_value, updated_at)
+                VALUES (:projectId, :provider, :cursorKey, :cursorValue, :updatedAt)
+                ON CONFLICT (project_id, provider, cursor_key)
+                DO UPDATE SET cursor_value = GREATEST(checkpoints.cursor_value, EXCLUDED.cursor_value),
+                              updated_at = CASE
+                                  WHEN EXCLUDED.cursor_value > checkpoints.cursor_value
+                                  THEN EXCLUDED.updated_at
+                                  ELSE checkpoints.updated_at
+                              END
+                """;
+
+        // PG JDBC는 java.time.Instant의 SQL 타입을 추론하지 못하므로 timestamptz에 매핑되는 OffsetDateTime(UTC)으로 변환
+        return jdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("projectId", projectId)
+                .addValue("provider", provider)
+                .addValue("cursorKey", cursorKey)
+                .addValue("cursorValue", OffsetDateTime.ofInstant(cursorValue, ZoneOffset.UTC))
+                .addValue("updatedAt", OffsetDateTime.now(ZoneOffset.UTC)));
+    }
+
+    public int deleteCursor(UUID projectId, String provider, String cursorKey) {
+        String sql = """
+                DELETE FROM checkpoints
+                WHERE project_id = :projectId
+                  AND provider = :provider
+                  AND cursor_key = :cursorKey
+                """;
+
+        return jdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("projectId", projectId)
+                .addValue("provider", provider)
+                .addValue("cursorKey", cursorKey));
+    }
+
+    private RowMapper<CheckpointRow> checkpointRowMapper() {
+        return (rs, rowNum) -> new CheckpointRow(
+                rs.getObject("project_id", UUID.class),
+                rs.getString("provider"),
+                rs.getString("cursor_key"),
+                rs.getTimestamp("cursor_value").toInstant(),
+                rs.getTimestamp("updated_at").toInstant()
+        );
+    }
+
+    public record CheckpointRow(
+            UUID projectId,
+            String provider,
+            String cursorKey,
+            Instant cursorValue,
+            Instant updatedAt
+    ) {
+    }
+}

@@ -1,0 +1,117 @@
+spring:
+  application:
+    name: pipeline-worker
+  rabbitmq:
+    host: localhost  # Docker 환경에서는 'rabbitmq'
+    port: 5672
+    username: guest
+    password: guest
+    publisher-confirm-type: correlated  # CorrelationData별 broker ack/nack 수신 (EventPublisher 유실 감지)
+    publisher-returns: true             # mandatory 발행 + 라우팅 실패 시 메시지 반환
+  datasource:
+    url: ${PIPELINE_WORKER_DATASOURCE_URL:jdbc:postgresql://localhost:5432/history_tracker}
+    username: ${PIPELINE_WORKER_DATASOURCE_USERNAME:history}
+    password: ${PIPELINE_WORKER_DATASOURCE_PASSWORD:history}
+    driver-class-name: org.postgresql.Driver
+
+security:
+  internal-service:
+    token: ${INTERNAL_SERVICE_TOKEN}
+  credentials:
+    key: ${BACKEND_CREDENTIAL_KEY}
+
+backend:
+  url: ${BACKEND_URL:http://localhost:8080}
+
+server:
+  port: 8081  # backend(8080)와 포트 충돌 방지
+
+# 각 외부 API의 base URL 설정
+# Jira는 테넌트마다 URL이 다르므로 요청 시 options.baseUrl로 덮어씀
+app:
+  github:
+    base-url: https://api.github.com
+    user-profile-cache-ttl: 30m  # login별 프로필(email/name) 캐시 TTL. 프로필 변경이 드물고 GitHub rate limit도 고려해 길게 잡음(0 = 캐시 비활성).
+  jira:
+    base-url: ""  # 요청의 options.baseUrl로 전달
+    max-pages-per-run: 50
+    # OAuth 전환 후 모든 Jira API는 cloudId 게이트웨이로 간다. Atlassian 시크릿은 backend만 쓰므로
+    # worker에는 신규 환경변수가 없다 — 기본값만으로 충분하다.
+    gateway-base-url: https://api.atlassian.com/ex/jira
+  slack:
+    base-url: https://slack.com/api
+    user-map-cache-ttl: 5m  # users.list 결과 캐시 TTL. webhook 수집마다 전체 멤버 재조회 방지(0 = 캐시 비활성).
+  discord:
+    api-base-url: https://discord.com/api/v10
+    # 앱 전체가 공유하는 봇 토큰 — backend와 동일한 값이어야 한다(수집은 이 토큰으로 한다).
+    bot-token: ${DISCORD_BOT_TOKEN:}
+  google-chat:
+    api-base-url: https://chat.googleapis.com/v1
+    # 앱 수준 자격증명(CLIENT_ID 등)은 backend만 쓴다 — worker는 DB의 사용자별 access_token으로
+    # 수집하므로(Jira와 같은 모양) 이 worker에는 신규 환경변수가 없다.
+    # sender 이름·이메일 보강용 People API — Chat API와 다른 호스트(사용 설정도 Cloud Console에서 별도로 필요).
+    people-api-base-url: https://people.googleapis.com/v1
+    # sender id 단위 People API 조회 결과 캐시 TTL — 메시지마다 반복 조회하지 않도록.
+    person-cache-ttl: 30m
+  linear:
+    base-url: https://api.linear.app
+    max-pages-per-run: 50
+  asana:
+    base-url: https://app.asana.com/api/1.0
+    max-pages-per-run: 50
+  clickup:
+    base-url: https://api.clickup.com/api/v2
+    max-pages-per-run: 50
+  notion:
+    api-base-url: https://api.notion.com/v1
+    # URL이 아니라 헤더로 API 버전이 갈린다 — backend와 같은 상수로 고정한다(docs/notion-integration.md §1-2).
+    version: "2026-03-11"
+    # GET /v1/users 전량 캐시 TTL — Slack의 users.list와 같은 목적(webhook/재수집마다 전체 재조회 방지).
+    user-cache-ttl: 30m
+
+  rabbitmq:
+    exchange: history.exchange
+    queue: history.events
+    # routing key는 source에서 유도한다 — {prefix}.{소문자 source} (GOOGLE_CHAT → event.google_chat).
+    # 큐 바인딩이 event.# 라 새 소스는 여기도 브로커 설정도 고치지 않는다. 점(.)은 붙이지 않는다.
+    routing-key-prefix: event
+    publish-confirm-timeout-ms: 10000   # 한 배치 발행의 broker confirm 대기 한도. 초과 시 수집 실패 처리(재발행)
+
+  webhook:
+    github:
+      # GitHub webhook secret. X-Hub-Signature-256 검증에 사용.
+      # 비어 있으면 GitHubWebhookVerifier가 모든 webhook을 거부한다(fail-closed).
+      secret: ${GITHUB_WEBHOOK_SECRET:}
+    executor:
+      pool-size: 4              # webhook 동시 처리 수. 동일 프로젝트는 collection-lock으로 직렬화됨.
+      await-termination-seconds: 300
+    collection-lock-stripes: 32  # 프로젝트 단위 수집 직렬화 lock stripe 수
+    delivery:
+      stale-in-progress-timeout: 10m
+  collection:
+    executor:
+      pool-size: 3              # 초기 수집 전용 풀. provider(github/jira/slack)별 병렬 실행 허용.
+      queue-capacity: 100
+      await-termination-seconds: 300
+  rate-limit:
+    github:
+      default-delay-ms: 300
+      low-remaining-threshold: 10
+    slack:
+      conversations-list-delay-ms: 3000    # Tier 2: 20/min
+      conversations-history-delay-ms: 1200  # Tier 3: 50/min
+      conversations-replies-delay-ms: 1200  # Tier 3: 50/min
+    jira:
+      delay-ms: 200
+    discord:
+      default-delay-ms: 250  # 봇당 초당 50요청 상한에 여유를 두고 보수적으로 시작
+    google-chat:
+      default-delay-ms: 100  # Cloud 프로젝트당 60초 3,000요청 쿼터에 여유를 두고 보수적으로 시작
+    linear:
+      delay-ms: 720  # 5,000 req/h 한도 대응 (3,600,000ms / 5,000)
+    asana:
+      delay-ms: 400  # 무료 워크스페이스 150 req/min 한도 대응 (60,000ms / 150)
+    clickup:
+      delay-ms: 600  # 무료 워크스페이스 100 req/min 한도 대응 (60,000ms / 100)
+    notion:
+      default-delay-ms: 350  # 연결당 평균 3 req/s 한도 대응 (1,000ms / 3)

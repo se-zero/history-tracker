@@ -1,0 +1,41 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-13
+question: "임베딩 모델을 text-embedding-3-large로 바꾸자는 슬랙 논의의 결론은 뭐였어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+expected_evidence_ids:
+- "message:1779974653.606249"      # 5/28 임베딩 모델 논의 스레드 (루트+reply 전부 이 conversation_id 하나로 등재)
+- "issue:HT-62"                    # "임베딩 모델 변경" 이슈 — 이 스레드가 DISCUSSED_IN 연결된 실질 대상
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "message:1780748058.074899"      # 6/6 후속 스레드 (HT-62): "임베딩 모델만 변경해서 테스트한거 보고서 정리했어" — 논의의 후속
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "text-embedding-3-large가 검색 성능이 더 좋다는 실험결과가 있다는 얘기를 접해, 모델을 large로 바꿔 테스트해보기로 했다"
+- "large가 벡터 크기가 더 커서 성능이 더 좋을 것이라는 판단이 근거로 오갔다"
+- "결론은 즉시 확정 반영이 아니라, 프론트 기능을 구현하고 도커로 DB까지 전부 올린 뒤 large로 직접 테스트해 검증해보기로 한 것이다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # 임베딩/large 키워드는 걸리지만 '모델 변경 논의'와 무관한 스레드
+    - "message:1782191866.823469"  # 6/23 비용 논의 — "임베딩은 large로 하면 한번에 1달러" (모델 선택이 아니라 비용/테스트횟수) near-miss
+    - "message:1781832528.978749"  # 6/19 임베딩 벡터·reference edge 로직 미호출 버그 — 모델 결정과 무관
+    - "message:1778159186.077959"  # 5/07 임베딩 threshold 테스트 케이스 — 결정 이전, 무관
+    - "message:1778165629.413239"  # 5/07 "임베딩이랑 파이프라인개선은 내가 써서 보내줄게" — 문서 분담, 무관
+  facts:             # 스레드 근거 없는 단정 금지
+    - "large로 바꿔 검색 성능이 N% 향상됐다 등 정량 실험 수치 — 스레드엔 '실험결과가 있대'라는 전언뿐, 수치 없음"
+    - "large를 최종 확정해 프로덕션에 반영했다 — 스레드는 '테스트해보기로'까지만이고 확정 결정은 없음"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "summary가 논의 결론을 제시하면 type: message evidence가 1건 이상 존재"
+- "summary가 large 채택/성능 향상을 스레드 근거 없이 단정하지 않음 (테스트해보기로 한 결정임을 유지)"

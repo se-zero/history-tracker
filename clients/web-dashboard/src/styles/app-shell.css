@@ -1,0 +1,11 @@
+/* ============================================================
+   App shell
+   ============================================================ */
+.app {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+.app.no-sidebar { grid-template-columns: 1fr; }

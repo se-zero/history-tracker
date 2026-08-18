@@ -1,0 +1,37 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [단일소스(GitHub) — 파일 이력] 한 파일을 수정한 커밋들을 시간순으로. 다른 소스(이슈/슬랙) 불포함.
+#   get_file_history 순회 검증. 5개 커밋 모두 + 시간 순서가 정답.
+id: case-27
+question: "services/ai-engine/graph/slack_llm_filter.py는 어떤 커밋들에서 수정됐었고 수정된 방향을 시간 순서대로 알려줘."
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 이 파일을 MODIFIED 한 커밋 5개 (시간순). commit -> hash 앞 7자.
+expected_evidence_ids:
+- "commit:79dcae4"                 # 04-17 룰 기반 + LLM 2단계 필터링 최초 구현
+- "commit:fa5686d"                 # 04-29 README 기반 프로젝트 컨텍스트 주입
+- "commit:d50ecaa"                 # 05-13 프롬프트 분리 및 안정성 개선
+- "commit:51febd9"                 # 06-21 OpenAI 클라이언트 공유 lazy 팩토리 통합(refactor)
+- "commit:84b83f9"                 # 06-24 RPM·TPM rate limiter 도입
+
+acceptable_evidence_ids: []
+
+# summary에 담겨야 할 핵심 사실 (시간순 변경 방향)
+expected_facts:
+- "최초에 규칙 기반 + LLM 2단계 필터링으로 구현됐다 (79dcae4)"
+- "이후 README 기반 프로젝트 컨텍스트를 프롬프트에 주입하고 (fa5686d), 프롬프트 분리·안정성을 개선했다 (d50ecaa)"
+- "이후 OpenAI 클라이언트를 공유 팩토리로 통합하고 (51febd9) RPM·TPM rate limiter를 도입하는 흐름으로 수정됐다 (84b83f9)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []
+  facts:
+    - "이 파일을 수정하지 않은 커밋을 이력에 포함하거나, 5개 중 일부를 누락"
+    - "커밋들을 시간 역순/무순서로 서술"
+
+# 케이스별 기계 채점 (파일 이력 순회 + 시간순 + 단일소스)
+rule_checks:
+- "evidence에 5개 커밋(79dcae4·fa5686d·d50ecaa·51febd9·84b83f9)이 모두 존재"
+- "evidence에 issue·message 근거가 없음 (단일 GitHub 소스)"
+- "summary가 커밋들을 시간 순서(오래된→최신)대로 서술"

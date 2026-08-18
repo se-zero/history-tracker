@@ -1,0 +1,8 @@
+fastapi==0.115.12
+uvicorn==0.34.0
+openai==1.75.0
+tiktoken==0.8.0
+python-dotenv==1.1.0
+aio-pika==9.4.3
+neo4j==5.28.1
+numpy==2.5.0

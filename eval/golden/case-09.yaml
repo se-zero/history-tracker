@@ -1,0 +1,42 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-09
+question: "PR #16은 어떤 작업이고 어떤 이슈와 연결돼?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+# PR 중심 질문 → PR#16 + 연결 이슈 HT-31 + 실질 커밋이 정답.
+# PR→이슈 직접 TRIGGERED_BY 엣지 없음. PR CONTAINS 4ac19ee → 커밋 TRIGGERED_BY HT-31 경로로만 연결.
+expected_evidence_ids:
+- "pull_request:#16"               # 질문 대상 PR
+- "issue:HT-31"                    # 연결 이슈 (커밋 경로로 확인)
+- "commit:4ac19ee"                 # PR#16의 유일한 커밋 (feat: 프로젝트별 자연어 질문 API) — 실질 작업
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids:
+- "message:1778410015.548199"      # 5/10 "사용자 질문 받는거 우선 간단하게 만들어서 pr 날렸어" — PR#16 공지(정보성). 필수 아님
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+expected_facts:
+- "PR #16은 프로젝트별 자연어 질문(프롬프트 입력) API를 추가하는 작업이다 (커밋 4ac19ee)"
+- "이슈 HT-31 '사용자 프롬프트 입력 api 생성'과 연결된다 (커밋 4ac19ee가 HT-31을 TRIGGERED_BY)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # HT-31에 오연결된 무관한 슬랙 (false-positive DISCUSSED_IN)
+    - "message:1776180884.595899"  # 4월 Actor 노드 생성 파이프라인·필터 논의 — 프롬프트 API 무관
+    - "message:1778329685.720139"  # make-graph PR·액터노드 병합 테스트·동명이인 — 무관
+    - "message:1780206867.542399"  # 깃허브 로그인 access token·시크릿 키·env 설정 — 무관
+    - "message:1779967008.121469"  # pipeline-worker 체크포인트·웹훅 backend DB 연결 — 무관
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "PR #16 작업의 설계·결정이 슬랙 논의로 이뤄졌다 — 실제 HT-31 연결 슬랙은 무관한 액터노드/로그인 스레드거나 'pr 날렸어' 공지뿐"
+    - "HT-31이 여러 하위 이슈나 여러 커밋으로 나뉘어 진행됐다 — 실제론 하위 이슈 없음, 커밋 4ac19ee 한 건"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "summary가 PR #16의 작업 내용(자연어 질문/프롬프트 API)과 연결 이슈 HT-31을 모두 명시"

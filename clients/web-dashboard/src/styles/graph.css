@@ -1,0 +1,85 @@
+/* ============================================================
+   Graph (SVG) component
+   ============================================================ */
+.graph-canvas { width: 100%; height: 100%; display: block; }
+.graph-wrap { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.graph-legend {
+  position: absolute; left: 16px; bottom: 16px;
+  display: flex; flex-direction: column; gap: 4px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  font-size: 11.5px;
+  backdrop-filter: blur(4px);
+  z-index: 4;
+}
+.legend-row { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+.graph-controls {
+  position: absolute; right: 16px; top: 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 4px;
+  z-index: 4;
+}
+.graph-filters {
+  position: absolute; left: 16px; top: 16px;
+  display: flex; gap: 6px;
+  flex-wrap: wrap;
+  max-width: 60%;
+  z-index: 4;
+}
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--fg-muted);
+  backdrop-filter: blur(4px);
+}
+.filter-chip.active { background: var(--accent-soft); border-color: var(--accent-ink); color: var(--accent-ink); }
+.filter-chip .ch-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+.node-detail {
+  position: absolute; right: 16px; bottom: 16px; top: 64px;
+  width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  /* 다크에서 그림자가 none이 되는 대신 상단 1px 인셋으로 빛을 받는다(edge-highlight, DESIGN.md) */
+  box-shadow: inset 0 1px 0 0 var(--edge-highlight), var(--shadow-md);
+  padding: 14px;
+  z-index: 5;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.node-detail .nd-head { display: flex; align-items: flex-start; gap: 10px; }
+.node-detail .nd-icon { width: 28px; height: 28px; border-radius: var(--r-sm); display: grid; place-items: center; color: white; font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; }
+.node-detail .nd-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
+.node-detail .nd-meta { font-size: 11px; color: var(--fg-subtle); margin-top: 2px; font-family: var(--font-mono); }
+.node-detail .nd-snippet {
+  font-size: 12.5px; color: var(--fg-muted); line-height: 1.55;
+  padding: 10px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+}
+.nd-actions { display: flex; gap: 6px; margin-top: 4px; }
+
+/* SVG graph styles */
+.gnode-circle { stroke: var(--node-stroke); stroke-width: 2; transition: filter 0.15s, r 0.15s; cursor: pointer; }
+.gnode-circle.dim { opacity: 0.25; }
+.gnode-circle.hot { filter: drop-shadow(0 0 8px currentColor); }
+.gnode-label { font-family: var(--font-mono); font-size: 9.5px; fill: var(--fg-muted); pointer-events: none; }
+.gnode-label.dim { opacity: 0.2; }
+.gedge { stroke: var(--edge); stroke-width: 1; fill: none; transition: stroke 0.15s, opacity 0.15s; }
+.gedge.dim { opacity: 0.15; }
+.gedge.hot { stroke: var(--edge-active); stroke-width: 1.5; }

@@ -1,0 +1,42 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [2소스(Jira+GitHub) — 배경(왜)] 글로벌(통합) 검색. 배경은 HT-102 본문(대화·그래프 노드를
+#   chatGPT처럼 통합 검색)에만 있음. 실제 도입 결정은 회의 → 슬랙 배경 논의 없음.
+#   위험: HT-102가 무관 슬랙 다수에 DISCUSSED_IN 과연결됨(1783072186 '글로벌 검색 pr 날렸어'
+#   공지 포함). 슬랙을 배경 근거로 인용하거나 본문 범위를 넘는 도입 이유를 지어내면 감점.
+id: case-39
+question: "글로벌 검색이 도입된 배경이 뭐야?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> issue_key, message -> conversation_id(루트 ts), pull_request -> #번호, commit -> hash 앞 7자
+expected_evidence_ids:
+- "issue:HT-102"                   # 배경/목표 본문: 대화·그래프 노드를 chatGPT처럼 통합 검색 (핵심 근거)
+
+# 구현 근거 (배경 질문엔 필수 아님 — 인용 무방)
+acceptable_evidence_ids:
+- "pull_request:#56"               # Feat/unified search (⌘K) — HT-102 구현 컨테이너
+- "commit:6440f9e"                 # backend: pg_trgm trigram 인덱스 + 대화·그래프 통합 검색 API
+- "commit:3537c75"                 # ai-engine: 그래프 노드 full-text 검색 API (cjk analyzer)
+- "commit:5d3491b"                 # web-dashboard: 통합 검색 다이얼로그(⌘K)
+- "commit:a480b4a"                 # docs: trigram 인덱스 반영 (DB.md)
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge)
+expected_facts:
+- "글로벌(통합) 검색은 대화와 그래프 노드를 ChatGPT처럼 하나의 검색으로 통합하려고 도입한 기능이다 (HT-102 본문)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # HT-102에 과연결된 무관 슬랙(DISCUSSED_IN false-positive). '배경 논의'로 인용되면 안 됨
+    - "message:1783072186.688439"  # "글로벌 검색 pr 날렸어" — 완료 공지일 뿐 배경 논의 아님(키워드 충돌)
+    - "message:1782286987.165039"  # OpenAI RPM/TPM 타임아웃 — 무관
+    - "message:1781533811.868749"  # 브랜치 수집 불일치 논의 — 무관(case-40 근거)
+  facts:
+    - "글로벌 검색 도입 배경을 슬랙에서 논의·결정했다고 서술 — 실제론 회의에서 결정, 슬랙엔 'pr 날렸어' 공지뿐(지어내면 감점)"
+    - "HT-102 본문(대화+그래프 노드 통합 검색) 범위를 넘는 구체적 도입 배경·문제를 지어내 단정"
+
+# 케이스별 기계 채점 (배경 in 이슈 본문 + 슬랙 없음)
+rule_checks:
+- "evidence에 issue:HT-102 존재 (배경/목표 근거)"
+- "evidence에 type: message(슬랙) 근거가 없음 (배경은 회의 → 슬랙 논의 없음)"
+- "summary가 HT-102 본문 범위(대화+그래프 노드 통합 검색)를 넘는 도입 배경을 사실로 지어내지 않음 (근거 없으면 미기록 인정)"

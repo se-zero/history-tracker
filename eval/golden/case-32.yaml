@@ -1,0 +1,38 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+# [2소스(Jira↔Slack) — 왜 + 공유] conversation·message 페이지네이션 = HT-97 / PR#49.
+#   '왜'(로딩 비용 선형 증가)가 HT-97 본문에, Slack 1782650084(적용 pr 날렸어)로 공유.
+#   오염: '큐/수집 페이지네이션'(1777795450)은 다른 작업 — 키워드만 겹침.
+id: case-32
+question: "conversation·message 페이지네이션은 왜 적용했고 슬랙에서 어떻게 공유됐어?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# issue -> issue_key, message -> conversation_id(루트 ts)
+expected_evidence_ids:
+- "issue:HT-97"                    # 배경(왜): 데이터 증가 시 초기 로딩 비용 선형 증가
+- "message:1782650084.848469"     # Slack: "Backend 대화랑 메세지 페이지네이션 적용한거 pr 날렸어"
+
+# 인용 무방 (구현 컨테이너/커밋)
+acceptable_evidence_ids:
+- "pull_request:#49"               # Perf/conversation pagination
+- "commit:df6fa4c"                # 대화·메시지 목록 커서 기반 페이지네이션 (backend)
+- "commit:372eb60"                # 대화·메시지 목록 무한 스크롤 (web-dashboard)
+
+# summary에 담겨야 할 핵심 사실
+expected_facts:
+- "conversation·message 수가 늘면 초기 로딩 비용이 선형으로 증가하던 문제 때문에, 스크롤 기반 추가 로딩(페이지네이션)으로 바꿨다 (왜)"
+- "슬랙에서 대화·메시지 페이지네이션 적용 PR로 공유됐다"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids:      # '페이지네이션' 키워드만 겹치는 다른 작업 (수집 큐 페이지네이션)
+    - "message:1777795450.107069"  # "깃허브·지라·슬랙 큐에 넣는거 페이지네이션 적용" — 수집 파이프라인, 대화 목록 무관
+  facts:
+    - "대화·메시지 페이지네이션을 수집(큐) 페이지네이션과 뒤섞어 서술"
+
+# 케이스별 기계 채점 (2소스 + 왜/공유)
+rule_checks:
+- "evidence에 issue:HT-97 과 message:1782650084 이 함께 존재 (2소스)"
+- "evidence의 message에 1777795450(수집 큐 페이지네이션)이 포함되지 않음 (키워드 충돌 차단)"
+- "summary가 선형 증가 배경과 슬랙 공유를 담음"

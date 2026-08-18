@@ -1,0 +1,36 @@
+# 골든셋 케이스 (Stage 1: 단발 질문). 채점 스키마는 docs/measurement-plan.md 참고.
+id: case-16
+question: "PullRequest 노드에 created_at을 추가한 배경은 뭐야?"
+
+# 일반 질문이면 []. 노드 선택 질문이면 /query 요청 필드 그대로: [{type: issue, id: HT-3}]
+focus_evidence: []
+
+# 반드시 인용돼야 할 근거 = recall 분모. 형식 "{type}:{id}"
+#   commit -> hash 앞 7자 / pull_request -> #번호 / issue -> issue_key / message -> conversation_id(루트 ts)
+#   리플라이 ts 등 변형이 섞이면 객체 형태로 aliases 사용:
+#     - id: "message:1778586053.322069"
+#       aliases: ["message:1778590761.356869"]
+expected_evidence_ids:
+- "message:1777615886.638969"   # 5/1 슬랙 — created_at을 PullRequest(및 issue·communication) 노드에 추가한 사실과 occurredAt의 노드별 의미 구분을 다룸 (단 '배경/왜'는 없음)
+- "commit:f4c785a"              # 노드 속성(created_at 포함)을 md에 문서화한 docs 커밋. 그래프상 message는 "docs 문서 업데이트"뿐 → 배경 미포함
+
+# 인용해도 감점하지 않는 추가 근거 (precision 계산에만 사용)
+acceptable_evidence_ids: []
+# ⚠ 슬랙 스레드는 DISCUSSED_IN으로 issue:HT-36("전체 테스트")에 연결돼 있으나
+#    created_at 배경과 무관한 컨테이너 이슈라 근거로 요구하지 않는다.
+
+# summary에 담겨야 할 핵심 사실 (LLM-judge가 판정)
+# ⚠ '배경/왜'는 그래프에 없음 — 아래는 그래프에 실제 있는 '무엇'만 담는다.
+expected_facts:
+- "created_at 필드가 PullRequest 노드(및 issue·communication 노드)에 추가되었다 (5/1 슬랙에서 확인)"
+- "공통 필드 occurredAt은 노드마다 의미가 달라, PullRequest에서는 머지된 시간을 뜻한다 (created_at과 구분됨)"
+
+# 오염 감지 — 등장하면 감점
+expected_absent:
+  evidence_ids: []   # 인용되면 안 되는 근거 (알려진 잘못된 엣지가 끌어오는 노드)
+  facts:             # summary에 담기면 안 되는 사실 (근거 없는 추론)
+    - "created_at의 도입 배경·이유를 근거 없이 창작하거나(특정 기능·버그·요구사항 때문이라는 식), 배경을 단정형으로 서술 — f4c785a 커밋 message/diffSummary도 슬랙 스레드도 '왜'는 명시하지 않음. 단, 인용한 슬랙 대화(occurredAt 의미 구분)에 기반한 추론임을 밝히고 단정하지 않은 서술('이 대화만 보면 ~로 보인다' 등)에 unknown_aspects로 불확실성을 명시했다면 위반이 아니다 (2026-07-15 경계 명확화 — 판정 대상은 창작·단정이지 근거 기반 추론 자체가 아님)"
+
+# 케이스별 기계 채점 (키워드·필드 존재 검사 수준)
+rule_checks:
+- "unknown_aspects에 'PullRequest created_at 추가의 배경/이유는 그래프에서 확인되지 않음' 취지 항목 존재"

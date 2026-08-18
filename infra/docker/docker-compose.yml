@@ -1,0 +1,230 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: history-tracker-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: history_tracker
+      POSTGRES_USER: history_tracker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-history_tracker}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U history_tracker -d history_tracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 인프라 (기본 실행) ─────────────────────────────────────────
+
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: history-graph-neo4j
+    ports:
+      - "7474:7474"  # Browser UI
+      - "7687:7687"  # Bolt (드라이버 연결)
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-password1234}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/7687' && echo 0 || echo 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: history-graph-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 애플리케이션 (--profile app) ──────────────────────────────
+
+  ai-engine:
+    build:
+      context: ../../services/ai-engine
+    container_name: history-graph-ai-engine
+    ports:
+      - "8000:8000"
+    environment:
+      # 인프라 hostname (컨테이너 네트워크에서 고정)
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password1234}
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      # .env 에서 forward (필수: OPENAI_API_KEY)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      QUERY_MODEL: ${QUERY_MODEL:-gpt-5.4-mini}
+      QUERY_REASONING_EFFORT: ${QUERY_REASONING_EFFORT:-}
+      TOOLS_MIN_CONFIDENCE: ${TOOLS_MIN_CONFIDENCE:-0.5}
+      # OpenAI rate limiter — Tier 변경 시 이 값들만 수정 (코드 불변). 기본값 = Tier 1.
+      OPENAI_RPM_CHAT: ${OPENAI_RPM_CHAT:-500}
+      OPENAI_TPM_CHAT: ${OPENAI_TPM_CHAT:-200000}
+      OPENAI_RPM_EMBED: ${OPENAI_RPM_EMBED:-3000}
+      OPENAI_TPM_EMBED: ${OPENAI_TPM_EMBED:-1000000}
+      OPENAI_MAX_RETRIES: ${OPENAI_MAX_RETRIES:-3}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    profiles: [app]
+
+  backend:
+    build:
+      context: ../../services/backend
+    container_name: history-tracker-backend
+    ports:
+      - "8080:8080"
+    environment:
+      # 컨테이너 네트워크 hostname으로 override
+      DB_URL: jdbc:postgresql://postgres:5432/history_tracker?stringtype=unspecified
+      DB_USERNAME: history_tracker
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-history_tracker}
+      AI_ENGINE_URL: http://ai-engine:8000
+      PIPELINE_WORKER_URL: ${PIPELINE_WORKER_URL:-http://pipeline-worker:8081}
+
+      # 보안 키
+      JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-must-be-changed}
+      BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
+
+      # GitHub App — infra/docker/.env 에서 forward (필수: APP_ID, SLUG, CLIENT_ID/SECRET, PRIVATE_KEY)
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:8080/api/v1/auth/github/callback}
+      GITHUB_INSTALLATION_URL: ${GITHUB_INSTALLATION_URL:-}
+
+      # Slack App — infra/docker/.env 에서 forward
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
+      SLACK_REDIRECT_URI: ${SLACK_REDIRECT_URI:-}
+
+      # Atlassian App — infra/docker/.env 에서 forward
+      ATLASSIAN_CLIENT_ID: ${ATLASSIAN_CLIENT_ID:-}
+      ATLASSIAN_CLIENT_SECRET: ${ATLASSIAN_CLIENT_SECRET:-}
+      ATLASSIAN_REDIRECT_URI: ${ATLASSIAN_REDIRECT_URI:-}
+      # 빈 문자열이 넘어가면 Duration 파싱이 깨지므로 Spring 기본값(PT5M)과 같은 compose 기본값을 둔다.
+      ATLASSIAN_REFRESH_SKEW: ${ATLASSIAN_REFRESH_SKEW:-PT5M}
+      # Jira 개인정보 보고 배치 — 봇 계정 동의 완료 후 켠다 (기본 false)
+      ATLASSIAN_PDR_ENABLED: ${ATLASSIAN_PDR_ENABLED:-false}
+      ATLASSIAN_PDR_CRON: ${ATLASSIAN_PDR_CRON:-0 30 3 * * *}
+      ATLASSIAN_PDR_CYCLE_PERIOD: ${ATLASSIAN_PDR_CYCLE_PERIOD:-P7D}
+
+      # Discord App — infra/docker/.env 에서 forward. BOT_TOKEN은 pipeline-worker 블록에도 같은 값이 필요하다.
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+
+      # Google Chat OAuth — infra/docker/.env 에서 forward. pipeline-worker는 DB의 사용자별 access
+      # token으로 수집하므로(Discord와 달리 앱 공유 자격증명이 없다) pipeline-worker 블록에는 불필요.
+      GOOGLE_CHAT_CLIENT_ID: ${GOOGLE_CHAT_CLIENT_ID:-}
+      GOOGLE_CHAT_CLIENT_SECRET: ${GOOGLE_CHAT_CLIENT_SECRET:-}
+      GOOGLE_CHAT_REDIRECT_URI: ${GOOGLE_CHAT_REDIRECT_URI:-}
+      GOOGLE_CHAT_REFRESH_SKEW: ${GOOGLE_CHAT_REFRESH_SKEW:-PT5M}
+
+      # Linear App — infra/docker/.env 에서 forward
+      LINEAR_CLIENT_ID: ${LINEAR_CLIENT_ID:-}
+      LINEAR_CLIENT_SECRET: ${LINEAR_CLIENT_SECRET:-}
+      LINEAR_REDIRECT_URI: ${LINEAR_REDIRECT_URI:-}
+      # 빈 문자열이 넘어가면 Duration 파싱이 깨지므로 Spring 기본값(PT30M)과 같은 compose 기본값을 둔다.
+      LINEAR_REFRESH_SKEW: ${LINEAR_REFRESH_SKEW:-PT30M}
+
+      # Asana App — infra/docker/.env 에서 forward
+      ASANA_CLIENT_ID: ${ASANA_CLIENT_ID:-}
+      ASANA_CLIENT_SECRET: ${ASANA_CLIENT_SECRET:-}
+      ASANA_REDIRECT_URI: ${ASANA_REDIRECT_URI:-}
+      # 빈 문자열이 넘어가면 Duration 파싱이 깨지므로 Spring 기본값(PT10M)과 같은 compose 기본값을 둔다.
+      ASANA_REFRESH_SKEW: ${ASANA_REFRESH_SKEW:-PT10M}
+
+      # ClickUp App — infra/docker/.env 에서 forward
+      CLICKUP_CLIENT_ID: ${CLICKUP_CLIENT_ID:-}
+      CLICKUP_CLIENT_SECRET: ${CLICKUP_CLIENT_SECRET:-}
+      CLICKUP_REDIRECT_URI: ${CLICKUP_REDIRECT_URI:-}
+
+      # Notion App — infra/docker/.env 에서 forward. pipeline-worker는 DB의 사용자별 access
+      # token으로 수집하므로(Google Chat과 같은 이유) pipeline-worker 블록에는 불필요.
+      NOTION_CLIENT_ID: ${NOTION_CLIENT_ID:-}
+      NOTION_CLIENT_SECRET: ${NOTION_CLIENT_SECRET:-}
+      NOTION_REDIRECT_URI: ${NOTION_REDIRECT_URI:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Spring Boot가 8080을 열어 요청을 받을 수 있는지 확인 (curl/actuator 없이 bash /dev/tcp)
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    profiles: [app]
+
+  pipeline-worker:
+    build:
+      context: ../../services/pipeline-worker
+    container_name: history-tracker-pipeline-worker
+    ports:
+      - "8081:8081"
+    environment:
+      # 컨테이너 네트워크 hostname으로 override
+      SPRING_RABBITMQ_HOST: rabbitmq
+      PIPELINE_WORKER_DATASOURCE_URL: jdbc:postgresql://postgres:5432/history_tracker
+      PIPELINE_WORKER_DATASOURCE_USERNAME: history_tracker
+      PIPELINE_WORKER_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-history_tracker}
+      BACKEND_URL: http://backend:8080
+
+      # backend와 동일한 값을 공유해야 함 (토큰 검증 / credential 복호화)
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
+      BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
+
+      # GitHub App settings의 Webhook secret과 동일한 값이어야 서명 검증이 통과한다.
+      # 미설정 시 webhook만 동작하지 않고 초기 수집은 정상이라 필수(:?)로 두지 않는다.
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+
+      # backend와 동일한 값이어야 함 — 수집(이 worker)과 연동 해제 시 길드 퇴장(backend) 양쪽이 같은 봇이어야 한다.
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    profiles: [app]
+
+  web-dashboard:
+    build:
+      context: ../../clients/web-dashboard
+    container_name: history-tracker-web
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    profiles: [app]
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  rabbitmq_data:
