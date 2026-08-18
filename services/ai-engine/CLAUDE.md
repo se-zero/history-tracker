@@ -28,10 +28,19 @@ uvicorn main:app --reload --port 8000
 기본 `gpt-5.4-mini`), `QUERY_HISTORY_BUDGET_CHARS`(tool 루프 history 글자 예산, 기본 `16000`),
 `CONTEXT_CARD_BUDGET_CHARS`(최종 답변 맥락 카드 글자 예산, 기본 `6000`).
 
-수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_PREFETCH`(기본 = 동시성 값).
+수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_CHANGESET_LOOKAHEAD`(기본 `8`, `0`=비활성),
+`INGEST_EMBED_COALESCE_MAX`/`INGEST_EMBED_COALESCE_WINDOW_MS`(커밋 메시지 임베딩 코얼레싱, 기본 `8`/`50ms` —
+`MAX` 기본은 look-ahead와 정렬, `MAX=1`이면 대기창 없이 단건 호출), `INGEST_PREFETCH`(기본 = 동시성 +
+look-ahead 합 = `12`, 빈 값은 미설정 취급 — compose가 빈 값을 넘겨 파생 규칙을 유지한다).
+킬스위치: `INGEST_CHANGESET_LOOKAHEAD=0`으로 프리페치가 꺼지고, **완전한 기존 동작 복원**에는
+`INGEST_EMBED_COALESCE_MAX=1`을 병행한다(아니면 커밋당 코얼레싱 대기창 50ms가 남는다).
 consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호), project 간은
 `INGEST_MAX_CONCURRENCY`까지 동시 처리한다. OpenAI 호출은 rate_limiter가 페이싱하므로
 동시성을 올려도 Tier 한도를 넘지 않는다(429·품질 저하 없음). 부하·환경에 따라 env로 조절한다.
+같은 project의 ChangeSet은 LLM 준비 단계(파일 diff 요약 + 임베딩)만 도착 순서보다 앞서(look-ahead)
+미리 실행하고, Neo4j 쓰기는 여전히 도착 순서 직렬을 유지한다. look-ahead 깊이만큼 미ack 메시지가
+늘어난다 — 재시작 시 최대 `INGEST_PREFETCH`건이 재배달될 수 있지만, 쓰기가 전부 MERGE 멱등이라
+그래프는 안전하고 LLM 준비 비용만 재발생한다.
 
 수집 실패 안전망(재시도 → DLQ): consumer의 `handle()`이 실패한 이벤트를 조용히 버리지 않는다.
 발행 측(pipeline-worker)은 이미 checkpoint를 넘긴 상태라 소비 실패는 재수집으로 복구되지 않기 때문이다.
@@ -109,6 +118,7 @@ graph/             Neo4j 그래프 구축 + 수집
                      (POST /graph/build는 202 후 백그라운드 태스크, GET /graph/build/status 폴링).
                      같은 프로젝트는 coalesce, 다른 프로젝트는 _build_semaphore(MAX_CONCURRENCY)로 제한.
                      상태/dirty는 in-process — 수평 확장 시 공유 저장소로 교체 필요
+  embed_batcher.py    커밋 메시지 임베딩 마이크로배처 — 짧은 대기창 동안 단건 호출을 코얼레싱해 embed_batch 1콜로 묶음
   builder.py         facade — 아래 분해 모듈의 공개 심볼 re-export (하위 호환)
     driver.py            드라이버 수명주기 (get_driver/close_driver)
     schema.py            벡터 인덱스·유니크 제약 부트스트랩 (+ 옛 node_search 인덱스 제거)

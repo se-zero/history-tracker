@@ -37,6 +37,7 @@ MODULES = [
     "graph.document_linker",
     "graph.document_link_store",
     "graph.driver",
+    "graph.embed_batcher",
     "graph.embedder",
     "graph.event_handler",
     "graph.issue_link_store",

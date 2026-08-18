@@ -329,7 +329,7 @@ class HandleChangesetDocumentExternalRefsTest(unittest.TestCase):
              patch("graph.event_handler.builder.link_changeset_to_document", link_document_mock), \
              patch("graph.event_handler.resolve_actor", AsyncMock(return_value={"uuid": "author-uuid"})), \
              patch("graph.event_handler.make_neo4j_actor_store", return_value="STORE"), \
-             patch("graph.event_handler.embed_text", AsyncMock(return_value=[])):
+             patch("graph.event_handler.embed_text_batched", AsyncMock(return_value=[])):
             asyncio.run(handle(event))
         return link_document_mock
 
