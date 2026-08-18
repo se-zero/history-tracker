@@ -163,6 +163,12 @@ services:
       CLICKUP_CLIENT_ID: ${CLICKUP_CLIENT_ID:-}
       CLICKUP_CLIENT_SECRET: ${CLICKUP_CLIENT_SECRET:-}
       CLICKUP_REDIRECT_URI: ${CLICKUP_REDIRECT_URI:-}
+
+      # Notion App — infra/docker/.env 에서 forward. pipeline-worker는 DB의 사용자별 access
+      # token으로 수집하므로(Google Chat과 같은 이유) pipeline-worker 블록에는 불필요.
+      NOTION_CLIENT_ID: ${NOTION_CLIENT_ID:-}
+      NOTION_CLIENT_SECRET: ${NOTION_CLIENT_SECRET:-}
+      NOTION_REDIRECT_URI: ${NOTION_REDIRECT_URI:-}
     depends_on:
       postgres:
         condition: service_healthy

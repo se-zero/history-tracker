@@ -71,8 +71,11 @@ async def _create_reference_edge(project_id: str, changeset_id: str, communicati
             """
             MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_id})
             MATCH (comm:Communication {project_id: $project_id, url: $communication_id})
+            // 명시 URL 참조는 수집 시점에만 복원 가능하다. 시맨틱 재구축이 이를
+            // 덮어쓰지 않도록 text 엣지가 이미 있으면 이 후보를 통째로 건너뛴다.
+            WHERE NOT (c)-[:REFERENCE {source: 'text'}]->(comm)
             MERGE (c)-[r:REFERENCE]->(comm)
-            SET r.confidence = $confidence
+            SET r.source = 'semantic', r.confidence = $confidence
             """,
             project_id=project_id,
             changeset_id=changeset_id,

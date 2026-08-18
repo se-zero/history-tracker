@@ -408,26 +408,58 @@ async def clear_semantic_discussed_in(project_id: str | None = None) -> int:
 
 
 async def clear_reference(project_id: str | None = None) -> int:
-    """REFERENCE 엣지를 일괄 삭제한다.
+    """시맨틱 REFERENCE 엣지만 일괄 삭제한다.
 
-    REFERENCE는 텍스트 참조 경로가 없어 전부 시맨틱(임베딩 유사도) 산물이므로 조건 없이 지운다.
-    임계값·top-k 정책을 바꾼 뒤 깨끗한 그래프에서 build_reference_edges를 다시 돌리기 위한 지우개.
+    명시 URL 참조(source='text')는 참조 소스 이벤트를 재수집해야만 복구할 수 있으므로 보존한다.
+    source 도입 전의 REFERENCE는 전부 시맨틱 산물이었으므로 source가 없으면 semantic으로 간주한다.
+    임계값·top-k 정책을 바꾼 뒤 깨끗한 그래프에서 build_reference_edges를 다시 돌리기 위한 지우개다.
     project_id를 주면 그 프로젝트 엣지만 삭제한다(per-project 재구축).
 
     Returns:
         삭제된 엣지 수.
     """
-    # REFERENCE는 항상 ChangeSet→Communication이라 c:ChangeSet 바인딩으로 project_id 스코프를 건다.
+    # REFERENCE의 시작은 항상 ChangeSet이라 c:ChangeSet 바인딩으로 project_id 스코프를 건다.
+    # 끝 라벨은 일부러 제한하지 않는다 — Communication뿐 아니라 Document도 REFERENCE 대상이라
+    # (Notion, docs/notion-integration.md §2-5) 라벨을 좁히면 문서 쪽 시맨틱 엣지가 안 지워진다.
     query = """
         MATCH (c:ChangeSet)-[r:REFERENCE]->()
+        WHERE coalesce(r.source, 'semantic') = 'semantic'
         __PROJECT_FILTER__
         DELETE r
-    """.replace("__PROJECT_FILTER__", "WHERE c.project_id = $project_id" if project_id else "")
+    """.replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
         result = await session.run(query, project_id=project_id)
         summary = await result.consume()
         deleted = summary.counters.relationships_deleted
-    logger.info("REFERENCE 엣지 삭제 완료: %d개", deleted)
+    logger.info("시맨틱 REFERENCE 엣지 삭제 완료: %d개", deleted)
+    return deleted
+
+
+async def clear_semantic_described_in(project_id: str | None = None) -> int:
+    """source='semantic'인 DESCRIBED_IN(Issue→Document) 엣지를 일괄 삭제한다.
+
+    text(명시 이슈 키/URL 참조)는 보존된다. DESCRIBED_IN은 Notion에서 처음 도입된 관계라
+    TRIGGERED_BY/REFERENCE와 달리 "source 없는 레거시" 엣지가 없다 — 항상 source가 명시적으로
+    SET돼 있으므로 coalesce 없이 곧바로 비교한다.
+    용도: 정책(threshold/top-k) 변경 후 시맨틱 결과를 깨끗하게 재구축하고 싶을 때, 그리고 수동
+    정밀 재구축 전에 자동구축의 false positive를 비울 때. project_id를 주면 그 프로젝트
+    엣지만 삭제한다(per-project 재구축).
+
+    Returns:
+        삭제된 엣지 수.
+    """
+    # DESCRIBED_IN은 항상 Issue→Document라 i:Issue 바인딩으로 project_id 스코프를 건다.
+    query = """
+        MATCH (i:Issue)-[r:DESCRIBED_IN]->()
+        WHERE r.source = 'semantic'
+        __PROJECT_FILTER__
+        DELETE r
+    """.replace("__PROJECT_FILTER__", "AND i.project_id = $project_id" if project_id else "")
+    async with get_driver().session() as session:
+        result = await session.run(query, project_id=project_id)
+        summary = await result.consume()
+        deleted = summary.counters.relationships_deleted
+    logger.info("시맨틱 DESCRIBED_IN 엣지 삭제 완료: %d개", deleted)
     return deleted
 
 

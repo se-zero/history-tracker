@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 async def ensure_vector_indexes() -> None:
-    """comm_embedding, issue_embedding 벡터 인덱스를 생성한다. 이미 존재하면 무시."""
+    """comm_embedding, issue_embedding, doc_section_embedding 벡터 인덱스를 생성한다."""
     async with get_driver().session() as session:
         await session.run(
             """
@@ -30,7 +30,17 @@ async def ensure_vector_indexes() -> None:
             }}
             """
         )
-    logger.info("벡터 인덱스 확인 완료 (comm_embedding, issue_embedding)")
+        await session.run(
+            """
+            CREATE VECTOR INDEX doc_section_embedding IF NOT EXISTS
+            FOR (s:DocumentSection) ON (s.embedding)
+            OPTIONS { indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }}
+            """
+        )
+    logger.info("벡터 인덱스 확인 완료 (comm_embedding, issue_embedding, doc_section_embedding)")
 
 
 async def drop_node_search_index() -> None:
@@ -79,6 +89,8 @@ _UNIQUE_CONSTRAINTS: list[tuple[str, str, list[str]]] = [
     ("pull_request_project_number", "PullRequest",   ["project_id", "pr_number"]),
     ("issue_project_source_external", "Issue",        ["project_id", "source", "external_id"]),
     ("communication_project_url",   "Communication", ["project_id", "url"]),
+    ("document_project_source_external", "Document",   ["project_id", "source", "external_id"]),
+    ("document_section_key", "DocumentSection",       ["project_id", "source", "document_external_id", "ordinal"]),
     ("file_project_path",           "File",          ["project_id", "path"]),
     ("actor_uuid",                  "Actor",         ["uuid"]),
     # ActorAlias: (project_id, source_id) 유니크 — Step 0 alias 조회를 배열 스캔 대신

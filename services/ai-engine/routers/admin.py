@@ -200,9 +200,9 @@ async def trigger_clear_semantic_discussed_in(project_id: str | None = None):
 
 @router.post("/migrations/clear-reference")
 async def trigger_clear_reference(project_id: str | None = None):
-    """REFERENCE 엣지를 삭제한다. project_id를 주면 그 프로젝트만.
+    """시맨틱 REFERENCE 엣지를 삭제한다. project_id를 주면 그 프로젝트만.
 
-    REFERENCE는 텍스트 경로가 없어 전부 시맨틱 산물이라 조건 없이 전량 삭제한다.
+    명시 URL 참조(source='text')는 보존하고, source 없는 기존 엣지는 시맨틱으로 간주해 삭제한다.
     임계값을 바꿔 재구축(POST /reference/build?threshold=...)하기 전에 호출한다.
     """
     deleted = await clear_reference(project_id)

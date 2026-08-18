@@ -97,13 +97,14 @@ _REWRITE_SCHEMA = {
 # 그래프에서 확인할 수 없는 측면은 unknown_aspects[]에 명시한다.
 # 자유 텍스트로 종결문·일반론·추정을 끼워 넣을 수 없는 구조가 핵심 가드.
 
-_EVIDENCE_TYPES = ["commit", "pull_request", "issue", "message"]
+_EVIDENCE_TYPES = ["commit", "pull_request", "issue", "message", "document"]
 
 _EVENT_MEANINGS = [
     "issue_created", "issue_updated", "issue_closed",
     "commit_authored",
     "pr_opened", "pr_merged",
     "message_posted",
+    "document_created", "document_updated",
 ]
 
 _GROUNDED_ANSWER_SCHEMA = {
@@ -137,7 +138,8 @@ _GROUNDED_ANSWER_SCHEMA = {
                             "type": "string",
                             "description": (
                                 "1차 식별자. commit→hash 앞 7자, pull_request→'#번호', "
-                                "issue→issue_key, message→conversation_id."
+                                "issue→issue_key, message→conversation_id, "
+                                "document→external_id."
                             ),
                         },
                         "occurredAt": {
@@ -160,7 +162,8 @@ _GROUNDED_ANSWER_SCHEMA = {
                             "type": "string",
                             "description": (
                                 "도구 결과에서 직접 가져온 텍스트(commit message / pr title / issue title+body / "
-                                "message body). 요약·번역·재구성 금지. 길면 앞부분만 인용."
+                                "message body / document body 또는 매칭 섹션 발췌). "
+                                "요약·번역·재구성 금지. 길면 앞부분만 인용."
                             ),
                         },
                     },
@@ -185,8 +188,8 @@ _GROUNDED_ANSWER_SCHEMA = {
 
 _SYSTEM_PROMPT = """\
 당신은 코드 변경 맥락 분석 AI입니다.
-GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지) 데이터가 Neo4j 지식 그래프로 연결되어 있습니다.
-제공된 도구를 사용해 그래프를 탐색하고 사용자의 질문에 답하세요.
+GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서) 데이터가 Neo4j 지식
+그래프로 연결되어 있습니다. 제공된 도구를 사용해 그래프를 탐색하고 사용자의 질문에 답하세요.
 
 [답변 규칙]
 - 도구 결과에 없는 내용은 절대 추측하거나 지어내지 마세요. 그래프에 근거가 없는 측면은
@@ -204,6 +207,8 @@ GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지) 데이터가 Neo4j 지
 - PullRequest.occurredAt  = 머지 시각          (event_meaning = pr_merged; open PR은 null)
 - PullRequest.createdAt   = PR 생성 시각       (event_meaning = pr_opened)
 - Communication.occurredAt = 메시지 작성 시각  (event_meaning = message_posted)
+- Document.createdAt  = 문서 생성 시각         (event_meaning = document_created)
+- Document.occurredAt = 문서 최종 수정 시각     (event_meaning = document_updated)
 모든 시각은 UTC. 사용자가 시간대 명시를 요구하지 않는 한 그대로 인용하세요.
 get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하므로 그것을 사용하세요.
 
@@ -221,13 +226,14 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - summary에 적힌 사실은 evidence[]에 매핑되어야 합니다. evidence 없는 합성 문장 금지.
 - 마무리/종결/요약 문장(예: "추가 궁금한 점이 있으면…", "이 정보를 통해…", "모든 작업이 완료되어 …")
   을 summary에 추가하지 마세요. summary가 곧 답변의 시작이자 끝입니다.
-- evidence[*].quote는 도구 결과 텍스트(commit message / pr title+body / issue title+body / message body)
-  에서 요약·번역·재구성 없이 직접 인용하세요. 너무 길면 앞부분만 잘라 인용.
+- evidence[*].quote는 도구 결과 텍스트(commit message / pr title+body / issue title+body / message body /
+  document body 또는 매칭 섹션 발췌)에서 요약·번역·재구성 없이 직접 인용하세요. 너무 길면 앞부분만 잘라 인용.
 - evidence[*].id 형식 (반드시 준수):
     commit       → hash 앞 7자
     pull_request → "#번호" (예: "#18")
     issue        → issue_key (예: "HT-37")
     message      → conversation_id (Slack ts)
+    document     → external_id (Notion page id 등)
 - evidence[*].event_meaning은 위 [타임스탬프 의미 사전]의 enum 값만 사용.
 - "왜", "배경", "이유" 류 질문에 명확한 근거(이슈 본문 / 슬랙 메시지)가 없으면
   unknown_aspects에 명시하고, summary에서 일반론으로 채우지 마세요.
@@ -304,6 +310,26 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - 특정할 수 없으면 넘겨짚지 말고, candidates를 사용자에게 제시해 어느 트래커의 이슈인지
   되물으세요.
 
+[문서(설계 근거) 처리 — search_documents · get_document_context]
+- Notion 등에서 수집된 설계 문서·스펙이 Document 노드로 그래프에 있습니다. "왜", "설계 배경",
+  "어떤 방식을 검토했나", "결정 이유" 류 질문에는 커밋·이슈보다 먼저 문서를 확인하세요 —
+  문서는 의사결정 과정을 커밋 메시지보다 훨씬 상세히 담고 있는 경우가 많습니다.
+- 문서를 모를 때: search_documents(query=자연어 질의)로 진입점을 찾습니다. 결과는 문서당
+  최고 일치 섹션 발췌(excerpt)만 담고 있어 근거로 인용하기엔 짧을 수 있습니다 — 본문 전체가
+  필요하면 결과의 external_id로 get_document_context를 이어서 호출하세요.
+- get_document_context 결과의 issues[]·changesets[]는 각각 DESCRIBED_IN·REFERENCE 관계로
+  연결된 항목이며, source 필드가 'text'(문서·커밋 본문에 명시된 URL/키 참조)인지
+  'semantic'(임베딩 유사도로 추론된 연결)인지 함께 옵니다. text는 확정 사실로 서술하고,
+  semantic은 [증거 인용 규칙]의 추론 서술 지침을 그대로 적용하세요(단정형 금지, 근거가
+  추정임을 밝힐 것).
+- get_issue_context 결과의 documents[]도 DESCRIBED_IN 관계로 연결된 문서입니다(같은
+  text/semantic 구분 적용). "이 이슈의 설계 배경이 뭐야"류 질문은 이슈를 먼저 조회했다면
+  별도 검색 없이 이 필드로 답하세요 — 필요하면 external_id로 get_document_context를 이어서
+  호출해 본문 전체를 봅니다(Document.body에는 커밋 메시지·이슈 설명보다 상세한 배경이 실려
+  있습니다). get_changeset_context·get_pr_context 결과의 documents[]도 마찬가지로
+  external_id를 실어 주니, 커밋·PR에서 발견한 문서도 같은 방식으로 본문까지 파고들 수
+  있습니다.
+
 [2계층 결과 처리 — get_file_history · get_actor_activity]
 - 이 도구들의 결과는 {detail:[...], context:[...]} 2계층이다. detail은 본문 포함(인용 대상),
   context는 나머지 항목의 시간순 개요 stub(본문 없음)이다.
@@ -322,6 +348,8 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 
 [도구 사용 가이드]
 - 커밋 hash나 issue key를 모를 때: search_by_keyword로 진입점 탐색 후 다른 도구 호출
+- 설계 근거·배경·결정 이유: search_documents → get_document_context (문서가 먼저다 — 없거나
+  약하면 search_by_keyword → get_changeset_context로 이어간다)
 - 코드 변경 이유: search_by_keyword → get_changeset_context
 - Jira/Linear 이슈 중심 탐색: get_issue_context 또는 get_timeline
 - 시간순·순서·과정 질문: get_timeline (스코프 = issue_key | path | actor | 생략=전체, ±from/to_time)
@@ -349,8 +377,8 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
      (예: "가장 많이 바뀐 파일")이라 전용 도구로 표현할 수 없을 때
   2) 전용 도구를 최소 한 번 시도했는데 결과가 비었을 때
 - **전용 도구가 있는 질문에 쓰지 말 것.** 이슈·커밋·PR·스레드·파일이력·사람활동·시간순·
-  이슈랭킹·키워드탐색은 전부 전용 도구가 있고, Cypher로 대체하면 인용할 본문이 빠져 답이
-  나빠진다.
+  이슈랭킹·키워드탐색·문서탐색은 전부 전용 도구가 있고, Cypher로 대체하면 인용할 본문이 빠져
+  답이 나빠진다.
 - 값으로 거르기 전에 describe_graph로 **실제 값**을 확인한다(status 원문 값이 'Done'인지 '완료'인지는
   프로젝트마다 다르다 — 단, 이슈 종료 판정은 describe_graph 없이 status_category로 바로 거른다).
 - 결과 행은 개요다. 인용할 항목은 식별자(hash·pr_number·issue_key·conversation_id)로 상세
@@ -900,7 +928,8 @@ async def run(
                 "사용자가 아래 그래프 노드를 명시적으로 지정해 질문하고 있습니다. 이 노드를 답변의 "
                 "핵심 대상으로 삼고, 각 노드의 전체 컨텍스트를 해당 도구로 먼저 조회한 뒤"
                 "(commit→get_changeset_context, pull_request→get_pr_context, "
-                "issue→get_issue_context, message→get_thread_context) 그 결과에 근거해 답하세요. "
+                "issue→get_issue_context, message→get_thread_context, "
+                "document→get_document_context) 그 결과에 근거해 답하세요. "
                 "지정된 노드를 무시하거나 다른 대상으로 대체하지 마세요.\n"
                 + json.dumps(focus_evidence, ensure_ascii=False)
             ),

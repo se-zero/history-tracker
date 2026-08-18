@@ -17,6 +17,7 @@ class CollectionProviderTest {
         assertThat(CollectionProvider.LINEAR.value()).isEqualTo("linear");
         assertThat(CollectionProvider.ASANA.value()).isEqualTo("asana");
         assertThat(CollectionProvider.CLICKUP.value()).isEqualTo("clickup");
+        assertThat(CollectionProvider.NOTION.value()).isEqualTo("notion");
     }
 
     @Test
@@ -29,13 +30,14 @@ class CollectionProviderTest {
         assertThat(CollectionProvider.find("linear")).contains(CollectionProvider.LINEAR);
         assertThat(CollectionProvider.find("asana")).contains(CollectionProvider.ASANA);
         assertThat(CollectionProvider.find("clickup")).contains(CollectionProvider.CLICKUP);
+        assertThat(CollectionProvider.find("notion")).contains(CollectionProvider.NOTION);
     }
 
     // PipelineService는 CollectionProvider 선언 순서(EnumMap)로 순차 수집하고, 한 provider가 실패하면
     // 이후 provider는 돌지 않는다. 신규 소스는 항상 마지막에 선언해 기존 provider들의 수집 순서·장애
     // 격리를 건드리지 않는다.
     @Test
-    void values_declaresClickupLastToProtectExistingProviders() {
+    void values_declaresNotionLastToProtectExistingProviders() {
         assertThat(CollectionProvider.values()).containsExactly(
                 CollectionProvider.GITHUB,
                 CollectionProvider.JIRA,
@@ -44,14 +46,15 @@ class CollectionProviderTest {
                 CollectionProvider.GOOGLE_CHAT,
                 CollectionProvider.LINEAR,
                 CollectionProvider.ASANA,
-                CollectionProvider.CLICKUP
+                CollectionProvider.CLICKUP,
+                CollectionProvider.NOTION
         );
     }
 
     // DB row 처리용 — 미지원/대소문자 불일치/null은 조용히 empty (구버전 worker 호환)
     @Test
     void find_returnsEmptyForUnknownValue() {
-        assertThat(CollectionProvider.find("notion")).isEmpty();
+        assertThat(CollectionProvider.find("not-a-real-provider")).isEmpty();
         assertThat(CollectionProvider.find("GITHUB")).isEmpty();
         assertThat(CollectionProvider.find(null)).isEmpty();
     }

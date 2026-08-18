@@ -29,12 +29,13 @@ from agent import orchestrator
 
 # ─── 기대 enum (orchestrator schema와 일관 유지) ────────────────────────────────
 
-ALLOWED_TYPES = {"commit", "pull_request", "issue", "message"}
+ALLOWED_TYPES = {"commit", "pull_request", "issue", "message", "document"}
 ALLOWED_EVENT_MEANINGS = {
     "issue_created", "issue_updated", "issue_closed",
     "commit_authored",
     "pr_opened", "pr_merged",
     "message_posted",
+    "document_created", "document_updated",
 }
 
 # 종결문 anti-pattern — 1차 분석에서 LLM이 임의 생성한 마무리/일반론 문구들.

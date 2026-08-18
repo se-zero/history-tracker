@@ -24,6 +24,8 @@ def test_normalize_evidence_rules():
     assert _normalize_evidence({"type": "pull_request", "id": "#42"}) == ("pull_request", "42")
     assert _normalize_evidence({"type": "pull_request", "id": "99"}) == ("pull_request", "99")
     assert _normalize_evidence({"type": "issue", "id": " HT-37 "}) == ("issue", "HT-37")
+    # document는 issue와 같은 규칙 — id가 곧 external_id.
+    assert _normalize_evidence({"type": "document", "id": " page-1 "}) == ("document", "page-1")
     # message(Slack)는 숫자 ts 정규형(점 제거)으로 — 저장된 conversation_id와 점 제거 비교한다.
     assert _normalize_evidence({"type": "message", "id": "1700000000.123"}) == ("message", "1700000000123")
     # 무효 — None (group/resolve가 동일 규칙을 공유하므로 drift 불가)
@@ -54,12 +56,14 @@ def test_group_evidence_keys_buckets_by_type():
         {"type": "pull_request", "id": "#42"},
         {"type": "pull_request", "id": "99"},
         {"type": "issue", "id": "HT-37"},
+        {"type": "document", "id": "page-1"},
         {"type": "message", "id": "1700000000.123"},
     ]
     keys = _group_evidence_keys(evidence)
     assert keys["commit_prefixes"] == ["abc1234"]
     assert keys["pr_numbers"] == [42, 99]
     assert keys["issue_keys"] == ["HT-37"]
+    assert keys["document_external_ids"] == ["page-1"]
     assert keys["conv_ids"] == ["1700000000123"]
 
 
@@ -69,12 +73,14 @@ def test_group_evidence_keys_skips_blank_and_unknown():
         {"type": "pull_request", "id": "#notanum"},
         {"type": "weird", "id": "x"},
         {"type": "issue", "id": ""},
+        {"type": "document", "id": ""},
     ]
     keys = _group_evidence_keys(evidence)
     assert keys == {
         "commit_prefixes": [],
         "pr_numbers": [],
         "issue_keys": [],
+        "document_external_ids": [],
         "conv_ids": [],
     }
 
@@ -86,14 +92,30 @@ def test_resolve_seed_ids_aligns_to_evidence_order():
         {"id": "n3", "label": "Issue", "issue_key": "HT-37"},
         {"id": "n4", "label": "Communication", "conversation_id": "1700000000.123"},
         {"id": "n5", "label": "Actor", "name": "neighbor (무시)"},
+        {"id": "n6", "label": "Document", "external_id": "page-1"},
     ]
     evidence = [
         {"type": "issue", "id": "HT-37"},
         {"type": "commit", "id": "abc1234"},
         {"type": "message", "id": "1700000000.123"},
         {"type": "pull_request", "id": "#42"},
+        {"type": "document", "id": "page-1"},
     ]
-    assert _resolve_seed_ids(evidence, rows) == ["n3", "n1", "n4", "n2"]
+    assert _resolve_seed_ids(evidence, rows) == ["n3", "n1", "n4", "n2", "n6"]
+
+
+def test_resolve_seed_ids_document_matches_by_external_id():
+    # get_document_context/get_issue_context.documents[]가 이미 external_id를 노출하므로
+    # 그래프 패널의 인용 카드도 같은 키로 매칭돼야 한다(§8, 2번 항목에서 파생된 빈틈).
+    rows = [
+        {"id": "n1", "label": "Document", "external_id": "page-1", "title": "설계 문서"},
+        {"id": "n2", "label": "Document", "external_id": "page-2", "title": "다른 문서"},
+    ]
+    evidence = [
+        {"type": "document", "id": "page-2"},
+        {"type": "document", "id": "page-missing"},
+    ]
+    assert _resolve_seed_ids(evidence, rows) == ["n2", None]
 
 
 def test_resolve_seed_ids_message_matches_across_formats():
@@ -177,6 +199,15 @@ def test_to_graph_node_ref_carries_query_key():
     )
     assert slack["ref"] == {"type": "message", "id": "1700000000.123"}
 
+    # Document → external_id를 ref로, type은 "doc"(성좌 별성이 아니라 주변 노드 취급).
+    doc = _to_graph_node(
+        {"id": "n10", "label": "Document", "source": "NOTION",
+         "external_id": "page-1", "title": "설계 문서", "body": "본문"}
+    )
+    assert doc["type"] == "doc"
+    assert doc["ref"] == {"type": "document", "id": "page-1"}
+    assert doc["source"] == "notion"
+
 
 def test_to_graph_node_ref_none_for_non_query_targets():
     # actor/file은 질의 도구 대상이 아니라 ref 없음 — 프론트가 텍스트 폴백으로 처리한다.
@@ -192,6 +223,8 @@ def test_to_graph_node_ref_none_when_key_missing():
     assert pr["ref"] is None
     slack = _to_graph_node({"id": "n9", "label": "Communication", "source": "SLACK"})
     assert slack["ref"] is None
+    doc = _to_graph_node({"id": "n11", "label": "Document", "source": "NOTION"})
+    assert doc["ref"] is None
 
 
 def test_source_label_derives_new_sources_without_registration():

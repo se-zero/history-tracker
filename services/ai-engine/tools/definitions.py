@@ -6,8 +6,9 @@ TOOLS = [
         "function": {
             "name": "get_issue_context",
             "description": (
-                "이슈 키로 관련 커밋, PR, Slack/GitHub 논의를 한 번에 조회한다. "
-                "크로스 소스 연결(이슈→커밋→PR→Slack) 확인에 사용."
+                "이슈 키로 관련 커밋, PR, Slack/GitHub 논의, 연결된 Notion 문서를 한 번에 조회한다. "
+                "크로스 소스 연결(이슈→커밋→PR→Slack) 확인과 '이 이슈의 설계 배경 문서' 같은 "
+                "이슈→문서 질문에 사용."
             ),
             "parameters": {
                 "type": "object",
@@ -36,7 +37,7 @@ TOOLS = [
             "name": "get_changeset_context",
             "description": (
                 "Git commit hash로 해당 커밋의 변경 이유를 조회한다. "
-                "연결된 Jira/Linear 이슈, Slack 논의, PR, 파일별 diff 요약(diffSummary)을 반환. "
+                "연결된 Jira/Linear 이슈, Slack 논의, Notion 문서, PR, 파일별 diff 요약(diffSummary)을 반환. "
                 "코드가 왜 바뀌었는지 파악할 때 사용."
             ),
             "parameters": {
@@ -195,6 +196,70 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "search_documents",
+            "description": (
+                "자연어 질의로 의미적으로 유사한 문서(Notion 페이지 등) 섹션을 탐색한다. "
+                "특정 문서를 모를 때 설계 근거·의사결정 배경 문서를 찾는 진입점. "
+                "매칭은 섹션 단위지만 문서당 최고점 섹션 하나로 묶어 반환한다 — 문서 전체 본문이 "
+                "필요하면 결과의 external_id로 get_document_context를 이어서 호출한다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "검색할 자연어 질의 (예: '인증 토큰 갱신 정책', '배포 아키텍처')",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "반환할 최대 문서 수 (기본 5)",
+                        "default": 5,
+                    },
+                    "threshold": {
+                        "type": "number",
+                        "description": "최소 코사인 유사도 (기본 0.30)",
+                        "default": 0.30,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_document_context",
+            "description": (
+                "문서(Notion 페이지 등) external_id로 본문·작성자·편집자와 연결된 이슈/커밋/대화를 "
+                "한 번에 조회한다. search_documents 결과나 다른 도구가 인용한 문서를 깊이 파고들 때 "
+                "사용. 연결된 이슈·커밋은 source가 'text'(문서·커밋 본문에 명시된 참조)인지 "
+                "'semantic'(임베딩 유사도로 추론된 연결)인지 함께 온다 — text는 확정 사실로, "
+                "semantic은 추정으로 구분해 답변한다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "external_id": {
+                        "type": "string",
+                        "description": "문서의 불변 ID (Notion page id 등, 검색 결과의 external_id)",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "문서 소스(예: NOTION). 여러 문서 소스가 연동된 프로젝트에서 같은 "
+                            "external_id가 소스마다 겹칠 때만 지정한다. 생략했는데 후보가 둘 "
+                            "이상이면 결과가 {message, candidates}로 오니, candidates 중 하나의 "
+                            "source로 재호출한다."
+                        ),
+                    },
+                },
+                "required": ["external_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_actor_activity",
             "description": (
                 "특정 사람의 커밋, PR, Slack 메시지, Jira/Linear 이슈 활동을 2계층으로 조회한다: "
@@ -310,7 +375,7 @@ TOOLS = [
         "function": {
             "name": "get_conflict_context",
             "description": (
-                "하나의 커밋에 대해 Jira/Linear, Slack, PR이 각각 다른 맥락을 설명할 때 "
+                "하나의 커밋에 대해 Jira/Linear, Slack, Notion 문서, PR이 각각 다른 맥락을 설명할 때 "
                 "이를 출처별로 나란히 반환한다. "
                 "컨텍스트 충돌 처리, 다중 관점 제시에 사용."
             ),
@@ -332,7 +397,7 @@ TOOLS = [
             "name": "get_recent_activity",
             "description": (
                 "'최근에 뭐가 바뀌었어?', '이번 주 변경사항은?' 처럼 범위가 모호한 질문에 사용. "
-                "지정 기간 내 커밋, PR, Jira/Linear 이슈, Slack 메시지를 최신순으로 반환."
+                "지정 기간 내 커밋, PR, Jira/Linear 이슈, Slack 메시지, Notion 문서를 최신순으로 반환."
             ),
             "parameters": {
                 "type": "object",
@@ -360,8 +425,8 @@ TOOLS = [
         "function": {
             "name": "get_pr_context",
             "description": (
-                "PR 번호로 해당 PR에 포함된 커밋, 연결 Jira/Linear 이슈, Slack 논의, 파일 변경을 조회한다. "
-                "PR 번호만 알고 있을 때 사용."
+                "PR 번호로 해당 PR에 포함된 커밋, 연결 Jira/Linear 이슈, Slack 논의, Notion 문서, "
+                "파일 변경을 조회한다. PR 번호만 알고 있을 때 사용."
             ),
             "parameters": {
                 "type": "object",
@@ -408,7 +473,8 @@ TOOLS = [
                 "**쓰지 말아야 할 때(중요)**: 이슈 하나→get_issue_context, 커밋 하나→"
                 "get_changeset_context, PR 하나→get_pr_context, 스레드→get_thread_context, "
                 "파일 이력→get_file_history, 사람 활동→get_actor_activity, 시간순→get_timeline, "
-                "이슈 랭킹→rank_issues, 키워드 탐색→search_by_keyword. 이 도구들이 커버하는 "
+                "이슈 랭킹→rank_issues, 키워드 탐색→search_by_keyword, 문서 하나→"
+                "get_document_context, 설계 근거·문서 탐색→search_documents. 이 도구들이 커버하는 "
                 "질문에 Cypher를 쓰면 더 나쁜 답이 나온다(본문·인용 원문이 빠진다). 전용 도구를 "
                 "먼저 시도하고, 그 결과가 비었거나 질문이 위 유형일 때만 이 도구를 쓴다.\n"
                 "제약: 읽기 전용 단일 쿼리(MATCH / OPTIONAL MATCH / WHERE / WITH / RETURN / "

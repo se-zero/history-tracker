@@ -137,7 +137,8 @@ class AiEngineGraphClientTest {
                 .andExpect(queryParam("project_id", PROJECT_ID.toString()))
                 .andRespond(withSuccess("""
                         {"state":"succeeded","verify":false,"started_at":"2026-06-24T00:00:00+00:00",
-                         "result":{"backfilled":1,"triggered_by":2,"discussed_in":3,"reference":4,"thread_propagated":5},
+                         "result":{"backfilled":1,"triggered_by":2,"discussed_in":3,"reference":4,"thread_propagated":5,
+                                   "document_reference":6,"described_in_document":7},
                          "error":null}
                         """, MediaType.APPLICATION_JSON));
 
