@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.mockito.ArgumentCaptor;
+
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -538,6 +540,71 @@ class GitHubRawServiceTest {
         service.fetchCommitPage(context, 1, Map.of());
 
         verify(rateLimiter).awaitRetry(60L);
+    }
+
+    @Test
+    @DisplayName("Retry-After 없는 403이라도 X-RateLimit-Reset이 있으면 리셋까지 남은 시간만큼 대기한다 (primary limit 소진 대응)")
+    void fetchCommitPage_commitDetail403WithResetHeader_waitsUntilReset() {
+        long resetEpoch = System.currentTimeMillis() / 1000 + 30;
+        AtomicInteger detailCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        if (detailCallCount.incrementAndGet() == 1) {
+                            return Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN)
+                                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                                    .header("X-RateLimit-Reset", String.valueOf(resetEpoch))
+                                    .body("{}")
+                                    .build());
+                        }
+                        return Mono.just(jsonResponse("""
+                                {"files": [{"filename": "src/App.java", "additions": 1, "deletions": 0}]}
+                                """));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                Duration.ofMinutes(30),
+                detailExecutor()
+        );
+
+        service.fetchCommitPage(fetchContext(), 1, Map.of());
+
+        ArgumentCaptor<Long> waited = ArgumentCaptor.forClass(Long.class);
+        verify(rateLimiter).awaitRetry(waited.capture());
+        assertThat(waited.getValue()).isBetween(28L, 32L);
+    }
+
+    @Test
+    @DisplayName("재시도 대기 시간은 Retry-After → X-RateLimit-Reset → 60초 순으로 정한다")
+    void resolveRetryWaitSeconds_prefersRetryAfterThenResetThenFallback() {
+        long resetIn30 = System.currentTimeMillis() / 1000 + 30;
+
+        HttpHeaders both = new HttpHeaders();
+        both.set("Retry-After", "7");
+        both.set("X-RateLimit-Reset", String.valueOf(resetIn30));
+        assertThat(GitHubRawService.resolveRetryWaitSeconds(both)).isEqualTo(7L);
+
+        HttpHeaders resetOnly = new HttpHeaders();
+        resetOnly.set("X-RateLimit-Reset", String.valueOf(resetIn30));
+        assertThat(GitHubRawService.resolveRetryWaitSeconds(resetOnly)).isBetween(28L, 32L);
+
+        HttpHeaders pastReset = new HttpHeaders();
+        pastReset.set("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() / 1000 - 100));
+        assertThat(GitHubRawService.resolveRetryWaitSeconds(pastReset)).isZero();
+
+        assertThat(GitHubRawService.resolveRetryWaitSeconds(new HttpHeaders())).isEqualTo(60L);
     }
 
     @Test

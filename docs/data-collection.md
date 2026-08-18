@@ -63,8 +63,11 @@ commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다�
 
 ### Rate Limiting
 
-- 매 API 호출 후 300ms 고정 딜레이
-- 응답 헤더 `X-RateLimit-Remaining` ≤ 10이면 `X-RateLimit-Reset` 시각까지 동적 대기
+- 응답 헤더 기반 3단 적응형 대기: `X-RateLimit-Remaining` > 500이면 무대기, 10 초과 500 이하면
+  `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스로 대기, 10 이하면 reset 시각까지 대기.
+  헤더 결손·파싱 실패 시 300ms 폴백.
+- 403/429 응답은 `Retry-After`(없으면 `X-RateLimit-Reset`, 둘 다 없으면 60초)만큼 대기 후 최대 3회
+  재시도하고, 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지).
 
 ### Tradeoff & 예상 문제점
 
@@ -72,8 +75,9 @@ commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다�
 
 `files`(변경 파일 목록과 diff)는 `/commits` list API 응답에 포함되지 않는다. 커밋당 1회 개별 detail API 호출이 불가피하다.
 
-- **문제**: 커밋 수가 많을수록 호출량과 시간이 선형 증가. 커밋 1,000개면 1,000번 호출 + 300ms × 1,000 ≒ 5분.
-  초기 전체 수집 시 수천 개의 커밋이 있는 저장소에서는 수십 분이 걸릴 수 있다.
+- **문제**: 커밋 수가 많을수록 호출량이 선형 증가. 완화책 — merge commit은 목록 응답의 parents 개수로
+  상세 조회 전에 걸러 호출을 생략하고, 상세 조회는 전용 풀(동시 3)에서 병렬 실행한다(입력 순서 보존).
+  커밋 1,000개(non-merge) 기준 무대기 페이싱 + 동시 3이면 수 분 안쪽이나, 저장소 규모에 따라 여전히 선형이다.
 - **방법 선택 이유**: `files`의 diff는 LLM이 diffSummary를 생성하고 `MODIFIED` 관계를 구축하는 핵심 데이터다. 없으면 지식 그래프의 코어 기능이 동작하지 않는다.
 
 #### PR 수집 — closed 페이지 수집 후 클라이언트 필터

@@ -336,7 +336,7 @@ public class GitHubRawService {
                             }
                             if (resp.statusCode().value() == 429) {
                                 return Mono.error(new GitHubRateLimitedException(
-                                        parseRetryAfterSeconds(resp.headers().asHttpHeaders().getFirst("Retry-After"))));
+                                        resolveRetryWaitSeconds(resp.headers().asHttpHeaders())));
                             }
                             return Mono.error(new IllegalStateException(
                                     "GitHub API error: status=" + resp.statusCode().value() + ", path=/users/" + login));
@@ -379,7 +379,7 @@ public class GitHubRawService {
                         }
                         if (resp.statusCode().value() == 403 || resp.statusCode().value() == 429) {
                             return Mono.error(new GitHubRateLimitedException(
-                                    parseRetryAfterSeconds(resp.headers().asHttpHeaders().getFirst("Retry-After"))));
+                                    resolveRetryWaitSeconds(resp.headers().asHttpHeaders())));
                         }
                         return Mono.error(new IllegalStateException(
                                 "GitHub API error: status=" + resp.statusCode().value()
@@ -442,7 +442,7 @@ public class GitHubRawService {
                         }
                         if (resp.statusCode().value() == 403 || resp.statusCode().value() == 429) {
                             return Mono.error(new GitHubRateLimitedException(
-                                    parseRetryAfterSeconds(resp.headers().asHttpHeaders().getFirst("Retry-After"))));
+                                    resolveRetryWaitSeconds(resp.headers().asHttpHeaders())));
                         }
                         return Mono.error(new IllegalStateException(
                                 "GitHub API error: status=" + resp.statusCode().value() + ", path=" + path));
@@ -478,6 +478,27 @@ public class GitHubRawService {
                 rateLimiter.awaitRetry(e.retryAfterSeconds);
             }
         }
+    }
+
+    // 재시도 대기 시간 결정: Retry-After(초) → X-RateLimit-Reset(리셋까지 남은 초) → 60초.
+    // secondary limit은 Retry-After를 주지만, primary limit 소진 403은 Retry-After 없이
+    // X-RateLimit-Reset으로만 알려온다 — 60초 고정 폴백이면 리셋 전 재시도 3회를 소진하고
+    // 실행 진행분을 통째로 버리게 되므로 reset 기준으로 실제 대기 시간을 맞춘다.
+    static long resolveRetryWaitSeconds(HttpHeaders headers) {
+        String retryAfter = headers.getFirst("Retry-After");
+        if (retryAfter != null) {
+            return parseRetryAfterSeconds(retryAfter);
+        }
+        String resetStr = headers.getFirst("X-RateLimit-Reset");
+        if (resetStr != null) {
+            try {
+                long resetEpoch = Long.parseLong(resetStr);
+                return Math.max(0, resetEpoch - System.currentTimeMillis() / 1000 + 1);
+            } catch (NumberFormatException ignored) {
+                // 비정상 reset은 아래 60초 폴백으로
+            }
+        }
+        return 60L;
     }
 
     // Retry-After는 정수 초 문자열. 헤더가 없거나 형식이 어긋나면 60초로 보수적 폴백한다(SlackRawService와 동일 기준).
