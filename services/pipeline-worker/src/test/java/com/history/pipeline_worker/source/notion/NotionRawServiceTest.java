@@ -18,7 +18,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -268,19 +267,19 @@ class NotionRawServiceTest {
     }
 
     @Test
-    @DisplayName("TTL 안에서는 auth별로 캐시를 재사용해 두 번째 호출이 HTTP를 다시 타지 않는다")
-    void fetchAllUsers_cachesWithinTtl_secondCallSkipsHttp() {
+    @DisplayName("같은 auth로 두 번 호출해도 매번 GET /v1/users를 다시 조회한다 — 실행 간 캐시가 없다")
+    void fetchAllUsers_calledTwice_hitsHttpEachTime() {
         AtomicInteger callCount = new AtomicInteger();
         WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
             callCount.incrementAndGet();
             return Mono.just(jsonResponse("{ \"results\": [], \"has_more\": false }"));
         });
-        NotionRawService service = service(builder, Duration.ofMinutes(30));
+        NotionRawService service = service(builder);
 
         service.fetchAllUsers("Bearer t");
         service.fetchAllUsers("Bearer t");
 
-        assertThat(callCount.get()).isEqualTo(1);
+        assertThat(callCount.get()).isEqualTo(2);
     }
 
     @Test
@@ -388,15 +387,11 @@ class NotionRawServiceTest {
     // ─── helpers ────────────────────────────────────────────────────────────
 
     private NotionRawService service(WebClient.Builder builder) {
-        return service(builder, Duration.ofMinutes(30));
-    }
-
-    private NotionRawService service(WebClient.Builder builder, Duration userCacheTtl) {
-        return new NotionRawService(builder, BASE_URL, VERSION, new NotionRateLimiter(0, 1, 5), userCacheTtl);
+        return new NotionRawService(builder, BASE_URL, VERSION, new NotionRateLimiter(0, 1, 5));
     }
 
     private NotionRawService service(WebClient.Builder builder, NotionRateLimiter rateLimiter) {
-        return new NotionRawService(builder, BASE_URL, VERSION, rateLimiter, Duration.ofMinutes(30));
+        return new NotionRawService(builder, BASE_URL, VERSION, rateLimiter);
     }
 
     private ClientResponse jsonResponse(String body) {

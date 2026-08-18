@@ -41,7 +41,6 @@ app:
     gateway-base-url: https://api.atlassian.com/ex/jira
   slack:
     base-url: https://slack.com/api
-    user-map-cache-ttl: 5m  # users.list 결과 캐시 TTL. webhook 수집마다 전체 멤버 재조회 방지(0 = 캐시 비활성).
   discord:
     api-base-url: https://discord.com/api/v10
     # 앱 전체가 공유하는 봇 토큰 — backend와 동일한 값이어야 한다(수집은 이 토큰으로 한다).
@@ -52,8 +51,6 @@ app:
     # 수집하므로(Jira와 같은 모양) 이 worker에는 신규 환경변수가 없다.
     # sender 이름·이메일 보강용 People API — Chat API와 다른 호스트(사용 설정도 Cloud Console에서 별도로 필요).
     people-api-base-url: https://people.googleapis.com/v1
-    # sender id 단위 People API 조회 결과 캐시 TTL — 메시지마다 반복 조회하지 않도록.
-    person-cache-ttl: 30m
   linear:
     base-url: https://api.linear.app
     max-pages-per-run: 50
@@ -67,8 +64,6 @@ app:
     api-base-url: https://api.notion.com/v1
     # URL이 아니라 헤더로 API 버전이 갈린다 — backend와 같은 상수로 고정한다(docs/notion-integration.md §1-2).
     version: "2026-03-11"
-    # GET /v1/users 전량 캐시 TTL — Slack의 users.list와 같은 목적(webhook/재수집마다 전체 재조회 방지).
-    user-cache-ttl: 30m
 
   rabbitmq:
     exchange: history.exchange

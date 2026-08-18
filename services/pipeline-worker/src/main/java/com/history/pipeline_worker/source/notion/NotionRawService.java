@@ -10,13 +10,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -41,26 +39,16 @@ public class NotionRawService {
     private final WebClient webClient;
     private final NotionRateLimiter rateLimiter;
     private final String notionVersion;
-    private final Duration userCacheTtl;
-
-    // 전체 워크스페이스 사용자 캐시 — auth(access_token)별로 TTL 동안 재사용한다. Notion은 조직
-    // 전체를 한 번에 내려주는 GET /v1/users가 있어 Slack의 users.list와 같은 전량 캐싱이 가능하다
-    // (Google Chat처럼 sender 단위 지연 조회가 필요 없다).
-    private final Map<String, CachedUsers> userCache = new ConcurrentHashMap<>();
-
-    private record CachedUsers(Map<String, NotionUser> users, Instant fetchedAt) {}
 
     public NotionRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.notion.api-base-url}") String baseUrl,
             @Value("${app.notion.version}") String notionVersion,
-            NotionRateLimiter rateLimiter,
-            @Value("${app.notion.user-cache-ttl:30m}") Duration userCacheTtl
+            NotionRateLimiter rateLimiter
     ) {
         this.webClient = webClientBuilder.baseUrl(baseUrl).build();
         this.notionVersion = notionVersion;
         this.rateLimiter = rateLimiter;
-        this.userCacheTtl = userCacheTtl;
     }
 
     public NotionFetchContext prepareFetchContext(RawFetchRequest request, Instant checkpoint) {
@@ -179,18 +167,10 @@ public class NotionRawService {
         return new NotionBlockPage(extractResults(response), nextCursor);
     }
 
-    /** auth별 사용자 맵을 TTL 동안 재사용. 만료/미존재면 GET /v1/users 재조회 후 캐시 갱신. */
+    // 수집 실행마다 전량 재조회한다 — 프로세스 수명의 캐시는 연동 해제 후에도 구성원 이름·이메일이
+    // 힙에 남는다. GET /v1/users는 조직 전체를 한 번에 내려주므로 구성원 100명당 요청 1회 수준이라
+    // 실행마다 다시 불러도 비용이 무시할 만하다.
     public Map<String, NotionUser> fetchAllUsers(String auth) {
-        CachedUsers cached = userCache.get(auth);
-        if (cached != null && Duration.between(cached.fetchedAt(), Instant.now()).compareTo(userCacheTtl) < 0) {
-            return cached.users();
-        }
-        Map<String, NotionUser> users = fetchAllUsersFromApi(auth);
-        userCache.put(auth, new CachedUsers(users, Instant.now()));
-        return users;
-    }
-
-    private Map<String, NotionUser> fetchAllUsersFromApi(String auth) {
         Map<String, NotionUser> users = new HashMap<>();
         String cursor = null;
         do {

@@ -75,7 +75,6 @@ class NotionCollectorTest {
         NotionRawService.NotionFetchContext context = new NotionRawService.NotionFetchContext("Bearer token", null);
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.NOTION)).thenReturn(Map.of());
         when(rawService.prepareFetchContext(request, null)).thenReturn(context);
-        when(rawService.fetchAllUsers("Bearer token")).thenReturn(Map.of());
         when(rawService.searchPages(context, null))
                 .thenReturn(new NotionRawService.NotionSearchPageResult(List.of(), null));
 
@@ -136,13 +135,27 @@ class NotionCollectorTest {
     }
 
     @Test
+    @DisplayName("수집할 변경이 0건이면 사용자 맵을 아예 조회하지 않는다 — 필요 없는 실행에서 구성원 개인정보를 가져오지 않는다")
+    void collect_noChangedPages_doesNotFetchUsers() {
+        RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
+        NotionRawService.NotionFetchContext context = new NotionRawService.NotionFetchContext("Bearer token", null);
+        when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.NOTION)).thenReturn(Map.of());
+        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.searchPages(context, null))
+                .thenReturn(new NotionRawService.NotionSearchPageResult(List.of(), null));
+
+        collector.collect(PROJECT_ID, request);
+
+        verify(rawService, never()).fetchAllUsers(anyString());
+    }
+
+    @Test
     @DisplayName("id 없는 page는 본문 조회·발행 대상에서 건너뛴다")
     void collect_pageWithoutId_isSkipped() {
         RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
         NotionRawService.NotionFetchContext context = new NotionRawService.NotionFetchContext("Bearer token", null);
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.NOTION)).thenReturn(Map.of());
         when(rawService.prepareFetchContext(request, null)).thenReturn(context);
-        when(rawService.fetchAllUsers("Bearer token")).thenReturn(Map.of());
         when(rawService.searchPages(context, null)).thenReturn(
                 new NotionRawService.NotionSearchPageResult(List.of(Map.of("object", "page")), null));
         when(eventPublisher.publishAll(anyList())).thenReturn(0);
@@ -179,7 +192,6 @@ class NotionCollectorTest {
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.NOTION))
                 .thenReturn(Map.of(NotionCollector.PAGES_CURSOR, storedCursor));
         when(rawService.prepareFetchContext(request, storedCursor)).thenReturn(context);
-        when(rawService.fetchAllUsers("Bearer token")).thenReturn(Map.of());
         when(rawService.searchPages(context, null))
                 .thenReturn(new NotionRawService.NotionSearchPageResult(List.of(), null));
 

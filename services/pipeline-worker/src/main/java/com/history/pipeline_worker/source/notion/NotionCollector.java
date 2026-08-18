@@ -69,9 +69,11 @@ public class NotionCollector implements SourceCollector {
     public int collect(String projectId, RawFetchRequest request) {
         Instant checkpoint = checkpointService.loadCursors(projectId, provider()).get(PAGES_CURSOR);
         NotionRawService.NotionFetchContext context = rawService.prepareFetchContext(request, checkpoint);
-        // 수집 실행 시작에 워크스페이스 전체 사용자를 한 번 받는다 — partial user(id만)인
-        // created_by/last_edited_by를 이름·이메일로 보강하는 유일한 수단이다(§8).
-        Map<String, NotionRawService.NotionUser> users = rawService.fetchAllUsers(context.auth());
+        // 워크스페이스 전체 사용자 맵 — partial user(id만)인 created_by/last_edited_by를 이름·이메일로
+        // 보강하는 유일한 수단이다(§8). 실행당 한 번만 받되, 처리할 문서가 실제로 나온 뒤에 받는다:
+        // webhook마다 도는 실행 중 Notion 변경이 0건인 쪽이 대부분인데, 미리 받으면 쓸 일 없는
+        // 구성원 이름·이메일을 그때마다 메모리에 올리게 된다.
+        Map<String, NotionRawService.NotionUser> users = null;
 
         int totalPublished = 0;
         Instant cursor = null;
@@ -84,6 +86,9 @@ public class NotionCollector implements SourceCollector {
             for (Map<String, Object> page : searchPage.pages()) {
                 if (!(page.get("id") instanceof String pageId)) {
                     continue;
+                }
+                if (users == null) {
+                    users = rawService.fetchAllUsers(context.auth());
                 }
                 String body = rawService.fetchPageBody(context, pageId);
                 NormalizedEvent event = normalizer.normalizePage(projectId, page, body, users);

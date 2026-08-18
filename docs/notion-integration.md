@@ -496,7 +496,7 @@ collect:
      GET /v1/blocks/{page_id}/children  (재귀, page_size=100, 깊이 5·블록 2000 상한)
      → 평문화(§2-2)
   등장한 created_by/last_edited_by id 집합
-     → GET /v1/users (전량 페이지네이션, TTL 캐시) → 이름·이메일·bot 여부 (§8)
+     → GET /v1/users (전량 페이지네이션, 실행당 1회, 캐시 없음) → 이름·이메일·bot 여부 (§8)
   → normalize → publish (배치 단위)
   → ★ 실행 끝에 딱 한 번, 최대 occurredAt으로 checkpoint 갱신
 ```
@@ -699,12 +699,12 @@ refs.issueKeys / issueExternalRefs → DESCRIBED_IN(source='text', confidence=1.
 Google Chat에서 `sender.displayName`이 안 와서 People API 보강을 붙였던 것과 **정확히 같은
 함정**이며, 놓치면 증상도 같다 — 수집은 정상으로 끝나는데 모든 Actor의 이름이 조용히 null이 된다.
 
-**해법: `GET /v1/users` 전량 조회 + 캐시.** Google Chat과 달리 **조직 전체를 한 번에 내려주는
+**해법: `GET /v1/users` 전량 조회.** Google Chat과 달리 **조직 전체를 한 번에 내려주는
 API가 있으므로** People API처럼 등장한 id만 지연 조회할 필요가 없다.
 
-- 수집 실행 시작에 `GET /v1/users`를 페이지네이션으로 전량 받아 `{id → (name, email, type)}` 맵을
-  만든다(Slack의 `users.list` 전량 캐싱과 같은 형태). TTL 캐시
-  (`app.notion.user-cache-ttl`, 기본 30분).
+- 처리할 페이지가 실제로 나온 뒤, 그 실행 안에서 딱 한 번 `GET /v1/users`를 페이지네이션으로 전량
+  받아 `{id → (name, email, type)}` 맵을 만든다(변경이 0건인 실행에서는 호출 자체를 하지 않는다).
+  캐시는 두지 않는다 — 실행이 끝나면 맵도 함께 버려진다.
 - 맵에 없는 id(게스트·삭제된 사용자 등)는 `GET /v1/users/{id}` 단건으로 폴백하고, 그것도 실패하면
   이름·이메일 null로 두고 **캐시하지 않는다**(다음 실행에서 재시도).
 - `type == "bot"` → `actor.bot = true`. Notion 자동화·다른 연결이 만든 페이지가 사람 Actor로

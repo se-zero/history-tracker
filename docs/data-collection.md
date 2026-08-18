@@ -529,7 +529,7 @@ checkpoint 이후로 필터링된 결과라 클라이언트 쪽 경계 필터링
 Slack·Discord와 마찬가지로 **스페이스 전체를 모으지 않고 페이지마다 발행한다**. 발행 배치가 스페이스
 크기에 비례하면 수년치 스페이스의 초기 수집이 `EventPublisher`의 단일 confirm 타임아웃(10초)에 걸려
 재시도해도 계속 실패한다 — 페이지 크기(1000)가 곧 발행 배치 상한이 된다. People API 보강은 페이지마다
-호출해도 sender 단위 TTL 캐시가 흡수해 호출 수가 페이지 수에 비례하지 않는다.
+호출해도 실행 단위 재사용이 흡수해 호출 수가 페이지 수에 비례하지 않는다.
 
 **checkpoint는 전체 성공 후 한 번만 전진한다**(전 페이지의 최대 `occurredAt`). 중간 페이지 발행이
 실패하면 예외가 전파돼 갱신에 도달하지 못하므로, 전량 축적하던 때와 같은 보증("전체 성공 후 전진")이
@@ -590,12 +590,13 @@ Chat API 응답만으로는 `actor.name`이 항상 비고 `actor.email`도 없�
 
 - **문제**: People API(`people.googleapis.com`, `directory.readonly` scope)를 별도로 호출해야
   하고, 매 메시지마다 부르면 비용이 크다.
-- **방법 선택 이유**: Slack의 `users.list` 전체 캐싱과 같은 목적이지만, People API에는 조직 전체를
+- **방법 선택 이유**: Slack의 `users.list` 조회와 같은 목적이지만, People API에는 조직 전체를
   한 번에 내려주는 API가 없어(권한 범위상) 메시지에 실제로 등장한 sender만 지연 조회한다 —
-  sender id 단위 TTL 캐시(`app.google-chat.person-cache-ttl`, 기본 30분) → 캐시 미스만
-  `people.getBatchGet`(최대 200개/호출)으로 묶어 조회. 조회 실패한 sender는 그 실행에서만 이름·
-  이메일 null로 두고 캐시하지 않아 다음 실행에서 재시도된다. Slack(`users.list`)처럼 이름·이메일을
-  둘 다 확보하지만, Discord는 봇 토큰 모델이라 타인의 이메일 자체를 얻을 수단이 없어 이름만 남는다
+  그 수집 실행 안에서만 재사용하는 맵(`GoogleChatFetchContext.resolvedPersons`)에 없는 것만
+  `people.getBatchGet`(최대 200개/호출)으로 묶어 조회한다. 실행이 끝나면 맵도 함께 버려지므로
+  실행 간 재사용(TTL)은 없다 — 매 실행이 처음부터 다시 조회한다. 조회 실패한 sender는 그 실행에서도
+  이름·이메일 null로 두고 맵에 채우지 않는다. Slack(`users.list`)처럼 이름·이메일을 둘 다 확보하지만,
+  Discord는 봇 토큰 모델이라 타인의 이메일 자체를 얻을 수단이 없어 이름만 남는다
   (`docs/discord-integration.md` §0).
 
 ---
@@ -641,14 +642,15 @@ Discord·Google Chat)이 못 하는 **편집 추적**이 여기서는 자연히 
 독립 `Document`로 수집된다 — 재귀하면 본문 중복·임베딩 비용 배가). 무한 페이지 방어 상한: 재귀
 깊이 5단, 페이지당 블록 2,000개, 본문 100,000자.
 
-### 사용자 보강 — GET /v1/users 전량 캐시
+### 사용자 보강 — GET /v1/users 전량 조회
 
 `created_by`/`last_edited_by`는 partial user(`{object, id}`뿐)라 이름·이메일이 없다. Notion은
 Slack의 `users.list`처럼 워크스페이스 전체를 한 번에 내려주는 API가 있어(Google Chat의 People API
-와 달리 sender 단위 지연 조회가 필요 없다), 수집 실행 시작에 전량 페이지네이션해 TTL 캐시한다
-(`app.notion.user-cache-ttl`, 기본 30분). capability(User information) 미설정 워크스페이스는
-`GET /v1/users`가 403을 낸다 — 여기서 전파하면 capability 설정 하나 때문에 수집 전체가 0건이
-되므로, warn 후 빈 맵으로 이어간다(Google Chat People API 403 처리와 같은 규약).
+와 달리 sender 단위 지연 조회가 필요 없다), 처리할 페이지가 나오면 그 실행 안에서 한 번 전량
+페이지네이션한다(캐시 없음 — 변경 0건인 실행에서는 호출 자체를 하지 않는다).
+capability(User information) 미설정 워크스페이스는 `GET /v1/users`가 403을 낸다 — 여기서 전파하면
+capability 설정 하나 때문에 수집 전체가 0건이 되므로, warn 후 빈 맵으로 이어간다(Google Chat
+People API 403 처리와 같은 규약).
 
 ### occurredAt 기준
 
