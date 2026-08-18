@@ -15,7 +15,7 @@ pipeline-worker가 발행하고 ai-engine이 소비하는 **유일한 수집 계
 ```json
 {
   "projectId": "UUID",
-  "nodeType": "ChangeSet | PullRequest | Issue | Communication",
+  "nodeType": "ChangeSet | PullRequest | Issue | Communication | Document",
   "source":   "GITHUB | JIRA | SLACK | LINEAR | ...",
   "occurredAt": "ISO-8601 Instant",
   "actor":  { "id": "", "name": "", "email": null, "bot": null },
@@ -29,7 +29,7 @@ pipeline-worker가 발행하고 ai-engine이 소비하는 **유일한 수집 계
 | 필드 | 필수 | 규칙 |
 |------|------|------|
 | `projectId` | ✅ | 프로젝트 UUID. **없으면 ai-engine이 이벤트를 버린다** — 프로젝트 스코프 없는 노드는 어떤 조회에도 속하지 못하고 자연키 충돌로 다른 프로젝트와 병합될 수 있다. |
-| `nodeType` | ✅ | 아래 4종 중 하나. 알 수 없는 값은 경고 로그 후 폐기된다. |
+| `nodeType` | ✅ | 아래 5종 중 하나. 알 수 없는 값은 경고 로그 후 폐기된다. |
 | `source` | ✅ | **대문자** 소스 식별자. Actor alias 접두(`GITHUB:login`)와 소스별 그래프 삭제의 스코프 키를 겸한다. |
 | `occurredAt` | ✅ | **이벤트의 실제 발생 시각**(수집 시각이 아니다). checkpoint 전진 기준이라 여기가 틀리면 데이터가 영구 누락된다. |
 | `actor` | ✅ | 작성자. 소스별 ID 형식이 다르며 동일인 통합은 ai-engine이 한다. |
@@ -187,6 +187,25 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 
 `occurredAt`: 메시지 시각 / 이슈 최종 수정 시각.
 
+### Document — 문서 (자연키: `external_id` — source와 함께 유니크)
+
+Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 자일 수 있어, ai-engine은
+`body`를 통짜로 임베딩하지 않고 heading 경계로 쪼갠 `DocumentSection`마다 임베딩한다 — 시맨틱
+엣지는 `Document`에 건다.
+
+| 키 | 타입 | 비고 |
+|----|------|------|
+| `external_id` | string | **자연키. 없으면 ai-engine이 이벤트를 버린다.** 플랫폼 **불변 ID**(Notion page id). 그래프 MERGE 키는 `(project_id, source, external_id)` |
+| `title` | string | 페이지 제목 |
+| `body` | string | 평문화된 본문. `heading_1/2/3`은 `#`/`##`/`###` 접두를 보존한다 — ai-engine 청킹의 경계 신호다 |
+| `url` | string | 표시·링크용. **자연키가 아니다**(제목이 바뀌면 URL도 바뀐다) |
+| `created_at` | string | 생성 시각 |
+| `parent_type` | string | `page_id` \| `database_id` \| `data_source_id` \| `workspace` |
+| `parent_external_id` | string \| 생략 | 부모 **page** id. 부모가 page가 아니면 생략 — `CHILD_OF` 매칭 키. **`properties`에 둔다** — Issue의 부모 키(`refs.parentExternalId`, 아래 「refs — 교차 참조」)와 위치가 다르니 혼동하지 말 것 |
+
+`occurredAt`: 최종 수정 시각 — checkpoint 전진 기준. 편집된 문서는 이 값이 갱신돼 다시
+수집 대상 상단으로 올라온다(대화 아키타입에는 없는, 문서 아키타입만의 재수집 신호).
+
 ---
 
 ## refs — 교차 참조
@@ -197,17 +216,25 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 | 키 | 타입 | 소비처 | 효과 |
 |----|------|--------|------|
 | `issueKey` | string | ChangeSet, Communication | 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN`. 사람용 키로 실노드를 찾고, 없으면 `__stub__` 센티널 Issue에 걸어둔다 (stub 규약은 `docs/graph-schema.md`) |
-| `issueKeys` | string[] | PullRequest | PR이 머지한 모든 커밋에 이슈 연결 전파 |
-| `issueExternalRefs` | {source, externalId}[] | ChangeSet, PullRequest, Communication | 이슈 키가 없는 소스(Asana 등)의 URL 참조. `(project_id, source, external_id)` **실키**로 직접 Issue pre-node를 MERGE하고(부모 참조와 동일 메커니즘, `__stub__` 센티널 불필요) 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN` text 엣지를 건다. PullRequest는 `"SOURCE:externalId"` 문자열 배열로 `issue_external_ids` 속성에 저장해 CONTAINS 커밋에 전파한다 |
+| `issueKeys` | string[] | PullRequest, Document | PullRequest는 머지한 모든 커밋에 이슈 연결을 전파한다. Document는 이슈로 `DESCRIBED_IN`(`source='text'`)을 건다 — 문서 한 건이 여러 이슈를 명시하는 게 흔해 복수형만 쓴다 |
+| `issueExternalRefs` | {source, externalId}[] | ChangeSet, PullRequest, Communication, Document | 이슈 키가 없는 소스(Asana 등)의 URL 참조. `(project_id, source, external_id)` **실키**로 직접 Issue pre-node를 MERGE하고(부모 참조와 동일 메커니즘, `__stub__` 센티널 불필요) 이슈로 `TRIGGERED_BY` / `DISCUSSED_IN` / `DESCRIBED_IN`(Document) text 엣지를 건다. PullRequest는 `"SOURCE:externalId"` 문자열 배열로 `issue_external_ids` 속성에 저장해 CONTAINS 커밋에 전파한다 |
+| `documentExternalRefs` | {source, externalId}[] | ChangeSet, PullRequest, Communication | **역방향** 문서 참조 — 커밋/PR/대화 텍스트에 박힌 Notion URL(§normalizer가 문서 URL 패턴에서 추출). `issueExternalRefs`와 동일한 실키 pre-node 메커니즘으로 Document를 향해 text `REFERENCE`(ChangeSet)/`DISCUSSED_IN`(Communication)를 건다. PullRequest는 `issue_external_ids`와 같은 인코딩으로 `document_external_ids` 속성에 저장해 CONTAINS 커밋에 text `REFERENCE`로 전파한다 — 실무에서 Notion 링크는 커밋 메시지보다 PR 본문에 흔하다 |
 | `prNumber` | string | ChangeSet | PR → 커밋 `CONTAINS` |
-| `parentExternalId` | string | Issue | 부모 이슈의 **불변 ID** — `CHILD_OF` 매칭 키. 이 값이 있어야 링크된다 |
+| `parentExternalId` | string | Issue | 부모의 **불변 ID** — `CHILD_OF` 매칭 키. 이 값이 있어야 링크된다. **Document는 이 refs 키를 쓰지 않는다** — `properties.parent_external_id`다(위 Document 표 참고). 같은 이름의 키가 nodeType마다 다른 곳에 있으니 새 문서 소스를 붙일 때 이 표만 보고 Document의 부모 키를 refs에 넣지 않도록 주의 |
 | `parentIssueKey` | string | Issue | 부모 pre-node의 표시 키 (노드 생성 시에만 기록) |
 | `assignees` | {id, name, email, bot}[] | Issue | 각 담당자를 Actor로 승격 후 `ASSIGNED_TO` (담당자 수만큼 엣지). `id`가 null인 항목은 발행 측에서 제외한다. `bot`은 선택(§actor) |
+| `editors` | {id, name, email, bot}[] | Document | 최종 편집자(Notion `last_edited_by`) 1명을 배열로 감싼 것. 각 편집자를 Actor로 승격 후 `EDITED`. **누적 규약** — 아래 참고 |
 
 **담당자 해제 규약**: Issue 이벤트는 최신 스냅샷이다. `assignees`가 없거나 빈 배열이면 "담당자
 없음"으로 해석돼 기존 `ASSIGNED_TO`가 전부 제거되고, 배열에서 빠진 기존 담당자도 해제된다.
 담당자 정보를 못 가져온 경우와 구분되지 않으므로, **조회 실패 시에는 Issue 이벤트 자체를
 발행하지 않는** 편이 안전하다.
+
+**편집자 누적 규약**: `assignees`와 의도적으로 **반대**다. Notion은 언제나 *마지막* 편집자만
+알려주므로, 담당자와 같은 스냅샷 교체 규약을 적용하면 편집자가 바뀔 때마다 이전 편집자의
+`EDITED`가 지워져 "이 문서에 누가 손댔나"가 항상 1명으로 보인다. 그래서 `editors`는 **MERGE만
+하고 지우지 않는다** — 배열에 없다고 해제되지 않는다. 같은 모양의 배열이 반대로 동작하므로
+다음 커넥터를 붙일 때 이 문단을 놓치면 반드시 틀린다.
 
 ---
 
@@ -235,8 +262,10 @@ Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별
 > **`docs/integration-abstraction.md`의 「커넥터 엔드투엔드 체크리스트」**를 따른다.
 > 아래 항목은 그 체크리스트의 2단계(pipeline-worker)에 해당한다.
 
-1. **아키타입 선택** — 이슈 트래커(`Issue`) / 대화(`Communication`) / 문서(`Document`, 미구현).
-   기존 아키타입이면 ai-engine 무변경이다.
+1. **아키타입 선택** — 이슈 트래커(`Issue`) / 대화(`Communication`) / 문서(`Document`).
+   기존 아키타입이면 ai-engine 무변경이다. `Document`는 Notion이 첫 사례이자 유일한 예외로,
+   ai-engine 그래프 소비 경로(청킹·벡터 인덱스·Layer 2 text 엣지)가 이미 갖춰져 있다
+   (`docs/notion-integration.md`) — 다음 문서 소스는 정말로 ai-engine 무변경일 수 있다.
 2. `CollectionProvider`에 provider 추가, routing key 설정 추가 (§표기 규칙).
 3. `source/{provider}` 패키지에 `SourceCollector` 구현 — fetch·normalize·publish·checkpoint.
 4. 자연키가 **프로젝트 안에서 고유하고 불변**인지 확인. Issue는 `(project_id, source,

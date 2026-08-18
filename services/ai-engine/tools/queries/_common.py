@@ -10,8 +10,12 @@ from graph.driver import get_driver
 
 # ─── 시간축: 노드 → 이벤트 펼치기 ──────────────────────────────────────────────
 # 한 노드는 시간 이벤트를 여러 개 낳는다 — Issue는 생성·종료, PR은 오픈·머지.
-# 이 표가 단일 출처다 (docs/timeline-scope.md의 매핑 표, agent/orchestrator.py의
-# 타임스탬프 의미 사전과 일치해야 한다).
+# 이 표가 get_timeline 이벤트 매핑의 단일 출처다 (docs/timeline-scope.md의 매핑 표와
+# 일치해야 한다). agent/orchestrator.py의 타임스탬프 의미 사전은 이 표를 그대로 담되,
+# Document 한 종류를 더 갖는 상위집합이다 — Document는 작업 단위가 아니라 맥락이라
+# get_timeline엔 들어가지 않지만(graph/overview.py의 _WORK_UNIT_LABELS와 같은 판단),
+# get_issue_context.documents[]·get_document_context로 조회한 뒤엔 evidence로 인용될 수
+# 있어 그쪽 사전에만 document_created/document_updated가 있다.
 #
 # Issue.occurredAt(최종 업데이트)은 생성도 종료도 아니라 의미가 모호하므로 이벤트로
 # 만들지 않는다 — 라벨 없이 노출하면 모델이 생성/완료로 추정해 뒤집는다
@@ -141,6 +145,13 @@ def _detail_count_for_budget(
 # (issue_linker 자체 생성 임계값은 0.34라 기본값 0.5에서는 0.34~0.49 구간이 응답 단에서 마저 차단됨)
 # eval 스윕용으로 env 외부화 — 시스템 프롬프트의 임계값 안내 문구도 이 값으로 렌더링된다.
 _MIN_CONFIDENCE = float(os.environ.get("TOOLS_MIN_CONFIDENCE", "0.5"))
+
+# 벡터 인덱스 over-fetch 배수 — discovery.search_by_keyword·document.search_documents가 공유.
+# db.index.vector.queryNodes는 전역 top-K만 반환하고 project_id 사전 필터가 불가능하다.
+# 단일 Neo4j에 여러 프로젝트가 섞여 있으므로, project_id 필터 후에도 충분한 후보가
+# 남도록 top_k의 배수만큼 넉넉히 가져온 뒤 후처리로 잘라낸다.
+_VECTOR_OVERFETCH = 20
+_VECTOR_OVERFETCH_CAP = 500
 
 def _group_communications_by_thread(comms: list[dict]) -> list[dict]:
     """flat Communication 리스트를 conversation_id 기준으로 그룹핑한다.

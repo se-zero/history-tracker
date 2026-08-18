@@ -14,6 +14,7 @@ import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.jira.service.JiraSelectionFlow;
 import com.history.backend.linear.service.LinearSelectionFlow;
+import com.history.backend.notion.service.NotionOAuthConnectFlow;
 import com.history.backend.slack.service.SlackOAuthConnectFlow;
 
 public record IntegrationResponse(
@@ -90,6 +91,8 @@ public record IntegrationResponse(
                         integration.externalRefValue(ClickUpSelectionFlow.LIST_NAME));
                 yield display == null ? "ClickUp" : display;
             }
+            // 선택 단계가 없다 — 동의 화면의 페이지 피커에서 고른 워크스페이스 이름이 표시 이름이다
+            case NOTION -> integration.externalRefValue(NotionOAuthConnectFlow.WORKSPACE_NAME);
         };
     }
 

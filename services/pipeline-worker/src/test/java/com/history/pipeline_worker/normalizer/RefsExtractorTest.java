@@ -378,8 +378,140 @@ class RefsExtractorTest {
         );
     }
 
+    // ─── Notion 페이지 URL의 page id (documentExternalRefs — issueExternalRefs와 분리된 키) ──
+    // Notion은 이슈 키 체계가 없는 대신 문서(Document) 아키타입 참조를 담는다. URL에는 하이픈이
+    // 없지만 API의 external_id(page id)는 하이픈 있는 UUID라 정규화가 필요하다.
+    // refs.get("documentExternalRefs") = List<Map<String,Object>> [{source: "NOTION", externalId: "<uuid>"}].
+
+    @Test
+    @DisplayName("제목 슬러그가 붙은 Notion URL → 32자리 hex를 하이픈 UUID로 정규화해 추출")
+    void extract_notionUrlWithTitleSlug_hexNormalizedToHyphenatedUuid() {
+        Map<String, Object> refs = extractor.extract(
+                "See https://www.notion.so/Auth-Design-1234567890abcdef1234567890abcdef for context");
+
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+        // issueExternalRefs 키는 건드리지 않는다 — 문서 참조와 이슈 참조는 분리된 출력이다.
+        assertThat(refs).doesNotContainKey("issueExternalRefs");
+    }
+
+    @Test
+    @DisplayName("워크스페이스 세그먼트 없이 32자리 hex만 있는 Notion URL도 추출")
+    void extract_notionUrlWithoutTitleSlug_extracted() {
+        Map<String, Object> refs = extractor.extract(
+                "https://www.notion.so/1234567890abcdef1234567890abcdef");
+
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+    }
+
+    @Test
+    @DisplayName("www. 없는 notion.so 호스트도 추출")
+    void extract_notionUrlWithoutWww_extracted() {
+        Map<String, Object> refs = extractor.extract(
+                "https://notion.so/1234567890abcdef1234567890abcdef");
+
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+    }
+
+    @Test
+    @DisplayName("쿼리스트링이 붙은 Notion URL도 page id 정상 추출")
+    void extract_notionUrlWithQueryString_extracted() {
+        Map<String, Object> refs = extractor.extract(
+                "https://www.notion.so/Auth-Design-1234567890abcdef1234567890abcdef?pvs=4");
+
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+    }
+
+    @Test
+    @DisplayName("워크스페이스 세그먼트가 붙은 Notion URL(/{workspace}/{slug}-{hex})도 추출")
+    void extract_notionUrlWithWorkspaceSegment_extracted() {
+        Map<String, Object> refs = extractor.extract(
+                "https://www.notion.so/acme/Auth-Design-1234567890abcdef1234567890abcdef");
+
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+    }
+
+    @Test
+    @DisplayName("대문자 hex로 붙은 Notion URL도 대소문자 무관 매치 후 소문자 UUID로 정규화")
+    void extract_notionUrlWithUppercaseHex_normalizedToLowercase() {
+        Map<String, Object> refs = extractor.extract(
+                "https://www.notion.so/1234567890ABCDEF1234567890ABCDEF");
+
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+    }
+
+    @Test
+    @DisplayName("같은 Notion URL이 2회 등장해도 documentExternalRefs 원소는 1개 (중복 제거)")
+    void extract_duplicateNotionUrl_deduplicated() {
+        Map<String, Object> refs = extractor.extract(
+                "https://www.notion.so/1234567890abcdef1234567890abcdef mentioned again at "
+                        + "https://www.notion.so/1234567890abcdef1234567890abcdef");
+
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+    }
+
+    @Test
+    @DisplayName("Notion URL이 없는 텍스트 → documentExternalRefs 키 자체 부재")
+    void extract_noNotionUrl_noDocumentExternalRefsKey() {
+        Map<String, Object> refs = extractor.extract("just a regular commit message");
+
+        assertThat(refs).doesNotContainKey("documentExternalRefs");
+    }
+
+    @Test
+    @DisplayName("Jira 이슈 키와 Notion URL이 한 텍스트에 공존하면 issueKey·documentExternalRefs 둘 다 산출")
+    void extract_issueKeyAndNotionUrl_bothExtracted() {
+        Map<String, Object> refs = extractor.extract(
+                "HT-7 관련 설계 문서: https://www.notion.so/Auth-Design-1234567890abcdef1234567890abcdef");
+
+        assertThat(refs).containsEntry("issueKey", "HT-7");
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+    }
+
+    @Test
+    @DisplayName("Asana URL과 Notion URL이 공존하면 issueExternalRefs·documentExternalRefs로 갈라 산출된다")
+    void extract_asanaUrlAndNotionUrl_splitIntoDifferentRefsKeys() {
+        Map<String, Object> refs = extractor.extract(
+                "https://app.asana.com/0/123/456 and https://www.notion.so/1234567890abcdef1234567890abcdef");
+
+        List<Map<String, Object>> issueExternalRefs = externalRefs(refs);
+        assertThat(issueExternalRefs).containsExactly(Map.of("source", "ASANA", "externalId", "456"));
+        List<Map<String, Object>> documentExternalRefs = documentExternalRefs(refs);
+        assertThat(documentExternalRefs).containsExactly(
+                Map.of("source", "NOTION", "externalId", "12345678-90ab-cdef-1234-567890abcdef")
+        );
+    }
+
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> externalRefs(Map<String, Object> refs) {
         return (List<Map<String, Object>>) refs.get("issueExternalRefs");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> documentExternalRefs(Map<String, Object> refs) {
+        return (List<Map<String, Object>>) refs.get("documentExternalRefs");
     }
 }

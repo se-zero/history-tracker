@@ -139,6 +139,16 @@ class DeleteProjectSourceGraph(unittest.TestCase):
         self.assertIn(":ActorDecision", joined)
         self.assertIn(":Issue {project_id: $project_id, source: '__stub__'}", joined)
 
+    def test_generic_source_cleanup_also_covers_document_sections(self):
+        # Document와 DocumentSection은 모두 source를 가지므로, 라벨을 한정하지 않는 1단계가
+        # Notion 해제 때 두 노드를 함께 삭제한다. 별도 고아 정리 경로가 필요 없어야 한다.
+        _, session, _mock_recompute = _run("p1", "NOTION")
+
+        source_delete_query, params = session.calls[0]
+        self.assertIn("MATCH (n {project_id: $project_id, source: $source})", source_delete_query)
+        self.assertNotIn(":Document", source_delete_query)
+        self.assertEqual(params["source"], "NOTION")
+
     def test_orphan_stub_cleanup_only_targets_edgeless_stubs(self):
         # 마지막 단계는 __stub__ 센티널 중 엣지가 하나도 안 남은 것만 지운다 — 다른 소스가
         # 여전히 참조 중인 stub(엣지 있음)은 이 조건에 걸리지 않아 살아남는다.

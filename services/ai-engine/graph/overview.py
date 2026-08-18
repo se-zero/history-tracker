@@ -40,8 +40,24 @@ _CONTENT_TYPE_PREDICATES = {
     "issue":  "(n:Communication AND n.source = 'GITHUB')",
     # coalesce — source가 빈 레거시 노드도 대화로 본다(_to_graph_node가 그렇게 렌더한다)
     "slack":  "(n:Communication AND coalesce(n.source, '') <> 'GITHUB')",
+    "doc":    "n:Document",
 }
-_ALL_CONTENT_PRED = "n:ChangeSet OR n:PullRequest OR n:Issue OR n:Communication"
+# DocumentSection은 의도적으로 뺐다 — 검색 내부 단위지 사용자가 볼 개체가 아니다
+# (docs/notion-integration.md §6-5). content/확장 술어 어디에도 넣지 않는다.
+_ALL_CONTENT_PRED = "n:ChangeSet OR n:PullRequest OR n:Issue OR n:Communication OR n:Document"
+
+# 내용이 빈 Document pre-node를 응답에서 감춘다.
+# writes.link_document_to_parent가 부모 page를 실키 pre-node로 MERGE하는데, Notion에서는
+# 하위 페이지만 연동에 공유하고 상위는 공유하지 않는 사용이 흔하다 — 그러면 부모의 본
+# 이벤트가 영영 오지 않아 external_id만 있는 빈 노드로 남고, 노드가 적은 초기 그래프에서
+# "(문서)" 카드로 그려진다. 부모가 나중에 공유되면 upsert_document가 같은 MERGE 키로 채우므로
+# 이 가드는 저절로 풀린다(__stub__ Issue가 흡수되는 것과 같은 성질).
+#
+# 판별을 title이 아니라 occurredAt으로 하는 이유: 실제 문서도 normalizer가 title을 JSON null로
+# 보내면 title이 NULL이 될 수 있어(_handle_document의 url 주석과 같은 함정) 진짜 문서를 감출
+# 위험이 있다. occurredAt은 checkpoint 전진 기준이라 실제 문서에는 항상 있다(없으면 수집 자체가
+# 실패한다).
+_EMPTY_DOCUMENT_PRED = "(n:Document AND n.occurredAt IS NULL)"
 
 # 확장(이웃) 타입 — content 노드에 매달린 Actor/File만.
 _EXPANSION_LABELS = {"actor": "nb:Actor", "code": "nb:File"}
@@ -65,6 +81,7 @@ _NODE_RETURN_FIELDS = """elementId(n)        AS id,
        n.name              AS name,
        n.aliases           AS aliases,
        n.path              AS path,
+       n.external_id       AS external_id,
        toString(n.occurredAt) AS occurred_at"""
 
 
@@ -79,6 +96,7 @@ MATCH (n)
 WHERE n.project_id = $project_id
   AND ({content_pred})
   AND NOT (n:Issue AND n.source = '__stub__')
+  AND NOT {_EMPTY_DOCUMENT_PRED}
 WITH n ORDER BY n.occurredAt DESC LIMIT $limit
 WITH collect(n) AS content
 CALL (content) {{
@@ -256,6 +274,19 @@ def _to_graph_node(row: dict) -> dict:
             "ref": _node_ref("message", row.get("conversation_id")),
         }
 
+    if label == "Document":
+        # meta는 날짜만 쓴다(부모 페이지 경로는 추가 조인이 필요해 카드 서브타이틀
+        # 용도로는 과하다 — 부모 관계 자체는 CHILD_OF 엣지로 이미 그려진다).
+        return {
+            "id": row["id"],
+            "type": "doc",
+            "title": row.get("title") or "(문서)",
+            "meta": _date_part(row.get("occurred_at")),
+            "source": src.lower() or "notion",
+            "snippet": _truncate(row.get("body")),
+            "ref": _node_ref("document", row.get("external_id")),
+        }
+
     if label == "Actor":
         aliases = row.get("aliases") or []
         return {
@@ -366,6 +397,7 @@ MATCH (n)
 WHERE n.project_id = $project_id
   AND ({_ALL_CONTENT_PRED})
   AND NOT (n:Issue AND n.source = '__stub__')
+  AND NOT {_EMPTY_DOCUMENT_PRED}
 WITH n ORDER BY n.occurredAt DESC LIMIT $limit
 RETURN {_NODE_RETURN_FIELDS}
 """
@@ -496,6 +528,7 @@ WITH [w] + h1 + h2 + h3 AS found
 UNWIND found AS n
 WITH DISTINCT n
 WHERE NOT n:Actor AND NOT (n:Issue AND n.source = '__stub__')
+  AND NOT {_EMPTY_DOCUMENT_PRED}
 WITH n LIMIT $node_limit
 RETURN {_NODE_RETURN_FIELDS}
 """
@@ -535,8 +568,9 @@ async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
 
 # ── 답변 evidence → 관련 서브그래프 ────────────────────────────────────────────
 # 채팅 답변의 evidence는 도메인 키로 노드를 가리킨다(commit→hash 앞 7자, pull_request→
-# "#번호", issue→issue_key, message→conversation_id). 그래프 노드는 elementId로 식별되므로
-# 둘을 잇는 공통 키가 없다 — 여기서 도메인 키로 노드를 resolve해 서브그래프를 만든다.
+# "#번호", issue→issue_key, document→external_id, message→conversation_id). 그래프 노드는
+# elementId로 식별되므로 둘을 잇는 공통 키가 없다 — 여기서 도메인 키로 노드를 resolve해
+# 서브그래프를 만든다.
 
 # 시드 노드(evidence가 가리키는 노드) + 1홉 이웃을 모으고, 그 집합 내부 엣지만 수집한다.
 # 빈 파라미터 리스트는 각 술어를 false로 만들어 안전하다(any(... IN [])=false, x IN []=false).
@@ -547,6 +581,7 @@ WHERE n.project_id = $project_id
     (n:ChangeSet AND any(p IN $commit_prefixes WHERE n.hash STARTS WITH p))
     OR (n:PullRequest AND n.pr_number IN $pr_numbers)
     OR (n:Issue AND n.issue_key IN $issue_keys AND n.source <> '__stub__')
+    OR (n:Document AND n.external_id IN $document_external_ids)
     OR (n:Communication AND (
         replace(n.conversation_id, '.', '') IN $conv_ids
         OR split(coalesce(n.url, ''), '/p')[-1] IN $conv_ids
@@ -562,6 +597,8 @@ CALL (seeds) {{
 WITH seeds + neighbors AS nodes
 UNWIND nodes AS n
 WITH DISTINCT n
+// 이웃 확장은 라벨을 가리지 않으므로, 문서 시드의 CHILD_OF 부모가 빈 pre-node일 수 있다.
+WHERE NOT {_EMPTY_DOCUMENT_PRED}
 RETURN {_NODE_RETURN_FIELDS}
 """
 
@@ -587,7 +624,7 @@ def _normalize_evidence(item: dict) -> tuple[str, str] | None:
     빈 id·미지 타입·숫자 아닌 PR 번호·숫자로 환원 안 되는 message는 무효로 None. 파싱 규칙을
     한 곳에 모아, 한쪽만 바뀌어 "group은 수집했는데 resolve는 못 찾는" drift를 구조적으로 막는다.
     pull_request는 "#42"/"42"를 "42"로, message는 ts/퍼머링크/점없는 ts를 숫자 정규형으로,
-    나머지는 strip한 id를 그대로 키로 쓴다.
+    나머지(document 포함, id=external_id)는 strip한 id를 그대로 키로 쓴다.
     """
     etype = (item.get("type") or "").strip()
     eid = (item.get("id") or "").strip()
@@ -600,6 +637,8 @@ def _normalize_evidence(item: dict) -> tuple[str, str] | None:
         return ("pull_request", num) if num.isdigit() else None
     if etype == "issue":
         return ("issue", eid)
+    if etype == "document":
+        return ("document", eid)
     if etype == "message":
         key = _slack_ts_key(eid)
         return ("message", key) if key else None
@@ -612,6 +651,7 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
         "commit_prefixes": [],
         "pr_numbers": [],
         "issue_keys": [],
+        "document_external_ids": [],
         "conv_ids": [],
     }
     for item in evidence:
@@ -625,6 +665,8 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
             keys["pr_numbers"].append(int(key))
         elif etype == "issue":
             keys["issue_keys"].append(key)
+        elif etype == "document":
+            keys["document_external_ids"].append(key)
         elif etype == "message":
             keys["conv_ids"].append(key)
     return keys
@@ -659,6 +701,13 @@ def _resolve_seed_ids(evidence: list[dict], node_rows: list[dict]) -> list[str |
                     (r["id"] for r in node_rows
                      if r.get("label") == "Issue" and r.get("issue_key") == key
                      and r.get("source") != "__stub__"),
+                    None,
+                )
+            elif etype == "document":
+                # 빈 부모 pre-node는 _SUBGRAPH_QUERY가 이미 걸러내므로 여기서 따로 안 뺀다.
+                match = next(
+                    (r["id"] for r in node_rows
+                     if r.get("label") == "Document" and r.get("external_id") == key),
                     None,
                 )
             elif etype == "message":

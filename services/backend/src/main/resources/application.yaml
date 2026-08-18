@@ -147,3 +147,15 @@ clickup:
   client-secret: ${CLICKUP_CLIENT_SECRET:}
   redirect-uri: ${CLICKUP_REDIRECT_URI:}
   token-url: ${CLICKUP_TOKEN_URL:https://api.clickup.com/api/v2/oauth/token}
+
+notion:
+  client-id: ${NOTION_CLIENT_ID:}
+  client-secret: ${NOTION_CLIENT_SECRET:}
+  redirect-uri: ${NOTION_REDIRECT_URI:}
+  authorize-url: ${NOTION_AUTHORIZE_URL:https://api.notion.com/v1/oauth/authorize}
+  token-url: ${NOTION_TOKEN_URL:https://api.notion.com/v1/oauth/token}
+  revoke-url: ${NOTION_REVOKE_URL:https://api.notion.com/v1/oauth/revoke}
+  api-base-url: ${NOTION_API_BASE_URL:https://api.notion.com/v1}
+  # 조사 시점(2026-08) 최신 버전. URL이 아니라 헤더로 갈리므로 상수로 고정한다 — 바꾸지 않는 한
+  # 배포 환경변수로 흔들 이유가 없다(docs/notion-integration.md §1-2).
+  version: ${NOTION_VERSION:2026-03-11}

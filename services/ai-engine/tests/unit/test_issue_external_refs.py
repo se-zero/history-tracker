@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 
 from graph.event_handler import handle
 from graph.writes import (
-    _parse_issue_external_refs,
+    _parse_prefixed_refs,
     link_changeset_to_issue_external,
     link_changeset_to_pr_issue_externals,
     link_issue_external_to_communication,
@@ -64,25 +64,25 @@ class _FakeDriver:
 class ParseIssueExternalRefsTest(unittest.TestCase):
     def test_splits_on_first_colon(self):
         self.assertEqual(
-            _parse_issue_external_refs(["ASANA:123"]),
+            _parse_prefixed_refs(["ASANA:123"]),
             [{"source": "ASANA", "external_id": "123"}],
         )
 
     def test_external_id_may_contain_colon(self):
         # external_id(gid 등) 자체에 콜론이 섞여 있어도 첫 콜론만 분리 기준으로 삼는다.
         self.assertEqual(
-            _parse_issue_external_refs(["ASANA:abc:def"]),
+            _parse_prefixed_refs(["ASANA:abc:def"]),
             [{"source": "ASANA", "external_id": "abc:def"}],
         )
 
     def test_malformed_entries_are_skipped(self):
         self.assertEqual(
-            _parse_issue_external_refs(["no-colon", ":missing-source", "ASANA:", None, ""]),
+            _parse_prefixed_refs(["no-colon", ":missing-source", "ASANA:", None, ""]),
             [],
         )
 
     def test_none_input_yields_empty_list(self):
-        self.assertEqual(_parse_issue_external_refs(None), [])
+        self.assertEqual(_parse_prefixed_refs(None), [])
 
 
 class LinkChangesetToIssueExternalTest(unittest.TestCase):
@@ -236,6 +236,8 @@ class HandleChangesetIssueExternalRefsTest(unittest.TestCase):
              patch("graph.event_handler.builder.link_changeset_to_pr_issues", AsyncMock()), \
              patch("graph.event_handler.builder.link_changeset_to_issue_external", link_external_mock), \
              patch("graph.event_handler.builder.link_changeset_to_pr_issue_externals", link_pr_external_mock), \
+             patch("graph.event_handler.builder.link_changeset_to_document", AsyncMock()), \
+             patch("graph.event_handler.builder.link_changeset_to_pr_documents", AsyncMock()), \
              patch("graph.event_handler.resolve_actor", AsyncMock(return_value={"uuid": "author-uuid"})), \
              patch("graph.event_handler.make_neo4j_actor_store", return_value="STORE"), \
              patch("graph.event_handler.embed_text", AsyncMock(return_value=[])):

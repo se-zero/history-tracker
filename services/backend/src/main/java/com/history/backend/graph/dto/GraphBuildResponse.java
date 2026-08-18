@@ -9,6 +9,9 @@ public record GraphBuildResponse(
         @JsonProperty("triggered_by") int triggeredBy,
         @JsonProperty("discussed_in") int discussedIn,
         @JsonProperty("reference") int reference,
-        @JsonProperty("thread_propagated") int threadPropagated
+        @JsonProperty("thread_propagated") int threadPropagated,
+        // 문서 아키타입(Notion) 시맨틱 링크 — verify 여부와 무관하게 항상 자동구축(임베딩 전용)이다.
+        @JsonProperty("document_reference") int documentReference,
+        @JsonProperty("described_in_document") int describedInDocument
 ) {
 }

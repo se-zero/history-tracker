@@ -13,6 +13,7 @@
 
 import logging
 
+from graph._layer4_common import group_by_project
 from graph.embedder import cosine_similarity
 from graph.issue_linker import (
     DEFAULT_DISCUSSED_IN_MARGIN,
@@ -23,7 +24,6 @@ from graph.issue_linker import (
     TRIGGERED_BY_THRESHOLD,
     IssueLinkStore,
     _compute_issue_window,
-    _group_by_project,
     select_discussed_in_pairs,
 )
 from graph.llm_judge import DEFAULT_LLM_THRESHOLD, JudgeStats, format_commit_text, judge_pair
@@ -82,8 +82,8 @@ async def build_issue_changeset_links_verified(
         logger.info("TRIGGERED_BY(추천형) 스킵: issues=%d, candidates=%d", len(issues), len(candidate_rows))
         return 0
 
-    issues_by_project = _group_by_project(issues)
-    mods_by_project   = _group_by_project(candidate_rows)
+    issues_by_project = group_by_project(issues)
+    mods_by_project   = group_by_project(candidate_rows)
 
     stats = JudgeStats()
     judged_pairs = 0

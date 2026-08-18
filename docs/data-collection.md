@@ -592,3 +592,102 @@ Chat API 응답만으로는 `actor.name`이 항상 비고 `actor.email`도 없�
   이메일 null로 두고 캐시하지 않아 다음 실행에서 재시도된다. Slack(`users.list`)처럼 이름·이메일을
   둘 다 확보하지만, Discord는 봇 토큰 모델이라 타인의 이메일 자체를 얻을 수단이 없어 이름만 남는다
   (`docs/discord-integration.md` §0).
+
+---
+
+## Notion
+
+**문서 아키타입 1호** — `Issue`/`Communication`으로 정규화되던 기존 8개 커넥터와 달리 `Document`
+nodeType을 새로 발행한다. 그래프 쪽 설계 근거는 `docs/notion-integration.md` 참고. 여기서는 수집
+전략만 다룬다.
+
+### 수집 대상
+
+| 타입 | 엔드포인트 |
+|------|-----------|
+| 페이지 목록 | `POST /v1/search` (`filter.value="page"`, `sort={timestamp:"last_edited_time", direction:"descending"}`) |
+| 페이지 본문 | `GET /v1/blocks/{block_id}/children` (재귀) |
+| 워크스페이스 사용자 | `GET /v1/users` (전량 페이지네이션) |
+
+선택 단계가 없다 — 동의 화면의 페이지 피커가 곧 선택이고, 고른 페이지의 하위 페이지는 자동
+상속된다. `database`/`data source`는 노드로 만들지 않는다(그 안의 page는 각자 수집된다). 모든
+요청에 `Notion-Version` 헤더(`app.notion.version`, 상수 고정)를 싣는다 — URL이 아니라 헤더로 API
+버전이 갈린다. DB checkpoint: `notion/notion_pages` 단일 커서.
+
+### 증분 전략 — 정렬 기반 조기 중단 (시간 필터 없음)
+
+`POST /v1/search`에는 시간 필터가 없다. 대신 `last_edited_time` 내림차순(최신 → 과거)으로 받다가
+`last_edited_time <= checkpoint`인 항목을 만나면 **그 지점에서 배치를 끊는다**(strict 비교 —
+`>checkpoint`인 동안만 계속). Linear의 `orderBy: updatedAt` 내림차순 조기 종료와 같은 메커니즘이다.
+
+⚠️ **checkpoint는 페이지 단위가 아니라 실행 전체 성공 후 한 번만 전진한다.** 내림차순이라 첫
+배치가 가장 최신이므로, 배치 단위로 전진시키면 아직 못 읽은 과거분이 checkpoint보다 오래된 것으로
+읽혀 다음 수집에서 영구 스킵된다(Slack·Discord처럼 나중에 페이지 단위 발행으로 바꾸면 사고 나는
+지점 — 최근 Google Chat 변경을 그대로 옮기면 안 되는 이유가 이것이다).
+
+편집된 문서는 `last_edited_time`이 갱신돼 다시 검색 상단으로 올라온다 — 대화 아키타입(Slack·
+Discord·Google Chat)이 못 하는 **편집 추적**이 여기서는 자연히 성립한다.
+
+### 본문 평문화
+
+페이지마다 `GET /v1/blocks/{id}/children`을 재귀 조회해 마크다운 유사 평문으로 접는다
+(`NotionBlockFlattener`) — heading은 `#`/`##`/`###` 접두로 보존해 ai-engine의 청킹 경계 신호로
+쓴다. `child_page`·`child_database`는 제목만 남기고 재귀하지 않는다(하위 페이지는 자기 차례에
+독립 `Document`로 수집된다 — 재귀하면 본문 중복·임베딩 비용 배가). 무한 페이지 방어 상한: 재귀
+깊이 5단, 페이지당 블록 2,000개, 본문 100,000자.
+
+### 사용자 보강 — GET /v1/users 전량 캐시
+
+`created_by`/`last_edited_by`는 partial user(`{object, id}`뿐)라 이름·이메일이 없다. Notion은
+Slack의 `users.list`처럼 워크스페이스 전체를 한 번에 내려주는 API가 있어(Google Chat의 People API
+와 달리 sender 단위 지연 조회가 필요 없다), 수집 실행 시작에 전량 페이지네이션해 TTL 캐시한다
+(`app.notion.user-cache-ttl`, 기본 30분). capability(User information) 미설정 워크스페이스는
+`GET /v1/users`가 403을 낸다 — 여기서 전파하면 capability 설정 하나 때문에 수집 전체가 0건이
+되므로, warn 후 빈 맵으로 이어간다(Google Chat People API 403 처리와 같은 규약).
+
+### occurredAt 기준
+
+페이지 `last_edited_time` — checkpoint 전진 기준과 같다.
+
+### Rate Limiting
+
+호출마다 기본 350ms 고정 딜레이(연결당 평균 3 req/s 기준). 429·529 응답은 Google Chat과 달리
+서버가 `Retry-After` 헤더(초)로 대기 시간을 알려주므로 있으면 그대로 따르고, 없을 때만 지수
+백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다.
+
+### 토큰
+
+Notion access token은 갱신 응답에 만료 정보(`expires_in` 등)가 전혀 없어 만료 임박 판정 자체가
+불가능하다 — ClickUp과 같이 `AccessTokenRefresher`를 등록하지 않고 비만료 취급한다. `refresh_token`
+은 회전형(갱신할 때마다 이전 값이 무효화됨)이라 근거 없는 선제 갱신이 오히려 자격증명을 잃을
+위험을 만든다 — JSON credential에 자리만 만들어 저장해 두고(`docs/notion-integration.md` §4-3),
+`ProviderCredentialLifecycle`(access_token 폐기, `POST /v1/oauth/revoke`)만 등록한다.
+
+### 수집 트리거
+
+webhook·스케줄러 없이, 연동 직후 1회 초기 수집만 있다 — Notion은 GitHub PR 머지 웹훅에 편승하는
+증분 경로가 없다(대화·이슈 아키타입과 달리 웹훅 트리거 대상 자체가 아니다). 재수집은 수동
+`POST /api/v1/collect/notion` 또는 향후 스케줄러 도입에 의존한다.
+
+### Tradeoff & 예상 문제점
+
+#### 삭제·아카이브 미추적
+
+Phase 1은 휴지통으로 이동한 페이지를 추적하지 않는다(`search`는 기본적으로 휴지통 항목을 돌려주지
+않는다).
+
+- **문제**: 삭제된 Notion 페이지가 그래프에 그대로 남는다.
+- **방법 선택 이유**: 삭제 이벤트를 도입하면 "모든 이벤트가 멱등 upsert"라는 계약 전반의 성격이
+  바뀌는데, 문서 커넥터 하나를 위해 그 변경을 하지 않는다 — Slack의 삭제된 메시지, Google Chat의
+  `showDeleted`와 같은 수준의 알려진 한계다. `filter.in_trash=true`로 휴지통 조회는 가능해 Phase 2
+  reconcile 후보로 남겨 둔다(`docs/notion-integration.md` §5-5).
+
+#### N+1 블록 조회로 인한 초기 수집 비용
+
+페이지마다 블록 트리 재귀 조회가 붙어 호출 수가 `페이지 수 × (1 + 중첩 블록 요청)`이다.
+
+- **문제**: 연결당 평균 3 req/s 한도에서 200페이지 위키의 초기 수집은 대략 600~1,000요청
+  ≈ 4~6분이 걸린다.
+- **방법 선택 이유**: 첫 수집이 오래 걸리는 건 받아들인다 — 웹훅 증분 자체가 없어(위 「수집
+  트리거」) 재수집은 편집된 페이지만 다시 훑는 게 아니라 매번 전체를 다시 도는데, 그마저도 정렬
+  기반 조기 중단이 checkpoint 이후 페이지에서 멈춰 주므로 실질 비용은 편집량에 비례한다.

@@ -99,7 +99,15 @@ export const sourceCatalog: SourceCatalogItem[] = [
     consentSideEffect:
       "방금 동의로 봇이 서버에 추가되었을 수 있어요. 사용하지 않으신다면 Discord 서버 설정에서 제거해 주세요.",
   },
-  { id: "notion", name: "Notion", description: "문서 맥락", Mark: NotionMark, status: "planned" },
+  {
+    id: "notion",
+    name: "Notion",
+    description: "문서 맥락",
+    Mark: NotionMark,
+    status: "wired",
+    connect: "oauth",
+    deletedData: "수집한 Notion 페이지 본문·섹션과 그 그래프 연결",
+  },
   {
     id: "linear",
     name: "Linear",

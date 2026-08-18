@@ -118,6 +118,7 @@ graph/             Neo4j 그래프 구축 + 수집
     issue_link_store.py  시맨틱 이슈 링크용 IssueLinkStore 어댑터
     actor_store.py       Actor 동일인 판단용 ActorStore 어댑터
     communication_store.py  Slack 필터용 Communication 조회/정리
+  document_chunker.py  Document.body를 DocumentSection 임베딩 단위로 분할 (순수 함수 — Neo4j·OpenAI 없음)
   embedder.py        임베딩 생성
   reference_builder.py / issue_linker.py / issue_verifier.py   시맨틱 링크 빌더(자동구축·수동 정밀 구축)
   actor_resolver.py / actor_llm.py                             Actor 동일인 판단

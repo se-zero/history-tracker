@@ -91,9 +91,11 @@ public interface SourceCollector {
   필요하다. `refs.issueKeys`처럼 중립 키로 수렴한다.
   **→ 키 이름 중립화는 A6에서 완료** (ref 키 `jiraKey → issueKey` 계열, ai-engine과 동시 이행).
   **→ URL 기반 참조 완료** — Asana에서 산출 키 `issueExternalRefs`(소스 중립, `{source, externalId}[]`)로
-  구현했다. 등록 지점의 레지스트리화(패턴을 provider별로 분리 관리)는 다음 URL 기반 소스
-  (ClickUp/Notion) 착수 시 한다 — 지금은 패턴 두 벌(Jira 키 형식, Asana URL 형식)뿐이라 미리
-  만들 실익이 없다.
+  구현했다.
+  **→ 패턴 레지스트리화 완료** — Notion(N1)에서 실행. `UrlRefPattern`에 `refsKey`(출력 맵 키)와
+  `idTransform`(값 정규화 함수)을 추가해, Asana/ClickUp이 쓰던 `issueExternalRefs`뿐 아니라
+  Notion의 `documentExternalRefs`(32자리 hex → 하이픈 UUID 정규화)까지 같은 레지스트리 한 곳에서
+  갈라 낸다 — 이슈 외 아키타입(문서)의 URL 기반 참조도 같은 메커니즘으로 확장 가능함을 확인했다.
 
 ### 3-2. backend — 연동 프레임워크
 
@@ -189,7 +191,13 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
 - **Notion `Document` 노드는 별도 설계 단계**: 스키마 제약, upsert+임베딩, Layer 2(문서
   본문의 이슈 키/PR 참조), Layer 4 REFERENCE 대상 편입, tool 정의 추가, 성좌 뷰 렌더링까지
   걸리는 실제 신규 기능이다. 추상화 PR에 섞지 않는다.
-  communication·issue 노드와의 연결 방식은 설계 단계에서 확정한다(추후 변경 가능).
+  **→ 설계 완료 — `docs/notion-integration.md`.** communication·issue 노드와의 연결 방식도 거기서
+  확정했다(`(Issue)-[:DESCRIBED_IN]->(Document)` · `(Document)-[:DISCUSSED_IN]->(Communication)` ·
+  `(ChangeSet)-[:REFERENCE]->(Document)` — 기존 어휘 재사용, 신규는 `EDITED`·`PART_OF` 둘뿐).
+  설계 과정에서 공용 코드의 구멍이 하나 더 나왔다(A8·A9와 같은 성격) — `REFERENCE`는 "전부
+  시맨틱 산물"을 전제해 `clear_reference`가 전량 삭제하는데, 문서는 URL 참조라는 text 경로가
+  있어 **정밀 재구축 한 번에 명시적 링크가 영구 소실된다**. `TRIGGERED_BY`처럼 `source` 속성을
+  도입해 semantic만 지우도록 좁히는 선행 PR(N0)로 처리한다.
 - Slack 노이즈 필터(`slack_filter` 계열)는 이미 모든 Communication에 적용되므로
   Teams/Discord도 자동으로 통과한다 — 이름만 나중에 `communication_filter`로 정리 후보.
 
@@ -301,7 +309,7 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 |----------|------|------|
 | 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ~~ClickUp~~ ✅ | `Issue` 노드 재사용, ai-engine 무변경 |
 | 대화 | **Discord**(코드 작업 완료 ✅ — 연결·수집(A9 수정 후 checkpoint 갱신 실측 확인) 전부 정상) · MS Teams(계획 완료, 라이선스 대기) · **Google Chat**(코드 작업 완료 ✅ — backend·pipeline-worker·web-dashboard, 선행 PR 2건(webhook 토큰 확보 일반화·A9) 포함. `docs/google-chat-integration.md`. §1-0 Workspace 계정 게이트 실측·실기동은 미착수) | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
-| 문서 | Notion | **예외** — `Document` 노드 신규 설계가 선행한다. ai-engine 작업이 크므로 마지막 |
+| 문서 | Notion(N0~N2 완료 ✅ — 공용 REFERENCE text/semantic 분리, ai-engine `Document`/`DocumentSection` 소비 경로, backend OAuth·pipeline-worker 수집기. `docs/notion-integration.md`) | **예외** — `Document` 노드 신규 설계가 선행했다. **커넥터 1개 = 1 PR 규칙의 예외로 4개(N0~N3)로 나눴다** — 남은 건 N3(Layer 4 시맨틱 링크·질의 도구 2종·성좌 뷰·PrivacyPage) |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.

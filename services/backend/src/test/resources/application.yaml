@@ -128,3 +128,13 @@ clickup:
   client-secret: test-clickup-client-secret
   redirect-uri: https://clickup.test/callback
   token-url: https://api.clickup.com/api/v2/oauth/token
+
+notion:
+  client-id: test-notion-client-id
+  client-secret: test-notion-client-secret
+  redirect-uri: https://notion.test/callback
+  authorize-url: https://notion.test/v1/oauth/authorize
+  token-url: https://notion.test/v1/oauth/token
+  revoke-url: https://notion.test/v1/oauth/revoke
+  api-base-url: https://notion.test/v1
+  version: "2026-03-11"

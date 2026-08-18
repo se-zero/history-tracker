@@ -27,18 +27,11 @@ from typing import Awaitable, Callable
 
 import numpy as np
 
+from graph._layer4_common import group_by_project
 from graph.embedder import embed_batch, similarity_matrix
 from graph.writes import STATUS_CATEGORY_CLOSED
 
 logger = logging.getLogger(__name__)
-
-
-def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
-    """project_id 기준 그룹핑 — 프로젝트 간 임베딩 비교(크로스 테넌트 엣지)를 차단한다."""
-    grouped: dict[str, list[dict]] = defaultdict(list)
-    for row in rows:
-        grouped[row.get("project_id") or ""].append(row)
-    return grouped
 
 # TRIGGERED_BY 시맨틱 매칭 임계값. 후보가 "text 링크 없는 커밋"뿐이라 풀이 작아 낮은 값이
 # 안전하다 — 0.55는 시맨틱 엣지를 0개로 전멸시켰다. 단 키 관행이 없는 팀은 전 커밋이 후보라
@@ -194,8 +187,8 @@ def select_triggered_by_pairs(
         [(project_id, changeset_id, issue_key, score), ...]
     """
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
-    issues_by_project = _group_by_project(issues)
-    mods_by_project   = _group_by_project(candidate_rows)
+    issues_by_project = group_by_project(issues)
+    mods_by_project   = group_by_project(candidate_rows)
 
     # (project_id, changeset_id) → (best_issue_key, best_score) — top-1 보장.
     # 같은 커밋의 diff 행과 메시지 행이 같은 키로 병합돼 쌍별 max가 된다(message_mode=max).
@@ -309,8 +302,8 @@ def select_discussed_in_pairs(
         [(project_id, issue_key, communication_id, score), ...]
     """
     # 같은 프로젝트 안에서만 비교 (크로스 테넌트 엣지 차단)
-    issues_by_project = _group_by_project(issues)
-    comms_by_project  = _group_by_project(comms)
+    issues_by_project = group_by_project(issues)
+    comms_by_project  = group_by_project(comms)
 
     selected: list[tuple[str, str, str, float]] = []
     for project_id, project_issues in issues_by_project.items():

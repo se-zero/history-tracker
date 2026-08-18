@@ -57,7 +57,7 @@ export function PrivacyPage() {
               <tr>
                 <td>연동 자격증명</td>
                 <td>
-                  GitHub App 설치 토큰, Slack·ClickUp 액세스 토큰, Jira·Google Chat·Linear·Asana
+                  GitHub App 설치 토큰, Slack·ClickUp 액세스 토큰, Jira·Google Chat·Linear·Asana·Notion
                   액세스·리프레시 토큰, Discord 리프레시 토큰
                 </td>
                 <td>이용자가 각 서비스에서 연동에 동의할 때 발급</td>
@@ -82,6 +82,10 @@ export function PrivacyPage() {
                     <li>
                       Google Chat — 연동한 스페이스의 메시지와 스레드 답글, 작성자의
                       표시 이름·이메일
+                    </li>
+                    <li>
+                      Notion — 연동한 페이지(선택한 페이지의 하위 페이지 포함)의 제목·본문,
+                      작성자·편집자의 표시 이름·이메일
                     </li>
                     <li>Linear — 연동한 팀의 이슈 제목·본문·상태·담당자·작성자</li>
                     <li>
@@ -274,6 +278,45 @@ export function PrivacyPage() {
           </LegalSourceRow>
           <LegalSourceRow label="쓰기 권한">
             요청하지 않습니다. 요청하는 세 가지 권한은 모두 읽기 전용(readonly)입니다.
+          </LegalSourceRow>
+        </LegalSourceBlock>
+
+        <LegalSourceBlock id="notion" name="Notion">
+          <LegalSourceRow label="요청 권한">
+            <ul>
+              <li>
+                <strong>콘텐츠 읽기(Read content)</strong> — 이용자가 연동 시 선택한 페이지와
+                블록을 읽기 위함입니다. 페이지를 만들거나 수정하는 권한은 요청하지 않습니다.
+              </li>
+              <li>
+                <strong>이메일을 포함한 사용자 정보 읽기</strong> — 페이지 작성자·편집자를
+                사람 단위로 식별하고, 이메일로 GitHub 커밋 작성자와 동일인 여부를 판단하기
+                위함입니다.
+              </li>
+            </ul>
+          </LegalSourceRow>
+          <LegalSourceRow label="선택 범위">
+            Notion 동의 화면에서 이용자가 공유할 페이지를 직접 선택합니다.{" "}
+            <strong>선택한 페이지의 하위 페이지도 함께 공유되어 수집 대상에 포함</strong>됩니다
+            — 상위 위키 페이지 하나만 선택해도 그 아래 페이지 전체가 수집될 수 있습니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="수집하는 정보">
+            선택한 페이지(하위 페이지 포함)의 제목과 본문. 페이지의 원본 작성자·편집자
+            정보에는 식별자만 담겨 있어, <strong>Notion 사용자 목록 조회 API</strong>로 표시
+            이름과 이메일을 별도로 조회합니다. 워크스페이스 전체 구성원이 아니라 조회 시점에
+            연결된 워크스페이스의 사용자 목록을 대상으로 하며, 게스트 등 이메일이 없는
+            계정은 이름만 저장될 수 있습니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="이용 목적">
+            문서에 남은 설계·결정 배경을 커밋·이슈와 연결하기 위함입니다. 이메일은 동일 인물
+            판단에만 사용하며, 마케팅 발송이나 외부 제공에 쓰지 않습니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="삭제">
+            연동을 해제하면 Notion에 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과 수집한
+            페이지·작성자 데이터를 삭제합니다.
+          </LegalSourceRow>
+          <LegalSourceRow label="쓰기 권한">
+            요청하지 않습니다. 페이지를 만들거나 수정·삭제하는 어떤 동작도 하지 않습니다.
           </LegalSourceRow>
         </LegalSourceBlock>
 

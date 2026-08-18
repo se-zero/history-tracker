@@ -112,6 +112,20 @@ class IntegrationResponseTest {
         assertThat(response.displayName()).isEqualTo("ClickUp");
     }
 
+    @Test
+    @DisplayName("Notion 연동은 선택 단계가 없어 external_ref의 workspace_name을 바로 표시한다")
+    void notionIntegrationDisplaysWorkspaceName() {
+        Integration integration = Integration.oauth(
+                project(),
+                IntegrationProvider.NOTION,
+                Map.of("workspace_id", "W1", "workspace_name", "Acme", "bot_id", "bot-1"),
+                new byte[] {1});
+
+        IntegrationResponse response = IntegrationResponse.from(integration);
+
+        assertThat(response.displayName()).isEqualTo("Acme");
+    }
+
     private Project project() {
         User owner = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(owner, "id", UUID.randomUUID());

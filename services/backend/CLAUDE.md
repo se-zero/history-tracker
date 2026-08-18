@@ -10,7 +10,7 @@ cd services/backend
 
 ## 패키지 구조
 
-패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시한다. `jira`는 OAuth 클라이언트(동의 코드 교환·토큰 갱신·사이트/프로젝트 조회)와 provider 전략 구현을, `slack`은 연동 검증용 client와 provider 전략 구현을 둔다. `discord`는 OAuth 클라이언트(code 교환·grant 폐기·봇 길드 퇴장)와 provider 전략 구현을 둔다 — 수집은 앱 전체가 공유하는 봇 토큰으로 하고, 행에 저장하는 사용자 OAuth 토큰(refresh token만)은 해제 시 grant 폐기에만 쓰인다. `googlechat`은 OAuth 클라이언트(code 교환·토큰 갱신·grant 폐기·스페이스 목록 조회)와 provider 전략 구현(SPI 4종 전부 — Jira와 같은 조합)을 둔다. 자격증명 코덱·`GoogleChatTokenService`는 Jira와 같은 이유로 `integration.service`에 둔다(SPI 구현체를 leaf로 유지하기 위해 잠금·트랜잭션을 쓰는 무거운 부분을 떼어냈다). 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
+패키지는 기능 단위로 나눈다. `auth`, `github`, `project`, `integration`, `conversation`, `graph` 아래에 `controller/service/repository/domain/dto`를 둔다(기능별로 일부 계층은 생략한다). `graph`는 자체 저장소 없이 ai-engine 그래프 조회를 프록시한다. `jira`는 OAuth 클라이언트(동의 코드 교환·토큰 갱신·사이트/프로젝트 조회)와 provider 전략 구현을, `slack`은 연동 검증용 client와 provider 전략 구현을 둔다. `discord`는 OAuth 클라이언트(code 교환·grant 폐기·봇 길드 퇴장)와 provider 전략 구현을 둔다 — 수집은 앱 전체가 공유하는 봇 토큰으로 하고, 행에 저장하는 사용자 OAuth 토큰(refresh token만)은 해제 시 grant 폐기에만 쓰인다. `googlechat`은 OAuth 클라이언트(code 교환·토큰 갱신·grant 폐기·스페이스 목록 조회)와 provider 전략 구현(SPI 4종 전부 — Jira와 같은 조합)을 둔다. 자격증명 코덱·`GoogleChatTokenService`는 Jira와 같은 이유로 `integration.service`에 둔다(SPI 구현체를 leaf로 유지하기 위해 잠금·트랜잭션을 쓰는 무거운 부분을 떼어냈다). `notion`은 OAuth 클라이언트(code 교환·폐기 — 둘 다 Basic auth + JSON 바디, 폼 인코딩을 쓰는 다른 provider와 다르다)와 provider 전략 구현(SPI 2종 — 폐기만, Slack·Discord와 같은 조합)을 둔다. 선택 단계가 없고(동의 화면의 페이지 피커가 곧 선택) 갱신도 구현하지 않는다(access token 비만료 취급 — 갱신 응답에 만료 정보가 없다). 자격증명 코덱(`NotionCredential`/`NotionCredentialCodec`)은 Google Chat과 같은 이유로 `integration.service`에 둔다. 전역 코드는 `common`, `config`, `security`, pipeline 공유 테이블은 `shared`에 둔다.
 
 `dto`에는 직렬화 경계 타입(프론트 요청·응답, ai-engine 클라이언트 DTO, opaque 커서)만 두고 필드에 도메인 엔티티를 노출하지 않는다(엔티티는 `from()` 매핑 파라미터로만 받는다). 도메인 엔티티를 필드로 담는 서비스 반환·중간 타입(예: `ConversationStart`, `ConversationPage`, `ConversationDetail`)은 `service`에 둔다.
 
@@ -94,7 +94,7 @@ code를 교환하지 않아 어느 서버인지 모른다. 여기서 정리하�
 암호화는 공용 코드가 한다). pending 여부도 flow가 신고하지 않고 `IntegrationSelectionFlow` 등록
 여부로 갈린다 — 두 SPI의 선언이 어긋나 영영 확정할 수 없는 행이 생기는 것을 막기 위함이다.
 
-해당 동작이 없는 provider는 **빈을 만들지 않으면 된다** — Slack·Discord는 폐기만 있고 갱신은 없어
+해당 동작이 없는 provider는 **빈을 만들지 않으면 된다** — Slack·Discord·Notion은 폐기만 있고 갱신은 없어
 `ProviderCredentialLifecycle`만, Jira·Google Chat은 갱신·선택·폐기 셋 다 있어 전부, GitHub은
 자격증명이 없어 어느 쪽도 없다.
 Discord의 `revoke`는 자격증명(refresh token)뿐 아니라 `externalRef`의 `guild_id`도 쓴다 — 봇이 길드를
@@ -142,7 +142,8 @@ Jira·Asana·monday는 2단, ClickUp은 workspace → space → *folder(선택)*
   token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은
   폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시). ClickUp도
   폐기 대상이 없다(원격 revoke API 자체가 없음 — 앱 권한 해제는 사용자가 ClickUp 설정의
-  Apps에서 직접 한다).
+  Apps에서 직접 한다). Notion은 access_token을 폐기한다(`POST /v1/oauth/revoke`, Basic auth —
+  refresh_token이 아니라 access_token으로 호출하는 계약이다).
   **그래프가 RDB보다 먼저** — 프로젝트 삭제와 같은 이유다(외부 HTTP를 트랜잭션 밖에 두고,
   그래프 삭제가 멱등이라 재시도로 수렴).
   checkpoint를 반드시 함께 지운다 — 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이

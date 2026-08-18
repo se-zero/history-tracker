@@ -18,6 +18,8 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 | PullRequest | (project_id, pr_number) |
 | Issue | (project_id, source, external_id) — `issue_key`는 표시용 속성 |
 | Communication | (project_id, url) |
+| Document | (project_id, source, external_id) |
+| DocumentSection | (project_id, source, document_external_id, ordinal) |
 | File | (project_id, path) |
 | Actor | uuid (단일) — 단, 생성/조회는 project_id 스코프 |
 | ActorAlias | (project_id, source_id) |
@@ -43,7 +45,9 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 
 1. **도메인 노드** — `source` 속성으로 스코프한다. `Communication`이 SLACK·GITHUB 공용이라
    라벨이 아니라 속성으로 걸러야 한다. Issue 실노드·parent pre-node는 여기서 잡히지만,
-   `__stub__` 센티널은 특정 소스 소속이 아니라 안 잡힌다 — 5단계 참고.
+   `__stub__` 센티널은 특정 소스 소속이 아니라 안 잡힌다 — 5단계 참고. `Document`·
+   `DocumentSection`도 둘 다 `source` 속성을 가지므로 라벨을 한정하지 않는 이 단계가 자동으로
+   함께 지운다 — File처럼 별도 고아 정리가 필요 없다(`DocumentSection`엔 `source`가 있다).
 2. **고아 File** — `File`은 `(project_id, path)`뿐이라 `source`가 없다(GitHub 전용 파생 노드).
    ChangeSet이 사라지면 `MODIFIED`가 끊긴 채 남으므로 별도로 정리한다.
 3. **Actor** — 소스를 가로지른다(`aliases: ["GITHUB:x", "SLACK:y"]`). 가진 alias가 **전부**
@@ -275,8 +279,55 @@ GitHub 저장소 내 파일.
 
 ---
 
-### Document _(미래)_
-장기 문서(기술 스펙, 설계 문서 등). 현재 미구현.
+### Document
+장기 문서(Notion 페이지 등 — `docs/notion-integration.md`, **문서 아키타입 1호**). 한 페이지가
+수만 자일 수 있어 본문 자체는 임베딩하지 않는다 — 검색 벡터는 전부 `DocumentSection`에 있다.
+
+```json
+{
+  "projectId": "",                     // 프로젝트 UUID — 노드 project_id로 저장 (격리 기준)
+  "nodeType": "Document",
+  "source": "",                        // NOTION | ...
+  "occurredAt": "",                    // ISO-8601 — 최종 수정 시각. 편집된 문서는 갱신돼 재수집 대상 상단으로 올라옴
+  "actor": { "id": "", "name": "", "email": "" },  // 작성자(created_by) — WROTE
+  "properties": {
+    "external_id": "",                 // 플랫폼 불변 ID(Notion page id) — (project_id, source, external_id) MERGE 키. 필수
+    "title": "",                       // 페이지 제목
+    "body": "",                        // 평문화된 본문 — heading_1/2/3 접두(#/##/###)를 청킹 경계로 보존
+    "url": "",                         // 표시·링크용. 자연키 아님(제목 변경 시 바뀜)
+    "created_at": "",                  // 생성 시각
+    "parent_type": "",                 // page_id | database_id | data_source_id | workspace
+    "parent_external_id": ""           // 부모 page id — CHILD_OF 매칭 키. 부모가 page가 아니면 생략
+  },
+  "refs": {}                            // 예: { "editors": [{...}], "issueKeys": ["HT-7"], "issueExternalRefs": [...] }
+}
+```
+
+Document 자체엔 `embedding` 속성이 없다.
+
+---
+
+### DocumentSection
+Document 본문을 heading 경계로 쪼갠 임베딩 단위(`graph/document_chunker.py`). ChangeSet이
+파일별로 쪼개 `MODIFIED` 엣지에 임베딩을 다는 것과 같은 "쪼개서 임베딩" 패턴의 두 번째 사례 —
+다만 파일과 달리 섹션은 문서 전용이라 별도 노드로 둔다(엣지 속성에 담을 반대편 개체가 없다).
+
+```json
+{
+  "project_id": "",              // 소속 프로젝트 UUID
+  "source": "",                  // 소속 Document와 동일 — 소스 단위 삭제 스코프
+  "document_external_id": "",    // 소속 Document.external_id
+  "ordinal": 0,                  // 문서 내 순번 — (project_id, source, document_external_id, ordinal) MERGE 키
+  "heading_path": "",            // "인증 > 토큰 갱신" — 임베딩 입력 앞에 붙여 맥락을 보존
+  "text": "",                    // 섹션 본문
+  "embedding": []                // heading_path + "\n\n" + text 임베딩. 벡터 인덱스 doc_section_embedding
+}
+```
+
+재수집 시 한 문서의 섹션은 **전량 교체**한다(upsert가 아니라 delete-then-create) — 본문 중간
+편집은 이후 ordinal을 전부 밀어 부분 갱신이 무의미하기 때문이다. 시맨틱 엣지를 섹션이 아니라
+Document에 걸어 두므로(관계 목록 참고) 섹션이 통째로 갈려도 링크는 끊기지 않는다.
+`DocumentSection`은 검색 내부 단위라 그래프 뷰·성좌에는 노출하지 않는다.
 
 ---
 
@@ -295,8 +346,14 @@ GitHub 저장소 내 파일.
 | `TRIGGERED_BY` | `(ChangeSet)→(Issue)` | `source: String (text\|semantic)`, `confidence: Float` | 이슈에 대한 커밋. text=1.0 고정, semantic=코사인 유사도. text가 semantic보다 우선 |
 | `CONTAINS` | `(PullRequest)→(ChangeSet)` | — | PR에 포함된 커밋 |
 | `MODIFIED` | `(ChangeSet)→(File)` | `diffSummary: String`, `embedding: Float[]` | 커밋이 파일을 변경. LLM이 생성한 diff 요약문과 그 임베딩 저장 |
-| `REFERENCE` | `(ChangeSet)→(Communication)` | `confidence: Float (0-1)` | 벡터 유사도 기반 의미적 연결. `diffSummary`와 `body` 임베딩 코사인 유사도가 임계값 이상일 때 생성 |
-| `DESCRIBED_IN` | `(Issue)→(Document)` | — | _(미래)_ Actor가 문서에 기술됨 |
+| `REFERENCE` | `(ChangeSet)→(Communication)` | `source: String (text\|semantic)`, `confidence: Float` | 커밋의 명시 URL 참조 또는 벡터 유사도 기반 연결. text=1.0 고정, semantic=유사도/LLM 점수. text가 우선 |
+| `WROTE` | `(Actor)→(Document)` | — | Actor가 문서를 작성 (`created_by`). Communication과 같은 동사 — 둘 다 텍스트 작성 |
+| `EDITED` | `(Actor)→(Document)` | — | Actor가 문서를 편집 (`last_edited_by`). **누적** — `refs.editors`가 최종 편집자 1명뿐이라도 과거 편집자를 지우지 않는다(ASSIGNED_TO의 스냅샷 교체와 반대) |
+| `PART_OF` | `(DocumentSection)→(Document)` | — | 섹션이 속한 문서. 내부 구조, 재수집 시 섹션은 전량 교체 |
+| `CHILD_OF` | `(Document)→(Document)` | — | 문서 계층 구조(부모 page). `properties.parent_external_id` 기반(Issue와 달리 refs가 아니다), Issue CHILD_OF와 같은 pre-node MERGE |
+| `DESCRIBED_IN` | `(Issue)→(Document)` | `source: String (text\|semantic)`, `confidence: Float`, `section: String` (semantic만) | 이슈가 문서에 기술됨. text(`refs.issueKeys`/`issueExternalRefs`)=1.0 고정, semantic=`DocumentSection.embedding` 유사도(임베딩 전용 자동구축, `verify` 여부와 무관 — LLM 검수 빌더 없음). text가 우선. `section`은 semantic 매칭의 최고점 heading_path(근거 위치) |
+| `DISCUSSED_IN` | `(Document)→(Communication)` | `source: String (text)` | 대화 본문의 문서 URL(`refs.documentExternalRefs`). Issue DISCUSSED_IN(text)와 같은 규약 — confidence 없음 |
+| `REFERENCE` | `(ChangeSet)→(Document)` | `source: String (text\|semantic)`, `confidence: Float`, `section: String` (semantic만) | 커밋(또는 그 커밋을 포함한 PR 본문)의 문서 URL. text=1.0 고정, semantic=`MODIFIED.embedding` ↔ `DocumentSection.embedding` 유사도(임베딩 전용 자동구축, `verify` 여부와 무관 — LLM 검수 빌더 없음). PR `refs.documentExternalRefs`는 `pr.document_external_ids`에 실어 그 PR의 CONTAINS 커밋에 전파(TRIGGERED_BY의 PR 전파와 동일 메커니즘) |
 
 ---
 
@@ -311,7 +368,8 @@ graph LR
     PullRequest(["PullRequest"])
     ChangeSet(["ChangeSet"])
     File(["File"])
-    Document(["Document (미래)"])
+    Document(["Document"])
+    DocumentSection(["DocumentSection"])
 
     ActorAlias -->|ALIAS_OF| Actor
 
@@ -319,27 +377,33 @@ graph LR
     Actor -->|WROTE| Communication
     Actor -->|AUTHORED| PullRequest
     Actor -->|AUTHORED| ChangeSet
+    Actor -->|WROTE| Document
+    Actor -->|EDITED| Document
 
     Issue -->|DISCUSSED_IN| Communication
     Issue -->|CHILD_OF| Issue
     Issue -->|ASSIGNED_TO| Actor
-    Issue -.->|DESCRIBED_IN| Document
+    Issue -->|DESCRIBED_IN| Document
 
     ChangeSet -->|TRIGGERED_BY| Issue
     ChangeSet -.->|CHILD_OF 미구현| ChangeSet
     ChangeSet -->|MODIFIED| File
     ChangeSet -.->|REFERENCE| Communication
+    ChangeSet -->|REFERENCE| Document
 
     PullRequest -->|CONTAINS| ChangeSet
 
-    
-
-    classDef future stroke-dasharray: 5 5, opacity: 0.5
-    class Document future
+    Document -->|CHILD_OF| Document
+    Document -->|DISCUSSED_IN| Communication
+    DocumentSection -->|PART_OF| Document
 ```
 
-> 실선: 명시적 관계 (refs 추출 또는 구조적 포함 관계)
-> 점선: 의미적/미래 관계 (`REFERENCE` — 벡터 유사도, `DESCRIBED_IN` — 미구현)
+> 실선: 명시적 관계 (refs 추출·구조적 포함 관계, 또는 명시 URL 참조인 text REFERENCE)
+> 점선: 순수 시맨틱/미구현 관계 (`REFERENCE`(ChangeSet→Communication) — 벡터 유사도 전용,
+> `CHILD_OF`(ChangeSet→ChangeSet) — 미구현). `REFERENCE`(ChangeSet→Document)와
+> `DESCRIBED_IN`(Issue→Document)은 text 경로가 이미 있어 실선이다 — semantic 변형도 이미
+> 구현돼 있으며(postprocess가 `verify` 여부와 무관하게 항상 자동구축), text 우선이라 표시만
+> text 경로 기준으로 실선을 유지한다
 
 ---
 
@@ -349,16 +413,24 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 
 | 레이어 | 관계 | 생성 조건 | 근거 |
 |--------|------|-----------|------|
-| Layer 1 | `CREATED` / `WROTE` / `AUTHORED` | 모든 이벤트 | `actor` 필드 |
+| Layer 1 | `CREATED` / `WROTE` / `AUTHORED` | 모든 이벤트 | `actor` 필드. Document의 `WROTE`도 여기(작성자=`created_by`) |
 | Layer 2 | `CHILD_OF` (Issue) | `refs.parentExternalId` 존재 시 | Issue의 refs (Sub-task → Parent). parent는 실키 pre-node로 선생성 |
 | Layer 2 | `ASSIGNED_TO` | Issue 이벤트마다 (스냅샷 반영) | `refs.assignees` 배열 — 담당자 수만큼 엣지, 배열에서 빠진 담당자는 해제, 부재·빈 배열이면 전원 해제 |
+| Layer 2 | `EDITED` (Document) | Document 이벤트마다 (누적 반영) | `refs.editors` 배열 — MERGE만 하고 지우지 않는다(ASSIGNED_TO와 반대 규약) |
 | Layer 2 | `DISCUSSED_IN` (text) | `refs.issueKey` 존재 시 | Communication의 refs |
 | Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.issueKey`, 또는 PR `issue_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
+| Layer 2 | `CHILD_OF` (Document) | `properties.parent_external_id` 존재 시 | Document의 properties (부모 page) — Issue와 달리 refs가 아니다. parent는 실키 pre-node로 선생성 |
+| Layer 2 | `DESCRIBED_IN` (text) | Document `refs.issueKeys`/`issueExternalRefs` 존재 시 | Document의 refs — 이슈 실노드 없으면 `__stub__` 폴백(issueKeys) 또는 실키 pre-node(issueExternalRefs). `source='text'`, `confidence=1.0` |
+| Layer 2 | `DISCUSSED_IN` (Document, text) | Communication `refs.documentExternalRefs` 존재 시 | 대화 본문의 문서 URL. `source='text'`, confidence 없음 |
+| Layer 2 | `REFERENCE` (ChangeSet→Document, text) | ChangeSet `refs.documentExternalRefs`, 또는 PR `document_external_ids`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 URL. `source='text'`, `confidence=1.0` — REFERENCE의 첫 text 경로(N0가 `source` 필드를 선행 도입) |
 | Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary; 임베딩은 MODIFIED 엣지 속성으로 저장 |
-| Layer 4 | `REFERENCE` | 배치 처리 | `MODIFIED.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.44 (기본값), 시간 범위 ±5일 |
+| Layer 3 | `PART_OF` | Document 이벤트 | `body`를 heading 경계로 청킹(`DocumentSection`) + 배치 임베딩; 재수집 시 섹션 전량 교체, 엣지 속성 없음 |
+| Layer 4 | `REFERENCE` (semantic, ChangeSet→Communication) | 배치 처리 | `MODIFIED.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.44 (기본값), 시간 범위 ±5일. `source='semantic'` |
 | Layer 4 | `DISCUSSED_IN` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `Communication.embedding` 코사인 유사도 ≥ 0.48 (기본값), 이슈 생애 윈도우 `[createdAt-4d, closedAt+3d / 진행중이면 now]` |
 | Layer 4 | `TRIGGERED_BY` (시맨틱) | 배치 처리 | `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ 0.34 (기본값). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행중이면 now]`, ChangeSet당 top-1, text 엣지 있는 커밋은 제외 |
+| Layer 4 | `REFERENCE` (semantic, ChangeSet→Document) | 배치 처리(항상 자동구축 — LLM 검수 빌더 없음) | `MODIFIED.embedding` ↔ `DocumentSection.embedding` 코사인 유사도 ≥ 0.44 (기본값), 문서당 top-5, 시간 윈도우 `[document.createdAt-7d, ∞)` |
+| Layer 4 | `DESCRIBED_IN` (semantic, Issue→Document) | 배치 처리(항상 자동구축 — LLM 검수 빌더 없음) | `Issue.embedding` ↔ `DocumentSection.embedding` 코사인 유사도 ≥ 0.48 (기본값), 문서당 top-5, 시간 윈도우 `[document.createdAt-7d, ∞)` |
 
 > **순서 보장**: Layer 2에서 참조 대상 Issue가 아직 없으면 `__stub__` 센티널을 만들어 엣지를
 > 걸어두고, 본 이벤트 도착 시 `absorb_issue_stub`이 엣지를 실노드로 이관한다 (위 Issue 절의
@@ -380,6 +452,16 @@ refs(`issueKey`/`prNumber`)는 커밋·메시지에 명시될 때만 텍스트�
 
 1. **text** — ChangeSet `refs.issueKey`, 그리고 PR 제목/본문의 `issue_keys`를 그 PR이 머지한 CONTAINS 커밋들에 전파. `source='text'`, `confidence=1.0` (`link_changeset_to_issue`, `link_pr_changesets_to_issues`)
 2. **시맨틱** — `Issue.embedding` ↔ `MODIFIED.embedding` 코사인 유사도 ≥ `triggered_by_threshold`(기본 0.34 — text 엣지가 전혀 없는 커밋만 후보라 낮은 값이 안전하다). 비대칭 시간 윈도우 `[createdAt-1d, closedAt+3d / 진행 중이면 now]`, ChangeSet당 top-1만 유지, text 엣지가 이미 있는 커밋은 제외(text 우선). `source='semantic'`, `confidence=점수` (`build_issue_changeset_links`)
+
+### REFERENCE / DESCRIBED_IN (Document, 문서 아키타입)
+
+매칭은 `DocumentSection` 단위로 하되 엣지는 `Document`에 건다(통짜 임베딩이 다주제 문서에서
+평균화되는 문제를 섹션 분할로 피한 것뿐 — 그래프 질의 단위는 여전히 문서다).
+
+1. **text** — ChangeSet/PR `refs.documentExternalRefs`(REFERENCE), Document `refs.issueKeys`/`issueExternalRefs`(DESCRIBED_IN)로 직접 연결. `source='text'`, `confidence=1.0`
+2. **시맨틱** — `MODIFIED.embedding`/`Issue.embedding` ↔ `DocumentSection.embedding` 코사인 유사도 ≥ threshold(REFERENCE는 `document_reference_threshold` 기본 0.44, DESCRIBED_IN은 `described_in_threshold` 기본 0.48). 문서는 오래 살아 다른 Layer 4 빌더와 시간 윈도우 모양이 다르다 — 하한만 두고 상한을 두지 않는다: `[document.createdAt - 7일, ∞)`. 대신 문서당 top-5 컷으로 후보 폭증을 막는다(반대편인 ChangeSet/Issue는 열어 둔다). text인 쌍은 write 시점에 쌍 단위로 배제한다(노드 단위 배제인 TRIGGERED_BY와 달리, 같은 ChangeSet이 문서 A엔 text로 문서 B엔 semantic으로 동시에 연결될 수 있어서다). `source='semantic'`, `confidence=점수`, `section=최고점 섹션의 heading_path` (`build_document_reference_edges`/`build_described_in_document_edges`, `graph/document_linker.py`)
+
+   LLM 검수(verify) 빌더가 없다 — `/graph/build`의 `verify` 플래그와 무관하게 항상 이 자동구축(임베딩 전용) 경로만 돈다.
 
 ### 실행 트리거 — 자동(디바운스) + 수동
 
@@ -413,7 +495,7 @@ refs(`issueKey`/`prNumber`)는 커밋·메시지에 명시될 때만 텍스트�
   | DISCUSSED_IN | 필터형 (`build_issue_communication_links_filtered`) | 임베딩이 확정한 쌍만 검수 — 걸러내기만 하고 **추가는 없다** |
   | REFERENCE | 필터형 (`build_reference_edges_filtered`) | 위와 동일 |
 
-  clear 범위는 타입마다 다르다. TRIGGERED_BY·DISCUSSED_IN은 `source='semantic'`인 엣지만 지워 text(refs)·스레드 전파 엣지는 보존된다. 반면 REFERENCE는 텍스트 경로가 없어 전부 시맨틱 산물이므로 **전량 삭제 후 재생성**된다.
+  clear 범위는 타입마다 다르다. TRIGGERED_BY·DISCUSSED_IN·REFERENCE 모두 `source='semantic'`인 엣지만 지워 명시 text 참조(및 DISCUSSED_IN의 스레드 전파)는 보존된다. REFERENCE의 source 없는 기존 엣지는 도입 전에는 모두 시맨틱 산물이었으므로 semantic으로 간주해 삭제한다.
 
 ### API — `POST /issue-links/build` (하위 단계 직접 호출)
 

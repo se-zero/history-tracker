@@ -50,7 +50,7 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 
 | # | 도구 | 역할 | queries.py |
 |---|------|------|-----------|
-| 1 | `get_issue_context` | Jira 이슈 + 자식 이슈까지 관련 작업/논의 집계 | `get_issue_context` |
+| 1 | `get_issue_context` | Jira 이슈 + 자식 이슈까지 관련 작업/논의/문서 집계 | `get_issue_context` |
 | 2 | `get_changeset_context` | 커밋 hash로 변경 이유(이슈/논의/PR/diff) 조회 | `get_changeset_context` |
 | 3 | `find_expert` | 파일/디렉토리 최다 기여자 식별 (최근 6개월 2배 가중) | `find_expert` |
 | 4 | `get_timeline` | 시간순 이벤트를 스코프별(이슈/파일/사람/전체 ±기간)로 반환 | `get_timeline` |
@@ -66,6 +66,8 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | 13 | `get_thread_context` | Slack 스레드를 conversation_id로 전체 조회 | `get_thread_context` |
 | 14 | `run_graph_query` | 전용 도구가 없는 질문에 Cypher 직접 실행 (범용 탈출구) | `explore.run_graph_query` |
 | 15 | `describe_graph` | 라벨의 노드 수·속성·실제 값 분포 조회 | `explore.describe_graph` |
+| 16 | `get_document_context` | 문서(Notion) external_id로 본문·작성자·편집자·연결된 이슈/커밋/대화 조회 | `document.get_document_context` |
+| 17 | `search_documents` | 자연어 질의로 DocumentSection 시맨틱 검색 (문서+최고점 섹션 발췌) | `document.search_documents` |
 
 ---
 
@@ -83,10 +85,13 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | `issue_key` | string | ✔ | 이슈 트래커의 사람용 키 (예: `HT-12`) — 표시용 속성으로 매칭하며 `__stub__` 센티널은 제외 |
 
 - 반환: 이슈 메타(`title`/`body`/`status`/`creator`/`assignee` 등) + root 이슈에 직접 연결된
-  `changesets` / `pull_requests` / `discussions`, 그리고 **`descendants[]`**.
+  `changesets` / `pull_requests` / `discussions` / `documents`, 그리고 **`descendants[]`**.
 - **CHILD_OF 자식 이슈까지 집계**: epic/스토리 구조를 따라 `CHILD_OF*1..5`로 자식 이슈를 모아
-  각각의 작업/논의를 `descendants`에 담는다 (root 작업은 하위 호환을 위해 top-level에도 그대로 둠).
+  각각의 작업/논의/문서를 `descendants`에 담는다 (root 작업은 하위 호환을 위해 top-level에도 그대로 둠).
 - `changesets[*]`에 `confidence` + `link_source` 포함. `discussions`는 스레드 그룹핑 구조.
+- `documents[*]`는 `DESCRIBED_IN`(Issue→Document) 유입 — `confidence`/`link_source`('text'|'semantic')/
+  `section` 포함, `get_document_context`의 `issues` 필드와 반대 방향의 같은 관계다. 문서 id를
+  몰라도 이슈에서 바로 연결된 문서(설계 배경 등)를 찾을 수 있다.
 
 ### 2. `get_changeset_context`
 
@@ -97,8 +102,11 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | `hash` | string | ✔ | Git commit hash |
 
 - 반환: `hash`, `commit_message`, `author`, `issues[]`(연결 이슈, confidence/link_source),
-  `communications`(스레드 그룹핑), `pull_request`(단일), `file_changes[]`(`path`+`diffSummary`).
+  `communications`(스레드 그룹핑), `documents[]`(연결 문서, `REFERENCE` 엣지 기준),
+  `pull_request`(단일), `file_changes[]`(`path`+`diffSummary`).
 - 논의는 `REFERENCE` 엣지 기준(커밋→Communication).
+- `documents[*]`에 `external_id`(`title`/`url`/`source`/`confidence`와 함께) 포함 — 이 값으로
+  `get_document_context`를 호출해 본문 전체를 조회한다.
 
 ### 3. `find_expert`
 
@@ -142,7 +150,10 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
   (case-05: 자식 이슈 4건 조회가 타임라인 1회로 대체되며 recall 0.778 → 0.111).
 - **노드 ≠ 이벤트**: 한 노드가 이벤트를 여러 개 낳는다. 매핑 단일 출처는
   `tools/queries/_common.py`의 `EVENT_SPECS`이며, `agent/orchestrator.py`의 타임스탬프 의미
-  사전과 함께 움직여야 한다.
+  사전과 함께 움직여야 한다. 단, `orchestrator.py` 쪽은 Document(`document_created`/
+  `document_updated`)를 하나 더 갖는 상위집합이다 — Document는 작업 단위가 아니라 맥락이라
+  `get_timeline`엔 들어가지 않지만, `get_issue_context.documents[]`·`get_document_context`로
+  조회된 뒤엔 evidence로 인용될 수 있어야 하기 때문이다.
 
   | 노드 | 시각 속성 | `event_meaning` |
   |---|---|---|
@@ -338,7 +349,8 @@ PR 번호로 시작하는 탐색.
 | `pr_number` | integer | ✔ | GitHub PR 번호 |
 
 - 반환: PR 메타(`title`/`body`/`merged_at`/`created_at`/`url`/`author`) + `changesets[]` +
-  `issues[]`(confidence/link_source) + `discussions`(스레드 그룹핑) + `file_changes[]`.
+  `issues[]`(confidence/link_source) + `discussions`(스레드 그룹핑) + `documents[]`(연결 문서,
+  `external_id` 포함 — `get_document_context`로 이어 조회) + `file_changes[]`.
 
 ### 13. `get_thread_context`
 

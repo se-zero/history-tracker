@@ -21,6 +21,7 @@ from typing import Awaitable, Callable
 
 import numpy as np
 
+from graph._layer4_common import group_by_project
 from graph.embedder import embed_batch, similarity_matrix
 
 logger = logging.getLogger(__name__)
@@ -33,14 +34,6 @@ DEFAULT_TOP_K = 5
 # 커밋 메시지 임베딩을 diff 행과 함께 비교(쌍별 max)하는 기본 모드. 메시지 주입의 점수 상승이
 # 정답 쌍에 선별적(노이즈 상승은 미미)이라는 측정 근거로 채택 — off는 도입 전 동작(측정 재현용).
 DEFAULT_MESSAGE_MODE = "max"
-
-
-def _group_by_project(rows: list[dict]) -> dict[str, list[dict]]:
-    """project_id 기준 그룹핑 — 프로젝트 간 임베딩 비교(크로스 테넌트 엣지)를 차단한다."""
-    grouped: dict[str, list[dict]] = defaultdict(list)
-    for row in rows:
-        grouped[row.get("project_id") or ""].append(row)
-    return grouped
 
 
 @dataclass
@@ -154,8 +147,8 @@ def select_reference_pairs(
 
     # 같은 프로젝트 안에서만 비교 — 다른 프로젝트의 커밋과 메시지가 의미상 비슷해도
     # 엣지를 만들면 안 된다 (그래프 격리 위반).
-    mods_by_project = _group_by_project(candidate_rows)
-    comms_by_project = _group_by_project(comm_list)
+    mods_by_project = group_by_project(candidate_rows)
+    comms_by_project = group_by_project(comm_list)
 
     selected: list[tuple[str, str, str, float]] = []
     for project_id, mods in mods_by_project.items():

@@ -12,6 +12,7 @@ Neo4j 그래프 빌더 — facade.
 - graph.maintenance         : 백필/마이그레이션/정리/프로젝트 삭제
 - graph.reference_store     : REFERENCE 엣지용 Neo4j ReferenceStore 어댑터
 - graph.issue_link_store    : 시맨틱 이슈 링크용 Neo4j IssueLinkStore 어댑터
+- graph.document_link_store : 시맨틱 문서 링크(REFERENCE·DESCRIBED_IN→Document)용 Neo4j DocumentLinkStore 어댑터
 - graph.actor_store         : Actor 동일인 판단용 Neo4j ActorStore 어댑터
 - graph.communication_store : Slack 필터용 Communication 조회/정리
 """
@@ -22,6 +23,7 @@ from graph.communication_store import (
     fetch_unfiltered_communications,
     mark_communication_llm_filtered,
 )
+from graph.document_link_store import make_neo4j_document_link_store
 from graph.driver import close_driver, get_driver
 from graph.issue_link_store import make_neo4j_issue_link_store
 from graph.maintenance import (
@@ -30,6 +32,7 @@ from graph.maintenance import (
     backfill_pr_issue_keys,
     backfill_triggered_by_source,
     clear_reference,
+    clear_semantic_described_in,
     clear_semantic_discussed_in,
     clear_semantic_triggered_by,
     delete_project_graph,
@@ -46,19 +49,29 @@ from graph.schema import (
 )
 from graph.writes import (
     absorb_issue_stub,
+    link_changeset_to_document,
     link_changeset_to_issue,
     link_changeset_to_issue_external,
+    link_changeset_to_pr_documents,
     link_changeset_to_pr_issue_externals,
     link_changeset_to_pr_issues,
+    link_document_to_communication,
+    link_document_to_parent,
     link_issue_external_to_communication,
+    link_issue_external_to_document,
     link_issue_to_communication,
+    link_issue_to_document,
     link_issue_to_parent,
+    link_pr_changesets_to_documents,
     link_pr_changesets_to_issue_externals,
     link_pr_changesets_to_issues,
     link_pr_to_changeset,
+    replace_document_sections,
+    set_document_editors,
     set_issue_assignees,
     upsert_changeset,
     upsert_communication,
+    upsert_document,
     upsert_file_with_modified_edge,
     upsert_files_with_modified_edges,
     upsert_issue,
@@ -80,20 +93,31 @@ __all__ = [
     "upsert_pull_request",
     "upsert_issue",
     "upsert_communication",
+    "upsert_document",
+    "replace_document_sections",
     # writes (link)
     "link_changeset_to_issue",
     "link_changeset_to_pr_issues",
     "link_pr_to_changeset",
     "link_pr_changesets_to_issues",
     "link_issue_to_communication",
+    "link_issue_to_document",
+    "link_issue_external_to_document",
     "link_issue_to_parent",
+    "link_document_to_parent",
     "set_issue_assignees",
+    "set_document_editors",
     "absorb_issue_stub",
     # writes (link — issueExternalRefs 실키 pre-node)
     "link_changeset_to_issue_external",
     "link_issue_external_to_communication",
     "link_changeset_to_pr_issue_externals",
     "link_pr_changesets_to_issue_externals",
+    # writes (link — documentExternalRefs 실키 pre-node, 첫 text REFERENCE 작성자)
+    "link_changeset_to_document",
+    "link_document_to_communication",
+    "link_changeset_to_pr_documents",
+    "link_pr_changesets_to_documents",
     # maintenance / migrations
     "propagate_thread_discussed_in",
     "backfill_triggered_by_source",
@@ -102,6 +126,7 @@ __all__ = [
     "backfill_actor_aliases",
     "clear_semantic_triggered_by",
     "clear_semantic_discussed_in",
+    "clear_semantic_described_in",
     "clear_reference",
     "delete_project_graph",
     "delete_project_source_graph",
@@ -109,6 +134,7 @@ __all__ = [
     # store factories
     "make_neo4j_reference_store",
     "make_neo4j_issue_link_store",
+    "make_neo4j_document_link_store",
     "make_neo4j_actor_store",
     # communication filter helpers
     "fetch_unfiltered_communications",
