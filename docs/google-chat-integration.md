@@ -245,7 +245,7 @@ collect:
           &pageToken={직전 응답의 nextPageToken}
   → 등장한 sender 집합 추출 (중복 제거)
   → people.googleapis.com people:batchGet?resourceNames=people/{id}&...&personFields=names,emailAddresses
-      (최대 200개/호출, TTL 캐시 — sender id 단위로 지연 조회. §7)
+      (최대 200개/호출, 그 실행 안에서만 재사용하며 지연 조회. §7)
   → normalize(actorInfo 포함) → publish → 최대 occurredAt으로 checkpoint 갱신
 ```
 
@@ -295,7 +295,7 @@ Slack·Discord normalizer의 관례와 같다.
 
 People API 호출(`resolveSenders`)도 새 rate limiter를 만들지 않고 같은 `GoogleChatRateLimiter`를
 재사용한다 — Chat API와 별도 쿼터를 쓰는 다른 API지만, 보수적으로 페이싱한다는 목적은 같기 때문이다.
-sender 단위 TTL 캐시(§7)가 있어 People API 호출 자체가 페이지당 최대 200개 배치 1~2회로 적어,
+실행 안에서 sender를 재사용(§7)해 People API 호출 자체가 페이지당 최대 200개 배치 1~2회로 적어,
 전용 리미터를 둘 실익이 크지 않다.
 
 ## 5. web-dashboard — 화면 (✅ 완료, 2026-08-09)
@@ -406,7 +406,7 @@ API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더
 - **본문 존재 단언**: ✅ 완료 — `GoogleChatNormalizerTest`가 `body`(=`text`) 매핑을 확인한다.
 - **People API 보강 단언**(§7, A9급 실측 발견의 후속 조치): ✅ 완료 —
   `GoogleChatRawServiceTest`가 `people:batchGet` 요청 형태(`users/`→`people/` 치환·`personFields`),
-  TTL 캐시 히트/만료, primary 이메일 우선 선택, 조회 실패 sender의 미캐싱(재시도 허용)을 고정한다.
+  같은 실행 안 재사용, 다른 실행 간 재조회 경계, primary 이메일 우선 선택, 조회 실패 sender의 미캐싱(재시도 허용)을 고정한다.
   배치 호출 자체가 403·500으로 실패해도 예외를 던지지 않고 빈 맵으로 수집을 이어가는지, 429는
   재시도 상한 소진 후 여전히 예외로 전파하는지도 회귀 테스트로 고정했다(미설정 People API가 수집
   전체를 0건으로 만들던 문제의 재발 방지).

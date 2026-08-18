@@ -496,7 +496,7 @@ collect:
      GET /v1/blocks/{page_id}/children  (재귀, page_size=100, 깊이 5·블록 2000 상한)
      → 평문화(§2-2)
   등장한 created_by/last_edited_by id 집합
-     → GET /v1/users (전량 페이지네이션, TTL 캐시) → 이름·이메일·bot 여부 (§8)
+     → GET /v1/users (전량 페이지네이션, 실행당 1회, 캐시 없음) → 이름·이메일·bot 여부 (§8)
   → normalize → publish (배치 단위)
   → ★ 실행 끝에 딱 한 번, 최대 occurredAt으로 checkpoint 갱신
 ```
