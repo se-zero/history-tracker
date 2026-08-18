@@ -95,6 +95,47 @@ def test_batch_failure_resolves_all_waiters_to_empty(monkeypatch):
     assert results == [[], []]  # 예외가 전파되지 않고 빈 벡터로 폴백
 
 
+def test_batch_rejection_retries_each_text_individually(monkeypatch):
+    """배치 콜이 통째로 실패하면(빈 벡터 반환) 각 텍스트를 1건씩 재시도한다 — 문제 입력 1건이
+    같이 탄 정상 텍스트의 임베딩까지 결손시키지 않아야 한다(실패 반경 축소)."""
+    embed_batcher.reset()
+    monkeypatch.setattr(embed_batcher, "COALESCE_MAX", 3)
+
+    async def scenario():
+        return await asyncio.gather(
+            embed_batcher.embed_text_batched("a"),
+            embed_batcher.embed_text_batched("bad"),
+            embed_batcher.embed_text_batched("c"),
+        )
+
+    # 1번째 호출(배치 3건) → 청크 실패로 전부 [] / 이후 단건 재시도 → a·c는 성공, bad는 여전히 실패
+    fake = mock.AsyncMock(side_effect=[[[], [], []], [[1.0]], [[]], [[3.0]]])
+    with mock.patch("graph.embed_batcher.embed_batch", new=fake):
+        results = asyncio.run(scenario())
+
+    assert results == [[1.0], [], [3.0]]
+    assert fake.await_count == 4  # 배치 1회 + 단건 재시도 3회
+    assert fake.await_args_list[0].args[0] == ["a", "bad", "c"]
+    assert [c.args[0] for c in fake.await_args_list[1:]] == [["a"], ["bad"], ["c"]]
+
+
+def test_coalesce_max_one_bypasses_batching(monkeypatch):
+    """COALESCE_MAX=1이면 대기창·waiter 없이 즉시 단건 호출한다 (배칭 킬스위치)."""
+    embed_batcher.reset()
+    monkeypatch.setattr(embed_batcher, "COALESCE_MAX", 1)
+    monkeypatch.setattr(embed_batcher, "COALESCE_WINDOW_MS", 5000)  # 대기창을 탔다면 시간 안에 못 끝남
+
+    fake = mock.AsyncMock(return_value=[[7.0]])
+    with mock.patch("graph.embed_batcher.embed_batch", new=fake):
+        result = asyncio.run(
+            asyncio.wait_for(embed_batcher.embed_text_batched("solo"), timeout=1.0)
+        )
+
+    fake.assert_awaited_once()
+    assert fake.await_args.args[0] == ["solo"]
+    assert result == [7.0]
+
+
 def test_timer_waking_after_count_flush_is_noop(monkeypatch):
     """개수 flush가 먼저 배치를 비운 뒤 타이머가 뒤늦게 깨어나는 시퀀스 — _flush의 빈
     pending 가드가 no-op으로 처리해야 한다(추가 embed_batch 호출·에러 없음)."""

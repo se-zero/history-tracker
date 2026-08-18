@@ -33,6 +33,12 @@ async def embed_text_batched(text: str) -> list[float]:
     if not text or not text.strip():
         return []
 
+    # 배칭 비활성 킬스위치: COALESCE_MAX=1이면 대기창·waiter 없이 즉시 단건 호출한다.
+    # 프리페치 킬스위치(INGEST_CHANGESET_LOOKAHEAD=0)와 함께 써야 기존 직렬 동작이 완전 복원된다.
+    if COALESCE_MAX <= 1:
+        vectors = await embed_batch([text])
+        return vectors[0] if vectors else []
+
     loop = _bind_loop()
     future: asyncio.Future = loop.create_future()
     _pending.append((text, future))
@@ -119,8 +125,21 @@ async def _flush() -> None:
         vectors = [[] for _ in texts]
 
     for (_, fut), vector in zip(batch, vectors):
-        if not fut.done():  # 취소된 waiter 방어
+        if vector and not fut.done():  # 취소된 waiter 방어
             fut.set_result(vector)
+
+    # 실패 반경 축소: 콜 하나가 통째로 거절되면(예: 8,192토큰 초과 입력 1건 → 400 → 청크 전체 [])
+    # 같이 탄 정상 텍스트까지 전부 결손된다. 빈 벡터로 남은 항목만 1건씩 재시도해
+    # 단건 호출 시절의 격리 수준을 복원한다 — 정상 경로 비용 0, 실패 시에만 추가 콜.
+    for (text, fut), vector in zip(batch, vectors):
+        if not vector and not fut.done():
+            try:
+                single = await embed_batch([text])
+            except Exception:
+                single = []
+            if not fut.done():
+                fut.set_result(single[0] if single else [])
+
     # embed_batch가 입력보다 짧게 반환하면(계약 파손) zip이 조용히 멈춰 남은 waiter가
     # 영원히 잠든다 — 워커 정지로 이어지므로 빈 벡터로 마저 깨운다.
     for _, fut in batch:

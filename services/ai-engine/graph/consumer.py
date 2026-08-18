@@ -143,7 +143,7 @@ class _PartitionedDispatcher:
         self._queues.clear()
         self._workers.clear()
 
-        for task in self._prefetch_tasks:
+        for task in list(self._prefetch_tasks):  # cancel 완료 콜백(discard)의 set 변형과 순회 분리
             task.cancel()
         for task in list(self._prefetch_tasks):
             try:
