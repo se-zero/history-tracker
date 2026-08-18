@@ -33,6 +33,7 @@ MODULES = [
     "graph.communication_store",
     "graph.consumer",
     "graph.driver",
+    "graph.embed_batcher",
     "graph.embedder",
     "graph.event_handler",
     "graph.issue_link_store",
