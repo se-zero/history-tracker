@@ -11,7 +11,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -43,8 +42,7 @@ class SlackRawServiceTest {
         SlackRawService service = new SlackRawService(
                 webClientBuilder,
                 "https://slack.example",
-                new SlackRateLimiter(0, 0, 0),
-                Duration.ofMinutes(5)
+                new SlackRateLimiter(0, 0, 0)
         );
 
         Map<String, Object> raw = service.fetchSample(new RawFetchRequest("Bearer token", null, Map.of()));
@@ -82,7 +80,7 @@ class SlackRawServiceTest {
                             """));
                 });
         SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ofMinutes(5));
+                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0));
         SlackRawService.SlackFetchContext context =
                 new SlackRawService.SlackFetchContext("Bearer token", Map.of(), new SlackPacing());
         Instant lastScannedAt = Instant.ofEpochSecond(1700000000);
@@ -111,7 +109,7 @@ class SlackRawServiceTest {
                             """));
                 });
         SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ofMinutes(5));
+                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0));
         SlackRawService.SlackFetchContext context =
                 new SlackRawService.SlackFetchContext("Bearer token", Map.of(), new SlackPacing());
 
@@ -133,7 +131,7 @@ class SlackRawServiceTest {
                     return Mono.just(jsonResponse(responseFor(request)));
                 });
         SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ofMinutes(5));
+                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0));
         SlackRawService.SlackFetchContext context =
                 new SlackRawService.SlackFetchContext("Bearer token", Map.of(), new SlackPacing());
         // 루트 메시지(ts=1699999900)보다 과거라 checkpoint 이전이 아니므로 replies를 가져온다
@@ -145,8 +143,8 @@ class SlackRawServiceTest {
     }
 
     @Test
-    @DisplayName("TTL 내 재호출은 users.list를 재조회하지 않고 캐시를 재사용한다")
-    void cachesUserMapWithinTtl() {
+    @DisplayName("prepareFetchContext를 두 번 호출하면 users.list를 매번 재조회한다 — 실행 간 캐시가 없다")
+    void prepareFetchContext_calledTwice_refetchesUserListEachTime() {
         AtomicInteger usersListCalls = new AtomicInteger();
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -156,28 +154,7 @@ class SlackRawServiceTest {
                     return Mono.just(jsonResponse(responseFor(request)));
                 });
         SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ofMinutes(5));
-        RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
-
-        service.prepareFetchContext(request);
-        service.prepareFetchContext(request);
-
-        assertThat(usersListCalls.get()).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("TTL=0이면 캐시가 비활성화되어 매번 users.list를 재조회한다")
-    void refetchesUserMapWhenTtlZero() {
-        AtomicInteger usersListCalls = new AtomicInteger();
-        WebClient.Builder webClientBuilder = WebClient.builder()
-                .exchangeFunction(request -> {
-                    if ("/users.list".equals(request.url().getPath())) {
-                        usersListCalls.incrementAndGet();
-                    }
-                    return Mono.just(jsonResponse(responseFor(request)));
-                });
-        SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ZERO);
+                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0));
         RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
 
         service.prepareFetchContext(request);
@@ -194,7 +171,7 @@ class SlackRawServiceTest {
                         {"ok": false, "error": "missing_scope"}
                         """)));
         SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ofMinutes(5));
+                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0));
         SlackRawService.SlackFetchContext context =
                 new SlackRawService.SlackFetchContext("Bearer token", Map.of(), new SlackPacing());
 
@@ -211,7 +188,7 @@ class SlackRawServiceTest {
                         {"ok": false, "error": "invalid_auth"}
                         """)));
         SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0), Duration.ofMinutes(5));
+                webClientBuilder, "https://slack.example", new SlackRateLimiter(0, 0, 0));
         RawFetchRequest request = new RawFetchRequest("Bearer token", null, Map.of());
 
         assertThatThrownBy(() -> service.prepareFetchContext(request))
@@ -259,7 +236,7 @@ class SlackRawServiceTest {
                 });
         SlackRateLimiter rateLimiter = mock(SlackRateLimiter.class);
         SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", rateLimiter, Duration.ofMinutes(5));
+                webClientBuilder, "https://slack.example", rateLimiter);
         SlackRawService.SlackFetchContext context =
                 new SlackRawService.SlackFetchContext("Bearer token", Map.of(), new SlackPacing());
 
@@ -310,7 +287,7 @@ class SlackRawServiceTest {
                 });
         SlackRateLimiter rateLimiter = mock(SlackRateLimiter.class);
         SlackRawService service = new SlackRawService(
-                webClientBuilder, "https://slack.example", rateLimiter, Duration.ofMinutes(5));
+                webClientBuilder, "https://slack.example", rateLimiter);
         SlackRawService.SlackFetchContext context =
                 new SlackRawService.SlackFetchContext("Bearer token", Map.of(), new SlackPacing());
         return new RateLimitedFixture(service, context, historyCalls, rateLimiter);

@@ -13,7 +13,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -45,21 +44,13 @@ public class SlackRawService {
     private final WebClient webClient;
     private final SlackRateLimiter rateLimiter;
 
-    // auth(워크스페이스 토큰)별 users.list 결과 캐시 — webhook 수집마다 전체 멤버 재조회 방지
-    private final Map<String, CachedUserMap> userMapCache = new ConcurrentHashMap<>();
-    private final Duration userMapCacheTtl;
-
-    private record CachedUserMap(Map<String, UserInfo> userMap, Instant fetchedAt) {}
-
     public SlackRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.slack.base-url}") String baseUrl,
-            SlackRateLimiter rateLimiter,
-            @Value("${app.slack.user-map-cache-ttl:5m}") Duration userMapCacheTtl
+            SlackRateLimiter rateLimiter
     ) {
         this.webClient = webClientBuilder.baseUrl(baseUrl).build();
         this.rateLimiter = rateLimiter;
-        this.userMapCacheTtl = userMapCacheTtl;
     }
 
     public Map<String, Object> fetchSample(RawFetchRequest request) {
@@ -85,21 +76,12 @@ public class SlackRawService {
         );
     }
 
+    // 실행마다 users.list를 다시 조회한다 — 프로세스 수명의 캐시는 연동 해제 후에도 구성원 이름·
+    // 이메일이 힙에 남는다.
     public SlackFetchContext prepareFetchContext(RawFetchRequest request) {
         String auth = request.credentials();
         SlackPacing pacing = new SlackPacing();
-        return new SlackFetchContext(auth, cachedUserMap(auth, pacing), pacing);
-    }
-
-    /** auth별 userMap을 TTL 동안 재사용. 만료/미존재면 users.list 재조회 후 캐시 갱신. */
-    private Map<String, UserInfo> cachedUserMap(String auth, SlackPacing pacing) {
-        CachedUserMap cached = userMapCache.get(auth);
-        if (cached != null && Duration.between(cached.fetchedAt(), Instant.now()).compareTo(userMapCacheTtl) < 0) {
-            return cached.userMap();
-        }
-        Map<String, UserInfo> userMap = fetchUserMap(auth, pacing);
-        userMapCache.put(auth, new CachedUserMap(userMap, Instant.now()));
-        return userMap;
+        return new SlackFetchContext(auth, fetchUserMap(auth, pacing), pacing);
     }
 
     public List<Object> fetchChannels(SlackFetchContext context) {
