@@ -149,7 +149,14 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
 ## Rate Limiting
 
 - **GitHub**: 기본 300ms 고정 딜레이. `X-RateLimit-Remaining`이 임계값 이하이면 `X-RateLimit-Reset`까지 대기.
-- **Slack**: endpoint별 고정 딜레이 (`conversations.list` / `history` / `replies`).
+- **Slack**: endpoint별 고정 딜레이 (`conversations.list` / `history` / `replies`). 429 응답은
+  `Retry-After` **헤더**(정수 초, 없거나 형식이 어긋나면 60초 폴백)만큼 대기 후 최대 3회 재시도하고,
+  첫 429부터는 그 실행 동안 해당 endpoint의 호출 간격을 Retry-After 값으로 승격한다(`SlackPacing` —
+  실행 단위 상태라 싱글턴 rate limiter와 달리 동시 수집 중인 프로젝트 간에 섞이지 않는다). 배경:
+  2025-05-29 이후 생성된 비마켓플레이스 배포형 앱은 `history`/`replies`가 분당 1회·요청당 15건으로
+  제한된다(Marketplace 승인 시 해제). 고정 딜레이는 구 한도 기준을 유지하고 신규 한도는 429 적응으로
+  흡수하므로 어느 체제든 설정 변경이 필요 없다. `ok:false`/null 응답은 빈 페이지로 삼키지 않고 즉시
+  예외로 실패시킨다(조용히 넘기면 "채널 완주"로 위장돼 채널 커서를 잘못 전진시킨다).
 - **Jira**: 호출당 200ms 고정 딜레이.
 - **Discord**: 호출마다 기본 250ms 고정 딜레이(봇당 초당 50요청 상한에 여유). 429 응답은 본문의
   `retry_after`(초)만큼 대기 후 최대 3회 재시도한다.
@@ -173,18 +180,26 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
 - 재시작 시 마지막 수집 시각 이후 데이터만 수집해 누락을 방지하고 중복을 최소화한다.
 - checkpoint 기준은 `Instant.now()`가 아니라 이벤트 실제 발생 시각인 `occurredAt`이다.
 - GitHub는 타입별 checkpoint를 사용한다: `github/github_commits`, `github/github_pull_requests`, `github/github_issues`.
-- Jira는 `jira/jira_updated`, Slack은 `slack/slack_messages`, Discord는 `discord/discord_messages`,
+- Jira는 `jira/jira_updated`, Slack은 **채널별** `slack/slack_messages:<channelId>`(레거시 전역
+  `slack_messages`는 읽기 fallback 후 이관 완료 시 삭제), Discord는 `discord/discord_messages`,
   Google Chat은 `google-chat/google_chat_messages`, Linear는 `linear/linear_updated`, Asana는
   `asana/asana_updated`, ClickUp은 `clickup/clickup_updated`, Notion은 `notion/notion_pages`
   cursor를 사용한다.
 - GitHub PR checkpoint는 commit 처리 성공 후 갱신해 재시작 시 `sha → prNumber` 매핑을 다시 만들 수 있게 한다.
-- Slack·Discord·Linear·Asana·ClickUp·Notion은 전체 실행 중 최대 `occurredAt`을 마지막에 한 번(성공 시에만)
-  갱신한다. Slack·Discord는 채널별로 갱신하면 늦은 채널이 이른 채널의 커서를 덮기 때문이고, Linear·Notion은
-  정렬이 내림차순 고정(Linear `orderBy: updatedAt`, Notion `POST /v1/search`의 `last_edited_time desc` —
-  이쪽은 애초에 오름차순 옵션 자체가 없다)이라 페이지 단위로 전진시키면 truncation 시 과거 변경분이 영구
-  누락되기 때문이며, Asana·ClickUp은 API 응답에 정렬 보장이 없어 페이지 단위 전진 자체가 불가능하기
-  때문이다. Google Chat은 스페이스가 하나뿐이라 이 문제 자체가 없지만, 배치의 최대 `occurredAt`으로
-  갱신하는 공용 규약은 그대로 따른다.
+- Discord·Linear·Asana·ClickUp·Notion은 전체 실행 중 최대 `occurredAt`을 마지막에 한 번(성공 시에만)
+  갱신한다. Discord는 채널을 가로지르는 커서가 하나라 채널별로 갱신하면 늦은 채널이 이른 채널의 커서를
+  덮기 때문이고, Linear·Notion은 정렬이 내림차순 고정(Linear `orderBy: updatedAt`, Notion
+  `POST /v1/search`의 `last_edited_time desc` — 이쪽은 애초에 오름차순 옵션 자체가 없다)이라 페이지
+  단위로 전진시키면 truncation 시 과거 변경분이 영구 누락되기 때문이며, Asana·ClickUp은 API 응답에
+  정렬 보장이 없어 페이지 단위 전진 자체가 불가능하기 때문이다. Google Chat은 스페이스가 하나뿐이라
+  이 문제 자체가 없지만, 배치의 최대 `occurredAt`으로 갱신하는 공용 규약은 그대로 따른다.
+- Slack은 **채널별 커서**를 쓴다: 채널의 history를 끝까지 걸은(완주한) 직후 그 채널 키를 갱신한다 —
+  키가 채널별이라 덮어쓰기 문제가 없고, 중간에 죽어도 완주한 채널의 진행이 보존돼 다음 실행이 그
+  채널을 건너뛴다. history가 최신→과거 순이라 최대 `occurredAt`이 1페이지에 오므로 **페이지 단위
+  전진은 불가**하고 채널 완주가 안전한 최소 단위다. 채널 목록에 없는 채널의 고아 키는 목록 조회 직후
+  `CheckpointService.deleteCursor`로 정리한다. history 요청에는 `oldest = 채널커서 − 14일`
+  (`THREAD_LOOKBACK`)을 붙인다 — 상세와 알려진 한계는 `docs/data-collection.md` Slack 절 참고.
+  부수 효과: backend "마지막 수집 시간"(checkpoints의 최신 `updated_at` 파생)이 채널 완주마다 전진한다.
 - Jira는 `updated` 기준으로 수집하고, 페이지 단위 publish 후 checkpoint를 갱신한다.
 - checkpoint는 project 단위로 저장한다.
 - cursor 갱신은 기존 값보다 과거 시각으로 되돌아가지 않게 저장한다.

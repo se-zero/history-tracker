@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 
 from openai_client import Priority, chat_completion
 from tools.definitions import TOOLS
@@ -11,10 +12,20 @@ from tools.queries._common import _MIN_CONFIDENCE
 logger = logging.getLogger(__name__)
 
 _MODEL = os.environ.get("QUERY_MODEL", "gpt-5.4-mini")
+# 대화 요약(summarize_history)은 주 질의 모델과 분리 — 저가 모델로 비용을 낮춘다.
+_SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "gpt-5.4-mini")
+# 질문 재작성(_rewrite_question)도 tool 루프 진입 전 1회만 도는 보조 경로라 저가 모델을 쓴다.
+_REWRITE_MODEL = os.environ.get("REWRITE_MODEL", "gpt-5.4-mini")
 # reasoning 모델 전용 노브 (minimal/low/medium/high). 빈 값이면 API 기본값을 따른다.
 # eval 스윕용 — 코드 수정 없이 env로 주입한다 (docs/measurement.md의 임계값 주입과 같은 방식).
 _REASONING_EFFORT = os.environ.get("QUERY_REASONING_EFFORT", "")
 _MAX_ITERATIONS = 10
+# tool 루프 메시지에 싣는 history 글자 수 예산. 루프 반복마다 다시 전송되는 구간이라
+# backend가 보내는 history가 길어질수록 반복 횟수만큼 곱해져 비용이 커진다 — 여기서 절단한다.
+_QUERY_HISTORY_BUDGET_CHARS = int(os.environ.get("QUERY_HISTORY_BUDGET_CHARS", "16000"))
+# 최종 structured 답변 호출에 싣는 대화 맥락 카드(누적 요약 + 최근 턴) 글자 수 예산.
+# tool 루프와 달리 1회만 전송되지만, 카드가 너무 크면 최종 호출 자체의 비용·품질에 영향을 준다.
+_CONTEXT_CARD_BUDGET_CHARS = int(os.environ.get("CONTEXT_CARD_BUDGET_CHARS", "6000"))
 
 # 범용 조회(run_graph_query) 호출 상한. 중복 호출 가드는 (도구명, 인자) 정확 일치라
 # 쿼리 문자열을 조금만 바꿔도 뚫린다 — 쿼리를 고쳐 쓰며 반복 상한을 태우는 걸 여기서 막는다.
@@ -60,6 +71,20 @@ _RUNNING_SUMMARY_SCHEMA = {
             },
         },
         "required": ["summary", "entities", "unresolved_aspects"],
+        "additionalProperties": False,
+    },
+}
+
+_REWRITE_SCHEMA = {
+    "name": "question_rewrite",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "changed": {"type": "boolean"},
+            "rewritten_question": {"type": "string"},
+        },
+        "required": ["changed", "rewritten_question"],
         "additionalProperties": False,
     },
 }
@@ -492,9 +517,11 @@ async def summarize_history(
         },
     ]
     try:
+        # _model_kwargs()를 쓰지 않는다 — reasoning_effort는 주 질의 모델(QUERY_MODEL) 전용
+        # 노브라 저가 요약 모델에는 의미가 없다(모델이 지원하지 않으면 오히려 오류 위험).
         response = await chat_completion(
             priority=Priority.INTERACTIVE,
-            **_model_kwargs(),
+            model=_SUMMARY_MODEL,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": _RUNNING_SUMMARY_SCHEMA},
         )
@@ -510,6 +537,70 @@ async def summarize_history(
     except json.JSONDecodeError:
         logger.warning("Running summary JSON 파싱 실패: %s", content[:200])
         return None
+
+
+_REWRITE_INSTRUCTION = (
+    "사용자의 현재 질문에 지시대명사·생략이 있으면, 검색에 쓸 수 있도록 자립형 질문으로 다시 쓰세요.\n"
+    "1) 질문이 이미 자립적이면(지시대명사·생략 없이 그 자체로 의미가 통하면) changed=false로 응답하세요.\n"
+    "2) 지시대명사·생략된 대상은 누적 요약(running_summary)의 entities와 대화 이력(history)에 실제로 "
+    "등장한 식별자(PR 번호, 이슈 키, 커밋 해시, 사람 이름 등)로만 치환하세요. 맥락에 없는 대상을 "
+    "창작하거나 추측하지 마세요.\n"
+    "3) 질문의 의도와 범위를 바꾸지 마세요. 어느 식별자를 가리키는지 애매하면 changed=false로 응답하세요."
+)
+
+
+async def _rewrite_question(
+    question: str,
+    history: list[dict[str, str]],
+    running_summary: dict | None,
+    debug: dict | None = None,
+) -> str | None:
+    """지시대명사·생략이 있는 후속 질문을 tool 루프 진입 전에 자립형으로 재작성한다.
+
+    history가 비어 있으면(단일턴) 재작성할 맥락이 없으므로 호출하지 않는다.
+    실패는 전부 삼킨다(4xx 포함) — 재작성은 검색 품질을 돕는 보조 경로일 뿐이라, 질의 경로의
+    _is_unrecoverable처럼 예외를 올리면 재작성 실패가 질의 전체를 막아버린다.
+    """
+    if not history:
+        return None
+
+    messages = [
+        {"role": "system", "content": _REWRITE_INSTRUCTION},
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "running_summary": running_summary,
+                    "history": history,
+                    "current_question": question,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    try:
+        response = await chat_completion(
+            priority=Priority.INTERACTIVE,
+            model=_REWRITE_MODEL,
+            messages=messages,
+            response_format={"type": "json_schema", "json_schema": _REWRITE_SCHEMA},
+        )
+        parsed = json.loads(response.choices[0].message.content or "")
+    except Exception:
+        logger.warning("질문 재작성 실패 — 원본 질문으로 계속 진행", exc_info=True)
+        return None
+
+    changed = bool(parsed.get("changed"))
+    rewritten = (parsed.get("rewritten_question") or "").strip()
+    result = rewritten if changed and rewritten else None
+    if isinstance(debug, dict):
+        debug["question_rewrite"] = {"changed": changed, "rewritten": result}
+    return result
+
+
+# _render_structured가 근거 절을 여는 헤더 — _strip_evidence_section이 같은 상수로 그 절을
+# 잘라내므로, 렌더 구조가 바뀌면 strip도 함께 깨지도록 결합을 명시화한다.
+_EVIDENCE_HEADER = "\n## 근거"
 
 
 def _render_structured(structured: dict) -> str:
@@ -529,7 +620,7 @@ def _render_structured(structured: dict) -> str:
 
     evidence = structured.get("evidence") or []
     if evidence:
-        parts.append("\n## 근거")
+        parts.append(_EVIDENCE_HEADER)
         for e in evidence:
             etype  = e.get("type", "?")
             eid    = e.get("id", "?")
@@ -575,6 +666,114 @@ def _finalize(structured: dict | None, fallback_text: str, exploratory: bool) ->
     return _render_structured(structured), structured
 
 
+_WHITESPACE_RE = re.compile(r"\s+")
+_ELLIPSIS_RE = re.compile(r"…|\.\.\.")
+
+
+def _canon(text: str) -> str:
+    """evidence quote 검증용 근사 정규화.
+
+    tool 메시지 content는 json.dumps(ensure_ascii=False) 산출물이라 원문의 개행·큰따옴표가
+    "\\n"·"\\"" 리터럴 이스케이프로 남아 있는 반면, LLM이 뽑아내는 quote는 이스케이프가 풀린
+    자연 텍스트일 수 있어 그대로 비교하면 어긋난다. 완전한 JSON 디코드 대신 haystack·quote
+    양쪽에 이 함수를 동일하게(대칭적으로) 적용한다 — "정확한 원문 복원"이 아니라 "같은 규칙으로
+    정규화했을 때 일치하는가"만 필요하므로, 이스케이프 치환 + 공백 collapse + 대소문자 무시
+    수준의 근사로 충분하다.
+    """
+    text = text.replace('\\"', '"').replace("\\n", " ")
+    text = _WHITESPACE_RE.sub(" ", text)
+    return text.strip().casefold()
+
+
+def _drop_unverified_quotes(
+    structured: dict, messages: list, current_turn_start: int, debug: dict | None
+) -> dict:
+    """evidence[*].quote·id가 이번 턴 tool 결과에 실존하는지 검증하고, 없으면 그 evidence를 제거한다.
+
+    프롬프트 지시("카드를 인용하지 마라")만으로는 답변 모델이 대화 맥락 카드나 과거 대화의
+    텍스트를 quote로 베껴 "이번 턴 근거"처럼 위장하는 걸 막지 못한다 — 이번 턴 tool 결과
+    문자열 안에 quote가 실제로 있는지 서버가 검사해 강제한다.
+
+    quote는 말줄임(…, ...)으로 중간을 생략하거나 앞부분만 잘라 인용할 수 있으므로(스키마 허용),
+    말줄임 토큰으로 조각을 나눠 조각 전부가 haystack의 부분 문자열인지 확인한다.
+
+    id(커밋 해시·PR 번호·이슈 키)는 quote와 별개로 검증한다 — quote만 검증하면 모델이 낸
+    id 오타(실기 사례: 커밋 해시 8cdb0ca ↔ 실제 8cdb0cc)가 그대로 통과해, UI에서 그 id를
+    클릭하면 존재하지 않는 대상을 가리키게 된다. id는 원자적 식별자라 말줄임 분할 없이
+    haystack에 대한 통짜 부분 문자열 검사만 한다 — 짧은 해시(7자리)는 tool 결과의 전체 해시
+    문자열에 부분 문자열로 포함되므로 자동으로 통과한다. id가 빈 문자열이면 검증할 것이
+    없으므로(quote와 동일한 정책) 통과시킨다.
+
+    이번 턴에 tool 호출이 없었다면 haystack이 빈 문자열이 되어, 비어있지 않은 quote·id는 전부
+    제거된다 — 의도된 동작이다: 이번 턴 도구 결과 밖에서 온 인용(과거 대화·맥락 카드 등)은
+    신뢰하지 않는다.
+    """
+    # tool 루프의 assistant 메시지는 OpenAI 응답 객체를 그대로 담아(dict가 아님) .get이 없다 —
+    # tool 결과 메시지만 dict로 직접 구성되므로 isinstance로 먼저 걸러야 AttributeError가 안 난다.
+    # 구분자 NUL: 서로 다른 tool 결과의 끝·시작이 이어붙어 생기는 가짜 문장에 인용이 우연히
+    # 일치하는 걸 차단한다. 인용문에 나타날 수 없는 문자여야 하므로 공백이 아니라 NUL을 쓴다
+    # (_canon이 공백은 collapse하지만 NUL은 보존한다).
+    haystack = _canon("\x00".join(
+        message.get("content", "")
+        for message in messages[current_turn_start:]
+        if isinstance(message, dict) and message.get("role") == "tool"
+    ))
+
+    kept: list[dict] = []
+    dropped: list[dict] = []
+    for item in structured.get("evidence") or []:
+        quote = (item.get("quote") or "").strip()
+        if quote:
+            fragments = [f for f in (_canon(part) for part in _ELLIPSIS_RE.split(quote)) if f]
+            if not all(fragment in haystack for fragment in fragments):
+                dropped.append({**item, "reason": "quote"})
+                continue
+
+        eid = _canon(item.get("id") or "")
+        if eid and eid not in haystack:
+            dropped.append({**item, "reason": "id"})
+            continue
+
+        kept.append(item)
+
+    if dropped:
+        for item in dropped:
+            if item["reason"] == "quote":
+                logger.warning(
+                    "검증 실패 evidence quote 제거: type=%s id=%s quote=%.80s",
+                    item.get("type"), item.get("id"), item.get("quote"),
+                )
+            else:
+                logger.warning(
+                    "검증 실패 evidence id 제거: type=%s id=%s",
+                    item.get("type"), item.get("id"),
+                )
+        if isinstance(debug, dict):
+            debug.setdefault("dropped_evidence", []).extend(dropped)
+
+    structured["evidence"] = kept
+    return structured
+
+
+async def _final_structured_answer(
+    structured_call_messages: list,
+    messages: list,
+    current_turn_start: int,
+    fallback_text: str,
+    exploratory: bool,
+    debug: dict | None,
+) -> tuple[str, dict | None]:
+    """structured 답변 생성 → evidence quote 검증 → 렌더까지의 공통 흐름.
+
+    정상 종료(tool_calls 없음)와 최대 반복 도달, 두 지점에서 '받기 → 검증 → 렌더'가 동일해
+    묶었다. fallback_text만 호출부마다 달라 인자로 받는다.
+    """
+    structured = await _call_llm_structured(structured_call_messages, debug=debug)
+    if isinstance(structured, dict):
+        structured = _drop_unverified_quotes(structured, messages, current_turn_start, debug)
+    return _finalize(structured, fallback_text, exploratory)
+
+
 def _tool_error(tool_call_id: str, message: str) -> dict:
     """도구 호출 실패를 LLM에게 전달할 메시지 형태로 만든다."""
     return {
@@ -582,6 +781,92 @@ def _tool_error(tool_call_id: str, message: str) -> dict:
         "tool_call_id": tool_call_id,
         "content": json.dumps({"error": message}, ensure_ascii=False),
     }
+
+
+def _split_turns(history: list) -> list[list[dict]]:
+    """history 메시지 리스트를 턴 단위로 묶는다.
+
+    user 메시지가 새 턴의 시작. 방어적으로, 리스트 맨 앞에 user 없이 assistant가 먼저
+    오면 그 고아 메시지들도 자기 턴 하나로 묶는다.
+    """
+    turns: list[list[dict]] = []
+    for message in history:
+        if message.get("role") == "user" or not turns:
+            turns.append([message])
+        else:
+            turns[-1].append(message)
+    return turns
+
+
+def _recent_turns_within_budget(turns: list[list[dict]], budget: int) -> list[list[dict]]:
+    """최신 턴부터 거꾸로 턴을 통째로 누적하다 예산을 넘기면 중단한다.
+
+    턴 중간에서 잘라 부분 메시지만 남기지 않는다 — 넘기는 턴 자체를 통으로 제외한다.
+    단, 최신 턴은 그 자체로 예산을 초과해도 최소 1턴은 반드시 포함한다.
+    반환은 시간순(오래된 것부터).
+    """
+    selected: list[list[dict]] = []
+    total_chars = 0
+    for turn in reversed(turns):
+        turn_chars = sum(len(message.get("content", "")) for message in turn)
+        if selected and total_chars + turn_chars > budget:
+            break
+        selected.append(turn)
+        total_chars += turn_chars
+    selected.reverse()
+    return selected
+
+
+def _strip_evidence_section(content: str) -> str:
+    """assistant 답변 본문에서 '## 근거' 절 이후를 제거한다 (없으면 원문 그대로).
+
+    대화 맥락 카드에 과거 답변을 그대로 실으면 그 안의 인용문(quote)이 이번 턴 근거인 것처럼
+    재생될 위험이 있다 — 본문만 남기고 인용문·미해결 측면 절은 함께 잘라낸다(미해결 측면
+    맥락은 running_summary의 unresolved_aspects가 대신 담당하므로 유실이 아니다).
+    """
+    idx = content.find(_EVIDENCE_HEADER)
+    return content if idx == -1 else content[:idx]
+
+
+# 대화 맥락 카드 상단에 붙는 지시문 — 카드 내용이 최종 근거로 인용되지 않도록 명시적으로 금지한다.
+_CONTEXT_CARD_INSTRUCTION = (
+    "이 카드는 질문 해석과 대화 연속성 파악 용도다. 카드 내용을 답변의 evidence로 인용하지 마라 — "
+    "quote는 이번 턴 도구 결과에서만 가져와야 한다."
+)
+
+
+def _build_context_card(running_summary: dict | None, full_history: list[dict]) -> dict | None:
+    """누적 요약 + 최근 대화를 담은 system 카드 1개를 만든다 (최종 structured 호출 전용).
+
+    최종 답변 호출은 tool 루프 messages(history 포함)를 이어받지 않아 과거 대화를 전부
+    잘라낸다 — 그래서 "아까 그거"류 후속 정정을 답변 모델이 못 알아본다. 이 카드로 그 간극을
+    메우되, 과거 assistant 답변은 _strip_evidence_section으로 인용문을 제거한 사본만 싣는다.
+    running_summary·full_history가 둘 다 비어 있으면 카드 자체가 불필요하므로 None을 반환한다.
+    """
+    if not running_summary and not full_history:
+        return None
+
+    stripped_history = [
+        {**message, "content": _strip_evidence_section(message.get("content", ""))}
+        if message.get("role") == "assistant"
+        else message
+        for message in full_history
+    ]
+    recent_turns = _recent_turns_within_budget(
+        _split_turns(stripped_history), _CONTEXT_CARD_BUDGET_CHARS
+    )
+
+    lines = ["[대화 맥락 카드]", _CONTEXT_CARD_INSTRUCTION]
+    if running_summary:
+        lines.append("[누적 요약]")
+        lines.append(json.dumps(running_summary, ensure_ascii=False))
+    if recent_turns:
+        lines.append("[최근 대화]")
+        for turn in recent_turns:
+            for message in turn:
+                lines.append(f"{message.get('role')}: {message.get('content', '')}")
+
+    return {"role": "system", "content": "\n".join(lines)}
 
 
 async def run(
@@ -605,8 +890,8 @@ async def run(
     running_summary: 최근 5턴보다 오래된 대화의 누적 요약. 탐색 맥락에만 사용하고 최종 근거에서는 제외한다.
     focus_evidence: 사용자가 관련 그래프에서 지정한 노드({type, id}). prior_evidence와 반대로
                     현재 턴에 두어 최종 근거까지 살리고, 유형별 도구로 먼저 조회하도록 지시한다.
-    debug: eval 러너용 수집 dict. 주어지면 LLM usage 합산과 도구 호출 트랜스크립트를 여기에
-           누적한다 (반환 계약은 불변 — 관측 전용, 답변 생성에 영향 없음).
+    debug: eval 러너용 수집 dict. 주어지면 LLM usage 합산, 도구 호출 트랜스크립트, 질문 재작성
+           결과(question_rewrite)를 여기에 누적한다 (반환 계약은 불변 — 관측 전용, 답변 생성에 영향 없음).
 
     Returns:
         (markdown_answer, structured_dict)
@@ -615,7 +900,6 @@ async def run(
         이때 structured는 None.
     """
     system_message = {"role": "system", "content": _build_system_prompt(project_context)}
-    current_question = {"role": "user", "content": question}
     running_summary_message = None
     if running_summary:
         running_summary_message = {
@@ -650,10 +934,28 @@ async def run(
                 + json.dumps(focus_evidence, ensure_ascii=False)
             ),
         }
+    # full_history는 원본 그대로 보관 — 재작성기가 절단 없이 대명사·생략의 대상을 찾는 데 쓴다.
+    # 여기 tool 루프 입력으로는 턴 단위로 절단한 버전만 쓴다(반복마다 재전송돼 비용이 곱해지므로).
+    full_history = history or []
+    # 최종 structured 호출 전용 대화 맥락 카드 — tool 루프 messages에는 넣지 않는다.
+    context_card = _build_context_card(running_summary, full_history)
+    truncated_history = [
+        message
+        for turn in _recent_turns_within_budget(_split_turns(full_history), _QUERY_HISTORY_BUDGET_CHARS)
+        for message in turn
+    ]
+
+    # 지시대명사·생략이 있는 후속 질문을 tool 루프 진입 전에 자립형으로 재작성한다. 실패하면
+    # rewritten이 None이라 원본 질문 그대로 진행한다 — 재작성은 보조 경로일 뿐 질의를 막지 않는다.
+    rewritten = await _rewrite_question(question, full_history, running_summary, debug)
+    # 병기(併記) 이유: 재작성이 오작동해도 원문 질문이 함께 실려 있어 피해가 제한된다.
+    effective_question = question if rewritten is None else f"{rewritten}\n\n(원문 질문: {question})"
+    current_question = {"role": "user", "content": effective_question}
+
     messages: list = [
         system_message,
         *([running_summary_message] if running_summary_message else []),
-        *(history or []),
+        *truncated_history,
         *([prior_evidence_message] if prior_evidence_message else []),
     ]
     # focus 지시는 현재 턴에 둔다 — prior_evidence와 달리 최종 structured 답변까지 살아남아야
@@ -665,7 +967,8 @@ async def run(
 
     def current_turn_messages() -> list:
         # 누적 요약, 이전 대화, prior evidence는 현재 질문 앞에만 있으므로 최종 근거 생성에서 제외한다.
-        return [messages[0], *messages[current_turn_start:]]
+        # 대화 맥락 카드(context_card)만 예외로 실어, 인용 금지 조건부로 대화 연속성을 보존한다.
+        return [messages[0], *([context_card] if context_card else []), *messages[current_turn_start:]]
 
     seen_calls: set[tuple[str, str]] = set()  # (tool_name, args_json) 중복 호출 가드
     graph_query_calls = 0                     # 범용 조회 호출 수 — answer_mode 판정 근거
@@ -680,10 +983,12 @@ async def run(
 
         # tool_calls 없음 → 도구 탐색 종료. structured output으로 최종 답변 생성.
         if not message.tool_calls:
-            structured = await _call_llm_structured(current_turn_messages(), debug=debug)
             # structured 실패 시 fallback: 마지막 LLM 자유 텍스트라도 반환
             # (할루시네이션 가드는 잃지만 응답은 제공)
-            return _finalize(structured, message.content or _FALLBACK_ANSWER, graph_query_calls > 0)
+            return await _final_structured_answer(
+                current_turn_messages(), messages, current_turn_start,
+                message.content or _FALLBACK_ANSWER, graph_query_calls > 0, debug,
+            )
 
         messages.append(message)
 
@@ -731,7 +1036,8 @@ async def run(
                 graph_query_calls += 1
 
             logger.info("도구 호출: %s", tool_name)
-            result_str = await execute(tool_name, args, project_id, question=question)
+            # 임베딩 재랭킹에는 자립형 질문만 넘긴다 — 병기된 원문 텍스트는 재랭킹에 노이즈다.
+            result_str = await execute(tool_name, args, project_id, question=rewritten or question)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
             _record_tool_call(debug, tool_name, args, "ok", result_str)
 
@@ -744,5 +1050,7 @@ async def run(
 
     # 최대 반복 도달 → 그 시점까지의 컨텍스트로 강제 structured 답변
     logger.warning("최대 반복 횟수(%d) 도달 — structured 강제 응답", _MAX_ITERATIONS)
-    structured = await _call_llm_structured(current_turn_messages(), debug=debug)
-    return _finalize(structured, _FALLBACK_ANSWER, graph_query_calls > 0)
+    return await _final_structured_answer(
+        current_turn_messages(), messages, current_turn_start,
+        _FALLBACK_ANSWER, graph_query_calls > 0, debug,
+    )

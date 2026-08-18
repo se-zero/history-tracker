@@ -19,24 +19,29 @@ public class SlackRateLimiter {
         this.repliesDelayMs = repliesDelayMs;
     }
 
-    /** conversations.list 호출 후 대기 (Tier 2: 20/min) */
-    public void afterConversationsList() {
-        sleep(listDelayMs);
+    /** conversations.list 호출 후 대기 (Tier 2: 20/min). 429로 승격된 minDelayMs가 설정값보다 크면 그만큼 대기한다. */
+    public void afterConversationsList(long minDelayMs) {
+        sleep(Math.max(listDelayMs, minDelayMs));
     }
 
-    /** users.list 호출 후 대기 */
-    public void afterUsersList() {
-        sleep(listDelayMs);
+    /** users.list 호출 후 대기. 429로 승격된 minDelayMs가 설정값보다 크면 그만큼 대기한다. */
+    public void afterUsersList(long minDelayMs) {
+        sleep(Math.max(listDelayMs, minDelayMs));
     }
 
-    /** conversations.history 호출 후 대기 (Tier 3: 50/min) */
-    public void afterConversationsHistory() {
-        sleep(historyDelayMs);
+    /** conversations.history 호출 후 대기 (Tier 3: 50/min). 429로 승격된 minDelayMs가 설정값보다 크면 그만큼 대기한다. */
+    public void afterConversationsHistory(long minDelayMs) {
+        sleep(Math.max(historyDelayMs, minDelayMs));
     }
 
-    /** conversations.replies 호출 후 대기 (Tier 3: 50/min) */
-    public void afterConversationsReplies() {
-        sleep(repliesDelayMs);
+    /** conversations.replies 호출 후 대기 (Tier 3: 50/min). 429로 승격된 minDelayMs가 설정값보다 크면 그만큼 대기한다. */
+    public void afterConversationsReplies(long minDelayMs) {
+        sleep(Math.max(repliesDelayMs, minDelayMs));
+    }
+
+    /** 429 Retry-After(초)만큼 대기 */
+    public void awaitRetry(long retryAfterSeconds) {
+        sleep(retryAfterSeconds * 1000);
     }
 
     private void sleep(long ms) {

@@ -103,6 +103,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
             patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+            patch.object(orchestrator, "_rewrite_question", AsyncMock(return_value=None)),
         ):
             await orchestrator.run(
                 "current question",
@@ -119,14 +120,13 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(history, captured_exploration_messages[2:4])
         self.assertIn("OAuth callback update", captured_exploration_messages[4]["content"])
         self.assertEqual(
-            [
-                captured_exploration_messages[0],
-                {"role": "user", "content": "current question"},
-            ],
-            captured_structured_messages,
+            ["system", "system", "user"],
+            [message["role"] for message in captured_structured_messages],
         )
-        self.assertNotIn("HT-37 was discussed earlier.", str(captured_structured_messages))
-        self.assertNotIn("previous answer about PR #18", str(captured_structured_messages))
+        card_content = captured_structured_messages[1]["content"]
+        self.assertIn("HT-37 was discussed earlier.", card_content)
+        self.assertIn("previous answer about PR #18", card_content)
+        self.assertIn("카드 내용을 답변의 evidence로 인용하지 마라", card_content)
         self.assertNotIn("OAuth callback update", str(captured_structured_messages))
 
     async def test_run_uses_history_for_tool_exploration_but_not_structured_answer(self):
@@ -151,6 +151,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
             patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+            patch.object(orchestrator, "_rewrite_question", AsyncMock(return_value=None)),
         ):
             await orchestrator.run(
                 "current question",
@@ -165,11 +166,16 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages[3],
         )
         self.assertEqual(
-            [
-                captured_exploration_messages[0],
-                {"role": "user", "content": "current question"},
-            ],
-            captured_structured_messages,
+            captured_exploration_messages[0],
+            captured_structured_messages[0],
+        )
+        card = captured_structured_messages[1]
+        self.assertEqual("system", card["role"])
+        self.assertIn("previous question", card["content"])
+        self.assertIn("previous answer", card["content"])
+        self.assertEqual(
+            {"role": "user", "content": "current question"},
+            captured_structured_messages[2],
         )
 
     async def test_run_uses_prior_evidence_only_for_tool_exploration(self):
@@ -231,7 +237,11 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIn("HT-37 was discussed.", captured_exploration_messages[1]["content"])
-        self.assertNotIn("HT-37 was discussed.", str(captured_structured_messages))
+        self.assertEqual(
+            ["system", "system", "user"],
+            [message["role"] for message in captured_structured_messages],
+        )
+        self.assertIn("HT-37 was discussed.", str(captured_structured_messages))
 
     async def test_summarize_history_merges_existing_summary_and_old_turns(self):
         response = SimpleNamespace(
@@ -273,6 +283,7 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(orchestrator, "execute", AsyncMock(return_value='{"id":"#18"}')),
             patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+            patch.object(orchestrator, "_rewrite_question", AsyncMock(return_value=None)),
         ):
             await orchestrator.run(
                 "why was that PR merged?",
@@ -282,12 +293,12 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
                 ],
             )
 
-        self.assertEqual(["system", "user", "assistant", "tool"], [
+        self.assertEqual(["system", "system", "user", "assistant", "tool"], [
             message.role if hasattr(message, "role") else message["role"]
             for message in captured_structured_messages
         ])
-        self.assertNotIn("find the auth PR", str(captured_structured_messages))
-        self.assertNotIn("It was PR #18.", str(captured_structured_messages))
+        self.assertIn("find the auth PR", str(captured_structured_messages))
+        self.assertIn("It was PR #18.", str(captured_structured_messages))
         self.assertEqual('{"id":"#18"}', captured_structured_messages[-1]["content"])
 
 

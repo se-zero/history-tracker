@@ -41,4 +41,19 @@ eval/results/
 infra/docker/graph-swap.sh
 
 .ua
-.claude
+
+# ── Claude Code ────────────────────────────────────────────────
+# .claude/ 는 팀 공유 (스킬·에이전트·훅·settings.json).
+# PR 리뷰 봇이 러너에서 .claude/skills/pr-review 와 review-severity.md 를 읽어야 하므로 추적 대상이다.
+# 개인 설정·런타임 상태만 제외한다.
+.claude/settings.local.json
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
+.claude/routines/.state/
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-registry.json
+.claude/agent-memory-local/
+.claude/first-run
+.claude/assistant-daemon-state.json

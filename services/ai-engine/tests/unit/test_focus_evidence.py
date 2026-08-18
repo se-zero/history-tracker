@@ -134,6 +134,7 @@ class OrchestratorFocusEvidenceTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
             patch.object(orchestrator, "_call_llm_structured", side_effect=capture_structured),
+            patch.object(orchestrator, "_rewrite_question", AsyncMock(return_value=None)),
         ):
             await orchestrator.run(
                 "이 커밋 왜 바뀜?",
@@ -151,14 +152,14 @@ class OrchestratorFocusEvidenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("OAuth callback update", str(captured_exploration))
         self.assertIn("abc1234def5678", str(captured_exploration))
 
-        # 근거(structured): focus는 포함, prior·history는 제외
+        # 근거(structured): focus·대화 맥락 카드(history)는 포함, prior_evidence는 제외
         self.assertEqual(
-            ["system", "system", "user"],
+            ["system", "system", "system", "user"],
             [m["role"] for m in captured_structured],
         )
         self.assertIn("abc1234def5678", str(captured_structured))
         self.assertNotIn("OAuth callback update", str(captured_structured))
-        self.assertNotIn("이전 답변 PR #18", str(captured_structured))
+        self.assertIn("이전 답변 PR #18", str(captured_structured))
 
 
 class GroundedAnswerDocumentEvidenceTest(unittest.TestCase):
