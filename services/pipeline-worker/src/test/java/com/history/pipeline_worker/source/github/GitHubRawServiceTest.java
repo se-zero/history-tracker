@@ -3,8 +3,10 @@ package com.history.pipeline_worker.source.github;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -13,12 +15,20 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 class GitHubRawServiceTest {
 
@@ -38,7 +48,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ofMinutes(30)
         );
 
@@ -65,7 +75,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ofMinutes(30)
         );
 
@@ -93,7 +103,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ofMinutes(30)
         );
 
@@ -117,7 +127,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ofMinutes(30)
         );
 
@@ -149,7 +159,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ofMinutes(30)
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -188,7 +198,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ofMinutes(30)
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -232,7 +242,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ofMinutes(30)
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -268,7 +278,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ofMinutes(5)
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -304,7 +314,7 @@ class GitHubRawServiceTest {
         GitHubRawService service = new GitHubRawService(
                 webClientBuilder,
                 "https://api.github.example",
-                new GitHubRateLimiter(0, 0),
+                new GitHubRateLimiter(0, 0, 0),
                 Duration.ZERO
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -313,6 +323,122 @@ class GitHubRawServiceTest {
         service.fetchCommitPage(context, 1, Map.of());
 
         assertThat(userProfileCallCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("merge commit(parents 2개 이상)은 상세 조회 없이 결과에서 제외된다")
+    @SuppressWarnings("unchecked")
+    void fetchCommitPage_mergeCommit_skipsDetailFetchAndFiltered() {
+        Map<String, AtomicInteger> detailCallCounts = new ConcurrentHashMap<>();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(mergeCommitsPageJson()));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-normal")) {
+                        detailCallCounts.computeIfAbsent("sha-normal", k -> new AtomicInteger()).incrementAndGet();
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-merge")) {
+                        detailCallCounts.computeIfAbsent("sha-merge", k -> new AtomicInteger()).incrementAndGet();
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    if (path.equals("/users/dev1") || path.equals("/users/dev2")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                Duration.ofMinutes(30)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        GitHubRawService.GitHubPage page = service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(detailCallCounts.getOrDefault("sha-normal", new AtomicInteger()).get()).isEqualTo(1);
+        assertThat(detailCallCounts.getOrDefault("sha-merge", new AtomicInteger()).get()).isEqualTo(0);
+        assertThat(page.items()).hasSize(1);
+        assertThat(((Map<String, Object>) page.items().get(0)).get("sha")).isEqualTo("sha-normal");
+    }
+
+    @Test
+    @DisplayName("parents 필드가 없는 커밋은 non-merge로 간주해 상세 조회하고 결과에 포함한다")
+    @SuppressWarnings("unchecked")
+    void fetchCommitPage_missingParents_treatedAsNonMergeAndFetched() {
+        AtomicInteger detailCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse("""
+                                [
+                                  {
+                                    "sha": "sha-no-parents",
+                                    "commit": {
+                                      "message": "feat: work",
+                                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                                    },
+                                    "author": {"login": "dev1"}
+                                  }
+                                ]
+                                """));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha-no-parents")) {
+                        detailCallCount.incrementAndGet();
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    if (path.equals("/users/dev1")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                Duration.ofMinutes(30)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        GitHubRawService.GitHubPage page = service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(detailCallCount.get()).isEqualTo(1);
+        assertThat(page.items()).hasSize(1);
+    }
+
+
+    private String mergeCommitsPageJson() {
+        return """
+                [
+                  {
+                    "sha": "sha-normal",
+                    "commit": {
+                      "message": "feat: normal work",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev1"},
+                    "parents": [{"sha": "p1"}]
+                  },
+                  {
+                    "sha": "sha-merge",
+                    "commit": {
+                      "message": "Merge branch 'main'",
+                      "author": {"name": "Dev", "date": "2024-01-01T00:00:00Z"},
+                      "committer": {"date": "2024-01-02T00:00:00Z"}
+                    },
+                    "author": {"login": "dev2"},
+                    "parents": [{"sha": "p1"}, {"sha": "p2"}]
+                  }
+                ]
+                """;
     }
 
     private GitHubRawService.GitHubFetchContext fetchContext() {

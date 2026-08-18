@@ -167,6 +167,13 @@ public class GitHubRawService {
         List<Object> result = new ArrayList<>();
         for (Object raw : commits) {
             Map<String, Object> commit = new HashMap<>((Map<String, Object>) raw);
+
+            // Normalizer가 어차피 버리는 merge commit의 상세 조회 콜(~85콜/초기수집)을 원천 제거.
+            // 판정식은 GitHubNormalizer와 동일(parents 결손 = non-merge 취급, 널 관용 유지) —
+            // Normalizer 필터는 이중 방어로 존치.
+            List<Object> parents = (List<Object>) commit.get("parents");
+            if (parents != null && parents.size() > 1) continue;
+
             String sha = (String) commit.get("sha");
             Map<String, Object> detail = fetchCommitDetail(auth, owner, repo, sha);
             if (detail != null) {

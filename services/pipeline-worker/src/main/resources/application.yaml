@@ -95,8 +95,13 @@ app:
       await-termination-seconds: 300
   rate-limit:
     github:
+      # remaining > pacing-remaining-threshold: 무대기.
+      # low-remaining-threshold < remaining <= pacing-remaining-threshold: reset까지 남은 시간을
+      # remaining으로 나눈 페이스로 대기. remaining <= low-remaining-threshold: reset까지 대기.
+      # default-delay-ms는 이제 매 콜 고정 대기가 아니라 헤더 결손·파싱 실패 시의 안전 폴백이다.
       default-delay-ms: 300
       low-remaining-threshold: 10
+      pacing-remaining-threshold: 500
     slack:
       conversations-list-delay-ms: 3000    # Tier 2: 20/min
       conversations-history-delay-ms: 1200  # Tier 3: 50/min
