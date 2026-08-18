@@ -555,8 +555,10 @@ class GitHubRawServiceTest {
                     }
                     if (path.equals("/repos/owner/repo/commits/sha1")) {
                         if (detailCallCount.incrementAndGet() == 1) {
+                            // primary limit 소진 403: Retry-After 없이 remaining=0 + reset으로만 알려온다
                             return Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN)
                                     .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                                    .header("X-RateLimit-Remaining", "0")
                                     .header("X-RateLimit-Reset", String.valueOf(resetEpoch))
                                     .body("{}")
                                     .build());
@@ -584,6 +586,75 @@ class GitHubRawServiceTest {
         ArgumentCaptor<Long> waited = ArgumentCaptor.forClass(Long.class);
         verify(rateLimiter).awaitRetry(waited.capture());
         assertThat(waited.getValue()).isBetween(28L, 32L);
+    }
+
+    @Test
+    @DisplayName("rate limit 신호(Retry-After·remaining=0)가 없는 권한성 403은 재시도 없이 즉시 실패한다")
+    void fetchCommitPage_permission403WithoutRateLimitSignal_failsImmediatelyWithoutRetry() {
+        AtomicInteger detailCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        detailCallCount.incrementAndGet();
+                        // 권한성 403: remaining이 넉넉히 남아 있고 Retry-After도 없다 — 기다려도 안 풀린다
+                        return Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN)
+                                .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                                .header("X-RateLimit-Remaining", "4999")
+                                .header("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() / 1000 + 1800))
+                                .body("{\"message\": \"Resource not accessible\"}")
+                                .build());
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                Duration.ofMinutes(30),
+                detailExecutor()
+        );
+
+        assertThatThrownBy(() -> service.fetchCommitPage(fetchContext(), 1, Map.of()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(detailCallCount.get()).isEqualTo(1);
+        verify(rateLimiter, times(0)).awaitRetry(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    @DisplayName("403은 Retry-After 또는 remaining=0일 때만, 429는 항상 rate limit으로 분류한다")
+    void isRateLimitResponse_classifiesByStatusAndHeaders() {
+        HttpHeaders retryAfter = new HttpHeaders();
+        retryAfter.set("Retry-After", "7");
+        HttpHeaders exhausted = new HttpHeaders();
+        exhausted.set("X-RateLimit-Remaining", "0");
+        HttpHeaders healthy = new HttpHeaders();
+        healthy.set("X-RateLimit-Remaining", "4999");
+
+        assertThat(GitHubRawService.isRateLimitResponse(429, new HttpHeaders())).isTrue();
+        assertThat(GitHubRawService.isRateLimitResponse(403, retryAfter)).isTrue();
+        assertThat(GitHubRawService.isRateLimitResponse(403, exhausted)).isTrue();
+        assertThat(GitHubRawService.isRateLimitResponse(403, healthy)).isFalse();
+        assertThat(GitHubRawService.isRateLimitResponse(404, retryAfter)).isFalse();
+    }
+
+    @Test
+    @DisplayName("재시도 대기 시간은 리셋 주기(1시간)를 상한으로 한다")
+    void resolveRetryWaitSeconds_capsAtOneHour() {
+        HttpHeaders farReset = new HttpHeaders();
+        farReset.set("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() / 1000 + 100_000));
+        assertThat(GitHubRawService.resolveRetryWaitSeconds(farReset)).isEqualTo(3600L);
+
+        HttpHeaders hugeRetryAfter = new HttpHeaders();
+        hugeRetryAfter.set("Retry-After", "100000");
+        assertThat(GitHubRawService.resolveRetryWaitSeconds(hugeRetryAfter)).isEqualTo(3600L);
     }
 
     @Test

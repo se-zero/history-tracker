@@ -66,8 +66,9 @@ commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다�
 - 응답 헤더 기반 3단 적응형 대기: `X-RateLimit-Remaining` > 500이면 무대기, 10 초과 500 이하면
   `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스로 대기, 10 이하면 reset 시각까지 대기.
   헤더 결손·파싱 실패 시 300ms 폴백.
-- 403/429 응답은 `Retry-After`(없으면 `X-RateLimit-Reset`, 둘 다 없으면 60초)만큼 대기 후 최대 3회
-  재시도하고, 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지).
+- 429와 rate limit 신호가 있는 403(`Retry-After` 존재 또는 `X-RateLimit-Remaining: 0`)은
+  `Retry-After`(없으면 `X-RateLimit-Reset`, 둘 다 없으면 60초, 상한 1시간)만큼 대기 후 최대 3회
+  재시도하고, 권한성 403 등 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지).
 
 ### Tradeoff & 예상 문제점
 

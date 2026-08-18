@@ -373,13 +373,13 @@ public class GitHubRawService {
                     .uri("/repos/{owner}/{repo}/commits/{sha}", owner, repo, sha)
                     .header("Authorization", auth)
                     .exchangeToMono(resp -> {
-                        headersRef.set(resp.headers().asHttpHeaders());
+                        HttpHeaders respHeaders = resp.headers().asHttpHeaders();
+                        headersRef.set(respHeaders);
                         if (resp.statusCode().is2xxSuccessful()) {
                             return resp.bodyToMono(Map.class);
                         }
-                        if (resp.statusCode().value() == 403 || resp.statusCode().value() == 429) {
-                            return Mono.error(new GitHubRateLimitedException(
-                                    resolveRetryWaitSeconds(resp.headers().asHttpHeaders())));
+                        if (isRateLimitResponse(resp.statusCode().value(), respHeaders)) {
+                            return Mono.error(new GitHubRateLimitedException(resolveRetryWaitSeconds(respHeaders)));
                         }
                         return Mono.error(new IllegalStateException(
                                 "GitHub API error: status=" + resp.statusCode().value()
@@ -436,13 +436,13 @@ public class GitHubRawService {
                     .uri(path, owner, repo)
                     .header("Authorization", auth)
                     .exchangeToMono(resp -> {
-                        headersRef.set(resp.headers().asHttpHeaders());
+                        HttpHeaders respHeaders = resp.headers().asHttpHeaders();
+                        headersRef.set(respHeaders);
                         if (resp.statusCode().is2xxSuccessful()) {
                             return resp.bodyToMono(List.class);
                         }
-                        if (resp.statusCode().value() == 403 || resp.statusCode().value() == 429) {
-                            return Mono.error(new GitHubRateLimitedException(
-                                    resolveRetryWaitSeconds(resp.headers().asHttpHeaders())));
+                        if (isRateLimitResponse(resp.statusCode().value(), respHeaders)) {
+                            return Mono.error(new GitHubRateLimitedException(resolveRetryWaitSeconds(respHeaders)));
                         }
                         return Mono.error(new IllegalStateException(
                                 "GitHub API error: status=" + resp.statusCode().value() + ", path=" + path));
@@ -480,20 +480,34 @@ public class GitHubRawService {
         }
     }
 
-    // 재시도 대기 시간 결정: Retry-After(초) → X-RateLimit-Reset(리셋까지 남은 초) → 60초.
+    // 403을 재시도 대상으로 삼는 판별자: rate limit 신호(Retry-After 존재 또는 remaining 소진)가
+    // 있을 때만. 권한성 403(레포 접근 상실 등)은 기다려도 안 풀리므로 즉시 실패시켜 빨리 드러낸다.
+    // 429는 항상 rate limit이다.
+    static boolean isRateLimitResponse(int status, HttpHeaders headers) {
+        if (status == 429) return true;
+        if (status != 403) return false;
+        return headers.getFirst("Retry-After") != null
+                || "0".equals(headers.getFirst("X-RateLimit-Remaining"));
+    }
+
+    // 재시도 대기 상한. GitHub primary limit의 리셋 주기가 1시간이라 그 이상의 대기는 무의미하다.
+    private static final long MAX_RETRY_WAIT_SECONDS = 3600L;
+
+    // 재시도 대기 시간 결정: Retry-After(초) → X-RateLimit-Reset(리셋까지 남은 초) → 60초, 상한 1시간.
     // secondary limit은 Retry-After를 주지만, primary limit 소진 403은 Retry-After 없이
     // X-RateLimit-Reset으로만 알려온다 — 60초 고정 폴백이면 리셋 전 재시도 3회를 소진하고
     // 실행 진행분을 통째로 버리게 되므로 reset 기준으로 실제 대기 시간을 맞춘다.
     static long resolveRetryWaitSeconds(HttpHeaders headers) {
         String retryAfter = headers.getFirst("Retry-After");
         if (retryAfter != null) {
-            return parseRetryAfterSeconds(retryAfter);
+            return Math.min(MAX_RETRY_WAIT_SECONDS, parseRetryAfterSeconds(retryAfter));
         }
         String resetStr = headers.getFirst("X-RateLimit-Reset");
         if (resetStr != null) {
             try {
                 long resetEpoch = Long.parseLong(resetStr);
-                return Math.max(0, resetEpoch - System.currentTimeMillis() / 1000 + 1);
+                return Math.min(MAX_RETRY_WAIT_SECONDS,
+                        Math.max(0, resetEpoch - System.currentTimeMillis() / 1000 + 1));
             } catch (NumberFormatException ignored) {
                 // 비정상 reset은 아래 60초 폴백으로
             }
