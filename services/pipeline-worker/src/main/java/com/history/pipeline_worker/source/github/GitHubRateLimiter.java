@@ -81,6 +81,11 @@ public class GitHubRateLimiter {
         sleep(sleepMs);
     }
 
+    /** 403/429 Retry-After(초)만큼 대기 */
+    public void awaitRetry(long retryAfterSeconds) {
+        sleep(retryAfterSeconds * 1000L);
+    }
+
     private static Long parseLongOrNull(String value) {
         if (value == null) return null;
         try {

@@ -148,7 +148,7 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
 
 ## Rate Limiting
 
-- **GitHub**: 3단 적응형. `X-RateLimit-Remaining`이 500(`pacing-remaining-threshold`) 초과면 무대기, 10(`low-remaining-threshold`) 초과 500 이하면 `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스((reset−now)/remaining)로 대기, 10 이하면 `X-RateLimit-Reset`까지 대기. 헤더가 없거나 remaining/reset을 숫자로 파싱할 수 없으면 300ms(`default-delay-ms`)로 폴백.
+- **GitHub**: 3단 적응형. `X-RateLimit-Remaining`이 500(`pacing-remaining-threshold`) 초과면 무대기, 10(`low-remaining-threshold`) 초과 500 이하면 `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스((reset−now)/remaining)로 대기, 10 이하면 `X-RateLimit-Reset`까지 대기. 헤더가 없거나 remaining/reset을 숫자로 파싱할 수 없으면 300ms(`default-delay-ms`)로 폴백. 403/429 응답은 `Retry-After` 헤더(초, 결손·비정상이면 60초 폴백)만큼 대기 후 최대 3회 재시도하고, 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지).
 - **Slack**: endpoint별 고정 딜레이 (`conversations.list` / `history` / `replies`). 429 응답은
   `Retry-After` **헤더**(정수 초, 없거나 형식이 어긋나면 60초 폴백)만큼 대기 후 최대 3회 재시도하고,
   첫 429부터는 그 실행 동안 해당 endpoint의 호출 간격을 Retry-After 값으로 승격한다(`SlackPacing` —

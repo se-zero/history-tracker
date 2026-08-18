@@ -3,10 +3,8 @@ package com.history.pipeline_worker.source.github;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -413,6 +411,205 @@ class GitHubRawServiceTest {
         assertThat(page.items()).hasSize(1);
     }
 
+    @Test
+    @DisplayName("커밋 상세가 403이면 조용히 삼키지 않고 Retry-After만큼 대기 후 재시도해 files를 포함한 커밋을 반환한다")
+    @SuppressWarnings("unchecked")
+    void fetchCommitPage_commitDetail403WithRetryAfter_retriesAndReturnsFilesOnSecondCall() {
+        AtomicInteger detailCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        if (detailCallCount.incrementAndGet() == 1) {
+                            return Mono.just(rateLimitedResponse(HttpStatus.FORBIDDEN, "7"));
+                        }
+                        return Mono.just(jsonResponse("""
+                                {"files": [{"filename": "src/App.java", "additions": 1, "deletions": 0}]}
+                                """));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                Duration.ofMinutes(30)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        GitHubRawService.GitHubPage page = service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(detailCallCount.get()).isEqualTo(2);
+        verify(rateLimiter).awaitRetry(7L);
+        Map<String, Object> commit = (Map<String, Object>) page.items().get(0);
+        assertThat(commit.get("files")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("커밋 상세가 429로 계속 실패하면 최대 재시도(3회) 후 GitHubRateLimitedException을 전파한다")
+    void fetchCommitPage_commitDetail429Persists_throwsRateLimitedExceptionAfterMaxRetries() {
+        AtomicInteger detailCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        detailCallCount.incrementAndGet();
+                        return Mono.just(rateLimitedResponse(HttpStatus.TOO_MANY_REQUESTS, "1"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                Duration.ofMinutes(30)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        assertThatThrownBy(() -> service.fetchCommitPage(context, 1, Map.of()))
+                .isInstanceOf(GitHubRawService.GitHubRateLimitedException.class);
+
+        assertThat(detailCallCount.get()).isEqualTo(4);
+        verify(rateLimiter, times(3)).awaitRetry(1L);
+    }
+
+    @Test
+    @DisplayName("커밋 상세가 429이고 Retry-After 헤더가 없으면 60초로 폴백해 대기한다")
+    void fetchCommitPage_commitDetail429MissingRetryAfter_fallsBackTo60SecondWait() {
+        AtomicInteger detailCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        if (detailCallCount.incrementAndGet() == 1) {
+                            return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                                    .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                                    .body("{}")
+                                    .build());
+                        }
+                        return Mono.just(jsonResponse("""
+                                {"files": [{"filename": "src/App.java", "additions": 1, "deletions": 0}]}
+                                """));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                Duration.ofMinutes(30)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        service.fetchCommitPage(context, 1, Map.of());
+
+        verify(rateLimiter).awaitRetry(60L);
+    }
+
+    @Test
+    @DisplayName("커밋 상세가 404 등 rate limit이 아닌 오류면 재시도 없이 IllegalStateException을 전파한다")
+    void fetchCommitPage_commitDetail404_throwsIllegalStateWithoutRetry() {
+        AtomicInteger detailCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        detailCallCount.incrementAndGet();
+                        return Mono.just(errorResponse(HttpStatus.NOT_FOUND));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                Duration.ofMinutes(30)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        assertThatThrownBy(() -> service.fetchCommitPage(context, 1, Map.of()))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(detailCallCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("프로필 조회가 429로 계속 실패해도 재시도 소진 후 예외를 삼키고 커밋 수집은 정상 진행한다(프로필만 결손)")
+    @SuppressWarnings("unchecked")
+    void fetchCommitPage_userProfile429Persists_swallowedAndCommitStillCollected() {
+        AtomicInteger profileCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(jsonResponse("""
+                                {"files": [{"filename": "src/App.java", "additions": 1, "deletions": 0}]}
+                                """));
+                    }
+                    if (path.equals("/users/dev")) {
+                        profileCallCount.incrementAndGet();
+                        return Mono.just(rateLimitedResponse(HttpStatus.TOO_MANY_REQUESTS, "2"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                Duration.ofMinutes(30)
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        GitHubRawService.GitHubPage page = service.fetchCommitPage(context, 1, Map.of());
+
+        assertThat(page.items()).hasSize(1);
+        Map<String, Object> commit = (Map<String, Object>) page.items().get(0);
+        assertThat(commit.get("files")).isNotNull();
+        Map<String, Object> author = (Map<String, Object>) commit.get("author");
+        assertThat(author).doesNotContainKeys("email", "name");
+        assertThat(profileCallCount.get()).isEqualTo(4);
+        verify(rateLimiter, times(3)).awaitRetry(2L);
+    }
+
+    @Test
+    @DisplayName("Retry-After 헤더가 정수 초 문자열이면 그대로 파싱한다")
+    void parseRetryAfterSeconds_parsesIntegerSeconds() {
+        assertThat(GitHubRawService.parseRetryAfterSeconds("7")).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("Retry-After 헤더가 없거나 형식이 잘못되면 60초로 폴백한다")
+    void parseRetryAfterSeconds_missingOrMalformedHeader_fallsBackTo60() {
+        assertThat(GitHubRawService.parseRetryAfterSeconds(null)).isEqualTo(60L);
+        assertThat(GitHubRawService.parseRetryAfterSeconds("abc")).isEqualTo(60L);
+        assertThat(GitHubRawService.parseRetryAfterSeconds("-5")).isEqualTo(60L);
+    }
 
     private String mergeCommitsPageJson() {
         return """
@@ -468,6 +665,16 @@ class GitHubRawServiceTest {
                 .header(HttpHeaders.CONTENT_TYPE, "application/json")
                 .body("""
                         {"message": "API rate limit exceeded"}
+                        """)
+                .build();
+    }
+
+    private ClientResponse rateLimitedResponse(HttpStatus status, String retryAfterSeconds) {
+        return ClientResponse.create(status)
+                .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                .header("Retry-After", retryAfterSeconds)
+                .body("""
+                        {"message": "rate limited"}
                         """)
                 .build();
     }

@@ -100,6 +100,18 @@ class GitHubRateLimiterTest {
         assertThat(elapsed).isGreaterThanOrEqualTo(150);
     }
 
+    @Test
+    @DisplayName("awaitRetry는 retryAfterSeconds를 밀리초로 환산해 대기한다")
+    void awaitRetry_sleepsForRetryAfterSeconds() {
+        GitHubRateLimiter rateLimiter = new GitHubRateLimiter(0, 0, 0);
+
+        long start = System.currentTimeMillis();
+        rateLimiter.awaitRetry(1);
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertThat(elapsed).isGreaterThanOrEqualTo(900);
+    }
+
     private HttpHeaders rateLimitHeaders(String remaining, String reset) {
         HttpHeaders headers = new HttpHeaders();
         if (remaining != null) headers.set("X-RateLimit-Remaining", remaining);

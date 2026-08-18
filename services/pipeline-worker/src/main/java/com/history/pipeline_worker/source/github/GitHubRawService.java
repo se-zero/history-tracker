@@ -15,8 +15,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -24,8 +24,20 @@ public class GitHubRawService {
 
     private static final int PER_PAGE = 100; // GitHub API 최대값
 
+    // 403/429 재시도 최대 횟수 (Slack/Discord와 동일 기준)
+    private static final int MAX_RETRY_ON_RATE_LIMIT = 3;
+
     public record GitHubFetchContext(String auth, String owner, String repo, String branch, GitHubCheckpoint checkpoint) {}
     public record GitHubPage(List<Object> items, boolean finished) {}
+
+    static class GitHubRateLimitedException extends RuntimeException {
+        final long retryAfterSeconds;
+
+        GitHubRateLimitedException(long retryAfterSeconds) {
+            super("GitHub rate limited, Retry-After=" + retryAfterSeconds + "s");
+            this.retryAfterSeconds = retryAfterSeconds;
+        }
+    }
 
     private final WebClient webClient;
     private final GitHubRateLimiter rateLimiter;
@@ -259,22 +271,30 @@ public class GitHubRawService {
         // 걸러낼 수 없다. get으로 조회 후 미스/만료일 때만 호출하고 성공한 결과만 캐시에 반영하는 패턴으로
         // 바꿔, 일시 장애가 그 계정의 신원 보강을 재시작 전까지 영구히 결손시키지 않도록 한다.
         try {
-            AtomicReference<org.springframework.http.HttpHeaders> headersRef = new AtomicReference<>();
-            AtomicBoolean success = new AtomicBoolean(false);
-            Map<String, Object> result = webClient.get()
-                    .uri("/users/{login}", login)
-                    .header("Authorization", auth)
-                    .exchangeToMono(resp -> {
-                        headersRef.set(resp.headers().asHttpHeaders());
-                        if (!resp.statusCode().is2xxSuccessful()) {
-                            return Mono.empty();
-                        }
-                        success.set(true);
-                        return resp.bodyToMono(Map.class);
-                    })
-                    .block();
-            rateLimiter.acquire(headersRef.get());
-            if (!success.get()) return Map.of();
+            // 프로필은 부가 데이터라 재시도 대상을 429(명백한 rate limit)로만 좁힌다 — 403 등 나머지
+            // non-2xx는 즉시 실패시켜 아래 catch가 흡수하고(캐시 미기록으로 다음 호출에서 재조회), 계정당
+            // 최대 3×Retry-After초를 태우지 않는다.
+            Map<String, Object> result = executeWithRateLimitRetry(() -> {
+                AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
+                Map<String, Object> body = webClient.get()
+                        .uri("/users/{login}", login)
+                        .header("Authorization", auth)
+                        .exchangeToMono(resp -> {
+                            headersRef.set(resp.headers().asHttpHeaders());
+                            if (resp.statusCode().is2xxSuccessful()) {
+                                return resp.bodyToMono(Map.class);
+                            }
+                            if (resp.statusCode().value() == 429) {
+                                return Mono.error(new GitHubRateLimitedException(
+                                        parseRetryAfterSeconds(resp.headers().asHttpHeaders().getFirst("Retry-After"))));
+                            }
+                            return Mono.error(new IllegalStateException(
+                                    "GitHub API error: status=" + resp.statusCode().value() + ", path=/users/" + login));
+                        })
+                        .block();
+                rateLimiter.acquire(headersRef.get());
+                return body;
+            });
 
             Map<String, String> profile = new HashMap<>();
             if (result != null) {
@@ -292,19 +312,32 @@ public class GitHubRawService {
         }
     }
 
+    // 재시도 소진 시 예외가 그대로 전파돼 이 커밋의 collect가 실패한다 — checkpoint가 전진하지 않아
+    // 다음 수집에서 재시도된다("발행 예외를 삼키지 않는다"와 같은 원리, 조용한 데이터 결손보다 낫다).
     @SuppressWarnings("unchecked")
     private Map<String, Object> fetchCommitDetail(String auth, String owner, String repo, String sha) {
-        AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
-        Map<String, Object> result = webClient.get()
-                .uri("/repos/{owner}/{repo}/commits/{sha}", owner, repo, sha)
-                .header("Authorization", auth)
-                .exchangeToMono(resp -> {
-                    headersRef.set(resp.headers().asHttpHeaders());
-                    return resp.bodyToMono(Map.class);
-                })
-                .block();
-        rateLimiter.acquire(headersRef.get());
-        return result;
+        return executeWithRateLimitRetry(() -> {
+            AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
+            Map<String, Object> result = webClient.get()
+                    .uri("/repos/{owner}/{repo}/commits/{sha}", owner, repo, sha)
+                    .header("Authorization", auth)
+                    .exchangeToMono(resp -> {
+                        headersRef.set(resp.headers().asHttpHeaders());
+                        if (resp.statusCode().is2xxSuccessful()) {
+                            return resp.bodyToMono(Map.class);
+                        }
+                        if (resp.statusCode().value() == 403 || resp.statusCode().value() == 429) {
+                            return Mono.error(new GitHubRateLimitedException(
+                                    parseRetryAfterSeconds(resp.headers().asHttpHeaders().getFirst("Retry-After"))));
+                        }
+                        return Mono.error(new IllegalStateException(
+                                "GitHub API error: status=" + resp.statusCode().value()
+                                        + ", path=/repos/" + owner + "/" + repo + "/commits/" + sha));
+                    })
+                    .block();
+            rateLimiter.acquire(headersRef.get());
+            return result;
+        });
     }
 
     private List<Object> fetchPullRequestCommits(String auth, String owner, String repo, String prNumber) {
@@ -342,19 +375,31 @@ public class GitHubRawService {
         return mergedPullRequests;
     }
 
+    // 재시도 소진 시 예외가 그대로 전파돼 collect가 실패한다 — checkpoint가 전진하지 않아 다음 수집에서
+    // 재발행된다("발행 예외를 삼키지 않는다"와 같은 원리).
     @SuppressWarnings("unchecked")
     private List<Object> fetchPage(String auth, String path, String owner, String repo) {
-        AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
-        List<Object> result = webClient.get()
-                .uri(path, owner, repo)
-                .header("Authorization", auth)
-                .exchangeToMono(resp -> {
-                    headersRef.set(resp.headers().asHttpHeaders());
-                    return resp.bodyToMono(List.class);
-                })
-                .block();
-        rateLimiter.acquire(headersRef.get());
-        return result != null ? result : List.of();
+        return executeWithRateLimitRetry(() -> {
+            AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
+            List<Object> result = webClient.get()
+                    .uri(path, owner, repo)
+                    .header("Authorization", auth)
+                    .exchangeToMono(resp -> {
+                        headersRef.set(resp.headers().asHttpHeaders());
+                        if (resp.statusCode().is2xxSuccessful()) {
+                            return resp.bodyToMono(List.class);
+                        }
+                        if (resp.statusCode().value() == 403 || resp.statusCode().value() == 429) {
+                            return Mono.error(new GitHubRateLimitedException(
+                                    parseRetryAfterSeconds(resp.headers().asHttpHeaders().getFirst("Retry-After"))));
+                        }
+                        return Mono.error(new IllegalStateException(
+                                "GitHub API error: status=" + resp.statusCode().value() + ", path=" + path));
+                    })
+                    .block();
+            rateLimiter.acquire(headersRef.get());
+            return result != null ? result : List.of();
+        });
     }
 
     /** "commit.author.date" 처럼 점(.) 구분 중첩 경로로 문자열 값 추출 */
@@ -364,5 +409,36 @@ public class GitHubRawService {
         Object val = map.get(parts[0]);
         if (parts.length == 1) return val instanceof String ? (String) val : null;
         return val instanceof Map ? extractNestedStr((Map<String, Object>) val, parts[1]) : null;
+    }
+
+    // 403/429면 Retry-After 헤더만큼 대기 후 재시도. 소진 시 원 예외를 그대로 재던진다.
+    private <T> T executeWithRateLimitRetry(Supplier<T> request) {
+        int attempts = 0;
+        while (true) {
+            try {
+                return request.get();
+            } catch (GitHubRateLimitedException e) {
+                attempts++;
+                if (attempts > MAX_RETRY_ON_RATE_LIMIT) {
+                    throw e;
+                }
+                log.warn("GitHub rate limit(403/429) — {}초 대기 후 재시도 ({}/{})",
+                        e.retryAfterSeconds, attempts, MAX_RETRY_ON_RATE_LIMIT);
+                rateLimiter.awaitRetry(e.retryAfterSeconds);
+            }
+        }
+    }
+
+    // Retry-After는 정수 초 문자열. 헤더가 없거나 형식이 어긋나면 60초로 보수적 폴백한다(SlackRawService와 동일 기준).
+    static long parseRetryAfterSeconds(String headerValue) {
+        if (headerValue == null) {
+            return 60L;
+        }
+        try {
+            long seconds = Long.parseLong(headerValue);
+            return seconds >= 0 ? seconds : 60L;
+        } catch (NumberFormatException e) {
+            return 60L;
+        }
     }
 }
