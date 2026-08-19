@@ -3,7 +3,7 @@ package com.history.backend.integration.domain;
 /**
  * 연동 확정 전에 사용자가 골라야 하는 대상 한 단계.
  *
- * <p>provider마다 단계 수가 다르다 — Linear는 team 1단, Jira·Asana·monday는 2단,
+ * <p>provider마다 단계 수가 다르다 — Linear는 team 1단, Jira·Asana는 2단,
  * ClickUp은 workspace → space → folder(선택) → list로 최대 4단이다. 그래서 단계 스키마를 고정하지 않고
  * provider가 선언하게 한다.</p>
  *

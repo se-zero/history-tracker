@@ -8,8 +8,6 @@ import {
   GoogleChatMark,
   JiraMark,
   LinearMark,
-  MicrosoftTeamsMark,
-  MondayMark,
   NotionMark,
   SlackMark,
 } from "@/components/brand/BrandMarks";
@@ -48,9 +46,10 @@ export type SourceCatalogItem = SourceBase &
     | { status: "planned" }
   );
 
-// 데이터 소스 11종 카탈로그. 소스별 화면(타일·연동 행·해제 다이얼로그)은 모두 이 배열의
-// filter+map으로만 렌더된다 — 새 소스는 backend 연동이 준비되면 여기 항목의 status를
-// "wired"로 바꾸는 것으로 끝난다(공용 컴포넌트는 고치지 않는다).
+// 데이터 소스 9종 카탈로그. 소스별 화면(타일·연동 행·해제 다이얼로그)은 모두 이 배열의
+// filter+map으로만 렌더된다 — 새 소스는 여기 항목을 추가하는 것으로 끝난다(공용 컴포넌트는
+// 고치지 않는다). backend 연동보다 먼저 타일 자리만 잡아 두고 싶으면 status를 "planned"로
+// 두고, 연동이 준비되면 "wired"로 바꾼다.
 export const sourceCatalog: SourceCatalogItem[] = [
   {
     id: "github",
@@ -126,7 +125,6 @@ export const sourceCatalog: SourceCatalogItem[] = [
     connect: "oauth",
     deletedData: "수집한 작업(태스크)과 그 그래프",
   },
-  { id: "monday", name: "monday.com", description: "작업 맥락", Mark: MondayMark, status: "planned" },
   {
     id: "clickup",
     name: "ClickUp",
@@ -136,7 +134,6 @@ export const sourceCatalog: SourceCatalogItem[] = [
     connect: "oauth",
     deletedData: "수집한 태스크와 그 그래프",
   },
-  { id: "teams", name: "MS Teams", description: "대화 맥락", Mark: MicrosoftTeamsMark, status: "planned" },
 ];
 
 export function findSource(id: string | null | undefined): SourceCatalogItem | undefined {
