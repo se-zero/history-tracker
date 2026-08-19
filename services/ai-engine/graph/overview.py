@@ -174,7 +174,7 @@ def _node_ref(node_type: str, node_id: str | None) -> dict | None:
 # 등록되지 않은 소스는 _source_label이 대문자 snake에서 유도하므로(LINEAR → "Linear",
 # GOOGLE_CHAT → "Google Chat") 커넥터를 추가할 때 이 맵을 고칠 필요는 없다.
 # **유도로 표기가 틀어지는 이름만** 여기에 넣는다 (GitHub·ClickUp처럼 중간에 대문자가 오는 경우).
-_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "CLICKUP": "ClickUp", "MONDAY": "monday.com"}
+_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "CLICKUP": "ClickUp"}
 
 
 def _source_label(prefix: str) -> str:
