@@ -140,6 +140,17 @@ export function findSource(id: string | null | undefined): SourceCatalogItem | u
   return sourceCatalog.find((source) => source.id === id);
 }
 
+// 답변 근거·그래프 노드의 source 값에서 브랜드 로고를 조회한다. 서버 표기가 두 갈래라
+// (근거는 대문자 "GOOGLE_CHAT", 그래프 노드는 소문자 언더스코어 "google_chat") 카탈로그 id
+// 형식(소문자 + 하이픈)으로 정규화한 뒤 조회한다. 카탈로그에 없는 값("people" 등)이면 undefined.
+export function markForSource(
+  source: string | null | undefined,
+): ComponentType<{ size?: number; className?: string }> | undefined {
+  if (!source) return undefined;
+  const normalized = source.toLowerCase().replace(/_/g, "-");
+  return findSource(normalized)?.Mark;
+}
+
 // provider id를 사람이 읽는 이름으로 — 카탈로그에 없으면 id를 그대로 보여준다
 export function sourceName(id: string | null | undefined): string {
   return findSource(id)?.name ?? id ?? "연동";
