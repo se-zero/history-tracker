@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { formatInstant, formatTimestamp } from "@/lib/format";
+import { remarkLocalTime } from "@/lib/remarkLocalTime";
 import type { Message } from "@/types/api";
 import { extractStructured } from "./messageStructured";
 
@@ -75,14 +77,25 @@ function AssistantMessage({
           </div>
         )}
         {/* assistant 응답은 markdown으로 렌더링한다(유저 메시지는 원문 그대로 pre-wrap 유지). */}
+        {/* remarkLocalTime: 본문의 UTC ISO를 뷰어 기기 타임존의 자연어로 바꿔 그린다. */}
         <div className="msg-content markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkLocalTime]}>{summary}</ReactMarkdown>
         </div>
 
+        {/* 미확인 측면도 본문과 같은 파이프라인을 태운다 — 평문으로 렌더하면 여기 실린
+            타임스탬프만 UTC ISO로 남고 백틱도 글자 그대로 보인다. 항목이 짧은 한 줄이라
+            p 래퍼는 벗겨 기존 목록 레이아웃을 유지한다. */}
         {unknownAspects.length > 0 && (
           <ul className="unknown-aspects">
             {unknownAspects.map((aspect, i) => (
-              <li key={i}>{aspect}</li>
+              <li key={i}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkLocalTime]}
+                  components={{ p: ({ children }) => <>{children}</> }}
+                >
+                  {aspect}
+                </ReactMarkdown>
+              </li>
             ))}
           </ul>
         )}
@@ -132,7 +145,15 @@ function AssistantMessage({
                     {e.occurredAt && (
                       <>
                         <span>·</span>
-                        <span>{e.occurredAt.slice(0, 10)}</span>
+                        {/* 카드는 UI 크롬이라 본문(자연어)과 달리 고정 표기를 유지한다. 다만
+                            기준을 UTC 문자열 앞자르기에서 뷰어 로컬 날짜로 바로잡고, 잘린
+                            시·분·초는 hover(title)로 보강한다. */}
+                        <time
+                          dateTime={e.occurredAt}
+                          title={formatInstant(e.occurredAt, { withSeconds: true })}
+                        >
+                          {formatTimestamp(e.occurredAt).slice(0, 10)}
+                        </time>
                       </>
                     )}
                   </div>
