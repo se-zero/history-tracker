@@ -62,7 +62,7 @@
   gap: 10px;
 }
 .node-detail .nd-head { display: flex; align-items: flex-start; gap: 10px; }
-.node-detail .nd-icon { width: 28px; height: 28px; border-radius: var(--r-sm); display: grid; place-items: center; color: white; font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; }
+.node-detail .nd-icon { width: 28px; height: 28px; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--surface-3); border: 1px solid var(--border); color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; }
 .node-detail .nd-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
 .node-detail .nd-meta { font-size: 11px; color: var(--fg-subtle); margin-top: 2px; font-family: var(--font-mono); }
 .node-detail .nd-snippet {

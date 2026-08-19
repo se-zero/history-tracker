@@ -1,4 +1,5 @@
 import { Icons } from "@/components/Icons";
+import { markForSource } from "@/components/sources/sourceCatalog";
 import { NODE_TYPE_INFO, type GraphNode } from "@/types/graph";
 
 interface Props {
@@ -10,11 +11,23 @@ interface Props {
 export function NodeDetail({ node, onClose, onAddToChat }: Props) {
   if (!node) return null;
   const info = NODE_TYPE_INFO[node.type];
+  // 아이콘 우선순위: actor/code는 전용 아이콘, 그 외는 소스 브랜드 로고, 카탈로그에 없으면
+  // 기존 두 글자 약어(최종 폴백) — 신규 소스가 기존 GraphNodeType에 뭉뚱그려 들어가
+  // node.type만으로는 브랜드를 구분할 수 없다.
+  const Mark = markForSource(node.source);
   return (
     <div className="node-detail">
       <div className="nd-head">
-        <div className="nd-icon" style={{ background: info.cssVar }}>
-          {info.label.slice(0, 2).toUpperCase()}
+        <div className="nd-icon">
+          {node.type === "actor" ? (
+            <Icons.People size={14} />
+          ) : node.type === "code" ? (
+            <Icons.Code size={14} />
+          ) : Mark ? (
+            <Mark size={14} />
+          ) : (
+            info.label.slice(0, 2).toUpperCase()
+          )}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="nd-title">{node.title}</div>
