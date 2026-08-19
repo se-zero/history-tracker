@@ -341,8 +341,9 @@
   margin-bottom: 3px;
   min-width: 0;
 }
-/* id처럼 긴 값만 줄여 잘라내고(ellipsis), 타입·날짜 등 짧은 항목은 밀리지 않게 고정폭 유지 */
-.cite-card .cite-meta > span:not(.cite-id) { flex-shrink: 0; }
+/* id처럼 긴 값만 줄여 잘라내고(ellipsis), 타입·날짜 등 짧은 항목은 밀리지 않게 고정폭 유지
+   (날짜는 <time> 요소라 span으로 한정하지 않는다) */
+.cite-card .cite-meta > :not(.cite-id) { flex-shrink: 0; }
 .cite-card .cite-id {
   flex: 0 1 auto;
   min-width: 0;

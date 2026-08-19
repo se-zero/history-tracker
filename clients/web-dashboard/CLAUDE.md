@@ -83,6 +83,14 @@ src/
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
                     constellation(성좌 배치: 별성 force + 위성 궤도) · canvasColor(CSS 토큰 → Canvas RGB)
                     heroConstellation · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
+                    remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
+                    **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
+                    (서버가 타임존을 굳히면 저장된 답변이 그 타임존에 영구히 묶인다, docs/tools.md).
+                    로캘은 format.ts의 `UI_LOCALE` 한 곳에서만 정한다 — 언어 분리(i18n) 도입 시
+                    이 상수만 설정 훅으로 교체하면 포맷터가 함께 따라온다. 타임존은 로캘과 별개로
+                    기기 설정이 자동 적용되므로 어디에도 하드코딩하지 않는다.
+                    **언어 분리 작업 전에 docs/i18n.md를 읽는다** — 로캘·타임존을 묶으면 안 되는
+                    이유와 시각 표시 계약(날짜 단독·코드블록 미변환 등)이 거기 있다
   auth/             AuthProvider(세션 상태) · tokenStorage(localStorage)
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)

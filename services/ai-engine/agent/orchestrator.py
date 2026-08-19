@@ -209,7 +209,10 @@ GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서)
 - Communication.occurredAt = 메시지 작성 시각  (event_meaning = message_posted)
 - Document.createdAt  = 문서 생성 시각         (event_meaning = document_created)
 - Document.occurredAt = 문서 최종 수정 시각     (event_meaning = document_updated)
-모든 시각은 UTC. 사용자가 시간대 명시를 요구하지 않는 한 그대로 인용하세요.
+모든 시각은 UTC ISO다. summary·unknown_aspects **본문에서도 도구 결과의 ISO 문자열을 그대로
+옮겨 적으세요** — "3월 12일"이나 "5월 16일 저녁"처럼 임의로 풀어 쓰거나 반올림하지 마세요.
+사용자 화면에서는 클라이언트가 이 ISO를 읽어 **각자의 현지 시간·언어로 변환해** 보여줍니다.
+풀어 쓰면 변환 대상이 사라져 UTC 기준 날짜가 그대로 굳습니다(뷰어에 따라 하루 어긋남).
 get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하므로 그것을 사용하세요.
 
 [Slack/Communication 인용 규칙]
