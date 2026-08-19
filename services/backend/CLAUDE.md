@@ -109,7 +109,7 @@ Discord의 `revoke`는 자격증명(refresh token)뿐 아니라 `externalRef`의
 
 동의만으로 끝나지 않는 provider는 `IntegrationSelectionFlow`로 자기 단계를 선언한다. 백엔드·프론트는
 단계 수나 이름을 하드코딩하지 않는다 — 조사해 보니 Linear·Google Chat은 1단(각각 team·space),
-Jira·Asana·monday는 2단, ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이고
+Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → list로 최대 4단이고
 **중간 단계를 건너뛸 수 있다**.
 
 - `SelectionStep.key`·`labelKey`는 그대로 `external_ref` 키가 된다 — pipeline-worker가 수집할 때 읽는
