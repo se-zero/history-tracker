@@ -1,4 +1,4 @@
-import type { Nodes, Parents } from "mdast";
+import type { Link, Nodes, Parents } from "mdast";
 import { SKIP, visit } from "unist-util-visit";
 
 import { formatInstant } from "./format";
@@ -61,17 +61,28 @@ export function remarkLocalTime() {
       const matches = [...node.value.matchAll(ISO_INSTANT)];
       if (matches.length === 0) return;
 
+      // remark-gfm의 autolink literal(https://...2026-03-12T08:42:50Z...)은 표시 텍스트가 곧
+      // href라, 그 안의 ISO를 바꾸면 링크 라벨만 변환되고 href는 원문 그대로 남아 어긋난다.
+      // "이 매칭이 부모 링크의 url에도 그대로 들어있는가"로 자동 링크만 골라 건너뛴다 —
+      // [텍스트](url) 처럼 표시 텍스트가 url과 무관한 명시 링크는 그대로 변환 대상이다.
+      const parentUrl = parent.type === "link" ? (parent as Link).url : null;
+      const isAutolinkLabel = (text: string) => parentUrl != null && parentUrl.includes(text);
+
       // 매칭 구간은 <time>으로, 사이사이 원문은 text로 남겨 한 노드를 여러 노드로 펼친다.
       const replacement: Nodes[] = [];
       let cursor = 0;
+      let changed = false;
       for (const match of matches) {
         const start = match.index;
+        if (isAutolinkLabel(match[0])) continue;
+        changed = true;
         if (start > cursor) {
           replacement.push({ type: "text", value: node.value.slice(cursor, start) });
         }
         replacement.push(timeNode(match[0]));
         cursor = start + match[0].length;
       }
+      if (!changed) return;
       if (cursor < node.value.length) {
         replacement.push({ type: "text", value: node.value.slice(cursor) });
       }
