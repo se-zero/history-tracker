@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -42,6 +43,18 @@ export function ChatPage({ project }: { project: Project }) {
   const conversationQuery = useConversation(project.id, conversationId);
   const detail = conversationQuery.data;
   const messages = detail?.messages ?? [];
+
+  // 없는 대화로 들어오면(다른 탭에 있는 동안 사이드바에서 지웠거나, 옛 주소를 다시 연 경우)
+  // 에러 카드 대신 새 대화 화면으로 되돌린다 — 프로젝트를 옮겼다 돌아왔을 때와 같은 화면이라
+  // 사용자가 따로 복구 동작을 할 필요가 없다. AppShell이 기억한 대화 id도 이 이동으로 함께 비워진다.
+  // 404만 대상이다 — 네트워크·서버 오류는 다시 시도할 수 있게 에러 화면을 유지한다.
+  const conversationError = conversationQuery.error;
+  useEffect(() => {
+    if (!conversationId) return;
+    if (axios.isAxiosError(conversationError) && conversationError.response?.status === 404) {
+      navigate(`/projects/${project.id}/chat`, { replace: true });
+    }
+  }, [conversationError, conversationId, project.id, navigate]);
 
   const loadOlder = useLoadOlderMessages(project.id, conversationId);
 
