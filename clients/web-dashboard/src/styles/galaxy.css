@@ -46,16 +46,10 @@
   /* 은하 위에 떠 있는 유리판 느낌 — 배경을 완전히 가리지 않는다. */
   background: color-mix(in oklab, var(--surface) 62%, transparent);
   backdrop-filter: blur(8px);
-  font-size: 11px;
+  /* 디자인 시스템의 최소 단계(mono-label 12px)를 따른다 — 그 아래로 내려가면 읽기 부담이 커진다. */
+  font-size: 12px;
   color: var(--fg-muted);
   pointer-events: none;
-}
-
-.galaxy-legend-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
 }
 
 .galaxy-legend-hint {
@@ -76,17 +70,49 @@
   pointer-events: auto;
 }
 
+/* 마지막 렌즈 아래에는 범례 자체의 패딩만 남긴다. */
+.galaxy-lens:last-child {
+  margin-bottom: 0;
+}
+
+/* 칩 목록 — 제목(galaxy-legend-hint)은 이 밖에 남는다. 상한을 제목까지 감싸면
+   스크롤할 때 무엇을 고르는 목록인지가 화면에서 사라진다. */
+.galaxy-lens-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/*
+ * 사람 목록에만 상한을 둔다 — 액터는 프로젝트가 커질수록 계속 늘어나 범례가 화면 위로
+ * 넘친다. 노드 분류는 실제 존재하는 것만 뜨므로 목록이 짧고, 잘라 보일 이유가 없다.
+ *
+ * 높이는 픽셀이 아니라 "몇 줄"로 정한다 — 칩 한 줄 높이를 line-height로 고정해 두면
+ * (--lens-row-h) 줄 수만 바꿔도 마지막 줄이 잘리지 않는다.
+ */
+.galaxy-lens-list.scrollable {
+  --lens-rows: 10;
+  /* 칩 한 줄 = 상하 padding 5px×2 + border 1px×2 + line-height 16px */
+  --lens-row-h: 28px;
+  max-height: calc(
+    var(--lens-rows) * var(--lens-row-h) + (var(--lens-rows) - 1) * 3px
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .galaxy-lens-chip {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 7px;
+  padding: 5px 8px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--fg-muted);
   font: inherit;
-  font-size: 11px;
+  /* line-height를 고정해 한 줄 높이를 결정적으로 만든다 — 목록 상한(--lens-row-h)이 이 값에 기댄다. */
+  line-height: 16px;
   text-align: left;
   cursor: pointer;
 }
@@ -115,7 +141,7 @@
 .galaxy-lens-count {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--fg-subtle);
 }
 
@@ -241,8 +267,7 @@
   padding: 6px 4px 4px;
 }
 
-.gd-item,
-.gd-link {
+.gd-item {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -258,8 +283,7 @@
   cursor: pointer;
 }
 
-.gd-item:hover,
-.gd-link:hover {
+.gd-item:hover {
   background: var(--surface-2);
   color: var(--fg);
 }
@@ -275,16 +299,4 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.gd-link {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-}
-
-.gd-link-meta {
-  font-size: 10px;
-  color: var(--fg-subtle);
-  font-family: var(--font-mono);
 }

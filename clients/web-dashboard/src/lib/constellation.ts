@@ -115,8 +115,6 @@ export interface Bridge {
   a: number;
   b: number;
   weight: number;
-  /** 두 성좌를 실제로 잇는 공유 노드 — 상세 패널에서 "무엇을 공유하는지" 보여준다. */
-  shared: GraphNode[];
 }
 
 export interface ConstellationLayout {
@@ -184,16 +182,15 @@ export function buildConstellations(
   }));
 
   const bridgeMap = new Map<string, Bridge>();
-  const addBridge = (i: number, j: number, shared: GraphNode | null) => {
+  const addBridge = (i: number, j: number) => {
     if (i === j) return;
     const key = i < j ? `${i}:${j}` : `${j}:${i}`;
     let entry = bridgeMap.get(key);
     if (!entry) {
-      entry = { a: Math.min(i, j), b: Math.max(i, j), weight: 0, shared: [] };
+      entry = { a: Math.min(i, j), b: Math.max(i, j), weight: 0 };
       bridgeMap.set(key, entry);
     }
     entry.weight++;
-    if (shared) entry.shared.push(shared);
   };
 
   // nodeId → 소속 별성. 다음 홉에서 "이미 자리를 잡은 이웃"을 찾는 데 쓴다.
@@ -213,7 +210,7 @@ export function buildConstellations(
       phase: hash01(node.id) * Math.PI * 2,
     });
     assigned.set(node.id, host);
-    for (const other of owners) addBridge(host, other, node);
+    for (const other of owners) addBridge(host, other);
   };
 
   /** 이웃 중 조건에 맞는 별성 인덱스를 중복 없이 모은다. */
@@ -261,7 +258,7 @@ export function buildConstellations(
   for (const [a, b] of edges) {
     const ia = starIndex.get(a);
     const ib = starIndex.get(b);
-    if (ia !== undefined && ib !== undefined) addBridge(ia, ib, null);
+    if (ia !== undefined && ib !== undefined) addBridge(ia, ib);
   }
 
   for (const star of stars) layoutSatellites(star);
