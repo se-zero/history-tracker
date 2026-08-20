@@ -267,8 +267,7 @@
   padding: 6px 4px 4px;
 }
 
-.gd-item,
-.gd-link {
+.gd-item {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -284,8 +283,7 @@
   cursor: pointer;
 }
 
-.gd-item:hover,
-.gd-link:hover {
+.gd-item:hover {
   background: var(--surface-2);
   color: var(--fg);
 }
@@ -301,16 +299,4 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.gd-link {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-}
-
-.gd-link-meta {
-  font-size: 10px;
-  color: var(--fg-subtle);
-  font-family: var(--font-mono);
 }

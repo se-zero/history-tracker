@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icons } from "@/components/Icons";
-import {
-  ConstellationDetail,
-  type Connection,
-} from "@/components/graph/ConstellationDetail";
+import { ConstellationDetail } from "@/components/graph/ConstellationDetail";
 import { sourceNameForNode } from "@/components/sources/sourceCatalog";
 import { rgba, resolveVarRgb, shade, varName, type Rgb } from "@/lib/canvasColor";
 import {
@@ -725,18 +722,6 @@ export function ConstellationVis({
 
   const focusedStar = focused === null ? null : (layout.stars[focused] ?? null);
 
-  const connections = useMemo<Connection[]>(() => {
-    if (focused === null) return [];
-    return layout.bridges
-      .filter((b) => b.a === focused || b.b === focused)
-      .map((b) => {
-        const other = b.a === focused ? b.b : b.a;
-        return { index: other, star: layout.stars[other], shared: b.shared };
-      })
-      .filter((c) => c.star)
-      .sort((a, b) => b.shared.length - a.shared.length);
-  }, [layout, focused]);
-
   return (
     <div className="galaxy-wrap" ref={wrapRef}>
       <canvas
@@ -757,14 +742,9 @@ export function ConstellationVis({
       {focusedStar ? (
         <ConstellationDetail
           star={focusedStar}
-          connections={connections}
           selectedId={selectedId}
           loading={expanding}
           onSelectNode={onSelect}
-          onJump={(index) => {
-            focusOn(index);
-            onSelect(layout.stars[index].node);
-          }}
           onClose={exitFocus}
         />
       ) : (
