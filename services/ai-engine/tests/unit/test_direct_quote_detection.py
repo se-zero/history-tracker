@@ -227,6 +227,27 @@ class CountDirectQuotesTest(unittest.TestCase):
 
         self.assertEqual(1, len(debug["direct_quotes"]))
 
+    def test_korean_particle_after_closing_quote_still_detected(self):
+        # PR #102 봇 리뷰 2차(Major) 가드: 한글 음절은 str.isalnum()이 True라, 닫는 ' 뒤에
+        # 조사가 붙는 한국어 표준 인용("'…'라고")이 영어 축약형으로 오판돼 통째로 면제됐다.
+        # 축약형 판정은 ASCII 영숫자에 붙은 아포스트로피로 한정해야 한다.
+        original = "그럼 나중에 추상화 하는걸로 할까?"
+        tool_content = json.dumps({"body": original}, ensure_ascii=False)
+        messages = [{"role": "tool", "content": tool_content}]
+
+        for summary in (
+            f"'{original}'라고 물었다.",
+            f"'{original}'이라고 했다.",
+            f"'{original}'에서 논의됐다.",
+        ):
+            with self.subTest(summary=summary):
+                structured = {"summary": summary, "evidence": [], "unknown_aspects": []}
+                debug: dict = {}
+
+                orchestrator._count_direct_quotes(structured, messages, 0, debug)
+
+                self.assertEqual(1, len(debug["direct_quotes"]))
+
     def test_debug_none_does_not_raise(self):
         original = "그럼 나중에 추상화 하는걸로 할까?"
         tool_content = json.dumps({"body": original}, ensure_ascii=False)

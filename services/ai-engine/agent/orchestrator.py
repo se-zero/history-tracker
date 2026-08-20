@@ -758,17 +758,25 @@ _IDENTIFIER_ADJACENT_RE = re.compile(
 )
 
 
+def _is_ascii_alnum(char: str) -> bool:
+    """한 글자가 ASCII 영숫자인지 — 빈 문자열(문자열 경계)은 False."""
+    return bool(char) and char.isascii() and char.isalnum()
+
+
 def _is_word_internal_apostrophe(summary: str, match: re.Match) -> bool:
     """'…' 매치가 실제 인용이 아니라 don't·it's 같은 축약형 내부 아포스트로피인지 판정.
 
     영어 축약형은 단어 안에 아포스트로피가 두 번 나오면(예: "don't ... it's") 그 사이 구간이
-    '…' 패턴에 우연히 매칭된다 — 여는/닫는 아포스트로피 중 하나라도 글자·숫자에 바로 붙어 있으면
-    단어 내부로 보고 인용 후보에서 제외한다. 한국어 '제목' 인용은 앞뒤가 공백·문장부호이므로
-    이 조건에 걸리지 않는다.
+    '…' 패턴에 우연히 매칭된다 — 여는/닫는 아포스트로피 중 하나라도 **ASCII** 영숫자에 바로
+    붙어 있으면 단어 내부로 보고 인용 후보에서 제외한다.
+
+    ASCII로 한정하는 이유: 한글 음절은 str.isalnum()이 True다. 범위를 좁히지 않으면 닫는 ' 뒤에
+    조사가 붙는 한국어의 표준 인용 형태("'…'라고", "'…'이라고", "'…'에서")가 전부 축약형으로
+    오판돼 통째로 면제된다 — 이 검출기가 잡아야 할 바로 그 형태다.
     """
     before = summary[match.start() - 1] if match.start() > 0 else ""
     after = summary[match.end():match.end() + 1]
-    return before.isalnum() or after.isalnum()
+    return _is_ascii_alnum(before) or _is_ascii_alnum(after)
 
 
 def _count_direct_quotes(
