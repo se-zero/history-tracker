@@ -341,16 +341,19 @@
   margin-bottom: 3px;
   min-width: 0;
 }
-/* id처럼 긴 값만 줄여 잘라내고(ellipsis), 타입·날짜 등 짧은 항목은 밀리지 않게 고정폭 유지
-   (날짜는 <time> 요소라 span으로 한정하지 않는다) */
-.cite-card .cite-meta > :not(.cite-id) { flex-shrink: 0; }
-.cite-card .cite-id {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10.5px;
+/* 메타 항목(타입·저자·날짜)은 전부 짧아 줄어들 필요가 없다 — 고정폭 유지
+   (날짜는 <time> 요소라 자식 선택자로 함께 잡는다) */
+.cite-card .cite-meta > * { flex-shrink: 0; }
+/* 근거 타입 옆 브랜드 로고 — 11px 메타 줄이라 칩(배경) 없이 마크만 노출한다. */
+.cite-card .cite-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cite-card .cite-logo {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
 .cite-card .cite-title { font-size: 13px; font-weight: 550; color: var(--fg); line-height: 1.35; }
 .cite-card .cite-body { flex: 1; min-width: 0; }
@@ -435,7 +438,7 @@
   display: flex; justify-content: center; gap: 12px;
   flex-wrap: wrap;
 }
-/* 정적 고지 — 좁은 폭에서 키보드 힌트와 같은 줄에 끼지 않도록 항상 줄을 차지한다 */
+/* 정적 고지 — 생성 중 표시와 같은 줄에 끼지 않도록 항상 줄을 차지한다 */
 .composer-disclaimer {
   flex-basis: 100%;
 }

@@ -1,3 +1,4 @@
+import axios from "axios";
 import {
   useInfiniteQuery,
   useMutation,
@@ -63,6 +64,10 @@ export function useConversation(
     queryKey: queryKeys.conversation(projectId, conversationId),
     queryFn: () => getConversation(projectId, conversationId!),
     enabled: Boolean(conversationId),
+    // 없는 대화(404)는 다시 물어도 답이 같다 — 전역 재시도(1회)에서 빼서 화면 전환이
+    // 한 번의 왕복만큼 빨라진다. 그 외 오류는 일시적일 수 있으니 전역 설정 그대로 1회 재시도.
+    retry: (failureCount, error) =>
+      !(axios.isAxiosError(error) && error.response?.status === 404) && failureCount < 1,
   });
 }
 
