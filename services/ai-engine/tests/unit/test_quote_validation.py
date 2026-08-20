@@ -70,6 +70,21 @@ class DropUnverifiedQuotesTest(unittest.TestCase):
 
         self.assertEqual(1, len(result["evidence"]))
 
+    def test_crlf_source_body_quote_passes(self):
+        # GitHub PR·이슈 본문은 CRLF(\r\n)로 저장되는 경우가 흔하다. tool content에는 "\\r\\n"
+        # 리터럴로 남는데 모델이 뽑는 quote는 개행만 있어, \r을 정규화하지 않으면 여러 줄 인용이
+        # 항상 검증에 실패해 유효한 근거가 삭제된다(실측: PR 근거 4건이 이 사유로 삭제됨).
+        original = "커서 기반 페이지네이션으로 전환.\r\n\r\n### 백엔드\r\n커서 파라미터 추가."
+        tool_content = json.dumps({"id": "abc1234", "body": original}, ensure_ascii=False)
+        messages = [{"role": "tool", "content": tool_content}]
+        # 모델은 이스케이프가 풀린 자연 텍스트로 인용한다 (\r 없이 개행만).
+        quote = "커서 기반 페이지네이션으로 전환.\n\n### 백엔드\n커서 파라미터 추가."
+        structured = {"summary": "s", "evidence": [_evidence(quote)], "unknown_aspects": []}
+
+        result = orchestrator._drop_unverified_quotes(structured, messages, 0, None)
+
+        self.assertEqual(1, len(result["evidence"]))
+
     def test_fabricated_quote_dropped_others_kept(self):
         original = 'Fixed bug in "auth" module.'
         tool_content = json.dumps({"id": "real1", "body": original}, ensure_ascii=False)
@@ -188,6 +203,73 @@ class DropUnverifiedQuotesTest(unittest.TestCase):
         result = orchestrator._drop_unverified_quotes(structured, messages, 0, None)
 
         self.assertEqual(1, len(result["evidence"]))
+
+    def test_pr_id_hash_prefix_matches_pr_number_field_passes(self):
+        # 회귀 재현: 프롬프트가 강제하는 "#번호" id와 도구 결과의 "pr_number": N 표기가
+        # 형태만 다를 뿐 같은 PR을 가리키면 살아남아야 한다.
+        original = "Fix OAuth callback validation bug"
+        tool_content = json.dumps({"pr_number": 1, "title": original}, ensure_ascii=False)
+        messages = [{"role": "tool", "content": tool_content}]
+        structured = {
+            "summary": "s",
+            "evidence": [_evidence(original, type="pull_request", id="#1")],
+            "unknown_aspects": [],
+        }
+
+        result = orchestrator._drop_unverified_quotes(structured, messages, 0, None)
+
+        self.assertEqual(1, len(result["evidence"]))
+
+    def test_pr_id_matches_overview_id_field(self):
+        # PR #102 봇 리뷰(Minor) 가드: 개요 계열 도구(get_recent_activity·get_conflict_context의
+        # pr_contexts)는 PR 식별자를 pr_number 키가 아니라 generic한 id 필드에 맨 숫자 문자열로
+        # 싣는다. 그 결과만 haystack에 있는 턴에서도 "#N" 근거가 살아남아야 한다.
+        tool_content = json.dumps(
+            {"type": "PullRequest", "id": "18", "title": "그래프 생성 파이프라인 안정성 개선"},
+            ensure_ascii=False,
+        )
+        messages = [{"role": "tool", "content": tool_content}]
+        structured = {
+            "summary": "s",
+            "evidence": [_evidence("그래프 생성 파이프라인 안정성 개선", type="pull_request", id="#18")],
+            "unknown_aspects": [],
+        }
+
+        result = orchestrator._drop_unverified_quotes(structured, messages, 0, None)
+
+        self.assertEqual(1, len(result["evidence"]))
+
+    def test_pr_id_typo_number_dropped(self):
+        # 오타 가드 보존: 실제 PR 번호(1)와 다른 번호(18)를 낸 경우는 여전히 제거돼야 한다.
+        original = "Fix OAuth callback validation bug"
+        tool_content = json.dumps({"pr_number": 1, "title": original}, ensure_ascii=False)
+        messages = [{"role": "tool", "content": tool_content}]
+        structured = {
+            "summary": "s",
+            "evidence": [_evidence(original, type="pull_request", id="#18")],
+            "unknown_aspects": [],
+        }
+        debug: dict = {}
+
+        result = orchestrator._drop_unverified_quotes(structured, messages, 0, debug)
+
+        self.assertEqual([], result["evidence"])
+        self.assertEqual("id", debug["dropped_evidence"][0]["reason"])
+
+    def test_pr_id_prefix_collision_dropped(self):
+        # 접두 충돌 가드: "#1"이 "pr_number": 18의 앞자리와 우연히 겹치더라도 통과하면 안 된다.
+        original = "Fix OAuth callback validation bug"
+        tool_content = json.dumps({"pr_number": 18, "title": original}, ensure_ascii=False)
+        messages = [{"role": "tool", "content": tool_content}]
+        structured = {
+            "summary": "s",
+            "evidence": [_evidence(original, type="pull_request", id="#1")],
+            "unknown_aspects": [],
+        }
+
+        result = orchestrator._drop_unverified_quotes(structured, messages, 0, None)
+
+        self.assertEqual([], result["evidence"])
 
 
 class OrchestratorQuoteVerificationTest(unittest.IsolatedAsyncioTestCase):

@@ -78,9 +78,13 @@ LLM 응답은 실행마다 문장이 달라 정확 일치가 불가능하다. **
 | evidence precision | 인용된 근거 중 expected+acceptable에 있는 비율 | 엉뚱한 근거를 끌어오지 않았는가 |
 | 오염 검사 | `expected_absent.evidence_ids`가 인용되지 않았는가 | 잘못된 엣지가 답에 새는가 |
 | id 포맷 위반 | evidence id가 규정 형식을 지키는가 | 프롬프트 규칙 준수 여부 |
+| 직접 인용 조각 수 (`direct_quote_spans`) | summary가 도구 결과 원문을 따옴표째 옮긴 조각 수 | 답변이 원문을 복사하지 않고 풀어 설명했는가 (간접 인용 규칙 준수) |
 
 id 비교는 **정규화 후** 수행한다 (PR의 `#` 유무 무시, 커밋 해시 prefix 매치, 메시지는 골든셋 `aliases`로 매치). "근거는 맞는데 포맷만 틀린" 응답이 recall 실패로 잡히지 않게 하기 위해서다.
 포맷 위반은 별도 지표로 집계한다.
+
+`direct_quote_spans`는 집계 시 `runs_with_direct_quotes`(위반이 1건 이상인 런 수)로 낸다. 검출기는
+**따옴표로 감싼** 복사만 잡으므로, 따옴표 없이 원문을 그대로 옮기는 위반은 잡지 못한다는 한계가 있다.
 
 **LLM 채점** (LLM-as-judge, 기계로 못 재는 것)
 

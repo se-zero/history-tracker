@@ -303,6 +303,9 @@ def aggregate(case_scores: list[dict]) -> dict:
     agg["runs_with_format_violations"] = sum(
         1 for c in case_scores for r in c["runs"] if r["format_violations"]
     )
+    agg["runs_with_direct_quotes"] = sum(
+        1 for c in case_scores for r in c["runs"] if r.get("direct_quote_spans")
+    )
     return agg
 
 
@@ -364,10 +367,13 @@ def main():
                 if "error" in record:
                     run_score["runner_error"] = record["error"]
 
-                usage = ((record.get("response") or {}).get("debug") or {}).get("usage") or {}
+                debug = (record.get("response") or {}).get("debug") or {}
+                usage = debug.get("usage") or {}
                 if usage.get("total_tokens"):
                     answer_tokens.append(usage["total_tokens"])
                     run_score["answer_tokens"] = usage["total_tokens"]
+                # 옛 결과 파일에는 direct_quotes 키가 없다 — 그 경우 0건으로 집계.
+                run_score["direct_quote_spans"] = len(debug.get("direct_quotes") or [])
 
                 if client is not None and structured is not None:
                     originals = fetch_cited_originals(session, pid, structured)

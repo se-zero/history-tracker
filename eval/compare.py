@@ -42,6 +42,7 @@ COUNTER_KEYS = [
     "cases_with_forbidden_facts",
     "runs_structured_null",
     "runs_with_format_violations",
+    "runs_with_direct_quotes",
 ]
 
 

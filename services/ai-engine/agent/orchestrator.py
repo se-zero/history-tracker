@@ -120,7 +120,8 @@ _GROUNDED_ANSWER_SCHEMA = {
                     "사용자 질문에 대한 요약. 최대 3문단, 한 문단은 2~3문장. "
                     "주제·관점이 바뀌는 지점에서만 문단을 나누고, 문단 사이는 빈 줄(JSON 문자열의 `\\n\\n`)로 구분. "
                     "evidence[]에 등재된 사실만 기반으로 작성. "
-                    "종결문(예: '추가 궁금한 점이 있으면…'), 일반론, 그래프에 없는 추정·요약 금지."
+                    "종결문(예: '추가 궁금한 점이 있으면…'), 일반론, 그래프에 없는 추정·요약 금지. "
+                    "원문 문장을 따옴표로 옮기지 말고 풀어 서술 (식별자·시각·이슈/PR 제목은 예외)."
                 ),
             },
             "evidence": {
@@ -199,7 +200,7 @@ GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서)
 - 여러 출처(Jira, Linear, Slack, PR)가 서로 다른 이유를 설명하면 각 관점을 구분해 제시하세요.
 - 연결 confidence가 __MIN_CONF__~0.7 구간인 항목을 인용할 때는 summary에서 "유사도 기반 추정" 등으로 명시하세요.
   __MIN_CONF__ 미만 엣지는 쿼리 단에서 이미 차단되어 도구 결과에 없습니다.
-- summary, unknown_aspects, evidence[*].quote 모두 한국어로 작성하세요 (단, 원문이 영어/코드면 그대로 인용).
+- summary·unknown_aspects는 한국어로 서술하고, evidence[*].quote는 원문 언어 그대로 인용하세요 (원문이 영어·코드면 번역하지 말 것).
 
 [summary 서식 규칙 — 화면은 markdown으로 렌더됩니다]
 - summary는 **최대 3문단**, 한 문단은 2~3문장으로 씁니다. 나눌 내용이 없으면 1문단이어도 됩니다.
@@ -210,6 +211,22 @@ GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서)
   맞습니다 — 확인되지 않은 사항은 summary에서 반복하지 말고 unknown_aspects에만 적습니다.
 - **문단 사이는 반드시 빈 줄로 구분합니다 — JSON 문자열에서 `\\n\\n`입니다.**
   줄바꿈 하나(`\\n`)는 markdown이 공백으로 합쳐 버려 화면에서 한 줄로 붙습니다.
+
+[summary 서술 규칙 — 원문은 옮기지 말고 풀어 쓴다]
+- summary는 간접 인용으로 씁니다. 대화·이슈 본문·커밋 메시지의 문장을 따옴표로 감싸
+  그대로 옮기지 말고, 그 내용이 무엇을 말하는지 풀어 서술하세요.
+    나쁨: "그럼 나중에 추상화 하는걸로 할까?", "우선 한명이 추상화를 해서 pr올리는게
+          나을거같아"라고 이어서 말했다.
+    좋음: 추상화를 지금 하지 말고 뒤로 미루자고 제안했고, 우선 한 사람이 추상화를 맡아
+          PR을 올리는 방식을 제시했다.
+- 원문 그대로 옮기는 것이 맞는 대상은 식별자와 시각뿐입니다 — 파일 경로, 커밋 해시,
+  이슈 키, PR 번호, 함수·클래스·설정 키 이름, ISO 시각. 이건 풀어 쓰면 오히려 틀립니다.
+- 이슈·PR의 제목은 식별자에 붙는 이름표이므로 그대로 표기해도 됩니다
+  (예: HT-26 '그래프 생성'). 대화·본문 문장에는 이 예외가 적용되지 않습니다.
+- 원문 문장을 그대로 보여주는 일은 evidence[*].quote가 담당합니다. 화면에 근거 카드로
+  따로 렌더되므로 summary가 같은 문장을 반복할 필요가 없습니다.
+- 풀어 쓴다고 근거 이상을 말해도 된다는 뜻은 아닙니다. 원문에 없는 인과·평가·수치를
+  덧붙이지 마세요 — 표현만 바꾸고 내용은 근거 안에 머무릅니다.
 
 [그래프 타임스탬프 의미 사전 — 필드명을 추정으로 해석하지 말 것]
 - Issue.occurredAt   = 이슈 최종 업데이트 시각  (event_meaning = issue_updated)
@@ -227,13 +244,13 @@ GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서)
 풀어 쓰면 변환 대상이 사라져 UTC 기준 날짜가 그대로 굳습니다(뷰어에 따라 하루 어긋남).
 get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하므로 그것을 사용하세요.
 
-[Slack/Communication 인용 규칙]
+[Slack/Communication 근거(evidence) 인용 규칙]
 - 도구 결과의 discussions / communications / comm_contexts 필드는 conversation_id별로
   그룹핑된 구조이다: [{conversation_id, source, channel, messages:[...]}, ...].
 - 서로 다른 conversation_id에 속한 메시지를 같은 대화로 합치지 마세요.
 - 화자(author)와 메시지 본문(body)은 한 메시지 객체 안에서 1:1로 짝지어져 있다.
   그룹/메시지 간 author를 swap해서 인용하지 마세요.
-- 메시지를 인용할 때 가능하면 conversation_id를 함께 표기해 어느 스레드인지 명확히 하세요.
+- evidence로 메시지를 인용할 때 가능하면 conversation_id를 함께 표기해 어느 스레드인지 명확히 하세요.
 - 한 스레드의 대표 메시지만 보이고 전체 흐름이 필요하면 그 conversation_id로
   get_thread_context를 호출해 전체 메시지 시퀀스를 조회하세요.
 
@@ -694,10 +711,157 @@ def _canon(text: str) -> str:
     양쪽에 이 함수를 동일하게(대칭적으로) 적용한다 — "정확한 원문 복원"이 아니라 "같은 규칙으로
     정규화했을 때 일치하는가"만 필요하므로, 이스케이프 치환 + 공백 collapse + 대소문자 무시
     수준의 근사로 충분하다.
+
+    CRLF 주의: GitHub PR·이슈 본문은 "\\r\\n"으로 저장되는 경우가 흔한데, "\\n"만 치환하면
+    haystack에 "\\r" 리터럴이 남아 개행만 있는 quote와 어긋난다 — 여러 줄 인용이 항상 검증에
+    실패해 유효한 근거가 삭제됐다(실측: PR 근거 4건). "\\r"도 같이 공백으로 접는다.
     """
-    text = text.replace('\\"', '"').replace("\\n", " ")
+    text = text.replace('\\"', '"').replace("\\r", " ").replace("\\n", " ")
     text = _WHITESPACE_RE.sub(" ", text)
     return text.strip().casefold()
+
+
+def _tool_haystack(messages: list, current_turn_start: int) -> str:
+    """이번 턴 tool 역할 메시지의 content를 이어붙여 정규화한 haystack을 만든다.
+
+    quote·id 검증(_drop_unverified_quotes)과 직접 인용 검출(_count_direct_quotes)이
+    "이번 턴 도구 결과에 실제로 있는가"를 같은 방식으로 물어야 하므로 계산을 하나로 묶는다.
+    """
+    # tool 루프의 assistant 메시지는 OpenAI 응답 객체를 그대로 담아(dict가 아님) .get이 없다 —
+    # tool 결과 메시지만 dict로 직접 구성되므로 isinstance로 먼저 걸러야 AttributeError가 안 난다.
+    # 구분자 NUL: 서로 다른 tool 결과의 끝·시작이 이어붙어 생기는 가짜 문장에 인용이 우연히
+    # 일치하는 걸 차단한다. 인용문에 나타날 수 없는 문자여야 하므로 공백이 아니라 NUL을 쓴다
+    # (_canon이 공백은 collapse하지만 NUL은 보존한다).
+    return _canon("\x00".join(
+        message.get("content", "")
+        for message in messages[current_turn_start:]
+        if isinstance(message, dict) and message.get("role") == "tool"
+    ))
+
+
+# '…' 후보의 문자 클래스에서 다른 따옴표 문자를 제외한다 — greedy 매칭이 "don't … it's"처럼
+# 떨어진 두 아포스트로피를 짝지으면서 그 사이의 "…" 직접 인용까지 매치 범위로 삼켜 버리고,
+# finditer가 매치 끝 이후부터 재개해 삼켜진 인용이 검사조차 되지 않던 문제를 막는다.
+# 다른 따옴표를 만나면 '…' 후보가 성립하지 않아, 안쪽 인용이 자기 규칙으로 매칭된다.
+_QUOTE_SPAN_RE = re.compile(
+    r'"([^"]+)"|\'([^\'"“”‘’「」]+)\'|“([^”]+)”|‘([^’]+)’|「([^」]+)」'
+)
+# "HT-26 '그래프 생성'"처럼 식별자 바로 뒤에 붙는 제목 표기만 면제한다. 식별자와 여는 따옴표
+# 사이에는 공백과 최대 2글자의 한글 조사("의"·"은" 등)만 허용하고, \Z로 접두 문자열 끝(=여는
+# 따옴표 직전)에 앵커한다 — "문단 어딘가에 식별자가 있으면 면제"가 아니라 "따옴표 바로 앞에
+# 식별자가 붙어 있을 때만 면제"로 좁혀, 커밋·스레드 인용처럼 식별자가 멀리 떨어진 경우까지
+# 잘못 면제되는 것을 막는다.
+# 면제 대상은 **이슈 키와 PR 번호뿐이다** — 제목이 식별자에 붙는 이름표인 것은 이 둘뿐이라
+# 커밋 해시 패턴([0-9a-f]{7,})은 넣지 않는다. 넣으면 소수부 없는 Slack ts(순수 숫자 10자리)가
+# 걸려 대화 원문 인용이 면제되고, 커밋 메시지 인용은 원래 풀어 써야 할 대상이라 면제가 틀리다.
+_IDENTIFIER_ADJACENT_RE = re.compile(
+    r"(?:[A-Z][A-Z0-9]+-\d+|#\d+)[가-힣]{0,2}\s*\Z"
+)
+
+
+def _is_ascii_alnum(char: str) -> bool:
+    """한 글자가 ASCII 영숫자인지 — 빈 문자열(문자열 경계)은 False."""
+    return bool(char) and char.isascii() and char.isalnum()
+
+
+def _is_word_internal_apostrophe(summary: str, match: re.Match) -> bool:
+    """'…' 매치가 실제 인용이 아니라 don't·it's 같은 축약형 내부 아포스트로피인지 판정.
+
+    영어 축약형은 단어 안에 아포스트로피가 두 번 나오면(예: "don't ... it's") 그 사이 구간이
+    '…' 패턴에 우연히 매칭된다 — 여는/닫는 아포스트로피 중 하나라도 **ASCII** 영숫자에 바로
+    붙어 있으면 단어 내부로 보고 인용 후보에서 제외한다.
+
+    ASCII로 한정하는 이유: 한글 음절은 str.isalnum()이 True다. 범위를 좁히지 않으면 닫는 ' 뒤에
+    조사가 붙는 한국어의 표준 인용 형태("'…'라고", "'…'이라고", "'…'에서")가 전부 축약형으로
+    오판돼 통째로 면제된다 — 이 검출기가 잡아야 할 바로 그 형태다.
+    """
+    before = summary[match.start() - 1] if match.start() > 0 else ""
+    after = summary[match.end():match.end() + 1]
+    return _is_ascii_alnum(before) or _is_ascii_alnum(after)
+
+
+def _count_direct_quotes(
+    structured: dict, messages: list, current_turn_start: int, debug: dict | None
+) -> None:
+    """summary가 도구 결과 원문을 따옴표째 옮겼는지 관측 전용으로 센다 — 답변은 절대 변형하지 않는다.
+
+    summary 서술 규칙(간접 인용)을 프롬프트로만 지시해도 모델이 어길 수 있어, 위반 빈도를
+    로그·debug로 관측해 프롬프트 튜닝의 신호로 삼는다. evidence[*].quote 검증
+    (_drop_unverified_quotes)과 달리 여기서는 아무것도 제거·수정하지 않는다 — summary 문장을
+    강제로 고치면 오히려 부자연스러운 결과를 만들 수 있어, 관측 후 프롬프트를 개선하는
+    간접적인 방식을 택했다.
+
+    식별자(이슈 키·PR 번호·커밋 해시)에 붙은 제목 표기(예: HT-26 '그래프 생성')와 짧은 용어
+    인용(예: 'orchestrator.py')은 정상적인 원문 유지 대상이라 위반으로 세지 않는다.
+    """
+    summary = structured.get("summary") or ""
+    if not summary:
+        return
+
+    haystack = _tool_haystack(messages, current_turn_start)
+    findings: list[dict] = []
+    for match in _QUOTE_SPAN_RE.finditer(summary):
+        # '…' 매치는 don't·it's 같은 축약형 내부 아포스트로피가 우연히 짝지어질 수 있어
+        # 인용 후보에서 아예 제외한다 (다른 따옴표 쌍에는 해당 없는 문제라 group(2)로 한정).
+        if match.group(2) is not None and _is_word_internal_apostrophe(summary, match):
+            continue
+
+        span = next(g for g in match.groups() if g is not None)
+
+        # 짧은 식별자·용어 인용은 예외 — 토큰 3개 미만이면 "그 내용을 풀어 썼는가"를 물을
+        # 만한 문장이 아니다.
+        if len(span.split()) < 3:
+            continue
+
+        # 식별자 바로 앞에 붙은 제목 표기는 예외 — 이슈/PR 제목은 원문 유지가 규칙이다.
+        prefix = summary[:match.start()]
+        if _IDENTIFIER_ADJACENT_RE.search(prefix):
+            continue
+
+        if _canon(span) in haystack:
+            findings.append({"span": span[:120], "chars": len(span)})
+
+    if not findings:
+        return
+
+    logger.warning(
+        "summary 직접 인용 감지: %d건, 첫 조각=%.80s", len(findings), findings[0]["span"],
+    )
+    if isinstance(debug, dict):
+        debug["direct_quotes"] = findings
+
+
+_PR_EVIDENCE_ID_RE = re.compile(r"^#(\d+)$")
+
+
+def _id_verified(evidence_type: str | None, eid: str, haystack: str) -> bool:
+    """evidence id가 haystack(이번 턴 tool 결과)에 실존하는지 확인한다.
+
+    pull_request만 별도 취급한다 — 시스템 프롬프트는 PR 근거 id를 "#번호"(예: "#18") 표기로
+    강제하지만, 도구 결과에는 "pr_number": 18 로만 실려 "#"가 haystack 어디에도 없다. 그렇다고
+    "#"만 떼고 일반 부분 문자열 검사를 하면 haystack의 아무 숫자에나 우연히 걸려 오타 가드가
+    무의미해지므로, 도구 결과의 실제 표기와 정확히 일치하는지 정규식으로 좁혀 확인한다.
+
+    도구 결과의 PR 표기는 두 가지다 — 상세 계열은 `"pr_number": 18`, 개요 계열
+    (get_recent_activity·get_conflict_context의 pr_contexts)은 generic한 `"id": "18"`이다.
+    둘 중 하나라도 맞으면 통과시킨다. 어느 쪽도 부분 문자열 검사가 아니라 값 전체 일치라
+    오타 가드는 그대로 유지된다(pr_number 쪽은 뒤에 숫자가 더 붙지 않게 (?!\\d)로,
+    id 쪽은 닫는 따옴표로 접두 충돌을 막는다).
+
+    다른 타입(commit·issue·message·document)은 id 표기가 도구 결과와 그대로 일치하므로
+    기존 부분 문자열 검사를 쓴다.
+    """
+    if evidence_type == "pull_request":
+        match = _PR_EVIDENCE_ID_RE.match(eid)
+        if not match:
+            # "#번호" 형식이 아니면 이 함수가 임의로 판정하지 않고 일반 검사로 폴백한다.
+            return eid in haystack
+        number = match.group(1)
+        return bool(
+            re.search(rf'pr_number"?\s*:\s*{number}(?!\d)', haystack)
+            or re.search(rf'"id"\s*:\s*"{number}"', haystack)
+        )
+    return eid in haystack
 
 
 def _drop_unverified_quotes(
@@ -715,24 +879,16 @@ def _drop_unverified_quotes(
     id(커밋 해시·PR 번호·이슈 키)는 quote와 별개로 검증한다 — quote만 검증하면 모델이 낸
     id 오타(실기 사례: 커밋 해시 8cdb0ca ↔ 실제 8cdb0cc)가 그대로 통과해, UI에서 그 id를
     클릭하면 존재하지 않는 대상을 가리키게 된다. id는 원자적 식별자라 말줄임 분할 없이
-    haystack에 대한 통짜 부분 문자열 검사만 한다 — 짧은 해시(7자리)는 tool 결과의 전체 해시
-    문자열에 부분 문자열로 포함되므로 자동으로 통과한다. id가 빈 문자열이면 검증할 것이
-    없으므로(quote와 동일한 정책) 통과시킨다.
+    haystack에 대한 통짜 검사만 한다(타입별 검사 방식은 _id_verified 참고 — pull_request는
+    "#번호" 표기를 pr_number 필드와 대조하고, 그 외 타입은 부분 문자열 검사다). 짧은 해시(7자리)는
+    tool 결과의 전체 해시 문자열에 부분 문자열로 포함되므로 자동으로 통과한다. id가 빈 문자열이면
+    검증할 것이 없으므로(quote와 동일한 정책) 통과시킨다.
 
     이번 턴에 tool 호출이 없었다면 haystack이 빈 문자열이 되어, 비어있지 않은 quote·id는 전부
     제거된다 — 의도된 동작이다: 이번 턴 도구 결과 밖에서 온 인용(과거 대화·맥락 카드 등)은
     신뢰하지 않는다.
     """
-    # tool 루프의 assistant 메시지는 OpenAI 응답 객체를 그대로 담아(dict가 아님) .get이 없다 —
-    # tool 결과 메시지만 dict로 직접 구성되므로 isinstance로 먼저 걸러야 AttributeError가 안 난다.
-    # 구분자 NUL: 서로 다른 tool 결과의 끝·시작이 이어붙어 생기는 가짜 문장에 인용이 우연히
-    # 일치하는 걸 차단한다. 인용문에 나타날 수 없는 문자여야 하므로 공백이 아니라 NUL을 쓴다
-    # (_canon이 공백은 collapse하지만 NUL은 보존한다).
-    haystack = _canon("\x00".join(
-        message.get("content", "")
-        for message in messages[current_turn_start:]
-        if isinstance(message, dict) and message.get("role") == "tool"
-    ))
+    haystack = _tool_haystack(messages, current_turn_start)
 
     kept: list[dict] = []
     dropped: list[dict] = []
@@ -745,7 +901,7 @@ def _drop_unverified_quotes(
                 continue
 
         eid = _canon(item.get("id") or "")
-        if eid and eid not in haystack:
+        if eid and not _id_verified(item.get("type"), eid, haystack):
             dropped.append({**item, "reason": "id"})
             continue
 
@@ -787,6 +943,9 @@ async def _final_structured_answer(
     structured = await _call_llm_structured(structured_call_messages, debug=debug)
     if isinstance(structured, dict):
         structured = _drop_unverified_quotes(structured, messages, current_turn_start, debug)
+        # 관측 전용 — structured를 변형하지 않으므로 아래 source 라벨링과 순서 무관하지만,
+        # 같은 haystack을 보는 검증끼리 붙여 둔다.
+        _count_direct_quotes(structured, messages, current_turn_start, debug)
         evidence = structured.get("evidence") or []
         if evidence:
             # source는 프론트 근거 카드의 브랜드 로고 표시용 장식이다 — 조회 실패가 답변
