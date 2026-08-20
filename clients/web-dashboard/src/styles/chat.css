@@ -438,7 +438,7 @@
   display: flex; justify-content: center; gap: 12px;
   flex-wrap: wrap;
 }
-/* 정적 고지 — 좁은 폭에서 키보드 힌트와 같은 줄에 끼지 않도록 항상 줄을 차지한다 */
+/* 정적 고지 — 생성 중 표시와 같은 줄에 끼지 않도록 항상 줄을 차지한다 */
 .composer-disclaimer {
   flex-basis: 100%;
 }

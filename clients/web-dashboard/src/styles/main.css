@@ -33,13 +33,3 @@
 .icon-btn:hover { background: var(--surface-2); color: var(--fg); }
 .icon-btn.bordered { border-color: var(--border); }
 
-.kbd {
-  display: inline-flex; align-items: center; gap: 2px;
-  padding: 2px 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-xs);
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--fg-muted);
-}
