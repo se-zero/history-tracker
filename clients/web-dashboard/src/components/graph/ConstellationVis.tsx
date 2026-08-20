@@ -198,6 +198,8 @@ export function ConstellationVis({
   const hitRef = useRef<Hit | null>(null);
   const selectedRef = useRef<string | null>(selectedId);
   const focusedRef = useRef<number | null>(null);
+  /** 성좌를 열기 직전의 카메라 — 닫을 때 사용자가 맞춰 둔 배율·위치로 되돌리는 데 쓴다. */
+  const preFocusViewRef = useRef<View | null>(null);
 
   const [hovered, setHovered] = useState<GraphNode | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
@@ -495,6 +497,7 @@ export function ConstellationVis({
     setFocused(null);
     targetRef.current = null;
     viewRef.current = { k: 1, tx: 0, ty: 0 };
+    preFocusViewRef.current = null;
   }, [workSignature]);
 
   // React의 onWheel은 passive라 preventDefault가 먹지 않는다 — native로 직접 붙인다.
@@ -529,6 +532,11 @@ export function ConstellationVis({
     (index: number) => {
       const star = layout.stars[index];
       if (!star) return;
+      // 처음 성좌를 여는 순간의 카메라만 저장한다 — 성좌→성좌 이동이나 드릴인 재조정에서
+      // 덮어쓰면 "맨 처음 확대 직전" 상태가 사라진다.
+      if (focusedRef.current === null) {
+        preFocusViewRef.current = { ...viewRef.current };
+      }
       const base = baseScale(layout, size);
       // 성좌 하나가 화면의 약 36%를 차지하도록 배율을 정한다.
       const wanted = (Math.min(size.w, size.h) * 0.36) / Math.max(star.reach, 1);
@@ -545,6 +553,15 @@ export function ConstellationVis({
   const exitFocus = useCallback(() => {
     setFocused(null);
     focusedReachRef.current = null;
+    targetRef.current = preFocusViewRef.current ?? { k: 1, tx: 0, ty: 0 };
+    preFocusViewRef.current = null;
+  }, []);
+
+  /** 전체 보기 버튼 전용 — 포커스를 닫고 처음 배율로 되돌린다(직전 카메라 기억은 버린다). */
+  const resetView = useCallback(() => {
+    setFocused(null);
+    focusedReachRef.current = null;
+    preFocusViewRef.current = null;
     targetRef.current = { k: 1, tx: 0, ty: 0 };
   }, []);
 
@@ -822,7 +839,7 @@ export function ConstellationVis({
         <button className="icon-btn" title="축소" onClick={() => zoom(0.8)}>
           <Icons.ZoomOut />
         </button>
-        <button className="icon-btn" title="전체 보기" onClick={exitFocus}>
+        <button className="icon-btn" title="전체 보기" onClick={resetView}>
           <Icons.Fit />
         </button>
       </div>
