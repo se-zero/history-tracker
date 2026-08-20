@@ -220,6 +220,25 @@ class DropUnverifiedQuotesTest(unittest.TestCase):
 
         self.assertEqual(1, len(result["evidence"]))
 
+    def test_pr_id_matches_overview_id_field(self):
+        # PR #102 봇 리뷰(Minor) 가드: 개요 계열 도구(get_recent_activity·get_conflict_context의
+        # pr_contexts)는 PR 식별자를 pr_number 키가 아니라 generic한 id 필드에 맨 숫자 문자열로
+        # 싣는다. 그 결과만 haystack에 있는 턴에서도 "#N" 근거가 살아남아야 한다.
+        tool_content = json.dumps(
+            {"type": "PullRequest", "id": "18", "title": "그래프 생성 파이프라인 안정성 개선"},
+            ensure_ascii=False,
+        )
+        messages = [{"role": "tool", "content": tool_content}]
+        structured = {
+            "summary": "s",
+            "evidence": [_evidence("그래프 생성 파이프라인 안정성 개선", type="pull_request", id="#18")],
+            "unknown_aspects": [],
+        }
+
+        result = orchestrator._drop_unverified_quotes(structured, messages, 0, None)
+
+        self.assertEqual(1, len(result["evidence"]))
+
     def test_pr_id_typo_number_dropped(self):
         # 오타 가드 보존: 실제 PR 번호(1)와 다른 번호(18)를 낸 경우는 여전히 제거돼야 한다.
         original = "Fix OAuth callback validation bug"

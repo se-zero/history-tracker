@@ -738,16 +738,23 @@ def _tool_haystack(messages: list, current_turn_start: int) -> str:
     ))
 
 
+# '…' 후보의 문자 클래스에서 다른 따옴표 문자를 제외한다 — greedy 매칭이 "don't … it's"처럼
+# 떨어진 두 아포스트로피를 짝지으면서 그 사이의 "…" 직접 인용까지 매치 범위로 삼켜 버리고,
+# finditer가 매치 끝 이후부터 재개해 삼켜진 인용이 검사조차 되지 않던 문제를 막는다.
+# 다른 따옴표를 만나면 '…' 후보가 성립하지 않아, 안쪽 인용이 자기 규칙으로 매칭된다.
 _QUOTE_SPAN_RE = re.compile(
-    r'"([^"]+)"|\'([^\']+)\'|“([^”]+)”|‘([^’]+)’|「([^」]+)」'
+    r'"([^"]+)"|\'([^\'"“”‘’「」]+)\'|“([^”]+)”|‘([^’]+)’|「([^」]+)」'
 )
 # "HT-26 '그래프 생성'"처럼 식별자 바로 뒤에 붙는 제목 표기만 면제한다. 식별자와 여는 따옴표
 # 사이에는 공백과 최대 2글자의 한글 조사("의"·"은" 등)만 허용하고, \Z로 접두 문자열 끝(=여는
 # 따옴표 직전)에 앵커한다 — "문단 어딘가에 식별자가 있으면 면제"가 아니라 "따옴표 바로 앞에
 # 식별자가 붙어 있을 때만 면제"로 좁혀, 커밋·스레드 인용처럼 식별자가 멀리 떨어진 경우까지
 # 잘못 면제되는 것을 막는다.
+# 면제 대상은 **이슈 키와 PR 번호뿐이다** — 제목이 식별자에 붙는 이름표인 것은 이 둘뿐이라
+# 커밋 해시 패턴([0-9a-f]{7,})은 넣지 않는다. 넣으면 소수부 없는 Slack ts(순수 숫자 10자리)가
+# 걸려 대화 원문 인용이 면제되고, 커밋 메시지 인용은 원래 풀어 써야 할 대상이라 면제가 틀리다.
 _IDENTIFIER_ADJACENT_RE = re.compile(
-    r"(?:[A-Z][A-Z0-9]+-\d+|#\d+|[0-9a-f]{7,})[가-힣]{0,2}\s*\Z"
+    r"(?:[A-Z][A-Z0-9]+-\d+|#\d+)[가-힣]{0,2}\s*\Z"
 )
 
 
@@ -824,9 +831,16 @@ def _id_verified(evidence_type: str | None, eid: str, haystack: str) -> bool:
     pull_request만 별도 취급한다 — 시스템 프롬프트는 PR 근거 id를 "#번호"(예: "#18") 표기로
     강제하지만, 도구 결과에는 "pr_number": 18 로만 실려 "#"가 haystack 어디에도 없다. 그렇다고
     "#"만 떼고 일반 부분 문자열 검사를 하면 haystack의 아무 숫자에나 우연히 걸려 오타 가드가
-    무의미해지므로, pr_number 키 바로 뒤에 오는 숫자와 정확히 일치하는지 정규식으로 좁혀
-    확인한다(뒤에 숫자가 더 붙지 않게 (?!\\d)로 접두 충돌을 막는다). 다른 타입(commit·issue·
-    message·document)은 id 표기가 도구 결과와 그대로 일치하므로 기존 부분 문자열 검사를 쓴다.
+    무의미해지므로, 도구 결과의 실제 표기와 정확히 일치하는지 정규식으로 좁혀 확인한다.
+
+    도구 결과의 PR 표기는 두 가지다 — 상세 계열은 `"pr_number": 18`, 개요 계열
+    (get_recent_activity·get_conflict_context의 pr_contexts)은 generic한 `"id": "18"`이다.
+    둘 중 하나라도 맞으면 통과시킨다. 어느 쪽도 부분 문자열 검사가 아니라 값 전체 일치라
+    오타 가드는 그대로 유지된다(pr_number 쪽은 뒤에 숫자가 더 붙지 않게 (?!\\d)로,
+    id 쪽은 닫는 따옴표로 접두 충돌을 막는다).
+
+    다른 타입(commit·issue·message·document)은 id 표기가 도구 결과와 그대로 일치하므로
+    기존 부분 문자열 검사를 쓴다.
     """
     if evidence_type == "pull_request":
         match = _PR_EVIDENCE_ID_RE.match(eid)
@@ -834,7 +848,10 @@ def _id_verified(evidence_type: str | None, eid: str, haystack: str) -> bool:
             # "#번호" 형식이 아니면 이 함수가 임의로 판정하지 않고 일반 검사로 폴백한다.
             return eid in haystack
         number = match.group(1)
-        return bool(re.search(rf'pr_number"?\s*:\s*{number}(?!\d)', haystack))
+        return bool(
+            re.search(rf'pr_number"?\s*:\s*{number}(?!\d)', haystack)
+            or re.search(rf'"id"\s*:\s*"{number}"', haystack)
+        )
     return eid in haystack
 
 

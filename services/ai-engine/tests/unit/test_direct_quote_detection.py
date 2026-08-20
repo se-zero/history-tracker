@@ -191,6 +191,42 @@ class CountDirectQuotesTest(unittest.TestCase):
 
         self.assertNotIn("direct_quotes", debug)
 
+    def test_direct_quote_between_english_contractions_detected(self):
+        # PR #102 봇 리뷰(Major) 가드: '…' 후보가 greedy라 don't의 '에서 it's의 '까지 한 번에
+        # 매칭되면, 그 사이에 낀 "…" 직접 인용이 매치 범위에 삼켜져 검사조차 되지 않는다
+        # (finditer가 매치 끝 이후부터 재개하므로). 축약형 예외가 진짜 인용을 가리면 안 된다.
+        original = "그럼 나중에 추상화 하는걸로 할까?"
+        tool_content = json.dumps({"body": original}, ensure_ascii=False)
+        messages = [{"role": "tool", "content": tool_content}]
+        structured = {
+            "summary": f"리뷰어는 don't 라며 \"{original}\"라고 물었고 it's fine이라 했다.",
+            "evidence": [],
+            "unknown_aspects": [],
+        }
+        debug: dict = {}
+
+        orchestrator._count_direct_quotes(structured, messages, 0, debug)
+
+        self.assertEqual(1, len(debug["direct_quotes"]))
+
+    def test_conversation_id_without_fraction_not_exempted(self):
+        # PR #102 봇 리뷰(Minor) 가드: 식별자 인접 예외는 이슈·PR 제목 표기를 위한 것이다.
+        # 소수부 없는 Slack ts(순수 숫자 10자리)가 해시 패턴에 걸려 면제되면, 그 뒤의 대화
+        # 원문 인용이 검출되지 않는다.
+        original = "그럼 나중에 추상화 하는걸로 할까?"
+        tool_content = json.dumps({"body": original}, ensure_ascii=False)
+        messages = [{"role": "tool", "content": tool_content}]
+        structured = {
+            "summary": f'스레드 1781946322에서 "{original}"라고 물었다.',
+            "evidence": [],
+            "unknown_aspects": [],
+        }
+        debug: dict = {}
+
+        orchestrator._count_direct_quotes(structured, messages, 0, debug)
+
+        self.assertEqual(1, len(debug["direct_quotes"]))
+
     def test_debug_none_does_not_raise(self):
         original = "그럼 나중에 추상화 하는걸로 할까?"
         tool_content = json.dumps({"body": original}, ensure_ascii=False)
