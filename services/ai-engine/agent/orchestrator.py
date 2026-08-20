@@ -3,6 +3,7 @@ import logging
 import os
 import re
 
+from graph.overview import resolve_evidence_sources
 from openai_client import Priority, chat_completion
 from tools.definitions import TOOLS
 from tools.executor import execute
@@ -932,8 +933,9 @@ async def _final_structured_answer(
     fallback_text: str,
     exploratory: bool,
     debug: dict | None,
+    project_id: str,
 ) -> tuple[str, dict | None]:
-    """structured 답변 생성 → evidence quote 검증 → 렌더까지의 공통 흐름.
+    """structured 답변 생성 → evidence quote 검증 → 근거 source 라벨링 → 렌더까지의 공통 흐름.
 
     정상 종료(tool_calls 없음)와 최대 반복 도달, 두 지점에서 '받기 → 검증 → 렌더'가 동일해
     묶었다. fallback_text만 호출부마다 달라 인자로 받는다.
@@ -941,7 +943,19 @@ async def _final_structured_answer(
     structured = await _call_llm_structured(structured_call_messages, debug=debug)
     if isinstance(structured, dict):
         structured = _drop_unverified_quotes(structured, messages, current_turn_start, debug)
+        # 관측 전용 — structured를 변형하지 않으므로 아래 source 라벨링과 순서 무관하지만,
+        # 같은 haystack을 보는 검증끼리 붙여 둔다.
         _count_direct_quotes(structured, messages, current_turn_start, debug)
+        evidence = structured.get("evidence") or []
+        if evidence:
+            # source는 프론트 근거 카드의 브랜드 로고 표시용 장식이다 — 조회 실패가 답변
+            # 자체를 막으면 안 되므로 예외는 경고만 남기고 source 없이 진행한다.
+            try:
+                sources = await resolve_evidence_sources(project_id, evidence)
+                for item, source in zip(evidence, sources):
+                    item["source"] = source
+            except Exception:
+                logger.warning("evidence source 조회 실패 — source 없이 진행", exc_info=True)
     return _finalize(structured, fallback_text, exploratory)
 
 
@@ -1158,7 +1172,7 @@ async def run(
             # (할루시네이션 가드는 잃지만 응답은 제공)
             return await _final_structured_answer(
                 current_turn_messages(), messages, current_turn_start,
-                message.content or _FALLBACK_ANSWER, graph_query_calls > 0, debug,
+                message.content or _FALLBACK_ANSWER, graph_query_calls > 0, debug, project_id,
             )
 
         messages.append(message)
@@ -1223,5 +1237,5 @@ async def run(
     logger.warning("최대 반복 횟수(%d) 도달 — structured 강제 응답", _MAX_ITERATIONS)
     return await _final_structured_answer(
         current_turn_messages(), messages, current_turn_start,
-        _FALLBACK_ANSWER, graph_query_calls > 0, debug,
+        _FALLBACK_ANSWER, graph_query_calls > 0, debug, project_id,
     )

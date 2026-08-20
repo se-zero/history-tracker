@@ -2,10 +2,12 @@ import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { GithubMark } from "@/components/brand/BrandMarks";
+import { markForSource } from "@/components/sources/sourceCatalog";
 import { formatInstant, formatTimestamp } from "@/lib/format";
 import { remarkLocalTime } from "@/lib/remarkLocalTime";
 import type { Message } from "@/types/api";
-import { extractStructured } from "./messageStructured";
+import { evidenceTypeLabel, extractStructured } from "./messageStructured";
 
 // 그래프 패널이 열렸을 때 모든 답변 카드에 주어진다.
 // - 카드 hover: onHoverCard로 ChatPage가 그래프를 그 답변으로 전환(비활성)하거나 노드를 강조(활성)한다.
@@ -116,6 +118,13 @@ function AssistantMessage({
                 (!citation.panelOpen || !citation.isActive || nodeId != null);
               // hover 연동은 패널이 열렸을 때만(닫힌 패널엔 강조할 그래프가 없음).
               const hoverable = !!citation && citation.panelOpen;
+              // 로고 우선순위: source가 카탈로그에 있으면 그 브랜드, 없으면 commit/PR만 GitHub으로
+              // 보정한다(커밋·PR 노드는 GitHub에서만 온다). document를 Notion으로 단정하지 않는
+              // 이유는 문서 소스가 늘면 오브랜딩이 되기 때문 — 이 경우는 로고 없이 타입 라벨만
+              // 보여준다(과거 답변에만 해당하는 폴백이라 "틀리느니 비운다"를 택함).
+              const Mark =
+                markForSource(e.source) ??
+                (e.type === "commit" || e.type === "pull_request" ? GithubMark : undefined);
               return (
               <div
                 key={i}
@@ -133,9 +142,10 @@ function AssistantMessage({
                 <span className="cite-idx">#{i + 1}</span>
                 <span className="cite-body">
                   <div className="cite-meta">
-                    <span>{e.type}</span>
-                    <span>·</span>
-                    <span className="mono cite-id">{e.id}</span>
+                    <span className="cite-type">
+                      {Mark && <Mark size={13} className="cite-logo" />}
+                      {evidenceTypeLabel(e.type)}
+                    </span>
                     {e.author && (
                       <>
                         <span>·</span>
