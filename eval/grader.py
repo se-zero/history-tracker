@@ -306,8 +306,9 @@ def aggregate(case_scores: list[dict]) -> dict:
     agg["runs_with_direct_quotes"] = sum(
         1 for c in case_scores for r in c["runs"] if r.get("direct_quote_spans")
     )
-    # 서버 가드가 고친 건수와, 고쳐지지 않고 사용자에게 남은 건수를 나눠 본다 —
-    # 전자는 프롬프트 튜닝의 신호이고 후자는 0이어야 하는 제품 지표다.
+    # 서버 가드가 고친 건수와, 고쳐지지 않고 남은 건수를 나눠 본다 — 전자는 프롬프트 튜닝의
+    # 신호이고, 후자는 절대값이 아니라 급증을 신호로 읽는다(자기참조 오탐이 섞여 0이 되지 않는다.
+    # 키 게이트로 일부러 보존한 사용자 어휘와 detect-only 라벨이 그대로 들어온다 — measurement.md 3.1).
     agg["runs_with_internal_term_replacements"] = sum(
         1 for c in case_scores for r in c["runs"] if r.get("internal_terms_replaced")
     )
