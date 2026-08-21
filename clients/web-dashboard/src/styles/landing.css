@@ -2732,6 +2732,7 @@ body:has(.lp) {
 .lp[data-theme="light"] .lp-feature-graph-header,
 .lp[data-theme="light"] .lp-feature-chat-source,
 .lp[data-theme="light"] .lp-feature-source-row,
+.lp[data-theme="light"] .lp-feature-source-tile,
 .lp[data-theme="light"] .lp-cases-card {
   box-shadow: var(--lp-shadow-sm);
 }
