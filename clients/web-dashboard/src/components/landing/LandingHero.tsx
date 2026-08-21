@@ -33,7 +33,7 @@ export function LandingHero() {
             <span className="lp-headline-line">되짚을 수 있게.</span>
           </h1>
           <p className="lp-sub">
-            흩어진 커밋·PR·이슈·대화를 하나의 그래프로 묶어, 물으면 근거와 함께 답합니다.
+            흩어진 커밋·PR·이슈·대화·문서를 하나의 그래프로 묶어, 물으면 근거와 함께 답합니다.
           </p>
           <div className="lp-cta-row">
             {status === "authenticated" ? (

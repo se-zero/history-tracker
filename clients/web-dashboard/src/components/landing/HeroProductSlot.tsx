@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 
+import { GithubMark, JiraMark, SlackMark } from "@/components/brand/BrandMarks";
+
 // 히어로 하단 제품 UI 블록 = 영상 슬롯 (2026-07-25 4차 상하 구조·5차 와이드화,
 // 2026-07-26 6차 기준선 통일). 텍스트 블록 아래에서 컨테이너 콘텐츠 폭 전체(1440 뷰포트에서
 // 1200×633, 종횡비 1280:675 ≈ 1.9:1 — 16:10이 "세로가 길다"로 읽혀 와이드로 조정)를 쓰고,
@@ -14,7 +16,8 @@ import type { CSSProperties } from "react";
 // 스코프 오버라이드). 데모 스토리도 기능 섹션과 동일한 HT-64 → PR #142 → #dev-search
 // 한 줄이고, 출처 카드 3장·레일 내비·대화 히스토리는 기능 1 미리보기와 문구까지 동일하다 —
 // 같은 제품의 같은 화면이므로 어긋나면 교차 검증에 걸린다. 4차에서도 대화 내용(버블·답변·
-// 카드 3장·점등 트리오)은 한 글자도 바뀌지 않았다 — 크기·폭·배치와 레일 추가뿐.
+// 카드 3장·점등 트리오)은 한 글자도 바뀌지 않았다 — 크기·폭·배치와 레일 추가뿐(단, 레일
+// 항목·출처 카드 head·컴포저 placeholder는 2026-08-21 실앱 일치화로 갱신 — 아래 참조).
 // 레일의 활성 표시는 앰버가 아니라 중립 강조(surface 상승·텍스트 강조)다 — 히어로의 앰버
 // 초점은 패널 점등·컴포저 전송·CTA에만 남긴다(landing.css .lp-hero-app 레일 오버라이드).
 //
@@ -185,8 +188,9 @@ export function HeroProductSlot() {
                 대화
               </div>
               <div className="lp-feature-chat-rail-item">데이터 소스</div>
-              <div className="lp-feature-chat-rail-item">그래프 탐색</div>
-              <div className="lp-feature-chat-rail-item">설정</div>
+              <div className="lp-feature-chat-rail-item">액터</div>
+              <div className="lp-feature-chat-rail-item">그래프 확인</div>
+              <div className="lp-feature-chat-rail-item">현재 프로젝트 설정</div>
             </nav>
             <div className="lp-feature-chat-rail-divider" />
             <div className="lp-feature-chat-rail-history">
@@ -222,30 +226,52 @@ export function HeroProductSlot() {
               </p>
               <div className="lp-hero-app-sources">
                 <div className="lp-feature-chat-source">
-                  <div className="lp-feature-chat-source-head">
-                    <span className="lp-feature-chat-source-num">#1</span>
-                    <span className="lp-feature-chat-badge lp-feature-chat-badge--issue">issue</span>
-                    <span className="lp-feature-chat-meta">HT-64 · 2026-06-12</span>
+                  <span className="lp-feature-chat-source-num">#1</span>
+                  <div className="lp-feature-chat-source-content">
+                    <div className="lp-feature-chat-meta">
+                      <span className="lp-feature-chat-source-type">
+                        <JiraMark size={13} className="lp-feature-chat-source-logo" />
+                        issue
+                      </span>
+                      <span>·</span>
+                      <span>김서진</span>
+                      <span>·</span>
+                      <span className="lp-feature-chat-source-date">2026-06-12</span>
+                    </div>
+                    <p className="lp-feature-chat-source-body">검색 랭킹 가중치 개선</p>
                   </div>
-                  <p className="lp-feature-chat-source-body">검색 랭킹 가중치 개선</p>
                 </div>
                 <div className="lp-feature-chat-source">
-                  <div className="lp-feature-chat-source-head">
-                    <span className="lp-feature-chat-source-num">#2</span>
-                    <span className="lp-feature-chat-badge lp-feature-chat-badge--message">
-                      message
-                    </span>
-                    <span className="lp-feature-chat-meta">#dev-search · 2026-06-11</span>
+                  <span className="lp-feature-chat-source-num">#2</span>
+                  <div className="lp-feature-chat-source-content">
+                    <div className="lp-feature-chat-meta">
+                      <span className="lp-feature-chat-source-type">
+                        <SlackMark size={13} className="lp-feature-chat-source-logo" />
+                        message
+                      </span>
+                      <span>·</span>
+                      <span>이도현</span>
+                      <span>·</span>
+                      <span className="lp-feature-chat-source-date">2026-06-11</span>
+                    </div>
+                    <p className="lp-feature-chat-source-body">가중치 0.7로 확정 — 스레드 합의</p>
                   </div>
-                  <p className="lp-feature-chat-source-body">가중치 0.7로 확정 — 스레드 합의</p>
                 </div>
                 <div className="lp-feature-chat-source">
-                  <div className="lp-feature-chat-source-head">
-                    <span className="lp-feature-chat-source-num">#3</span>
-                    <span className="lp-feature-chat-badge lp-feature-chat-badge--pr">pr</span>
-                    <span className="lp-feature-chat-meta">PR #142 · 2026-06-13</span>
+                  <span className="lp-feature-chat-source-num">#3</span>
+                  <div className="lp-feature-chat-source-content">
+                    <div className="lp-feature-chat-meta">
+                      <span className="lp-feature-chat-source-type">
+                        <GithubMark size={13} className="lp-feature-chat-source-logo" />
+                        PR
+                      </span>
+                      <span>·</span>
+                      <span>박한결</span>
+                      <span>·</span>
+                      <span className="lp-feature-chat-source-date">2026-06-13</span>
+                    </div>
+                    <p className="lp-feature-chat-source-body">검색 랭킹 가중치 적용</p>
                   </div>
-                  <p className="lp-feature-chat-source-body">검색 랭킹 가중치 적용</p>
                 </div>
               </div>
             </div>
@@ -257,19 +283,16 @@ export function HeroProductSlot() {
             <div className="lp-feature-chat-composer lp-hero-app-composer">
               <div className="lp-feature-chat-composer-box">
                 <span className="lp-feature-chat-composer-placeholder">
-                  이 코드가 왜 이렇게 바뀌었는지 물어보세요
+                  history tracker에 무엇이든 물어보세요. Shift+Enter로 줄바꿈
                 </span>
-                <span className="lp-feature-chat-composer-send">
-                  {/* 앱 Icons.tsx의 Send 패스 — FeatureSections.tsx SendGlyph와 동일 원본. */}
-                  <svg width={12} height={12} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                    <path d="M2 8 14 2.5 11 14l-3-5-6-1z" />
-                  </svg>
-                </span>
-              </div>
-              <div className="lp-feature-chat-composer-hint">
-                <span>
-                  <span className="lp-feature-chat-kbd">Enter</span> 전송
-                </span>
+                <div className="lp-feature-chat-composer-actions">
+                  <span className="lp-feature-chat-composer-send">
+                    {/* 앱 Icons.tsx의 Send 패스 — FeatureSections.tsx SendGlyph와 동일 원본. */}
+                    <svg width={12} height={12} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                      <path d="M2 8 14 2.5 11 14l-3-5-6-1z" />
+                    </svg>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
