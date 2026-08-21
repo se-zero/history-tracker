@@ -196,6 +196,48 @@ class SanitizeInternalTermsTest(unittest.TestCase):
         orchestrator._sanitize_internal_terms(structured, messages, 0, None)
 
 
+class InternalIdDetectionTest(unittest.TestCase):
+    """내부 식별자 '값'(슬랙 ts·UUID) 검출 — 치환하지 않고 세기만 한다.
+
+    실기동에서 "슬랙 스레드 1786776420.322659에서 …"처럼 본문에 그대로 실렸다. 이름이 아니라
+    값이라 무엇으로 바꿀지가 아니라 빼야 하는 것이고, 서버가 문장에서 토큰을 삭제하면 치환보다
+    문장을 깨뜨릴 위험이 커서 프롬프트로 막고 여기서는 관측만 한다.
+    """
+
+    def _detected(self, summary: str) -> dict:
+        structured = {"summary": summary, "evidence": [], "unknown_aspects": []}
+        debug: dict = {}
+        orchestrator._sanitize_internal_terms(structured, _tool_messages({}), 0, debug)
+        return {
+            d["token"]: d["count"]
+            for d in (debug.get("internal_terms") or {}).get("detected") or []
+        }, structured["summary"]
+
+    def test_slack_ts_detected_but_text_unchanged(self):
+        summary = "슬랙 스레드 1786776420.322659에서 봇 도입을 논의했습니다."
+        detected, text = self._detected(summary)
+
+        self.assertEqual(1, detected["대화 스레드 ID"])
+        self.assertEqual(summary, text)  # 값은 치환하지 않는다
+
+    def test_uuid_detected(self):
+        detected, _ = self._detected("프로젝트 eb74cbd9-33ce-4c0e-9272-d30a661830f3의 결과입니다.")
+
+        self.assertEqual(1, detected["내부 UUID"])
+
+    def test_commit_hash_not_detected(self):
+        # 커밋 해시는 사용자가 실제로 쓰는 식별자라 대상이 아니다 (하이픈 없는 hex).
+        detected, _ = self._detected("커밋 8cdb0cc와 1739b7a에서 수정했습니다.")
+
+        self.assertEqual({}, detected)
+
+    def test_ordinary_numbers_not_detected(self):
+        # 기간·날짜·버전 숫자가 스레드 ID로 오인되면 지표가 죽는다.
+        detected, _ = self._detected("2026-08-15에 종료됐고 진행 기간은 50.8일, 1.2.3 버전입니다.")
+
+        self.assertEqual({}, detected)
+
+
 class ParticleCorrectionTest(unittest.TestCase):
     """치환 뒤 조사 교정 — 모델은 영어 토큰 발음에 맞춰 조사를 고르므로 그대로 두면 어긋난다."""
 
@@ -274,6 +316,11 @@ class GlossaryConsistencyTest(unittest.TestCase):
     def test_system_prompt_carries_the_rule_and_glossary(self):
         self.assertIn("내부 용어 노출 금지", orchestrator._SYSTEM_PROMPT)
         self.assertIn("discussion_count → 관련 대화 메시지 수", orchestrator._SYSTEM_PROMPT)
+
+    def test_system_prompt_bans_id_values_and_implementation_asides(self):
+        # 실기동에서 드러난 두 가지 — 스레드 ID 값 노출과 "내부 계산식은 확인되지 않음" 사족.
+        self.assertIn("내부 식별자 '값'도 본문에 쓰지 마세요", orchestrator._SYSTEM_PROMPT)
+        self.assertIn("내부 계산식·구현까지는 확인되지 않는다", orchestrator._SYSTEM_PROMPT)
 
 
 if __name__ == "__main__":
