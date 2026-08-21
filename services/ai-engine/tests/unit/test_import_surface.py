@@ -24,6 +24,7 @@ MODULES = [
     "openai_client",
     "query_models",
     "rate_limiter",
+    "agent.glossary",
     "agent.orchestrator",
     "graph.actor_admin",
     "graph.actor_llm",

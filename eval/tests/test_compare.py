@@ -11,27 +11,40 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from compare import NOISE_FLOOR, classify, device_warnings, paired_deltas
+from compare import AGGREGATE_FLOOR, CASE_FLOOR, classify, device_warnings, paired_deltas
 
 
 # ─── classify — 방향·노이즈 경계 ────────────────────────────────────────────────
 
 
 def test_recall_up_is_improvement():
-    assert classify("recall", +0.10) == "improved"
-    assert classify("recall", -0.10) == "regressed"
+    assert classify("recall", +0.30) == "improved"
+    assert classify("recall", -0.30) == "regressed"
 
 
 def test_hallucination_down_is_improvement():
     # 환각률은 낮을수록 좋다 — 방향이 뒤집히면 회귀를 개선으로 판정한다
-    assert classify("hallucination_rate", -0.10) == "improved"
-    assert classify("hallucination_rate", +0.10) == "regressed"
+    assert classify("hallucination_rate", -0.40) == "improved"
+    assert classify("hallucination_rate", +0.40) == "regressed"
 
 
 def test_delta_within_noise_floor_is_noise():
-    assert classify("recall", NOISE_FLOOR["recall"]) == "noise"          # 경계값 포함
-    assert classify("recall", -NOISE_FLOOR["recall"]) == "noise"
-    assert classify("recall", NOISE_FLOOR["recall"] + 0.001) == "improved"
+    assert classify("recall", CASE_FLOOR["recall"]) == "noise"          # 경계값 포함
+    assert classify("recall", -CASE_FLOOR["recall"]) == "noise"
+    assert classify("recall", CASE_FLOOR["recall"] + 0.001) == "improved"
+
+
+def test_default_floor_is_the_stricter_case_floor():
+    # 기본값이 느슨한 집계 기준으로 새면 케이스별 판정이 조용히 과다 검출된다
+    # (2026-08-21 실측: 집계용 값을 케이스별에 쓰던 동안 recall 오탐 60%).
+    delta = (AGGREGATE_FLOOR["recall"] + CASE_FLOOR["recall"]) / 2
+    assert classify("recall", delta) == "noise"
+    assert classify("recall", delta, AGGREGATE_FLOOR) == "improved"
+
+
+def test_aggregate_floor_is_tighter_than_case_floor():
+    for metric, agg in AGGREGATE_FLOOR.items():
+        assert agg < CASE_FLOOR[metric], metric
 
 
 def test_none_delta_is_na():

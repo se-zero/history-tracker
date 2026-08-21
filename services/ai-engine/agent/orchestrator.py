@@ -2,7 +2,9 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 
+from agent.glossary import DETECT_ONLY, REPLACEMENTS, prompt_glossary
 from graph.overview import resolve_evidence_sources
 from openai_client import Priority, chat_completion
 from tools.definitions import TOOLS
@@ -228,6 +230,32 @@ GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서)
 - 풀어 쓴다고 근거 이상을 말해도 된다는 뜻은 아닙니다. 원문에 없는 인과·평가·수치를
   덧붙이지 마세요 — 표현만 바꾸고 내용은 근거 안에 머무릅니다.
 
+[내부 용어 노출 금지 — 시스템 용어는 사용자 언어로 옮긴다]
+- 사용자는 이 시스템의 내부 구조를 모릅니다. 도구 결과의 필드명(discussion_count·duration_days·
+  status_category 등), 그래프 노드 라벨(Communication·ChangeSet 등)과 관계 타입(DISCUSSED_IN 등),
+  도구 이름(rank_issues·get_timeline 등), Cypher·Neo4j 같은 내부 어휘를 summary·unknown_aspects에
+  쓰지 마세요. 사용자에게는 뜻 없는 문자열이고, 내부 구조를 그대로 드러내는 노출입니다.
+    나쁨: HT-129의 discussion_count가 12건으로 가장 높습니다.
+    좋음: HT-129에 관련 대화 메시지가 12건 연결돼 가장 많습니다.
+- [summary 서술 규칙]의 "원문 그대로 옮긴다" 예외는 **사용자 데이터의 식별자**(파일 경로,
+  커밋 해시, 이슈 키, PR 번호, 사용자 코드의 함수·클래스·설정 키 이름)에만 적용됩니다. 도구
+  결과의 필드명은 이 시스템의 내부 이름이지 사용자 데이터가 아니므로 예외가 아닙니다.
+- **내부 식별자 '값'도 본문에 쓰지 마세요** — 대화 스레드 ID(슬랙 ts), 문서 ID, 내부 UUID는
+  사용자에게 뜻 없는 문자열입니다.
+    나쁨: 슬랙 스레드 1786776420.322659에서 봇 도입 필요성을 논의했다.
+    좋음: 8월 15일 슬랙 스레드에서 봇 도입 필요성을 논의했다.
+  스레드를 가리켜야 하면 채널·시각·참여자로 가리킵니다. evidence[*].id에는 규약대로
+  conversation_id를 그대로 쓰세요 — 근거 카드가 그 역할을 맡으므로 **본문에서만 빼는 것**입니다.
+  (파일 경로·커밋 해시·이슈 키·PR 번호는 사용자가 실제로 쓰는 식별자이므로 그대로 씁니다.)
+- 사용자가 지표의 뜻을 되물으면(예: "그 수치가 뭔데?") 아래 용어집의 뜻으로 답하세요. 시스템이
+  제공한 정의이므로 **그래프 근거(evidence) 없이 답해도 되는 유일한 예외**입니다 — 도구 결과에
+  근거가 없다며 얼버무리거나, 무엇을 세는 값인지 추측하지 마세요.
+- 그렇게 뜻을 답한 뒤 "내부 계산식·구현까지는 확인되지 않는다" 류의 사족을 붙이지 마세요
+  (unknown_aspects에도 적지 않습니다). 사용자가 물은 것은 그 수치의 의미이지 구현이 아니며,
+  이런 문장은 답을 못 준 것처럼 보이게 만듭니다.
+
+__GLOSSARY__
+
 [그래프 타임스탬프 의미 사전 — 필드명을 추정으로 해석하지 말 것]
 - Issue.occurredAt   = 이슈 최종 업데이트 시각  (event_meaning = issue_updated)
 - Issue.createdAt    = 이슈 생성 시각          (event_meaning = issue_created)
@@ -420,6 +448,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 __SCHEMA_CARD__
 """.replace("__MIN_CONF__", f"{_MIN_CONFIDENCE:g}") \
    .replace("__MAX_GQ__", str(_MAX_GRAPH_QUERY_CALLS)) \
+   .replace("__GLOSSARY__", prompt_glossary()) \
    .replace("__SCHEMA_CARD__", SCHEMA_CARD)
 
 _FALLBACK_ANSWER = "답변을 생성하지 못했습니다."
@@ -831,6 +860,184 @@ def _count_direct_quotes(
         debug["direct_quotes"] = findings
 
 
+def _build_token_re(tokens) -> re.Pattern:
+    """토큰 집합을 한 번에 찾는 정규식. 백틱으로 감싼 형태(`discussion_count`)도 함께 잡는다.
+
+    긴 토큰을 앞에 놓아 짧은 토큰이 먼저 매칭돼 조각만 바뀌는 것을 막고, 앞뒤로 식별자 문자가
+    붙어 있으면(my_discussion_count_total) 매칭하지 않는다 — 남의 식별자를 훼손하면 안 된다.
+    대소문자는 구분한다: 관계 타입(DISCUSSED_IN)과 필드명(discussion_count)은 표기가 고정이고,
+    구분을 풀면 일상 영어 단어에 걸린다.
+    """
+    alternation = "|".join(re.escape(t) for t in sorted(tokens, key=len, reverse=True))
+    return re.compile(rf"`(?:{alternation})`|(?<![A-Za-z0-9_])(?:{alternation})(?![A-Za-z0-9_])")
+
+
+_REPLACE_TERM_RE = _build_token_re(REPLACEMENTS)
+_DETECT_TERM_RE = _build_token_re(DETECT_ONLY)
+
+# 내부 식별자 '값' — 이름이 아니라 값이라 용어집 치환 대상이 아니다(무엇으로 바꿀지가 아니라
+# 빼야 하는 것이고, 서버가 문장에서 토큰을 삭제하면 치환보다 문장을 깨뜨릴 위험이 크다).
+# 프롬프트로 막고 여기서는 세기만 한다 — 로그에서 자주 보이면 그때 삭제 규칙을 검토한다.
+# 실측(2026-08-20): "슬랙 스레드 1786776420.322659에서 …"처럼 본문에 그대로 실렸다.
+# 커밋 해시는 사용자가 실제로 쓰는 식별자라 대상이 아니다 — 하이픈 있는 UUID 형태만 잡으면
+# 해시(하이픈 없는 hex)와 충돌하지 않는다.
+_INTERNAL_ID_PATTERNS = (
+    # Slack ts (1786776420.322659). 앞뒤로 숫자·점이 더 붙으면 다른 수치이므로 제외한다.
+    ("대화 스레드 ID", re.compile(r"(?<![\d.])\d{10}\.\d{6}(?![\d.])")),
+    # 경계를 \b로 잡지 않는다 — 한글은 \w라서 "…830f3의"에서 경계가 성립하지 않아, 조사가
+    # 붙는 한국어 문장에서 통째로 놓친다. 앞뒤에 hex·하이픈이 더 붙는 경우만 배제한다.
+    ("내부 UUID", re.compile(
+        r"(?<![0-9a-fA-F-])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
+        r"-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9a-fA-F-])"
+    )),
+)
+
+# 치환 뒤 조사 교정용. 모델은 영어 토큰의 발음에 맞춰 조사를 고르므로("duration_days를"),
+# 한국어 표기로 갈아끼우면 받침이 달라져 어긋난다("진행 기간(일)를"). 쌍은 (받침 있을 때,
+# 받침 없을 때) 순서다.
+_PARTICLE_PAIRS = (
+    ("이라고", "라고"), ("으로", "로"), ("이란", "란"), ("이나", "나"),
+    ("을", "를"), ("이", "가"), ("은", "는"), ("과", "와"),
+)
+_PARTICLE_FORMS = {form: pair for pair in _PARTICLE_PAIRS for form in pair}
+# 뒤에 한글이 이어지면 조사가 아니라 단어의 첫 글자다("…은행") — 그 경우는 건드리지 않는다.
+_PARTICLE_RE = re.compile(
+    "(?:" + "|".join(sorted(_PARTICLE_FORMS, key=len, reverse=True)) + r")(?![가-힣])"
+)
+
+
+def _final_jongseong(label: str) -> int | None:
+    """표기의 마지막 한글 음절의 종성 코드. 한글이 없으면 None.
+
+    "진행 기간(일)"처럼 괄호·기호로 끝나도 읽을 때는 그 앞의 한글("일")로 발음하므로,
+    뒤에서부터 한글 음절을 찾는다.
+    """
+    for char in reversed(label):
+        if "가" <= char <= "힣":
+            return (ord(char) - 0xAC00) % 28
+    return None
+
+
+def _correct_particle(label: str, following: str) -> tuple[str, int]:
+    """치환된 표기 바로 뒤의 조사를 표기에 맞게 고친다.
+
+    Returns: (대체할 조사, 원문에서 소비한 길이). 조사가 없거나 판단할 수 없으면 ("", 0).
+    """
+    match = _PARTICLE_RE.match(following)
+    if not match:
+        return "", 0
+    jongseong = _final_jongseong(label)
+    if jongseong is None:
+        return "", 0
+    with_batchim, without_batchim = _PARTICLE_FORMS[match.group(0)]
+    # '으로/로'만 규칙이 다르다 — ㄹ 받침(종성 8)은 받침 없는 쪽과 같이 '로'를 쓴다.
+    if with_batchim == "으로" and jongseong == 8:
+        corrected = without_batchim
+    else:
+        corrected = with_batchim if jongseong else without_batchim
+    return corrected, match.end()
+
+
+def _sanitize_internal_terms(
+    structured: dict, messages: list, current_turn_start: int, debug: dict | None
+) -> dict:
+    """summary·unknown_aspects에 실린 내부 용어를 사용자 표현으로 치환한다.
+
+    실측 사례: "가장 논의가 많이 된 주제"에 "HT-129의 discussion_count가 12건"이라고 답했다.
+    모델은 그 지표를 부를 다른 이름이 없어서 필드명을 그대로 옮겼다 — 프롬프트에 용어집을 실어
+    이름을 주고, 그래도 새는 경우를 여기서 막는다(프롬프트 지시만으로는 확실하지 않다는 것은
+    _count_direct_quotes와 같은 전제다).
+
+    **키 게이트가 오치환을 막는 핵심이다**: 토큰이 이번 턴 도구 결과에 JSON 키로 실제 존재할
+    때만 치환한다. 사용자 저장소에 우연히 같은 이름의 심볼이 있어(커밋 메시지·코드 본문에 등장)
+    모델이 그걸 인용한 것이라면 우리 필드가 아니므로 건드리지 않고 관측만 한다.
+
+    evidence[*].quote는 대상이 아니다 — 거긴 사용자 원문이라 같은 단어가 있으면 그것이 곧
+    사용자 데이터다. 원문을 변형하면 인용이 아니게 된다.
+
+    DETECT_ONLY(노드 라벨·관계 타입·도구 이름)는 치환하지 않고 세기만 한다. 사람이 표기를 정하지
+    않은 어휘를 기계가 갈아끼우면 문장이 어색해지고, 이 로그가 "실제로 무엇이 새는지" 알려주는
+    신호라 용어집을 그 근거로 넓힌다.
+
+    **이번 턴에 도구 호출이 없으면 이 가드는 사실상 비활성이다** — haystack이 빈 문자열이라
+    키 게이트가 전부 실패해 치환이 한 건도 일어나지 않고, 등장한 용어는 detected로만 집계된다
+    (_drop_unverified_quotes도 같은 성질을 갖는다). 지표 정의를 되묻는 질문처럼 도구 없이 답할 수
+    있는 턴이 여기 해당하며, 그때는 프롬프트가 유일한 방어선이다. 설계와 일관된 동작이다 —
+    우리 필드임이 도구 결과로 증명될 때만 치환한다는 것이 이 가드의 전제이기 때문이다.
+    """
+    haystack = _tool_haystack(messages, current_turn_start)
+    replaced: Counter = Counter()
+    detected: Counter = Counter()
+
+    def is_our_field(token: str) -> bool:
+        """토큰이 이번 턴 도구 결과에 **키로만** 등장하는가.
+
+        키로 등장해야 우리 필드이고(1차 게이트), 키 외의 자리에도 등장하면 사용자 어휘로 본다
+        (2차 게이트). 커밋 메시지·PR 본문·이슈 설명이 그 단어를 말하고 있다는 뜻이라, 답변이
+        가리키는 대상이 우리 필드가 아니라 사용자의 코드·스키마일 가능성이 높다.
+
+        실측(2026-08-21 eval, case-16 "PullRequest 노드에 created_at을 추가한 배경은?"):
+        created_at은 우리 도구 결과의 키이면서 동시에 그 커밋들이 실제로 추가한 필드라,
+        1차 게이트만으로는 질문이 물은 이름을 답변에서 지워 버렸다.
+        """
+        folded = token.casefold()
+        key_hits = haystack.count(f'"{folded}":')
+        return bool(key_hits) and haystack.count(folded) == key_hits
+
+    def substitute(text: str) -> str:
+        # re.sub 대신 직접 이어 붙인다 — 치환 뒤의 조사까지 소비해 고쳐야 하기 때문이다.
+        parts: list[str] = []
+        pos = 0
+        for match in _REPLACE_TERM_RE.finditer(text):
+            token = match.group(0).strip("`")
+            parts.append(text[pos:match.start()])
+            pos = match.end()
+            if not is_our_field(token):
+                detected[token] += 1
+                parts.append(match.group(0))
+                continue
+            label = REPLACEMENTS[token]
+            replaced[token] += 1
+            parts.append(label)
+            particle, consumed = _correct_particle(label, text[pos:])
+            parts.append(particle)
+            pos += consumed
+        parts.append(text[pos:])
+        return "".join(parts)
+
+    def process(text: str) -> str:
+        for match in _DETECT_TERM_RE.finditer(text):
+            detected[match.group(0).strip("`")] += 1
+        # 식별자 값은 매번 다른 문자열이라 값 자체가 아니라 종류로 센다(로그·지표가 뭉개지지 않게).
+        for name, pattern in _INTERNAL_ID_PATTERNS:
+            hits = len(pattern.findall(text))
+            if hits:
+                detected[name] += hits
+        return substitute(text)
+
+    summary = structured.get("summary") or ""
+    if summary:
+        structured["summary"] = process(summary)
+
+    aspects = structured.get("unknown_aspects") or []
+    if aspects:
+        structured["unknown_aspects"] = [process(aspect or "") for aspect in aspects]
+
+    if replaced:
+        logger.warning("답변 내부 용어 치환: %s", dict(replaced))
+    if detected:
+        logger.warning("답변 내부 용어 검출(치환 안 함): %s", dict(detected))
+    if (replaced or detected) and isinstance(debug, dict):
+        debug["internal_terms"] = {
+            "replaced": [
+                {"token": token, "label": REPLACEMENTS[token], "count": count}
+                for token, count in replaced.items()
+            ],
+            "detected": [{"token": token, "count": count} for token, count in detected.items()],
+        }
+    return structured
+
+
 _PR_EVIDENCE_ID_RE = re.compile(r"^#(\d+)$")
 
 
@@ -946,6 +1153,8 @@ async def _final_structured_answer(
         # 관측 전용 — structured를 변형하지 않으므로 아래 source 라벨링과 순서 무관하지만,
         # 같은 haystack을 보는 검증끼리 붙여 둔다.
         _count_direct_quotes(structured, messages, current_turn_start, debug)
+        # 관측이 끝난 뒤에 변형한다 — 직접 인용 검출은 모델이 실제로 낸 문장을 봐야 한다.
+        _sanitize_internal_terms(structured, messages, current_turn_start, debug)
         evidence = structured.get("evidence") or []
         if evidence:
             # source는 프론트 근거 카드의 브랜드 로고 표시용 장식이다 — 조회 실패가 답변
@@ -956,6 +1165,11 @@ async def _final_structured_answer(
                     item["source"] = source
             except Exception:
                 logger.warning("evidence source 조회 실패 — source 없이 진행", exc_info=True)
+    else:
+        # structured 실패 시의 자유 텍스트도 사용자에게 그대로 보이는 문장이라 같은 가드를 건다.
+        holder = {"summary": fallback_text}
+        _sanitize_internal_terms(holder, messages, current_turn_start, debug)
+        fallback_text = holder["summary"]
     return _finalize(structured, fallback_text, exploratory)
 
 
