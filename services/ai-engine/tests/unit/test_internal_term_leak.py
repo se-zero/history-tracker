@@ -64,8 +64,8 @@ class SanitizeInternalTermsTest(unittest.TestCase):
         )
 
     def test_evidence_quote_never_touched(self):
-        # quote는 사용자 원문이다 — 원문에 그 단어가 있으면 그건 사용자 데이터이므로 변형 금지.
-        quote = "def rank(): return discussion_count"
+        # quote는 사용자 원문이다 — summary를 고치더라도 quote는 그대로 둔다.
+        quote = "랭킹 로직을 추가했다"
         messages = _tool_messages({"discussion_count": 12, "body": quote})
         structured = {
             "summary": "discussion_count가 12건입니다.",
@@ -77,6 +77,66 @@ class SanitizeInternalTermsTest(unittest.TestCase):
 
         self.assertEqual(quote, structured["evidence"][0]["quote"])
         self.assertNotIn("discussion_count", structured["summary"])
+
+    def test_token_in_user_content_is_not_replaced(self):
+        # 정밀 키 게이트 — 도구 결과의 **키이면서 동시에** 커밋·PR 본문에도 등장하면 사용자
+        # 어휘로 본다. 실측(case-16): 질문이 "PullRequest 노드에 created_at을 추가한 배경은?"
+        # 이었는데, created_at이 우리 필드이기도 해서 답변에서 그 이름이 지워졌다.
+        messages = _tool_messages({
+            "created_at": "2026-05-01T00:00:00Z",
+            "message": "feat: PullRequest 노드에 created_at 추가",
+        })
+        structured = {
+            "summary": "PullRequest 노드에 created_at을 추가했습니다.",
+            "evidence": [],
+            "unknown_aspects": [],
+        }
+        debug: dict = {}
+
+        orchestrator._sanitize_internal_terms(structured, messages, 0, debug)
+
+        self.assertIn("created_at", structured["summary"])
+        self.assertEqual([], debug["internal_terms"]["replaced"])
+
+    def test_token_only_as_key_is_still_replaced(self):
+        # 반대쪽 — 본문에 없고 키로만 있으면 우리 필드가 맞으므로 치환한다.
+        messages = _tool_messages({"discussion_count": 12, "message": "글로벌 검색 추가"})
+        structured = {"summary": "discussion_count가 12건입니다.", "evidence": [], "unknown_aspects": []}
+
+        orchestrator._sanitize_internal_terms(structured, messages, 0, None)
+
+        self.assertEqual("관련 대화 메시지 수가 12건입니다.", structured["summary"])
+
+    def test_timestamp_field_replaced_when_only_our_key(self):
+        # 시간 필드도 치환 대상이다. 도구 결과에 키로만 있으면 우리 필드이므로 사람 말로 바꾼다.
+        messages = _tool_messages({"occurredAt": "2026-05-01T00:00:00Z"})
+        structured = {
+            "summary": "occurredAt 기준으로 정렬했습니다.",
+            "evidence": [],
+            "unknown_aspects": [],
+        }
+
+        orchestrator._sanitize_internal_terms(structured, messages, 0, None)
+
+        self.assertEqual("발생 시각 기준으로 정렬했습니다.", structured["summary"])
+
+    def test_timestamp_field_kept_when_user_data_mentions_it(self):
+        # 반대쪽 — 커밋·PR 본문이 그 필드를 말하고 있으면 사용자 스키마 이야기이므로 보존한다.
+        # 실측(case-16 "PullRequest 노드에 created_at을 추가한 배경은?"): 커밋 메시지가 그
+        # 필드명을 말하고 있어, 이 게이트가 질문이 물은 이름을 지키는 유일한 방어다.
+        messages = _tool_messages({
+            "created_at": "2026-05-01T00:00:00Z",
+            "message": "feat: PullRequest 노드에 created_at 추가",
+        })
+        structured = {
+            "summary": "PullRequest 노드에 created_at을 추가했습니다.",
+            "evidence": [],
+            "unknown_aspects": [],
+        }
+
+        orchestrator._sanitize_internal_terms(structured, messages, 0, None)
+
+        self.assertIn("created_at", structured["summary"])
 
     def test_token_absent_as_key_is_detected_but_not_replaced(self):
         # 사용자 코드에 같은 이름의 심볼이 있어도 우리 도구 결과의 키가 아니면 치환하지 않는다.
@@ -298,6 +358,13 @@ class GlossaryConsistencyTest(unittest.TestCase):
     def test_detect_only_does_not_overlap_replacements(self):
         overlap = set(glossary.DETECT_ONLY) & set(glossary.REPLACEMENTS)
         self.assertEqual(set(), overlap)
+
+    def test_timestamp_fields_are_replacement_targets(self):
+        # 시간 필드는 치환 목록에 남긴다(2026-08-21 결정). 자기참조 상황의 오치환은
+        # 정밀 키 게이트가 막는다 — is_our_field 참고.
+        for token in ("occurredAt", "createdAt", "created_at", "closedAt", "closed_at", "merged_at"):
+            with self.subTest(token=token):
+                self.assertIn(token, glossary.REPLACEMENTS)
 
     def test_detect_only_is_derived_from_code(self):
         # 손으로 쓰지 않고 코드에서 파생한다 — 스키마·도구가 바뀌면 자동으로 따라온다.

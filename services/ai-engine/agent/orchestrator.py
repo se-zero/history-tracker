@@ -963,6 +963,21 @@ def _sanitize_internal_terms(
     replaced: Counter = Counter()
     detected: Counter = Counter()
 
+    def is_our_field(token: str) -> bool:
+        """토큰이 이번 턴 도구 결과에 **키로만** 등장하는가.
+
+        키로 등장해야 우리 필드이고(1차 게이트), 키 외의 자리에도 등장하면 사용자 어휘로 본다
+        (2차 게이트). 커밋 메시지·PR 본문·이슈 설명이 그 단어를 말하고 있다는 뜻이라, 답변이
+        가리키는 대상이 우리 필드가 아니라 사용자의 코드·스키마일 가능성이 높다.
+
+        실측(2026-08-21 eval, case-16 "PullRequest 노드에 created_at을 추가한 배경은?"):
+        created_at은 우리 도구 결과의 키이면서 동시에 그 커밋들이 실제로 추가한 필드라,
+        1차 게이트만으로는 질문이 물은 이름을 답변에서 지워 버렸다.
+        """
+        folded = token.casefold()
+        key_hits = haystack.count(f'"{folded}":')
+        return bool(key_hits) and haystack.count(folded) == key_hits
+
     def substitute(text: str) -> str:
         # re.sub 대신 직접 이어 붙인다 — 치환 뒤의 조사까지 소비해 고쳐야 하기 때문이다.
         parts: list[str] = []
@@ -971,8 +986,7 @@ def _sanitize_internal_terms(
             token = match.group(0).strip("`")
             parts.append(text[pos:match.start()])
             pos = match.end()
-            # 키 게이트 — 도구 결과에 `"token":` 형태로 실린 필드만 우리 것으로 본다.
-            if f'"{token}":'.casefold() not in haystack:
+            if not is_our_field(token):
                 detected[token] += 1
                 parts.append(match.group(0))
                 continue

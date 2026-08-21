@@ -20,6 +20,26 @@ def _json_default(obj):
     return str(obj)
 
 
+# 점수·신뢰도는 소수 둘째 자리까지만 LLM에 준다. 원시 float가 답변 본문에 그대로 실려
+# "연결 신뢰도가 0.6319704674079566인 유사도 기반 추정 연결"이라는 문장이 나왔다
+# (2026-08-21 eval 실측, case-01). 판단에는 두 자리로 충분하다 — 프롬프트의 "0.5~0.7 구간이면
+# 추정으로 명시" 규칙도 그대로 성립한다. 기간·개수는 대상이 아니다(반올림하면 값이 틀려진다).
+_SCORE_KEYS = frozenset({"confidence", "relevance", "score", "weighted_score", "weight"})
+
+
+def _round_scores(obj):
+    """결과 트리를 훑어 점수 계열 float만 소수 둘째 자리로 자른다."""
+    if isinstance(obj, dict):
+        return {
+            key: round(value, 2) if key in _SCORE_KEYS and isinstance(value, float)
+            else _round_scores(value)
+            for key, value in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_round_scores(item) for item in obj]
+    return obj
+
+
 def _mask_value(value):
     """문자열 값 안의 이메일을 마스킹한다. 그 외 타입은 그대로 반환."""
     if not isinstance(value, str):
@@ -51,6 +71,7 @@ async def execute(tool_name: str, args: dict, project_id: str, question: str = "
         logger.exception("도구 실행 실패: %s args=%s", tool_name, _mask_args(args))
         result = {"error": f"{tool_name} 실행 중 내부 오류가 발생했습니다."}
 
+    result = _round_scores(result)
     payload = json.dumps(result, ensure_ascii=False, default=_json_default)
     if len(payload) > _MAX_RESULT_CHARS:
         payload = _truncate_payload(result, payload)
