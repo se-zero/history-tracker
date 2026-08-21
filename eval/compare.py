@@ -43,6 +43,8 @@ COUNTER_KEYS = [
     "runs_structured_null",
     "runs_with_format_violations",
     "runs_with_direct_quotes",
+    "runs_with_internal_term_replacements",
+    "runs_with_internal_terms_left",
 ]
 
 

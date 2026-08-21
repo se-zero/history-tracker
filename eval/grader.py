@@ -306,6 +306,14 @@ def aggregate(case_scores: list[dict]) -> dict:
     agg["runs_with_direct_quotes"] = sum(
         1 for c in case_scores for r in c["runs"] if r.get("direct_quote_spans")
     )
+    # 서버 가드가 고친 건수와, 고쳐지지 않고 사용자에게 남은 건수를 나눠 본다 —
+    # 전자는 프롬프트 튜닝의 신호이고 후자는 0이어야 하는 제품 지표다.
+    agg["runs_with_internal_term_replacements"] = sum(
+        1 for c in case_scores for r in c["runs"] if r.get("internal_terms_replaced")
+    )
+    agg["runs_with_internal_terms_left"] = sum(
+        1 for c in case_scores for r in c["runs"] if r.get("internal_terms_detected")
+    )
     return agg
 
 
@@ -374,6 +382,16 @@ def main():
                     run_score["answer_tokens"] = usage["total_tokens"]
                 # 옛 결과 파일에는 direct_quotes 키가 없다 — 그 경우 0건으로 집계.
                 run_score["direct_quote_spans"] = len(debug.get("direct_quotes") or [])
+                # 내부 용어 노출 — 두 갈래를 나눠 센다.
+                #   replaced  = 모델이 필드명을 썼지만 서버가 사용자 표현으로 고친 것 (프롬프트 준수 신호)
+                #   detected  = 치환되지 않고 답변에 남은 내부 어휘 (사용자에게 실제로 보이는 노출)
+                internal = debug.get("internal_terms") or {}
+                run_score["internal_terms_replaced"] = sum(
+                    item["count"] for item in internal.get("replaced") or []
+                )
+                run_score["internal_terms_detected"] = sum(
+                    item["count"] for item in internal.get("detected") or []
+                )
 
                 if client is not None and structured is not None:
                     originals = fetch_cited_originals(session, pid, structured)
