@@ -3,12 +3,22 @@
    ============================================================ */
 .chat-wrap {
   display: grid;
-  grid-template-columns: 1fr;
+  /* 열림 상태(.with-panel)와 트랙 개수를 맞추려고 0px 트랙을 둔다.
+     grid-template-columns는 트랙 개수가 같을 때만 보간되고, 다르면(1fr ↔ 1fr 360px)
+     중간값 없이 즉시 전환값으로 점프한다 — 0px는 화면에 보이지 않으면서 트랙 수만 맞춘다. */
+  grid-template-columns: 1fr 0px;
   flex: 1; min-height: 0;
   position: relative;
-  transition: grid-template-columns 0.3s ease;
+  /* 오버슛(--ease-spring)은 그리드 폭 전환이라 중앙 본문까지 함께 출렁여 산만하다 —
+     감속만 하는 standard를 쓴다(실물 확인 후 결정, 2026-08-22). */
+  transition: grid-template-columns var(--dur-slow) var(--ease-standard);
 }
 .chat-wrap.with-panel { grid-template-columns: 1fr 360px; }
+/* 패널 폭 전환은 중앙 본문까지 밀어내는 레이아웃 모션이라 동작 축소 설정에서는 끈다
+   (DESIGN.md 모션 절: prefers-reduced-motion 준수 — 위치 변화는 제거, opacity는 유지) */
+@media (prefers-reduced-motion: reduce) {
+  .chat-wrap { transition: none; }
+}
 
 /* 관련 그래프 토글 — 패널이 닫혔을 때만 우상단에 띄운다 */
 .graph-toggle {
@@ -27,7 +37,7 @@
   /* 다크에서 그림자가 none이 되는 대신 상단 1px 인셋으로 빛을 받는다(edge-highlight, DESIGN.md) */
   box-shadow: inset 0 1px 0 0 var(--edge-highlight), var(--shadow-sm);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
 }
 .graph-toggle:hover {
   background: var(--surface-2);
@@ -44,6 +54,8 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* 여기에 overflow:hidden을 걸면 안 된다 — .panel-resizer가 left:-3px로 왼쪽 경계를
+     넘어 걸쳐 있어서 그랩 영역이 잘린다. 전환 중 내용 클리핑은 아래 head/body가 맡는다. */
 }
 /* 너비 조절 핸들 — 왼쪽 경계에 걸친 얇은 그랩 스트립(드래그 시 accent 라인 표시) */
 .panel-resizer {
@@ -64,7 +76,7 @@
   left: 2px;
   width: 2px;
   background: transparent;
-  transition: background 0.12s;
+  transition: background var(--dur-fast) var(--ease-standard);
 }
 .panel-resizer:hover::after,
 .panel-resizer:active::after {
@@ -79,6 +91,9 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--fg);
+  /* 패널 열림 전환 중 트랙 폭이 0→패널 폭으로 커지는 동안 내용이 삐져나오지 않게 막는다.
+     .side-panel이 아니라 여기서 자르는 이유는 위 .side-panel 주석 참조 */
+  overflow: hidden;
 }
 .side-panel-body {
   flex: 1;
@@ -86,6 +101,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .side-panel-empty,
 .side-panel-loading {
@@ -308,7 +324,7 @@
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
   text-align: left;
   align-items: flex-start;
   overflow: hidden;
@@ -405,7 +421,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition: border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
 }
 .composer-box:focus-within {
   border-color: var(--accent-ink);

@@ -83,9 +83,8 @@ export function ProjectSwitcher({
         </div>
         <Icons.ChevronDown
           size={14}
-          className="muted"
+          className="muted switcher-chevron"
           style={{
-            transition: "transform 0.15s",
             transform: open ? "rotate(180deg)" : "none",
           }}
         />
