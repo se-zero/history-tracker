@@ -38,6 +38,9 @@ interface Props {
   onIgniteConsumed?: () => void;
 }
 
+// 리사이즈가 잠잠해질 때까지 기다리는 시간 — 아래 ResizeObserver 콜백 참고.
+const RESIZE_SETTLE_MS = 200;
+
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
 }
@@ -111,12 +114,38 @@ export function GraphVis({
 
   useEffect(() => {
     if (!wrapRef.current) return;
-    const ro = new ResizeObserver(() => {
-      const r = wrapRef.current!.getBoundingClientRect();
+    // 언마운트 직전 경합으로 타이머 콜백이 실행될 때 wrapRef.current가 null일 수 있어 가드한다.
+    const commit = () => {
+      if (!wrapRef.current) return;
+      const r = wrapRef.current.getBoundingClientRect();
       setSize({ w: r.width, h: r.height });
+    };
+    let first = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const ro = new ResizeObserver(() => {
+      if (first) {
+        // 최초 측정은 즉시 커밋한다 — 마운트 직후 기본값(800×600)에서 실측 크기로 넘어가는
+        // 첫 커밋이 지연되면 첫 페인트가 어긋난 좌표로 보인다.
+        first = false;
+        commit();
+        return;
+      }
+      // 패널 폭이 420ms 동안 전환되거나(.chat-wrap의 grid-template-columns) 핸들 드래그로
+      // 리사이즈되는 동안 매 프레임 fitTo가 재계산되면 노드가 고무줄처럼 늘었다 줄어드는
+      // 왜곡이 생기고, 다음 단계에서 얹을 점등 안무와도 충돌한다. transitionend를 구독하는
+      // 방식은 부모 .chat-wrap과의 결합이 생기고 resizing prop 배선까지 필요한데, 패널이
+      // 열리는 도중 이 컴포넌트가 마운트되는 경우까지 챙기려면 더 복잡해진다 — trailing
+      // 디바운스는 "마지막 리사이즈 이벤트 후 일정 시간 잠잠하면 1회 커밋"이라 그 경우를
+      // 별도 처리 없이 포함한다. viewBox는 그대로 유지되어 움직이는 동안에도
+      // xMidYMid meet 균일 스케일로만 따라가고, 멈춘 뒤 한 번만 refit된다.
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(commit, RESIZE_SETTLE_MS);
     });
     ro.observe(wrapRef.current);
-    return () => ro.disconnect();
+    return () => {
+      if (timer) clearTimeout(timer);
+      ro.disconnect();
+    };
   }, []);
 
   // React의 onWheel은 passive listener라 preventDefault가 무시됨.
