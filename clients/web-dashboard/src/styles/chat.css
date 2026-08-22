@@ -64,7 +64,9 @@
   left: -3px;
   width: 6px;
   height: 100%;
-  z-index: 5;
+  /* 풀블리드 NodeDetail(z-index 5)이 body 왼쪽 끝까지 덮으므로 그 위에 있어야
+     상세가 열린 동안에도 그랩 영역 6px이 온전히 유지된다. */
+  z-index: 6;
   cursor: col-resize;
   touch-action: none;
 }
@@ -115,10 +117,13 @@
   font-size: 13px;
   color: var(--fg-muted);
 }
-/* 좁은 패널에 맞춰 NodeDetail 오버레이를 가장자리 여백만 남기고 채운다 */
+/* 관련 그래프 헤더 아래 body 영역을 전부 덮는다 — 가장자리로 그래프가 비치지 않게(사용자 결정). */
 .side-panel .node-detail {
-  top: 12px; right: 12px; bottom: 12px; left: 12px;
+  top: 0; right: 0; bottom: 0; left: 0;
   width: auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none; /* 풀블리드 층이라 카드 그림자·엣지 하이라이트 불필요 */
 }
 .chat {
   display: flex;
