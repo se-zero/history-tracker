@@ -170,6 +170,11 @@
   box-shadow: var(--shadow-lg);
   z-index: 5;
   overflow: hidden;
+  /* 키프레임은 graph.css에 정의(NodeDetail과 공유) — 등장은 마운트 시 1회. */
+  animation: detail-rise-in var(--dur-base) var(--ease-standard) both;
+}
+.galaxy-detail.is-exiting {
+  animation: detail-fade-out var(--dur-fast) var(--ease-exit) both;
 }
 
 .gd-head {
@@ -299,4 +304,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 모션 축소: 상승(transform) 없이 페이드만. 위 .galaxy-detail 기본 규칙의 animation 축약이
+   name을 포함하므로 이 블록은 반드시 기본 규칙 뒤에 와야 이긴다(동일 특이도 — 소스 순서로 결정,
+   graph.css의 .node-detail reduce 블록과 같은 패턴). 키프레임 정의는 graph.css에 있다. */
+@media (prefers-reduced-motion: reduce) {
+  .galaxy-detail {
+    animation-name: detail-fade-in;
+  }
 }

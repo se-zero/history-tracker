@@ -101,13 +101,11 @@ export function RelatedGraphPanel({
               ignite={ignite}
               onIgniteConsumed={onIgniteConsumed}
             />
-            {selectedNode && (
-              <NodeDetail
-                node={selectedNode}
-                onClose={() => onSelectNode(null)}
-                onAddToChat={onAddToChat}
-              />
-            )}
+            <NodeDetail
+              node={selectedNode}
+              onClose={() => onSelectNode(null)}
+              onAddToChat={onAddToChat}
+            />
           </>
         ) : (
           <div className="side-panel-empty">

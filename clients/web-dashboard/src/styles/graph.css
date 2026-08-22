@@ -51,6 +51,14 @@
 .filter-chip.active { background: var(--accent-soft); border-color: var(--accent-ink); color: var(--accent-ink); }
 .filter-chip .ch-dot { width: 7px; height: 7px; border-radius: 50%; }
 
+/* 등장/퇴장 — 답변 도착 연출(msg-rise-in, chat.css)과 같은 어휘. NodeDetail이
+   node가 비워졌는데 shown이 남아 있는 동안 is-exiting을 붙인 채 언마운트를 미뤄 퇴장이 재생될
+   시간을 번다(useExitPresence.ts). galaxy-detail(성좌 패널)도 이 키프레임을 공유한다(galaxy.css).
+   퇴장 이름(detail-fade-out)은 useExitPresence.ts의 EXIT_ANIMATION과 일치해야 한다. */
+@keyframes detail-rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes detail-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes detail-fade-out { from { opacity: 1; } to { opacity: 0; } }
+
 .node-detail {
   position: absolute; right: 16px; bottom: 16px; top: 64px;
   width: 280px;
@@ -65,6 +73,10 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  animation: detail-rise-in var(--dur-base) var(--ease-standard) both;
+}
+.node-detail.is-exiting {
+  animation: detail-fade-out var(--dur-fast) var(--ease-exit) both;
 }
 .node-detail .nd-head { display: flex; align-items: flex-start; gap: 10px; }
 .node-detail .nd-icon { width: 28px; height: 28px; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--surface-3); border: 1px solid var(--border); color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; }
@@ -130,4 +142,13 @@
   animation-name: g-lit-edge-fade;
   animation-timing-function: var(--ease-standard);
   animation-fill-mode: both;
+}
+
+/* 모션 축소: 상승(transform) 없이 페이드만. 위 .node-detail 기본 규칙의 animation 축약이
+   name을 포함하므로 이 블록은 반드시 기본 규칙 뒤에 와야 이긴다(동일 특이도 — 소스 순서로 결정).
+   퇴장(detail-fade-out)은 원래 opacity뿐이라 별도 오버라이드가 필요 없다. */
+@media (prefers-reduced-motion: reduce) {
+  .node-detail {
+    animation-name: detail-fade-in;
+  }
 }

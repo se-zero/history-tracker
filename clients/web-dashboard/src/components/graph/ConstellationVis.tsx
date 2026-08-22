@@ -739,15 +739,16 @@ export function ConstellationVis({
         onClick={onClick}
       />
 
-      {focusedStar ? (
-        <ConstellationDetail
-          star={focusedStar}
-          selectedId={selectedId}
-          loading={expanding}
-          onSelectNode={onSelect}
-          onClose={exitFocus}
-        />
-      ) : (
+      {/* 상시 마운트 — 내부에서 null 처리 및 퇴장 모션을 담당(useExitPresence).
+          범례는 focusedStar가 사라지는 즉시 돌아오므로 퇴장 120ms 동안 잠깐 겹칠 수 있다(수용). */}
+      <ConstellationDetail
+        star={focusedStar}
+        selectedId={selectedId}
+        loading={expanding}
+        onSelectNode={onSelect}
+        onClose={exitFocus}
+      />
+      {!focusedStar && (
         <div className="galaxy-legend">
           {lensActors.length > 0 && (
             <div className="galaxy-lens">

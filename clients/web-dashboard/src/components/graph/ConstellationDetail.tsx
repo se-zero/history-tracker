@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 
 import { Icons } from "@/components/Icons";
+import { useExitPresence } from "@/hooks/useExitPresence";
 import type { Star } from "@/lib/constellation";
 import { NODE_TYPE_INFO, type GraphNode, type GraphNodeType } from "@/types/graph";
 
 interface Props {
-  star: Star;
+  star: Star | null;
   selectedId: string | null;
   /** 이 작업의 이웃을 불러오는 중인지 (성좌 드릴인 지연 로딩). */
   loading?: boolean;
@@ -23,9 +24,11 @@ export function ConstellationDetail({
   onSelectNode,
   onClose,
 }: Props) {
+  const { shown, exiting, onExitAnimationEnd } = useExitPresence(star);
+  // useMemo는 조기 return보다 앞에 와야 한다(훅 순서 고정) — shown이 없을 때는 빈 배열로 계산.
   const groups = useMemo(() => {
     const map = new Map<GraphNodeType, GraphNode[]>();
-    for (const sat of star.satellites) {
+    for (const sat of shown?.satellites ?? []) {
       const list = map.get(sat.node.type);
       if (list) list.push(sat.node);
       else map.set(sat.node.type, [sat.node]);
@@ -34,19 +37,24 @@ export function ConstellationDetail({
       type: t,
       nodes: map.get(t)!,
     }));
-  }, [star]);
+  }, [shown]);
+
+  if (!shown) return null;
 
   return (
-    <div className="galaxy-detail">
+    <div
+      className={"galaxy-detail" + (exiting ? " is-exiting" : "")}
+      onAnimationEnd={onExitAnimationEnd}
+    >
       <div className="gd-head">
         <div
           className="gd-badge"
-          style={{ background: NODE_TYPE_INFO[star.node.type].cssVar }}
+          style={{ background: NODE_TYPE_INFO[shown.node.type].cssVar }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="gd-title">{star.node.title}</div>
+          <div className="gd-title">{shown.node.title}</div>
           <div className="gd-meta">
-            {star.authors.length > 0 ? star.authors.join(", ") : star.node.meta}
+            {shown.authors.length > 0 ? shown.authors.join(", ") : shown.node.meta}
           </div>
         </div>
         <button className="icon-btn" title="닫기" onClick={onClose}>
