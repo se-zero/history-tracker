@@ -75,11 +75,11 @@
 .nd-actions { display: flex; gap: 6px; margin-top: 4px; }
 
 /* SVG graph styles */
-.gnode-circle { stroke: var(--node-stroke); stroke-width: 2; transition: filter 0.15s, r 0.15s; cursor: pointer; }
+.gnode-circle { stroke: var(--node-stroke); stroke-width: 2; transition: filter var(--dur-fast) var(--ease-standard), r var(--dur-fast) var(--ease-standard); cursor: pointer; }
 .gnode-circle.dim { opacity: 0.25; }
 .gnode-circle.hot { filter: drop-shadow(0 0 8px currentColor); }
 .gnode-label { font-family: var(--font-mono); font-size: 9.5px; fill: var(--fg-muted); pointer-events: none; }
 .gnode-label.dim { opacity: 0.2; }
-.gedge { stroke: var(--edge); stroke-width: 1; fill: none; transition: stroke 0.15s, opacity 0.15s; }
+.gedge { stroke: var(--edge); stroke-width: 1; fill: none; transition: stroke var(--dur-fast) var(--ease-standard), opacity var(--dur-fast) var(--ease-standard); }
 .gedge.dim { opacity: 0.15; }
 .gedge.hot { stroke: var(--edge-active); stroke-width: 1.5; }

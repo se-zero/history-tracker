@@ -8,7 +8,7 @@
   color: var(--fg);
   font-size: 13px;
   font-weight: 550;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
 }
 .btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .btn-primary {

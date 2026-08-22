@@ -61,7 +61,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast) var(--ease-standard);
 }
 .source-tile:hover { border-color: var(--border-strong); }
 /* OAuth 콜백 에러가 이 타일의 소스를 가리킬 때 — warn 행 테두리와 같은 기법, hue만 danger */
