@@ -198,9 +198,78 @@ nginx가 `/api/v1/webhook/`만 pipeline-worker로 좁게 프록시하고, **prod
 
 ### 4-4. 백업
 
-**아직 없다.** 백업·복구 스크립트는 별도 PR에서 추가한다 — 이 문서의 이 절을 그때 채운다.
-그전까지 `postgres_data`·`neo4j_data` 볼륨이 유실되면 복구 수단이 없다는 뜻이다
-(Postgres는 재생성 불가, Neo4j는 재수집·재구축에 OpenAI 비용이 든다).
+`infra/scripts/backup.sh`가 PostgreSQL과 Neo4j를 **호스트 로컬**에 덤프한다.
+오프사이트 복사는 하지 않는다 — 홈서버가 임시 구성이라는 전제다. 바꿔 말하면
+**호스트가 통째로 죽으면 백업도 함께 사라진다.** 오래 운영할 구성이면 이 전제를 다시 본다.
+
+| 볼륨 | 백업 | 유실되면 |
+|---|---|---|
+| `postgres_data` | ✅ `pg_dump -Fc` (무중단) | **재생성 불가** — 전 사용자 재연동 |
+| `neo4j_data` | ✅ `neo4j-admin database dump` (**중단 필요**) | 재수집·재구축 가능하지만 OpenAI 비용 |
+| `rabbitmq_data` | ❌ | 재수집으로 복구되는 일시 상태 |
+
+**Neo4j만 중단이 필요한 이유** — 온라인 백업은 Enterprise 전용이고, Community의
+`neo4j-admin database dump`는 실행 중인 서버에 마운트된 DB를 덤프하지 못한다. 그래서
+stop → dump → start 순서다. 실측 중단 시간은 **671MiB 기준 6초**. 스크립트가 `trap`으로
+어떤 실패·중단 경로에서도 Neo4j를 다시 올린다.
+
+```bash
+./infra/scripts/backup.sh                    # 기본 $HOME/history-tracker-backups
+BACKUP_DIR=/mnt/backup ./infra/scripts/backup.sh
+```
+
+설정은 **환경변수로 준다**(`infra/docker/.env`가 아니다 — 그 파일은 docker compose 전용이고
+이 스크립트는 읽지 않는다).
+
+| 변수 | 기본 | 설명 |
+|---|---|---|
+| `BACKUP_DIR` | `$HOME/history-tracker-backups` | 레포 밖에 두어 `git clean`에 쓸려가지 않게 한다 |
+| `BACKUP_RETENTION_DAYS` | `14` | 초과분 삭제. **이번 백업이 성공한 뒤에만** 지운다 |
+
+cron 등록 (매일 04:00). 실패를 알 수 있어야 하므로 출력을 로그로 남긴다:
+
+```cron
+0 4 * * * BACKUP_DIR=/mnt/backup /path/to/infra/scripts/backup.sh >> /var/log/history-backup.log 2>&1
+```
+
+#### 복구
+
+```bash
+./infra/scripts/restore.sh --pg <파일> --neo4j <파일>
+```
+
+인자 없이 실행하면 아무것도 하지 않고 사용법만 출력한다 — 기본 동작이 파괴적이면 안 되기
+때문이다. 실행하면 무엇을 덮어쓰는지 보여주고 `yes` 입력을 요구한다(`--yes`로 생략 가능).
+복구 중에는 backend·pipeline-worker·ai-engine을 내렸다가 다시 올린다(커넥션이 살아 있으면
+`pg_restore --clean`이 객체를 지우지 못한다).
+
+> ⚠️ **`BACKEND_CREDENTIAL_KEY`가 없으면 이 백업은 절반만 복구된다.** 저장된 OAuth 자격증명이
+> 그 키로 암호화돼 있어, DB를 되살려도 키가 없으면 복호화할 수 없어 전 사용자가 재연동해야 한다.
+> 그렇다고 키를 백업 옆에 두면 백업 한 번 새는 순간 전체 자격증명이 털린다.
+> **백업과 다른 곳에 보관한다** (2-1 참고).
+
+#### 복원해 본 적 없는 백업은 백업이 아니다
+
+배포 후 한 번은 실제로 되돌려 본다. 덤프 파일이 유효한지만 확인하려면 라이브 데이터를
+건드리지 않고도 할 수 있다.
+
+```bash
+# Postgres — 임시 DB에 복원해 보고 지운다
+docker exec history-tracker-postgres createdb -U history_tracker restore_probe
+docker exec -i history-tracker-postgres pg_restore --no-owner -U history_tracker \
+  -d restore_probe < pg-<타임스탬프>.dump
+docker exec history-tracker-postgres psql -U history_tracker -d restore_probe \
+  -tAc "SELECT count(*) FROM users"        # 원본과 대조
+docker exec history-tracker-postgres dropdb -U history_tracker restore_probe
+
+# Neo4j — 아카이브 메타데이터만 읽는다(로드하지 않음)
+docker run --rm -i neo4j:5.26-community \
+  neo4j-admin database load neo4j --from-stdin --info < neo4j-<타임스탬프>.dump
+```
+
+**전체 복구 리허설은 격리된 스택에서 할 수 없다.** compose가 `container_name`을 고정하고
+있어 같은 호스트에 두 번째 스택을 띄우면 이름이 충돌한다. 리허설을 하려면 운영 스택을
+내리고 백업에서 되돌린 뒤 로그인·그래프 조회까지 확인하는 방식이 된다.
 
 ---
 
@@ -208,7 +277,6 @@ nginx가 `/api/v1/webhook/`만 pipeline-worker로 좁게 프록시하고, **prod
 
 | 항목 | 상태 |
 |---|---|
-| TLS·도메인·인증서 | 별도 PR. **3-2의 Webhook URL이 여기서 완성된다** |
-| DB 백업·복구 | 별도 PR (4-4) |
-| CI 테스트 워크플로 | 별도 PR |
-| 모니터링·알림 | 별도 PR |
+| TLS·도메인·인증서 | 같은 브랜치의 다음 커밋 (Cloudflare Tunnel). **3-2의 Webhook URL이 여기서 완성된다** |
+| 오프사이트 백업 | 하지 않는다 — 4-4의 전제 참고 |
+| 모니터링·알림 | 아직 없음 |
