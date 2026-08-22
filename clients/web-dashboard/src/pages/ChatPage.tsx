@@ -599,6 +599,7 @@ export function ChatPage({ project }: { project: Project }) {
           onClose={() => setPanelOpen(false)}
           ignite={!!fresh?.ignite && !!activeMessage && activeMessage.id === fresh.messageId}
           onIgniteConsumed={handleIgniteConsumed}
+          activeMessageId={activeMessage?.id ?? null}
         />
       )}
     </div>

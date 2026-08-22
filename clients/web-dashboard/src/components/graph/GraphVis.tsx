@@ -94,9 +94,10 @@ export function GraphVis({
     null,
   );
 
-  // 점등 안무는 마운트 시점에 1회만 결정한다. 성립 전제: 새 답변 = 새 서브그래프 쿼리 키
-  // = 로딩 구간을 거쳐 이 컴포넌트가 언마운트/재마운트된다(RelatedGraphPanel). 훗날
-  // keepPreviousData류를 도입하면 이 래치는 재마운트가 없어져 깨진다 — 그때 재설계할 것.
+  // 점등 안무는 마운트 시점에 1회만 결정한다. 성립 전제(답변이 바뀌면 새 마운트)는
+  // RelatedGraphPanel이 활성 답변 id를 key로 걸어 구조적으로 보장한다 — 캐시 히트
+  // (staleTime: Infinity)로 로딩 구간 없이 답변이 전환되는 경로에서도 인스턴스가 유지되지
+  // 않는다(유지되면 재생을 마친 래치가 과거 답변 그래프에서 점등을 재재생한다 — PR #108).
   // prefers-reduced-motion이면 재생 자체를 건너뛰고 즉시 최종 상태(랜딩 reduce 블록과 같은 원칙).
   const [igniting] = useState(
     () => !!ignite && !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
