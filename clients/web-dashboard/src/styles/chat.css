@@ -176,6 +176,38 @@
   gap: 24px;
 }
 
+/* 시그니처 모션 1/2 — 방금 도착한 답변만 페이드+상승으로 들어온다(DESIGN.md 모션 절).
+   .is-fresh는 ChatPage가 전송 성공 경로에서만 붙인다 — 과거 대화 로드/prepend에는 절대 안 붙는다.
+   opacity/transform만 쓴다: ChatStream의 스크롤 고정(scrollHeight)과 충돌하지 않기 위함. */
+@keyframes msg-rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+/* reduced-motion용 — transform 없이 opacity만(DESIGN.md: "opacity 유지, transform 제거"). */
+@keyframes msg-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.msg.assistant.is-fresh .msg-exploratory,
+.msg.assistant.is-fresh .msg-content,
+.msg.assistant.is-fresh .unknown-aspects {
+  animation: msg-rise-in var(--dur-slow) var(--ease-standard) both;
+}
+.msg.assistant.is-fresh .cite-card {
+  /* delay는 인라인 style(animationDelay)로 카드마다 스태거 — both가 재생 전 opacity 0을 보장 */
+  animation: msg-rise-in var(--dur-slow) var(--ease-standard) both;
+}
+/* 모션 축소: 상승(transform) 없이 페이드만. 위 기본 규칙의 animation 축약이 name을 포함하므로
+   이 블록은 반드시 기본 규칙 뒤에 와야 이긴다(동일 특이도 — 소스 순서로 결정). */
+@media (prefers-reduced-motion: reduce) {
+  .msg.assistant.is-fresh .msg-exploratory,
+  .msg.assistant.is-fresh .msg-content,
+  .msg.assistant.is-fresh .unknown-aspects,
+  .msg.assistant.is-fresh .cite-card {
+    animation-name: msg-fade-in;
+  }
+}
+
 .msg { display: flex; align-items: flex-start; }
 /* 사용자 메시지: GPT처럼 오른쪽 정렬 말풍선 */
 .msg.user { flex-direction: row-reverse; }

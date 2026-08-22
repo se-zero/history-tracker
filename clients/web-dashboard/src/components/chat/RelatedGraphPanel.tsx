@@ -17,6 +17,9 @@ interface Props {
   onAddToChat: (node: GraphNode) => void;
   onResizeStart: (e: React.PointerEvent) => void;
   onClose: () => void;
+  // 패널이 열린 상태에서 새 답변이 도착했을 때만 true — GraphVis에 그대로 관통한다.
+  ignite?: boolean;
+  onIgniteConsumed?: () => void;
 }
 
 // 대화 화면 우측 "관련 그래프" 패널 — 활성 답변의 서브그래프를 단독 렌더한다.
@@ -33,6 +36,8 @@ export function RelatedGraphPanel({
   onAddToChat,
   onResizeStart,
   onClose,
+  ignite,
+  onIgniteConsumed,
 }: Props) {
   // seeds(evidence가 해석된 노드)는 강조, 1홉 이웃은 흐리게. 해석된 시드가 없으면 강조하지 않는다.
   const seedIds = (data?.seeds ?? []).filter((s): s is string => s != null);
@@ -86,6 +91,8 @@ export function RelatedGraphPanel({
               showControls
               showFit={false}
               compact
+              ignite={ignite}
+              onIgniteConsumed={onIgniteConsumed}
             />
             {selectedNode && (
               <NodeDetail

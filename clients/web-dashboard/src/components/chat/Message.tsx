@@ -28,14 +28,16 @@ export interface CitationLink {
 export function MessageItem({
   message,
   citation,
+  fresh,
 }: {
   message: Message;
   citation?: CitationLink;
+  fresh?: boolean;
 }) {
   if (message.role === "USER") {
     return <UserMessage content={message.content} />;
   }
-  return <AssistantMessage message={message} citation={citation} />;
+  return <AssistantMessage message={message} citation={citation} fresh={fresh} />;
 }
 
 export function UserMessage({ content }: { content: string }) {
@@ -53,9 +55,11 @@ export function UserMessage({ content }: { content: string }) {
 function AssistantMessage({
   message,
   citation,
+  fresh,
 }: {
   message: Message;
   citation?: CitationLink;
+  fresh?: boolean;
 }) {
   const structured = useMemo(
     () => extractStructured(message.metadata),
@@ -68,7 +72,11 @@ function AssistantMessage({
   const evidence = structured?.evidence ?? [];
 
   return (
-    <div className="msg assistant" data-role="ASSISTANT" data-message-id={message.id}>
+    <div
+      className={"msg assistant" + (fresh ? " is-fresh" : "")}
+      data-role="ASSISTANT"
+      data-message-id={message.id}
+    >
       <div className="msg-body">
         {/* 답변별 신뢰도 신호 — composer의 상시 고지와 달리 이 답이 약할 때만 뜬다.
             판정은 ai-engine이 실제 호출된 도구로 한다(LLM 자기신고 아님). */}
@@ -133,7 +141,12 @@ function AssistantMessage({
                   (selected ? " selected" : "") +
                   (emphasized ? " emphasized" : "")
                 }
-                style={{ cursor: clickable ? "pointer" : "default" }}
+                style={{
+                  cursor: clickable ? "pointer" : "default",
+                  // 본문이 먼저 자리 잡고 카드가 뒤따르는 스태거(잠정치) — fresh가 아니면 애니메이션
+                  // 자체가 안 붙으므로(chat.css) delay도 실릴 필요가 없다.
+                  ...(fresh ? { animationDelay: `${120 + i * 70}ms` } : {}),
+                }}
                 onMouseEnter={hoverable ? () => citation!.onHoverCard(i) : undefined}
                 onMouseLeave={hoverable ? () => citation!.onLeaveCard() : undefined}
                 // 카드 클릭 → 정보(NodeDetail), 같은 카드 다시 → 그래프(토글). 닫힌 패널은 열며 표시.
