@@ -19,6 +19,21 @@
   /* spacing rhythm */
   --gutter: 16px;
 
+  /* motion
+     --lp-*에서 프리픽스만 뗀 승격형이며 값은 동일하다. 랜딩 토큰(--lp-ease-*, --lp-dur-*)은
+     삭제하지 않고 그대로 병존시킨다 — 중복 정의가 아니라 의도된 상태다.
+     스피너 회전 지속시간(0.7s/0.8s)은 이 3단 스케일의 대상이 아니다.
+     현재 앱이 실제로 쓰는 것은 --ease-standard / --dur-fast / --dur-slow 셋이다.
+     나머지 셋(--ease-spring·--ease-exit·--dur-base)은 참조처가 없지만 DESIGN.md 모션 절의
+     정본(이징 3종·듀레이션 3단)을 쪼개지 않으려고 함께 둔다 — 시그니처 모션 단계에서
+     노드 점등·퇴장 연출이 소비할 자리다. */
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);
+  --dur-fast:  120ms;
+  --dur-base:  220ms;
+  --dur-slow:  420ms;
+
   /* ── 노드 타입 팔레트 (기본 = 라이트, 다크는 아래에서 재정의) ──────────
      DESIGN.md의 정본 hex를 oklch로 변환한 값이다(hue만 돌려 파생시키지 않는다).
 
