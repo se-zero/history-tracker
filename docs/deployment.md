@@ -1,6 +1,6 @@
 # 배포 가이드 (실사용 · 단일 호스트)
 
-단일 서버 한 대에 전체 스택(컨테이너 7개)을 compose로 올리는 절차를 적는다.
+단일 서버 한 대에 전체 스택을 compose로 올리는 절차를 적는다.
 로컬 개발 기동은 루트 `CLAUDE.md`를 본다 — 이 문서는 **실제 사용자가 붙는 배포**만 다룬다.
 
 로컬과 배포의 차이는 compose 오버라이드 파일 하나뿐이다.
@@ -9,9 +9,18 @@
 |---|---|---|
 | 실행 | `./dev.sh` | `./prod.sh` |
 | 오버라이드 | `docker-compose.dev.yml` | `docker-compose.prod.yml` |
-| 열리는 포트 | 인프라·앱 전부(9개) | **웹(80) 하나** |
+| **외부에 열리는 포트** | 인프라·앱 전부(9개) | **0개** — 웹은 `127.0.0.1`에만 |
+| 공개 경로 | 없음 | **Cloudflare Tunnel** (cloudflared 컨테이너) |
 | 자원 상한 | 없음 | 컨테이너별 메모리·JVM/Neo4j 힙 |
 | 재시작·로그 | 없음 | `unless-stopped` · 로테이션 |
+
+**공개는 터널이 맡는다.** `cloudflared`가 바깥으로 아웃바운드 연결만 만들어 Cloudflare 엣지에
+붙고, 들어오는 요청을 도커 네트워크의 `web-dashboard:80`으로 넘긴다. 그래서
+
+- **공유기에 포트를 하나도 열지 않는다.** CGNAT 회선에서도 동작한다.
+- 집 IP가 드러나지 않는다.
+- TLS가 엣지에서 끝나므로 **인증서 발급·갱신이 우리 몫이 아니다.**
+- GitHub webhook(바깥 → 우리 서버)도 이 경로로 들어온다.
 
 ---
 
@@ -78,6 +87,7 @@ cp .env.example .env
 | `INTERNAL_SERVICE_TOKEN` | `openssl rand -hex 32` | backend·pipeline-worker가 같은 값 |
 | `BACKEND_CREDENTIAL_KEY` | `openssl rand -base64 32` | **형식 고정**(32-byte Base64) — hex를 쓰면 안 된다 |
 | `RABBITMQ_USER` · `RABBITMQ_PASSWORD` | `openssl rand -hex 32` | **URL-safe 값만** — 아래 경고 참고 |
+| `TUNNEL_TOKEN` | Cloudflare 대시보드 | 2-2에서 발급받는다. 이것이 있어야 바깥에서 접근할 수 있다 |
 
 > ⚠️ **RabbitMQ 비밀번호에 `/`·`@`·`#`·`?`를 쓰지 않는다.** ai-engine이 이 값을 AMQP URL
 > (`amqp://user:password@rabbitmq:5672/`) 안에 끼워 넣기 때문에, 특수문자가 있으면 파서가 vhost나
@@ -87,17 +97,52 @@ cp .env.example .env
 > 암호화돼 있어, 키를 잃으면 DB 백업을 살려도 **복호화할 수 없다.** 반대로 백업과 키를 같은 곳에
 > 두면 백업 한 번 새는 순간 전체 자격증명이 털린다.
 
-### 2-2. 기동
+### 2-2. Cloudflare 터널 준비
+
+도메인과 터널 토큰이 있어야 공개할 수 있다. **기동 전에 끝내 둔다** — 토큰이 `.env`에 있어야
+`./prod.sh`가 터널까지 함께 띄운다.
+
+1. **도메인 확보** — Cloudflare에서 구입하거나, 다른 곳에서 산 도메인의 네임서버를
+   Cloudflare로 옮긴다.
+2. **터널 생성** — Zero Trust → Networks → Tunnels → Create a tunnel → **Cloudflared** 선택.
+   생성 후 화면에 나오는 설치 명령 안의 `eyJ...` 문자열이 토큰이다.
+   `.env`의 `TUNNEL_TOKEN`에 넣는다.
+3. **Public hostname 등록** — 같은 터널 설정에서
+
+   | 항목 | 값 |
+   |---|---|
+   | Subdomain / Domain | 서비스를 띄울 호스트명 |
+   | Service Type | `HTTP` |
+   | URL | `web-dashboard:80` |
+
+   `web-dashboard`는 compose 서비스 이름이다. cloudflared가 같은 도커 네트워크에 있어
+   이 이름으로 해석된다(호스트 포트를 거치지 않는다).
+
+> 터널 토큰은 **시크릿이다.** 이 값 하나로 누구나 같은 터널의 커넥터를 띄울 수 있다.
+> compose는 커맨드라인 대신 환경변수로 넘긴다 — `--token <값>`으로 주면 `docker ps`·`ps aux`에
+> 그대로 보인다.
+
+**도메인을 아직 확보하지 못했다면** 터널 없이 기동해 자원 상한·포트 폐쇄 같은 것만 먼저
+점검할 수 있다. 이 상태에서는 서버 자신만 `http://localhost`로 접근할 수 있다.
+
+```bash
+./prod.sh --no-tunnel up -d
+```
+
+### 2-3. 기동
 
 ```bash
 ./prod.sh up -d --build
 ./prod.sh ps          # 전부 healthy 인지 확인
+./prod.sh logs -f cloudflared   # "Registered tunnel connection" 이 보이면 붙은 것
 ./prod.sh logs -f backend
 ```
 
 `GITHUB_REDIRECT_URI`가 비어 있으면 **여기서 명시적으로 실패한다**(의도된 동작).
+`TUNNEL_TOKEN`이 비어 있으면 cloudflared만 기동 실패를 반복한다 — 나머지 스택은 뜨지만
+바깥에서 닿을 수 없다.
 
-### 2-3. 확인
+### 2-4. 확인
 
 - 브라우저로 `https://<도메인>` → 로그인 화면
 - GitHub 로그인 → 프로젝트 생성 → 소스 연동 → 수집 시작
@@ -139,9 +184,13 @@ backend(:8080)를 직접 가리키면 연동은 성공해도 마지막 리다이
 | **Webhook URL** | `https://<도메인>/api/v1/webhook/github` | **GitHub 서버 → 우리 서버** |
 | Webhook secret | `.env`의 `GITHUB_WEBHOOK_SECRET`과 동일 | 직접 정하는 값(`openssl rand -hex 32`) |
 
-Webhook은 바깥에서 들어오는 방향이라 **공개 접근 가능한 실제 도메인**이어야 한다. 로컬 터널
+Webhook은 바깥에서 들어오는 방향이라 **공개 접근 가능한 실제 도메인**이어야 한다. 개발용 터널
 주소를 남겨 두면 배포 후 증분 수집이 멈춘다. `GITHUB_WEBHOOK_SECRET`이 비면 모든 webhook이
 거부된다(fail-closed) — 초기 수집은 정상이라 조용히 지나가기 쉽다.
+
+**공유기에 포트를 열 필요는 없다.** Cloudflare Tunnel이 GitHub의 요청을 받아 도커 네트워크
+안으로 넘긴다(2-2). nginx가 `/api/v1/webhook/`만 pipeline-worker로 프록시하므로 이 경로만
+바깥에 존재한다.
 
 GitHub App은 Callback URL을 여러 개 등록할 수 있어 로컬과 배포를 함께 둘 수 있다.
 `.env`의 `GITHUB_REDIRECT_URI`만 환경별로 하나 고른다.
@@ -162,11 +211,13 @@ Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 �
 로그는 컨테이너당 30MB(10MB × 3)로 로테이션된다 — 기본 json-file 드라이버는 상한이 없어
 홈서버에서 몇 달이면 디스크를 채운다.
 
-### 4-2. 인프라 접근 (포트가 안 열려 있다)
+### 4-2. 인프라 접근 (외부에 열린 포트가 없다)
 
-배포에서는 Postgres·Neo4j·RabbitMQ 포트가 호스트에 없다. 조회는 컨테이너 안에서 한다.
+배포에서는 Postgres·Neo4j·RabbitMQ 포트가 호스트에 없고, 웹조차 `127.0.0.1`에만 묶여 있다.
+서버 자신에서는 앱을 확인할 수 있다.
 
 ```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost      # 웹 (루프백)
 docker exec -it history-graph-neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD"
 docker exec -it history-tracker-postgres psql -U history_tracker -d history_tracker
 ```
@@ -181,16 +232,41 @@ Neo4j Browser처럼 **웹 UI가 꼭 필요하면** 포트를 인터넷에 여는
 ssh -L 7474:127.0.0.1:7474 -L 7687:127.0.0.1:7687 <user>@<서버>
 ```
 
+### 4-2b. Cloudflare 엣지의 제약
+
+| 항목 | 값 | 우리에게 의미 |
+|---|---|---|
+| Proxy Read Timeout | **125초** 초과 시 524 | 질의(`/query`)가 평균 12초대이고, backend가 ai-engine 호출에 60초 read timeout을 걸어 앱이 먼저 끊는다. 지금은 2배 이상 여유가 있다 |
+| 요청 본문 | 무료 플랜 100MB | webhook·API 페이로드가 근처에도 가지 않는다 |
+
+**125초는 올릴 수 없다 — Enterprise 플랜 전용이다**(최대 6000초). 그리고 **스트리밍도 예외가
+아니다**: Cloudflare 문서는 "요청이 125초를 넘으면(예: 스트리밍) Proxy Read Timeout을 올리라"고
+안내하며, 그 설정 자체가 Enterprise 전용이다. 응답을 조금씩 흘려보낸다고 타이머가 리셋되지 않는다.
+
+그래서 **125초를 넘길 일이 생기면 인프라가 아니라 애플리케이션에서 푼다.** 이 저장소에는 이미
+같은 패턴이 있다 — 그래프 재구축은 `POST .../graph/build`가 즉시 202를 반환하고
+`GET .../graph/build/status`로 폴링한다. 긴 질의도 같은 모양으로 바꾸면 한도와 무관해진다.
+(Cloudflare가 안내하는 다른 방법인 "DNS-only 서브도메인으로 우회"는 프록시를 벗어나는 것이라
+터널의 이점—포트 미개방·IP 비노출—을 통째로 잃는다.)
+
+터널이 끊기면 앱은 살아 있는데 바깥에서만 안 보인다. `./prod.sh logs cloudflared`로 커넥션
+상태를 먼저 본다.
+
 ### 4-3. ⚠️ 이 배포가 의존하는 방어
 
 pipeline-worker의 `POST /api/v1/collect/{provider}`와 `POST /api/v1/raw/*`에는 **인증이 없다.**
-nginx가 `/api/v1/webhook/`만 pipeline-worker로 좁게 프록시하고, **prod 오버라이드가 8081을 호스트에
-열지 않기 때문에** 바깥에서 닿지 않는다.
+바깥에서 닿지 않는 이유는 세 겹이다.
 
-즉 이 방어는 **포트 폐쇄 하나에 걸려 있다.** 다음을 하면 그대로 노출된다.
+1. prod 오버라이드가 **8081을 호스트에 열지 않는다**
+2. 터널 ingress에 **`web-dashboard:80` 하나만 등록**돼 있다 — pipeline-worker로 가는 공개 경로가 없다
+3. 그 웹의 nginx가 `/api/v1/webhook/`만 pipeline-worker로 좁게 프록시한다
+
+즉 이 방어는 **설정 세 곳에 걸려 있고, 어느 하나만 어긋나도 열린다.** 다음을 하면 노출된다.
 
 - `./prod.sh` 대신 `./dev.sh`로 배포 서버를 띄우는 것
 - prod 오버라이드에 pipeline-worker 포트를 추가하는 것
+- Cloudflare 대시보드에서 **`pipeline-worker:8081`을 가리키는 public hostname을 추가**하는 것
+  (호스트 포트를 안 열어도 터널이 바로 뚫어 준다 — 가장 놓치기 쉬운 경로다)
 - 호스트 방화벽 앞단에서 8081을 포워딩하는 것
 
 노출되면 누구나 임의 프로젝트의 수집을 트리거해 OpenAI·외부 API 쿼터를 태우고 원본 데이터를
@@ -277,6 +353,6 @@ docker run --rm -i neo4j:5.26-community \
 
 | 항목 | 상태 |
 |---|---|
-| TLS·도메인·인증서 | 같은 브랜치의 다음 커밋 (Cloudflare Tunnel). **3-2의 Webhook URL이 여기서 완성된다** |
 | 오프사이트 백업 | 하지 않는다 — 4-4의 전제 참고 |
 | 모니터링·알림 | 아직 없음 |
+| Cloudflare Access(접근 제한) | 아직 없음. 지금은 도메인을 아는 누구나 로그인 화면까지 닿는다 |
