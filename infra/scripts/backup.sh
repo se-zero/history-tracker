@@ -70,16 +70,9 @@ NEO4J_OUT="$BACKUP_DIR/neo4j-$TS.dump"
 PG_PART="$PG_OUT.part"
 NEO4J_PART="$NEO4J_OUT.part"
 
-log "백업 시작 → $BACKUP_DIR"
-
-# ── 1) PostgreSQL (무중단) ───────────────────────────────────────
-log "PostgreSQL 덤프..."
-docker exec "$PG_CONTAINER" pg_dump -Fc -U "$PG_USER" "$PG_DB" > "$PG_PART"
-mv "$PG_PART" "$PG_OUT"
-log "  $(basename "$PG_OUT") ($(du -h "$PG_OUT" | cut -f1))"
-
-# ── 2) Neo4j (중단 필요) ─────────────────────────────────────────
-# 이 시점부터 Neo4j가 내려가 있다. 어떤 경로로 빠져나가든 반드시 다시 올린다.
+# 정리 트랩은 **첫 덤프를 시작하기 전에** 건다. pg_dump 뒤에 걸면 그 단계가 실패했을 때
+# `pg-<ts>.dump.part`가 그대로 남아, "미완성 산출물을 남기지 않는다"는 이 스크립트의
+# 원칙이 첫 구간에서만 깨진다.
 neo4j_was_stopped=0
 cleanup() {
   # 미완성 산출물을 남기지 않는다. 성공 경로에서는 이미 mv 되어 없다.
@@ -97,6 +90,16 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
+log "백업 시작 → $BACKUP_DIR"
+
+# ── 1) PostgreSQL (무중단) ───────────────────────────────────────
+log "PostgreSQL 덤프..."
+docker exec "$PG_CONTAINER" pg_dump -Fc -U "$PG_USER" "$PG_DB" > "$PG_PART"
+mv "$PG_PART" "$PG_OUT"
+log "  $(basename "$PG_OUT") ($(du -h "$PG_OUT" | cut -f1))"
+
+# ── 2) Neo4j (중단 필요) ─────────────────────────────────────────
+# 이 시점부터 Neo4j가 내려가 있다. 어떤 경로로 빠져나가든 반드시 다시 올린다.
 log "Neo4j 중단 (덤프 동안 그래프 조회가 멈춥니다)..."
 docker stop "$NEO4J_CONTAINER" >/dev/null
 neo4j_was_stopped=1

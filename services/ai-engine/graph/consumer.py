@@ -15,6 +15,21 @@ RABBITMQ_URL  = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@localhost/")
 EXCHANGE_NAME = "history.exchange"
 QUEUE_NAME    = "history.events"
 
+
+def mask_amqp_url(url: str) -> str:
+    """AMQP URL의 자격증명을 가려 로그에 남길 수 있는 형태로 만든다.
+
+    비밀번호가 URL 안에 들어 있어(amqp://user:password@host/) 그대로 찍으면 원문이
+    로그 파일에 남는다. 사용자명은 어느 계정으로 붙는지 봐야 진단이 되므로 남기고,
+    비밀번호만 가린다. 자격증명이 없는 URL은 그대로 둔다.
+    """
+    scheme, sep, rest = url.partition("://")
+    if not sep or "@" not in rest:
+        return url
+    creds, _, host = rest.rpartition("@")
+    user, has_pw, _ = creds.partition(":")
+    return f"{scheme}://{user}{':***' if has_pw else ''}@{host}"
+
 # 수집 동시성. project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호),
 # project 간은 이 값까지 동시 처리한다. 기본 4 — 선결조건(rate_limiter의 OpenAI 페이싱,
 # Actor 멱등화 ActorAlias, 이벤트당 fan-out 축소 #2/#6)이 모두 충족돼 활성화됐다.
@@ -178,7 +193,7 @@ async def start_consumer() -> None:
 
 
 async def _run_consumer() -> None:
-    logger.info("RabbitMQ 연결 시도: %s", RABBITMQ_URL)
+    logger.info("RabbitMQ 연결 시도: %s", mask_amqp_url(RABBITMQ_URL))
     connection = await aio_pika.connect_robust(RABBITMQ_URL)
 
     async with connection:

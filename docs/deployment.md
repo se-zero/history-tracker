@@ -117,6 +117,20 @@ cp .env.example .env
 > (`amqp://user:password@rabbitmq:5672/`) 안에 끼워 넣기 때문에, 특수문자가 있으면 파서가 vhost나
 > host로 오인해 연결이 조용히 깨진다. `openssl rand -base64`는 `+`·`/`를 만들므로 **쓰지 않는다.**
 
+> ⚠️ **RabbitMQ 계정은 첫 기동 때만 반영된다.** `RABBITMQ_DEFAULT_USER`/`PASS`는 브로커가
+> `rabbitmq_data` 볼륨을 **처음 초기화할 때만** 쓰인다. 그래서 `.env`를 채우기 전에 한 번이라도
+> 스택을 띄우면(2-2의 `--no-tunnel` 선점검이 대표적이다) 볼륨이 `guest/guest`로 굳고, 나중에
+> `RABBITMQ_PASSWORD`를 채워도 **브로커만 옛 계정을 유지해** ai-engine·pipeline-worker 인증이
+> 조용히 깨진다.
+>
+> 계정을 바꾸려면 볼륨을 지우고 다시 띄운다. 큐는 재수집으로 복구되는 일시 상태라 지워도 된다.
+>
+> ```bash
+> ./prod.sh down
+> docker volume rm docker_rabbitmq_data   # 프로젝트 접두사는 `docker volume ls`로 확인
+> ./prod.sh up -d
+> ```
+
 > 🔑 **`BACKEND_CREDENTIAL_KEY`는 백업과 다른 곳에 보관한다.** 저장된 OAuth 자격증명이 이 키로
 > 암호화돼 있어, 키를 잃으면 DB 백업을 살려도 **복호화할 수 없다.** 반대로 백업과 키를 같은 곳에
 > 두면 백업 한 번 새는 순간 전체 자격증명이 털린다.
