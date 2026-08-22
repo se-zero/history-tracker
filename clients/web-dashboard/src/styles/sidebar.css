@@ -51,6 +51,17 @@
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+/* reduced-motion용 — transform 없이 opacity만(DESIGN.md: "opacity 유지, transform 제거"). */
+@keyframes dd-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* 모션 축소: 위치 이동(translateY) 없이 페이드만 — 드롭다운 등장 자체는 상태 전달이라 유지하고
+   이동만 제거한다(DESIGN.md). 위 .project-dropdown의 animation 축약이 name을 포함하므로
+   이 블록은 반드시 그 규칙 뒤에 와야 이긴다(동일 특이도 — 소스 순서로 결정, chat.css와 동일 패턴). */
+@media (prefers-reduced-motion: reduce) {
+  .project-dropdown { animation-name: dd-fade; }
+}
 .dropdown-label {
   font-size: 10.5px;
   font-weight: 600;

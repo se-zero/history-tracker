@@ -52,6 +52,10 @@
   border-radius: var(--r-full);
   animation: spin 0.7s linear infinite;
 }
+/* 모션 축소: 회전만 멈춘다 — 정지된 아크로도 "진행 중"은 전달된다(buttons.css .busy-spinner와 동일). */
+@media (prefers-reduced-motion: reduce) {
+  .search-spinner { animation: none; }
+}
 
 .search-results {
   max-height: min(420px, 56vh);
