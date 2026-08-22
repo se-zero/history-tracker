@@ -17,6 +17,14 @@ interface Props {
   onAddToChat: (node: GraphNode) => void;
   onResizeStart: (e: React.PointerEvent) => void;
   onClose: () => void;
+  // 패널이 열린 상태에서 새 답변이 도착했을 때만 true — GraphVis에 그대로 관통한다.
+  ignite?: boolean;
+  onIgniteConsumed?: () => void;
+  // 활성 답변 id — GraphVis 재마운트 key. 서브그래프가 캐시 히트(staleTime: Infinity)면
+  // 로딩 구간 없이 답변이 전환되어 인스턴스가 유지되는데, 그러면 점등을 이미 재생한
+  // 래치(igniting)가 살아남아 과거 답변 그래프에서 점등이 재재생된다. 답변 단위
+  // 재마운트를 key로 강제해 "1회 재생" 전제를 구조로 보장한다.
+  activeMessageId?: string | null;
 }
 
 // 대화 화면 우측 "관련 그래프" 패널 — 활성 답변의 서브그래프를 단독 렌더한다.
@@ -33,6 +41,9 @@ export function RelatedGraphPanel({
   onAddToChat,
   onResizeStart,
   onClose,
+  ignite,
+  onIgniteConsumed,
+  activeMessageId,
 }: Props) {
   // seeds(evidence가 해석된 노드)는 강조, 1홉 이웃은 흐리게. 해석된 시드가 없으면 강조하지 않는다.
   const seedIds = (data?.seeds ?? []).filter((s): s is string => s != null);
@@ -73,6 +84,7 @@ export function RelatedGraphPanel({
         ) : hasGraph ? (
           <>
             <GraphVis
+              key={activeMessageId ?? "none"}
               nodes={data!.nodes}
               edges={data!.edges}
               highlighted={seedIds.length > 0 ? seedIds : null}
@@ -86,6 +98,8 @@ export function RelatedGraphPanel({
               showControls
               showFit={false}
               compact
+              ignite={ignite}
+              onIgniteConsumed={onIgniteConsumed}
             />
             {selectedNode && (
               <NodeDetail

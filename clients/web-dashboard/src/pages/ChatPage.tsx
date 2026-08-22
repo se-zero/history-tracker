@@ -87,6 +87,17 @@ export function ChatPage({ project }: { project: Project }) {
     [conversationId],
   );
   const [sendError, setSendError] = useState(false);
+  // 방금 도착한 답변 — 도착 연출(페이드+상승)의 대상. 과거 대화 로드/prepend와 구분하는 유일한 신호다.
+  // ignite는 그 중에서도 관련 그래프 점등 안무 재생 여부 — 도착 시점에 패널이 열려 있었는지의 스냅샷.
+  const [fresh, setFresh] = useState<{
+    conversationId: string;
+    messageId: string;
+    ignite: boolean;
+  } | null>(null);
+  // 다른 대화로 이동하면 fresh는 무효 — 그 대화로 돌아와도 재생하지 않는다(과거 로드 취급).
+  useEffect(() => {
+    setFresh((f) => (f && f.conversationId !== conversationId ? null : f));
+  }, [conversationId]);
 
   // 관련 그래프 패널 — 열림 여부는 사용자 선호라 localStorage에 영속한다.
   const [panelOpen, setPanelOpen] = useState(
@@ -122,8 +133,25 @@ export function ChatPage({ project }: { project: Project }) {
   const hoverTimer = useRef<number | null>(null);
   // 활성 답변이 바뀌면 이전 답변 그래프의 노드 선택을 비운다.
   useEffect(() => setSelectedNodeId(null), [activeMessageId]);
+  // 활성 답변이 fresh였다가 다른 메시지로 바뀌는 전이에서만 ignite를 내린다. 도착 직후
+  // (구 메시지가 활성인 상태) → fresh로 바뀌는 최초 전이는 오발동이 아니므로 걸러야 한다.
+  // 로딩 중 스크롤로 fresh 답변을 떠났다가 한참 뒤 돌아오면 캐시 즉시 히트로 늦은 점등이
+  // 재생되는 것을 막는다 — 떠나는 시점에 이미 ignite를 꺼 두면 나중에 돌아와도 재생 대상이 아니다.
+  const prevActiveRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevActiveRef.current;
+    prevActiveRef.current = activeMessageId;
+    if (!prev || prev === activeMessageId) return;
+    setFresh((f) => (f && f.ignite && f.messageId === prev ? { ...f, ignite: false } : f));
+  }, [activeMessageId]);
 
   const showPanel = panelOpen && !!conversationId;
+  // 패널이 닫히면 점등 재생 대상에서 내린다 — 텍스트 도착 연출(fresh.messageId)은 그대로 두고
+  // ignite만 끈다. 닫힌 채로 지나간 시간은 "나중에 열어 봄"이라 재생하지 않는다.
+  useEffect(() => {
+    if (showPanel) return;
+    setFresh((f) => (f && f.ignite ? { ...f, ignite: false } : f));
+  }, [showPanel]);
   const activeMessage = useMemo(
     () =>
       messages.find((m) => m.id === activeMessageId && m.role === "ASSISTANT") ??
@@ -217,6 +245,12 @@ export function ChatPage({ project }: { project: Project }) {
     );
   };
 
+  // GraphVis가 마운트 시점(재생 시작)에 1회 호출 — reduced-motion으로 건너뛴 경우도 포함한다.
+  const handleIgniteConsumed = useCallback(
+    () => setFresh((f) => (f ? { ...f, ignite: false } : f)),
+    [],
+  );
+
   // 패널 왼쪽 핸들 드래그로 너비 조절 — wrap 오른쪽 끝 기준으로 너비를 계산한다.
   // 채팅 영역이 360px 미만으로 좁아지지 않게 드래그 시작 시점에 상한을 정한다.
   const startResize = (e: React.PointerEvent) => {
@@ -261,7 +295,12 @@ export function ChatPage({ project }: { project: Project }) {
 
   const renderMessages = () =>
     messages.map((m) => (
-      <MessageItem key={m.id} message={m} citation={citationFor(m)} />
+      <MessageItem
+        key={m.id}
+        message={m}
+        citation={citationFor(m)}
+        fresh={m.id === fresh?.messageId}
+      />
     ));
 
   // 전송 실패 시 친 내용·첨부 노드가 사라지지 않도록 복구하고 에러를 표시한다.
@@ -294,6 +333,20 @@ export function ChatPage({ project }: { project: Project }) {
         created,
       );
       setPendingMessage(null);
+      // 첫 교환의 답변에 도착 연출을 건다 — navigate와 같은 이벤트 배치라(React 18 배칭)
+      // 아래 conversationId 불일치 해제 effect가 이 렌더 사이에 끼어들어 지우지 않는다.
+      const lastAssistant = [...created.messages]
+        .reverse()
+        .find((m) => m.role === "ASSISTANT");
+      if (lastAssistant) {
+        // 신규 대화는 navigate와 함께 패널이 나타나므로 열림 설정값(panelOpen)을 스냅샷한다 —
+        // 첫 답변도 점등 재생 대상이다.
+        setFresh({
+          conversationId: created.id,
+          messageId: lastAssistant.id,
+          ignite: panelOpen,
+        });
+      }
       navigate(`/projects/${project.id}/chat/${created.id}`, { replace: true });
     },
     // 신규 대화 경로의 origin은 대화 없음(undefined) — 그 화면을 벗어났으면 복구하지 않는다.
@@ -342,6 +395,16 @@ export function ChatPage({ project }: { project: Project }) {
         queryKey: queryKeys.conversations(project.id),
       });
       setPendingMessage(null);
+      // 응답 대기 중 다른 대화로 이동했으면 도착 연출을 걸지 않는다 — 돌아와서 보는 건
+      // "과거 로드"로 취급해야 한다(cid는 요청 시점의 대화, conversationId는 현재 화면).
+      if (cid === conversationId) {
+        // 도착 시점에 패널이 실제로 열려 있었는지의 스냅샷 — 닫혀 있다가 나중에 열면 무연출.
+        setFresh({
+          conversationId: cid,
+          messageId: exchange.assistantMessage.id,
+          ignite: showPanel,
+        });
+      }
     },
     onError: (_error, { restoreText, attached, cid }) =>
       restoreOnError(cid, restoreText, attached),
@@ -397,6 +460,9 @@ export function ChatPage({ project }: { project: Project }) {
     // node-only면 기본 질문으로 채운다 — 백엔드 content는 @NotBlank.
     const content = trimmed || NODE_ONLY_QUESTION;
     setSendError(false);
+    // 다음 질문을 보내는 순간 직전 답변의 "도착 연출" 자격은 끝난다 — 남겨 두면 어떤
+    // 이유로든 그 요소가 리마운트될 때 is-fresh 애니메이션이 다시 재생된다.
+    setFresh(null);
     setPendingMessage({ conversationId, text: content });
     // 입력·칩은 즉시 비우되, 실패하면 restoreOnError로 되돌린다.
     setDraft("");
@@ -458,11 +524,20 @@ export function ChatPage({ project }: { project: Project }) {
         </button>
       )}
       <div className="chat">
-        {showPending ? (
+        {/* 대기 UI(낙관적 말풍선+스피너)는 별도 분기가 아니라 같은 ChatStream 안의 조건부
+            자식으로 둔다 — pending 토글마다 자식 중첩 구조가 바뀌면(배열 단독 ↔ [배열, 말풍선,
+            스피너]) 메시지 key의 내부 경로가 달라져 목록 전체가 리마운트되고, 직전 답변의
+            is-fresh 애니메이션이 다시 재생된다(전송마다 전체 DOM 재생성이기도 하다).
+            자식 슬롯을 [배열, 조건부, 조건부]로 고정해 메시지 요소를 보존한다. */}
+        {showPending ||
+        (conversationId &&
+          !conversationQuery.isLoading &&
+          !conversationGone &&
+          !conversationQuery.isError) ? (
           <ChatStream {...streamProps}>
             {renderMessages()}
-            <UserMessage content={pendingMessage!.text} />
-            <ThinkingState />
+            {showPending && <UserMessage content={pendingMessage!.text} />}
+            {showPending && <ThinkingState />}
           </ChatStream>
         ) : !conversationId ? (
           <ChatEmpty
@@ -476,7 +551,8 @@ export function ChatPage({ project }: { project: Project }) {
           // 새 대화 화면으로 되돌린다 — 프로젝트를 옮겼다 돌아왔을 때와 같은 화면이라 사용자가
           // 따로 복구 동작을 할 필요가 없다. AppShell이 기억한 대화 id도 이 이동으로 함께 비워진다.
           <Navigate to={`/projects/${project.id}/chat`} replace />
-        ) : conversationQuery.isError ? (
+        ) : (
+          // 남는 경우는 조회 실패뿐 — 위 통합 분기 조건이 (로딩·삭제·에러 아님)을 소거한다.
           <StatusView
             tone="error"
             title="대화를 불러오지 못했어요"
@@ -490,8 +566,6 @@ export function ChatPage({ project }: { project: Project }) {
               </button>
             }
           />
-        ) : (
-          <ChatStream {...streamProps}>{renderMessages()}</ChatStream>
         )}
         <Composer
           project={project}
@@ -523,6 +597,9 @@ export function ChatPage({ project }: { project: Project }) {
           onAddToChat={handleAddToChat}
           onResizeStart={startResize}
           onClose={() => setPanelOpen(false)}
+          ignite={!!fresh?.ignite && !!activeMessage && activeMessage.id === fresh.messageId}
+          onIgniteConsumed={handleIgniteConsumed}
+          activeMessageId={activeMessage?.id ?? null}
         />
       )}
     </div>
