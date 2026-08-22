@@ -460,6 +460,9 @@ export function ChatPage({ project }: { project: Project }) {
     // node-only면 기본 질문으로 채운다 — 백엔드 content는 @NotBlank.
     const content = trimmed || NODE_ONLY_QUESTION;
     setSendError(false);
+    // 다음 질문을 보내는 순간 직전 답변의 "도착 연출" 자격은 끝난다 — 남겨 두면 어떤
+    // 이유로든 그 요소가 리마운트될 때 is-fresh 애니메이션이 다시 재생된다.
+    setFresh(null);
     setPendingMessage({ conversationId, text: content });
     // 입력·칩은 즉시 비우되, 실패하면 restoreOnError로 되돌린다.
     setDraft("");
@@ -521,11 +524,20 @@ export function ChatPage({ project }: { project: Project }) {
         </button>
       )}
       <div className="chat">
-        {showPending ? (
+        {/* 대기 UI(낙관적 말풍선+스피너)는 별도 분기가 아니라 같은 ChatStream 안의 조건부
+            자식으로 둔다 — pending 토글마다 자식 중첩 구조가 바뀌면(배열 단독 ↔ [배열, 말풍선,
+            스피너]) 메시지 key의 내부 경로가 달라져 목록 전체가 리마운트되고, 직전 답변의
+            is-fresh 애니메이션이 다시 재생된다(전송마다 전체 DOM 재생성이기도 하다).
+            자식 슬롯을 [배열, 조건부, 조건부]로 고정해 메시지 요소를 보존한다. */}
+        {showPending ||
+        (conversationId &&
+          !conversationQuery.isLoading &&
+          !conversationGone &&
+          !conversationQuery.isError) ? (
           <ChatStream {...streamProps}>
             {renderMessages()}
-            <UserMessage content={pendingMessage!.text} />
-            <ThinkingState />
+            {showPending && <UserMessage content={pendingMessage!.text} />}
+            {showPending && <ThinkingState />}
           </ChatStream>
         ) : !conversationId ? (
           <ChatEmpty
@@ -539,7 +551,8 @@ export function ChatPage({ project }: { project: Project }) {
           // 새 대화 화면으로 되돌린다 — 프로젝트를 옮겼다 돌아왔을 때와 같은 화면이라 사용자가
           // 따로 복구 동작을 할 필요가 없다. AppShell이 기억한 대화 id도 이 이동으로 함께 비워진다.
           <Navigate to={`/projects/${project.id}/chat`} replace />
-        ) : conversationQuery.isError ? (
+        ) : (
+          // 남는 경우는 조회 실패뿐 — 위 통합 분기 조건이 (로딩·삭제·에러 아님)을 소거한다.
           <StatusView
             tone="error"
             title="대화를 불러오지 못했어요"
@@ -553,8 +566,6 @@ export function ChatPage({ project }: { project: Project }) {
               </button>
             }
           />
-        ) : (
-          <ChatStream {...streamProps}>{renderMessages()}</ChatStream>
         )}
         <Composer
           project={project}
