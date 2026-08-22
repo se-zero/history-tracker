@@ -1,0 +1,90 @@
+# 프로덕션 오버라이드 — `./prod.sh`가 base와 함께 읽는다.
+#
+# 이 파일이 하는 일 세 가지:
+#   1. 포트 폐쇄 — 웹(80)만 열고 나머지는 컨테이너 네트워크 안에만 둔다.
+#   2. 자원 상한 — 컨테이너별 메모리 상한과 JVM·Neo4j 힙을 명시한다.
+#   3. 무인 운영 — 재시작 정책과 로그 로테이션.
+#
+# 상정 호스트: Proxmox VM 1대, vCPU 6 / RAM 16GB / NVMe. 상세는 docs/deployment.md.
+
+# memswap_limit을 mem_limit과 같은 값으로 두는 이유:
+# Docker 기본값은 컨테이너가 mem_limit의 **2배까지 스왑**을 쓰게 허용한다. JVM은 스왑되는 순간
+# GC가 디스크를 훑어 사실상 응답이 멎는다 — 죽지도 살지도 않는 상태가 가장 나쁘다.
+# 같은 값으로 묶으면 스왑 없이 즉시 OOM kill → restart로 수렴한다.
+#
+# 로그는 기본 json-file 드라이버가 무한히 커진다 — 홈서버에서 몇 달이면 디스크를 채운다.
+# 컨테이너당 최대 30MB(10MB × 3)로 묶는다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    memswap_limit: 1g
+    # 기본 shared_buffers는 128MB다. mem_limit 1g 안에서 조금 넉넉하게 잡는다.
+    command: ["postgres", "-c", "shared_buffers=256MB"]
+
+  neo4j:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 4g
+    memswap_limit: 4g
+    environment:
+      # 명시하지 않으면 Neo4j가 **컨테이너가 아니라 호스트의 RAM**을 보고 heap·pagecache를
+      # 자동 산정한다. 다른 컨테이너 몫까지 잡아 OOM kill로 이어지므로 반드시 박는다.
+      # (Docker 환경변수 규칙: 설정 키의 `.`은 `_`, `_`는 `__`로 쓴다.)
+      # heap 2G + pagecache 1G + JVM 네이티브/인덱스 여유 ≈ mem_limit 4g.
+      NEO4J_server_memory_heap_initial__size: 2G
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 1G
+
+  rabbitmq:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 768m
+    memswap_limit: 768m
+
+  ai-engine:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    memswap_limit: 1g
+
+  backend:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    environment:
+      # 컨테이너에 메모리 제한이 없으면 JVM은 **호스트 RAM의 25%**를 힙 상한으로 잡는다
+      # (MaxRAMPercentage 기본값). mem_limit을 걸면 그 값을 기준으로 삼으므로 비율만 올려 준다.
+      # Dockerfile의 `java -jar`는 JAVA_OPTS를 읽지 않지만 JVM이 JAVA_TOOL_OPTIONS는 자동으로 집는다
+      # — 이미지 재빌드 없이 환경변수만으로 조절된다.
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70
+      # 로컬 기본값이 프로덕션에 새면 GitHub 로그인만 조용히 깨진다. 배포 도메인 값을 강제한다.
+      GITHUB_REDIRECT_URI: "${GITHUB_REDIRECT_URI:?GITHUB_REDIRECT_URI must be configured - https://<domain>/auth/callback}"
+
+  pipeline-worker:
+    restart: unless-stopped
+    logging: *default-logging
+    # 커밋 상세를 페이지당 100건까지 물고 병렬 조회하므로 두 JVM 중 더 크게 잡는다.
+    mem_limit: 2g
+    memswap_limit: 2g
+    environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70
+
+  web-dashboard:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+    memswap_limit: 128m
+    # 외부에 열리는 유일한 포트. nginx가 /api/는 backend로, /api/v1/webhook/만 pipeline-worker로
+    # 좁게 프록시하므로, 인증 없는 /api/v1/collect·/api/v1/raw는 바깥에서 닿을 수 없다.
+    # **이 방어는 아래 포트 목록이 웹 하나뿐이라는 데 의존한다** (docs/deployment.md 참고).
+    ports:
+      - "80:80"

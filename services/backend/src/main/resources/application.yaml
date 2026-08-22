@@ -55,7 +55,9 @@ github:
     private-key: ${GITHUB_APP_PRIVATE_KEY:}
     client-id: ${GITHUB_CLIENT_ID:}
     client-secret: ${GITHUB_CLIENT_SECRET:}
-    redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/v1/auth/github/callback}
+    # 다른 provider와 달리 GitHub 콜백은 프론트 라우트(/auth/callback)에 착지한 뒤
+    # 그 페이지가 backend로 code를 넘긴다 — 기본값도 프론트 오리진이어야 한다.
+    redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:5173/auth/callback}
     installation-url: ${GITHUB_INSTALLATION_URL:}
     authorize-url: ${GITHUB_AUTHORIZE_URL:https://github.com/login/oauth/authorize}
     access-token-url: ${GITHUB_ACCESS_TOKEN_URL:https://github.com/login/oauth/access_token}
