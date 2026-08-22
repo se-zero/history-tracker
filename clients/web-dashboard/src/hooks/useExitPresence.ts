@@ -13,7 +13,9 @@ export function useExitPresence<T>(value: T | null) {
   }
   const exiting = !value && shown != null;
   const onExitAnimationEnd = (e: React.AnimationEvent) => {
-    if (e.animationName === EXIT_ANIMATION) setShown(null);
+    // !value 가드: 퇴장 완료로 큐에 들어간 animationend가 같은 턴의 재열림 뒤에
+    // 늦게 도착하면 방금 연 패널을 비워 버린다 — 퇴장 중일 때만 해제한다.
+    if (!value && e.animationName === EXIT_ANIMATION) setShown(null);
   };
   return { shown, exiting, onExitAnimationEnd };
 }
