@@ -66,6 +66,30 @@ OS와 **이미지 빌드 피크**(Gradle 빌드 2개 + `npm ci`가 동시에 도
 CPU 상한은 걸지 않는다. 수집이 버스트성이라 커널 스케줄러의 공평 분배로 충분하고, 상한을 걸면
 버스트 수집이 느려지기만 한다.
 
+### 소프트웨어 준비
+
+게스트 OS는 **Ubuntu Server LTS**(또는 Debian)를 상정한다. 필요한 것은 셋뿐이다.
+
+| | 왜 |
+|---|---|
+| **Docker Engine + Compose plugin** | 스택 전체가 compose다 |
+| **git** | 레포를 받아 온다 |
+| **`docker` 그룹 멤버십** | `prod.sh`·`backup.sh`가 docker를 직접 부른다. sudo가 필요하면 cron 백업이 조용히 실패한다 |
+
+설치는 [Docker 공식 apt 저장소 절차](https://docs.docker.com/engine/install/ubuntu/)를 따른다.
+배포판의 `docker.io` 패키지는 Compose plugin이 빠져 있거나 오래된 경우가 있어 권장하지 않는다.
+
+```bash
+sudo usermod -aG docker "$USER"   # 적용하려면 로그아웃 후 재접속
+docker compose version            # v2가 나와야 한다 (docker-compose가 아니라 docker compose)
+```
+
+**Compose는 v2면 충분하다.** 특정 최신 버전을 요구하지 않는다 — 포트를 오버라이드로 덮는 대신
+base/dev/prod 3분할 구조를 쓴 이유 중 하나가 `!override` 태그(2.24+)에 의존하지 않기 위해서다.
+
+네트워크는 **아웃바운드만 열려 있으면 된다.** 인바운드는 Cloudflare Tunnel이 만들므로 공유기에
+포트포워딩을 설정하지 않는다. 아웃바운드는 터널·OpenAI·각 provider API에 쓰인다.
+
 ---
 
 ## 2. 배포 절차
@@ -176,6 +200,14 @@ cp .env.example .env
 나머지 8종도 backend가 아니라 **프론트 오리진**을 써야 한다 — 콜백의 302가 상대 경로라
 backend(:8080)를 직접 가리키면 연동은 성공해도 마지막 리다이렉트가 401로 끝난다.
 
+> ⚠️ **배포 URL로 바꾸면 로컬 개발이 깨질 수 있다.** provider마다 redirect URI를 여러 개
+> 등록할 수 있는지가 다르다. GitHub App과 Notion은 로컬·배포를 함께 둘 수 있다(각각 공식
+> 지원). 나머지 7종은 **콘솔에서 직접 확인해야 한다** — 하나만 허용하는 provider가 있으면
+> 로컬과 배포 중 하나를 골라야 한다.
+>
+> `.env`의 `*_REDIRECT_URI`는 어차피 환경마다 하나만 고르는 값이므로, **콘솔에 둘 다 등록해 두고
+> `.env`만 바꿔 쓰는 것**이 가장 마찰이 적다.
+
 ### 3-2. GitHub App은 등록할 곳이 두 개다
 
 | GitHub App 설정 | 값 | 방향 |
@@ -232,7 +264,7 @@ Neo4j Browser처럼 **웹 UI가 꼭 필요하면** 포트를 인터넷에 여는
 ssh -L 7474:127.0.0.1:7474 -L 7687:127.0.0.1:7687 <user>@<서버>
 ```
 
-### 4-2b. Cloudflare 엣지의 제약
+### 4-3. Cloudflare 엣지의 제약
 
 | 항목 | 값 | 우리에게 의미 |
 |---|---|---|
@@ -252,7 +284,7 @@ ssh -L 7474:127.0.0.1:7474 -L 7687:127.0.0.1:7687 <user>@<서버>
 터널이 끊기면 앱은 살아 있는데 바깥에서만 안 보인다. `./prod.sh logs cloudflared`로 커넥션
 상태를 먼저 본다.
 
-### 4-3. ⚠️ 이 배포가 의존하는 방어
+### 4-4. ⚠️ 이 배포가 의존하는 방어
 
 pipeline-worker의 `POST /api/v1/collect/{provider}`와 `POST /api/v1/raw/*`에는 **인증이 없다.**
 바깥에서 닿지 않는 이유는 세 겹이다.
@@ -272,7 +304,7 @@ pipeline-worker의 `POST /api/v1/collect/{provider}`와 `POST /api/v1/raw/*`에�
 노출되면 누구나 임의 프로젝트의 수집을 트리거해 OpenAI·외부 API 쿼터를 태우고 원본 데이터를
 당길 수 있다.
 
-### 4-4. 백업
+### 4-5. 백업
 
 `infra/scripts/backup.sh`가 PostgreSQL과 Neo4j를 **호스트 로컬**에 덤프한다.
 오프사이트 복사는 하지 않는다 — 홈서버가 임시 구성이라는 전제다. 바꿔 말하면
@@ -353,6 +385,6 @@ docker run --rm -i neo4j:5.26-community \
 
 | 항목 | 상태 |
 |---|---|
-| 오프사이트 백업 | 하지 않는다 — 4-4의 전제 참고 |
+| 오프사이트 백업 | 하지 않는다 — 4-5의 전제 참고 |
 | 모니터링·알림 | 아직 없음 |
 | Cloudflare Access(접근 제한) | 아직 없음. 지금은 도메인을 아는 누구나 로그인 화면까지 닿는다 |
