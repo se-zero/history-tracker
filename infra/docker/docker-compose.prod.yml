@@ -1,0 +1,117 @@
+# 프로덕션 오버라이드 — `./prod.sh`가 base와 함께 읽는다.
+#
+# 이 파일이 하는 일 세 가지:
+#   1. 포트 폐쇄 — 웹(80)만 열고 나머지는 컨테이너 네트워크 안에만 둔다.
+#   2. 자원 상한 — 컨테이너별 메모리 상한과 JVM·Neo4j 힙을 명시한다.
+#   3. 무인 운영 — 재시작 정책과 로그 로테이션.
+#
+# 상정 호스트: Proxmox VM 1대, vCPU 6 / RAM 16GB / NVMe. 상세는 docs/deployment.md.
+
+# memswap_limit을 mem_limit과 같은 값으로 두는 이유:
+# Docker 기본값은 컨테이너가 mem_limit의 **2배까지 스왑**을 쓰게 허용한다. JVM은 스왑되는 순간
+# GC가 디스크를 훑어 사실상 응답이 멎는다 — 죽지도 살지도 않는 상태가 가장 나쁘다.
+# 같은 값으로 묶으면 스왑 없이 즉시 OOM kill → restart로 수렴한다.
+#
+# 로그는 기본 json-file 드라이버가 무한히 커진다 — 홈서버에서 몇 달이면 디스크를 채운다.
+# 컨테이너당 최대 30MB(10MB × 3)로 묶는다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    memswap_limit: 1g
+    # 기본 shared_buffers는 128MB다. mem_limit 1g 안에서 조금 넉넉하게 잡는다.
+    command: ["postgres", "-c", "shared_buffers=256MB"]
+
+  neo4j:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 4g
+    memswap_limit: 4g
+    environment:
+      # 명시하지 않으면 Neo4j가 **컨테이너가 아니라 호스트의 RAM**을 보고 heap·pagecache를
+      # 자동 산정한다. 다른 컨테이너 몫까지 잡아 OOM kill로 이어지므로 반드시 박는다.
+      # (Docker 환경변수 규칙: 설정 키의 `.`은 `_`, `_`는 `__`로 쓴다.)
+      # heap 2G + pagecache 1G + JVM 네이티브/인덱스 여유 ≈ mem_limit 4g.
+      NEO4J_server_memory_heap_initial__size: 2G
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 1G
+
+  rabbitmq:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 768m
+    memswap_limit: 768m
+
+  ai-engine:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    memswap_limit: 1g
+
+  backend:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    environment:
+      # 컨테이너에 메모리 제한이 없으면 JVM은 **호스트 RAM의 25%**를 힙 상한으로 잡는다
+      # (MaxRAMPercentage 기본값). mem_limit을 걸면 그 값을 기준으로 삼으므로 비율만 올려 준다.
+      # Dockerfile의 `java -jar`는 JAVA_OPTS를 읽지 않지만 JVM이 JAVA_TOOL_OPTIONS는 자동으로 집는다
+      # — 이미지 재빌드 없이 환경변수만으로 조절된다.
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70
+      # 로컬 기본값이 프로덕션에 새면 GitHub 로그인만 조용히 깨진다. 배포 도메인 값을 강제한다.
+      GITHUB_REDIRECT_URI: "${GITHUB_REDIRECT_URI:?GITHUB_REDIRECT_URI must be configured - https://<domain>/auth/callback}"
+
+  pipeline-worker:
+    restart: unless-stopped
+    logging: *default-logging
+    # 커밋 상세를 페이지당 100건까지 물고 병렬 조회하므로 두 JVM 중 더 크게 잡는다.
+    mem_limit: 2g
+    memswap_limit: 2g
+    environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70
+
+  web-dashboard:
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+    memswap_limit: 128m
+    # **루프백에만 바인딩한다.** 공개 경로는 아래 cloudflared 터널이고, 터널은 도커 네트워크로
+    # 붙으므로 이 포트를 쓰지 않는다. 그래도 남겨 두는 이유는 서버 자신이 curl로 점검할 수단이
+    # 필요해서다 — 0.0.0.0이 아니라 127.0.0.1이므로 외부·LAN에서는 닿지 않는다.
+    # 결과적으로 이 스택이 외부에 여는 포트는 0이다.
+    ports:
+      - "127.0.0.1:80:80"
+
+  # ── 공개 경로 (Cloudflare Tunnel) ────────────────────────────────
+  # 공유기에 포트를 하나도 열지 않는다. cloudflared가 바깥으로 **아웃바운드 연결만** 만들어
+  # Cloudflare 엣지에 붙고, 들어오는 요청을 도커 네트워크의 web-dashboard:80으로 넘긴다.
+  # 그래서 CGNAT 회선에서도 동작하고 집 IP가 드러나지 않는다. TLS는 엣지에서 끝나므로
+  # 인증서 발급·갱신도 우리 몫이 아니다. GitHub webhook도 이 경로로 들어온다.
+  #
+  # hostname → 서비스 매핑(ingress)은 Cloudflare 대시보드가 들고 있다(토큰 방식 터널).
+  # 레포에는 설정 파일이 생기지 않고 TUNNEL_TOKEN 하나만 남는다.
+  cloudflared:
+    # 스택의 다른 이미지들과 같이 버전을 고정한다. 다만 Cloudflare는 오래된 cloudflared를
+    # 지원 중단하는 편이라, 다른 이미지보다 갱신 주기를 짧게 본다(연 1~2회 확인).
+    image: cloudflare/cloudflared:2026.8.2
+    container_name: history-tracker-tunnel
+    profiles: [tunnel]
+    command: tunnel --no-autoupdate run
+    environment:
+      # 커맨드라인 `--token <값>` 대신 환경변수로 준다 — 커맨드라인에 쓰면 docker ps·ps aux에
+      # 토큰이 그대로 보인다. cloudflared가 TUNNEL_TOKEN을 자동으로 읽는다.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+    memswap_limit: 128m
+    depends_on:
+      - web-dashboard

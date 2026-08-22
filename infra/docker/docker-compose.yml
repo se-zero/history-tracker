@@ -1,9 +1,14 @@
+# 서비스 정의의 base. **호스트 포트 바인딩은 여기 두지 않는다.**
+#
+# compose 오버라이드는 ports 같은 다중값 항목을 덮어쓰지 않고 이어붙인다. base에 포트가 있으면
+# prod 오버라이드에서 그것을 닫을 방법이 없어(적지 않아도 남는다), 포트는 환경별 파일이 소유한다:
+#   - docker-compose.dev.yml  → 로컬 개발용 전체 포트 (./dev.sh)
+#   - docker-compose.prod.yml → 웹(80)만 (./prod.sh)
+# 이 파일만으로 `docker compose up` 하면 어떤 포트도 열리지 않는다 — dev.sh/prod.sh를 쓴다.
 services:
   postgres:
     image: postgres:16
     container_name: history-tracker-postgres
-    ports:
-      - "5432:5432"
     environment:
       POSTGRES_DB: history_tracker
       POSTGRES_USER: history_tracker
@@ -21,9 +26,6 @@ services:
   neo4j:
     image: neo4j:5.26-community
     container_name: history-graph-neo4j
-    ports:
-      - "7474:7474"  # Browser UI
-      - "7687:7687"  # Bolt (드라이버 연결)
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-password1234}
       NEO4J_PLUGINS: '["apoc"]'
@@ -40,12 +42,12 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     container_name: history-graph-rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      # 계정을 바꾸려면 .env의 RABBITMQ_USER/RABBITMQ_PASSWORD만 고치면 된다 —
+      # 소비자 두 곳(ai-engine의 RABBITMQ_URL, pipeline-worker의 SPRING_RABBITMQ_*)이
+      # 같은 변수를 읽으므로 여기만 바꾸고 연결이 끊기는 일은 없다.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -60,14 +62,15 @@ services:
     build:
       context: ../../services/ai-engine
     container_name: history-graph-ai-engine
-    ports:
-      - "8000:8000"
     environment:
       # 인프라 hostname (컨테이너 네트워크에서 고정)
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password1234}
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      # ⚠️ 비밀번호가 URL 안에 그대로 들어간다 — `/`·`@`·`#`·`?`가 있으면 파서가 vhost·host로 오인해
+      # 연결이 깨진다. `openssl rand -base64`는 `+`·`/`를 만들므로 쓰지 말고 `openssl rand -hex 32`처럼
+      # URL-safe한 값만 넣는다(.env.example·docs/deployment.md에 같은 안내가 있다).
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
       # .env 에서 forward (필수: OPENAI_API_KEY)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GITHUB_REPO: ${GITHUB_REPO:-}
@@ -100,8 +103,6 @@ services:
     build:
       context: ../../services/backend
     container_name: history-tracker-backend
-    ports:
-      - "8080:8080"
     environment:
       # 컨테이너 네트워크 hostname으로 override
       DB_URL: jdbc:postgresql://postgres:5432/history_tracker?stringtype=unspecified
@@ -121,7 +122,10 @@ services:
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
-      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:8080/api/v1/auth/github/callback}
+      # GitHub만 콜백 경로 규칙이 다르다 — 다른 provider는 backend의 /api/v1/integrations/{provider}/callback로
+      # 들어오지만, GitHub은 프론트 라우트(/auth/callback)에 착지한 뒤 그 페이지가 backend로 code를 넘긴다.
+      # 따라서 프론트 오리진 + /auth/callback 이어야 한다.
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:5173/auth/callback}
       GITHUB_INSTALLATION_URL: ${GITHUB_INSTALLATION_URL:-}
 
       # Slack App — infra/docker/.env 에서 forward
@@ -193,11 +197,12 @@ services:
     build:
       context: ../../services/pipeline-worker
     container_name: history-tracker-pipeline-worker
-    ports:
-      - "8081:8081"
     environment:
-      # 컨테이너 네트워크 hostname으로 override
+      # 컨테이너 네트워크 hostname으로 override.
+      # application.yaml에 host/username/password가 박혀 있지만 환경변수가 그보다 우선한다.
       SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-guest}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       PIPELINE_WORKER_DATASOURCE_URL: jdbc:postgresql://postgres:5432/history_tracker
       PIPELINE_WORKER_DATASOURCE_USERNAME: history_tracker
       PIPELINE_WORKER_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-history_tracker}
@@ -224,8 +229,6 @@ services:
     build:
       context: ../../clients/web-dashboard
     container_name: history-tracker-web
-    ports:
-      - "5173:80"
     depends_on:
       backend:
         condition: service_healthy

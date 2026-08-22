@@ -123,7 +123,10 @@ cd infra/docker
 ./dev.sh ps                          # 컨테이너 상태
 ```
 
-`./dev.sh`는 `docker compose --profile app` 래퍼다. 서비스명은 compose 기준(`ai-engine`, `pipeline-worker`, `backend`, `neo4j`, `rabbitmq`, `postgres`, `web-dashboard`)이며 위 컨테이너명과 다르다.
+`./dev.sh`는 `docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile app` 래퍼다.
+포트는 base가 아니라 dev 오버라이드가 소유하므로 `docker compose`를 직접 치면 포트가 열리지 않는다 —
+점검할 때도 `./dev.sh`를 쓴다(프로덕션 기동은 `./prod.sh`).
+서비스명은 compose 기준(`ai-engine`, `pipeline-worker`, `backend`, `neo4j`, `rabbitmq`, `postgres`, `web-dashboard`)이며 위 컨테이너명과 다르다.
 
 ## 증상 → 점검 매핑
 
