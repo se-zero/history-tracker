@@ -176,6 +176,12 @@ token을 키로 auth별 TTL 캐시로 실행 간 재사용했지만, 캐시 키�
 제거했다. 그 대가로 비용이 늘었다 — Tier 2 한도(페이지 크기 200, 페이지당 고정 딜레이 3초)라
 실행마다 워크스페이스 구성원 200명당 `users.list` 호출 1회와 약 3초가 추가된다.
 
+GitHub `/users/{login}`(커밋·PR·이슈 작성자 프로필 보강)도 같은 이유로 **실행 단위**다 —
+`GitHubFetchContext.resolvedProfiles`에 담아 그 실행의 PR·commit·issue 페이지를 가로질러 재사용하고,
+실행이 끝나면 context와 함께 버린다. 과거에는 login을 키로 한 프로세스 전역 TTL 캐시였는데, TTL이
+재조회 여부만 판단할 뿐 항목을 지우지 않아 이름·이메일이 재시작 전까지 힙에 남았다(캐시 키에 auth도
+없어 프로젝트 간에도 공유됐다). 추가 비용은 실행마다 그 실행에 등장한 고유 기여자 수만큼의 호출뿐이다.
+
 ## Checkpoint
 
 - cursor_key는 **provider가 소유한다**. `CheckpointService`는 `(project, provider, cursor_key)` 키-값 저장소일 뿐

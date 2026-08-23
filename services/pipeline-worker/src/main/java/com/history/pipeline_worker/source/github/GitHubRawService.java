@@ -10,13 +10,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
@@ -31,7 +29,13 @@ public class GitHubRawService {
     // 403/429 재시도 최대 횟수 (Slack/Discord와 동일 기준)
     private static final int MAX_RETRY_ON_RATE_LIMIT = 3;
 
-    public record GitHubFetchContext(String auth, String owner, String repo, String branch, GitHubCheckpoint checkpoint) {}
+    // resolvedProfiles는 가변 맵이다 — 이 실행(fetchContext)에서 보강한 login별 프로필을 페이지를
+    // 넘나들며 누적하는 자리라서다. record 성분이라고 불변을 가정하면 안 된다. 실행이 끝나면
+    // context와 함께 버려지므로 개인정보가 프로세스 수명만큼 남아있던 문제(전역 싱글턴 캐시)를 없앤다.
+    // GitHubCollector가 한 실행의 PR·commit·issue를 한 스레드에서 순차 처리하고 프로필 보강도
+    // caller 스레드에서만 일어나므로(§ enrichCommits) 동시 접근이 없어 HashMap으로 충분하다.
+    public record GitHubFetchContext(String auth, String owner, String repo, String branch,
+                                     GitHubCheckpoint checkpoint, Map<String, Map<String, String>> resolvedProfiles) {}
     public record GitHubPage(List<Object> items, boolean finished) {}
 
     static class GitHubRateLimitedException extends RuntimeException {
@@ -47,17 +51,10 @@ public class GitHubRawService {
     private final GitHubRateLimiter rateLimiter;
     private final AsyncTaskExecutor commitDetailExecutor;
 
-    // login → {email, name} 캐시 — 동일 user에 대한 반복 API 호출 방지
-    private final Map<String, CachedProfile> userProfileCache = new ConcurrentHashMap<>();
-    private final Duration userProfileCacheTtl;
-
-    private record CachedProfile(Map<String, String> profile, Instant fetchedAt) {}
-
     public GitHubRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.github.base-url}") String baseUrl,
             GitHubRateLimiter rateLimiter,
-            @Value("${app.github.user-profile-cache-ttl:30m}") Duration userProfileCacheTtl,
             @Qualifier("githubCommitDetailExecutor") AsyncTaskExecutor commitDetailExecutor
     ) {
         this.webClient = webClientBuilder
@@ -66,7 +63,6 @@ public class GitHubRawService {
                 .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
                 .build();
         this.rateLimiter = rateLimiter;
-        this.userProfileCacheTtl = userProfileCacheTtl;
         this.commitDetailExecutor = commitDetailExecutor;
     }
 
@@ -83,7 +79,7 @@ public class GitHubRawService {
         String auth = request.credentials();
 
         String branch = request.options() != null ? request.options().getOrDefault("branch", null) : null;
-        return new GitHubFetchContext(auth, owner, repo, branch, checkpoint);
+        return new GitHubFetchContext(auth, owner, repo, branch, checkpoint, new HashMap<>());
     }
 
     public Map<String, Object> fetchSample(RawFetchRequest request) {
@@ -117,7 +113,7 @@ public class GitHubRawService {
                 closedPullRequests.items(),
                 context.checkpoint().pullRequestsScannedAt()
         );
-        return new GitHubPage(enrichUserObjects(context.auth(), mergedPullRequests), closedPullRequests.finished());
+        return new GitHubPage(enrichUserObjects(context, mergedPullRequests), closedPullRequests.finished());
     }
 
     public Map<String, String> fetchCommitPrNumbers(GitHubFetchContext context, List<Object> pullRequests) {
@@ -136,7 +132,7 @@ public class GitHubRawService {
                 page
         );
         return new GitHubPage(
-                enrichCommits(context.auth(), rawCommits.items(), context.owner(), context.repo(), commitPrNumbers),
+                enrichCommits(context, rawCommits.items(), commitPrNumbers),
                 rawCommits.finished()
         );
     }
@@ -151,7 +147,7 @@ public class GitHubRawService {
                 "updated_at",
                 page
         );
-        return new GitHubPage(enrichUserObjects(context.auth(), issues.items()), issues.finished());
+        return new GitHubPage(enrichUserObjects(context, issues.items()), issues.finished());
     }
 
     @SuppressWarnings("unchecked")
@@ -180,12 +176,13 @@ public class GitHubRawService {
     }
 
     /**
-     * commit.author(GitHub 계정)에 프로필 name/email 보강. login별 캐시로 기여자 수만큼만 호출한다.
+     * commit.author(GitHub 계정)에 프로필 name/email 보강. 실행 단위 재사용으로 이 실행에 등장한
+     * 기여자 수만큼만 호출한다.
      * 상세 조회(GET /commits/{sha})는 페이지당 최대 100건이라 caller 스레드에서 순차 호출하면 지연이
      * 커져 전용 풀(githubCommitDetailExecutor, 동시 3)에 병렬 제출한다(2-phase).
      */
     @SuppressWarnings("unchecked")
-    private List<Object> enrichCommits(String auth, List<Object> commits, String owner, String repo,
+    private List<Object> enrichCommits(GitHubFetchContext context, List<Object> commits,
                                        Map<String, String> commitPrNumbers) {
         // phase 1: merge 필터(기존 유지) 통과 커밋만 입력 순서대로 상세 조회를 제출한다.
         // Future 리스트가 입력 순서와 같으므로 phase 2에서 순서대로 join하면 반환 순서도
@@ -203,7 +200,8 @@ public class GitHubRawService {
 
             String sha = (String) commit.get("sha");
             filtered.add(commit);
-            detailFutures.add(commitDetailExecutor.submit(() -> fetchCommitDetail(auth, owner, repo, sha)));
+            detailFutures.add(commitDetailExecutor.submit(
+                    () -> fetchCommitDetail(context.auth(), context.owner(), context.repo(), sha)));
         }
 
         // phase 2: 입력 순서대로 join → 기존 병합 로직 적용. 프로필 보강은 기존대로 caller 스레드에서 순차 호출한다.
@@ -223,7 +221,7 @@ public class GitHubRawService {
             if (ghAuthor != null) {
                 String login = (String) ghAuthor.get("login");
                 if (login != null) {
-                    Map<String, String> profile = fetchUserProfile(login, auth);
+                    Map<String, String> profile = fetchUserProfile(context, login);
                     Map<String, Object> enrichedAuthor = new HashMap<>(ghAuthor);
                     if (profile.containsKey("email")) enrichedAuthor.put("email", profile.get("email"));
                     if (profile.containsKey("name"))  enrichedAuthor.put("name",  profile.get("name"));
@@ -289,7 +287,7 @@ public class GitHubRawService {
 
     /** PR·Issue의 user 객체에 email·name을 보강 (GET /users/{login}) */
     @SuppressWarnings("unchecked")
-    private List<Object> enrichUserObjects(String auth, List<Object> items) {
+    private List<Object> enrichUserObjects(GitHubFetchContext context, List<Object> items) {
         List<Object> result = new ArrayList<>();
         for (Object raw : items) {
             Map<String, Object> item = new HashMap<>((Map<String, Object>) raw);
@@ -297,7 +295,7 @@ public class GitHubRawService {
             if (user != null) {
                 String login = (String) user.get("login");
                 if (login != null) {
-                    Map<String, String> profile = fetchUserProfile(login, auth);
+                    Map<String, String> profile = fetchUserProfile(context, login);
                     Map<String, Object> enrichedUser = new HashMap<>(user);
                     if (profile.containsKey("email")) enrichedUser.put("email", profile.get("email"));
                     if (profile.containsKey("name"))  enrichedUser.put("name",  profile.get("name"));
@@ -309,25 +307,25 @@ public class GitHubRawService {
         return result;
     }
 
-    /** GET /users/{login} → {email, name}. login별로 TTL 동안 캐시를 재사용하고, 만료되면 재조회 후 캐시를 갱신한다. */
+    /** GET /users/{login} → {email, name}. 이 실행에서 이미 조회한 login은 재사용한다. */
     @SuppressWarnings("unchecked")
-    private Map<String, String> fetchUserProfile(String login, String auth) {
-        CachedProfile cached = userProfileCache.get(login);
-        if (cached != null && Duration.between(cached.fetchedAt(), Instant.now()).compareTo(userProfileCacheTtl) < 0) {
-            return cached.profile();
+    private Map<String, String> fetchUserProfile(GitHubFetchContext context, String login) {
+        Map<String, String> resolved = context.resolvedProfiles().get(login);
+        if (resolved != null) {
+            return resolved;
         }
 
-        // computeIfAbsent는 매핑 함수의 반환값을 무조건 캐시하므로 실패(에러 상태·예외) 케이스를
-        // 걸러낼 수 없다. get으로 조회 후 미스/만료일 때만 호출하고 성공한 결과만 캐시에 반영하는 패턴으로
-        // 바꿔, 일시 장애가 그 계정의 신원 보강을 재시작 전까지 영구히 결손시키지 않도록 한다.
+        // computeIfAbsent는 매핑 함수의 반환값을 무조건 기록하므로 실패(에러 상태·예외) 케이스를
+        // 걸러낼 수 없다. get으로 조회 후 미스일 때만 호출하고 성공한 결과만 기록하는 패턴으로 바꿔,
+        // 일시 장애가 그 계정의 신원 보강을 이 실행 내내 영구히 결손시키지 않도록 한다.
         AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
         try {
             // 프로필은 부가 데이터라 재시도 대상을 429(명백한 rate limit)로만 좁힌다 — 403 등 나머지
-            // non-2xx는 즉시 실패시켜 아래 catch가 흡수하고(캐시 미기록으로 다음 호출에서 재조회), 계정당
+            // non-2xx는 즉시 실패시켜 아래 catch가 흡수하고(미기록으로 다음 호출에서 재조회), 계정당
             // 최대 3×Retry-After초를 태우지 않는다.
             Map<String, Object> result = executeWithRateLimitRetry(() -> webClient.get()
                     .uri("/users/{login}", login)
-                    .header("Authorization", auth)
+                    .header("Authorization", context.auth())
                     .exchangeToMono(resp -> {
                         headersRef.set(resp.headers().asHttpHeaders());
                         if (resp.statusCode().is2xxSuccessful()) {
@@ -349,7 +347,7 @@ public class GitHubRawService {
                 if (email != null) profile.put("email", email);
                 if (name  != null) profile.put("name",  name);
             }
-            userProfileCache.put(login, new CachedProfile(profile, Instant.now()));
+            context.resolvedProfiles().put(login, profile);
             return profile;
         } catch (Exception e) {
             // 프로필은 부가 데이터라 조회 실패로 커밋/이슈 수집 자체를 막지 않는다.

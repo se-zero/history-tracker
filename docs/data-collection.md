@@ -47,7 +47,7 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 각 PR에 속한 커밋 목록은 `/pulls/{pr}/commits`로 추가 수집해 `prNumber` 매핑을 구성한다 (PR당 1회 호출).
 각 커밋의 변경 파일 목록(`files`)은 `/commits/{sha}`로 추가 수집한다 (커밋당 1회 호출).
 
-**User 프로필 보강**: PR·Issue의 `user` 객체에는 email·name이 없어 `/users/{login}`을 호출해 보강한다 (login별 캐시, 고유 login당 1회). Actor 동일인 판단의 email 신호가 여기서 채워진다.
+**User 프로필 보강**: PR·Issue의 `user` 객체에는 email·name이 없어 `/users/{login}`을 호출해 보강한다 (실행 단위 재사용 — 그 실행에 등장한 고유 login당 1회, 실행이 끝나면 버린다). Actor 동일인 판단의 email 신호가 여기서 채워진다.
 
 PR 페이지는 먼저 발행하지만, `pullRequestsScannedAt` checkpoint는 commit 페이지 처리가 끝난 뒤 갱신한다.
 commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다음 실행에서 PR 페이지를 다시 읽고 `sha → prNumber` 매핑을 재구성할 수 있다.
