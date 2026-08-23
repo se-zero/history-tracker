@@ -69,7 +69,7 @@ export function FinalCtaSection() {
         <div className="lp-final-cta-actions">
           {status === "authenticated" ? (
             <Link className="lp-btn lp-btn--primary" to={PATHS.root}>
-              History Tracker 열기
+              whycode 열기
             </Link>
           ) : (
             <a className="lp-btn lp-btn--primary" href={GITHUB_AUTHORIZE_URL}>

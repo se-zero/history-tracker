@@ -42,7 +42,7 @@ export function LandingHero({ theme }: { theme: LandingTheme }) {
           <div className="lp-cta-row">
             {status === "authenticated" ? (
               <Link className="lp-btn lp-btn--primary" to={PATHS.root}>
-                History Tracker 열기
+                whycode 열기
               </Link>
             ) : (
               <a className="lp-btn lp-btn--primary" href={GITHUB_AUTHORIZE_URL}>

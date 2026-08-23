@@ -188,39 +188,13 @@ body:has(.lp) {
   border-radius: var(--lp-r-sm);
 }
 
-/* 노드 타입 7색 conic — 로고는 그래프를 가리키므로 노드 색을 쓴다(앰버 아님). */
+/* 로고는 그래프 자체가 아니라 시그니처 순간(답변 경로가 앰버로 켜지는 장면)을 그린
+   브랜드 마크라 앰버가 정의상 맞다(2026-08-23 확정). 정본은 public/favicon.svg. */
 .lp-logo-mark {
-  position: relative;
   width: 26px;
   height: 26px;
   flex: none;
-  border-radius: var(--lp-r-sm);
-  background: conic-gradient(
-    from 220deg at 50% 50%,
-    var(--lp-node-commit),
-    var(--lp-node-pr),
-    var(--lp-node-issue),
-    var(--lp-node-slack),
-    var(--lp-node-jira),
-    var(--lp-node-person),
-    var(--lp-node-file),
-    var(--lp-node-commit)
-  );
-}
-.lp-logo-mark::after {
-  content: "";
-  position: absolute;
-  inset: 6px;
-  border-radius: 3px;
-  background: var(--lp-surface-0);
-}
-.lp-logo-mark::before {
-  content: "";
-  position: absolute;
-  inset: 10px;
-  z-index: 1;
-  border-radius: 1.5px;
-  background: var(--lp-text-primary);
+  display: block;
 }
 
 .lp-wordmark {

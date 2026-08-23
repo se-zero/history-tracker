@@ -16,7 +16,7 @@ export function TermsPage() {
     <LegalLayout
       title="이용약관"
       effectiveDate="2026-08-01"
-      summary={`${LEGAL_OPERATOR}이 제공하는 History Tracker(이하 "서비스")의 이용 조건을 정합니다. 서비스에 로그인하면 이 약관에 동의한 것으로 봅니다.`}
+      summary={`${LEGAL_OPERATOR}이 제공하는 whycode(이하 "서비스")의 이용 조건을 정합니다. 서비스에 로그인하면 이 약관에 동의한 것으로 봅니다.`}
     >
       <LegalSection index={1} heading="목적">
         <p>

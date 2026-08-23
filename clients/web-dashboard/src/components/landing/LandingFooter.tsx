@@ -15,7 +15,7 @@ export function LandingFooter() {
   return (
     <footer className="lp-footer">
       <div className="lp-footer-inner">
-        <span className="lp-footer-brand">History Tracker</span>
+        <span className="lp-footer-brand">whycode</span>
         <div className="lp-footer-links">
           <Link className="lp-footer-link" to={PATHS.terms}>
             이용약관
@@ -33,7 +33,7 @@ export function LandingFooter() {
           </a>
           {status === "authenticated" ? (
             <Link className="lp-footer-link" to={PATHS.root}>
-              History Tracker 열기
+              whycode 열기
             </Link>
           ) : (
             <a className="lp-footer-link" href={GITHUB_AUTHORIZE_URL}>

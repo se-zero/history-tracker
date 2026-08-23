@@ -32,8 +32,10 @@ export function LandingHeader({
     <header className={`lp-header${isScrolled ? " is-scrolled" : ""}`}>
       <div className="lp-header-inner">
         <Link className="lp-brand" to="/landing">
-          <span className="lp-logo-mark" aria-hidden="true" />
-          <span className="lp-wordmark">History Tracker</span>
+          {/* 로고 마크는 public/favicon.svg가 단일 출처 — 브랜드 자산이라 테마와 무관하게
+              고정색이다(커넥터 --brand-* 와 같은 사유). */}
+          <img className="lp-logo-mark" src="/favicon.svg" alt="" aria-hidden="true" width={26} height={26} />
+          <span className="lp-wordmark">whycode</span>
         </Link>
         <div className="lp-header-actions">
           {/* 테마 토글 — 중립 스타일(앰버 금지: "라이브/실행/선택"이 아니다). 아이콘은
@@ -48,7 +50,7 @@ export function LandingHeader({
           </button>
           {status === "authenticated" ? (
             <Link className="lp-login-link" to={PATHS.root}>
-              History Tracker 열기
+              whycode 열기
             </Link>
           ) : (
             <a className="lp-login-link" href={GITHUB_AUTHORIZE_URL}>
