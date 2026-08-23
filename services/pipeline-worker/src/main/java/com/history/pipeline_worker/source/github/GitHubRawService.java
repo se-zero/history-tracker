@@ -379,6 +379,14 @@ public class GitHubRawService {
                         if (isRateLimitResponse(resp.statusCode().value(), respHeaders)) {
                             return Mono.error(new GitHubRateLimitedException(resolveRetryWaitSeconds(respHeaders)));
                         }
+                        // 404만 예외 취급하지 않는다 — force-push·history rewrite로 사라진 커밋은
+                        // 재시도해도 영원히 404다. 여기서 던지면 페이지 전체가 실패하고 checkpoint가
+                        // 전진하지 않아 매 수집이 같은 지점에서 막힌다(자가 복구 불가). files 없이
+                        // 넘기고 수집을 계속한다 — 권한(403)·서버 오류는 아래에서 그대로 실패시킨다.
+                        if (resp.statusCode().value() == 404) {
+                            log.warn("GitHub commit 상세 없음, files 없이 진행 (sha={})", sha);
+                            return Mono.empty();
+                        }
                         return Mono.error(new IllegalStateException(
                                 "GitHub API error: status=" + resp.statusCode().value()
                                         + ", path=/repos/" + owner + "/" + repo + "/commits/" + sha));

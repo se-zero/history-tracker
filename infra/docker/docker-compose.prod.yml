@@ -28,6 +28,11 @@ services:
     memswap_limit: 1g
     # 기본 shared_buffers는 128MB다. mem_limit 1g 안에서 조금 넉넉하게 잡는다.
     command: ["postgres", "-c", "shared_buffers=256MB"]
+    environment:
+      # base는 `:-history_tracker`로 **레포에 커밋된 기본값**을 쓴다. 로컬에서는 편하지만
+      # 프로덕션에서 .env가 비면 그 값으로 조용히 뜬다 — `:?`로 기동 자체를 막는다.
+      # compose는 `:?`가 걸리면 이 서비스만이 아니라 명령 전체를 중단하므로 한 곳이면 충분하다.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be configured - openssl rand -hex 32}"
 
   neo4j:
     restart: unless-stopped
@@ -42,6 +47,8 @@ services:
       NEO4J_server_memory_heap_initial__size: 2G
       NEO4J_server_memory_heap_max__size: 2G
       NEO4J_server_memory_pagecache_size: 1G
+      # base의 `:-password1234`가 프로덕션에 새는 것을 막는다(§ postgres 참고).
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be configured - openssl rand -hex 32}"
 
   rabbitmq:
     restart: unless-stopped
@@ -68,6 +75,9 @@ services:
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70
       # 로컬 기본값이 프로덕션에 새면 GitHub 로그인만 조용히 깨진다. 배포 도메인 값을 강제한다.
       GITHUB_REDIRECT_URI: "${GITHUB_REDIRECT_URI:?GITHUB_REDIRECT_URI must be configured - https://<domain>/auth/callback}"
+      # base의 기본값은 레포에 그대로 적혀 있다. 이 값으로 뜨면 **누구나 세션 토큰을 위조할 수
+      # 있다** — 조용히 도는 대신 기동을 막는다(§ postgres 참고).
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be configured - openssl rand -hex 32}"
 
   pipeline-worker:
     restart: unless-stopped
