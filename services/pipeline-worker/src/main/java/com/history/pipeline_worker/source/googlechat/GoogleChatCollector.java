@@ -92,10 +92,10 @@ public class GoogleChatCollector implements SourceCollector {
         do {
             GoogleChatRawService.GoogleChatMessagePage page = rawService.fetchMessagePage(context, pageToken);
             // 사용자 인증으로는 Message.sender에 displayName이 오지 않는다(실측 확인) — People API로
-            // 별도 보강한다. 페이지마다 불러도 sender 단위 TTL 캐시가 흡수해 호출 수가 페이지 수에
-            // 비례하지 않는다(첫 페이지 이후로는 대부분 캐시 히트다).
+            // 별도 보강한다. 페이지마다 불러도 context가 실행 단위로 조회 결과를 재사용해 호출 수가
+            // 페이지 수에 비례하지 않는다(첫 페이지 이후로는 대부분 재사용 히트다).
             Map<String, GoogleChatRawService.PersonInfo> actorInfo =
-                    rawService.resolveSenders(context.auth(), senderNames(page.messages()));
+                    rawService.resolveSenders(context, senderNames(page.messages()));
             List<NormalizedEvent> events =
                     normalizer.normalizeMessages(projectId, spaceDisplayName, page.messages(), actorInfo);
 

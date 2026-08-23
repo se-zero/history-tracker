@@ -47,7 +47,7 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 각 PR에 속한 커밋 목록은 `/pulls/{pr}/commits`로 추가 수집해 `prNumber` 매핑을 구성한다 (PR당 1회 호출).
 각 커밋의 변경 파일 목록(`files`)은 `/commits/{sha}`로 추가 수집한다 (커밋당 1회 호출).
 
-**User 프로필 보강**: PR·Issue의 `user` 객체에는 email·name이 없어 `/users/{login}`을 호출해 보강한다 (login별 캐시, 고유 login당 1회). Actor 동일인 판단의 email 신호가 여기서 채워진다.
+**User 프로필 보강**: PR·Issue의 `user` 객체에는 email·name이 없어 `/users/{login}`을 호출해 보강한다 (실행 단위 재사용 — 그 실행에 등장한 고유 login당 1회, 실행이 끝나면 버린다). Actor 동일인 판단의 email 신호가 여기서 채워진다.
 
 PR 페이지는 먼저 발행하지만, `pullRequestsScannedAt` checkpoint는 commit 페이지 처리가 끝난 뒤 갱신한다.
 commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다음 실행에서 PR 페이지를 다시 읽고 `sha → prNumber` 매핑을 재구성할 수 있다.
@@ -63,8 +63,14 @@ commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다�
 
 ### Rate Limiting
 
-- 매 API 호출 후 300ms 고정 딜레이
-- 응답 헤더 `X-RateLimit-Remaining` ≤ 10이면 `X-RateLimit-Reset` 시각까지 동적 대기
+- 응답 헤더 기반 3단 적응형 대기: `X-RateLimit-Remaining` > 500이면 무대기, 10 초과 500 이하면
+  `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스로 대기, 10 이하면 reset 시각까지 대기.
+  헤더 결손·파싱 실패 시 300ms 폴백.
+- 429와 rate limit 신호가 있는 403(`Retry-After` 존재 또는 `X-RateLimit-Remaining: 0`)은
+  `Retry-After`(없으면 `X-RateLimit-Reset`, 둘 다 없으면 60초, 상한 1시간)만큼 대기 후 최대 3회
+  재시도하고, 권한성 403 등 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지).
+  단 커밋 상세(`/commits/{sha}`)의 404는 예외로 삼키고 `files` 없이 넘긴다 — 사라진 커밋은
+  재시도해도 영원히 404라, 실패시키면 checkpoint가 전진하지 않아 수집이 그 지점에서 영구히 막힌다.
 
 ### Tradeoff & 예상 문제점
 
@@ -72,8 +78,9 @@ commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다�
 
 `files`(변경 파일 목록과 diff)는 `/commits` list API 응답에 포함되지 않는다. 커밋당 1회 개별 detail API 호출이 불가피하다.
 
-- **문제**: 커밋 수가 많을수록 호출량과 시간이 선형 증가. 커밋 1,000개면 1,000번 호출 + 300ms × 1,000 ≒ 5분.
-  초기 전체 수집 시 수천 개의 커밋이 있는 저장소에서는 수십 분이 걸릴 수 있다.
+- **문제**: 커밋 수가 많을수록 호출량이 선형 증가. 완화책 — merge commit은 목록 응답의 parents 개수로
+  상세 조회 전에 걸러 호출을 생략하고, 상세 조회는 전용 풀(동시 3)에서 병렬 실행한다(입력 순서 보존).
+  커밋 1,000개(non-merge) 기준 무대기 페이싱 + 동시 3이면 수 분 안쪽이나, 저장소 규모에 따라 여전히 선형이다.
 - **방법 선택 이유**: `files`의 diff는 LLM이 diffSummary를 생성하고 `MODIFIED` 관계를 구축하는 핵심 데이터다. 없으면 지식 그래프의 코어 기능이 동작하지 않는다.
 
 #### PR 수집 — closed 페이지 수집 후 클라이언트 필터
@@ -524,7 +531,7 @@ checkpoint 이후로 필터링된 결과라 클라이언트 쪽 경계 필터링
 Slack·Discord와 마찬가지로 **스페이스 전체를 모으지 않고 페이지마다 발행한다**. 발행 배치가 스페이스
 크기에 비례하면 수년치 스페이스의 초기 수집이 `EventPublisher`의 단일 confirm 타임아웃(10초)에 걸려
 재시도해도 계속 실패한다 — 페이지 크기(1000)가 곧 발행 배치 상한이 된다. People API 보강은 페이지마다
-호출해도 sender 단위 TTL 캐시가 흡수해 호출 수가 페이지 수에 비례하지 않는다.
+호출해도 실행 단위 재사용이 흡수해 호출 수가 페이지 수에 비례하지 않는다.
 
 **checkpoint는 전체 성공 후 한 번만 전진한다**(전 페이지의 최대 `occurredAt`). 중간 페이지 발행이
 실패하면 예외가 전파돼 갱신에 도달하지 못하므로, 전량 축적하던 때와 같은 보증("전체 성공 후 전진")이
@@ -585,12 +592,13 @@ Chat API 응답만으로는 `actor.name`이 항상 비고 `actor.email`도 없�
 
 - **문제**: People API(`people.googleapis.com`, `directory.readonly` scope)를 별도로 호출해야
   하고, 매 메시지마다 부르면 비용이 크다.
-- **방법 선택 이유**: Slack의 `users.list` 전체 캐싱과 같은 목적이지만, People API에는 조직 전체를
+- **방법 선택 이유**: Slack의 `users.list` 조회와 같은 목적이지만, People API에는 조직 전체를
   한 번에 내려주는 API가 없어(권한 범위상) 메시지에 실제로 등장한 sender만 지연 조회한다 —
-  sender id 단위 TTL 캐시(`app.google-chat.person-cache-ttl`, 기본 30분) → 캐시 미스만
-  `people.getBatchGet`(최대 200개/호출)으로 묶어 조회. 조회 실패한 sender는 그 실행에서만 이름·
-  이메일 null로 두고 캐시하지 않아 다음 실행에서 재시도된다. Slack(`users.list`)처럼 이름·이메일을
-  둘 다 확보하지만, Discord는 봇 토큰 모델이라 타인의 이메일 자체를 얻을 수단이 없어 이름만 남는다
+  그 수집 실행 안에서만 재사용하는 맵(`GoogleChatFetchContext.resolvedPersons`)에 없는 것만
+  `people.getBatchGet`(최대 200개/호출)으로 묶어 조회한다. 실행이 끝나면 맵도 함께 버려지므로
+  실행 간 재사용(TTL)은 없다 — 매 실행이 처음부터 다시 조회한다. 조회 실패한 sender는 그 실행에서도
+  이름·이메일 null로 두고 맵에 채우지 않는다. Slack(`users.list`)처럼 이름·이메일을 둘 다 확보하지만,
+  Discord는 봇 토큰 모델이라 타인의 이메일 자체를 얻을 수단이 없어 이름만 남는다
   (`docs/discord-integration.md` §0).
 
 ---
@@ -636,14 +644,15 @@ Discord·Google Chat)이 못 하는 **편집 추적**이 여기서는 자연히 
 독립 `Document`로 수집된다 — 재귀하면 본문 중복·임베딩 비용 배가). 무한 페이지 방어 상한: 재귀
 깊이 5단, 페이지당 블록 2,000개, 본문 100,000자.
 
-### 사용자 보강 — GET /v1/users 전량 캐시
+### 사용자 보강 — GET /v1/users 전량 조회
 
 `created_by`/`last_edited_by`는 partial user(`{object, id}`뿐)라 이름·이메일이 없다. Notion은
 Slack의 `users.list`처럼 워크스페이스 전체를 한 번에 내려주는 API가 있어(Google Chat의 People API
-와 달리 sender 단위 지연 조회가 필요 없다), 수집 실행 시작에 전량 페이지네이션해 TTL 캐시한다
-(`app.notion.user-cache-ttl`, 기본 30분). capability(User information) 미설정 워크스페이스는
-`GET /v1/users`가 403을 낸다 — 여기서 전파하면 capability 설정 하나 때문에 수집 전체가 0건이
-되므로, warn 후 빈 맵으로 이어간다(Google Chat People API 403 처리와 같은 규약).
+와 달리 sender 단위 지연 조회가 필요 없다), 처리할 페이지가 나오면 그 실행 안에서 한 번 전량
+페이지네이션한다(캐시 없음 — 변경 0건인 실행에서는 호출 자체를 하지 않는다).
+capability(User information) 미설정 워크스페이스는 `GET /v1/users`가 403을 낸다 — 여기서 전파하면
+capability 설정 하나 때문에 수집 전체가 0건이 되므로, warn 후 빈 맵으로 이어간다(Google Chat
+People API 403 처리와 같은 규약).
 
 ### occurredAt 기준
 

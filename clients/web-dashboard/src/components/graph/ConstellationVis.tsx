@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icons } from "@/components/Icons";
-import {
-  ConstellationDetail,
-  type Connection,
-} from "@/components/graph/ConstellationDetail";
+import { ConstellationDetail } from "@/components/graph/ConstellationDetail";
+import { sourceNameForNode } from "@/components/sources/sourceCatalog";
 import { rgba, resolveVarRgb, shade, varName, type Rgb } from "@/lib/canvasColor";
 import {
   buildConstellations,
@@ -67,6 +65,9 @@ const REST_ALPHA = 0.8;
 const STAR_LABEL_MIN_R = 6;
 const SATELLITE_LABEL_MIN_R = 4;
 
+/** 출처가 여러 제품으로 갈리는 렌더링 분류 — 이 타입만 source별로 줄을 나눈다. */
+const MULTI_SOURCE_TYPES: ReadonlySet<GraphNodeType> = new Set(["jira", "slack", "doc"]);
+
 interface View {
   k: number;
   tx: number;
@@ -93,6 +94,15 @@ interface Placed {
   isStar: boolean;
   /** 소속 성좌 인덱스. 먼지는 null. */
   starIndex: number | null;
+}
+
+/** 노드 렌즈(범례) 한 줄 — MULTI_SOURCE_TYPES면 source별로, 아니면 type별로 하나씩 만든다. */
+interface NodeLensGroup {
+  key: string;
+  type: GraphNodeType;
+  label: string;
+  color: string;
+  ids: string[];
 }
 
 interface Palette {
@@ -185,6 +195,8 @@ export function ConstellationVis({
   const hitRef = useRef<Hit | null>(null);
   const selectedRef = useRef<string | null>(selectedId);
   const focusedRef = useRef<number | null>(null);
+  /** 성좌를 열기 직전의 카메라 — 닫을 때 사용자가 맞춰 둔 배율·위치로 되돌리는 데 쓴다. */
+  const preFocusViewRef = useRef<View | null>(null);
 
   const [hovered, setHovered] = useState<GraphNode | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
@@ -196,6 +208,8 @@ export function ConstellationVis({
    * 조각을 합쳐 볼 수 있어야 하고, 여러 사람의 작업 범위를 겹쳐 보는 데도 쓸 수 있다.
    */
   const [lensActorIds, setLensActorIds] = useState<string[]>([]);
+  /** 노드 렌즈 — 고른 노드 분류(타입, 또는 MULTI_SOURCE_TYPES면 타입:출처)만 밝히는 필터. */
+  const [lensTypeKeys, setLensTypeKeys] = useState<string[]>([]);
   // 열린 성좌의 도달 반경 — 드릴인으로 위성이 늘어 커졌는지 판단해 카메라를 다시 맞춘다.
   const focusedReachRef = useRef<number | null>(null);
 
@@ -330,9 +344,43 @@ export function ConstellationVis({
       .sort((a, b) => b.count - a.count);
   }, [nodes, adjacency, placed]);
 
+  /**
+   * 노드 렌즈 후보 — 화면에 실제로 배치된 노드만 훑어 만든 그룹 목록.
+   *
+   * NODE_TYPE_INFO 상수 전체를 도는 대신 `placed`에서 뽑으므로, 연결하지 않은 소스나
+   * 노드가 0개인 분류는 저절로 빠진다. jira/slack/doc는 렌더링 분류일 뿐 실제 제품이
+   * 여럿 섞여 있어(Jira·Linear·Asana·ClickUp 등) source별로 줄을 나눈다.
+   */
+  const nodeLensGroups = useMemo(() => {
+    const groups = new Map<string, NodeLensGroup>();
+    for (const { node } of placed.values()) {
+      if (node.type === "actor") continue;
+      const key = MULTI_SOURCE_TYPES.has(node.type) ? `${node.type}:${node.source}` : node.type;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.ids.push(node.id);
+        continue;
+      }
+      groups.set(key, {
+        key,
+        type: node.type,
+        label: MULTI_SOURCE_TYPES.has(node.type)
+          ? sourceNameForNode(node.source)
+          : NODE_TYPE_INFO[node.type].label,
+        color: NODE_TYPE_INFO[node.type].cssVar,
+        ids: [node.id],
+      });
+    }
+    const typeOrder = Object.keys(NODE_TYPE_INFO) as GraphNodeType[];
+    return Array.from(groups.values()).sort((a, b) => {
+      const order = typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type);
+      return order !== 0 ? order : b.ids.length - a.ids.length;
+    });
+  }, [placed]);
+
   /** 렌즈가 켜졌을 때 밝힐 노드 집합(고른 사람들의 합집합). 액터 자신은 배치되지 않아 제외된다. */
   const lensSignature = lensActorIds.join("|");
-  const lensHighlight = useMemo(() => {
+  const actorHighlight = useMemo(() => {
     if (lensActorIds.length === 0) return null;
     const set = new Set<string>();
     for (const actorId of lensActorIds) {
@@ -354,15 +402,45 @@ export function ConstellationVis({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lensSignature, adjacency, placed]);
 
+  /** 고른 노드 분류에 속한 노드 집합. */
+  const lensTypeSignature = lensTypeKeys.join("|");
+  const typeHighlight = useMemo(() => {
+    if (lensTypeKeys.length === 0) return null;
+    const set = new Set<string>();
+    for (const group of nodeLensGroups) {
+      if (!lensTypeKeys.includes(group.key)) continue;
+      for (const id of group.ids) set.add(id);
+    }
+    return set;
+    // lensTypeKeys는 매번 새 배열이라 문자열 시그니처로 대체한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lensTypeSignature, nodeLensGroups]);
+
+  /**
+   * 사람 렌즈·노드 렌즈 합성 — 둘 다 켜졌으면 교집합, 하나만이면 그것, 둘 다 꺼졌으면 null.
+   * 교집합이 공집합이어도 그대로 넘긴다 — "해당 없음"을 밝게 그리면 거짓말이 된다.
+   */
+  const lensHighlight = useMemo(() => {
+    if (actorHighlight && typeHighlight) {
+      const set = new Set<string>();
+      for (const id of actorHighlight) {
+        if (typeHighlight.has(id)) set.add(id);
+      }
+      return set;
+    }
+    return actorHighlight ?? typeHighlight;
+  }, [actorHighlight, typeHighlight]);
+
   // focusedEdges와 같은 이유로 ref 경유 — deps에 넣으면 렌더 루프가 재시작하며 깜빡인다.
   const lensHighlightRef = useRef<Set<string> | null>(null);
   useEffect(() => {
     lensHighlightRef.current = lensHighlight;
   }, [lensHighlight]);
 
-  // 그래프가 바뀌면 이전 프로젝트의 액터를 가리키는 렌즈는 의미가 없다.
+  // 그래프가 바뀌면 이전 프로젝트를 가리키는 렌즈는 의미가 없다.
   useEffect(() => {
     setLensActorIds([]);
+    setLensTypeKeys([]);
   }, [nodes]);
 
   /** 별성 인덱스 → 다리로 이어진 다른 별성들. */
@@ -416,6 +494,7 @@ export function ConstellationVis({
     setFocused(null);
     targetRef.current = null;
     viewRef.current = { k: 1, tx: 0, ty: 0 };
+    preFocusViewRef.current = null;
   }, [workSignature]);
 
   // React의 onWheel은 passive라 preventDefault가 먹지 않는다 — native로 직접 붙인다.
@@ -450,6 +529,11 @@ export function ConstellationVis({
     (index: number) => {
       const star = layout.stars[index];
       if (!star) return;
+      // 처음 성좌를 여는 순간의 카메라만 저장한다 — 성좌→성좌 이동이나 드릴인 재조정에서
+      // 덮어쓰면 "맨 처음 확대 직전" 상태가 사라진다.
+      if (focusedRef.current === null) {
+        preFocusViewRef.current = { ...viewRef.current };
+      }
       const base = baseScale(layout, size);
       // 성좌 하나가 화면의 약 36%를 차지하도록 배율을 정한다.
       const wanted = (Math.min(size.w, size.h) * 0.36) / Math.max(star.reach, 1);
@@ -466,6 +550,15 @@ export function ConstellationVis({
   const exitFocus = useCallback(() => {
     setFocused(null);
     focusedReachRef.current = null;
+    targetRef.current = preFocusViewRef.current ?? { k: 1, tx: 0, ty: 0 };
+    preFocusViewRef.current = null;
+  }, []);
+
+  /** 전체 보기 버튼 전용 — 포커스를 닫고 처음 배율로 되돌린다(직전 카메라 기억은 버린다). */
+  const resetView = useCallback(() => {
+    setFocused(null);
+    focusedReachRef.current = null;
+    preFocusViewRef.current = null;
     targetRef.current = { k: 1, tx: 0, ty: 0 };
   }, []);
 
@@ -629,18 +722,6 @@ export function ConstellationVis({
 
   const focusedStar = focused === null ? null : (layout.stars[focused] ?? null);
 
-  const connections = useMemo<Connection[]>(() => {
-    if (focused === null) return [];
-    return layout.bridges
-      .filter((b) => b.a === focused || b.b === focused)
-      .map((b) => {
-        const other = b.a === focused ? b.b : b.a;
-        return { index: other, star: layout.stars[other], shared: b.shared };
-      })
-      .filter((c) => c.star)
-      .sort((a, b) => b.shared.length - a.shared.length);
-  }, [layout, focused]);
-
   return (
     <div className="galaxy-wrap" ref={wrapRef}>
       <canvas
@@ -658,60 +739,77 @@ export function ConstellationVis({
         onClick={onClick}
       />
 
-      {focusedStar ? (
-        <ConstellationDetail
-          star={focusedStar}
-          connections={connections}
-          selectedId={selectedId}
-          loading={expanding}
-          onSelectNode={onSelect}
-          onJump={(index) => {
-            focusOn(index);
-            onSelect(layout.stars[index].node);
-          }}
-          onClose={exitFocus}
-        />
-      ) : (
+      {/* 상시 마운트 — 내부에서 null 처리 및 퇴장 모션을 담당(useExitPresence).
+          범례는 focusedStar가 사라지는 즉시 돌아오므로 퇴장 120ms 동안 잠깐 겹칠 수 있다(수용). */}
+      <ConstellationDetail
+        star={focusedStar}
+        selectedId={selectedId}
+        loading={expanding}
+        onSelectNode={onSelect}
+        onClose={exitFocus}
+      />
+      {!focusedStar && (
         <div className="galaxy-legend">
           {lensActors.length > 0 && (
             <div className="galaxy-lens">
               <div className="galaxy-legend-hint">
                 사람별로 보기{lensActorIds.length > 0 ? ` · ${lensActorIds.length}명` : ""}
               </div>
-              {lensActors.map(({ node, count }) => (
-                <button
-                  key={node.id}
-                  className={
-                    "galaxy-lens-chip" +
-                    (lensActorIds.includes(node.id) ? " active" : "")
-                  }
-                  onClick={() =>
-                    setLensActorIds((cur) =>
-                      cur.includes(node.id)
-                        ? cur.filter((id) => id !== node.id)
-                        : [...cur, node.id],
-                    )
-                  }
-                  title={`${node.title} — 관여한 노드 ${count}개 (여러 명 함께 선택 가능)`}
-                >
-                  <span className="galaxy-lens-name">{node.title}</span>
-                  <span className="galaxy-lens-count">{count}</span>
-                </button>
-              ))}
+              {/* 사람은 프로젝트가 커질수록 늘어난다 — 목록만 스크롤하고 제목은 남긴다. */}
+              <div className="galaxy-lens-list scrollable">
+                {lensActors.map(({ node, count }) => (
+                  <button
+                    key={node.id}
+                    className={
+                      "galaxy-lens-chip" +
+                      (lensActorIds.includes(node.id) ? " active" : "")
+                    }
+                    onClick={() =>
+                      setLensActorIds((cur) =>
+                        cur.includes(node.id)
+                          ? cur.filter((id) => id !== node.id)
+                          : [...cur, node.id],
+                      )
+                    }
+                    title={`${node.title} — 관여한 노드 ${count}개 (여러 명 함께 선택 가능)`}
+                  >
+                    <span className="galaxy-lens-name">{node.title}</span>
+                    <span className="galaxy-lens-count">{count}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
-          <div className="galaxy-legend-hint">노드를 클릭하면 이웃이 강조됩니다</div>
-          {(Object.keys(NODE_TYPE_INFO) as GraphNodeType[])
-            .filter((t) => t !== "actor")
-            .map((t) => (
-              <div key={t} className="galaxy-legend-row">
-                <span
-                  className="galaxy-legend-dot"
-                  style={{ background: NODE_TYPE_INFO[t].cssVar }}
-                />
-                <span>{NODE_TYPE_INFO[t].label}</span>
+          {nodeLensGroups.length > 0 && (
+            <div className="galaxy-lens">
+              <div className="galaxy-legend-hint">노드별로 보기</div>
+              <div className="galaxy-lens-list">
+                {nodeLensGroups.map((group) => (
+                  <button
+                    key={group.key}
+                    className={
+                      "galaxy-lens-chip" +
+                      (lensTypeKeys.includes(group.key) ? " active" : "")
+                    }
+                    onClick={() =>
+                      setLensTypeKeys((cur) =>
+                        cur.includes(group.key)
+                          ? cur.filter((key) => key !== group.key)
+                          : [...cur, group.key],
+                      )
+                    }
+                    title={`${group.label} 노드만 보기 (여러 개 함께 선택 가능)`}
+                  >
+                    <span
+                      className="galaxy-legend-dot"
+                      style={{ background: group.color }}
+                    />
+                    <span className="galaxy-lens-name">{group.label}</span>
+                  </button>
+                ))}
               </div>
-            ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -722,7 +820,7 @@ export function ConstellationVis({
         <button className="icon-btn" title="축소" onClick={() => zoom(0.8)}>
           <Icons.ZoomOut />
         </button>
-        <button className="icon-btn" title="전체 보기" onClick={exitFocus}>
+        <button className="icon-btn" title="전체 보기" onClick={resetView}>
           <Icons.Fit />
         </button>
       </div>

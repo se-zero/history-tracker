@@ -2,7 +2,12 @@
    Graph (SVG) component
    ============================================================ */
 .graph-canvas { width: 100%; height: 100%; display: block; }
-.graph-wrap { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.graph-wrap {
+  position: relative; width: 100%; height: 100%; overflow: hidden;
+  /* 딤 노드 불투명도 — 아래 .gnode-circle.dim과 g-node-ignite 키프레임이 시작/종점 값을
+     공유한다(랜딩 --gx-dim 패턴, 값이 어긋나면 안무 종점과 정적 딤 상태가 어긋난다). */
+  --g-dim: 0.25;
+}
 .graph-legend {
   position: absolute; left: 16px; bottom: 16px;
   display: flex; flex-direction: column; gap: 4px;
@@ -46,6 +51,14 @@
 .filter-chip.active { background: var(--accent-soft); border-color: var(--accent-ink); color: var(--accent-ink); }
 .filter-chip .ch-dot { width: 7px; height: 7px; border-radius: 50%; }
 
+/* 등장/퇴장 — 답변 도착 연출(msg-rise-in, chat.css)과 같은 어휘. NodeDetail이
+   node가 비워졌는데 shown이 남아 있는 동안 is-exiting을 붙인 채 언마운트를 미뤄 퇴장이 재생될
+   시간을 번다(useExitPresence.ts). galaxy-detail(성좌 패널)도 이 키프레임을 공유한다(galaxy.css).
+   퇴장 이름(detail-fade-out)은 useExitPresence.ts의 EXIT_ANIMATION과 일치해야 한다. */
+@keyframes detail-rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes detail-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes detail-fade-out { from { opacity: 1; } to { opacity: 0; } }
+
 .node-detail {
   position: absolute; right: 16px; bottom: 16px; top: 64px;
   width: 280px;
@@ -60,9 +73,13 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  animation: detail-rise-in var(--dur-base) var(--ease-standard) both;
+}
+.node-detail.is-exiting {
+  animation: detail-fade-out var(--dur-fast) var(--ease-exit) both;
 }
 .node-detail .nd-head { display: flex; align-items: flex-start; gap: 10px; }
-.node-detail .nd-icon { width: 28px; height: 28px; border-radius: var(--r-sm); display: grid; place-items: center; color: white; font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; }
+.node-detail .nd-icon { width: 28px; height: 28px; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--surface-3); border: 1px solid var(--border); color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; }
 .node-detail .nd-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
 .node-detail .nd-meta { font-size: 11px; color: var(--fg-subtle); margin-top: 2px; font-family: var(--font-mono); }
 .node-detail .nd-snippet {
@@ -75,11 +92,63 @@
 .nd-actions { display: flex; gap: 6px; margin-top: 4px; }
 
 /* SVG graph styles */
-.gnode-circle { stroke: var(--node-stroke); stroke-width: 2; transition: filter 0.15s, r 0.15s; cursor: pointer; }
-.gnode-circle.dim { opacity: 0.25; }
+.gnode-circle { stroke: var(--node-stroke); stroke-width: 2; transition: filter var(--dur-fast) var(--ease-standard), r var(--dur-fast) var(--ease-standard), opacity var(--dur-fast) var(--ease-standard); cursor: pointer; }
+.gnode-circle.dim { opacity: var(--g-dim); }
 .gnode-circle.hot { filter: drop-shadow(0 0 8px currentColor); }
 .gnode-label { font-family: var(--font-mono); font-size: 9.5px; fill: var(--fg-muted); pointer-events: none; }
 .gnode-label.dim { opacity: 0.2; }
-.gedge { stroke: var(--edge); stroke-width: 1; fill: none; transition: stroke 0.15s, opacity 0.15s; }
+.gedge { stroke: var(--edge); stroke-width: 1; fill: none; transition: stroke var(--dur-fast) var(--ease-standard), opacity var(--dur-fast) var(--ease-standard); }
 .gedge.dim { opacity: 0.15; }
 .gedge.hot { stroke: var(--edge-active); stroke-width: 1.5; }
+
+/* 시드 앰버 채널 — 상시 렌더(안무 여부와 무관). 이 스타일 자체가 안무의 종점이자
+   "패널을 나중에 연 경우"의 즉시 최종 상태다. */
+.gseed-ring  { fill: none; stroke: var(--accent-ink); stroke-width: 1.5; pointer-events: none; }
+.gseed-halo  { fill: none; stroke: var(--accent-glow); stroke-width: 6; pointer-events: none; }
+.gedge-lit   { fill: none; stroke: var(--edge-active); stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
+
+/* ============================================================
+   관련 그래프 패널 — 시그니처 모션(점등 안무)
+   duration·delay는 여기 두지 않는다 — igniteSchedule.ts 상수가 유일한 출처이고,
+   GraphVis가 인라인 style로 실어 보낸다(키프레임은 name·easing·fill-mode만 정의).
+   reduced-motion 분기도 CSS 미디어쿼리가 아니라 GraphVis의 JS 게이트(마운트 래치)가
+   재생 자체를 막는 방식이다 — 애초에 이 클래스들이 안 붙으므로 여기선 분기가 필요 없다.
+   ============================================================ */
+@keyframes g-lit-in        { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: none; } }
+@keyframes g-node-ignite   { from { opacity: var(--g-dim); } to { opacity: 1; } }
+@keyframes g-lit-edge-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes g-lit-edge-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.gseed-ring.ignite, .gseed-halo.ignite {
+  opacity: 0;
+  transform-box: fill-box; transform-origin: center;
+  animation-name: g-lit-in;
+  animation-timing-function: var(--ease-spring); /* 등장 오버슛 — 노드는 spring, 패널과 별개 층 */
+  animation-fill-mode: both;
+}
+.gnode-circle.ignite-node, .gnode-label.ignite-node {
+  animation-name: g-node-ignite;
+  animation-timing-function: var(--ease-standard);
+  animation-fill-mode: both;
+}
+.gedge-lit.ignite-draw {
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation-name: g-lit-edge-draw;
+  animation-timing-function: var(--ease-standard);
+  animation-fill-mode: both;
+}
+.gedge-lit.ignite-fade {
+  opacity: 0;
+  animation-name: g-lit-edge-fade;
+  animation-timing-function: var(--ease-standard);
+  animation-fill-mode: both;
+}
+
+/* 모션 축소: 상승(transform) 없이 페이드만. 위 .node-detail 기본 규칙의 animation 축약이
+   name을 포함하므로 이 블록은 반드시 기본 규칙 뒤에 와야 이긴다(동일 특이도 — 소스 순서로 결정).
+   퇴장(detail-fade-out)은 원래 opacity뿐이라 별도 오버라이드가 필요 없다. */
+@media (prefers-reduced-motion: reduce) {
+  .node-detail {
+    animation-name: detail-fade-in;
+  }
+}

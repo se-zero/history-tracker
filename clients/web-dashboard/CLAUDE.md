@@ -42,9 +42,10 @@ src/
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
     sources/        GitHubCard(설치 기반 전용) · OAuthSourceCard(OAuth 소스 공용 행 — backend가
                     선언한 선택 단계를 그대로 렌더, provider별 카드를 만들지 않는다) ·
-                    sourceCatalog(소스 메타 단일 출처 — 11종의 마크·설명은 이미 등재돼 있고, 항목은
-                    status로 갈리는 판별 유니온이다. 신규 소스의 프론트 작업은 보통 status를
-                    "planned"→"wired"로 바꾸고 connect·deletedData를 채우는 게 전부다. **"wired"라고
+                    sourceCatalog(소스 메타 단일 출처 — 9종의 마크·설명이 등재돼 있고, 항목은
+                    status로 갈리는 판별 유니온이다. 신규 소스의 프론트 작업은 보통 항목을 추가하고
+                    status를 "wired"로 두면서 connect·deletedData를 채우는 게 전부다(연동 전에 타일
+                    자리만 먼저 잡으려면 "planned"로 등재했다가 나중에 바꾼다). **"wired"라고
                     선언하면 두 필드가 없을 때 컴파일이 깨진다** — 반쪽 배선(연결 버튼이 no-op이거나
                     해제 고지가 뭉뚱그려지는 무증상 실패)을 타입으로 막는 자리다.
                     선택 필드 consentSideEffect는 "동의 승인만으로 provider 쪽에 생겨 서버가 되돌리지
@@ -83,6 +84,14 @@ src/
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
                     constellation(성좌 배치: 별성 force + 위성 궤도) · canvasColor(CSS 토큰 → Canvas RGB)
                     heroConstellation · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
+                    remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
+                    **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
+                    (서버가 타임존을 굳히면 저장된 답변이 그 타임존에 영구히 묶인다, docs/tools.md).
+                    로캘은 format.ts의 `UI_LOCALE` 한 곳에서만 정한다 — 언어 분리(i18n) 도입 시
+                    이 상수만 설정 훅으로 교체하면 포맷터가 함께 따라온다. 타임존은 로캘과 별개로
+                    기기 설정이 자동 적용되므로 어디에도 하드코딩하지 않는다.
+                    **언어 분리 작업 전에 docs/i18n.md를 읽는다** — 로캘·타임존을 묶으면 안 되는
+                    이유와 시각 표시 계약(날짜 단독·코드블록 미변환 등)이 거기 있다
   auth/             AuthProvider(세션 상태) · tokenStorage(localStorage)
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)

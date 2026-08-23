@@ -1,24 +1,16 @@
 import { useMemo } from "react";
 
 import { Icons } from "@/components/Icons";
+import { useExitPresence } from "@/hooks/useExitPresence";
 import type { Star } from "@/lib/constellation";
 import { NODE_TYPE_INFO, type GraphNode, type GraphNodeType } from "@/types/graph";
 
-/** 다른 성좌와의 연결 — 무엇을 공유해서 이어졌는지까지 함께 넘긴다. */
-export interface Connection {
-  index: number;
-  star: Star;
-  shared: GraphNode[];
-}
-
 interface Props {
-  star: Star;
-  connections: Connection[];
+  star: Star | null;
   selectedId: string | null;
   /** 이 작업의 이웃을 불러오는 중인지 (성좌 드릴인 지연 로딩). */
   loading?: boolean;
   onSelectNode: (node: GraphNode) => void;
-  onJump: (index: number) => void;
   onClose: () => void;
 }
 
@@ -27,16 +19,16 @@ const GROUP_ORDER: GraphNodeType[] = ["commit", "code", "jira", "issue", "doc", 
 
 export function ConstellationDetail({
   star,
-  connections,
   selectedId,
   loading = false,
   onSelectNode,
-  onJump,
   onClose,
 }: Props) {
+  const { shown, exiting, onExitAnimationEnd } = useExitPresence(star);
+  // useMemo는 조기 return보다 앞에 와야 한다(훅 순서 고정) — shown이 없을 때는 빈 배열로 계산.
   const groups = useMemo(() => {
     const map = new Map<GraphNodeType, GraphNode[]>();
-    for (const sat of star.satellites) {
+    for (const sat of shown?.satellites ?? []) {
       const list = map.get(sat.node.type);
       if (list) list.push(sat.node);
       else map.set(sat.node.type, [sat.node]);
@@ -45,22 +37,27 @@ export function ConstellationDetail({
       type: t,
       nodes: map.get(t)!,
     }));
-  }, [star]);
+  }, [shown]);
+
+  if (!shown) return null;
 
   return (
-    <div className="galaxy-detail">
+    <div
+      className={"galaxy-detail" + (exiting ? " is-exiting" : "")}
+      onAnimationEnd={onExitAnimationEnd}
+    >
       <div className="gd-head">
         <div
           className="gd-badge"
-          style={{ background: NODE_TYPE_INFO[star.node.type].cssVar }}
+          style={{ background: NODE_TYPE_INFO[shown.node.type].cssVar }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="gd-title">{star.node.title}</div>
+          <div className="gd-title">{shown.node.title}</div>
           <div className="gd-meta">
-            {star.authors.length > 0 ? star.authors.join(", ") : star.node.meta}
+            {shown.authors.length > 0 ? shown.authors.join(", ") : shown.node.meta}
           </div>
         </div>
-        <button className="icon-btn" title="성좌 닫기" onClick={onClose}>
+        <button className="icon-btn" title="닫기" onClick={onClose}>
           <Icons.X />
         </button>
       </div>
@@ -103,38 +100,7 @@ export function ConstellationDetail({
             ))}
           </div>
         ))}
-
-        {connections.length > 0 && (
-          <div className="gd-section">
-            <div className="gd-section-title">
-              연결된 성좌 {connections.length}
-            </div>
-            {connections.map((c) => (
-              <button
-                key={c.index}
-                className="gd-link"
-                onClick={() => onJump(c.index)}
-                title="이 성좌로 이동"
-              >
-                <span className="gd-item-text">{c.star.node.title}</span>
-                <span className="gd-link-meta">
-                  {/* 무엇을 공유해 이어졌는지 — 대개 같은 파일이나 같은 티켓이다. */}
-                  {sharedLabel(c.shared)}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
-}
-
-function sharedLabel(shared: GraphNode[]): string {
-  if (shared.length === 0) return "직접 연결";
-  const counts = new Map<GraphNodeType, number>();
-  for (const n of shared) counts.set(n.type, (counts.get(n.type) ?? 0) + 1);
-  return [...counts.entries()]
-    .map(([type, n]) => `${NODE_TYPE_INFO[type].label} ${n}`)
-    .join(" · ");
 }

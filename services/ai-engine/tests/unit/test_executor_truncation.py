@@ -8,7 +8,7 @@
 import json
 import unittest
 
-from tools.executor import _MAX_RESULT_CHARS, _truncate_payload
+from tools.executor import _MAX_RESULT_CHARS, _round_scores, _truncate_payload
 
 
 def _long_rows(n: int, row_chars: int = 500) -> list[dict]:
@@ -92,6 +92,44 @@ class TruncatePayloadTest(unittest.TestCase):
         self.assertGreaterEqual(len(parsed["detail"]), 1)      # 최소 1건 보존
         self.assertLess(len(parsed["detail"]), 8)              # 일부는 줄어듦
         self.assertIn("detail_truncated", parsed)
+
+
+class RoundScoresTest(unittest.TestCase):
+    """점수·신뢰도 반올림 — 원시 float가 답변 본문에 그대로 실리는 것을 막는다.
+
+    실측(2026-08-21 eval): "연결 신뢰도가 0.6319704674079566인 유사도 기반 추정 연결".
+    판단에는 두 자리면 충분하다 — 프롬프트의 "0.5~0.7 구간이면 추정으로 명시" 규칙도 그대로 성립한다.
+    """
+
+    def test_rounds_nested_scores(self):
+        result = {
+            "issues": [{"issue_key": "HT-1", "confidence": 0.6319704674079566}],
+            "documents": [{"relevance": 0.123456789, "section": "설계"}],
+        }
+
+        out = _round_scores(result)
+
+        self.assertEqual(0.63, out["issues"][0]["confidence"])
+        self.assertEqual(0.12, out["documents"][0]["relevance"])
+        self.assertEqual("설계", out["documents"][0]["section"])
+
+    def test_non_score_numbers_untouched(self):
+        # 기간·개수는 반올림 대상이 아니다 — duration_days 50.8이 50.8로 남아야 한다.
+        result = {"duration_days": 50.83333, "discussion_count": 13, "hash": "8cdb0cc"}
+
+        out = _round_scores(result)
+
+        self.assertEqual(50.83333, out["duration_days"])
+        self.assertEqual(13, out["discussion_count"])
+        self.assertEqual("8cdb0cc", out["hash"])
+
+    def test_none_and_lists_survive(self):
+        result = [{"confidence": None}, {"confidence": 1.0}]
+
+        out = _round_scores(result)
+
+        self.assertIsNone(out[0]["confidence"])
+        self.assertEqual(1.0, out[1]["confidence"])
 
 
 if __name__ == "__main__":

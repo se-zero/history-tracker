@@ -107,6 +107,16 @@ body:has(.lp) {
   to   { opacity: var(--lit-o, 1); transform: none; }
 }
 
+/* 그래프 탐색(기능 2) 트리오 노드 발화 전용 — 딤(안 보이는 0이 아니라 "어둡게 있던" 상태)
+   에서 점등으로 올라간다. lp-lit-node-in은 0→1이라 "없다가 나타난다"로 읽히는데, 이 슬롯은
+   "전부 어두운 채로 있다가 근거만 찾아 밝아진다"는 서사라 시작값이 달라야 한다. --gx-dim은
+   .lp-feature-graph가 정의(landing.css 기능 2 섹션) — 딤 클래스와 값이 어긋나지 않게 한
+   곳에서만 참조한다. */
+@keyframes lp-gx-ignite {
+  from { opacity: var(--gx-dim, 0.4); }
+  to   { opacity: 1; }
+}
+
 /* 점등 엣지 — stroke-dashoffset 드로잉. SVG 쪽에서 pathLength="1"을 지정해 실제 픽셀
    길이와 무관하게 0→1 오프셋으로 그려지게 한다. transform·opacity만 애니메이션한다는
    원칙의 명시적 예외다 — DESIGN.md가 "그래프가 살아나는 순간"의 시각 언어로 지시한 기법이고,
@@ -601,10 +611,12 @@ body:has(.lp) {
   padding: 20px 22px 16px;
 }
 
+/* 실앱 citation-cards(chat.css)와 동일한 2열 그리드 — 카드 3장이면 2+1로 흐른다
+   (2026-08-21 실앱 일치화). */
 .lp-hero-app-sources {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 /* 4차 폰트 스케일업 — 컨테이너만 커지고 내부가 그대로면 여백만 늘어 "썸네일"로 돌아간다
@@ -621,9 +633,7 @@ body:has(.lp) {
   line-height: 1.75; /* 한글 산문 15px 행간(DESIGN.md 1.7~1.75) */
 }
 .lp-hero-app .lp-feature-chat-source-num,
-.lp-hero-app .lp-feature-chat-badge,
-.lp-hero-app .lp-feature-chat-meta,
-.lp-hero-app .lp-feature-chat-composer-hint {
+.lp-hero-app .lp-feature-chat-meta {
   font-size: 13px;
 }
 /* 패딩도 폰트에 비례 상향 — 버블·카드가 커진 글자에 비해 갑갑해지지 않게. */
@@ -1327,11 +1337,12 @@ body:has(.lp) {
 }
 
 /* ── 기능 1 미리보기: 대화 — 실제 앱 화면의 단면 (2026-07-24 밀도 개선) ─────────────
-   좌: 사이드 레일 크롭(검색+내비 5개+대화 히스토리), 헤어라인 하나로만 슬롯과 구분(별도
+   좌: 사이드 레일 크롭(검색+내비 6개+대화 히스토리), 헤어라인 하나로만 슬롯과 구분(별도
    elevation 없음 — 슬롯 자체가 이미 surface-1). 우: 브레드크럼 → Q&A 스트림(사용자 버블 →
    답변 산문 → 출처 카드 3장) → 하단 입력창, 각 구간을 헤어라인으로 나눠 실제 앱의
-   "상단바 / 스트림 / 입력창" 3단 구조를 그대로 재현한다. 배지·모노 메타·mono 번호는 라틴
-   모노, 내용 줄·히스토리 제목은 한글이라 본문 서체(DESIGN.md 모노 스코프 규칙). 슬롯
+   "상단바 / 스트림 / 입력창" 3단 구조를 그대로 재현한다. 브랜드 로고+무채 타입 라벨
+   (2026-08-21 실앱 일치화 — 이전의 노드색 배지는 폐기)·mono 번호·모노 날짜는 라틴 토큰,
+   작성자·내용 줄·히스토리 제목은 한글이라 본문 서체(DESIGN.md 모노 스코프 규칙). 슬롯
    (.lp-feature-media--chat)이 종횡비 없이 콘텐츠 높이를 따르므로 height:100%는 두지
    않는다 — 이 블록의 실제 콘텐츠 높이가 곧 슬롯 높이다. */
 .lp-feature-chat {
@@ -1458,7 +1469,11 @@ body:has(.lp) {
   max-width: 85%;
   margin: 0;
   padding: 7px 12px;
-  border-radius: var(--lp-r-md);
+  /* 실앱 .msg.user .msg-content(chat.css)과 동일 — 16px 라운드에 우상단만 5px로 좁힌다
+     (2026-08-21 실앱 일치화). 5px는 실앱 자체도 DESIGN.md radius 스케일 밖의 리터럴이라
+     같은 값을 그대로 옮긴다. */
+  border-radius: var(--lp-r-lg);
+  border-top-right-radius: 5px;
   background: var(--lp-surface-2);
   color: var(--lp-text-primary);
   font-family: var(--lp-font-body);
@@ -1489,110 +1504,146 @@ body:has(.lp) {
   white-space: nowrap; /* 짧은 기술 토큰이 칩 중간에서 꺾이면 조판 사고처럼 보인다(모바일) */
 }
 
+/* 실앱 citation-cards(chat.css)와 동일한 2열 그리드 — 카드 3장이면 2+1로 흐른다
+   (2026-08-21 실앱 일치화). */
 .lp-feature-chat-sources {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
+/* 카드 = [#N 칩] [본문(메타 행 + 인용문)] 가로 flex — 실앱 cite-card(chat.css) 구조 그대로
+   (2026-08-21 실앱 일치화). overflow:hidden — 메타 행이 좁은 카드 폭을 넘치면 인용문이
+   아니라 카드 자체가 잘라 감당한다(아래 .lp-feature-chat-meta 주석 참고). */
 .lp-feature-chat-source {
-  padding: 8px 10px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
   border-radius: var(--lp-r-md);
   background: var(--lp-surface-2);
+  overflow: hidden;
   /* 상단 엣지 하이라이트 — 위에서 빛을 받는 질감(들린 표면 공통 규칙). border는 없으므로
      충돌 없음. */
   box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
 }
 
-/* flex-wrap — 카드 헤더(번호+배지+메타)가 좁은 폭에서 두 줄로 자연스럽게 접히게 한다
-   (겹침·overflow 대신). */
-.lp-feature-chat-source-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  row-gap: 4px;
-}
-
-/* 출처 번호(#1~#3) — 조용한 참조 표식, 타입 배지의 노드 색이 주된 시각 식별자다. */
+/* 출처 번호(#1~#3) — 실앱 cite-idx(chat.css)처럼 카드 좌측에 붙는 별도 칩 칼럼.
+   배경은 실앱 값(surface-2)을 그대로 옮기면 이 카드 배경(이미 surface-2)과 같아져 칩이
+   묻힌다 — 카드보다 한 단계 밝은 관계(실앱은 surface-1 카드 위 surface-2 칩)를 유지하려면
+   한 단계 위인 surface-3을 써야 한다. radius도 실앱은 r-xs(4px)인데 랜딩 토큰엔 대응값이
+   없어 가장 가까운 r-sm(6px)을 쓴다. */
 .lp-feature-chat-source-num {
+  flex-shrink: 0;
   font-family: var(--lp-font-mono);
-  font-size: 12px;
+  font-size: 10.5px;
   color: var(--lp-text-muted);
+  background: var(--lp-surface-3);
+  padding: 2px 5px;
+  border-radius: var(--lp-r-sm);
+  border: 1px solid var(--lp-border);
 }
 
-/* 타입 배지 — 카드가 노드를 지시하므로 노드 색을 쓴다(네임스페이스 규칙). 배경은 저투명
-   틴트 + 글자는 노드 색 그대로(색 hex를 새로 만들지 않고 토큰에서 color-mix로 파생).
-   모노 라벨이므로 DESIGN.md 스케일 최소인 12px(mono-label) 미만으로 두지 않는다. */
-.lp-feature-chat-badge {
+/* 본문 칼럼 — 메타 행 + 인용문(실앱 cite-body). */
+.lp-feature-chat-source-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 타입 라벨 — 실앱 cite-card head(chat.css .cite-type)와 동일하게 브랜드 로고 13px + 무채
+   타입 라벨이다(2026-08-21 실앱 일치화 — 이전의 노드색 배지는 폐기). 카드가 노드를
+   지시하지만 실앱 자체가 배지 없이 로고+무채 라벨로 표기하므로 그 형태를 그대로 따른다. */
+.lp-feature-chat-source-type {
   display: inline-flex;
   align-items: center;
-  padding: 2px 6px;
-  border-radius: var(--lp-r-sm);
-  font-family: var(--lp-font-mono);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.4;
-}
-.lp-feature-chat-badge--issue {
-  background: color-mix(in srgb, var(--lp-node-issue) 16%, transparent);
-  color: var(--lp-node-issue);
-}
-.lp-feature-chat-badge--message {
-  background: color-mix(in srgb, var(--lp-node-slack) 16%, transparent);
-  color: var(--lp-node-slack);
-}
-.lp-feature-chat-badge--pr {
-  background: color-mix(in srgb, var(--lp-node-pr) 16%, transparent);
-  color: var(--lp-node-pr);
+  gap: 4px;
 }
 
-/* 모노 메타(HT-64 · 2026-06-12) — DESIGN.md 스케일 최소 12px(mono-label) 미만으로 두지 않는다. */
+.lp-feature-chat-source-logo {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+/* 메타 행 — 타입 라벨 + 작성자 + 날짜를 "·"로 잇는다(실앱 cite-meta와 동일 구성).
+   작성자는 한글이라 본문 서체(모노 금지), 날짜만 라틴 기술 토큰이라 모노
+   (아래 .lp-feature-chat-source-date). 2열 그리드로 카드가 좁아지며 실앱 원본 크기
+   (11px)로 낮췄다(2026-08-21 실앱 일치화 — 기존 12px 하한 관례보다 "실앱과 같아 보이는 것"
+   우선). min-width:0 + 자식 flex-shrink:0(실앱 cite-meta와 동일) — 카드 폭이 부족하면
+   인용문이 줄어드는 게 아니라 이 행 자체가 카드의 overflow:hidden에 잘려 감당한다. */
 .lp-feature-chat-meta {
-  font-family: var(--lp-font-mono);
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-family: var(--lp-font-body);
+  font-size: 11px;
   color: var(--lp-text-secondary);
+  min-width: 0;
+}
+.lp-feature-chat-meta > * {
+  flex-shrink: 0;
 }
 
+.lp-feature-chat-source-date {
+  font-family: var(--lp-font-mono);
+}
+
+/* 인용문 — 실앱 cite-snippet 원본 크기(11.5px)로 낮췄다(2열 카드 폭 대응,
+   2026-08-21 실앱 일치화). */
 .lp-feature-chat-source-body {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   font-family: var(--lp-font-body);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 11.5px;
+  line-height: 1.45;
   color: var(--lp-text-primary);
   word-break: keep-all;
 }
 
-/* 하단 입력창 — 비포커스 상태(앰버 포커스 링 없음, 실제 포커스된 입력이 아니다).
-   전송 버튼만 DESIGN.md 기본 버튼 레시피(앰버 채움 + surface-0 아이콘, 대비 ~11:1,
-   `.lp-btn--primary`와 동일)를 작은 아이콘 버튼 크기로 축소 적용한다. */
+/* 하단 입력창 — 실앱 컴포저(chat.css `.composer`/`.composer-box`)와 같은 구조로 재구성했다
+   (2026-08-21 사용자 피드백: 헤어라인이 "별도 섹션"으로 읽힘). `.composer`는 구분선 없이
+   본문 배경 위에 패딩만 두고 얹히므로 상단 보더를 없앴다 — 기능 1·히어로가 이 클래스를
+   공유해 한 번에 둘 다 고쳐진다. margin-top:auto는 레일 컬럼이 더 길어 메인 컬럼에 남는
+   세로 공간이 생기면 컴포저를 실제 앱처럼 하단에 붙이고, 남는 여백은 스트림과 컴포저
+   사이(gap)로 가게 한다(히어로는 이미 `.lp-hero-app-composer`로 같은 효과를 내고 있었다 —
+   이제 공유 클래스 레벨에서 통일). 하단 패딩은 실앱 비율(12:24 ≈ 1:2)을 이 슬롯 밀도에
+   맞춰 절제해서 반영했다(그대로 2배는 과함). */
 .lp-feature-chat-composer {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 18px 16px;
-  border-top: 1px solid var(--lp-border);
+  padding: 12px 18px 20px;
+  margin-top: auto;
 }
 
+/* 두 행 구조(placeholder 행 → 하단 액션 행, 전송 버튼 우측 정렬) — 실앱 `.composer-box`가
+   textarea 위·`.composer-actions` 아래로 나뉘는 것과 동일 문법. 한 줄 인라인이던 이전
+   구조보다 실제 입력창에 가깝다. radius는 md→lg로 올려 실앱 `.composer-box`(r-lg)와 맞춘다.
+   배경·보더는 기존 토큰 유지. */
 .lp-feature-chat-composer-box {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  padding: 8px 8px 8px 12px;
+  padding: 10px 12px;
   border: 1px solid var(--lp-border);
-  border-radius: var(--lp-r-md);
+  border-radius: var(--lp-r-lg);
   background: var(--lp-surface-2);
 }
 
 .lp-feature-chat-composer-placeholder {
-  flex: 1;
-  min-width: 0;
   font-family: var(--lp-font-body);
   font-size: 13px;
   color: var(--lp-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 하단 액션 행 — 실앱 `.composer-actions`(spacer + 버튼)와 같은 역할을 justify-content로
+   단순화했다(이 미리보기엔 버튼이 전송 하나뿐이라 spacer 요소가 필요 없다). */
+.lp-feature-chat-composer-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .lp-feature-chat-composer-send {
@@ -1607,68 +1658,180 @@ body:has(.lp) {
   color: var(--lp-surface-0);
 }
 
-.lp-feature-chat-composer-hint {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  font-family: var(--lp-font-body);
-  font-size: 12px;
-  color: var(--lp-text-muted);
-}
-
-/* Enter / Shift+Enter — 라틴 키 이름만 모노, "전송"/"줄바꿈"은 본문 서체(부모에서 상속). */
-.lp-feature-chat-kbd {
-  font-family: var(--lp-font-mono);
-  color: var(--lp-text-secondary);
-}
-
-/* ── 기능 2 미리보기: 그래프 탐색 (DESIGN.md "그래프 캔버스" 스펙) ─────────────────
-   캔버스(DESIGN.md대로 가장 깊은 층 surface-0)가 슬롯 전체를 채우고, 툴바·범례는 그 위에
-   뜨는 오버레이다(실제 그래프 툴처럼 — 줌 컨트롤과 같은 "플로팅" 취급). 캔버스를 툴바·범례
-   아래 남는 flex 공간으로 접었던 이전 레이아웃은 범례(7 pill)·툴바(버튼 2개+카운트)가 좁은
-   폭에서 각각 줄바꿈될 때 캔버스가 라벨도 못 앉힐 만큼 짜부라지는 문제가 있었다 — 오버레이로
-   바꾸면 캔버스는 항상 슬롯 전체 크기를 쓰고, 툴바·범례가 몇 줄로 접히든 캔버스 크기와
-   무관해진다. MiniGraph는 stage=3을 그대로 써서 점등 경로(앰버)가 온전히 보이게 한다 —
-   이 페이지에서 앰버가 허용되는 유일한 슬롯 요소. 절제 원칙(브리프 B-4, 페이지에 이미
-   그래프가 둘이라) 때문에 기본 노드/엣지는 애니메이션 없이 정적이고, 앰버 경로만 IO 1회
-   트리거로 부드럽게 페이드 인한다(드로잉 없이) — FeatureSections.tsx의 useInViewOnce가
-   is-played를 부여한다. */
+/* ── 기능 2 미리보기: 그래프 탐색 (실앱 "그래프 확인" 탭 = 작업 성좌 뷰의 축소 재현) ─────
+   캔버스(DESIGN.md "그래프 캔버스 층" — surface-canvas, 사다리보다 한 칸 더 깊은 우물)가
+   슬롯 전체를 채우고, 상단 툴바는 그 위에 뜨는 오버레이다(실제 그래프 툴처럼 — 줌 컨트롤과
+   같은 "플로팅" 취급). 2026-08 재구축으로 MiniGraph(작동 방식 섹션의 개념 도식) 확장 대신
+   실앱 ConstellationVis.tsx의 drawScene 문법(배경 먼지 별·성좌 스포크·다리)을 정적 SVG로
+   직접 그린다 — 데모 데이터·서사는 FeatureSections.tsx의 GraphExplorerPreview 주석 참고.
+   2026-08-21 재연출(2차)로 좌하단 렌즈 범례·우하단 줌 컨트롤을 걷어내고, 대신 답변 경로
+   (HT-64 → PR #142 → #dev-search)만 앰버로 밝고 나머지는 딤 처리되는 "점등" 문법(히어로
+   관련 그래프 패널과 동일 언어)으로 바꿨다 — "근거를 찾아주는" 인상이 목표다. 같은 날 3차
+   재연출로 한 단계 더 나아갔다: "어두운 노드들 중에서 근거를 탐색해서 찾아 빛내는 느낌"이
+   목표라는 사람 피드백으로, 트리오도 처음엔 나머지와 똑같이 딤 상태로 시작하고(2차는
+   트리오만 처음부터 밝았다) HT-64→엣지 드로잉→PR#142→엣지 드로잉→#dev-search 순으로 하나씩
+   순차 발화한다(동시 점등 금지). 절제 원칙(브리프 B-4, 페이지에 이미 그래프가 둘이라)
+   때문에 배경·성좌·다리는 전부 정적이고, 점등 오버레이(채움·링·헤일로·경로·라벨)만 IO
+   1회 트리거로 재생한다 — FeatureSections.tsx의 useInViewOnce가 is-played를 부여한다.
+   지속시간은 아래 .lp-feature-graph 로컬 변수(--gx-node-dur·--gx-edge-dur)가, 시작
+   지연(순서)은 "베이스 클래스 + id 수식자 클래스" 복합 셀렉터에 매긴 리터럴 ms 값이
+   담당한다(3차 재수정 — 아래 "순차 안무 지연" 블록 주석 참고, 커스텀 프로퍼티 간접
+   참조로 지연이 전혀 걸리지 않던 실측 결함을 없앤 버전이다). */
 .lp-feature-graph {
   position: relative;
   height: 100%;
+  /* 순차 탐색 안무 로컬 상수(2026-08-21 3차 재연출) — "어두운 노드들 사이에서 근거를 찾아
+     빛낸다"는 서사를 위해 트리오를 동시에 켜지 않고 노드(발화)→엣지(드로잉)→노드→엣지→
+     노드 순으로 하나씩 밝힌다. --gx-node-dur: 노드 한 개 발화(딤→점등) 지속시간.
+     --gx-edge-dur: 두 노드 사이 엣지가 그어지는 지속시간(작동 방식 --how-edge-dur와 같은
+     "사람 튜닝 기준점" — duration만 이 두 값을 바꾸면 전체가 함께 느려지거나 빨라진다).
+     --gx-dim: 비점등·발화 전 노드 채움 불투명도 — 아래 .lp-feature-graph-node--dim과
+     lp-gx-ignite 키프레임(landing.css 상단)이 이 값을 공유해 시작 상태가 어긋나지
+     않게 한다. */
+  --gx-node-dur: 280ms;
+  --gx-edge-dur: 600ms;
+  --gx-dim: 0.4;
 }
-/* 앰버 경로 점등(7차 개정) — 기존의 그룹 단일 페이드(420ms)는 "모션이 있었는지도 모른다"는
-   지시로 폐기. 요소별 순차 점등(엣지 드로잉 → 노드 스프링, MiniGraph.tsx의 --lit-d 교차
-   비트)으로 바꾸되 절제는 유지한다(앰버 경로만 움직이고 기본 노드·엣지는 정적 그대로).
-   전체 점등 = 최대 --lit-d(6×230ms) + 요소 420ms = 1800ms, 점등 후 유지(fill, 루프 없음). */
-.lp-feature-graph .lp-how-lit-node,
-.lp-feature-graph .lp-how-lit-halo {
+
+/* 근거가 아닌 별성·위성 딤 — 장면 전체(점등 트리오 포함)가 이 딤 상태로 시작해야 "어두운
+   노드들 사이에서 근거를 찾아 빛낸다"는 인상이 성립한다(2026-08-21 3차: 트리오도 예외
+   없이 기본 딤 — 이전엔 트리오만 처음부터 밝았다). 트리오는 아래 lp-gx-ignite 안무가 이
+   값에서 1로 끌어올리고, 나머지는 계속 이 값에 머문다. 스포크·다리는 개별 노드와 무관하게
+   항상 딤 — 앰버 경로는 별도 오버레이(.lp-feature-graph-lit-edge)가 담당하므로 기존
+   구조선을 선택적으로 밝히지 않는다. */
+.lp-feature-graph-node--dim {
+  opacity: var(--gx-dim);
+}
+
+/* 앰버 점등 오버레이 — 이 슬롯에서 앰버가 허용되는 지점(답변 경로, DESIGN.md 시그니처).
+   히어로 관련 그래프 패널(HeroProductSlot.tsx)과 같은 문법: 채움은 노드 타입 색 유지 +
+   앰버 링(r+RING_GAP)·헤일로, 경로는 링 바깥에서 시작/끝나는 trimLitEdge.
+
+   2026-08-21 3차 재수정 — 프레임 캡처 실측 결함 2건을 고쳤다:
+   ① 지연 미적용(전부 t≈0 동시 시작): 이전 구현은 커스텀 프로퍼티 --gx-t를 아이디별
+   수식자 클래스(예: .lp-feature-graph-lit-ring--pr)가 선언하고, 그 값을 애니메이션을
+   실제로 트리거하는 다른 규칙(.lp-feature-graph.is-played .lp-feature-graph-lit-ring)이
+   var(--gx-t)로 "건너 읽는" 구조였다 — 두 규칙이 같은 엘리먼트를 다른 선택자로 각각
+   매칭하는 간접 참조라 신뢰할 수 없었다(정확한 원인은 미확정이나 재현이 실측으로 확인돼
+   구조 자체를 없앴다). 지금은 커스텀 프로퍼티 간접 참조를 걷어내고, "베이스 클래스 +
+   아이디 수식자 클래스"를 **하나의 선택자에 나열한 복합 셀렉터**에 리터럴 ms 값을 직접
+   선언한다(아래 "순차 안무 지연" 블록) — 딜레이가 걸리는 지점이 코드에서 곧바로 보인다.
+   animation-name/duration/timing-function/fill-mode는 이 블록에서 롱핸드로 선언하고,
+   딜레이만 아래 블록이 animation-delay 롱핸드로 얹는다(같은 프로퍼티를 두 규칙이 나눠
+   맡을 때 섀도우(단축형이 나중에 와 초기화하는 사고)를 원천 차단한다).
+   ② 엣지가 파편으로 남음(끝까지 재생해도 링 사이를 잇는 완전한 선이 안 됨): pathLength가
+   <line>에 안정적으로 적용되지 않는 브라우저 동작이 유력해 <path d="M…L…">로 바꿨다
+   (JSX). fill: none을 명시(선분 path는 열린 경로라 실질적 영향은 없지만, 다른 path
+   기반 요소(.lp-feature-graph-bridge)와 같은 관례로 명시적으로 끈다). */
+.lp-feature-graph-lit-ring,
+.lp-feature-graph-lit-halo {
+  transform-box: fill-box;
+  transform-origin: center;
   opacity: 0;
 }
-.lp-feature-graph .lp-how-lit-edge {
+.lp-feature-graph-lit-ring {
+  fill: none;
+  stroke: var(--lp-accent-ink);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+/* 엣지는 즉시 색이 바뀌는 페이드가 아니라 "선이 그려지듯" 밝아진다(stroke-dashoffset
+   드로잉 — 작동 방식 02가 쓰는 것과 같은 lp-lit-edge-draw 키프레임을 재사용). 즉시 전환
+   대신 드로잉을 택한 이유: ①"다음 근거를 향해 탐색이 이어진다"는 서사가 색 전환보다
+   또렷하고 ②이미 사람이 승인한 검증된 문법이라 새 시각 규칙을 만들지 않아도 된다.
+   JSX에서 pathLength=1을 지정해 실제 좌표 길이와 무관하게 0~1 정규화 좌표로 그려진다 —
+   시작점에서 끝점 방향으로 그려지므로 GRAPH_LIT_EDGES의 [a, b] 순서가 곧 드로잉
+   방향이다(HT-64→PR #142, PR #142→#dev-search). dasharray는 이 키프레임(dashoffset만
+   다룬다)이 건드리지 않으므로 아래 값이 애니메이션 내내 유지된다 — dashoffset이 1→0으로
+   줄며 길이 1(=pathLength 전체)짜리 dash 하나가 끝점까지 그대로 드러난다(끊긴 조각 없이
+   완전한 선). */
+.lp-feature-graph-lit-edge {
+  fill: none;
+  stroke: var(--lp-accent-ink);
+  /* vector-effect: non-scaling-stroke 금지 — Chromium이 non-scaling-stroke에서 대시 패턴을
+     화면 좌표로 계산해, pathLength=1 정규화 대시(사용자 좌표)와 뷰박스 배율만큼 어긋나며
+     드로잉이 경로 중간(데스크톱 ≈70%)에서 끊긴 파편으로 남는 실측 결함이 있었다.
+     굵기는 사용자 좌표로 두고 배율(데스크톱 ≈1.43×)을 나눠 시각 ~1.6px로 맞춘다. */
+  stroke-width: 1.1;
+  stroke-linecap: round;
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
 }
-.lp-feature-graph.is-played .lp-how-lit-edge {
-  animation: lp-lit-edge-draw var(--lp-dur-slow) var(--lp-ease-standard)
-    var(--lit-d, 0ms) both;
+.lp-feature-graph.is-played .lp-feature-graph-lit-ring {
+  animation-name: lp-lit-node-in;
+  animation-duration: var(--gx-node-dur);
+  animation-timing-function: var(--lp-ease-spring);
+  animation-fill-mode: both;
+  --lit-o: 0.95;
 }
-.lp-feature-graph.is-played .lp-how-lit-node,
-.lp-feature-graph.is-played .lp-how-lit-halo {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: lp-lit-node-in var(--lp-dur-slow) var(--lp-ease-spring)
-    var(--lit-d, 0ms) both;
+.lp-feature-graph.is-played .lp-feature-graph-lit-halo {
+  animation-name: lp-lit-node-in;
+  animation-duration: var(--gx-node-dur);
+  animation-timing-function: var(--lp-ease-spring);
+  animation-fill-mode: both;
+  --lit-o: 1;
+}
+.lp-feature-graph.is-played .lp-feature-graph-lit-edge {
+  animation-name: lp-lit-edge-draw;
+  animation-duration: var(--gx-edge-dur);
+  animation-timing-function: var(--lp-ease-standard);
+  animation-fill-mode: both;
+}
+.lp-feature-graph.is-played .lp-feature-graph-node--ignite-issue,
+.lp-feature-graph.is-played .lp-feature-graph-node--ignite-pr,
+.lp-feature-graph.is-played .lp-feature-graph-node--ignite-slack {
+  animation-name: lp-gx-ignite;
+  animation-duration: var(--gx-node-dur);
+  animation-timing-function: var(--lp-ease-standard);
+  animation-fill-mode: both;
+}
+.lp-feature-graph-halo-stop-start {
+  stop-color: var(--lp-accent-glow);
+}
+.lp-feature-graph-halo-stop-end {
+  stop-color: var(--lp-accent-glow);
+  stop-opacity: 0;
 }
 
-/* 툴바+범례 묶음 — position 지정을 여기 하나에만 둬서(자식은 static 그대로) 뒤에 오는
-   절대배치 캔버스보다 이 묶음이 항상 위에 그려지게 한다(포지션드 vs 스태틱 형제 사이에서는
-   DOM 순서와 무관하게 포지션드가 이긴다는 규칙 — 캔버스가 먼저 나와도 이 wrapper가
-   position을 가지면 이후 DOM 순서로 스택되어 위로 온다).
-   배경(슬롯 원래 표면인 surface-1, 새 색 아님)을 불투명하게 깔아 둔다 — 좁은 폭에서 범례·
-   툴바가 여러 줄로 접히면 그 아래 놓인 노드 라벨과 뒤엉켜 보이는 문제가 있었다. 이 패널이
-   차지한 만큼 캔버스 위쪽이 가려지는 건 "축소하지 말고 잘라내라" 원칙과 같은 방향의 크롭이다
-   (그래프를 줄이는 대신 화면을 가린다). */
+/* 순차 안무 지연(animation-delay) — 위 블록이 name/duration/easing/fill-mode를 정하고,
+   이 블록은 딜레이만 얹는다. 커스텀 프로퍼티 간접 참조를 쓰지 않고, "베이스 클래스 +
+   아이디 수식자 클래스"를 한 선택자에 나열한 복합 셀렉터(예: .lp-feature-graph-lit-ring
+   .lp-feature-graph-lit-ring--issue가 아니라 .lp-feature-graph-lit-ring.lp-feature-graph-
+   lit-ring--issue — 공백 없는 두 클래스, 같은 엘리먼트가 둘 다 가져야 매칭)에 리터럴 ms
+   값을 직접 쓴다. 값은 --gx-node-dur(280ms)·--gx-edge-dur(600ms)에서 사람이 손으로
+   미리 계산한 것 — 위 두 상수를 바꾸면 아래 다섯 줄도 같이 맞춰야 한다(자동 유도 없음,
+   2026-08-21 3차 재수정에서 신뢰성을 위해 의도적으로 리터럴화했다). */
+.lp-feature-graph.is-played .lp-feature-graph-node--ignite-issue,
+.lp-feature-graph.is-played .lp-feature-graph-lit-ring.lp-feature-graph-lit-ring--issue,
+.lp-feature-graph.is-played .lp-feature-graph-lit-halo.lp-feature-graph-lit-halo--issue,
+.lp-feature-graph.is-played .lp-feature-graph-lit-label.lp-feature-graph-lit-label--issue {
+  animation-delay: 0ms; /* ① HT-64 발화 */
+}
+.lp-feature-graph.is-played .lp-feature-graph-lit-edge.lp-feature-graph-lit-edge--issue-pr {
+  animation-delay: 280ms; /* ② HT-64 → PR #142 엣지 드로잉 (= --gx-node-dur) */
+}
+.lp-feature-graph.is-played .lp-feature-graph-node--ignite-pr,
+.lp-feature-graph.is-played .lp-feature-graph-lit-ring.lp-feature-graph-lit-ring--pr,
+.lp-feature-graph.is-played .lp-feature-graph-lit-halo.lp-feature-graph-lit-halo--pr,
+.lp-feature-graph.is-played .lp-feature-graph-lit-label.lp-feature-graph-lit-label--pr {
+  animation-delay: 880ms; /* ③ PR #142 발화 (= --gx-node-dur + --gx-edge-dur) */
+}
+.lp-feature-graph.is-played .lp-feature-graph-lit-edge.lp-feature-graph-lit-edge--pr-slack {
+  animation-delay: 1160ms; /* ④ PR #142 → #dev-search 엣지 드로잉 (= --gx-node-dur × 2 + --gx-edge-dur) */
+}
+.lp-feature-graph.is-played .lp-feature-graph-node--ignite-slack,
+.lp-feature-graph.is-played .lp-feature-graph-lit-ring.lp-feature-graph-lit-ring--slack,
+.lp-feature-graph.is-played .lp-feature-graph-lit-halo.lp-feature-graph-lit-halo--slack,
+.lp-feature-graph.is-played .lp-feature-graph-lit-label.lp-feature-graph-lit-label--slack {
+  animation-delay: 1760ms; /* ⑤ #dev-search 발화 (= --gx-node-dur × 2 + --gx-edge-dur × 2) */
+}
+
+/* 상단 툴바 — position 지정을 여기 하나에만 둬서(자식은 static 그대로) 뒤에 오는 절대배치
+   캔버스보다 이 패널이 항상 위에 그려지게 한다(포지션드 vs 스태틱 형제 사이에서는 DOM
+   순서와 무관하게 포지션드가 이긴다는 규칙). 배경(슬롯 원래 표면인 surface-1, 새 색 아님)을
+   불투명하게 깔아 둔다 — 좁은 폭에서 툴바가 여러 줄로 접히면 그 아래 캔버스와 뒤엉켜 보이는
+   문제가 있었다. 이 패널이 차지한 만큼 캔버스 위쪽이 가려지는 건 "축소하지 말고 잘라내라"
+   원칙과 같은 방향의 크롭이다(그래프를 줄이는 대신 화면을 가린다). */
 .lp-feature-graph-header {
   position: relative;
   background: var(--lp-surface-1);
@@ -1678,17 +1841,17 @@ body:has(.lp) {
   box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
 }
 
-/* 상단 툴바 — 재구축 액션 2개(좌) + 노드/엣지 카운트(우). 실제 앱에 있는 컨트롤·상태를
-   그대로 옮기되 이 미리보기 안에서는 눌리지 않으므로 <span>이고 앰버를 쓰지 않는다(라이브
-   컨트롤이 아니다 — DESIGN.md 앰버 규칙). 범례 행과 같은 가로 패딩을 쓰고 아래쪽 gap은
-   범례 자체의 padding-top(14px)에 맡긴다. */
+/* 툴바 — 재구축 액션 2개(좌) + 노드/엣지 카운트(우). 실제 앱에 있는 컨트롤·상태를 그대로
+   옮기되 이 미리보기 안에서는 눌리지 않으므로 <span>이고 앰버를 쓰지 않는다(라이브 컨트롤이
+   아니다 — DESIGN.md 앰버 규칙). 아래로는 이제 이 패널에 다른 행이 없으므로 상하 패딩을
+   균등하게 둔다(이전엔 하단 범례 행과의 gap을 범례 쪽 padding-top이 담당했다). */
 .lp-feature-graph-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 14px 0;
+  padding: 12px 14px;
 }
 
 .lp-feature-graph-actions {
@@ -1698,9 +1861,8 @@ body:has(.lp) {
 }
 
 /* DESIGN.md 보조 버튼 레시피(surface-2 + border, text-primary)를 이 슬롯 밀도에 맞춰
-   축소 적용 — 배합은 그 레시피 그대로이고 크기만 .lp-feature-source-action류의 컴팩트
-   스케일을 따른다. 내용이 한글이라 본문 서체(모노 스코프 규칙 — 라틴 기술 토큰이
-   아니다). */
+   축소 적용 — 배합은 그 레시피 그대로이고 크기만 미리보기용 컴팩트 스케일이다.
+   내용이 한글이라 본문 서체(모노 스코프 규칙 — 라틴 기술 토큰이 아니다). */
 .lp-feature-graph-action {
   padding: 5px 10px;
   border: 1px solid var(--lp-border);
@@ -1714,8 +1876,7 @@ body:has(.lp) {
 }
 
 /* 노드/엣지 카운트 — 숫자·구분점(·)만 모노, "노드"/"연결"은 한글이라 본문 서체를 상속한다
-   (모노 스코프 규칙). text-muted 수준으로 조용하게 — 이 슬롯의 다른 mono 라벨(범례 12px)과
-   달리 상태 고지라 가장 낮은 톤을 쓴다. */
+   (모노 스코프 규칙). text-muted 수준으로 조용하게 — 상태 고지라 가장 낮은 톤을 쓴다. */
 .lp-feature-graph-stats {
   font-family: var(--lp-font-body);
   font-size: 12px;
@@ -1726,69 +1887,110 @@ body:has(.lp) {
   font-family: var(--lp-font-mono);
 }
 
-.lp-feature-graph-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 14px 14px 10px;
-}
+/* 노드 타입 색 — 성좌 장면의 별성·위성·먼지 원(fill), DESIGN.md 노드 팔레트 참조. */
+.lp-feature-graph-dot--commit { background: var(--lp-node-commit); fill: var(--lp-node-commit); }
+.lp-feature-graph-dot--pr     { background: var(--lp-node-pr);     fill: var(--lp-node-pr); }
+.lp-feature-graph-dot--issue  { background: var(--lp-node-issue);  fill: var(--lp-node-issue); }
+.lp-feature-graph-dot--slack  { background: var(--lp-node-slack);  fill: var(--lp-node-slack); }
+.lp-feature-graph-dot--jira   { background: var(--lp-node-jira);   fill: var(--lp-node-jira); }
+.lp-feature-graph-dot--person { background: var(--lp-node-person); fill: var(--lp-node-person); }
+.lp-feature-graph-dot--file   { background: var(--lp-node-file);   fill: var(--lp-node-file); }
 
-/* 범례 pill 라벨 — 모노 라벨, DESIGN.md 스케일 최소 12px 미만으로 두지 않는다. */
-.lp-feature-graph-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: var(--lp-r-pill);
-  background: var(--lp-surface-2);
-  font-family: var(--lp-font-mono);
-  font-size: 12px;
-  color: var(--lp-text-secondary);
-  white-space: nowrap;
-}
-
-.lp-feature-graph-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex: none;
-}
-.lp-feature-graph-dot--commit { background: var(--lp-node-commit); }
-.lp-feature-graph-dot--pr     { background: var(--lp-node-pr); }
-.lp-feature-graph-dot--issue  { background: var(--lp-node-issue); }
-.lp-feature-graph-dot--slack  { background: var(--lp-node-slack); }
-.lp-feature-graph-dot--jira   { background: var(--lp-node-jira); }
-.lp-feature-graph-dot--person { background: var(--lp-node-person); }
-.lp-feature-graph-dot--file   { background: var(--lp-node-file); }
-
-/* 캔버스가 슬롯 전체를 채운다(위 .lp-feature-graph 주석 참고 — 툴바·범례는 이 위에 뜨는
-   오버레이). container-type: size — 아래 라벨 오버레이가 cqh/cqw(이 요소 크기의 1%) 단위로
-   SVG의 렌더 위치를 정확히 계산할 수 있게 이 요소를 사이즈 쿼리 컨테이너로 만든다. inset:0로
-   크기가 부모(.lp-feature-graph, 슬롯 100%)에서 바로 정해지므로(콘텐츠 기반이 아님)
-   containment와 충돌하지 않는다. */
+/* 캔버스가 슬롯 전체를 채운다(위 .lp-feature-graph 주석 참고 — 오버레이들은 이 위에 뜬다).
+   배경은 그래프 캔버스 층(--lp-surface-canvas — 사다리보다 한 칸 더 깊은 우물, DESIGN.md
+   "그래프 캔버스 층"). container-type: size — 아래 라벨 오버레이가 cqw(이 요소 크기의 1%)
+   단위로 SVG의 렌더 위치를 정확히 계산할 수 있게 이 요소를 사이즈 쿼리 컨테이너로 만든다.
+   inset:0로 크기가 부모(.lp-feature-graph, 슬롯 100%)에서 바로 정해지므로(콘텐츠 기반이
+   아님) containment와 충돌하지 않는다. */
 .lp-feature-graph-canvas {
   position: absolute;
   inset: 0;
-  background: var(--lp-surface-0);
+  background: var(--lp-surface-canvas);
   container-type: size;
 }
-.lp-feature-graph-canvas .lp-how-graph {
+.lp-feature-graph-scene {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-/* 노드 mono 라벨 오버레이 — MiniGraph.tsx가 labels prop을 받았을 때만 렌더한다(기능 2
-   전용). SVG 안에 <text>로 넣지 않는 이유: 뷰박스(400x240)가 preserveAspectRatio로
+/* 배경 먼지 별 — 실앱 drawBackground의 별먼지(저알파 fg 점)를 옮긴 것. 개별 알파는 요소마다
+   fill-opacity로 받는다(FeatureSections.tsx GRAPH_BG_STARS). */
+.lp-feature-graph-bg-star {
+  fill: var(--lp-text-primary);
+}
+
+/* 성좌 사이 다리 — 같은 파일·티켓을 공유한 작업을 잇는 완만한 곡선(실앱 drawBridges). 스포크와
+   같은 엣지 토큰(다크에선 border-strong과 같은 값, 라이트에서만 갈라진다). 점등 경로와 무관하게
+   전부 딤 — 근거 경로는 별도 오버레이(.lp-feature-graph-lit-edge)가 담당한다. */
+.lp-feature-graph-bridge {
+  fill: none;
+  stroke: var(--lp-graph-edge);
+  stroke-opacity: 0.35;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* 별성 → 위성 스포크 — 소속감만 만드는 얇은 구조선(실앱 drawSpokes). 다리와 같은 이유로 딤. */
+.lp-feature-graph-spoke {
+  stroke: var(--lp-graph-edge);
+  stroke-opacity: 0.3;
+  stroke-width: 0.6;
+  vector-effect: non-scaling-stroke;
+}
+
+/* 자유 먼지 — 실앱 REST_ALPHA 계열의 고정 저알파(성좌에 속하지 않으므로 딤/발화 체계와
+   무관, 점등 대상도 아니다). 위성·별성은 더 이상 여기서 고정 밝기를 갖지 않는다 —
+   2026-08-21 3차부터 항상 .lp-feature-graph-node--dim(0.4)이 함께 붙어 그 값이 기본이고,
+   트리오는 lp-gx-ignite로 1까지 올라간다(같은 opacity를 다투는 단일 클래스 규칙을 여기
+   따로 두면 파일 순서상 이 규칙이 나중에 와 dim을 덮어써버린다 — 이전 REST_ALPHA 규칙을
+   삭제한 이유). */
+.lp-feature-graph-dust-node {
+  opacity: 0.5;
+}
+/* 별성 = 위성보다 큰 원 + 밝은 얇은 테두리(실앱 drawNodes) — text-primary는 다크에서 밝고
+   라이트에서 어두워, 테마별 "밝은/잉크 테두리" 구분이 토큰 전환만으로 자동 성립한다. */
+.lp-feature-graph-star {
+  stroke: var(--lp-text-primary);
+  stroke-opacity: 0.55;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* 점등 노드 mono 라벨 — 한글 제목+작성자 부제 구조는 폐기하고(2026-08-21) HOW IT WORKS·
+   히어로 관련 그래프 패널과 같은 문법으로 통일했다: 라틴 기술 토큰 단독, 노드 중심 +
+   dx/dy 오프셋(FeatureSections.tsx GRAPH_LIT_LABELS). */
+.lp-feature-graph-lit-label {
+  position: absolute;
+  transform: translate(var(--lx, 8px), var(--ly, -6px));
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--lp-text-primary);
+  white-space: nowrap;
+  opacity: 0;
+}
+/* 딜레이는 커스텀 프로퍼티 간접 참조 없이 위 ".lp-feature-graph-lit-ring" 옆 "순차 안무
+   지연" 블록의 복합 셀렉터(.lp-feature-graph-lit-label.lp-feature-graph-lit-label--{id})가
+   맡는다 — 이 규칙은 name/duration/easing/fill-mode만 롱핸드로 정의한다. */
+.lp-feature-graph.is-played .lp-feature-graph-lit-label {
+  animation-name: lp-fade;
+  animation-duration: var(--gx-node-dur);
+  animation-timing-function: var(--lp-ease-standard);
+  animation-fill-mode: both;
+}
+
+/* 노드 mono 라벨 오버레이 — "작동 방식" 3스텝(HowItWorksSection.tsx)이 MiniGraph의 labels
+   prop으로 렌더한다. (2026-08 갱신) 기능 2(그래프 탐색) 미리보기는 재구축으로 이 라벨
+   시스템을 더 이상 쓰지 않는다 — 자신의 점등 라벨은 위 .lp-feature-graph-lit-label로 따로
+   그린다. SVG 안에 <text>로 넣지 않는 이유: 뷰박스가 preserveAspectRatio로
    컨테이너에 맞춰 스케일되면 그 안의 모든 요소(텍스트 포함)가 함께 줄어들어, 좁은 화면에서
    DESIGN.md의 mono-label 12px 하한을 지킬 수 없다. 그래서 라벨은 SVG 밖 실제 HTML로
    두고 font-size를 12px로 고정한다.
-   위치 계산(MiniGraph.tsx): 캔버스는 항상 슬롯(aspect-ratio: 16/10 = 1.6) 전체를 채우고,
-   뷰박스 비(400/240≈1.667)가 그보다 항상 크므로(뷰박스가 상대적으로 더 옆으로 넓다) SVG는
-   항상 width-constrained로 렌더된다 — 가로는 레터박스 없이 꽉 차고 세로에만 위아래
-   레터박스가 남는다. 그래서 left = x*(100/400)cqw로 정확히 맞고, top은 그 레터박스만큼
-   cqh로 보정해 LETTERBOX_CQH + y*(100/400)cqw로 계산한다. 두 비율(뷰박스·슬롯)이 모두
-   상수라 이 매핑은 브레이크포인트와 무관하게 항상 정확하다. */
+   위치 계산(MiniGraph.tsx): labelAspect prop이 컨테이너의 가로세로비를 알려준다 — 현재
+   유일한 소비처인 .lp-how-viz는 뷰박스 비(400/240)를 그대로 넘겨 레터박스가 0이다(다른
+   비율의 컨테이너라면 그 차이만큼 top을 cqh로 보정한다, letterboxCqh). left/top 모두
+   x·y*(100/400)cqw가 기본항이라 브레이크포인트와 무관하게 항상 정확하다. */
 .lp-feature-graph-labels {
   position: absolute;
   inset: 0;
@@ -1823,49 +2025,69 @@ body:has(.lp) {
   }
 }
 
-/* 줌 컨트롤 — DESIGN.md "줌 컨트롤은 surface-2로 우하단에 플로팅" 그대로. 비인터랙티브
-   표시용이라 <span>이고 앰버를 쓰지 않는다. */
-.lp-feature-graph-zoom {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--lp-border);
-  border-radius: var(--lp-r-sm);
-  background: var(--lp-surface-2);
-}
-.lp-feature-graph-zoom-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--lp-r-sm);
-  font-family: var(--lp-font-mono);
-  font-size: 13px;
-  color: var(--lp-text-secondary);
-}
-
-/* ── 기능 3 미리보기: 데이터 소스 (DESIGN.md "데이터 소스 카드" 스펙) ───────────────
-   커넥터 3장을 세로로 쌓은 행 카드. 로고는 각 서비스의 공식 브랜드 마크 SVG(브랜드 색,
-   DESIGN.md "커넥터 로고는 브랜드 색" 규칙)다. 액션은 surface-3로 한 단계 더 띄워 "조용한
-   보조 버튼" 인상을 주되, 실제 컨트롤이 아니므로 <span>이고 앰버는 쓰지 않는다.
-   슬롯(.lp-feature-media--sources)이 종횡비 없이 콘텐츠 높이를 따르므로 height:100%·
-   justify-content:center(둘 다 남는 세로 공간을 나눠 가지려던 장치)는 더 이상 필요 없다 —
-   카드 3장 높이 그대로가 곧 슬롯 높이다. */
+/* ── 기능 3 미리보기: 데이터 소스 (실앱 SourcesPage 구조 그대로, 2026-08-21 재구축) ──
+   실앱 화면 구조: 페이지 타이틀+서브 → "연동 중" 섹션 라벨 → 연동 행 3개 → "추가 가능"
+   섹션 라벨 → 타일 그리드(sources.css 기준). 이전의 요약 스트립(총 노드/연결 수)·커넥터별
+   수집 항목 수·"동기화" 버튼·하단 카탈로그 로고 스트립은 실앱에 없는 랜딩 전용 요약이라
+   폐기 — 수치는 기능 2 슬롯에만 남아 있어 교차 정합 문제는 없다. 로고는 각 서비스의 공식
+   브랜드 마크 SVG(브랜드 색, DESIGN.md "커넥터 로고는 브랜드 색" 규칙)다. 타일의 "연결"
+   라벨은 실제 컨트롤이 아니므로 <span>이고 앰버는 쓰지 않는다. 슬롯(.lp-feature-media--
+   sources)이 종횡비 없이 콘텐츠 높이를 따르므로 이 블록의 실제 콘텐츠 높이가 곧 슬롯
+   높이다(타일 2열×3행 기준으로 밀도를 맞췄다 — "축소하지 말고 잘라내라"). */
 .lp-feature-sources {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   padding: 16px;
 }
 
+.lp-feature-sources-head {
+  margin-bottom: 0;
+}
+
+/* 페이지 타이틀 — 실앱 .page-title(22px) 스케일을 슬롯 밀도로 낮췄다. */
+.lp-feature-sources-title {
+  margin: 0 0 4px;
+  font-family: var(--lp-font-body);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+  color: var(--lp-text-primary);
+}
+
+.lp-feature-sources-sub {
+  margin: 0;
+  font-family: var(--lp-font-body);
+  font-size: 12px;
+  color: var(--lp-text-secondary);
+}
+
+/* 섹션 라벨("연동 중"/"추가 가능") — 실앱 .sources-section-label(작은 텍스트 + 우측
+   헤어라인) 그대로. 한글 콘텐츠라 트래킹은 넣지 않는다(DESIGN.md eyebrow-ko). */
+.lp-feature-sources-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 8px;
+  font-family: var(--lp-font-body);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lp-text-muted);
+}
+.lp-feature-sources-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--lp-border);
+}
+
+.lp-feature-source-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 연동 행 — 실앱 .source-row-top(로고 칩 + 이름/서브 + 우측 상태) 그대로. */
 .lp-feature-source-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
   border-radius: var(--lp-r-md);
@@ -1875,19 +2097,21 @@ body:has(.lp) {
   box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
 }
 
-.lp-feature-source-id {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
+/* 로고 칩 — 실앱 .source-logo-chip 그대로(40px 행 / 36px 타일, surface-3 + 헤어라인).
+   브랜드별 틴트 배경은 쓰지 않는다(마크 자체가 브랜드 색을 담는다). */
+.lp-feature-source-logo-chip {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--lp-r-md);
+  border: 1px solid var(--lp-border);
+  background: var(--lp-surface-3);
 }
-
-/* 공식 브랜드 마크 SVG(FeatureSections.tsx) — DESIGN.md 로고 크기 가이드(20~24px) 준수.
-   회전·왜곡·클리핑 없음(브랜드 변형 금지) — 실제 패스 형태 그대로 크기만 지정한다. */
-.lp-feature-source-logo {
-  flex: none;
-  width: 22px;
-  height: 22px;
+.lp-feature-source-logo-chip--sm {
+  width: 36px;
+  height: 36px;
 }
 
 .lp-feature-source-meta {
@@ -1895,11 +2119,12 @@ body:has(.lp) {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1;
 }
 
 .lp-feature-source-name {
   font-family: var(--lp-font-body);
-  font-weight: 500;
+  font-weight: 600;
   font-size: 13px;
   color: var(--lp-text-primary);
   white-space: nowrap;
@@ -1907,98 +2132,121 @@ body:has(.lp) {
   text-overflow: ellipsis;
 }
 
-/* 커넥터 sync 상태 — 모노 라벨, DESIGN.md 스케일 최소 12px 미만으로 두지 않는다. */
-.lp-feature-source-sync {
-  font-family: var(--lp-font-mono);
-  font-size: 12px;
-  color: var(--lp-text-secondary);
+/* 연동 대상(저장소 경로·프로젝트 키·채널) — 라틴 기술 토큰이라 모노(DESIGN.md 모노 스코프
+   규칙). "HT 프로젝트"처럼 한글 단어가 붙는 경우만 -label 자식을 본문 서체로 잇는다. */
+.lp-feature-source-sub {
+  font-size: 11px;
+  color: var(--lp-text-muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-
-.lp-feature-source-action {
-  flex: none;
-  padding: 5px 10px;
-  border-radius: var(--lp-r-sm);
-  background: var(--lp-surface-3);
-  font-family: var(--lp-font-body);
-  font-size: 12px;
-  color: var(--lp-text-secondary);
-  white-space: nowrap;
-}
-
-/* 커넥터 대상 식별자(경로/키/채널) — 라틴 기술 토큰이라 모노(DESIGN.md 모노 스코프 규칙).
-   .lp-feature-source-name 안에 이름과 나란히 흐르는 인라인 자식이라 별도 font-size를 두지
-   않고 부모(13px, 모바일 12px)를 상속한다. */
-.lp-feature-source-target {
+.lp-feature-source-sub-mono {
   font-family: var(--lp-font-mono);
-  color: var(--lp-text-secondary);
-  margin-left: 6px;
 }
-
-/* Jira "HT 프로젝트"처럼 키 뒤에 붙는 한글 단어 — 한글이므로 모노 스코프를 벗어나 본문 서체. */
-.lp-feature-source-target-label {
+.lp-feature-source-sub-label {
   font-family: var(--lp-font-body);
-  color: var(--lp-text-secondary);
   margin-left: 4px;
 }
 
-/* 상태 점 + mono 상태 텍스트 한 줄. */
+/* 우측 상태 영역 — 위: 연결됨 pill, 아래: 마지막 수집 시각. 세로 스택 + 우측 정렬
+   (실앱 .source-row-status 그대로). */
 .lp-feature-source-status {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
-/* 상태 점 — 시맨틱 success(시스템 상태를 가리킨다). node-commit과 hex는 같지만 여기선
+/* 상태 pill — 시맨틱 success(시스템 상태를 가리킨다). node-commit과 hex는 같지만 여기선
    노드를 가리키지 않으므로 --lp-node-commit이 아니라 --lp-success를 쓴다(DESIGN.md
    네임스페이스 규칙 — hex가 같아도 지시 대상이 다르면 다른 토큰). */
+.lp-feature-source-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--lp-r-pill);
+  font-family: var(--lp-font-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+  color: var(--lp-success);
+  background: color-mix(in oklab, var(--lp-success) 12%, transparent);
+}
 .lp-feature-source-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex: none;
-  background: var(--lp-success);
+  background: currentColor;
 }
 
-/* 수집 항목 수 — 이 슬롯 밀도의 핵심(2026-07-24 추가). mono, 상태 텍스트(.lp-feature-source-sync)
-   와 같은 톤(text-secondary)으로 가독성을 확보한다 — 아래 상단 요약 스트립(text-muted)보다
-   한 단계 밝다. */
-.lp-feature-source-counts {
+.lp-feature-source-synced {
+  font-family: var(--lp-font-body);
+  font-size: 11px;
+  color: var(--lp-text-muted);
+}
+.lp-feature-source-synced-mono {
   font-family: var(--lp-font-mono);
-  font-size: 12px;
-  color: var(--lp-text-secondary);
 }
 
-/* 상단 요약 스트립 — 총 노드/연결 수 + 마지막 동기화 시각. 기능 2 슬롯(.lp-feature-graph-stats)
-   과 같은 수치를 공유한다(교차 검증 대비 — 같은 그래프의 다른 단면이므로 값이 같아야 한다).
-   숫자·타임스탬프만 모노, 한글은 본문 서체(모노 스코프 규칙). text-muted로 조용하게 —
-   이 슬롯의 핵심 정보는 아래 커넥터별 수집 항목 수다. */
-.lp-feature-sources-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+/* 타일 그리드 — 실앱 .source-tiles(2~3열)를 슬롯 폭 기준 2열로 고정(2열×3행이 기본
+   밀도, "축소하지 말고 잘라내라"). */
+.lp-feature-source-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  padding: 0 2px;
-  font-family: var(--lp-font-body);
-  font-size: 12px;
-  color: var(--lp-text-muted);
-}
-.lp-feature-sources-summary-mono {
-  font-family: var(--lp-font-mono);
 }
 
-/* 하단 "+ 데이터 소스 추가" — 낮은 위계. 실제 커넥터 행(surface-2 채움)과 달리 배경 없는
-   고스트 + 점선 테두리로 "아직 연결 안 된 것"을 표현한다. 그라데이션·앰버 금지(DESIGN.md —
-   이 슬롯엔 라이브/실행/선택에 해당하는 것이 없다). */
-.lp-feature-sources-add {
-  padding: 9px 12px;
-  border: 1px dashed var(--lp-border);
+/* 타일 — 실앱 .source-tile(로고 칩 + 이름/설명 + "연결" 버튼) 그대로. */
+.lp-feature-source-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
   border-radius: var(--lp-r-md);
+  background: var(--lp-surface-2);
+  box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
+}
+
+.lp-feature-source-tile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.lp-feature-source-tile-name {
   font-family: var(--lp-font-body);
-  font-size: 12px;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--lp-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lp-feature-source-tile-sub {
+  font-family: var(--lp-font-body);
+  font-size: 11px;
   color: var(--lp-text-muted);
-  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* "연결" 라벨 — 실앱 .btn.btn-ghost 톤(투명 배경·muted 텍스트)만 옮긴다. 실제 컨트롤이
+   아니므로 hover 등 인터랙션 상태는 두지 않는다. */
+.lp-feature-source-tile-action {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: var(--lp-r-sm);
+  font-family: var(--lp-font-body);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--lp-text-muted);
 }
 
 /* ── 기능 3섹션: 반응형 (768px 미만 텍스트 위 / 미디어 아래로 스택, 교차 반전 해제) ── */
@@ -2037,73 +2285,56 @@ body:has(.lp) {
     padding: 10px 14px 14px;
   }
   .lp-feature-chat-user,
-  .lp-feature-chat-answer,
-  .lp-feature-chat-source-body {
+  .lp-feature-chat-answer {
     font-size: 13px;
   }
   .lp-feature-chat-sources {
     gap: 6px;
   }
   .lp-feature-chat-source {
+    gap: 6px;
     padding: 6px 8px;
   }
 
-  /* 좁은 화면에서는 툴바(액션 2개 + 카운트)까지 범례와 함께 오버레이로 얹으면 불투명
-     헤더(.lp-feature-graph-header)가 안 그래도 작은 모바일 캔버스의 대부분을 덮어버린다 —
-     사이드 레일을 숨기는 기능 1 미리보기와 같은 판단으로, 이 슬롯의 핵심인 그래프 자체가
-     가려지는 면적을 줄인다(캔버스 자체는 이제 항상 슬롯 전체 크기라 찌부러지지는 않는다 —
-     .lp-feature-graph 주석 참고. 여기서는 순전히 가려짐 면적 문제). */
+  /* 좁은 화면에서는 툴바까지 오버레이로 얹으면 불투명 헤더(.lp-feature-graph-header)가
+     안 그래도 작은 모바일 캔버스의 대부분을 덮어버린다 — 사이드 레일을 숨기는 기능 1
+     미리보기와 같은 판단으로, 이 슬롯의 핵심인 성좌 자체가 가려지는 면적을 줄인다(캔버스
+     자체는 이제 항상 슬롯 전체 크기라 찌부러지지는 않는다 — .lp-feature-graph 주석 참고.
+     여기서는 순전히 가려짐 면적 문제). */
   .lp-feature-graph-toolbar {
     display: none;
   }
-  .lp-feature-graph-legend {
-    gap: 4px;
-    padding: 10px 10px 8px;
-  }
-  .lp-feature-graph-pill {
-    padding: 3px 8px;
-    font-size: 12px;
-  }
   /* 라벨 밀도 축소 — 좁은 화면에서는 core(4개)만 남기고 나머지는 뺀다(겹치면 라벨을 빼는
      쪽을 택한다). 남는 라벨은 크기를 줄이지 않는다 — DESIGN.md mono-label 12px 하한은
-     화면 폭과 무관하게 항상 지킨다. */
+     화면 폭과 무관하게 항상 지킨다. (2026-08 갱신) 이 규칙은 이제 "작동 방식" 섹션의
+     MiniGraph 라벨에만 실질적으로 적용된다 — 기능 2 그래프의 점등 라벨은 별도 클래스
+     (.lp-feature-graph-lit-label, 3개뿐이라 모바일에서도 겹치지 않아 별도 축소가 없다)를
+     쓴다. */
   .lp-feature-graph-label:not(.lp-feature-graph-label--core) {
     display: none;
   }
-  .lp-feature-graph-zoom {
-    right: 8px;
-    bottom: 8px;
-  }
-  .lp-feature-graph-zoom-btn {
-    width: 20px;
-    height: 20px;
-    font-size: 12px;
-  }
 
   .lp-feature-sources {
-    gap: 6px;
     padding: 10px;
   }
   .lp-feature-source-row {
-    padding: 7px 9px;
+    padding: 8px 10px;
+    gap: 10px;
   }
-  .lp-feature-source-logo {
-    /* DESIGN.md 로고 크기 가이드(20~24px) 하한을 모바일에서도 유지한다. */
-    width: 20px;
-    height: 20px;
+  .lp-feature-source-logo-chip {
+    width: 32px;
+    height: 32px;
+  }
+  .lp-feature-source-logo-chip--sm {
+    width: 30px;
+    height: 30px;
   }
   .lp-feature-source-name {
     font-size: 12px;
   }
-  .lp-feature-source-sync {
-    font-size: 12px;
-  }
-  .lp-feature-source-action {
-    padding: 4px 8px;
-    font-size: 11px;
-  }
-  .lp-feature-sources-add {
-    padding: 7px 9px;
+  /* 좁은 폭에서는 실앱 .source-tiles(700px 이하 1열)와 같은 판단으로 세로 스택한다. */
+  .lp-feature-source-tiles {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2501,6 +2732,7 @@ body:has(.lp) {
 .lp[data-theme="light"] .lp-feature-graph-header,
 .lp[data-theme="light"] .lp-feature-chat-source,
 .lp[data-theme="light"] .lp-feature-source-row,
+.lp[data-theme="light"] .lp-feature-source-tile,
 .lp[data-theme="light"] .lp-cases-card {
   box-shadow: var(--lp-shadow-sm);
 }
@@ -2594,18 +2826,29 @@ body:has(.lp) {
     transform: none;
   }
 
-  /* 기능 2 그래프 — 앰버 경로 순차 점등(7차)을 제거하고 즉시 최종 상태로 표시한다.
-     is-played는 useInViewOnce가 reduced-motion에서 즉시 부여한다. 셀렉터는 non-media
-     점등 규칙과 같은 3-class 조합이라 이 블록의 파일 위치(맨 끝)로 이긴다. */
-  .lp-feature-graph.is-played .lp-how-lit-edge {
+  /* 기능 2 그래프 — 순차 발화·드로잉 체인을 제거하고 트리오를 즉시 최종(점등) 상태로
+     표시한다. is-played는 useInViewOnce가 reduced-motion에서 즉시 부여한다. 셀렉터는
+     non-media 점등 규칙과 같은 클래스 조합이라 이 블록의 파일 위치(맨 끝)로 이긴다.
+     엣지는 stroke-dashoffset이 드로잉을 담당하므로(opacity는 항상 1) 0으로 즉시 채운다. */
+  .lp-feature-graph.is-played .lp-feature-graph-node--ignite-issue,
+  .lp-feature-graph.is-played .lp-feature-graph-node--ignite-pr,
+  .lp-feature-graph.is-played .lp-feature-graph-node--ignite-slack {
     animation: none;
-    stroke-dashoffset: 0;
+    opacity: 1;
   }
-  .lp-feature-graph.is-played .lp-how-lit-node,
-  .lp-feature-graph.is-played .lp-how-lit-halo {
+  .lp-feature-graph.is-played .lp-feature-graph-lit-ring,
+  .lp-feature-graph.is-played .lp-feature-graph-lit-halo {
     animation: none;
     opacity: var(--lit-o, 1);
     transform: none;
+  }
+  .lp-feature-graph.is-played .lp-feature-graph-lit-edge {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .lp-feature-graph.is-played .lp-feature-graph-lit-label {
+    animation: none;
+    opacity: 1;
   }
 
   /* 작동 방식 스텝 mono 라벨 — is-played는 reduced-motion에서 즉시 부여되므로(useInViewOnce)

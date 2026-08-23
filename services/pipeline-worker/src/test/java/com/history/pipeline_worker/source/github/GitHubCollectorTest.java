@@ -213,7 +213,7 @@ class GitHubCollectorTest {
 
     private GitHubRawService.GitHubFetchContext fetchContext() {
         return new GitHubRawService.GitHubFetchContext(
-                "Bearer token", "owner", "repo", null, GitHubCheckpoint.empty());
+                "Bearer token", "owner", "repo", null, GitHubCheckpoint.empty(), new HashMap<>());
     }
 
     private Map<String, Object> buildCommit(String sha, String message, String committedAt) {

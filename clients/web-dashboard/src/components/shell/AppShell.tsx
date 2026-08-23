@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Navigate, Outlet, useLocation, useMatch, useNavigate, useParams } from "react-router-dom";
 
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -76,6 +76,28 @@ export function AppShell({ children }: { children?: ReactNode }) {
     [projects, projectId],
   );
 
+  // 탭을 옮겼다 돌아와도 보던 대화가 유지되도록, 프로젝트별 마지막 대화 id를 기억한다.
+  // 새로고침 시 초기화되어야 하므로 localStorage가 아닌 ref(메모리)에 둔다.
+  const lastConversationRef = useRef<{ projectId: string; conversationId: string } | null>(null);
+  const chatMatch = useMatch("/projects/:projectId/chat/:conversationId");
+  const chatRootMatch = useMatch("/projects/:projectId/chat");
+  // useMatch는 매 렌더 새 객체를 돌려주므로 의존성은 그 안의 값(문자열·불리언)으로 좁힌다 —
+  // 객체를 그대로 넣으면 주소가 그대로여도 렌더마다 effect가 다시 돈다.
+  const chatProjectId = chatMatch?.params.projectId;
+  const chatConversationId = chatMatch?.params.conversationId;
+  const atChatRoot = chatRootMatch !== null;
+  useEffect(() => {
+    if (chatProjectId && chatConversationId) {
+      lastConversationRef.current = {
+        projectId: chatProjectId,
+        conversationId: chatConversationId,
+      };
+    } else if (atChatRoot) {
+      // 대화 id 없이 /chat에 온 경우(새 대화, 프로젝트 전환)는 기억을 비운다.
+      lastConversationRef.current = null;
+    }
+  }, [chatProjectId, chatConversationId, atChatRoot]);
+
   if (projectsQuery.isLoading) {
     return <StatusView tone="loading" description="프로젝트 불러오는 중…" fullPage />;
   }
@@ -115,6 +137,13 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const route = routeFromPath(location.pathname);
 
   const handleRouteChange = (r: Route) => {
+    if (r === "chat") {
+      const last = lastConversationRef.current;
+      if (last && last.projectId === project.id) {
+        navigate(`/projects/${project.id}/chat/${last.conversationId}`);
+        return;
+      }
+    }
     navigate(`/projects/${project.id}/${r}`);
   };
 

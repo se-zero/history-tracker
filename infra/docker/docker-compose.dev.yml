@@ -1,0 +1,35 @@
+# 로컬 개발용 오버라이드 — `./dev.sh`가 base와 함께 읽는다.
+#
+# 개발 편의를 위해 인프라·앱 포트를 전부 호스트에 노출한다(DB 클라이언트로 붙기, Neo4j Browser,
+# RabbitMQ 관리 UI, 서비스 직접 호출 등). 프로덕션에서는 이 파일 대신 docker-compose.prod.yml을
+# 쓰며 웹(80)만 열린다.
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  neo4j:
+    ports:
+      - "7474:7474"  # Browser UI
+      - "7687:7687"  # Bolt (드라이버 연결)
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # 관리 UI
+
+  ai-engine:
+    ports:
+      - "8000:8000"
+
+  backend:
+    ports:
+      - "8080:8080"
+
+  pipeline-worker:
+    ports:
+      - "8081:8081"
+
+  web-dashboard:
+    ports:
+      - "5173:80"

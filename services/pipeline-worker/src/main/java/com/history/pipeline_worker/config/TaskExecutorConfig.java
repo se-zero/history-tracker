@@ -3,6 +3,7 @@ package com.history.pipeline_worker.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
@@ -51,6 +52,31 @@ public class TaskExecutorConfig {
         executor.setQueueCapacity(queueCapacity);
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(awaitTerminationSeconds);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * GitHub 커밋 상세 조회(GET /commits/{sha}) 전용 병렬 실행 풀.
+     * collectionTaskExecutor(풀 3)를 재사용하지 않는 이유 — collect 자체가 그 풀의 스레드에서 실행되므로,
+     * 상세 조회를 같은 풀에 제출하면 자기 풀이 비기를 기다리는 데드락이 된다.
+     * 이 풀은 초기 수집과 webhook 증분 수집이 공유하므로, 전역 상세 조회 동시성 상한은 항상 3이다 —
+     * rate limit 관점에서 의도된 성질이다(수집 경로가 늘어도 GitHub 동시 요청 수는 늘지 않는다).
+     */
+    @Bean("githubCommitDetailExecutor")
+    public AsyncTaskExecutor githubCommitDetailExecutor(
+            @Value("${app.github.commit-detail-concurrency:3}") int concurrency
+    ) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("github-commit-detail-");
+        executor.setCorePoolSize(concurrency);
+        executor.setMaxPoolSize(concurrency);
+        // 큐 상한을 두지 않는다(기본 무제한). 생산자(collect 스레드)는 페이지당 최대 100건을 submit한 뒤
+        // 전부 join해야 다음 페이지로 넘어가므로, 큐의 자연 상한 = 동시 수집 경로 수(초기 3 + webhook 4)
+        // × 100 ≈ 700건으로 유계다. 상한 100을 두면 동시 다중 수집에서 TaskRejectedException으로
+        // 수집이 통째로 실패한다.
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(300);
         executor.initialize();
         return executor;
     }

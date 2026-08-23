@@ -252,7 +252,7 @@ Graph의 delta API를 쓰지 않는 이유: ① checkpoint 저장소가 `(projec
 | `properties.created_at` · `occurredAt` | `createdDateTime` | 수정 재발행이어도 `occurredAt`은 원 시각 — 커서는 뒤로 가지 않는다 |
 | `actor.id` | `from.user.id` (AAD object id, GUID) | 안정적·고유. 표시 이름을 id로 쓰지 않는다 |
 | `actor.name` | `from.user.displayName` | |
-| `actor.email` | `/users/{id}?$select=mail` 보강 | 메시지에는 email이 없다. Slack user map처럼 TTL 캐시(`app.teams.user-map-cache-ttl`) — 전체 목록 대신 등장한 id만 조회 |
+| `actor.email` | `/users/{id}?$select=mail` 보강 | 메시지에는 email이 없다. Google Chat의 `resolveSenders`처럼 수집 실행 단위로만 재사용(전역 TTL 캐시는 쓰지 않는다 — 연동 해제 후 구성원 개인정보가 프로세스에 잔존하는 문제를 피하기 위함) — 전체 목록 대신 등장한 id만 조회 |
 | `refs` | 평문 변환 후 `RefsExtractor` | 이슈 키(`ABC-123`)·PR 참조 정규식 그대로 적용 |
 
 정규화 제외: `messageType != "message"`(시스템 이벤트), `deletedDateTime != null`(소프트 삭제),

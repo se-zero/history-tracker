@@ -12,8 +12,8 @@ import reactor.core.publisher.Mono;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +41,7 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         String displayName = service.fetchSpaceDisplayName(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null));
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()));
 
         assertThat(displayName).isEqualTo("engineering");
     }
@@ -64,7 +64,8 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null), null);
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()),
+                null);
     }
 
     @Test
@@ -81,7 +82,8 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, checkpoint), null);
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, checkpoint, new HashMap<>()),
+                null);
     }
 
     @Test
@@ -103,7 +105,7 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null);
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
         GoogleChatRawService.GoogleChatMessagePage first = service.fetchMessagePage(context, null);
         assertThat(first.messages()).extracting(m -> m.get("name"))
@@ -133,7 +135,8 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null), null);
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()),
+                null);
 
         assertThat(page.messages()).isEmpty();
         assertThat(page.nextPageToken()).isEqualTo("page-2");
@@ -156,7 +159,8 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null), null);
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()),
+                null);
 
         assertThat(page.messages()).extracting(m -> m.get("name")).containsExactly("m1");
     }
@@ -176,7 +180,8 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null), null);
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()),
+                null);
 
         assertThat(page.messages()).hasSize(1);
         assertThat(callCount.get()).isEqualTo(2);
@@ -187,26 +192,30 @@ class GoogleChatRawServiceTest {
     void resolveSenders_forbidden_returnsEmptyMapInsteadOfThrowing() {
         WebClient.Builder builder = WebClient.builder().exchangeFunction(
                 request -> Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN).build()));
-        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
         Map<String, GoogleChatRawService.PersonInfo> result =
-                service.resolveSenders("Bearer token", Set.of("users/U1"));
+                service.resolveSenders(context, Set.of("users/U1"));
 
         assertThat(result).isEmpty();
     }
 
     @Test
-    @DisplayName("People API가 403이면 캐시하지 않는다 — 다음 호출에서 같은 sender를 다시 조회한다")
+    @DisplayName("People API가 403이면 결과 맵에 남기지 않는다 — 같은 컨텍스트 안에서도 다음 호출이 같은 sender를 다시 조회한다")
     void resolveSenders_forbidden_doesNotCacheSoNextCallRetries() {
         AtomicInteger callCount = new AtomicInteger();
         WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
             callCount.incrementAndGet();
             return Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN).build());
         });
-        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
-        service.resolveSenders("Bearer token", Set.of("users/U1"));
-        service.resolveSenders("Bearer token", Set.of("users/U1"));
+        service.resolveSenders(context, Set.of("users/U1"));
+        service.resolveSenders(context, Set.of("users/U1"));
 
         assertThat(callCount.get()).isEqualTo(2);
     }
@@ -216,10 +225,12 @@ class GoogleChatRawServiceTest {
     void resolveSenders_internalServerError_returnsEmptyMapInsteadOfThrowing() {
         WebClient.Builder builder = WebClient.builder().exchangeFunction(
                 request -> Mono.just(ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR).build()));
-        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
         Map<String, GoogleChatRawService.PersonInfo> result =
-                service.resolveSenders("Bearer token", Set.of("users/U1"));
+                service.resolveSenders(context, Set.of("users/U1"));
 
         assertThat(result).isEmpty();
     }
@@ -229,9 +240,11 @@ class GoogleChatRawServiceTest {
     void resolveSenders_rateLimitExhausted_stillThrows() {
         WebClient.Builder builder = WebClient.builder().exchangeFunction(
                 request -> Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS).build()));
-        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
-        assertThatThrownBy(() -> service.resolveSenders("Bearer token", Set.of("users/U1")))
+        assertThatThrownBy(() -> service.resolveSenders(context, Set.of("users/U1")))
                 .isInstanceOf(WebClientResponseException.TooManyRequests.class);
     }
 
@@ -258,10 +271,12 @@ class GoogleChatRawServiceTest {
                     }
                     """));
         });
-        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
         Map<String, GoogleChatRawService.PersonInfo> result =
-                service.resolveSenders("Bearer token", Set.of("users/U1"));
+                service.resolveSenders(context, Set.of("users/U1"));
 
         assertThat(result).containsEntry("users/U1", new GoogleChatRawService.PersonInfo("Alice", "alice@example.com"));
     }
@@ -286,17 +301,19 @@ class GoogleChatRawServiceTest {
                   ]
                 }
                 """)));
-        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
         Map<String, GoogleChatRawService.PersonInfo> result =
-                service.resolveSenders("Bearer token", Set.of("users/U1"));
+                service.resolveSenders(context, Set.of("users/U1"));
 
         assertThat(result.get("users/U1").email()).isEqualTo("primary@example.com");
     }
 
     @Test
-    @DisplayName("TTL 안에서는 두 번째 호출이 캐시를 재사용한다(People API 재호출 없음)")
-    void resolveSenders_reusesCacheWithinTtl() {
+    @DisplayName("같은 GoogleChatFetchContext 안에서는 두 번째 호출이 이미 조회한 sender를 재사용한다(People API 재호출 없음) — 실행 범위 재사용은 살아 있다")
+    void resolveSenders_sameContext_reusesResolvedPerson() {
         AtomicInteger callCount = new AtomicInteger();
         WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
             callCount.incrementAndGet();
@@ -311,18 +328,20 @@ class GoogleChatRawServiceTest {
                     }
                     """));
         });
-        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
-        service.resolveSenders("Bearer token", Set.of("users/U1"));
-        Map<String, GoogleChatRawService.PersonInfo> second = service.resolveSenders("Bearer token", Set.of("users/U1"));
+        service.resolveSenders(context, Set.of("users/U1"));
+        Map<String, GoogleChatRawService.PersonInfo> second = service.resolveSenders(context, Set.of("users/U1"));
 
         assertThat(callCount.get()).isEqualTo(1);
         assertThat(second.get("users/U1").name()).isEqualTo("Alice");
     }
 
     @Test
-    @DisplayName("TTL이 0이면(만료) 매번 다시 조회한다")
-    void resolveSenders_refetchesWhenCacheExpired() {
+    @DisplayName("서로 다른 GoogleChatFetchContext(=서로 다른 수집 실행)로 같은 sender를 조회하면 people:batchGet이 실행마다 다시 호출된다 — 재사용이 실행 경계를 넘지 않는다")
+    void resolveSenders_differentContexts_refetchSameSenderPerExecution() {
         AtomicInteger callCount = new AtomicInteger();
         WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
             callCount.incrementAndGet();
@@ -337,16 +356,20 @@ class GoogleChatRawServiceTest {
                     }
                     """));
         });
-        GoogleChatRawService service = service(builder, Duration.ZERO);
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext firstExecution =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+        GoogleChatRawService.GoogleChatFetchContext secondExecution =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
-        service.resolveSenders("Bearer token", Set.of("users/U1"));
-        service.resolveSenders("Bearer token", Set.of("users/U1"));
+        service.resolveSenders(firstExecution, Set.of("users/U1"));
+        service.resolveSenders(secondExecution, Set.of("users/U1"));
 
         assertThat(callCount.get()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("응답에 없는 sender는 이번 결과에서 빠지고 캐시되지 않는다 — 다음 실행에서 재시도된다")
+    @DisplayName("응답에 없는 sender는 이번 결과에서 빠지고 맵에 남지 않는다 — 같은 컨텍스트 안에서도 다음 호출에서 재시도된다")
     void resolveSenders_missingPersonInResponse_skipsWithoutCaching() {
         AtomicInteger callCount = new AtomicInteger();
         WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
@@ -363,26 +386,24 @@ class GoogleChatRawServiceTest {
                     }
                     """));
         });
-        GoogleChatRawService service = service(builder, Duration.ofMinutes(30));
+        GoogleChatRawService service = service(builder);
+        GoogleChatRawService.GoogleChatFetchContext context =
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
 
         Map<String, GoogleChatRawService.PersonInfo> result =
-                service.resolveSenders("Bearer token", Set.of("users/U1", "users/U2"));
+                service.resolveSenders(context, Set.of("users/U1", "users/U2"));
 
         assertThat(result).containsKey("users/U1");
         assertThat(result).doesNotContainKey("users/U2");
 
-        // 다음 호출에서 U2가 다시 요청 대상에 포함되는지는 재호출 여부로 간접 확인한다
-        service.resolveSenders("Bearer token", Set.of("users/U2"));
+        // 같은 컨텍스트 안에서도 U2가 다시 요청 대상에 포함되는지는 재호출 여부로 간접 확인한다
+        service.resolveSenders(context, Set.of("users/U2"));
         assertThat(callCount.get()).isEqualTo(2);
     }
 
     private GoogleChatRawService service(WebClient.Builder builder) {
-        return service(builder, Duration.ofMinutes(30));
-    }
-
-    private GoogleChatRawService service(WebClient.Builder builder, Duration personCacheTtl) {
         return new GoogleChatRawService(
-                builder, "https://chat.example/v1", "https://people.example/v1", rateLimiter(), personCacheTtl);
+                builder, "https://chat.example/v1", "https://people.example/v1", rateLimiter());
     }
 
     private GoogleChatRateLimiter rateLimiter() {

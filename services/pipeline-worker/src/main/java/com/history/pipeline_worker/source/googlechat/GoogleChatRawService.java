@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -16,14 +15,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 @Slf4j
 @Service
 public class GoogleChatRawService {
 
-    public record GoogleChatFetchContext(String auth, String spaceId, Instant lastScannedAt) {}
+    // resolvedPersons는 가변 맵이다 — 이 실행(fetchContext)에서 보강한 sender 정보를 페이지를 넘나들며
+    // 누적하는 자리라서다. SlackPacing과 같은 성격의 "실행 단위 상태"이며, record 성분이라고 불변을
+    // 가정하면 안 된다. 실행이 끝나면 context와 함께 버려지므로 개인정보가 프로세스 수명만큼
+    // 남아있던 문제(전역 싱글턴 캐시)를 없앤다.
+    public record GoogleChatFetchContext(
+            String auth, String spaceId, Instant lastScannedAt, Map<String, PersonInfo> resolvedPersons) {}
 
     // People API로 보강한 sender 이름·이메일. 사용자 인증으로는 Message.sender에 displayName이
     // 오지 않아(§ resolveSenders 참고) 별도 조회가 필요하다.
@@ -38,32 +41,22 @@ public class GoogleChatRawService {
     private final WebClient webClient;
     private final WebClient peopleWebClient;
     private final GoogleChatRateLimiter rateLimiter;
-    private final Duration personCacheTtl;
-
-    // sender resource name("users/{id}") 단위 캐시 — 메시지에 등장한 만큼만 지연 조회한다.
-    // Slack의 users.list처럼 조직 전체를 한 번에 내려주는 API가 없어(권한 범위상) 캐시 채우는
-    // 방식이 다르다: 전체 선반입이 아니라 실제로 등장한 sender만 그때그때 채운다.
-    private final Map<String, CachedPerson> personCache = new ConcurrentHashMap<>();
-
-    private record CachedPerson(PersonInfo info, Instant fetchedAt) {}
 
     public GoogleChatRawService(
             WebClient.Builder webClientBuilder,
             @Value("${app.google-chat.api-base-url}") String baseUrl,
             @Value("${app.google-chat.people-api-base-url}") String peopleApiBaseUrl,
-            GoogleChatRateLimiter rateLimiter,
-            @Value("${app.google-chat.person-cache-ttl:30m}") Duration personCacheTtl
+            GoogleChatRateLimiter rateLimiter
     ) {
         this.webClient = webClientBuilder.baseUrl(baseUrl).build();
         // 같은 builder를 재사용해도 안전하다 — build()는 그 시점 상태의 불변 WebClient를 찍어낼 뿐이라
         // 이후 baseUrl()을 다시 불러도 이미 만든 webClient에는 영향이 없다.
         this.peopleWebClient = webClientBuilder.baseUrl(peopleApiBaseUrl).build();
         this.rateLimiter = rateLimiter;
-        this.personCacheTtl = personCacheTtl;
     }
 
     public GoogleChatFetchContext prepareFetchContext(RawFetchRequest request, Instant lastScannedAt) {
-        return new GoogleChatFetchContext(request.credentials(), request.projectKey(), lastScannedAt);
+        return new GoogleChatFetchContext(request.credentials(), request.projectKey(), lastScannedAt, new HashMap<>());
     }
 
     // 스페이스 표시 이름을 매 수집마다 1회 조회한다 — external_ref.space_name 대신 최신 이름을 따라간다.
@@ -170,31 +163,34 @@ public class GoogleChatRawService {
      * populates the user's name and type"). {@code users/{id}}는 People API의 {@code people/{id}}와
      * 동일 인물이라 여기서 별도로 풀어야 한다.
      *
-     * <p>TTL 안에 캐시된 sender는 재호출하지 않는다. 새로 등장한 sender만
-     * {@code people.getBatchGet}(최대 200개/호출)으로 한꺼번에 조회한다 — Slack의 user map과
+     * <p>이 조회는 {@code context} 실행 범위 안에서만 재사용된다 — {@code context.resolvedPersons()}에
+     * 이미 있는 sender는 그대로 쓰고, 없는 것만 {@code people.getBatchGet}(최대 200개/호출)으로
+     * 한꺼번에 조회해 그 맵에 채워 넣는다. 실행이 끝나면 context와 함께 버려지므로 만료(TTL) 개념이
+     * 필요 없다 — 개인정보(이름·이메일)를 수집 실행보다 오래 들고 있지 않기 위함이다. Slack의 user map과
      * 같은 목적(API 호출 수 절감)이지만, 조직 전체를 한 번에 내려주는 API가 없어(권한 범위상)
      * 메시지에 실제로 등장한 sender만 지연 조회하는 방식이 다르다.</p>
      */
-    public Map<String, PersonInfo> resolveSenders(String auth, Set<String> senderResourceNames) {
+    public Map<String, PersonInfo> resolveSenders(GoogleChatFetchContext context, Set<String> senderResourceNames) {
+        Map<String, PersonInfo> resolvedPersons = context.resolvedPersons();
         Map<String, PersonInfo> resolved = new HashMap<>();
         List<String> toFetch = new ArrayList<>();
         for (String senderName : senderResourceNames) {
-            CachedPerson cached = personCache.get(senderName);
-            if (cached != null && Duration.between(cached.fetchedAt(), Instant.now()).compareTo(personCacheTtl) < 0) {
-                resolved.put(senderName, cached.info());
+            PersonInfo cached = resolvedPersons.get(senderName);
+            if (cached != null) {
+                resolved.put(senderName, cached);
             } else {
                 toFetch.add(senderName);
             }
         }
         for (int i = 0; i < toFetch.size(); i += PEOPLE_BATCH_SIZE) {
             List<String> batch = toFetch.subList(i, Math.min(i + PEOPLE_BATCH_SIZE, toFetch.size()));
-            resolved.putAll(fetchPersonBatch(auth, batch));
+            resolved.putAll(fetchPersonBatch(context, batch));
         }
         return resolved;
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, PersonInfo> fetchPersonBatch(String auth, List<String> senderResourceNames) {
+    private Map<String, PersonInfo> fetchPersonBatch(GoogleChatFetchContext context, List<String> senderResourceNames) {
         Map<String, PersonInfo> result = new HashMap<>();
         Map<String, Object> response;
         try {
@@ -206,7 +202,7 @@ public class GoogleChatRawService {
                         }
                         return uriBuilder.build();
                     })
-                    .header("Authorization", auth)
+                    .header("Authorization", context.auth())
                     .retrieve()
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .block());
@@ -241,7 +237,7 @@ public class GoogleChatRawService {
             }
             String senderName = toUserResourceName(personResourceName);
             PersonInfo info = new PersonInfo(extractDisplayName(person), extractPrimaryEmail(person));
-            personCache.put(senderName, new CachedPerson(info, Instant.now()));
+            context.resolvedPersons().put(senderName, info);
             result.put(senderName, info);
         }
         return result;

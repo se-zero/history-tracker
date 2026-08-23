@@ -6,7 +6,7 @@ from typing import Awaitable, Callable
 
 import aio_pika
 
-from graph.event_handler import handle
+from graph.event_handler import handle, is_prefetchable_changeset, prepare_changeset
 from graph.postprocess import mark_dirty
 
 logger = logging.getLogger(__name__)
@@ -15,14 +15,37 @@ RABBITMQ_URL  = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@localhost/")
 EXCHANGE_NAME = "history.exchange"
 QUEUE_NAME    = "history.events"
 
+
+def mask_amqp_url(url: str) -> str:
+    """AMQP URL의 자격증명을 가려 로그에 남길 수 있는 형태로 만든다.
+
+    비밀번호가 URL 안에 들어 있어(amqp://user:password@host/) 그대로 찍으면 원문이
+    로그 파일에 남는다. 사용자명은 어느 계정으로 붙는지 봐야 진단이 되므로 남기고,
+    비밀번호만 가린다. 자격증명이 없는 URL은 그대로 둔다.
+    """
+    scheme, sep, rest = url.partition("://")
+    if not sep or "@" not in rest:
+        return url
+    creds, _, host = rest.rpartition("@")
+    user, has_pw, _ = creds.partition(":")
+    return f"{scheme}://{user}{':***' if has_pw else ''}@{host}"
+
 # 수집 동시성. project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호),
 # project 간은 이 값까지 동시 처리한다. 기본 4 — 선결조건(rate_limiter의 OpenAI 페이싱,
 # Actor 멱등화 ActorAlias, 이벤트당 fan-out 축소 #2/#6)이 모두 충족돼 활성화됐다.
 # OpenAI 호출은 rate_limiter가 RPM·TPM으로 페이싱하므로 올려도 Tier 한도를 넘지 않는다.
 INGEST_MAX_CONCURRENCY = max(1, int(os.environ.get("INGEST_MAX_CONCURRENCY", "4")))
-# RabbitMQ prefetch(미ack 상한) = 백프레셔. 동시성만큼은 받아둬야 워커가 놀지 않는다.
-# 미설정 시 동시성과 동일하게 둔다.
-INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH", str(INGEST_MAX_CONCURRENCY))))
+# ChangeSet look-ahead 깊이. 같은 파티션(project) 안에서 도착 순서대로 최대 이 개수만큼
+# 뒤 이벤트의 LLM 준비 단계(파일 diff 요약 + 임베딩)를 앞 이벤트의 Neo4j 쓰기와 동시에 미리 실행한다.
+# 쓰기(_process) 자체는 여전히 도착 순서 직렬 — 준비만 앞당긴다. 0 = 프리페치 비활성(킬스위치).
+INGEST_CHANGESET_LOOKAHEAD = max(0, int(os.environ.get("INGEST_CHANGESET_LOOKAHEAD", "8")))
+# RabbitMQ prefetch(미ack 상한) = 백프레셔. 동시성(쓰기 슬롯) + look-ahead(준비 중인 미ack 메시지)를
+# 합친 만큼은 받아둬야 워커가 놀지 않는다 — 브로커 미ack 한도가 look-ahead 깊이의 물리적 상한이다.
+# 트레이드오프: 재시작 시 최대 INGEST_PREFETCH건이 재배달될 수 있다. 쓰기가 전부 MERGE라 멱등이라
+# 그래프는 안전하고, LLM 준비 비용만 재발생한다(재계산일 뿐 데이터 손상 없음).
+# 미설정 시 동시성+look-ahead 합으로 파생한다. 빈 문자열도 미설정 취급(or 폴백) —
+# compose가 `${INGEST_PREFETCH:-}`로 빈 값을 넘겨 파생 규칙을 살릴 수 있게 한다.
+INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH") or (INGEST_MAX_CONCURRENCY + INGEST_CHANGESET_LOOKAHEAD)))
 
 # 처리 실패 재시도/보관 큐. handle() 실패 시 consumer가 재시도 횟수를 헤더로 관리하며 직접 재발행한다
 # (imperative). 메인 큐(history.events)는 변경하지 않는다 — 신규 큐만 추가하며 consumer만 선언·사용한다.
@@ -43,14 +66,28 @@ class _PartitionedDispatcher:
       같은 project의 메시지는 도착 순서대로 한 번에 하나씩만 처리된다
       (PR→commit 순서 의존, 같은 노드 동시 쓰기, Actor 생성 race를 직렬로 차단).
     - 전역 세마포어로 project 간 동시 처리 수를 INGEST_MAX_CONCURRENCY로 제한한다.
+    - ChangeSet의 LLM 준비 단계(prepare)는 look-ahead로 미리 실행하되, 쓰기(_process)는
+      여전히 파티션 순서 그대로 직렬 처리한다 — 준비만 앞당길 뿐 쓰기 순서는 바뀌지 않는다.
     - aio_pika에 직접 의존하지 않는다(process 콜백만 받음) — 오프라인 단위 테스트 가능.
     """
 
-    def __init__(self, process: Callable[[object], Awaitable[None]], max_concurrency: int) -> None:
+    def __init__(
+        self,
+        process: Callable[[object, object], Awaitable[None]],
+        max_concurrency: int,
+        *,
+        prefetch: Callable[[object], object] | None = None,
+        lookahead: int = 0,
+    ) -> None:
         self._process = process
         self._sem = asyncio.Semaphore(max_concurrency)
         self._queues: dict[str, asyncio.Queue] = {}
         self._workers: dict[str, asyncio.Task] = {}
+        self._prefetch = prefetch
+        # look-ahead 노브 = 동시 실행 중인 prepare 수의 전역 상한(파티션 무관).
+        self._prefetch_sem = asyncio.Semaphore(max(1, lookahead))
+        self._lookahead = lookahead
+        self._prefetch_tasks: set[asyncio.Task] = set()
 
     def submit(self, key: str, item: object) -> None:
         """파티션 키의 큐에 작업을 넣는다. 해당 워커가 없으면 생성한다.
@@ -60,15 +97,46 @@ class _PartitionedDispatcher:
             queue = asyncio.Queue()
             self._queues[key] = queue
             self._workers[key] = asyncio.create_task(self._run_worker(key, queue))
-        queue.put_nowait(item)
+        task = self._spawn_prefetch(item)
+        queue.put_nowait((item, task))
+
+    def _spawn_prefetch(self, item: object) -> asyncio.Task | None:
+        """프리페치 대상이면 준비 코루틴을 백그라운드 태스크로 띄운다. 대상이 아니면 None.
+
+        팩토리 호출 전에 비활성(lookahead<=0 또는 prefetch 미설정) 여부를 먼저 걸러
+        미await 코루틴 경고를 방지한다.
+        """
+        if self._prefetch is None or self._lookahead <= 0:
+            return None
+        coro = self._prefetch(item)
+        if coro is None:
+            return None
+        task = asyncio.create_task(self._gated(coro))
+        self._prefetch_tasks.add(task)
+        task.add_done_callback(self._prefetch_tasks.discard)
+        return task
+
+    async def _gated(self, coro):
+        async with self._prefetch_sem:
+            return await coro
 
     async def _run_worker(self, key: str, queue: asyncio.Queue) -> None:
         """한 파티션의 큐를 순서대로 비운다(직렬). 처리 실패는 격리하고 워커는 유지한다."""
         while True:
-            item = await queue.get()
+            item, prefetch_task = await queue.get()
             try:
+                # 프리페치 결과 수거는 _sem(쓰기 동시성) 밖에서 한다 — LLM 준비 대기가
+                # 쓰기 슬롯을 잠식하면 look-ahead의 이득(쓰기와 준비의 동시 진행)이 사라진다.
+                prepared = None
+                if prefetch_task is not None:
+                    try:
+                        prepared = await prefetch_task
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception("프리페치 실패 — 인라인 재계산으로 폴백 (partition=%s)", key)
                 async with self._sem:
-                    await self._process(item)
+                    await self._process(item, prepared)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -80,7 +148,7 @@ class _PartitionedDispatcher:
                 queue.task_done()
 
     async def close(self) -> None:
-        """모든 워커를 취소한다. 큐에 남아 미ack된 메시지는 RabbitMQ가 재배달한다(유실 없음)."""
+        """모든 워커·프리페치 태스크를 취소한다. 큐에 남아 미ack된 메시지는 RabbitMQ가 재배달한다(유실 없음)."""
         for task in self._workers.values():
             task.cancel()
         for task in self._workers.values():
@@ -90,6 +158,19 @@ class _PartitionedDispatcher:
                 pass
         self._queues.clear()
         self._workers.clear()
+
+        for task in list(self._prefetch_tasks):  # cancel 완료 콜백(discard)의 set 변형과 순회 분리
+            task.cancel()
+        for task in list(self._prefetch_tasks):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                # 예외로 방금 끝난 태스크는 done callback(discard)이 아직 안 돌아 set에 남아 있을 수
+                # 있다 — 그 예외가 close() 밖으로 새 종료 사유를 덮지 않게 여기서 삼키고 기록만 한다.
+                logger.exception("프리페치 태스크가 예외로 종료된 채 남아 있었음 — 종료 계속")
+        self._prefetch_tasks.clear()
 
 
 async def start_consumer() -> None:
@@ -112,7 +193,7 @@ async def start_consumer() -> None:
 
 
 async def _run_consumer() -> None:
-    logger.info("RabbitMQ 연결 시도: %s", RABBITMQ_URL)
+    logger.info("RabbitMQ 연결 시도: %s", mask_amqp_url(RABBITMQ_URL))
     connection = await aio_pika.connect_robust(RABBITMQ_URL)
 
     async with connection:
@@ -149,7 +230,10 @@ async def _run_consumer() -> None:
         )
 
         dispatcher = _PartitionedDispatcher(
-            lambda item: _process_event(item, publish_channel), INGEST_MAX_CONCURRENCY
+            lambda item, prepared: _process_event(item, prepared, publish_channel),
+            INGEST_MAX_CONCURRENCY,
+            prefetch=_changeset_prefetch,
+            lookahead=INGEST_CHANGESET_LOOKAHEAD,
         )
         try:
             async with queue.iterator() as q:
@@ -187,8 +271,23 @@ async def _route_message(
     dispatcher.submit(project_id, (message, event))
 
 
-async def _process_event(item: object, publish_channel: aio_pika.abc.AbstractChannel) -> None:
+def _changeset_prefetch(item: object):
+    """디스패처가 submit 시점에 호출 — 프리페치 대상이면 prepare_changeset 코루틴 객체를 반환한다.
+
+    코루틴 객체만 반환하고 await하지 않는다 — _PartitionedDispatcher가 태스크로 감싸 실행한다.
+    """
+    _, event = item  # type: ignore[misc]
+    if is_prefetchable_changeset(event):
+        return prepare_changeset(event)
+    return None
+
+
+async def _process_event(item: object, prepared: object, publish_channel: aio_pika.abc.AbstractChannel) -> None:
     """워커가 호출 — 메시지 하나를 그래프에 반영한다.
+
+    prepared: 같은 파티션에서 look-ahead로 미리 계산된 ChangeSet 준비 결과(없으면 None →
+    handle이 인라인으로 재계산). 실패 라우팅 시(_handle_failure) prepared는 그냥 버려진다 —
+    재배달된 메시지는 재소비 시 새로 프리페치되므로 재계산은 의도된 동작이다.
 
     성공: 후처리 디바운스 타이머 갱신 후 ack.
     실패: _handle_failure가 retry/dlq로 재발행하고 원본을 ack 한다.
@@ -196,7 +295,7 @@ async def _process_event(item: object, publish_channel: aio_pika.abc.AbstractCha
     """
     message, event = item  # type: ignore[misc]
     try:
-        await handle(event)
+        await handle(event, prepared=prepared)
         # 처리 성공 — 해당 프로젝트의 후처리(시맨틱 링크) 디바운스 타이머 갱신.
         # 그 프로젝트 큐가 잠잠해지면 start_debounce_loop가 Layer 4 시퀀스를 1회 실행한다.
         # projectId 없는 이벤트는 handle에서 이미 건너뛰며, mark_dirty도 빈 값을 무시한다.

@@ -3,12 +3,22 @@
    ============================================================ */
 .chat-wrap {
   display: grid;
-  grid-template-columns: 1fr;
+  /* 열림 상태(.with-panel)와 트랙 개수를 맞추려고 0px 트랙을 둔다.
+     grid-template-columns는 트랙 개수가 같을 때만 보간되고, 다르면(1fr ↔ 1fr 360px)
+     중간값 없이 즉시 전환값으로 점프한다 — 0px는 화면에 보이지 않으면서 트랙 수만 맞춘다. */
+  grid-template-columns: 1fr 0px;
   flex: 1; min-height: 0;
   position: relative;
-  transition: grid-template-columns 0.3s ease;
+  /* 오버슛(--ease-spring)은 그리드 폭 전환이라 중앙 본문까지 함께 출렁여 산만하다 —
+     감속만 하는 standard를 쓴다(실물 확인 후 결정, 2026-08-22). */
+  transition: grid-template-columns var(--dur-slow) var(--ease-standard);
 }
 .chat-wrap.with-panel { grid-template-columns: 1fr 360px; }
+/* 패널 폭 전환은 중앙 본문까지 밀어내는 레이아웃 모션이라 동작 축소 설정에서는 끈다
+   (DESIGN.md 모션 절: prefers-reduced-motion 준수 — 위치 변화는 제거, opacity는 유지) */
+@media (prefers-reduced-motion: reduce) {
+  .chat-wrap { transition: none; }
+}
 
 /* 관련 그래프 토글 — 패널이 닫혔을 때만 우상단에 띄운다 */
 .graph-toggle {
@@ -27,7 +37,7 @@
   /* 다크에서 그림자가 none이 되는 대신 상단 1px 인셋으로 빛을 받는다(edge-highlight, DESIGN.md) */
   box-shadow: inset 0 1px 0 0 var(--edge-highlight), var(--shadow-sm);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
 }
 .graph-toggle:hover {
   background: var(--surface-2);
@@ -44,6 +54,8 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* 여기에 overflow:hidden을 걸면 안 된다 — .panel-resizer가 left:-3px로 왼쪽 경계를
+     넘어 걸쳐 있어서 그랩 영역이 잘린다. 전환 중 내용 클리핑은 아래 head/body가 맡는다. */
 }
 /* 너비 조절 핸들 — 왼쪽 경계에 걸친 얇은 그랩 스트립(드래그 시 accent 라인 표시) */
 .panel-resizer {
@@ -52,7 +64,9 @@
   left: -3px;
   width: 6px;
   height: 100%;
-  z-index: 5;
+  /* 풀블리드 NodeDetail(z-index 5)이 body 왼쪽 끝까지 덮으므로 그 위에 있어야
+     상세가 열린 동안에도 그랩 영역 6px이 온전히 유지된다. */
+  z-index: 6;
   cursor: col-resize;
   touch-action: none;
 }
@@ -64,7 +78,7 @@
   left: 2px;
   width: 2px;
   background: transparent;
-  transition: background 0.12s;
+  transition: background var(--dur-fast) var(--ease-standard);
 }
 .panel-resizer:hover::after,
 .panel-resizer:active::after {
@@ -79,6 +93,9 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--fg);
+  /* 패널 열림 전환 중 트랙 폭이 0→패널 폭으로 커지는 동안 내용이 삐져나오지 않게 막는다.
+     .side-panel이 아니라 여기서 자르는 이유는 위 .side-panel 주석 참조 */
+  overflow: hidden;
 }
 .side-panel-body {
   flex: 1;
@@ -86,6 +103,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .side-panel-empty,
 .side-panel-loading {
@@ -99,10 +117,13 @@
   font-size: 13px;
   color: var(--fg-muted);
 }
-/* 좁은 패널에 맞춰 NodeDetail 오버레이를 가장자리 여백만 남기고 채운다 */
+/* 관련 그래프 헤더 아래 body 영역을 전부 덮는다 — 가장자리로 그래프가 비치지 않게(사용자 결정). */
 .side-panel .node-detail {
-  top: 12px; right: 12px; bottom: 12px; left: 12px;
+  top: 0; right: 0; bottom: 0; left: 0;
   width: auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none; /* 풀블리드 층이라 카드 그림자·엣지 하이라이트 불필요 */
 }
 .chat {
   display: flex;
@@ -158,6 +179,38 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+/* 시그니처 모션 1/2 — 방금 도착한 답변만 페이드+상승으로 들어온다(DESIGN.md 모션 절).
+   .is-fresh는 ChatPage가 전송 성공 경로에서만 붙인다 — 과거 대화 로드/prepend에는 절대 안 붙는다.
+   opacity/transform만 쓴다: ChatStream의 스크롤 고정(scrollHeight)과 충돌하지 않기 위함. */
+@keyframes msg-rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+/* reduced-motion용 — transform 없이 opacity만(DESIGN.md: "opacity 유지, transform 제거"). */
+@keyframes msg-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.msg.assistant.is-fresh .msg-exploratory,
+.msg.assistant.is-fresh .msg-content,
+.msg.assistant.is-fresh .unknown-aspects {
+  animation: msg-rise-in var(--dur-slow) var(--ease-standard) both;
+}
+.msg.assistant.is-fresh .cite-card {
+  /* delay는 인라인 style(animationDelay)로 카드마다 스태거 — both가 재생 전 opacity 0을 보장 */
+  animation: msg-rise-in var(--dur-slow) var(--ease-standard) both;
+}
+/* 모션 축소: 상승(transform) 없이 페이드만. 위 기본 규칙의 animation 축약이 name을 포함하므로
+   이 블록은 반드시 기본 규칙 뒤에 와야 이긴다(동일 특이도 — 소스 순서로 결정). */
+@media (prefers-reduced-motion: reduce) {
+  .msg.assistant.is-fresh .msg-exploratory,
+  .msg.assistant.is-fresh .msg-content,
+  .msg.assistant.is-fresh .unknown-aspects,
+  .msg.assistant.is-fresh .cite-card {
+    animation-name: msg-fade-in;
+  }
 }
 
 .msg { display: flex; align-items: flex-start; }
@@ -308,7 +361,7 @@
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
   text-align: left;
   align-items: flex-start;
   overflow: hidden;
@@ -341,15 +394,19 @@
   margin-bottom: 3px;
   min-width: 0;
 }
-/* id처럼 긴 값만 줄여 잘라내고(ellipsis), 타입·날짜 등 짧은 항목은 밀리지 않게 고정폭 유지 */
-.cite-card .cite-meta > span:not(.cite-id) { flex-shrink: 0; }
-.cite-card .cite-id {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10.5px;
+/* 메타 항목(타입·저자·날짜)은 전부 짧아 줄어들 필요가 없다 — 고정폭 유지
+   (날짜는 <time> 요소라 자식 선택자로 함께 잡는다) */
+.cite-card .cite-meta > * { flex-shrink: 0; }
+/* 근거 타입 옆 브랜드 로고 — 11px 메타 줄이라 칩(배경) 없이 마크만 노출한다. */
+.cite-card .cite-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cite-card .cite-logo {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
 .cite-card .cite-title { font-size: 13px; font-weight: 550; color: var(--fg); line-height: 1.35; }
 .cite-card .cite-body { flex: 1; min-width: 0; }
@@ -379,6 +436,10 @@
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
+/* 모션 축소: 회전만 멈춘다 — 정지된 아크로도 "진행 중"은 전달된다(buttons.css .busy-spinner와 동일). */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -401,7 +462,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition: border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
 }
 .composer-box:focus-within {
   border-color: var(--accent-ink);
@@ -434,7 +495,7 @@
   display: flex; justify-content: center; gap: 12px;
   flex-wrap: wrap;
 }
-/* 정적 고지 — 좁은 폭에서 키보드 힌트와 같은 줄에 끼지 않도록 항상 줄을 차지한다 */
+/* 정적 고지 — 생성 중 표시와 같은 줄에 끼지 않도록 항상 줄을 차지한다 */
 .composer-disclaimer {
   flex-basis: 100%;
 }

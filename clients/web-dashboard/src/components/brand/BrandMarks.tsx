@@ -3,10 +3,9 @@ import { useId } from "react";
 // 브랜드 로고 SVG 공용 컴포넌트 — 데이터 소스 커넥터 로고(랜딩 미리보기·데이터 소스 카드)가
 // 함께 참조하는 단일 출처다. DESIGN.md "네임스페이스 분리" 원칙에 따라 노드 색을 빌리지
 // 않고 tokens.css의 --brand-* 전용 네임스페이스만 참조한다(hex 하드코딩 금지).
-// 각 패스는 해당 브랜드의 공식 마크 형태를 그대로 옮긴 것이다(근사·재해석 없음) — 대부분
-// simple-icons(simpleicons.org) 공식 브랜드 SVG 데이터셋에서, monday.com·Microsoft Teams처럼
-// 그 데이터셋에 없는 마크는 Iconify `logos` 컬렉션(공식 자산 기반 커뮤니티 아카이브)에서 가져왔다.
-// 크기 인터페이스는 11개 전체가 동일하다 — size(기본 24px) + className, Icons.tsx의
+// 각 패스는 해당 브랜드의 공식 마크 형태를 그대로 옮긴 것이다(근사·재해석 없음) —
+// simple-icons(simpleicons.org) 공식 브랜드 SVG 데이터셋 기준.
+// 크기 인터페이스는 9개 전체가 동일하다 — size(기본 24px) + className, Icons.tsx의
 // IconProps 관례와 같은 패턴.
 interface BrandMarkProps {
   size?: number;
@@ -86,7 +85,7 @@ export function SlackMark({ size = 24, className }: BrandMarkProps) {
   );
 }
 
-// ── 아래 8개는 이번 단계에서 추가된 신규 브랜드 마크 ───────────────────────────
+// ── 아래 6개는 이번 단계에서 추가된 신규 브랜드 마크 ───────────────────────────
 
 // Notion — 잉크(흑백) 마크. GitHub와 같은 사유로 다크 배경용 흰색 변형이 기본값이고,
 // 라이트 대응은 tokens.css의 라이트 오버라이드(잉크색 잠정 대체)가 맡는다.
@@ -125,25 +124,6 @@ export function AsanaMark({ size = 24, className }: BrandMarkProps) {
   );
 }
 
-// monday.com — 공식 "flag" 마크(사선 막대 3개). 실제 마크는 레드·옐로·그린 3색이다(작업 지시의
-// "레드·그린·블루계열" 설명과 달리 블루 막대가 없다 — Iconify `logos` 컬렉션의 monday.com 공식
-// 자산 기준. 최종 보고에서 이 차이를 별도로 알린다).
-export function MondayMark({ size = 24, className }: BrandMarkProps) {
-  return (
-    <svg width={size} height={size} className={className} viewBox="0 0 256 256" aria-hidden="true">
-      <path
-        fill="var(--brand-monday-red)"
-        d="M31.846 153.489a31.97 31.97 0 0 1-27.86-16.167a30.91 30.91 0 0 1 .875-31.823l57.373-90.096A31.99 31.99 0 0 1 90.556.015a31.93 31.93 0 0 1 27.41 16.896c5.349 10.113 4.68 22.28-1.725 31.774L58.904 138.78a31.98 31.98 0 0 1-27.058 14.709"
-      />
-      <path
-        fill="var(--brand-monday-yellow)"
-        d="M130.256 153.488c-11.572 0-22.22-6.187-27.812-16.13a30.81 30.81 0 0 1 .875-31.737l57.264-89.89A31.94 31.94 0 0 1 188.93.016c11.669.255 22.244 6.782 27.592 16.993a30.81 30.81 0 0 1-2.066 31.92l-57.252 89.889a31.93 31.93 0 0 1-26.948 14.671"
-      />
-      <ellipse cx="226.466" cy="125.324" fill="var(--brand-monday-green)" rx="29.538" ry="28.918" />
-    </svg>
-  );
-}
-
 // ClickUp — 공식 마크(위아래 셰브런 화살표). 실물 아이콘은 핑크→퍼플→블루 그라데이션이라
 // linearGradient로 재현한다(그라데이션 stop은 공식 팔레트로 확정: 핑크 #FD71AF, 퍼플 #7B68EE,
 // 블루 #49CCF9). 패스 자체는 simple-icons 공식 데이터.
@@ -162,44 +142,6 @@ export function ClickUpMark({ size = 24, className }: BrandMarkProps) {
       <path
         fill={`url(#${grad})`}
         d="M2 18.439l3.69-2.828c1.961 2.56 4.044 3.739 6.363 3.739 2.307 0 4.33-1.166 6.203-3.704L22 18.405C19.298 22.065 15.941 24 12.053 24 8.178 24 4.788 22.078 2 18.439zM12.04 6.15l-6.568 5.66-3.036-3.52L12.055 0l9.543 8.296-3.05 3.509z"
-      />
-    </svg>
-  );
-}
-
-// Microsoft Teams — 공식 배지 마크(원 2개 + 그라데이션 패널 + 흰 "T"). Iconify `logos`
-// 컬렉션의 공식 자산에서 색·형태를 그대로 옮기되, 순수 음영 표현용 반투명 오버레이 패스는
-// (브랜드 식별에 기여하지 않는 장식적 depth 효과라) 이 파일의 다른 마크와 밀도를 맞추기 위해
-// 제외했다. 그라데이션 id는 Jira와 같은 이유로 useId.
-export function MicrosoftTeamsMark({ size = 24, className }: BrandMarkProps) {
-  const uid = useId();
-  const grad = `teams-grad-${uid}`;
-  return (
-    <svg width={size} height={size} className={className} viewBox="0 0 256 239" aria-hidden="true">
-      <defs>
-        <linearGradient id={grad} x1="17.372%" x2="82.628%" y1="-6.51%" y2="106.51%">
-          <stop offset="0%" stopColor="var(--brand-teams-grad-a)" />
-          <stop offset="50%" stopColor="var(--brand-teams-grad-b)" />
-          <stop offset="100%" stopColor="var(--brand-teams-grad-c)" />
-        </linearGradient>
-      </defs>
-      <circle cx="223.256" cy="50.605" r="26.791" fill="var(--brand-teams)" />
-      <path
-        fill="var(--brand-teams)"
-        d="M178.563 89.302h66.125c6.248 0 11.312 5.065 11.312 11.312v60.231c0 22.96-18.613 41.574-41.573 41.574h-.197c-22.96.003-41.576-18.607-41.579-41.568V95.215a5.91 5.91 0 0 1 5.912-5.913"
-      />
-      <circle cx="139.907" cy="38.698" r="38.698" fill="var(--brand-teams-light)" />
-      <path
-        fill="var(--brand-teams-light)"
-        d="M191.506 89.302H82.355c-6.173.153-11.056 5.276-10.913 11.449v68.697c-.862 37.044 28.445 67.785 65.488 68.692c37.043-.907 66.35-31.648 65.489-68.692v-68.697c.143-6.173-4.74-11.296-10.913-11.449"
-      />
-      <path
-        fill={`url(#${grad})`}
-        d="M10.913 53.581h109.15c6.028 0 10.914 4.886 10.914 10.913v109.151c0 6.027-4.886 10.913-10.913 10.913H10.913C4.886 184.558 0 179.672 0 173.645V64.495C0 58.466 4.886 53.58 10.913 53.58"
-      />
-      <path
-        fill="var(--brand-teams-fg)"
-        d="M94.208 95.125h-21.82v59.416H58.487V95.125H36.769V83.599h57.439z"
       />
     </svg>
   );

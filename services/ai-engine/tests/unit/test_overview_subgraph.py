@@ -2,9 +2,10 @@
 
 Neo4j 없이 도는 부분만 검증한다 — evidence를 타입별 키로 그룹핑하는
 `_group_evidence_keys`, 조회된 노드 행을 evidence 순서대로 elementId에
-정렬하는 `_resolve_seed_ids`, 그리고 노드 행을 프론트 GraphNode로 변환하며
-focus 질의용 `ref`(도메인 키)를 방출하는 `_to_graph_node`. 실제 Cypher resolve는
-live Neo4j(integration) 영역.
+정렬하는 `_resolve_seed_ids`, 같은 매칭 로직(`_match_evidence_row`)을 공유해
+source를 정렬하는 `_resolve_seed_sources`, 그리고 노드 행을 프론트 GraphNode로
+변환하며 focus 질의용 `ref`(도메인 키)를 방출하는 `_to_graph_node`. 실제 Cypher
+resolve는 live Neo4j(integration) 영역.
 """
 
 from graph.overview import (
@@ -13,6 +14,7 @@ from graph.overview import (
     _group_evidence_keys,
     _normalize_evidence,
     _resolve_seed_ids,
+    _resolve_seed_sources,
     _source_label,
     _to_graph_node,
 )
@@ -170,6 +172,55 @@ def test_resolve_seed_ids_unresolved_is_none():
         {"type": "commit", "id": "abc1234"},
     ]
     assert _resolve_seed_ids(evidence, rows) == [None, "n1"]
+
+
+def test_resolve_seed_sources_aligns_to_evidence_order():
+    # _resolve_seed_ids와 같은 매칭(_match_evidence_row)을 공유하므로 타입별 매칭도 동일하게
+    # 확인한다 — commit·pull_request·issue·message·document 전부.
+    rows = [
+        {"id": "n1", "label": "ChangeSet", "hash": "abc1234def", "source": "GITHUB"},
+        {"id": "n2", "label": "PullRequest", "pr_number": 42, "source": "GITHUB"},
+        {"id": "n3", "label": "Issue", "issue_key": "HT-37", "source": "JIRA"},
+        {"id": "n4", "label": "Communication", "conversation_id": "1700000000.123", "source": "SLACK"},
+        {"id": "n5", "label": "Document", "external_id": "page-1", "source": "NOTION"},
+    ]
+    evidence = [
+        {"type": "issue", "id": "HT-37"},
+        {"type": "commit", "id": "abc1234"},
+        {"type": "message", "id": "1700000000.123"},
+        {"type": "pull_request", "id": "#42"},
+        {"type": "document", "id": "page-1"},
+    ]
+    assert _resolve_seed_sources(evidence, rows) == ["JIRA", "GITHUB", "SLACK", "GITHUB", "NOTION"]
+
+
+def test_resolve_seed_sources_unresolved_is_none():
+    rows = [{"id": "n1", "label": "ChangeSet", "hash": "abc1234def", "source": "GITHUB"}]
+    evidence = [
+        {"type": "issue", "id": "HT-99"},
+        {"type": "commit", "id": "abc1234"},
+    ]
+    assert _resolve_seed_sources(evidence, rows) == [None, "GITHUB"]
+
+
+def test_resolve_seed_sources_excludes_stub_issue():
+    # stub(source='__stub__')은 카드 매핑에서도 빠지는 노드이니 소스 라벨링에서도 매칭되지 않아야 한다.
+    rows = [
+        {"id": "n1", "label": "Issue", "issue_key": "HT-37", "source": "__stub__"},
+        {"id": "n2", "label": "Issue", "issue_key": "HT-99", "source": "JIRA"},
+    ]
+    evidence = [
+        {"type": "issue", "id": "HT-37"},
+        {"type": "issue", "id": "HT-99"},
+    ]
+    assert _resolve_seed_sources(evidence, rows) == [None, "JIRA"]
+
+
+def test_resolve_seed_sources_blank_source_is_none():
+    # coalesce(n.source, '')가 빈 문자열을 낼 수 있는 레거시 노드 — 소스 없음은 None으로 정규화.
+    rows = [{"id": "n1", "label": "ChangeSet", "hash": "abc1234def", "source": ""}]
+    evidence = [{"type": "commit", "id": "abc1234"}]
+    assert _resolve_seed_sources(evidence, rows) == [None]
 
 
 def test_to_graph_node_ref_carries_query_key():

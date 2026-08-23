@@ -19,6 +19,19 @@
   /* spacing rhythm */
   --gutter: 16px;
 
+  /* motion
+     --lp-*에서 프리픽스만 뗀 승격형이며 값은 동일하다. 랜딩 토큰(--lp-ease-*, --lp-dur-*)은
+     삭제하지 않고 그대로 병존시킨다 — 중복 정의가 아니라 의도된 상태다.
+     스피너 회전 지속시간(0.7s/0.8s)은 이 3단 스케일의 대상이 아니다.
+     여섯 토큰 모두 소비처가 있다 — spring은 그래프 점등 링(graph.css), exit·base는
+     상세 패널 등장/퇴장(graph.css·galaxy.css). 값은 DESIGN.md 모션 절이 정본이다. */
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);
+  --dur-fast:  120ms;
+  --dur-base:  220ms;
+  --dur-slow:  420ms;
+
   /* ── 노드 타입 팔레트 (기본 = 라이트, 다크는 아래에서 재정의) ──────────
      DESIGN.md의 정본 hex를 oklch로 변환한 값이다(hue만 돌려 파생시키지 않는다).
 
@@ -136,23 +149,14 @@
   --brand-slack-red: #E01E5A;
   --brand-slack-aubergine: #4A154B; /* Slack 브랜드 주색 — 단색 커넥터 로고 배경용 */
 
-  /* 신규 8개 브랜드(2단계 데이터 소스 재설계 기반 작업) — GitHub와 같은 사유로 잉크(흑백)
+  /* 신규 6개 브랜드(2단계 데이터 소스 재설계 기반 작업) — GitHub와 같은 사유로 잉크(흑백)
      마크는 다크 배경용 흰색 변형을 기본값으로 둔다(Notion). 나머지는 공식 컬러 그대로. */
   --brand-notion: #FFFFFF;          /* Notion 잉크 마크 — 다크 배경용 흰색 변형(공식은 흑, GitHub와 동일 패턴) */
   --brand-linear: #5E6AD2;
   --brand-asana: #F06A6A;
-  --brand-monday-red: #F62B54;      /* monday.com 공식 "flag" 마크 3색 중 레드 */
-  --brand-monday-yellow: #FFCC00;   /* 옐로 — 노드 팔레트가 밝은 노랑을 쓰지 않으므로 앰버 독점 규칙과 무충돌 */
-  --brand-monday-green: #00CA72;
   --brand-clickup-pink: #FD71AF;    /* ClickUp 그라데이션 핑크 — 공식 팔레트 확정값 */
   --brand-clickup-purple: #7B68EE;  /* ClickUp 공식 대표 컬러 */
   --brand-clickup-blue: #49CCF9;    /* ClickUp 그라데이션 블루 — 공식 팔레트 확정값 */
-  --brand-teams: #5059C9;           /* Microsoft Teams 배지 — 진한 퍼플 */
-  --brand-teams-light: #7B83EB;     /* Microsoft Teams 배지 — 밝은 퍼플 */
-  --brand-teams-grad-a: #5A62C3;    /* Teams 패널 그라데이션 3단 */
-  --brand-teams-grad-b: #4D55BD;
-  --brand-teams-grad-c: #3940AB;
-  --brand-teams-fg: #FFFFFF;        /* Teams 패널 위 흰 "T" */
   --brand-google-chat: #34A853;     /* Google 워크스페이스 그린 */
   --brand-discord: #5865F2;         /* Discord 공식 "Blurple" */
 }

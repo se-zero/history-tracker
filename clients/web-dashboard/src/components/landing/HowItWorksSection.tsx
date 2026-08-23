@@ -14,7 +14,7 @@ const STEPS = [
   {
     num: "01",
     title: "연결",
-    body: "저장소와 워크스페이스를 연결한다. GitHub, Jira, Slack.",
+    body: "저장소와 워크스페이스를 연결한다. 코드, 티켓, 대화, 문서.",
   },
   {
     num: "02",

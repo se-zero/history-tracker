@@ -1,0 +1,120 @@
+# 테스트 워크플로
+#
+# 머지 전에 4개 서비스의 테스트를 자동으로 돌린다. 이전에는 로컬 훅에만 의존해서,
+# 훅이 없는 환경에서 만든 커밋은 아무도 검증하지 않은 채 올라올 수 있었다.
+#
+# **이 워크플로의 실질 가치는 backend에 있다.** 퍼시스턴스·스키마 테스트가
+# `@Testcontainers(disabledWithoutDocker = true)`로 선언돼 있어 Docker가 없으면 조용히
+# 건너뛴다(로컬 실측: Docker 꺼짐 641건 실행/91건 스킵 → 켜짐 732건 전량 실행).
+# 건너뛰는 91건이 하필 Flyway migration ↔ JPA Entity 정합성을 검증하는 것들이고,
+# 이게 어긋나면 `ddl-auto: validate`라 프로덕션이 기동조차 못 한다.
+# GitHub 러너에는 Docker가 항상 있으므로 여기서는 무조건 돈다.
+
+name: Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [develop, main]
+
+# 문서만 바뀐 push도 돌린다 — 리뷰 봇(code-review.yml)은 건너뛰어도 되지만, 테스트는
+# "이 커밋에서 초록이었나"가 기록으로 남아야 한다.
+
+# 연달아 push하면 앞 실행을 취소하고 마지막 것만 돌린다 — 단 PR에서만.
+# develop·main으로의 push는 취소하지 않는다: 연달아 머지되면 앞 커밋의 실행이 취소돼
+# "그 커밋에서 초록이었나"라는 기록이 사라지기 때문이다(위 트리거 주석의 근거와 같다).
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 워크플로 기본 permissions(contents: read)를 그대로 쓴다.
+    # upload-artifact@v4는 GITHUB_TOKEN이 아니라 러너가 주입하는 ACTIONS_RUNTIME_TOKEN으로
+    # 업로드하므로 권한을 넓힐 근거가 없다. 혹시 첫 실패 때 업로드가 안 되면 그때 추가한다.
+    defaults:
+      run:
+        working-directory: services/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      # Testcontainers가 러너의 Docker로 postgres:16-alpine을 띄운다(러너에 기본 탑재).
+      - run: ./gradlew test --no-daemon
+      - name: 실패 시 테스트 리포트 업로드
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-report
+          path: services/backend/build/reports/tests/test
+          retention-days: 7
+
+  pipeline-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/pipeline-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - run: ./gradlew test --no-daemon
+      - name: 실패 시 테스트 리포트 업로드
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-worker-test-report
+          path: services/pipeline-worker/build/reports/tests/test
+          retention-days: 7
+
+  ai-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/ai-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            services/ai-engine/requirements.txt
+            services/ai-engine/requirements-dev.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      # pytest.ini의 testpaths가 tests/unit만 수집한다 — 살아 있는 Neo4j·OpenAI가 필요한
+      # integration 테스트는 기본 수집에서 빠져 있어 별도 조치가 필요 없다.
+      - run: pytest
+
+  web-dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: clients/web-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: clients/web-dashboard/package-lock.json
+      - run: npm ci
+      # 테스트 러너가 없는 서비스라 타입체크와 빌드 성공이 기준선이다
+      # (clients/web-dashboard/CLAUDE.md의 검증 명령과 같다).
+      - run: npm run typecheck
+      - run: npm run build

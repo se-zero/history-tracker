@@ -54,20 +54,36 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
 | `web-dashboard` | React/Vite :5173 | 사용자 웹 프론트엔드 (onboarding, sources, graph, chat) |
 
 
-## 실행 방법 (로컬, Docker Compose)
+## 실행 방법 (Docker Compose)
 
 전체 스택은 `infra/docker`의 docker-compose로 기동한다.
+**로컬과 배포는 실행 스크립트가 다르다** — 같은 base에 다른 오버라이드를 얹기 때문이다.
 
 ```bash
 cd infra/docker
-./dev.sh up -d --build    # docker compose --profile app 래퍼
+
+# 로컬 개발 — 인프라·앱 포트를 전부 연다
+./dev.sh up -d --build
 ./dev.sh logs -f backend
 ./dev.sh ps
 ./dev.sh down
+
+# 배포(서버) — 웹(80)만 열고, 자원 상한·재시작·로그 로테이션이 붙는다
+./prod.sh up -d --build
+./prod.sh ps
 ```
+
+`./dev.sh`는 `docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile app` 래퍼이고,
+`./prod.sh`는 `dev.yml` 자리에 `prod.yml`이 들어간다. 배포 서버에서 실수로 `./dev.sh`를 쓰면
+인증 없는 pipeline-worker 엔드포인트(`/api/v1/collect`·`/api/v1/raw`)까지 외부에 열린다.
 
 - 모든 환경변수는 `infra/docker/.env` 한 곳에 모인다 (`.env`는 gitignore).
 - 컨테이너: postgres, neo4j, rabbitmq, ai-engine, backend, pipeline-worker, web-dashboard.
+- **compose는 3분할이다** — base(`docker-compose.yml`)는 서비스 정의만 갖고, 호스트 포트는
+  환경별 오버라이드가 소유한다(`docker-compose.dev.yml` 전체 노출 / `docker-compose.prod.yml` 웹만).
+  오버라이드는 `ports`를 덮어쓰지 않고 **이어붙이기** 때문에, base에 포트를 두면 배포에서 닫을 수 없다.
+  그래서 `docker compose`를 직접 치면 어떤 포트도 열리지 않는다 — 항상 위 두 스크립트를 쓴다.
+- 실사용 배포 절차는 `docs/deployment.md`를 따른다.
 - 필수 키: `BACKEND_CREDENTIAL_KEY`(32-byte Base64), `INTERNAL_SERVICE_TOKEN`(backend·pipeline-worker 공유),
   `OPENAI_API_KEY`, GitHub App OAuth 값(`GITHUB_APP_*`, `GITHUB_CLIENT_*`), Atlassian OAuth 값(`ATLASSIAN_CLIENT_*`, `ATLASSIAN_REDIRECT_URI`).
 - 개별 서비스 빌드/테스트 명령은 각 서비스의 CLAUDE.md를 참고한다.
@@ -103,7 +119,10 @@ cd infra/docker
 - `docs/jira-personal-data-policy.md` - Jira 개인정보 보고 정책 — 보고 사이클, closed/access_lost 삭제 규칙, 배포 시 봇 계정 등록 절차
 - `docs/embedding-design.md` - 임베딩 모델 선택, 대상 노드/엣지, REFERENCE 엣지 생성 흐름, Neo4j Vector Index 도입 계획
 - `docs/DB.md` - backend PostgreSQL 테이블 정의 및 관계도 (Flyway V1~)
+- `docs/deployment.md` - 실사용 배포 가이드 — 호스트 사양(Proxmox VM), `./prod.sh` 절차, OAuth 콜백 9종·GitHub webhook 등록 체크리스트, 자원 상한의 근거. **배포 관련 작업 전에 읽는다**
+- `docs/deployment-followups.md` - 배포 경로 후속 작업 — RabbitMQ 자격증명 URL 분리, 터널 실기동 검증(도메인 대기), pipeline-worker 인바운드 인증 검토
 - `docs/tools.md` - ai-engine의 LLM tool-calling 도구 레퍼런스 (계약·반환·동작, 코드 위치 포인터)
 - `docs/query-quality-issues.md` - GraphRAG 쿼리 품질 이슈 분석
 - `docs/measurement.md` - GraphRAG 정량 측정(eval) 가이드 — 그래프·응답 품질 개선을 숫자로 검증하는 방법
 - `docs/DESIGN.md` - 디자인 시스템(팔레트·타이포·모션). **UI 작업 전에 읽고 모든 시각 결정을 여기서 파생시킨다**
+- `docs/i18n.md` - 다국어 준비 메모(**언어 분리 착수 전**) — 시각 표시 작업이 세워 둔 계약. 로캘(UI 언어)과 타임존(기기 설정)은 독립 축이며, 언어 기본값을 위치로 정하더라도 시각 표시에 위치를 끌어들이지 않는다. 서버는 UTC ISO만 내보내고 표시 변환은 프론트가 전담

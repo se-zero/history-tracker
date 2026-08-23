@@ -28,8 +28,8 @@ cd services/pipeline-worker
 | `source.clickup` | ClickUp 자격증명 해석·수집·정규화·rate limit (`ClickUpCollector`). |
 | `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). |
 | `source.discord` | Discord 수집·정규화·rate limit (`DiscordCollector`). 자격증명은 DB가 아니라 이 worker의 설정(`app.discord.bot-token`)에서 온다 — 수집 주체가 앱 전체 공유 봇이라서다. |
-| `source.googlechat` | Google Chat 수집·정규화·rate limit (`GoogleChatCollector`). Jira와 같은 모양 — DB의 사용자별 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고, 만료 시 backend(`GoogleChatTokenService`)가 갱신한다. 사용자 인증으로는 메시지 작성자 표시 이름이 Chat API 응답에 오지 않아(실측 확인) `GoogleChatRawService`가 People API(`people.googleapis.com`, 별도 호스트)로 이름·이메일을 보강한다 — 메시지에 등장한 sender만 TTL 캐시로 지연 조회(`app.google-chat.person-cache-ttl`). |
-| `source.notion` | Notion 수집·정규화·rate limit (`NotionCollector`, **문서 아키타입 1호** — `Document` nodeType 발행). ClickUp과 같은 모양 — DB의 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고 만료 판정을 하지 않는다(갱신 응답에 만료 정보가 없어 비만료 취급). `POST /v1/search`(최신 API 버전은 `Notion-Version` 헤더로 고정)를 `last_edited_time` 내림차순으로 훑고, 페이지마다 `GET /v1/blocks/{id}/children`을 재귀 조회해 `NotionBlockFlattener`로 평문화한다(깊이 5·블록 2,000·본문 100,000자 상한). `created_by`/`last_edited_by`는 partial user(id만)라 `GET /v1/users` 전량 조회 결과(TTL 캐시, `app.notion.user-cache-ttl`)로 이름·이메일·bot 여부를 보강한다 — capability 미설정으로 인한 403은 삼키고 빈 맵으로 계속한다. |
+| `source.googlechat` | Google Chat 수집·정규화·rate limit (`GoogleChatCollector`). Jira와 같은 모양 — DB의 사용자별 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고, 만료 시 backend(`GoogleChatTokenService`)가 갱신한다. 사용자 인증으로는 메시지 작성자 표시 이름이 Chat API 응답에 오지 않아(실측 확인) `GoogleChatRawService`가 People API(`people.googleapis.com`, 별도 호스트)로 이름·이메일을 보강한다 — 메시지에 등장한 sender만, 그 실행(컨텍스트) 안에서만 재사용하며 지연 조회한다. |
+| `source.notion` | Notion 수집·정규화·rate limit (`NotionCollector`, **문서 아키타입 1호** — `Document` nodeType 발행). ClickUp과 같은 모양 — DB의 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고 만료 판정을 하지 않는다(갱신 응답에 만료 정보가 없어 비만료 취급). `POST /v1/search`(최신 API 버전은 `Notion-Version` 헤더로 고정)를 `last_edited_time` 내림차순으로 훑고, 페이지마다 `GET /v1/blocks/{id}/children`을 재귀 조회해 `NotionBlockFlattener`로 평문화한다(깊이 5·블록 2,000·본문 100,000자 상한). `created_by`/`last_edited_by`는 partial user(id만)라, 처리할 페이지가 실제로 나온 뒤 실행당 한 번 지연 조회하는 `GET /v1/users` 전량 결과로 이름·이메일·bot 여부를 보강한다 — capability 미설정으로 인한 403은 삼키고 빈 맵으로 계속한다. |
 | `normalizer` | 여러 source가 공유하는 정규화 보조 유틸. 현재 `RefsExtractor` 유지 — URL 기반 참조 레지스트리(`issueExternalRefs`/`documentExternalRefs`)로 Asana·ClickUp·Notion을 함께 다룬다. |
 | `checkpoint` | DB `checkpoints` 테이블 기반 커서 조회/갱신 경계 + 배치의 커서 전진 값 계산(`CursorProgress`). |
 | `messaging` | RabbitMQ publish. |
@@ -148,7 +148,7 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
 
 ## Rate Limiting
 
-- **GitHub**: 기본 300ms 고정 딜레이. `X-RateLimit-Remaining`이 임계값 이하이면 `X-RateLimit-Reset`까지 대기.
+- **GitHub**: 3단 적응형. `X-RateLimit-Remaining`이 500(`pacing-remaining-threshold`) 초과면 무대기, 10(`low-remaining-threshold`) 초과 500 이하면 `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스((reset−now)/remaining)로 대기, 10 이하면 `X-RateLimit-Reset`까지 대기. 헤더가 없거나 remaining/reset을 숫자로 파싱할 수 없으면 300ms(`default-delay-ms`)로 폴백. 429와 rate limit 신호가 있는 403(`Retry-After` 존재 또는 `X-RateLimit-Remaining: 0`)은 `Retry-After` → `X-RateLimit-Reset` → 60초 순으로 정한 시간(상한 1시간)만큼 대기 후 최대 3회 재시도하고, 권한성 403 등 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지). **예외는 커밋 상세(`/commits/{sha}`)의 404 하나뿐이다** — force-push·history rewrite로 사라진 커밋은 재시도해도 영원히 404라, 던지면 페이지 전체가 실패하고 commit checkpoint가 전진하지 않아 매 수집이 같은 지점에서 막힌다(자가 복구 불가). 이 경우만 경고 로그를 남기고 `files` 없이 넘긴다. 커밋 상세 조회는 전용 풀(`githubCommitDetailExecutor`, 동시 3)에서 병렬 실행하며 목록 병합은 입력 순서를 보존한다.
 - **Slack**: endpoint별 고정 딜레이 (`conversations.list` / `history` / `replies`). 429 응답은
   `Retry-After` **헤더**(정수 초, 없거나 형식이 어긋나면 60초 폴백)만큼 대기 후 최대 3회 재시도하고,
   첫 429부터는 그 실행 동안 해당 endpoint의 호출 간격을 Retry-After 값으로 승격한다(`SlackPacing` —
@@ -170,7 +170,17 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
   달리 서버가 `Retry-After` 헤더(초)로 대기 시간을 알려주므로 있으면 그대로 따르고, 없을 때만 지수
   백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다.
 
-Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비싸므로(Tier 2, 페이지당 3s), auth별로 `app.slack.user-map-cache-ttl`(기본 5m) 동안 캐시해 실행 간 재사용한다. 트레이드오프: TTL 윈도우 안에 가입한 신규 멤버의 메시지는 그 동안 `userName`/`userEmail` 보강 없이 수집될 수 있으며, ai-engine의 Actor 보정이 backstop이다. 정합성을 더 조이려면 TTL을 줄이거나(0=비활성) miss-refresh로 발전시킨다.
+Slack `users.list`는 실행(webhook 수집)마다 전체 멤버를 다시 조회한다(캐시 없음). 과거에는 access
+token을 키로 auth별 TTL 캐시로 실행 간 재사용했지만, 캐시 키가 access token이라 연동을 해제해도
+그 항목이 지워지지 않고 프로세스 재시작 전까지 힙에 구성원 이름·이메일이 남는 문제가 있어
+제거했다. 그 대가로 비용이 늘었다 — Tier 2 한도(페이지 크기 200, 페이지당 고정 딜레이 3초)라
+실행마다 워크스페이스 구성원 200명당 `users.list` 호출 1회와 약 3초가 추가된다.
+
+GitHub `/users/{login}`(커밋·PR·이슈 작성자 프로필 보강)도 같은 이유로 **실행 단위**다 —
+`GitHubFetchContext.resolvedProfiles`에 담아 그 실행의 PR·commit·issue 페이지를 가로질러 재사용하고,
+실행이 끝나면 context와 함께 버린다. 과거에는 login을 키로 한 프로세스 전역 TTL 캐시였는데, TTL이
+재조회 여부만 판단할 뿐 항목을 지우지 않아 이름·이메일이 재시작 전까지 힙에 남았다(캐시 키에 auth도
+없어 프로젝트 간에도 공유됐다). 추가 비용은 실행마다 그 실행에 등장한 고유 기여자 수만큼의 호출뿐이다.
 
 ## Checkpoint
 
@@ -217,7 +227,7 @@ Slack `users.list`는 webhook 수집마다 전체 멤버를 재조회하면 비�
   cloudId 게이트웨이 주소, Google Chat·Notion은 각각 `app.google-chat.api-base-url`·
   `app.notion.api-base-url` 하나뿐 — 앱 수준 자격증명은 backend만 쓴다)
 - Discord 봇 토큰 (`app.discord.bot-token`, 환경변수 `DISCORD_BOT_TOKEN`)
-- Notion API 버전 헤더 고정값 (`app.notion.version`) · 사용자 전량 캐시 TTL (`app.notion.user-cache-ttl`)
+- Notion API 버전 헤더 고정값 (`app.notion.version`)
 - rate limit 값
 - GitHub webhook secret
 - webhook executor 종료 대기 시간
@@ -255,7 +265,7 @@ GitHub App private key는 pipeline-worker에 설정하지 않는다. token 발�
 - provider별 API 호출/정규화/rate limit/자격증명 해석은 `source.{provider}` 패키지 안에서 처리한다.
 - `SourceCollector.collect`는 발행 예외를 삼키지 않는다 — 예외가 나야 checkpoint가 전진하지 않아
   다음 수집에서 재발행된다. 삼키면 그 구간이 영구 누락된다.
-- GitHub merge commit은 `GitHubNormalizer`에서 필터링한다.
+- GitHub merge commit은 `GitHubRawService`가 목록 응답의 parents 개수로 상세 조회 전에 사전 스킵하고, `GitHubNormalizer`가 이중 방어로 필터링한다.
 - GitHub PR 수집은 `/pulls?state=closed` + 클라이언트 `merged_at != null` 필터 방식이다.
 - GitHub 수집은 integration에 브랜치가 지정되면 해당 단일 브랜치로 스코프한다: PR은 `base={branch}`(타겟 브랜치 기준), commit은 `sha={branch}` 파라미터로 제한한다. 브랜치 미지정이면 전체 브랜치를 수집한다.
 - `/api/v1/raw/*` endpoint는 디버그용 샘플이다. 전체 수집 용도로 사용하지 않는다.

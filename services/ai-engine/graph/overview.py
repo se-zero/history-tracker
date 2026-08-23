@@ -174,7 +174,7 @@ def _node_ref(node_type: str, node_id: str | None) -> dict | None:
 # 등록되지 않은 소스는 _source_label이 대문자 snake에서 유도하므로(LINEAR → "Linear",
 # GOOGLE_CHAT → "Google Chat") 커넥터를 추가할 때 이 맵을 고칠 필요는 없다.
 # **유도로 표기가 틀어지는 이름만** 여기에 넣는다 (GitHub·ClickUp처럼 중간에 대문자가 오는 경우).
-_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "CLICKUP": "ClickUp", "MONDAY": "monday.com"}
+_SOURCE_PREFIX_LABELS = {"GITHUB": "GitHub", "CLICKUP": "ClickUp"}
 
 
 def _source_label(prefix: str) -> str:
@@ -572,12 +572,11 @@ async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
 # elementId로 식별되므로 둘을 잇는 공통 키가 없다 — 여기서 도메인 키로 노드를 resolve해
 # 서브그래프를 만든다.
 
-# 시드 노드(evidence가 가리키는 노드) + 1홉 이웃을 모으고, 그 집합 내부 엣지만 수집한다.
+# evidence 도메인 키로 시드 노드를 고르는 매칭 술어 — _SUBGRAPH_QUERY(이웃 확장 포함)와
+# _SEED_ONLY_QUERY(시드만)가 공유한다. 한쪽만 고치면 카드 클릭 매핑(_resolve_seed_ids)과
+# 소스 라벨링(resolve_evidence_sources)이 서로 다른 노드를 가리키는 drift가 생긴다.
 # 빈 파라미터 리스트는 각 술어를 false로 만들어 안전하다(any(... IN [])=false, x IN []=false).
-_SUBGRAPH_QUERY = f"""
-MATCH (n)
-WHERE n.project_id = $project_id
-  AND (
+_SEED_MATCH_PRED = """
     (n:ChangeSet AND any(p IN $commit_prefixes WHERE n.hash STARTS WITH p))
     OR (n:PullRequest AND n.pr_number IN $pr_numbers)
     OR (n:Issue AND n.issue_key IN $issue_keys AND n.source <> '__stub__')
@@ -586,7 +585,13 @@ WHERE n.project_id = $project_id
         replace(n.conversation_id, '.', '') IN $conv_ids
         OR split(coalesce(n.url, ''), '/p')[-1] IN $conv_ids
     ))
-  )
+"""
+
+# 시드 노드(evidence가 가리키는 노드) + 1홉 이웃을 모으고, 그 집합 내부 엣지만 수집한다.
+_SUBGRAPH_QUERY = f"""
+MATCH (n)
+WHERE n.project_id = $project_id
+  AND ({_SEED_MATCH_PRED})
 WITH collect(n) AS seeds
 CALL (seeds) {{
     UNWIND seeds AS s
@@ -599,6 +604,16 @@ UNWIND nodes AS n
 WITH DISTINCT n
 // 이웃 확장은 라벨을 가리지 않으므로, 문서 시드의 CHILD_OF 부모가 빈 pre-node일 수 있다.
 WHERE NOT {_EMPTY_DOCUMENT_PRED}
+RETURN {_NODE_RETURN_FIELDS}
+"""
+
+# 시드 노드만 반환 — 이웃 확장 없음. resolve_evidence_sources처럼 evidence가 가리키는
+# 노드의 속성(source)만 필요할 때, _SUBGRAPH_QUERY보다 가벼운 경로로 쓴다.
+_SEED_ONLY_QUERY = f"""
+MATCH (n)
+WHERE n.project_id = $project_id
+  AND ({_SEED_MATCH_PRED})
+  AND NOT {_EMPTY_DOCUMENT_PRED}
 RETURN {_NODE_RETURN_FIELDS}
 """
 
@@ -672,59 +687,82 @@ def _group_evidence_keys(evidence: list[dict]) -> dict:
     return keys
 
 
+def _match_evidence_row(item: dict, node_rows: list[dict]) -> dict | None:
+    """evidence 1건에 매칭되는 노드 행을 찾는다(없으면 None).
+
+    _resolve_seed_ids(카드 ↔ elementId)와 _resolve_seed_sources(카드 ↔ source)가 공유하는
+    매칭 로직 — 한쪽만 고치면 카드가 가리키는 노드와 표시되는 소스가 어긋나는 drift가 생긴다.
+    """
+    norm = _normalize_evidence(item)
+    if not norm:
+        return None
+    etype, key = norm
+    if etype == "commit":
+        return next(
+            (r for r in node_rows
+             if r.get("label") == "ChangeSet" and (r.get("hash") or "").startswith(key)),
+            None,
+        )
+    if etype == "pull_request":
+        return next(
+            (r for r in node_rows
+             if r.get("label") == "PullRequest" and str(r.get("pr_number")) == key),
+            None,
+        )
+    if etype == "issue":
+        # stub(source='__stub__')은 이웃 확장으로 딸려올 수 있어 행 자체에서도 걸러낸다.
+        return next(
+            (r for r in node_rows
+             if r.get("label") == "Issue" and r.get("issue_key") == key
+             and r.get("source") != "__stub__"),
+            None,
+        )
+    if etype == "document":
+        # 빈 부모 pre-node는 _SUBGRAPH_QUERY/_SEED_ONLY_QUERY가 이미 걸러내므로 여기서 따로 안 뺀다.
+        return next(
+            (r for r in node_rows
+             if r.get("label") == "Document" and r.get("external_id") == key),
+            None,
+        )
+    if etype == "message":
+        # conversation_id(스레드 ts)뿐 아니라 url의 자기 ts(/p 뒤)와도 매칭한다 —
+        # 답글은 conversation_id가 부모 ts라, LLM이 답글 자기 ts/퍼머링크를 인용하면
+        # url로만 잡힌다.
+        return next(
+            (r for r in node_rows
+             if r.get("label") == "Communication"
+             and key in {
+                 (r.get("conversation_id") or "").replace(".", ""),
+                 _slack_ts_key(r.get("url") or ""),
+             }),
+            None,
+        )
+    return None
+
+
 def _resolve_seed_ids(evidence: list[dict], node_rows: list[dict]) -> list[str | None]:
     """조회된 노드 행을 evidence 순서대로 elementId에 정렬한다(미해석은 None).
 
     인용 카드 #i ↔ 그래프 노드 매핑용. 이웃 노드 행은 라벨이 안 맞아 자연히 무시된다.
     """
-    seeds: list[str | None] = []
+    return [
+        (row["id"] if (row := _match_evidence_row(item, node_rows)) else None)
+        for item in evidence
+    ]
+
+
+def _resolve_seed_sources(evidence: list[dict], node_rows: list[dict]) -> list[str | None]:
+    """조회된 노드 행에서 evidence 순서대로 source를 뽑는다(미해석·빈 source는 None).
+
+    resolve_evidence_sources 전용 — _resolve_seed_ids와 마찬가지로 _match_evidence_row를
+    공유해 카드 매핑과 소스 라벨링이 서로 다른 노드를 가리키지 않게 한다.
+    """
+    sources: list[str | None] = []
     for item in evidence:
-        norm = _normalize_evidence(item)
-        match: str | None = None
-        if norm:
-            etype, key = norm
-            if etype == "commit":
-                match = next(
-                    (r["id"] for r in node_rows
-                     if r.get("label") == "ChangeSet" and (r.get("hash") or "").startswith(key)),
-                    None,
-                )
-            elif etype == "pull_request":
-                match = next(
-                    (r["id"] for r in node_rows
-                     if r.get("label") == "PullRequest" and str(r.get("pr_number")) == key),
-                    None,
-                )
-            elif etype == "issue":
-                # stub(source='__stub__')은 이웃 확장으로 딸려올 수 있어 행 자체에서도 걸러낸다.
-                match = next(
-                    (r["id"] for r in node_rows
-                     if r.get("label") == "Issue" and r.get("issue_key") == key
-                     and r.get("source") != "__stub__"),
-                    None,
-                )
-            elif etype == "document":
-                # 빈 부모 pre-node는 _SUBGRAPH_QUERY가 이미 걸러내므로 여기서 따로 안 뺀다.
-                match = next(
-                    (r["id"] for r in node_rows
-                     if r.get("label") == "Document" and r.get("external_id") == key),
-                    None,
-                )
-            elif etype == "message":
-                # conversation_id(스레드 ts)뿐 아니라 url의 자기 ts(/p 뒤)와도 매칭한다 —
-                # 답글은 conversation_id가 부모 ts라, LLM이 답글 자기 ts/퍼머링크를 인용하면
-                # url로만 잡힌다.
-                match = next(
-                    (r["id"] for r in node_rows
-                     if r.get("label") == "Communication"
-                     and key in {
-                         (r.get("conversation_id") or "").replace(".", ""),
-                         _slack_ts_key(r.get("url") or ""),
-                     }),
-                    None,
-                )
-        seeds.append(match)
-    return seeds
+        row = _match_evidence_row(item, node_rows)
+        source = (row.get("source") or "") if row else ""
+        sources.append(source or None)
+    return sources
 
 
 async def get_evidence_subgraph(project_id: str, evidence: list[dict]) -> dict:
@@ -760,3 +798,33 @@ async def get_evidence_subgraph(project_id: str, evidence: list[dict]) -> dict:
         project_id, len(evidence), len(nodes), len(edges),
     )
     return {"nodes": nodes, "edges": edges, "seeds": seeds}
+
+
+async def resolve_evidence_sources(project_id: str, evidence: list[dict]) -> list[str | None]:
+    """evidence가 가리키는 노드의 source를 evidence와 같은 길이·순서로 반환한다(표시용).
+
+    프론트가 근거 카드에 브랜드 로고(Slack/Jira/GitHub…)를 그리려면 어느 소스에서 온 근거인지
+    알아야 하는데, LLM에게 적게 하면 지어낼 수 있어(_finalize의 answer_mode와 같은 원칙) 서버가
+    그래프에서 읽어 붙인다. get_evidence_subgraph와 매칭 규칙(_match_evidence_row)을 공유하되,
+    이웃 확장이 필요 없어 _SEED_ONLY_QUERY만 쓴다.
+    """
+    if not project_id or not evidence:
+        return [None] * len(evidence)
+
+    keys = _group_evidence_keys(evidence)
+    if not any(keys.values()):
+        return [None] * len(evidence)
+
+    async with get_driver().session() as session:
+        node_result = await session.run(_SEED_ONLY_QUERY, project_id=project_id, **keys)
+        node_rows = await node_result.data()
+
+    if not node_rows:
+        return [None] * len(evidence)
+
+    sources = _resolve_seed_sources(evidence, node_rows)
+    logger.info(
+        "evidence-sources project=%s evidence=%d resolved=%d",
+        project_id, len(evidence), sum(1 for s in sources if s),
+    )
+    return sources
