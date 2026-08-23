@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
 
-import { FOLLOWUP_QUESTION, SCRIPTED_QUESTION } from "./scenario.mjs";
+import { EN_CHAT_EMPTY_HEADING, EN_OVERLAY_ENTRIES, installEnOverlay } from "./en-dom-overlay.mjs";
+import { getScenario } from "./scenario.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DASHBOARD_DIR = path.resolve(__dirname, "..", "..");
@@ -33,11 +34,12 @@ function parseArgs(argv) {
   // 상단 브레드크럼 바·하단 AI 고지 라인을 잘라먹는 것이 실렌더에서 확인됐다 — 비율을
   // 슬롯과 맞추면 크롭이 사실상 0이 된다. 녹화 실픽셀은 항상 레이아웃의 2배다.
   // 값이 작을수록 슬롯(1200px)에서 UI가 크게, 클수록 작게 보인다 — 크기 체감 튜닝 손잡이.
-  const opts = { theme: "dark", variant: "basic", layout: 1600 };
+  const opts = { theme: "dark", variant: "basic", layout: 1600, lang: "ko" };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--theme") opts.theme = argv[++i];
     else if (argv[i] === "--variant") opts.variant = argv[++i];
     else if (argv[i] === "--layout") opts.layout = Number(argv[++i]);
+    else if (argv[i] === "--lang") opts.lang = argv[++i];
   }
   if (!["dark", "light"].includes(opts.theme)) {
     throw new Error(`알 수 없는 --theme 값: ${opts.theme}`);
@@ -47,6 +49,9 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(opts.layout) || opts.layout < 1180 || opts.layout > 2560) {
     throw new Error(`--layout은 1180~2560 정수여야 합니다(1180 미만은 앱 레일이 접힘): ${opts.layout}`);
+  }
+  if (!["ko", "en"].includes(opts.lang)) {
+    throw new Error(`알 수 없는 --lang 값: ${opts.lang}`);
   }
   return opts;
 }
@@ -128,7 +133,11 @@ async function ensureService(label, url, spawnFn) {
 }
 
 async function main() {
-  const { theme, variant, layout } = parseArgs(process.argv.slice(2));
+  const { theme, variant, layout, lang } = parseArgs(process.argv.slice(2));
+  const { SCRIPTED_QUESTION, FOLLOWUP_QUESTION } = getScenario(lang);
+  // 준비 대기 문자열의 단일 출처: ko는 앱 하드코딩 원문을 그대로 쓰고(src를 직접 import할 수
+  // 없으므로), en은 en-dom-overlay 사전에서 가져와 같은 문자열을 중복 선언하지 않는다.
+  const readinessHeading = lang === "en" ? EN_CHAT_EMPTY_HEADING : "무엇을 알아볼까요?";
   const layoutH = Math.round((layout * 675) / 1280);
   mkdirSync(OUT_DIR, { recursive: true });
 
@@ -137,7 +146,7 @@ async function main() {
   const mockChild = await ensureService("mock", `${MOCK_URL}/api/v1/me`, () =>
     spawn(process.execPath, ["mock-server.mjs"], {
       cwd: __dirname,
-      env: { ...process.env, PORT: String(MOCK_PORT) },
+      env: { ...process.env, PORT: String(MOCK_PORT), HERO_LANG: lang },
     }),
   );
   const viteChild = await ensureService("vite", APP_URL, () =>
@@ -176,6 +185,12 @@ async function main() {
       localStorage.setItem("chat:graphPanel", "1");
       localStorage.setItem("chat:graphPanelWidth", "420");
     }, theme);
+    if (lang === "en") {
+      // localStorage 주입과 같은 자리 — 렌더 전(addInitScript)에 실행되므로 한국어 프레임
+      // 유출 없이 첫 페인트부터 영어로 보인다. context에 등록하므로 웜업 페이지에도 그대로
+      // 적용된다(아래 두 newPage() 호출 모두 같은 context를 공유).
+      await context.addInitScript(installEnOverlay, EN_OVERLAY_ENTRIES);
+    }
 
     // 웜업 페이지 — vite 콜드스타트(모듈 트랜스폼 최초 1회)와 첫 데이터 로딩을 여기서
     // 흡수한다. 브라우저의 첫 페이지는 CDP 스크린캐스트 파이프라인 자체의 초기화 지연도
@@ -186,17 +201,17 @@ async function main() {
     const warmupVideo = warmupPage.video();
     await warmupPage.goto(APP_URL);
     await warmupPage.waitForURL(/\/projects\/.+\/chat/);
-    await warmupPage.getByText("무엇을 알아볼까요?").waitFor();
+    await warmupPage.getByText(readinessHeading).waitFor();
     await warmupPage.evaluate(() => document.fonts.ready);
     await warmupPage.close();
 
     const page = await context.newPage();
     const recordingStartAt = Date.now();
 
-    console.log(`[record] ${theme}/${variant} 촬영 시작`);
+    console.log(`[record] ${lang}/${theme}/${variant} 촬영 시작`);
     await page.goto(APP_URL);
     await page.waitForURL(/\/projects\/.+\/chat/);
-    await page.getByText("무엇을 알아볼까요?").waitFor();
+    await page.getByText(readinessHeading).waitFor();
 
     await page.evaluate(() => document.fonts.ready);
     await sleep(500);
@@ -256,11 +271,12 @@ async function main() {
       page.video().path(),
     ]);
     unlinkSync(warmupVideoPath);
-    const rawWebm = path.join(OUT_DIR, `raw-${theme}-${variant}.webm`);
+    const rawWebm = path.join(OUT_DIR, `raw-${lang}-${theme}-${variant}.webm`);
     renameSync(savedPath, rawWebm);
 
     const toOffsetSec = (t) => Math.max(0, (t - recordingStartAt) / 1000);
     const raw = {
+      lang,
       theme,
       variant,
       recordingStartAt,
@@ -271,7 +287,7 @@ async function main() {
       posterOffsetSec: toOffsetSec(posterAt),
       sceneEndOffsetSec: toOffsetSec(sceneEndAt),
     };
-    const rawJsonPath = path.join(OUT_DIR, `raw-${theme}-${variant}.json`);
+    const rawJsonPath = path.join(OUT_DIR, `raw-${lang}-${theme}-${variant}.json`);
     writeFileSync(rawJsonPath, JSON.stringify(raw, null, 2));
 
     console.log(`[record] 완료: ${rawWebm}`);

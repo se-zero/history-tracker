@@ -3,7 +3,18 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 
-import {
+import { getScenario } from "./scenario.mjs";
+
+const PORT = Number(process.env.PORT) || 8099;
+// 대화 생성/재질문 응답 전 "생각 중" 연출 지연(ms).
+const THINK_DELAY_MS = 2000;
+
+// HERO_LANG(기본 "ko")로 시나리오를 1회 해석한다 — 서버 수명 동안 언어는 바뀌지 않는다.
+const HERO_LANG = process.env.HERO_LANG || "ko";
+if (!["ko", "en"].includes(HERO_LANG)) {
+  throw new Error(`알 수 없는 HERO_LANG 값: ${HERO_LANG}`);
+}
+const {
   INTEGRATIONS,
   PROJECT,
   RAIL_CONVERSATIONS,
@@ -15,11 +26,7 @@ import {
   followupAssistantMetadata,
   scriptedAssistantContent,
   scriptedAssistantMetadata,
-} from "./scenario.mjs";
-
-const PORT = Number(process.env.PORT) || 8099;
-// 대화 생성/재질문 응답 전 "생각 중" 연출 지연(ms).
-const THINK_DELAY_MS = 2000;
+} = getScenario(HERO_LANG);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
