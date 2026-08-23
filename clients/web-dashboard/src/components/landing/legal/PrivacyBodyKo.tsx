@@ -489,6 +489,13 @@ export function PrivacyBodyKo() {
           서비스는 광고·분석 목적의 쿠키를 사용하지 않습니다. 로그인 상태를 유지하기 위해
           인증 토큰을 브라우저의 로컬 저장소에 보관하며, 로그아웃 시 삭제됩니다.
         </p>
+        <p>
+          이 외에 화면 표시 설정 — 앱 테마(<code>ht.theme</code>), 소개 페이지의 언어(
+          <code>ht.lang</code>)와 테마(<code>ht.lp-theme</code>) — 를 이용자가 직접 선택한
+          경우에만 로컬 저장소에 보관합니다. 이 값들은 개인정보가 아닌 기기별 편의 설정으로
+          로그아웃과 무관하게 유지되며, 브라우저의 사이트 데이터 삭제로 언제든 지울 수
+          있습니다.
+        </p>
       </LegalSection>
 
       <LegalSection index={10} heading="문의처">

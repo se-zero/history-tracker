@@ -149,6 +149,22 @@ async function main() {
       env: { ...process.env, PORT: String(MOCK_PORT), HERO_LANG: lang },
     }),
   );
+  // 재사용 가드 — ensureService가 살아 있는 목 서버를 재사용할 때 HERO_LANG은 적용되지 않는다.
+  // 이전 실행(특히 비정상 종료)이 다른 언어로 남긴 서버 위에 찍으면 앱 크롬만 영어이고
+  // 답변·카드가 한국어인 짬뽕 영상이 나오므로(봇 리뷰 지적), 서버가 보고하는 언어를 대조해
+  // 다르면 여기서 멈춘다. 우리가 방금 띄운 서버는 HERO_LANG이 일치하므로 이 가드에 걸리지 않고,
+  // 재사용 경로에서만(mockChild === null) 의미가 있다 — killTree(null)는 no-op이라 남의
+  // 프로세스를 죽이지 않는다.
+  const langRes = await fetch(`${MOCK_URL}/__hero-lang`).catch(() => null);
+  const mockLang = langRes?.ok ? (await langRes.json()).lang : null;
+  if (mockLang !== lang) {
+    killTree(mockChild);
+    throw new Error(
+      `목 서버 언어 불일치: 요청 --lang ${lang} vs 실행 중 서버 ${mockLang ?? "확인 불가"} — ` +
+        `포트 ${MOCK_PORT}의 목 서버를 종료한 뒤 다시 실행하세요.`,
+    );
+  }
+
   const viteChild = await ensureService("vite", APP_URL, () =>
     spawn(npmCmd, ["run", "dev", "--", "--port", String(VITE_PORT), "--strictPort"], {
       cwd: WEB_DASHBOARD_DIR,

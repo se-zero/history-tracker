@@ -139,6 +139,14 @@ const server = createServer(async (req, res) => {
   const method = req.method ?? "GET";
 
   try {
+    // 도구 내부 진단용 — record.mjs가 "떠 있는 목 서버를 재사용해도 되는 언어인지" 대조한다
+    // (HERO_LANG은 spawn 시에만 적용되므로, 이전 실행이 비정상 종료로 남긴 서버를 다른
+    // 언어로 재사용하면 앱 크롬만 영어이고 답변은 한국어인 짬뽕 영상이 나온다 — 봇 리뷰 지적).
+    // 앱은 /api/v1/* 만 호출하므로 이 경로는 앱 계약과 무관하다.
+    if (method === "GET" && path === "/__hero-lang") {
+      return sendJson(res, 200, { lang: HERO_LANG });
+    }
+
     if (method === "GET" && path === "/api/v1/me") {
       return sendJson(res, 200, USER);
     }

@@ -595,6 +595,14 @@ export function PrivacyBodyEn() {
           To keep a User signed in, an authentication token is stored in the
           browser's local storage and is deleted on sign-out.
         </p>
+        <p>
+          Beyond this, display preferences — the app theme (<code>ht.theme</code>) and
+          the public pages' language (<code>ht.lang</code>) and theme (
+          <code>ht.lp-theme</code>) — are stored in local storage only when a User
+          selects them explicitly. These values are device-local convenience settings,
+          not personal information; they persist independently of sign-out and can be
+          removed at any time by clearing the browser's site data.
+        </p>
       </LegalSection>
 
       <LegalSection index={10} heading="Contact">
