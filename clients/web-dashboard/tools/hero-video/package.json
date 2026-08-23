@@ -1,0 +1,16 @@
+{
+  "name": "hero-video-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "mock": "node mock-server.mjs",
+    "record": "node record.mjs",
+    "post": "node postprocess.mjs",
+    "video": "node record.mjs && node postprocess.mjs"
+  },
+  "devDependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "playwright": "^1.48.0"
+  }
+}
