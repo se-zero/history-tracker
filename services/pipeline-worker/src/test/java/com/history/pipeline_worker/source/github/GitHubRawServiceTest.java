@@ -13,6 +13,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,7 +52,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
 
@@ -79,7 +79,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
 
@@ -108,7 +107,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
 
@@ -133,7 +131,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
 
@@ -143,7 +140,7 @@ class GitHubRawServiceTest {
     }
 
     @Test
-    @DisplayName("프로필 조회 HTTP 에러 응답은 캐시하지 않고 다음 호출에서 재조회한다")
+    @DisplayName("프로필 조회 HTTP 에러 응답은 기록하지 않고 다음 호출에서 재조회한다")
     void fetchCommitPage_userProfileHttpError_notCachedAndRetried() {
         AtomicInteger userProfileCallCount = new AtomicInteger();
         WebClient.Builder webClientBuilder = WebClient.builder()
@@ -166,7 +163,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -178,7 +174,7 @@ class GitHubRawServiceTest {
     }
 
     @Test
-    @DisplayName("프로필 조회 중 예외가 발생해도 enrichCommits는 예외를 전파하지 않고 보강 없이 진행하며, 실패한 조회는 캐시하지 않는다")
+    @DisplayName("프로필 조회 중 예외가 발생해도 enrichCommits는 예외를 전파하지 않고 보강 없이 진행하며, 실패한 조회는 기록하지 않는다")
     @SuppressWarnings("unchecked")
     void fetchCommitPage_userProfileFetchThrows_doesNotPropagateAndNotCached() {
         AtomicInteger userProfileCallCount = new AtomicInteger();
@@ -206,7 +202,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -226,8 +221,8 @@ class GitHubRawServiceTest {
     }
 
     @Test
-    @DisplayName("성공한 프로필 조회는 캐시되어 같은 login 재조회 시 exchange가 1회만 호출된다")
-    void fetchCommitPage_userProfileSuccess_cachedAcrossCalls() {
+    @DisplayName("같은 수집 실행 안에서는 성공한 프로필 조회를 재사용해 exchange가 1회만 호출된다")
+    void fetchCommitPage_userProfileSuccess_reusedWithinRun() {
         AtomicInteger userProfileCallCount = new AtomicInteger();
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -251,7 +246,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -263,8 +257,8 @@ class GitHubRawServiceTest {
     }
 
     @Test
-    @DisplayName("TTL 내 재호출은 프로필을 재조회하지 않고 캐시를 재사용한다")
-    void fetchCommitPage_userProfileWithinTtl_cachedAcrossCalls() {
+    @DisplayName("수집 실행이 다르면 이전 실행의 프로필을 재사용하지 않고 다시 조회한다")
+    void fetchCommitPage_userProfileAcrossRuns_notReused() {
         AtomicInteger userProfileCallCount = new AtomicInteger();
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -288,50 +282,12 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(5),
                 detailExecutor()
         );
-        GitHubRawService.GitHubFetchContext context = fetchContext();
-
-        service.fetchCommitPage(context, 1, Map.of());
-        service.fetchCommitPage(context, 1, Map.of());
-
-        assertThat(userProfileCallCount.get()).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("TTL=0이면 캐시가 비활성화되어 매번 프로필을 재조회한다")
-    void fetchCommitPage_userProfileTtlZero_refetchedEachCall() {
-        AtomicInteger userProfileCallCount = new AtomicInteger();
-        WebClient.Builder webClientBuilder = WebClient.builder()
-                .exchangeFunction(request -> {
-                    String path = request.url().getPath();
-                    if (path.equals("/users/dev")) {
-                        userProfileCallCount.incrementAndGet();
-                        return Mono.just(jsonResponse("""
-                                {"email": "dev@example.com", "name": "Dev"}
-                                """));
-                    }
-                    if (path.equals("/repos/owner/repo/commits")) {
-                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
-                    }
-                    if (path.equals("/repos/owner/repo/commits/sha1")) {
-                        return Mono.just(jsonResponse("{}"));
-                    }
-                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
-                });
-
-        GitHubRawService service = new GitHubRawService(
-                webClientBuilder,
-                "https://api.github.example",
-                new GitHubRateLimiter(0, 0, 0),
-                Duration.ZERO,
-                detailExecutor()
-        );
-        GitHubRawService.GitHubFetchContext context = fetchContext();
-
-        service.fetchCommitPage(context, 1, Map.of());
-        service.fetchCommitPage(context, 1, Map.of());
+        // 서비스는 싱글턴이지만 실행(context)이 다르면 프로필이 넘어오지 않아야 한다 —
+        // 개인정보가 프로세스 수명만큼 남던 전역 캐시를 없앤 자리다.
+        service.fetchCommitPage(fetchContext(), 1, Map.of());
+        service.fetchCommitPage(fetchContext(), 1, Map.of());
 
         assertThat(userProfileCallCount.get()).isEqualTo(2);
     }
@@ -365,7 +321,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -415,7 +370,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -455,7 +409,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -489,7 +442,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -532,7 +484,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -577,7 +528,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
 
@@ -618,7 +568,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
 
@@ -650,7 +599,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
 
@@ -731,7 +679,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -769,7 +716,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 rateLimiter,
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -828,7 +774,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -878,7 +823,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -913,7 +857,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -956,7 +899,6 @@ class GitHubRawServiceTest {
                 webClientBuilder,
                 "https://api.github.example",
                 new GitHubRateLimiter(0, 0, 0),
-                Duration.ofMinutes(30),
                 detailExecutor()
         );
         GitHubRawService.GitHubFetchContext context = fetchContext();
@@ -998,9 +940,10 @@ class GitHubRawServiceTest {
                 """;
     }
 
+    // 호출마다 새 context = 새 수집 실행. resolvedProfiles도 매번 비어 있는 새 맵이다.
     private GitHubRawService.GitHubFetchContext fetchContext() {
         return new GitHubRawService.GitHubFetchContext(
-                "Bearer token", "owner", "repo", null, GitHubCheckpoint.empty());
+                "Bearer token", "owner", "repo", null, GitHubCheckpoint.empty(), new HashMap<>());
     }
 
     // 커밋 상세 조회 병렬화(동시성 3) 검증용 소형 executor — githubCommitDetailExecutor 빈을 흉내낸다.
