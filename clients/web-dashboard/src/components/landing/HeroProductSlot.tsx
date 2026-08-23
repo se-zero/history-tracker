@@ -29,8 +29,8 @@ import { useMatchMedia } from "@/components/landing/useMatchMedia";
 // (useMatchMedia)로 아예 마운트하지 않는다 — 두 경로가 배타적이므로 뷰포트 경계를 넘나들
 // 때(리사이즈)만 컴포넌트가 갈아끼워진다. 기능 1 섹션(FeatureSections.tsx ChatPreview)과
 // 같은 시각 언어를 쓰므로 레일·버블·답변·출처 카드·컴포저는 그쪽의 .lp-feature-chat-*
-// 클래스를 그대로 재사용한다. 데모 스토리는 기능 섹션과 동일한 HT-64 → PR #142 →
-// #dev-search 한 줄이다.
+// 클래스를 그대로 재사용한다. 데모 스토리는 기능 섹션과 동일한 PAY-64 → PR #142 →
+// #dev-pay 한 줄이다.
 
 type PanelNodeType = "commit" | "pr" | "issue" | "slack" | "jira" | "person" | "file";
 
@@ -120,7 +120,7 @@ const PANEL_BG_EDGES: Array<[string, string]> = [
   ["b14", "b16"],
 ];
 
-// 점등 경로 — 스토리 순서(HT-64 → PR #142 → #dev-search) 그대로 잇는다.
+// 점등 경로 — 스토리 순서(PAY-64 → PR #142 → #dev-pay) 그대로 잇는다.
 const PANEL_LIT_EDGES: Array<[string, string]> = [
   ["issue", "pr"],
   ["pr", "slack"],
@@ -131,9 +131,9 @@ const PANEL_LIT_EDGES: Array<[string, string]> = [
 // 3차 대형화의 폰트 스케일업 동반, 12px 하한 위)로 둔다.
 const PANEL_LABELS: Array<{ id: string; text: string; dx: number; dy: number }> = [
   // dx 14 — 점등 링(r+4, 캔버스가 커지는 구간에서 ~11px)에 라벨이 닿지 않는 오프셋.
-  { id: "issue", text: "HT-64", dx: 14, dy: -7 },
+  { id: "issue", text: "PAY-64", dx: 14, dy: -7 },
   { id: "pr", text: "PR #142", dx: 14, dy: -7 },
-  { id: "slack", text: "#dev-search", dx: 14, dy: -7 },
+  { id: "slack", text: "#dev-pay", dx: 14, dy: -7 },
 ];
 
 const RING_GAP = 4; // 점등 링(r + RING_GAP)
@@ -207,7 +207,7 @@ function HeroProductMockup() {
       {/* 상단 윈도우 크롬 — 가짜 파일명 바 대신 제품 내 위치를 말하는 브레드크럼(기능 1과
           동일 패턴). 얇은 바 + 헤어라인만. */}
       <div className="lp-hero-app-chrome">
-        <span>history tracker</span>
+        <span>payflow</span>
         <span className="lp-hero-app-chrome-sep">/</span>
         <span className="lp-hero-app-chrome-current">대화</span>
       </div>
@@ -234,21 +234,21 @@ function HeroProductMockup() {
           </nav>
           <div className="lp-feature-chat-rail-divider" />
           <div className="lp-feature-chat-rail-history">
-            {/* 첫 항목 = 지금 스트림에 떠 있는 대화("검색 기능 관련 PR…" 질문의 대화). */}
+            {/* 첫 항목 = 지금 스트림에 떠 있는 대화("결제 라우팅 로직 관련 PR…" 질문의 대화). */}
             <div className="lp-feature-chat-rail-history-item lp-hero-rail-history--active">
-              <span className="lp-feature-chat-rail-history-title">검색 기능 PR 추적</span>
+              <span className="lp-feature-chat-rail-history-title">승인 라우팅 변경 경위</span>
               <span className="lp-feature-chat-rail-history-date">2026-07-18</span>
             </div>
             <div className="lp-feature-chat-rail-history-item">
-              <span className="lp-feature-chat-rail-history-title">인증 리팩토링 히스토리</span>
+              <span className="lp-feature-chat-rail-history-title">환불 승인 흐름 정리</span>
               <span className="lp-feature-chat-rail-history-date">2026-07-15</span>
             </div>
             <div className="lp-feature-chat-rail-history-item">
-              <span className="lp-feature-chat-rail-history-title">웹훅 처리 변경 경위</span>
+              <span className="lp-feature-chat-rail-history-title">3DS 인증 도입 경위</span>
               <span className="lp-feature-chat-rail-history-date">2026-07-09</span>
             </div>
             <div className="lp-feature-chat-rail-history-item">
-              <span className="lp-feature-chat-rail-history-title">그래프 캐시 성능 개선</span>
+              <span className="lp-feature-chat-rail-history-title">거래 조회 성능 개선</span>
               <span className="lp-feature-chat-rail-history-date">2026-07-02</span>
             </div>
           </div>
@@ -257,12 +257,12 @@ function HeroProductMockup() {
             컴포저. 내용이 슬롯보다 길면 하단이 슬롯 경계에서 자연스럽게 잘린다(축소 금지). */}
         <div className="lp-hero-app-main">
           <div className="lp-hero-app-stream">
-            <p className="lp-feature-chat-user">검색 기능 관련 PR이랑 지라 티켓 찾아줘</p>
+            <p className="lp-feature-chat-user">결제 라우팅 로직 관련 PR이랑 지라 티켓 찾아줘</p>
             <p className="lp-feature-chat-answer">
-              검색 랭킹 가중치는 <code className="lp-feature-chat-code">HT-64</code>에서 제기된
-              편향 문제를 계기로 재설계돼 <code className="lp-feature-chat-code">PR #142</code>로
+              승인 라우팅 가중치는 <code className="lp-feature-chat-code">PAY-64</code>에서 제기된
+              장애 취약성 문제를 계기로 재설계돼 <code className="lp-feature-chat-code">PR #142</code>로
               반영됐습니다. 최종 가중치는{" "}
-              <code className="lp-feature-chat-code">#dev-search</code> 스레드에서 합의됐습니다.
+              <code className="lp-feature-chat-code">#dev-pay</code> 스레드에서 합의됐습니다.
             </p>
             <div className="lp-hero-app-sources">
               <div className="lp-feature-chat-source">
@@ -274,11 +274,11 @@ function HeroProductMockup() {
                       issue
                     </span>
                     <span>·</span>
-                    <span>김서진</span>
+                    <span>Noah</span>
                     <span>·</span>
                     <span className="lp-feature-chat-source-date">2026-06-12</span>
                   </div>
-                  <p className="lp-feature-chat-source-body">검색 랭킹 가중치 개선</p>
+                  <p className="lp-feature-chat-source-body">승인 라우팅 가중치 개선</p>
                 </div>
               </div>
               <div className="lp-feature-chat-source">
@@ -290,11 +290,11 @@ function HeroProductMockup() {
                       message
                     </span>
                     <span>·</span>
-                    <span>이도현</span>
+                    <span>Grace</span>
                     <span>·</span>
                     <span className="lp-feature-chat-source-date">2026-06-11</span>
                   </div>
-                  <p className="lp-feature-chat-source-body">가중치 0.7로 확정 — 스레드 합의</p>
+                  <p className="lp-feature-chat-source-body">성공률 가중치 0.7로 확정 — 스레드 합의</p>
                 </div>
               </div>
               <div className="lp-feature-chat-source">
@@ -306,11 +306,11 @@ function HeroProductMockup() {
                       PR
                     </span>
                     <span>·</span>
-                    <span>박한결</span>
+                    <span>Ethan</span>
                     <span>·</span>
                     <span className="lp-feature-chat-source-date">2026-06-13</span>
                   </div>
-                  <p className="lp-feature-chat-source-body">검색 랭킹 가중치 적용</p>
+                  <p className="lp-feature-chat-source-body">라우팅 가중치 적용</p>
                 </div>
               </div>
             </div>
@@ -323,7 +323,7 @@ function HeroProductMockup() {
           <div className="lp-feature-chat-composer lp-hero-app-composer">
             <div className="lp-feature-chat-composer-box">
               <span className="lp-feature-chat-composer-placeholder">
-                history tracker에 무엇이든 물어보세요. Shift+Enter로 줄바꿈
+                payflow에 무엇이든 물어보세요. Shift+Enter로 줄바꿈
               </span>
               <div className="lp-feature-chat-composer-actions">
                 <span className="lp-feature-chat-composer-send">
