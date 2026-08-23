@@ -69,6 +69,8 @@ commit 처리 중 실패하면 PR checkpoint가 아직 이동하지 않아 다�
 - 429와 rate limit 신호가 있는 403(`Retry-After` 존재 또는 `X-RateLimit-Remaining: 0`)은
   `Retry-After`(없으면 `X-RateLimit-Reset`, 둘 다 없으면 60초, 상한 1시간)만큼 대기 후 최대 3회
   재시도하고, 권한성 403 등 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지).
+  단 커밋 상세(`/commits/{sha}`)의 404는 예외로 삼키고 `files` 없이 넘긴다 — 사라진 커밋은
+  재시도해도 영원히 404라, 실패시키면 checkpoint가 전진하지 않아 수집이 그 지점에서 영구히 막힌다.
 
 ### Tradeoff & 예상 문제점
 

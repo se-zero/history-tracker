@@ -659,8 +659,8 @@ class GitHubRawServiceTest {
     }
 
     @Test
-    @DisplayName("커밋 상세가 404 등 rate limit이 아닌 오류면 재시도 없이 IllegalStateException을 전파한다")
-    void fetchCommitPage_commitDetail404_throwsIllegalStateWithoutRetry() {
+    @DisplayName("커밋 상세가 rate limit도 404도 아닌 오류(500)면 재시도 없이 IllegalStateException을 전파한다")
+    void fetchCommitPage_commitDetailServerError_throwsIllegalStateWithoutRetry() {
         AtomicInteger detailCallCount = new AtomicInteger();
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -670,7 +670,7 @@ class GitHubRawServiceTest {
                     }
                     if (path.equals("/repos/owner/repo/commits/sha1")) {
                         detailCallCount.incrementAndGet();
-                        return Mono.just(errorResponse(HttpStatus.NOT_FOUND));
+                        return Mono.just(errorResponse(HttpStatus.INTERNAL_SERVER_ERROR));
                     }
                     throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
                 });
@@ -729,6 +729,71 @@ class GitHubRawServiceTest {
         assertThat(author).doesNotContainKeys("email", "name");
         assertThat(profileCallCount.get()).isEqualTo(4);
         verify(rateLimiter, times(3)).awaitRetry(2L);
+    }
+
+    @Test
+    @DisplayName("커밋 상세가 404면 그 커밋만 files 없이 넘어가고 페이지 전체는 실패하지 않는다")
+    @SuppressWarnings("unchecked")
+    void fetchCommitPage_commitDetailNotFound_skippedWithoutFailingPage() {
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    // force-push로 사라진 커밋 등 — 재시도해도 영원히 404다.
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(errorResponse(HttpStatus.NOT_FOUND));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("""
+                                {"email": "dev@example.com", "name": "Dev"}
+                                """));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                detailExecutor()
+        );
+
+        GitHubRawService.GitHubPage page = service.fetchCommitPage(fetchContext(), 1, Map.of());
+
+        assertThat(page.items()).hasSize(1);
+        Map<String, Object> commit = (Map<String, Object>) page.items().get(0);
+        assertThat(commit.get("files")).isNull();
+    }
+
+    @Test
+    @DisplayName("커밋 상세가 404 외 오류(403)면 예외를 전파해 checkpoint 전진을 막는다")
+    void fetchCommitPage_commitDetailForbidden_propagates() {
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        return Mono.just(jsonResponse(commitsPageJson("sha1", "dev")));
+                    }
+                    if (path.equals("/repos/owner/repo/commits/sha1")) {
+                        return Mono.just(errorResponse(HttpStatus.FORBIDDEN));
+                    }
+                    if (path.equals("/users/dev")) {
+                        return Mono.just(jsonResponse("{}"));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                detailExecutor()
+        );
+
+        assertThatThrownBy(() -> service.fetchCommitPage(fetchContext(), 1, Map.of()))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -845,7 +910,7 @@ class GitHubRawServiceTest {
                         return Mono.just(jsonResponse("{}"));
                     }
                     if (path.equals("/repos/owner/repo/commits/sha-b")) {
-                        return Mono.just(errorResponse(HttpStatus.NOT_FOUND));
+                        return Mono.just(errorResponse(HttpStatus.INTERNAL_SERVER_ERROR));
                     }
                     if (path.equals("/users/dev")) {
                         return Mono.just(jsonResponse("{}"));

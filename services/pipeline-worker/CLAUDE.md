@@ -148,7 +148,7 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
 
 ## Rate Limiting
 
-- **GitHub**: 3단 적응형. `X-RateLimit-Remaining`이 500(`pacing-remaining-threshold`) 초과면 무대기, 10(`low-remaining-threshold`) 초과 500 이하면 `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스((reset−now)/remaining)로 대기, 10 이하면 `X-RateLimit-Reset`까지 대기. 헤더가 없거나 remaining/reset을 숫자로 파싱할 수 없으면 300ms(`default-delay-ms`)로 폴백. 429와 rate limit 신호가 있는 403(`Retry-After` 존재 또는 `X-RateLimit-Remaining: 0`)은 `Retry-After` → `X-RateLimit-Reset` → 60초 순으로 정한 시간(상한 1시간)만큼 대기 후 최대 3회 재시도하고, 권한성 403 등 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지). 커밋 상세 조회는 전용 풀(`githubCommitDetailExecutor`, 동시 3)에서 병렬 실행하며 목록 병합은 입력 순서를 보존한다.
+- **GitHub**: 3단 적응형. `X-RateLimit-Remaining`이 500(`pacing-remaining-threshold`) 초과면 무대기, 10(`low-remaining-threshold`) 초과 500 이하면 `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스((reset−now)/remaining)로 대기, 10 이하면 `X-RateLimit-Reset`까지 대기. 헤더가 없거나 remaining/reset을 숫자로 파싱할 수 없으면 300ms(`default-delay-ms`)로 폴백. 429와 rate limit 신호가 있는 403(`Retry-After` 존재 또는 `X-RateLimit-Remaining: 0`)은 `Retry-After` → `X-RateLimit-Reset` → 60초 순으로 정한 시간(상한 1시간)만큼 대기 후 최대 3회 재시도하고, 권한성 403 등 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지). **예외는 커밋 상세(`/commits/{sha}`)의 404 하나뿐이다** — force-push·history rewrite로 사라진 커밋은 재시도해도 영원히 404라, 던지면 페이지 전체가 실패하고 commit checkpoint가 전진하지 않아 매 수집이 같은 지점에서 막힌다(자가 복구 불가). 이 경우만 경고 로그를 남기고 `files` 없이 넘긴다. 커밋 상세 조회는 전용 풀(`githubCommitDetailExecutor`, 동시 3)에서 병렬 실행하며 목록 병합은 입력 순서를 보존한다.
 - **Slack**: endpoint별 고정 딜레이 (`conversations.list` / `history` / `replies`). 429 응답은
   `Retry-After` **헤더**(정수 초, 없거나 형식이 어긋나면 60초 폴백)만큼 대기 후 최대 3회 재시도하고,
   첫 429부터는 그 실행 동안 해당 endpoint의 호출 간격을 Retry-After 값으로 승격한다(`SlackPacing` —
