@@ -30,25 +30,27 @@ const STEPS = [
 
 // 스텝별 미니 그래프 mono 라벨(2026-07-25, 밀도 보강) — 개념 다이어그램이므로 스텝당 2~3개만.
 // 라틴 기술 토큰만 쓰고(모노 스코프 규칙), 노드↔라벨 매핑은 기능 2(graphExplorerPreview.ts)와
-// 일관되게 유지한다: n2=HT-64 · n8=#dev-search · n7=QueryService.java ·
-// n3=WebhookDeliveryStore.java는 그대로 재사용, n11=PR #142만 신규(기능 2에는 n11 라벨이
-// 없어 충돌하지 않는다). 서사: 01은 서로 다른 소스의 흩어진 기록 셋(이슈·채널·PR), 02는
-// 그래프에 다시 이어지는 코드 파일들, 03은 점등 경로 서사(HT-64 → PR #142 → #dev-search) —
-// 히어로 슬롯·기능 섹션과 같은 스토리 한 줄이다. dx/dy·anchorEnd는 기능 2의 검증된 값을
-// 재사용하고, 전부 core로 둬 모바일 축소 규칙에서도 유지한다(라벨이 적어 겹칠 여지가 없다).
+// 일관되게 유지한다: n2=PAY-64 · n8=#dev-pay · n11=PR #142는 그대로 재사용(기능 2에는 n11
+// 라벨이 없어 충돌하지 않는다). n7·n3은 payflow(TS 스택)에 맞춰 각각 payments/router.ts ·
+// webhooks/delivery.ts로 갱신했다(가장 긴 라벨이 기존 25자에서 21자로 짧아져 겹칠 여지가
+// 오히려 줄었다). 서사: 01은 서로 다른 소스의
+// 흩어진 기록 셋(이슈·채널·PR), 02는 그래프에 다시 이어지는 코드 파일들, 03은 점등 경로
+// 서사(PAY-64 → PR #142 → #dev-pay) — 히어로 슬롯·기능 섹션과 같은 스토리 한 줄이다.
+// dx/dy·anchorEnd는 기능 2의 검증된 값을 재사용하고, 전부 core로 둬 모바일 축소 규칙에서도
+// 유지한다(라벨이 적어 겹칠 여지가 없다).
 const STEP_LABELS: [MiniGraphLabel[], MiniGraphLabel[], MiniGraphLabel[]] = [
   [
-    { nodeId: "n2", text: "HT-64", dx: -6, dy: 9, anchorEnd: true, core: true },
-    { nodeId: "n8", text: "#dev-search", dx: 4, dy: -12, core: true },
+    { nodeId: "n2", text: "PAY-64", dx: -6, dy: 9, anchorEnd: true, core: true },
+    { nodeId: "n8", text: "#dev-pay", dx: 4, dy: -12, core: true },
     { nodeId: "n11", text: "PR #142", dx: 8, dy: 4, core: true },
   ],
   [
-    { nodeId: "n7", text: "QueryService.java", dx: 8, dy: -9, core: true },
-    { nodeId: "n3", text: "WebhookDeliveryStore.java", dx: 8, dy: -13, core: true },
+    { nodeId: "n7", text: "payments/router.ts", dx: 8, dy: -9, core: true },
+    { nodeId: "n3", text: "webhooks/delivery.ts", dx: 8, dy: -13, core: true },
   ],
   [
-    { nodeId: "n2", text: "HT-64", dx: -6, dy: 9, anchorEnd: true, core: true },
-    { nodeId: "n8", text: "#dev-search", dx: 4, dy: -12, emphasis: true, core: true },
+    { nodeId: "n2", text: "PAY-64", dx: -6, dy: 9, anchorEnd: true, core: true },
+    { nodeId: "n8", text: "#dev-pay", dx: 4, dy: -12, emphasis: true, core: true },
     { nodeId: "n11", text: "PR #142", dx: 8, dy: 4, core: true },
   ],
 ];

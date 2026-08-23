@@ -555,31 +555,7 @@
   margin: 0 auto;
 }
 /* LoginPage 삭제로 login.css에서 이전 — ChatEmpty가 사용 */
-.logo-mark {
-  width: 28px; height: 28px;
-  border-radius: 8px;
-  background:
-    conic-gradient(from 220deg at 50% 50%,
-      var(--node-commit), var(--node-pr), var(--node-issue),
-      var(--node-slack), var(--node-jira), var(--node-actor), var(--node-commit));
-  position: relative;
-}
-.logo-mark::after {
-  content: "";
-  position: absolute; inset: 6px;
-  background: var(--surface);
-  border-radius: 4px;
-}
-.logo-mark::before {
-  content: "";
-  position: absolute; inset: 11px;
-  background: var(--fg);
-  border-radius: 1.5px;
-  z-index: 1;
-}
-.chat-empty .logo-mark { width: 44px; height: 44px; border-radius: 14px; }
-.chat-empty .logo-mark::after { inset: 9px; border-radius: 7px; }
-.chat-empty .logo-mark::before { inset: 17px; border-radius: 2px; }
+.chat-empty .logo-mark { width: 44px; height: 44px; display: block; }
 .chat-empty h2 { font-size: 22px; font-weight: 600; margin: 22px 0 6px; letter-spacing: -0.02em; }
 .chat-empty p { color: var(--fg-muted); margin: 0 0 28px; font-size: 14px; }
 .suggest-grid {

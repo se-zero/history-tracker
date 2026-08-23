@@ -17,9 +17,10 @@ const XFADE_SEC = 0.7;
 const MAX_MP4_BYTES = 8 * 1024 * 1024;
 
 function parseArgs(argv) {
-  // crf 기본 20 — 정적 UI 위주라 네이티브 해상도(2560×1440)로도 용량 여유가 크다. 8MB를
-  // 넘으면 22로 후퇴할 수 있게 CLI로 열어 둔다.
-  const opts = { theme: "dark", variant: "basic", crf: "20" };
+  // crf 기본 14 — UI 텍스트 선명도 우선(기본 20에서 작은 글자가 뭉개져 보인다는 사용자
+  // 지시로 하향, 2026-08-23). 용량은 그래도 8MB 상한 안에 넉넉히 들어오고, 넘으면
+  // CLI로 16~20으로 후퇴할 수 있게 열어 둔다.
+  const opts = { theme: "dark", variant: "basic", crf: "14" };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--theme") opts.theme = argv[++i];
     else if (argv[i] === "--variant") opts.variant = argv[++i];
@@ -78,7 +79,10 @@ async function main() {
   console.log(`[postprocess] 트림: ${trimStart.toFixed(2)}s ~ ${trimEnd.toFixed(2)}s`);
   // 1) 트림 — 입력 시크(-ss before -i)는 빠르지만 키프레임 근처로 스냅될 수 있다.
   // 계약상 ±0.2s 오차는 허용이라 재인코딩 없이 정확도보다 속도를 택한다. 다음 단계(xfade)의
-  // 입력으로 쓰이므로 여기서 h264로 한 번 구워 둔다.
+  // 입력으로 쓰이므로 여기서 h264로 한 번 구워 둔다. 중간 산출물이라 crf 10(시각적 무손실)
+  // 으로 굽는다 — 품질 옵션 없이 두면 libx264 기본(crf 23)으로 한 번 손실이 생기고, 최종
+  // 인코딩이 그 손실본을 재인코딩하는 2세대 손실이 되어 작은 글자가 뭉개진다(2026-08-23
+  // 실사용 지적의 원인). 파일이 커지지만 최종 인코딩 직후 지운다.
   run(ffmpegPath, [
     "-y",
     "-ss",
@@ -92,6 +96,10 @@ async function main() {
     "libx264",
     "-pix_fmt",
     "yuv420p",
+    "-crf",
+    "10",
+    "-preset",
+    "veryfast",
     trimmedMp4,
   ]);
 
@@ -169,7 +177,7 @@ async function main() {
     "-vf",
     "scale=2400:1266:flags=lanczos", // 영상과 같은 이유(브라우저 축소 앨리어싱 회피)·같은 크기
     "-q:v",
-    "4",
+    "2", // reduced-motion 사용자가 이 정지 이미지를 보므로 영상 crf 하향(14)과 함께 상향
     posterJpg,
   ]);
   console.log(`[postprocess] 포스터: ${posterJpg} (${(statSync(posterJpg).size / 1024).toFixed(0)}KB)`);

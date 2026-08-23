@@ -1,5 +1,5 @@
 /* ============================================================
-   History Tracker — Design Tokens
+   whycode — Design Tokens
    ============================================================ */
 
 :root {
@@ -219,6 +219,19 @@ body:has(.lp[data-theme="light"]) {
      Linear 등)는 라이트에서도 공식 색을 그대로 유지하므로 오버라이드가 필요 없다. */
   --brand-github: var(--lp-text-primary);
   --brand-notion: var(--lp-text-primary);
+}
+
+/* ── Landing 다크 테마 복원 ────────────────────────────────────
+   아래 앱 전역 [data-theme="light"] 블록이 GitHub·Notion 잉크 마크를 --fg로 오버라이드하는데,
+   커스텀 프로퍼티는 documentElement에서 상속된다. 앱 테마가 light인 상태에서 랜딩 자체
+   토글(.lp[data-theme="dark"])만 dark로 바꾸면 랜딩 다크 서브트리가 그 잉크값을 그대로
+   물려받아 어두운 배경 위에 어두운 아이콘이 남는다. :root 기본값(다크 배경용 흰 변형)을
+   이 스코프에서 다시 세워 되돌린다. body:has(...) 병기 사유는 위 라이트 블록 도입부
+   주석과 동일 — 오버스크롤 배경(body:has(.lp))이 body 레벨 토큰을 본다. */
+.lp[data-theme="dark"],
+body:has(.lp[data-theme="dark"]) {
+  --brand-github: #FFFFFF;
+  --brand-notion: #FFFFFF;
 }
 
 /* light theme */

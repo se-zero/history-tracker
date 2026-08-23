@@ -36,7 +36,7 @@ cp out/hero-demo-light-click-poster.jpg ../../public/hero-demo-light-poster.jpg
 | 카피·데모 데이터 전부(질문·답변·카드·그래프 노드·레일 대화·프로젝트명·사람 이름) | `scenario.mjs` — 모든 응답 JSON의 단일 출처 |
 | 장면 타이밍(대기·유지, 타이핑 속도), 클릭 장면 구성 | `record.mjs` 상단 상수 + 장면 각본 |
 | UI 크기감(슬롯에서 앱이 얼마나 크게 보이나) | `record.mjs --layout <폭>` — 기본 1600. 작을수록 크게 보인다. **1280은 "너무 크다", 1920은 "너무 작다"로 반려된 확정값이니 바꿀 땐 사용자 확인** |
-| 압축 품질 | `postprocess.mjs --crf <n>` — 기본 20 |
+| 압축 품질 | `postprocess.mjs --crf <n>` — 기본 14 (글자 선명도 우선, 2026-08-23 하향. 중간 트림 인코딩도 crf 10 고정 — 2세대 손실 방지, postprocess.mjs 주석 참고) |
 | "생각 중" 길이 | `mock-server.mjs`의 `THINK_DELAY_MS`(기본 2000ms) |
 
 ## 반드시 지킬 것 — 전부 실제로 겪은 실패에서 확정한 규칙이다. 어기면 그 실패가 그대로 재발한다.

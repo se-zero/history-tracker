@@ -35,7 +35,7 @@ export function OnboardingPage() {
   return (
     <div className="app no-sidebar">
       <div className="main">
-        <Topbar crumbs={["History Tracker", "시작하기"]} />
+        <Topbar crumbs={["whycode", "시작하기"]} />
         <div className="onboarding">
           {step === 2 ? (
             <ConnectGitHubStep

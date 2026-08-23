@@ -92,7 +92,7 @@ export function FeatureSections() {
 // 대화 히스토리) + 상단 브레드크럼 + Q&A 한 턴(사용자 버블·답변 산문·출처 카드 3장) +
 // 하단 입력창까지 이어 붙여 실제 화면의 크롭처럼 보이게 한다. 레일은 슬롯 좌측에 헤어라인
 // 하나로만 구분(별도 elevation 없음 — 슬롯 전체가 이미 surface-1이므로 한 단계 더 파지 않는다).
-// 답변 산문 속 라틴 기술 토큰(HT-64, PR #142, #dev-search)은 앱의 마크다운 인라인 코드
+// 답변 산문 속 라틴 기술 토큰(PAY-64, PR #142, #dev-pay)은 앱의 마크다운 인라인 코드
 // 스타일(chat.css `.msg-content.markdown code`)을 그대로 lp 토큰으로 옮긴 인라인 코드 처리.
 // 출처 카드는 실앱 cite-card(chat.css) 구조 그대로 — 2열 그리드 + [#N 칩][본문(브랜드 로고
 // 13px + 무채 타입 라벨 + 작성자 + 날짜, 그 아래 인용문)]의 가로 flex(2026-08-21 실앱
@@ -116,37 +116,39 @@ function ChatPreview() {
         <div className="lp-feature-chat-rail-divider" />
         <div className="lp-feature-chat-rail-history">
           <div className="lp-feature-chat-rail-history-item">
-            <span className="lp-feature-chat-rail-history-title">검색 기능 PR 추적</span>
+            <span className="lp-feature-chat-rail-history-title">승인 라우팅 변경 경위</span>
             <span className="lp-feature-chat-rail-history-date">2026-07-18</span>
           </div>
           <div className="lp-feature-chat-rail-history-item">
-            <span className="lp-feature-chat-rail-history-title">인증 리팩토링 히스토리</span>
+            <span className="lp-feature-chat-rail-history-title">환불 승인 흐름 정리</span>
             <span className="lp-feature-chat-rail-history-date">2026-07-15</span>
           </div>
           <div className="lp-feature-chat-rail-history-item">
-            <span className="lp-feature-chat-rail-history-title">웹훅 처리 변경 경위</span>
+            <span className="lp-feature-chat-rail-history-title">3DS 인증 도입 경위</span>
             <span className="lp-feature-chat-rail-history-date">2026-07-09</span>
           </div>
           <div className="lp-feature-chat-rail-history-item">
-            <span className="lp-feature-chat-rail-history-title">그래프 캐시 성능 개선</span>
+            <span className="lp-feature-chat-rail-history-title">거래 조회 성능 개선</span>
             <span className="lp-feature-chat-rail-history-date">2026-07-02</span>
           </div>
         </div>
       </div>
       <div className="lp-feature-chat-main">
         <div className="lp-feature-chat-breadcrumb">
-          <span>history tracker</span>
+          {/* 실앱 AppShell 규약상 이 크럼은 서비스명이 아니라 프로젝트명 자리다. */}
+          <span>payflow</span>
           <span className="lp-feature-chat-breadcrumb-sep">/</span>
           <span className="lp-feature-chat-breadcrumb-current">대화</span>
         </div>
         <div className="lp-feature-chat-stream">
-          <p className="lp-feature-chat-user">검색 기능 관련 PR이랑 지라 티켓 찾아줘</p>
+          <p className="lp-feature-chat-user">결제 라우팅 로직 관련 PR이랑 지라 티켓 찾아줘</p>
           <p className="lp-feature-chat-answer">
-            검색 랭킹 가중치 조정은 이슈 <code className="lp-feature-chat-code">HT-64</code>
-            에서 처음 제기됐습니다. 노출 빈도 위주였던 로직이 편향된다는 지적에 따라 클릭률과
-            최신성을 반영하도록 다시 설계해 <code className="lp-feature-chat-code">PR #142</code>
-            로 반영됐습니다. 최종 가중치는 6월 11일{" "}
-            <code className="lp-feature-chat-code">#dev-search</code> 스레드에서 합의됐습니다.
+            승인 라우팅 가중치 조정은 이슈 <code className="lp-feature-chat-code">PAY-64</code>
+            에서 처음 제기됐습니다. 우선순위 고정 방식이 특정 결제사 장애에 취약하다는 지적에
+            따라 성공률과 응답 시간을 반영하도록 다시 설계해{" "}
+            <code className="lp-feature-chat-code">PR #142</code>로 반영됐습니다. 최종 가중치는
+            6월 11일 <code className="lp-feature-chat-code">#dev-pay</code> 스레드에서
+            합의됐습니다.
           </p>
           <div className="lp-feature-chat-sources">
             <div className="lp-feature-chat-source">
@@ -158,11 +160,11 @@ function ChatPreview() {
                     issue
                   </span>
                   <span>·</span>
-                  <span>김서진</span>
+                  <span>Noah</span>
                   <span>·</span>
                   <span className="lp-feature-chat-source-date">2026-06-12</span>
                 </div>
-                <p className="lp-feature-chat-source-body">검색 랭킹 가중치 개선</p>
+                <p className="lp-feature-chat-source-body">승인 라우팅 가중치 개선</p>
               </div>
             </div>
             <div className="lp-feature-chat-source">
@@ -174,11 +176,11 @@ function ChatPreview() {
                     message
                   </span>
                   <span>·</span>
-                  <span>이도현</span>
+                  <span>Grace</span>
                   <span>·</span>
                   <span className="lp-feature-chat-source-date">2026-06-11</span>
                 </div>
-                <p className="lp-feature-chat-source-body">가중치 0.7로 확정 — 스레드 합의</p>
+                <p className="lp-feature-chat-source-body">성공률 가중치 0.7로 확정 — 스레드 합의</p>
               </div>
             </div>
             <div className="lp-feature-chat-source">
@@ -190,11 +192,11 @@ function ChatPreview() {
                     PR
                   </span>
                   <span>·</span>
-                  <span>박한결</span>
+                  <span>Ethan</span>
                   <span>·</span>
                   <span className="lp-feature-chat-source-date">2026-06-13</span>
                 </div>
-                <p className="lp-feature-chat-source-body">검색 랭킹 가중치 적용</p>
+                <p className="lp-feature-chat-source-body">라우팅 가중치 적용</p>
               </div>
             </div>
           </div>
@@ -202,7 +204,7 @@ function ChatPreview() {
         <div className="lp-feature-chat-composer">
           <div className="lp-feature-chat-composer-box">
             <span className="lp-feature-chat-composer-placeholder">
-              history tracker에 무엇이든 물어보세요. Shift+Enter로 줄바꿈
+              payflow에 무엇이든 물어보세요. Shift+Enter로 줄바꿈
             </span>
             <div className="lp-feature-chat-composer-actions">
               <span className="lp-feature-chat-composer-send">
@@ -249,8 +251,8 @@ function SendGlyph() {
 // 사용자 피드백으로 두 가지를 바꿨다. ①트리오도 처음엔 나머지와 똑같이 딤 상태로 시작한다
 // (2차에서는 트리오만 처음부터 밝았다) — 아래 GraphSatellite/GraphStar의 litId가 있어도
 // 렌더 시 항상 lp-feature-graph-node--dim을 함께 받는다(landing.css). ②트리오가 동시에
-// 점등되지 않고 HT-64 발화 → HT-64→PR#142 엣지 드로잉 → PR#142 발화 → PR#142→#dev-search
-// 엣지 드로잉 → #dev-search 발화 순으로 하나씩 밝는다(순차 탐색 안무 — 지속시간은
+// 점등되지 않고 PAY-64 발화 → PAY-64→PR#142 엣지 드로잉 → PR#142 발화 → PR#142→#dev-pay
+// 엣지 드로잉 → #dev-pay 발화 순으로 하나씩 밝는다(순차 탐색 안무 — 지속시간은
 // landing.css의 --gx-node-dur/--gx-edge-dur 로컬 변수, 시작 지연은 "베이스 클래스 + id
 // 수식자 클래스" 복합 셀렉터에 리터럴 ms로 직접 매긴다 — 커스텀 프로퍼티 간접 참조로
 // 지연이 전혀 적용되지 않는 실측 결함이 있어 2026-08-21 3차 재수정에서 걷어냈다,
@@ -258,8 +260,8 @@ function SendGlyph() {
 // cy를 50→66으로 내렸다(위성·다리·라벨 오프셋도 함께 재계산 — 아래 GRAPH_STARS[1]·
 // GRAPH_BRIDGES 주석 참고).
 //
-// 데모 데이터(고정) — 기능 1 근거 카드와 같은 스토리(검색 랭킹 가중치 작업, HT-64 →
-// PR #142 → #dev-search)를 성좌 4개로 펼친다. 좌표는 슬롯과 정확히 같은 비율(16:10 =
+// 데모 데이터(고정) — 기능 1 근거 카드와 같은 스토리(승인 라우팅 가중치 작업, PAY-64 →
+// PR #142 → #dev-pay)를 성좌 4개로 펼친다. 좌표는 슬롯과 정확히 같은 비율(16:10 =
 // 400x250)의 뷰박스에 손으로 배치했다 — 실제 force 시뮬레이션이 아니라 정적 장면이라
 // 절차 생성 대신 균형 잡힌 배치를 직접 잡았고, 뷰박스 비가 슬롯 비와 같아 라벨 위치를
 // x·y 모두 같은 cqw 계수 하나로 맞출 수 있다(MiniGraph.tsx가 쓰는 letterbox 보정은 두
@@ -288,7 +290,7 @@ const GRAPH_SCENE_W = 400;
 const GRAPH_SCENE_H = 250;
 const GRAPH_SCENE_UNIT_CQW = 100 / GRAPH_SCENE_W;
 
-// 점등 트리오의 위성 한 자리(#dev-search, slack 타입) — 별성 정의보다 먼저 선언해 별성 0의
+// 점등 트리오의 위성 한 자리(#dev-pay, slack 타입) — 별성 정의보다 먼저 선언해 별성 0의
 // 위성 목록 안에서 같은 객체를 그대로 참조한다(좌표 중복·불일치 방지). 두 별성 사이·아래쪽에
 // 둬서 라벨 3개가 겹치지 않는다(아래 GRAPH_LIT_LABELS 주석의 좌표 검증 참고).
 const LIT_SLACK_SAT: GraphSatellite = { x: 200, y: 140, r: 3.3, type: "slack", litId: "slack" };
@@ -307,7 +309,7 @@ const GRAPH_STARS: GraphStar[] = [
       { x: 139, y: 72, r: 3.0, type: "file" },
       { x: 172, y: 70, r: 3.6, type: "file" },
       { x: 155, y: 64, r: 3.3, type: "slack" },
-      LIT_SLACK_SAT, // #dev-search
+      LIT_SLACK_SAT, // #dev-pay
     ],
   },
   {
@@ -400,7 +402,7 @@ interface GraphLitNode {
 const RING_GAP = 5;
 const EDGE_TRIM_GAP = RING_GAP + 1.5;
 
-// 점등 트리오 — 스토리 순서(HT-64 → PR #142 → #dev-search) 그대로. 별성 둘은 위 GRAPH_STARS
+// 점등 트리오 — 스토리 순서(PAY-64 → PR #142 → #dev-pay) 그대로. 별성 둘은 위 GRAPH_STARS
 // 좌표를 그대로 참조해 두 값이 어긋날 일이 없다.
 const LIT_ISSUE: GraphLitNode = {
   id: "issue",
@@ -425,27 +427,29 @@ const LIT_SLACK: GraphLitNode = {
 };
 const GRAPH_LIT_NODES = [LIT_ISSUE, LIT_PR, LIT_SLACK];
 
-// 점등 경로 — HT-64 → PR #142 → #dev-search 순서 그대로 잇는다.
+// 점등 경로 — PAY-64 → PR #142 → #dev-pay 순서 그대로 잇는다.
 const GRAPH_LIT_EDGES: Array<[GraphLitNode, GraphLitNode]> = [
   [LIT_ISSUE, LIT_PR],
   [LIT_PR, LIT_SLACK],
 ];
 
 // 점등 노드 mono 라벨 — 라틴 기술 토큰만(모노 스코프 규칙), HOW IT WORKS·히어로 패널
-// 라벨과 같은 문법(노드 중심 + dx/dy 오프셋). 뷰박스(400×250) 기준 앵커 좌표: HT-64
+// 라벨과 같은 문법(노드 중심 + dx/dy 오프셋). 뷰박스(400×250) 기준 앵커 좌표: PAY-64
 // (175,84), PR #142(280,60 — PR 별성 cy 50→66 이동에 맞춰 3차에서 44→60으로 따라감),
-// #dev-search(212,130) — 셋 다 라벨 상자(가장 긴 "#dev-search" 11자 ≈ 80px, 줄높이
-// ≈15px)를 더해도 겹치지 않는다. 이 섹션 컨테이너 폭이 가장 좁아지는 두 지점(데스크톱
+// #dev-pay(212,130) — 셋 다 라벨 상자(가장 긴 "#dev-pay" 8자 ≈ 58px, 줄높이
+// ≈15px)를 더해도 겹치지 않는다(PAY-64는 6자로 여전히 최장 라벨이 아니라 결론 불변 —
+// 최장 라벨이 원래 11자였던 것에서 8자로 짧아지며 여유는 오히려 늘었다). 이
+// 섹션 컨테이너 폭이 가장 좁아지는 두 지점(데스크톱
 // ≈572px → 1cqw≈1.43px, 모바일 390px 뷰포트에서 슬롯 ≈342px → 1cqw≈0.855px) 모두
-// 좌표로 재검증했다 — 가장 가까운 쌍(모바일의 HT-64/PR #142)은 y 상자 사이 5px 남짓으로
-// 좁아졌지만 x 상자가 전혀 겹치지 않아(53px+ 이격) 안전하고, PR #142/#dev-search는
+// 좌표로 재검증했다 — 가장 가까운 쌍(모바일의 PAY-64/PR #142)은 y 상자 사이 5px 남짓으로
+// 좁아졌지만 x 상자가 전혀 겹치지 않아(53px+ 이격) 안전하고, PR #142/#dev-pay는
 // 모바일에서 x가 겹치는 구간이 있지만 y가 45px 이상 벌어져 안전하다(겹침 판정은 두 축
 // 중 하나만 분리되면 충분). PR #142는 상단 툴바(데스크톱 ≈48px 높이, 모바일은 숨김)
 // 아래로 더 넉넉한 여유(라벨 상자 상단 ≈86px)를 갖게 됐다.
 const GRAPH_LIT_LABELS: Array<{ node: GraphLitNode; text: string; dx: number; dy: number }> = [
-  { node: LIT_ISSUE, text: "HT-64", dx: 20, dy: -16 },
+  { node: LIT_ISSUE, text: "PAY-64", dx: 20, dy: -16 },
   { node: LIT_PR, text: "PR #142", dx: 20, dy: -6 },
-  { node: LIT_SLACK, text: "#dev-search", dx: 12, dy: -10 },
+  { node: LIT_SLACK, text: "#dev-pay", dx: 12, dy: -10 },
 ];
 
 // 점등 엣지를 노드 중심이 아니라 링 바깥에서 시작/끝나게 다듬는다(히어로 패널
@@ -470,8 +474,8 @@ function trimLitEdge(a: GraphLitNode, b: GraphLitNode) {
 // 재사용) — 배경 먼지·성좌·다리는 전부 정적이다.
 //
 // 2026-08-21 3차: 트리오가 한 번에 밝아지던 것을 "탐색" 서사로 바꿨다 — 장면 전체(트리오
-// 포함)가 딤 상태로 시작하고, HT-64 발화 → 엣지 드로잉 → PR#142 발화 → 엣지 드로잉 →
-// #dev-search 발화 순으로 하나씩 밝힌다. 순서·시점은 CSS만으로 관리한다: 각 노드/엣지가
+// 포함)가 딤 상태로 시작하고, PAY-64 발화 → 엣지 드로잉 → PR#142 발화 → 엣지 드로잉 →
+// #dev-pay 발화 순으로 하나씩 밝힌다. 순서·시점은 CSS만으로 관리한다: 각 노드/엣지가
 // GRAPH_LIT_NODES.id·GRAPH_LIT_EDGES 쌍에서 파생된 "베이스 클래스 + id 수식자 클래스" 두
 // 개(lp-feature-graph-node--ignite-{id}는 id가 클래스명에 이미 녹아 있어 하나,
 // lp-feature-graph-lit-ring/-halo/-label과 --{id}, lp-feature-graph-lit-edge와
@@ -674,9 +678,9 @@ function GraphExplorerPreview() {
 // 프로젝트 키(라틴, 모노)와 그 뒤에 붙는 한글 단어("프로젝트")로 나뉜다 — 모노는 라틴
 // 기술 토큰 전용이라는 스코프 규칙 때문(DESIGN.md).
 const SOURCE_ROWS = [
-  { key: "github", name: "GitHub", target: "org/history-tracker", targetLabel: null, Mark: GithubMark },
-  { key: "jira", name: "Jira", target: "HT", targetLabel: "프로젝트", Mark: JiraMark },
-  { key: "slack", name: "Slack", target: "#dev-search", targetLabel: null, Mark: SlackMark },
+  { key: "github", name: "GitHub", target: "payflow/payflow-api", targetLabel: null, Mark: GithubMark },
+  { key: "jira", name: "Jira", target: "PAY", targetLabel: "프로젝트", Mark: JiraMark },
+  { key: "slack", name: "Slack", target: "#dev-pay", targetLabel: null, Mark: SlackMark },
 ] as const;
 
 // "추가 가능" 타일 6개 — 나머지 소스(sourceCatalog.tsx의 실제 name·description을 그대로

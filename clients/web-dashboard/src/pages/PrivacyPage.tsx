@@ -32,7 +32,7 @@ export function PrivacyPage() {
     <LegalLayout
       title="개인정보처리방침"
       effectiveDate="2026-08-01"
-      summary={`${LEGAL_OPERATOR}은 History Tracker를 운영하며 처리하는 개인정보의 항목과 이용 방식을 아래와 같이 안내합니다. 서비스의 성격상 이용자 본인뿐 아니라 이용자가 연동한 협업 도구의 기록도 처리하므로, 그 범위를 구체적으로 밝힙니다.`}
+      summary={`${LEGAL_OPERATOR}은 whycode를 운영하며 처리하는 개인정보의 항목과 이용 방식을 아래와 같이 안내합니다. 서비스의 성격상 이용자 본인뿐 아니라 이용자가 연동한 협업 도구의 기록도 처리하므로, 그 범위를 구체적으로 밝힙니다.`}
     >
       <LegalSection index={1} heading="처리하는 개인정보 항목">
         <p>
