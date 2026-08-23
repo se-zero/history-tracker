@@ -158,7 +158,7 @@ async function main() {
     // 실측으로 확인). 대신 브라우저 프로세스 레벨 DSF(launch args)를 쓴다 — 레이아웃·vh는
     // viewport 그대로(1280×720 CSS px)로 계산되고, 스크린캐스트가 이 DSF를 존중해 합성만
     // 2560×1440 실픽셀로 래스터한다(프로브로 grey padding 없음·사이드바 실픽셀 520·vh 정상
-    // 확인 완료). 레이아웃 폭은 --layout(기본 1280)으로 조절하고 녹화 실픽셀은 항상 그 2배 —
+    // 확인 완료). 레이아웃 폭은 --layout(기본 1600 — parseArgs가 단일 출처)으로 조절하고 녹화 실픽셀은 항상 그 2배 —
     // 값이 작을수록 슬롯(실표시 1200px)에서 UI가 크게 보인다(크기 체감은 사용자 육안 확정).
     browser = await chromium.launch({
       headless: true,
