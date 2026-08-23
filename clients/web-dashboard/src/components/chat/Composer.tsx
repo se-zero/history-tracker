@@ -12,7 +12,6 @@ export function Composer({
   onChange,
   onSubmit,
   disabled,
-  showThinkingHint,
   error,
   notice,
   attachedNodes,
@@ -23,7 +22,6 @@ export function Composer({
   onChange: (value: string) => void;
   onSubmit: () => void;
   disabled: boolean;
-  showThinkingHint: boolean;
   error?: string | null;
   // 중립 톤 안내(차단 사유 등) — 에러(InlineError)와 구분되는 정보성 배너
   notice?: string | null;
@@ -111,7 +109,6 @@ export function Composer({
           </div>
         </div>
         <div className="composer-foot">
-          {showThinkingHint && <span>응답을 생성 중…</span>}
           {/* 정적 고지 — 답변별 신뢰도 신호가 아니라 항상 뜨는 일반 고지다.
               렌더링 관심사라 프론트에만 둔다(응답 페이로드에 상수를 싣지 않는다). */}
           <span className="composer-disclaimer">
