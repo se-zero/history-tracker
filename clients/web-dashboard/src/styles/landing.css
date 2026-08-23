@@ -522,12 +522,12 @@ body:has(.lp) {
 .lp-c-node--person { fill: var(--lp-node-person); }
 .lp-c-node--file   { fill: var(--lp-node-file); }
 
-/* ── 히어로 제품 UI 슬롯 (영상 슬롯 — 4차 전폭, 5차 와이드) ────────
+/* ── 히어로 제품 UI 슬롯 (영상 슬롯 — 4차 전폭, 5차 와이드, 2026-08-23 영상 교체) ──
    구조 분리가 핵심이다: 프레임(고정 종횡비 1280:675 ≈ 1.9:1·헤어라인 보더·radius·
-   edge-highlight·surface 배경)은 이 컨테이너(.lp-hero-slot)가 소유하고, 내용물
-   (.lp-hero-app — 제품 UI DOM)은 내부를 absolute로 채운다. 제품 영상이 완성되면 내용물만
-   <video>로 갈아끼운다(HeroProductSlot.tsx의 교체 주석 참조) — 그때 이 프레임과
-   레이아웃은 바뀌지 않는다(표준 16:9 영상은 object-fit: cover로 수 % 크롭하면 맞는다).
+   edge-highlight·surface 배경)은 이 컨테이너(.lp-hero-slot)가 소유하고, 내용물은 내부를
+   absolute로 채운다 — 데스크톱(≥768px)은 실제 제품 녹화 영상(.lp-hero-video), 모바일
+   (<768px)은 기존 DOM 목업(.lp-hero-app, HeroProductSlot.tsx 참조)이다. overflow: hidden이
+   내용물의 radius를 대신 처리하므로 영상·목업 어느 쪽도 보더·radius를 따로 갖지 않는다.
    5차 비율 근거: 4차의 16:10(≈1.6)이 "거의 정사각형·세로가 길다"로 읽혔다. 16:9는
    폭 확장 시 오히려 세로가 늘어 기각 — 1280:675(≈1.9:1)가 와이드 인상과 세로 축소를
    동시에 준다. 폭 규칙(6차 기준선 통일): 항상 컨테이너 콘텐츠 폭 100%(1440에서 1200×633) —
@@ -551,7 +551,22 @@ body:has(.lp) {
   animation: lp-rise-media var(--lp-dur-slow) var(--lp-ease-spring) 300ms both;
 }
 
-/* 내용물 — 컨테이너 내부를 absolute로 채우는 제품 UI DOM. 콘텐츠가 슬롯보다 길면
+/* 데스크톱 내용물 — 실제 제품 녹화 영상(무한 루프 전제, 끝→처음 크로스페이드는 영상
+   자체에 내장돼 있다). 컨테이너가 종횡비·radius·프레임을 소유하므로 여기선 순수하게
+   박스를 채우기만 한다 — 녹화물이 슬롯과 같은 1.9:1(최종 2400×1266 = 표시 1200×633의
+   정확히 2배)이라 cover 크롭이 사실상 없고, 표시 축소도 레티나 1:1·일반 2:1 정수뿐이다
+   (16:9였을 때 상하 크롭이 브레드크럼·고지 라인을 잘랐고, 어중간한 비율의 브라우저 축소가
+   글자를 깨뜨려 둘 다 소스 쪽에서 해결 — tools/hero-video/record.mjs·postprocess.mjs).
+   video·img(reduced-motion 폴백) 둘 다 이 클래스를 쓴다. */
+.lp-hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 모바일 내용물 — 컨테이너 내부를 absolute로 채우는 DOM 목업. 콘텐츠가 슬롯보다 길면
    하단이 경계에서 잘린다(축소하지 말고 잘라내라). */
 .lp-hero-app {
   position: absolute;
@@ -797,14 +812,6 @@ body:has(.lp) {
   line-height: 1.3;
   color: var(--lp-text-primary);
   white-space: nowrap;
-}
-
-/* 패널 점등 — 히어로의 유일한 모션 포인트. 슬롯 프레임이 들어온 뒤(300+420ms) 경로·링·
-   헤일로·라벨이 하나의 그룹으로 1회 조용히 페이드인한다(기능 2 그래프의 is-played 페이드와
-   같은 수준 — 드로잉·스태거·루프 없음. 영상이 오면 이 모션은 대체된다). SVG <g>와 HTML
-   라벨 오버레이가 같은 클래스를 공유해 동시에 점등된다. */
-.lp-hero-app-lit {
-  animation: lp-fade var(--lp-dur-slow) var(--lp-ease-standard) 820ms both;
 }
 
 /* ── 문제 정의 섹션 ──────────────────────────────────────────
@@ -2692,8 +2699,9 @@ body:has(.lp) {
      금지). 4차: 출처 카드 3장·컴포저 복원 — 슬롯이 폴드 아래로 이어지는 구조라 폴드 예산을
      쓰지 않고, 스크롤로 드러나는 "나머지"가 된다(3차의 카드 2장·컴포저 숨김은 슬롯이 첫
      화면 안에서 완결되던 구조의 장치였다). 폰트 스케일업(15px)은 모바일에도 유지된다.
-     ⚠️ 영상 교체 시 모바일 처리(고정 종횡비 복원 또는 세로 크롭)를 함께 결정할 것 —
-     HeroProductSlot.tsx 상단 주석 참조. */
+     2026-08-23 영상 교체로 확정: 모바일은 영상이 아니라 이 DOM 목업을 그대로 쓴다
+     (HeroProductSlot.tsx가 matchMedia로 <768px에 목업을 마운트하고 영상 리소스는 아예
+     받지 않는다) — 그래서 이 블록의 처리(종횡비 해제·패널 숨김)는 계속 유효하다. */
   .lp-hero-slot {
     aspect-ratio: auto;
   }
@@ -2785,16 +2793,11 @@ body:has(.lp) {
     transform: none;
   }
 
-  /* 히어로 배경 성좌·패널 점등 — 페이드를 제거하고 즉시 최종 상태로(그래프류는 전부 즉시
-     표시 원칙 — 아래 셀렉터는 non-media 규칙과 같은 specificity라 이 블록이 파일 마지막에
-     있다는 점만으로 이긴다). .lp-hero-app-lit은 SVG 점등 그룹과 HTML 라벨 오버레이가
-     공유한다. */
+  /* 히어로 배경 성좌 — 페이드를 제거하고 즉시 최종 상태로(그래프류는 전부 즉시 표시
+     원칙). 패널 점등 페이드(.lp-hero-app-lit)는 데스크톱이 영상으로 대체되며 소멸했다 —
+     모바일 목업은 애초에 모션 없이 항상 점등된 최종 상태다(HeroProductSlot.tsx 참조). */
   .lp-hero-media {
     animation: none;
-  }
-  .lp-hero-app-lit {
-    animation: none;
-    opacity: 1;
   }
 
   /* 작동 방식 3스텝 — is-played는 useInViewOnce가 reduced-motion에서 즉시 부여하므로,

@@ -17,7 +17,7 @@ export function LandingPage() {
   return (
     <div className="lp" data-theme={theme}>
       <LandingHeader theme={theme} onToggleTheme={toggleTheme} />
-      <LandingHero />
+      <LandingHero theme={theme} />
       <ProblemSection />
       <HowItWorksSection />
       <FeatureSections />

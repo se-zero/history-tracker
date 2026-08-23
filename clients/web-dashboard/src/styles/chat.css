@@ -495,7 +495,8 @@
   display: flex; justify-content: center; gap: 12px;
   flex-wrap: wrap;
 }
-/* 정적 고지 — 생성 중 표시와 같은 줄에 끼지 않도록 항상 줄을 차지한다 */
+/* 정적 고지 — foot에 다른 항목이 생겨도 같은 줄에 끼지 않도록 항상 줄을 차지한다
+   (한때 있던 "응답을 생성 중…" 표시와의 분리 규칙이 기원 — 표시는 제거됐지만 규칙은 유지) */
 .composer-disclaimer {
   flex-basis: 100%;
 }
