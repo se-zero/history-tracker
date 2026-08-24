@@ -45,6 +45,7 @@ public class IntegrationService {
     private final PipelineWorkerClient pipelineWorkerClient;
     private final AiEngineGraphClient aiEngineGraphClient;
     private final ProviderCredentialLifecycleRegistry credentialLifecycles;
+    private final IntegrationRevocationService revocationService;
     private final AccessTokenRefresherRegistry accessTokenRefreshers;
     private final IntegrationSelectionFlowRegistry selectionFlows;
     private final TransactionTemplate transactionTemplate;
@@ -462,7 +463,7 @@ public class IntegrationService {
         // provider 쪽 권한 폐기를 먼저 한다 — 우리 DB의 토큰을 지우면 폐기에 쓸 값 자체가 사라진다.
         // 실패해도 진행한다(각 client가 삼킨다): 이미 폐기된 토큰이나 provider 장애 때문에
         // 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
-        revokeProviderAccess(integration, provider);
+        revocationService.revoke(integration);
 
         // 그래프를 먼저 지우는 순서·이유는 프로젝트 삭제와 같다(ProjectService.deleteProject 주석):
         // 외부 HTTP를 트랜잭션 밖에 둬 커넥션 점유를 피하고, 그래프 삭제가 멱등이라 RDB 삭제가
@@ -474,17 +475,6 @@ public class IntegrationService {
             checkpointRepository.deleteByProject_IdAndId_Provider(projectId, provider);
             integrationRepository.deleteById(integration.getId());
         });
-    }
-
-    // 폐기 방법은 provider의 ProviderCredentialLifecycle이 소유한다. GitHub은 폐기 대상이 없어
-    // 구현이 없다 — App 설치는 계정 단위(다른 프로젝트도 쓴다)라 유지하고, installation token은
-    // 1시간짜리 캐시라 방치해도 곧 만료된다. 제거는 GitHub 설정에서 한다.
-    // registry에 등록된 provider는 항상 암호화된 credential을 갖고 있으므로(등록되지 않은 GitHub만
-    // credential이 없다) find(provider)로만 걸러도 안전하다.
-    private void revokeProviderAccess(Integration integration, IntegrationProvider provider) {
-        credentialLifecycles.find(provider)
-                .ifPresent(lifecycle -> lifecycle.revoke(
-                        integration.getEncryptedCredential(), integration.getExternalRef()));
     }
 
     // 프로젝트당 provider별 1개 연동 제한 검증
