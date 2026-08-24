@@ -147,10 +147,16 @@ def get_graph_activity(project_id: str) -> str:
     """
     if project_id in _manual_build_running:
         return "building"
+    # 이벤트 기록이 없으면 창 조건을 아예 평가하지 않는다 — 기본값 0.0을 쓰면
+    # monotonic(리눅스: 부팅 후 경과 시간)이 창보다 작은 부팅 직후에 오판한다
+    last_event_at = _last_event_at.get(project_id)
     if project_id not in _ever_built and (
         is_build_running(project_id)
         or project_id in _dirty
-        or time.monotonic() - _last_event_at.get(project_id, 0.0) < GRAPH_ACTIVITY_WINDOW_SECONDS
+        or (
+            last_event_at is not None
+            and time.monotonic() - last_event_at < GRAPH_ACTIVITY_WINDOW_SECONDS
+        )
     ):
         return "collecting"
     return "idle"

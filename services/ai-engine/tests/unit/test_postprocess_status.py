@@ -142,6 +142,12 @@ class GraphActivityTest(_ResetStateMixin, unittest.TestCase):
         # 이벤트도 빌드도 없는 프로젝트
         self.assertEqual(postprocess.get_graph_activity("p1"), "idle")
 
+    def test_no_activity_is_idle_on_freshly_booted_host(self):
+        # monotonic은 리눅스에서 부팅 후 경과 시간이라 창(45s)보다 작을 수 있다.
+        # 이벤트 기록이 없는 프로젝트는 그 값과 무관하게 idle이어야 한다 (issue #115).
+        with patch.object(postprocess.time, "monotonic", return_value=10.0):
+            self.assertEqual(postprocess.get_graph_activity("p1"), "idle")
+
     def test_initial_collection_is_collecting(self):
         # 최초 이벤트 유입, 아직 한 번도 빌드 성공 안 함 → collecting
         postprocess.mark_dirty("p1")
