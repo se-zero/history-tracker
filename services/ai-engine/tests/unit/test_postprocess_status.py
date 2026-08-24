@@ -135,12 +135,37 @@ class TriggerBuildTest(_ResetStateMixin, unittest.TestCase):
         self.assertEqual(postprocess._build_tasks, set())             # 새 태스크를 만들지 않음
 
 
+class BuildCooldownTest(_ResetStateMixin, unittest.TestCase):
+    """디바운스 루프의 쿨다운 판정 — 빌드 기록이 없으면 쿨다운을 적용하지 않는다."""
+
+    def test_no_build_record_has_no_cooldown_on_fresh_boot(self):
+        # monotonic(부팅 후 경과 초)이 쿨다운(300s)보다 작아도, 빌드 기록이 없으면
+        # "방금 빌드했다"로 오판해 최초 빌드를 미루면 안 된다 (issue #115와 같은 원인)
+        self.assertFalse(postprocess._cooldown_active("p1", now=10.0))
+
+    def test_recent_build_is_in_cooldown(self):
+        postprocess._last_build_at["p1"] = 1000.0
+        self.assertTrue(postprocess._cooldown_active("p1", now=1100.0))
+
+    def test_elapsed_cooldown_is_over(self):
+        postprocess._last_build_at["p1"] = 1000.0
+        self.assertFalse(
+            postprocess._cooldown_active("p1", now=1000.0 + postprocess.MIN_BUILD_INTERVAL_SECONDS)
+        )
+
+
 class GraphActivityTest(_ResetStateMixin, unittest.TestCase):
     """프론트 채팅 게이팅용 get_graph_activity 상태 판정 (idle/collecting/building)."""
 
     def test_no_activity_is_idle(self):
         # 이벤트도 빌드도 없는 프로젝트
         self.assertEqual(postprocess.get_graph_activity("p1"), "idle")
+
+    def test_no_activity_is_idle_on_freshly_booted_host(self):
+        # monotonic은 리눅스에서 부팅 후 경과 시간이라 창(45s)보다 작을 수 있다.
+        # 이벤트 기록이 없는 프로젝트는 그 값과 무관하게 idle이어야 한다 (issue #115).
+        with patch.object(postprocess.time, "monotonic", return_value=10.0):
+            self.assertEqual(postprocess.get_graph_activity("p1"), "idle")
 
     def test_initial_collection_is_collecting(self):
         # 최초 이벤트 유입, 아직 한 번도 빌드 성공 안 함 → collecting
