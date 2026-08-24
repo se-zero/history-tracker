@@ -20,11 +20,12 @@ function parseArgs(argv) {
   // crf 기본 14 — UI 텍스트 선명도 우선(기본 20에서 작은 글자가 뭉개져 보인다는 사용자
   // 지시로 하향, 2026-08-23). 용량은 그래도 8MB 상한 안에 넉넉히 들어오고, 넘으면
   // CLI로 16~20으로 후퇴할 수 있게 열어 둔다.
-  const opts = { theme: "dark", variant: "basic", crf: "14" };
+  const opts = { theme: "dark", variant: "basic", crf: "14", lang: "ko" };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--theme") opts.theme = argv[++i];
     else if (argv[i] === "--variant") opts.variant = argv[++i];
     else if (argv[i] === "--crf") opts.crf = argv[++i];
+    else if (argv[i] === "--lang") opts.lang = argv[++i];
   }
   return opts;
 }
@@ -53,9 +54,9 @@ function ffprobeJson(filePath) {
 }
 
 async function main() {
-  const { theme, variant, crf } = parseArgs(process.argv.slice(2));
-  const rawWebm = path.join(OUT_DIR, `raw-${theme}-${variant}.webm`);
-  const rawJsonPath = path.join(OUT_DIR, `raw-${theme}-${variant}.json`);
+  const { theme, variant, crf, lang } = parseArgs(process.argv.slice(2));
+  const rawWebm = path.join(OUT_DIR, `raw-${lang}-${theme}-${variant}.webm`);
+  const rawJsonPath = path.join(OUT_DIR, `raw-${lang}-${theme}-${variant}.json`);
   if (!existsSync(rawWebm) || !existsSync(rawJsonPath)) {
     throw new Error(
       `record.mjs 산출물이 없습니다: ${rawWebm} / ${rawJsonPath} (먼저 record를 실행하세요)`,
@@ -73,8 +74,8 @@ async function main() {
   }
 
   const variantSuffix = variant === "click" ? "-click" : "";
-  const trimmedMp4 = path.join(OUT_DIR, `.trimmed-${theme}-${variant}.mp4`);
-  const finalMp4 = path.join(OUT_DIR, `hero-demo-${theme}${variantSuffix}.mp4`);
+  const trimmedMp4 = path.join(OUT_DIR, `.trimmed-${lang}-${theme}-${variant}.mp4`);
+  const finalMp4 = path.join(OUT_DIR, `hero-demo-${lang}-${theme}${variantSuffix}.mp4`);
 
   console.log(`[postprocess] 트림: ${trimStart.toFixed(2)}s ~ ${trimEnd.toFixed(2)}s`);
   // 1) 트림 — 입력 시크(-ss before -i)는 빠르지만 키프레임 근처로 스냅될 수 있다.
@@ -165,7 +166,7 @@ async function main() {
 
   // 3) 포스터 — 변형별 파일명(variantSuffix)으로 항상 생성한다. 랜딩의 reduced-motion
   // 폴백이 채택 변형(click)의 포스터를 필요로 하므로 basic 한정 제약을 걷어냈다.
-  const posterJpg = path.join(OUT_DIR, `hero-demo-${theme}${variantSuffix}-poster.jpg`);
+  const posterJpg = path.join(OUT_DIR, `hero-demo-${lang}-${theme}${variantSuffix}-poster.jpg`);
   run(ffmpegPath, [
     "-y",
     "-ss",

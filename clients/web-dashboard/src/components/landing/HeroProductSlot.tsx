@@ -1,6 +1,16 @@
 import type { CSSProperties } from "react";
 
-import { GithubMark, JiraMark, SlackMark } from "@/components/brand/BrandMarks";
+import {
+  COMPOSER_PLACEHOLDER,
+  DEMO_ANSWER_SHORT,
+  DEMO_PROJECT_NAME,
+  DEMO_QUESTION,
+  RAIL_HISTORY,
+  RAIL_NAV,
+  RELATED_GRAPH_TITLE,
+  SOURCE_CARDS,
+} from "@/components/landing/demoCopy";
+import { useLandingLanguage } from "@/components/landing/LandingLanguageProvider";
 import type { LandingTheme } from "@/components/landing/useLandingTheme";
 import { useMatchMedia } from "@/components/landing/useMatchMedia";
 
@@ -16,10 +26,11 @@ import { useMatchMedia } from "@/components/landing/useMatchMedia";
 // 1.9:1 비율(최종 2400×1266 — 슬롯 표시 1200×633의 정확히 2배라 레티나 1:1·일반 2:1 정수
 // 축소만 남는다)이라 object-fit: cover 크롭이 사실상 없다 — 16:9로 찍었을 때 상하
 // 크롭 밴드가 브레드크럼 바·하단 고지 라인을 잘라먹는 것이 실렌더에서 확인돼 녹화 비율을
-// 슬롯에 맞췄다(tools/hero-video/record.mjs). 테마(다크/라이트)에 따라 src·poster를 바꾸며, key={theme}로
-// 리마운트해 전환 시 영상이 처음부터 재생되는 것을 허용한다(단순함 우선 — 크로스페이드는
-// 하지 않는다). prefers-reduced-motion이면 자동 재생 영상 대신 poster 정지 이미지를
-// 같은 기하로 렌더한다(DESIGN.md 모션 원칙 — 움직임 제거).
+// 슬롯에 맞췄다(tools/hero-video/record.mjs). 파일명은 `hero-demo-{lang}-{theme}.*`
+// 계약이다(언어·테마 축, tools/hero-video/README.md) — src·poster를 (lang, theme) 조합으로
+// 바꾸며, key={`${lang}-${theme}`}로 리마운트해 언어·테마 전환 어느 쪽이든 영상이 처음부터
+// 재생되는 것을 허용한다(단순함 우선 — 크로스페이드는 하지 않는다). prefers-reduced-motion이면
+// 자동 재생 영상 대신 poster 정지 이미지를 같은 기하로 렌더한다(DESIGN.md 모션 원칙 — 움직임 제거).
 //
 // ── 모바일(<768px): 기존 DOM 목업 유지 ─────────────────────────
 // 아래 PANEL_NODES·SVG·레일 등 실제 앱의 대화 화면 3단 셸(좌측 레일 → 채팅 스트림+컴포저 →
@@ -160,9 +171,13 @@ export function HeroProductSlot({ theme }: { theme: LandingTheme }) {
   // 모바일이 2.8MB mp4를 받지 않게). reduced-motion은 데스크톱 경로 안에서만 갈린다.
   const isMobile = useMatchMedia("(max-width: 767px)");
   const prefersReducedMotion = useMatchMedia("(prefers-reduced-motion: reduce)");
+  const { lang } = useLandingLanguage();
 
-  const videoSrc = theme === "dark" ? "/hero-demo-dark.mp4" : "/hero-demo-light.mp4";
-  const posterSrc = theme === "dark" ? "/hero-demo-dark-poster.jpg" : "/hero-demo-light-poster.jpg";
+  const videoSrc = `/hero-demo-${lang}-${theme}.mp4`;
+  const posterSrc = `/hero-demo-${lang}-${theme}-poster.jpg`;
+  // 언어·테마 어느 축이 바뀌어도 리마운트되도록 둘 다 key에 넣는다 — 재생 위치가 이전 조합에
+  // 걸린 채로 남으면(예: 언어만 토글) 새 영상의 루프 이음새와 어긋난다.
+  const mediaKey = `${lang}-${theme}`;
 
   return (
     <div className="lp-hero-slot" aria-hidden="true">
@@ -171,12 +186,12 @@ export function HeroProductSlot({ theme }: { theme: LandingTheme }) {
       ) : prefersReducedMotion ? (
         // reduced-motion: 자동 재생 영상 대신 점등 완료 프레임을 정지 이미지로(DESIGN.md
         // "transform 제거, opacity는 유지" — 애초에 움직이지 않으므로 이 조건을 그대로 만족한다).
-        <img key={theme} className="lp-hero-video" src={posterSrc} alt="" aria-hidden="true" />
+        <img key={mediaKey} className="lp-hero-video" src={posterSrc} alt="" aria-hidden="true" />
       ) : (
-        // key={theme} — 테마 전환마다 리마운트해 새 src로 처음부터 재생한다(단순함 우선,
-        // 크로스페이드는 하지 않는다). 무한 루프 전제 영상이라 loop만으로 충분하다.
+        // key={mediaKey} — 언어·테마 전환마다 리마운트해 새 src로 처음부터 재생한다(단순함
+        // 우선, 크로스페이드는 하지 않는다). 무한 루프 전제 영상이라 loop만으로 충분하다.
         <video
-          key={theme}
+          key={mediaKey}
           className="lp-hero-video"
           src={videoSrc}
           poster={posterSrc}
@@ -199,6 +214,8 @@ export function HeroProductSlot({ theme }: { theme: LandingTheme }) {
 // 클래스를 그대로 재사용한다. 레일의 활성 표시는 앰버가 아니라 중립 강조(surface 상승·
 // 텍스트 강조)다 — 앰버 초점은 패널 점등·컴포저 전송·CTA에만 남긴다.
 function HeroProductMockup() {
+  const { lang } = useLandingLanguage();
+  const nav = RAIL_NAV[lang];
   const byId = new Map(PANEL_NODES.map((n) => [n.id, n]));
   const litNodes = PANEL_NODES.filter((n) => n.lit);
 
@@ -207,112 +224,73 @@ function HeroProductMockup() {
       {/* 상단 윈도우 크롬 — 가짜 파일명 바 대신 제품 내 위치를 말하는 브레드크럼(기능 1과
           동일 패턴). 얇은 바 + 헤어라인만. */}
       <div className="lp-hero-app-chrome">
-        <span>payflow</span>
+        <span>{DEMO_PROJECT_NAME}</span>
         <span className="lp-hero-app-chrome-sep">/</span>
-        <span className="lp-hero-app-chrome-current">대화</span>
+        <span className="lp-hero-app-chrome-current">{nav.conversations}</span>
       </div>
       <div className="lp-hero-app-body">
         {/* 좌: 레일(내비 + 대화 히스토리) — 실제 앱 3단 셸의 첫 컬럼(4차 신규, ≥1180px 전용).
-            기능 1 미리보기의 레일과 같은 클래스·같은 데모 데이터를 쓴다(같은 제품의 같은
-            사이드바 — 문구·날짜를 새로 발명하지 않는다). 항목은 전부 한글이라 본문 서체
-            (모노는 Ctrl+K·날짜 같은 라틴 토큰만). 활성 내비("대화")·활성 대화(첫 히스토리
-            항목)는 앰버가 아니라 중립 강조(surface-2 상승 + 텍스트 강조)다 — 히어로의 앰버
-            초점은 패널 점등·컴포저 전송·CTA에만 남긴다(landing.css .lp-hero-app 오버라이드). */}
+            기능 1 미리보기의 레일과 같은 클래스·같은 데모 데이터(demoCopy.tsx)를 쓴다(같은
+            제품의 같은 사이드바 — 문구·날짜를 새로 발명하지 않는다). 항목은 한글/영문 프로즈라
+            본문 서체(모노는 Ctrl+K·날짜 같은 라틴 토큰만). 활성 내비("대화"/"Conversations")·
+            활성 대화(첫 히스토리 항목)는 앰버가 아니라 중립 강조(surface-2 상승 + 텍스트
+            강조)다 — 히어로의 앰버 초점은 패널 점등·컴포저 전송·CTA에만 남긴다(landing.css
+            .lp-hero-app 오버라이드). */}
         <div className="lp-feature-chat-rail">
           <nav className="lp-feature-chat-rail-nav">
             <div className="lp-feature-chat-rail-item">
-              <span>검색</span>
+              <span>{nav.search}</span>
               <span className="lp-feature-chat-rail-kbd">Ctrl+K</span>
             </div>
             <div className="lp-feature-chat-rail-item lp-feature-chat-rail-item--active">
-              대화
+              {nav.conversations}
             </div>
-            <div className="lp-feature-chat-rail-item">데이터 소스</div>
-            <div className="lp-feature-chat-rail-item">액터</div>
-            <div className="lp-feature-chat-rail-item">그래프 확인</div>
-            <div className="lp-feature-chat-rail-item">현재 프로젝트 설정</div>
+            <div className="lp-feature-chat-rail-item">{nav.dataSources}</div>
+            <div className="lp-feature-chat-rail-item">{nav.actors}</div>
+            <div className="lp-feature-chat-rail-item">{nav.graphView}</div>
+            <div className="lp-feature-chat-rail-item">{nav.projectSettings}</div>
           </nav>
           <div className="lp-feature-chat-rail-divider" />
           <div className="lp-feature-chat-rail-history">
-            {/* 첫 항목 = 지금 스트림에 떠 있는 대화("결제 라우팅 로직 관련 PR…" 질문의 대화). */}
-            <div className="lp-feature-chat-rail-history-item lp-hero-rail-history--active">
-              <span className="lp-feature-chat-rail-history-title">승인 라우팅 변경 경위</span>
-              <span className="lp-feature-chat-rail-history-date">2026-07-18</span>
-            </div>
-            <div className="lp-feature-chat-rail-history-item">
-              <span className="lp-feature-chat-rail-history-title">환불 승인 흐름 정리</span>
-              <span className="lp-feature-chat-rail-history-date">2026-07-15</span>
-            </div>
-            <div className="lp-feature-chat-rail-history-item">
-              <span className="lp-feature-chat-rail-history-title">3DS 인증 도입 경위</span>
-              <span className="lp-feature-chat-rail-history-date">2026-07-09</span>
-            </div>
-            <div className="lp-feature-chat-rail-history-item">
-              <span className="lp-feature-chat-rail-history-title">거래 조회 성능 개선</span>
-              <span className="lp-feature-chat-rail-history-date">2026-07-02</span>
-            </div>
+            {/* 첫 항목 = 지금 스트림에 떠 있는 대화(DEMO_QUESTION 질문의 대화). */}
+            {RAIL_HISTORY.map((h, i) => (
+              <div
+                className={`lp-feature-chat-rail-history-item${
+                  i === 0 ? " lp-hero-rail-history--active" : ""
+                }`}
+                key={h.id}
+              >
+                <span className="lp-feature-chat-rail-history-title">{h.title[lang]}</span>
+                <span className="lp-feature-chat-rail-history-date">{h.date}</span>
+              </div>
+            ))}
           </div>
         </div>
         {/* 중앙: 대화 컬럼 — 채팅 스트림(사용자 버블 → 답변 산문 → 출처 카드 3장) + 하단
             컴포저. 내용이 슬롯보다 길면 하단이 슬롯 경계에서 자연스럽게 잘린다(축소 금지). */}
         <div className="lp-hero-app-main">
           <div className="lp-hero-app-stream">
-            <p className="lp-feature-chat-user">결제 라우팅 로직 관련 PR이랑 지라 티켓 찾아줘</p>
-            <p className="lp-feature-chat-answer">
-              승인 라우팅 가중치는 <code className="lp-feature-chat-code">PAY-64</code>에서 제기된
-              장애 취약성 문제를 계기로 재설계돼 <code className="lp-feature-chat-code">PR #142</code>로
-              반영됐습니다. 최종 가중치는{" "}
-              <code className="lp-feature-chat-code">#dev-pay</code> 스레드에서 합의됐습니다.
-            </p>
+            <p className="lp-feature-chat-user">{DEMO_QUESTION[lang]}</p>
+            <p className="lp-feature-chat-answer">{DEMO_ANSWER_SHORT[lang]}</p>
             <div className="lp-hero-app-sources">
-              <div className="lp-feature-chat-source">
-                <span className="lp-feature-chat-source-num">#1</span>
-                <div className="lp-feature-chat-source-content">
-                  <div className="lp-feature-chat-meta">
-                    <span className="lp-feature-chat-source-type">
-                      <JiraMark size={13} className="lp-feature-chat-source-logo" />
-                      issue
-                    </span>
-                    <span>·</span>
-                    <span>Noah</span>
-                    <span>·</span>
-                    <span className="lp-feature-chat-source-date">2026-06-12</span>
+              {SOURCE_CARDS.map((c) => (
+                <div className="lp-feature-chat-source" key={c.id}>
+                  <span className="lp-feature-chat-source-num">#{c.id}</span>
+                  <div className="lp-feature-chat-source-content">
+                    <div className="lp-feature-chat-meta">
+                      <span className="lp-feature-chat-source-type">
+                        <c.Mark size={13} className="lp-feature-chat-source-logo" />
+                        {c.typeLabel}
+                      </span>
+                      <span>·</span>
+                      <span>{c.author}</span>
+                      <span>·</span>
+                      <span className="lp-feature-chat-source-date">{c.date}</span>
+                    </div>
+                    <p className="lp-feature-chat-source-body">{c.quote[lang]}</p>
                   </div>
-                  <p className="lp-feature-chat-source-body">승인 라우팅 가중치 개선</p>
                 </div>
-              </div>
-              <div className="lp-feature-chat-source">
-                <span className="lp-feature-chat-source-num">#2</span>
-                <div className="lp-feature-chat-source-content">
-                  <div className="lp-feature-chat-meta">
-                    <span className="lp-feature-chat-source-type">
-                      <SlackMark size={13} className="lp-feature-chat-source-logo" />
-                      message
-                    </span>
-                    <span>·</span>
-                    <span>Grace</span>
-                    <span>·</span>
-                    <span className="lp-feature-chat-source-date">2026-06-11</span>
-                  </div>
-                  <p className="lp-feature-chat-source-body">성공률 가중치 0.7로 확정 — 스레드 합의</p>
-                </div>
-              </div>
-              <div className="lp-feature-chat-source">
-                <span className="lp-feature-chat-source-num">#3</span>
-                <div className="lp-feature-chat-source-content">
-                  <div className="lp-feature-chat-meta">
-                    <span className="lp-feature-chat-source-type">
-                      <GithubMark size={13} className="lp-feature-chat-source-logo" />
-                      PR
-                    </span>
-                    <span>·</span>
-                    <span>Ethan</span>
-                    <span>·</span>
-                    <span className="lp-feature-chat-source-date">2026-06-13</span>
-                  </div>
-                  <p className="lp-feature-chat-source-body">라우팅 가중치 적용</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
           {/* 하단 컴포저 — 기능 1과 같은 시각 언어(.lp-feature-chat-composer 재사용).
@@ -323,7 +301,7 @@ function HeroProductMockup() {
           <div className="lp-feature-chat-composer lp-hero-app-composer">
             <div className="lp-feature-chat-composer-box">
               <span className="lp-feature-chat-composer-placeholder">
-                payflow에 무엇이든 물어보세요. Shift+Enter로 줄바꿈
+                {COMPOSER_PLACEHOLDER[lang]}
               </span>
               <div className="lp-feature-chat-composer-actions">
                 <span className="lp-feature-chat-composer-send">
@@ -339,7 +317,7 @@ function HeroProductMockup() {
         {/* 우: 관련 그래프 패널 — 답변 근거 노드가 앰버 링·헤일로·경로로 점등되는 시그니처
             순간의 정지 화면. 캔버스는 그래프 캔버스 층(--lp-surface-canvas). */}
         <aside className="lp-hero-app-panel">
-          <p className="lp-hero-app-panel-title">관련 그래프</p>
+          <p className="lp-hero-app-panel-title">{RELATED_GRAPH_TITLE[lang]}</p>
           <div className="lp-hero-app-panel-canvas">
             <svg
               className="lp-hero-panel-svg"

@@ -225,8 +225,8 @@ body:has(.lp) {
   border-color: var(--lp-border);
 }
 
-/* 내비 우측 액션 묶음(테마 토글 + 로그인) — header-inner의 space-between 우측 항목 하나로
-   묶는다. */
+/* 내비 우측 액션 묶음(언어 메뉴 + 테마 토글 + 로그인) — header-inner의 space-between 우측
+   항목 하나로 묶는다. */
 .lp-header-actions {
   display: flex;
   align-items: center;
@@ -256,6 +256,90 @@ body:has(.lp) {
   color: var(--lp-text-primary);
   background-color: var(--lp-surface-2);
   border-color: var(--lp-border);
+}
+
+/* 언어 드롭다운 트리거 — 테마 토글과 같은 높이·정렬·고스트 스타일(시각 언어 통일). 코드
+   텍스트(KO/EN)는 처음엔 모노로 갔으나 사용자 실물 확인에서 "이웃(로그인 링크)과 이질적"
+   판정 — 언어 코드는 기술 토큰이라기보다 내비 라벨이라, .lp-login-link와 같은 본문
+   14px/500으로 통일했다(2026-08-24). */
+.lp-lang-wrap {
+  position: relative;
+}
+.lp-lang-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--lp-r-md);
+  background: none;
+  color: var(--lp-text-secondary);
+  transition:
+    color var(--lp-dur-fast) var(--lp-ease-standard),
+    background-color var(--lp-dur-fast) var(--lp-ease-standard),
+    border-color var(--lp-dur-fast) var(--lp-ease-standard);
+}
+.lp-lang-trigger:hover,
+.lp-lang-trigger.open {
+  color: var(--lp-text-primary);
+  background-color: var(--lp-surface-2);
+  border-color: var(--lp-border);
+}
+.lp-lang-code {
+  font-size: 14px;
+  font-weight: 500;
+}
+.lp-lang-trigger svg {
+  transition: transform var(--lp-dur-fast) var(--lp-ease-standard);
+}
+/* 열림 회전은 클래스가 담당 — 인라인 style로 두면 위 transition 선언과 짝이 안 보인다. */
+.lp-lang-trigger.open svg {
+  transform: rotate(180deg);
+}
+
+/* 언어 드롭다운 패널 — 팝오버라 surface-3 층(모달·팝오버 elevation, DESIGN.md). 다크에서는
+   들린 표면 상단 엣지 하이라이트로 깊이를 만들고, 라이트에서는 그림자 사다리로 넘어간다
+   (아래 "라이트 테마 스코프 오버라이드" 절에서 shadow-lg로 교체). 앰버 금지 — 언어 선택은
+   "라이브/실행/선택" 신호가 아니다(체크 마크도 중립색, 컴포넌트 파일 주석 참조). */
+.lp-lang-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-r-md);
+  background-color: var(--lp-surface-3);
+  box-shadow: inset 0 1px 0 0 var(--lp-edge-highlight);
+}
+.lp-lang-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  /* border/background 명시 리셋 — 랜딩엔 버튼 전역 리셋이 없어 빼먹으면 UA 기본
+     버튼 크롬(회색 박스)이 그대로 샌다(실물 확인에서 발견). */
+  border: none;
+  background: none;
+  border-radius: var(--lp-r-sm);
+  font-family: var(--lp-font-body);
+  font-size: 14px;
+  color: var(--lp-text-secondary);
+  text-align: left;
+  transition:
+    color var(--lp-dur-fast) var(--lp-ease-standard),
+    background-color var(--lp-dur-fast) var(--lp-ease-standard);
+}
+.lp-lang-item:hover {
+  color: var(--lp-text-primary);
+  background-color: var(--lp-surface-2);
+}
+.lp-lang-item svg {
+  color: var(--lp-text-secondary);
 }
 
 /* ── 테마 전환 크로스페이드 ────────────────────────────────────
@@ -2705,7 +2789,8 @@ body:has(.lp) {
    다크에서 edge-highlight를 가진 "들린 표면"이 곧 그림자 적용 대상이다(같은 규칙의
    테마별 번역). 라이트에서 edge-highlight 토큰은 transparent라 이 box-shadow 교체로
    잃는 것이 없다. */
-.lp[data-theme="light"] .lp-hero-slot {
+.lp[data-theme="light"] .lp-hero-slot,
+.lp[data-theme="light"] .lp-lang-menu {
   box-shadow: var(--lp-shadow-lg);
 }
 .lp[data-theme="light"] .lp-feature-media {
@@ -2746,11 +2831,55 @@ body:has(.lp) {
   stroke: var(--lp-graph-edge);
 }
 
+/* ── 영문(en) 스코프 타이포 오버라이드 ─────────────────────────
+   DESIGN.md의 한글 조판 예외(모노 금지·트래킹 0·헤드라인 weight 한 단계 낮춤)는 한글의
+   시각 특성 때문이었다 — 영문 콘텐츠에는 그 사유가 없으므로 라틴 기본 규칙을 복원한다.
+   --------------------------------------------------------- */
+
+/* 히어로 eyebrow — 한글 예외(모노 금지·트래킹 0)의 사유가 소멸: 카피가 대문자 라틴이라
+   DESIGN.md의 "대문자 라틴 모노 라벨" 규칙(모노 서체 + 0.08em)을 그대로 적용한다.
+   카피가 이미 대문자라 text-transform은 불필요. */
+/* 히어로 eyebrow — 영문도 한글판과 같은 본문 서체·트래킹 0(기본 .lp-eyebrow 그대로, en
+   오버라이드 없음). 초판은 라틴 규칙(모노 대문자 0.08em)을 적용했으나 사용자 실물 확인에서
+   "너무 각지다" 판정(2026-08-24) — 히어로 eyebrow는 라벨이 아니라 문장형이라 한글판의 본문
+   서체 예외가 영문에도 그대로 성립한다(카피도 문장 케이스). 섹션 eyebrow(HOW IT WORKS 등)는
+   양 언어 공통 모노 라벨 규칙 유지. */
+
+/* en 레이아웃 파리티 — 언어를 바꿔도 섹션·컨테이너 크기는 한국어 기준으로 고정한다는 사용자
+   지시(2026-08-24). 히어로 서브는 ko 한 줄 기준 max-width(782px)가 영문(963px 필요)을 두 줄로
+   꺾어 히어로가 30px 길어지던 지점 — 우측 남는 여백으로 한 줄을 허용해 높이를 맞춘다.
+   (기능 1 미리보기·유스케이스 카드의 파리티는 영문 데모/설명 카피를 ko와 같은 줄 수로 압축해
+   해결 — demoCopy.tsx·UseCasesSection.tsx 참조.) */
+.lp[data-lang="en"] .lp-sub {
+  max-width: 980px;
+}
+
+/* 영문 헤드라인 = 한글과 같은 Wanted Sans(2026-08-24 사용자 확정, weight 600 — 한글 500과의
+   시각 무게 등가는 DESIGN.md 웨이트 매핑 그대로). 근거: 한글 헤드라인이 전부 Wanted Sans
+   폴백으로 렌더돼 제품의 체감 디스플레이 서체는 처음부터 Wanted Sans였는데, 영문판이 스택
+   첫 번째 Space Grotesk를 처음으로 실노출하자 "다른 제품 인상 + 각짐"이 생겼다 — 언어를
+   바꿔도 같은 제품으로 보이게 영문도 Wanted Sans로 통일한다(신규 서체 아님 — 한글용으로
+   이미 로드되는 패밀리의 라틴 글리프). 대상은 display 서체를 쓰는 섹션 헤드라인 6곳. */
+.lp[data-lang="en"] .lp-headline,
+.lp[data-lang="en"] .lp-problem-headline,
+.lp[data-lang="en"] .lp-how-headline,
+.lp[data-lang="en"] .lp-feature-headline,
+.lp[data-lang="en"] .lp-cases-headline,
+.lp[data-lang="en"] .lp-final-cta-headline {
+  font-family: "Wanted Sans Variable", "Wanted Sans", sans-serif;
+  font-weight: 600;
+}
+
 /* ── 접근성: 모션 축소 ──────────────────────────────────────
    transform은 전부 제거하고 opacity 전환만 남긴다.
    점등은 여전히 일어나되 크로스페이드로.
    --------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
+  /* 언어 드롭다운 셰브론 — transform 전환이라 reduce에선 즉시 점프(회전 상태 자체는 유지). */
+  .lp-lang-trigger svg {
+    transition: none;
+  }
+
   .lp-eyebrow,
   .lp-headline-line:nth-child(1),
   .lp-headline-line:nth-child(2),

@@ -1,3 +1,4 @@
+import { useLandingLanguage, type Localized, type LandingLang } from "@/components/landing/LandingLanguageProvider";
 import { MiniGraph } from "@/components/landing/MiniGraph";
 import { useInViewOnce } from "@/components/landing/useInViewOnce";
 import {
@@ -6,27 +7,43 @@ import {
 } from "@/lib/howItWorksGraph";
 import type { MiniGraphLabel } from "@/lib/graphExplorerPreview";
 
+// 섹션 헤드라인 소사전 — LandingHeader COPY 패턴.
+const COPY: Localized<{ headline: string }> = {
+  ko: { headline: "연결하고, 묻는다. 그 사이는 자동이다." },
+  en: { headline: "Connect and ask. Everything in between is automatic." },
+};
+
 // 작동 방식 3스텝 섹션 — 3단 가로 진행. 스텝 텍스트 위에 미니 그래프 시각화(MiniGraph)를 얹어
 // "하나의 그래프가 단계적으로 완성되는 과정"을 보여준다. 번호/슬래시(01 /, 02 /, 03 /)는
 // 라틴 기술 토큰이라 모노, 스텝 제목·본문은 한글이 섞이므로 절대 모노를 쓰지 않고 본문 서체로
 // 조판한다(DESIGN.md 모노 스코프 규칙). stage는 STEPS 배열 순서(1-indexed)로 고정한다.
-const STEPS = [
+// title/body만 언어별로 갈리고 배열 자체는 단일 출처다(언어별 배열 2벌 금지).
+const STEPS: Array<{ num: string; title: Localized<string>; body: Localized<string> }> = [
   {
     num: "01",
-    title: "연결",
-    body: "저장소와 워크스페이스를 연결한다. 코드, 티켓, 대화, 문서.",
+    title: { ko: "연결", en: "Connect" },
+    body: {
+      ko: "저장소와 워크스페이스를 연결한다. 코드, 티켓, 대화, 문서.",
+      en: "Connect your repositories and workspaces. Code, tickets, conversations, docs.",
+    },
   },
   {
     num: "02",
-    title: "구축",
-    body: "흩어진 기록 사이의 관계를 찾아 하나의 히스토리 그래프로 엮는다. 결정과 코드가 다시 이어진다.",
+    title: { ko: "구축", en: "Build" },
+    body: {
+      ko: "흩어진 기록 사이의 관계를 찾아 하나의 히스토리 그래프로 엮는다. 결정과 코드가 다시 이어진다.",
+      en: "Finds the relationships between scattered records and weaves them into one history graph. Decisions and code are linked again.",
+    },
   },
   {
     num: "03",
-    title: "질문",
-    body: "자연어로 묻는다. 답과 함께, 근거가 된 노드와 경로가 돌아온다.",
+    title: { ko: "질문", en: "Ask" },
+    body: {
+      ko: "자연어로 묻는다. 답과 함께, 근거가 된 노드와 경로가 돌아온다.",
+      en: "Ask in natural language. The answer comes back with the nodes and paths behind it.",
+    },
   },
-] as const;
+];
 
 // 스텝별 미니 그래프 mono 라벨(2026-07-25, 밀도 보강) — 개념 다이어그램이므로 스텝당 2~3개만.
 // 라틴 기술 토큰만 쓰고(모노 스코프 규칙), 노드↔라벨 매핑은 기능 2(graphExplorerPreview.ts)와
@@ -66,13 +83,14 @@ const STEP_LABELS: [MiniGraphLabel[], MiniGraphLabel[], MiniGraphLabel[]] = [
 // 있지만, 재생 후 최종 상태가 유지돼 콘텐츠 손실은 없다(행 단위 단일 안무를 우선한 절충).
 export function HowItWorksSection() {
   const { ref, inView } = useInViewOnce<HTMLOListElement>({ threshold: 0.3 });
+  const { lang } = useLandingLanguage();
 
   return (
     <section className="lp-how" id="how">
       <div className="lp-how-inner">
         <div className="lp-how-header">
           <p className="lp-how-eyebrow">HOW IT WORKS</p>
-          <h2 className="lp-how-headline">연결하고, 묻는다. 그 사이는 자동이다.</h2>
+          <h2 className="lp-how-headline">{COPY[lang].headline}</h2>
         </div>
         <ol className="lp-how-steps" ref={ref}>
           {STEPS.map((step, i) => (
@@ -81,6 +99,7 @@ export function HowItWorksSection() {
               step={step}
               stage={(i + 1) as 1 | 2 | 3}
               played={inView}
+              lang={lang}
             />
           ))}
         </ol>
@@ -95,10 +114,12 @@ function HowStep({
   step,
   stage,
   played,
+  lang,
 }: {
   step: (typeof STEPS)[number];
   stage: 1 | 2 | 3;
   played: boolean;
+  lang: LandingLang;
 }) {
   return (
     <li className={`lp-how-step${played ? " is-played" : ""}`}>
@@ -113,9 +134,9 @@ function HowStep({
       </div>
       <h3 className="lp-how-step-title">
         <span className="lp-how-step-num">{step.num} /</span>
-        <span className="lp-how-step-name">{step.title}</span>
+        <span className="lp-how-step-name">{step.title[lang]}</span>
       </h3>
-      <p className="lp-how-step-body">{step.body}</p>
+      <p className="lp-how-step-body">{step.body[lang]}</p>
     </li>
   );
 }
