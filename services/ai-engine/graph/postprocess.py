@@ -119,6 +119,16 @@ def _try_start_build(project_id: str, verify: bool) -> bool:
     return True
 
 
+def _cooldown_active(project_id: str, now: float) -> bool:
+    """마지막 빌드 후 MIN_BUILD_INTERVAL이 아직 안 지났는지.
+
+    빌드 기록이 없으면 쿨다운을 걸지 않는다 — 기본값 0.0을 쓰면 monotonic(리눅스:
+    부팅 후 경과 시간)이 간격보다 작은 부팅 직후에 최초 빌드가 통째로 밀린다.
+    """
+    last_build_at = _last_build_at.get(project_id)
+    return last_build_at is not None and now - last_build_at < MIN_BUILD_INTERVAL_SECONDS
+
+
 def mark_dirty(project_id: str) -> None:
     """이벤트 처리 직후 호출 — 해당 프로젝트에 후처리가 필요한 새 데이터가 들어왔음을 표시한다."""
     if not project_id:
@@ -380,7 +390,7 @@ async def start_debounce_loop() -> None:
                 if now - _last_event_at.get(project_id, 0.0) < DEBOUNCE_SECONDS:
                     continue
                 # 쿨다운: 마지막 빌드 후 MIN_BUILD_INTERVAL이 안 지났으면 대기 (dirty 유지)
-                if now - _last_build_at.get(project_id, 0.0) < MIN_BUILD_INTERVAL_SECONDS:
+                if _cooldown_active(project_id, now):
                     continue
                 # 같은 프로젝트가 (수동 등으로) 이미 빌드 중이면 dirty를 유지한 채 다음 주기로 미룬다
                 if not _try_start_build(project_id, verify=False):
