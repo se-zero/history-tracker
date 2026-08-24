@@ -4,13 +4,38 @@ import { Link } from "react-router-dom";
 import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
 import { PATHS } from "@/routes";
+import { LanguageMenu } from "@/components/landing/LanguageMenu";
+import { useLandingLanguage, type Localized } from "@/components/landing/LandingLanguageProvider";
 import type { LandingTheme } from "@/components/landing/useLandingTheme";
 
-// 랜딩 헤더 — 로고/워드마크와 우측 액션(테마 토글 + 로그인 링크). 로그인 링크는 인증 상태로
-// 분기한다(노션 방식) — 비로그인이면 히어로 CTA와 동일한 GitHub OAuth 직행, 로그인 상태면
-// 제품으로 바로 이동. 섹션 내비는 대상 섹션이 생긴 뒤에 붙인다. 스크롤 시 하단 헤어라인 +
-// backdrop-blur를 붙이기 위해 스크롤 위치를 추적한다. 테마 상태는 LandingPage가 소유한다
-// (래퍼 data-theme) — 여기는 표시·토글만.
+// 헤더 자체 문자열의 소사전 — 랜딩 번역은 다음 묶음의 몫이지만, 헤더는 전 섹션·법적 페이지에
+// 상시 떠 있어 언어 인프라와 함께 들어간다.
+const COPY: Localized<{
+  login: string;
+  openApp: string;
+  toLight: string;
+  toDark: string;
+}> = {
+  ko: {
+    login: "로그인",
+    openApp: "whycode 열기",
+    toLight: "라이트 테마로 전환",
+    toDark: "다크 테마로 전환",
+  },
+  en: {
+    login: "Log in",
+    openApp: "Open whycode",
+    toLight: "Switch to light theme",
+    toDark: "Switch to dark theme",
+  },
+};
+
+// 랜딩 헤더 — 로고/워드마크와 우측 액션(언어 메뉴 + 테마 토글 + 로그인 링크). 로그인 링크는
+// 인증 상태로 분기한다(노션 방식) — 비로그인이면 히어로 CTA와 동일한 GitHub OAuth 직행,
+// 로그인 상태면 제품으로 바로 이동. 섹션 내비는 대상 섹션이 생긴 뒤에 붙인다. 스크롤 시 하단
+// 헤어라인 + backdrop-blur를 붙이기 위해 스크롤 위치를 추적한다. 테마 상태는 LandingPage가
+// 소유한다(래퍼 data-theme) — 여기는 표시·토글만. 언어 상태는 LandingLanguageProvider에서
+// 직접 구독한다(테마와 달리 props로 내려받지 않는다).
 export function LandingHeader({
   theme,
   onToggleTheme,
@@ -20,6 +45,8 @@ export function LandingHeader({
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const { status } = useAuth();
+  const { lang } = useLandingLanguage();
+  const t = COPY[lang];
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 8);
@@ -32,27 +59,30 @@ export function LandingHeader({
     <header className={`lp-header${isScrolled ? " is-scrolled" : ""}`}>
       <div className="lp-header-inner">
         <Link className="lp-brand" to="/landing">
-          <span className="lp-logo-mark" aria-hidden="true" />
-          <span className="lp-wordmark">History Tracker</span>
+          {/* 로고 마크는 public/favicon.svg가 단일 출처 — 브랜드 자산이라 테마와 무관하게
+              고정색이다(커넥터 --brand-* 와 같은 사유). */}
+          <img className="lp-logo-mark" src="/favicon.svg" alt="" aria-hidden="true" width={26} height={26} />
+          <span className="lp-wordmark">whycode</span>
         </Link>
         <div className="lp-header-actions">
+          <LanguageMenu />
           {/* 테마 토글 — 중립 스타일(앰버 금지: "라이브/실행/선택"이 아니다). 아이콘은
               전환될 대상 테마를 가리킨다(다크에서 해 = 라이트로 전환). */}
           <button
             type="button"
             className="lp-theme-toggle"
-            aria-label={theme === "dark" ? "라이트 테마로 전환" : "다크 테마로 전환"}
+            aria-label={theme === "dark" ? t.toLight : t.toDark}
             onClick={onToggleTheme}
           >
             {theme === "dark" ? <SunGlyph /> : <MoonGlyph />}
           </button>
           {status === "authenticated" ? (
             <Link className="lp-login-link" to={PATHS.root}>
-              History Tracker 열기
+              {t.openApp}
             </Link>
           ) : (
             <a className="lp-login-link" href={GITHUB_AUTHORIZE_URL}>
-              로그인
+              {t.login}
             </a>
           )}
         </div>

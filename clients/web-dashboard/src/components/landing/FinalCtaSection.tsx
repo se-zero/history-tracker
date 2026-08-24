@@ -2,8 +2,33 @@ import { Link } from "react-router-dom";
 
 import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
+import { useLandingLanguage, type Localized } from "@/components/landing/LandingLanguageProvider";
 import { PATHS } from "@/routes";
 import { HERO_CONSTELLATION } from "@/lib/heroConstellation";
+
+// 문자열 소사전 — CTA·안내문은 히어로와 동일 문자열(LandingHero COPY와 값이 같다).
+const COPY: Localized<{
+  headline: string;
+  sub: string;
+  openApp: string;
+  ctaStart: string;
+  ctaMeta: string;
+}> = {
+  ko: {
+    headline: "당신의 저장소에도 같은 그래프가 있다.",
+    sub: "아직 연결되지 않았을 뿐이다.",
+    openApp: "whycode 열기",
+    ctaStart: "GitHub으로 시작",
+    ctaMeta: "GitHub 계정으로 로그인한 뒤, 연결할 저장소를 직접 고릅니다.",
+  },
+  en: {
+    headline: "Your repositories hold the same graph.",
+    sub: "It just isn't connected yet.",
+    openApp: "Open whycode",
+    ctaStart: "Start with GitHub",
+    ctaMeta: "Sign in with your GitHub account, then choose which repositories to connect.",
+  },
+};
 
 // 최종 CTA — 중앙 정렬, 넓은 상하 여백으로 페이지를 닫는다.
 // 2026-07-26 6차: 위 유스케이스(surface-1)와 경계가 흐릿해 "마침표" 임팩트가 없다는 지시로
@@ -19,6 +44,8 @@ import { HERO_CONSTELLATION } from "@/lib/heroConstellation";
 // 주 CTA는 헤더·푸터·히어로와 같은 인증 상태 분기를 쓴다 — 로그인 상태면 OAuth 대신 제품으로 바로 이동.
 export function FinalCtaSection() {
   const { status } = useAuth();
+  const { lang } = useLandingLanguage();
+  const t = COPY[lang];
   const { width, height, nodes, edges } = HERO_CONSTELLATION;
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
@@ -64,24 +91,20 @@ export function FinalCtaSection() {
         </svg>
       </div>
       <div className="lp-final-cta-inner">
-        <h2 className="lp-final-cta-headline">당신의 저장소에도 같은 그래프가 있다.</h2>
-        <p className="lp-final-cta-sub">아직 연결되지 않았을 뿐이다.</p>
+        <h2 className="lp-final-cta-headline">{t.headline}</h2>
+        <p className="lp-final-cta-sub">{t.sub}</p>
         <div className="lp-final-cta-actions">
           {status === "authenticated" ? (
             <Link className="lp-btn lp-btn--primary" to={PATHS.root}>
-              History Tracker 열기
+              {t.openApp}
             </Link>
           ) : (
             <a className="lp-btn lp-btn--primary" href={GITHUB_AUTHORIZE_URL}>
-              GitHub으로 시작
+              {t.ctaStart}
             </a>
           )}
         </div>
-        {status !== "authenticated" && (
-          <p className="lp-final-cta-meta">
-            GitHub 계정으로 로그인한 뒤, 연결할 저장소를 직접 고릅니다.
-          </p>
-        )}
+        {status !== "authenticated" && <p className="lp-final-cta-meta">{t.ctaMeta}</p>}
       </div>
     </section>
   );

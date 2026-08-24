@@ -573,7 +573,6 @@ export function ChatPage({ project }: { project: Project }) {
           onChange={handleDraftChange}
           onSubmit={() => handleSend(draft)}
           disabled={pending || chatBlock !== null}
-          showThinkingHint={pending}
           error={
             chatBlock || !sendError
               ? null

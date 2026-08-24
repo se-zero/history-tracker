@@ -11,6 +11,16 @@ import {
   NotionMark,
   SlackMark,
 } from "@/components/brand/BrandMarks";
+import {
+  COMPOSER_PLACEHOLDER,
+  DEMO_ANSWER_FULL,
+  DEMO_PROJECT_NAME,
+  DEMO_QUESTION,
+  RAIL_HISTORY,
+  RAIL_NAV,
+  SOURCE_CARDS,
+} from "@/components/landing/demoCopy";
+import { useLandingLanguage, type Localized } from "@/components/landing/LandingLanguageProvider";
 import { useInViewOnce } from "@/components/landing/useInViewOnce";
 
 // 기능 3섹션 (대화 / 그래프 탐색 / 데이터 소스) — 좌/우 교차 레이아웃.
@@ -26,29 +36,53 @@ import { useInViewOnce } from "@/components/landing/useInViewOnce";
 //   - graph: 16:10 유지 — 그래프 캔버스는 가로 폭이 필요하다.
 //   - sources: 종횡비 없음 — 실앱 SourcesPage 구조(타이틀+서브 → 섹션 라벨 → 연동 행 →
 //     섹션 라벨 → 타일 그리드) 높이 그대로, 억지로 늘리지 않는다.
-const FEATURES = [
+const FEATURES: Array<{
+  eyebrow: string;
+  headline: Localized<string>;
+  body: Localized<string>;
+  reversed: boolean;
+  mediaKind: "chat" | "graph" | "sources";
+}> = [
   {
     eyebrow: "CHAT",
-    headline: "답과 근거를 함께 돌려준다.",
-    body: "질문에 답하면서, 그 답의 출처가 된 커밋·이슈·메시지를 함께 제시한다. 곁의 그래프에서 근거 노드와 경로가 켜진다.",
+    headline: {
+      ko: "답과 근거를 함께 돌려준다.",
+      en: "The answer and its evidence, together.",
+    },
+    body: {
+      ko: "질문에 답하면서, 그 답의 출처가 된 커밋·이슈·메시지를 함께 제시한다. 곁의 그래프에서 근거 노드와 경로가 켜진다.",
+      en: "Answers your question while citing the commits, issues, and messages it came from. In the graph alongside, the evidence nodes and paths light up.",
+    },
     reversed: false,
     mediaKind: "chat",
   },
   {
     eyebrow: "GRAPH EXPLORER",
-    headline: "코드베이스를 지도처럼 본다.",
-    body: "커밋·PR·이슈·메시지·사람이 하나의 그래프로 놓인다. 타입별로 걸러 보고, 노드를 따라가며 맥락을 넓힌다.",
+    headline: {
+      ko: "코드베이스를 지도처럼 본다.",
+      en: "See your codebase like a map.",
+    },
+    body: {
+      ko: "커밋·PR·이슈·메시지·사람이 하나의 그래프로 놓인다. 타입별로 걸러 보고, 노드를 따라가며 맥락을 넓힌다.",
+      en: "Commits, PRs, issues, messages, and people laid out as one graph. Filter by type, follow the nodes, widen the context.",
+    },
     reversed: true,
     mediaKind: "graph",
   },
   {
     eyebrow: "DATA SOURCES",
-    headline: "한 번 연결하면, 계속 쌓인다.",
-    body: "코드·티켓·대화·문서를 연결해두면 새 기록이 자동으로 그래프에 편입된다.",
+    headline: {
+      ko: "한 번 연결하면, 계속 쌓인다.",
+      en: "Connect once, it keeps building.",
+    },
+    body: {
+      ko: "코드·티켓·대화·문서를 연결해두면 새 기록이 자동으로 그래프에 편입된다.",
+      en: "Connect your code, tickets, conversations, and docs — new records join the graph automatically.",
+    },
     reversed: false,
     mediaKind: "sources",
   },
-] as const;
+];
 
 // FEATURES와 같은 순서로 미디어 슬롯 콘텐츠를 매핑한다(별도 컴포넌트로 분리 — 각각이
 // 고유한 마크업/스펙을 가져 하나의 제네릭 컴포넌트로 합치면 오히려 분기만 늘어난다).
@@ -59,6 +93,8 @@ const FEATURE_MEDIA = [
 ];
 
 export function FeatureSections() {
+  const { lang } = useLandingLanguage();
+
   return (
     <section className="lp-features">
       <div className="lp-features-inner">
@@ -69,8 +105,8 @@ export function FeatureSections() {
           >
             <div className="lp-feature-text">
               <p className="lp-feature-eyebrow">{f.eyebrow}</p>
-              <h2 className="lp-feature-headline">{f.headline}</h2>
-              <p className="lp-feature-body">{f.body}</p>
+              <h2 className="lp-feature-headline">{f.headline[lang]}</h2>
+              <p className="lp-feature-body">{f.body[lang]}</p>
             </div>
             {/* TODO: 실제 앱 스크린샷/영상으로 교체 가능(선택) — DESIGN.md 컴포넌트 스펙을
                 따르는 실제 DOM 미리보기라 교체 전에도 유효한 화면이다. */}
@@ -92,117 +128,77 @@ export function FeatureSections() {
 // 대화 히스토리) + 상단 브레드크럼 + Q&A 한 턴(사용자 버블·답변 산문·출처 카드 3장) +
 // 하단 입력창까지 이어 붙여 실제 화면의 크롭처럼 보이게 한다. 레일은 슬롯 좌측에 헤어라인
 // 하나로만 구분(별도 elevation 없음 — 슬롯 전체가 이미 surface-1이므로 한 단계 더 파지 않는다).
-// 답변 산문 속 라틴 기술 토큰(HT-64, PR #142, #dev-search)은 앱의 마크다운 인라인 코드
+// 답변 산문 속 라틴 기술 토큰(PAY-64, PR #142, #dev-pay)은 앱의 마크다운 인라인 코드
 // 스타일(chat.css `.msg-content.markdown code`)을 그대로 lp 토큰으로 옮긴 인라인 코드 처리.
 // 출처 카드는 실앱 cite-card(chat.css) 구조 그대로 — 2열 그리드 + [#N 칩][본문(브랜드 로고
 // 13px + 무채 타입 라벨 + 작성자 + 날짜, 그 아래 인용문)]의 가로 flex(2026-08-21 실앱
 // 일치화 — 이전의 노드색 배지·세로 나열은 폐기). 3번째 카드는 GithubMark(PR)로, 나머지
 // 둘은 JiraMark(issue)·SlackMark(message)로 세 타입을 모두 보여준다.
 function ChatPreview() {
+  const { lang } = useLandingLanguage();
+  const nav = RAIL_NAV[lang];
+
   return (
     <div className="lp-feature-chat">
       <div className="lp-feature-chat-rail">
         <nav className="lp-feature-chat-rail-nav">
           <div className="lp-feature-chat-rail-item">
-            <span>검색</span>
+            <span>{nav.search}</span>
             <span className="lp-feature-chat-rail-kbd">Ctrl+K</span>
           </div>
-          <div className="lp-feature-chat-rail-item lp-feature-chat-rail-item--active">대화</div>
-          <div className="lp-feature-chat-rail-item">데이터 소스</div>
-          <div className="lp-feature-chat-rail-item">액터</div>
-          <div className="lp-feature-chat-rail-item">그래프 확인</div>
-          <div className="lp-feature-chat-rail-item">현재 프로젝트 설정</div>
+          <div className="lp-feature-chat-rail-item lp-feature-chat-rail-item--active">
+            {nav.conversations}
+          </div>
+          <div className="lp-feature-chat-rail-item">{nav.dataSources}</div>
+          <div className="lp-feature-chat-rail-item">{nav.actors}</div>
+          <div className="lp-feature-chat-rail-item">{nav.graphView}</div>
+          <div className="lp-feature-chat-rail-item">{nav.projectSettings}</div>
         </nav>
         <div className="lp-feature-chat-rail-divider" />
         <div className="lp-feature-chat-rail-history">
-          <div className="lp-feature-chat-rail-history-item">
-            <span className="lp-feature-chat-rail-history-title">검색 기능 PR 추적</span>
-            <span className="lp-feature-chat-rail-history-date">2026-07-18</span>
-          </div>
-          <div className="lp-feature-chat-rail-history-item">
-            <span className="lp-feature-chat-rail-history-title">인증 리팩토링 히스토리</span>
-            <span className="lp-feature-chat-rail-history-date">2026-07-15</span>
-          </div>
-          <div className="lp-feature-chat-rail-history-item">
-            <span className="lp-feature-chat-rail-history-title">웹훅 처리 변경 경위</span>
-            <span className="lp-feature-chat-rail-history-date">2026-07-09</span>
-          </div>
-          <div className="lp-feature-chat-rail-history-item">
-            <span className="lp-feature-chat-rail-history-title">그래프 캐시 성능 개선</span>
-            <span className="lp-feature-chat-rail-history-date">2026-07-02</span>
-          </div>
+          {RAIL_HISTORY.map((h) => (
+            <div className="lp-feature-chat-rail-history-item" key={h.id}>
+              <span className="lp-feature-chat-rail-history-title">{h.title[lang]}</span>
+              <span className="lp-feature-chat-rail-history-date">{h.date}</span>
+            </div>
+          ))}
         </div>
       </div>
       <div className="lp-feature-chat-main">
         <div className="lp-feature-chat-breadcrumb">
-          <span>history tracker</span>
+          {/* 실앱 AppShell 규약상 이 크럼은 서비스명이 아니라 프로젝트명 자리다. */}
+          <span>{DEMO_PROJECT_NAME}</span>
           <span className="lp-feature-chat-breadcrumb-sep">/</span>
-          <span className="lp-feature-chat-breadcrumb-current">대화</span>
+          <span className="lp-feature-chat-breadcrumb-current">{nav.conversations}</span>
         </div>
         <div className="lp-feature-chat-stream">
-          <p className="lp-feature-chat-user">검색 기능 관련 PR이랑 지라 티켓 찾아줘</p>
-          <p className="lp-feature-chat-answer">
-            검색 랭킹 가중치 조정은 이슈 <code className="lp-feature-chat-code">HT-64</code>
-            에서 처음 제기됐습니다. 노출 빈도 위주였던 로직이 편향된다는 지적에 따라 클릭률과
-            최신성을 반영하도록 다시 설계해 <code className="lp-feature-chat-code">PR #142</code>
-            로 반영됐습니다. 최종 가중치는 6월 11일{" "}
-            <code className="lp-feature-chat-code">#dev-search</code> 스레드에서 합의됐습니다.
-          </p>
+          <p className="lp-feature-chat-user">{DEMO_QUESTION[lang]}</p>
+          <p className="lp-feature-chat-answer">{DEMO_ANSWER_FULL[lang]}</p>
           <div className="lp-feature-chat-sources">
-            <div className="lp-feature-chat-source">
-              <span className="lp-feature-chat-source-num">#1</span>
-              <div className="lp-feature-chat-source-content">
-                <div className="lp-feature-chat-meta">
-                  <span className="lp-feature-chat-source-type">
-                    <JiraMark size={13} className="lp-feature-chat-source-logo" />
-                    issue
-                  </span>
-                  <span>·</span>
-                  <span>김서진</span>
-                  <span>·</span>
-                  <span className="lp-feature-chat-source-date">2026-06-12</span>
+            {SOURCE_CARDS.map((c) => (
+              <div className="lp-feature-chat-source" key={c.id}>
+                <span className="lp-feature-chat-source-num">#{c.id}</span>
+                <div className="lp-feature-chat-source-content">
+                  <div className="lp-feature-chat-meta">
+                    <span className="lp-feature-chat-source-type">
+                      <c.Mark size={13} className="lp-feature-chat-source-logo" />
+                      {c.typeLabel}
+                    </span>
+                    <span>·</span>
+                    <span>{c.author}</span>
+                    <span>·</span>
+                    <span className="lp-feature-chat-source-date">{c.date}</span>
+                  </div>
+                  <p className="lp-feature-chat-source-body">{c.quote[lang]}</p>
                 </div>
-                <p className="lp-feature-chat-source-body">검색 랭킹 가중치 개선</p>
               </div>
-            </div>
-            <div className="lp-feature-chat-source">
-              <span className="lp-feature-chat-source-num">#2</span>
-              <div className="lp-feature-chat-source-content">
-                <div className="lp-feature-chat-meta">
-                  <span className="lp-feature-chat-source-type">
-                    <SlackMark size={13} className="lp-feature-chat-source-logo" />
-                    message
-                  </span>
-                  <span>·</span>
-                  <span>이도현</span>
-                  <span>·</span>
-                  <span className="lp-feature-chat-source-date">2026-06-11</span>
-                </div>
-                <p className="lp-feature-chat-source-body">가중치 0.7로 확정 — 스레드 합의</p>
-              </div>
-            </div>
-            <div className="lp-feature-chat-source">
-              <span className="lp-feature-chat-source-num">#3</span>
-              <div className="lp-feature-chat-source-content">
-                <div className="lp-feature-chat-meta">
-                  <span className="lp-feature-chat-source-type">
-                    <GithubMark size={13} className="lp-feature-chat-source-logo" />
-                    PR
-                  </span>
-                  <span>·</span>
-                  <span>박한결</span>
-                  <span>·</span>
-                  <span className="lp-feature-chat-source-date">2026-06-13</span>
-                </div>
-                <p className="lp-feature-chat-source-body">검색 랭킹 가중치 적용</p>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
         <div className="lp-feature-chat-composer">
           <div className="lp-feature-chat-composer-box">
             <span className="lp-feature-chat-composer-placeholder">
-              history tracker에 무엇이든 물어보세요. Shift+Enter로 줄바꿈
+              {COMPOSER_PLACEHOLDER[lang]}
             </span>
             <div className="lp-feature-chat-composer-actions">
               <span className="lp-feature-chat-composer-send">
@@ -249,8 +245,8 @@ function SendGlyph() {
 // 사용자 피드백으로 두 가지를 바꿨다. ①트리오도 처음엔 나머지와 똑같이 딤 상태로 시작한다
 // (2차에서는 트리오만 처음부터 밝았다) — 아래 GraphSatellite/GraphStar의 litId가 있어도
 // 렌더 시 항상 lp-feature-graph-node--dim을 함께 받는다(landing.css). ②트리오가 동시에
-// 점등되지 않고 HT-64 발화 → HT-64→PR#142 엣지 드로잉 → PR#142 발화 → PR#142→#dev-search
-// 엣지 드로잉 → #dev-search 발화 순으로 하나씩 밝는다(순차 탐색 안무 — 지속시간은
+// 점등되지 않고 PAY-64 발화 → PAY-64→PR#142 엣지 드로잉 → PR#142 발화 → PR#142→#dev-pay
+// 엣지 드로잉 → #dev-pay 발화 순으로 하나씩 밝는다(순차 탐색 안무 — 지속시간은
 // landing.css의 --gx-node-dur/--gx-edge-dur 로컬 변수, 시작 지연은 "베이스 클래스 + id
 // 수식자 클래스" 복합 셀렉터에 리터럴 ms로 직접 매긴다 — 커스텀 프로퍼티 간접 참조로
 // 지연이 전혀 적용되지 않는 실측 결함이 있어 2026-08-21 3차 재수정에서 걷어냈다,
@@ -258,8 +254,8 @@ function SendGlyph() {
 // cy를 50→66으로 내렸다(위성·다리·라벨 오프셋도 함께 재계산 — 아래 GRAPH_STARS[1]·
 // GRAPH_BRIDGES 주석 참고).
 //
-// 데모 데이터(고정) — 기능 1 근거 카드와 같은 스토리(검색 랭킹 가중치 작업, HT-64 →
-// PR #142 → #dev-search)를 성좌 4개로 펼친다. 좌표는 슬롯과 정확히 같은 비율(16:10 =
+// 데모 데이터(고정) — 기능 1 근거 카드와 같은 스토리(승인 라우팅 가중치 작업, PAY-64 →
+// PR #142 → #dev-pay)를 성좌 4개로 펼친다. 좌표는 슬롯과 정확히 같은 비율(16:10 =
 // 400x250)의 뷰박스에 손으로 배치했다 — 실제 force 시뮬레이션이 아니라 정적 장면이라
 // 절차 생성 대신 균형 잡힌 배치를 직접 잡았고, 뷰박스 비가 슬롯 비와 같아 라벨 위치를
 // x·y 모두 같은 cqw 계수 하나로 맞출 수 있다(MiniGraph.tsx가 쓰는 letterbox 보정은 두
@@ -288,7 +284,7 @@ const GRAPH_SCENE_W = 400;
 const GRAPH_SCENE_H = 250;
 const GRAPH_SCENE_UNIT_CQW = 100 / GRAPH_SCENE_W;
 
-// 점등 트리오의 위성 한 자리(#dev-search, slack 타입) — 별성 정의보다 먼저 선언해 별성 0의
+// 점등 트리오의 위성 한 자리(#dev-pay, slack 타입) — 별성 정의보다 먼저 선언해 별성 0의
 // 위성 목록 안에서 같은 객체를 그대로 참조한다(좌표 중복·불일치 방지). 두 별성 사이·아래쪽에
 // 둬서 라벨 3개가 겹치지 않는다(아래 GRAPH_LIT_LABELS 주석의 좌표 검증 참고).
 const LIT_SLACK_SAT: GraphSatellite = { x: 200, y: 140, r: 3.3, type: "slack", litId: "slack" };
@@ -307,7 +303,7 @@ const GRAPH_STARS: GraphStar[] = [
       { x: 139, y: 72, r: 3.0, type: "file" },
       { x: 172, y: 70, r: 3.6, type: "file" },
       { x: 155, y: 64, r: 3.3, type: "slack" },
-      LIT_SLACK_SAT, // #dev-search
+      LIT_SLACK_SAT, // #dev-pay
     ],
   },
   {
@@ -400,7 +396,7 @@ interface GraphLitNode {
 const RING_GAP = 5;
 const EDGE_TRIM_GAP = RING_GAP + 1.5;
 
-// 점등 트리오 — 스토리 순서(HT-64 → PR #142 → #dev-search) 그대로. 별성 둘은 위 GRAPH_STARS
+// 점등 트리오 — 스토리 순서(PAY-64 → PR #142 → #dev-pay) 그대로. 별성 둘은 위 GRAPH_STARS
 // 좌표를 그대로 참조해 두 값이 어긋날 일이 없다.
 const LIT_ISSUE: GraphLitNode = {
   id: "issue",
@@ -425,27 +421,29 @@ const LIT_SLACK: GraphLitNode = {
 };
 const GRAPH_LIT_NODES = [LIT_ISSUE, LIT_PR, LIT_SLACK];
 
-// 점등 경로 — HT-64 → PR #142 → #dev-search 순서 그대로 잇는다.
+// 점등 경로 — PAY-64 → PR #142 → #dev-pay 순서 그대로 잇는다.
 const GRAPH_LIT_EDGES: Array<[GraphLitNode, GraphLitNode]> = [
   [LIT_ISSUE, LIT_PR],
   [LIT_PR, LIT_SLACK],
 ];
 
 // 점등 노드 mono 라벨 — 라틴 기술 토큰만(모노 스코프 규칙), HOW IT WORKS·히어로 패널
-// 라벨과 같은 문법(노드 중심 + dx/dy 오프셋). 뷰박스(400×250) 기준 앵커 좌표: HT-64
+// 라벨과 같은 문법(노드 중심 + dx/dy 오프셋). 뷰박스(400×250) 기준 앵커 좌표: PAY-64
 // (175,84), PR #142(280,60 — PR 별성 cy 50→66 이동에 맞춰 3차에서 44→60으로 따라감),
-// #dev-search(212,130) — 셋 다 라벨 상자(가장 긴 "#dev-search" 11자 ≈ 80px, 줄높이
-// ≈15px)를 더해도 겹치지 않는다. 이 섹션 컨테이너 폭이 가장 좁아지는 두 지점(데스크톱
+// #dev-pay(212,130) — 셋 다 라벨 상자(가장 긴 "#dev-pay" 8자 ≈ 58px, 줄높이
+// ≈15px)를 더해도 겹치지 않는다(PAY-64는 6자로 여전히 최장 라벨이 아니라 결론 불변 —
+// 최장 라벨이 원래 11자였던 것에서 8자로 짧아지며 여유는 오히려 늘었다). 이
+// 섹션 컨테이너 폭이 가장 좁아지는 두 지점(데스크톱
 // ≈572px → 1cqw≈1.43px, 모바일 390px 뷰포트에서 슬롯 ≈342px → 1cqw≈0.855px) 모두
-// 좌표로 재검증했다 — 가장 가까운 쌍(모바일의 HT-64/PR #142)은 y 상자 사이 5px 남짓으로
-// 좁아졌지만 x 상자가 전혀 겹치지 않아(53px+ 이격) 안전하고, PR #142/#dev-search는
+// 좌표로 재검증했다 — 가장 가까운 쌍(모바일의 PAY-64/PR #142)은 y 상자 사이 5px 남짓으로
+// 좁아졌지만 x 상자가 전혀 겹치지 않아(53px+ 이격) 안전하고, PR #142/#dev-pay는
 // 모바일에서 x가 겹치는 구간이 있지만 y가 45px 이상 벌어져 안전하다(겹침 판정은 두 축
 // 중 하나만 분리되면 충분). PR #142는 상단 툴바(데스크톱 ≈48px 높이, 모바일은 숨김)
 // 아래로 더 넉넉한 여유(라벨 상자 상단 ≈86px)를 갖게 됐다.
 const GRAPH_LIT_LABELS: Array<{ node: GraphLitNode; text: string; dx: number; dy: number }> = [
-  { node: LIT_ISSUE, text: "HT-64", dx: 20, dy: -16 },
+  { node: LIT_ISSUE, text: "PAY-64", dx: 20, dy: -16 },
   { node: LIT_PR, text: "PR #142", dx: 20, dy: -6 },
-  { node: LIT_SLACK, text: "#dev-search", dx: 12, dy: -10 },
+  { node: LIT_SLACK, text: "#dev-pay", dx: 12, dy: -10 },
 ];
 
 // 점등 엣지를 노드 중심이 아니라 링 바깥에서 시작/끝나게 다듬는다(히어로 패널
@@ -470,8 +468,8 @@ function trimLitEdge(a: GraphLitNode, b: GraphLitNode) {
 // 재사용) — 배경 먼지·성좌·다리는 전부 정적이다.
 //
 // 2026-08-21 3차: 트리오가 한 번에 밝아지던 것을 "탐색" 서사로 바꿨다 — 장면 전체(트리오
-// 포함)가 딤 상태로 시작하고, HT-64 발화 → 엣지 드로잉 → PR#142 발화 → 엣지 드로잉 →
-// #dev-search 발화 순으로 하나씩 밝힌다. 순서·시점은 CSS만으로 관리한다: 각 노드/엣지가
+// 포함)가 딤 상태로 시작하고, PAY-64 발화 → 엣지 드로잉 → PR#142 발화 → 엣지 드로잉 →
+// #dev-pay 발화 순으로 하나씩 밝힌다. 순서·시점은 CSS만으로 관리한다: 각 노드/엣지가
 // GRAPH_LIT_NODES.id·GRAPH_LIT_EDGES 쌍에서 파생된 "베이스 클래스 + id 수식자 클래스" 두
 // 개(lp-feature-graph-node--ignite-{id}는 id가 클래스명에 이미 녹아 있어 하나,
 // lp-feature-graph-lit-ring/-halo/-label과 --{id}, lp-feature-graph-lit-edge와
@@ -483,8 +481,34 @@ function trimLitEdge(a: GraphLitNode, b: GraphLitNode) {
 //
 // 캔버스가 슬롯 전체를 채우고 툴바(lp-feature-graph-header)는 그 위에 뜨는 오버레이다.
 // DOM 순서는 캔버스(배경) → 오버레이지만, 오버레이가 position을 가져 항상 위로 그려진다.
+//
+// 툴바 문자열 사전 — 이 슬롯 전용(다른 컴포넌트와 중복 없음)이라 demoCopy로 옮기지 않고
+// co-located로 둔다. 성좌 라벨(PAY-64 등 라틴 모노 토큰)은 모노 스코프 규칙에 따라
+// 번역 대상이 아니다.
+const GRAPH_TOOLBAR_COPY: Localized<{
+  rebuild: string;
+  preciseRebuild: string;
+  nodesLabel: string;
+  connectionsLabel: string;
+}> = {
+  ko: {
+    rebuild: "그래프 재구축",
+    preciseRebuild: "정밀 재구축 (LLM)",
+    nodesLabel: "노드",
+    connectionsLabel: "연결",
+  },
+  en: {
+    rebuild: "Rebuild graph",
+    preciseRebuild: "Precise rebuild (LLM)",
+    nodesLabel: "nodes",
+    connectionsLabel: "connections",
+  },
+};
+
 function GraphExplorerPreview() {
   const { ref, inView } = useInViewOnce<HTMLDivElement>();
+  const { lang } = useLandingLanguage();
+  const t = GRAPH_TOOLBAR_COPY[lang];
   return (
     <div className={`lp-feature-graph${inView ? " is-played" : ""}`} ref={ref}>
       <div className="lp-feature-graph-canvas">
@@ -646,13 +670,13 @@ function GraphExplorerPreview() {
       <div className="lp-feature-graph-header">
         <div className="lp-feature-graph-toolbar">
           <div className="lp-feature-graph-actions">
-            <span className="lp-feature-graph-action">그래프 재구축</span>
-            <span className="lp-feature-graph-action">정밀 재구축 (LLM)</span>
+            <span className="lp-feature-graph-action">{t.rebuild}</span>
+            <span className="lp-feature-graph-action">{t.preciseRebuild}</span>
           </div>
           <span className="lp-feature-graph-stats">
-            <span className="lp-feature-graph-stats-mono">6,212</span> 노드{" "}
+            <span className="lp-feature-graph-stats-mono">6,212</span> {t.nodesLabel}{" "}
             <span className="lp-feature-graph-stats-mono">·</span>{" "}
-            <span className="lp-feature-graph-stats-mono">19,038</span> 연결
+            <span className="lp-feature-graph-stats-mono">19,038</span> {t.connectionsLabel}
           </span>
         </div>
       </div>
@@ -670,36 +694,99 @@ function GraphExplorerPreview() {
 // 빌리지 않는다). 타일의 "연결" 라벨은 미리보기 안에서 포커스 대상이 되면 안 되므로 실제
 // <button>이 아니라 스타일된 <span>이고, 앰버는 쓰지 않는다(라이브 컨트롤이 아니다).
 
-// 연동 행 3개 — 실앱과 동일하게 GitHub·Jira·Slack이 "연동 중"이다. Jira의 target은
-// 프로젝트 키(라틴, 모노)와 그 뒤에 붙는 한글 단어("프로젝트")로 나뉜다 — 모노는 라틴
-// 기술 토큰 전용이라는 스코프 규칙 때문(DESIGN.md).
-const SOURCE_ROWS = [
-  { key: "github", name: "GitHub", target: "org/history-tracker", targetLabel: null, Mark: GithubMark },
-  { key: "jira", name: "Jira", target: "HT", targetLabel: "프로젝트", Mark: JiraMark },
-  { key: "slack", name: "Slack", target: "#dev-search", targetLabel: null, Mark: SlackMark },
-] as const;
+// 미리보기 문자열 사전 — 이 슬롯 전용(다른 컴포넌트와 중복 없음)이라 demoCopy로 옮기지
+// 않고 co-located로 둔다. 섹션 라벨(연동 중/추가 가능)과 상태 pill(연결됨)의 en 어휘를
+// 다르게 골랐다 — "Connected"를 섹션 라벨에 쓰고 pill은 "Active"로 갈라, 두 자리가 같은
+// 단어로 겹쳐 읽히지 않게 한다.
+const SOURCES_COPY: Localized<{
+  title: string;
+  sub: string;
+  sectionConnected: string;
+  sectionAvailable: string;
+  statusPill: string;
+  lastSynced: string;
+  connectAction: string;
+}> = {
+  ko: {
+    title: "데이터 소스",
+    sub: "코드와 의사결정의 원본을 하나의 그래프로 모읍니다.",
+    sectionConnected: "연동 중",
+    sectionAvailable: "추가 가능",
+    statusPill: "연결됨",
+    lastSynced: "마지막 수집",
+    connectAction: "연결",
+  },
+  en: {
+    title: "Data sources",
+    sub: "Bring the sources behind your code and decisions into one graph.",
+    sectionConnected: "Connected",
+    sectionAvailable: "Available",
+    statusPill: "Active",
+    lastSynced: "Last synced",
+    connectAction: "Connect",
+  },
+};
 
-// "추가 가능" 타일 6개 — 나머지 소스(sourceCatalog.tsx의 실제 name·description을 그대로
-// 옮긴다). 소스 카탈로그 자체를 import하지 않는 이유는 이 미리보기가 실제 연동 상태와
-// 무관한 고정 데모 데이터이기 때문(레일 데모 데이터와 같은 원칙).
-const SOURCE_TILES = [
-  { key: "notion", name: "Notion", description: "문서 맥락", Mark: NotionMark },
-  { key: "discord", name: "Discord", description: "대화 맥락", Mark: DiscordMark },
-  { key: "google-chat", name: "Google Chat", description: "대화 맥락", Mark: GoogleChatMark },
-  { key: "linear", name: "Linear", description: "이슈 맥락", Mark: LinearMark },
-  { key: "asana", name: "Asana", description: "작업 맥락", Mark: AsanaMark },
-  { key: "clickup", name: "ClickUp", description: "작업 맥락", Mark: ClickUpMark },
-] as const;
+// 연동 행 3개 — 실앱과 동일하게 GitHub·Jira·Slack이 "연동 중"이다. Jira의 target은
+// 프로젝트 키(라틴, 모노)와 그 뒤에 붙는 단어(ko "프로젝트"/en "project")로 나뉜다 —
+// 모노는 라틴 기술 토큰 전용이라는 스코프 규칙 때문(DESIGN.md).
+const SOURCE_ROWS: Array<{
+  key: string;
+  name: string;
+  target: string;
+  targetLabel: Localized<string> | null;
+  Mark: typeof GithubMark;
+}> = [
+  { key: "github", name: "GitHub", target: "payflow/payflow-api", targetLabel: null, Mark: GithubMark },
+  {
+    key: "jira",
+    name: "Jira",
+    target: "PAY",
+    targetLabel: { ko: "프로젝트", en: "project" },
+    Mark: JiraMark,
+  },
+  { key: "slack", name: "Slack", target: "#dev-pay", targetLabel: null, Mark: SlackMark },
+];
+
+// "추가 가능" 타일 6개 — 나머지 소스(sourceCatalog.tsx의 실제 name을 그대로 옮긴다).
+// 소스 카탈로그 자체를 import하지 않는 이유는 이 미리보기가 실제 연동 상태와 무관한 고정
+// 데모 데이터이기 때문(레일 데모 데이터와 같은 원칙).
+const SOURCE_TILES: Array<{
+  key: string;
+  name: string;
+  description: Localized<string>;
+  Mark: typeof GithubMark;
+}> = [
+  { key: "notion", name: "Notion", description: { ko: "문서 맥락", en: "Document context" }, Mark: NotionMark },
+  {
+    key: "discord",
+    name: "Discord",
+    description: { ko: "대화 맥락", en: "Conversation context" },
+    Mark: DiscordMark,
+  },
+  {
+    key: "google-chat",
+    name: "Google Chat",
+    description: { ko: "대화 맥락", en: "Conversation context" },
+    Mark: GoogleChatMark,
+  },
+  { key: "linear", name: "Linear", description: { ko: "이슈 맥락", en: "Issue context" }, Mark: LinearMark },
+  { key: "asana", name: "Asana", description: { ko: "작업 맥락", en: "Task context" }, Mark: AsanaMark },
+  { key: "clickup", name: "ClickUp", description: { ko: "작업 맥락", en: "Task context" }, Mark: ClickUpMark },
+];
 
 function DataSourcesPreview() {
+  const { lang } = useLandingLanguage();
+  const t = SOURCES_COPY[lang];
+
   return (
     <div className="lp-feature-sources">
       <div className="lp-feature-sources-head">
-        <h3 className="lp-feature-sources-title">데이터 소스</h3>
-        <p className="lp-feature-sources-sub">코드와 의사결정의 원본을 하나의 그래프로 모읍니다.</p>
+        <h3 className="lp-feature-sources-title">{t.title}</h3>
+        <p className="lp-feature-sources-sub">{t.sub}</p>
       </div>
 
-      <div className="lp-feature-sources-label">연동 중</div>
+      <div className="lp-feature-sources-label">{t.sectionConnected}</div>
       <div className="lp-feature-source-rows">
         {SOURCE_ROWS.map((s) => (
           <div className="lp-feature-source-row" key={s.key}>
@@ -711,17 +798,17 @@ function DataSourcesPreview() {
               <span className="lp-feature-source-sub">
                 <span className="lp-feature-source-sub-mono">{s.target}</span>
                 {s.targetLabel && (
-                  <span className="lp-feature-source-sub-label">{s.targetLabel}</span>
+                  <span className="lp-feature-source-sub-label">{s.targetLabel[lang]}</span>
                 )}
               </span>
             </div>
             <div className="lp-feature-source-status">
               <span className="lp-feature-source-pill">
                 <span className="lp-feature-source-dot" />
-                연결됨
+                {t.statusPill}
               </span>
               <span className="lp-feature-source-synced">
-                마지막 수집{" "}
+                {t.lastSynced}{" "}
                 <span className="lp-feature-source-synced-mono">2026-07-24 14:32</span>
               </span>
             </div>
@@ -729,7 +816,7 @@ function DataSourcesPreview() {
         ))}
       </div>
 
-      <div className="lp-feature-sources-label">추가 가능</div>
+      <div className="lp-feature-sources-label">{t.sectionAvailable}</div>
       <div className="lp-feature-source-tiles">
         {SOURCE_TILES.map((s) => (
           <div className="lp-feature-source-tile" key={s.key}>
@@ -738,9 +825,9 @@ function DataSourcesPreview() {
             </div>
             <div className="lp-feature-source-tile-meta">
               <span className="lp-feature-source-tile-name">{s.name}</span>
-              <span className="lp-feature-source-tile-sub">{s.description}</span>
+              <span className="lp-feature-source-tile-sub">{s.description[lang]}</span>
             </div>
-            <span className="lp-feature-source-tile-action">연결</span>
+            <span className="lp-feature-source-tile-action">{t.connectAction}</span>
           </div>
         ))}
       </div>

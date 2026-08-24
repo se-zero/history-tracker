@@ -26,7 +26,8 @@ export function ChatEmpty({
   } as const;
   return (
     <div className="chat-empty">
-      <span className="logo-mark" />
+      {/* 로고 마크는 public/favicon.svg가 단일 출처 — 브랜드 자산이라 테마 불변. */}
+      <img className="logo-mark" src="/favicon.svg" alt="" aria-hidden="true" width={44} height={44} />
       <h2>무엇을 알아볼까요?</h2>
       <p>
         {project.name}에 대해 아래 추천 질문으로 시작하거나, 직접 자연어로 물어보세요.

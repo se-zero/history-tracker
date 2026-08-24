@@ -74,6 +74,10 @@ src/
     ※ Terms(`/terms`)·Privacy(`/privacy`)도 AuthGate 밖 공개 라우트다. 랜딩과 같은 `.lp` 스코프를
       쓰며 헤더·푸터를 공유한다(LegalLayout). 내용은 실제 수집 항목·권한 scope·보유 기간을
       반영하므로 **수집 코드나 purge 설정이 바뀌면 이 두 페이지도 함께 고친다**.
+      본문은 언어별 컴포넌트로 갈린다 — 이용약관은 `components/landing/legal/`의
+      `TermsBodyKo.tsx`·`TermsBodyEn.tsx`, 개인정보처리방침도 같은 방식으로
+      `PrivacyBodyKo.tsx`·`PrivacyBodyEn.tsx`로 갈려 있다 — 위 내용이 바뀌면 해당 언어별
+      파일도 함께 고친다.
       Privacy 하나로 연동 앱 심사의 개인정보처리방침 URL을 모두 감당한다(서비스별로 나누면
       문서가 갈라진다). 제2조에 소스별 앵커를 두며 — `#github`·`#slack`·`#jira`·`#discord`·
       `#google-chat`·`#notion` — 앞의 셋은 **이미 심사에 제출돼 있어 그 id는 바꾸지 않는다**(바꾸면
