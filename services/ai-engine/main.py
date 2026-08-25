@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -32,20 +31,6 @@ from routers.query import router as query_router
 logger = logging.getLogger(__name__)
 
 
-async def _prewarm_project_context() -> None:
-    """GITHUB_REPO 환경변수가 설정되어 있으면 시작 시점에 프로젝트 컨텍스트를 캐시한다.
-    이후 모든 엔드포인트는 콜드 스타트 race condition 없이 캐시 히트로 동작한다.
-    실패해도 서비스는 정상 기동한다 (None이 캐시되므로 추후 재시도 안 함)."""
-    repo = os.environ.get("GITHUB_REPO", "")
-    if not repo or "/" not in repo:
-        logger.info("GITHUB_REPO 미설정 — 프로젝트 컨텍스트 pre-warm 생략")
-        return
-    owner, repo_name = repo.split("/", 1)
-    from graph.project_context import get_project_summary
-    summary = await get_project_summary(owner, repo_name)
-    logger.info("프로젝트 컨텍스트 pre-warm 완료: %s/%s loaded=%s", owner, repo_name, summary is not None)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async def _init_neo4j_with_retry(max_retries: int = 10, retry_interval: float = 1.0) -> None:
@@ -75,7 +60,6 @@ async def lifespan(app: FastAPI):
                     raise
 
     await _init_neo4j_with_retry()
-    await _prewarm_project_context()
     tasks = [
         asyncio.create_task(start_consumer()),
         asyncio.create_task(start_debounce_loop()),

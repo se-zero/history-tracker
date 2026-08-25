@@ -73,8 +73,6 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
       # .env 에서 forward (필수: OPENAI_API_KEY)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      GITHUB_REPO: ${GITHUB_REPO:-}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       QUERY_MODEL: ${QUERY_MODEL:-gpt-5.4-mini}
       QUERY_REASONING_EFFORT: ${QUERY_REASONING_EFFORT:-}
       TOOLS_MIN_CONFIDENCE: ${TOOLS_MIN_CONFIDENCE:-0.5}

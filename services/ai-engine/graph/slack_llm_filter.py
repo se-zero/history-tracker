@@ -36,7 +36,7 @@ _THREAD_PROMPT = """\
 당신은 팀의 지식 그래프 구축을 위해 슬랙 메시지를 분류하는 도우미입니다.
 
 [프로젝트 컨텍스트]
-{project_context}
+GitHub, Jira, Slack 데이터를 연동하여 지식 그래프를 만드는 캡스톤 프로젝트입니다.
 
 아래 메시지들은 하나의 슬랙 스레드에서 시간 순서대로 발생한 대화입니다.
 앞뒤 맥락을 고려해 각 메시지의 보존 여부를 판단하세요.
@@ -56,7 +56,7 @@ _STANDALONE_PROMPT = """\
 당신은 팀의 지식 그래프 구축을 위해 슬랙 메시지를 분류하는 도우미입니다.
 
 [프로젝트 컨텍스트]
-{project_context}
+GitHub, Jira, Slack 데이터를 연동하여 지식 그래프를 만드는 캡스톤 프로젝트입니다.
 
 아래 메시지들은 서로 독립적인 슬랙 메시지입니다. 각 메시지를 개별적으로 판단하세요.
 
@@ -67,13 +67,12 @@ _STANDALONE_PROMPT = """\
 """
 
 
-def build_prompt(project_context: str, is_thread: bool) -> str:
-    context = project_context.strip() or "GitHub, Jira, Slack 데이터를 연동하여 지식 그래프를 만드는 캡스톤 프로젝트입니다."
+def build_prompt(is_thread: bool) -> str:
     template = _THREAD_PROMPT if is_thread else _STANDALONE_PROMPT
-    return template.format(project_context=context, shared_criteria=_SHARED_CRITERIA)
+    return template.format(shared_criteria=_SHARED_CRITERIA)
 
 
-async def filter_messages(messages: list[str], project_context: str = "", is_thread: bool = False) -> list[bool]:
+async def filter_messages(messages: list[str], is_thread: bool = False) -> list[bool]:
     """
     messages: 메시지 body 문자열 리스트
     is_thread: True면 스레드 맥락 고려 프롬프트 사용
@@ -89,7 +88,7 @@ async def filter_messages(messages: list[str], project_context: str = "", is_thr
         model="gpt-4o-mini",
         response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": build_prompt(project_context, is_thread)},
+            {"role": "system", "content": build_prompt(is_thread)},
             {"role": "user", "content": numbered},
         ],
         temperature=0,
