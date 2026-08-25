@@ -12,14 +12,14 @@ type Route =
   | "chat"
   | "sources"
   | "actors"
-  | "galaxy"
+  | "graph"
   | "settings"
   | "account";
 
 function routeFromPath(pathname: string): Route {
   if (pathname.endsWith("/sources")) return "sources";
   if (pathname.endsWith("/actors")) return "actors";
-  if (pathname.endsWith("/galaxy")) return "galaxy";
+  if (pathname.endsWith("/graph")) return "graph";
   if (pathname.endsWith("/settings")) return "settings";
   if (pathname.endsWith("/account")) return "account";
   return "chat";
@@ -31,7 +31,7 @@ function crumbsFor(project: Project, route: Route): string[] {
       return [project.name, "데이터 소스"];
     case "actors":
       return [project.name, "액터"];
-    case "galaxy":
+    case "graph":
       return [project.name, "그래프 확인"];
     case "settings":
       return [project.name, "설정"];
@@ -164,8 +164,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
         onOpenSearch={() => setSearchOpen(true)}
       />
       <div className="main">
-        {/* 성좌 페이지는 우측 액션이 있어 Topbar를 직접 렌더한다. */}
-        {route !== "galaxy" && (
+        {/* 그래프 확인 페이지는 우측 액션이 있어 Topbar를 직접 렌더한다. */}
+        {route !== "graph" && (
           <Topbar crumbs={crumbsFor(project, route)} />
         )}
         {children ?? <Outlet context={{ project } satisfies ShellContext} />}

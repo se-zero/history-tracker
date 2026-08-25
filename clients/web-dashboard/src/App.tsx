@@ -9,7 +9,7 @@ import { AccountPage } from "@/pages/AccountPage";
 import { ActorsPage } from "@/pages/ActorsPage";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { ChatPage } from "@/pages/ChatPage";
-import { GalaxyPage } from "@/pages/GalaxyPage";
+import { GraphPage } from "@/pages/GraphPage";
 import { LandingPage } from "@/pages/LandingPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
@@ -48,8 +48,8 @@ function SourcesRoute() {
 function ActorsRoute() {
   return <ActorsPage project={useProject()} />;
 }
-function GalaxyRoute() {
-  return <GalaxyPage project={useProject()} />;
+function GraphRoute() {
+  return <GraphPage project={useProject()} />;
 }
 function SettingsRoute() {
   return <SettingsPage project={useProject()} />;
@@ -90,9 +90,7 @@ export default function App() {
             <Route path="chat/:conversationId" element={<ChatRoute />} />
             <Route path="sources" element={<SourcesRoute />} />
             <Route path="actors" element={<ActorsRoute />} />
-            {/* 그래프 탐색은 작업 성좌로 대체됐다 — 예전 링크·북마크만 넘겨준다. */}
-            <Route path="graph" element={<Navigate to="../galaxy" replace />} />
-            <Route path="galaxy" element={<GalaxyRoute />} />
+            <Route path="graph" element={<GraphRoute />} />
             <Route path="settings" element={<SettingsRoute />} />
             <Route path="account" element={<AccountRoute />} />
             <Route path="*" element={<NotFoundPage />} />

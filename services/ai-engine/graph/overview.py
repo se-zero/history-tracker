@@ -370,25 +370,25 @@ async def get_project_overview(
     return {"nodes": nodes, "edges": edges}
 
 
-# ── 성좌 뷰 조회 ──────────────────────────────────────────────────────────────
+# ── 작업 단위 뷰 조회 ──────────────────────────────────────────────────────────
 # overview("최근 활동 top-N")와 계약이 다르다.
 #
-# 성좌 뷰는 작업 단위를 큰 노드(별성)로 두고 그에 딸린 것들을 주위에 배치한다.
-# 별성은 그림의 골격이라 하나라도 빠지면 화면 자체가 틀린 그림이 된다 —
+# 작업 단위 뷰는 작업 단위를 큰 노드(작업 단위 노드)로 두고 그에 딸린 것들을 주위에 배치한다.
+# 작업 단위 노드는 그림의 골격이라 하나라도 빠지면 화면 자체가 틀린 그림이 된다 —
 # 실제로 타입 구분 없이 최신 200개를 자르면 PR 56개 중 19개만 남았다.
-# 반면 위성(commit/file/논의)은 최근 것만 있어도 충분하다.
+# 반면 구성 노드(commit/file/논의)는 최근 것만 있어도 충분하다.
 #
 # 그래서 "완전성이 필요한 것"과 "밀도가 필요한 것"을 분리해 조회한다:
-#   작업 단위는 전량(상한 WORK_UNIT_MAX) · 위성은 최신 limit개 → 합집합.
+#   작업 단위는 전량(상한 WORK_UNIT_MAX) · 구성 노드는 최신 limit개 → 합집합.
 # 작업 단위 수는 보통 수십 개라 전량으로 가져와도 비용이 거의 없다.
 
-CONSTELLATION_DEFAULT_LIMIT = 400
-CONSTELLATION_MAX_LIMIT = 800
+WORK_UNITS_DEFAULT_LIMIT = 400
+WORK_UNITS_MAX_LIMIT = 800
 WORK_UNIT_MAX = 300
 
 # 작업 단위 후보 라벨 — 앞선 라벨이 0건이면 다음으로 넘어간다.
 # PR은 base 브랜치 기준으로 수집되므로(pipeline-worker) 연동 브랜치가 feature 브랜치면
-# PullRequest가 0건일 수 있다. 그 경우 별성이 하나도 없어 화면이 무너지므로 Issue로 폴백한다.
+# PullRequest가 0건일 수 있다. 그 경우 작업 단위 노드가 하나도 없어 화면이 무너지므로 Issue로 폴백한다.
 _WORK_UNIT_LABELS = ("PullRequest", "Issue", "ChangeSet")
 
 # 최신 content 노드 — overview와 같은 기준(occurredAt 역순)이다.
@@ -425,19 +425,19 @@ RETURN {_NODE_RETURN_FIELDS}
 """
 
 
-async def get_constellation_view(
+async def get_work_units_view(
     project_id: str,
-    limit: int = CONSTELLATION_DEFAULT_LIMIT,
+    limit: int = WORK_UNITS_DEFAULT_LIMIT,
 ) -> dict:
-    """성좌 뷰용 그래프를 {nodes, edges, work_unit_ids}로 반환한다.
+    """작업 단위 뷰용 그래프를 {nodes, edges, work_unit_ids}로 반환한다.
 
-    work_unit_ids는 별성으로 그릴 노드 id 목록이다. 어떤 라벨이 작업 단위인지는
+    work_unit_ids는 작업 단위 노드로 그릴 노드 id 목록이다. 어떤 라벨이 작업 단위인지는
     서버가 정해서 알려준다 — 프론트가 노드 타입을 하드코딩하면 PR이 0건인 프로젝트에서
-    별성이 사라지고, 나중에 작업 단위 정의가 바뀔 때도 양쪽을 같이 고쳐야 한다.
+    작업 단위 노드가 사라지고, 나중에 작업 단위 정의가 바뀔 때도 양쪽을 같이 고쳐야 한다.
     """
     if not project_id:
         return {"nodes": [], "edges": [], "work_unit_ids": []}
-    limit = max(1, min(limit, CONSTELLATION_MAX_LIMIT))
+    limit = max(1, min(limit, WORK_UNITS_MAX_LIMIT))
 
     async with get_driver().session() as session:
         # 작업 단위 — 첫 번째로 0건이 아닌 라벨을 쓴다.
@@ -488,15 +488,15 @@ async def get_constellation_view(
     work_unit_ids = [r["id"] for r in work_rows]
 
     logger.info(
-        "constellation project=%s nodes=%d edges=%d works=%d(%s) (limit=%d)",
+        "work_units project=%s nodes=%d edges=%d works=%d(%s) (limit=%d)",
         project_id, len(nodes), len(edges), len(work_unit_ids), work_label or "none", limit,
     )
     return {"nodes": nodes, "edges": edges, "work_unit_ids": work_unit_ids}
 
 
-# ── 작업 단위 이웃 조회 (성좌 드릴인) ─────────────────────────────────────────
-# 성좌 뷰는 위성을 최신 limit개로 자르므로, 오래된 작업은 별성만 있고 위성이 없다.
-# 그 성좌를 열 때 이 조회로 해당 작업의 이웃만 따로 채운다.
+# ── 작업 단위 이웃 조회 (작업 단위 드릴인) ────────────────────────────────────
+# 작업 단위 뷰는 구성 노드를 최신 limit개로 자르므로, 오래된 작업은 작업 단위 노드만 있고
+# 구성 노드가 없다. 그 작업 단위를 열 때 이 조회로 해당 작업의 이웃만 따로 채운다.
 #
 # 관계 타입을 명시해 확장한다 — 무타입 가변길이(*1..3)로 뻗으면 파일 같은 허브를 거쳐
 # 다른 작업의 커밋까지 딸려와 결과가 폭주한다.
@@ -535,10 +535,10 @@ RETURN {_NODE_RETURN_FIELDS}
 
 
 async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
-    """작업 단위 하나의 이웃을 {nodes, edges}로 반환한다 (성좌 드릴인용).
+    """작업 단위 하나의 이웃을 {nodes, edges}로 반환한다 (작업 단위 드릴인용).
 
     반환 집합에는 공유 노드(주로 파일)도 포함되므로, 클라이언트가 기존 그래프에 합치면
-    이미 로드된 다른 성좌와의 다리도 그 공유 노드를 통해 자연스럽게 이어진다.
+    이미 로드된 다른 작업 단위와의 공유 연결도 그 공유 노드를 통해 자연스럽게 이어진다.
     """
     if not project_id or not node_id:
         return {"nodes": [], "edges": []}

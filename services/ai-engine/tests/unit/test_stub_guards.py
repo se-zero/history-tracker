@@ -87,8 +87,8 @@ class OverviewStubGuardTest(unittest.TestCase):
 class OverviewEmptyDocumentGuardTest(unittest.TestCase):
     """빈 Document pre-node가 노출되는 4개 경로 전부에 가드가 걸려 있는지.
 
-    Document는 _ALL_CONTENT_PRED에 있어 개요·성좌 목록에 직접 뽑히고, 이웃 확장 경로
-    (성좌 드릴인·evidence 서브그래프)에서는 자식 문서의 CHILD_OF 부모로 딸려온다.
+    Document는 _ALL_CONTENT_PRED에 있어 개요·작업 단위 목록에 직접 뽑히고, 이웃 확장 경로
+    (작업 단위 드릴인·evidence 서브그래프)에서는 자식 문서의 CHILD_OF 부모로 딸려온다.
     _work_unit_query는 대상 라벨이 PR/Issue/ChangeSet뿐이라 Document가 매칭될 수 없어 제외.
     """
 

@@ -19,10 +19,10 @@ import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
-import com.history.backend.graph.dto.GraphConstellationResponse;
 import com.history.backend.graph.dto.GraphNodeResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
+import com.history.backend.graph.dto.GraphWorkUnitsResponse;
 import com.history.backend.graph.dto.SubgraphRequest;
 import com.history.backend.graph.service.GraphService;
 import com.history.backend.security.AuthenticatedUser;
@@ -266,46 +266,46 @@ class GraphControllerTest {
     }
 
     @Test
-    @DisplayName("성좌 뷰 반환 — work_unit_ids를 snake_case로 내려준다")
-    void returnsConstellationWithWorkUnitIds() throws Exception {
-        GraphConstellationResponse constellation = new GraphConstellationResponse(
+    @DisplayName("작업 단위 뷰 반환 — work_unit_ids를 snake_case로 내려준다")
+    void returnsWorkUnitsWithWorkUnitIds() throws Exception {
+        GraphWorkUnitsResponse workUnits = new GraphWorkUnitsResponse(
                 List.of(new GraphNodeResponse(
                         "pr1", "pr", "feat: x", "#7", "github", "body",
                         new EvidenceRef("pull_request", "7"))),
                 List.of(List.of("pr1", "c1")),
                 List.of("pr1")
         );
-        when(graphService.getConstellation(USER_ID, PROJECT_ID, 400)).thenReturn(constellation);
+        when(graphService.getWorkUnits(USER_ID, PROJECT_ID, 400)).thenReturn(workUnits);
 
-        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/constellation", PROJECT_ID)
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-units", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
                         .param("limit", "400"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nodes[0].id").value("pr1"))
-                // 프론트가 이 키로 별성을 정한다 — 이름이 바뀌면 성좌가 통째로 사라진다
+                // 프론트가 이 키로 작업 단위를 정한다 — 이름이 바뀌면 작업 단위 뷰가 통째로 사라진다
                 .andExpect(jsonPath("$.work_unit_ids[0]").value("pr1"));
 
-        verify(graphService).getConstellation(USER_ID, PROJECT_ID, 400);
+        verify(graphService).getWorkUnits(USER_ID, PROJECT_ID, 400);
     }
 
     @Test
-    @DisplayName("성좌 뷰 — limit 미전달 시 null 기본값 사용")
-    void defaultsConstellationLimitToNull() throws Exception {
-        when(graphService.getConstellation(eq(USER_ID), eq(PROJECT_ID), isNull()))
-                .thenReturn(GraphConstellationResponse.empty());
+    @DisplayName("작업 단위 뷰 — limit 미전달 시 null 기본값 사용")
+    void defaultsWorkUnitsLimitToNull() throws Exception {
+        when(graphService.getWorkUnits(eq(USER_ID), eq(PROJECT_ID), isNull()))
+                .thenReturn(GraphWorkUnitsResponse.empty());
 
-        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/constellation", PROJECT_ID)
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-units", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.work_unit_ids").isArray());
 
-        verify(graphService).getConstellation(USER_ID, PROJECT_ID, null);
+        verify(graphService).getWorkUnits(USER_ID, PROJECT_ID, null);
     }
 
     @Test
-    @DisplayName("성좌 뷰 — 인증 없으면 401")
-    void rejectsUnauthenticatedConstellation() throws Exception {
-        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/constellation", PROJECT_ID))
+    @DisplayName("작업 단위 뷰 — 인증 없으면 401")
+    void rejectsUnauthenticatedWorkUnits() throws Exception {
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-units", PROJECT_ID))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -319,22 +319,22 @@ class GraphControllerTest {
                         new EvidenceRef("commit", "abc1234def"))),
                 List.of(List.of("pr1", "c1"))
         );
-        when(graphService.getWorkUnit(USER_ID, PROJECT_ID, nodeId)).thenReturn(graph);
+        when(graphService.getWorkUnitNeighbors(USER_ID, PROJECT_ID, nodeId)).thenReturn(graph);
 
-        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-unit", PROJECT_ID)
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-unit/neighbors", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
                         .param("nodeId", nodeId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nodes[0].id").value("c1"))
                 .andExpect(jsonPath("$.edges[0][0]").value("pr1"));
 
-        verify(graphService).getWorkUnit(USER_ID, PROJECT_ID, nodeId);
+        verify(graphService).getWorkUnitNeighbors(USER_ID, PROJECT_ID, nodeId);
     }
 
     @Test
     @DisplayName("작업 단위 이웃 — nodeId 누락 시 400")
     void rejectsWorkUnitWithoutNodeId() throws Exception {
-        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-unit", PROJECT_ID)
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-unit/neighbors", PROJECT_ID)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isBadRequest());
     }
@@ -342,7 +342,7 @@ class GraphControllerTest {
     @Test
     @DisplayName("작업 단위 이웃 — 인증 없으면 401")
     void rejectsUnauthenticatedWorkUnit() throws Exception {
-        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-unit", PROJECT_ID)
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph/work-unit/neighbors", PROJECT_ID)
                         .param("nodeId", "4:abc:1"))
                 .andExpect(status().isUnauthorized());
     }

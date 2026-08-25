@@ -53,7 +53,7 @@
 
 /* 등장/퇴장 — 답변 도착 연출(msg-rise-in, chat.css)과 같은 어휘. NodeDetail이
    node가 비워졌는데 shown이 남아 있는 동안 is-exiting을 붙인 채 언마운트를 미뤄 퇴장이 재생될
-   시간을 번다(useExitPresence.ts). galaxy-detail(성좌 패널)도 이 키프레임을 공유한다(galaxy.css).
+   시간을 번다(useExitPresence.ts). cluster-detail(묶음 상세 패널)도 이 키프레임을 공유한다(workunit.css).
    퇴장 이름(detail-fade-out)은 useExitPresence.ts의 EXIT_ANIMATION과 일치해야 한다. */
 @keyframes detail-rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes detail-fade-in { from { opacity: 0; } to { opacity: 1; } }

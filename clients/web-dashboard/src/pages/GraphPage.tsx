@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import { ConstellationVis } from "@/components/graph/ConstellationVis";
+import { WorkUnitCanvas } from "@/components/graph/WorkUnitCanvas";
 import { NodeDetail } from "@/components/graph/NodeDetail";
 import { StatusView } from "@/components/StatusView";
 import { Topbar } from "@/components/shell/Topbar";
 import {
-  useConstellation,
+  useWorkUnits,
   useGraphBuildStatus,
   useRebuildGraph,
   useWorkUnitNeighborhoods,
@@ -15,16 +15,16 @@ import type { Project } from "@/types/api";
 import type { GraphNode } from "@/types/graph";
 
 /**
- * 작업 성좌 뷰 — Issue/PR을 별성으로 삼아 그래프를 은하처럼 보여주는 페이지.
+ * 그래프 확인 화면 — Issue/PR을 작업 단위로 삼아 그 주변 노드를 묶어 보여주는 페이지.
  * 프로젝트 그래프를 보는 유일한 화면이라, 그래프 재구축 트리거도 여기서 한다.
  */
-export function GalaxyPage({ project }: { project: Project }) {
+export function GraphPage({ project }: { project: Project }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const graphQuery = useConstellation(project.id);
+  const graphQuery = useWorkUnits(project.id);
   const base = graphQuery.data;
 
   // 통합 검색에서 노드를 골라 넘어온 경우 — 검색은 그래프 전체를 뒤지므로
-  // 성좌 조회(작업 단위 + 최신 위성)에 없는 노드일 수 있어, 상세 표시용 노드를 state로 받는다.
+  // 작업 단위 조회(작업 단위 + 최신 구성 노드)에 없는 노드일 수 있어, 상세 표시용 노드를 state로 받는다.
   const location = useLocation();
   const searchNode =
     (location.state as { searchNode?: GraphNode } | null)?.searchNode ?? null;
@@ -32,15 +32,15 @@ export function GalaxyPage({ project }: { project: Project }) {
     if (searchNode) setSelectedId(searchNode.id);
   }, [searchNode]);
 
-  // 성좌를 열면 그 작업 단위의 이웃을 추가로 불러와 합친다 —
-  // 기본 조회는 위성을 최신 N개로 자르므로 오래된 작업은 별성만 있고 위성이 비어 있다.
+  // 묶음을 열면 그 작업 단위의 이웃을 추가로 불러와 합친다 —
+  // 기본 조회는 구성 노드를 최신 N개로 자르므로 오래된 작업은 작업 단위만 있고 구성 노드가 비어 있다.
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const expanded = useWorkUnitNeighborhoods(project.id, expandedIds);
   useEffect(() => {
     setExpandedIds([]);
   }, [project.id]);
 
-  // 기존 노드를 앞에 두고 새 것만 덧붙인다 — 별성 순서가 바뀌면 열려 있던 성좌가 어긋난다.
+  // 기존 노드를 앞에 두고 새 것만 덧붙인다 — 작업 단위 순서가 바뀌면 열려 있던 묶음이 어긋난다.
   const data = useMemo(() => {
     if (!base) return undefined;
     if (expanded.nodes.length === 0) return base;
@@ -94,7 +94,7 @@ export function GalaxyPage({ project }: { project: Project }) {
   const failed = rebuild.isError || status?.state === "failed";
 
   return (
-    <div className="galaxy-page">
+    <div className="wu-page">
       <Topbar
         crumbs={[project.name, "그래프 확인"]}
         right={
@@ -147,7 +147,7 @@ export function GalaxyPage({ project }: { project: Project }) {
           </>
         }
       />
-      <div className="galaxy-stage">
+      <div className="wu-stage">
         {graphQuery.isLoading ? (
           <StatusView tone="loading" description="그래프를 그리는 중…" />
         ) : graphQuery.isError ? (
@@ -169,7 +169,7 @@ export function GalaxyPage({ project }: { project: Project }) {
           />
         ) : (
           <>
-            <ConstellationVis
+            <WorkUnitCanvas
               nodes={data.nodes}
               edges={data.edges}
               workUnitIds={data.workUnitIds}

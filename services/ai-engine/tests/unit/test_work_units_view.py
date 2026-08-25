@@ -1,7 +1,7 @@
-"""성좌 뷰 조회 단위 테스트 (오프라인 — Neo4j driver fake 주입).
+"""작업 단위 뷰 조회 단위 테스트 (오프라인 — Neo4j driver fake 주입).
 
-성좌 뷰의 계약은 overview와 다르다: 작업 단위(별성)는 전량, 위성만 최신 N개다.
-별성이 하나라도 빠지면 화면이 틀린 그림이 되므로, 전량 조회·폴백·합집합 규칙을 고정한다.
+작업 단위 뷰의 계약은 overview와 다르다: 작업 단위(작업 단위 노드)는 전량, 구성 노드만 최신 N개다.
+작업 단위 노드가 하나라도 빠지면 화면이 틀린 그림이 되므로, 전량 조회·폴백·합집합 규칙을 고정한다.
 """
 
 import asyncio
@@ -9,10 +9,10 @@ import unittest
 from unittest.mock import patch
 
 from graph.overview import (
-    CONSTELLATION_MAX_LIMIT,
+    WORK_UNITS_MAX_LIMIT,
     WORK_UNIT_MAX,
-    get_constellation_view,
     get_work_unit_neighborhood,
+    get_work_units_view,
 )
 
 
@@ -92,18 +92,18 @@ def _kind(query: str) -> str:
     return "unknown"
 
 
-def _run_constellation(responses, limit=400):
+def _run_work_units(responses, limit=400):
     """responses: {쿼리종류: 행 목록}. 반환은 (결과, 세션)."""
     driver = _FakeDriver(lambda q, p: responses.get(_kind(q), []))
     with patch("graph.overview.get_driver", return_value=driver):
-        result = asyncio.run(get_constellation_view("p1", limit))
+        result = asyncio.run(get_work_units_view("p1", limit))
     return result, driver.session_obj
 
 
-class ConstellationView(unittest.TestCase):
+class WorkUnitsView(unittest.TestCase):
     def test_work_units_are_returned_in_full_and_merged_with_recent(self):
         # 작업 단위 2건 중 1건은 최신 창에도 들어 있다 — 합집합이 중복을 만들면 안 된다.
-        result, _ = _run_constellation({
+        result, _ = _run_work_units({
             "work:PullRequest": [_row("pr1", "PullRequest"), _row("pr2", "PullRequest")],
             "recent": [_row("pr2", "PullRequest"), _row("c1", "ChangeSet")],
             "neighbors": [_row("f1", "File", path="src/a.ts")],
@@ -118,8 +118,8 @@ class ConstellationView(unittest.TestCase):
 
     def test_recent_window_does_not_drop_work_units(self):
         # 최신 창에 전혀 없는 오래된 작업 단위도 반드시 살아남아야 한다 —
-        # 이 뷰에서 별성이 빠지면 그림 자체가 틀린다.
-        result, _ = _run_constellation({
+        # 이 뷰에서 작업 단위 노드가 빠지면 그림 자체가 틀린다.
+        result, _ = _run_work_units({
             "work:PullRequest": [_row("old_pr", "PullRequest")],
             "recent": [_row("c1", "ChangeSet"), _row("c2", "ChangeSet")],
         })
@@ -129,8 +129,8 @@ class ConstellationView(unittest.TestCase):
 
     def test_falls_back_to_issue_when_no_pull_requests(self):
         # PR은 base 브랜치 기준으로 수집되므로 연동 브랜치에 따라 0건일 수 있다.
-        # 그때 별성이 사라지면 화면이 먼지 고리만 남으므로 Issue로 폴백한다.
-        result, session = _run_constellation({
+        # 그때 작업 단위 노드가 사라지면 화면이 미소속 노드 고리만 남으므로 Issue로 폴백한다.
+        result, session = _run_work_units({
             "work:PullRequest": [],
             "work:Issue": [_row("i1", "Issue", issue_key="HT-1")],
             "recent": [_row("c1", "ChangeSet")],
@@ -143,7 +143,7 @@ class ConstellationView(unittest.TestCase):
         self.assertNotIn("work:ChangeSet", kinds, "Issue가 있으면 더 내려가지 않는다")
 
     def test_falls_back_to_changeset_when_no_pull_requests_and_no_issues(self):
-        result, session = _run_constellation({
+        result, session = _run_work_units({
             "work:PullRequest": [],
             "work:Issue": [],
             "work:ChangeSet": [_row("c1", "ChangeSet")],
@@ -153,7 +153,7 @@ class ConstellationView(unittest.TestCase):
         self.assertIn("work:ChangeSet", [_kind(q) for q, _ in session.calls])
 
     def test_returns_empty_when_no_content_at_all(self):
-        result, _ = _run_constellation({})
+        result, _ = _run_work_units({})
 
         self.assertEqual(result["nodes"], [])
         self.assertEqual(result["edges"], [])
@@ -162,24 +162,24 @@ class ConstellationView(unittest.TestCase):
     def test_blank_project_id_skips_neo4j(self):
         driver = _FakeDriver(lambda q, p: [])
         with patch("graph.overview.get_driver", return_value=driver):
-            result = asyncio.run(get_constellation_view("", 400))
+            result = asyncio.run(get_work_units_view("", 400))
 
         self.assertEqual(result, {"nodes": [], "edges": [], "work_unit_ids": []})
         self.assertEqual(driver.session_obj.calls, [], "빈 project_id면 조회하지 않는다")
 
     def test_limit_is_clamped_and_work_limit_is_fixed(self):
-        _, session = _run_constellation(
+        _, session = _run_work_units(
             {"work:PullRequest": [_row("pr1", "PullRequest")]},
-            limit=CONSTELLATION_MAX_LIMIT + 5000,
+            limit=WORK_UNITS_MAX_LIMIT + 5000,
         )
 
         params = {_kind(q): p for q, p in session.calls}
-        self.assertEqual(params["recent"]["limit"], CONSTELLATION_MAX_LIMIT)
-        # 위성 상한과 달리 작업 단위 상한은 호출자가 바꿀 수 없다.
+        self.assertEqual(params["recent"]["limit"], WORK_UNITS_MAX_LIMIT)
+        # 구성 노드 상한과 달리 작업 단위 상한은 호출자가 바꿀 수 없다.
         self.assertEqual(params["work:PullRequest"]["work_limit"], WORK_UNIT_MAX)
 
     def test_lower_bound_limit_is_at_least_one(self):
-        _, session = _run_constellation(
+        _, session = _run_work_units(
             {"work:PullRequest": [_row("pr1", "PullRequest")]}, limit=0
         )
 
@@ -232,7 +232,7 @@ class ActorPrivacyInGraphNode(unittest.TestCase):
     """
 
     def test_actor_meta_is_source_label_summary_without_raw_alias(self):
-        result, _ = _run_constellation({
+        result, _ = _run_work_units({
             "work:PullRequest": [_row("pr1", "PullRequest")],
             "neighbors": [
                 _row("a1", "Actor", name="Kim", aliases=["GITHUB:se-zero", "JIRA:5b10a2"])

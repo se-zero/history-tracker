@@ -2,7 +2,7 @@
 
 `docs/integration-abstraction.md` Part B의 마지막 커넥터이자, **유일하게 ai-engine 신규 설계가
 선행하는 예외**다. 기존 8개 커넥터는 `Issue`/`Communication`으로 정규화돼 ai-engine이 무변경이었지만,
-Notion은 `Document` 노드를 새로 만든다 — 노드·엣지·임베딩·시맨틱 링크·질의 도구·성좌 뷰까지
+Notion은 `Document` 노드를 새로 만든다 — 노드·엣지·임베딩·시맨틱 링크·질의 도구·작업 단위 뷰까지
 전부 신규다.
 
 Notion API 공식 문서 조사(2026-08, 최신 `Notion-Version: 2026-03-11` 기준)로 작성했다.
@@ -116,7 +116,7 @@ channel=부모 페이지, conversation_id=부모 id). 그러면 **ai-engine이 �
 |---|---|
 | 노드·유니크 제약·벡터 인덱스(§2-9) | **청킹**(§2-3) — `Communication.embedding`은 노드에 1개다. 긴 페이지는 8191토큰을 넘어 `embedder`가 빈 벡터로 채운다 |
 | 질의 도구 2종(§6-4) | **시간 윈도우**(§2-6) — Communication으로 두면 ±5일·이슈 생애 윈도우를 그대로 상속한다 |
-| 프론트 타입·색·성좌 분기(§7) | **노이즈 필터 격리** — 아래 |
+| 프론트 타입·색·작업 단위 뷰 분기(§7) | **노이즈 필터 격리** — 아래 |
 
 오른쪽 셋은 전부 공용 코드(`graph/embedder.py` · `issue_linker.py` · `reference_builder.py` ·
 `postprocess.py`) 수정이라 노드를 새로 만들든 재사용하든 똑같이 해야 한다. 따라서 "1 PR vs 4 PR"이라는
@@ -647,7 +647,7 @@ refs.issueKeys / issueExternalRefs → DESCRIBED_IN(source='text', confidence=1.
   - **`DocumentSection`은 뷰에서 제외한다** — `_ALL_CONTENT_PRED`에도 `_ALL_EXPANSION_PRED`에도
     넣지 않는다. 내부 검색 단위지 사용자가 볼 개체가 아니다.
   - `_WORK_UNIT_LABELS`(`PullRequest`·`Issue`·`ChangeSet`)에는 **넣지 않는다** — 문서는 작업 단위가
-    아니라 맥락이라 성좌의 별성이 아니라 주변 노드다.
+    아니라 맥락이라 작업 단위 뷰의 작업 단위가 아니라 주변 노드다.
   - **빈 부모 page pre-node를 감춘다** (`_EMPTY_DOCUMENT_PRED`). `link_document_to_parent`가
     부모를 실키 pre-node로 MERGE하는데, Notion에서는 하위 페이지만 공유하고 상위는 공유하지
     않는 사용이 흔해 부모의 본 이벤트가 영영 오지 않을 수 있다 — 그러면 `external_id`만 있는
@@ -754,7 +754,7 @@ N1과 N2는 §3 계약이 확정된 뒤라면 **병렬 가능**하다.
 | **N0** (선행, 공용) | `REFERENCE`에 `source: text\|semantic` 도입, `clear_reference`를 semantic 스코프로 축소(§2-7) | **없음** — 기존 엣지는 `coalesce(r.source,'semantic')`로 전부 기존 동작 | `pytest` + 정밀 재구축이 text 엣지를 남기는 회귀 테스트 |
 | **N1** (ai-engine) | Document·DocumentSection 노드, 제약·벡터 인덱스, `_handle_document`, 청킹, Layer 2 엣지(`DESCRIBED_IN source='text'`), 삭제 cascade 테스트 | 새 nodeType 소비 가능 (아직 발행하는 곳이 없음) | `pytest` — 가짜 Document 이벤트 주입으로 전 경로 검증 |
 | **N2** (backend + pipeline-worker) | 연결(OAuth·폐기)·수집(search·블록 평문화·users 보강) | 실제 그래프가 그려진다 | 양쪽 `./gradlew test` + 실기동 |
-| **N3** (ai-engine Layer 4 + 도구 + 프론트) | 시맨틱 링크 2종(`source='semantic'`), 질의 도구 2종, 성좌·타입·PrivacyPage | 문서가 질의·시각화에 노출된다. 답변은 명시 참조와 추론을 구분한다 | `pytest` + `npm run typecheck && npm run build` |
+| **N3** (ai-engine Layer 4 + 도구 + 프론트) | 시맨틱 링크 2종(`source='semantic'`), 질의 도구 2종, 작업 단위 뷰·타입·PrivacyPage | 문서가 질의·시각화에 노출된다. 답변은 명시 참조와 추론을 구분한다 | `pytest` + `npm run typecheck && npm run build` |
 
 **N0를 먼저 하는 이유**는 A8·A9와 같다 — 공용 코드의 구멍을 커넥터 PR에 섞으면 리뷰가 뒤엉키고,
 무엇보다 **N1 이후에 발견하면 이미 만들어진 text 엣지가 한 번 날아간 뒤**다.
