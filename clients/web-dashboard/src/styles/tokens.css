@@ -24,7 +24,7 @@
      삭제하지 않고 그대로 병존시킨다 — 중복 정의가 아니라 의도된 상태다.
      스피너 회전 지속시간(0.7s/0.8s)은 이 3단 스케일의 대상이 아니다.
      여섯 토큰 모두 소비처가 있다 — spring은 그래프 점등 링(graph.css), exit·base는
-     상세 패널 등장/퇴장(graph.css·galaxy.css). 값은 DESIGN.md 모션 절이 정본이다. */
+     상세 패널 등장/퇴장(graph.css·workunit.css). 값은 DESIGN.md 모션 절이 정본이다. */
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-exit:     cubic-bezier(0.4, 0, 1, 1);
@@ -50,7 +50,7 @@
   --node-code:     oklch(0.57 0.025 257);  /* cool grey  #6F7987 — 가장 수가 많아 가장 조용하게 */
   --node-doc:      oklch(0.46 0.153 328);  /* orchid     #823082 — node-slack(301)과 node-actor(351) 사이 빈 hue */
 
-  /* galaxy.css(.gd-item.active)가 아직 --primary-soft를 참조해 완전 제거가 보류됐다 —
+  /* workunit.css(.cd-item.active)가 아직 --primary-soft를 참조해 완전 제거가 보류됐다 —
      상세 사유는 tokens.css 하단 --primary-soft 선언부 주석 참고. */
   --primary-hue: 250;
 
@@ -248,8 +248,8 @@ body:has(.lp[data-theme="dark"]) {
   --fg-subtle:     oklch(0.564 0.022 260);  /* #6E7683 */
   --fg-inverse:    oklch(0.985 0.001 286);  /* 새 --bg와 동치 유지 */
 
-  /* galaxy.css(.gd-item.active)가 참조하는 유일한 잔존 토큰 — 다른 --primary* 토큰은
-     전량 앰버(accent)로 치환·삭제됐다. galaxy.css는 이번 작업 범위 밖(수정 금지)이라
+  /* workunit.css(.cd-item.active)가 참조하는 유일한 잔존 토큰 — 다른 --primary* 토큰은
+     전량 앰버(accent)로 치환·삭제됐다. workunit.css는 이번 작업 범위 밖(수정 금지)이라
      완전 삭제를 보류한다. */
   --primary-soft: oklch(0.95 0.04 var(--primary-hue));
 
@@ -304,7 +304,7 @@ body:has(.lp[data-theme="dark"]) {
   --fg-subtle:     oklch(0.506 0.023 253);  /* #5C6672 — text-muted */
   --fg-inverse:    oklch(0.158 0.007 258);  /* 새 --bg와 동치 유지 */
 
-  /* galaxy.css(.gd-item.active)가 참조하는 유일한 잔존 토큰 — 라이트 블록과 동일 사유. */
+  /* workunit.css(.cd-item.active)가 참조하는 유일한 잔존 토큰 — 라이트 블록과 동일 사유. */
   --primary-soft: oklch(0.30 0.08 var(--primary-hue));
 
   --success:      oklch(0.715 0.095 156);  /* #6FB58A — node-commit과 같은 hex(네임스페이스 분리) */

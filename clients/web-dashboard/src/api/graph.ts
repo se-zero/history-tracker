@@ -1,11 +1,11 @@
 import { api } from "./client";
 import type {
-  ConstellationData,
   GraphActivity,
   GraphBuildResult,
   GraphBuildStatus,
   GraphData,
   SubgraphData,
+  WorkUnitsData,
 } from "@/types/graph";
 
 export async function getProjectGraph(projectId: string): Promise<GraphData> {
@@ -13,20 +13,20 @@ export async function getProjectGraph(projectId: string): Promise<GraphData> {
   return data;
 }
 
-// 성좌 뷰용 조회 — overview와 달리 작업 단위(PR, 없으면 Issue)를 전량 담고 위성만 최신 limit개다.
-// 별성이 빠지면 그림 자체가 틀리기 때문에 완전성이 필요한 쪽만 따로 가져온다.
-interface ConstellationResponse {
+// 그래프 확인 화면용 조회 — overview와 달리 작업 단위(PR, 없으면 Issue)를 전량 담고 구성 노드만 최신 limit개다.
+// 작업 단위가 빠지면 그림 자체가 틀리기 때문에 완전성이 필요한 쪽만 따로 가져온다.
+interface WorkUnitsResponse {
   nodes: GraphData["nodes"];
   edges: GraphData["edges"];
   work_unit_ids: string[];
 }
 
-export async function getProjectConstellation(
+export async function getProjectWorkUnits(
   projectId: string,
   limit?: number,
-): Promise<ConstellationData> {
-  const { data } = await api.get<ConstellationResponse>(
-    `/projects/${projectId}/graph/constellation`,
+): Promise<WorkUnitsData> {
+  const { data } = await api.get<WorkUnitsResponse>(
+    `/projects/${projectId}/graph/work-units`,
     { params: limit ? { limit } : undefined },
   );
   return {
@@ -36,15 +36,15 @@ export async function getProjectConstellation(
   };
 }
 
-// 성좌 드릴인 — 작업 단위 하나의 이웃만 가져온다.
-// 성좌 뷰는 위성을 최신 N개로 자르므로 오래된 작업은 별성만 있고 위성이 비어 있는데,
-// 그 성좌를 열 때 이걸로 채운다.
+// 작업 단위 드릴인 — 작업 단위 하나의 이웃만 가져온다.
+// 그래프 확인 화면은 구성 노드를 최신 N개로 자르므로 오래된 작업은 작업 단위만 있고 구성 노드가 비어 있는데,
+// 그 묶음을 열 때 이걸로 채운다.
 export async function getWorkUnitNeighborhood(
   projectId: string,
   nodeId: string,
 ): Promise<GraphData> {
   const { data } = await api.get<GraphData>(
-    `/projects/${projectId}/graph/work-unit`,
+    `/projects/${projectId}/graph/work-unit/neighbors`,
     { params: { nodeId } },
   );
   return { nodes: data.nodes ?? [], edges: data.edges ?? [] };
