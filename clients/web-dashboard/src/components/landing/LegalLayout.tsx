@@ -9,7 +9,7 @@ import { useLandingTheme } from "@/components/landing/useLandingTheme";
 // ⚠️ 배포 전 실제 값으로 교체할 자리 — 운영 주체명·문의처. 지금 값은 자리표시자다.
 //    법인/사업자로 운영한다면 상호·대표자·주소·사업자등록번호도 여기서 채운다.
 export const LEGAL_OPERATOR: Localized<string> = { ko: "whycode 팀", en: "the whycode team" };
-export const LEGAL_CONTACT_EMAIL = "contact@why-code.example";
+export const LEGAL_CONTACT_EMAIL = "contact@why-code.com";
 export const LEGAL_CONTACT_URL = "https://github.com/se-zero/history-tracker/issues";
 
 // 약관·개인정보처리방침 공통 셸. 랜딩과 같은 `.lp` 스코프를 써서 헤더·푸터·토큰(다크/라이트
