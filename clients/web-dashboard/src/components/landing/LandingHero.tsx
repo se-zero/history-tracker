@@ -46,7 +46,7 @@ const COPY: Localized<{
 // 경계에서만 잘리고 스크롤하면 나머지가 드러난다 — 잘림은 오직 하단 한 방향이다(좌·우·
 // 상단 크롬은 온전). 스크롤 큐는 제거됐다 — 전폭 슬롯이 폴드에서 잘리는 것 자체가
 // "아래 더 있다"의 어포던스라 큐가 중복이고, 슬롯 위에 얹으면 제품 UI를 가린다.
-// 로드 시퀀스(텍스트 rise → 슬롯 프레임 rise → 배경 성좌 페이드)는 landing.css의
+// 로드 시퀀스(텍스트 rise → 슬롯 프레임 rise → 배경 그래프 페이드)는 landing.css의
 // animation-delay가 담당한다(패널 점등 페이드는 데스크톱이 영상으로 대체되며 소멸 —
 // HeroProductSlot.tsx 참조). HeroMedia는 .lp-hero-inner 밖의 직계 자식이어야 한다 —
 // absolute(상단 텍스트 구간 한정 스트립)의 기준 박스가 .lp-hero여야 하기 때문이다.
