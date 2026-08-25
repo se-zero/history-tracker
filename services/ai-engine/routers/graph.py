@@ -6,11 +6,11 @@ from pydantic import BaseModel, Field
 from graph.actor_admin import get_actor_detail, list_actors
 from graph.builder import delete_project_graph, delete_project_source_graph
 from graph.overview import (
-    CONSTELLATION_DEFAULT_LIMIT,
-    get_constellation_view,
+    WORK_UNITS_DEFAULT_LIMIT,
     get_evidence_subgraph,
     get_project_overview,
     get_work_unit_neighborhood,
+    get_work_units_view,
 )
 from graph.postprocess import get_build_status, get_graph_activity, trigger_build
 
@@ -41,23 +41,25 @@ async def graph_overview(project_id: str, limit: int = 200, types: str = ""):
     return await get_project_overview(project_id, limit, type_list)
 
 
-@router.get("/graph/constellation")
-async def graph_constellation(project_id: str, limit: int = CONSTELLATION_DEFAULT_LIMIT):
-    """성좌 뷰용 그래프 조회 (프론트 작업 성좌 화면용).
+@router.get("/graph/work-units")
+async def graph_work_units(project_id: str, limit: int = WORK_UNITS_DEFAULT_LIMIT):
+    """작업 단위 뷰용 그래프 조회 (프론트 작업 단위 화면용).
 
-    overview와 달리 작업 단위(PullRequest, 없으면 Issue)를 전량 가져오고 위성만 최신 limit개로
-    자른다 — 별성이 빠지면 그림 자체가 틀리기 때문. {nodes, edges, work_unit_ids}를 반환한다.
+    overview와 달리 작업 단위(PullRequest, 없으면 Issue)를 전량 가져오고 구성 노드만 최신
+    limit개로 자른다 — 작업 단위 노드가 빠지면 그림 자체가 틀리기 때문. {nodes, edges,
+    work_unit_ids}를 반환한다.
     인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
     """
-    return await get_constellation_view(project_id, limit)
+    return await get_work_units_view(project_id, limit)
 
 
-@router.get("/graph/work-unit")
-async def graph_work_unit(project_id: str, node_id: str):
-    """작업 단위 하나의 이웃 조회 (성좌 드릴인용).
+@router.get("/graph/work-unit/neighbors")
+async def graph_work_unit_neighbors(project_id: str, node_id: str):
+    """작업 단위 하나의 이웃 조회 (작업 단위 드릴인용).
 
-    성좌 뷰는 위성을 최신 N개로 자르므로 오래된 작업은 별성만 있고 위성이 비어 있다.
-    그 성좌를 열 때 이 조회로 해당 작업의 이웃만 채운다. {nodes, edges} 반환.
+    작업 단위 뷰는 구성 노드를 최신 N개로 자르므로 오래된 작업은 작업 단위 노드만 있고
+    구성 노드가 비어 있다. 그 작업 단위를 열 때 이 조회로 해당 작업의 이웃만 채운다.
+    {nodes, edges} 반환.
     """
     return await get_work_unit_neighborhood(project_id, node_id)
 

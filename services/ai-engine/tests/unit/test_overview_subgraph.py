@@ -250,7 +250,7 @@ def test_to_graph_node_ref_carries_query_key():
     )
     assert slack["ref"] == {"type": "message", "id": "1700000000.123"}
 
-    # Document → external_id를 ref로, type은 "doc"(성좌 별성이 아니라 주변 노드 취급).
+    # Document → external_id를 ref로, type은 "doc"(작업 단위 노드가 아니라 구성 노드 취급).
     doc = _to_graph_node(
         {"id": "n10", "label": "Document", "source": "NOTION",
          "external_id": "page-1", "title": "설계 문서", "body": "본문"}
