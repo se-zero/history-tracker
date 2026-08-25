@@ -83,7 +83,7 @@ public class IntegrationService {
             String branch
     ) {
         Project project = projectService.getProject(ownerId, projectId);
-        GitHubInstallation installation = gitHubInstallationService.getInstallationForInstaller(ownerId, installationId);
+        GitHubInstallation installation = gitHubInstallationService.getAccessibleInstallation(ownerId, installationId);
         validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
         installationTokenService.getInstallationAccessToken(installationId);
 
@@ -114,7 +114,7 @@ public class IntegrationService {
     ) {
         // 설치 조회가 active user 검증을 겸한다. 외부 호출(토큰 발급)은 트랜잭션 시작 전에 끝내
         // 발급이 실패하면 프로젝트가 아예 만들어지지 않게 하고, 발급 지연 동안 DB 커넥션도 잡지 않는다.
-        GitHubInstallation installation = gitHubInstallationService.getInstallationForInstaller(ownerId, installationId);
+        GitHubInstallation installation = gitHubInstallationService.getAccessibleInstallation(ownerId, installationId);
         installationTokenService.getInstallationAccessToken(installationId);
 
         String normalizedRepositoryFullName = repositoryFullName.trim();

@@ -185,7 +185,7 @@ class IntegrationServiceTest {
         Project project = project();
         GitHubInstallation installation = installation();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation);
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
@@ -227,7 +227,7 @@ class IntegrationServiceTest {
     void connectGitHubRepositoryDoesNotStartSaveTransactionWhenInstallationTokenCannotBeIssued() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
@@ -257,7 +257,7 @@ class IntegrationServiceTest {
         IntegrationService service = service();
         Project project = project();
         GitHubInstallation installation = installation();
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation);
         doAnswer(invocation -> {
             assertThat(transactionManager.transactionActive).isFalse();
@@ -304,7 +304,7 @@ class IntegrationServiceTest {
     @DisplayName("연동 저장이 실패하면 프로젝트 생성까지 롤백되고 수집 트리거도 하지 않음")
     void createProjectWithGitHubRepositoryRollsBackProjectWhenIntegrationSaveFails() {
         IntegrationService service = service();
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
                 .thenReturn("installation-token");
@@ -331,7 +331,7 @@ class IntegrationServiceTest {
     @DisplayName("설치 토큰 발급 실패 시 프로젝트를 만들지 않음 — 트랜잭션 시작 전")
     void createProjectWithGitHubRepositoryDoesNotCreateProjectWhenInstallationTokenCannotBeIssued() {
         IntegrationService service = service();
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
                 .thenThrow(new IllegalStateException("GitHub token issuance failed."));
@@ -359,7 +359,7 @@ class IntegrationServiceTest {
     void connectGitHubRepositoryRejectsDuplicateGitHubProvider() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(true);
@@ -381,7 +381,7 @@ class IntegrationServiceTest {
     void connectGitHubRepositoryPropagatesMissingInstallationAsNotFound() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenThrow(new NotFoundException("GitHub installation not found."));
 
         assertThatThrownBy(() -> service.connectGitHubRepository(
@@ -401,7 +401,7 @@ class IntegrationServiceTest {
     void connectGitHubRepositoryConvertsUniqueConstraintViolationToConflict() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);

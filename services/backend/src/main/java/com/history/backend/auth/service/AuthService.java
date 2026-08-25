@@ -9,6 +9,7 @@ import com.history.backend.auth.dto.TokenResponse;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
+import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubInstallationsResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
 import com.history.backend.github.service.GitHubInstallationService;
@@ -16,10 +17,12 @@ import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.UriComponentsBuilder;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -125,11 +128,13 @@ public class AuthService {
         refreshTokenService.revokeRefreshToken(request.refreshToken());
     }
 
-    // 로그인 시점에 GitHub의 설치 목록을 조회해 본인 계정 설치를 동기화.
+    // 로그인 시점에 GitHub의 설치 목록을 조회해 접근 가능한 설치를 동기화.
     // App installation 콜백(Setup URL)에만 의존하면 외부에서 추가/해제된 설치를 놓치므로
     // 로그인마다 GitHub을 진실의 원천으로 다시 동기화한다.
-    // /user/installations는 App manager 권한이 있으면 다른 사용자의 설치도 함께 반환하므로,
-    // account.login이 본인 GitHub 계정과 일치하는 설치만 동기화 대상으로 둔다.
+    // account.login이 본인 GitHub 계정과 일치하는 개인(User) 설치는 추가 호출 없이 통과시키고,
+    // 그 외(조직 설치, 타인의 개인 설치)는 GitHub에 실제 접근 권한이 있는지 확인한 뒤에만 동기화한다.
+    // /user/installations가 "App manager면 남의 설치도 반환한다"는 근거는 공식 문서에 없지만,
+    // 틀렸을 때 운영자 계정이 모든 테넌트 설치의 멤버가 되므로 이 방어는 유지한다.
     private void syncInstallations(User user, GitHubUserResponse gitHubUser, String accessToken) {
         GitHubInstallationsResponse installations = gitHubOAuthClient.fetchInstallations(accessToken);
         if (installations == null || installations.installations() == null) {
@@ -137,7 +142,24 @@ public class AuthService {
         }
 
         installations.installations().stream()
-                .filter(installation -> gitHubUser.login().equalsIgnoreCase(installation.account().login()))
+                .filter(installation -> isOwnPersonalInstallation(installation, gitHubUser)
+                        || canAccessInstallation(accessToken, installation))
                 .forEach(installation -> gitHubInstallationService.upsertInstallation(user, installation));
+    }
+
+    private boolean isOwnPersonalInstallation(GitHubInstallationResponse installation, GitHubUserResponse gitHubUser) {
+        return "User".equals(installation.account().type())
+                && gitHubUser.login().equalsIgnoreCase(installation.account().login());
+    }
+
+    // 접근 검증 실패는 로그만 남기고 동기화 대상에서 제외한다 — 한 설치의 검증 실패가
+    // 로그인 전체를 막으면 안 된다.
+    private boolean canAccessInstallation(String accessToken, GitHubInstallationResponse installation) {
+        try {
+            return gitHubOAuthClient.canAccessInstallation(accessToken, installation.id());
+        } catch (RuntimeException exception) {
+            log.warn("GitHub installation access check failed for installation {}", installation.id(), exception);
+            return false;
+        }
     }
 }

@@ -19,6 +19,7 @@ import com.history.backend.github.dto.GitHubInstallationAccountResponse;
 import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubRepositoryOwnerResponse;
 import com.history.backend.github.dto.GitHubRepositoryResponse;
+import com.history.backend.github.repository.GitHubInstallationMemberRepository;
 import com.history.backend.github.repository.GitHubInstallationRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ class GitHubInstallationServiceTest {
 
     @Mock
     private GitHubInstallationRepository gitHubInstallationRepository;
+
+    @Mock
+    private GitHubInstallationMemberRepository gitHubInstallationMemberRepository;
 
     @Mock
     private GitHubAppClient gitHubAppClient;
@@ -70,28 +74,100 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
-    @DisplayName("설치자가 소유한 설치 정보 반환")
-    void getInstallationForInstallerReturnsOwnedInstallation() {
+    @DisplayName("신규 설치 시 설치자를 멤버로 등록")
+    void upsertInstallationRegistersInstallerAsMemberForNewInstallation() {
+        GitHubInstallationService service = service();
+        User installer = installer();
+        UUID newInstallationId = UUID.fromString("6c1f5b2a-9e2a-4b8a-9a7c-2b7b6d4f9a10");
+        GitHubInstallationResponse response = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("acme", "Organization")
+        );
+        GitHubInstallation createdInstallation = new GitHubInstallation(98765L, "Organization", "acme", installer);
+        ReflectionTestUtils.setField(createdInstallation, "id", newInstallationId);
+
+        when(gitHubInstallationRepository.findByInstallationId(98765L)).thenReturn(Optional.empty());
+        when(gitHubInstallationRepository.insertInstallationIfAbsent(98765L, "Organization", "acme", INSTALLER_ID))
+                .thenReturn(Optional.of(newInstallationId));
+        when(gitHubInstallationRepository.findById(newInstallationId)).thenReturn(Optional.of(createdInstallation));
+
+        service.upsertInstallation(installer, response);
+
+        verify(gitHubInstallationMemberRepository).addMember(newInstallationId, INSTALLER_ID);
+    }
+
+    @Test
+    @DisplayName("기존 설치 재동의 시 동기화한 사용자를 멤버로 등록")
+    void upsertInstallationRegistersSyncingUserAsMemberForExistingInstallation() {
+        GitHubInstallationService service = service();
+        User originalInstaller = installer();
+        User syncingUser = new User("github", "99999", "teammate@example.com", "Teammate", null);
+        UUID syncingUserId = UUID.fromString("7d2e6c3b-0f3b-4c9b-8b8d-3c8c7e5f0b21");
+        ReflectionTestUtils.setField(syncingUser, "id", syncingUserId);
+        GitHubInstallation existingInstallation =
+                new GitHubInstallation(98765L, "Organization", "acme", originalInstaller);
+        ReflectionTestUtils.setField(existingInstallation, "id", INSTALLATION_ID);
+        GitHubInstallationResponse response = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("acme", "Organization")
+        );
+
+        when(gitHubInstallationRepository.findByInstallationId(98765L))
+                .thenReturn(Optional.of(existingInstallation));
+
+        service.upsertInstallation(syncingUser, response);
+
+        verify(gitHubInstallationMemberRepository).addMember(INSTALLATION_ID, syncingUserId);
+    }
+
+    @Test
+    @DisplayName("다른 사용자가 재동의해도 최초 설치자는 덮어써지지 않는다")
+    void upsertInstallationDoesNotOverwriteOriginalInstaller() {
+        GitHubInstallationService service = service();
+        User originalInstaller = installer();
+        User syncingUser = new User("github", "99999", "teammate@example.com", "Teammate", null);
+        UUID syncingUserId = UUID.fromString("7d2e6c3b-0f3b-4c9b-8b8d-3c8c7e5f0b21");
+        ReflectionTestUtils.setField(syncingUser, "id", syncingUserId);
+        GitHubInstallation existingInstallation =
+                new GitHubInstallation(98765L, "Organization", "acme", originalInstaller);
+        ReflectionTestUtils.setField(existingInstallation, "id", INSTALLATION_ID);
+        GitHubInstallationResponse response = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("acme", "Organization")
+        );
+
+        when(gitHubInstallationRepository.findByInstallationId(98765L))
+                .thenReturn(Optional.of(existingInstallation));
+
+        GitHubInstallation result = service.upsertInstallation(syncingUser, response);
+
+        // installer_user_id는 최초 설치자로 유지되고, 재동의한 사용자는 멤버로만 추가된다
+        assertThat(result.getInstallerUser()).isSameAs(originalInstaller);
+    }
+
+    @Test
+    @DisplayName("멤버인 사용자는 설치 정보를 얻는다")
+    void getAccessibleInstallationReturnsInstallationForMember() {
         GitHubInstallationService service = service();
         User installer = installer();
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer());
         when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
-        when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
+        when(gitHubInstallationRepository.findByIdAndMemberUserId(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.of(installation));
 
-        GitHubInstallation result = service.getInstallationForInstaller(INSTALLER_ID, INSTALLATION_ID);
+        GitHubInstallation result = service.getAccessibleInstallation(INSTALLER_ID, INSTALLATION_ID);
 
         assertThat(result).isSameAs(installation);
     }
 
     @Test
-    @DisplayName("활성 사용자의 설치 목록 조회")
-    void findInstallationsRequiresActiveInstaller() {
+    @DisplayName("활성 사용자의 설치 목록을 멤버십 기준으로 조회")
+    void findInstallationsReturnsInstallationsForMemberUser() {
         GitHubInstallationService service = service();
         User installer = installer();
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
         when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
-        when(gitHubInstallationRepository.findAllByInstallerUser_Id(INSTALLER_ID))
+        when(gitHubInstallationRepository.findAllByMemberUserId(INSTALLER_ID))
                 .thenReturn(List.of(installation));
 
         var result = service.findInstallations(INSTALLER_ID);
@@ -110,18 +186,18 @@ class GitHubInstallationServiceTest {
         assertThatThrownBy(() -> service.findInstallations(INSTALLER_ID))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("User not found.");
-        verify(gitHubInstallationRepository, never()).findAllByInstallerUser_Id(any());
+        verify(gitHubInstallationRepository, never()).findAllByMemberUserId(any());
     }
 
     @Test
-    @DisplayName("존재하지 않는 설치 조회 시 NotFoundException")
-    void getInstallationForInstallerRejectsMissingInstallation() {
+    @DisplayName("멤버가 아닌 사용자가 설치를 조회하면 NotFoundException")
+    void getAccessibleInstallationRejectsNonMember() {
         GitHubInstallationService service = service();
         when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer());
-        when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
+        when(gitHubInstallationRepository.findByIdAndMemberUserId(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getInstallationForInstaller(INSTALLER_ID, INSTALLATION_ID))
+        assertThatThrownBy(() -> service.getAccessibleInstallation(INSTALLER_ID, INSTALLATION_ID))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("GitHub installation not found.");
     }
@@ -134,7 +210,7 @@ class GitHubInstallationServiceTest {
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
         ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
         when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
-        when(gitHubInstallationRepository.findByIdAndInstallerUser_Id(INSTALLATION_ID, INSTALLER_ID))
+        when(gitHubInstallationRepository.findByIdAndMemberUserId(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.of(installation));
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
                 .thenReturn("installation-token");
@@ -168,7 +244,7 @@ class GitHubInstallationServiceTest {
         assertThatThrownBy(() -> service.findRepositories(INSTALLER_ID, INSTALLATION_ID))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("User not found.");
-        verify(gitHubInstallationRepository, never()).findByIdAndInstallerUser_Id(any(), any());
+        verify(gitHubInstallationRepository, never()).findByIdAndMemberUserId(any(), any());
         verify(installationTokenService, never()).getInstallationAccessToken(any());
         verify(gitHubAppClient, never()).fetchInstallationRepositories(any());
     }
@@ -176,6 +252,7 @@ class GitHubInstallationServiceTest {
     private GitHubInstallationService service() {
         return new GitHubInstallationService(
                 gitHubInstallationRepository,
+                gitHubInstallationMemberRepository,
                 gitHubAppClient,
                 installationTokenService,
                 userService

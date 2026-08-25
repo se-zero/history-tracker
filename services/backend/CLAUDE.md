@@ -154,6 +154,12 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   그래프 삭제가 멱등이라 재시도로 수렴).
   checkpoint를 반드시 함께 지운다 — 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이
   데이터가 영구 누락된다. GitHub App 설치(`github_installations`)는 계정 단위라 건드리지 않는다.
+- **GitHub App 설치의 접근권은 `github_installation_users`(멤버십)가 갖는다.** 인가 게이트는
+  `GitHubInstallationService.getAccessibleInstallation`뿐이고, 레포 목록·브랜치 목록·연동·
+  프로젝트 생성+연동이 전부 이걸 먼저 호출한다. **`installer_user_id`로 인가하지 않는다** —
+  설치는 계정 단위라 조직 설치는 구성원 여럿이 공유하고, 그 컬럼은 최초 설치자 기록일 뿐이다
+  (덮어쓰지 않는다). 멤버십은 로그인 동기화가 등록하며, 사용자 파기 시 멤버십 행만 사라지고
+  설치 행은 남는다(다른 멤버가 계속 쓴다). 배경은 `docs/DB.md`의 `github_installations` 절 참고.
 - **RDB 밖 자원(Neo4j 그래프·provider 권한)을 가진 삭제는 FK CASCADE에 맡기지 않는다.**
   `users`를 지우면 프로젝트·연동·대화·checkpoint가 CASCADE로 사라지지만, 그래프와 provider 쪽
   grant는 남고 **행이 사라져 나중에 지울 수단마저 없어진다**(고아 그래프). 그래서 삭제 경로 셋이

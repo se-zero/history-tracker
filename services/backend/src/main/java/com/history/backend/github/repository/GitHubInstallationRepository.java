@@ -15,9 +15,27 @@ public interface GitHubInstallationRepository extends JpaRepository<GitHubInstal
 
     Optional<GitHubInstallation> findByInstallationId(Long installationId);
 
-    List<GitHubInstallation> findAllByInstallerUser_Id(UUID installerId);
+    // 멤버십 EXISTS 서브쿼리 — installer_user_id가 아니라 github_installation_users 조인 테이블이 인가 기준이다
+    @Query("""
+            SELECT installation FROM GitHubInstallation installation
+            WHERE installation.id = :id
+              AND EXISTS (
+                  SELECT 1 FROM GitHubInstallationMember member
+                  WHERE member.id.installationId = installation.id
+                    AND member.id.userId = :userId
+              )
+            """)
+    Optional<GitHubInstallation> findByIdAndMemberUserId(@Param("id") UUID id, @Param("userId") UUID userId);
 
-    Optional<GitHubInstallation> findByIdAndInstallerUser_Id(UUID id, UUID installerId);
+    @Query("""
+            SELECT installation FROM GitHubInstallation installation
+            WHERE EXISTS (
+                  SELECT 1 FROM GitHubInstallationMember member
+                  WHERE member.id.installationId = installation.id
+                    AND member.id.userId = :userId
+              )
+            """)
+    List<GitHubInstallation> findAllByMemberUserId(@Param("userId") UUID userId);
 
     // 잠금·엔티티 로딩 없는 토큰 캐시 확인용 projection 조회
     @Query("""
