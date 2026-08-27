@@ -1,8 +1,8 @@
 package com.history.backend.auth.service;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
@@ -148,14 +148,33 @@ public class AuthService {
             return;
         }
 
-        List<UUID> keptInstallationIds = installations.installations().stream()
-                .filter(installation -> isOwnPersonalInstallation(installation, gitHubUser)
-                        || canAccessInstallation(accessToken, installation))
-                .map(installation -> gitHubInstallationService.upsertInstallation(user, installation))
-                .filter(Objects::nonNull)
-                .map(GitHubInstallation::getId)
-                .toList();
+        List<UUID> keptInstallationIds = new ArrayList<>();
+        boolean hasUnknownAccess = false;
+        for (GitHubInstallationResponse installation : installations.installations()) {
+            GitHubOAuthClient.InstallationAccess access = isOwnPersonalInstallation(installation, gitHubUser)
+                    ? GitHubOAuthClient.InstallationAccess.ACCESSIBLE
+                    : checkInstallationAccess(accessToken, installation);
 
+            if (access == GitHubOAuthClient.InstallationAccess.UNKNOWN) {
+                hasUnknownAccess = true;
+                continue;
+            }
+            if (access != GitHubOAuthClient.InstallationAccess.ACCESSIBLE) {
+                continue;
+            }
+
+            GitHubInstallation upserted = gitHubInstallationService.upsertInstallation(user, installation);
+            if (upserted != null) {
+                keptInstallationIds.add(upserted.getId());
+            }
+        }
+
+        // UNKNOWN이 하나라도 있으면 이번 로그인에서는 prune을 건너뛴다 — 일부 설치만 확인된 상태로
+        // 지우면 장애 중이던 설치의 멀쩡한 멤버십까지 사라진다(위 early return과 같은 취지).
+        // prune은 정리 작업일 뿐이라 다음 로그인으로 미뤄도 안전하다.
+        if (hasUnknownAccess) {
+            return;
+        }
         gitHubInstallationService.pruneMemberships(user.getId(), keptInstallationIds);
     }
 
@@ -164,14 +183,17 @@ public class AuthService {
                 && gitHubUser.login().equalsIgnoreCase(installation.account().login());
     }
 
-    // 접근 검증 실패는 로그만 남기고 동기화 대상에서 제외한다 — 한 설치의 검증 실패가
-    // 로그인 전체를 막으면 안 된다.
-    private boolean canAccessInstallation(String accessToken, GitHubInstallationResponse installation) {
+    // checkInstallationAccess는 예외를 던지지 않는 게 계약이지만, 혹시 던지더라도 한 설치의
+    // 검증 실패로 로그인 전체가 막히면 안 되므로 UNKNOWN으로 취급해 prune만 건너뛰고 로그인은 통과시킨다.
+    private GitHubOAuthClient.InstallationAccess checkInstallationAccess(
+            String accessToken,
+            GitHubInstallationResponse installation
+    ) {
         try {
-            return gitHubOAuthClient.canAccessInstallation(accessToken, installation.id());
+            return gitHubOAuthClient.checkInstallationAccess(accessToken, installation.id());
         } catch (RuntimeException exception) {
             log.warn("GitHub installation access check failed for installation {}", installation.id(), exception);
-            return false;
+            return GitHubOAuthClient.InstallationAccess.UNKNOWN;
         }
     }
 }
