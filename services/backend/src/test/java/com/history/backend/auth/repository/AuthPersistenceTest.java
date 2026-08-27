@@ -167,6 +167,7 @@ class AuthPersistenceTest {
 
         List<java.util.UUID> candidateIds = userRepository.findPurgeCandidateIds(
                 Instant.now().minusSeconds(30L * 24 * 60 * 60),
+                List.of(),
                 PageRequest.of(0, 100)
         );
 

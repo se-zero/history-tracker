@@ -24,17 +24,21 @@ public class IntegrationRevocationService {
 
     // 프로젝트의 모든 연동 권한을 일괄 폐기한다. 한 provider의 폐기 실패가 나머지 연동의 폐기를
     // 막으면 안 되므로(프로젝트 삭제 시 일부만 폐기되고 나머지 grant가 영구히 남는 것을 방지) 건별로
-    // 예외를 삼키고 로그만 남긴다.
-    public void revokeAll(UUID projectId) {
+    // 예외를 삼키고 로그만 남긴다. 반환값은 전부 성공했는지만 알린다 — 실패를 어떻게 다룰지는
+    // 호출부(사용자 대면 삭제는 무시, 파기 배치는 예외로 전환)가 결정한다.
+    public boolean revokeAll(UUID projectId) {
         List<Integration> integrations = integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(projectId);
+        boolean allSucceeded = true;
         for (Integration integration : integrations) {
             try {
                 revoke(integration);
             } catch (RuntimeException exception) {
+                allSucceeded = false;
                 log.warn("Failed to revoke provider access. provider={}, error={}",
                         integration.getProvider().value(), exception.getMessage());
             }
         }
+        return allSucceeded;
     }
 
     // 폐기 방법은 provider의 ProviderCredentialLifecycle이 소유한다. GitHub은 폐기 대상이 없어

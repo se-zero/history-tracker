@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.service.UserService;
+import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.common.error.NotFoundException;
@@ -123,6 +124,10 @@ public class ProjectService {
         Project project = projectRepository.findByIdWithOwner(projectId)
                 .orElseThrow(() -> new NotFoundException("Project not found."));
         validateOwner(project, ownerId);
+        // 반환값을 무시한다 — 사용자가 직접 요청한 삭제를 provider 장애로 막으면 안 된다.
+        // releaseExternalResources(파기 전용)와의 비대칭이 의도된 설계다: 파기는 계정 자체가
+        // CASCADE로 사라지기 전에 grant를 반드시 폐기해야 하지만, 사용자 대면 삭제는 프로젝트를
+        // 지우지 못하게 막는 쪽이 더 나쁘다.
         integrationRevocationService.revokeAll(projectId);
         aiEngineGraphClient.deleteProjectGraph(projectId);
         projectRepository.deleteById(projectId);
@@ -138,7 +143,12 @@ public class ProjectService {
     public void releaseExternalResources(UUID ownerId) {
         List<Project> projects = projectRepository.findAllByOwner_IdOrderBySortOrderAsc(ownerId);
         for (Project project : projects) {
-            integrationRevocationService.revokeAll(project.getId());
+            // deleteProject와 달리 반환값을 확인한다 — 폐기 실패인데 사용자 행을 지우면 자격증명이
+            // CASCADE로 함께 사라져 provider grant를 영영 폐기할 수 없게 된다. 그래프 삭제 실패와
+            // 같은 취급으로 BadGatewayException을 던져 이 사용자를 건너뛰고 다음 회차에 재시도한다.
+            if (!integrationRevocationService.revokeAll(project.getId())) {
+                throw new BadGatewayException("Failed to revoke provider access.");
+            }
             aiEngineGraphClient.deleteProjectGraph(project.getId());
         }
     }

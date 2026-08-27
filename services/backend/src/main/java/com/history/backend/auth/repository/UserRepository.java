@@ -1,6 +1,7 @@
 package com.history.backend.auth.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,15 +20,20 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findFirstByProviderAndProviderUserIdOrderByCreatedAtDesc(String provider, String providerUserId);
 
-    // purge 대상(탈퇴 후 cutoff 경과) 사용자 ID 페이지 조회
+    // purge 대상(탈퇴 후 cutoff 경과) 사용자 ID 페이지 조회. excludedIds는 같은 실행(cron 1회차)
+    // 동안 자원 정리에 실패한 id — 이 메서드는 항상 page 0을 조회하므로 배제하지 않으면 선두
+    // 실패 후보가 그 뒤 후보를 영원히 가린다. 빈 컬렉션이면 Hibernate가 NOT IN을 항상-참으로
+    // 치환해 아무것도 배제하지 않는다.
     @Query("""
             SELECT user.id
             FROM User user
             WHERE user.deletedAt < :cutoff
+              AND user.id NOT IN :excludedIds
             ORDER BY user.deletedAt ASC
             """)
     List<UUID> findPurgeCandidateIds(
             @Param("cutoff") Instant cutoff,
+            @Param("excludedIds") Collection<UUID> excludedIds,
             Pageable pageable
     );
 

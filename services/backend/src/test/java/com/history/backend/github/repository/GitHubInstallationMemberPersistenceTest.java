@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.github.domain.GitHubInstallation;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -154,6 +155,42 @@ class GitHubInstallationMemberPersistenceTest {
         // 사용자 행 자체는 설치 삭제와 무관하게 남는다
         assertThat(userRepository.findById(installer.getId())).isPresent();
         assertThat(userRepository.findById(teammate.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("pruneMemberships는 kept 설치 외 멤버십만 지우고 다른 사용자의 멤버십은 건드리지 않는다")
+    void pruneMembershipsRemovesMembershipsOutsideKeptInstallationsWithoutAffectingOtherUsers() {
+        User installer = createUser("prune-installer");
+        User member = createUser("prune-member");
+        User outsider = createUser("prune-outsider");
+        GitHubInstallation kept = createInstallation(installer);
+        GitHubInstallation pruned = createInstallation(installer);
+        gitHubInstallationMemberRepository.addMember(kept.getId(), member.getId());
+        gitHubInstallationMemberRepository.addMember(pruned.getId(), member.getId());
+        gitHubInstallationMemberRepository.addMember(pruned.getId(), outsider.getId());
+
+        gitHubInstallationMemberRepository.pruneMemberships(member.getId(), List.of(kept.getId()));
+
+        assertThat(memberRowCount(kept.getId(), member.getId())).isEqualTo(1);
+        assertThat(memberRowCount(pruned.getId(), member.getId())).isZero();
+        // 같은 설치라도 다른 사용자의 멤버십은 건드리지 않는다
+        assertThat(memberRowCount(pruned.getId(), outsider.getId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("pruneMemberships는 빈 kept 컬렉션이면 SQL이 깨지지 않고 해당 사용자의 멤버십이 전부 지워진다")
+    void pruneMembershipsRemovesAllMembershipsForUserWhenKeptCollectionIsEmpty() {
+        User installer = createUser("prune-empty-installer");
+        User member = createUser("prune-empty-member");
+        GitHubInstallation first = createInstallation(installer);
+        GitHubInstallation second = createInstallation(installer);
+        gitHubInstallationMemberRepository.addMember(first.getId(), member.getId());
+        gitHubInstallationMemberRepository.addMember(second.getId(), member.getId());
+
+        gitHubInstallationMemberRepository.pruneMemberships(member.getId(), List.of());
+
+        assertThat(memberRowCount(first.getId(), member.getId())).isZero();
+        assertThat(memberRowCount(second.getId(), member.getId())).isZero();
     }
 
     private Integer memberRowCount(UUID installationId, UUID userId) {

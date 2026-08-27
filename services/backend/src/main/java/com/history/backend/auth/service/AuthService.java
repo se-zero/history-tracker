@@ -1,6 +1,9 @@
 package com.history.backend.auth.service;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
@@ -8,6 +11,7 @@ import com.history.backend.auth.dto.RefreshTokenRequest;
 import com.history.backend.auth.dto.TokenResponse;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.GitHubAppProperties;
+import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
 import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubInstallationsResponse;
@@ -137,14 +141,22 @@ public class AuthService {
     // 틀렸을 때 운영자 계정이 모든 테넌트 설치의 멤버가 되므로 이 방어는 유지한다.
     private void syncInstallations(User user, GitHubUserResponse gitHubUser, String accessToken) {
         GitHubInstallationsResponse installations = gitHubOAuthClient.fetchInstallations(accessToken);
+        // GitHub 장애 등으로 응답 자체를 못 받으면 이번 로그인에서 확인된 접근 가능 설치 목록이
+        // 없다는 뜻이지, 사용자가 전부 접근권을 잃었다는 뜻이 아니다. 여기서 prune까지 돌리면
+        // 장애 한 번에 멀쩡한 멤버십이 전부 사라지므로 early return으로 멤버십을 그대로 둔다.
         if (installations == null || installations.installations() == null) {
             return;
         }
 
-        installations.installations().stream()
+        List<UUID> keptInstallationIds = installations.installations().stream()
                 .filter(installation -> isOwnPersonalInstallation(installation, gitHubUser)
                         || canAccessInstallation(accessToken, installation))
-                .forEach(installation -> gitHubInstallationService.upsertInstallation(user, installation));
+                .map(installation -> gitHubInstallationService.upsertInstallation(user, installation))
+                .filter(Objects::nonNull)
+                .map(GitHubInstallation::getId)
+                .toList();
+
+        gitHubInstallationService.pruneMemberships(user.getId(), keptInstallationIds);
     }
 
     private boolean isOwnPersonalInstallation(GitHubInstallationResponse installation, GitHubUserResponse gitHubUser) {
