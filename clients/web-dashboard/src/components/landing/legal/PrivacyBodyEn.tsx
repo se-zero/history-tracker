@@ -522,8 +522,18 @@ export function PrivacyBodyEn() {
           <li>
             <strong>Membership withdrawal</strong> — Withdrawing immediately
             deactivates the account and stops use of the Service, and after 30
-            days permanently deletes the account and related data. This 30-day
-            period exists to allow a mistaken withdrawal to be undone.
+            days deletes the account and related data. This 30-day period exists
+            to allow a mistaken withdrawal to be undone. At that point we also
+            revoke the access granted to connected external services and delete
+            the collected records and knowledge graph.
+            <br />
+            <strong>GitHub App installation records are retained</strong>,
+            however — an installation belongs to an account rather than to an
+            individual, and other users in the same organization may still rely
+            on it. Such a record contains the GitHub account name and an
+            encrypted access token; the link between you and the installation
+            (that is, who may access it) is deleted when you withdraw. If you
+            want the record itself removed, please contact us at the address below.
           </li>
           <li>
             Records that a law requires to be retained are kept separately for

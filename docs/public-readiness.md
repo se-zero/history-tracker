@@ -157,6 +157,30 @@ backend 테스트 **761개 통과**.
 > 되고, 실제 노출이 아직 없어 후속 PR로 나눴다. **이 항목이 닫히기 전에는 조직 소속이 섞인
 > 사용자를 받으면 안 된다.**
 
+### 0-1c. 파기의 provider 권한 폐기 가드가 실제로는 동작하지 않는다 (0-1의 후속)
+
+PR #121 3차 봇 리뷰에서 발견했다. 파기에서 폐기 실패를 잡으려고 `revokeAll`을 `boolean`으로
+바꿨는데(1차 리뷰 반영), **그 아래에서 이미 예외를 삼키고 있어 가드가 한 번도 발동하지 않는다.**
+
+```java
+// SlackClient.java:98 — 다른 provider도 같은 모양
+} catch (RestClientException exception) {
+    log.warn("Slack token revoke request failed. error={}", exception.getMessage());
+}   // ← 여기서 삼킨다. revoke()는 절대 던지지 않는다
+```
+
+그리고 이건 **의도된 설계**다 — `backend/CLAUDE.md`가 "폐기 실패는 각 client가 로그만 남기고
+삼킨다 — 이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다"고
+적고 있다. **연동 해제(사용자 대면)에는 옳고, 파기에는 맞지 않는다.**
+
+- [ ] `ProviderCredentialLifecycle.revoke`가 성공·실패를 신고하게 바꾼다 — **구현체 7종
+      (Slack·Jira·Discord·Google Chat·Linear·Asana·Notion) 전부**가 대상이다
+- [ ] 해제 경로는 지금 동작(실패해도 진행)을 유지하고, **파기 경로만** 실패에 반응하게 한다
+- [ ] 그때까지 파기는 "폐기를 시도했다"까지만 보장한다 — PR #121 본문 시나리오도 그렇게 정정했다
+
+**우선순위: 상 — 후속 PR.** 지금도 폐기 시도는 하므로 대부분의 경우 정리된다. 다만 provider
+장애 시 grant가 남고 **우리는 그 사실을 모른다**(로그에만 남는다). 5-1(모니터링)과도 얽힌다.
+
 ### 0-2. 팀이 프로젝트를 함께 볼 수 없다
 
 프로젝트는 **소유자 1명**에게만 속한다. 목록·조회·삭제가 전부 `owner_id` 스코프이고
