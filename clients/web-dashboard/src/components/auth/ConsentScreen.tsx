@@ -28,6 +28,16 @@ export function ConsentScreen() {
     }
   };
 
+  const handleLogout = async () => {
+    setError(null);
+    try {
+      await logout();
+      // AuthProvider가 상태를 unauthenticated로 바꾸면 AuthGate가 랜딩으로 보낸다.
+    } catch {
+      setError("로그아웃에 실패했어요. 잠시 후 다시 시도해 주세요.");
+    }
+  };
+
   return (
     <div
       style={{
@@ -124,7 +134,7 @@ export function ConsentScreen() {
             type="button"
             className="btn btn-ghost"
             style={{ fontSize: 12 }}
-            onClick={() => logout()}
+            onClick={handleLogout}
           >
             동의하지 않고 로그아웃
           </button>
