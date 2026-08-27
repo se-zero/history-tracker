@@ -4,8 +4,9 @@
     (services/ai-engine/CLAUDE.md), Atlassian 개인정보 보고 규칙상 accountId는 한 사람이
     여러 프로젝트에 걸쳐 활동해도 전역에서 한 번만 중복 제거해 보고해야 한다. 이 모듈은
     그 규칙 때문에 의도적으로 project_id 인자를 받지 않는다.
-(b) 인증 없음: ai-engine은 backend가 호출하는 내부 서비스이고 인가는 backend가 담당한다는
-    신뢰 모델을 따른다 (routers/graph.py, routers/admin.py의 관행).
+(b) 인증: 라우터에는 내부 서비스 토큰 검증이 걸려 있다(auth.verify_internal_token).
+    다만 그것은 "우리 서비스가 부른 요청인가"만 확인하며, **사용자 단위 인가는 여전히
+    backend가 담당한다**는 신뢰 모델은 그대로다 (routers/graph.py, routers/admin.py의 관행).
 
 backend의 보고 스케줄러가 "보고할 때가 된 Jira accountId 목록"을 조회(list_due_accounts)하고,
 Atlassian에 보고한 결과를 반영(apply_report)하는 데 쓴다.

@@ -113,6 +113,11 @@ def main():
     parser.add_argument("--events-snapshot", default="", help="기록용 원천 스냅샷 라벨 (예: events-2026-07-05.jsonl)")
     parser.add_argument("--model-label", default="", help="답변 모델 라벨 폴백 — 엔진 /query/config 실측이 우선이고, 실측 불가(구버전 엔진)일 때만 사용. 실측과 다르면 경고")
     parser.add_argument("--timeout", type=float, default=180.0)
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("INTERNAL_SERVICE_TOKEN", ""),
+        help="ai-engine 내부 서비스 토큰 (기본: 환경변수 INTERNAL_SERVICE_TOKEN). 비어 있으면 무인증 로컬 엔진 대비 헤더를 붙이지 않는다",
+    )
     args = parser.parse_args()
 
     case_files = sorted(glob(os.path.join(GOLDEN_DIR, "case-*.yaml")))
@@ -139,7 +144,8 @@ def main():
     os.makedirs(responses_dir)
 
     failures = 0
-    with httpx.Client(timeout=args.timeout) as client:
+    headers = {"X-Internal-Service-Token": args.token} if args.token else {}
+    with httpx.Client(timeout=args.timeout, headers=headers) as client:
         engine_config = fetch_engine_config(client, args.base_url)
 
         # 수동 라벨과 엔진 실측이 어긋나면 즉시 알린다 — 어긋난 채 진행하면 무효 런.

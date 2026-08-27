@@ -12,7 +12,7 @@ router = APIRouter()
 async def privacy_jira_accounts(due_before: str, limit: int = 90):
     """보고 기한(due_before)이 지난 Jira accountId 목록 — project_id 스코프 없는 앱 전역 조회.
 
-    project_id를 받지 않는 이유·인증 없는 이유는 graph/privacy.py 모듈 docstring 참고.
+    project_id를 받지 않는 이유와 인증 모델은 graph/privacy.py 모듈 docstring 참고.
     """
     try:
         return await list_due_accounts(due_before, limit)

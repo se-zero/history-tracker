@@ -3,6 +3,7 @@ package com.history.backend.integration.service;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -11,6 +12,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import java.util.UUID;
 
 import com.history.backend.integration.domain.IntegrationProvider;
+import com.history.backend.security.InternalServiceAuthenticationFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -23,6 +25,7 @@ import org.springframework.web.client.RestClient;
 class PipelineWorkerClientTest {
 
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
+    private static final String INTERNAL_SERVICE_TOKEN = "test-internal-service-token";
 
     @Test
     @DisplayName("GitHub 수집 트리거 전송")
@@ -74,6 +77,7 @@ class PipelineWorkerClientTest {
         server.expect(once(), requestTo("https://pipeline-worker.test/api/v1/collect/" + provider))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(header(InternalServiceAuthenticationFilter.HEADER_NAME, INTERNAL_SERVICE_TOKEN))
                 .andExpect(content().json("""
                         {"projectId":"%s"}
                         """.formatted(PROJECT_ID)))
@@ -84,7 +88,7 @@ class PipelineWorkerClientTest {
         RestClient.Builder builder = RestClient.builder()
                 .baseUrl("https://pipeline-worker.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        PipelineWorkerClient client = new PipelineWorkerClient(builder.build());
+        PipelineWorkerClient client = new PipelineWorkerClient(builder.build(), INTERNAL_SERVICE_TOKEN);
         return new PipelineWorkerClientFixture(client, server);
     }
 

@@ -3,7 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 load_dotenv()
 
@@ -12,6 +12,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
+from auth import ensure_token_configured, verify_internal_token
 from graph.builder import (
     backfill_actor_aliases,
     close_driver,
@@ -33,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_token_configured()
+
     async def _init_neo4j_with_retry(max_retries: int = 10, retry_interval: float = 1.0) -> None:
         """Neo4j 초기화를 재시도하며 수행 (health check보다 견고함)."""
         for attempt in range(1, max_retries + 1):
@@ -79,10 +82,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="History Graph AI Engine", lifespan=lifespan)
 
-app.include_router(query_router)
-app.include_router(graph_router)
-app.include_router(admin_router)
-app.include_router(privacy_router)
+app.include_router(query_router, dependencies=[Depends(verify_internal_token)])
+app.include_router(graph_router, dependencies=[Depends(verify_internal_token)])
+app.include_router(admin_router, dependencies=[Depends(verify_internal_token)])
+app.include_router(privacy_router, dependencies=[Depends(verify_internal_token)])
 
 
 @app.get("/health")
