@@ -346,6 +346,7 @@ pairs:
    > 토큰은 `infra/docker/.env`의 `INTERNAL_SERVICE_TOKEN`과 같은 값이다.
 
    ```bash
+   source infra/docker/.env  # $INTERNAL_SERVICE_TOKEN을 셸로 가져온다 — 안 하면 AUTH가 빈 헤더가 돼 전부 401
    BASE=http://localhost:8000
    PID=<PROJECT_ID>
    AUTH="X-Internal-Service-Token: $INTERNAL_SERVICE_TOKEN"

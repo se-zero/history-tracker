@@ -116,7 +116,7 @@ def main():
     parser.add_argument(
         "--token",
         default=os.environ.get("INTERNAL_SERVICE_TOKEN", ""),
-        help="ai-engine 내부 서비스 토큰 (기본: 환경변수 INTERNAL_SERVICE_TOKEN). 비어 있으면 무인증 로컬 엔진 대비 헤더를 붙이지 않는다",
+        help="ai-engine 내부 서비스 토큰 (기본: 환경변수 INTERNAL_SERVICE_TOKEN). 미설정이면 ai-engine이 기동조차 하지 않으므로 비워 두면 안 된다",
     )
     args = parser.parse_args()
 

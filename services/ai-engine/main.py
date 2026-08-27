@@ -80,7 +80,16 @@ async def lifespan(app: FastAPI):
         await close_driver()
 
 
-app = FastAPI(title="History Graph AI Engine", lifespan=lifespan)
+# docs_url/redoc_url/openapi_url을 끈다 — 이 세 엔드포인트는 라우터 밖이라
+# include_router의 dependencies(verify_internal_token)가 걸리지 않는다. 켜두면
+# /openapi.json 하나로 admin·migration 엔드포인트 목록과 파라미터가 익명에 노출된다.
+app = FastAPI(
+    title="History Graph AI Engine",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 app.include_router(query_router, dependencies=[Depends(verify_internal_token)])
 app.include_router(graph_router, dependencies=[Depends(verify_internal_token)])

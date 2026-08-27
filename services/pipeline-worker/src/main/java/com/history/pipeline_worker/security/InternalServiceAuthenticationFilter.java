@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 // pipeline-worker에는 Spring Security가 없어 Boot의 서블릿 필터 자동 등록으로 체인에 들어간다.
 // GitHub webhook 경로(/api/v1/webhook/)는 보호 대상에서 제외한다 — GitHub 서버가 직접 호출해 우리
@@ -36,8 +37,11 @@ public class InternalServiceAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        return !uri.startsWith(COLLECT_PATH_PREFIX) && !uri.startsWith(RAW_PATH_PREFIX);
+        // getRequestURI()는 percent-encoding을 디코딩하지 않은 원문이라, Spring MVC가 컨트롤러를
+        // 매칭할 때 쓰는 디코딩된 경로와 다를 수 있다(예: /api/v1/%63ollect/ → 필터는 못 알아보지만
+        // 컨트롤러는 /collect/로 라우팅한다). UrlPathHelper로 같은 디코딩을 거쳐야 우회가 없다.
+        String path = UrlPathHelper.defaultInstance.getPathWithinApplication(request);
+        return !path.startsWith(COLLECT_PATH_PREFIX) && !path.startsWith(RAW_PATH_PREFIX);
     }
 
     @Override
