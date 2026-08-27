@@ -346,7 +346,10 @@ pairs:
    > 토큰은 `infra/docker/.env`의 `INTERNAL_SERVICE_TOKEN`과 같은 값이다.
 
    ```bash
-   source infra/docker/.env  # $INTERNAL_SERVICE_TOKEN을 셸로 가져온다 — 안 하면 AUTH가 빈 헤더가 돼 전부 401
+   # $INTERNAL_SERVICE_TOKEN을 셸로 가져온다 — 안 하면 AUTH가 빈 헤더가 돼 전부 401.
+   # `source infra/docker/.env`는 쓰지 않는다 — GITHUB_APP_PRIVATE_KEY가 여러 줄짜리 PEM이라
+   # bash가 그 줄들을 명령으로 실행하려다 깨진다(docker compose의 env 파서만 멀티라인을 허용한다).
+   export INTERNAL_SERVICE_TOKEN=$(grep '^INTERNAL_SERVICE_TOKEN=' infra/docker/.env | cut -d '=' -f2-)
    BASE=http://localhost:8000
    PID=<PROJECT_ID>
    AUTH="X-Internal-Service-Token: $INTERNAL_SERVICE_TOKEN"

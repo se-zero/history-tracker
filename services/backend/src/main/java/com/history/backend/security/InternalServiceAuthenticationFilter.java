@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 @Component
 public class InternalServiceAuthenticationFilter extends OncePerRequestFilter {
@@ -32,7 +33,11 @@ public class InternalServiceAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith(INTERNAL_PATH_PREFIX);
+        // getRequestURI()는 percent-encoding을 디코딩하지 않은 원문이라, Spring MVC가 컨트롤러를
+        // 매칭할 때 쓰는 디코딩된 경로와 다를 수 있다(예: /api/v1/%69nternal/ → 필터는 못 알아보지만
+        // 컨트롤러는 /internal/로 라우팅한다). UrlPathHelper로 같은 디코딩을 거쳐야 우회가 없다.
+        String path = UrlPathHelper.defaultInstance.getPathWithinApplication(request);
+        return !path.startsWith(INTERNAL_PATH_PREFIX);
     }
 
     @Override
