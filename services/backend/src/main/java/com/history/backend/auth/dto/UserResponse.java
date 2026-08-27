@@ -10,17 +10,21 @@ public record UserResponse(
         String providerUserId,
         String email,
         String displayName,
-        String avatarUrl
+        String avatarUrl,
+        boolean requiresConsent
 ) {
 
-    public static UserResponse from(User user) {
+    public static UserResponse from(User user, String currentTermsVersion) {
+        boolean requiresConsent = user.getConsentTermsVersion() == null
+                || !user.getConsentTermsVersion().equals(currentTermsVersion);
         return new UserResponse(
                 user.getId(),
                 user.getProvider(),
                 user.getProviderUserId(),
                 user.getEmail(),
                 user.getDisplayName(),
-                user.getAvatarUrl()
+                user.getAvatarUrl(),
+                requiresConsent
         );
     }
 }

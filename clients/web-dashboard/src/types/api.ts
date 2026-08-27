@@ -12,6 +12,8 @@ export interface User {
   email: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  // true면 아직 현재 버전 약관에 동의하지 않은 사용자 — AuthGate가 ConsentScreen으로 막아선다.
+  requiresConsent: boolean;
 }
 
 export interface Project {
