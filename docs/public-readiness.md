@@ -362,6 +362,14 @@ Slack도 앱×워크스페이스 단위라 여기 해당하지 않는다 — 0-3
 - [x] backend `PipelineWorkerClient`가 헤더를 보낸다 — **이 호출은 실패를 삼키므로**(연동 롤백 방지)
       헤더를 빠뜨리면 401이 로그로만 남고 초기 수집이 조용히 멈춘다. 테스트가 헤더 전송을 검증한다
 
+PR #122 봇 리뷰에서 pipeline-worker 필터가 **percent-encoding으로 우회**됨을 발견해 고쳤다
+(`getRequestURI()`는 디코딩 전 원문인데 Spring MVC는 디코딩된 경로로 라우팅한다 —
+`/api/v1/%63ollect/`가 필터는 통과하고 컨트롤러에는 도달했다). `UrlPathHelper`로 교체.
+
+- [x] **backend의 기존 `InternalServiceAuthenticationFilter`(`/api/v1/internal/` 보호)도
+      같은 결함이 있었다** — 같은 패턴(`getRequestURI().startsWith(...)`)을 그대로 썼다.
+      pipeline-worker와 같은 방식(`UrlPathHelper`)으로 후속 PR에서 고쳤다
+
 **우선순위: 상 — 완료.**
 
 ### 2-2. ai-engine은 admin 라우터까지 무인증이다

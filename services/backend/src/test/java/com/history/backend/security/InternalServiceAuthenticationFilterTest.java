@@ -43,6 +43,22 @@ class InternalServiceAuthenticationFilterTest {
     }
 
     @Test
+    @DisplayName("percent-encoding으로 우회한 내부 경로도 토큰 없이는 401")
+    void rejectsPercentEncodedInternalPath() throws Exception {
+        // getRequestURI()는 디코딩 전 원문이라 %69(='i')로 매칭을 우회할 수 있었다.
+        // Spring MVC는 디코딩된 경로로 라우팅하므로 필터가 놓치면 컨트롤러에는 그대로 도달한다.
+        MockHttpServletRequest request =
+                new MockHttpServletRequest("POST", "/api/v1/%69nternal/github/installations/456/token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        TrackingFilterChain filterChain = new TrackingFilterChain();
+
+        filter.doFilter(request, response, filterChain);
+
+        assertThat(filterChain.invoked).isFalse();
+        assertThat(response.getStatus()).isEqualTo(401);
+    }
+
+    @Test
     @DisplayName("내부 경로가 아닌 요청은 필터 통과")
     void ignoresNonInternalPath() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/projects");

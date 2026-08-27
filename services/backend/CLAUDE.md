@@ -191,6 +191,12 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
 
 - `/api/v1/internal/**`는 사용자 JWT가 아니라 `X-Internal-Service-Token` 헤더로 인증한다.
 - `InternalServiceAuthenticationFilter`는 `security.internal-service.token`과 요청 헤더를 timing-safe 방식으로 비교한다.
+  경로 매칭은 `UrlPathHelper`로 디코딩한 뒤 비교한다 — `getRequestURI()`를 직접 쓰면 percent-encoding으로
+  우회된다(예: `%69nternal`이 필터는 통과하고 Spring MVC는 디코딩해 라우팅한다).
+- 헤더 이름(`X-Internal-Service-Token`)과 경로 매칭 방식은 backend·pipeline-worker·ai-engine 세 곳에
+  각자 상수로 중복돼 있다. **의도적으로 공유 모듈을 만들지 않았다** — 지금 세 서비스가 코드를 공유하는
+  구조 자체가 없고, 중복이 문자열 하나뿐이라 새 모듈을 만들 이유가 아직 없다. 네 번째 자리가 생기면
+  다시 판단한다.
 - `POST /api/v1/internal/github/installations/{installationId}/token`은 GitHub installation access token이 없거나 만료 임박한 경우 갱신해 DB 캐시를 보장하고 `204`를 반환한다. 토큰 평문은 응답하지 않는다.
 - `POST /api/v1/internal/integrations/{projectId}/{provider}/token`은 access token이 없거나 만료 임박한 경우 갱신해 저장하고 `204`를 반환한다(Jira·Google Chat은 refresh token으로 갱신하며, 폐기돼 영구 실패하면 연동을 pending 상태로 되돌린다). 토큰 평문은 응답하지 않는다.
   **실패 응답은 두 뜻을 서로 다른 코드로 갈라 답한다 — 섞으면 안 된다.**

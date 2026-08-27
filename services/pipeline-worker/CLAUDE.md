@@ -78,7 +78,9 @@ backend·프론트까지 포함한 커넥터 전체 순서는 `docs/integration-
 **인바운드 인증** — `InternalServiceAuthenticationFilter`(`security` 패키지)가
 `/api/v1/collect/`·`/api/v1/raw/`를 `X-Internal-Service-Token`으로 막는다. backend의 같은 이름 필터와
 동일한 규약(timing-safe 비교, 토큰 미설정 시 기동 거부)이며, 이 서비스에는 Spring Security가 없어
-`OncePerRequestFilter`를 `@Component`로 등록해 서블릿 체인에 넣는다.
+`OncePerRequestFilter`를 `@Component`로 등록해 서블릿 체인에 넣는다. 경로 매칭은 `UrlPathHelper`로
+디코딩한 뒤 비교한다(`getRequestURI()` 직접 비교는 percent-encoding으로 우회된다 — backend
+CLAUDE.md 「내부 서비스 API」 절 참고, 헤더 이름·매칭 방식을 공유 모듈로 안 뽑은 이유도 거기 있다).
 
 **`/api/v1/webhook/`는 의도적으로 예외다** — GitHub 서버가 직접 호출해 우리 헤더를 붙일 수 없다.
 그 경로는 `GitHubWebhookVerifier`의 HMAC 서명 검증(secret이 비면 전부 거부하는 fail-closed)이 지킨다.
