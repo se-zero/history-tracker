@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useOutletContext } from "react-router-dom";
 
 import { AppShell } from "@/components/shell/AppShell";
+import { ConsentScreen } from "@/components/auth/ConsentScreen";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { StatusView } from "@/components/StatusView";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
@@ -29,12 +30,16 @@ function useProject() {
 }
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   if (status === "loading") {
     return <StatusView tone="loading" description="세션 확인 중…" fullPage />;
   }
   if (status === "unauthenticated") {
     return <Navigate to={PATHS.landing} replace />;
+  }
+  // 현재 버전 약관에 동의하지 않은 사용자는 어떤 화면으로 가려 했든 이 화면으로 막아선다.
+  if (user?.requiresConsent) {
+    return <ConsentScreen />;
   }
   return <>{children}</>;
 }

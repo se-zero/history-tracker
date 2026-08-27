@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.dto.UserResponse;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.dto.GitHubUserResponse;
@@ -23,10 +24,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("UserService: 사용자 생성·조회·탈퇴")
+@DisplayName("UserService: 사용자 생성·조회·탈퇴·약관 동의")
 class UserServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+    private static final String CURRENT_TERMS_VERSION = "2026-08-01";
 
     @Mock
     private UserRepository userRepository;
@@ -133,7 +135,58 @@ class UserServiceTest {
         verifyNoInteractions(refreshTokenService);
     }
 
+    @Test
+    @DisplayName("약관 동의 기록 시 현재 버전과 시각 저장")
+    void recordConsentStoresCurrentTermsVersionAndTimestamp() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        userService.recordConsent(USER_ID);
+
+        assertThat(user.getConsentTermsVersion()).isEqualTo(CURRENT_TERMS_VERSION);
+        assertThat(user.getConsentRecordedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("동의 기록이 없는 사용자는 requiresConsent true")
+    void getCurrentUserRequiresConsentWhenNeverConsented() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("이전 버전으로 동의한 사용자는 requiresConsent true")
+    void getCurrentUserRequiresConsentWhenConsentedToOlderVersion() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        user.recordConsent("2025-01-01", Instant.now());
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("현재 버전으로 동의한 사용자는 requiresConsent false")
+    void getCurrentUserDoesNotRequireConsentWhenConsentedToCurrentVersion() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        user.recordConsent(CURRENT_TERMS_VERSION, Instant.now());
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isFalse();
+    }
+
     private UserService userService() {
-        return new UserService(userRepository, refreshTokenService);
+        return new UserService(userRepository, refreshTokenService, CURRENT_TERMS_VERSION);
     }
 }

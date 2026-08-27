@@ -9,12 +9,11 @@ import com.history.backend.auth.dto.UserResponse;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.dto.GitHubUserResponse;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
 public class UserService {
 
     private static final String GITHUB_PROVIDER = "github";
@@ -22,6 +21,20 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final RefreshTokenService refreshTokenService;
+    private final String currentTermsVersion;
+
+    // @Value는 필드가 아니라 생성자 파라미터에 붙여야 한다 — Lombok @RequiredArgsConstructor가
+    // 생성한 생성자는 필드 애노테이션을 파라미터로 복사하지 않아 Spring이 "String" 타입 빈을
+    // 찾다 실패한다(PipelineWorkerClient·InternalServiceAuthenticationFilter와 같은 패턴).
+    public UserService(
+            UserRepository userRepository,
+            RefreshTokenService refreshTokenService,
+            @Value("${app.legal.terms-version}") String currentTermsVersion
+    ) {
+        this.userRepository = userRepository;
+        this.refreshTokenService = refreshTokenService;
+        this.currentTermsVersion = currentTermsVersion;
+    }
 
     // GitHub OAuth 로그인 시, 사용자 정보로 회원 가입 또는 기존 회원 정보 업데이트
     @Transactional
@@ -75,7 +88,7 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public UserResponse getCurrentUser(UUID userId) {
-        return UserResponse.from(getActiveUser(userId));
+        return UserResponse.from(getActiveUser(userId), currentTermsVersion);
     }
 
     // 사용자 soft delete 및 전체 refresh token 폐기
@@ -84,6 +97,13 @@ public class UserService {
         User user = getActiveUser(userId);
         user.softDelete(Instant.now());
         refreshTokenService.revokeAllRefreshTokens(user);
+    }
+
+    // 현재 약관 버전에 대한 동의 기록
+    @Transactional
+    public void recordConsent(UUID userId) {
+        User user = getActiveUser(userId);
+        user.recordConsent(currentTermsVersion, Instant.now());
     }
 
     // 활성(미탈퇴) 사용자 조회 — 비공개 API의 공통 사용자 검증 진입점

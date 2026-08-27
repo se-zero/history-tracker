@@ -50,6 +50,12 @@ public class User {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    @Column(name = "consent_terms_version")
+    private String consentTermsVersion;
+
+    @Column(name = "consent_recorded_at")
+    private Instant consentRecordedAt;
+
     public User(String provider, String providerUserId, String email, String displayName, String avatarUrl) {
         this.provider = provider;
         this.providerUserId = providerUserId;
@@ -70,6 +76,11 @@ public class User {
 
     public void softDelete(Instant deletedAt) {
         this.deletedAt = deletedAt;
+    }
+
+    public void recordConsent(String version, Instant recordedAt) {
+        this.consentTermsVersion = version;
+        this.consentRecordedAt = recordedAt;
     }
 
     @PrePersist

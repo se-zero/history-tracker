@@ -43,6 +43,10 @@ user-lifecycle:
     cron: "0 0 3 * * *"
     batch-size: 100
 
+app:
+  legal:
+    terms-version: "2026-08-01"
+
 github:
   app:
     app-id: test-app-id

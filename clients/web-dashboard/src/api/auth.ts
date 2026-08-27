@@ -16,6 +16,11 @@ export async function fetchMe(): Promise<User> {
   return data;
 }
 
+// 현재 버전 약관 동의를 기록한다. 바디 없음 — 성공 시 204.
+export async function postConsent(): Promise<void> {
+  await api.post("/me/consent");
+}
+
 export async function exchangeGitHubCode(params: {
   code: string;
   state?: string | null;
