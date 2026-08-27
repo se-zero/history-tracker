@@ -166,7 +166,8 @@ class GitHubAppJwtServiceTest {
                 "https://api.github.com/user/installations",
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
                 "https://api.github.com/installation/repositories",
-                "https://api.github.com/repos/{owner}/{repo}/branches"
+                "https://api.github.com/repos/{owner}/{repo}/branches",
+                "https://api.github.com/user/installations/{installation_id}/repositories"
         );
     }
 }

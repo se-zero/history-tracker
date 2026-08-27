@@ -73,7 +73,13 @@ provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지�
 `AccessTokenRefresher`를 `ProviderCredentialLifecycle`에서 떼어낸 이유가 이것이다
 (아래 「내부 서비스 API」 참고). `ProviderCredentialLifecycle`도 같은 원칙을 따른다 —
 레지스트리는 `find(provider): Optional`로 등록 여부를 신고하고, 미등록 provider는 폐기를
-건너뛴다(`IntegrationService.revokeProviderAccess`가 `find`+`ifPresent`로 호출).
+건너뛴다(`IntegrationRevocationService.revoke`가 `find`+`ifPresent`로 호출).
+
+**폐기 실행은 `IntegrationRevocationService`(leaf)가 소유한다.** 연동 해제는 단건(`revoke`),
+프로젝트 삭제·사용자 파기는 일괄(`revokeAll(projectId)`)로 부른다. `IntegrationService`가
+`ProjectService`를 주입받으므로 폐기 로직이 거기 있으면 `ProjectService`에서 부를 수 없다 —
+그래서 둘 다 참조할 수 있는 leaf로 뺐다. `revokeAll`은 **건별로 실패를 삼킨다**: 한 provider의
+폐기 실패가 나머지 연동의 grant를 영구히 남기면 안 되기 때문이다.
 
 **저장 정책은 `IntegrationService.connectOAuth`가 소유한다** — 확정 연동 409 선검사(1회용 code를
 교환 전에 지킨다) → code 교환 → 자격증명 암호화 → 저장(pending 행이면 재동의로 덮어쓰기, unique 위반은
@@ -148,6 +154,23 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   그래프 삭제가 멱등이라 재시도로 수렴).
   checkpoint를 반드시 함께 지운다 — 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이
   데이터가 영구 누락된다. GitHub App 설치(`github_installations`)는 계정 단위라 건드리지 않는다.
+- **GitHub App 설치의 접근권은 `github_installation_users`(멤버십)가 갖는다.** 인가 게이트는
+  `GitHubInstallationService.getAccessibleInstallation`뿐이고, 레포 목록·브랜치 목록·연동·
+  프로젝트 생성+연동이 전부 이걸 먼저 호출한다. **`installer_user_id`로 인가하지 않는다** —
+  설치는 계정 단위라 조직 설치는 구성원 여럿이 공유하고, 그 컬럼은 최초 설치자 기록일 뿐이다
+  (덮어쓰지 않는다). 멤버십은 로그인 동기화가 등록하며, 사용자 파기 시 멤버십 행만 사라지고
+  설치 행은 남는다(다른 멤버가 계속 쓴다). 배경은 `docs/DB.md`의 `github_installations` 절 참고.
+- **RDB 밖 자원(Neo4j 그래프·provider 권한)을 가진 삭제는 FK CASCADE에 맡기지 않는다.**
+  `users`를 지우면 프로젝트·연동·대화·checkpoint가 CASCADE로 사라지지만, 그래프와 provider 쪽
+  grant는 남고 **행이 사라져 나중에 지울 수단마저 없어진다**(고아 그래프). 그래서 삭제 경로 셋이
+  같은 순서를 공유한다 — 권한 폐기 → 그래프 삭제 → RDB 삭제.
+  - 연동 해제: `IntegrationService.disconnect` (단건 폐기 + 소스 단위 그래프 삭제)
+  - 프로젝트 삭제: `ProjectService.deleteProject` (일괄 폐기 + 프로젝트 그래프 삭제)
+  - 사용자 파기: `UserPurgeService` → `ProjectService.releaseExternalResources`로 소유 프로젝트의
+    폐기·그래프 삭제를 끝낸 뒤에만 `users` 행을 지운다. 실패한 사용자는 행을 남겨 다음 회차에
+    재시도한다 — **실패했는데 행을 지우면 그 순간 고아 그래프가 된다.**
+    `releaseExternalResources`는 파기 전용이라 `getActiveUser` 게이트를 타지 않는다(대상이 이미
+    soft-delete 상태라 그 검증에서 예외가 난다).
 - 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,
   authorize URL 조립 시 소유권을 확인하고 state를 발급한다.
 - 콜백은 예외를 던지지 않고 항상 프론트로 302 리다이렉트하며, 실패는 `?error=` 코드로 전달한다.

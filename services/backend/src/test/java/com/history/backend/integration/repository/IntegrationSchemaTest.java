@@ -275,8 +275,8 @@ class IntegrationSchemaTest {
     }
 
     @Test
-    @DisplayName("사용자 삭제 시 프로젝트·연동·installation cascade 삭제")
-    void deletingUserCascadesOwnedProjectsIntegrationsAndInstallations() {
+    @DisplayName("사용자 삭제 시 소유 프로젝트·연동은 cascade 삭제되지만 공유 GitHub installation은 남고 installer만 NULL이 된다")
+    void deletingUserCascadesOwnedProjectsAndIntegrationsButKeepsSharedInstallation() {
         UUID ownerId = insertUser("owner10@example.com");
         UUID projectId = insertProject(ownerId);
         UUID installationId = insertGitHubInstallation(ownerId, 1010L);
@@ -286,7 +286,16 @@ class IntegrationSchemaTest {
 
         assertThat(countRows("projects", "id", projectId)).isZero();
         assertThat(countRows("integrations", "project_id", projectId)).isZero();
-        assertThat(countRows("github_installations", "id", installationId)).isZero();
+        // GitHub installation은 계정 단위로 여러 사용자가 공유할 수 있다 — 설치자 한 명의 탈퇴가
+        // 다른 멤버의 설치·연동까지 지우면 안 되므로, V17에서 installer_user_id FK를
+        // (V6가 만든) CASCADE에서 SET NULL로 바꿨다. 행은 남고 installer만 NULL이 되는 게 맞는 동작이다.
+        assertThat(countRows("github_installations", "id", installationId)).isEqualTo(1);
+        Integer nullInstallerCount = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM github_installations WHERE id = ? AND installer_user_id IS NULL",
+                Integer.class,
+                installationId
+        );
+        assertThat(nullInstallerCount).isEqualTo(1);
     }
 
     private UUID insertUser(String email) {

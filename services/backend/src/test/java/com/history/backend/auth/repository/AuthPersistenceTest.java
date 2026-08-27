@@ -89,10 +89,6 @@ class AuthPersistenceTest {
                 .contains(refreshToken);
         assertThat(gitHubInstallationRepository.findByInstallationId(98765L))
                 .contains(installation);
-        assertThat(gitHubInstallationRepository.findAllByInstallerUser_Id(user.getId()))
-                .containsExactly(installation);
-        assertThat(gitHubInstallationRepository.findByIdAndInstallerUser_Id(installation.getId(), user.getId()))
-                .contains(installation);
     }
 
     // soft-deleted user를 위한 운영 partial unique index를 검증한다.
@@ -171,6 +167,7 @@ class AuthPersistenceTest {
 
         List<java.util.UUID> candidateIds = userRepository.findPurgeCandidateIds(
                 Instant.now().minusSeconds(30L * 24 * 60 * 60),
+                List.of(),
                 PageRequest.of(0, 100)
         );
 

@@ -1,6 +1,9 @@
 package com.history.backend.auth.service;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
@@ -8,7 +11,9 @@ import com.history.backend.auth.dto.RefreshTokenRequest;
 import com.history.backend.auth.dto.TokenResponse;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.GitHubAppProperties;
+import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
+import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubInstallationsResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
 import com.history.backend.github.service.GitHubInstallationService;
@@ -16,10 +21,12 @@ import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.UriComponentsBuilder;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -125,19 +132,68 @@ public class AuthService {
         refreshTokenService.revokeRefreshToken(request.refreshToken());
     }
 
-    // 로그인 시점에 GitHub의 설치 목록을 조회해 본인 계정 설치를 동기화.
+    // 로그인 시점에 GitHub의 설치 목록을 조회해 접근 가능한 설치를 동기화.
     // App installation 콜백(Setup URL)에만 의존하면 외부에서 추가/해제된 설치를 놓치므로
     // 로그인마다 GitHub을 진실의 원천으로 다시 동기화한다.
-    // /user/installations는 App manager 권한이 있으면 다른 사용자의 설치도 함께 반환하므로,
-    // account.login이 본인 GitHub 계정과 일치하는 설치만 동기화 대상으로 둔다.
+    // account.login이 본인 GitHub 계정과 일치하는 개인(User) 설치는 추가 호출 없이 통과시키고,
+    // 그 외(조직 설치, 타인의 개인 설치)는 GitHub에 실제 접근 권한이 있는지 확인한 뒤에만 동기화한다.
+    // /user/installations가 "App manager면 남의 설치도 반환한다"는 근거는 공식 문서에 없지만,
+    // 틀렸을 때 운영자 계정이 모든 테넌트 설치의 멤버가 되므로 이 방어는 유지한다.
     private void syncInstallations(User user, GitHubUserResponse gitHubUser, String accessToken) {
         GitHubInstallationsResponse installations = gitHubOAuthClient.fetchInstallations(accessToken);
+        // GitHub 장애 등으로 응답 자체를 못 받으면 이번 로그인에서 확인된 접근 가능 설치 목록이
+        // 없다는 뜻이지, 사용자가 전부 접근권을 잃었다는 뜻이 아니다. 여기서 prune까지 돌리면
+        // 장애 한 번에 멀쩡한 멤버십이 전부 사라지므로 early return으로 멤버십을 그대로 둔다.
         if (installations == null || installations.installations() == null) {
             return;
         }
 
-        installations.installations().stream()
-                .filter(installation -> gitHubUser.login().equalsIgnoreCase(installation.account().login()))
-                .forEach(installation -> gitHubInstallationService.upsertInstallation(user, installation));
+        List<UUID> keptInstallationIds = new ArrayList<>();
+        boolean hasUnknownAccess = false;
+        for (GitHubInstallationResponse installation : installations.installations()) {
+            GitHubOAuthClient.InstallationAccess access = isOwnPersonalInstallation(installation, gitHubUser)
+                    ? GitHubOAuthClient.InstallationAccess.ACCESSIBLE
+                    : checkInstallationAccess(accessToken, installation);
+
+            if (access == GitHubOAuthClient.InstallationAccess.UNKNOWN) {
+                hasUnknownAccess = true;
+                continue;
+            }
+            if (access != GitHubOAuthClient.InstallationAccess.ACCESSIBLE) {
+                continue;
+            }
+
+            GitHubInstallation upserted = gitHubInstallationService.upsertInstallation(user, installation);
+            if (upserted != null) {
+                keptInstallationIds.add(upserted.getId());
+            }
+        }
+
+        // UNKNOWN이 하나라도 있으면 이번 로그인에서는 prune을 건너뛴다 — 일부 설치만 확인된 상태로
+        // 지우면 장애 중이던 설치의 멀쩡한 멤버십까지 사라진다(위 early return과 같은 취지).
+        // prune은 정리 작업일 뿐이라 다음 로그인으로 미뤄도 안전하다.
+        if (hasUnknownAccess) {
+            return;
+        }
+        gitHubInstallationService.pruneMemberships(user.getId(), keptInstallationIds);
+    }
+
+    private boolean isOwnPersonalInstallation(GitHubInstallationResponse installation, GitHubUserResponse gitHubUser) {
+        return "User".equals(installation.account().type())
+                && gitHubUser.login().equalsIgnoreCase(installation.account().login());
+    }
+
+    // checkInstallationAccess는 예외를 던지지 않는 게 계약이지만, 혹시 던지더라도 한 설치의
+    // 검증 실패로 로그인 전체가 막히면 안 되므로 UNKNOWN으로 취급해 prune만 건너뛰고 로그인은 통과시킨다.
+    private GitHubOAuthClient.InstallationAccess checkInstallationAccess(
+            String accessToken,
+            GitHubInstallationResponse installation
+    ) {
+        try {
+            return gitHubOAuthClient.checkInstallationAccess(accessToken, installation.id());
+        } catch (RuntimeException exception) {
+            log.warn("GitHub installation access check failed for installation {}", installation.id(), exception);
+            return GitHubOAuthClient.InstallationAccess.UNKNOWN;
+        }
     }
 }

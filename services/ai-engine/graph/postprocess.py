@@ -263,7 +263,7 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
 
     # 0) Slack 노이즈 정제 — 신규 Slack 메시지만 LLM을 거친다(llm_filtered로 증분).
     # 링크보다 먼저 돌려 노이즈가 backfill/링크 대상에 끼지 않게 한다.
-    # 실패해도 링크 단계는 진행 — 연결이 더 중요해 격리한다 (project_context는 배치라 생략).
+    # 실패해도 링크 단계는 진행 — 연결이 더 중요해 격리한다.
     try:
         slack = await run_slack_llm_filter(project_id=project_id)
     except Exception:

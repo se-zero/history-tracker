@@ -465,17 +465,6 @@ def _is_unrecoverable(exc: Exception) -> bool:
     return getattr(exc, "status_code", None) in _UNRECOVERABLE_STATUS
 
 
-def _build_system_prompt(project_context: str = "") -> str:
-    """프로젝트 컨텍스트가 있으면 시스템 프롬프트 상단에 도메인 정보를 주입한다."""
-    if not project_context.strip():
-        return _SYSTEM_PROMPT
-    return (
-        f"[프로젝트 컨텍스트]\n{project_context.strip()}\n"
-        f"위 프로젝트의 도메인 용어와 일관되게 답변하고, 도구 호출 키워드도 도메인에 맞춰 선택하세요.\n\n"
-        f"{_SYSTEM_PROMPT}"
-    )
-
-
 async def _call_llm(messages: list, with_tools: bool = True):
     """OpenAI tool calling 호출. 실패 시 None 반환."""
     kwargs = {**_model_kwargs(), "messages": messages}
@@ -1270,7 +1259,6 @@ def _build_context_card(running_summary: dict | None, full_history: list[dict]) 
 
 async def run(
     question: str,
-    project_context: str = "",
     project_id: str = "",
     history: list[dict[str, str]] | None = None,
     prior_evidence: list[dict[str, str]] | None = None,
@@ -1298,7 +1286,7 @@ async def run(
         Structured 호출 실패 시 LLM이 마지막 iteration에서 낸 자유 텍스트로 fallback,
         이때 structured는 None.
     """
-    system_message = {"role": "system", "content": _build_system_prompt(project_context)}
+    system_message = {"role": "system", "content": _SYSTEM_PROMPT}
     running_summary_message = None
     if running_summary:
         running_summary_message = {

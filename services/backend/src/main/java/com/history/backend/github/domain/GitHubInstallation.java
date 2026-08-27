@@ -39,8 +39,10 @@ public class GitHubInstallation {
     @Column(name = "account_login", nullable = false)
     private String accountLogin;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "installer_user_id", nullable = false)
+    // 최초 설치자 기록일 뿐 인가 기준이 아니다(접근권은 github_installation_users 조인 테이블이 갖는다).
+    // 탈퇴 시 ON DELETE SET NULL로 끊기므로 nullable이며, 재동의로도 덮어쓰지 않는다.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "installer_user_id")
     private User installerUser;
 
     @Column(name = "encrypted_installation_token")
@@ -62,10 +64,9 @@ public class GitHubInstallation {
         this.installerUser = installerUser;
     }
 
-    public void updateAccount(String accountType, String accountLogin, User installerUser) {
+    public void updateAccount(String accountType, String accountLogin) {
         this.accountType = accountType;
         this.accountLogin = accountLogin;
-        this.installerUser = installerUser;
     }
 
     public void updateInstallationToken(byte[] encryptedInstallationToken, Instant expiresAt) {

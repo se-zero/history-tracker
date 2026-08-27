@@ -210,7 +210,8 @@ class GitHubAppClientTest {
                 "https://api.github.com/user/installations",
                 "https://api.github.test/app/installations/{installation_id}/access_tokens",
                 "https://api.github.test/installation/repositories",
-                "https://api.github.test/repos/{owner}/{repo}/branches"
+                "https://api.github.test/repos/{owner}/{repo}/branches",
+                "https://api.github.test/user/installations/{installation_id}/repositories"
         );
     }
 

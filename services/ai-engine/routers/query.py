@@ -6,7 +6,6 @@ from fastapi import APIRouter, HTTPException
 from openai import APIStatusError
 
 from agent import orchestrator
-from openai_client import Priority
 from query_models import QueryRequest, SummaryRequest
 
 logger = logging.getLogger(__name__)
@@ -31,12 +30,6 @@ async def query(req: QueryRequest):
     if not req.project_id:
         logger.warning("/query에 project_id 없음 — 그래프 조회가 비어 있게 됩니다.")
 
-    project_context = ""
-    if req.repo and "/" in req.repo:
-        from graph.project_context import get_project_summary
-        owner, repo_name = req.repo.split("/", 1)
-        project_context = await get_project_summary(owner, repo_name, priority=Priority.INTERACTIVE) or ""
-
     history = [message.model_dump() for message in req.history]
     prior_evidence = [evidence.model_dump() for evidence in req.prior_evidence]
     focus_evidence = [evidence.model_dump() for evidence in req.focus_evidence]
@@ -44,7 +37,6 @@ async def query(req: QueryRequest):
     try:
         answer, structured = await orchestrator.run(
             req.question,
-            project_context,
             project_id=req.project_id,
             history=history,
             prior_evidence=prior_evidence,

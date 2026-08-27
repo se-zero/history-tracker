@@ -22,7 +22,7 @@ uvicorn main:app --reload --port 8000
 ```
 
 필요 환경변수: `OPENAI_API_KEY`(필수), `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD`, `RABBITMQ_URL`,
-`QUERY_MODEL`(선택, 기본 `gpt-5.4-mini`), `GITHUB_REPO`/`GITHUB_TOKEN`(선택, 프로젝트 컨텍스트 pre-warm용).
+`QUERY_MODEL`(선택, 기본 `gpt-5.4-mini`).
 
 세션 메모리 노브(선택, 전부 `/query/config`로 노출): `SUMMARY_MODEL`/`REWRITE_MODEL`(요약·질문 재작성 모델,
 기본 `gpt-5.4-mini`), `QUERY_HISTORY_BUDGET_CHARS`(tool 루프 history 글자 예산, 기본 `16000`),
@@ -138,7 +138,7 @@ graph/             Neo4j 그래프 구축 + 수집
   actor_admin.py     Actor 수동 병합·복원·분리 (운영 쓰기 경로, docs/actor-manual-merge.md)
   privacy.py         개인정보 보고 대상 조회 (project_id 스코프 없는 예외 — 모듈 docstring 참고)
   slack_filter.py / slack_llm_filter.py / slack_batch_filter.py  Slack 노이즈 필터
-  summarizer.py / path_filter.py / project_context.py / overview.py
+  summarizer.py / path_filter.py / overview.py
 ```
 
 ## 코딩 규칙

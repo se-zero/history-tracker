@@ -3,9 +3,7 @@ package com.history.backend.integration.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -130,6 +128,12 @@ class IntegrationServiceTest {
     @Mock
     private AiEngineGraphClient aiEngineGraphClient;
 
+    // disconnect가 실제로 위임하는지만 별도로 고정하는 테스트에서 쓴다(serviceWithRevocationService) —
+    // 나머지 disconnect 테스트는 service()가 물리는 실제 IntegrationRevocationService를 통해
+    // provider 클라이언트까지 닿는 기존 동작을 그대로 검증한다.
+    @Mock
+    private IntegrationRevocationService revocationService;
+
     private final NoopTransactionManager transactionManager = new NoopTransactionManager();
 
     @Test
@@ -181,7 +185,7 @@ class IntegrationServiceTest {
         Project project = project();
         GitHubInstallation installation = installation();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation);
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
@@ -223,7 +227,7 @@ class IntegrationServiceTest {
     void connectGitHubRepositoryDoesNotStartSaveTransactionWhenInstallationTokenCannotBeIssued() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
@@ -253,7 +257,7 @@ class IntegrationServiceTest {
         IntegrationService service = service();
         Project project = project();
         GitHubInstallation installation = installation();
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation);
         doAnswer(invocation -> {
             assertThat(transactionManager.transactionActive).isFalse();
@@ -300,7 +304,7 @@ class IntegrationServiceTest {
     @DisplayName("연동 저장이 실패하면 프로젝트 생성까지 롤백되고 수집 트리거도 하지 않음")
     void createProjectWithGitHubRepositoryRollsBackProjectWhenIntegrationSaveFails() {
         IntegrationService service = service();
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
                 .thenReturn("installation-token");
@@ -327,7 +331,7 @@ class IntegrationServiceTest {
     @DisplayName("설치 토큰 발급 실패 시 프로젝트를 만들지 않음 — 트랜잭션 시작 전")
     void createProjectWithGitHubRepositoryDoesNotCreateProjectWhenInstallationTokenCannotBeIssued() {
         IntegrationService service = service();
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
                 .thenThrow(new IllegalStateException("GitHub token issuance failed."));
@@ -355,7 +359,7 @@ class IntegrationServiceTest {
     void connectGitHubRepositoryRejectsDuplicateGitHubProvider() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(true);
@@ -377,7 +381,7 @@ class IntegrationServiceTest {
     void connectGitHubRepositoryPropagatesMissingInstallationAsNotFound() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenThrow(new NotFoundException("GitHub installation not found."));
 
         assertThatThrownBy(() -> service.connectGitHubRepository(
@@ -397,7 +401,7 @@ class IntegrationServiceTest {
     void connectGitHubRepositoryConvertsUniqueConstraintViolationToConflict() {
         IntegrationService service = service();
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(gitHubInstallationService.getInstallationForInstaller(OWNER_ID, INSTALLATION_ID))
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
@@ -1012,12 +1016,10 @@ class IntegrationServiceTest {
     }
 
     @Test
-    @DisplayName("연동 해제 — lifecycle이 등록된 provider는 registry.find(Optional)로 조회해 폐기를 호출한다")
-    void disconnectRevokesRegisteredLifecycleFoundViaOptional() {
-        ProviderCredentialLifecycleRegistry registry = mock(ProviderCredentialLifecycleRegistry.class);
-        ProviderCredentialLifecycle lifecycle = mock(ProviderCredentialLifecycle.class);
-        when(registry.find(IntegrationProvider.JIRA)).thenReturn(Optional.of(lifecycle));
-        IntegrationService service = serviceWithCredentialLifecycles(registry);
+    @DisplayName("연동 해제 — provider 권한 폐기를 IntegrationRevocationService에 위임한다 "
+            + "(registry.find(Optional) 조회·provider별 client 호출은 IntegrationRevocationServiceTest가 검증한다)")
+    void disconnectDelegatesRevocationToIntegrationRevocationService() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
         Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {9});
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
@@ -1026,26 +1028,11 @@ class IntegrationServiceTest {
 
         service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA);
 
-        // externalRef 전달 자체는 Discord 케이스(connectOAuthDiscardsExchangedCredentialWhenSaveConflicts
-        // 등)가 별도로 검증한다 — 여기는 find(Optional) 조회 경로만 고정한다.
-        verify(lifecycle).revoke(eq(new byte[] {9}), anyMap());
-    }
-
-    @Test
-    @DisplayName("연동 해제 — lifecycle이 등록되지 않은 provider는 registry.find가 empty를 반환해 폐기 호출 없이 넘어간다")
-    void disconnectSkipsRevokeWhenLifecycleIsNotRegistered() {
-        ProviderCredentialLifecycleRegistry registry = mock(ProviderCredentialLifecycleRegistry.class);
-        when(registry.find(IntegrationProvider.GITHUB)).thenReturn(Optional.empty());
-        IntegrationService service = serviceWithCredentialLifecycles(registry);
-        Integration integration = Integration.github(project(), installation(), 12345L, "acme/widget", "main");
-        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
-        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
-        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
-                .thenReturn(Optional.of(integration));
-
-        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.GITHUB);
-
-        verify(integrationRepository).deleteById(INTEGRATION_ID);
+        // 폐기가 삭제보다 앞서야 한다 — 행을 먼저 지우면 폐기에 쓸 자격증명이 사라진다. 방금 조회로
+        // 찾은 그 integration 인스턴스가 그대로 위임된다.
+        InOrder inOrder = inOrder(revocationService, integrationRepository);
+        inOrder.verify(revocationService).revoke(integration);
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
     }
 
     @Test
@@ -1304,14 +1291,18 @@ class IntegrationServiceTest {
                 pipelineWorkerClient,
                 aiEngineGraphClient,
                 new ProviderCredentialLifecycleRegistry(List.of()),
+                // 이 factory를 쓰는 테스트는 선택 단계 로직만 검증하고 disconnect를 호출하지 않으므로
+                // stubbing 없는 mock으로 충분하다
+                revocationService,
                 new AccessTokenRefresherRegistry(List.of()),
                 new IntegrationSelectionFlowRegistry(List.of(flow)),
                 new TransactionTemplate(transactionManager)
         );
     }
 
-    // registry.find(Optional) 계약만 검증하는 자리 — 실제 lifecycle 구현은 service()가 검증한다
-    private IntegrationService serviceWithCredentialLifecycles(ProviderCredentialLifecycleRegistry registry) {
+    // disconnect가 폐기를 IntegrationRevocationService로 위임하는지만 별도로 고정하는 자리 —
+    // 위임된 뒤 registry.find(Optional)·provider client 호출은 IntegrationRevocationServiceTest가 검증한다
+    private IntegrationService serviceWithRevocationService(IntegrationRevocationService revocationService) {
         return new IntegrationService(
                 integrationRepository,
                 checkpointRepository,
@@ -1321,7 +1312,8 @@ class IntegrationServiceTest {
                 credentialCryptoService,
                 pipelineWorkerClient,
                 aiEngineGraphClient,
-                registry,
+                new ProviderCredentialLifecycleRegistry(List.of()),
+                revocationService,
                 new AccessTokenRefresherRegistry(List.of()),
                 new IntegrationSelectionFlowRegistry(List.of()),
                 new TransactionTemplate(transactionManager)
@@ -1329,6 +1321,15 @@ class IntegrationServiceTest {
     }
 
     private IntegrationService service() {
+        // 실제 lifecycle 구현을 물린 IntegrationRevocationService — disconnect가 이를 통해
+        // provider 클라이언트까지 닿는지 기존과 동일하게 검증한다(위임 자체는
+        // disconnectDelegatesRevocationToIntegrationRevocationService가 mock으로 별도 고정한다).
+        ProviderCredentialLifecycleRegistry credentialLifecycleRegistry = new ProviderCredentialLifecycleRegistry(List.of(
+                new SlackCredentialLifecycle(slackClient, credentialCryptoService),
+                new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec),
+                new DiscordCredentialLifecycle(discordClient, credentialCryptoService),
+                new GoogleChatCredentialLifecycle(googleChatClient, googleChatCredentialCodec)
+        ));
         return new IntegrationService(
                 integrationRepository,
                 checkpointRepository,
@@ -1338,13 +1339,8 @@ class IntegrationServiceTest {
                 credentialCryptoService,
                 pipelineWorkerClient,
                 aiEngineGraphClient,
-                // 실제 lifecycle 구현을 물려 폐기 경로가 provider 클라이언트까지 닿는지 그대로 검증한다
-                new ProviderCredentialLifecycleRegistry(List.of(
-                        new SlackCredentialLifecycle(slackClient, credentialCryptoService),
-                        new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec),
-                        new DiscordCredentialLifecycle(discordClient, credentialCryptoService),
-                        new GoogleChatCredentialLifecycle(googleChatClient, googleChatCredentialCodec)
-                )),
+                credentialLifecycleRegistry,
+                new IntegrationRevocationService(integrationRepository, credentialLifecycleRegistry),
                 // 갱신은 별도 SPI다 — Slack·Discord는 폐기만 있고 갱신 등록이 없다
                 new AccessTokenRefresherRegistry(List.of(
                         new JiraAccessTokenRefresher(jiraTokenService),
