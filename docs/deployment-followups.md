@@ -73,7 +73,16 @@ PR #109는 코드가 완성됐지만 도메인·토큰이 없어 터널을 실�
 
 ---
 
-## 4. pipeline-worker 인바운드 인증 (범위 밖으로 둔 것)
+## 4. pipeline-worker 인바운드 인증 — ✅ 완료 (2026-08-26)
+
+**해결됐다.** `security/InternalServiceAuthenticationFilter`가 `/api/v1/collect/`·`/api/v1/raw/`를
+`X-Internal-Service-Token`으로 막는다(backend와 같은 규약). `/api/v1/webhook/`는 GitHub이 직접
+호출하므로 예외로 두고 기존 HMAC 서명 검증에 맡겼다 — 아래 두 번째 체크박스의 결정이 그대로다.
+같은 작업에서 **ai-engine의 4개 라우터 전부**에도 같은 토큰 검증을 붙였다.
+상세는 [public-readiness.md](public-readiness.md) 2-1·2-2 참고.
+
+<details>
+<summary>당시 기록 (해결 전)</summary>
 
 `POST /api/v1/collect/{provider}`와 `POST /api/v1/raw/*`에는 인증이 없다.
 현재는 **네트워크 경계 세 겹**으로만 막는다 — 포트 폐쇄 · 터널 ingress에 미등록 · nginx의 좁은
@@ -82,12 +91,14 @@ webhook prefix(`docs/deployment.md` 4-4).
 설정 세 곳 중 하나만 어긋나면 열리는 구조라, 언젠가는 애플리케이션 레벨 인증이 맞다.
 다만 컨트롤러·테스트에 걸치는 별개 변경이라 배포 준비와 분리했다.
 
-- [ ] `INTERNAL_SERVICE_TOKEN` 헤더 검증을 pipeline-worker 인바운드에도 적용할지 검토
-      (backend에는 이미 `InternalServiceAuthenticationFilter`가 있다 — 같은 패턴을 옮길 수 있는지)
-- [ ] webhook 경로는 GitHub 서명 검증이 이미 있으므로 예외로 둘지 결정
+- [x] `INTERNAL_SERVICE_TOKEN` 헤더 검증을 pipeline-worker 인바운드에도 적용 — backend 패턴을
+      그대로 옮겼다(Spring Security가 없어 `OncePerRequestFilter`를 `@Component`로 등록)
+- [x] webhook 경로는 예외로 결정 — GitHub이 직접 호출해 헤더를 붙일 수 없다
 
 **우선순위: 중간.** 지금 노출돼 있지는 않지만, 방어가 설정에 걸려 있고 그 설정이 늘고 있다
 (터널 도입으로 대시보드라는 새 경로가 하나 더 생겼다).
+
+</details>
 
 ---
 

@@ -75,6 +75,15 @@ backend·프론트까지 포함한 커넥터 전체 순서는 `docs/integration-
 
 ## Endpoint
 
+**인바운드 인증** — `InternalServiceAuthenticationFilter`(`security` 패키지)가
+`/api/v1/collect/`·`/api/v1/raw/`를 `X-Internal-Service-Token`으로 막는다. backend의 같은 이름 필터와
+동일한 규약(timing-safe 비교, 토큰 미설정 시 기동 거부)이며, 이 서비스에는 Spring Security가 없어
+`OncePerRequestFilter`를 `@Component`로 등록해 서블릿 체인에 넣는다.
+
+**`/api/v1/webhook/`는 의도적으로 예외다** — GitHub 서버가 직접 호출해 우리 헤더를 붙일 수 없다.
+그 경로는 `GitHubWebhookVerifier`의 HMAC 서명 검증(secret이 비면 전부 거부하는 fail-closed)이 지킨다.
+**이 예외를 "구멍"으로 오인해 막으면 webhook 수집이 통째로 끊긴다.**
+
 진입점별 상세 동작은 아래 흐름 다이어그램을 참고한다.
 
 - `POST /api/v1/webhook/github` — GitHub webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거.

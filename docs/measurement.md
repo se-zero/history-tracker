@@ -168,7 +168,9 @@ rule_checks:
 재채점**할 수 있고, 회귀 원인 진단에 트랜스크립트(도구 호출 목록·토큰)를 다시 쓸 수 있다.
 
 `runner.py`는 backend를 거치지 않고 ai-engine `/query`를 직접 호출한다 — ai-engine의 품질만
-격리해서 재기 위해서다. 실행마다 `{날짜, git 커밋(+dirty 여부), 골든셋 버전, 스냅샷 라벨,
+격리해서 재기 위해서다. **ai-engine이 내부 서비스 토큰을 요구하므로 러너에도 토큰이 필요하다** —
+환경변수 `INTERNAL_SERVICE_TOKEN`을 읽고, `--token`으로 덮어쓸 수 있다. 토큰 없이 돌리면
+전 케이스가 401로 실패한다(무인증 엔진을 상대로 돌릴 때만 생략 가능). 실행마다 `{날짜, git 커밋(+dirty 여부), 골든셋 버전, 스냅샷 라벨,
 그래프 구조 지표, 토큰 비용}`을 `meta.json`에 기록한다. 이 시계열이 개선 이력의 증거가 된다.
 
 답변 모델·노브 설정은 수동 라벨이 아니라 **엔진 실측값**으로 기록한다 — 러너가
@@ -339,25 +341,31 @@ pairs:
    **(a) 임계값·시맨틱 엣지 빌더만 바꾼 경우** (대부분) — 노드·임베딩은 그대로 두고 엣지만 재계산.
    ai-engine 재기동 후, 아래 **표준 체인**을 순서대로 호출한다. 지우개(clear) 3개로 이전 빌드의
    시맨틱 엣지를 비우고, 임계값을 파라미터로 주입해 다시 긋는다 — 코드 수정·재배포 없이 스윕할 수 있다.
+   > **ai-engine의 모든 라우터는 내부 서비스 토큰을 요구한다**(`/health`만 예외).
+   > 아래 호출은 전부 `-H "$AUTH"`를 달아야 하며, 빠뜨리면 **401**이 돌아온다.
+   > 토큰은 `infra/docker/.env`의 `INTERNAL_SERVICE_TOKEN`과 같은 값이다.
+
    ```bash
+   source infra/docker/.env  # $INTERNAL_SERVICE_TOKEN을 셸로 가져온다 — 안 하면 AUTH가 빈 헤더가 돼 전부 401
    BASE=http://localhost:8000
    PID=<PROJECT_ID>
+   AUTH="X-Internal-Service-Token: $INTERNAL_SERVICE_TOKEN"
 
    # 0) 최초 1회 — 기존 엣지에 source 표식이 없으면 clear가 시맨틱만 골라 지울 수 없다
-   curl -X POST "$BASE/migrations/triggered-by-source"
-   curl -X POST "$BASE/migrations/discussed-in-source"
+   curl -X POST -H "$AUTH" "$BASE/migrations/triggered-by-source"
+   curl -X POST -H "$AUTH" "$BASE/migrations/discussed-in-source"
 
    # 1) 지우고
-   curl -X POST "$BASE/migrations/clear-semantic-triggered-by?project_id=$PID"
-   curl -X POST "$BASE/migrations/clear-semantic-discussed-in?project_id=$PID"
-   curl -X POST "$BASE/migrations/clear-reference?project_id=$PID"
+   curl -X POST -H "$AUTH" "$BASE/migrations/clear-semantic-triggered-by?project_id=$PID"
+   curl -X POST -H "$AUTH" "$BASE/migrations/clear-semantic-discussed-in?project_id=$PID"
+   curl -X POST -H "$AUTH" "$BASE/migrations/clear-reference?project_id=$PID"
 
    # 2) 새 파라미터로 다시 긋는다 (임계값은 스윕 대상 — 아래는 현행 채택값)
-   curl -X POST "$BASE/reference/backfill"
-   curl -X POST "$BASE/issue-links/build" -H 'Content-Type: application/json' \
+   curl -X POST -H "$AUTH" "$BASE/reference/backfill"
+   curl -X POST -H "$AUTH" "$BASE/issue-links/build" -H 'Content-Type: application/json' \
         -d '{"triggered_by_threshold": 0.34, "discussed_in_threshold": 0.48}'
-   curl -X POST "$BASE/reference/build?threshold=0.44"
-   curl -X POST "$BASE/reference/propagate-threads"
+   curl -X POST -H "$AUTH" "$BASE/reference/build?threshold=0.44"
+   curl -X POST -H "$AUTH" "$BASE/reference/propagate-threads"
    ```
 
    > **임베딩을 다시 만들어야 하는 경우에만** 위 체인 앞에 재임베딩 backfill을 넣는다.
@@ -366,10 +374,10 @@ pairs:
    > ```bash
    > # 임베딩 모델을 바꿨다면 force=true로 4종 전부 덮어쓴다 (구 모델 벡터는 신 모델과 비교 불가).
    > # force 없이 호출하면 embedding이 비어 있는 것만 채운다(수집 중 누락분 보정).
-   > curl -X POST "$BASE/reference/backfill?force=true"
-   > curl -X POST "$BASE/migrations/changeset-embeddings?project_id=$PID&force=true"
-   > curl -X POST "$BASE/migrations/issue-embeddings?project_id=$PID&force=true"
-   > curl -X POST "$BASE/migrations/modified-embeddings?project_id=$PID&force=true"
+   > curl -X POST -H "$AUTH" "$BASE/reference/backfill?force=true"
+   > curl -X POST -H "$AUTH" "$BASE/migrations/changeset-embeddings?project_id=$PID&force=true"
+   > curl -X POST -H "$AUTH" "$BASE/migrations/issue-embeddings?project_id=$PID&force=true"
+   > curl -X POST -H "$AUTH" "$BASE/migrations/modified-embeddings?project_id=$PID&force=true"
    > ```
    > 4종 모두 `{"saved": N, "total": M}`을 반환한다. **`saved != total`이면 일부가 임베딩되지 않은
    > 것이니 재실행한다** — 배치 임베딩은 청크가 실패해도 예외 대신 빈 벡터를 채우고 넘어간다.

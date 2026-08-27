@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import com.history.backend.security.InternalServiceAuthenticationFilter;
+
 @Configuration
 public class AiEngineConfig {
 
@@ -18,13 +20,17 @@ public class AiEngineConfig {
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(60);
 
     @Bean
-    RestClient aiEngineRestClient(@Value("${ai.engine.url}") String baseUrl) {
+    RestClient aiEngineRestClient(
+            @Value("${ai.engine.url}") String baseUrl,
+            @Value("${security.internal-service.token}") String internalServiceToken
+    ) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(CONNECT_TIMEOUT);
         requestFactory.setReadTimeout(READ_TIMEOUT);
         return RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
+                .defaultHeader(InternalServiceAuthenticationFilter.HEADER_NAME, internalServiceToken)
                 .build();
     }
 }
