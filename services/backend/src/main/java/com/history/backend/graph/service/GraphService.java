@@ -4,7 +4,7 @@ import java.util.UUID;
 
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
-import com.history.backend.graph.dto.GraphConstellationResponse;
+import com.history.backend.graph.dto.GraphWorkUnitsResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.SubgraphRequest;
@@ -26,19 +26,19 @@ public class GraphService {
         return aiEngineGraphClient.fetchOverview(projectId, limit, types);
     }
 
-    // 소유권 검증 후 성좌 뷰용 조회를 프록시한다 (작업 성좌 화면용).
-    public GraphConstellationResponse getConstellation(UUID ownerId, UUID projectId, Integer limit) {
+    // 소유권 검증 후 작업 단위 뷰용 조회를 프록시한다 (작업 단위 화면용).
+    public GraphWorkUnitsResponse getWorkUnits(UUID ownerId, UUID projectId, Integer limit) {
         projectService.getProject(ownerId, projectId);
-        return aiEngineGraphClient.fetchConstellation(projectId, limit);
+        return aiEngineGraphClient.fetchWorkUnits(projectId, limit);
     }
 
-    // 소유권 검증 후 성좌 드릴인 조회를 프록시한다. 빈 nodeId는 ai-engine 왕복 없이 빈 결과.
-    public GraphResponse getWorkUnit(UUID ownerId, UUID projectId, String nodeId) {
+    // 소유권 검증 후 작업 단위 드릴인 조회를 프록시한다. 빈 nodeId는 ai-engine 왕복 없이 빈 결과.
+    public GraphResponse getWorkUnitNeighbors(UUID ownerId, UUID projectId, String nodeId) {
         projectService.getProject(ownerId, projectId);
         if (nodeId == null || nodeId.isBlank()) {
             return GraphResponse.empty();
         }
-        return aiEngineGraphClient.fetchWorkUnit(projectId, nodeId.trim());
+        return aiEngineGraphClient.fetchWorkUnitNeighbors(projectId, nodeId.trim());
     }
 
     // 소유권 검증 후 답변 evidence가 가리키는 관련 서브그래프를 ai-engine에서 조회한다 (대화 화면 그래프 패널용).

@@ -7,7 +7,7 @@ import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.graph.dto.AiEngineSubgraphRequest;
 import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphActivityResponse;
-import com.history.backend.graph.dto.GraphConstellationResponse;
+import com.history.backend.graph.dto.GraphWorkUnitsResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
@@ -50,12 +50,12 @@ public class AiEngineGraphClient {
         }
     }
 
-    // 성좌 뷰용 조회 — 작업 단위는 전량, 위성만 최신 limit개. 별성이 빠지면 그림이 틀리기 때문이다.
-    public GraphConstellationResponse fetchConstellation(UUID projectId, Integer limit) {
+    // 작업 단위 뷰용 조회 — 작업 단위는 전량, 구성 노드만 최신 limit개. 작업 단위가 빠지면 그림이 틀리기 때문이다.
+    public GraphWorkUnitsResponse fetchWorkUnits(UUID projectId, Integer limit) {
         try {
-            GraphConstellationResponse response = aiEngineRestClient.get()
+            GraphWorkUnitsResponse response = aiEngineRestClient.get()
                     .uri(uriBuilder -> {
-                        uriBuilder.path("/graph/constellation")
+                        uriBuilder.path("/graph/work-units")
                                 .queryParam("project_id", projectId);
                         if (limit != null) {
                             uriBuilder.queryParam("limit", limit);
@@ -63,21 +63,21 @@ public class AiEngineGraphClient {
                         return uriBuilder.build();
                     })
                     .retrieve()
-                    .body(GraphConstellationResponse.class);
+                    .body(GraphWorkUnitsResponse.class);
             return normalize(response);
         } catch (RestClientException exception) {
-            log.error("ai-engine graph constellation request failed: {}", exception.getMessage());
-            throw new BadGatewayException("Failed to load project constellation.");
+            log.error("ai-engine graph work-units request failed: {}", exception.getMessage());
+            throw new BadGatewayException("Failed to load project work units.");
         }
     }
 
-    // 성좌 드릴인 — 작업 단위 하나의 이웃만 조회한다 (위성이 비어 있는 오래된 성좌를 채울 때).
+    // 작업 단위 드릴인 — 작업 단위 하나의 이웃만 조회한다 (구성 노드가 비어 있는 오래된 작업 단위를 채울 때).
     // nodeId는 Neo4j elementId라 콜론을 포함한다 — URI 템플릿 변수로 넘겨 strict 인코딩되게 한다.
-    public GraphResponse fetchWorkUnit(UUID projectId, String nodeId) {
+    public GraphResponse fetchWorkUnitNeighbors(UUID projectId, String nodeId) {
         try {
             GraphResponse response = aiEngineRestClient.get()
                     .uri(uriBuilder -> uriBuilder
-                            .path("/graph/work-unit")
+                            .path("/graph/work-unit/neighbors")
                             .queryParam("project_id", projectId)
                             .queryParam("node_id", "{nodeId}")
                             .build(nodeId))
@@ -198,12 +198,12 @@ public class AiEngineGraphClient {
         );
     }
 
-    // 성좌 응답도 마찬가지로 프론트가 항상 배열을 받도록 보정한다.
-    private GraphConstellationResponse normalize(GraphConstellationResponse response) {
+    // 작업 단위 응답도 마찬가지로 프론트가 항상 배열을 받도록 보정한다.
+    private GraphWorkUnitsResponse normalize(GraphWorkUnitsResponse response) {
         if (response == null) {
-            return GraphConstellationResponse.empty();
+            return GraphWorkUnitsResponse.empty();
         }
-        return new GraphConstellationResponse(
+        return new GraphWorkUnitsResponse(
                 response.nodes() == null ? List.of() : response.nodes(),
                 response.edges() == null ? List.of() : response.edges(),
                 response.workUnitIds() == null ? List.of() : response.workUnitIds()

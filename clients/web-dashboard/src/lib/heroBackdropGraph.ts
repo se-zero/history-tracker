@@ -1,6 +1,6 @@
-// 히어로 배경의 "성좌" 그래프 일러스트 데이터를 생성한다.
+// 히어로 배경의 장식용 그래프 일러스트 데이터를 생성한다.
 // 결정론적 PRNG(mulberry32)로 클러스터 중심 주변에 가우시안 분포로 노드를 뭉치고,
-// 클러스터 내부는 촘촘하게(k-최근접 이웃), 클러스터 사이는 성긴 브리지 몇 개로만 이어
+// 클러스터 내부는 촘촘하게(k-최근접 이웃), 클러스터 사이는 성긴 공유 연결 몇 개로만 이어
 // 실제 지식 그래프처럼 밀도가 고르지 않은 배경을 만든다(균일 분포는 "점 그리드"로 보인다).
 // 그 위에 가장 조밀한 코어 클러스터 "안"만 도는 4노드/3엣지 트레이스를 골라 앰버로
 // 덮어써 시그니처 순간(질문 → 코어를 가로지르는 근거 트레이스)을 재연한다. 시작점에서
@@ -31,7 +31,7 @@ export interface HeroEdge {
   opacity: number;
 }
 
-export interface HeroConstellation {
+export interface HeroBackdropGraph {
   width: number;
   height: number;
   nodes: HeroNode[];
@@ -101,10 +101,10 @@ const INTRA_K: Record<Exclude<ClusterId, "outlier">, number> = {
   lobeSW: 2,
 };
 
-// 클러스터 간 성긴 브리지 — 지정된 쌍마다 두 클러스터에서 가장 가까운 노드끼리 딱 1개만 잇는다.
-// lobeSW는 core가 아니라 medC와 잇는다 — core와 직결하면 브리지가 텍스트 존을 대각선으로
+// 클러스터 간 성긴 공유 연결 — 지정된 쌍마다 두 클러스터에서 가장 가까운 노드끼리 딱 1개만 잇는다.
+// lobeSW는 core가 아니라 medC와 잇는다 — core와 직결하면 공유 연결이 텍스트 존을 대각선으로
 // 가로질러 카피 위를 지나가기 때문이다(medC 경유는 존 아래(y>560)로 돈다).
-const BRIDGE_PAIRS: Array<[ClusterId, ClusterId]> = [
+const SHARED_PAIRS: Array<[ClusterId, ClusterId]> = [
   ["core", "medA"],
   ["core", "medB"],
   ["core", "medC"],
@@ -272,7 +272,7 @@ function edgeKey(a: number, b: number): string {
 }
 
 // 엣지 — 클러스터 내부는 k-최근접 이웃으로 촘촘하게, 클러스터 사이는 지정된 쌍마다
-// 가장 가까운 노드끼리 딱 1개씩만 이어 성긴 브리지를 만든다. 무향 그래프이므로
+// 가장 가까운 노드끼리 딱 1개씩만 이어 성긴 공유 연결을 만든다. 무향 그래프이므로
 // a-b/b-a 중복은 인덱스 쌍 키로 제거한다. 전결합은 절대 하지 않는다.
 // 텍스트 존에 걸친 엣지는 양 끝 노드 감쇠 계수의 min을 곱해 노드와 함께 가라앉는다.
 function buildEdges(
@@ -282,9 +282,9 @@ function buildEdges(
   rng: () => number,
 ): HeroEdge[] {
   const seen = new Set<string>();
-  const pairs: Array<{ a: number; b: number; kind: "intra" | "bridge" }> = [];
+  const pairs: Array<{ a: number; b: number; kind: "intra" | "shared" }> = [];
 
-  const addPair = (a: number, b: number, kind: "intra" | "bridge") => {
+  const addPair = (a: number, b: number, kind: "intra" | "shared") => {
     const key = edgeKey(a, b);
     if (seen.has(key)) return;
     seen.add(key);
@@ -312,8 +312,8 @@ function buildEdges(
     }
   }
 
-  // 클러스터 간 브리지 — 지정된 쌍마다 두 클러스터에서 가장 가까운 노드쌍 하나만
-  for (const [c1, c2] of BRIDGE_PAIRS) {
+  // 클러스터 간 공유 연결 — 지정된 쌍마다 두 클러스터에서 가장 가까운 노드쌍 하나만
+  for (const [c1, c2] of SHARED_PAIRS) {
     const idxs1 = byCluster.get(c1) ?? [];
     const idxs2 = byCluster.get(c2) ?? [];
     let best: { a: number; b: number; d: number } | null = null;
@@ -323,7 +323,7 @@ function buildEdges(
         if (!best || d < best.d) best = { a: i, b: j, d };
       }
     }
-    if (best) addPair(best.a, best.b, "bridge");
+    if (best) addPair(best.a, best.b, "shared");
   }
 
   // 아웃라이어는 절반만(인덱스 기준 하나 걸러 하나) 전역 최근접 노드에 연결하고
@@ -338,7 +338,7 @@ function buildEdges(
       const d = dist(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
       if (!best || d < best.d) best = { j, d };
     }
-    if (best) addPair(i, best.j, "bridge");
+    if (best) addPair(i, best.j, "shared");
   }
 
   pairs.sort((p1, p2) => p1.a - p2.a || p1.b - p2.b);
@@ -504,7 +504,7 @@ function buildLitPath(
   return { litNodeIds: coreNodes.slice(0, 4).map((n) => n.id), litEdgeIds: [] };
 }
 
-function generateConstellation(): HeroConstellation {
+function generateBackdropGraph(): HeroBackdropGraph {
   const rng = mulberry32(SEED);
   const { nodes, clusterOf, factorOf } = buildNodes(rng);
   const edges = buildEdges(nodes, clusterOf, factorOf, rng);
@@ -513,4 +513,4 @@ function generateConstellation(): HeroConstellation {
 }
 
 // 모듈 로드 시 1회 생성 — 시드가 고정이라 항상 같은 배치가 나온다.
-export const HERO_CONSTELLATION: HeroConstellation = generateConstellation();
+export const HERO_BACKDROP_GRAPH: HeroBackdropGraph = generateBackdropGraph();

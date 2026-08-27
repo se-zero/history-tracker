@@ -4,7 +4,7 @@ import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
 import { useLandingLanguage, type Localized } from "@/components/landing/LandingLanguageProvider";
 import { PATHS } from "@/routes";
-import { HERO_CONSTELLATION } from "@/lib/heroConstellation";
+import { HERO_BACKDROP_GRAPH } from "@/lib/heroBackdropGraph";
 
 // 문자열 소사전 — CTA·안내문은 히어로와 동일 문자열(LandingHero COPY와 값이 같다).
 const COPY: Localized<{
@@ -37,7 +37,7 @@ const COPY: Localized<{
 //    수미상관이 색으로도 성립하고, surface-1과 두 단계 색차로 경계가 분명해진다.
 //    (canvas 층은 그래프가 앉는 배경 전용이라는 DESIGN.md 규칙과도 맞는다 — 아래 에코가
 //    실제로 이 층 위에 앉는 그래프다.)
-// ② 히어로 성좌(HERO_CONSTELLATION — 같은 시드, 같은 배치)를 무채·저투명으로 에코 —
+// ② 히어로 배경 그래프(HERO_BACKDROP_GRAPH — 같은 시드, 같은 배치)를 무채·저투명으로 에코 —
 //    "처음의 그 그래프가 여기에도 있다"는 수미상관 신호. 무채(노드 타입색·앰버 없음)인
 //    이유: 라이브한 것도, 특정 노드를 지시하는 것도 아니다(앰버·노드색 네임스페이스 비대상).
 //    모션 없음(정적) — 이 섹션의 유일한 라이브 요소는 앰버 버튼 하나로 유지한다.
@@ -46,12 +46,12 @@ export function FinalCtaSection() {
   const { status } = useAuth();
   const { lang } = useLandingLanguage();
   const t = COPY[lang];
-  const { width, height, nodes, edges } = HERO_CONSTELLATION;
+  const { width, height, nodes, edges } = HERO_BACKDROP_GRAPH;
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
   return (
     <section className="lp-final-cta">
-      {/* 히어로 성좌 에코 — 동일 데이터의 무채 재렌더. 개별 opacity(생성기 부여)는 유지하고
+      {/* 히어로 배경 그래프 에코 — 동일 데이터의 무채 재렌더. 개별 opacity(생성기 부여)는 유지하고
           레이어 전체를 .lp-final-cta-echo에서 한 번 더 낮춘다. */}
       <div className="lp-final-cta-echo" aria-hidden="true">
         <svg

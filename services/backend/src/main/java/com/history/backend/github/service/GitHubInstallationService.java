@@ -1,5 +1,6 @@
 package com.history.backend.github.service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -55,6 +56,14 @@ public class GitHubInstallationService {
                     return installation;
                 })
                 .orElseThrow(() -> new IllegalStateException("Failed to create or load GitHub installation."));
+    }
+
+    // 로그인 동기화가 이번에 접근 가능하다고 확인한 설치(keptInstallationIds)만 남기고
+    // 나머지 멤버십을 지운다 — 조직 이탈 등으로 GitHub이 더 이상 돌려주지 않는 설치의 멤버십이
+    // 영원히 남는 것을 막는다.
+    @Transactional
+    public void pruneMemberships(UUID userId, Collection<UUID> keptInstallationIds) {
+        gitHubInstallationMemberRepository.pruneMemberships(userId, keptInstallationIds);
     }
 
     @Transactional(readOnly = true)

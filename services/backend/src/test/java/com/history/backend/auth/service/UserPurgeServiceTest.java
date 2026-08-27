@@ -3,6 +3,7 @@ package com.history.backend.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -57,7 +59,8 @@ class UserPurgeServiceTest {
             TransactionCallback<Integer> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
-        when(userRepository.findPurgeCandidateIds(eq(NOW.minus(Duration.ofDays(30))), any(Pageable.class)))
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
                 .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID))
                 .thenReturn(List.of(THIRD_USER_ID))
                 // 새 종료 조건은 "이번 회차 파기 0명"으로만 멈춘다. 두 번째 회차도 1명을 파기하므로
@@ -79,7 +82,8 @@ class UserPurgeServiceTest {
             TransactionCallback<Integer> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
-        when(userRepository.findPurgeCandidateIds(eq(NOW.minus(Duration.ofDays(30))), any(Pageable.class)))
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
                 .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID))
                 .thenReturn(List.of());
 
@@ -99,7 +103,8 @@ class UserPurgeServiceTest {
             TransactionCallback<Integer> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
-        when(userRepository.findPurgeCandidateIds(eq(NOW.minus(Duration.ofDays(30))), any(Pageable.class)))
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
                 .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID, THIRD_USER_ID))
                 .thenReturn(List.of());
         // 세 사용자를 모두 명시적으로 스텁한다. 하나만 스텁하면 나머지 인자로 호출될 때 Mockito가
@@ -120,6 +125,39 @@ class UserPurgeServiceTest {
     }
 
     @Test
+    @DisplayName("선두 후보가 자원 정리에 실패해도 실패 id를 다음 조회에서 배제해 그 뒤 후보를 계속 파기한다")
+    void purgeExpiredUsersPurgesCandidateBehindPersistentlyFailingLeadingCandidate() {
+        UserPurgeService service = userPurgeService(1);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID))
+                .thenReturn(List.of(SECOND_USER_ID))
+                .thenReturn(List.of());
+        doThrow(new BadGatewayException("Failed to release."))
+                .when(projectService).releaseExternalResources(FIRST_USER_ID);
+        doNothing().when(projectService).releaseExternalResources(SECOND_USER_ID);
+
+        int purgedCount = service.purgeExpiredUsers(NOW);
+
+        // 지금 구현(항상 0페이지만 조회하고 batchCount==0이면 즉시 루프 종료)이면 선두 FIRST_USER_ID의
+        // 실패로 루프가 멈춰 SECOND_USER_ID는 영원히 조회조차 되지 않는다 — 아래 assertion이 그 회귀를 잡는다
+        assertThat(purgedCount).isEqualTo(1);
+        verify(userRepository).deleteAllByIdInBatch(List.of(SECOND_USER_ID));
+        verify(userRepository, never()).deleteAllByIdInBatch(List.of(FIRST_USER_ID));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> excludedIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(userRepository, atLeast(1)).findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), excludedIdsCaptor.capture(), any(Pageable.class));
+        // 두 번째 이후 조회는 첫 회차에서 실패한 FIRST_USER_ID를 배제 목록에 담아야 한다
+        assertThat(excludedIdsCaptor.getAllValues()).anyMatch(excluded -> excluded.contains(FIRST_USER_ID));
+    }
+
+    @Test
     @DisplayName("전원 자원 정리 실패 시 무한 루프 없이 종료(회귀)")
     @Timeout(5)
     void purgeExpiredUsersStopsWithoutInfiniteLoopWhenAllReleasesFail() {
@@ -130,7 +168,8 @@ class UserPurgeServiceTest {
         });
         // 항상 같은 후보 목록을 반환 — 옛 종료 조건(delete 수 == batchSize)을 쓰면 실패한 사용자가
         // 계속 후보로 잡혀 무한 루프가 된다.
-        when(userRepository.findPurgeCandidateIds(eq(NOW.minus(Duration.ofDays(30))), any(Pageable.class)))
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
                 .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID));
         doThrow(new BadGatewayException("Failed to delete project graph."))
                 .when(projectService).releaseExternalResources(any(UUID.class));
@@ -149,12 +188,14 @@ class UserPurgeServiceTest {
             TransactionCallback<Integer> callback = invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
-        when(userRepository.findPurgeCandidateIds(any(), any(Pageable.class))).thenReturn(List.of());
+        when(userRepository.findPurgeCandidateIds(any(), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of());
 
         service.purgeExpiredUsers(NOW);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(userRepository).findPurgeCandidateIds(eq(NOW.minus(Duration.ofDays(30))), pageableCaptor.capture());
+        verify(userRepository).findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(100);
     }
 

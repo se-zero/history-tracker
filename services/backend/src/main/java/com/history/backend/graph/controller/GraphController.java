@@ -4,7 +4,7 @@ import java.util.UUID;
 
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
-import com.history.backend.graph.dto.GraphConstellationResponse;
+import com.history.backend.graph.dto.GraphWorkUnitsResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.SubgraphRequest;
@@ -39,24 +39,24 @@ public class GraphController {
         return graphService.getProjectGraph(authenticatedUser.id(), projectId, limit, types);
     }
 
-    // 작업 성좌 화면용 — 작업 단위는 전량, 위성만 최신 limit개로 자른 그래프
-    @GetMapping("/constellation")
-    public GraphConstellationResponse getProjectConstellation(
+    // 작업 단위 화면용 — 작업 단위는 전량, 구성 노드만 최신 limit개로 자른 그래프
+    @GetMapping("/work-units")
+    public GraphWorkUnitsResponse getProjectWorkUnits(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @PathVariable UUID projectId,
             @RequestParam(required = false) Integer limit
     ) {
-        return graphService.getConstellation(authenticatedUser.id(), projectId, limit);
+        return graphService.getWorkUnits(authenticatedUser.id(), projectId, limit);
     }
 
-    // 성좌 드릴인 — 작업 단위 하나의 이웃 조회 (위성이 비어 있는 성좌를 열 때)
-    @GetMapping("/work-unit")
-    public GraphResponse getWorkUnit(
+    // 작업 단위 드릴인 — 작업 단위 하나의 이웃 조회 (구성 노드가 비어 있는 작업 단위를 열 때)
+    @GetMapping("/work-unit/neighbors")
+    public GraphResponse getWorkUnitNeighbors(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @PathVariable UUID projectId,
             @RequestParam String nodeId
     ) {
-        return graphService.getWorkUnit(authenticatedUser.id(), projectId, nodeId);
+        return graphService.getWorkUnitNeighbors(authenticatedUser.id(), projectId, nodeId);
     }
 
     @PostMapping("/subgraph")

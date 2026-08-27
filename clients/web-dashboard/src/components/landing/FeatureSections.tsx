@@ -222,45 +222,45 @@ function SendGlyph() {
   );
 }
 
-// ── 기능 2: 그래프 탐색 — 실제 "그래프 확인" 탭(작업 성좌 뷰)의 축소 재현 ──────────────
+// ── 기능 2: 그래프 탐색 — 실제 "그래프 확인" 탭(작업 단위 묶음 뷰)의 축소 재현 ─────────
 // 2026-08 재구축: 이전엔 "작동 방식" 섹션의 개념 도식(MiniGraph)을 확장해 쓰는 d3-force형
-// 점-선 그래프였다. 그런데 실제 그래프 화면은 이슈/PR을 "별성"으로 삼고 커밋·파일·대화가
-// 그 궤도를 도는 위성으로 붙는 성좌 뷰(ConstellationVis.tsx)로 이미 바뀌어 있어, 미리보기가
-// 실제 제품과 너무 달라 완성도가 없어 보인다는 피드백에 따라 그 drawScene 시각 문법(배경
-// 먼지 별·성좌 스포크·다리)을 그대로 옮긴 정적 SVG로 다시 그렸다. 캔버스는 DESIGN.md
-// "그래프 캔버스 층"대로 가장 깊은 우물(surface-canvas)이고, 상단 툴바는 그 위에 뜨는
-// 오버레이다(landing.css .lp-feature-graph 주석 참고 — 실제 그래프 툴의 플로팅 컨트롤과
-// 같은 취급).
+// 점-선 그래프였다. 그런데 실제 그래프 화면은 이슈/PR을 "작업 단위"로 삼고 커밋·파일·대화가
+// 그 반경 안에 구성 노드로 붙는 작업 단위 묶음 뷰(WorkUnitCanvas.tsx)로 이미 바뀌어 있어,
+// 미리보기가 실제 제품과 너무 달라 완성도가 없어 보인다는 피드백에 따라 그 drawScene 시각
+// 문법(배경 장식 점·작업 단위 묶음 스포크·공유 연결)을 그대로 옮긴 정적 SVG로 다시 그렸다.
+// 캔버스는 DESIGN.md "그래프 캔버스 층"대로 가장 깊은 우물(surface-canvas)이고, 상단
+// 툴바는 그 위에 뜨는 오버레이다(landing.css .lp-feature-graph 주석 참고 — 실제 그래프
+// 툴의 플로팅 컨트롤과 같은 취급).
 //
 // 2026-08-21 재연출(2차): "노드가 전부 밝아 근거를 찾아주는 느낌이 없다"는 사용자
 // 피드백으로 좌하단 렌즈 범례·우하단 줌 컨트롤을 걷어냈다(실제 컨트롤이 아닌 정적 장식이
 // 캔버스만 가리고 있었다). 대신 히어로 관련 그래프 패널(HeroProductSlot.tsx)의 "점등 경로"
-// 문법을 이 슬롯으로 옮겨, 답변 근거가 된 별성·위성·경로만 앰버로 밝고 나머지는 딤 처리된다
-// (DESIGN.md 시그니처 — 앰버는 "답변 경로" 지시 대상, LANDING_BRIEF.md 미리보기 앰버
-// 허용 지점 ③). 별성 라벨도 한글 제목+작성자 부제에서 라틴 모노 토큰 단독으로 바꿔 HOW IT
-// WORKS·히어로 패널과 같은 라벨 문법(DESIGN.md 모노 스코프 — 라틴 기술 토큰 전용)으로
-// 통일했다.
+// 문법을 이 슬롯으로 옮겨, 답변 근거가 된 작업 단위·구성 노드·경로만 앰버로 밝고 나머지는
+// 딤 처리된다(DESIGN.md 시그니처 — 앰버는 "답변 경로" 지시 대상, LANDING_BRIEF.md
+// 미리보기 앰버 허용 지점 ③). 작업 단위 라벨도 한글 제목+작성자 부제에서 라틴 모노 토큰
+// 단독으로 바꿔 HOW IT WORKS·히어로 패널과 같은 라벨 문법(DESIGN.md 모노 스코프 — 라틴
+// 기술 토큰 전용)으로 통일했다.
 //
 // 2026-08-21 재연출(3차): "어두운 노드들 중에서 근거를 탐색해서 찾아 빛내는 느낌"이 목표라는
 // 사용자 피드백으로 두 가지를 바꿨다. ①트리오도 처음엔 나머지와 똑같이 딤 상태로 시작한다
-// (2차에서는 트리오만 처음부터 밝았다) — 아래 GraphSatellite/GraphStar의 litId가 있어도
+// (2차에서는 트리오만 처음부터 밝았다) — 아래 GraphMember/GraphWorkUnit의 litId가 있어도
 // 렌더 시 항상 lp-feature-graph-node--dim을 함께 받는다(landing.css). ②트리오가 동시에
 // 점등되지 않고 PAY-64 발화 → PAY-64→PR#142 엣지 드로잉 → PR#142 발화 → PR#142→#dev-pay
 // 엣지 드로잉 → #dev-pay 발화 순으로 하나씩 밝는다(순차 탐색 안무 — 지속시간은
 // landing.css의 --gx-node-dur/--gx-edge-dur 로컬 변수, 시작 지연은 "베이스 클래스 + id
 // 수식자 클래스" 복합 셀렉터에 리터럴 ms로 직접 매긴다 — 커스텀 프로퍼티 간접 참조로
 // 지연이 전혀 적용되지 않는 실측 결함이 있어 2026-08-21 3차 재수정에서 걷어냈다,
-// GraphExplorerPreview 하단 주석 참고). PR#142 별성은 헤일로가 상단 툴바에 가려지지 않도록
-// cy를 50→66으로 내렸다(위성·다리·라벨 오프셋도 함께 재계산 — 아래 GRAPH_STARS[1]·
-// GRAPH_BRIDGES 주석 참고).
+// GraphExplorerPreview 하단 주석 참고). PR#142 작업 단위는 헤일로가 상단 툴바에 가려지지
+// 않도록 cy를 50→66으로 내렸다(구성 노드·공유 연결·라벨 오프셋도 함께 재계산 — 아래
+// GRAPH_WORK_UNITS[1]·GRAPH_SHARED_LINKS 주석 참고).
 //
 // 데모 데이터(고정) — 기능 1 근거 카드와 같은 스토리(승인 라우팅 가중치 작업, PAY-64 →
-// PR #142 → #dev-pay)를 성좌 4개로 펼친다. 좌표는 슬롯과 정확히 같은 비율(16:10 =
+// PR #142 → #dev-pay)를 작업 단위 묶음 4개로 펼친다. 좌표는 슬롯과 정확히 같은 비율(16:10 =
 // 400x250)의 뷰박스에 손으로 배치했다 — 실제 force 시뮬레이션이 아니라 정적 장면이라
 // 절차 생성 대신 균형 잡힌 배치를 직접 잡았고, 뷰박스 비가 슬롯 비와 같아 라벨 위치를
 // x·y 모두 같은 cqw 계수 하나로 맞출 수 있다(MiniGraph.tsx가 쓰는 letterbox 보정은 두
 // 비율이 다를 때만 필요하다).
-interface GraphSatellite {
+interface GraphMember {
   x: number;
   y: number;
   r: number;
@@ -270,13 +270,13 @@ interface GraphSatellite {
   litId?: "issue" | "pr" | "slack";
 }
 
-interface GraphStar {
+interface GraphWorkUnit {
   cx: number;
   cy: number;
   r: number;
   type: "issue" | "pr";
-  satellites: GraphSatellite[];
-  /** 점등(답변 경로) 대상인지 — 위 GraphSatellite.litId와 같은 의미. */
+  members: GraphMember[];
+  /** 점등(답변 경로) 대상인지 — 위 GraphMember.litId와 같은 의미. */
   litId?: "issue" | "pr" | "slack";
 }
 
@@ -284,37 +284,38 @@ const GRAPH_SCENE_W = 400;
 const GRAPH_SCENE_H = 250;
 const GRAPH_SCENE_UNIT_CQW = 100 / GRAPH_SCENE_W;
 
-// 점등 트리오의 위성 한 자리(#dev-pay, slack 타입) — 별성 정의보다 먼저 선언해 별성 0의
-// 위성 목록 안에서 같은 객체를 그대로 참조한다(좌표 중복·불일치 방지). 두 별성 사이·아래쪽에
-// 둬서 라벨 3개가 겹치지 않는다(아래 GRAPH_LIT_LABELS 주석의 좌표 검증 참고).
-const LIT_SLACK_SAT: GraphSatellite = { x: 200, y: 140, r: 3.3, type: "slack", litId: "slack" };
+// 점등 트리오의 구성 노드 한 자리(#dev-pay, slack 타입) — 작업 단위 정의보다 먼저 선언해
+// 작업 단위 0의 구성 노드 목록 안에서 같은 객체를 그대로 참조한다(좌표 중복·불일치 방지).
+// 두 작업 단위 사이·아래쪽에 둬서 라벨 3개가 겹치지 않는다(아래 GRAPH_LIT_LABELS 주석의
+// 좌표 검증 참고).
+const LIT_SLACK_MEMBER: GraphMember = { x: 200, y: 140, r: 3.3, type: "slack", litId: "slack" };
 
-const GRAPH_STARS: GraphStar[] = [
+const GRAPH_WORK_UNITS: GraphWorkUnit[] = [
   {
     cx: 155,
     cy: 100,
     r: 13,
     type: "issue",
     litId: "issue",
-    satellites: [
+    members: [
       { x: 121, y: 100, r: 3.0, type: "commit" },
       { x: 129, y: 85, r: 3.2, type: "commit" },
       { x: 205, y: 132, r: 2.8, type: "commit" },
       { x: 139, y: 72, r: 3.0, type: "file" },
       { x: 172, y: 70, r: 3.6, type: "file" },
       { x: 155, y: 64, r: 3.3, type: "slack" },
-      LIT_SLACK_SAT, // #dev-pay
+      LIT_SLACK_MEMBER, // #dev-pay
     ],
   },
   {
     // cy 50→66(2026-08-21 3차) — 원래 위치는 헤일로(r+14=25) 상단이 상단 툴바 오버레이에
-    // 가려졌다. 위성은 중심 대비 상대 위치를 유지한 채 y만 +16 평행이동(x는 그대로).
+    // 가려졌다. 구성 노드는 중심 대비 상대 위치를 유지한 채 y만 +16 평행이동(x는 그대로).
     cx: 260,
     cy: 66,
     r: 11,
     type: "pr",
     litId: "pr",
-    satellites: [
+    members: [
       { x: 292, y: 58, r: 3.2, type: "commit" },
       { x: 230, y: 74, r: 3.0, type: "commit" },
       { x: 270, y: 98, r: 3.4, type: "file" },
@@ -327,7 +328,7 @@ const GRAPH_STARS: GraphStar[] = [
     cy: 185,
     r: 9,
     type: "issue",
-    satellites: [
+    members: [
       { x: 136, y: 171, r: 2.9, type: "commit" },
       { x: 86, y: 195, r: 2.7, type: "commit" },
       { x: 124, y: 211, r: 3.0, type: "file" },
@@ -339,7 +340,7 @@ const GRAPH_STARS: GraphStar[] = [
     cy: 175,
     r: 8,
     type: "pr",
-    satellites: [
+    members: [
       { x: 354, y: 159, r: 2.8, type: "commit" },
       { x: 308, y: 189, r: 2.6, type: "commit" },
       { x: 348, y: 197, r: 3.0, type: "file" },
@@ -348,15 +349,15 @@ const GRAPH_STARS: GraphStar[] = [
   },
 ];
 
-// 다리 — 같은 파일·티켓을 공유한 작업을 잇는 완만한 곡선(실앱 drawBridges와 같은 문법:
-// quadratic 곡선, 별성보다 저알파). 1↔2, 2↔4를 잇는다(1↔4는 잇지 않는다 — "다 연결되진
-// 않는다"는 현실감 유지). PR 별성 cy 이동(3차)에 맞춰 두 곡선의 끝점·제어점을 다시 계산했다
-// — 원래 제어점이 직선 중점에서 벌어진 오프셋((5.5,13), (-15,8.5))을 그대로 유지한 채
-// 새 중점으로 옮겼다(곡률은 그대로, 끝점만 따라간다).
-const GRAPH_BRIDGES = ["M155,100 Q213,96 260,66", "M260,66 Q280,129 330,175"];
+// 공유 연결 — 같은 파일·티켓을 공유한 작업을 잇는 완만한 곡선(실앱 drawSharedLinks와 같은
+// 문법: quadratic 곡선, 작업 단위보다 저알파). 1↔2, 2↔4를 잇는다(1↔4는 잇지 않는다 — "다
+// 연결되진 않는다"는 현실감 유지). PR 작업 단위 cy 이동(3차)에 맞춰 두 곡선의 끝점·제어점을
+// 다시 계산했다 — 원래 제어점이 직선 중점에서 벌어진 오프셋((5.5,13), (-15,8.5))을 그대로
+// 유지한 채 새 중점으로 옮겼다(곡률은 그대로, 끝점만 따라간다).
+const GRAPH_SHARED_LINKS = ["M155,100 Q213,96 260,66", "M260,66 Q280,129 330,175"];
 
-// 성좌에 속하지 않은 자유 노드 — 성좌 사이 빈 공간에 흩어진 먼지.
-const GRAPH_DUST: Array<{ x: number; y: number; r: number; type: string }> = [
+// 작업 단위 묶음에 속하지 않은 자유 노드 — 묶음 사이 빈 공간에 흩어진 미소속 노드.
+const GRAPH_UNATTACHED: Array<{ x: number; y: number; r: number; type: string }> = [
   { x: 200, y: 150, r: 2.0, type: "file" },
   { x: 30, y: 55, r: 1.8, type: "commit" },
   { x: 370, y: 40, r: 2.0, type: "issue" },
@@ -364,9 +365,9 @@ const GRAPH_DUST: Array<{ x: number; y: number; r: number; type: string }> = [
   { x: 378, y: 215, r: 1.8, type: "pr" },
 ];
 
-// 배경 먼지 별 — 실앱 makeStarfield처럼 무작위 생성하는 대신, 정적 장면이라 좌표를 고정해
-// 손으로 흩뿌렸다(항상 같은 하늘). 원래도 저알파라 점등 연출과 무관하게 그대로 둔다.
-const GRAPH_BG_STARS = [
+// 배경 장식 점 — 실앱 makeBackdropDots처럼 무작위 생성하는 대신, 정적 장면이라 좌표를 고정해
+// 손으로 흩뿌렸다(항상 같은 배경). 원래도 저알파라 점등 연출과 무관하게 그대로 둔다.
+const GRAPH_BACKDROP_DOTS = [
   { x: 15, y: 15, r: 0.8, a: 0.06 },
   { x: 390, y: 20, r: 0.7, a: 0.08 },
   { x: 255, y: 12, r: 0.9, a: 0.07 },
@@ -386,8 +387,8 @@ interface GraphLitNode {
   x: number;
   y: number;
   r: number;
-  /** 헤일로 반지름 — 별성(큰 원)과 위성(작은 원)의 크기 차이가 커서 히어로 패널처럼 고정
-      오프셋 하나를 쓰면 위성의 헤일로가 과하게 커 보인다. 노드별로 직접 지정한다. */
+  /** 헤일로 반지름 — 작업 단위(큰 원)와 구성 노드(작은 원)의 크기 차이가 커서 히어로 패널처럼
+      고정 오프셋 하나를 쓰면 구성 노드의 헤일로가 과하게 커 보인다. 노드별로 직접 지정한다. */
   haloR: number;
 }
 
@@ -396,27 +397,27 @@ interface GraphLitNode {
 const RING_GAP = 5;
 const EDGE_TRIM_GAP = RING_GAP + 1.5;
 
-// 점등 트리오 — 스토리 순서(PAY-64 → PR #142 → #dev-pay) 그대로. 별성 둘은 위 GRAPH_STARS
-// 좌표를 그대로 참조해 두 값이 어긋날 일이 없다.
+// 점등 트리오 — 스토리 순서(PAY-64 → PR #142 → #dev-pay) 그대로. 작업 단위 둘은 위
+// GRAPH_WORK_UNITS 좌표를 그대로 참조해 두 값이 어긋날 일이 없다.
 const LIT_ISSUE: GraphLitNode = {
   id: "issue",
-  x: GRAPH_STARS[0].cx,
-  y: GRAPH_STARS[0].cy,
-  r: GRAPH_STARS[0].r,
+  x: GRAPH_WORK_UNITS[0].cx,
+  y: GRAPH_WORK_UNITS[0].cy,
+  r: GRAPH_WORK_UNITS[0].r,
   haloR: 27,
 };
 const LIT_PR: GraphLitNode = {
   id: "pr",
-  x: GRAPH_STARS[1].cx,
-  y: GRAPH_STARS[1].cy,
-  r: GRAPH_STARS[1].r,
+  x: GRAPH_WORK_UNITS[1].cx,
+  y: GRAPH_WORK_UNITS[1].cy,
+  r: GRAPH_WORK_UNITS[1].r,
   haloR: 25,
 };
 const LIT_SLACK: GraphLitNode = {
   id: "slack",
-  x: LIT_SLACK_SAT.x,
-  y: LIT_SLACK_SAT.y,
-  r: LIT_SLACK_SAT.r,
+  x: LIT_SLACK_MEMBER.x,
+  y: LIT_SLACK_MEMBER.y,
+  r: LIT_SLACK_MEMBER.r,
   haloR: 10,
 };
 const GRAPH_LIT_NODES = [LIT_ISSUE, LIT_PR, LIT_SLACK];
@@ -429,7 +430,7 @@ const GRAPH_LIT_EDGES: Array<[GraphLitNode, GraphLitNode]> = [
 
 // 점등 노드 mono 라벨 — 라틴 기술 토큰만(모노 스코프 규칙), HOW IT WORKS·히어로 패널
 // 라벨과 같은 문법(노드 중심 + dx/dy 오프셋). 뷰박스(400×250) 기준 앵커 좌표: PAY-64
-// (175,84), PR #142(280,60 — PR 별성 cy 50→66 이동에 맞춰 3차에서 44→60으로 따라감),
+// (175,84), PR #142(280,60 — PR 작업 단위 cy 50→66 이동에 맞춰 3차에서 44→60으로 따라감),
 // #dev-pay(212,130) — 셋 다 라벨 상자(가장 긴 "#dev-pay" 8자 ≈ 58px, 줄높이
 // ≈15px)를 더해도 겹치지 않는다(PAY-64는 6자로 여전히 최장 라벨이 아니라 결론 불변 —
 // 최장 라벨이 원래 11자였던 것에서 8자로 짧아지며 여유는 오히려 늘었다). 이
@@ -465,7 +466,7 @@ function trimLitEdge(a: GraphLitNode, b: GraphLitNode) {
 
 // 절제 원칙(브리프 B-4) — 페이지에 이미 움직이는 그래프가 둘(히어로·작동 방식)이라 여기는
 // 점등 오버레이(채움·링·헤일로·경로·라벨)만 IO 1회 트리거로 재생한다(기존 is-played 패턴
-// 재사용) — 배경 먼지·성좌·다리는 전부 정적이다.
+// 재사용) — 배경 장식 점·작업 단위 묶음·공유 연결은 전부 정적이다.
 //
 // 2026-08-21 3차: 트리오가 한 번에 밝아지던 것을 "탐색" 서사로 바꿨다 — 장면 전체(트리오
 // 포함)가 딤 상태로 시작하고, PAY-64 발화 → 엣지 드로잉 → PR#142 발화 → 엣지 드로잉 →
@@ -483,7 +484,7 @@ function trimLitEdge(a: GraphLitNode, b: GraphLitNode) {
 // DOM 순서는 캔버스(배경) → 오버레이지만, 오버레이가 position을 가져 항상 위로 그려진다.
 //
 // 툴바 문자열 사전 — 이 슬롯 전용(다른 컴포넌트와 중복 없음)이라 demoCopy로 옮기지 않고
-// co-located로 둔다. 성좌 라벨(PAY-64 등 라틴 모노 토큰)은 모노 스코프 규칙에 따라
+// co-located로 둔다. 작업 단위 라벨(PAY-64 등 라틴 모노 토큰)은 모노 스코프 규칙에 따라
 // 번역 대상이 아니다.
 const GRAPH_TOOLBAR_COPY: Localized<{
   rebuild: string;
@@ -528,10 +529,10 @@ function GraphExplorerPreview() {
           </defs>
 
           <g className="lp-feature-graph-bg">
-            {GRAPH_BG_STARS.map((s, i) => (
+            {GRAPH_BACKDROP_DOTS.map((s, i) => (
               <circle
                 key={i}
-                className="lp-feature-graph-bg-star"
+                className="lp-feature-graph-backdrop-dot"
                 cx={s.x}
                 cy={s.y}
                 r={s.r}
@@ -540,48 +541,48 @@ function GraphExplorerPreview() {
             ))}
           </g>
 
-          <g className="lp-feature-graph-bridges">
-            {GRAPH_BRIDGES.map((d, i) => (
-              <path key={i} className="lp-feature-graph-bridge" d={d} />
+          <g className="lp-feature-graph-shared-links">
+            {GRAPH_SHARED_LINKS.map((d, i) => (
+              <path key={i} className="lp-feature-graph-shared-link" d={d} />
             ))}
           </g>
 
           <g className="lp-feature-graph-spokes">
-            {GRAPH_STARS.map((star, i) =>
-              star.satellites.map((sat, j) => (
+            {GRAPH_WORK_UNITS.map((workUnit, i) =>
+              workUnit.members.map((member, j) => (
                 <line
                   key={`${i}-${j}`}
                   className="lp-feature-graph-spoke"
-                  x1={star.cx}
-                  y1={star.cy}
-                  x2={sat.x}
-                  y2={sat.y}
+                  x1={workUnit.cx}
+                  y1={workUnit.cy}
+                  x2={member.x}
+                  y2={member.y}
                 />
               )),
             )}
           </g>
 
-          <g className="lp-feature-graph-satellites">
-            {GRAPH_STARS.map((star, i) =>
-              star.satellites.map((sat, j) => (
+          <g className="lp-feature-graph-members">
+            {GRAPH_WORK_UNITS.map((workUnit, i) =>
+              workUnit.members.map((member, j) => (
                 <circle
                   key={`${i}-${j}`}
-                  className={`lp-feature-graph-satellite lp-feature-graph-dot--${sat.type} lp-feature-graph-node--dim${
-                    sat.litId ? ` lp-feature-graph-node--ignite-${sat.litId}` : ""
+                  className={`lp-feature-graph-member lp-feature-graph-dot--${member.type} lp-feature-graph-node--dim${
+                    member.litId ? ` lp-feature-graph-node--ignite-${member.litId}` : ""
                   }`}
-                  cx={sat.x}
-                  cy={sat.y}
-                  r={sat.r}
+                  cx={member.x}
+                  cy={member.y}
+                  r={member.r}
                 />
               )),
             )}
           </g>
 
-          <g className="lp-feature-graph-dust">
-            {GRAPH_DUST.map((d, i) => (
+          <g className="lp-feature-graph-unattached">
+            {GRAPH_UNATTACHED.map((d, i) => (
               <circle
                 key={i}
-                className={`lp-feature-graph-dust-node lp-feature-graph-dot--${d.type}`}
+                className={`lp-feature-graph-unattached-node lp-feature-graph-dot--${d.type}`}
                 cx={d.x}
                 cy={d.y}
                 r={d.r}
@@ -589,23 +590,23 @@ function GraphExplorerPreview() {
             ))}
           </g>
 
-          <g className="lp-feature-graph-stars">
-            {GRAPH_STARS.map((star, i) => (
+          <g className="lp-feature-graph-work-units">
+            {GRAPH_WORK_UNITS.map((workUnit, i) => (
               <circle
                 key={i}
-                className={`lp-feature-graph-star lp-feature-graph-dot--${star.type} lp-feature-graph-node--dim${
-                  star.litId ? ` lp-feature-graph-node--ignite-${star.litId}` : ""
+                className={`lp-feature-graph-work-unit lp-feature-graph-dot--${workUnit.type} lp-feature-graph-node--dim${
+                  workUnit.litId ? ` lp-feature-graph-node--ignite-${workUnit.litId}` : ""
                 }`}
-                cx={star.cx}
-                cy={star.cy}
-                r={star.r}
+                cx={workUnit.cx}
+                cy={workUnit.cy}
+                r={workUnit.r}
               />
             ))}
           </g>
 
           {/* 점등 오버레이 — 이 슬롯에서 앰버가 허용되는 지점(답변 경로, DESIGN.md 시그니처).
-              기존 브리지·스포크와 별개 레이어라 그 위에 겹쳐 그려도 원래 성좌 문법을 건드리지
-              않는다. 각 요소는 "베이스 클래스 + id(엣지는 두 끝점 id) 수식자 클래스" 두 개를
+              기존 공유 연결·스포크와 별개 레이어라 그 위에 겹쳐 그려도 원래 작업 단위 묶음
+              문법을 건드리지 않는다. 각 요소는 "베이스 클래스 + id(엣지는 두 끝점 id) 수식자 클래스" 두 개를
               받아 landing.css의 복합 셀렉터 딜레이 규칙과 짝을 맞춘다(순차 발화 안무,
               landing.css .lp-feature-graph 주석 참고 — 커스텀 프로퍼티 간접 참조 없이
               리터럴 ms 값을 직접 매긴다). 엣지는 <line>이 pathLength를 안정적으로 반영하지

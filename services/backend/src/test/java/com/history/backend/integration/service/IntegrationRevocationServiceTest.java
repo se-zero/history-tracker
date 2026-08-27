@@ -1,5 +1,6 @@
 package com.history.backend.integration.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -46,7 +47,7 @@ class IntegrationRevocationServiceTest {
     private ProviderCredentialLifecycleRegistry credentialLifecycles;
 
     @Test
-    @DisplayName("연동 3건 각각의 encryptedCredential·externalRef로 provider별 lifecycle.revoke를 호출한다")
+    @DisplayName("연동 3건 각각의 encryptedCredential·externalRef로 provider별 lifecycle.revoke를 호출하고 전부 성공하면 true를 반환한다")
     void revokeAllRevokesEachIntegrationWithItsOwnCredentialAndExternalRef() {
         IntegrationRevocationService service = service();
         Project project = project();
@@ -65,15 +66,16 @@ class IntegrationRevocationServiceTest {
         when(credentialLifecycles.find(IntegrationProvider.JIRA)).thenReturn(Optional.of(jiraLifecycle));
         when(credentialLifecycles.find(IntegrationProvider.DISCORD)).thenReturn(Optional.of(discordLifecycle));
 
-        service.revokeAll(PROJECT_ID);
+        boolean result = service.revokeAll(PROJECT_ID);
 
+        assertThat(result).isTrue();
         verify(slackLifecycle).revoke(eq(slack.getEncryptedCredential()), eq(slack.getExternalRef()));
         verify(jiraLifecycle).revoke(eq(jira.getEncryptedCredential()), eq(jira.getExternalRef()));
         verify(discordLifecycle).revoke(eq(discord.getEncryptedCredential()), eq(discord.getExternalRef()));
     }
 
     @Test
-    @DisplayName("한 provider의 revoke가 RuntimeException을 던져도 나머지 provider 폐기는 계속 진행되고 예외를 전파하지 않는다")
+    @DisplayName("한 provider의 revoke가 RuntimeException을 던지면 false를 반환하되 나머지 provider 폐기는 계속 진행되고 예외를 전파하지 않는다")
     void revokeAllContinuesRemainingProvidersWhenOneRevokeThrows() {
         IntegrationRevocationService service = service();
         Project project = project();
@@ -93,8 +95,9 @@ class IntegrationRevocationServiceTest {
         when(credentialLifecycles.find(IntegrationProvider.DISCORD)).thenReturn(Optional.of(discordLifecycle));
         doThrow(new RuntimeException("Slack revoke failed.")).when(slackLifecycle).revoke(any(), any());
 
-        assertThatCode(() -> service.revokeAll(PROJECT_ID)).doesNotThrowAnyException();
+        boolean result = service.revokeAll(PROJECT_ID);
 
+        assertThat(result).isFalse();
         // 첫 provider(Slack)가 실패해도 이어지는 Jira·Discord 폐기가 진행돼야 한다 —
         // 구현이 첫 예외에서 순회를 중단하면 이 두 verify가 실패해 잡아낸다
         verify(jiraLifecycle).revoke(eq(jira.getEncryptedCredential()), eq(jira.getExternalRef()));

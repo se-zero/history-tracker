@@ -5,8 +5,8 @@ import {
   getGraphActivity,
   getGraphBuildStatus,
   getMessageSubgraph,
-  getProjectConstellation,
   getProjectGraph,
+  getProjectWorkUnits,
   getWorkUnitNeighborhood,
   rebuildProjectGraph,
 } from "@/api/graph";
@@ -22,21 +22,21 @@ export function useGraph(projectId: string) {
   });
 }
 
-// 성좌 뷰용 조회 — 작업 단위 전량 + 위성 최신 N개.
-// 키가 ["graph", projectId, "constellation"]이라 빌드/수집 완료 시의
+// 그래프 확인 화면용 조회 — 작업 단위 전량 + 구성 노드 최신 N개.
+// 키가 ["graph", projectId, "workUnits"]이라 빌드/수집 완료 시의
 // invalidateQueries(queryKeys.graph)에 prefix로 함께 걸린다(별도 무효화 불필요).
-export function useConstellation(projectId: string) {
+export function useWorkUnits(projectId: string) {
   return useQuery({
-    queryKey: queryKeys.graphConstellation(projectId),
-    queryFn: () => getProjectConstellation(projectId),
+    queryKey: queryKeys.graphWorkUnits(projectId),
+    queryFn: () => getProjectWorkUnits(projectId),
   });
 }
 
 /**
- * 성좌 드릴인으로 펼친 작업 단위들의 이웃을 모아 하나의 {nodes, edges}로 준다.
+ * 드릴인으로 펼친 작업 단위들의 이웃을 모아 하나의 {nodes, edges}로 준다.
  *
- * 작업 단위별 결과는 불변이라 오래 캐시한다(같은 성좌를 다시 열어도 재요청 없음).
- * 병합 결과는 레이아웃 useMemo의 입력이 되므로, 매 렌더 새 객체가 나오면 은하가
+ * 작업 단위별 결과는 불변이라 오래 캐시한다(같은 묶음을 다시 열어도 재요청 없음).
+ * 병합 결과는 레이아웃 useMemo의 입력이 되므로, 매 렌더 새 객체가 나오면 레이아웃이
  * 매번 다시 계산된다 — 그래서 데이터가 실제로 갱신됐을 때만(dataUpdatedAt) 새로 만든다.
  */
 export function useWorkUnitNeighborhoods(projectId: string, nodeIds: string[]) {

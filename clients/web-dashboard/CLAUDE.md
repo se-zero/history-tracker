@@ -2,7 +2,7 @@
 
 ## 역할
 
-사용자 웹 프론트엔드 (Vite + React 18 + TypeScript, :5173). onboarding·sources·성좌·chat·settings 화면을 제공하며,
+사용자 웹 프론트엔드 (Vite + React 18 + TypeScript, :5173). onboarding·sources·그래프·chat·settings 화면을 제공하며,
 backend(:8080) API만 호출한다. 전체 아키텍처는 루트 [CLAUDE.md](../../CLAUDE.md) 참고.
 
 ## 실행 / 빌드
@@ -58,8 +58,8 @@ src/
                     해제는 수집된 그래프까지 지우는 파괴적 동작이라 무엇이 삭제·유지되는지 먼저 보여준다
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
-    graph/          ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널) · NodeDetail
-                    GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 성좌로 대체됨)
+    graph/          WorkUnitCanvas(작업 단위 뷰 Canvas 렌더러) · ClusterDetail(열린 작업 단위 묶음 패널) · NodeDetail
+                    GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
     landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
                     LegalLayout — 약관·개인정보 공통 셸(헤더/푸터 재사용 + 산문 컬럼)
@@ -67,9 +67,8 @@ src/
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
-    Onboarding · Chat · Sources · Settings · Account · Galaxy(작업 성좌 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
+    Onboarding · Chat · Sources · Settings · Account · GraphPage(작업 단위 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
     Actors · Landing · Terms · Privacy · AuthCallback · NotFound
-    ※ /projects/:id/graph 는 /galaxy 로 리다이렉트한다(옛 링크 호환).
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
     ※ Terms(`/terms`)·Privacy(`/privacy`)도 AuthGate 밖 공개 라우트다. 랜딩과 같은 `.lp` 스코프를
       쓰며 헤더·푸터를 공유한다(LegalLayout). 내용은 실제 수집 항목·권한 scope·보유 기간을
@@ -86,8 +85,8 @@ src/
       Google Chat의 `directory.readonly`는 민감 범위라 OAuth 검증에서 이 URL을 요구한다.
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
-                    constellation(성좌 배치: 별성 force + 위성 궤도) · canvasColor(CSS 토큰 → Canvas RGB)
-                    heroConstellation · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
+                    workUnitLayout(작업 단위 배치: 작업 단위 force + 구성 노드 반경) · canvasColor(CSS 토큰 → Canvas RGB)
+                    heroBackdropGraph · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
                     remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
                     **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
                     (서버가 타임존을 굳히면 저장된 답변이 그 타임존에 영구히 묶인다, docs/tools.md).

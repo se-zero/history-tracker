@@ -39,10 +39,10 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
-// 성좌 뷰용 그래프 — GraphData에 작업 단위 목록을 더한다.
-// workUnitIds가 별성으로 그릴 노드다. 어떤 노드가 작업 단위인지는 서버가 정한다 —
-// 프론트가 노드 타입으로 하드코딩하면 PR이 0건인 프로젝트에서 별성이 사라진다.
-export interface ConstellationData extends GraphData {
+// 그래프 확인 화면용 그래프 — GraphData에 작업 단위 목록을 더한다.
+// workUnitIds가 작업 단위로 그릴 노드다. 어떤 노드가 작업 단위인지는 서버가 정한다 —
+// 프론트가 노드 타입으로 하드코딩하면 PR이 0건인 프로젝트에서 작업 단위가 사라진다.
+export interface WorkUnitsData extends GraphData {
   workUnitIds: string[];
 }
 

@@ -14,7 +14,7 @@ type Route =
   | "chat"
   | "sources"
   | "actors"
-  | "galaxy"
+  | "graph"
   | "settings"
   | "account";
 
@@ -97,8 +97,8 @@ export function Sidebar({
         <NavItem
           icon={<Icons.Sparkle />}
           label="그래프 확인"
-          active={route === "galaxy"}
-          onClick={() => onRouteChange("galaxy")}
+          active={route === "graph"}
+          onClick={() => onRouteChange("graph")}
         />
         <NavItem
           icon={<Icons.Settings />}

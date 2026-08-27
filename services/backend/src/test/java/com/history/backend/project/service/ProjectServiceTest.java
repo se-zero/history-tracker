@@ -288,6 +288,24 @@ class ProjectServiceTest {
     }
 
     @Test
+    @DisplayName("사용자 대면 삭제는 연동 권한 폐기가 실패해도 예외를 던지지 않고 그래프·RDB 삭제를 계속 진행한다"
+            + " — releaseExternalResources(파기 전용)와의 비대칭이 의도된 설계다")
+    void deleteProjectContinuesGraphAndRepositoryDeleteWhenIntegrationRevocationFails() {
+        ProjectService service = service();
+        Project project = project(PROJECT_ID, OWNER_ID, "History Tracker", null);
+        when(userService.getActiveUser(OWNER_ID)).thenReturn(user(OWNER_ID));
+        when(projectRepository.findByIdWithOwner(PROJECT_ID)).thenReturn(Optional.of(project));
+        when(integrationRevocationService.revokeAll(PROJECT_ID)).thenReturn(false);
+
+        service.deleteProject(OWNER_ID, PROJECT_ID);
+
+        // 파기 전용 releaseExternalResources와 달리, 사용자가 직접 요청한 삭제는 provider 장애로
+        // 프로젝트를 못 지우게 막으면 안 된다 — 폐기 실패에도 그래프·RDB 삭제가 이어져야 한다
+        verify(aiEngineGraphClient).deleteProjectGraph(PROJECT_ID);
+        verify(projectRepository).deleteById(PROJECT_ID);
+    }
+
+    @Test
     @DisplayName("다른 소유자의 프로젝트 삭제 거부")
     void deleteProjectRejectsDifferentOwner() {
         ProjectService service = service();
@@ -380,6 +398,10 @@ class ProjectServiceTest {
         Project second = project(SECOND_OWNED_PROJECT_ID, OWNER_ID, "Second", null);
         when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
                 .thenReturn(List.of(first, second));
+        // 성공 경로다 — 스텁하지 않으면 mock의 boolean 기본값(false)이 "폐기 실패"로 읽혀
+        // releaseExternalResources가 BadGatewayException을 던진다.
+        when(integrationRevocationService.revokeAll(FIRST_OWNED_PROJECT_ID)).thenReturn(true);
+        when(integrationRevocationService.revokeAll(SECOND_OWNED_PROJECT_ID)).thenReturn(true);
 
         service.releaseExternalResources(OWNER_ID);
 
@@ -397,6 +419,7 @@ class ProjectServiceTest {
         Project project = project(FIRST_OWNED_PROJECT_ID, OWNER_ID, "First", null);
         when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
                 .thenReturn(List.of(project));
+        when(integrationRevocationService.revokeAll(FIRST_OWNED_PROJECT_ID)).thenReturn(true);
 
         service.releaseExternalResources(OWNER_ID);
 
@@ -410,6 +433,7 @@ class ProjectServiceTest {
         Project project = project(FIRST_OWNED_PROJECT_ID, OWNER_ID, "First", null);
         when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
                 .thenReturn(List.of(project));
+        when(integrationRevocationService.revokeAll(FIRST_OWNED_PROJECT_ID)).thenReturn(true);
 
         service.releaseExternalResources(OWNER_ID);
 
@@ -423,11 +447,29 @@ class ProjectServiceTest {
         Project project = project(FIRST_OWNED_PROJECT_ID, OWNER_ID, "First", null);
         when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
                 .thenReturn(List.of(project));
+        // 폐기는 성공시켜야 그래프 삭제 단계까지 도달한다 — 이 테스트가 보려는 건 그래프 실패다.
+        when(integrationRevocationService.revokeAll(FIRST_OWNED_PROJECT_ID)).thenReturn(true);
         doThrow(new BadGatewayException("Failed to delete project graph."))
                 .when(aiEngineGraphClient).deleteProjectGraph(FIRST_OWNED_PROJECT_ID);
 
         assertThatThrownBy(() -> service.releaseExternalResources(OWNER_ID))
                 .isInstanceOf(BadGatewayException.class);
+    }
+
+    @Test
+    @DisplayName("파기: 연동 권한 폐기가 실패하면 BadGatewayException을 던지고 그래프 삭제로 넘어가지 않는다")
+    void releaseExternalResourcesThrowsBadGatewayExceptionWhenIntegrationRevocationFails() {
+        ProjectService service = service();
+        Project project = project(FIRST_OWNED_PROJECT_ID, OWNER_ID, "First", null);
+        when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
+                .thenReturn(List.of(project));
+        when(integrationRevocationService.revokeAll(FIRST_OWNED_PROJECT_ID)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.releaseExternalResources(OWNER_ID))
+                .isInstanceOf(BadGatewayException.class);
+
+        // 그래프 삭제 실패와 동일하게 취급 — 폐기가 실패한 프로젝트의 그래프는 건드리지 않고 중단한다
+        verify(aiEngineGraphClient, never()).deleteProjectGraph(any(UUID.class));
     }
 
     @Test
