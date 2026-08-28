@@ -7,8 +7,6 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
-import com.history.backend.auth.dto.RefreshTokenRequest;
-import com.history.backend.auth.dto.TokenResponse;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.domain.GitHubInstallation;
@@ -89,7 +87,7 @@ public class AuthService {
     }
 
     @Transactional
-    public TokenResponse loginWithGitHub(GitHubCallbackRequest request) {
+    public IssuedSession loginWithGitHub(GitHubCallbackRequest request) {
         // GitHub code를 user access token으로 교환
         String accessToken = requireAccessToken(gitHubOAuthClient.exchangeCode(request.code()));
 
@@ -101,12 +99,12 @@ public class AuthService {
 
         syncInstallations(user, gitHubUser, accessToken);
 
-        // 서비스 access token과 refresh token 발급
-        return new TokenResponse(
+        // 서비스 access token 발급. refresh 원문은 컨트롤러가 httpOnly 쿠키로만 내려보낸다.
+        return new IssuedSession(
                 jwtTokenService.issueAccessToken(user.getId()),
                 refreshTokenService.issueRefreshToken(user),
-                "Bearer",
-                jwtProperties.accessTokenTtl().toSeconds()
+                jwtProperties.accessTokenTtl().toSeconds(),
+                jwtProperties.refreshTokenTtl()
         );
     }
 
@@ -118,18 +116,24 @@ public class AuthService {
     }
 
     @Transactional
-    public TokenResponse refresh(RefreshTokenRequest request) {
-        RefreshTokenIssue issue = refreshTokenService.rotateRefreshToken(request.refreshToken());
-        return new TokenResponse(
+    public IssuedSession refresh(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new UnauthorizedException("Invalid refresh token.");
+        }
+        RefreshTokenIssue issue = refreshTokenService.rotateRefreshToken(refreshToken);
+        return new IssuedSession(
                 jwtTokenService.issueAccessToken(issue.user().getId()),
                 issue.refreshToken(),
-                "Bearer",
-                jwtProperties.accessTokenTtl().toSeconds()
+                jwtProperties.accessTokenTtl().toSeconds(),
+                jwtProperties.refreshTokenTtl()
         );
     }
 
-    public void logout(RefreshTokenRequest request) {
-        refreshTokenService.revokeRefreshToken(request.refreshToken());
+    public void logout(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;
+        }
+        refreshTokenService.revokeRefreshToken(refreshToken);
     }
 
     // 로그인 시점에 GitHub의 설치 목록을 조회해 접근 가능한 설치를 동기화.

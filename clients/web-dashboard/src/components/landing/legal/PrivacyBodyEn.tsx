@@ -606,8 +606,10 @@ export function PrivacyBodyEn() {
       <LegalSection index={9} heading="Information Stored in the Browser">
         <p>
           The Service does not use cookies for advertising or analytics purposes.
-          To keep a User signed in, an authentication token is stored in the
-          browser's local storage and is deleted on sign-out.
+          To keep a User signed in, a refresh token is stored in an httpOnly
+          cookie that scripts cannot read, and is deleted on sign-out. The
+          short-lived access token is kept in memory only and is not written to
+          storage.
         </p>
         <p>
           Beyond this, display preferences — the app theme (<code>ht.theme</code>) and

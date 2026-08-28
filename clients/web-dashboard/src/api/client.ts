@@ -19,7 +19,7 @@ export class UnauthorizedError extends Error {}
 //   _skipAuth   = Authorization 헤더 부착 안 함 (refresh 자체 요청용)
 //   _skipRefresh = 401이어도 refresh 트리거 안 함 (무한 루프 방지)
 //   _retried    = 이미 한 번 재시도된 요청 (두 번째 실패는 그대로 reject)
-type AuthAwareConfig = InternalAxiosRequestConfig & {
+export type AuthAwareConfig = InternalAxiosRequestConfig & {
   _skipAuth?: boolean;
   _skipRefresh?: boolean;
   _retried?: boolean;
@@ -38,20 +38,17 @@ api.interceptors.request.use((config) => {
 
 let refreshPromise: Promise<TokenResponse> | null = null;
 
-async function performRefresh(): Promise<TokenResponse> {
+export async function refreshSession(): Promise<TokenResponse> {
   if (refreshPromise) return refreshPromise;
-  const refreshToken = tokenStorage.getRefresh();
-  if (!refreshToken) throw new Error("no refresh token");
 
   refreshPromise = (async () => {
     try {
       const { data } = await api.post<TokenResponse>(
         "/auth/refresh",
-        { refreshToken },
+        null,
         { _skipAuth: true, _skipRefresh: true } as AuthAwareConfig,
       );
-      // backend는 rotation 방식 — 매번 새 refreshToken으로 교체된다.
-      tokenStorage.set(data);
+      tokenStorage.setAccess(data.accessToken);
       return data;
     } finally {
       refreshPromise = null;
@@ -67,21 +64,14 @@ api.interceptors.response.use(
     const cfg = error.config as AuthAwareConfig | undefined;
     const status = error.response?.status;
 
-    if (
-      status === 401 &&
-      cfg &&
-      !cfg._retried &&
-      !cfg._skipRefresh &&
-      tokenStorage.getRefresh()
-    ) {
+    if (status === 401 && cfg && !cfg._retried && !cfg._skipRefresh) {
       cfg._retried = true;
       try {
-        await performRefresh();
+        await refreshSession();
       } catch {
         tokenStorage.clear();
         return Promise.reject(new UnauthorizedError("refresh failed"));
       }
-      // 새 access token으로 헤더 갱신 후 원래 요청 재시도.
       const fresh = tokenStorage.getAccess();
       if (fresh && cfg.headers) {
         cfg.headers.set("Authorization", `Bearer ${fresh}`);

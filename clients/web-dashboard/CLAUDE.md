@@ -28,7 +28,7 @@ src/
   App.tsx           라우트 정의 + AuthGate(인증 가드) + 루트 리다이렉트
 
   api/              backend 엔드포인트별 axios 클라이언트 (리소스 단위로 얇게)
-    client.ts         axios 인스턴스 + 인터셉터 (access 토큰 부착, 401 시 refresh+rotation 재시도)
+    client.ts         axios 인스턴스 + 인터셉터 (access 토큰 부착, 401 시 쿠키 refresh·rotation 재시도)
     그 외는 리소스당 모듈 1개 (auth · projects · conversations · integrations · github · graph · actors)
 
   hooks/            React Query 캡슐화 레이어 (컴포넌트는 여기로만 서버 상태 접근)
@@ -95,7 +95,7 @@ src/
                     기기 설정이 자동 적용되므로 어디에도 하드코딩하지 않는다.
                     **언어 분리 작업 전에 docs/i18n.md를 읽는다** — 로캘·타임존을 묶으면 안 되는
                     이유와 시각 표시 계약(날짜 단독·코드블록 미변환 등)이 거기 있다
-  auth/             AuthProvider(세션 상태) · tokenStorage(localStorage)
+  auth/             AuthProvider(세션 상태) · tokenStorage(access는 메모리만. 레거시 localStorage 키는 기동 시 삭제)
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)
   styles/           index.css(@import 진입점) + 기능별 분할 CSS, tokens.css(디자인 토큰)
@@ -113,6 +113,9 @@ src/
 - import 경로는 `@/` alias를 쓴다 (`@/components/...`).
 - **backend API만 호출**한다(`api/`). snake_case ↔ camelCase 매핑은 `api/` 모듈에서 처리하고, 컴포넌트는 camelCase만 본다.
 - 인증 토큰은 `api/client.ts` 인터셉터(자동 refresh·rotation, 401 처리)에 위임한다 — 컴포넌트에서 토큰을 직접 다루지 않는다.
+  access는 메모리, refresh는 httpOnly 쿠키(`ht_refresh`, Path `/api/v1/auth`). **API 베이스는 같은 오리진
+  (`/api/v1`)이어야 쿠키가 붙는다** — `VITE_API_BASE_URL`을 다른 호스트로 두면 세션이 유지되지 않는다.
+  기존 localStorage 키(`ht.access_token`·`ht.refresh_token`)는 모듈 로드 시 지운다.
 - 비동기 상태 업데이터(`setState((prev) => ...)`) 안에서 **가변 ref(`someRef.current`)를 다시 읽지 않는다** — 실행이 지연되어
   그 사이 ref가 바뀌면 터진다. 값을 미리 지역 변수로 캡처해 클로저에 가둔다.
 - 주석은 한국어로 작성한다 (코드베이스 관행).

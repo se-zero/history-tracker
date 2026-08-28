@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 
@@ -21,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class RefreshTokenService {
 
     private static final int REFRESH_TOKEN_BYTES = 32;
+    // 같은 refresh를 두 탭이 거의 동시에 돌리는 경합과, 탈취 후 재사용을 가른다.
+    static final Duration REUSE_GRACE = Duration.ofSeconds(15);
 
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtProperties jwtProperties;
@@ -43,7 +46,8 @@ public class RefreshTokenService {
         return rawToken;
     }
 
-    // refresh token 1회용 rotation (사용된 토큰 폐기 후 재발급)
+    // refresh token 1회용 rotation. 사용된 행은 지우지 않고 replaced_at을 남겨, 이후 재사용을
+    // "한 번도 없는 토큰"과 구분한다. 유예(탭 경합)가 지난 재사용은 그 사용자 세션을 전부 끊는다.
     @Transactional
     public RefreshTokenIssue rotateRefreshToken(String rawToken) {
         RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(sha256(rawToken))
@@ -54,11 +58,19 @@ public class RefreshTokenService {
             throw new UnauthorizedException("Expired refresh token.");
         }
 
+        if (refreshToken.getReplacedAt() != null) {
+            if (refreshToken.getReplacedAt().plus(REUSE_GRACE).isBefore(Instant.now())) {
+                refreshTokenRepository.deleteByUserId(refreshToken.getUser().getId());
+            }
+            throw new UnauthorizedException("Invalid refresh token.");
+        }
+
         User user = refreshToken.getUser();
-        refreshTokenRepository.delete(refreshToken);
+        refreshToken.markReplaced(Instant.now());
 
         // soft-deleted user는 grace period 복구 전까지 재발급 불가
         if (user.getDeletedAt() != null) {
+            refreshTokenRepository.delete(refreshToken);
             throw new UnauthorizedException("User is deactivated.");
         }
 

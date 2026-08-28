@@ -17,7 +17,6 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.GitHubCallbackRequest;
-import com.history.backend.auth.dto.RefreshTokenRequest;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.domain.GitHubInstallation;
@@ -181,7 +180,6 @@ class AuthServiceTest {
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
-        assertThat(response.tokenType()).isEqualTo("Bearer");
         assertThat(response.expiresIn()).isEqualTo(900);
         verify(gitHubOAuthClient).fetchUser("github-user-token");
     }
@@ -408,11 +406,10 @@ class AuthServiceTest {
                 .thenReturn(new RefreshTokenIssue(user, "new-refresh-token"));
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("new-access-token");
 
-        var response = authService.refresh(new RefreshTokenRequest("old-refresh-token"));
+        var response = authService.refresh("old-refresh-token");
 
         assertThat(response.accessToken()).isEqualTo("new-access-token");
         assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
-        assertThat(response.tokenType()).isEqualTo("Bearer");
         assertThat(response.expiresIn()).isEqualTo(900);
     }
 
@@ -421,9 +418,30 @@ class AuthServiceTest {
     void logoutRevokesRefreshToken() {
         AuthService authService = authService();
 
-        authService.logout(new RefreshTokenRequest("refresh-token"));
+        authService.logout("refresh-token");
 
         verify(refreshTokenService).revokeRefreshToken("refresh-token");
+    }
+
+    @Test
+    @DisplayName("refresh 쿠키가 비어 있으면 갱신 거부")
+    void refreshRejectsBlankToken() {
+        AuthService authService = authService();
+
+        assertThrows(UnauthorizedException.class, () -> authService.refresh(null));
+        assertThrows(UnauthorizedException.class, () -> authService.refresh(" "));
+        verifyNoInteractions(refreshTokenService);
+    }
+
+    @Test
+    @DisplayName("로그아웃 시 쿠키가 없으면 폐기를 호출하지 않는다")
+    void logoutIgnoresBlankToken() {
+        AuthService authService = authService();
+
+        authService.logout(null);
+        authService.logout(" ");
+
+        verifyNoInteractions(refreshTokenService);
     }
 
     @Test

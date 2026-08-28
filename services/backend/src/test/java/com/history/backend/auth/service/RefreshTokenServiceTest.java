@@ -60,8 +60,8 @@ class RefreshTokenServiceTest {
     }
 
     @Test
-    @DisplayName("갱신 토큰 교체 시 기존 토큰 폐기 후 신규 발급")
-    void rotateRefreshTokenDeletesOldTokenAndIssuesNewToken() {
+    @DisplayName("갱신 토큰 교체 시 기존 행은 지우지 않고 replaced_at만 남긴 뒤 신규 발급")
+    void rotateRefreshTokenMarksOldTokenReplacedAndIssuesNewToken() {
         RefreshTokenService service = refreshTokenService();
         RefreshToken oldToken = new RefreshToken(user(), new byte[]{1, 2, 3}, Instant.now().plusSeconds(60));
         when(refreshTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(oldToken));
@@ -70,17 +70,19 @@ class RefreshTokenServiceTest {
 
         assertThat(issue.user()).isSameAs(oldToken.getUser());
         assertThat(issue.refreshToken()).isNotBlank();
-        verify(refreshTokenRepository).delete(oldToken);
+        assertThat(oldToken.getReplacedAt()).isNotNull();
+        verify(refreshTokenRepository, never()).delete(oldToken);
         verify(refreshTokenRepository).save(any(RefreshToken.class));
     }
 
     @Test
-    @DisplayName("유효하지 않은 갱신 토큰 교체 거부")
-    void rotateRefreshTokenRejectsInvalidToken() {
+    @DisplayName("유효하지 않은 갱신 토큰 교체 거부 — 전 세션을 끊지 않는다")
+    void rotateRefreshTokenRejectsInvalidTokenWithoutRevokingAll() {
         RefreshTokenService service = refreshTokenService();
         when(refreshTokenRepository.findByTokenHash(any())).thenReturn(Optional.empty());
 
         assertThrows(UnauthorizedException.class, () -> service.rotateRefreshToken("invalid-refresh-token"));
+        verify(refreshTokenRepository, never()).deleteByUserId(any());
     }
 
     @Test
@@ -92,6 +94,7 @@ class RefreshTokenServiceTest {
 
         assertThrows(UnauthorizedException.class, () -> service.rotateRefreshToken("expired-refresh-token"));
         verify(refreshTokenRepository).delete(expiredToken);
+        verify(refreshTokenRepository, never()).deleteByUserId(any());
     }
 
     @Test
@@ -105,6 +108,37 @@ class RefreshTokenServiceTest {
 
         assertThrows(UnauthorizedException.class, () -> service.rotateRefreshToken("deleted-user-refresh-token"));
         verify(refreshTokenRepository).delete(refreshToken);
+        verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
+        verify(refreshTokenRepository, never()).deleteByUserId(any());
+    }
+
+    @Test
+    @DisplayName("방금 교체된 토큰을 유예 시간 안에 다시 내면 401만 — 탭 경합으로 전 세션을 끊지 않는다")
+    void rotateRefreshTokenRejectsRecentlyReplacedTokenWithoutRevokingAll() {
+        RefreshTokenService service = refreshTokenService();
+        User user = user();
+        ReflectionTestUtils.setField(user, "id", USER_ID);
+        RefreshToken replaced = new RefreshToken(user, new byte[]{1, 2, 3}, Instant.now().plusSeconds(60));
+        ReflectionTestUtils.setField(replaced, "replacedAt", Instant.now().minusSeconds(1));
+        when(refreshTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(replaced));
+
+        assertThrows(UnauthorizedException.class, () -> service.rotateRefreshToken("already-rotated"));
+        verify(refreshTokenRepository, never()).deleteByUserId(any());
+        verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
+    }
+
+    @Test
+    @DisplayName("이미 교체된 토큰을 유예 시간 밖에 다시 내면 해당 사용자 세션을 전부 끊는다")
+    void rotateRefreshTokenRevokesAllSessionsWhenReplacedTokenIsReusedAfterGrace() {
+        RefreshTokenService service = refreshTokenService();
+        User user = user();
+        ReflectionTestUtils.setField(user, "id", USER_ID);
+        RefreshToken replaced = new RefreshToken(user, new byte[]{1, 2, 3}, Instant.now().plusSeconds(60));
+        ReflectionTestUtils.setField(replaced, "replacedAt", Instant.now().minusSeconds(30));
+        when(refreshTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(replaced));
+
+        assertThrows(UnauthorizedException.class, () -> service.rotateRefreshToken("stolen-refresh-token"));
+        verify(refreshTokenRepository).deleteByUserId(USER_ID);
         verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
     }
 

@@ -1,6 +1,10 @@
-import { api } from "./client";
+import { api, type AuthAwareConfig } from "./client";
 import { tokenStorage } from "@/auth/tokenStorage";
 import type { TokenResponse, User } from "@/types/api";
+
+// 쿠키만 쓰는 인증 호출 — 만료된 access를 Authorization에 실으면 JWT 필터가
+// 컨트롤러보다 먼저 401을 낸다(쿠키 삭제·로그인 교환이 막힘).
+const skipAccess: AuthAwareConfig = { _skipAuth: true, _skipRefresh: true } as AuthAwareConfig;
 
 export const GITHUB_AUTHORIZE_URL = `${
   import.meta.env.VITE_API_BASE_URL ?? "/api/v1"
@@ -32,12 +36,14 @@ export async function exchangeGitHubCode(params: {
   installationId?: string | null;
 }): Promise<TokenResponse> {
   const { data } = await api.get<TokenResponse>("/auth/github/callback", {
+    ...skipAccess,
     params: {
       code: params.code,
       state: params.state || undefined,
       installation_id: params.installationId || undefined,
     },
   });
+  tokenStorage.setAccess(data.accessToken);
   return data;
 }
 
@@ -47,13 +53,10 @@ export async function deleteAccount(): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  const refreshToken = tokenStorage.getRefresh();
-  if (refreshToken) {
-    try {
-      await api.post("/auth/logout", { refreshToken });
-    } catch {
-      // 백엔드 실패해도 로컬 토큰은 비워서 로그아웃 처리
-    }
+  try {
+    await api.post("/auth/logout", null, skipAccess);
+  } catch {
+    // 백엔드 실패해도 로컬 access는 비워서 로그아웃 처리. 쿠키 삭제는 Set-Cookie에 달렸다.
   }
   tokenStorage.clear();
 }

@@ -16,6 +16,10 @@ spring:
       hibernate:
         format_sql: true
 
+# nginx가 TLS를 끊고 X-Forwarded-Proto 를 넘긴다. 이걸 믿어야 refresh 쿠키에 Secure가 붙는다.
+server:
+  forward-headers-strategy: framework
+
 ai:
   engine:
     url: http://localhost:8000
