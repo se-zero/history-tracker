@@ -15,7 +15,6 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
-import com.history.backend.auth.domain.UserProviderConnection;
 import com.history.backend.auth.repository.UserProviderConnectionRepository;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.PlanLimitExceededException;
@@ -56,7 +55,7 @@ class PlanServiceTest {
     @DisplayName("FREE + 프로젝트 0개 → 생성 허용")
     void ensureProjectCreatableAllowsFreeUserWithNoProjects() {
         PlanService service = service(UPGRADE_CODE);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user(Plan.FREE)));
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user(Plan.FREE)));
         when(projectRepository.countByOwner_Id(OWNER_ID)).thenReturn(0L);
 
         service.ensureProjectCreatable(OWNER_ID);
@@ -66,7 +65,7 @@ class PlanServiceTest {
     @DisplayName("FREE + 프로젝트 1개 이상 → 생성 거부")
     void ensureProjectCreatableRejectsFreeUserWithExistingProject() {
         PlanService service = service(UPGRADE_CODE);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user(Plan.FREE)));
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user(Plan.FREE)));
         when(projectRepository.countByOwner_Id(OWNER_ID)).thenReturn(1L);
 
         assertThatThrownBy(() -> service.ensureProjectCreatable(OWNER_ID))
@@ -77,7 +76,7 @@ class PlanServiceTest {
     @DisplayName("PAID + 프로젝트 여러 개 → 생성 허용 (무제한, 개수도 세지 않는다)")
     void ensureProjectCreatableAllowsPaidUserRegardlessOfProjectCount() {
         PlanService service = service(UPGRADE_CODE);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user(Plan.PAID)));
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user(Plan.PAID)));
 
         service.ensureProjectCreatable(OWNER_ID);
 
@@ -135,27 +134,14 @@ class PlanServiceTest {
     // ── recordProviderConnected ──
 
     @Test
-    @DisplayName("최초 연동 성공 시 provider 이력 저장")
+    @DisplayName("연동 성공 시 provider 이력을 ON CONFLICT insert로 남긴다")
     void recordProviderConnectedInsertsHistoryOnFirstCall() {
         PlanService service = service(UPGRADE_CODE);
-        when(userProviderConnectionRepository.existsByUserIdAndProvider(OWNER_ID, IntegrationProvider.GITHUB))
-                .thenReturn(false);
 
         service.recordProviderConnected(OWNER_ID, IntegrationProvider.GITHUB);
 
-        verify(userProviderConnectionRepository).save(any(UserProviderConnection.class));
-    }
-
-    @Test
-    @DisplayName("이미 기록된 provider 이력 재기록 시도는 멱등 — 예외 없이 그대로 둔다")
-    void recordProviderConnectedIsIdempotentWhenAlreadyRecorded() {
-        PlanService service = service(UPGRADE_CODE);
-        when(userProviderConnectionRepository.existsByUserIdAndProvider(OWNER_ID, IntegrationProvider.GITHUB))
-                .thenReturn(true);
-
-        service.recordProviderConnected(OWNER_ID, IntegrationProvider.GITHUB);
-
-        verify(userProviderConnectionRepository, never()).save(any());
+        verify(userProviderConnectionRepository)
+                .insertIfAbsent(OWNER_ID, IntegrationProvider.GITHUB.value());
     }
 
     // ── ensureQueryAllowed / recordQuery ──
@@ -189,27 +175,46 @@ class PlanServiceTest {
     }
 
     @Test
-    @DisplayName("FREE 사용자 질의 기록 시 카운트 1 증가")
-    void recordQueryIncrementsFreeUserCount() {
+    @DisplayName("FREE 사용자 질의 기록은 한도 안에서 원자적으로 1 증가한다")
+    void recordQueryIncrementsFreeUserCountAtomicallyWhenBelowLimit() {
         PlanService service = service(UPGRADE_CODE);
-        User user = user(Plan.FREE, 3);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.incrementFreeQueryCountIfBelowLimit(OWNER_ID, PlanService.FREE_QUERY_LIMIT))
+                .thenReturn(1);
 
         service.recordQuery(OWNER_ID);
 
-        assertThat(user.getFreeQueryCount()).isEqualTo(4);
+        verify(userRepository).incrementFreeQueryCountIfBelowLimit(OWNER_ID, PlanService.FREE_QUERY_LIMIT);
+        verify(userRepository, never()).findById(OWNER_ID);
+        verify(userRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("PAID 사용자는 질의 기록 시 카운트를 증가시키지 않는다 (어차피 쓰이지 않는 값)")
+    @DisplayName("PAID 사용자는 원자적 증가가 0건이어도 예외 없이 끝낸다 (FREE 행만 갱신 대상)")
     void recordQueryDoesNotIncrementPaidUserCount() {
         PlanService service = service(UPGRADE_CODE);
         User user = user(Plan.PAID, 0);
+        when(userRepository.incrementFreeQueryCountIfBelowLimit(OWNER_ID, PlanService.FREE_QUERY_LIMIT))
+                .thenReturn(0);
         when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
 
         service.recordQuery(OWNER_ID);
 
         assertThat(user.getFreeQueryCount()).isZero();
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("FREE + 한도 소진(원자적 증가 0건) → 질의 기록 거부")
+    void recordQueryRejectsFreeUserWhenAtomicIncrementUpdatesNothing() {
+        PlanService service = service(UPGRADE_CODE);
+        when(userRepository.incrementFreeQueryCountIfBelowLimit(OWNER_ID, PlanService.FREE_QUERY_LIMIT))
+                .thenReturn(0);
+        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user(Plan.FREE, 10)));
+
+        assertThatThrownBy(() -> service.recordQuery(OWNER_ID))
+                .isInstanceOf(PlanLimitExceededException.class);
+
+        verify(userRepository, never()).save(any());
     }
 
     // ── ensurePreciseRebuildAllowed ──

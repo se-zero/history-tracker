@@ -6,6 +6,7 @@ import com.history.backend.auth.domain.UserProviderConnection;
 import com.history.backend.auth.domain.UserProviderConnectionId;
 import com.history.backend.integration.domain.IntegrationProvider;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -23,4 +24,13 @@ public interface UserProviderConnectionRepository
             @Param("userId") UUID userId,
             @Param("provider") IntegrationProvider provider
     );
+
+    // 동시 첫 연동 경합 대비 — PK 위반을 예외로 올리면 Postgres 트랜잭션이 abort된다
+    @Modifying
+    @Query(value = """
+            INSERT INTO user_provider_connections (user_id, provider)
+            VALUES (:userId, :provider)
+            ON CONFLICT (user_id, provider) DO NOTHING
+            """, nativeQuery = true)
+    void insertIfAbsent(@Param("userId") UUID userId, @Param("provider") String provider);
 }

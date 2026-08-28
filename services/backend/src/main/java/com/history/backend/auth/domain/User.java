@@ -92,10 +92,6 @@ public class User {
         this.consentRecordedAt = recordedAt;
     }
 
-    public void incrementFreeQueryCount() {
-        this.freeQueryCount++;
-    }
-
     public void upgradeToPaid() {
         this.plan = Plan.PAID;
     }

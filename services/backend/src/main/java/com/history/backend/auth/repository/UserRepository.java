@@ -7,14 +7,22 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByIdAndDeletedAtIsNull(UUID id);
+
+    // 프로젝트 생성 한도 검사와 insert를 같은 트랜잭션에서 직렬화하기 위한 사용자 행 잠금
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT user FROM User user WHERE user.id = :id")
+    Optional<User> findByIdForUpdate(@Param("id") UUID id);
 
     Optional<User> findByProviderAndProviderUserIdAndDeletedAtIsNull(String provider, String providerUserId);
 
@@ -51,4 +59,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             @Param("displayName") String displayName,
             @Param("avatarUrl") String avatarUrl
     );
+
+    // 무료 질의 한도를 DB에서 검사·증가한다. 읽기-수정-쓰기면 동시 질의가 같은 값을 읽고 한도를 우회한다.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE users
+            SET free_query_count = free_query_count + 1,
+                updated_at = now()
+            WHERE id = :userId
+              AND plan = 'FREE'
+              AND free_query_count < :limit
+            """, nativeQuery = true)
+    int incrementFreeQueryCountIfBelowLimit(@Param("userId") UUID userId, @Param("limit") int limit);
 }
