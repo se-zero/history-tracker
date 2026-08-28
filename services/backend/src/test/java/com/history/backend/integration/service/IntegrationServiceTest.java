@@ -20,9 +20,11 @@ import java.util.UUID;
 
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.discord.service.DiscordClient;
 import com.history.backend.discord.service.DiscordCredentialLifecycle;
 import com.history.backend.discord.service.DiscordOAuthConnectFlow;
@@ -134,6 +136,9 @@ class IntegrationServiceTest {
     @Mock
     private IntegrationRevocationService revocationService;
 
+    @Mock
+    private PlanService planService;
+
     private final NoopTransactionManager transactionManager = new NoopTransactionManager();
 
     @Test
@@ -220,6 +225,60 @@ class IntegrationServiceTest {
         assertThat(result.getGitHubBranch()).isEqualTo("main");
         verify(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
         verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID);
+        // 무료 티어 provider 연동 한도 검증 → 저장 성공 후 이력 기록까지 이어진다
+        verify(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.GITHUB);
+        verify(planService).recordProviderConnected(OWNER_ID, IntegrationProvider.GITHUB);
+    }
+
+    @Test
+    @DisplayName("무료 티어 사용자는 GitHub 연동 저장 시 증분 수집이 꺼진 채로 저장된다")
+    void connectGitHubRepositoryDisablesIncrementalCollectionForFreeTierUser() {
+        IntegrationService service = service();
+        Project project = project();
+        GitHubInstallation installation = installation();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation);
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(false);
+        when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
+                .thenReturn("installation-token");
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(planService.isIncrementalEnabled(OWNER_ID)).thenReturn(false);
+
+        Integration result = service.connectGitHubRepository(
+                OWNER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        );
+
+        assertThat(result.isIncrementalEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("무료 티어 provider 연동 한도 초과 시 GitHub 연동 거부 — 저장·수집 트리거 모두 일어나지 않음")
+    void connectGitHubRepositoryRejectsWhenProviderLimitExceeded() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        doThrow(new PlanLimitExceededException("Free plan only allows GitHub/Slack/Jira, one each."))
+                .when(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.GITHUB);
+
+        assertThatThrownBy(() -> service.connectGitHubRepository(
+                OWNER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(PlanLimitExceededException.class);
+
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
     }
 
     @Test
@@ -298,6 +357,37 @@ class IntegrationServiceTest {
         assertThat(captor.getValue().getGitHubRepositoryFullName()).isEqualTo("acme/widget");
         assertThat(captor.getValue().getGitHubBranch()).isEqualTo("main");
         verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.GITHUB, PROJECT_ID);
+        // 무료 티어 provider 연동 한도 검증 → 저장 성공 후 이력 기록까지 이어진다 (이 경로는 계획상
+        // 처음으로 이 검사가 붙는 자리다)
+        verify(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.GITHUB);
+        verify(planService).recordProviderConnected(OWNER_ID, IntegrationProvider.GITHUB);
+    }
+
+    @Test
+    @DisplayName("무료 티어 provider 연동 한도 초과 시 프로젝트+GitHub 연동 생성 거부 — 프로젝트도 만들어지지 않음")
+    void createProjectWithGitHubRepositoryRejectsWhenProviderLimitExceeded() {
+        IntegrationService service = service();
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        doThrow(new PlanLimitExceededException("Free plan only allows GitHub/Slack/Jira, one each."))
+                .when(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.GITHUB);
+
+        assertThatThrownBy(() -> service.createProjectWithGitHubRepository(
+                OWNER_ID,
+                "History Tracker",
+                null,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(PlanLimitExceededException.class);
+
+        assertThat(transactionManager.beginCount).isZero();
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
+        verify(projectService, never()).createProject(any(), anyString(), any());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
     }
 
     @Test
@@ -454,6 +544,48 @@ class IntegrationServiceTest {
         // 자동 복원 개념이 없는 provider는 "복원 완료" 배너 대상이 아니다
         assertThat(result.selectionRestored()).isFalse();
         verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.SLACK, PROJECT_ID);
+        // 무료 티어 provider 연동 한도 검증 → 저장 성공 후 이력 기록까지 이어진다
+        verify(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.SLACK);
+        verify(planService).recordProviderConnected(OWNER_ID, IntegrationProvider.SLACK);
+    }
+
+    @Test
+    @DisplayName("유료 사용자는 OAuth 연동 저장 시 증분 수집이 켜진 채로 저장된다")
+    void connectOAuthEnablesIncrementalCollectionForPaidUser() {
+        IntegrationService service = service();
+        Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.SLACK);
+        byte[] encryptedCredential = new byte[] {1, 2, 3};
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+        when(flow.exchangeCode("auth-code")).thenReturn(new OAuthConnection(
+                "xoxp-token", Map.of("workspace_id", "T123", "workspace_name", "Acme")));
+        when(credentialCryptoService.encrypt("xoxp-token")).thenReturn(encryptedCredential);
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(planService.isIncrementalEnabled(OWNER_ID)).thenReturn(true);
+
+        IntegrationService.ConnectResult result = service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
+
+        assertThat(result.integration().isIncrementalEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("무료 티어 provider 연동 한도 초과 시 거부 — code 교환도 저장도 일어나지 않음")
+    void connectOAuthRejectsWhenProviderLimitExceeded() {
+        IntegrationService service = service();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.SLACK);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        doThrow(new PlanLimitExceededException("Free plan only allows GitHub/Slack/Jira, one each."))
+                .when(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.SLACK);
+
+        assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
+                .isInstanceOf(PlanLimitExceededException.class);
+
+        // 이미 확정된 연동 409 검사와 같은 이유 — 1회용 code를 낭비하지 않는다
+        verify(flow, never()).exchangeCode(anyString());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
     }
 
     @Test
@@ -641,6 +773,38 @@ class IntegrationServiceTest {
         assertThat(result.selectionRestored()).isTrue();
         verify(jiraTokenService).ensureAccessToken(PROJECT_ID);
         verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.JIRA, PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("갱신 실패로 pending 복귀한 기존 연동을 재동의로 복구하는 경로는 provider 연동 한도를 검사하지 않는다 "
+            + "— \"해제 후 재연동\"과 \"pending으로 저하된 연동 복구\"는 다르므로, 이미 이력이 있다는 이유로 복구까지 막으면 안 된다")
+    void connectOAuthDoesNotCheckProviderLimitWhenRepairingExistingPendingIntegration() {
+        IntegrationService service = service();
+        Project project = project();
+        OAuthConnectFlow flow = connectFlow(IntegrationProvider.JIRA);
+        Integration revertedPending = Integration.pendingSelection(project, IntegrationProvider.JIRA, new byte[] {1, 2, 3});
+        revertedPending.applyExternalRef(java.util.Map.of("cloud_id", "cloud-1", "site_name", "acme", "project_key", "PROJ", "project_name", "Project"));
+        // 갱신 실패로 pending 되돌아온 행을 재현 — cloud_id·project_key는 남아 있다
+        revertedPending.markPendingSelection();
+        byte[] newEncryptedCredential = new byte[] {7, 8, 9};
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(revertedPending));
+        when(flow.exchangeCode("auth-code")).thenReturn(OAuthConnection.pendingSelection("jira-credential"));
+        when(credentialCryptoService.encrypt("jira-credential")).thenReturn(newEncryptedCredential);
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(jiraTokenService.getAccessToken(PROJECT_ID)).thenReturn("new-access-token");
+        when(jiraOAuthClient.listAccessibleResources("new-access-token"))
+                .thenReturn(List.of(new JiraOAuthClient.JiraSite("cloud-1", "acme", "https://acme.atlassian.net")));
+        when(jiraClient.listProjects("cloud-1", "new-access-token"))
+                .thenReturn(List.of(new JiraClient.JiraProject("PROJ", "Project")));
+
+        service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code");
+
+        // FREE 사용자가 최초 연동 때 이미 이력을 남긴 뒤, 갱신 영구 실패로 pending에 빠져 재동의로
+        // 복구하는 경로다 — 여기서도 이력 검사를 걸면 유료 전환 외에는 복구할 방법이 없어진다
+        verify(planService, never()).ensureProviderConnectable(any(), any());
     }
 
     @Test
@@ -1298,7 +1462,8 @@ class IntegrationServiceTest {
                 revocationService,
                 new AccessTokenRefresherRegistry(List.of()),
                 new IntegrationSelectionFlowRegistry(List.of(flow)),
-                new TransactionTemplate(transactionManager)
+                new TransactionTemplate(transactionManager),
+                planService
         );
     }
 
@@ -1318,7 +1483,8 @@ class IntegrationServiceTest {
                 revocationService,
                 new AccessTokenRefresherRegistry(List.of()),
                 new IntegrationSelectionFlowRegistry(List.of()),
-                new TransactionTemplate(transactionManager)
+                new TransactionTemplate(transactionManager),
+                planService
         );
     }
 
@@ -1350,7 +1516,8 @@ class IntegrationServiceTest {
                 new IntegrationSelectionFlowRegistry(List.of(
                         new JiraSelectionFlow(jiraOAuthClient, jiraClient, jiraTokenService),
                         new GoogleChatSelectionFlow(googleChatClient, googleChatTokenService))),
-                new TransactionTemplate(transactionManager)
+                new TransactionTemplate(transactionManager),
+                planService
         );
     }
 

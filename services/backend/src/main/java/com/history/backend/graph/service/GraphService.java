@@ -2,6 +2,7 @@ package com.history.backend.graph.service;
 
 import java.util.UUID;
 
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
 import com.history.backend.graph.dto.GraphWorkUnitsResponse;
@@ -18,6 +19,7 @@ public class GraphService {
 
     private final ProjectService projectService;
     private final AiEngineGraphClient aiEngineGraphClient;
+    private final PlanService planService;
 
     // 소유권 검증(인가 게이트)을 먼저 통과한 뒤에만 ai-engine 그래프를 조회한다.
     // ai-engine 호출은 외부 통신이라 트랜잭션 밖에서 수행 — getProject가 자체 read 트랜잭션을 갖는다.
@@ -52,6 +54,10 @@ public class GraphService {
     // 빌드는 비동기(202)라 완료는 getBuildStatus 폴링으로 확인한다.
     public GraphBuildStatusResponse buildProjectGraph(UUID ownerId, UUID projectId, boolean verify) {
         projectService.getProject(ownerId, projectId);
+        // 정밀 재구축(verify=true)만 무료 티어 한도를 검사한다 — 일반 재구축은 무제한
+        if (verify) {
+            planService.ensurePreciseRebuildAllowed(ownerId);
+        }
         return aiEngineGraphClient.triggerBuild(projectId, verify);
     }
 

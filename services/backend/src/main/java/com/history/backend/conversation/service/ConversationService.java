@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
@@ -35,12 +36,15 @@ public class ConversationService {
     private final ProjectService projectService;
     private final UserService userService;
     private final MessageService messageService;
+    private final PlanService planService;
     private final ConversationTitleGenerator titleGenerator;
     private final TransactionTemplate transactionTemplate;
 
     // 대화 생성 + 첫 메시지 질의·응답 저장 (AI 질의는 트랜잭션 밖에서 수행)
     public ConversationStart createConversation(UUID userId, UUID projectId, String firstMessageContent) {
         String normalizedContent = normalizeFirstMessage(firstMessageContent);
+        // 무료 티어 질의 한도(총 10회) 검증 — 불필요한 사용자·프로젝트 조회를 막기 위해 진입부에서 가장 먼저 확인한다
+        planService.ensureQueryAllowed(userId);
         User user = userService.getActiveUser(userId);
         Project project = projectService.getProject(userId, projectId);
         InitialConversation initialConversation = transactionTemplate.execute(status -> {
@@ -55,6 +59,7 @@ public class ConversationService {
             );
         });
         Message assistantMessage = messageService.appendAssistantMessageAfterQuery(
+                userId,
                 projectId,
                 initialConversation.conversation().getId(),
                 normalizedContent,

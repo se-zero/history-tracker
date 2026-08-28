@@ -11,7 +11,9 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.UUID;
 
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.common.error.ForbiddenException;
+import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
@@ -40,6 +42,9 @@ class GraphServiceTest {
 
     @Mock
     private AiEngineGraphClient aiEngineGraphClient;
+
+    @Mock
+    private PlanService planService;
 
     @InjectMocks
     private GraphService graphService;
@@ -115,6 +120,32 @@ class GraphServiceTest {
         InOrder inOrder = inOrder(projectService, aiEngineGraphClient);
         inOrder.verify(projectService).getProject(USER_ID, PROJECT_ID);
         inOrder.verify(aiEngineGraphClient).triggerBuild(PROJECT_ID, true);
+    }
+
+    @Test
+    @DisplayName("정밀 재구축(verify=true) 요청 시 무료 티어면 거부하고 ai-engine을 호출하지 않는다")
+    void rejectsPreciseRebuildForFreeTierUser() {
+        doThrow(new PlanLimitExceededException("Precise rebuild requires a paid plan."))
+                .when(planService).ensurePreciseRebuildAllowed(USER_ID);
+
+        assertThatThrownBy(() -> graphService.buildProjectGraph(USER_ID, PROJECT_ID, true))
+                .isInstanceOf(PlanLimitExceededException.class);
+
+        verifyNoInteractions(aiEngineGraphClient);
+    }
+
+    @Test
+    @DisplayName("일반 재구축(verify=false)은 무료 티어라도 정밀 재구축 검사를 건너뛰고 허용한다")
+    void allowsNonPreciseRebuildForFreeTierUserWithoutPlanCheck() {
+        GraphBuildStatusResponse expected =
+                new GraphBuildStatusResponse("running", true, "2026-06-24T00:00:00+00:00", null, null);
+        when(aiEngineGraphClient.triggerBuild(PROJECT_ID, false)).thenReturn(expected);
+
+        GraphBuildStatusResponse result = graphService.buildProjectGraph(USER_ID, PROJECT_ID, false);
+
+        assertThat(result).isSameAs(expected);
+        // verify=false 경로는 정밀 재구축 한도 검사 자체를 타지 않는다
+        verifyNoInteractions(planService);
     }
 
     @Test

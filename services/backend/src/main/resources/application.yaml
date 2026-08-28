@@ -25,6 +25,8 @@ app:
     # 약관/개인정보처리방침이 개정되면 이 값과 프론트 두 파일의 effectiveDate를 함께 바꿔야 한다
     # (clients/web-dashboard/src/pages/TermsPage.tsx, PrivacyPage.tsx).
     terms-version: "2026-08-01"
+  plan:
+    upgrade-code: ${PLAN_UPGRADE_CODE:}
 
 conversation:
   memory:

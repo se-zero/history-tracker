@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
@@ -31,9 +32,11 @@ public class ProjectService {
     private final UserService userService;
     private final AiEngineGraphClient aiEngineGraphClient;
     private final IntegrationRevocationService integrationRevocationService;
+    private final PlanService planService;
 
     @Transactional
     public Project createProject(UUID ownerId, String name, String description) {
+        planService.ensureProjectCreatable(ownerId);
         User owner = userService.getActiveUser(ownerId);
         String normalizedName = name.trim();
         validateNameAvailable(ownerId, normalizedName);

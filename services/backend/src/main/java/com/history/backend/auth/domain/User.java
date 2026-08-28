@@ -5,6 +5,8 @@ import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
@@ -56,6 +58,13 @@ public class User {
     @Column(name = "consent_recorded_at")
     private Instant consentRecordedAt;
 
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private Plan plan = Plan.FREE;
+
+    @Column(name = "free_query_count", nullable = false)
+    private int freeQueryCount;
+
     public User(String provider, String providerUserId, String email, String displayName, String avatarUrl) {
         this.provider = provider;
         this.providerUserId = providerUserId;
@@ -81,6 +90,14 @@ public class User {
     public void recordConsent(String version, Instant recordedAt) {
         this.consentTermsVersion = version;
         this.consentRecordedAt = recordedAt;
+    }
+
+    public void incrementFreeQueryCount() {
+        this.freeQueryCount++;
+    }
+
+    public void upgradeToPaid() {
+        this.plan = Plan.PAID;
     }
 
     @PrePersist

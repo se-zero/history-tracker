@@ -16,11 +16,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.integration.service.IntegrationRevocationService;
 import com.history.backend.project.domain.Project;
@@ -56,6 +58,9 @@ class ProjectServiceTest {
     @Mock
     private IntegrationRevocationService integrationRevocationService;
 
+    @Mock
+    private PlanService planService;
+
     @Test
     @DisplayName("활성 소유자로 프로젝트 생성 성공")
     void createProjectSavesProjectForActiveOwner() {
@@ -71,6 +76,21 @@ class ProjectServiceTest {
         assertThat(result.getOwner()).isSameAs(owner);
         assertThat(result.getName()).isEqualTo("History Tracker");
         assertThat(result.getDescription()).isEqualTo("GraphRAG backend");
+        // 무료 티어 한도(계정당 프로젝트 1개) 검증이 생성 진입부에서 반드시 호출된다
+        verify(planService).ensureProjectCreatable(OWNER_ID);
+    }
+
+    @Test
+    @DisplayName("무료 티어 한도 초과 시 프로젝트 생성 거부 — 저장이 일어나지 않는다")
+    void createProjectRejectsWhenFreeTierProjectLimitExceeded() {
+        ProjectService service = service();
+        doThrow(new PlanLimitExceededException("Free plan allows only one project."))
+                .when(planService).ensureProjectCreatable(OWNER_ID);
+
+        assertThatThrownBy(() -> service.createProject(OWNER_ID, "History Tracker", null))
+                .isInstanceOf(PlanLimitExceededException.class);
+
+        verify(projectRepository, never()).saveAndFlush(any(Project.class));
     }
 
     @Test
@@ -547,7 +567,8 @@ class ProjectServiceTest {
     }
 
     private ProjectService service() {
-        return new ProjectService(projectRepository, userService, aiEngineGraphClient, integrationRevocationService);
+        return new ProjectService(
+                projectRepository, userService, aiEngineGraphClient, integrationRevocationService, planService);
     }
 }
 

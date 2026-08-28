@@ -4,6 +4,7 @@ import static org.mockito.Mockito.mock;
 
 import com.history.backend.config.TransactionConfig;
 import com.history.backend.conversation.ChatMemoryProperties;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.conversation.repository.ConversationRepository;
 import com.history.backend.conversation.repository.MessageRepository;
 import com.history.backend.project.service.ProjectService;
@@ -28,6 +29,7 @@ class MessageServiceTransactionTestConfig {
                 messageRepository,
                 conversationRepository,
                 mock(ProjectService.class),
+                mock(PlanService.class),
                 mock(AiEngineQueryClient.class),
                 chatMemoryProperties,
                 new SummaryBackoffTracker(chatMemoryProperties),

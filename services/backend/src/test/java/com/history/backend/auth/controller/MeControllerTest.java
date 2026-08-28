@@ -1,7 +1,9 @@
 package com.history.backend.auth.controller;
 
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,8 +13,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.UUID;
 
+import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.dto.UserResponse;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
+import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -39,6 +45,9 @@ class MeControllerTest {
     private UserService userService;
 
     @MockitoBean
+    private PlanService planService;
+
+    @MockitoBean
     private JwtTokenService jwtTokenService;
 
     @BeforeEach
@@ -51,7 +60,7 @@ class MeControllerTest {
     @DisplayName("현재 사용자 정보 반환")
     void meReturnsCurrentUser() throws Exception {
         UserResponse response = new UserResponse(
-                USER_ID, "github", "12345", "octocat@example.com", "Octocat", null, false
+                USER_ID, "github", "12345", "octocat@example.com", "Octocat", null, false, Plan.PAID, null
         );
         when(userService.getCurrentUser(USER_ID)).thenReturn(response);
 
@@ -89,5 +98,48 @@ class MeControllerTest {
         mockMvc.perform(post("/api/v1/me/consent"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value("Authentication is required."));
+    }
+
+    @Test
+    @DisplayName("올바른 업그레이드 코드 → 204 No Content 반환")
+    void upgradePlanReturnsNoContentForValidCode() throws Exception {
+        mockMvc.perform(post("/api/v1/me/plan/upgrade")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "code": "SECRET-CODE" }
+                                """))
+                .andExpect(status().isNoContent());
+
+        verify(planService).upgradeToPaid(USER_ID, "SECRET-CODE");
+    }
+
+    @Test
+    @DisplayName("틀린 업그레이드 코드 → 403 Forbidden 반환")
+    void upgradePlanRejectsInvalidCode() throws Exception {
+        doThrow(new PlanLimitExceededException("Invalid upgrade code."))
+                .when(planService).upgradeToPaid(USER_ID, "WRONG-CODE");
+
+        mockMvc.perform(post("/api/v1/me/plan/upgrade")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "code": "WRONG-CODE" }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("Invalid upgrade code."));
+    }
+
+    @Test
+    @DisplayName("액세스 토큰 없으면 401 Unauthorized 반환")
+    void upgradePlanRejectsMissingAccessToken() throws Exception {
+        mockMvc.perform(post("/api/v1/me/plan/upgrade")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "code": "SECRET-CODE" }
+                                """))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(planService);
     }
 }
