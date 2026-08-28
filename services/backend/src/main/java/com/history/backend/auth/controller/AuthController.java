@@ -84,13 +84,18 @@ public class AuthController {
             UnauthorizedException exception,
             HttpServletRequest request
     ) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .header(HttpHeaders.SET_COOKIE, RefreshTokenCookies.clear(request.isSecure()).toString())
-                .body(ErrorResponse.of(
-                        HttpStatus.UNAUTHORIZED.value(),
-                        HttpStatus.UNAUTHORIZED.getReasonPhrase(),
-                        exception.getMessage()
-                ));
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.UNAUTHORIZED);
+        if (exception.clearsRefreshCookie()) {
+            response = response.header(
+                    HttpHeaders.SET_COOKIE,
+                    RefreshTokenCookies.clear(request.isSecure()).toString()
+            );
+        }
+        return response.body(ErrorResponse.of(
+                HttpStatus.UNAUTHORIZED.value(),
+                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                exception.getMessage()
+        ));
     }
 
     private ResponseEntity<TokenResponse> withRefreshCookie(IssuedSession session, HttpServletRequest request) {

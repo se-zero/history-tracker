@@ -122,7 +122,11 @@ class RefreshTokenServiceTest {
         ReflectionTestUtils.setField(replaced, "replacedAt", Instant.now().minusSeconds(1));
         when(refreshTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(replaced));
 
-        assertThrows(UnauthorizedException.class, () -> service.rotateRefreshToken("already-rotated"));
+        UnauthorizedException thrown = assertThrows(
+                UnauthorizedException.class,
+                () -> service.rotateRefreshToken("already-rotated")
+        );
+        assertThat(thrown.clearsRefreshCookie()).isFalse();
         verify(refreshTokenRepository, never()).deleteByUserId(any());
         verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
     }
@@ -137,7 +141,11 @@ class RefreshTokenServiceTest {
         ReflectionTestUtils.setField(replaced, "replacedAt", Instant.now().minusSeconds(30));
         when(refreshTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(replaced));
 
-        assertThrows(UnauthorizedException.class, () -> service.rotateRefreshToken("stolen-refresh-token"));
+        UnauthorizedException thrown = assertThrows(
+                UnauthorizedException.class,
+                () -> service.rotateRefreshToken("stolen-refresh-token")
+        );
+        assertThat(thrown.clearsRefreshCookie()).isTrue();
         verify(refreshTokenRepository).deleteByUserId(USER_ID);
         verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
     }
@@ -164,6 +172,17 @@ class RefreshTokenServiceTest {
         service.revokeAllRefreshTokens(user);
 
         verify(refreshTokenRepository).deleteByUserId(USER_ID);
+    }
+
+    @Test
+    @DisplayName("만료된 갱신 토큰 행을 삭제한다")
+    void purgeExpiredRefreshTokensDeletesRowsPastExpiry() {
+        RefreshTokenService service = refreshTokenService();
+
+        when(refreshTokenRepository.deleteByExpiresAtBefore(any())).thenReturn(7L);
+
+        assertThat(service.purgeExpiredRefreshTokens()).isEqualTo(7);
+        verify(refreshTokenRepository).deleteByExpiresAtBefore(any());
     }
 
     private RefreshTokenService refreshTokenService() {

@@ -130,6 +130,18 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("유예 안 재사용 401은 이긴 탭의 새 쿠키를 지우지 않는다")
+    void refreshConcurrentReuseDoesNotClearRefreshCookie() throws Exception {
+        when(authService.refresh("rotated-refresh-token"))
+                .thenThrow(new UnauthorizedException("Invalid refresh token.", false));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie(RefreshTokenCookies.NAME, "rotated-refresh-token")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(cookie().doesNotExist(RefreshTokenCookies.NAME));
+    }
+
+    @Test
     @DisplayName("로그아웃 → 204, refresh 쿠키 삭제")
     void logoutClearsRefreshCookie() throws Exception {
         mockMvc.perform(post("/api/v1/auth/logout")

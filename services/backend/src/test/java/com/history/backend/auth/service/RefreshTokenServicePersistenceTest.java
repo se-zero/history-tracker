@@ -11,7 +11,11 @@ import java.util.UUID;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.UnauthorizedException;
+import com.history.backend.github.GitHubAppProperties;
+import com.history.backend.github.service.GitHubInstallationService;
+import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.security.JwtProperties;
+import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +28,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +39,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @DataJpaTest
 @Testcontainers(disabledWithoutDocker = true)
-@Import({RefreshTokenService.class, RefreshTokenServicePersistenceTest.JwtConfig.class})
+@Import({
+        AuthService.class,
+        RefreshTokenService.class,
+        JwtTokenService.class,
+        RefreshTokenServicePersistenceTest.JwtConfig.class
+})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
 @DisplayName("RefreshTokenService: 재사용 탐지 폐기의 트랜잭션 커밋")
@@ -60,7 +70,26 @@ class RefreshTokenServicePersistenceTest {
         JwtProperties jwtProperties() {
             return new JwtProperties("test-secret", Duration.ofMinutes(15), Duration.ofDays(14));
         }
+
+        @Bean
+        GitHubAppProperties gitHubAppProperties() {
+            return new GitHubAppProperties(
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+            );
+        }
     }
+
+    @MockitoBean
+    private GitHubOAuthClient gitHubOAuthClient;
+
+    @MockitoBean
+    private GitHubInstallationService gitHubInstallationService;
+
+    @MockitoBean
+    private UserService userService;
+
+    @Autowired
+    private AuthService authService;
 
     @Autowired
     private RefreshTokenService refreshTokenService;
@@ -76,8 +105,8 @@ class RefreshTokenServicePersistenceTest {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    @DisplayName("유예가 지난 재사용은 401을 내도 해당 사용자 토큰이 DB에서 삭제된 채로 남는다")
-    void rotateRefreshTokenCommitsRevokeAllWhenReusedAfterGrace() {
+    @DisplayName("AuthService.refresh 경로에서도 유예 지난 재사용은 전 세션 폐기가 커밋된다")
+    void authServiceRefreshCommitsRevokeAllWhenReusedAfterGrace() {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         UUID userId = tx.execute(status -> userRepository.save(new User(
                 "github",
@@ -98,7 +127,7 @@ class RefreshTokenServicePersistenceTest {
                 userId
         );
 
-        assertThatThrownBy(() -> refreshTokenService.rotateRefreshToken(firstRaw))
+        assertThatThrownBy(() -> authService.refresh(firstRaw))
                 .isInstanceOf(UnauthorizedException.class);
 
         Integer remaining = jdbcTemplate.queryForObject(

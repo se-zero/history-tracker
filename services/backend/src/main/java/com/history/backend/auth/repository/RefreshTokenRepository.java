@@ -1,5 +1,6 @@
 package com.history.backend.auth.repository;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,4 +16,6 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
     Optional<RefreshToken> findByTokenHash(byte[] tokenHash);
 
     void deleteByUserId(UUID userId);
+
+    long deleteByExpiresAtBefore(Instant expiresAt);
 }

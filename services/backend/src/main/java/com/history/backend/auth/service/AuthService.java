@@ -115,7 +115,8 @@ public class AuthService {
         return response.accessToken();
     }
 
-    @Transactional
+    // 바깥 트랜잭션이 기본 롤백 규칙이면 rotateRefreshToken의 noRollbackFor가 무효가 된다.
+    @Transactional(noRollbackFor = UnauthorizedException.class)
     public IssuedSession refresh(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new UnauthorizedException("Invalid refresh token.");

@@ -61,10 +61,12 @@ public class RefreshTokenService {
         }
 
         if (refreshToken.getReplacedAt() != null) {
-            if (refreshToken.getReplacedAt().plus(REUSE_GRACE).isBefore(Instant.now())) {
+            boolean reuseAfterGrace = refreshToken.getReplacedAt().plus(REUSE_GRACE).isBefore(Instant.now());
+            if (reuseAfterGrace) {
                 refreshTokenRepository.deleteByUserId(refreshToken.getUser().getId());
             }
-            throw new UnauthorizedException("Invalid refresh token.");
+            // 유예 안 재사용은 탭 경합 — 쿠키를 지우면 이긴 탭이 방금 심은 새 토큰까지 날아간다.
+            throw new UnauthorizedException("Invalid refresh token.", reuseAfterGrace);
         }
 
         User user = refreshToken.getUser();
@@ -88,6 +90,11 @@ public class RefreshTokenService {
     @Transactional
     public void revokeAllRefreshTokens(User user) {
         refreshTokenRepository.deleteByUserId(user.getId());
+    }
+
+    @Transactional
+    public int purgeExpiredRefreshTokens() {
+        return (int) refreshTokenRepository.deleteByExpiresAtBefore(Instant.now());
     }
 
     private String generateRefreshToken() {
