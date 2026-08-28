@@ -75,10 +75,17 @@ public class UserPurgeService {
                 purgedIds.add(userId);
             } catch (RuntimeException exception) {
                 if (shouldForcePurge(userId, now)) {
-                    log.error("Force-purging user after repeated provider revocation failures — "
-                            + "provider grant may remain live. userId={}, error={}",
-                            userId, exception.getMessage());
-                    purgedIds.add(userId);
+                    try {
+                        projectService.forcePurgeExternalResources(userId);
+                        log.error("Force-purged user after repeated provider revocation failures — "
+                                + "provider grant may remain live. userId={}, error={}",
+                                userId, exception.getMessage());
+                        purgedIds.add(userId);
+                    } catch (RuntimeException forceException) {
+                        excludedIds.add(userId);
+                        log.warn("Force purge attempt also failed for user; will retry next cycle. "
+                                + "userId={}, error={}", userId, forceException.getMessage());
+                    }
                 } else {
                     // 실패한 사용자는 이번 회차 삭제 대상에서 제외하고, 이번 실행의 다음 조회에서도
                     // 배제한다 — 다음 cron 실행에서는 다시 후보로 잡혀 재시도된다.

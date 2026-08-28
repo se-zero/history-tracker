@@ -191,7 +191,8 @@ class UserPurgeServiceTest {
     }
 
     @Test
-    @DisplayName("force cutoff를 넘긴 영구 실패 사용자는 강제로 삭제된다")
+    @DisplayName("force cutoff를 넘긴 영구 실패 사용자는 강제로 삭제된다"
+            + " — 강제 진행 시에도 forcePurgeExternalResources로 그래프 삭제를 보장해야 한다")
     void purgeExpiredUsersForcePurgesUserThatHasFailedPastForceCutoff() {
         UserPurgeService service = userPurgeService(2);
         when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
@@ -211,7 +212,44 @@ class UserPurgeServiceTest {
         int purgedCount = service.purgeExpiredUsers(NOW);
 
         assertThat(purgedCount).isEqualTo(1);
+        // releaseExternalResources가 실패해 그래프가 지워지지 않은 채로는 강제 삭제가 진행되면
+        // 안 된다 — forcePurgeExternalResources를 반드시 호출해 그래프 삭제를 보장해야 한다
+        verify(projectService).forcePurgeExternalResources(FIRST_USER_ID);
         verify(userRepository).deleteAllByIdInBatch(List.of(FIRST_USER_ID));
+    }
+
+    @Test
+    @DisplayName("force cutoff를 넘겨 강제 진행을 시도해도 그 시도(forcePurgeExternalResources)마저 실패하면"
+            + " 이번 회차엔 건너뛰고 다음 회차에 재시도한다")
+    void purgeExpiredUsersSkipsUserWhenForcePurgeAttemptAlsoFails() {
+        UserPurgeService service = userPurgeService(1);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID))
+                .thenReturn(List.of());
+        doThrow(new BadGatewayException("Failed to release."))
+                .when(projectService).releaseExternalResources(FIRST_USER_ID);
+        doThrow(new BadGatewayException("Force purge attempt also failed."))
+                .when(projectService).forcePurgeExternalResources(FIRST_USER_ID);
+        // FORCE_CUTOFF보다 하루 더 과거 — 강제 삭제 대상 경계를 넘겼다
+        when(userRepository.findById(FIRST_USER_ID))
+                .thenReturn(Optional.of(softDeletedUser(FORCE_CUTOFF.minus(Duration.ofDays(1)))));
+
+        int purgedCount = service.purgeExpiredUsers(NOW);
+
+        assertThat(purgedCount).isZero();
+        verify(userRepository, never()).deleteAllByIdInBatch(any());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> excludedIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(userRepository, atLeast(1)).findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), excludedIdsCaptor.capture(), any(Pageable.class));
+        // 강제 진행 시도까지 실패하면 다음 회차 재시도를 위해 배제 목록에 남아야 한다
+        assertThat(excludedIdsCaptor.getAllValues()).anyMatch(excluded -> excluded.contains(FIRST_USER_ID));
     }
 
     @Test

@@ -17,10 +17,12 @@ import com.history.backend.integration.service.IntegrationRevocationService;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.repository.ProjectRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ProjectService {
@@ -148,6 +150,20 @@ public class ProjectService {
             // 같은 취급으로 BadGatewayException을 던져 이 사용자를 건너뛰고 다음 회차에 재시도한다.
             if (!integrationRevocationService.revokeAll(project.getId())) {
                 throw new BadGatewayException("Failed to revoke provider access.");
+            }
+            aiEngineGraphClient.deleteProjectGraph(project.getId());
+        }
+    }
+
+    // 파기 강제 진행 전용 — releaseExternalResources와 달리 provider 폐기 실패로 그래프 삭제를
+    // 건너뛰지 않는다. 그래프 삭제를 건너뛰면 projects 행이 나중에 CASCADE로 사라져 그래프가
+    // 영구 고아가 되므로, 폐기 실패는 로그만 남기고 그래프 삭제는 반드시 진행한다.
+    public void forcePurgeExternalResources(UUID ownerId) {
+        List<Project> projects = projectRepository.findAllByOwner_IdOrderBySortOrderAsc(ownerId);
+        for (Project project : projects) {
+            if (!integrationRevocationService.revokeAll(project.getId())) {
+                log.error("Force-purging project despite revoke failure — "
+                        + "provider grant may remain live. projectId={}", project.getId());
             }
             aiEngineGraphClient.deleteProjectGraph(project.getId());
         }

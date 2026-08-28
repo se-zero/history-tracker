@@ -190,9 +190,19 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
     없이 기존 필드 재활용)으로 "`gracePeriod + forcePurgeAfter`(기본 30일+7일)가 지나도록 계속
     실패해온 사용자"를 판별해 강제로 삭제를 진행한다. cron이 하루 1번만 돌기 때문에 이 기간 경과는
     "최소 forcePurgeAfter일만큼 연속 실패했다"는 뜻과 같다 — 별도 실패 횟수 카운터가 필요 없다.
-    강제 삭제는 provider grant가 안 지워진 채 계정이 사라지는 것이므로 `log.error`로 남긴다(5-1
-    모니터링 전까지는 로그가 유일한 관측 수단). 영구 실패(예: Slack에서 이미 폐기된 토큰)를
-    이 안전판까지 오기 전에 줄이는 쪽은 `SlackClient`의 재해석(위 참고)이 맡는다.
+    강제 진행은 `releaseExternalResources`가 아니라 별도의 `ProjectService.forcePurgeExternalResources`를
+    부른다 — provider 폐기 실패는 로그만 남기고 **그래프 삭제는 반드시 진행한다.** 처음 만들었을 때는
+    이 구분이 없어서 강제 삭제가 그래프도 안 지운 채 `users` 행만 지워 고아 그래프를 만드는
+    Critical 결함이 있었다(봇 2차 리뷰가 발견, 즉시 수정). 그래프 삭제 자체가 실패하면(revoke와
+    무관한 별개 장애) 그 예외는 여전히 전파돼 다음 회차 재시도로 넘어간다 — 그래프 삭제만은
+    이 안전판에서도 건너뛸 수 없는 불변식이다. provider grant는 여전히 안 지워진 채로 계정이
+    사라질 수 있으므로 `log.error`로 남긴다(5-1 모니터링 전까지는 로그가 유일한 관측 수단).
+    영구 실패(예: Slack에서 이미 폐기된 토큰)를 이 안전판까지 오기 전에 줄이는 쪽은 `SlackClient`의
+    재해석(위 참고)이 맡는다.
+    **알려진 한계**: `shouldForcePurge`는 실패 "횟수"가 아니라 `deletedAt` 경과 "시간"만 본다 —
+    cron이 며칠 멈췄다 재개되거나 백로그가 오래 쌓이면, 그 사용자에게는 이번이 첫 시도인데도
+    재시도 0회로 즉시 강제 파기될 수 있다. 실제 실패 횟수를 정확히 세려면 컬럼(migration)이
+    필요해 범위가 커진다는 이유로 의도적으로 남겨뒀다(`docs/public-readiness.md` 0-1c 참고).
 - 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,
   authorize URL 조립 시 소유권을 확인하고 state를 발급한다.
 - 콜백은 예외를 던지지 않고 항상 프론트로 302 리다이렉트하며, 실패는 `?error=` 코드로 전달한다.
