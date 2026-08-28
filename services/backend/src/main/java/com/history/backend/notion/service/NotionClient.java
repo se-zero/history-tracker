@@ -75,7 +75,7 @@ public class NotionClient {
      * 계약). 실패해도 예외를 던지지 않는다 — 이미 폐기된 토큰이거나 Notion 장애일 때 연동 해제
      * 자체가 막히면 사용자가 데이터를 지울 방법을 잃는다.
      */
-    public void revoke(String accessToken) {
+    public boolean revoke(String accessToken) {
         Map<String, String> body = Map.of("token", accessToken);
 
         try {
@@ -90,8 +90,10 @@ public class NotionClient {
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
+            return true;
         } catch (RestClientException exception) {
             log.warn("Notion token revoke request failed. error={}", exception.getMessage());
+            return false;
         }
     }
 

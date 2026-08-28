@@ -31,7 +31,10 @@ public class IntegrationRevocationService {
         boolean allSucceeded = true;
         for (Integration integration : integrations) {
             try {
-                revoke(integration);
+                if (!revoke(integration)) {
+                    allSucceeded = false;
+                    log.warn("Failed to revoke provider access. provider={}", integration.getProvider().value());
+                }
             } catch (RuntimeException exception) {
                 allSucceeded = false;
                 log.warn("Failed to revoke provider access. provider={}, error={}",
@@ -45,11 +48,13 @@ public class IntegrationRevocationService {
     // 구현이 없다 — App 설치는 계정 단위(다른 프로젝트도 쓴다)라 유지하고, installation token은
     // 1시간짜리 캐시라 방치해도 곧 만료된다. 제거는 GitHub 설정에서 한다.
     // registry에 등록된 provider는 항상 암호화된 credential을 갖고 있으므로(등록되지 않은 GitHub만
-    // credential이 없다) find(provider)로만 걸러도 안전하다.
-    public void revoke(Integration integration) {
+    // credential이 없다) find(provider)로만 걸러도 안전하다. 미등록 provider는 폐기할 게 없으므로
+    // 성공(true) 취급한다.
+    public boolean revoke(Integration integration) {
         IntegrationProvider provider = integration.getProvider();
-        credentialLifecycles.find(provider)
-                .ifPresent(lifecycle -> lifecycle.revoke(
-                        integration.getEncryptedCredential(), integration.getExternalRef()));
+        return credentialLifecycles.find(provider)
+                .map(lifecycle -> lifecycle.revoke(
+                        integration.getEncryptedCredential(), integration.getExternalRef()))
+                .orElse(true);
     }
 }

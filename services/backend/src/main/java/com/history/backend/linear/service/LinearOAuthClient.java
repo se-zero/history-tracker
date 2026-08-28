@@ -98,7 +98,7 @@ public class LinearOAuthClient {
 
     // refresh token 폐기 (연동 해제 시). 실패해도 예외를 던지지 않는다 — 이미 폐기됐거나 Linear
     // 장애일 때 연동 해제 자체가 막히면 안 된다.
-    public void revoke(String refreshToken) {
+    public boolean revoke(String refreshToken) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("token", refreshToken);
         form.add("token_type_hint", "refresh_token");
@@ -113,8 +113,10 @@ public class LinearOAuthClient {
                     .body(form)
                     .retrieve()
                     .toBodilessEntity();
+            return true;
         } catch (RestClientException exception) {
             log.warn("Linear token revoke request failed. error={}", exception.getMessage());
+            return false;
         }
     }
 

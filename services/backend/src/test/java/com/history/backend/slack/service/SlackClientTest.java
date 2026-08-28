@@ -7,6 +7,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.history.backend.common.error.BadGatewayException;
@@ -118,6 +119,110 @@ class SlackClientTest {
         assertThatThrownBy(() -> fixture.client.exchangeCode("auth-code"))
                 .isInstanceOf(BadGatewayException.class)
                 .hasMessage("Slack OAuth response is missing workspace information.");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 성공(ok:true) → true 반환")
+    void revokeReturnsTrueWhenSlackAcknowledgesOk() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("""
+                        { "ok": true }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("문서에 없는 에러 코드는 여전히 실패로 처리")
+    void revokeReturnsFalseForUnknownError() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "already_revoked" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isFalse();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 응답 error:invalid_auth(이미 무효화된 토큰) → true 반환")
+    void revokeReturnsTrueWhenSlackReportsInvalidAuth() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "invalid_auth" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 응답 error:token_revoked(이미 무효화된 토큰) → true 반환")
+    void revokeReturnsTrueWhenSlackReportsTokenRevoked() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "token_revoked" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 응답 error:token_expired(이미 무효화된 토큰) → true 반환")
+    void revokeReturnsTrueWhenSlackReportsTokenExpired() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "token_expired" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 ok:false인데 error 필드가 없는 응답 → 예외 없이 false 반환")
+    void revokeReturnsFalseWhenSlackOmitsErrorField() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isFalse();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 요청이 실패해도 예외를 던지지 않고 false를 반환한다")
+    void revokeReturnsFalseWhenRequestFails() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withServerError());
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isFalse();
         fixture.server.verify();
     }
 

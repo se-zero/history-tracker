@@ -484,6 +484,56 @@ class ProjectServiceTest {
         verifyNoInteractions(integrationRevocationService, aiEngineGraphClient);
     }
 
+    @Test
+    @DisplayName("파기(강제): 연동 권한 폐기가 실패해도 그래프 삭제는 반드시 진행한다"
+            + " — releaseExternalResources와의 핵심 차이")
+    void forcePurgeExternalResourcesDeletesGraphEvenWhenRevokeFails() {
+        ProjectService service = service();
+        Project project = project(FIRST_OWNED_PROJECT_ID, OWNER_ID, "First", null);
+        when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
+                .thenReturn(List.of(project));
+        when(integrationRevocationService.revokeAll(FIRST_OWNED_PROJECT_ID)).thenReturn(false);
+
+        service.forcePurgeExternalResources(OWNER_ID);
+
+        verify(aiEngineGraphClient).deleteProjectGraph(FIRST_OWNED_PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("파기(강제): 한 프로젝트의 폐기가 실패해도 나머지 프로젝트 순회를 멈추지 않고 그래프를 마저 지운다")
+    void forcePurgeExternalResourcesContinuesToNextProjectWhenOneRevokeFails() {
+        ProjectService service = service();
+        Project first = project(FIRST_OWNED_PROJECT_ID, OWNER_ID, "First", null);
+        Project second = project(SECOND_OWNED_PROJECT_ID, OWNER_ID, "Second", null);
+        when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
+                .thenReturn(List.of(first, second));
+        when(integrationRevocationService.revokeAll(FIRST_OWNED_PROJECT_ID)).thenReturn(false);
+        when(integrationRevocationService.revokeAll(SECOND_OWNED_PROJECT_ID)).thenReturn(true);
+
+        service.forcePurgeExternalResources(OWNER_ID);
+
+        InOrder inOrder = inOrder(integrationRevocationService, aiEngineGraphClient);
+        inOrder.verify(integrationRevocationService).revokeAll(FIRST_OWNED_PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).deleteProjectGraph(FIRST_OWNED_PROJECT_ID);
+        inOrder.verify(integrationRevocationService).revokeAll(SECOND_OWNED_PROJECT_ID);
+        inOrder.verify(aiEngineGraphClient).deleteProjectGraph(SECOND_OWNED_PROJECT_ID);
+    }
+
+    @Test
+    @DisplayName("파기(강제): 그래프 삭제 자체의 실패는 여전히 전파돼 호출부가 재시도할 수 있다")
+    void forcePurgeExternalResourcesPropagatesGraphDeleteFailure() {
+        ProjectService service = service();
+        Project project = project(FIRST_OWNED_PROJECT_ID, OWNER_ID, "First", null);
+        when(projectRepository.findAllByOwner_IdOrderBySortOrderAsc(OWNER_ID))
+                .thenReturn(List.of(project));
+        when(integrationRevocationService.revokeAll(FIRST_OWNED_PROJECT_ID)).thenReturn(true);
+        doThrow(new BadGatewayException("Failed to delete project graph."))
+                .when(aiEngineGraphClient).deleteProjectGraph(FIRST_OWNED_PROJECT_ID);
+
+        assertThatThrownBy(() -> service.forcePurgeExternalResources(OWNER_ID))
+                .isInstanceOf(BadGatewayException.class);
+    }
+
     private User user(UUID id) {
         User user = new User("github", id.toString(), "user@example.com", "User", null);
         ReflectionTestUtils.setField(user, "id", id);

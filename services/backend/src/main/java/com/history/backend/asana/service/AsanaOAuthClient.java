@@ -100,7 +100,7 @@ public class AsanaOAuthClient {
     // refresh token 폐기 (연동 해제 시). access token이 아니라 refresh token을 보내야 한다 — Asana는
     // access token으로 호출하면 거부한다. 실패해도 예외를 던지지 않는다 — 이미 폐기됐거나 Asana
     // 장애일 때 연동 해제 자체가 막히면 안 된다.
-    public void revoke(String refreshToken) {
+    public boolean revoke(String refreshToken) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("client_id", properties.clientId());
         form.add("client_secret", properties.clientSecret());
@@ -114,8 +114,10 @@ public class AsanaOAuthClient {
                     .body(form)
                     .retrieve()
                     .toBodilessEntity();
+            return true;
         } catch (RestClientException exception) {
             log.warn("Asana token revoke request failed. error={}", exception.getMessage());
+            return false;
         }
     }
 

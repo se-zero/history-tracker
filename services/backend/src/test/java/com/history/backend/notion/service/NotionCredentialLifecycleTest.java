@@ -36,4 +36,28 @@ class NotionCredentialLifecycleTest {
 
         verify(notionClient).revoke("access-token");
     }
+
+    @Test
+    @DisplayName("client가 성공(true)을 반환하면 그대로 전달한다")
+    void revokeReturnsTrueWhenClientSucceeds() {
+        byte[] encrypted = {1, 2, 3};
+        when(credentialCodec.decrypt(encrypted)).thenReturn(new NotionCredential("access-token", "refresh-token"));
+        when(notionClient.revoke("access-token")).thenReturn(true);
+
+        boolean result = lifecycle.revoke(encrypted, Map.of());
+
+        assertThat(result).isTrue();
+    }
+
+    @Test
+    @DisplayName("client가 실패(false)를 반환하면 그대로 전달한다")
+    void revokeReturnsFalseWhenClientFails() {
+        byte[] encrypted = {1, 2, 3};
+        when(credentialCodec.decrypt(encrypted)).thenReturn(new NotionCredential("access-token", "refresh-token"));
+        when(notionClient.revoke("access-token")).thenReturn(false);
+
+        boolean result = lifecycle.revoke(encrypted, Map.of());
+
+        assertThat(result).isFalse();
+    }
 }

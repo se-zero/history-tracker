@@ -525,7 +525,11 @@ export function PrivacyBodyEn() {
             days deletes the account and related data. This 30-day period exists
             to allow a mistaken withdrawal to be undone. At that point we also
             revoke the access granted to connected external services and delete
-            the collected records and knowledge graph.
+            the collected records and knowledge graph. If revoking access is
+            delayed for reasons on the external service's side, we retry for up
+            to 7 more days, after which we delete the data regardless of whether
+            the access was successfully revoked (within 37 days of withdrawal
+            at the latest).
             <br />
             <strong>GitHub App installation records are retained</strong>,
             however — an installation belongs to an account rather than to an

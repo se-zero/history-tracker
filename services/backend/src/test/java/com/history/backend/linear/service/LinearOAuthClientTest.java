@@ -158,8 +158,8 @@ class LinearOAuthClientTest {
     }
 
     @Test
-    @DisplayName("refresh token 폐기 → revoke URL로 form-urlencoded 전송 (token_type_hint=refresh_token)")
-    void revokeSendsFormEncodedRequestToRevokeUrl() {
+    @DisplayName("refresh token 폐기 → revoke URL로 form-urlencoded 전송 (token_type_hint=refresh_token), 성공하면 true를 반환한다")
+    void revokeSendsFormEncodedRequestToRevokeUrlAndReturnsTrueOnSuccess() {
         LinearOAuthClientFixture fixture = fixture();
         MultiValueMap<String, String> expectedForm = new LinkedMultiValueMap<>();
         expectedForm.add("token", "refresh-token");
@@ -173,20 +173,22 @@ class LinearOAuthClientTest {
                 .andExpect(content().formData(expectedForm))
                 .andRespond(withSuccess());
 
-        fixture.client.revoke("refresh-token");
+        boolean result = fixture.client.revoke("refresh-token");
 
+        assertThat(result).isTrue();
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("폐기 요청이 실패해도 예외를 던지지 않는다 (이미 폐기된 토큰·Linear 장애를 해제 실패로 만들지 않는다)")
-    void revokeSwallowsFailure() {
+    @DisplayName("폐기 요청이 실패해도 예외를 던지지 않고 false를 반환한다 (이미 폐기된 토큰·Linear 장애를 해제 실패로 만들지 않는다)")
+    void revokeReturnsFalseWhenRequestFails() {
         LinearOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.linear.app/oauth/revoke"))
                 .andRespond(withServerError());
 
-        fixture.client.revoke("refresh-token");
+        boolean result = fixture.client.revoke("refresh-token");
 
+        assertThat(result).isFalse();
         fixture.server.verify();
     }
 

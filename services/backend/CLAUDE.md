@@ -73,13 +73,19 @@ provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지�
 `AccessTokenRefresher`를 `ProviderCredentialLifecycle`에서 떼어낸 이유가 이것이다
 (아래 「내부 서비스 API」 참고). `ProviderCredentialLifecycle`도 같은 원칙을 따른다 —
 레지스트리는 `find(provider): Optional`로 등록 여부를 신고하고, 미등록 provider는 폐기를
-건너뛴다(`IntegrationRevocationService.revoke`가 `find`+`ifPresent`로 호출).
+건너뛰고 성공(`true`) 취급한다(`IntegrationRevocationService.revoke`가
+`find`+`map(...).orElse(true)`로 호출).
 
 **폐기 실행은 `IntegrationRevocationService`(leaf)가 소유한다.** 연동 해제는 단건(`revoke`),
 프로젝트 삭제·사용자 파기는 일괄(`revokeAll(projectId)`)로 부른다. `IntegrationService`가
 `ProjectService`를 주입받으므로 폐기 로직이 거기 있으면 `ProjectService`에서 부를 수 없다 —
-그래서 둘 다 참조할 수 있는 leaf로 뺐다. `revokeAll`은 **건별로 실패를 삼킨다**: 한 provider의
-폐기 실패가 나머지 연동의 grant를 영구히 남기면 안 되기 때문이다.
+그래서 둘 다 참조할 수 있는 leaf로 뺐다. `revoke`는 `boolean`으로 성공 여부를 신고한다
+(client가 예외를 삼키던 시절엔 이 신호가 끊겨 있었다 — 지금은 client·어댑터·이 서비스가 전부
+`boolean`을 전달한다). `revokeAll`은 **건별 실패에도 순회를 멈추지 않는다**: 한 provider의
+폐기 실패가 나머지 연동의 grant까지 영구히 남기면 안 되기 때문이다. 대신 실패 여부는
+`allSucceeded`에 정확히 집계되고, **그 결과를 어떻게 쓸지는 호출부가 정한다** — 연동 해제
+(`IntegrationService.disconnect`)는 무시하고 진행, 사용자 파기(`ProjectService.releaseExternalResources`,
+아래 「RDB 밖 자원을 가진 삭제」 참고)는 반응해서 실패한 사용자를 다음 회차로 미룬다.
 
 **저장 정책은 `IntegrationService.connectOAuth`가 소유한다** — 확정 연동 409 선검사(1회용 code를
 교환 전에 지킨다) → code 교환 → 자격증명 암호화 → 저장(pending 행이면 재동의로 덮어쓰기, unique 위반은
@@ -142,8 +148,15 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
 - `DELETE /api/v1/projects/{projectId}/integrations/{provider}`(연동 해제)는 provider 권한 폐기 →
   그래프 삭제 → RDB(연동 행·checkpoint) 삭제 순서다. **권한 폐기가 가장 먼저인 이유**: 우리 DB의
   토큰을 지우면 폐기에 쓸 값 자체가 사라진다. Slack은 `auth.revoke`, Jira·Google Chat은 refresh token
-  폐기(파생 access token도 함께 무효화)이며, 폐기 실패는 각 client가 로그만 남기고 삼킨다 —
-  이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
+  폐기(파생 access token도 함께 무효화)이며, client는 성공/실패를 `boolean`으로 신고하지만
+  **`disconnect`는 그 결과를 무시하고 항상 진행한다** — 이미 폐기된 토큰이나 provider 장애로
+  해제가 막히면 사용자가 데이터를 지울 방법을 잃는다. (파기 경로는 반대로 이 신호에 반응한다 —
+  「사용자 파기」 참고.)
+  **Slack만 RFC 7009(OAuth 표준 토큰 폐기)를 안 따르고** HTTP 200 + 바디의 `ok`/`error` 필드로
+  성공/실패를 알린다. `error`가 `invalid_auth`·`token_revoked`·`token_expired`(공식 문서 확인)면
+  "이미 무효화된 토큰이라 지울 대상이 없다"는 뜻이므로 실패가 아니라 성공으로 재해석한다
+  (`SlackClient.ALREADY_REVOKED_ERRORS`). 나머지 provider는 표준을 따를 것으로 보여(실기동에서도
+  실패가 관측된 적 없음) 같은 재해석을 적용하지 않는다 — 확인 안 된 걸 코드에 가정으로 박지 않는다.
   Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, Asana도 refresh
   token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은
   폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시). ClickUp도
@@ -168,9 +181,28 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   - 프로젝트 삭제: `ProjectService.deleteProject` (일괄 폐기 + 프로젝트 그래프 삭제)
   - 사용자 파기: `UserPurgeService` → `ProjectService.releaseExternalResources`로 소유 프로젝트의
     폐기·그래프 삭제를 끝낸 뒤에만 `users` 행을 지운다. 실패한 사용자는 행을 남겨 다음 회차에
-    재시도한다 — **실패했는데 행을 지우면 그 순간 고아 그래프가 된다.**
+    재시도한다 — **실패했는데 행을 지우면 그 순간 고아 그래프가 된다.** `revokeAll`이 `false`를
+    반환하면(provider client가 예외 없이 실패를 신고한 경우도 포함) `BadGatewayException`으로
+    이 재시도를 건다 — client가 실패를 삼키던 시절엔 이 경로가 사실상 도달 불가능했다.
     `releaseExternalResources`는 파기 전용이라 `getActiveUser` 게이트를 타지 않는다(대상이 이미
     soft-delete 상태라 그 검증에서 예외가 난다).
+    **재시도에는 상한이 있다** — `UserPurgeService.shouldForcePurge`가 `User.deletedAt`(새 컬럼
+    없이 기존 필드 재활용)으로 "`gracePeriod + forcePurgeAfter`(기본 30일+7일)가 지나도록 계속
+    실패해온 사용자"를 판별해 강제로 삭제를 진행한다. cron이 하루 1번만 돌기 때문에 이 기간 경과는
+    "최소 forcePurgeAfter일만큼 연속 실패했다"는 뜻과 같다 — 별도 실패 횟수 카운터가 필요 없다.
+    강제 진행은 `releaseExternalResources`가 아니라 별도의 `ProjectService.forcePurgeExternalResources`를
+    부른다 — provider 폐기 실패는 로그만 남기고 **그래프 삭제는 반드시 진행한다.** 처음 만들었을 때는
+    이 구분이 없어서 강제 삭제가 그래프도 안 지운 채 `users` 행만 지워 고아 그래프를 만드는
+    Critical 결함이 있었다(봇 2차 리뷰가 발견, 즉시 수정). 그래프 삭제 자체가 실패하면(revoke와
+    무관한 별개 장애) 그 예외는 여전히 전파돼 다음 회차 재시도로 넘어간다 — 그래프 삭제만은
+    이 안전판에서도 건너뛸 수 없는 불변식이다. provider grant는 여전히 안 지워진 채로 계정이
+    사라질 수 있으므로 `log.error`로 남긴다(5-1 모니터링 전까지는 로그가 유일한 관측 수단).
+    영구 실패(예: Slack에서 이미 폐기된 토큰)를 이 안전판까지 오기 전에 줄이는 쪽은 `SlackClient`의
+    재해석(위 참고)이 맡는다.
+    **알려진 한계**: `shouldForcePurge`는 실패 "횟수"가 아니라 `deletedAt` 경과 "시간"만 본다 —
+    cron이 며칠 멈췄다 재개되거나 백로그가 오래 쌓이면, 그 사용자에게는 이번이 첫 시도인데도
+    재시도 0회로 즉시 강제 파기될 수 있다. 실제 실패 횟수를 정확히 세려면 컬럼(migration)이
+    필요해 범위가 커진다는 이유로 의도적으로 남겨뒀다(`docs/public-readiness.md` 0-1c 참고).
 - 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,
   authorize URL 조립 시 소유권을 확인하고 state를 발급한다.
 - 콜백은 예외를 던지지 않고 항상 프론트로 302 리다이렉트하며, 실패는 `?error=` 코드로 전달한다.

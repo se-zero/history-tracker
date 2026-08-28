@@ -23,7 +23,7 @@ public class NotionCredentialLifecycle implements ProviderCredentialLifecycle {
     }
 
     @Override
-    public void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
-        notionClient.revoke(credentialCodec.decrypt(encryptedCredential).accessToken());
+    public boolean revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
+        return notionClient.revoke(credentialCodec.decrypt(encryptedCredential).accessToken());
     }
 }
