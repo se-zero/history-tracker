@@ -17,9 +17,14 @@ public record GitHubWebhookIntegrationResolution(
         return new GitHubWebhookIntegrationResolution(Status.NOT_FOUND, null);
     }
 
+    public static GitHubWebhookIntegrationResolution incrementalDisabled() {
+        return new GitHubWebhookIntegrationResolution(Status.INCREMENTAL_DISABLED, null);
+    }
+
     public enum Status {
         READY,
         TOKEN_REFRESH_REQUIRED,
-        NOT_FOUND
+        NOT_FOUND,
+        INCREMENTAL_DISABLED
     }
 }
