@@ -26,7 +26,8 @@ public class GoogleChatRawService {
     // 가정하면 안 된다. 실행이 끝나면 context와 함께 버려지므로 개인정보가 프로세스 수명만큼
     // 남아있던 문제(전역 싱글턴 캐시)를 없앤다.
     public record GoogleChatFetchContext(
-            String auth, String spaceId, Instant lastScannedAt, Map<String, PersonInfo> resolvedPersons) {}
+            String auth, String spaceId, Instant lastScannedAt, Map<String, PersonInfo> resolvedPersons,
+            String projectId) {}
 
     // People API로 보강한 sender 이름·이메일. 사용자 인증으로는 Message.sender에 displayName이
     // 오지 않아(§ resolveSenders 참고) 별도 조회가 필요하다.
@@ -55,13 +56,14 @@ public class GoogleChatRawService {
         this.rateLimiter = rateLimiter;
     }
 
-    public GoogleChatFetchContext prepareFetchContext(RawFetchRequest request, Instant lastScannedAt) {
-        return new GoogleChatFetchContext(request.credentials(), request.projectKey(), lastScannedAt, new HashMap<>());
+    public GoogleChatFetchContext prepareFetchContext(RawFetchRequest request, Instant lastScannedAt, String projectId) {
+        return new GoogleChatFetchContext(
+                request.credentials(), request.projectKey(), lastScannedAt, new HashMap<>(), projectId);
     }
 
     // 스페이스 표시 이름을 매 수집마다 1회 조회한다 — external_ref.space_name 대신 최신 이름을 따라간다.
     public String fetchSpaceDisplayName(GoogleChatFetchContext context) {
-        Map<String, Object> space = executeWithRateLimitRetry(() -> webClient.get()
+        Map<String, Object> space = executeWithRateLimitRetry(context.projectId(), () -> webClient.get()
                 // spaceId 자체가 "spaces/{id}"로 슬래시를 포함한다 — {변수} 템플릿 치환에 넣으면
                 // WebClient가 "하나의 경로 조각"으로 보고 슬래시까지 %2F로 인코딩해 404가 난다
                 // (실측으로 발견). 문자열을 그대로 붙여 실제 경로 구분자로 취급되게 한다.
@@ -91,7 +93,7 @@ public class GoogleChatRawService {
     @SuppressWarnings("unchecked")
     public GoogleChatMessagePage fetchMessagePage(GoogleChatFetchContext context, String pageToken) {
         String filter = filterExpression(context.lastScannedAt());
-        Map<String, Object> response = executeWithRateLimitRetry(() -> webClient.get()
+        Map<String, Object> response = executeWithRateLimitRetry(context.projectId(), () -> webClient.get()
                 .uri(uriBuilder -> {
                     // fetchSpaceDisplayName과 같은 이유로 {spaceId} 템플릿 치환 대신 문자열로 붙인다.
                     uriBuilder.path("/" + context.spaceId() + "/messages")
@@ -194,7 +196,7 @@ public class GoogleChatRawService {
         Map<String, PersonInfo> result = new HashMap<>();
         Map<String, Object> response;
         try {
-            response = executeWithRateLimitRetry(() -> peopleWebClient.get()
+            response = executeWithRateLimitRetry(context.projectId(), () -> peopleWebClient.get()
                     .uri(uriBuilder -> {
                         uriBuilder.path("/people:batchGet").queryParam("personFields", PERSON_FIELDS);
                         for (String senderName : senderResourceNames) {
@@ -281,13 +283,12 @@ public class GoogleChatRawService {
         return first.get("value") instanceof String value ? value : null;
     }
 
-    private <T> T executeWithRateLimitRetry(Supplier<T> request) {
+    private <T> T executeWithRateLimitRetry(String projectId, Supplier<T> request) {
         int attempts = 0;
         while (true) {
+            rateLimiter.acquire(projectId);
             try {
-                T result = request.get();
-                rateLimiter.afterRequest();
-                return result;
+                return request.get();
             } catch (WebClientResponseException.TooManyRequests exception) {
                 attempts++;
                 if (attempts > MAX_RETRY_ON_RATE_LIMIT) {

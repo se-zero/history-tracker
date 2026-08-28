@@ -116,6 +116,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-must-be-changed}
       BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
+      PLAN_UPGRADE_CODE: ${PLAN_UPGRADE_CODE:-}
 
       # GitHub App — infra/docker/.env 에서 forward (필수: APP_ID, SLUG, CLIENT_ID/SECRET, PRIVATE_KEY)
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}

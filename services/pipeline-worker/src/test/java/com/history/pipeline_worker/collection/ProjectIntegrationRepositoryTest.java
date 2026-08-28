@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,7 +44,7 @@ class ProjectIntegrationRepositoryTest {
                 any(RowMapper.class)
         )).thenAnswer(invocation -> {
             RowMapper<ProjectIntegrationRepository.IntegrationRow> mapper = invocation.getArgument(2);
-            return List.of(mapper.mapRow(resultSet(), 0));
+            return List.of(mapper.mapRow(resultSet(true), 0));
         });
 
         ProjectIntegrationRepository repository = new ProjectIntegrationRepository(jdbcTemplate, new ObjectMapper());
@@ -59,9 +60,40 @@ class ProjectIntegrationRepositoryTest {
         assertThat(row.encryptedCredential()).isNull();
         assertThat(row.encryptedInstallationToken()).containsExactly(1, 2, 3);
         assertThat(row.installationTokenExpiresAt()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(row.incrementalEnabled()).isTrue();
     }
 
-    private ResultSet resultSet() throws Exception {
+    @Test
+    @SuppressWarnings("unchecked")
+    void rowMapper_readsFalseIncrementalEnabled() throws Exception {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        when(jdbcTemplate.query(
+                anyString(),
+                any(MapSqlParameterSource.class),
+                any(RowMapper.class)
+        )).thenAnswer(invocation -> {
+            RowMapper<ProjectIntegrationRepository.IntegrationRow> mapper = invocation.getArgument(2);
+            return List.of(mapper.mapRow(resultSet(false), 0));
+        });
+
+        ProjectIntegrationRepository repository = new ProjectIntegrationRepository(jdbcTemplate, new ObjectMapper());
+
+        List<ProjectIntegrationRepository.IntegrationRow> rows = repository.findAllByProjectId(UUID.randomUUID());
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).incrementalEnabled()).isFalse();
+    }
+
+    @Test
+    void integrationRow_sixArgConstructor_defaultsIncrementalEnabledToTrue() {
+        UUID projectId = UUID.randomUUID();
+        ProjectIntegrationRepository.IntegrationRow row = new ProjectIntegrationRepository.IntegrationRow(
+                projectId, "github", Map.of(), null, null, null
+        );
+        assertThat(row.incrementalEnabled()).isTrue();
+    }
+
+    private ResultSet resultSet(boolean incrementalEnabled) throws Exception {
         UUID projectId = UUID.randomUUID();
         ResultSet resultSet = mock(ResultSet.class);
         when(resultSet.getObject("project_id", UUID.class)).thenReturn(projectId);
@@ -72,6 +104,7 @@ class ProjectIntegrationRepositoryTest {
         when(resultSet.getBytes("encrypted_installation_token")).thenReturn(new byte[] {1, 2, 3});
         when(resultSet.getTimestamp("installation_token_expires_at"))
                 .thenReturn(java.sql.Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")));
+        when(resultSet.getBoolean("incremental_enabled")).thenReturn(incrementalEnabled);
         return resultSet;
     }
 }

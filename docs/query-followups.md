@@ -223,6 +223,30 @@ get_file_history·get_actor_activity 2계층 전환(78f79b9, fd1534d)의 액터 
 결과가 프롬프트 주입으로 남는다. ai-engine이 backend를 직접 부르는 안(`ai-engine → backend`)은
 **현재 없는 의존 방향**을 새로 만들어야 해서(클라이언트·내부 토큰 전무) 얻는 것 대비 과하다.
 
+### 폴백(아이디어, 2026-08-28) — README가 없거나 짧으면 사용자가 직접 쓴 설명을 쓴다
+
+레포에 README가 없거나 너무 짧아 요약할 내용이 부족한 경우, **사용자가 프로젝트 생성/수정 시
+입력하는 설명**을 대신 컨텍스트로 쓰자는 아이디어. 조사해 보니 이걸 위한 자리가 이미 있다 —
+`Project.description`(`ProjectService.createProject`/`updateProject`가 받는 파라미터, 프론트
+`api/projects.ts`에도 `description?: string`으로 있음)이 그것이다. **다만 지금은 화면 표시용일
+뿐이다** — `ProjectResponse`에만 담기고, backend가 ai-engine에 보내는
+`AiEngineQueryRequest`(`question`·`project_id`·`history`·`prior_evidence`·`running_summary`·
+`focus_evidence`)에는 이 필드가 아예 없다. 즉 지금 사용자가 프로젝트 설명을 적어도 LLM 답변에는
+전혀 반영되지 않는다.
+
+**아키텍처상 걸리는 지점**: `description`은 backend/Postgres가 소유하는 값인데, 이 문서가 설계한
+"Document" 노드는 **pipeline-worker가 NormalizedEvent로 발행**해야 ai-engine이 무변경으로 소비할
+수 있다(`docs/normalized-event.md` 원칙 — ai-engine은 이벤트만 안다, backend를 직접 부르지 않는다).
+그래서 이 폴백을 실제로 만들려면 "값을 어디서 만들어 어떻게 발행 경로에 태울지"를 정해야 한다 —
+예를 들어 pipeline-worker가 수집 시점에 backend 내부 API로 `description`을 조회해 README 대신(또는
+README가 없을 때만) `Document`로 발행하는 방식이, 이 문서가 이미 채택한 "pipeline-worker가
+발행자" 원칙과 가장 일관된다. backend가 직접 이벤트를 발행하는 새 경로를 여는 것보다는 이쪽이
+자연스럽다.
+
+**정할 것**: "짧다"의 기준(글자 수?), README와 설명이 둘 다 있으면 어느 쪽을 우선할지(또는 둘 다
+쓸지), `description`이 나중에 수정되면 재발행을 어떻게 트리거할지. 아직 설계 전 단계이고, 위
+README→Document 설계가 먼저 정리된 뒤에 같이 볼 것.
+
 ### 정해야 할 것
 
 - [ ] **`external_id` 규칙** — 재수집 멱등성 키다. `"readme"` 고정값과 파일 경로(`README.md`) 중 선택.

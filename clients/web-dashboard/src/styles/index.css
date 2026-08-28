@@ -20,6 +20,7 @@
 @import "./workunit.css";
 @import "./sources.css";
 @import "./search.css";
+@import "./account.css";
 @import "./misc.css";
 @import "./landing.css";
 /* landing.css 뒤 — .lp 스코프 토큰·헤더/푸터 규칙 위에 얹힌다. */

@@ -6,6 +6,7 @@ import { Icons } from "@/components/Icons";
 import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
 import { MonoChip } from "@/components/ui/MonoChip";
+import { PlanCard } from "@/components/settings/PlanCard";
 import { deleteAccount } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
 import { PATHS } from "@/routes";
@@ -37,8 +38,10 @@ export function AccountPage() {
     <div className="sources-page">
       <h1 className="page-title">계정 설정</h1>
       <p className="page-sub">
-        <MonoChip>{user?.email ?? "계정"}</MonoChip> · 계정 관리.
+        <MonoChip>{user?.email ?? "계정"}</MonoChip> · 플랜과 계정 관리.
       </p>
+
+      <PlanCard />
 
       {/* ─── 회원 탈퇴 (계정 전체) ─── */}
       <section

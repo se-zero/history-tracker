@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
@@ -49,6 +50,7 @@ public class IntegrationService {
     private final AccessTokenRefresherRegistry accessTokenRefreshers;
     private final IntegrationSelectionFlowRegistry selectionFlows;
     private final TransactionTemplate transactionTemplate;
+    private final PlanService planService;
 
     // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
     public List<IntegrationResponse> listIntegrations(UUID ownerId, UUID projectId) {
@@ -83,6 +85,7 @@ public class IntegrationService {
             String branch
     ) {
         Project project = projectService.getProject(ownerId, projectId);
+        planService.ensureProviderConnectable(ownerId, IntegrationProvider.GITHUB);
         GitHubInstallation installation = gitHubInstallationService.getAccessibleInstallation(ownerId, installationId);
         validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
         installationTokenService.getInstallationAccessToken(installationId);
@@ -98,6 +101,7 @@ public class IntegrationService {
                 normalizedRepositoryFullName,
                 normalizedBranch
         ));
+        planService.recordProviderConnected(ownerId, IntegrationProvider.GITHUB);
         pipelineWorkerClient.triggerCollection(IntegrationProvider.GITHUB, projectId);
         return integration;
     }
@@ -115,6 +119,8 @@ public class IntegrationService {
         // 설치 조회가 active user 검증을 겸한다. 외부 호출(토큰 발급)은 트랜잭션 시작 전에 끝내
         // 발급이 실패하면 프로젝트가 아예 만들어지지 않게 하고, 발급 지연 동안 DB 커넥션도 잡지 않는다.
         GitHubInstallation installation = gitHubInstallationService.getAccessibleInstallation(ownerId, installationId);
+        // 이 경로는 계획상 GitHub 연동 제한이 처음 붙는 자리다 — 프로젝트가 만들어지기 전에 막는다
+        planService.ensureProviderConnectable(ownerId, IntegrationProvider.GITHUB);
         installationTokenService.getInstallationAccessToken(installationId);
 
         String normalizedRepositoryFullName = repositoryFullName.trim();
@@ -132,6 +138,7 @@ public class IntegrationService {
             );
             return created;
         });
+        planService.recordProviderConnected(ownerId, IntegrationProvider.GITHUB);
         pipelineWorkerClient.triggerCollection(IntegrationProvider.GITHUB, project.getId());
         return project;
     }
@@ -156,13 +163,11 @@ public class IntegrationService {
             String branch
     ) {
         try {
-            return integrationRepository.saveAndFlush(Integration.github(
-                    project,
-                    installation,
-                    repositoryId,
-                    repositoryFullName,
-                    branch
-            ));
+            Integration integration = Integration.github(project, installation, repositoryId, repositoryFullName, branch);
+            if (!planService.isIncrementalEnabled(project.getOwner().getId())) {
+                integration.disableIncremental();
+            }
+            return integrationRepository.saveAndFlush(integration);
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합으로 사전 중복 검사를 통과한 경우 unique 제약 위반을 409로 변환
             throw integrationAlreadyExists(IntegrationProvider.GITHUB);
@@ -184,8 +189,15 @@ public class IntegrationService {
         IntegrationProvider provider = flow.provider();
         projectService.getProject(ownerId, projectId);
         boolean requiresSelection = selectionFlows.find(provider).isPresent();
-        // 이미 확정된 연동이면 code 교환으로 1회용 code를 낭비하지 않도록 외부 호출 전에 선검증
-        rejectIfAlreadyConnected(projectId, provider);
+        // 이미 확정된 연동이면 code 교환으로 1회용 code를 낭비하지 않도록 외부 호출 전에 선검증.
+        // 조회 결과는 아래 한도 검사에도 재사용한다(같은 요청에서 두 번 조회하지 않는다).
+        Optional<Integration> existing = rejectIfAlreadyConnected(projectId, provider);
+        if (existing.isEmpty()) {
+            // 무료 티어 한도는 신규 연결에만 적용한다 — pending 행이 있다는 건 갱신 실패로 되돌아온
+            // 기존 연동을 재동의로 복구하는 경로라, 이미 남은 이력을 다시 검사하면 복구 수단이 없어진다.
+            // 같은 이유로 code 교환 전에 막아 1회용 code 낭비도 피한다.
+            planService.ensureProviderConnectable(ownerId, provider);
+        }
 
         OAuthConnection connection = flow.exchangeCode(code);
         if (requiresSelection && !connection.externalRef().isEmpty()) {
@@ -219,6 +231,8 @@ public class IntegrationService {
             discardUnsavedConnection(provider, encryptedCredential, connection.externalRef());
             throw exception;
         }
+        // 선택 단계가 있어도 provider 자체는 이미 연동 시도한 것이므로 확정 전에 이력을 남긴다
+        planService.recordProviderConnected(ownerId, provider);
 
         if (!requiresSelection) {
             pipelineWorkerClient.triggerCollection(provider, projectId);
@@ -396,13 +410,15 @@ public class IntegrationService {
         return externalRef;
     }
 
-    // 재동의는 pending 행에만 허용한다 — 확정된 연동에는 409로 code 교환 전에 막는다
-    private void rejectIfAlreadyConnected(UUID projectId, IntegrationProvider provider) {
-        integrationRepository.findByProject_IdAndProvider(projectId, provider)
-                .filter(integration -> !integration.isPendingSelection())
+    // 재동의는 pending 행에만 허용한다 — 확정된 연동에는 409로 code 교환 전에 막는다.
+    // 조회 결과(기존 행 존재 여부)를 호출부의 한도 검사 분기에도 재사용한다.
+    private Optional<Integration> rejectIfAlreadyConnected(UUID projectId, IntegrationProvider provider) {
+        Optional<Integration> existing = integrationRepository.findByProject_IdAndProvider(projectId, provider);
+        existing.filter(integration -> !integration.isPendingSelection())
                 .ifPresent(integration -> {
                     throw integrationAlreadyExists(provider);
                 });
+        return existing;
     }
 
     private Integration getIntegration(UUID projectId, IntegrationProvider provider) {
@@ -440,9 +456,13 @@ public class IntegrationService {
             return integrationRepository.saveAndFlush(integration);
         }
         try {
-            return integrationRepository.saveAndFlush(requiresSelection
+            Integration integration = requiresSelection
                     ? Integration.pendingSelection(project, provider, encryptedCredential)
-                    : Integration.oauth(project, provider, externalRef, encryptedCredential));
+                    : Integration.oauth(project, provider, externalRef, encryptedCredential);
+            if (!planService.isIncrementalEnabled(ownerId)) {
+                integration.disableIncremental();
+            }
+            return integrationRepository.saveAndFlush(integration);
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
             throw integrationAlreadyExists(provider);

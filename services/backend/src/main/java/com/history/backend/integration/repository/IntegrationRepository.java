@@ -22,6 +22,9 @@ public interface IntegrationRepository extends JpaRepository<Integration, UUID> 
 
     List<Integration> findAllByProvider(IntegrationProvider provider);
 
+    // 유료 전환 시 소유 연동 전체에 증분 수집을 다시 켜기 위한 조회
+    List<Integration> findAllByProject_Owner_Id(UUID ownerId);
+
     // Jira 토큰 갱신 경합(동시 refresh로 인한 refresh token 상호 무효화) 방지를 위한 비관적 잠금 조회
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT integration FROM Integration integration "

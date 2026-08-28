@@ -20,7 +20,7 @@ import java.util.function.Supplier;
 @Service
 public class DiscordRawService {
 
-    public record DiscordFetchContext(String auth, String guildId, Instant lastScannedAt) {}
+    public record DiscordFetchContext(String auth, String guildId, Instant lastScannedAt, String projectId) {}
 
     // Discord API 페이지당 최대 수
     private static final int PAGE_SIZE = 100;
@@ -46,8 +46,8 @@ public class DiscordRawService {
         this.rateLimiter = rateLimiter;
     }
 
-    public DiscordFetchContext prepareFetchContext(RawFetchRequest request, Instant lastScannedAt) {
-        return new DiscordFetchContext(request.credentials(), request.projectKey(), lastScannedAt);
+    public DiscordFetchContext prepareFetchContext(RawFetchRequest request, Instant lastScannedAt, String projectId) {
+        return new DiscordFetchContext(request.credentials(), request.projectKey(), lastScannedAt, projectId);
     }
 
     /**
@@ -59,7 +59,7 @@ public class DiscordRawService {
     public List<Map<String, Object>> fetchChannels(DiscordFetchContext context) {
         List<Map<String, Object>> channels = new ArrayList<>();
 
-        List<Map<String, Object>> guildChannels = executeWithRateLimitRetry(() -> webClient.get()
+        List<Map<String, Object>> guildChannels = executeWithRateLimitRetry(context.projectId(), () -> webClient.get()
                 .uri("/guilds/{guildId}/channels", context.guildId())
                 .header("Authorization", context.auth())
                 .retrieve()
@@ -73,7 +73,7 @@ public class DiscordRawService {
             }
         }
 
-        Map<String, Object> activeThreadsResponse = executeWithRateLimitRetry(() -> webClient.get()
+        Map<String, Object> activeThreadsResponse = executeWithRateLimitRetry(context.projectId(), () -> webClient.get()
                 .uri("/guilds/{guildId}/threads/active", context.guildId())
                 .header("Authorization", context.auth())
                 .retrieve()
@@ -110,7 +110,7 @@ public class DiscordRawService {
         String channelId = (String) channel.get("id");
         String after = cursor == null ? afterCursor(context.lastScannedAt()) : cursor;
 
-        List<Map<String, Object>> page = requestMessages(context.auth(), channelId, after);
+        List<Map<String, Object>> page = requestMessages(context.auth(), channelId, after, context.projectId());
 
         String nextCursor = null;
         if (page.size() >= PAGE_SIZE) {
@@ -130,8 +130,8 @@ public class DiscordRawService {
         return new DiscordMessagePage(filterNoise(page), nextCursor);
     }
 
-    private List<Map<String, Object>> requestMessages(String auth, String channelId, String afterCursor) {
-        List<Map<String, Object>> page = executeWithRateLimitRetry(() -> webClient.get()
+    private List<Map<String, Object>> requestMessages(String auth, String channelId, String afterCursor, String projectId) {
+        List<Map<String, Object>> page = executeWithRateLimitRetry(projectId, () -> webClient.get()
                 .uri("/channels/{channelId}/messages?limit=" + PAGE_SIZE + "&after={afterCursor}",
                         channelId, afterCursor)
                 .header("Authorization", auth)
@@ -212,13 +212,12 @@ public class DiscordRawService {
         return Long.toString((instant.toEpochMilli() - DISCORD_EPOCH_MS) << 22);
     }
 
-    private <T> T executeWithRateLimitRetry(Supplier<T> request) {
+    private <T> T executeWithRateLimitRetry(String projectId, Supplier<T> request) {
         int attempts = 0;
         while (true) {
+            rateLimiter.acquire(projectId);
             try {
-                T result = request.get();
-                rateLimiter.afterRequest();
-                return result;
+                return request.get();
             } catch (WebClientResponseException.TooManyRequests exception) {
                 attempts++;
                 if (attempts > MAX_RETRY_ON_RATE_LIMIT) {

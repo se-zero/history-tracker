@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.conversation.ChatMemoryProperties;
@@ -52,6 +53,7 @@ public class MessageService {
     private final MessageRepository messageRepository;
     private final ConversationRepository conversationRepository;
     private final ProjectService projectService;
+    private final PlanService planService;
     private final AiEngineQueryClient aiEngineQueryClient;
     private final ChatMemoryProperties chatMemoryProperties;
     private final SummaryBackoffTracker summaryBackoffTracker;
@@ -63,6 +65,7 @@ public class MessageService {
             MessageRepository messageRepository,
             ConversationRepository conversationRepository,
             ProjectService projectService,
+            PlanService planService,
             AiEngineQueryClient aiEngineQueryClient,
             ChatMemoryProperties chatMemoryProperties,
             SummaryBackoffTracker summaryBackoffTracker,
@@ -72,6 +75,7 @@ public class MessageService {
         this.messageRepository = messageRepository;
         this.conversationRepository = conversationRepository;
         this.projectService = projectService;
+        this.planService = planService;
         this.aiEngineQueryClient = aiEngineQueryClient;
         this.chatMemoryProperties = chatMemoryProperties;
         this.summaryBackoffTracker = summaryBackoffTracker;
@@ -89,6 +93,8 @@ public class MessageService {
             List<EvidenceRef> focusEvidence
     ) {
         String normalizedContent = normalizeContent(content);
+        // 무료 티어 질의 한도(총 10회) 검증 — 불필요한 프로젝트·대화 조회를 막기 위해 진입부에서 가장 먼저 확인한다
+        planService.ensureQueryAllowed(userId);
         projectService.getProject(userId, projectId);
         // 느린 AI 질의 중 커넥션 점유를 피하고, 질의 실패와 무관하게 사용자 메시지를 보존
         PendingQuery pendingQuery = transactionTemplate.execute(status -> {
@@ -100,6 +106,7 @@ public class MessageService {
         });
         maybeScheduleSummaryRefresh(conversationId, pendingQuery.queryContext());
         Message assistantMessage = appendAssistantMessageAfterQuery(
+                userId,
                 projectId,
                 conversationId,
                 normalizedContent,
@@ -121,6 +128,7 @@ public class MessageService {
 
     // AI 질의(트랜잭션 밖) 후 assistant 응답 메시지 저장
     Message appendAssistantMessageAfterQuery(
+            UUID ownerId,
             UUID projectId,
             UUID conversationId,
             String normalizedContent,
@@ -129,6 +137,8 @@ public class MessageService {
             Map<String, Object> runningSummary,
             List<EvidenceRef> focusEvidence
     ) {
+        // 질의 실패·fallback이어도 ai-engine 호출 시점에 이미 사용량을 기록한다(계획된 설계)
+        planService.recordQuery(ownerId);
         AiEngineQueryResult queryResult = aiEngineQueryClient.ask(
                 normalizedContent,
                 projectId,

@@ -74,7 +74,7 @@ public class DiscordCollector implements SourceCollector {
     @Override
     public int collect(String projectId, RawFetchRequest request) {
         Instant lastScannedAt = checkpointService.loadCursors(projectId, provider()).get(MESSAGES_CURSOR);
-        DiscordRawService.DiscordFetchContext context = rawService.prepareFetchContext(request, lastScannedAt);
+        DiscordRawService.DiscordFetchContext context = rawService.prepareFetchContext(request, lastScannedAt, projectId);
         String guildId = request.projectKey();
 
         List<Map<String, Object>> channels;

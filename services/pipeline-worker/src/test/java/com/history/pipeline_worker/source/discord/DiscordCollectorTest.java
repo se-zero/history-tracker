@@ -85,7 +85,7 @@ class DiscordCollectorTest {
     void collect_publishesPerChannelAndAdvancesCursorOnce() {
         RawFetchRequest request = new RawFetchRequest("Bot test-bot-token", "G1", Map.of());
         DiscordRawService.DiscordFetchContext context =
-                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null);
+                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null, PROJECT_ID);
         Map<String, Object> channel1 = Map.of("id", "C1", "name", "일반", "isThread", false);
         Map<String, Object> channel2 = Map.of("id", "C2", "name", "개발", "isThread", false);
         List<Map<String, Object>> rawMessages1 = List.of(Map.of("id", "M1"));
@@ -94,7 +94,7 @@ class DiscordCollectorTest {
         List<NormalizedEvent> events2 = List.of(event(Instant.parse("2026-08-08T01:00:00Z")));
 
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD)).thenReturn(Map.of());
-        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.prepareFetchContext(request, null, PROJECT_ID)).thenReturn(context);
         when(rawService.fetchChannels(context)).thenReturn(List.of(channel1, channel2));
         when(rawService.fetchMessagePage(context, channel1, null))
                 .thenReturn(new DiscordRawService.DiscordMessagePage(rawMessages1, null));
@@ -120,7 +120,7 @@ class DiscordCollectorTest {
     void collect_publishesPerPageNotPerChannel() {
         RawFetchRequest request = new RawFetchRequest("Bot test-bot-token", "G1", Map.of());
         DiscordRawService.DiscordFetchContext context =
-                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null);
+                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null, PROJECT_ID);
         Map<String, Object> channel = Map.of("id", "C1", "name", "일반", "isThread", false);
         List<Map<String, Object>> rawPage1 = List.of(Map.of("id", "M1"));
         List<Map<String, Object>> rawPage2 = List.of(Map.of("id", "M2"));
@@ -128,7 +128,7 @@ class DiscordCollectorTest {
         List<NormalizedEvent> events2 = List.of(event(Instant.parse("2026-08-08T02:00:00Z")));
 
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD)).thenReturn(Map.of());
-        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.prepareFetchContext(request, null, PROJECT_ID)).thenReturn(context);
         when(rawService.fetchChannels(context)).thenReturn(List.of(channel));
         when(rawService.fetchMessagePage(context, channel, null))
                 .thenReturn(new DiscordRawService.DiscordMessagePage(rawPage1, "CURSOR1"));
@@ -155,14 +155,14 @@ class DiscordCollectorTest {
     void collect_skipsForbiddenChannelAndContinues() {
         RawFetchRequest request = new RawFetchRequest("Bot test-bot-token", "G1", Map.of());
         DiscordRawService.DiscordFetchContext context =
-                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null);
+                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null, PROJECT_ID);
         Map<String, Object> forbiddenChannel = Map.of("id", "C1", "name", "비공개", "isThread", false);
         Map<String, Object> okChannel = Map.of("id", "C2", "name", "일반", "isThread", false);
         List<Map<String, Object>> rawMessages = List.of(Map.of("id", "M1"));
         List<NormalizedEvent> events = List.of(event(Instant.parse("2026-08-08T00:00:00Z")));
 
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD)).thenReturn(Map.of());
-        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.prepareFetchContext(request, null, PROJECT_ID)).thenReturn(context);
         when(rawService.fetchChannels(context)).thenReturn(List.of(forbiddenChannel, okChannel));
         when(rawService.fetchMessagePage(context, forbiddenChannel, null)).thenThrow(
                 WebClientResponseException.create(HttpStatus.FORBIDDEN.value(), "Forbidden", null, null, null));
@@ -186,10 +186,10 @@ class DiscordCollectorTest {
     void collect_guildForbidden_skipsRunWithoutAdvancingCheckpoint() {
         RawFetchRequest request = new RawFetchRequest("Bot test-bot-token", "G1", Map.of());
         DiscordRawService.DiscordFetchContext context =
-                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null);
+                new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", null, PROJECT_ID);
 
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD)).thenReturn(Map.of());
-        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.prepareFetchContext(request, null, PROJECT_ID)).thenReturn(context);
         when(rawService.fetchChannels(context)).thenThrow(
                 WebClientResponseException.create(HttpStatus.FORBIDDEN.value(), "Forbidden", null, null, null));
 
@@ -206,13 +206,13 @@ class DiscordCollectorTest {
         Instant lastScannedAt = Instant.parse("2026-08-01T00:00:00Z");
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.DISCORD))
                 .thenReturn(Map.of(DiscordCollector.MESSAGES_CURSOR, lastScannedAt));
-        when(rawService.prepareFetchContext(request, lastScannedAt))
-                .thenReturn(new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", lastScannedAt));
+        when(rawService.prepareFetchContext(request, lastScannedAt, PROJECT_ID))
+                .thenReturn(new DiscordRawService.DiscordFetchContext("Bot test-bot-token", "G1", lastScannedAt, PROJECT_ID));
         when(rawService.fetchChannels(any())).thenReturn(List.of());
 
         collector.collect(PROJECT_ID, request);
 
-        verify(rawService).prepareFetchContext(request, lastScannedAt);
+        verify(rawService).prepareFetchContext(request, lastScannedAt, PROJECT_ID);
     }
 
     private ProjectIntegrationRepository.IntegrationRow discordRow(Map<String, Object> externalRef) {

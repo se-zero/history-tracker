@@ -5,6 +5,7 @@ import { WorkUnitCanvas } from "@/components/graph/WorkUnitCanvas";
 import { NodeDetail } from "@/components/graph/NodeDetail";
 import { StatusView } from "@/components/StatusView";
 import { Topbar } from "@/components/shell/Topbar";
+import { useAuth } from "@/auth/AuthProvider";
 import {
   useWorkUnits,
   useGraphBuildStatus,
@@ -19,6 +20,9 @@ import type { GraphNode } from "@/types/graph";
  * 프로젝트 그래프를 보는 유일한 화면이라, 그래프 재구축 트리거도 여기서 한다.
  */
 export function GraphPage({ project }: { project: Project }) {
+  const { user } = useAuth();
+  // 무료 티어는 정밀 재구축(LLM 검증) 불가 — docs/public-readiness.md 1층 참고.
+  const preciseRebuildLocked = user?.plan === "FREE";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const graphQuery = useWorkUnits(project.id);
   const base = graphQuery.data;
@@ -137,8 +141,12 @@ export function GraphPage({ project }: { project: Project }) {
                   rebuild.mutate(true);
                 }
               }}
-              disabled={building}
-              title="LLM이 후보를 검증해 잘못된 연결을 거릅니다 (느림·LLM 비용)"
+              disabled={building || preciseRebuildLocked}
+              title={
+                preciseRebuildLocked
+                  ? "무료 플랜에서는 사용할 수 없습니다 (유료 전환 필요)"
+                  : "LLM이 후보를 검증해 잘못된 연결을 거릅니다 (느림·LLM 비용)"
+              }
             >
               {building && buildingVerify === true
                 ? "정밀 재구축 중…"

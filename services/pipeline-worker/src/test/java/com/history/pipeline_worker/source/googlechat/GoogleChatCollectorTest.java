@@ -96,7 +96,7 @@ class GoogleChatCollectorTest {
     void collect_fetchesNormalizesPublishesAndAdvancesCursor() {
         RawFetchRequest request = new RawFetchRequest("Bearer token", "spaces/AAAA", Map.of());
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null, new HashMap<>(), PROJECT_ID);
         List<Map<String, Object>> rawMessages = List.of(
                 Map.of("name", "spaces/AAAA/messages/M1", "sender", Map.of("name", "users/U1", "type", "HUMAN")));
         Map<String, GoogleChatRawService.PersonInfo> actorInfo =
@@ -106,7 +106,7 @@ class GoogleChatCollectorTest {
                 event(Instant.parse("2026-08-08T02:00:00Z")));
 
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT)).thenReturn(Map.of());
-        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.prepareFetchContext(request, null, PROJECT_ID)).thenReturn(context);
         when(rawService.fetchSpaceDisplayName(context)).thenReturn("engineering");
         when(rawService.fetchMessagePage(context, null))
                 .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawMessages, null));
@@ -127,7 +127,7 @@ class GoogleChatCollectorTest {
     void collect_resolvesUniqueSendersFromRawMessages() {
         RawFetchRequest request = new RawFetchRequest("Bearer token", "spaces/AAAA", Map.of());
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null, new HashMap<>(), PROJECT_ID);
         List<Map<String, Object>> rawMessages = List.of(
                 Map.of("name", "spaces/AAAA/messages/M1", "sender", Map.of("name", "users/U1", "type", "HUMAN")),
                 Map.of("name", "spaces/AAAA/messages/M2", "sender", Map.of("name", "users/U1", "type", "HUMAN")),
@@ -135,7 +135,7 @@ class GoogleChatCollectorTest {
                 Map.of("name", "spaces/AAAA/messages/M4"));
 
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT)).thenReturn(Map.of());
-        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.prepareFetchContext(request, null, PROJECT_ID)).thenReturn(context);
         when(rawService.fetchSpaceDisplayName(context)).thenReturn("engineering");
         when(rawService.fetchMessagePage(context, null))
                 .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawMessages, null));
@@ -152,7 +152,7 @@ class GoogleChatCollectorTest {
     void collect_publishesPerPageAndAdvancesCursorOnce() {
         RawFetchRequest request = new RawFetchRequest("Bearer token", "spaces/AAAA", Map.of());
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null, new HashMap<>(), PROJECT_ID);
         List<Map<String, Object>> rawPage1 = List.of(
                 Map.of("name", "spaces/AAAA/messages/M1", "sender", Map.of("name", "users/U1", "type", "HUMAN")));
         List<Map<String, Object>> rawPage2 = List.of(
@@ -161,7 +161,7 @@ class GoogleChatCollectorTest {
         List<NormalizedEvent> events2 = List.of(event(Instant.parse("2026-08-08T03:00:00Z")));
 
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT)).thenReturn(Map.of());
-        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.prepareFetchContext(request, null, PROJECT_ID)).thenReturn(context);
         when(rawService.fetchSpaceDisplayName(context)).thenReturn("engineering");
         when(rawService.fetchMessagePage(context, null))
                 .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawPage1, "page-2"));
@@ -188,12 +188,12 @@ class GoogleChatCollectorTest {
     void collect_publishFailureOnLaterPage_doesNotAdvanceCheckpoint() {
         RawFetchRequest request = new RawFetchRequest("Bearer token", "spaces/AAAA", Map.of());
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", null, new HashMap<>(), PROJECT_ID);
         List<Map<String, Object>> rawPage1 = List.of(Map.of("name", "spaces/AAAA/messages/M1"));
         List<Map<String, Object>> rawPage2 = List.of(Map.of("name", "spaces/AAAA/messages/M2"));
 
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT)).thenReturn(Map.of());
-        when(rawService.prepareFetchContext(request, null)).thenReturn(context);
+        when(rawService.prepareFetchContext(request, null, PROJECT_ID)).thenReturn(context);
         when(rawService.fetchSpaceDisplayName(context)).thenReturn("engineering");
         when(rawService.fetchMessagePage(context, null))
                 .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(rawPage1, "page-2"));
@@ -219,8 +219,8 @@ class GoogleChatCollectorTest {
         Instant lastScannedAt = Instant.parse("2026-08-01T00:00:00Z");
         when(checkpointService.loadCursors(PROJECT_ID, CollectionProvider.GOOGLE_CHAT))
                 .thenReturn(Map.of(GoogleChatCollector.MESSAGES_CURSOR, lastScannedAt));
-        when(rawService.prepareFetchContext(request, lastScannedAt)).thenReturn(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", lastScannedAt, new HashMap<>()));
+        when(rawService.prepareFetchContext(request, lastScannedAt, PROJECT_ID)).thenReturn(
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", "spaces/AAAA", lastScannedAt, new HashMap<>(), PROJECT_ID));
         when(rawService.fetchMessagePage(any(), any()))
                 .thenReturn(new GoogleChatRawService.GoogleChatMessagePage(List.of(), null));
         when(rawService.resolveSenders(any(), anySet())).thenReturn(Map.of());
@@ -228,7 +228,7 @@ class GoogleChatCollectorTest {
 
         collector.collect(PROJECT_ID, request);
 
-        verify(rawService).prepareFetchContext(request, lastScannedAt);
+        verify(rawService).prepareFetchContext(request, lastScannedAt, PROJECT_ID);
     }
 
     private ProjectIntegrationRepository.IntegrationRow googleChatRow(Map<String, Object> externalRef) {

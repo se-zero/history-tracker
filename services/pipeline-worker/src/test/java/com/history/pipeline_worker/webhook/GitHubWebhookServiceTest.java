@@ -298,6 +298,20 @@ class GitHubWebhookServiceTest {
     }
 
     @Test
+    void handle_incrementalDisabled_returnsIgnoredWithoutClaimingDelivery() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.incrementalDisabled());
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.IGNORED);
+        verifyNoInteractions(webhookDeliveryService, installationTokenClient, pipelineService);
+    }
+
+    @Test
     void handle_collectionFailure_marksDeliveryFailed() {
         HttpHeaders headers = headers();
         String payload = payload(true, "closed");

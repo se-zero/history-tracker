@@ -13,6 +13,8 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
 
     List<Project> findAllByOwner_IdOrderBySortOrderAsc(UUID ownerId);
 
+    long countByOwner_Id(UUID ownerId);
+
     // 새 프로젝트를 목록 끝에 배치하기 위한 소유자 내 최대 정렬값 (없으면 -1 → 첫 프로젝트는 0)
     @Query("SELECT COALESCE(MAX(project.sortOrder), -1) FROM Project project WHERE project.owner.id = :ownerId")
     int findMaxSortOrderByOwnerId(@Param("ownerId") UUID ownerId);

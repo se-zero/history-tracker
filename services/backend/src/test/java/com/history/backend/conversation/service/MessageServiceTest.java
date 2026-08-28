@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -18,8 +19,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.conversation.ChatMemoryProperties;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
@@ -70,6 +73,9 @@ class MessageServiceTest {
 
     @Mock
     private SummaryBackoffTracker summaryBackoffTracker;
+
+    @Mock
+    private PlanService planService;
 
     private final TaskExecutor summaryTaskExecutor = new SyncTaskExecutor();
 
@@ -957,6 +963,61 @@ class MessageServiceTest {
     }
 
     @Test
+    @DisplayName("무료 티어 질의 한도 초과 시 메시지 추가 거부")
+    void addMessageRejectsWhenQueryLimitExceeded() {
+        MessageService service = service();
+        doThrow(new PlanLimitExceededException("Free plan query limit exceeded."))
+                .when(planService).ensureQueryAllowed(USER_ID);
+
+        assertThatThrownBy(() -> service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Question", List.of()))
+                .isInstanceOf(PlanLimitExceededException.class);
+
+        verifyNoInteractions(projectService, conversationRepository, messageRepository, aiEngineQueryClient);
+    }
+
+    @Test
+    @DisplayName("ai-engine 질의 직전에 무료 티어 질의 사용량을 기록한다")
+    void addMessageRecordsQueryBeforeAskingAiEngine() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of());
+        when(aiEngineQueryClient.ask("Question", PROJECT_ID, List.of(), List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success("Answer", null));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Question", List.of());
+
+        InOrder order = inOrder(planService, aiEngineQueryClient);
+        order.verify(planService).recordQuery(USER_ID);
+        order.verify(aiEngineQueryClient).ask("Question", PROJECT_ID, List.of(), List.of(), null, List.of());
+    }
+
+    @Test
+    @DisplayName("ai-engine 질의가 fallback으로 끝나도 사용량은 그대로 기록된다 — 호출 직전에 이미 증가하기 때문")
+    void addMessageRecordsQueryEvenWhenAiEngineFallsBack() {
+        MessageService service = service();
+        Conversation conversation = conversation();
+        when(projectService.getProject(USER_ID, PROJECT_ID)).thenReturn(project());
+        when(conversationRepository.findByIdAndProject_Id(CONVERSATION_ID, PROJECT_ID))
+                .thenReturn(Optional.of(conversation))
+                .thenReturn(Optional.of(conversation));
+        when(messageRepository.findAllByConversation_IdOrderByCreatedAtAsc(CONVERSATION_ID))
+                .thenReturn(List.of());
+        when(aiEngineQueryClient.ask("Question", PROJECT_ID, List.of(), List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.fallback("질문을 처리하는 중 오류가 발생했습니다."));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addMessage(USER_ID, PROJECT_ID, CONVERSATION_ID, "Question", List.of());
+
+        verify(planService).recordQuery(USER_ID);
+    }
+
+    @Test
     @DisplayName("존재하지 않는 대화에 메시지 추가 거부")
     void addMessageRejectsMissingConversation() {
         MessageService service = service();
@@ -1046,6 +1107,7 @@ class MessageServiceTest {
                 messageRepository,
                 conversationRepository,
                 projectService,
+                planService,
                 aiEngineQueryClient,
                 chatMemoryProperties,
                 summaryBackoffTracker,

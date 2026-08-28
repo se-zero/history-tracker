@@ -27,7 +27,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -289,6 +291,26 @@ class ProjectIntegrationServiceTest {
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
 
         assertThat(service.resolveFetchRequest(PROJECT_ID, CollectionProvider.GITHUB)).isEmpty();
+    }
+
+    @Test
+    void resolveGitHubPullRequestWebhook_returnsIncrementalDisabledWhenGitHubIntegrationHasIncrementalDisabled() {
+        ProjectIntegrationRepository.IntegrationRow github = new ProjectIntegrationRepository.IntegrationRow(
+                PROJECT_ID,
+                "github",
+                Map.of("repository_id", 123L, "repository_full_name", "owner/repo"),
+                null,
+                GITHUB_TOKEN,
+                Instant.parse("2026-01-01T01:00:00Z"),
+                false
+        );
+        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
+                .thenReturn(Optional.of(github));
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.INCREMENTAL_DISABLED);
+        verify(repository, never()).findAllByProjectId(any());
     }
 
     private GitHubCollector gitHubCollector() {
