@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class GoogleChatRawServiceTest {
 
     private static final String SPACE_ID = "spaces/AAAA";
+    private static final String PROJECT_ID = "project-1";
 
     @Test
     @DisplayName("스페이스 표시 이름을 GET /{spaceId}로 1회 조회한다 — spaceId의 슬래시가 %2F로 이중 인코딩되지 않는다")
@@ -41,7 +42,7 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         String displayName = service.fetchSpaceDisplayName(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()));
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID));
 
         assertThat(displayName).isEqualTo("engineering");
     }
@@ -64,7 +65,7 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()),
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID),
                 null);
     }
 
@@ -82,7 +83,7 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, checkpoint, new HashMap<>()),
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, checkpoint, new HashMap<>(), PROJECT_ID),
                 null);
     }
 
@@ -105,7 +106,7 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         GoogleChatRawService.GoogleChatMessagePage first = service.fetchMessagePage(context, null);
         assertThat(first.messages()).extracting(m -> m.get("name"))
@@ -135,7 +136,7 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()),
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID),
                 null);
 
         assertThat(page.messages()).isEmpty();
@@ -159,7 +160,7 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()),
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID),
                 null);
 
         assertThat(page.messages()).extracting(m -> m.get("name")).containsExactly("m1");
@@ -180,7 +181,7 @@ class GoogleChatRawServiceTest {
         GoogleChatRawService service = service(builder);
 
         GoogleChatRawService.GoogleChatMessagePage page = service.fetchMessagePage(
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>()),
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID),
                 null);
 
         assertThat(page.messages()).hasSize(1);
@@ -194,7 +195,7 @@ class GoogleChatRawServiceTest {
                 request -> Mono.just(ClientResponse.create(HttpStatus.FORBIDDEN).build()));
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         Map<String, GoogleChatRawService.PersonInfo> result =
                 service.resolveSenders(context, Set.of("users/U1"));
@@ -212,7 +213,7 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         service.resolveSenders(context, Set.of("users/U1"));
         service.resolveSenders(context, Set.of("users/U1"));
@@ -227,7 +228,7 @@ class GoogleChatRawServiceTest {
                 request -> Mono.just(ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR).build()));
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         Map<String, GoogleChatRawService.PersonInfo> result =
                 service.resolveSenders(context, Set.of("users/U1"));
@@ -242,7 +243,7 @@ class GoogleChatRawServiceTest {
                 request -> Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS).build()));
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         assertThatThrownBy(() -> service.resolveSenders(context, Set.of("users/U1")))
                 .isInstanceOf(WebClientResponseException.TooManyRequests.class);
@@ -273,7 +274,7 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         Map<String, GoogleChatRawService.PersonInfo> result =
                 service.resolveSenders(context, Set.of("users/U1"));
@@ -303,7 +304,7 @@ class GoogleChatRawServiceTest {
                 """)));
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         Map<String, GoogleChatRawService.PersonInfo> result =
                 service.resolveSenders(context, Set.of("users/U1"));
@@ -330,7 +331,7 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         service.resolveSenders(context, Set.of("users/U1"));
         Map<String, GoogleChatRawService.PersonInfo> second = service.resolveSenders(context, Set.of("users/U1"));
@@ -358,9 +359,9 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext firstExecution =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
         GoogleChatRawService.GoogleChatFetchContext secondExecution =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         service.resolveSenders(firstExecution, Set.of("users/U1"));
         service.resolveSenders(secondExecution, Set.of("users/U1"));
@@ -388,7 +389,7 @@ class GoogleChatRawServiceTest {
         });
         GoogleChatRawService service = service(builder);
         GoogleChatRawService.GoogleChatFetchContext context =
-                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>());
+                new GoogleChatRawService.GoogleChatFetchContext("Bearer token", SPACE_ID, null, new HashMap<>(), PROJECT_ID);
 
         Map<String, GoogleChatRawService.PersonInfo> result =
                 service.resolveSenders(context, Set.of("users/U1", "users/U2"));

@@ -131,6 +131,8 @@ GitHub PR merge webhook
 ```
 
 `ProjectIntegrationService`가 GitHub installation/repository 정보를 DB의 project/integration row와 매칭한다. 매칭되는 integration이 없으면 `404`를 반환한다.
+
+**무료 티어 증분 수집 차단** — 매칭된 GitHub integration의 `incremental_enabled`(backend가 소유하는 컬럼, FREE 플랜 연동 저장 시 `false`)가 꺼져 있으면 토큰 신선도 확인·context 조립(`findAllByProjectId` 등)을 전혀 하지 않고 즉시 `WebhookStatus.IGNORED`(`200`)를 반환한다 — GitHub이 이 프로젝트의 유일한 webhook 앵커이므로 여기서 막으면 그 프로젝트에 연동된 모든 provider(Slack·Jira 등)의 증분 수집이 함께 막힌다. `404`(NOT_FOUND)가 아니라 `200`(IGNORED)인 이유는 "연동을 못 찾음"과 "정책상 허용 안 함"을 구분해서다 — 전자로 답하면 GitHub이 잘못된 신호(연동이 끊겼다고 오인)를 받을 수 있다. **초기 전체 수집(`POST /api/v1/collect/{provider}` → `resolveFetchRequest`)은 이 검사를 타지 않는 별개 경로라 영향받지 않는다** — FREE 플랜도 최초 1회 수집은 허용돼야 하기 때문이다.
 installation token이 충분히 유효하면 backend를 호출하지 않는다. token이 없거나 만료 5분 이내면 `GitHubInstallationTokenClient`가 `X-Internal-Service-Token`으로 backend의 token 보장 API를 호출한 뒤 DB를 재조회한다. backend는 token 평문을 반환하지 않는다.
 backend에 installation이 없으면 `404`, backend 호출 실패 또는 token 갱신 실패는 `500`으로 처리해 GitHub 재시도를 허용한다.
 GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
@@ -170,10 +172,15 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
   예외로 실패시킨다(조용히 넘기면 "채널 완주"로 위장돼 채널 커서를 잘못 전진시킨다).
 - **Jira**: 호출당 200ms 고정 딜레이.
 - **Discord**: 호출마다 기본 250ms 고정 딜레이(봇당 초당 50요청 상한에 여유). 429 응답은 본문의
-  `retry_after`(초)만큼 대기 후 최대 3회 재시도한다.
+  `retry_after`(초)만큼 대기 후 최대 3회 재시도한다. **자격증명(봇 토큰)을 앱 전체 프로젝트가
+  공유하므로**, 이 고정 딜레이는 프로젝트별로 독립적으로 도는 게 아니라 `ProjectFairGate`(`collection`
+  패키지)를 거쳐 프로젝트별 라운드로빈으로 순번이 배정된다 — 채널이 많은 큰 길드를 붙인 프로젝트
+  하나가 이 자원을 독점하지 못하게 하기 위함이다(`docs/public-readiness.md` 1-3).
 - **Google Chat**: 호출마다 기본 100ms 고정 딜레이(Cloud 프로젝트당 60초 3,000요청 쿼터 — 사용자 수와
   무관하게 앱 전체가 공유). 429 응답에는 Discord처럼 재시도 대기 시간을 알려주는 필드가 없어 지수
-  백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다.
+  백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다. Discord와 같은 이유로 이 딜레이도
+  `ProjectFairGate`를 거쳐 프로젝트별 라운드로빈으로 배정된다(Chat API·People API 호출 모두 같은
+  게이트를 공유 — 두 API가 Google 쪽에서는 별도 쿼터지만 이 앱의 페이싱은 기존부터 하나로 묶여 있다).
 - **Linear**: 호출당 720ms 고정 딜레이 (API 한도 5,000 req/h 기준).
 - **Asana**: 호출당 400ms 고정 딜레이 (무료 워크스페이스 한도 150 req/min 기준).
 - **ClickUp**: 호출당 600ms 고정 딜레이 (무료 워크스페이스 한도 100 req/min 기준).
