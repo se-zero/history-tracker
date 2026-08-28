@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 
@@ -21,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class RefreshTokenService {
 
     private static final int REFRESH_TOKEN_BYTES = 32;
+    // 같은 refresh를 두 탭이 거의 동시에 돌리는 경합과, 탈취 후 재사용을 가른다.
+    static final Duration REUSE_GRACE = Duration.ofSeconds(15);
 
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtProperties jwtProperties;
@@ -43,23 +46,37 @@ public class RefreshTokenService {
         return rawToken;
     }
 
-    // refresh token 1회용 rotation (사용된 토큰 폐기 후 재발급)
-    @Transactional
+    // refresh token 1회용 rotation. 사용된 행은 지우지 않고 replaced_at을 남겨, 이후 재사용을
+    // "한 번도 없는 토큰"과 구분한다. 유예(탭 경합)가 지난 재사용은 그 사용자 세션을 전부 끊는다.
+    // UnauthorizedException은 401로 쓰기 위한 신호라 롤백하면 안 된다 — 기본 규칙이면
+    // deleteByUserId가 커밋되지 않아 탈취 세션이 남는다.
+    @Transactional(noRollbackFor = UnauthorizedException.class)
     public RefreshTokenIssue rotateRefreshToken(String rawToken) {
         RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(sha256(rawToken))
-                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token."));
+                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token.", true));
 
         if (!refreshToken.getExpiresAt().isAfter(Instant.now())) {
             refreshTokenRepository.delete(refreshToken);
-            throw new UnauthorizedException("Expired refresh token.");
+            throw new UnauthorizedException("Expired refresh token.", true);
+        }
+
+        if (refreshToken.getReplacedAt() != null) {
+            boolean reuseAfterGrace = refreshToken.getReplacedAt().plus(REUSE_GRACE).isBefore(Instant.now());
+            if (reuseAfterGrace) {
+                refreshTokenRepository.deleteByUserId(refreshToken.getUser().getId());
+            }
+            // 유예 안 재사용은 탭 경합 — 쿠키를 지우면 이긴 탭이 방금 심은 새 토큰까지 날아간다.
+            throw new UnauthorizedException("Invalid refresh token.", reuseAfterGrace);
         }
 
         User user = refreshToken.getUser();
-        refreshTokenRepository.delete(refreshToken);
+        refreshToken.markReplaced(Instant.now());
 
-        // soft-deleted user는 grace period 복구 전까지 재발급 불가
+        // soft-deleted user는 grace period 복구 전까지 재발급 불가. 여기서는 (login 시와 달리)
+        // 이미 유효했던 refresh 쿠키가 방금 죽은 것이므로 지운다.
         if (user.getDeletedAt() != null) {
-            throw new UnauthorizedException("User is deactivated.");
+            refreshTokenRepository.delete(refreshToken);
+            throw new UnauthorizedException("User is deactivated.", true);
         }
 
         return new RefreshTokenIssue(user, issueRefreshToken(user));
@@ -74,6 +91,11 @@ public class RefreshTokenService {
     @Transactional
     public void revokeAllRefreshTokens(User user) {
         refreshTokenRepository.deleteByUserId(user.getId());
+    }
+
+    @Transactional
+    public int purgeExpiredRefreshTokens() {
+        return (int) refreshTokenRepository.deleteByExpiresAtBefore(Instant.now());
     }
 
     private String generateRefreshToken() {

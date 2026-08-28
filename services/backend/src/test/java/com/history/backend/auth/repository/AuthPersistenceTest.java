@@ -320,4 +320,33 @@ class AuthPersistenceTest {
         );
         assertThat(count).isEqualTo(1);
     }
+
+    @Test
+    @DisplayName("만료 시각이 지난 refresh token만 삭제한다")
+    void deleteByExpiresAtBeforeRemovesOnlyExpiredTokens() {
+        User user = userRepository.saveAndFlush(new User(
+                "github",
+                "refresh-expiry",
+                "refresh-expiry@example.com",
+                "Expiry",
+                null
+        ));
+        RefreshToken expired = refreshTokenRepository.saveAndFlush(new RefreshToken(
+                user,
+                new byte[]{9, 9, 9},
+                Instant.now().minusSeconds(1)
+        ));
+        RefreshToken valid = refreshTokenRepository.saveAndFlush(new RefreshToken(
+                user,
+                new byte[]{8, 8, 8},
+                Instant.now().plusSeconds(3600)
+        ));
+
+        long deleted = refreshTokenRepository.deleteByExpiresAtBefore(Instant.now());
+        refreshTokenRepository.flush();
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(refreshTokenRepository.findById(expired.getId())).isEmpty();
+        assertThat(refreshTokenRepository.findById(valid.getId())).contains(valid);
+    }
 }

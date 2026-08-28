@@ -19,7 +19,7 @@ export class UnauthorizedError extends Error {}
 //   _skipAuth   = Authorization 헤더 부착 안 함 (refresh 자체 요청용)
 //   _skipRefresh = 401이어도 refresh 트리거 안 함 (무한 루프 방지)
 //   _retried    = 이미 한 번 재시도된 요청 (두 번째 실패는 그대로 reject)
-type AuthAwareConfig = InternalAxiosRequestConfig & {
+export type AuthAwareConfig = InternalAxiosRequestConfig & {
   _skipAuth?: boolean;
   _skipRefresh?: boolean;
   _retried?: boolean;
@@ -38,21 +38,17 @@ api.interceptors.request.use((config) => {
 
 let refreshPromise: Promise<TokenResponse> | null = null;
 
-async function performRefresh(): Promise<TokenResponse> {
+export async function refreshSession(): Promise<TokenResponse> {
   if (refreshPromise) return refreshPromise;
-  const refreshToken = tokenStorage.getRefresh();
-  if (!refreshToken) throw new Error("no refresh token");
 
   refreshPromise = (async () => {
     try {
-      const { data } = await api.post<TokenResponse>(
-        "/auth/refresh",
-        { refreshToken },
-        { _skipAuth: true, _skipRefresh: true } as AuthAwareConfig,
-      );
-      // backend는 rotation 방식 — 매번 새 refreshToken으로 교체된다.
-      tokenStorage.set(data);
-      return data;
+      // 탭마다 JS 힙이 달라 in-memory lock만으로는 부족하다. Web Lock은 오리진 공유라
+      // 한쪽이 회전을 끝낸 뒤 다른 쪽이 새 쿠키로 refresh 한다(15초 유예 401 → 로그아웃 방지).
+      if (typeof navigator !== "undefined" && navigator.locks?.request) {
+        return await navigator.locks.request("ht-refresh", postRefresh);
+      }
+      return await postRefresh();
     } finally {
       refreshPromise = null;
     }
@@ -61,27 +57,30 @@ async function performRefresh(): Promise<TokenResponse> {
   return refreshPromise;
 }
 
+async function postRefresh(): Promise<TokenResponse> {
+  const { data } = await api.post<TokenResponse>(
+    "/auth/refresh",
+    null,
+    { _skipAuth: true, _skipRefresh: true } as AuthAwareConfig,
+  );
+  tokenStorage.setAccess(data.accessToken);
+  return data;
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const cfg = error.config as AuthAwareConfig | undefined;
     const status = error.response?.status;
 
-    if (
-      status === 401 &&
-      cfg &&
-      !cfg._retried &&
-      !cfg._skipRefresh &&
-      tokenStorage.getRefresh()
-    ) {
+    if (status === 401 && cfg && !cfg._retried && !cfg._skipRefresh) {
       cfg._retried = true;
       try {
-        await performRefresh();
+        await refreshSession();
       } catch {
         tokenStorage.clear();
         return Promise.reject(new UnauthorizedError("refresh failed"));
       }
-      // 새 access token으로 헤더 갱신 후 원래 요청 재시도.
       const fresh = tokenStorage.getAccess();
       if (fresh && cfg.headers) {
         cfg.headers.set("Authorization", `Bearer ${fresh}`);

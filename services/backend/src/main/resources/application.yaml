@@ -16,6 +16,11 @@ spring:
       hibernate:
         format_sql: true
 
+# Cloudflare 엣지가 TLS를 끊고 X-Forwarded-Proto 를 넘긴다. nginx가 이걸 덮어쓰지 않아야
+# refresh 쿠키에 Secure가 붙는다. (nginx.conf의 $http_x_forwarded_proto)
+server:
+  forward-headers-strategy: framework
+
 ai:
   engine:
     url: http://localhost:8000

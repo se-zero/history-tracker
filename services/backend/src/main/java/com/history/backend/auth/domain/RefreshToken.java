@@ -41,10 +41,17 @@ public class RefreshToken {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "replaced_at")
+    private Instant replacedAt;
+
     public RefreshToken(User user, byte[] tokenHash, Instant expiresAt) {
         this.user = user;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
+    }
+
+    public void markReplaced(Instant replacedAt) {
+        this.replacedAt = replacedAt;
     }
 
     @PrePersist

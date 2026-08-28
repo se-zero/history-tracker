@@ -152,14 +152,18 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === "POST" && path === "/api/v1/auth/refresh") {
-      // 안전망 — 실제로는 호출되지 않아야 정상이지만(401을 내지 않으므로), 인터셉터 재시도
-      // 루프를 만들지 않도록 더미 토큰을 돌려준다.
+      // 부트 silent refresh — 쿠키를 검사하지 않고 access만 돌려 촬영 세션을 연다.
       return sendJson(res, 200, {
         accessToken: `mock-access-${randomUUID()}`,
-        refreshToken: `mock-refresh-${randomUUID()}`,
         tokenType: "Bearer",
         expiresIn: 3600,
       });
+    }
+
+    if (method === "POST" && path === "/api/v1/auth/logout") {
+      res.writeHead(204);
+      res.end();
+      return;
     }
 
     if (method === "GET" && path === "/api/v1/projects") {
