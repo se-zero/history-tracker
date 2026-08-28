@@ -53,11 +53,11 @@ public class RefreshTokenService {
     @Transactional(noRollbackFor = UnauthorizedException.class)
     public RefreshTokenIssue rotateRefreshToken(String rawToken) {
         RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(sha256(rawToken))
-                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token."));
+                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token.", true));
 
         if (!refreshToken.getExpiresAt().isAfter(Instant.now())) {
             refreshTokenRepository.delete(refreshToken);
-            throw new UnauthorizedException("Expired refresh token.");
+            throw new UnauthorizedException("Expired refresh token.", true);
         }
 
         if (refreshToken.getReplacedAt() != null) {
@@ -72,10 +72,11 @@ public class RefreshTokenService {
         User user = refreshToken.getUser();
         refreshToken.markReplaced(Instant.now());
 
-        // soft-deleted user는 grace period 복구 전까지 재발급 불가
+        // soft-deleted user는 grace period 복구 전까지 재발급 불가. 여기서는 (login 시와 달리)
+        // 이미 유효했던 refresh 쿠키가 방금 죽은 것이므로 지운다.
         if (user.getDeletedAt() != null) {
             refreshTokenRepository.delete(refreshToken);
-            throw new UnauthorizedException("User is deactivated.");
+            throw new UnauthorizedException("User is deactivated.", true);
         }
 
         return new RefreshTokenIssue(user, issueRefreshToken(user));

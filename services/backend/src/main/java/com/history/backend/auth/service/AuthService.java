@@ -119,7 +119,7 @@ public class AuthService {
     @Transactional(noRollbackFor = UnauthorizedException.class)
     public IssuedSession refresh(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
-            throw new UnauthorizedException("Invalid refresh token.");
+            throw new UnauthorizedException("Invalid refresh token.", true);
         }
         RefreshTokenIssue issue = refreshTokenService.rotateRefreshToken(refreshToken);
         return new IssuedSession(

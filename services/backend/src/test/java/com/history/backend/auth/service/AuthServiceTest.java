@@ -191,9 +191,12 @@ class AuthServiceTest {
         when(gitHubOAuthClient.exchangeCode("bad-code"))
                 .thenReturn(new GitHubAccessTokenResponse(null, null, null));
 
-        assertThrows(UnauthorizedException.class,
+        UnauthorizedException thrown = assertThrows(UnauthorizedException.class,
                 () -> authService.loginWithGitHub(new GitHubCallbackRequest("bad-code", null)));
 
+        // 로그인 실패는 새 세션을 못 만든다는 뜻일 뿐, 브라우저가 이미 가진 다른 유효한
+        // refresh 쿠키(재설치 흐름 중일 수 있다)를 지울 이유가 없다.
+        assertThat(thrown.clearsRefreshCookie()).isFalse();
         verify(gitHubOAuthClient, never()).fetchUser(any());
     }
 
@@ -428,8 +431,9 @@ class AuthServiceTest {
     void refreshRejectsBlankToken() {
         AuthService authService = authService();
 
-        assertThrows(UnauthorizedException.class, () -> authService.refresh(null));
+        UnauthorizedException thrown = assertThrows(UnauthorizedException.class, () -> authService.refresh(null));
         assertThrows(UnauthorizedException.class, () -> authService.refresh(" "));
+        assertThat(thrown.clearsRefreshCookie()).isTrue();
         verifyNoInteractions(refreshTokenService);
     }
 
