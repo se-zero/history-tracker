@@ -23,13 +23,18 @@ public class DiscordCredentialLifecycle implements ProviderCredentialLifecycle {
     }
 
     @Override
-    public void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
+    public boolean revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
         String refreshToken = credentialCryptoService.decrypt(encryptedCredential);
-        discordClient.revokeToken(refreshToken);
+        boolean tokenRevoked = discordClient.revokeToken(refreshToken);
 
         Object guildId = externalRef.get(DiscordOAuthConnectFlow.GUILD_ID);
         if (guildId instanceof String id && !id.isBlank()) {
-            discordClient.leaveGuild(id);
+            // 각 호출을 지역 변수에 먼저 담는다 — &&를 호출식에 직접 쓰면 첫 호출이 false일 때
+            // short-circuit으로 leaveGuild가 아예 호출되지 않아, 토큰 폐기만 실패해도 봇이
+            // 길드에 남는 버그가 생긴다.
+            boolean leftGuild = discordClient.leaveGuild(id);
+            return tokenRevoked && leftGuild;
         }
+        return tokenRevoked;
     }
 }

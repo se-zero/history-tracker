@@ -78,7 +78,7 @@ public class SlackClient {
      * <p>실패해도 예외를 던지지 않는다 — 이미 폐기된 토큰이거나 Slack 장애일 때 연동 해제
      * 자체가 막히면 사용자는 데이터를 지울 방법을 잃는다. 우리 쪽 토큰 삭제는 어차피 진행된다.</p>
      */
-    public void revoke(String accessToken) {
+    public boolean revoke(String accessToken) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("token", accessToken);
 
@@ -94,9 +94,12 @@ public class SlackClient {
             if (response == null || !Boolean.TRUE.equals(response.ok())) {
                 log.warn("Slack token revoke failed. error={}",
                         response == null ? "empty_response" : response.error());
+                return false;
             }
+            return true;
         } catch (RestClientException exception) {
             log.warn("Slack token revoke request failed. error={}", exception.getMessage());
+            return false;
         }
     }
 

@@ -121,7 +121,7 @@ public class GoogleChatClient {
      * <p>Slack·Jira·Discord와 같은 이유로 실패해도 예외를 던지지 않는다 — 이미 폐기됐거나 Google
      * 장애일 때 연동 해제 자체가 막히면 안 된다.</p>
      */
-    public void revoke(String refreshToken) {
+    public boolean revoke(String refreshToken) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("token", refreshToken);
 
@@ -133,8 +133,10 @@ public class GoogleChatClient {
                     .body(form)
                     .retrieve()
                     .toBodilessEntity();
+            return true;
         } catch (RestClientException exception) {
             log.warn("Google Chat token revoke request failed. error={}", exception.getMessage());
+            return false;
         }
     }
 

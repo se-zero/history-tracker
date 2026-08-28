@@ -1025,6 +1025,8 @@ class IntegrationServiceTest {
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
                 .thenReturn(Optional.of(integration));
+        // disconnect가 반환값을 무시하고 진행하는지 확인하는 게 목적이라 false를 반환해도 흐름은 그대로다
+        when(revocationService.revoke(integration)).thenReturn(false);
 
         service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA);
 

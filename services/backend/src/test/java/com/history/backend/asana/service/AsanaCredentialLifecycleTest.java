@@ -41,4 +41,30 @@ class AsanaCredentialLifecycleTest {
 
         verify(asanaOAuthClient).revoke("refresh-token");
     }
+
+    @Test
+    @DisplayName("client가 성공(true)을 반환하면 그대로 전달한다")
+    void revokeReturnsTrueWhenClientSucceeds() {
+        byte[] encryptedCredential = {9, 8, 7};
+        when(asanaCredentialCodec.decrypt(encryptedCredential))
+                .thenReturn(new AsanaCredential("access-token", "refresh-token", Instant.parse("2026-08-01T00:00:00Z")));
+        when(asanaOAuthClient.revoke("refresh-token")).thenReturn(true);
+
+        boolean result = lifecycle.revoke(encryptedCredential, Map.of());
+
+        assertThat(result).isTrue();
+    }
+
+    @Test
+    @DisplayName("client가 실패(false)를 반환하면 그대로 전달한다")
+    void revokeReturnsFalseWhenClientFails() {
+        byte[] encryptedCredential = {9, 8, 7};
+        when(asanaCredentialCodec.decrypt(encryptedCredential))
+                .thenReturn(new AsanaCredential("access-token", "refresh-token", Instant.parse("2026-08-01T00:00:00Z")));
+        when(asanaOAuthClient.revoke("refresh-token")).thenReturn(false);
+
+        boolean result = lifecycle.revoke(encryptedCredential, Map.of());
+
+        assertThat(result).isFalse();
+    }
 }

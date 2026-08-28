@@ -1,7 +1,6 @@
 package com.history.backend.integration.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -65,6 +64,9 @@ class IntegrationRevocationServiceTest {
         when(credentialLifecycles.find(IntegrationProvider.SLACK)).thenReturn(Optional.of(slackLifecycle));
         when(credentialLifecycles.find(IntegrationProvider.JIRA)).thenReturn(Optional.of(jiraLifecycle));
         when(credentialLifecycles.find(IntegrationProvider.DISCORD)).thenReturn(Optional.of(discordLifecycle));
+        when(slackLifecycle.revoke(eq(slack.getEncryptedCredential()), eq(slack.getExternalRef()))).thenReturn(true);
+        when(jiraLifecycle.revoke(eq(jira.getEncryptedCredential()), eq(jira.getExternalRef()))).thenReturn(true);
+        when(discordLifecycle.revoke(eq(discord.getEncryptedCredential()), eq(discord.getExternalRef()))).thenReturn(true);
 
         boolean result = service.revokeAll(PROJECT_ID);
 
@@ -94,6 +96,8 @@ class IntegrationRevocationServiceTest {
         when(credentialLifecycles.find(IntegrationProvider.JIRA)).thenReturn(Optional.of(jiraLifecycle));
         when(credentialLifecycles.find(IntegrationProvider.DISCORD)).thenReturn(Optional.of(discordLifecycle));
         doThrow(new RuntimeException("Slack revoke failed.")).when(slackLifecycle).revoke(any(), any());
+        when(jiraLifecycle.revoke(eq(jira.getEncryptedCredential()), eq(jira.getExternalRef()))).thenReturn(true);
+        when(discordLifecycle.revoke(eq(discord.getEncryptedCredential()), eq(discord.getExternalRef()))).thenReturn(true);
 
         boolean result = service.revokeAll(PROJECT_ID);
 
@@ -105,7 +109,25 @@ class IntegrationRevocationServiceTest {
     }
 
     @Test
-    @DisplayName("레지스트리에 등록되지 않은 provider(GitHub)는 건너뛰고 예외 없이 통과한다")
+    @DisplayName("provider가 예외 없이 revoke에서 false만 반환해도 실패로 감지한다")
+    void revokeAllDetectsFailureWhenProviderReturnsFalseWithoutThrowing() {
+        IntegrationRevocationService service = service();
+        Project project = project();
+        Integration slack = Integration.oauth(
+                project, IntegrationProvider.SLACK, Map.of("workspace_id", "T1"), new byte[] {1, 2, 3});
+        ProviderCredentialLifecycle slackLifecycle = mock(ProviderCredentialLifecycle.class);
+        when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID))
+                .thenReturn(List.of(slack));
+        when(credentialLifecycles.find(IntegrationProvider.SLACK)).thenReturn(Optional.of(slackLifecycle));
+        when(slackLifecycle.revoke(eq(slack.getEncryptedCredential()), eq(slack.getExternalRef()))).thenReturn(false);
+
+        boolean result = service.revokeAll(PROJECT_ID);
+
+        assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("레지스트리에 등록되지 않은 provider(GitHub)는 건너뛰고 true를 반환한다")
     void revokeAllSkipsProviderWithoutRegisteredLifecycle() {
         IntegrationRevocationService service = service();
         Project project = project();
@@ -114,43 +136,65 @@ class IntegrationRevocationServiceTest {
                 .thenReturn(List.of(github));
         when(credentialLifecycles.find(IntegrationProvider.GITHUB)).thenReturn(Optional.empty());
 
-        assertThatCode(() -> service.revokeAll(PROJECT_ID)).doesNotThrowAnyException();
+        boolean result = service.revokeAll(PROJECT_ID);
+
+        assertThat(result).isTrue();
     }
 
     @Test
-    @DisplayName("연동이 없는 프로젝트는 아무 것도 호출하지 않는다")
+    @DisplayName("연동이 없는 프로젝트는 아무 것도 호출하지 않고 true를 반환한다")
     void revokeAllDoesNothingWhenProjectHasNoIntegrations() {
         IntegrationRevocationService service = service();
         when(integrationRepository.findAllByProject_IdOrderByCreatedAtDesc(PROJECT_ID)).thenReturn(List.of());
 
-        service.revokeAll(PROJECT_ID);
+        boolean result = service.revokeAll(PROJECT_ID);
 
+        assertThat(result).isTrue();
         verifyNoInteractions(credentialLifecycles);
     }
 
     @Test
-    @DisplayName("단건 폐기 — 등록된 provider의 lifecycle.revoke를 호출한다")
+    @DisplayName("단건 폐기 — 등록된 provider의 lifecycle.revoke를 호출하고 그 결과를 그대로 반환한다")
     void revokeCallsRegisteredLifecycleForSingleIntegration() {
         IntegrationRevocationService service = service();
         Integration slack = Integration.oauth(
                 project(), IntegrationProvider.SLACK, Map.of("workspace_id", "T1"), new byte[] {1, 2, 3});
         ProviderCredentialLifecycle slackLifecycle = mock(ProviderCredentialLifecycle.class);
         when(credentialLifecycles.find(IntegrationProvider.SLACK)).thenReturn(Optional.of(slackLifecycle));
+        when(slackLifecycle.revoke(eq(slack.getEncryptedCredential()), eq(slack.getExternalRef()))).thenReturn(true);
 
-        service.revoke(slack);
+        boolean result = service.revoke(slack);
 
+        assertThat(result).isTrue();
         verify(slackLifecycle).revoke(eq(slack.getEncryptedCredential()), eq(slack.getExternalRef()));
     }
 
     @Test
-    @DisplayName("단건 폐기 — 레지스트리에 없는 provider는 아무 것도 호출하지 않는다")
+    @DisplayName("단건 폐기 — 등록된 provider의 lifecycle이 실패(false)를 반환하면 그대로 전달한다")
+    void revokeReturnsFalseWhenRegisteredLifecycleFails() {
+        IntegrationRevocationService service = service();
+        Integration slack = Integration.oauth(
+                project(), IntegrationProvider.SLACK, Map.of("workspace_id", "T1"), new byte[] {1, 2, 3});
+        ProviderCredentialLifecycle slackLifecycle = mock(ProviderCredentialLifecycle.class);
+        when(credentialLifecycles.find(IntegrationProvider.SLACK)).thenReturn(Optional.of(slackLifecycle));
+        when(slackLifecycle.revoke(eq(slack.getEncryptedCredential()), eq(slack.getExternalRef()))).thenReturn(false);
+
+        boolean result = service.revoke(slack);
+
+        assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("단건 폐기 — 레지스트리에 없는 provider는 아무 것도 호출하지 않고 true를 반환한다")
     void revokeIsNoopForProviderWithoutRegisteredLifecycle() {
         IntegrationRevocationService service = service();
         Project project = project();
         Integration github = Integration.github(project, installation(project), 12345L, "acme/widget", "main");
         when(credentialLifecycles.find(IntegrationProvider.GITHUB)).thenReturn(Optional.empty());
 
-        assertThatCode(() -> service.revoke(github)).doesNotThrowAnyException();
+        boolean result = service.revoke(github);
+
+        assertThat(result).isTrue();
     }
 
     private IntegrationRevocationService service() {

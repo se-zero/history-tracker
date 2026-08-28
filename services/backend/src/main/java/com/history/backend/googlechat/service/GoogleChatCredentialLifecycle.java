@@ -23,7 +23,7 @@ public class GoogleChatCredentialLifecycle implements ProviderCredentialLifecycl
     // refresh token(grant)을 폐기하면 파생된 access token도 함께 무효화된다 — externalRef는 필요
     // 없다(Discord와 달리 해제 시 별도로 나가야 할 봇이 없다).
     @Override
-    public void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
-        client.revoke(credentialCodec.decrypt(encryptedCredential).refreshToken());
+    public boolean revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
+        return client.revoke(credentialCodec.decrypt(encryptedCredential).refreshToken());
     }
 }

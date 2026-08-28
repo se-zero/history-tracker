@@ -73,13 +73,19 @@ provider별 차이는 SPI 구현으로만 표현한다. `integration` 패키지�
 `AccessTokenRefresher`를 `ProviderCredentialLifecycle`에서 떼어낸 이유가 이것이다
 (아래 「내부 서비스 API」 참고). `ProviderCredentialLifecycle`도 같은 원칙을 따른다 —
 레지스트리는 `find(provider): Optional`로 등록 여부를 신고하고, 미등록 provider는 폐기를
-건너뛴다(`IntegrationRevocationService.revoke`가 `find`+`ifPresent`로 호출).
+건너뛰고 성공(`true`) 취급한다(`IntegrationRevocationService.revoke`가
+`find`+`map(...).orElse(true)`로 호출).
 
 **폐기 실행은 `IntegrationRevocationService`(leaf)가 소유한다.** 연동 해제는 단건(`revoke`),
 프로젝트 삭제·사용자 파기는 일괄(`revokeAll(projectId)`)로 부른다. `IntegrationService`가
 `ProjectService`를 주입받으므로 폐기 로직이 거기 있으면 `ProjectService`에서 부를 수 없다 —
-그래서 둘 다 참조할 수 있는 leaf로 뺐다. `revokeAll`은 **건별로 실패를 삼킨다**: 한 provider의
-폐기 실패가 나머지 연동의 grant를 영구히 남기면 안 되기 때문이다.
+그래서 둘 다 참조할 수 있는 leaf로 뺐다. `revoke`는 `boolean`으로 성공 여부를 신고한다
+(client가 예외를 삼키던 시절엔 이 신호가 끊겨 있었다 — 지금은 client·어댑터·이 서비스가 전부
+`boolean`을 전달한다). `revokeAll`은 **건별 실패에도 순회를 멈추지 않는다**: 한 provider의
+폐기 실패가 나머지 연동의 grant까지 영구히 남기면 안 되기 때문이다. 대신 실패 여부는
+`allSucceeded`에 정확히 집계되고, **그 결과를 어떻게 쓸지는 호출부가 정한다** — 연동 해제
+(`IntegrationService.disconnect`)는 무시하고 진행, 사용자 파기(`ProjectService.releaseExternalResources`,
+아래 「RDB 밖 자원을 가진 삭제」 참고)는 반응해서 실패한 사용자를 다음 회차로 미룬다.
 
 **저장 정책은 `IntegrationService.connectOAuth`가 소유한다** — 확정 연동 409 선검사(1회용 code를
 교환 전에 지킨다) → code 교환 → 자격증명 암호화 → 저장(pending 행이면 재동의로 덮어쓰기, unique 위반은
@@ -142,8 +148,10 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
 - `DELETE /api/v1/projects/{projectId}/integrations/{provider}`(연동 해제)는 provider 권한 폐기 →
   그래프 삭제 → RDB(연동 행·checkpoint) 삭제 순서다. **권한 폐기가 가장 먼저인 이유**: 우리 DB의
   토큰을 지우면 폐기에 쓸 값 자체가 사라진다. Slack은 `auth.revoke`, Jira·Google Chat은 refresh token
-  폐기(파생 access token도 함께 무효화)이며, 폐기 실패는 각 client가 로그만 남기고 삼킨다 —
-  이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
+  폐기(파생 access token도 함께 무효화)이며, client는 성공/실패를 `boolean`으로 신고하지만
+  **`disconnect`는 그 결과를 무시하고 항상 진행한다** — 이미 폐기된 토큰이나 provider 장애로
+  해제가 막히면 사용자가 데이터를 지울 방법을 잃는다. (파기 경로는 반대로 이 신호에 반응한다 —
+  「사용자 파기」 참고.)
   Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, Asana도 refresh
   token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은
   폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시). ClickUp도
@@ -168,7 +176,9 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   - 프로젝트 삭제: `ProjectService.deleteProject` (일괄 폐기 + 프로젝트 그래프 삭제)
   - 사용자 파기: `UserPurgeService` → `ProjectService.releaseExternalResources`로 소유 프로젝트의
     폐기·그래프 삭제를 끝낸 뒤에만 `users` 행을 지운다. 실패한 사용자는 행을 남겨 다음 회차에
-    재시도한다 — **실패했는데 행을 지우면 그 순간 고아 그래프가 된다.**
+    재시도한다 — **실패했는데 행을 지우면 그 순간 고아 그래프가 된다.** `revokeAll`이 `false`를
+    반환하면(provider client가 예외 없이 실패를 신고한 경우도 포함) `BadGatewayException`으로
+    이 재시도를 건다 — client가 실패를 삼키던 시절엔 이 경로가 사실상 도달 불가능했다.
     `releaseExternalResources`는 파기 전용이라 `getActiveUser` 게이트를 타지 않는다(대상이 이미
     soft-delete 상태라 그 검증에서 예외가 난다).
 - 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,

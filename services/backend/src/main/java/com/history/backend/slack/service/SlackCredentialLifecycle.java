@@ -23,7 +23,7 @@ public class SlackCredentialLifecycle implements ProviderCredentialLifecycle {
 
     // externalRef는 필요 없다 — auth.revoke는 토큰만으로 충분하다
     @Override
-    public void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
-        slackClient.revoke(credentialCryptoService.decrypt(encryptedCredential));
+    public boolean revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
+        return slackClient.revoke(credentialCryptoService.decrypt(encryptedCredential));
     }
 }

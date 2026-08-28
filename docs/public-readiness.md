@@ -38,9 +38,11 @@
 | **6층** | 규모가 커지면 깨진다 | 3 | 구조 변경 (나중) |
 
 **완료**: M0 = 4-1(탈퇴 시 파기 누락) · M1a = 0-4(운영자 PAT) · M1b = 0-1(조직 레포) ·
-4-2(연락처) · 2-3 일부(보안 헤더) · 5-4(webhook 본문 상한) · 3층 GitHub App(이미 Public 확인).
+4-2(연락처) · 2-1·2-2(인증 구멍) · 2-3 일부(보안 헤더) · 4-4(동의 기록) · 0-1c(파기 폐기 가드) ·
+5-4(webhook 본문 상한) · 3층 GitHub App(이미 Public 확인).
 
-**다음**: 2층 인증 구멍 → 4-4 동의 기록 → 0-3 Slack 결정. 아래 「다음 순서」 참고.
+**다음**: 0-1b(사용자 GitHub 토큰 저장, Critical — GitHub App 설정 확인이 선행돼야 함) ·
+0-3 Slack 결정. 아래 「다음 순서」 참고(일부 낡음 — 위 완료 목록이 최신 기준).
 
 **공개 여부와 무관하게 지금 이미 결함인 것이 하나 있었다** — 4-1(탈퇴 시 파기 누락).
 공개 계획과 별개라 **가장 먼저 고쳤다(M0).** 진행 상황은 4-1 절을 본다.
@@ -161,10 +163,14 @@ backend 테스트 **761개 통과**.
 > 되고, 실제 노출이 아직 없어 후속 PR로 나눴다. **이 항목이 닫히기 전에는 조직 소속이 섞인
 > 사용자를 받으면 안 된다.**
 
-### 0-1c. 파기의 provider 권한 폐기 가드가 실제로는 동작하지 않는다 (0-1의 후속)
+### 0-1c. 파기의 provider 권한 폐기 가드가 실제로는 동작하지 않는다 (0-1의 후속) — ✅ 수정 완료
+
+> **2026-08-28 수정.** 7개 provider client·어댑터·`IntegrationRevocationService`를 전부
+> `boolean`으로 바꿔 실패 신호가 끊기지 않게 했다. backend 전체 테스트 통과. 상세는 이 절 끝의
+> 「수정 내용」 참고.
 
 PR #121 3차 봇 리뷰에서 발견했다. 파기에서 폐기 실패를 잡으려고 `revokeAll`을 `boolean`으로
-바꿨는데(1차 리뷰 반영), **그 아래에서 이미 예외를 삼키고 있어 가드가 한 번도 발동하지 않는다.**
+바꿨는데(1차 리뷰 반영), **그 아래에서 이미 예외를 삼키고 있어 가드가 한 번도 발동하지 않았다.**
 
 ```java
 // SlackClient.java:98 — 다른 provider도 같은 모양
@@ -173,17 +179,40 @@ PR #121 3차 봇 리뷰에서 발견했다. 파기에서 폐기 실패를 잡으
 }   // ← 여기서 삼킨다. revoke()는 절대 던지지 않는다
 ```
 
-그리고 이건 **의도된 설계**다 — `backend/CLAUDE.md`가 "폐기 실패는 각 client가 로그만 남기고
+그리고 이건 **의도된 설계**였다 — `backend/CLAUDE.md`가 "폐기 실패는 각 client가 로그만 남기고
 삼킨다 — 이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다"고
-적고 있다. **연동 해제(사용자 대면)에는 옳고, 파기에는 맞지 않는다.**
+적고 있었다. **연동 해제(사용자 대면)에는 옳지만, 파기에는 맞지 않았다.**
 
-- [ ] `ProviderCredentialLifecycle.revoke`가 성공·실패를 신고하게 바꾼다 — **구현체 7종
-      (Slack·Jira·Discord·Google Chat·Linear·Asana·Notion) 전부**가 대상이다
-- [ ] 해제 경로는 지금 동작(실패해도 진행)을 유지하고, **파기 경로만** 실패에 반응하게 한다
-- [ ] 그때까지 파기는 "폐기를 시도했다"까지만 보장한다 — PR #121 본문 시나리오도 그렇게 정정했다
+- [x] `ProviderCredentialLifecycle.revoke`가 성공·실패를 신고하게 바꿨다 — **구현체 7종
+      (Slack·Jira·Discord·Google Chat·Linear·Asana·Notion) 전부**
+- [x] 해제 경로는 지금 동작(실패해도 진행)을 유지하고, **파기 경로만** 실패에 반응하게 했다
+- [x] **실기동 검증** — 로컬 스택에서 Slack 연동을 해제했을 때 provider가 `token_revoked`(이미
+      폐기된 토큰)로 응답 → `SlackClient`가 이를 실패로 감지해 로그로 남기고(`Slack token revoke
+      failed. error=token_revoked`) → 그럼에도 `disconnect`는 반환값을 무시하고 정상 진행해
+      연동이 화면에서 정상적으로 사라짐을 확인. Jira·Google Chat·Notion·GitHub도 함께 확인 —
+      전부 정상 해제됨(로그가 없는 것 자체가 성공 신호 — 실패했을 때만 warn을 남기도록 만들었다)
 
-**우선순위: 상 — 후속 PR.** 지금도 폐기 시도는 하므로 대부분의 경우 정리된다. 다만 provider
-장애 시 grant가 남고 **우리는 그 사실을 모른다**(로그에만 남는다). 5-1(모니터링)과도 얽힌다.
+#### 수정 내용
+
+| 무엇 | 어디 |
+|---|---|
+| 인터페이스 계약 변경 | `ProviderCredentialLifecycle.revoke` — `void` → `boolean` |
+| 7개 client 반환 타입 변경 | `SlackClient`·`JiraOAuthClient`·`DiscordClient`(2개 메서드)·`GoogleChatClient`·`LinearOAuthClient`·`AsanaOAuthClient`·`NotionClient` — 전부 `RestClientException` catch 시 `false`, 정상 시 `true`. Slack만 HTTP 200이라도 `ok:false`면 `false` |
+| Discord AND 결합 | `DiscordCredentialLifecycle.revoke` — 토큰 폐기·봇 길드 퇴장을 각각 지역 변수에 담아 실행한 뒤 AND(`&&`를 호출식에 직접 쓰면 short-circuit으로 두 번째 호출이 아예 안 나가는 버그가 생긴다) |
+| 상위 서비스 | `IntegrationRevocationService.revoke`가 `find(...).map(...).orElse(true)`로 boolean 반환, `revokeAll`이 이 반환값을 주 실패 판단으로 사용 |
+
+backend 테스트 통과(신규 케이스 다수 — Discord short-circuit 방지, Slack `ok:false` 감지를 각각
+직접 겨냥한 테스트 포함).
+
+**검증 중 발견한 별개 문제 (이번 PR 범위 밖)**: 실기동 중 로컬 DB의 한 Jira 연동에서 자격증명
+복호화가 `JsonParseException`으로 실패해 `disconnect`가 500을 내는 걸 발견했다. 조사 결과 이건
+이번 변경과 무관한 **기존 버그**다 — `IntegrationRevocationService.revoke(Integration)`는 이번
+변경 전에도 `ifPresent`의 람다 안에서 예외가 나면 그대로 전파했으므로(`void`든 `boolean`이든
+전파 동작은 동일), 자격증명이 파싱 불가능한 형식(레거시 `email:token` 평문으로 추정)으로
+저장돼 있으면 disconnect가 예전부터 500이 났을 것이다. 별도 후속 항목으로 다룬다(어디에 기록할지
+결정 대기 — `docs/oauth-integration-known-issues.md` 신설 여부 등).
+
+**우선순위: 상 — 완료.**
 
 ### 0-2. 팀이 프로젝트를 함께 볼 수 없다
 
