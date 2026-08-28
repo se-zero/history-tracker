@@ -30,7 +30,7 @@
 | 층 | 무엇이 문제인가 | 항목 | 성격 |
 |---|---|---|---|
 | **0층** | 기능이 아예 막힌다 | 4 (**2 완료**, 1 범위 밖) | 코드 변경 |
-| **1층** | 비용·쿼터를 전원이 공유한다 | 3 (**1 완료**, 1 결정-코드불필요) | 코드 변경 + 정책 |
+| **1층** | 비용·쿼터를 전원이 공유한다 | 3 (**2 완료**, 1 결정-코드불필요) | 코드 변경 + 정책 |
 | **2층** | 인증·시크릿·세션에 구멍이 있다 | 4 (**일부 완료**) | 코드 변경 |
 | **3층** | 외부 앱이 공개 배포 상태가 아니다 | 9종 (**1 완료**) | **외부 심사 대기** |
 | **4층** | 법적 고지·동의·파기가 비어 있다 | 6 (**3 완료**) | 정책 + 코드 변경 |
@@ -39,12 +39,12 @@
 
 **완료**: M0 = 4-1(탈퇴 시 파기 누락) · M1a = 0-4(운영자 PAT) · M1b = 0-1(조직 레포) ·
 4-2(연락처) · 2-1·2-2(인증 구멍) · 2-3 일부(보안 헤더) · 4-4(동의 기록) · 0-1c(파기 폐기 가드) ·
-1-1(무료 티어 한도) · 5-4(webhook 본문 상한) · 3층 GitHub App(이미 Public 확인).
+1-1(무료 티어 한도) · 1-3(Discord·Google Chat 공정 큐) · 5-4(webhook 본문 상한) · 3층 GitHub App(이미 Public 확인).
 
-**다음**: 0-1b(사용자 GitHub 토큰 저장, Critical — GitHub App 설정 확인이 선행돼야 함) ·
-1-3(provider 쿼터 공유)는 남았지만 우선순위는 2층 인증 구멍이 앞선다(「다음 순서」 참고).
+**다음**: 0-1b(사용자 GitHub 토큰 저장, Critical — GitHub App 설정 확인이 선행돼야 함).
 1-2는 OpenAI 계정 하드 캡으로 대체하기로 결정(2026-08-28) — 코드 작업 없음. 0-3 Slack은
-방향(B+C+D 병행) 결정 완료, 착수는 대기.
+방향(B+C+D 병행) 결정 완료, 착수는 대기. 1-3(provider 쿼터 공유)은 Discord·Google Chat
+공정 큐(`ProjectFairGate`)로 완료.
 아래 「다음 순서」 참고(일부 낡음 — 위 완료 목록이 최신 기준).
 
 **공개 여부와 무관하게 지금 이미 결함인 것이 하나 있었다** — 4-1(탈퇴 시 파기 누락).
@@ -402,7 +402,7 @@ GitHub 계정만 있으면 누구나 로그인이 통과한다
 | 증분 수집 | **최초 1회 전체 수집 이후로는 안 된다** — webhook으로 새 커밋·메시지가 와도 더 이상
   수집하지 않는다. 프로젝트는 연동 시점의 스냅샷에서 멈춘다 |
 | 질의 | **10회** |
-| 그래프 재구축 | 불가 |
+| 그래프 재구축 | 일반 재구축은 허용, **정밀 재구축(`verify=true`)만 불가** |
 | 유료 | 위 전부 무제한(전 기능) |
 
 프로젝트가 계정당 1개뿐이라, "provider별 계정당 1번" 한도는 실질적으로 **그 하나의 프로젝트
@@ -420,13 +420,13 @@ GitHub 계정만 있으면 누구나 로그인이 통과한다
 
 | 무엇 | 어디 |
 |---|---|
-| 사용량·플랜 컬럼 | `V19__add_plan_limits.sql` — `users.plan`·`free_query_count`, `integrations.incremental_enabled`, `user_provider_connections` 신규 테이블(해제 후에도 남는 provider 연동 이력) |
-| 한도 검증·기록 leaf 서비스 | `PlanService`(backend, 신규) — `ensureProjectCreatable`·`ensureProviderConnectable`·`recordProviderConnected`·`ensureQueryAllowed`·`recordQuery`·`ensurePreciseRebuildAllowed`·`isIncrementalEnabled`·`upgradeToPaid`. PAID는 매 검사가 plan부터 확인해 FREE 전용 조회를 건너뛴다 |
+| 사용량·플랜 컬럼 | `V19__add_plan_limits.sql` — `users.plan`·`free_query_count`, `integrations.incremental_enabled`, `user_provider_connections` 신규 테이블(해제 후에도 남는 provider 연동 이력). **기존 사용자는 `UPDATE users SET plan = 'PAID'`로 전원 유료 전환** — 배포 시 개발·기존 계정이 즉시 한도에 걸리지 않게 하기 위함이며, 되돌리기 어려운 데이터 변경이다 |
+| 한도 검증·기록 leaf 서비스 | `PlanService`(backend, 신규) — `ensureProjectCreatable`·`ensureProviderConnectable`·`recordProviderConnected`·`ensureQueryAllowed`·`recordQuery`·`ensurePreciseRebuildAllowed`·`isIncrementalEnabled`·`upgradeToPaid`. PAID는 매 검사가 plan부터 확인해 FREE 전용 조회를 건너뛴다. 질의 카운트는 `UPDATE ... WHERE free_query_count < 10` 원자 증가, 프로젝트 생성은 사용자 행 `PESSIMISTIC_WRITE`, 연동 이력은 `ON CONFLICT DO NOTHING`, 업그레이드는 플랜 전환과 incremental 재활성을 한 트랜잭션 |
 | 호출부 연동 | `ProjectService.createProject`·`IntegrationService`(3개 연동 메서드)·`ConversationService.createConversation`·`MessageService.addMessage`·`GraphService.buildProjectGraph(verify=true)` |
 | 업그레이드 API | `POST /api/v1/me/plan/upgrade` — 서버 설정 코드(`PLAN_UPGRADE_CODE`)와 timing-safe 비교. 코드 미설정이면 항상 거부(빈 문자열끼리 매치되는 사고 방지) |
 | 증분 수집 차단(pipeline-worker) | `ProjectIntegrationService.resolveGitHubPullRequestWebhook` — GitHub integration의 `incremental_enabled=false`면 context 조립 전에 즉시 `INCREMENTAL_DISABLED`로 끝낸다. GitHub이 유일한 webhook 앵커라 여기 하나만 막으면 그 프로젝트의 모든 provider 증분 수집이 함께 막힌다. **초기 전체 수집(`resolveFetchRequest`)은 별개 경로라 영향받지 않는다** — FREE도 최초 1회는 허용 |
 | webhook 응답 | `GitHubWebhookService` — `INCREMENTAL_DISABLED`는 `404`(NOT_FOUND, "연동 없음")가 아니라 `200`(IGNORED, "정책상 허용 안 함")으로 답한다. 의미가 다른 두 상황을 같은 코드로 답하면 안 된다는 원칙(내부 API의 `404`/`501` 구분과 같은 이유) |
-| 프론트 표시 | `types/api.ts`의 `User`에 `plan`·`freeQueryRemaining` 추가, `GraphPage.tsx`의 "정밀 재구축 (LLM)" 버튼을 FREE면 비활성화. 계정 설정(`PlanCard`)에서 플랜·질의 사용량·전환 코드 입력을 제공한다. 결제 UI는 후순위 |
+| 프론트 표시 | `types/api.ts`의 `User`에 `plan`·`freeQueryRemaining`·`freeQueryLimit` 추가, `GraphPage.tsx`의 "정밀 재구축 (LLM)" 버튼을 FREE면 비활성화. 계정 설정(`PlanCard`)에서 플랜·질의 사용량·전환 코드 입력을 제공한다. 결제 UI는 후순위 |
 
 **아직 정해지지 않은 것**:
 
@@ -468,9 +468,11 @@ Google Chat 쿼터는 Cloud 프로젝트당이라 마찬가지다. 한 사용자
 제거해 더 이상 해당하지 않는다. GitHub은 installation token이라 설치별로 갈린다.
 Slack도 앱×워크스페이스 단위라 여기 해당하지 않는다 — 0-3 참고.)
 
-- [ ] 테넌트별 페이싱(공정 큐)으로 바꾸거나, 한 프로젝트가 전체 한도를 독점하지 못하게 상한을 건다
+- [x] 테넌트별 페이싱(공정 큐) — Discord·Google Chat은 `ProjectFairGate`로 프로젝트별 라운드로빈.
+      같은 프로젝트의 초기 수집과 webhook 수집이 겹쳐 waiter가 둘 이상이어도 대기 수를 세어
+      슬롯을 다시 회전열에 넣는다(한 쪽이 영구 대기하지 않음).
 
-**우선순위: 중.**
+**우선순위: 완료.**
 
 ---
 
@@ -845,7 +847,7 @@ nginx에 `client_max_body_size`가 없어 기본 1MB가 걸린다. GitHub webhoo
 | 0-2 팀 공유 | **범위 밖** | 범위 밖 | 팀 제품으로 선회하면 되살아난다 |
 | ~~0-2 중복 연동 감지~~ | 감수하기로 결정 | 감수하기로 결정 | 1층 비용 가드로 통제 |
 | 0-3 Slack | **B+C+D 병행 착수** | B의 유료화 마찰 재판단 | 방향 결정 완료(2026-08-28) |
-| 1층 비용 가드 | 1-1 ✅ 완료, 1-2 결정(계정 캡), 1-3 남음 | **필수** | 1-1은 코드로 강제, 1-2는 인프라 설정으로 대체 |
+| 1층 비용 가드 | 1-1 ✅ 완료, 1-2 결정(계정 캡), 1-3 ✅ 완료 | **필수** | 1-1은 코드로 강제, 1-2는 인프라 설정으로 대체, 1-3은 Discord·Google Chat 공정 큐 |
 | 2-1·2-2 인증 구멍 | **필수** | **필수** | 다음 작업 |
 | 2-3 세션(쿠키·재사용 탐지) | **필수** | **필수** | 헤더는 완료 |
 | 2-4 시크릿 회전 | 권장 | **필수** | |
@@ -888,9 +890,10 @@ nginx에 `client_max_body_size`가 없어 기본 1MB가 걸린다. GitHub webhoo
 2. **4-4 동의 기록** — migration + 가입 UI. 약관 본문은 무상 전제 그대로 두고 동의만 받는다
 3. **2-3 세션 방어** — refresh 쿠키 전환 + 재사용 탐지. **2번과 같은 파일을 건드리므로 뒤에**
 4. ~~**0-3 Slack** — A~D 결정.~~ **결정 완료(2026-08-28) — B+C+D 병행.** 착수는 대기
-5. ~~**1층 비용 가드** — 원가 측정 → 무료 한도 설계~~ **1-1 구현 완료(2026-08-28)** — 원가 측정은
+5. ~~**1층 비용 가드** — 원가 측정 → 무료 한도 설계~~ **1-1·1-3 구현 완료(2026-08-28)** — 원가 측정은
    생략, 무료 한도(프로젝트·연동·질의·증분 수집)를 backend·pipeline-worker에 강제. **1-2는
-   OpenAI 계정 하드 캡으로 대체 결정(2026-08-28, 코드 불필요)**. 1-3(provider 쿼터 공유)만 남음
+   OpenAI 계정 하드 캡으로 대체 결정(2026-08-28, 코드 불필요)**. Discord·Google Chat 공정 큐는
+   `ProjectFairGate`
 6. **3층 외부 앱** — 실제로 쓸 provider만. Google Chat이 임계경로
 7. **5층 운영** — 모니터링·오프사이트 백업·발신 수단
 8. **결제 + 4-6 약관 개정 + 4-3 사업자 정보** — 한 묶음으로
