@@ -176,6 +176,8 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
   공유하므로**, 이 고정 딜레이는 프로젝트별로 독립적으로 도는 게 아니라 `ProjectFairGate`(`collection`
   패키지)를 거쳐 프로젝트별 라운드로빈으로 순번이 배정된다 — 채널이 많은 큰 길드를 붙인 프로젝트
   하나가 이 자원을 독점하지 못하게 하기 위함이다(`docs/public-readiness.md` 1-3).
+  같은 프로젝트의 초기 수집과 webhook 수집이 겹쳐 waiter가 둘 이상이 되어도, 대기 수를 세어
+  슬롯을 다시 회전열에 넣기 때문에 한 쪽이 영구히 멈추지 않는다.
 - **Google Chat**: 호출마다 기본 100ms 고정 딜레이(Cloud 프로젝트당 60초 3,000요청 쿼터 — 사용자 수와
   무관하게 앱 전체가 공유). 429 응답에는 Discord처럼 재시도 대기 시간을 알려주는 필드가 없어 지수
   백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다. Discord와 같은 이유로 이 딜레이도

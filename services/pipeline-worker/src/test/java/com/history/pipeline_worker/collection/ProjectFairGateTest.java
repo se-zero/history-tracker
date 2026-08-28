@@ -119,6 +119,37 @@ class ProjectFairGateTest {
         }
     }
 
+    @Test
+    @DisplayName("같은 프로젝트가 두 스레드에서 동시에 acquire해도 둘 다 빠져나온다 — 한 쪽이 rotation에 못 들어가 영구 대기하지 않는다")
+    void acquire_sameProjectConcurrentWaiters_bothComplete() throws Exception {
+        long minIntervalMs = 200;
+        ProjectFairGate gate = new ProjectFairGate(minIntervalMs);
+        // 첫 슬롯을 소비해 다음 acquire가 대기 구간에 들어가게 한다
+        gate.acquire("same");
+
+        Thread first = new Thread(() -> gate.acquire("same"), "fair-gate-same-1");
+        Thread second = new Thread(() -> gate.acquire("same"), "fair-gate-same-2");
+        try {
+            first.start();
+            // first가 waiting에 들어간 뒤에 second가 합류해야 영구 대기 버그가 재현된다
+            Thread.sleep(50);
+            second.start();
+
+            first.join(3_000);
+            second.join(3_000);
+
+            assertThat(first.isAlive())
+                    .as("first waiter가 시간 안에 acquire를 빠져나와야 한다")
+                    .isFalse();
+            assertThat(second.isAlive())
+                    .as("second waiter가 rotation에 재진입하지 못해 멈추면 안 된다")
+                    .isFalse();
+        } finally {
+            first.interrupt();
+            second.interrupt();
+        }
+    }
+
     /**
      * A 스레드가 반복 acquire하다가(총 {@code aTotalIterations}회) 그 첫 acquire가 끝난 직후 B 스레드가
      * 합류해 반복 acquire한다(총 {@code bIterations}회). 이후 두 스레드는 동시에 계속 경합한다.
