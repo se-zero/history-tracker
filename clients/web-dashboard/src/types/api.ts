@@ -5,6 +5,8 @@ export interface TokenResponse {
   expiresIn: number;
 }
 
+export type Plan = "FREE" | "PAID";
+
 export interface User {
   id: string;
   provider: string;
@@ -14,6 +16,9 @@ export interface User {
   avatarUrl: string | null;
   // true면 아직 현재 버전 약관에 동의하지 않은 사용자 — AuthGate가 ConsentScreen으로 막아선다.
   requiresConsent: boolean;
+  plan: Plan;
+  // FREE의 남은 질의 횟수(0~10). PAID는 무제한이라 항상 null.
+  freeQueryRemaining: number | null;
 }
 
 export interface Project {

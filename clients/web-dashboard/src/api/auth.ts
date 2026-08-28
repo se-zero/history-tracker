@@ -21,6 +21,11 @@ export async function postConsent(): Promise<void> {
   await api.post("/me/consent");
 }
 
+// 공유 전환 코드로 FREE → PAID. 성공 시 204, 코드 불일치는 403.
+export async function upgradePlan(code: string): Promise<void> {
+  await api.post("/me/plan/upgrade", { code });
+}
+
 export async function exchangeGitHubCode(params: {
   code: string;
   state?: string | null;

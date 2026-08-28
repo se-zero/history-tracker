@@ -57,7 +57,7 @@ src/
                     DisconnectIntegration — 해제 버튼 + 사전 경고 다이얼로그(연동 행 공용).
                     해제는 수집된 그래프까지 지우는 파괴적 동작이라 무엇이 삭제·유지되는지 먼저 보여준다
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
-    settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
+    settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(계정 플랜·전환 코드)
     graph/          WorkUnitCanvas(작업 단위 뷰 Canvas 렌더러) · ClusterDetail(열린 작업 단위 묶음 패널) · NodeDetail
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
