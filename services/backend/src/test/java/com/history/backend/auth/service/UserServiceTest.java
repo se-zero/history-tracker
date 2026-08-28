@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.dto.UserResponse;
 import com.history.backend.auth.repository.UserRepository;
@@ -184,6 +185,9 @@ class UserServiceTest {
         UserResponse response = userService.getCurrentUser(USER_ID);
 
         assertThat(response.requiresConsent()).isFalse();
+        assertThat(response.plan()).isEqualTo(Plan.FREE);
+        assertThat(response.freeQueryRemaining()).isEqualTo(PlanService.FREE_QUERY_LIMIT);
+        assertThat(response.freeQueryLimit()).isEqualTo(PlanService.FREE_QUERY_LIMIT);
     }
 
     private UserService userService() {

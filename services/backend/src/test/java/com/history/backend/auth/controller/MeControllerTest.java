@@ -60,7 +60,7 @@ class MeControllerTest {
     @DisplayName("현재 사용자 정보 반환")
     void meReturnsCurrentUser() throws Exception {
         UserResponse response = new UserResponse(
-                USER_ID, "github", "12345", "octocat@example.com", "Octocat", null, false, Plan.PAID, null
+                USER_ID, "github", "12345", "octocat@example.com", "Octocat", null, false, Plan.PAID, null, null
         );
         when(userService.getCurrentUser(USER_ID)).thenReturn(response);
 

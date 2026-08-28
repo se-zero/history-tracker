@@ -10,9 +10,6 @@ import { upgradePlan } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
 import type { Plan } from "@/types/api";
 
-// PlanService.FREE_QUERY_LIMIT 과 같은 값 — 사용량 바 분모.
-const FREE_QUERY_LIMIT = 10;
-
 const FREE_FEATURES = [
   { label: "프로젝트 1개", included: true },
   { label: "GitHub · Slack · Jira 각 1회", included: true },
@@ -57,9 +54,12 @@ export function PlanCard() {
 
   const isPaid = user.plan === "PAID";
   const remaining = user.freeQueryRemaining;
+  const queryLimit = user.freeQueryLimit;
   const used =
-    remaining == null ? 0 : Math.min(FREE_QUERY_LIMIT, FREE_QUERY_LIMIT - remaining);
-  const usageRatio = remaining == null ? 0 : used / FREE_QUERY_LIMIT;
+    remaining == null || queryLimit == null
+      ? 0
+      : Math.min(queryLimit, queryLimit - remaining);
+  const usageRatio = remaining == null || queryLimit == null ? 0 : used / queryLimit;
   const features = isPaid ? PAID_FEATURES : FREE_FEATURES;
   const canSubmit = code.trim().length > 0 && !upgradeMutation.isPending;
 
@@ -88,19 +88,19 @@ export function PlanCard() {
         </span>
       </div>
 
-      {!isPaid && remaining != null && (
+      {!isPaid && remaining != null && queryLimit != null && (
         <div className="plan-usage">
           <div className="plan-usage-meta">
             <span>질의 사용량</span>
             <span className="mono">
-              {used} / {FREE_QUERY_LIMIT}
+              {used} / {queryLimit}
             </span>
           </div>
           <div
             className="plan-usage-track"
             role="meter"
             aria-valuemin={0}
-            aria-valuemax={FREE_QUERY_LIMIT}
+            aria-valuemax={queryLimit}
             aria-valuenow={used}
             aria-label="질의 사용량"
           >

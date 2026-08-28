@@ -15,15 +15,18 @@ public record UserResponse(
         String avatarUrl,
         boolean requiresConsent,
         Plan plan,
-        Integer freeQueryRemaining
+        Integer freeQueryRemaining,
+        Integer freeQueryLimit
 ) {
 
     public static UserResponse from(User user, String currentTermsVersion) {
         boolean requiresConsent = user.getConsentTermsVersion() == null
                 || !user.getConsentTermsVersion().equals(currentTermsVersion);
-        Integer freeQueryRemaining = user.getPlan() == Plan.PAID
+        boolean paid = user.getPlan() == Plan.PAID;
+        Integer freeQueryRemaining = paid
                 ? null
                 : Math.max(0, PlanService.FREE_QUERY_LIMIT - user.getFreeQueryCount());
+        Integer freeQueryLimit = paid ? null : PlanService.FREE_QUERY_LIMIT;
         return new UserResponse(
                 user.getId(),
                 user.getProvider(),
@@ -33,7 +36,8 @@ public record UserResponse(
                 user.getAvatarUrl(),
                 requiresConsent,
                 user.getPlan(),
-                freeQueryRemaining
+                freeQueryRemaining,
+                freeQueryLimit
         );
     }
 }
