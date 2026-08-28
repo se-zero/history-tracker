@@ -139,12 +139,72 @@ class SlackClientTest {
     }
 
     @Test
-    @DisplayName("token 폐기 HTTP 200이지만 ok:false 응답 → false 반환 (Slack은 실패도 200으로 응답한다)")
-    void revokeReturnsFalseWhenSlackRespondsOkFalse() {
+    @DisplayName("문서에 없는 에러 코드는 여전히 실패로 처리")
+    void revokeReturnsFalseForUnknownError() {
         SlackClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
                 .andRespond(withSuccess("""
                         { "ok": false, "error": "already_revoked" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isFalse();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 응답 error:invalid_auth(이미 무효화된 토큰) → true 반환")
+    void revokeReturnsTrueWhenSlackReportsInvalidAuth() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "invalid_auth" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 응답 error:token_revoked(이미 무효화된 토큰) → true 반환")
+    void revokeReturnsTrueWhenSlackReportsTokenRevoked() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "token_revoked" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 응답 error:token_expired(이미 무효화된 토큰) → true 반환")
+    void revokeReturnsTrueWhenSlackReportsTokenExpired() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "token_expired" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.revoke("xoxp-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("token 폐기 ok:false인데 error 필드가 없는 응답 → 예외 없이 false 반환")
+    void revokeReturnsFalseWhenSlackOmitsErrorField() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/auth.revoke"))
+                .andRespond(withSuccess("""
+                        { "ok": false }
                         """, MediaType.APPLICATION_JSON));
 
         boolean result = fixture.client.revoke("xoxp-token");

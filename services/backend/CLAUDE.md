@@ -152,6 +152,11 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   **`disconnect`는 그 결과를 무시하고 항상 진행한다** — 이미 폐기된 토큰이나 provider 장애로
   해제가 막히면 사용자가 데이터를 지울 방법을 잃는다. (파기 경로는 반대로 이 신호에 반응한다 —
   「사용자 파기」 참고.)
+  **Slack만 RFC 7009(OAuth 표준 토큰 폐기)를 안 따르고** HTTP 200 + 바디의 `ok`/`error` 필드로
+  성공/실패를 알린다. `error`가 `invalid_auth`·`token_revoked`·`token_expired`(공식 문서 확인)면
+  "이미 무효화된 토큰이라 지울 대상이 없다"는 뜻이므로 실패가 아니라 성공으로 재해석한다
+  (`SlackClient.ALREADY_REVOKED_ERRORS`). 나머지 provider는 표준을 따를 것으로 보여(실기동에서도
+  실패가 관측된 적 없음) 같은 재해석을 적용하지 않는다 — 확인 안 된 걸 코드에 가정으로 박지 않는다.
   Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, Asana도 refresh
   token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은
   폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시). ClickUp도
@@ -181,6 +186,13 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
     이 재시도를 건다 — client가 실패를 삼키던 시절엔 이 경로가 사실상 도달 불가능했다.
     `releaseExternalResources`는 파기 전용이라 `getActiveUser` 게이트를 타지 않는다(대상이 이미
     soft-delete 상태라 그 검증에서 예외가 난다).
+    **재시도에는 상한이 있다** — `UserPurgeService.shouldForcePurge`가 `User.deletedAt`(새 컬럼
+    없이 기존 필드 재활용)으로 "`gracePeriod + forcePurgeAfter`(기본 30일+7일)가 지나도록 계속
+    실패해온 사용자"를 판별해 강제로 삭제를 진행한다. cron이 하루 1번만 돌기 때문에 이 기간 경과는
+    "최소 forcePurgeAfter일만큼 연속 실패했다"는 뜻과 같다 — 별도 실패 횟수 카운터가 필요 없다.
+    강제 삭제는 provider grant가 안 지워진 채 계정이 사라지는 것이므로 `log.error`로 남긴다(5-1
+    모니터링 전까지는 로그가 유일한 관측 수단). 영구 실패(예: Slack에서 이미 폐기된 토큰)를
+    이 안전판까지 오기 전에 줄이는 쪽은 `SlackClient`의 재해석(위 참고)이 맡는다.
 - 콜백 요청에는 사용자 JWT가 없다. 서명된 state(`OAuthStateService`)가 신원·프로젝트 소유권을 증명하는 유일한 수단이므로,
   authorize URL 조립 시 소유권을 확인하고 state를 발급한다.
 - 콜백은 예외를 던지지 않고 항상 프론트로 302 리다이렉트하며, 실패는 `?error=` 코드로 전달한다.

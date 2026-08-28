@@ -53,6 +53,7 @@ user-lifecycle:
     grace-period: ${USER_PURGE_GRACE_PERIOD:P30D}
     cron: "${USER_PURGE_CRON:0 0 3 * * *}"
     batch-size: ${USER_PURGE_BATCH_SIZE:100}
+    force-purge-after: ${USER_PURGE_FORCE_PURGE_AFTER:P7D}
 
 github:
   app:

@@ -1,5 +1,7 @@
 package com.history.backend.slack.service;
 
+import java.util.Set;
+
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.slack.SlackProperties;
@@ -18,6 +20,10 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Component
 public class SlackClient {
+
+    // 이미 무효화된 토큰을 지우려는 것뿐이라 실패가 아니라 성공으로 재해석하는 에러들
+    private static final Set<String> ALREADY_REVOKED_ERRORS = Set.of(
+            "invalid_auth", "token_revoked", "token_expired");
 
     private final SlackProperties properties;
     private final RestClient restClient;
@@ -92,6 +98,11 @@ public class SlackClient {
                     .body(SlackApiResponse.class);
             // Slack은 실패도 HTTP 200으로 응답한다 — ok 필드로 판별한다
             if (response == null || !Boolean.TRUE.equals(response.ok())) {
+                // 이미 무효화된 토큰이면 지울 대상이 이미 없다는 뜻이므로 성공으로 취급한다
+                if (response != null && response.error() != null
+                        && ALREADY_REVOKED_ERRORS.contains(response.error())) {
+                    return true;
+                }
                 log.warn("Slack token revoke failed. error={}",
                         response == null ? "empty_response" : response.error());
                 return false;

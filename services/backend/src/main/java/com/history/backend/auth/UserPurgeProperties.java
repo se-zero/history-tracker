@@ -9,7 +9,8 @@ public record UserPurgeProperties(
         boolean enabled,
         Duration gracePeriod,
         String cron,
-        int batchSize
+        int batchSize,
+        Duration forcePurgeAfter
 ) {
 
     public UserPurgeProperties {
@@ -21,6 +22,9 @@ public record UserPurgeProperties(
         }
         if (batchSize < 1) {
             throw new IllegalArgumentException("user-lifecycle.purge.batch-size must be positive.");
+        }
+        if (forcePurgeAfter == null || forcePurgeAfter.isNegative() || forcePurgeAfter.isZero()) {
+            throw new IllegalArgumentException("user-lifecycle.purge.force-purge-after must be positive.");
         }
     }
 }

@@ -8,6 +8,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import com.history.backend.auth.UserPurgeProperties;
+import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +50,7 @@ public class UserPurgeService {
             if (excludedIds.containsAll(candidateIds)) {
                 break;
             }
-            purgedCount += purgeBatch(candidateIds, excludedIds);
+            purgedCount += purgeBatch(candidateIds, excludedIds, now);
         }
         return purgedCount;
     }
@@ -64,7 +65,7 @@ public class UserPurgeService {
         return candidateIds == null ? List.of() : candidateIds;
     }
 
-    private int purgeBatch(List<UUID> candidateIds, Set<UUID> excludedIds) {
+    private int purgeBatch(List<UUID> candidateIds, Set<UUID> excludedIds, Instant now) {
         // Neo4j 그래프 삭제·provider 권한 폐기는 외부 HTTP 호출이라 트랜잭션 밖에서 수행한다 —
         // 커넥션을 오래 점유하면 안 된다는 원칙은 ProjectService.deleteProject와 동일하다.
         List<UUID> purgedIds = new ArrayList<>();
@@ -73,11 +74,18 @@ public class UserPurgeService {
                 projectService.releaseExternalResources(userId);
                 purgedIds.add(userId);
             } catch (RuntimeException exception) {
-                // 실패한 사용자는 이번 회차 삭제 대상에서 제외하고, 이번 실행의 다음 조회에서도
-                // 배제한다 — 다음 cron 실행에서는 다시 후보로 잡혀 재시도된다.
-                excludedIds.add(userId);
-                log.warn("Failed to release external resources for user. userId={}, error={}",
-                        userId, exception.getMessage());
+                if (shouldForcePurge(userId, now)) {
+                    log.error("Force-purging user after repeated provider revocation failures — "
+                            + "provider grant may remain live. userId={}, error={}",
+                            userId, exception.getMessage());
+                    purgedIds.add(userId);
+                } else {
+                    // 실패한 사용자는 이번 회차 삭제 대상에서 제외하고, 이번 실행의 다음 조회에서도
+                    // 배제한다 — 다음 cron 실행에서는 다시 후보로 잡혀 재시도된다.
+                    excludedIds.add(userId);
+                    log.warn("Failed to release external resources for user. userId={}, error={}",
+                            userId, exception.getMessage());
+                }
             }
         }
 
@@ -90,5 +98,15 @@ public class UserPurgeService {
             return null;
         });
         return purgedIds.size();
+    }
+
+    // gracePeriod + forcePurgeAfter를 넘도록 provider 폐기가 계속 실패해온 사용자는 강제로 삭제한다 —
+    // 그렇지 않으면 영구 실패 사용자가 무한히 재시도만 되고 삭제되지 않는다.
+    private boolean shouldForcePurge(UUID userId, Instant now) {
+        Instant forceCutoff = now.minus(properties.gracePeriod()).minus(properties.forcePurgeAfter());
+        return userRepository.findById(userId)
+                .map(User::getDeletedAt)
+                .map(deletedAt -> !deletedAt.isAfter(forceCutoff))
+                .orElse(false);
     }
 }

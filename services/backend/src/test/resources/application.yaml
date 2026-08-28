@@ -42,6 +42,7 @@ user-lifecycle:
     grace-period: P30D
     cron: "0 0 3 * * *"
     batch-size: 100
+    force-purge-after: P60D
 
 app:
   legal:

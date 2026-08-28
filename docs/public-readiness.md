@@ -209,8 +209,28 @@ backend 테스트 통과(신규 케이스 다수 — Discord short-circuit 방�
 이번 변경과 무관한 **기존 버그**다 — `IntegrationRevocationService.revoke(Integration)`는 이번
 변경 전에도 `ifPresent`의 람다 안에서 예외가 나면 그대로 전파했으므로(`void`든 `boolean`이든
 전파 동작은 동일), 자격증명이 파싱 불가능한 형식(레거시 `email:token` 평문으로 추정)으로
-저장돼 있으면 disconnect가 예전부터 500이 났을 것이다. 별도 후속 항목으로 다룬다(어디에 기록할지
-결정 대기 — `docs/oauth-integration-known-issues.md` 신설 여부 등).
+저장돼 있으면 disconnect가 예전부터 500이 났을 것이다. **문서화하지 않기로 결정**(로컬 개발
+DB의 레거시 테스트 데이터 문제로 판단, 별도 대응 없음).
+
+#### PR #125 봇 리뷰 Major 대응 (2026-08-28)
+
+봇이 지적: "영구 실패(Slack `token_revoked`, 무효 토큰 401, Discord 길드 404)에서 `revokeAll`이
+매 회차 `false`를 반환해 탈퇴 사용자 행이 영영 삭제되지 않는다." 코드로 재현해 확인 —
+`UserPurgeService`의 실패 추적(`excludedIds`)이 cron 실행 1회 안에서만 유지되는 로컬 변수라
+재시도 횟수 제한이 전혀 없었다. 두 안전장치를 함께 추가했다.
+
+- [x] **(B) Slack의 "이미 무효" 응답을 성공으로 재해석** — RFC 7009(OAuth 표준)는 이미 무효한
+      토큰도 HTTP 200을 요구하는데, Slack만 이를 안 따르고 `ok:false` + `error` 필드로 알린다.
+      공식 문서로 확인한 3개 값(`invalid_auth`·`token_revoked`·`token_expired`)은 "지울 대상이
+      이미 없다"는 뜻이므로 성공 취급. 나머지 6개 provider는 표준을 따를 것으로 보이고
+      실기동에서도 실패가 관측된 적 없어 건드리지 않았다(확인 안 된 것을 가정으로 코드에 안 박음).
+- [x] **(A) 파기 강제 진행 안전판** — `User.deletedAt`(새 컬럼 없이 기존 필드 재활용)으로
+      "`gracePeriod`(30일) + `forcePurgeAfter`(7일)"가 지나도록 계속 실패해온 사용자는 강제로
+      삭제를 진행한다. cron이 하루 1번만 돌므로 이 기간 경과가 곧 "최소 7번 연속 실패"라는 뜻이다.
+      강제 삭제는 `log.error`로 남긴다(provider grant가 안 지워진 채 계정이 사라지는 것이므로).
+- [x] 리뷰 중 직접 발견한 별개 결함도 함께 고쳤다 — `Set.of(...).contains(null)`이 `false`가
+      아니라 `NullPointerException`을 던진다는 사실을 실제로 재현해 확인. Slack이 `ok:false`인데
+      `error` 필드를 생략하면(이론상 가능) 이 NPE가 `disconnect`까지 전파돼 500이 날 수 있었다.
 
 **우선순위: 상 — 완료.**
 
