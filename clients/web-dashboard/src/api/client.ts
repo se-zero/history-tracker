@@ -43,19 +43,28 @@ export async function refreshSession(): Promise<TokenResponse> {
 
   refreshPromise = (async () => {
     try {
-      const { data } = await api.post<TokenResponse>(
-        "/auth/refresh",
-        null,
-        { _skipAuth: true, _skipRefresh: true } as AuthAwareConfig,
-      );
-      tokenStorage.setAccess(data.accessToken);
-      return data;
+      // 탭마다 JS 힙이 달라 in-memory lock만으로는 부족하다. Web Lock은 오리진 공유라
+      // 한쪽이 회전을 끝낸 뒤 다른 쪽이 새 쿠키로 refresh 한다(15초 유예 401 → 로그아웃 방지).
+      if (typeof navigator !== "undefined" && navigator.locks?.request) {
+        return await navigator.locks.request("ht-refresh", postRefresh);
+      }
+      return await postRefresh();
     } finally {
       refreshPromise = null;
     }
   })();
 
   return refreshPromise;
+}
+
+async function postRefresh(): Promise<TokenResponse> {
+  const { data } = await api.post<TokenResponse>(
+    "/auth/refresh",
+    null,
+    { _skipAuth: true, _skipRefresh: true } as AuthAwareConfig,
+  );
+  tokenStorage.setAccess(data.accessToken);
+  return data;
 }
 
 api.interceptors.response.use(

@@ -557,8 +557,9 @@ admin에는 **그래프 삭제, DLQ replay, Actor 병합·분리** 같은 쓰기
       실응답과 브라우저 렌더 모두 확인. 빌드 산출물에 인라인 스크립트가 없어 `script-src 'self'`로
       조일 수 있었다(폰트 CDN 2곳과 인라인 **스타일**만 예외)
 - [x] refresh 토큰을 httpOnly 쿠키로 옮겼다 — JSON 바디에는 access만 남긴다. 쿠키 이름 `ht_refresh`,
-      Path `/api/v1/auth`, SameSite=Lax, HttpOnly. `Secure`는 HTTPS일 때만(nginx가 TLS를 끊으므로
-      `server.forward-headers-strategy: framework`). 프론트는 access를 메모리에만 두고, 부트 때
+      Path `/api/v1/auth`, SameSite=Lax, HttpOnly. `Secure`는 HTTPS일 때만(TLS는 Cloudflare
+      엣지에서 끝나고, nginx는 `X-Forwarded-Proto`를 덮어쓰지 않으며 `server.forward-headers-strategy:
+      framework`가 그 값을 본다). 프론트는 access를 메모리에만 두고, 부트 때
       쿠키로 silent refresh 한 뒤 `/me`를 부른다. 기존 `ht.access_token`·`ht.refresh_token`
       localStorage 키는 기동 시 지운다 — **이미 발급된 세션은 다시 로그인**해야 한다
 - [x] 재사용이 감지되면 `revokeAllRefreshTokens`로 전 세션을 끊는다. 회전된 행은 지우지 않고

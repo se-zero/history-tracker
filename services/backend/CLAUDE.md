@@ -22,7 +22,8 @@ cd services/backend
 - soft-deleted user는 grace period 복구 대상일 수 있지만, 복구 전에는 비공개 API 접근과 refresh token 재발급을 허용하지 않는다.
 - 로그인 refresh는 httpOnly 쿠키(`ht_refresh`, Path `/api/v1/auth`)로만 내려보낸다. JSON 바디에 원문을 넣지 않는다.
   `POST /auth/refresh`·`/auth/logout`은 쿠키만 읽고 바디는 없다. 회전된 행은 `replaced_at`을 남기고,
-  15초 유예 이후 재사용은 그 사용자 세션을 전부 끊는다.
+  15초 유예 이후 재사용은 그 사용자 세션을 전부 끊는다. `rotateRefreshToken`의 401 예외는 이 폐기를
+  롤백하면 안 되므로 `noRollbackFor = UnauthorizedException`이다.
 - DB 스키마는 Flyway migration으로 관리하고 JPA `ddl-auto`는 `validate`를 사용한다.
 - 기능 PR마다 필요한 migration을 추가한다.
 - main에 머지된 migration 파일은 수정하지 말고 새 migration으로 변경한다.

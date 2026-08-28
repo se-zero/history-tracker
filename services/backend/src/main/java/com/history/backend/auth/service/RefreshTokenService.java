@@ -48,7 +48,9 @@ public class RefreshTokenService {
 
     // refresh token 1회용 rotation. 사용된 행은 지우지 않고 replaced_at을 남겨, 이후 재사용을
     // "한 번도 없는 토큰"과 구분한다. 유예(탭 경합)가 지난 재사용은 그 사용자 세션을 전부 끊는다.
-    @Transactional
+    // UnauthorizedException은 401로 쓰기 위한 신호라 롤백하면 안 된다 — 기본 규칙이면
+    // deleteByUserId가 커밋되지 않아 탈취 세션이 남는다.
+    @Transactional(noRollbackFor = UnauthorizedException.class)
     public RefreshTokenIssue rotateRefreshToken(String rawToken) {
         RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(sha256(rawToken))
                 .orElseThrow(() -> new UnauthorizedException("Invalid refresh token."));

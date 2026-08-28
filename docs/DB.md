@@ -126,6 +126,7 @@ JWT refresh token 저장. token 값은 해시(BYTEA)로만 보관한다.
 | `token_hash` | BYTEA | NOT NULL, UNIQUE | refresh token 해시 (평문 저장 금지) |
 | `expires_at` | TIMESTAMPTZ | NOT NULL | 토큰 만료 시각 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 토큰 발급 시각 |
+| `replaced_at` | TIMESTAMPTZ | | 회전으로 교체된 시각. NULL이면 아직 유효. 값이 있으면 재사용 탐지 대상 |
 
 **인덱스**
 - UNIQUE `(token_hash)`

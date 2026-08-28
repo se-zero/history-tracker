@@ -7,6 +7,8 @@ import com.history.backend.auth.dto.GitHubCallbackRequest;
 import com.history.backend.auth.dto.TokenResponse;
 import com.history.backend.auth.service.AuthService;
 import com.history.backend.auth.service.IssuedSession;
+import com.history.backend.common.error.ErrorResponse;
+import com.history.backend.common.error.UnauthorizedException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -73,6 +76,21 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.NO_CONTENT)
                 .header(HttpHeaders.SET_COOKIE, RefreshTokenCookies.clear(request.isSecure()).toString())
                 .build();
+    }
+
+    // refresh·로그인 실패 때 죽은 ht_refresh가 남으면 부트마다 불필요한 401이 난다.
+    @ExceptionHandler(UnauthorizedException.class)
+    ResponseEntity<ErrorResponse> handleUnauthorized(
+            UnauthorizedException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.SET_COOKIE, RefreshTokenCookies.clear(request.isSecure()).toString())
+                .body(ErrorResponse.of(
+                        HttpStatus.UNAUTHORIZED.value(),
+                        HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                        exception.getMessage()
+                ));
     }
 
     private ResponseEntity<TokenResponse> withRefreshCookie(IssuedSession session, HttpServletRequest request) {

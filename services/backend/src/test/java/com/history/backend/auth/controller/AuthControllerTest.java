@@ -108,12 +108,25 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("refresh 쿠키가 없으면 401")
-    void refreshWithoutCookieReturnsUnauthorized() throws Exception {
+    @DisplayName("refresh 쿠키가 없으면 401, 죽은 쿠키를 지우기 위해 Max-Age=0")
+    void refreshWithoutCookieReturnsUnauthorizedAndClearsCookie() throws Exception {
         when(authService.refresh(isNull())).thenThrow(new UnauthorizedException("Invalid refresh token."));
 
         mockMvc.perform(post("/api/v1/auth/refresh"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(cookie().maxAge(RefreshTokenCookies.NAME, 0));
+    }
+
+    @Test
+    @DisplayName("refresh가 401이면 요청에 실려 온 ht_refresh도 삭제한다")
+    void refreshUnauthorizedClearsExistingRefreshCookie() throws Exception {
+        when(authService.refresh("dead-refresh-token"))
+                .thenThrow(new UnauthorizedException("Invalid refresh token."));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new Cookie(RefreshTokenCookies.NAME, "dead-refresh-token")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(cookie().maxAge(RefreshTokenCookies.NAME, 0));
     }
 
     @Test

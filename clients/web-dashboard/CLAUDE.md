@@ -116,6 +116,7 @@ src/
   access는 메모리, refresh는 httpOnly 쿠키(`ht_refresh`, Path `/api/v1/auth`). **API 베이스는 같은 오리진
   (`/api/v1`)이어야 쿠키가 붙는다** — `VITE_API_BASE_URL`을 다른 호스트로 두면 세션이 유지되지 않는다.
   기존 localStorage 키(`ht.access_token`·`ht.refresh_token`)는 모듈 로드 시 지운다.
+  여러 탭의 silent refresh는 Web Lock(`ht-refresh`)으로 직렬화한다.
 - 비동기 상태 업데이터(`setState((prev) => ...)`) 안에서 **가변 ref(`someRef.current`)를 다시 읽지 않는다** — 실행이 지연되어
   그 사이 ref가 바뀌면 터진다. 값을 미리 지역 변수로 캡처해 클로저에 가둔다.
 - 주석은 한국어로 작성한다 (코드베이스 관행).
