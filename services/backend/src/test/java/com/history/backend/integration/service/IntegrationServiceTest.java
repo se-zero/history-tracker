@@ -1557,6 +1557,97 @@ class IntegrationServiceTest {
         verify(integrationRepository).deleteById(INTEGRATION_ID_2);
     }
 
+    // ─── Slack slash command 대상 조회·백필 ─────────────────────────────────────
+
+    @Test
+    @DisplayName("listSlackCommandTargets — workspace_id 일치 행만 DTO로 매핑하고 다른 워크스페이스는 제외")
+    void listSlackCommandTargetsMapsMatchingRowsToDtoAndExcludesOtherWorkspace() {
+        IntegrationService service = service();
+        Integration matching = slackUserIntegration("T123", "U111", INTEGRATION_ID, namedProject(PROJECT_ID, "Alpha"));
+        Integration otherWorkspace = slackUserIntegration(
+                "T_OTHER", "U111", INTEGRATION_ID_2, namedProject(PROJECT_ID_2, "Beta"));
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(matching, otherWorkspace));
+
+        List<IntegrationService.SlackCommandTarget> targets = service.listSlackCommandTargets("T123");
+
+        assertThat(targets).hasSize(1);
+        IntegrationService.SlackCommandTarget target = targets.get(0);
+        assertThat(target.integrationId()).isEqualTo(INTEGRATION_ID);
+        assertThat(target.projectId()).isEqualTo(PROJECT_ID);
+        assertThat(target.projectName()).isEqualTo("Alpha");
+        assertThat(target.ownerUserId()).isEqualTo(OWNER_ID);
+        assertThat(target.connectedUserId()).isEqualTo("U111");
+        assertThat(target.encryptedCredential()).isEqualTo(new byte[] {1, 2, 3});
+        verify(integrationRepository).findAllByProvider(IntegrationProvider.SLACK);
+    }
+
+    @Test
+    @DisplayName("listSlackCommandTargets — pending 행은 커맨드 대상이 아니다")
+    void listSlackCommandTargetsExcludesPendingSelectionRows() {
+        IntegrationService service = service();
+        Integration pending = slackUserIntegration("T123", "U111", INTEGRATION_ID);
+        pending.markPendingSelection();
+        Integration confirmed = slackUserIntegration(
+                "T123", "U222", INTEGRATION_ID_2, namedProject(PROJECT_ID_2, "Beta"));
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(pending, confirmed));
+
+        List<IntegrationService.SlackCommandTarget> targets = service.listSlackCommandTargets("T123");
+
+        assertThat(targets).extracting(IntegrationService.SlackCommandTarget::integrationId)
+                .containsExactly(INTEGRATION_ID_2);
+        assertThat(targets.get(0).projectName()).isEqualTo("Beta");
+    }
+
+    @Test
+    @DisplayName("listSlackCommandTargets — connected_user_id 없는 레거시 행도 대상에 포함한다 (auth.test 백필은 커맨드 서비스 몫)")
+    void listSlackCommandTargetsIncludesLegacyRowsWithoutConnectedUserId() {
+        IntegrationService service = service();
+        Integration legacy = slackWorkspaceIntegration("T123", INTEGRATION_ID);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(legacy));
+
+        List<IntegrationService.SlackCommandTarget> targets = service.listSlackCommandTargets("T123");
+
+        assertThat(targets).hasSize(1);
+        assertThat(targets.get(0).connectedUserId()).isNull();
+        assertThat(targets.get(0).integrationId()).isEqualTo(INTEGRATION_ID);
+        assertThat(targets.get(0).projectName()).isEqualTo("History Tracker");
+        assertThat(targets.get(0).ownerUserId()).isEqualTo(OWNER_ID);
+    }
+
+    @Test
+    @DisplayName("backfillSlackConnectedUserId — 기존 external_ref 키를 유지한 채 connected_user_id만 추가")
+    void backfillSlackConnectedUserIdAddsConnectedUserIdAndKeepsOtherKeys() {
+        IntegrationService service = service();
+        Integration row = Integration.oauth(
+                project(),
+                IntegrationProvider.SLACK,
+                Map.of(
+                        SlackOAuthConnectFlow.WORKSPACE_ID, "T123",
+                        SlackOAuthConnectFlow.WORKSPACE_NAME, "Acme"),
+                new byte[] {1, 2, 3});
+        ReflectionTestUtils.setField(row, "id", INTEGRATION_ID);
+        when(integrationRepository.findById(INTEGRATION_ID)).thenReturn(Optional.of(row));
+
+        service.backfillSlackConnectedUserId(INTEGRATION_ID, "U111");
+
+        assertThat(row.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)).isEqualTo("T123");
+        assertThat(row.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_NAME)).isEqualTo("Acme");
+        assertThat(row.externalRefValue(SlackOAuthConnectFlow.CONNECTED_USER_ID)).isEqualTo("U111");
+    }
+
+    @Test
+    @DisplayName("backfillSlackConnectedUserId — 없는 integration이면 NotFoundException")
+    void backfillSlackConnectedUserIdRejectsMissingIntegration() {
+        IntegrationService service = service();
+        when(integrationRepository.findById(INTEGRATION_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.backfillSlackConnectedUserId(INTEGRATION_ID, "U111"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     // 중립 값 이전 배포가 저장한 행 재현. 엔티티 상수가 아니라 문자열 리터럴을 쓰는 이유는 DB에 실제로
     // 들어 있는 값이 계약이기 때문이다 — 상수를 참조하면 상수가 바뀔 때 테스트가 따라가 호환이 깨진 걸 놓친다.
     private Integration legacyPendingJira(Project project, Map<String, Object> externalRef) {
@@ -1605,7 +1696,11 @@ class IntegrationServiceTest {
     }
 
     private Project project(UUID projectId) {
-        Project project = new Project(user(), "History Tracker", null);
+        return namedProject(projectId, "History Tracker");
+    }
+
+    private Project namedProject(UUID projectId, String name) {
+        Project project = new Project(user(), name, null);
         ReflectionTestUtils.setField(project, "id", projectId);
         return project;
     }

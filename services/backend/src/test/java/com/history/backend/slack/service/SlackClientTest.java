@@ -1,6 +1,7 @@
 package com.history.backend.slack.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
@@ -266,6 +267,80 @@ class SlackClientTest {
         boolean result = fixture.client.revoke("xoxp-token");
 
         assertThat(result).isFalse();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("auth.test 성공(ok+user_id) → user_id 반환, form token= 로 호출 (SlackProperties URL 아님)")
+    void authTestReturnsUserIdWhenOk() {
+        SlackClientFixture fixture = fixture();
+        MultiValueMap<String, String> expectedForm = new LinkedMultiValueMap<>();
+        expectedForm.add("token", "xoxp-user");
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().formData(expectedForm))
+                .andRespond(withSuccess("""
+                        { "ok": true, "user_id": "U123XYZ" }
+                        """, MediaType.APPLICATION_JSON));
+
+        String userId = fixture.client.authTest("xoxp-user");
+
+        assertThat(userId).isEqualTo("U123XYZ");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("auth.test ok:false → 예외 없이 null (커맨드 전체를 죽이지 않는다)")
+    void authTestReturnsNullWhenSlackReportsNotOk() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "invalid_auth" }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client.authTest("xoxp-user")).isNull();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("auth.test HTTP 오류 → 예외 없이 null")
+    void authTestReturnsNullWhenRequestFails() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withServerError());
+
+        assertThat(fixture.client.authTest("xoxp-user")).isNull();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeral — JSON response_type=ephemeral 을 response_url에 POST")
+    void postEphemeralPostsEphemeralJsonToResponseUrl() {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        { "response_type": "ephemeral", "text": "찾는 중" }
+                        """))
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        fixture.client.postEphemeral(responseUrl, "찾는 중");
+
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeral HTTP 실패 → 예외를 던지지 않는다")
+    void postEphemeralSwallowsHttpError() {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andRespond(withServerError());
+
+        assertThatCode(() -> fixture.client.postEphemeral(responseUrl, "찾는 중"))
+                .doesNotThrowAnyException();
         fixture.server.verify();
     }
 

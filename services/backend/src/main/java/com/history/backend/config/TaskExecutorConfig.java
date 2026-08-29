@@ -49,4 +49,24 @@ public class TaskExecutorConfig {
         executor.initialize();
         return executor;
     }
+
+    // Slack slash command 단발 질의 전용 풀. events 풀과 분리해 라이프사이클 이벤트와 LLM 질의가 서로를 막지 않게 한다.
+    // 질의는 ai-engine read timeout(60s)까지 길 수 있어 await를 그에 맞춘다.
+    // 거부 시 AbortPolicy → TaskRejectedException — 커맨드 서비스가 200 + 바쁨 문구로 바꾼다.
+    @Bean("slackCommandsTaskExecutor")
+    public TaskExecutor slackCommandsTaskExecutor(
+            @Value("${slack.commands-executor-pool-size:1}") int poolSize,
+            @Value("${slack.commands-executor-queue-capacity:20}") int queueCapacity,
+            @Value("${slack.commands-executor-await-termination-seconds:60}") int awaitTerminationSeconds
+    ) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("slack-commands-");
+        executor.setCorePoolSize(poolSize);
+        executor.setMaxPoolSize(poolSize);
+        executor.setQueueCapacity(queueCapacity);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(awaitTerminationSeconds);
+        executor.initialize();
+        return executor;
+    }
 }

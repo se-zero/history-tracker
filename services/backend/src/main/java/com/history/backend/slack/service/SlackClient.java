@@ -2,6 +2,7 @@ package com.history.backend.slack.service;
 
 import java.util.Set;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.slack.SlackProperties;
@@ -122,9 +123,52 @@ public class SlackClient {
         }
     }
 
+    // 레거시 행 게이팅용 — SlackProperties URL이 아니라 고정 auth.test 엔드포인트다.
+    // 실패해도 커맨드 전체를 죽이지 않기 위해 예외를 삼키고 null을 반환한다.
+    public String authTest(String userToken) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("token", userToken);
+        try {
+            SlackApiResponse response = restClient
+                    .post()
+                    .uri("https://slack.com/api/auth.test")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(SlackApiResponse.class);
+            if (response == null || !Boolean.TRUE.equals(response.ok())) {
+                return null;
+            }
+            String userId = response.userId();
+            return userId == null || userId.isBlank() ? null : userId;
+        } catch (RestClientException exception) {
+            log.warn("Slack auth.test request failed. error={}", exception.getMessage());
+            return null;
+        }
+    }
+
+    // response_url 유효 시간(30분) 안에만 도달하면 되므로, 실패해도 커맨드 ack는 이미 끝난 뒤다.
+    public void postEphemeral(String responseUrl, String text) {
+        try {
+            restClient
+                    .post()
+                    .uri(responseUrl)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new SlackCommandAck("ephemeral", text))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException exception) {
+            log.warn("Slack response_url post failed. error={}", exception.getMessage());
+        }
+    }
+
     public record SlackWorkspace(String id, String name, String userToken, String botToken, String authedUserId) {
     }
 
-    private record SlackApiResponse(Boolean ok, String error) {
+    private record SlackApiResponse(
+            Boolean ok,
+            String error,
+            @JsonProperty("user_id") String userId
+    ) {
     }
 }

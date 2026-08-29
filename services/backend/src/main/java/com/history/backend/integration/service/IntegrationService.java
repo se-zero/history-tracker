@@ -3,6 +3,7 @@ package com.history.backend.integration.service;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -517,6 +518,53 @@ public class IntegrationService {
                     return userId != null && slackUserIds.contains(userId);
                 })
                 .forEach(this::disconnectSlackIntegrationQuietly);
+    }
+
+    /**
+     * /why-code 슬래시 커맨드 대상 조회.
+     *
+     * <p>트랜잭션 안에서 프로젝트·소유자·자격증명을 DTO로 복사한다 — 커맨드 질의는 executor 스레드에서
+     * 돌므로 lazy 프록시를 비동기 밖으로 내보내면 LazyInitializationException이 난다.</p>
+     */
+    public List<SlackCommandTarget> listSlackCommandTargets(String workspaceId) {
+        return transactionTemplate.execute(status ->
+                integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
+                        .filter(i -> workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                        .filter(i -> !i.isPendingSelection())
+                        .map(this::toSlackCommandTarget)
+                        .toList());
+    }
+
+    // connected_user_id가 없던 레거시 행을 auth.test 결과로 승급. 다른 external_ref 키는 유지한다.
+    public void backfillSlackConnectedUserId(UUID integrationId, String slackUserId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            Integration integration = integrationRepository.findById(integrationId)
+                    .orElseThrow(() -> new NotFoundException("Slack integration not found."));
+            Map<String, Object> updated = new HashMap<>(integration.getExternalRef());
+            updated.put(SlackOAuthConnectFlow.CONNECTED_USER_ID, slackUserId);
+            integration.applyExternalRef(updated);
+        });
+    }
+
+    private SlackCommandTarget toSlackCommandTarget(Integration integration) {
+        Project project = integration.getProject();
+        return new SlackCommandTarget(
+                integration.getId(),
+                project.getId(),
+                project.getName(),
+                project.getOwner().getId(),
+                integration.externalRefValue(SlackOAuthConnectFlow.CONNECTED_USER_ID),
+                integration.getEncryptedCredential());
+    }
+
+    public record SlackCommandTarget(
+            UUID integrationId,
+            UUID projectId,
+            String projectName,
+            UUID ownerUserId,
+            String connectedUserId,
+            byte[] encryptedCredential
+    ) {
     }
 
     // 이벤트 경로 전용 — 한 행의 그래프 삭제 실패가 같은 워크스페이스의 다른 행 해제를 막으면 안 된다.
