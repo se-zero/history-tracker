@@ -1,6 +1,7 @@
 package com.history.backend.integration.service;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +26,7 @@ import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.shared.domain.Checkpoint;
+import com.history.backend.slack.service.SlackOAuthConnectFlow;
 import com.history.backend.shared.repository.CheckpointRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -479,17 +481,67 @@ public class IntegrationService {
         projectService.getProject(ownerId, projectId);
         Integration integration = integrationRepository.findByProject_IdAndProvider(projectId, provider)
                 .orElseThrow(() -> new NotFoundException(provider.displayName() + " integration not found."));
+        disconnectIntegration(integration);
+    }
 
+    /**
+     * Slack app_uninstalled 이벤트 — 워크스페이스 전체 Slack 연동 해제.
+     *
+     * <p>JWT 없는 이벤트 경로라 projectService.getProject(소유권 검사)를 호출하지 않는다.
+     * integrationRepository.findAllByProvider 후 Java 필터로 매칭한다 — 새 native query 없이
+     * 기존 쿼리 재사용을 위해 intentional.</p>
+     */
+    public void disconnectSlackWorkspace(String workspaceId) {
+        if (workspaceId == null || workspaceId.isBlank()) {
+            return;
+        }
+        integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
+                .filter(i -> workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                .forEach(this::disconnectSlackIntegrationQuietly);
+    }
+
+    /**
+     * Slack tokens_revoked 이벤트 — oauth 사용자 목록 매칭 행 해제.
+     *
+     * <p>connected_user_id가 없는 레거시 행은 키 자체가 없으므로 externalRefValue가 null을 반환해 자동으로 건너뛴다.</p>
+     */
+    public void disconnectSlackUsers(String workspaceId, Collection<String> slackUserIds) {
+        if (slackUserIds == null || slackUserIds.isEmpty()) {
+            return;
+        }
+        integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
+                .filter(i -> workspaceId != null && workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                .filter(i -> {
+                    // externalRefValue가 null이면 contains(null)이 NPE — null 선검사 필요
+                    String userId = i.externalRefValue(SlackOAuthConnectFlow.CONNECTED_USER_ID);
+                    return userId != null && slackUserIds.contains(userId);
+                })
+                .forEach(this::disconnectSlackIntegrationQuietly);
+    }
+
+    // 이벤트 경로 전용 — 한 행의 그래프 삭제 실패가 같은 워크스페이스의 다른 행 해제를 막으면 안 된다.
+    // JWT disconnect()는 단건이라 disconnectIntegration을 직접 호출해 예외를 사용자에게 그대로 보낸다.
+    private void disconnectSlackIntegrationQuietly(Integration integration) {
+        try {
+            disconnectIntegration(integration);
+        } catch (RuntimeException e) {
+            log.error("Slack lifecycle disconnect failed. integrationId={}, error={}",
+                    integration.getId(), e.getMessage(), e);
+        }
+    }
+
+    // 폐기 → 그래프 삭제 → RDB 삭제 공통 경로 (소유권 검사 없음 — 이벤트 경로에서 호출 가능)
+    private void disconnectIntegration(Integration integration) {
+        UUID projectId = integration.getProject().getId();
+        IntegrationProvider provider = integration.getProvider();
         // provider 쪽 권한 폐기를 먼저 한다 — 우리 DB의 토큰을 지우면 폐기에 쓸 값 자체가 사라진다.
         // 실패해도 진행한다(각 client가 삼킨다): 이미 폐기된 토큰이나 provider 장애 때문에
         // 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
         revocationService.revoke(integration);
-
         // 그래프를 먼저 지우는 순서·이유는 프로젝트 삭제와 같다(ProjectService.deleteProject 주석):
         // 외부 HTTP를 트랜잭션 밖에 둬 커넥션 점유를 피하고, 그래프 삭제가 멱등이라 RDB 삭제가
         // 뒤에서 실패해도 재시도 시 no-op으로 통과해 수렴한다(원자적 보장은 아님).
         aiEngineGraphClient.deleteProjectSourceGraph(projectId, provider);
-
         transactionTemplate.executeWithoutResult(status -> {
             // checkpoint를 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이 데이터가 누락된다
             checkpointRepository.deleteByProject_IdAndId_Provider(projectId, provider);

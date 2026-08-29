@@ -43,7 +43,7 @@
 
 **다음**: 0-1b(사용자 GitHub 토큰 저장, Critical — GitHub App 설정 확인이 선행돼야 함).
 1-2는 OpenAI 계정 하드 캡으로 대체하기로 결정(2026-08-28) — 코드 작업 없음. 0-3 Slack은
-방향(B+C+D 병행) 결정 완료, 착수는 대기. 1-3(provider 쿼터 공유)은 Discord·Google Chat
+방향(B+C+D 병행) 결정 완료, D는 S1(Events API) 코드 완료·실기동·S2~S6은 남음. 1-3(provider 쿼터 공유)은 Discord·Google Chat
 공정 큐(`ProjectFairGate`)로 완료.
 아래 「다음 순서」 참고.
 
@@ -301,7 +301,7 @@ Tier 3(**50+ req/min · 최대 1,000건**)로 동작한다. "Slack이 지금 느
 | **"export or backup message data"** (거부 사유) | ⚠️ 메시지 본문을 Neo4j `Communication.body`에 저장한다 |
 | user token `*:history` scope | ⚠️ `channels:history`·`groups:history` 사용. 지침이 명시적으로 지양하나 "Real-time Search" 같은 명확한 사용 사례는 예외로 인정한다 |
 | 활성 워크스페이스 **10곳**(28일 내 사용) + 주간 활성 **10명** | ❌ 현재 1곳. **샌드박스는 제외**된다고 명시. ⚠️ 2026-08-29 가이드라인 재확인에서 5곳 → **10곳으로 상향** 확인 |
-| `app_uninstalled` 처리 | ❌ 없음 |
+| `app_uninstalled` 처리 | 코드 완료, Events Request URL 미등록(S4) |
 | 심사 기간 | 예비 **최대 10영업일**(반려 시 큐 리셋) + 기능 **최대 10주**. 단축·생략 불가 |
 
 즉 **숫자를 채워도 통과할 수 없다.** "Slack 안에 기능이 없다"는 설정이 아니라 제품 구조다.
@@ -341,9 +341,9 @@ C의 근거는 changelog의 **"Internal customer-built applications are not impa
 - [ ] 봇 토큰 전환은 **별개 항목**으로 둔다. 최소 권한이라는 장점은 있지만 rate limit도 등재 자격도
       바꾸지 못하고, 채널마다 초대·관리자 승인이 필요해 **개인 사용자에게는 오히려 불리**하다
 
-**우선순위: 중 — 방향 결정 완료, 착수는 대기.** 대화 소스에 대안이 있어 Slack이 막혀도 제품이 성립한다.
-**D의 실행 계획은 [slack-marketplace.md](slack-marketplace.md)** — 필요한 코드 변경(`/why-code` 커맨드,
-Events API 라이프사이클, bot 토큰 이중화)과 심사 제출물·리스크를 거기서 관리한다.
+**우선순위: 중 — 방향 결정 완료, D 착수.** 대화 소스에 대안이 있어 Slack이 막혀도 제품이 성립한다.
+**D의 실행 계획은 [slack-marketplace.md](slack-marketplace.md)** — S1(Events API 수신) 코드 완료,
+실기동·S2(자격증명)·S3(`/why-code`)·제출물은 남음.
 
 **근거**: [rate limits](https://docs.slack.dev/apis/web-api/rate-limits/) ·
 [2025-05-29 changelog](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps) ·
@@ -898,7 +898,7 @@ nginx에 `client_max_body_size`가 없어 기본 1MB가 걸린다. GitHub webhoo
 
 1. **0-1b 사용자 GitHub 토큰** — Critical. GitHub App 설정 확인이 선행돼야 한다
 2. **4-5 제3자 창구·내보내기**
-3. ~~**0-3 Slack** — A~D 결정.~~ **결정 완료(2026-08-28) — B+C+D 병행.** 착수는 대기
+3. ~~**0-3 Slack** — A~D 결정.~~ **결정 완료(2026-08-28) — B+C+D 병행.** D는 S1 코드 완료, S2~S6·실기동 남음
 4. ~~**1층 비용 가드** — 원가 측정 → 무료 한도 설계~~ **1-1·1-3 구현 완료(2026-08-28)** — 원가 측정은
    생략, 무료 한도(프로젝트·연동·질의·증분 수집)를 backend·pipeline-worker에 강제. **1-2는
    OpenAI 계정 하드 캡으로 대체 결정(2026-08-28, 코드 불필요)**. Discord·Google Chat 공정 큐는

@@ -41,7 +41,7 @@ B가 D의 자격 모수(활성 워크스페이스 수)를 쌓는다는 의존 �
 | 기준 | 현재 | 필요한 변경 |
 |------|------|------|
 | "do not include functionality in Slack" (부적격 사유) | ❌ 슬래시 커맨드·봇·App Home 없음 | `/why-code` 슬래시 커맨드 (§3) |
-| `app_uninstalled`·`tokens_revoked` 처리 | ❌ 없음 — Slack 이벤트 수신 엔드포인트 자체가 없다 | Events API 수신 (§4) |
+| `app_uninstalled`·`tokens_revoked` 처리 | 코드 완료, Events Request URL 미등록(S4). `tokens_revoked`는 `connected_user_id` 저장(S2) 전까지 레거시 행에 no-op | Events URL 등록(S4), 자격증명 키(S2) |
 | 활성 워크스페이스 **10곳**(28일 내 사용, 샌드박스 제외) + 주간 활성 **10명** | ❌ 1곳 | B 트랙 실적 축적 (§8). ⚠️ 기존 기록(5곳)에서 **상향 확인됨** |
 | user token `*:history` scope | ⚠️ `channels:history`·`groups:history` 사용 | 유지 + scope 사유서. **enhanced review 대상**임을 전제로 준비 (§7) |
 | "export or backup message data" (부적격 사유) | ⚠️ 메시지 본문을 Neo4j `Communication.body`에 저장 | 리스팅 포지셔닝 + 개인정보처리방침 보강으로 방어. **최대 리스크** (§8) |
@@ -235,7 +235,7 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 
 | 묶음 | 내용 | 선행 | 성공 기준 |
 |------|------|------|----------|
-| **S1** | Events API 수신 — 서명 검증 필터, `url_verification`, `app_uninstalled`·`tokens_revoked` 멱등 정리, `SLACK_SIGNING_SECRET` 배선(compose·SecurityConfig) | — | 서명 검증(타임스탬프 창 포함)·중복/역순 이벤트 멱등성 단위 테스트, `./gradlew test` 그린. 로컬 실기동: 앱 제거 → 행·그래프 삭제 확인 |
+| **S1** | Events API 수신 — 서명 검증 필터, `url_verification`, `app_uninstalled`·`tokens_revoked` 멱등 정리, `SLACK_SIGNING_SECRET` 배선(compose·SecurityConfig) | — | 코드 완료, 실기동 미확인. 서명 검증(타임스탬프 창 포함)·이벤트 처리 단위 테스트 통과. 로컬 실기동(앱 제거 → 행·그래프 삭제 확인)은 아직 진행하지 않음. |
 | **S2** | 자격증명 이중화 — DTO 확장(`access_token`·`authed_user.id`), `SlackCredentialCodec`(JSON+평문 폴백), `connected_user_id` 저장, lifecycle 양 토큰 폐기, **worker 폴백 먼저** | S1과 독립이나 순차 권장 | 신규/레거시 자격증명 왕복 테스트(backend·worker 각각), 기존 Slack 수집 회귀 그린 |
 | **S3** | `/why-code` 커맨드 — commands 엔드포인트, 3초 ack + 비동기 단발 질의(대화 저장 없음), 매핑·게이팅·다중 매칭 규칙, help/오류 응답 | S1(서명 공용)·S2(게이팅 키) | 매핑·게이팅·다중 매칭 단위 테스트, 실기동: Slack에서 질의 → ephemeral 답변. 미연결 사용자 안내 확인 |
 | **S4** | Slack 앱 설정 — bot user·`commands` scope·커맨드 등록·Event Subscriptions URL·staging 앱 생성. **public distribution은 아직 켜지 않는다** | S1~S3 배포 | dev 워크스페이스에서 재동의 → 새 자격증명 형식 확인, 이벤트·커맨드 왕복 확인 |
@@ -248,13 +248,13 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 
 ## 11. 문서 동반 갱신 (각 묶음에서)
 
-- `docs/public-readiness.md` §0-3 — 자격 수치 정정(이번에 완료), D 착수 시 상태 갱신.
-- `docs/data-collection.md` — Slack 절에 라이프사이클 이벤트 절 추가(S1), 승인 후 한도 복구 주석(S6).
-- `docs/DB.md` — 스키마 변경 없음 확인(자격증명은 기존 BYTEA, external_ref는 기존 JSONB 키 추가).
-- `services/backend/CLAUDE.md` — slack 패키지 서술(이벤트·커맨드·코덱), SPI 표.
-- `services/pipeline-worker/CLAUDE.md` — 자격증명 폴백 규칙.
+- `docs/public-readiness.md` §0-3 — 자격 수치 정정(완료), D 착수 상태 갱신(S1).
+- `docs/data-collection.md` — Slack 절에 라이프사이클 이벤트 절 추가(S1 완료), 승인 후 한도 복구 주석(S6).
+- `docs/DB.md` — 스키마 변경 없음 확인(S1). 자격증명 JSON·`connected_user_id`는 S2에서 같은 BYTEA/JSONB에 추가.
+- `services/backend/CLAUDE.md` — slack Events API 서술(S1 완료). 커맨드·코덱은 S2·S3.
+- `services/pipeline-worker/CLAUDE.md` — 자격증명 폴백 규칙(S2).
 - `clients/web-dashboard/CLAUDE.md`·`/privacy` — deletedData 문구·방침 보강(S5).
-- `docs/deployment.md` — `SLACK_SIGNING_SECRET`, Slack 앱 설정 체크리스트(Events URL·커맨드 URL) 추가.
+- `docs/deployment.md` — `SLACK_SIGNING_SECRET`·Events URL(S1 완료). 커맨드 URL은 S3·S4.
 
 ## 12. 확인 필요 (착수 전 문의·실측)
 

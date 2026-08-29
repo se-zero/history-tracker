@@ -241,6 +241,19 @@ Webhook은 바깥에서 들어오는 방향이라 **공개 접근 가능한 실�
 GitHub App은 Callback URL을 여러 개 등록할 수 있어 로컬과 배포를 함께 둘 수 있다.
 `.env`의 `GITHUB_REDIRECT_URI`만 환경별로 하나 고른다.
 
+### 3-2a. Slack Events API 등록
+
+| Slack 앱 설정 | 값 |
+|---|---|
+| **Events Request URL** | `https://<도메인>/api/v1/slack/events` |
+| `.env` 키 | `SLACK_SIGNING_SECRET` — Slack 앱 Basic Information > Signing Secret |
+
+`SLACK_SIGNING_SECRET`이 비면 모든 Events 요청이 거부된다(fail-closed). Slack이 Request URL을
+등록할 때 url_verification challenge를 보내므로 서버가 실행 중이어야 한다.
+
+이 경로는 nginx `/api/`를 타 **backend**로 간다. GitHub webhook(`/api/v1/webhook/`)과 달리
+pipeline-worker로 프록시하지 않는다 — 연동 행·그래프 삭제가 backend 소관이기 때문이다.
+
 ### 3-3. Jira 개인정보 보고 봇 계정 (Jira를 쓰는 경우 최초 1회)
 
 Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 사용자 토큰이 아니라 **봇 계정의 앱

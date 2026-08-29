@@ -36,6 +36,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/logout",
                                 "/api/v1/integrations/*/callback",
+                                // Slack Events API — JWT 없이 열려야 한다. 서명 검증(SlackSignatureVerifier)이 유일한 인증 수단이다.
+                                "/api/v1/slack/events",
                                 "/error"
                         ).permitAll()
                         .anyRequest().authenticated()

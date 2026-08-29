@@ -28,6 +28,7 @@ import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.discord.service.DiscordClient;
 import com.history.backend.discord.service.DiscordCredentialLifecycle;
 import com.history.backend.discord.service.DiscordOAuthConnectFlow;
+import com.history.backend.slack.service.SlackOAuthConnectFlow;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
@@ -74,8 +75,10 @@ class IntegrationServiceTest {
 
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
+    private static final UUID PROJECT_ID_2 = UUID.fromString("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
     private static final UUID INTEGRATION_ID = UUID.fromString("2f0f1c2e-9a4e-4f0e-9d1a-6b0f8c3d7a55");
+    private static final UUID INTEGRATION_ID_2 = UUID.fromString("3c3c3c3c-3c3c-3c3c-3c3c-3c3c3c3c3c3c");
     // 중립 값(pending_selection) 이전에 Jira가 쓰던 status 값
     private static final String LEGACY_PENDING_PROJECT = "pending_project";
 
@@ -1342,6 +1345,217 @@ class IntegrationServiceTest {
         assertThat(result.get(0).displayName()).isEqualTo("acme");
     }
 
+    // ─── disconnectSlackWorkspace ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("disconnectSlackWorkspace — 매칭 workspace_id 행의 폐기·그래프·RDB 삭제가 순서대로 일어난다")
+    void disconnectSlackWorkspaceDisconnectsMatchingRow() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration matching = slackWorkspaceIntegration("T_MATCH", INTEGRATION_ID);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(matching));
+
+        service.disconnectSlackWorkspace("T_MATCH");
+
+        InOrder inOrder = inOrder(revocationService, aiEngineGraphClient, checkpointRepository, integrationRepository);
+        inOrder.verify(revocationService).revoke(matching);
+        inOrder.verify(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK);
+        inOrder.verify(checkpointRepository).deleteByProject_IdAndId_Provider(PROJECT_ID, IntegrationProvider.SLACK);
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
+    }
+
+    @Test
+    @DisplayName("disconnectSlackWorkspace — 매칭 행 없으면 no-op, 폐기·그래프·삭제 미호출")
+    void disconnectSlackWorkspaceIsNoOpWhenNoRowMatches() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration other = slackWorkspaceIntegration("T_OTHER", INTEGRATION_ID);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(other));
+
+        service.disconnectSlackWorkspace("T_NOT_EXIST");
+
+        verify(revocationService, never()).revoke(any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        verify(integrationRepository, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("disconnectSlackWorkspace — 다른 workspace_id 행은 건드리지 않는다")
+    void disconnectSlackWorkspaceDoesNotTouchOtherWorkspaceRow() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration matching = slackWorkspaceIntegration("T_MATCH", INTEGRATION_ID);
+        Integration other = slackWorkspaceIntegration("T_OTHER", INTEGRATION_ID_2);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(matching, other));
+
+        service.disconnectSlackWorkspace("T_MATCH");
+
+        // 매칭 행만 처리된다
+        verify(revocationService).revoke(matching);
+        verify(revocationService, never()).revoke(other);
+        verify(integrationRepository).deleteById(INTEGRATION_ID);
+        verify(integrationRepository, never()).deleteById(INTEGRATION_ID_2);
+    }
+
+    @Test
+    @DisplayName("disconnectSlackWorkspace — workspaceId가 blank이면 no-op")
+    void disconnectSlackWorkspaceIsNoOpWhenWorkspaceIdIsBlank() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+
+        service.disconnectSlackWorkspace("  ");
+
+        verify(revocationService, never()).revoke(any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        verify(integrationRepository, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("disconnectSlackWorkspace — workspaceId가 null이면 no-op")
+    void disconnectSlackWorkspaceIsNoOpWhenWorkspaceIdIsNull() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+
+        service.disconnectSlackWorkspace(null);
+
+        verify(revocationService, never()).revoke(any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        verify(integrationRepository, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("disconnectSlackWorkspace — 그래프 삭제 예외 시 그 행의 RDB는 지우지 않는다 (기존 disconnectKeepsIntegrationWhenGraphDeleteFails와 같은 불변식)")
+    void disconnectSlackWorkspaceKeepsRowWhenGraphDeleteFails() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration matching = slackWorkspaceIntegration("T_MATCH", INTEGRATION_ID);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(matching));
+        doThrow(new BadGatewayException("Failed to delete slack graph."))
+                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK);
+
+        service.disconnectSlackWorkspace("T_MATCH");
+
+        verify(revocationService).revoke(matching);
+        verify(integrationRepository, never()).deleteById(any());
+        verify(checkpointRepository, never()).deleteByProject_IdAndId_Provider(any(), any());
+    }
+
+    @Test
+    @DisplayName("disconnectSlackWorkspace — 한 행의 그래프 삭제가 실패해도 같은 workspace의 다른 행은 해제한다")
+    void disconnectSlackWorkspaceContinuesWhenOneRowFails() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration failing = slackWorkspaceIntegration("T_MATCH", INTEGRATION_ID, project());
+        Integration surviving = slackWorkspaceIntegration("T_MATCH", INTEGRATION_ID_2, project(PROJECT_ID_2));
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(failing, surviving));
+        doThrow(new BadGatewayException("Failed to delete slack graph."))
+                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK);
+
+        service.disconnectSlackWorkspace("T_MATCH");
+
+        verify(revocationService).revoke(failing);
+        verify(revocationService).revoke(surviving);
+        verify(integrationRepository, never()).deleteById(INTEGRATION_ID);
+        verify(integrationRepository).deleteById(INTEGRATION_ID_2);
+        verify(checkpointRepository, never())
+                .deleteByProject_IdAndId_Provider(PROJECT_ID, IntegrationProvider.SLACK);
+        verify(checkpointRepository)
+                .deleteByProject_IdAndId_Provider(PROJECT_ID_2, IntegrationProvider.SLACK);
+    }
+
+    // ─── disconnectSlackUsers ───────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("disconnectSlackUsers — workspace_id AND connected_user_id 모두 매칭되는 행만 삭제")
+    void disconnectSlackUsersDisconnectsMatchingUsers() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration u111 = slackUserIntegration("T123", "U111", INTEGRATION_ID);
+        Integration u222 = slackUserIntegration("T123", "U222", INTEGRATION_ID_2);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(u111, u222));
+
+        service.disconnectSlackUsers("T123", List.of("U111", "U222"));
+
+        verify(revocationService).revoke(u111);
+        verify(revocationService).revoke(u222);
+        verify(integrationRepository).deleteById(INTEGRATION_ID);
+        verify(integrationRepository).deleteById(INTEGRATION_ID_2);
+    }
+
+    @Test
+    @DisplayName("disconnectSlackUsers — connected_user_id 키가 없는 레거시 행은 건너뛴다")
+    void disconnectSlackUsersSkipsRowsWithoutConnectedUserId() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        // connected_user_id 없는 레거시 행(workspace_id만 있음)
+        Integration legacyRow = slackWorkspaceIntegration("T123", INTEGRATION_ID);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(legacyRow));
+
+        service.disconnectSlackUsers("T123", List.of("U111"));
+
+        verify(revocationService, never()).revoke(any());
+        verify(integrationRepository, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("disconnectSlackUsers — 같은 workspace의 다른 사용자는 유지된다")
+    void disconnectSlackUsersDoesNotTouchOtherUsersInSameWorkspace() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration u111 = slackUserIntegration("T123", "U111", INTEGRATION_ID);
+        Integration u333 = slackUserIntegration("T123", "U333", INTEGRATION_ID_2);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(u111, u333));
+
+        service.disconnectSlackUsers("T123", List.of("U111"));
+
+        verify(revocationService).revoke(u111);
+        verify(revocationService, never()).revoke(u333);
+        verify(integrationRepository).deleteById(INTEGRATION_ID);
+        verify(integrationRepository, never()).deleteById(INTEGRATION_ID_2);
+    }
+
+    @Test
+    @DisplayName("disconnectSlackUsers — 매칭 행 없으면 no-op")
+    void disconnectSlackUsersIsNoOpWhenNoRowMatches() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration other = slackUserIntegration("T123", "U999", INTEGRATION_ID);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(other));
+
+        service.disconnectSlackUsers("T123", List.of("U111", "U222"));
+
+        verify(revocationService, never()).revoke(any());
+        verify(integrationRepository, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("disconnectSlackUsers — 빈 사용자 목록이면 no-op")
+    void disconnectSlackUsersIsNoOpWhenUserIdsEmpty() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+
+        service.disconnectSlackUsers("T123", List.of());
+
+        verify(revocationService, never()).revoke(any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+    }
+
+    @Test
+    @DisplayName("disconnectSlackUsers — 한 행의 그래프 삭제가 실패해도 매칭된 다른 사용자는 해제한다")
+    void disconnectSlackUsersContinuesWhenOneRowFails() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration failing = slackUserIntegration("T123", "U111", INTEGRATION_ID, project());
+        Integration surviving = slackUserIntegration("T123", "U222", INTEGRATION_ID_2, project(PROJECT_ID_2));
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(failing, surviving));
+        doThrow(new BadGatewayException("Failed to delete slack graph."))
+                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK);
+
+        service.disconnectSlackUsers("T123", List.of("U111", "U222"));
+
+        verify(revocationService).revoke(failing);
+        verify(revocationService).revoke(surviving);
+        verify(integrationRepository, never()).deleteById(INTEGRATION_ID);
+        verify(integrationRepository).deleteById(INTEGRATION_ID_2);
+    }
+
     // 중립 값 이전 배포가 저장한 행 재현. 엔티티 상수가 아니라 문자열 리터럴을 쓰는 이유는 DB에 실제로
     // 들어 있는 값이 계약이기 때문이다 — 상수를 참조하면 상수가 바뀔 때 테스트가 따라가 호환이 깨진 걸 놓친다.
     private Integration legacyPendingJira(Project project, Map<String, Object> externalRef) {
@@ -1351,6 +1565,34 @@ class IntegrationServiceTest {
         return integration;
     }
 
+    // workspace_id만 있는 Slack 행 (connected_user_id 없는 레거시 형태 포함)
+    private Integration slackWorkspaceIntegration(String workspaceId, UUID integrationId) {
+        return slackWorkspaceIntegration(workspaceId, integrationId, project());
+    }
+
+    private Integration slackWorkspaceIntegration(String workspaceId, UUID integrationId, Project project) {
+        Integration i = Integration.oauth(project, IntegrationProvider.SLACK,
+                Map.of(SlackOAuthConnectFlow.WORKSPACE_ID, workspaceId), new byte[]{1, 2, 3});
+        ReflectionTestUtils.setField(i, "id", integrationId);
+        return i;
+    }
+
+    // workspace_id + connected_user_id가 있는 Slack 행
+    private Integration slackUserIntegration(String workspaceId, String connectedUserId, UUID integrationId) {
+        return slackUserIntegration(workspaceId, connectedUserId, integrationId, project());
+    }
+
+    private Integration slackUserIntegration(
+            String workspaceId, String connectedUserId, UUID integrationId, Project project
+    ) {
+        Integration i = Integration.oauth(project, IntegrationProvider.SLACK,
+                Map.of(SlackOAuthConnectFlow.WORKSPACE_ID, workspaceId,
+                        "connected_user_id", connectedUserId),
+                new byte[]{1, 2, 3});
+        ReflectionTestUtils.setField(i, "id", integrationId);
+        return i;
+    }
+
     private User user() {
         User user = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(user, "id", OWNER_ID);
@@ -1358,8 +1600,12 @@ class IntegrationServiceTest {
     }
 
     private Project project() {
+        return project(PROJECT_ID);
+    }
+
+    private Project project(UUID projectId) {
         Project project = new Project(user(), "History Tracker", null);
-        ReflectionTestUtils.setField(project, "id", PROJECT_ID);
+        ReflectionTestUtils.setField(project, "id", projectId);
         return project;
     }
 

@@ -28,4 +28,25 @@ public class TaskExecutorConfig {
         executor.initialize();
         return executor;
     }
+
+    // Slack Events API 라이프사이클 이벤트 처리 전용 풀.
+    // summaryTaskExecutor와 분리해 Slack 이벤트 폭증이 요약 처리를 블로킹하지 않도록 한다.
+    // 거부 시 TaskRejectedException → 컨트롤러 5xx → Slack 재시도로 이어진다.
+    @Bean("slackEventsTaskExecutor")
+    public TaskExecutor slackEventsTaskExecutor(
+            @Value("${slack.events-executor-pool-size:1}") int poolSize,
+            @Value("${slack.events-executor-queue-capacity:20}") int queueCapacity,
+            @Value("${slack.events-executor-await-termination-seconds:30}") int awaitTerminationSeconds
+    ) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("slack-events-");
+        executor.setCorePoolSize(poolSize);
+        executor.setMaxPoolSize(poolSize);
+        executor.setQueueCapacity(queueCapacity);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(awaitTerminationSeconds);
+        // 기본 AbortPolicy — 큐가 꽉 차면 TaskRejectedException을 던져 Slack 재시도를 유도한다
+        executor.initialize();
+        return executor;
+    }
 }

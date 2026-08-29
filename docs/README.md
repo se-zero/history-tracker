@@ -85,7 +85,8 @@
 | [query-followups.md](query-followups.md) | 작업 | TODO | LLM 빈 답 위장 수정 | Responses API, README→Document, 랭킹·인용 |
 | [i18n.md](i18n.md) | 정본 | 계약 | 시각 표시 계약, 랜딩 ko/en | 앱 UI 언어 분리 착수 전 |
 | [deployment-followups.md](deployment-followups.md) | 작업 | TODO | 인바운드 인증 | RabbitMQ URL 분리, 터널 실기동, GitHub 설치 404 |
-| [public-readiness.md](public-readiness.md) | 정본 | 점검표 | 0~2층·4층 다수 | 0-1b, 4-5 내보내기, Slack, 3층 심사, 5층 운영, 2-4 |
+| [public-readiness.md](public-readiness.md) | 정본 | 점검표 | 0~2층·4층 다수, Slack D S1 코드 | 0-1b, 4-5 내보내기, Slack S2~S6, 3층 심사, 5층 운영, 2-4 |
+| [slack-marketplace.md](slack-marketplace.md) | 작업 | 등재 계획 | S1 Events API 코드 | 실기동, S2 자격증명, S3 `/why-code`, S4~S6 앱 설정·제출 |
 | [query-quality-issues.md](query-quality-issues.md) | 정본 | 분석 로그 | 케이스별 원인·개선안 | 닫히지 않음 |
 
 ---
@@ -95,7 +96,6 @@
 | 문서 | 필요 | 종류 | 남은 것 |
 |------|------|------|---------|
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
-| [slack-marketplace.md](slack-marketplace.md) | 작업 | 등재 계획 | 착수 전. `/why-code` 슬래시 커맨드·Events API 라이프사이클·제출물 — public-readiness 0-3 D 트랙의 실행 계획 |
 
 ---
 

@@ -72,6 +72,7 @@ slack:
   user-scopes: "channels:read,groups:read,channels:history,groups:history,users:read,users:read.email"
   authorize-url: https://slack.test/oauth/v2/authorize
   oauth-access-url: https://slack.test/api/oauth.v2.access
+  signing-secret: test-slack-signing-secret
 
 atlassian:
   client-id: test-client-id
