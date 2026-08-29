@@ -14,7 +14,8 @@ import { PATHS } from "@/routes";
 //
 // 항목·보유기간·위탁처는 실제 구현에서 확인한 값이다(docs/DB.md, services/*/CLAUDE.md):
 //   수집 대상  → pipeline-worker source/*의 정규화 코드 (CollectionProvider 등재 provider 전부)
-//   자격증명   → provider별 저장 형태가 다르다(Slack·Discord 평문 토큰 / Jira·Google Chat JSON)
+//   자격증명   → provider별 저장 형태가 다르다(Slack JSON user/bot 토큰 · Discord 리프레시 /
+//                Jira·Google Chat JSON). Slack BYO는 고객 앱 xoxp 붙여넣기.
 //   요청 권한  → backend application.yaml의 slack.user-scopes / atlassian.scopes /
 //                discord.scopes·permissions / google-chat.scopes
 //   위탁       → ai-engine의 OpenAI 임베딩·질의 모델
@@ -51,7 +52,11 @@ export function PrivacyBodyKo() {
                   GitHub App 설치 토큰, Slack·ClickUp 액세스 토큰, Jira·Google Chat·Linear·Asana·Notion
                   액세스·리프레시 토큰, Discord 리프레시 토큰
                 </td>
-                <td>이용자가 각 서비스에서 연동에 동의할 때 발급</td>
+                <td>
+                  이용자가 각 서비스에서 연동에 동의할 때 발급합니다. Slack은 동의 외에, 이용자가
+                  자기 워크스페이스에 만든 앱의 User OAuth Token을 붙여 넣는 경로가 있습니다. 다른
+                  소스는 동의로 발급받은 자격증명만 저장합니다.
+                </td>
               </tr>
               <tr>
                 <td>연동으로 수집되는 기록</td>
@@ -158,8 +163,10 @@ export function PrivacyBodyKo() {
             사용하며, 마케팅 발송이나 외부 제공에 쓰지 않습니다.
           </LegalSourceRow>
           <LegalSourceRow label="삭제">
-            연동을 해제하면 Slack에 액세스 토큰 폐기를 요청해 접근 권한을 끊고, 저장된 토큰과
-            해당 워크스페이스에서 수집한 메시지·멤버 데이터를 삭제합니다.
+            연동을 해제하면 저장된 자격증명과 해당 워크스페이스에서 수집한 메시지·멤버 데이터를
+            삭제합니다. 우리 앱으로 동의해 연결한 경우(OAuth)에는 Slack에 액세스 토큰 폐기를
+            요청해 접근 권한을 끊습니다. 이용자가 자기 앱의 토큰을 붙여 넣어 연결한 경우(BYO)에는
+            Slack에 원격 폐기 요청을 하지 않으며, 고객 앱은 Slack 설정에서 제거해 주세요.
           </LegalSourceRow>
           <LegalSourceRow label="쓰기 권한">
             요청하지 않습니다. 메시지 전송·수정·삭제, 채널 생성 등 워크스페이스를 변경하는
@@ -423,9 +430,11 @@ export function PrivacyBodyKo() {
       <LegalSection index={5} heading="보유 기간과 파기">
         <ol>
           <li>
-            <strong>연동 해제</strong> — 연동을 해제하면 해당 서비스에 접근 권한 폐기를 요청한
-            뒤, 저장된 자격증명과 그 서비스에서 수집한 데이터(지식 그래프의 해당 노드 포함)를
-            지체 없이 삭제합니다. 다른 서비스의 연동과 대화 기록은 유지됩니다.
+            <strong>연동 해제</strong> — 연동을 해제하면 저장된 자격증명과 그 서비스에서 수집한
+            데이터(지식 그래프의 해당 노드 포함)를 지체 없이 삭제합니다. 외부 서비스에 대한 접근
+            권한 폐기는 제2조의 소스별 삭제를 따릅니다 — 요청하는 소스(우리 앱으로 동의한 Slack 등)와
+            요청하지 않는 소스(고객 앱 토큰을 붙여 넣은 Slack, ClickUp 등)가 있습니다. 다른 서비스의
+            연동과 대화 기록은 유지됩니다.
           </li>
           <li>
             <strong>프로젝트 삭제</strong> — 프로젝트를 삭제하면 그 프로젝트의 연동 정보,

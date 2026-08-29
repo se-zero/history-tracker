@@ -102,6 +102,10 @@ export function OAuthSourceCard({
   const lastSyncedAt = integration?.lastSyncedAt
     ? formatTimestamp(integration.lastSyncedAt)
     : null;
+  const connectMethod =
+    typeof integration?.metadata?.["connect_method"] === "string"
+      ? integration.metadata["connect_method"]
+      : undefined;
 
   return (
     <div className={"source-row" + (pending ? " warn" : "")}>
@@ -200,7 +204,11 @@ export function OAuthSourceCard({
         </div>
         {/* pending(대상 미선택) 상태에서도 해제할 수 있어야 한다 — 후보 조회가 막혀
             연결을 완료할 수 없을 때 빠져나갈 길이 이것뿐이다. */}
-        <DisconnectIntegration projectId={projectId} provider={provider} />
+        <DisconnectIntegration
+          projectId={projectId}
+          provider={provider}
+          connectMethod={connectMethod}
+        />
       </div>
 
       {pending && (

@@ -1,6 +1,7 @@
 package com.history.backend.slack.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -115,5 +116,33 @@ class SlackCredentialLifecycleTest {
         assertThat(result).isTrue();
         verify(slackClient).revoke("xoxp-user");
         verify(slackClient, never()).revoke("  ");
+    }
+
+    @Test
+    @DisplayName("connect_method=byo 이면 decrypt/auth.revoke 없이 true — 고객 붙여넣기 토큰을 폐기하지 않는다")
+    void revokeReturnsTrueWithoutDecryptOrRemoteRevokeForByoConnection() {
+        byte[] encrypted = {1, 2, 3};
+
+        boolean result = lifecycle.revoke(
+                encrypted,
+                Map.of(SlackOAuthConnectFlow.CONNECT_METHOD, SlackOAuthConnectFlow.CONNECT_METHOD_BYO));
+
+        assertThat(result).isTrue();
+        verify(codec, never()).decrypt(any());
+        verify(slackClient, never()).revoke(any());
+    }
+
+    @Test
+    @DisplayName("connect_method 없는 Map.of()는 기존처럼 폐기한다 (OAuth 행 회귀)")
+    void revokeStillCallsRemoteRevokeWhenConnectMethodIsAbsent() {
+        byte[] encrypted = {1, 2, 3};
+        when(codec.decrypt(encrypted)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.revoke("xoxp-user")).thenReturn(true);
+
+        boolean result = lifecycle.revoke(encrypted, Map.of());
+
+        assertThat(result).isTrue();
+        verify(codec).decrypt(encrypted);
+        verify(slackClient).revoke("xoxp-user");
     }
 }

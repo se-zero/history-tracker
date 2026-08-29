@@ -309,6 +309,78 @@ class IntegrationControllerTest {
                 .andExpect(jsonPath("$.message").value("Authentication is required."));
     }
 
+    @Test
+    @DisplayName("Slack BYO 토큰 연결 → 201 Created, connectSlackWorkspace 위임")
+    void connectSlackWorkspaceReturnsCreatedIntegration() throws Exception {
+        when(integrationService.connectSlackWorkspace(USER_ID, PROJECT_ID, "xoxp-user"))
+                .thenReturn(slackIntegration());
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "token": "xoxp-user" }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(INTEGRATION_ID.toString()))
+                .andExpect(jsonPath("$.projectId").value(PROJECT_ID.toString()))
+                .andExpect(jsonPath("$.provider").value("slack"))
+                .andExpect(jsonPath("$.displayName").value("Acme"))
+                .andExpect(jsonPath("$.installationId").doesNotExist())
+                .andExpect(jsonPath("$.metadata.workspace_id").value("T123"))
+                .andExpect(jsonPath("$.metadata.workspace_name").value("Acme"))
+                .andExpect(jsonPath("$.createdAt").value("2026-05-19T01:00:00Z"))
+                .andExpect(jsonPath("$.updatedAt").value("2026-05-19T02:00:00Z"));
+
+        verify(integrationService).connectSlackWorkspace(USER_ID, PROJECT_ID, "xoxp-user");
+    }
+
+    @Test
+    @DisplayName("Slack BYO 연결 — 액세스 토큰 없으면 401, service 미호출")
+    void connectSlackWorkspaceRejectsMissingAccessToken() throws Exception {
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "token": "xoxp-user" }
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Authentication is required."));
+
+        verify(integrationService, never()).connectSlackWorkspace(any(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("Slack BYO 연결 — 빈 token → 400 (@NotBlank)")
+    void connectSlackWorkspaceRejectsBlankToken() throws Exception {
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "token": "" }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed."))
+                .andExpect(jsonPath("$.fields[0].field").value("token"));
+
+        verify(integrationService, never()).connectSlackWorkspace(any(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("이미 연동된 Slack → 409 Conflict 반환")
+    void connectSlackWorkspaceReturnsConflictWhenAlreadyConnected() throws Exception {
+        when(integrationService.connectSlackWorkspace(USER_ID, PROJECT_ID, "xoxp-user"))
+                .thenThrow(new ConflictException("Slack integration already exists."));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/integrations/slack", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "token": "xoxp-user" }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Slack integration already exists."));
+    }
+
     private Integration integration() {
         User owner = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(owner, "id", USER_ID);
@@ -320,6 +392,24 @@ class IntegrationControllerTest {
         ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
 
         Integration integration = Integration.github(project, installation, 12345L, "acme/widget", "main");
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
+        ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);
+        return integration;
+    }
+
+    private Integration slackIntegration() {
+        User owner = new User("github", "12345", "owner@example.com", "Owner", null);
+        ReflectionTestUtils.setField(owner, "id", USER_ID);
+
+        Project project = new Project(owner, "History Tracker", null);
+        ReflectionTestUtils.setField(project, "id", PROJECT_ID);
+
+        Integration integration = Integration.oauth(
+                project,
+                IntegrationProvider.SLACK,
+                Map.of("workspace_id", "T123", "workspace_name", "Acme"),
+                new byte[] {1, 2, 3});
         ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
         ReflectionTestUtils.setField(integration, "createdAt", CREATED_AT);
         ReflectionTestUtils.setField(integration, "updatedAt", UPDATED_AT);

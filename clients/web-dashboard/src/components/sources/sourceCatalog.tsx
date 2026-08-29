@@ -41,6 +41,12 @@ export type SourceCatalogItem = SourceBase &
         // 실패로 끝나도 남을 수 있다(Discord: 동의 순간 봇이 서버에 들어간다). 그중 서버가 정리할
         // 수단이 없는 경우를 사용자에게 알리는 문구다. 부수효과가 없는 소스는 비워 둔다.
         consentSideEffect?: string;
+        // 타일에 OAuth "연결" 외에 붙여넣기 보조 CTA를 둘 소스만 채운다. 공용 코드는
+        // hasTokenConnect로 조회하고 provider id를 비교하지 않는다.
+        secondaryConnect?: "token";
+        // BYO(고객 앱 토큰) 해제 때 붙는 추가 고지 — 그래프·저장 자격증명은 지우지만 고객 앱
+        // 토큰은 우리가 provider에 폐기 요청하지 않는다는 뜻. OAuth/레거시(키 없음)는 비운다.
+        byoKeptNote?: string;
       }
     // backend 연동이 아직 없는 소스 — 타일 자리만 잡는다.
     | { status: "planned" }
@@ -77,6 +83,9 @@ export const sourceCatalog: SourceCatalogItem[] = [
     status: "wired",
     connect: "oauth",
     deletedData: "수집한 채널 메시지·스레드와 그 그래프",
+    secondaryConnect: "token",
+    byoKeptNote:
+      "우리가 저장한 자격증명은 지우지만, 고객 앱의 토큰은 Slack에 폐기 요청하지 않습니다. 앱 자체는 Slack 설정에서 제거해 주세요.",
   },
   {
     id: "google-chat",
@@ -173,6 +182,11 @@ export function isOAuthConnectable(source: SourceCatalogItem): boolean {
   return source.status === "wired" && source.connect === "oauth";
 }
 
+// 타일의 보조 "토큰으로 연결" CTA를 둘 소스인지 (공용 코드에 provider 분기를 두지 않기 위한 조회)
+export function hasTokenConnect(source: SourceCatalogItem): boolean {
+  return source.status === "wired" && source.secondaryConnect === "token";
+}
+
 /**
  * 해제 다이얼로그에 쓸 "무엇이 지워지는지" 문구.
  *
@@ -190,4 +204,10 @@ export function deletedDataOf(id: string | null | undefined): string {
 export function consentSideEffectOf(id: string | null | undefined): string | null {
   const source = findSource(id);
   return source?.status === "wired" ? (source.consentSideEffect ?? null) : null;
+}
+
+// BYO 해제 때 붙는 추가 고지 (없으면 null). 호출부가 provider id를 비교하지 않게 카탈로그가 소유한다.
+export function byoKeptNoteOf(id: string | null | undefined): string | null {
+  const source = findSource(id);
+  return source?.status === "wired" ? (source.byoKeptNote ?? null) : null;
 }

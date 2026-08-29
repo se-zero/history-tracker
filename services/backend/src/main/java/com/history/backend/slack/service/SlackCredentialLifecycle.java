@@ -22,9 +22,15 @@ public class SlackCredentialLifecycle implements ProviderCredentialLifecycle {
         return IntegrationProvider.SLACK;
     }
 
-    // externalRef는 필요 없다 — auth.revoke는 토큰만으로 충분하다
+    // BYO가 아니면 auth.revoke는 토큰만으로 충분하다 — BYO는 고객 소유라 위에서 이미 return
     @Override
     public boolean revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
+        // BYO 붙여넣기 토큰은 고객 소유라 우리 앱이 auth.revoke 하면 안 된다
+        if (externalRef != null
+                && SlackOAuthConnectFlow.CONNECT_METHOD_BYO.equals(
+                        externalRef.get(SlackOAuthConnectFlow.CONNECT_METHOD))) {
+            return true;
+        }
         SlackCredential credential = codec.decrypt(encryptedCredential);
         boolean userRevoked = slackClient.revoke(credential.userToken());
         if (credential.botToken() != null && !credential.botToken().isBlank()) {

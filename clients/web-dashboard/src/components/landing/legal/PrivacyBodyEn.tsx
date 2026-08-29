@@ -53,7 +53,12 @@ export function PrivacyBodyEn() {
                   Jira, Google Chat, Linear, Asana, and Notion access and refresh
                   tokens, Discord refresh token
                 </td>
-                <td>Issued when the User consents to a connection with each service</td>
+                <td>
+                  Issued when the User consents to a connection with each service. For Slack,
+                  there is also a path where the User pastes a User OAuth Token from an app
+                  they created in their own workspace. Other sources store only credentials
+                  issued through consent.
+                </td>
               </tr>
               <tr>
                 <td>Records collected through connections</td>
@@ -183,9 +188,12 @@ export function PrivacyBodyEn() {
             outside parties.
           </LegalSourceRow>
           <LegalSourceRow label="Deletion">
-            Disconnecting requests that Slack revoke the access token, cutting off
-            access, and deletes the stored token and the message and member data
-            collected from that workspace.
+            Disconnecting deletes the stored credential and the message and member
+            data collected from that workspace. For a connection made by consenting
+            to our app (OAuth), we also request that Slack revoke the access token,
+            cutting off access. For a connection made by pasting a token from the
+            User's own app (BYO), we do not request remote revocation from Slack;
+            remove that app from Slack settings.
           </LegalSourceRow>
           <LegalSourceRow label="Write access">
             None is requested. The Service does not send, edit, or delete
@@ -508,11 +516,14 @@ export function PrivacyBodyEn() {
       <LegalSection index={5} heading="Retention Period and Destruction">
         <ol>
           <li>
-            <strong>Disconnection</strong> — Disconnecting a data source requests
-            that the corresponding service revoke access, then promptly deletes
-            the stored credential and the data collected from that service
-            (including the corresponding nodes in the knowledge graph). Other
-            connections and conversation history remain unaffected.
+            <strong>Disconnection</strong> — Disconnecting a data source promptly
+            deletes the stored credential and the data collected from that service
+            (including the corresponding nodes in the knowledge graph). Whether we
+            also request that the corresponding service revoke access follows the
+            per-source deletion rules in Article 2 — some sources (Slack connected
+            through our app, and others) do, and some (Slack connected by pasting a
+            customer-app token, ClickUp, and others) do not. Other connections and
+            conversation history remain unaffected.
           </li>
           <li>
             <strong>Project deletion</strong> — Deleting a project deletes that

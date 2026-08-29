@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  connectSlackWorkspace,
   disconnectIntegration,
   listIntegrations,
   type IntegrationProvider,
@@ -16,6 +17,18 @@ export function useIntegrations(
     queryKey: queryKeys.integrations(projectId),
     queryFn: () => listIntegrations(projectId),
     refetchInterval: options?.refetchInterval,
+  });
+}
+
+// Slack BYO(xoxp 붙여넣기) 연결. 성공하면 타일이 사라지고 연동 행이 되므로 integrations만 무효화한다.
+export function useConnectSlackWorkspace(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (token: string) => connectSlackWorkspace(projectId, token),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations(projectId) });
+    },
   });
 }
 

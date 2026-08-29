@@ -15,6 +15,7 @@ import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
+import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
@@ -27,8 +28,9 @@ import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.shared.domain.Checkpoint;
-import com.history.backend.slack.service.SlackOAuthConnectFlow;
 import com.history.backend.shared.repository.CheckpointRepository;
+import com.history.backend.slack.service.SlackClient;
+import com.history.backend.slack.service.SlackOAuthConnectFlow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -54,6 +56,8 @@ public class IntegrationService {
     private final IntegrationSelectionFlowRegistry selectionFlows;
     private final TransactionTemplate transactionTemplate;
     private final PlanService planService;
+    private final SlackClient slackClient;
+    private final SlackCredentialCodec slackCredentialCodec;
 
     // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
     public List<IntegrationResponse> listIntegrations(UUID ownerId, UUID projectId) {
@@ -245,6 +249,45 @@ public class IntegrationService {
         // 최초 연결의 pending 행에는 고른 값이 없으므로 이 분기를 자연히 타지 않는다.
         Integration restored = tryRestoreSelection(ownerId, projectId, provider, integration);
         return new ConnectResult(restored, !restored.isPendingSelection());
+    }
+
+    // Slack BYO(xoxp 붙여넣기) 연결 — OAuth grant가 아니라서 저장 실패 시 revoke하지 않는다
+    public Integration connectSlackWorkspace(UUID ownerId, UUID projectId, String token) {
+        projectService.getProject(ownerId, projectId);
+        Optional<Integration> existing = rejectIfAlreadyConnected(projectId, IntegrationProvider.SLACK);
+        if (existing.isEmpty()) {
+            planService.ensureProviderConnectable(ownerId, IntegrationProvider.SLACK);
+        }
+
+        String trimmed = token.trim();
+        SlackClient.SlackVerifiedUser verified;
+        try {
+            verified = slackClient.verifyToken(trimmed);
+        } catch (UnauthorizedException exception) {
+            // verifyToken의 401은 "JWT 없음"이 아니라 "붙여넣은 토큰이 무효"다.
+            // 그대로 올리면 프론트 axios 인터셉터가 세션을 지운다.
+            throw new BadRequestException(exception.getMessage());
+        }
+        // codec.encrypt는 여기서 암호화까지 하므로, 공용 crypto 경로와 맞추려면 serialize만 쓴다
+        byte[] encryptedCredential = credentialCryptoService.encrypt(
+                slackCredentialCodec.serialize(new SlackCredential(trimmed, null)));
+
+        Integration integration = transactionTemplate.execute(status -> saveOAuthIntegration(
+                ownerId,
+                projectId,
+                IntegrationProvider.SLACK,
+                Map.of(
+                        SlackOAuthConnectFlow.WORKSPACE_ID, verified.teamId(),
+                        SlackOAuthConnectFlow.WORKSPACE_NAME, verified.teamName(),
+                        SlackOAuthConnectFlow.CONNECTED_USER_ID, verified.userId(),
+                        SlackOAuthConnectFlow.CONNECT_METHOD, SlackOAuthConnectFlow.CONNECT_METHOD_BYO
+                ),
+                encryptedCredential,
+                false
+        ));
+        planService.recordProviderConnected(ownerId, IntegrationProvider.SLACK);
+        pipelineWorkerClient.triggerCollection(IntegrationProvider.SLACK, projectId);
+        return integration;
     }
 
     /**
@@ -498,6 +541,7 @@ public class IntegrationService {
         }
         integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
                 .filter(i -> workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                .filter(i -> !isSlackByo(i))
                 .forEach(this::disconnectSlackIntegrationQuietly);
     }
 
@@ -512,6 +556,7 @@ public class IntegrationService {
         }
         integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
                 .filter(i -> workspaceId != null && workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                .filter(i -> !isSlackByo(i))
                 .filter(i -> {
                     // externalRefValue가 null이면 contains(null)이 NPE — null 선검사 필요
                     String userId = i.externalRefValue(SlackOAuthConnectFlow.CONNECTED_USER_ID);
@@ -530,6 +575,7 @@ public class IntegrationService {
         return transactionTemplate.execute(status ->
                 integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
                         .filter(i -> workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                        .filter(i -> !isSlackByo(i))
                         .filter(i -> !i.isPendingSelection())
                         .map(this::toSlackCommandTarget)
                         .toList());
@@ -544,6 +590,12 @@ public class IntegrationService {
             updated.put(SlackOAuthConnectFlow.CONNECTED_USER_ID, slackUserId);
             integration.applyExternalRef(updated);
         });
+    }
+
+    // 키 없는 레거시·OAuth는 false — app_uninstalled/tokens_revoked는 OAuth grant를 끊는 이벤트라 BYO 행은 대상이 아니다
+    private boolean isSlackByo(Integration integration) {
+        return SlackOAuthConnectFlow.CONNECT_METHOD_BYO.equals(
+                integration.externalRefValue(SlackOAuthConnectFlow.CONNECT_METHOD));
     }
 
     private SlackCommandTarget toSlackCommandTarget(Integration integration) {

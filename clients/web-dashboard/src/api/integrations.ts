@@ -40,6 +40,18 @@ export async function connectGitHubRepository(
   return data;
 }
 
+// Slack BYO — backend DTO 키가 `token`이라 GitHub처럼 snake로 바꾸지 않는다.
+export async function connectSlackWorkspace(
+  projectId: string,
+  token: string,
+): Promise<Integration> {
+  const { data } = await api.post<Integration>(
+    `/projects/${projectId}/integrations/slack`,
+    { token },
+  );
+  return data;
+}
+
 // 연동 해제 — 자격증명·수집 커서와 그 소스에서 수집한 그래프가 함께 삭제된다(되돌릴 수 없음).
 export async function disconnectIntegration(
   projectId: string,

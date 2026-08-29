@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { InlineError } from "@/components/ui/InlineError";
-import { deletedDataOf, sourceName } from "@/components/sources/sourceCatalog";
+import { byoKeptNoteOf, deletedDataOf, sourceName } from "@/components/sources/sourceCatalog";
 import { useDisconnectIntegration } from "@/hooks/useIntegrations";
 import type { IntegrationProvider } from "@/api/integrations";
 
@@ -14,9 +14,11 @@ import type { IntegrationProvider } from "@/api/integrations";
 export function DisconnectIntegration({
   projectId,
   provider,
+  connectMethod,
 }: {
   projectId: string;
   provider: IntegrationProvider;
+  connectMethod?: string | null;
 }) {
   const [confirming, setConfirming] = useState(false);
   const disconnect = useDisconnectIntegration(projectId);
@@ -24,6 +26,9 @@ export function DisconnectIntegration({
   // "무엇이 지워지는지"는 소스마다 다르다 — 문구는 sourceCatalog가 소유한다
   // (연동이 붙은 소스는 타입상 반드시 갖는다. deletedDataOf의 폴백은 배포 시차용이다).
   const deletedData = deletedDataOf(provider);
+  // BYO만 추가 고지한다. OAuth/레거시(키 없음)는 기존 3줄이면 충분하고, 문구는 카탈로그에서
+  // 읽는다 — 공용 컴포넌트가 provider id를 비교하지 않기 위함이다.
+  const byoKeptNote = connectMethod === "byo" ? byoKeptNoteOf(provider) : null;
 
   // 다이얼로그를 닫았다 다시 열면 지난 실패 문구가 남아 있지 않게 한다.
   useEffect(() => {
@@ -75,6 +80,12 @@ export function DisconnectIntegration({
                 <span className="confirm-mark" aria-hidden />
                 다시 연결하면 처음부터 새로 수집합니다 — 삭제된 데이터는 복구되지 않습니다.
               </li>
+              {byoKeptNote && (
+                <li>
+                  <span className="confirm-mark" aria-hidden />
+                  {byoKeptNote}
+                </li>
+              )}
             </ul>
 
             {disconnect.isError && (
