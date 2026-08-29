@@ -1,7 +1,6 @@
 package com.history.backend.googlechat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
@@ -144,8 +143,8 @@ class GoogleChatClientTest {
     }
 
     @Test
-    @DisplayName("grant 폐기 요청은 token 파라미터만 담아 보낸다")
-    void revokeSendsToken() {
+    @DisplayName("grant 폐기 요청은 token 파라미터만 담아 보내고, 성공하면 true를 반환한다")
+    void revokeSendsTokenAndReturnsTrueOnSuccess() {
         Fixture fixture = fixture();
         MultiValueMap<String, String> expectedForm = new LinkedMultiValueMap<>();
         expectedForm.add("token", "refresh-token");
@@ -155,18 +154,22 @@ class GoogleChatClientTest {
                 .andExpect(content().formData(expectedForm))
                 .andRespond(withSuccess());
 
-        fixture.client.revoke("refresh-token");
+        boolean result = fixture.client.revoke("refresh-token");
+
+        assertThat(result).isTrue();
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("grant 폐기 요청이 실패해도 예외를 던지지 않는다 — 연동 해제 자체가 막히면 안 된다")
-    void revokeSwallowsFailure() {
+    @DisplayName("grant 폐기 요청이 실패해도 예외를 던지지 않고 false를 반환한다 — 연동 해제 자체가 막히면 안 된다")
+    void revokeReturnsFalseWhenRequestFails() {
         Fixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://googlechat.test/revoke"))
                 .andRespond(withServerError());
 
-        assertThatCode(() -> fixture.client.revoke("refresh-token")).doesNotThrowAnyException();
+        boolean result = fixture.client.revoke("refresh-token");
+
+        assertThat(result).isFalse();
         fixture.server.verify();
     }
 

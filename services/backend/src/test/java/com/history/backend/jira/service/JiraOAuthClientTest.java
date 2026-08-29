@@ -421,6 +421,33 @@ class JiraOAuthClientTest {
         fixture.server.verify();
     }
 
+    @Test
+    @DisplayName("refresh token 폐기 성공 → true 반환")
+    void revokeReturnsTrueOnSuccess() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/revoke"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess());
+
+        boolean result = fixture.client.revoke("refresh-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("폐기 요청이 실패해도 예외를 던지지 않고 false를 반환한다 (이미 폐기된 토큰·Atlassian 장애를 해제 실패로 만들지 않는다)")
+    void revokeReturnsFalseWhenRequestFails() {
+        JiraOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://atlassian.test/oauth/revoke"))
+                .andRespond(withServerError());
+
+        boolean result = fixture.client.revoke("refresh-token");
+
+        assertThat(result).isFalse();
+        fixture.server.verify();
+    }
+
     private JiraOAuthClientFixture fixture() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

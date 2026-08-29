@@ -226,8 +226,8 @@ class AsanaOAuthClientTest {
     }
 
     @Test
-    @DisplayName("refresh token 폐기 → revoke URL로 form-urlencoded 전송 (client_id·client_secret·token 3필드)")
-    void revokeSendsFormEncodedRequestToRevokeUrl() {
+    @DisplayName("refresh token 폐기 → revoke URL로 form-urlencoded 전송 (client_id·client_secret·token 3필드), 성공하면 true를 반환한다")
+    void revokeSendsFormEncodedRequestToRevokeUrlAndReturnsTrueOnSuccess() {
         AsanaOAuthClientFixture fixture = fixture();
         MultiValueMap<String, String> expectedForm = new LinkedMultiValueMap<>();
         expectedForm.add("client_id", "test-asana-client-id");
@@ -240,20 +240,22 @@ class AsanaOAuthClientTest {
                 .andExpect(content().formData(expectedForm))
                 .andRespond(withSuccess());
 
-        fixture.client.revoke("refresh-token");
+        boolean result = fixture.client.revoke("refresh-token");
 
+        assertThat(result).isTrue();
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("폐기 요청이 실패해도 예외를 던지지 않는다 (이미 폐기된 토큰·Asana 장애를 해제 실패로 만들지 않는다)")
-    void revokeSwallowsFailure() {
+    @DisplayName("폐기 요청이 실패해도 예외를 던지지 않고 false를 반환한다 (이미 폐기된 토큰·Asana 장애를 해제 실패로 만들지 않는다)")
+    void revokeReturnsFalseWhenRequestFails() {
         AsanaOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://app.asana.com/-/oauth_revoke"))
                 .andRespond(withServerError());
 
-        fixture.client.revoke("refresh-token");
+        boolean result = fixture.client.revoke("refresh-token");
 
+        assertThat(result).isFalse();
         fixture.server.verify();
     }
 

@@ -1,11 +1,11 @@
 // "작동 방식" 3스텝(MiniGraph)이 쓰는 라벨 타입의 정의처.
 //
 // 2026-08 재구축 이전에는 기능 2(그래프 탐색) 미리보기도 이 MiniGraph 좌표계(400x240
-// 뷰박스·클러스터 A/B/C)를 확장해 썼지만, 실제 그래프 화면이 이슈/PR을 별성으로 삼는
-// 성좌 뷰(ConstellationVis.tsx)로 바뀐 뒤 "미리보기가 실제 화면과 너무 달라 완성도가
+// 뷰박스·클러스터 A/B/C)를 확장해 썼지만, 실제 그래프 화면이 이슈/PR을 작업 단위로 삼는
+// 작업 단위 뷰(WorkUnitCanvas.tsx)로 바뀐 뒤 "미리보기가 실제 화면과 너무 달라 완성도가
 // 없어 보인다"는 피드백에 따라 그 시각 문법을 직접 옮긴 정적 SVG로 다시 그렸다
 // (FeatureSections.tsx의 GraphExplorerPreview). 그 미리보기 전용 추가 노드·엣지·라벨
-// 데이터는 이제 이 파일이 아니라 FeatureSections.tsx 안에 성좌 좌표로 직접 있다.
+// 데이터는 이제 이 파일이 아니라 FeatureSections.tsx 안에 작업 단위 좌표로 직접 있다.
 // MiniGraphLabel 타입만 HowItWorksSection.tsx·MiniGraph.tsx가 계속 참조하므로 여기 남긴다.
 
 export interface MiniGraphLabel {

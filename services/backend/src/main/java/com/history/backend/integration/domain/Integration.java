@@ -71,6 +71,9 @@ public class Integration {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "incremental_enabled", nullable = false)
+    private boolean incrementalEnabled = true;
+
     public static Integration github(
             Project project,
             GitHubInstallation installation,
@@ -179,6 +182,16 @@ public class Integration {
     // pending 행 재동의 시 토큰 교체 (토큰 갱신도 이 메서드를 재사용한다)
     public void updateCredential(byte[] encryptedCredential) {
         this.encryptedCredential = Arrays.copyOf(encryptedCredential, encryptedCredential.length);
+    }
+
+    // 무료 티어 연동에 증분 수집을 다시 허용하지 않는다 — 유료 전환 시에만 호출된다
+    public void enableIncremental() {
+        this.incrementalEnabled = true;
+    }
+
+    // 무료 티어 provider 연동 저장 시 호출 — 기본값(true)이라 PAID/무관 케이스는 건드릴 필요가 없다
+    public void disableIncremental() {
+        this.incrementalEnabled = false;
     }
 
     // 토큰 갱신 영구 실패 시 미확정으로 되돌린다. 이미 고른 값들은 그대로 남겨 재동의 성공 시

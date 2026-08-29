@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DiscordRawServiceTest {
 
     private static final String GUILD_ID = "G1";
+    private static final String PROJECT_ID = "project-1";
 
     @Test
     @DisplayName("Instant → snowflake — 하위 22비트가 0이라 같은 밀리초의 실제 id를 놓치지 않는 경계값이 된다")
@@ -240,7 +241,7 @@ class DiscordRawServiceTest {
     }
 
     private DiscordRawService.DiscordFetchContext context(Instant lastScannedAt) {
-        return new DiscordRawService.DiscordFetchContext("Bot token", GUILD_ID, lastScannedAt);
+        return new DiscordRawService.DiscordFetchContext("Bot token", GUILD_ID, lastScannedAt, PROJECT_ID);
     }
 
     private Map<String, Object> channel() {

@@ -8,26 +8,11 @@ from graph.slack_filter import should_skip_slack
 if __name__ == "__main__":
     args = sys.argv[1:]
     rule_only = "--rule-only" in args
-
-    repo_arg = next((a.split("=", 1)[1] for a in args if a.startswith("--repo=")), None)
     args = [a for a in args if not a.startswith("--")]
 
     if not rule_only and not os.environ.get("OPENAI_API_KEY"):
-        print("실행 방법: OPENAI_API_KEY=sk-... python3 test_slack_filter.py [--rule-only] [--repo=owner/repo]")
+        print("실행 방법: OPENAI_API_KEY=sk-... python3 test_slack_filter.py [--rule-only]")
         sys.exit(1)
-
-    # 프로젝트 컨텍스트 로드 (--repo 또는 GITHUB_REPO 환경변수)
-    project_context = ""
-    if not rule_only:
-        repo = repo_arg or os.environ.get("GITHUB_REPO", "")
-        if repo and "/" in repo:
-            from graph.project_context import get_project_summary
-            owner, repo_name = repo.split("/", 1)
-            print(f"\n[프로젝트 컨텍스트 로드 중] {owner}/{repo_name}")
-            project_context = asyncio.run(get_project_summary(owner, repo_name)) or ""
-            print(f"[컨텍스트]\n{project_context}\n")
-        else:
-            print("[경고] --repo=owner/repo 또는 GITHUB_REPO 환경변수가 없어 기본 컨텍스트 사용")
 
     input_path = args[0] if args else "../../normalized_slack.json"
     # 파일이 없으면 프로젝트 루트 기준으로 재시도
@@ -77,7 +62,7 @@ if __name__ == "__main__":
         bodies = [e.get("properties", {}).get("body", "") for e in thread_events]
         print(f"\n  [LLM 판단 중] 스레드 {cid} ({len(bodies)}개 메시지)")
         try:
-            keep_flags = asyncio.run(filter_messages(bodies, project_context=project_context))
+            keep_flags = asyncio.run(filter_messages(bodies))
             for event, keep, body in zip(thread_events, keep_flags, bodies):
                 if keep:
                     llm_kept.append(event)

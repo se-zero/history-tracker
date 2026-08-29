@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { exchangeGitHubCode } from "@/api/auth";
 import { StatusView } from "@/components/StatusView";
 import { useAuth } from "@/auth/AuthProvider";
-import { tokenStorage } from "@/auth/tokenStorage";
 import { PATHS } from "@/routes";
 
 export function AuthCallbackPage() {
@@ -31,8 +30,7 @@ export function AuthCallbackPage() {
 
     (async () => {
       try {
-        const tokens = await exchangeGitHubCode({ code, state, installationId });
-        tokenStorage.set(tokens);
+        await exchangeGitHubCode({ code, state, installationId });
         await refresh();
         navigate("/", { replace: true });
       } catch (err) {

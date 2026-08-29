@@ -20,7 +20,7 @@ export function useIntegrations(
 }
 
 // 연동 해제. 그 소스에서 수집한 그래프까지 서버에서 삭제되므로 연동 목록뿐 아니라
-// 그래프 캐시(성좌·활동 등 graph 키 하위 전체)도 무효화해야 화면이 삭제 후 상태를 반영한다.
+// 그래프 캐시(작업 단위·활동 등 graph 키 하위 전체)도 무효화해야 화면이 삭제 후 상태를 반영한다.
 // 그 소스의 ActorAlias·Actor도 함께 지워지므로 액터 관리 카드(actors 키 하위 전체)도 무효화한다.
 export function useDisconnectIntegration(projectId: string) {
   const queryClient = useQueryClient();

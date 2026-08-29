@@ -72,7 +72,7 @@ public class DiscordClient {
      * <p>Slack·Jira와 같은 이유로 실패해도 예외를 던지지 않는다 — 이미 폐기됐거나 Discord 장애일 때
      * 연동 해제 자체가 막히면 안 된다.</p>
      */
-    public void revokeToken(String refreshToken) {
+    public boolean revokeToken(String refreshToken) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("client_id", properties.clientId());
         form.add("client_secret", properties.clientSecret());
@@ -87,8 +87,10 @@ public class DiscordClient {
                     .body(form)
                     .retrieve()
                     .toBodilessEntity();
+            return true;
         } catch (RestClientException exception) {
             log.warn("Discord token revoke request failed. error={}", exception.getMessage());
+            return false;
         }
     }
 
@@ -99,7 +101,7 @@ public class DiscordClient {
      * <p>실패해도 예외를 던지지 않는다 — 이미 강퇴됐거나 Discord 장애일 때 연동 해제 자체가
      * 막히면 안 된다.</p>
      */
-    public void leaveGuild(String guildId) {
+    public boolean leaveGuild(String guildId) {
         try {
             restClient
                     .delete()
@@ -107,8 +109,10 @@ public class DiscordClient {
                     .header(HttpHeaders.AUTHORIZATION, "Bot " + properties.botToken())
                     .retrieve()
                     .toBodilessEntity();
+            return true;
         } catch (RestClientException exception) {
             log.warn("Discord bot guild leave request failed. guildId={} error={}", guildId, exception.getMessage());
+            return false;
         }
     }
 

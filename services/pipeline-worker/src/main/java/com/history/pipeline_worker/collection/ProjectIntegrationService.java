@@ -59,6 +59,11 @@ public class ProjectIntegrationService {
         if (githubMatch.isEmpty()) {
             return GitHubWebhookIntegrationResolution.notFound();
         }
+        // 무료 티어는 최초 전체 수집(별도 경로인 resolveFetchRequest) 이후 webhook 증분 수집을 막는다 —
+        // context 조립(findAllByProjectId 등) 전에 끊어 불필요한 조회를 피한다.
+        if (!githubMatch.orElseThrow().incrementalEnabled()) {
+            return GitHubWebhookIntegrationResolution.incrementalDisabled();
+        }
         if (requiresGitHubTokenRefresh(githubMatch.orElseThrow())) {
             return GitHubWebhookIntegrationResolution.tokenRefreshRequired();
         }

@@ -22,7 +22,7 @@ public class JiraCredentialLifecycle implements ProviderCredentialLifecycle {
 
     // refresh token을 폐기하면 파생된 access token도 함께 무효화된다 — externalRef는 필요 없다
     @Override
-    public void revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
-        jiraOAuthClient.revoke(jiraCredentialCodec.decrypt(encryptedCredential).refreshToken());
+    public boolean revoke(byte[] encryptedCredential, Map<String, Object> externalRef) {
+        return jiraOAuthClient.revoke(jiraCredentialCodec.decrypt(encryptedCredential).refreshToken());
     }
 }

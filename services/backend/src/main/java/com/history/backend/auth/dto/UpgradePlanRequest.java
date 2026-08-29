@@ -2,8 +2,5 @@ package com.history.backend.auth.dto;
 
 import jakarta.validation.constraints.NotBlank;
 
-public record RefreshTokenRequest(
-        @NotBlank
-        String refreshToken
-) {
+public record UpgradePlanRequest(@NotBlank String code) {
 }

@@ -5,6 +5,8 @@ import java.util.Map;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.service.OAuthConnectFlow;
 import com.history.backend.integration.service.OAuthConnection;
+import com.history.backend.integration.service.SlackCredential;
+import com.history.backend.integration.service.SlackCredentialCodec;
 import com.history.backend.slack.SlackProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,9 +19,12 @@ public class SlackOAuthConnectFlow implements OAuthConnectFlow {
     // 이 flow가 담아 넣는 external_ref 키 — pipeline-worker가 수집할 때 읽는 키와 같아야 한다
     public static final String WORKSPACE_ID = "workspace_id";
     public static final String WORKSPACE_NAME = "workspace_name";
+    // tokens_revoked 매칭 키 — Slack 연동 행에서 사용자를 식별하는 external_ref 필드명
+    public static final String CONNECTED_USER_ID = "connected_user_id";
 
     private final SlackProperties slackProperties;
     private final SlackClient slackClient;
+    private final SlackCredentialCodec codec;
 
     @Override
     public IntegrationProvider provider() {
@@ -43,10 +48,11 @@ public class SlackOAuthConnectFlow implements OAuthConnectFlow {
     public OAuthConnection exchangeCode(String code) {
         SlackClient.SlackWorkspace workspace = slackClient.exchangeCode(code);
         return new OAuthConnection(
-                workspace.accessToken(),
+                codec.serialize(new SlackCredential(workspace.userToken(), workspace.botToken())),
                 Map.of(
                         WORKSPACE_ID, workspace.id(),
-                        WORKSPACE_NAME, workspace.name()
+                        WORKSPACE_NAME, workspace.name(),
+                        CONNECTED_USER_ID, workspace.authedUserId()
                 )
         );
     }

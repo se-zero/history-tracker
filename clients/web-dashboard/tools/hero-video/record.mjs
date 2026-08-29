@@ -195,8 +195,6 @@ async function main() {
       reducedMotion: "no-preference",
     });
     await context.addInitScript((themeArg) => {
-      localStorage.setItem("ht.access_token", "mock-access-hero-video");
-      localStorage.setItem("ht.refresh_token", "mock-refresh-hero-video");
       localStorage.setItem("ht.theme", themeArg);
       localStorage.setItem("chat:graphPanel", "1");
       localStorage.setItem("chat:graphPanelWidth", "420");

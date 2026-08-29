@@ -3,8 +3,16 @@ package com.history.backend.auth.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.RefreshToken;
 import com.history.backend.auth.domain.User;
 import com.history.backend.github.domain.GitHubInstallation;
@@ -19,7 +27,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -56,7 +67,13 @@ class AuthPersistenceTest {
     private GitHubInstallationRepository gitHubInstallationRepository;
 
     @Autowired
+    private UserProviderConnectionRepository userProviderConnectionRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     // 운영 PostgreSQL migration 기준으로 Repository 매핑을 검증한다.
     @Test
@@ -88,10 +105,6 @@ class AuthPersistenceTest {
         assertThat(refreshTokenRepository.findByTokenHash(new byte[]{1, 2, 3}))
                 .contains(refreshToken);
         assertThat(gitHubInstallationRepository.findByInstallationId(98765L))
-                .contains(installation);
-        assertThat(gitHubInstallationRepository.findAllByInstallerUser_Id(user.getId()))
-                .containsExactly(installation);
-        assertThat(gitHubInstallationRepository.findByIdAndInstallerUser_Id(installation.getId(), user.getId()))
                 .contains(installation);
     }
 
@@ -171,6 +184,7 @@ class AuthPersistenceTest {
 
         List<java.util.UUID> candidateIds = userRepository.findPurgeCandidateIds(
                 Instant.now().minusSeconds(30L * 24 * 60 * 60),
+                List.of(),
                 PageRequest.of(0, 100)
         );
 
@@ -194,5 +208,145 @@ class AuthPersistenceTest {
 
         assertThat(indexDefinition).contains("deleted_at");
         assertThat(indexDefinition).contains("WHERE (deleted_at IS NOT NULL)");
+    }
+
+    @Test
+    @DisplayName("FREE 질의 카운트는 한도 미만에서만 원자적으로 증가하고 한도에 닿으면 0건")
+    void incrementFreeQueryCountIfBelowLimitStopsAtLimitForFreeUser() {
+        User user = userRepository.saveAndFlush(new User(
+                "github",
+                "query-limit-free",
+                "query-limit-free@example.com",
+                "Free",
+                null
+        ));
+
+        int limit = 10;
+        for (int i = 0; i < limit; i++) {
+            assertThat(userRepository.incrementFreeQueryCountIfBelowLimit(user.getId(), limit))
+                    .isEqualTo(1);
+        }
+
+        assertThat(userRepository.incrementFreeQueryCountIfBelowLimit(user.getId(), limit)).isZero();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getFreeQueryCount())
+                .isEqualTo(limit);
+    }
+
+    @Test
+    @DisplayName("PAID 사용자는 원자적 증가 대상이 아니라 0건, 카운트도 그대로")
+    void incrementFreeQueryCountIfBelowLimitDoesNotTouchPaidUser() {
+        User user = new User(
+                "github",
+                "query-limit-paid",
+                "query-limit-paid@example.com",
+                "Paid",
+                null
+        );
+        user.upgradeToPaid();
+        user = userRepository.saveAndFlush(user);
+
+        assertThat(userRepository.incrementFreeQueryCountIfBelowLimit(user.getId(), 10)).isZero();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getFreeQueryCount()).isZero();
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("동시 원자적 증가도 한도를 넘기지 않는다")
+    void incrementFreeQueryCountIfBelowLimitConcurrentCallsDoNotExceedLimit() throws Exception {
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        User user = transactionTemplate.execute(status -> userRepository.save(new User(
+                "github",
+                "query-limit-concurrent",
+                "query-limit-concurrent@example.com",
+                "Concurrent",
+                null
+        )));
+
+        int workers = 20;
+        ExecutorService pool = Executors.newFixedThreadPool(workers);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger successes = new AtomicInteger();
+        List<Future<?>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < workers; i++) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    transactionTemplate.executeWithoutResult(status -> {
+                        int updated = userRepository.incrementFreeQueryCountIfBelowLimit(user.getId(), 10);
+                        if (updated == 1) {
+                            successes.incrementAndGet();
+                        }
+                    });
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (Future<?> future : futures) {
+                future.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT free_query_count FROM users WHERE id = ?",
+                Integer.class,
+                user.getId()
+        );
+        assertThat(successes.get()).isEqualTo(10);
+        assertThat(count).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("provider 연동 이력 insert는 같은 (user, provider)를 두 번 넣어도 예외 없이 한 행만 남긴다")
+    void insertIfAbsentIsIdempotentForSameUserAndProvider() {
+        User user = userRepository.saveAndFlush(new User(
+                "github",
+                "connection-idempotent",
+                "connection-idempotent@example.com",
+                "Idempotent",
+                null
+        ));
+
+        userProviderConnectionRepository.insertIfAbsent(user.getId(), "github");
+        userProviderConnectionRepository.insertIfAbsent(user.getId(), "github");
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_provider_connections WHERE user_id = ? AND provider = ?",
+                Integer.class,
+                user.getId(),
+                "github"
+        );
+        assertThat(count).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("만료 시각이 지난 refresh token만 삭제한다")
+    void deleteByExpiresAtBeforeRemovesOnlyExpiredTokens() {
+        User user = userRepository.saveAndFlush(new User(
+                "github",
+                "refresh-expiry",
+                "refresh-expiry@example.com",
+                "Expiry",
+                null
+        ));
+        RefreshToken expired = refreshTokenRepository.saveAndFlush(new RefreshToken(
+                user,
+                new byte[]{9, 9, 9},
+                Instant.now().minusSeconds(1)
+        ));
+        RefreshToken valid = refreshTokenRepository.saveAndFlush(new RefreshToken(
+                user,
+                new byte[]{8, 8, 8},
+                Instant.now().plusSeconds(3600)
+        ));
+
+        long deleted = refreshTokenRepository.deleteByExpiresAtBefore(Instant.now());
+        refreshTokenRepository.flush();
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(refreshTokenRepository.findById(expired.getId())).isEmpty();
+        assertThat(refreshTokenRepository.findById(valid.getId())).contains(valid);
     }
 }

@@ -16,9 +16,22 @@ spring:
       hibernate:
         format_sql: true
 
+# Cloudflare 엣지가 TLS를 끊고 X-Forwarded-Proto 를 넘긴다. nginx가 이걸 덮어쓰지 않아야
+# refresh 쿠키에 Secure가 붙는다. (nginx.conf의 $http_x_forwarded_proto)
+server:
+  forward-headers-strategy: framework
+
 ai:
   engine:
     url: http://localhost:8000
+
+app:
+  legal:
+    # 약관/개인정보처리방침이 개정되면 이 값과 프론트 두 파일의 effectiveDate를 함께 바꿔야 한다
+    # (clients/web-dashboard/src/pages/TermsPage.tsx, PrivacyPage.tsx).
+    terms-version: "2026-08-01"
+  plan:
+    upgrade-code: ${PLAN_UPGRADE_CODE:}
 
 conversation:
   memory:
@@ -47,6 +60,7 @@ user-lifecycle:
     grace-period: ${USER_PURGE_GRACE_PERIOD:P30D}
     cron: "${USER_PURGE_CRON:0 0 3 * * *}"
     batch-size: ${USER_PURGE_BATCH_SIZE:100}
+    force-purge-after: ${USER_PURGE_FORCE_PURGE_AFTER:P7D}
 
 github:
   app:
@@ -66,6 +80,7 @@ github:
     installation-access-token-url: ${GITHUB_INSTALLATION_ACCESS_TOKEN_URL:https://api.github.com/app/installations/{installation_id}/access_tokens}
     installation-repositories-url: ${GITHUB_INSTALLATION_REPOSITORIES_URL:https://api.github.com/installation/repositories}
     repository-branches-url: ${GITHUB_REPOSITORY_BRANCHES_URL:https://api.github.com/repos/{owner}/{repo}/branches}
+    user-installation-repositories-url: ${GITHUB_USER_INSTALLATION_REPOSITORIES_URL:https://api.github.com/user/installations/{installation_id}/repositories}
 
 slack:
   client-id: ${SLACK_CLIENT_ID:}
@@ -75,6 +90,10 @@ slack:
   authorize-url: ${SLACK_AUTHORIZE_URL:https://slack.com/oauth/v2/authorize}
   oauth-access-url: ${SLACK_OAUTH_ACCESS_URL:https://slack.com/api/oauth.v2.access}
   revoke-url: ${SLACK_REVOKE_URL:https://slack.com/api/auth.revoke}
+  signing-secret: ${SLACK_SIGNING_SECRET:}
+  commands-executor-pool-size: 1
+  commands-executor-queue-capacity: 20
+  commands-executor-await-termination-seconds: 60
 
 atlassian:
   client-id: ${ATLASSIAN_CLIENT_ID:}

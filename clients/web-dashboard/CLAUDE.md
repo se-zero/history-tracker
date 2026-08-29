@@ -2,7 +2,7 @@
 
 ## 역할
 
-사용자 웹 프론트엔드 (Vite + React 18 + TypeScript, :5173). onboarding·sources·성좌·chat·settings 화면을 제공하며,
+사용자 웹 프론트엔드 (Vite + React 18 + TypeScript, :5173). onboarding·sources·그래프·chat·settings 화면을 제공하며,
 backend(:8080) API만 호출한다. 전체 아키텍처는 루트 [CLAUDE.md](../../CLAUDE.md) 참고.
 
 ## 실행 / 빌드
@@ -28,7 +28,7 @@ src/
   App.tsx           라우트 정의 + AuthGate(인증 가드) + 루트 리다이렉트
 
   api/              backend 엔드포인트별 axios 클라이언트 (리소스 단위로 얇게)
-    client.ts         axios 인스턴스 + 인터셉터 (access 토큰 부착, 401 시 refresh+rotation 재시도)
+    client.ts         axios 인스턴스 + 인터셉터 (access 토큰 부착, 401 시 쿠키 refresh·rotation 재시도)
     그 외는 리소스당 모듈 1개 (auth · projects · conversations · integrations · github · graph · actors)
 
   hooks/            React Query 캡슐화 레이어 (컴포넌트는 여기로만 서버 상태 접근)
@@ -57,9 +57,9 @@ src/
                     DisconnectIntegration — 해제 버튼 + 사전 경고 다이얼로그(연동 행 공용).
                     해제는 수집된 그래프까지 지우는 파괴적 동작이라 무엇이 삭제·유지되는지 먼저 보여준다
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
-    settings/       DangerZone(프로젝트 삭제·회원 탈퇴)
-    graph/          ConstellationVis(작업 성좌 Canvas 렌더러) · ConstellationDetail(열린 성좌 패널) · NodeDetail
-                    GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 성좌로 대체됨)
+    settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(계정 플랜·전환 코드)
+    graph/          WorkUnitCanvas(작업 단위 뷰 Canvas 렌더러) · ClusterDetail(열린 작업 단위 묶음 패널) · NodeDetail
+                    GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
     landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
                     LegalLayout — 약관·개인정보 공통 셸(헤더/푸터 재사용 + 산문 컬럼)
@@ -67,9 +67,8 @@ src/
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
-    Onboarding · Chat · Sources · Settings · Account · Galaxy(작업 성좌 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
+    Onboarding · Chat · Sources · Settings · Account · GraphPage(작업 단위 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
     Actors · Landing · Terms · Privacy · AuthCallback · NotFound
-    ※ /projects/:id/graph 는 /galaxy 로 리다이렉트한다(옛 링크 호환).
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
     ※ Terms(`/terms`)·Privacy(`/privacy`)도 AuthGate 밖 공개 라우트다. 랜딩과 같은 `.lp` 스코프를
       쓰며 헤더·푸터를 공유한다(LegalLayout). 내용은 실제 수집 항목·권한 scope·보유 기간을
@@ -86,8 +85,8 @@ src/
       Google Chat의 `directory.readonly`는 민감 범위라 OAuth 검증에서 이 URL을 요구한다.
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
-                    constellation(성좌 배치: 별성 force + 위성 궤도) · canvasColor(CSS 토큰 → Canvas RGB)
-                    heroConstellation · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
+                    workUnitLayout(작업 단위 배치: 작업 단위 force + 구성 노드 반경) · canvasColor(CSS 토큰 → Canvas RGB)
+                    heroBackdropGraph · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
                     remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
                     **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
                     (서버가 타임존을 굳히면 저장된 답변이 그 타임존에 영구히 묶인다, docs/tools.md).
@@ -96,7 +95,7 @@ src/
                     기기 설정이 자동 적용되므로 어디에도 하드코딩하지 않는다.
                     **언어 분리 작업 전에 docs/i18n.md를 읽는다** — 로캘·타임존을 묶으면 안 되는
                     이유와 시각 표시 계약(날짜 단독·코드블록 미변환 등)이 거기 있다
-  auth/             AuthProvider(세션 상태) · tokenStorage(localStorage)
+  auth/             AuthProvider(세션 상태) · tokenStorage(access는 메모리만. 레거시 localStorage 키는 기동 시 삭제)
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)
   styles/           index.css(@import 진입점) + 기능별 분할 CSS, tokens.css(디자인 토큰)
@@ -114,6 +113,10 @@ src/
 - import 경로는 `@/` alias를 쓴다 (`@/components/...`).
 - **backend API만 호출**한다(`api/`). snake_case ↔ camelCase 매핑은 `api/` 모듈에서 처리하고, 컴포넌트는 camelCase만 본다.
 - 인증 토큰은 `api/client.ts` 인터셉터(자동 refresh·rotation, 401 처리)에 위임한다 — 컴포넌트에서 토큰을 직접 다루지 않는다.
+  access는 메모리, refresh는 httpOnly 쿠키(`ht_refresh`, Path `/api/v1/auth`). **API 베이스는 같은 오리진
+  (`/api/v1`)이어야 쿠키가 붙는다** — `VITE_API_BASE_URL`을 다른 호스트로 두면 세션이 유지되지 않는다.
+  기존 localStorage 키(`ht.access_token`·`ht.refresh_token`)는 모듈 로드 시 지운다.
+  여러 탭의 silent refresh는 Web Lock(`ht-refresh`)으로 직렬화한다.
 - 비동기 상태 업데이터(`setState((prev) => ...)`) 안에서 **가변 ref(`someRef.current`)를 다시 읽지 않는다** — 실행이 지연되어
   그 사이 ref가 바뀌면 터진다. 값을 미리 지역 변수로 캡처해 클로저에 가둔다.
 - 주석은 한국어로 작성한다 (코드베이스 관행).

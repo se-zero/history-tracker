@@ -179,3 +179,107 @@ get_file_history·get_actor_activity 2계층 전환(78f79b9, fd1534d)의 액터 
 **현재 상태**: 지표는 그대로 두고, 골든 `case-45`의 질문을 "관련 대화가 가장 많이 연결된 이슈가
 뭐야?"로 좁혀 지표가 실제로 답할 수 있는 범위만 재도록 했다. 용어집 정의에도 "긴 대화 한 번이
 수치를 크게 만들 수 있다 — 논의가 그만큼 여러 차례 있었다는 뜻은 아니다"를 명시했다.
+
+---
+
+## 6. 프로젝트 컨텍스트를 README → Document 수집으로 재설계 (2026-08-24)
+
+### 배경
+
+`/query`에는 원래 "프로젝트 컨텍스트"가 있었다 — GitHub README를 LLM으로 요약해 시스템 프롬프트
+상단에 주입하는 기능이다. **M1a에서 제거했다.** 이유는 둘이다.
+
+1. **운영자 개인 PAT(`GITHUB_TOKEN`)로 GitHub을 불렀다.** 불특정 다수를 받으면 남의 비공개 레포는
+   어차피 못 읽고, 읽히는 경우가 오히려 문제다 — 운영자 권한으로 임의 레포를 읽는 통로가 된다.
+   ai-engine에는 인증이 없어(라우터에 `Depends`/미들웨어 0건) 도달 가능한 누구든 `owner/repo`를
+   지정해 호출시킬 수 있었다.
+2. **프로덕션에서 한 번도 실행된 적이 없다.** backend의 `AiEngineQueryRequest`에 `repo` 필드가
+   없어서 `req.repo`가 항상 빈 문자열이었다. eval 러너도 보내지 않는다.
+
+즉 지금까지의 eval 수치는 **전부 프로젝트 컨텍스트 없이** 나온 것이다. 되살리는 게 아니라 새로
+만드는 것에 가깝다.
+
+### 설계 — pipeline-worker가 README를 `Document`로 발행한다
+
+수집 시점에 pipeline-worker가 `/repos/{owner}/{repo}/readme`를 읽어
+`nodeType: "Document"`, `source: "GITHUB"`로 정규화해 발행한다.
+
+**왜 이 방향인가**
+
+- **자격증명 문제가 없다.** pipeline-worker는 이미 그 프로젝트의 installation token을 복호화해
+  GitHub을 호출하고 있다(`source/github/GitHubCollector`). 운영자 PAT가 등장할 자리가 없다.
+- **ai-engine은 무변경이다.** `docs/normalized-event.md`의 원칙 — "이벤트는 소스가 아니라
+  `nodeType`으로 해석된다 … 새 소스가 기존 `nodeType` 중 하나로 정규화되면 ai-engine 무변경".
+  README는 `Document`이고, Notion 커넥터(N1~N3)가 `Document`/`DocumentSection` 소비·청킹·섹션
+  임베딩·Layer 4 링크를 전부 만들어 뒀다.
+- **프롬프트 주입이 아니라 검색 가능한 근거가 된다.** 기존 도구
+  `get_document_context`·`search_documents`로 조회되고 출처로 인용된다. 매 질의마다 시스템
+  프롬프트에 밀어 넣는 옛 방식은 답변에 그대로 새어 나온 사고가 있었다
+  (`docs/query-quality-issues.md` HT-3).
+- **덤**: Layer 4가 README ↔ 커밋(`REFERENCE`), README ↔ 이슈(`DESCRIBED_IN`)를 자동으로 잇는다.
+
+**대안과 비교** — backend가 질의 시점에 README를 읽어 `/query` 본문에 실어 보내는 안도 검토했다.
+자격증명은 똑같이 맞지만 ai-engine에 소비 코드가 새로 필요하고, 매 질의마다 본문이 커지며,
+결과가 프롬프트 주입으로 남는다. ai-engine이 backend를 직접 부르는 안(`ai-engine → backend`)은
+**현재 없는 의존 방향**을 새로 만들어야 해서(클라이언트·내부 토큰 전무) 얻는 것 대비 과하다.
+
+### 폴백(아이디어, 2026-08-28) — README가 없거나 짧으면 사용자가 직접 쓴 설명을 쓴다
+
+레포에 README가 없거나 너무 짧아 요약할 내용이 부족한 경우, **사용자가 프로젝트 생성/수정 시
+입력하는 설명**을 대신 컨텍스트로 쓰자는 아이디어. 조사해 보니 이걸 위한 자리가 이미 있다 —
+`Project.description`(`ProjectService.createProject`/`updateProject`가 받는 파라미터, 프론트
+`api/projects.ts`에도 `description?: string`으로 있음)이 그것이다. **다만 지금은 화면 표시용일
+뿐이다** — `ProjectResponse`에만 담기고, backend가 ai-engine에 보내는
+`AiEngineQueryRequest`(`question`·`project_id`·`history`·`prior_evidence`·`running_summary`·
+`focus_evidence`)에는 이 필드가 아예 없다. 즉 지금 사용자가 프로젝트 설명을 적어도 LLM 답변에는
+전혀 반영되지 않는다.
+
+**아키텍처상 걸리는 지점**: `description`은 backend/Postgres가 소유하는 값인데, 이 문서가 설계한
+"Document" 노드는 **pipeline-worker가 NormalizedEvent로 발행**해야 ai-engine이 무변경으로 소비할
+수 있다(`docs/normalized-event.md` 원칙 — ai-engine은 이벤트만 안다, backend를 직접 부르지 않는다).
+그래서 이 폴백을 실제로 만들려면 "값을 어디서 만들어 어떻게 발행 경로에 태울지"를 정해야 한다 —
+예를 들어 pipeline-worker가 수집 시점에 backend 내부 API로 `description`을 조회해 README 대신(또는
+README가 없을 때만) `Document`로 발행하는 방식이, 이 문서가 이미 채택한 "pipeline-worker가
+발행자" 원칙과 가장 일관된다. backend가 직접 이벤트를 발행하는 새 경로를 여는 것보다는 이쪽이
+자연스럽다.
+
+**정할 것**: "짧다"의 기준(글자 수?), README와 설명이 둘 다 있으면 어느 쪽을 우선할지(또는 둘 다
+쓸지), `description`이 나중에 수정되면 재발행을 어떻게 트리거할지. 아직 설계 전 단계이고, 위
+README→Document 설계가 먼저 정리된 뒤에 같이 볼 것.
+
+### 정해야 할 것
+
+- [ ] **`external_id` 규칙** — 재수집 멱등성 키다. `"readme"` 고정값과 파일 경로(`README.md`) 중 선택.
+      경로를 쓰면 대소문자·확장자 변형(`readme.rst` 등)이 다른 문서로 잡힌다
+- [ ] **actor** — README에는 자연스러운 작성자가 없는데 `_handle_document`가 `resolve_actor`를
+      **무조건** 호출한다(`graph/event_handler.py:389`). 마지막 수정 커밋의 author를 쓸지,
+      빈 actor를 허용하도록 소비 측을 손볼지 정해야 한다
+- [ ] **갱신 주기** — 수집 실행마다 재발행하면 MERGE로 덮어써진다. 매번 부를지, 변경 감지 시에만 부를지
+- [ ] **고지** — 개인정보처리방침 `#github` 절의 수집 항목에 README 본문을 추가한다
+      (`clients/web-dashboard/CLAUDE.md`: "새 커넥터를 배선하면 제2조 소스 블록을 함께 추가한다")
+- [ ] **측정** — 켠 뒤 `docs/measurement.md` 기준으로 재측정한다. 기존 수치와 비교하려면
+      컨텍스트 없는 기준선이 이미 있으므로 A/B가 가능하다
+
+### 관련 — Slack 필터 프롬프트에 이 프로젝트 정체성이 하드코딩돼 있다
+
+같은 "프로젝트 컨텍스트" 계열의 잔재가 한 곳 더 있다. `graph/slack_llm_filter.py`의 두 프롬프트
+(`_THREAD_PROMPT`·`_STANDALONE_PROMPT`)가 `[프로젝트 컨텍스트]` 자리에 이 문장을 박고 있다.
+
+> GitHub, Jira, Slack 데이터를 연동하여 지식 그래프를 만드는 캡스톤 프로젝트입니다.
+
+원래는 `project_context`가 비었을 때의 폴백이었는데, 자동 후처리 경로가 **항상** 빈 값으로 불러서
+사실상 이것만 쓰였다. M1a에서 파라미터를 걷어내며 폴백 문구를 그대로 인라인했으므로
+**동작은 그대로이고 회귀도 아니다** — 다만 이제 명시적·영구적이다.
+
+멀티테넌트에서는 남의 Slack 메시지를 "우리 캡스톤 프로젝트" 설명으로 판단하게 된다.
+
+- [ ] 문구를 소스 중립적으로 바꾸거나(예: "팀의 협업 기록을 지식 그래프로 잇는 프로젝트"),
+      `[프로젝트 컨텍스트]` 블록 자체를 걷어낸다
+- [ ] **바꾸면 반드시 재측정한다** — 이 필터에는 실측치가 있다(2026-04-26: Accuracy 88.6% /
+      Precision 89.5% / Recall 95.7% / Specificity 68.7%). 프롬프트를 건드리면 판정이 달라지고,
+      그 결과가 그래프에 남는 메시지 집합을 바꾼다
+- [ ] 위 README → Document 설계가 들어오면 이 자리를 **프로젝트별 실제 컨텍스트**로 채울 수 있다 —
+      두 항목을 함께 처리하는 편이 낫다
+
+**우선순위: 낮음.** 답변 품질 기능이고 효과가 미검증이다. 안전성 수정(M1a)은 이미 끝났으므로
+이 항목이 밀려도 위험이 쌓이지 않는다.

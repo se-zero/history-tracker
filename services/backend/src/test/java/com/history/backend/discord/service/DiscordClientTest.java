@@ -1,7 +1,6 @@
 package com.history.backend.discord.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
@@ -123,8 +122,8 @@ class DiscordClientTest {
     }
 
     @Test
-    @DisplayName("grant 폐기 요청은 refresh token과 token_type_hint를 담아 보낸다")
-    void revokeTokenSendsRefreshTokenHint() {
+    @DisplayName("grant 폐기 요청은 refresh token과 token_type_hint를 담아 보내고, 성공하면 true를 반환한다")
+    void revokeTokenSendsRefreshTokenHintAndReturnsTrueOnSuccess() {
         DiscordClientFixture fixture = fixture();
         MultiValueMap<String, String> expectedForm = new LinkedMultiValueMap<>();
         expectedForm.add("client_id", "test-client-id");
@@ -137,42 +136,50 @@ class DiscordClientTest {
                 .andExpect(content().formData(expectedForm))
                 .andRespond(withSuccess());
 
-        fixture.client.revokeToken("refresh-token");
+        boolean result = fixture.client.revokeToken("refresh-token");
+
+        assertThat(result).isTrue();
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("grant 폐기 요청이 실패해도 예외를 던지지 않는다 — 연동 해제 자체가 막히면 안 된다")
-    void revokeTokenSwallowsFailure() {
+    @DisplayName("grant 폐기 요청이 실패해도 예외를 던지지 않고 false를 반환한다 — 연동 해제 자체가 막히면 안 된다")
+    void revokeTokenReturnsFalseWhenRequestFails() {
         DiscordClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://discord.test/api/v10/oauth2/token/revoke"))
                 .andRespond(withServerError());
 
-        assertThatCode(() -> fixture.client.revokeToken("refresh-token")).doesNotThrowAnyException();
+        boolean result = fixture.client.revokeToken("refresh-token");
+
+        assertThat(result).isFalse();
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("길드 퇴장 요청은 봇 토큰으로 DELETE한다")
-    void leaveGuildSendsBotAuthorizedDelete() {
+    @DisplayName("길드 퇴장 요청은 봇 토큰으로 DELETE하고, 성공하면 true를 반환한다")
+    void leaveGuildSendsBotAuthorizedDeleteAndReturnsTrueOnSuccess() {
         DiscordClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://discord.test/api/v10/users/@me/guilds/G1"))
                 .andExpect(method(HttpMethod.DELETE))
                 .andExpect(header("Authorization", "Bot test-bot-token"))
                 .andRespond(withNoContent());
 
-        fixture.client.leaveGuild("G1");
+        boolean result = fixture.client.leaveGuild("G1");
+
+        assertThat(result).isTrue();
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("길드 퇴장 요청이 실패해도 예외를 던지지 않는다 — 이미 강퇴됐거나 장애일 수 있다")
-    void leaveGuildSwallowsFailure() {
+    @DisplayName("길드 퇴장 요청이 실패해도 예외를 던지지 않고 false를 반환한다 — 이미 강퇴됐거나 장애일 수 있다")
+    void leaveGuildReturnsFalseWhenRequestFails() {
         DiscordClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://discord.test/api/v10/users/@me/guilds/G1"))
                 .andRespond(withResourceNotFound());
 
-        assertThatCode(() -> fixture.client.leaveGuild("G1")).doesNotThrowAnyException();
+        boolean result = fixture.client.leaveGuild("G1");
+
+        assertThat(result).isFalse();
         fixture.server.verify();
     }
 

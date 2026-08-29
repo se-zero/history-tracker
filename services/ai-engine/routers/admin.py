@@ -231,22 +231,12 @@ async def trigger_verify_actor_names(project_id: str | None = None):
     return await verify_actor_name_consistency(project_id)
 
 
-class SlackFilterOptions(BaseModel):
-    repo: str = ""  # "owner/repo" 형식, 없으면 기본 컨텍스트 사용
-
-
 @router.post("/slack/filter")
-async def trigger_slack_filter(options: SlackFilterOptions = SlackFilterOptions()):
+async def trigger_slack_filter():
     """LLM 기반 Slack Communication 배치 필터링.
     슬랙 데이터 수집 완료 후 수동 호출. 스레드 단위 또는 (channel, date) 묶음으로 LLM 판단.
     """
-    project_context = ""
-    if options.repo and "/" in options.repo:
-        from graph.project_context import get_project_summary
-        owner, repo_name = options.repo.split("/", 1)
-        project_context = await get_project_summary(owner, repo_name)
-
-    result = await run_slack_llm_filter(project_context)
+    result = await run_slack_llm_filter()
     return result
 
 

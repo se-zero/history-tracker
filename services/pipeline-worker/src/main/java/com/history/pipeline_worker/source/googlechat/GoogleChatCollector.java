@@ -79,7 +79,7 @@ public class GoogleChatCollector implements SourceCollector {
     @Override
     public int collect(String projectId, RawFetchRequest request) {
         Instant lastScannedAt = checkpointService.loadCursors(projectId, provider()).get(MESSAGES_CURSOR);
-        GoogleChatRawService.GoogleChatFetchContext context = rawService.prepareFetchContext(request, lastScannedAt);
+        GoogleChatRawService.GoogleChatFetchContext context = rawService.prepareFetchContext(request, lastScannedAt, projectId);
 
         String spaceDisplayName = rawService.fetchSpaceDisplayName(context);
 

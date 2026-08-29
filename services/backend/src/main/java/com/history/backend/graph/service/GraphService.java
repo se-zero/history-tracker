@@ -2,9 +2,10 @@ package com.history.backend.graph.service;
 
 import java.util.UUID;
 
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
-import com.history.backend.graph.dto.GraphConstellationResponse;
+import com.history.backend.graph.dto.GraphWorkUnitsResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.SubgraphRequest;
@@ -18,6 +19,7 @@ public class GraphService {
 
     private final ProjectService projectService;
     private final AiEngineGraphClient aiEngineGraphClient;
+    private final PlanService planService;
 
     // 소유권 검증(인가 게이트)을 먼저 통과한 뒤에만 ai-engine 그래프를 조회한다.
     // ai-engine 호출은 외부 통신이라 트랜잭션 밖에서 수행 — getProject가 자체 read 트랜잭션을 갖는다.
@@ -26,19 +28,19 @@ public class GraphService {
         return aiEngineGraphClient.fetchOverview(projectId, limit, types);
     }
 
-    // 소유권 검증 후 성좌 뷰용 조회를 프록시한다 (작업 성좌 화면용).
-    public GraphConstellationResponse getConstellation(UUID ownerId, UUID projectId, Integer limit) {
+    // 소유권 검증 후 작업 단위 뷰용 조회를 프록시한다 (작업 단위 화면용).
+    public GraphWorkUnitsResponse getWorkUnits(UUID ownerId, UUID projectId, Integer limit) {
         projectService.getProject(ownerId, projectId);
-        return aiEngineGraphClient.fetchConstellation(projectId, limit);
+        return aiEngineGraphClient.fetchWorkUnits(projectId, limit);
     }
 
-    // 소유권 검증 후 성좌 드릴인 조회를 프록시한다. 빈 nodeId는 ai-engine 왕복 없이 빈 결과.
-    public GraphResponse getWorkUnit(UUID ownerId, UUID projectId, String nodeId) {
+    // 소유권 검증 후 작업 단위 드릴인 조회를 프록시한다. 빈 nodeId는 ai-engine 왕복 없이 빈 결과.
+    public GraphResponse getWorkUnitNeighbors(UUID ownerId, UUID projectId, String nodeId) {
         projectService.getProject(ownerId, projectId);
         if (nodeId == null || nodeId.isBlank()) {
             return GraphResponse.empty();
         }
-        return aiEngineGraphClient.fetchWorkUnit(projectId, nodeId.trim());
+        return aiEngineGraphClient.fetchWorkUnitNeighbors(projectId, nodeId.trim());
     }
 
     // 소유권 검증 후 답변 evidence가 가리키는 관련 서브그래프를 ai-engine에서 조회한다 (대화 화면 그래프 패널용).
@@ -52,6 +54,10 @@ public class GraphService {
     // 빌드는 비동기(202)라 완료는 getBuildStatus 폴링으로 확인한다.
     public GraphBuildStatusResponse buildProjectGraph(UUID ownerId, UUID projectId, boolean verify) {
         projectService.getProject(ownerId, projectId);
+        // 정밀 재구축(verify=true)만 무료 티어 한도를 검사한다 — 일반 재구축은 무제한
+        if (verify) {
+            planService.ensurePreciseRebuildAllowed(ownerId);
+        }
         return aiEngineGraphClient.triggerBuild(projectId, verify);
     }
 

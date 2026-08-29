@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -16,8 +17,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
 import com.history.backend.common.error.BadRequestException;
+import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.conversation.domain.Conversation;
 import com.history.backend.conversation.domain.Message;
 import com.history.backend.conversation.dto.Cursor;
@@ -56,6 +59,9 @@ class ConversationServiceTest {
     @Mock
     private MessageService messageService;
 
+    @Mock
+    private PlanService planService;
+
     private final ConversationTitleGenerator titleGenerator = new ConversationTitleGenerator();
     private final TransactionTemplate transactionTemplate = new TransactionTemplate(new NoopTransactionManager());
 
@@ -77,6 +83,7 @@ class ConversationServiceTest {
         when(messageService.appendUserMessageInCurrentTransaction(any(Conversation.class), any()))
                 .thenReturn(userMessage);
         when(messageService.appendAssistantMessageAfterQuery(
+                USER_ID,
                 PROJECT_ID,
                 CONVERSATION_ID,
                 "Why did auth change?",
@@ -98,6 +105,8 @@ class ConversationServiceTest {
         assertThat(result.conversation().getTitle()).isEqualTo("Why did auth change?");
         assertThat(result.userMessage()).isSameAs(userMessage);
         assertThat(result.assistantMessage()).isSameAs(assistantMessage);
+        // 무료 티어 질의 한도(총 10회) 검증이 대화 생성 진입부에서 반드시 호출된다
+        verify(planService).ensureQueryAllowed(USER_ID);
     }
 
     @Test
@@ -108,6 +117,19 @@ class ConversationServiceTest {
         assertThatThrownBy(() -> service.createConversation(USER_ID, PROJECT_ID, " "))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Message content is required.");
+
+        verifyNoInteractions(userService, projectService, conversationRepository, messageService);
+    }
+
+    @Test
+    @DisplayName("무료 티어 질의 한도 초과 시 대화 생성 거부 — 프로젝트·대화 저장 어느 것도 일어나지 않는다")
+    void createConversationRejectsWhenQueryLimitExceeded() {
+        ConversationService service = service();
+        doThrow(new PlanLimitExceededException("Free plan query limit exceeded."))
+                .when(planService).ensureQueryAllowed(USER_ID);
+
+        assertThatThrownBy(() -> service.createConversation(USER_ID, PROJECT_ID, "Why did auth change?"))
+                .isInstanceOf(PlanLimitExceededException.class);
 
         verifyNoInteractions(userService, projectService, conversationRepository, messageService);
     }
@@ -294,6 +316,7 @@ class ConversationServiceTest {
                 projectService,
                 userService,
                 messageService,
+                planService,
                 titleGenerator,
                 transactionTemplate
         );

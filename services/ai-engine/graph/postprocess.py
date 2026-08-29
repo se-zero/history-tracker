@@ -119,6 +119,16 @@ def _try_start_build(project_id: str, verify: bool) -> bool:
     return True
 
 
+def _cooldown_active(project_id: str, now: float) -> bool:
+    """마지막 빌드 후 MIN_BUILD_INTERVAL이 아직 안 지났는지.
+
+    빌드 기록이 없으면 쿨다운을 걸지 않는다 — 기본값 0.0을 쓰면 monotonic(리눅스:
+    부팅 후 경과 시간)이 간격보다 작은 부팅 직후에 최초 빌드가 통째로 밀린다.
+    """
+    last_build_at = _last_build_at.get(project_id)
+    return last_build_at is not None and now - last_build_at < MIN_BUILD_INTERVAL_SECONDS
+
+
 def mark_dirty(project_id: str) -> None:
     """이벤트 처리 직후 호출 — 해당 프로젝트에 후처리가 필요한 새 데이터가 들어왔음을 표시한다."""
     if not project_id:
@@ -147,10 +157,16 @@ def get_graph_activity(project_id: str) -> str:
     """
     if project_id in _manual_build_running:
         return "building"
+    # 이벤트 기록이 없으면 창 조건을 아예 평가하지 않는다 — 기본값 0.0을 쓰면
+    # monotonic(리눅스: 부팅 후 경과 시간)이 창보다 작은 부팅 직후에 오판한다
+    last_event_at = _last_event_at.get(project_id)
     if project_id not in _ever_built and (
         is_build_running(project_id)
         or project_id in _dirty
-        or time.monotonic() - _last_event_at.get(project_id, 0.0) < GRAPH_ACTIVITY_WINDOW_SECONDS
+        or (
+            last_event_at is not None
+            and time.monotonic() - last_event_at < GRAPH_ACTIVITY_WINDOW_SECONDS
+        )
     ):
         return "collecting"
     return "idle"
@@ -247,7 +263,7 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
 
     # 0) Slack 노이즈 정제 — 신규 Slack 메시지만 LLM을 거친다(llm_filtered로 증분).
     # 링크보다 먼저 돌려 노이즈가 backfill/링크 대상에 끼지 않게 한다.
-    # 실패해도 링크 단계는 진행 — 연결이 더 중요해 격리한다 (project_context는 배치라 생략).
+    # 실패해도 링크 단계는 진행 — 연결이 더 중요해 격리한다.
     try:
         slack = await run_slack_llm_filter(project_id=project_id)
     except Exception:
@@ -374,7 +390,7 @@ async def start_debounce_loop() -> None:
                 if now - _last_event_at.get(project_id, 0.0) < DEBOUNCE_SECONDS:
                     continue
                 # 쿨다운: 마지막 빌드 후 MIN_BUILD_INTERVAL이 안 지났으면 대기 (dirty 유지)
-                if now - _last_build_at.get(project_id, 0.0) < MIN_BUILD_INTERVAL_SECONDS:
+                if _cooldown_active(project_id, now):
                     continue
                 # 같은 프로젝트가 (수동 등으로) 이미 빌드 중이면 dirty를 유지한 채 다음 주기로 미룬다
                 if not _try_start_build(project_id, verify=False):

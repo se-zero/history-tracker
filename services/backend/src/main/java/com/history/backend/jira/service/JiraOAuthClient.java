@@ -110,7 +110,7 @@ public class JiraOAuthClient {
      * <p>Slack revoke와 같은 이유로 실패해도 예외를 던지지 않는다 — 이미 폐기됐거나(90일 미사용,
      * 사용자가 직접 취소) Atlassian 장애일 때 연동 해제 자체가 막히면 안 된다.</p>
      */
-    public void revoke(String refreshToken) {
+    public boolean revoke(String refreshToken) {
         Map<String, String> body = Map.of(
                 "token", refreshToken,
                 "token_type_hint", "refresh_token",
@@ -126,8 +126,10 @@ public class JiraOAuthClient {
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
+            return true;
         } catch (RestClientException exception) {
             log.warn("Jira token revoke request failed. error={}", exception.getMessage());
+            return false;
         }
     }
 

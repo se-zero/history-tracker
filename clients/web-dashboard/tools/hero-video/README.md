@@ -115,9 +115,9 @@ cp out/hero-demo-en-light-click-poster.jpg ../../public/hero-demo-en-light-poste
   두면 재촬영 없이 인코딩 재조정이 가능하다(지워져도 record 한 번이면 복구).
 - 화면을 손으로 만져 보고 싶으면: 이 디렉터리에서 `PORT=8099 npm run mock`, web-dashboard에서
   `VITE_API_PROXY=http://localhost:8099 npm run dev -- --port 5199 --strictPort` →
-  브라우저로 `/landing` 진입 후 localStorage에 `ht.access_token`·`ht.refresh_token`(아무 문자열),
-  `ht.theme`("dark"/"light"), `chat:graphPanel`("1")을 넣고 `/`로 이동하면 로그인 없이 앱이 뜬다.
+  브라우저로 `/` 진입하면 부트 silent refresh가 목 서버에서 성공해 로그인 없이 앱이 뜬다.
+  테마·패널만 localStorage에 넣으면 된다 — `ht.theme`("dark"/"light"),
+  `chat:graphPanel`("1"). 예전 `ht.access_token`·`ht.refresh_token` 키는 쓰지 않는다.
   영어로 보고 싶으면 `HERO_LANG=en PORT=8099 npm run mock`으로 목 서버를 띄운다(이 수동
   경로에는 en-dom-overlay가 주입되지 않으므로 앱 크롬 자체는 여전히 한국어다).
-- 랜딩 쪽 교체 계약은 `HeroProductSlot.tsx` 상단 주석과 `docs/LANDING_BRIEF.md` §5,
-  단계 전체 경위는 `docs/landing-roadmap.md`(로컬 문서) 히어로 영상 절.
+- 랜딩 쪽 교체 계약은 `HeroProductSlot.tsx` 상단 주석과 `docs/DESIGN.md` 「랜딩 페이지 · 히어로」.

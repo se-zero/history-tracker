@@ -241,6 +241,22 @@ Webhook은 바깥에서 들어오는 방향이라 **공개 접근 가능한 실�
 GitHub App은 Callback URL을 여러 개 등록할 수 있어 로컬과 배포를 함께 둘 수 있다.
 `.env`의 `GITHUB_REDIRECT_URI`만 환경별로 하나 고른다.
 
+### 3-2a. Slack Events API 등록
+
+| Slack 앱 설정 | 값 |
+|---|---|
+| **Events Request URL** | `https://<도메인>/api/v1/slack/events` |
+| **Commands Request URL** | `https://<도메인>/api/v1/slack/commands` |
+| `.env` 키 | `SLACK_SIGNING_SECRET` — Slack 앱 Basic Information > Signing Secret |
+
+`SLACK_SIGNING_SECRET`이 비면 모든 Events·Commands 요청이 거부된다(fail-closed). Slack이 Request URL을
+등록할 때 url_verification challenge를 보내므로 서버가 실행 중이어야 한다.
+
+이 경로는 nginx `/api/`를 타 **backend**로 간다. GitHub webhook(`/api/v1/webhook/`)과 달리
+pipeline-worker로 프록시하지 않는다 — 연동 행·그래프 삭제와 `/why-code` 질의가 backend 소관이기 때문이다.
+
+앱에 슬래시 커맨드 등록·bot scope(`commands`)는 S4다. 여기서는 Request URL만 적는다.
+
 ### 3-3. Jira 개인정보 보고 봇 계정 (Jira를 쓰는 경우 최초 1회)
 
 Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 사용자 토큰이 아니라 **봇 계정의 앱
@@ -298,10 +314,17 @@ ssh -L 7474:127.0.0.1:7474 -L 7687:127.0.0.1:7687 <user>@<서버>
 터널이 끊기면 앱은 살아 있는데 바깥에서만 안 보인다. `./prod.sh logs cloudflared`로 커넥션
 상태를 먼저 본다.
 
-### 4-4. ⚠️ 이 배포가 의존하는 방어
+### 4-4. 이 배포가 의존하는 방어
 
-pipeline-worker의 `POST /api/v1/collect/{provider}`와 `POST /api/v1/raw/*`에는 **인증이 없다.**
-바깥에서 닿지 않는 이유는 세 겹이다.
+> **갱신(2026-08-26)** — pipeline-worker의 `/api/v1/collect`·`/api/v1/raw`와 **ai-engine의 모든
+> 라우터**에 이제 애플리케이션 레벨 인증이 붙었다(`X-Internal-Service-Token`).
+> 아래 네트워크 방어는 **여전히 유효하고 유지해야 하지만, 이제 유일한 방어가 아니다.**
+> 설정이 어긋나 포트가 열려도 토큰 없이는 호출되지 않는다.
+> 예외는 `/api/v1/webhook/` 하나 — GitHub이 직접 부르므로 헤더를 못 붙이고, 대신 HMAC 서명
+> 검증(fail-closed)이 지킨다.
+
+과거에 pipeline-worker의 `POST /api/v1/collect/{provider}`와 `POST /api/v1/raw/*`에는 **인증이
+없었고**, 바깥에서 닿지 않는 이유가 아래 세 겹뿐이었다.
 
 1. prod 오버라이드가 **8081을 호스트에 열지 않는다**
 2. 터널 ingress에 **`web-dashboard:80` 하나만 등록**돼 있다 — pipeline-worker로 가는 공개 경로가 없다
@@ -315,8 +338,12 @@ pipeline-worker의 `POST /api/v1/collect/{provider}`와 `POST /api/v1/raw/*`에�
   (호스트 포트를 안 열어도 터널이 바로 뚫어 준다 — 가장 놓치기 쉬운 경로다)
 - 호스트 방화벽 앞단에서 8081을 포워딩하는 것
 
-노출되면 누구나 임의 프로젝트의 수집을 트리거해 OpenAI·외부 API 쿼터를 태우고 원본 데이터를
-당길 수 있다.
+노출되면 포트가 바깥에 열린다. **다만 이제는 그것만으로 호출되지 않는다** — 토큰을 모르면 401이다.
+그래도 이 세 겹은 유지한다: 공격 표면을 줄이고, 토큰이 유출됐을 때의 2차 방어선이 된다.
+
+`INTERNAL_SERVICE_TOKEN`이 유출되면 이 방어가 전부 무의미해진다 — 누구나 임의 프로젝트의 수집을
+트리거해 OpenAI·외부 API 쿼터를 태우고, ai-engine으로 그래프를 지울 수 있다. **backend·
+pipeline-worker·ai-engine 셋이 같은 값을 공유하므로 하나만 새도 전부 뚫린다.**
 
 ### 4-5. 백업
 

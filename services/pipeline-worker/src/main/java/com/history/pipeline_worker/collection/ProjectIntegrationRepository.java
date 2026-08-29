@@ -46,7 +46,8 @@ public class ProjectIntegrationRepository {
                        i.external_ref,
                        i.encrypted_credential,
                        gi.encrypted_installation_token,
-                       gi.installation_token_expires_at
+                       gi.installation_token_expires_at,
+                       i.incremental_enabled
                 FROM integrations i
                 JOIN github_installations gi ON gi.id = i.installation_id
                 WHERE i.provider = 'github'
@@ -70,7 +71,8 @@ public class ProjectIntegrationRepository {
                        i.external_ref,
                        i.encrypted_credential,
                        gi.encrypted_installation_token,
-                       gi.installation_token_expires_at
+                       gi.installation_token_expires_at,
+                       i.incremental_enabled
                 FROM integrations i
                 LEFT JOIN github_installations gi ON gi.id = i.installation_id
                 WHERE i.project_id = :projectId
@@ -90,8 +92,22 @@ public class ProjectIntegrationRepository {
             Map<String, Object> externalRef,
             byte[] encryptedCredential,
             byte[] encryptedInstallationToken,
-            Instant installationTokenExpiresAt
+            Instant installationTokenExpiresAt,
+            boolean incrementalEnabled
     ) {
+        // incrementalEnabled 도입 이전 호출부 호환용 — 여러 SourceCollector 테스트가 이 6-인자 형태로
+        // IntegrationRow를 직접 만든다. DB 기본값(TRUE)과 같은 뜻으로 위임한다.
+        public IntegrationRow(
+                UUID projectId,
+                String provider,
+                Map<String, Object> externalRef,
+                byte[] encryptedCredential,
+                byte[] encryptedInstallationToken,
+                Instant installationTokenExpiresAt
+        ) {
+            this(projectId, provider, externalRef, encryptedCredential, encryptedInstallationToken,
+                    installationTokenExpiresAt, true);
+        }
     }
 
     private static class IntegrationRowMapper implements RowMapper<IntegrationRow> {
@@ -110,7 +126,8 @@ public class ProjectIntegrationRepository {
                     readExternalRef(rs.getObject("external_ref")),
                     rs.getBytes("encrypted_credential"),
                     rs.getBytes("encrypted_installation_token"),
-                    readInstant(rs, "installation_token_expires_at")
+                    readInstant(rs, "installation_token_expires_at"),
+                    rs.getBoolean("incremental_enabled")
             );
         }
 

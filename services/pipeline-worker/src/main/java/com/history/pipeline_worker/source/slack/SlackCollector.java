@@ -34,6 +34,9 @@ public class SlackCollector implements SourceCollector {
     private final CheckpointService checkpointService;
     private final CredentialCryptoService credentialCryptoService;
 
+    // @RequiredArgsConstructor가 생성하는 5-arg 생성자에서 제외된다(초기화된 final 필드는 포함 안 됨).
+    private final SlackCredentialCodec codec = new SlackCredentialCodec();
+
     @Override
     public CollectionProvider provider() {
         return CollectionProvider.SLACK;
@@ -45,8 +48,9 @@ public class SlackCollector implements SourceCollector {
         if (integration.encryptedCredential() == null) {
             throw new IllegalStateException("Missing encrypted credential for provider: " + integration.provider());
         }
-        String token = credentialCryptoService.decrypt(integration.encryptedCredential());
-        return Optional.of(new RawFetchRequest(AuthHeaders.bearer(token), null, Map.of()));
+        String decrypted = credentialCryptoService.decrypt(integration.encryptedCredential());
+        String userToken = codec.userToken(decrypted);
+        return Optional.of(new RawFetchRequest(AuthHeaders.bearer(userToken), null, Map.of()));
     }
 
     @Override

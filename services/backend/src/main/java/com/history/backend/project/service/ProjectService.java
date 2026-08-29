@@ -7,18 +7,23 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
+import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.graph.service.AiEngineGraphClient;
+import com.history.backend.integration.service.IntegrationRevocationService;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.repository.ProjectRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ProjectService {
@@ -26,9 +31,12 @@ public class ProjectService {
     private final ProjectRepository projectRepository;
     private final UserService userService;
     private final AiEngineGraphClient aiEngineGraphClient;
+    private final IntegrationRevocationService integrationRevocationService;
+    private final PlanService planService;
 
     @Transactional
     public Project createProject(UUID ownerId, String name, String description) {
+        planService.ensureProjectCreatable(ownerId);
         User owner = userService.getActiveUser(ownerId);
         String normalizedName = name.trim();
         validateNameAvailable(ownerId, normalizedName);
@@ -113,14 +121,55 @@ public class ProjectService {
     // 커넥션을 호출 내내 점유해(대형 그래프 삭제는 수 초) HikariCP pool이 고갈된다. 그래프를 먼저
     // 지우는 건 멱등이라서다: RDB delete가 뒤에서 실패해도 재시도 시 그래프 삭제가 no-op(0)으로
     // 통과하고 RDB만 마저 지워 복구된다 (원자적 보장은 아님 — 재시도로 수렴).
+    // 연동 권한 폐기를 가장 먼저 하는 이유: RDB 행이 지워지면 폐기에 쓸 자격증명(암호화된 토큰)이
+    // 사라진다(IntegrationService.disconnect가 같은 이유로 폐기를 첫 단계에 둔다).
     public void deleteProject(UUID ownerId, UUID projectId) {
         userService.getActiveUser(ownerId);
         // owner를 함께 로딩 — 트랜잭션 밖이라 lazy owner가 detached되므로 소유권 검증 전에 fetch join
         Project project = projectRepository.findByIdWithOwner(projectId)
                 .orElseThrow(() -> new NotFoundException("Project not found."));
         validateOwner(project, ownerId);
+        // 반환값을 무시한다 — 사용자가 직접 요청한 삭제를 provider 장애로 막으면 안 된다.
+        // releaseExternalResources(파기 전용)와의 비대칭이 의도된 설계다: 파기는 계정 자체가
+        // CASCADE로 사라지기 전에 grant를 반드시 폐기해야 하지만, 사용자 대면 삭제는 프로젝트를
+        // 지우지 못하게 막는 쪽이 더 나쁘다.
+        integrationRevocationService.revokeAll(projectId);
         aiEngineGraphClient.deleteProjectGraph(projectId);
         projectRepository.deleteById(projectId);
+    }
+
+    // 파기 배치(UserPurgeService) 전용 진입점 — 파기 대상은 이미 soft-delete된 사용자라
+    // getActiveUser 검증을 타면 예외가 던져진다. 인가가 필요한 사용자 경로가 아니라 내부 정리
+    // 로직이므로 소유권 검증 없이 owner의 전체 프로젝트를 순회한다.
+    // RDB 삭제는 하지 않는다 — 사용자 행 삭제의 FK CASCADE가 프로젝트·연동·대화를 함께 지운다.
+    // @Transactional을 붙이지 않는 이유는 deleteProject와 동일: 외부 HTTP 호출(폐기·그래프 삭제)이
+    // 트랜잭션 커넥션을 점유하면 안 된다. 그래프 삭제 실패는 전파해 호출부(UserPurgeService)가
+    // 그 사용자를 건너뛰고 다음 회차에 재시도할 수 있게 한다.
+    public void releaseExternalResources(UUID ownerId) {
+        List<Project> projects = projectRepository.findAllByOwner_IdOrderBySortOrderAsc(ownerId);
+        for (Project project : projects) {
+            // deleteProject와 달리 반환값을 확인한다 — 폐기 실패인데 사용자 행을 지우면 자격증명이
+            // CASCADE로 함께 사라져 provider grant를 영영 폐기할 수 없게 된다. 그래프 삭제 실패와
+            // 같은 취급으로 BadGatewayException을 던져 이 사용자를 건너뛰고 다음 회차에 재시도한다.
+            if (!integrationRevocationService.revokeAll(project.getId())) {
+                throw new BadGatewayException("Failed to revoke provider access.");
+            }
+            aiEngineGraphClient.deleteProjectGraph(project.getId());
+        }
+    }
+
+    // 파기 강제 진행 전용 — releaseExternalResources와 달리 provider 폐기 실패로 그래프 삭제를
+    // 건너뛰지 않는다. 그래프 삭제를 건너뛰면 projects 행이 나중에 CASCADE로 사라져 그래프가
+    // 영구 고아가 되므로, 폐기 실패는 로그만 남기고 그래프 삭제는 반드시 진행한다.
+    public void forcePurgeExternalResources(UUID ownerId) {
+        List<Project> projects = projectRepository.findAllByOwner_IdOrderBySortOrderAsc(ownerId);
+        for (Project project : projects) {
+            if (!integrationRevocationService.revokeAll(project.getId())) {
+                log.error("Force-purging project despite revoke failure — "
+                        + "provider grant may remain live. projectId={}", project.getId());
+            }
+            aiEngineGraphClient.deleteProjectGraph(project.getId());
+        }
     }
 
     private Project findProject(UUID projectId) {

@@ -1,9 +1,9 @@
 /* ============================================================
-   작업 성좌(Galaxy) 뷰
+   그래프 확인 화면 — 작업 단위(WorkUnit) 뷰
    캔버스가 배경을 직접 칠하므로, 위에 얹는 UI만 여기서 다룬다.
    ============================================================ */
 
-.galaxy-page {
+.wu-page {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -12,14 +12,14 @@
 }
 
 /* 캔버스가 absolute로 채우는 무대. min-height:0이 없으면 flex 자식이 넘친다. */
-.galaxy-stage {
+.wu-stage {
   flex: 1;
   position: relative;
   min-height: 0;
   overflow: hidden;
 }
 
-.galaxy-wrap {
+.wu-wrap {
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -27,13 +27,13 @@
   touch-action: none;
 }
 
-.galaxy-canvas {
+.wu-canvas {
   display: block;
   position: absolute;
   inset: 0;
 }
 
-.galaxy-legend {
+.wu-legend {
   position: absolute;
   left: var(--gutter);
   bottom: var(--gutter);
@@ -43,7 +43,7 @@
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  /* 은하 위에 떠 있는 유리판 느낌 — 배경을 완전히 가리지 않는다. */
+  /* 그래프 위에 떠 있는 유리판 느낌 — 배경을 완전히 가리지 않는다. */
   background: color-mix(in oklab, var(--surface) 62%, transparent);
   backdrop-filter: blur(8px);
   /* 디자인 시스템의 최소 단계(mono-label 12px)를 따른다 — 그 아래로 내려가면 읽기 부담이 커진다. */
@@ -52,7 +52,7 @@
   pointer-events: none;
 }
 
-.galaxy-legend-hint {
+.wu-legend-hint {
   color: var(--fg-subtle);
   padding-bottom: 4px;
   margin-bottom: 2px;
@@ -61,7 +61,7 @@
 
 /* ── 액터 렌즈 — 사람을 골라 그 사람의 자취만 밝힌다 ───────────────────── */
 
-.galaxy-lens {
+.wu-lens {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -71,13 +71,13 @@
 }
 
 /* 마지막 렌즈 아래에는 범례 자체의 패딩만 남긴다. */
-.galaxy-lens:last-child {
+.wu-lens:last-child {
   margin-bottom: 0;
 }
 
-/* 칩 목록 — 제목(galaxy-legend-hint)은 이 밖에 남는다. 상한을 제목까지 감싸면
+/* 칩 목록 — 제목(wu-legend-hint)은 이 밖에 남는다. 상한을 제목까지 감싸면
    스크롤할 때 무엇을 고르는 목록인지가 화면에서 사라진다. */
-.galaxy-lens-list {
+.wu-lens-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -90,7 +90,7 @@
  * 높이는 픽셀이 아니라 "몇 줄"로 정한다 — 칩 한 줄 높이를 line-height로 고정해 두면
  * (--lens-row-h) 줄 수만 바꿔도 마지막 줄이 잘리지 않는다.
  */
-.galaxy-lens-list.scrollable {
+.wu-lens-list.scrollable {
   --lens-rows: 10;
   /* 칩 한 줄 = 상하 padding 5px×2 + border 1px×2 + line-height 16px */
   --lens-row-h: 28px;
@@ -101,7 +101,7 @@
   overscroll-behavior: contain;
 }
 
-.galaxy-lens-chip {
+.wu-lens-chip {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -117,19 +117,19 @@
   cursor: pointer;
 }
 
-.galaxy-lens-chip:hover {
+.wu-lens-chip:hover {
   background: var(--surface-2);
   color: var(--fg);
 }
 
 /* 선택 표시는 노드 색이 아니라 액센트다 — 앰버는 "선택됨"을 뜻하는 유일한 색이다. */
-.galaxy-lens-chip.active {
+.wu-lens-chip.active {
   border-color: var(--accent-ink);
   background: var(--accent-soft);
   color: var(--fg);
 }
 
-.galaxy-lens-name {
+.wu-lens-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -138,24 +138,24 @@
 }
 
 /* 기여 수 — 동일인이 여러 액터로 남아 있을 때(병합 전) 구분하는 단서가 된다. */
-.galaxy-lens-count {
+.wu-lens-count {
   flex: none;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--fg-subtle);
 }
 
-.galaxy-legend-dot,
-.gd-dot {
+.wu-legend-dot,
+.cd-dot {
   width: 7px;
   height: 7px;
   border-radius: var(--r-full);
   flex: none;
 }
 
-/* ── 성좌 상세 패널 (별성 클릭 시 좌측에 열린다) ───────────────────────── */
+/* ── 묶음 상세 패널 (작업 단위 클릭 시 좌측에 열린다) ───────────────────── */
 
-.galaxy-detail {
+.cluster-detail {
   position: absolute;
   left: var(--gutter);
   top: var(--gutter);
@@ -173,11 +173,11 @@
   /* 키프레임은 graph.css에 정의(NodeDetail과 공유) — 등장은 마운트 시 1회. */
   animation: detail-rise-in var(--dur-base) var(--ease-standard) both;
 }
-.galaxy-detail.is-exiting {
+.cluster-detail.is-exiting {
   animation: detail-fade-out var(--dur-fast) var(--ease-exit) both;
 }
 
-.gd-head {
+.cd-head {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -185,7 +185,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-.gd-badge {
+.cd-badge {
   width: 10px;
   height: 10px;
   border-radius: var(--r-full);
@@ -193,7 +193,7 @@
   flex: none;
 }
 
-.gd-title {
+.cd-title {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
@@ -205,7 +205,7 @@
   overflow: hidden;
 }
 
-.gd-meta {
+.cd-meta {
   font-size: 11px;
   color: var(--fg-muted);
   margin-top: 3px;
@@ -214,7 +214,7 @@
   white-space: nowrap;
 }
 
-.gd-chips {
+.cd-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
@@ -222,7 +222,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-.gd-chip {
+.cd-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -234,7 +234,7 @@
   white-space: nowrap;
 }
 
-.gd-scroll {
+.cd-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -243,7 +243,7 @@
   padding: 8px 8px 12px;
 }
 
-.gd-loading {
+.cd-loading {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -253,17 +253,17 @@
 }
 
 /* 패널 안에서는 전역 .spinner가 너무 크다 — 목록 글자 크기에 맞춘다. */
-.gd-loading .spinner {
+.cd-loading .spinner {
   width: 12px;
   height: 12px;
   border-width: 1.5px;
 }
 
-.gd-section + .gd-section {
+.cd-section + .cd-section {
   margin-top: 10px;
 }
 
-.gd-section-title {
+.cd-section-title {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -272,7 +272,7 @@
   padding: 6px 4px 4px;
 }
 
-.gd-item {
+.cd-item {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -288,17 +288,17 @@
   cursor: pointer;
 }
 
-.gd-item:hover {
+.cd-item:hover {
   background: var(--surface-2);
   color: var(--fg);
 }
 
-.gd-item.active {
+.cd-item.active {
   background: var(--primary-soft);
   color: var(--fg);
 }
 
-.gd-item-text {
+.cd-item-text {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -306,11 +306,11 @@
   white-space: nowrap;
 }
 
-/* 모션 축소: 상승(transform) 없이 페이드만. 위 .galaxy-detail 기본 규칙의 animation 축약이
+/* 모션 축소: 상승(transform) 없이 페이드만. 위 .cluster-detail 기본 규칙의 animation 축약이
    name을 포함하므로 이 블록은 반드시 기본 규칙 뒤에 와야 이긴다(동일 특이도 — 소스 순서로 결정,
    graph.css의 .node-detail reduce 블록과 같은 패턴). 키프레임 정의는 graph.css에 있다. */
 @media (prefers-reduced-motion: reduce) {
-  .galaxy-detail {
+  .cluster-detail {
     animation-name: detail-fade-in;
   }
 }

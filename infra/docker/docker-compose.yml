@@ -73,8 +73,6 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
       # .env 에서 forward (필수: OPENAI_API_KEY)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      GITHUB_REPO: ${GITHUB_REPO:-}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       QUERY_MODEL: ${QUERY_MODEL:-gpt-5.4-mini}
       QUERY_REASONING_EFFORT: ${QUERY_REASONING_EFFORT:-}
       TOOLS_MIN_CONFIDENCE: ${TOOLS_MIN_CONFIDENCE:-0.5}
@@ -92,6 +90,9 @@ services:
       INGEST_PREFETCH: ${INGEST_PREFETCH:-}
       INGEST_EMBED_COALESCE_MAX: ${INGEST_EMBED_COALESCE_MAX:-8}
       INGEST_EMBED_COALESCE_WINDOW_MS: ${INGEST_EMBED_COALESCE_WINDOW_MS:-50}
+
+      # 보안 키 — backend·pipeline-worker와 같은 값을 공유해야 라우터 인증이 통과한다.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
     depends_on:
       neo4j:
         condition: service_healthy
@@ -115,6 +116,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-must-be-changed}
       BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
+      PLAN_UPGRADE_CODE: ${PLAN_UPGRADE_CODE:-}
 
       # GitHub App — infra/docker/.env 에서 forward (필수: APP_ID, SLUG, CLIENT_ID/SECRET, PRIVATE_KEY)
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
@@ -132,6 +134,7 @@ services:
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
       SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
       SLACK_REDIRECT_URI: ${SLACK_REDIRECT_URI:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
 
       # Atlassian App — infra/docker/.env 에서 forward
       ATLASSIAN_CLIENT_ID: ${ATLASSIAN_CLIENT_ID:-}

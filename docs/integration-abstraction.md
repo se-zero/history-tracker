@@ -189,7 +189,7 @@ Slack은 접근 가능한 전체 채널을 자동 수집해 선택 단계가 없
   `tools/queries`·에이전트 프롬프트·`docs/tools.md`·`docs/graph-schema.md`·`docs/normalized-event.md`
   동반 수정 완료.
 - **Notion `Document` 노드는 별도 설계 단계**: 스키마 제약, upsert+임베딩, Layer 2(문서
-  본문의 이슈 키/PR 참조), Layer 4 REFERENCE 대상 편입, tool 정의 추가, 성좌 뷰 렌더링까지
+  본문의 이슈 키/PR 참조), Layer 4 REFERENCE 대상 편입, tool 정의 추가, 작업 단위 뷰 렌더링까지
   걸리는 실제 신규 기능이다. 추상화 PR에 섞지 않는다.
   **→ 설계 완료 — `docs/notion-integration.md`.** communication·issue 노드와의 연결 방식도 거기서
   확정했다(`(Issue)-[:DESCRIBED_IN]->(Document)` · `(Document)-[:DISCUSSED_IN]->(Communication)` ·
@@ -308,8 +308,8 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 | 아키타입 | 대상 | 비고 |
 |----------|------|------|
 | 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ~~ClickUp~~ ✅ | `Issue` 노드 재사용, ai-engine 무변경 |
-| 대화 | **Discord**(코드 작업 완료 ✅ — 연결·수집(A9 수정 후 checkpoint 갱신 실측 확인) 전부 정상) · MS Teams(계획 완료, 라이선스 대기) · **Google Chat**(코드 작업 완료 ✅ — backend·pipeline-worker·web-dashboard, 선행 PR 2건(webhook 토큰 확보 일반화·A9) 포함. `docs/google-chat-integration.md`. §1-0 Workspace 계정 게이트 실측·실기동은 미착수) | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
-| 문서 | Notion(N0~N2 완료 ✅ — 공용 REFERENCE text/semantic 분리, ai-engine `Document`/`DocumentSection` 소비 경로, backend OAuth·pipeline-worker 수집기. `docs/notion-integration.md`) | **예외** — `Document` 노드 신규 설계가 선행했다. **커넥터 1개 = 1 PR 규칙의 예외로 4개(N0~N3)로 나눴다** — 남은 건 N3(Layer 4 시맨틱 링크·질의 도구 2종·성좌 뷰·PrivacyPage) |
+| 대화 | **Discord**(코드 작업 완료 ✅ — 연결·수집(A9 수정 후 checkpoint 갱신 실측 확인) 전부 정상) · MS Teams(계획 완료, 라이선스 대기) · **Google Chat**(코드 작업 완료 ✅ — backend·pipeline-worker·web-dashboard, 선행 PR 2건(webhook 토큰 확보 일반화·A9) 포함. `docs/google-chat-integration.md`. §1-0 Workspace 계정 게이트 실측 + 우리 앱 실기동(연결·스페이스 선택·초기 수집) 확인. PR 머지 웹훅 증분·1시간 토큰 갱신은 실기동하지 않음) | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
+| 문서 | Notion(N0~N2 완료 ✅ — 공용 REFERENCE text/semantic 분리, ai-engine `Document`/`DocumentSection` 소비 경로, backend OAuth·pipeline-worker 수집기. `docs/notion-integration.md`) | **예외** — `Document` 노드 신규 설계가 선행했다. **커넥터 1개 = 1 PR 규칙의 예외로 4개(N0~N3)로 나눴다** — 남은 건 N3(Layer 4 시맨틱 링크·질의 도구 2종·작업 단위 뷰·PrivacyPage) |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.

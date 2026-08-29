@@ -126,6 +126,7 @@ JWT refresh token 저장. token 값은 해시(BYTEA)로만 보관한다.
 | `token_hash` | BYTEA | NOT NULL, UNIQUE | refresh token 해시 (평문 저장 금지) |
 | `expires_at` | TIMESTAMPTZ | NOT NULL | 토큰 만료 시각 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 토큰 발급 시각 |
+| `replaced_at` | TIMESTAMPTZ | | 회전으로 교체된 시각. NULL이면 아직 유효. 값이 있으면 재사용 탐지 대상 |
 
 **인덱스**
 - UNIQUE `(token_hash)`
@@ -143,7 +144,7 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 | `installation_id` | BIGINT | NOT NULL, UNIQUE | GitHub 발급 installation ID (외부) |
 | `account_type` | TEXT | NOT NULL | `User` 또는 `Organization` |
 | `account_login` | TEXT | NOT NULL | GitHub 사용자명 또는 조직명 |
-| `installer_user_id` | UUID | NOT NULL, FK → `users.id` CASCADE | App을 처음 설치한 사용자 |
+| `installer_user_id` | UUID | FK → `users.id` **SET NULL** | App을 처음 설치한 사용자 (기록용 — 접근권은 아래 `github_installation_users`가 갖는다) |
 | `encrypted_installation_token` | BYTEA | | 60분 유효 installation token 캐시 (AES-GCM) |
 | `installation_token_expires_at` | TIMESTAMPTZ | | 캐시된 token 만료 시각 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | App 설치 시각 |
@@ -152,6 +153,41 @@ GitHub App 설치 정보. installation token은 암호화해 캐싱한다.
 **인덱스**
 - UNIQUE `(installation_id)`
 - `(installer_user_id)`
+
+**`installer_user_id`가 소유권이 아닌 이유 (V17)**
+
+설치는 **계정 단위**다 — 조직에 설치하면 그 조직 구성원 여럿이 같은 설치를 쓴다. 그런데 이 컬럼이
+접근 기준이던 시절에는 로그인 동기화가 이 값을 매번 덮어써서, 팀원 둘이 같은 조직 설치를 쓰면
+나중에 로그인한 사람이 설치를 가져가고 앞 사람은 404를 받았다. FK도 `CASCADE`라 **한 명의 탈퇴가
+다른 사용자의 연동까지** 지웠다(`integrations.installation_id`가 이 테이블을 CASCADE 참조한다).
+
+V17에서 접근권을 `github_installation_users`로 분리하고 이 FK를 `SET NULL`로 바꿨다.
+이제 이 컬럼은 "최초 설치자" 기록일 뿐이며 **덮어쓰지 않는다.**
+
+---
+
+### `github_installation_users`
+
+설치에 접근할 수 있는 사용자 (N:M). 로그인 동기화 때 GitHub이 그 사용자에게 보여준 설치를 근거로 등록한다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `installation_id` | UUID | PK, FK → `github_installations.id` CASCADE | 설치 |
+| `user_id` | UUID | PK, FK → `users.id` CASCADE | 접근 가능한 사용자 |
+| `created_at` | TIMESTAMPTZ | NOT NULL | 멤버십 등록 시각 |
+
+**인덱스**
+- PRIMARY KEY `(installation_id, user_id)`
+- `(user_id)` — 사용자별 설치 목록 조회
+
+사용자가 파기되면 멤버십 행만 CASCADE로 사라지고 **설치 행은 남는다** — GitHub 쪽 설치는 그대로이고,
+다른 멤버가 계속 쓰거나 나중에 누가 다시 로그인하면 멤버십이 복원된다.
+
+**단, 멤버가 하나도 남지 않는 경우가 있다.** 개인 설치의 유일한 사용자가 탈퇴하면 아무도 쓸 수 없는
+행에 `account_login`(그 사람의 GitHub 사용자명)과 암호화된 installation token 캐시가 남는다.
+지금은 의도적으로 남긴다 — GitHub 쪽 설치가 살아 있는 한 계정 단위로 재사용될 수 있고, 지웠다가
+같은 설치가 다시 동기화되면 `installation_id` 유니크 충돌 경로가 생긴다. **멤버가 0이 된 설치를
+정리할지는 열린 항목이다**(개인정보 관점에서는 지우는 편이 낫다).
 
 ---
 
@@ -200,7 +236,7 @@ provider 열거형 CHECK는 V12에서 제거했다 — 새 연동을 붙일 때�
 
 **`external_ref` JSON 키**
 - GitHub: `repository_id`, `repository_full_name`, `branch`(선택 — 지정하면 해당 브랜치로 수집을 스코프한다)
-- Slack: `workspace_id`, `workspace_name`
+- Slack: `workspace_id`, `workspace_name`, `connected_user_id`(신규 연결 — Slack `authed_user.id`. 레거시 행에는 없음)
 - Jira: `cloud_id`, `site_name`, `project_key`, `project_name`(선택)
   - 최초 동의 직후에는 사이트·프로젝트를 아직 모르므로 `status`(`pending_selection`) 하나만 담긴다
   - 토큰 갱신이 영구 실패해 pending으로 되돌아온 경우는 기존 키를 유지한 채 `status`만 덧붙는다
@@ -218,7 +254,7 @@ AES-256-GCM으로 암호화한다(`security.credentials.key`, base64 디코딩 �
 | provider | 평문 |
 |----------|------|
 | `github` | NULL — installation token은 `github_installations.encrypted_installation_token`에 따로 캐싱한다 |
-| `slack` | user access token 문자열 그대로 (`xoxp-...`) — 동의 URL이 `user_scope`를 쓰므로 응답의 `authed_user.access_token`을 저장한다 |
+| `slack` | JSON `{"user_token": ..., "bot_token": ...}` — `user_token`은 `authed_user.access_token`, `bot_token`은 루트 `access_token`(없으면 null). 레거시 행은 user 토큰 평문이며 복호화 시 폴백한다. 재동의 때 승급하고 마이그레이션은 하지 않는다 |
 | `jira` | OAuth 토큰 JSON — `{"access_token": ..., "refresh_token": ..., "expires_at": ...}` |
 
 Jira는 Atlassian refresh token이 회전하므로 갱신할 때마다 세 값이 통째로 교체된다.

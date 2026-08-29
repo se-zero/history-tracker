@@ -21,8 +21,9 @@ pip install -r requirements.txt -r requirements-dev.txt  # dev = pytest
 uvicorn main:app --reload --port 8000
 ```
 
-필요 환경변수: `OPENAI_API_KEY`(필수), `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD`, `RABBITMQ_URL`,
-`QUERY_MODEL`(선택, 기본 `gpt-5.4-mini`), `GITHUB_REPO`/`GITHUB_TOKEN`(선택, 프로젝트 컨텍스트 pre-warm용).
+필요 환경변수: `OPENAI_API_KEY`(필수), `INTERNAL_SERVICE_TOKEN`(필수 — backend·pipeline-worker와 같은 값.
+미설정이면 lifespan에서 기동을 막는다), `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD`, `RABBITMQ_URL`,
+`QUERY_MODEL`(선택, 기본 `gpt-5.4-mini`).
 
 세션 메모리 노브(선택, 전부 `/query/config`로 노출): `SUMMARY_MODEL`/`REWRITE_MODEL`(요약·질문 재작성 모델,
 기본 `gpt-5.4-mini`), `QUERY_HISTORY_BUDGET_CHARS`(tool 루프 history 글자 예산, 기본 `16000`),
@@ -138,7 +139,7 @@ graph/             Neo4j 그래프 구축 + 수집
   actor_admin.py     Actor 수동 병합·복원·분리 (운영 쓰기 경로, docs/actor-manual-merge.md)
   privacy.py         개인정보 보고 대상 조회 (project_id 스코프 없는 예외 — 모듈 docstring 참고)
   slack_filter.py / slack_llm_filter.py / slack_batch_filter.py  Slack 노이즈 필터
-  summarizer.py / path_filter.py / project_context.py / overview.py
+  summarizer.py / path_filter.py / overview.py
 ```
 
 ## 코딩 규칙
@@ -158,5 +159,14 @@ graph/             Neo4j 그래프 구축 + 수집
   라우트를 추가/변경하면 `tests/unit/test_api_routes.py`의 `EXPECTED_ROUTES`를 갱신한다.
 - 모듈을 추가/이동하면 `tests/unit/test_import_surface.py`의 `MODULES`에 등록한다.
 - **모든 그래프 노드·쿼리는 `project_id`로 스코프**한다 (프로젝트 격리 — 자연키가 프로젝트 간 충돌하므로
-  `project_id` 없는 MERGE/MATCH는 데이터 누출 위험). 인가는 backend가 담당하고 ai-engine은 내부 서비스로 신뢰한다.
+  `project_id` 없는 MERGE/MATCH는 데이터 누출 위험). **사용자 단위 인가는 backend가 담당**하고
+  ai-engine은 내부 서비스로 신뢰한다.
+- **모든 라우터는 내부 서비스 토큰(`X-Internal-Service-Token`)을 요구한다** — `main.py`가
+  `include_router(..., dependencies=[Depends(verify_internal_token)])`로 4개 라우터 전부에 건다.
+  `/health`만 예외다(`@app.get`이라 라우터 밖 — 그대로 열어 둔다).
+  **토큰을 핸들러 파라미터로 받지 마라.** `tests/unit/`의 여러 테스트가 TestClient를 거치지 않고
+  핸들러를 직접 await하므로 시그니처가 바뀌면 그 테스트들이 전부 깨진다. 새 라우터를 추가하면
+  `include_router`에 같은 `dependencies=`를 붙인다.
+  호출부는 헤더를 실어야 한다 — backend는 `AiEngineConfig`의 `defaultHeader`(클라이언트 4개가 이 빈을
+  공유), `eval/runner.py`는 `--token`/`INTERNAL_SERVICE_TOKEN`, 운영자 수동 호출은 `docs/measurement.md`의 런북.
 - 주석·docstring은 한국어로 작성한다 (코드베이스 관행).

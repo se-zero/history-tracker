@@ -1,13 +1,16 @@
 package com.history.backend.integration.service;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.history.backend.auth.service.PlanService;
 import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
@@ -24,6 +27,7 @@ import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.project.domain.Project;
 import com.history.backend.project.service.ProjectService;
 import com.history.backend.shared.domain.Checkpoint;
+import com.history.backend.slack.service.SlackOAuthConnectFlow;
 import com.history.backend.shared.repository.CheckpointRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,9 +49,11 @@ public class IntegrationService {
     private final PipelineWorkerClient pipelineWorkerClient;
     private final AiEngineGraphClient aiEngineGraphClient;
     private final ProviderCredentialLifecycleRegistry credentialLifecycles;
+    private final IntegrationRevocationService revocationService;
     private final AccessTokenRefresherRegistry accessTokenRefreshers;
     private final IntegrationSelectionFlowRegistry selectionFlows;
     private final TransactionTemplate transactionTemplate;
+    private final PlanService planService;
 
     // 프로젝트에 연동된 integration 목록 조회 (provider별 마지막 수집 시각 포함)
     public List<IntegrationResponse> listIntegrations(UUID ownerId, UUID projectId) {
@@ -82,7 +88,8 @@ public class IntegrationService {
             String branch
     ) {
         Project project = projectService.getProject(ownerId, projectId);
-        GitHubInstallation installation = gitHubInstallationService.getInstallationForInstaller(ownerId, installationId);
+        planService.ensureProviderConnectable(ownerId, IntegrationProvider.GITHUB);
+        GitHubInstallation installation = gitHubInstallationService.getAccessibleInstallation(ownerId, installationId);
         validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
         installationTokenService.getInstallationAccessToken(installationId);
 
@@ -97,6 +104,7 @@ public class IntegrationService {
                 normalizedRepositoryFullName,
                 normalizedBranch
         ));
+        planService.recordProviderConnected(ownerId, IntegrationProvider.GITHUB);
         pipelineWorkerClient.triggerCollection(IntegrationProvider.GITHUB, projectId);
         return integration;
     }
@@ -113,7 +121,9 @@ public class IntegrationService {
     ) {
         // 설치 조회가 active user 검증을 겸한다. 외부 호출(토큰 발급)은 트랜잭션 시작 전에 끝내
         // 발급이 실패하면 프로젝트가 아예 만들어지지 않게 하고, 발급 지연 동안 DB 커넥션도 잡지 않는다.
-        GitHubInstallation installation = gitHubInstallationService.getInstallationForInstaller(ownerId, installationId);
+        GitHubInstallation installation = gitHubInstallationService.getAccessibleInstallation(ownerId, installationId);
+        // 이 경로는 계획상 GitHub 연동 제한이 처음 붙는 자리다 — 프로젝트가 만들어지기 전에 막는다
+        planService.ensureProviderConnectable(ownerId, IntegrationProvider.GITHUB);
         installationTokenService.getInstallationAccessToken(installationId);
 
         String normalizedRepositoryFullName = repositoryFullName.trim();
@@ -131,6 +141,7 @@ public class IntegrationService {
             );
             return created;
         });
+        planService.recordProviderConnected(ownerId, IntegrationProvider.GITHUB);
         pipelineWorkerClient.triggerCollection(IntegrationProvider.GITHUB, project.getId());
         return project;
     }
@@ -155,13 +166,11 @@ public class IntegrationService {
             String branch
     ) {
         try {
-            return integrationRepository.saveAndFlush(Integration.github(
-                    project,
-                    installation,
-                    repositoryId,
-                    repositoryFullName,
-                    branch
-            ));
+            Integration integration = Integration.github(project, installation, repositoryId, repositoryFullName, branch);
+            if (!planService.isIncrementalEnabled(project.getOwner().getId())) {
+                integration.disableIncremental();
+            }
+            return integrationRepository.saveAndFlush(integration);
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합으로 사전 중복 검사를 통과한 경우 unique 제약 위반을 409로 변환
             throw integrationAlreadyExists(IntegrationProvider.GITHUB);
@@ -183,8 +192,15 @@ public class IntegrationService {
         IntegrationProvider provider = flow.provider();
         projectService.getProject(ownerId, projectId);
         boolean requiresSelection = selectionFlows.find(provider).isPresent();
-        // 이미 확정된 연동이면 code 교환으로 1회용 code를 낭비하지 않도록 외부 호출 전에 선검증
-        rejectIfAlreadyConnected(projectId, provider);
+        // 이미 확정된 연동이면 code 교환으로 1회용 code를 낭비하지 않도록 외부 호출 전에 선검증.
+        // 조회 결과는 아래 한도 검사에도 재사용한다(같은 요청에서 두 번 조회하지 않는다).
+        Optional<Integration> existing = rejectIfAlreadyConnected(projectId, provider);
+        if (existing.isEmpty()) {
+            // 무료 티어 한도는 신규 연결에만 적용한다 — pending 행이 있다는 건 갱신 실패로 되돌아온
+            // 기존 연동을 재동의로 복구하는 경로라, 이미 남은 이력을 다시 검사하면 복구 수단이 없어진다.
+            // 같은 이유로 code 교환 전에 막아 1회용 code 낭비도 피한다.
+            planService.ensureProviderConnectable(ownerId, provider);
+        }
 
         OAuthConnection connection = flow.exchangeCode(code);
         if (requiresSelection && !connection.externalRef().isEmpty()) {
@@ -218,6 +234,8 @@ public class IntegrationService {
             discardUnsavedConnection(provider, encryptedCredential, connection.externalRef());
             throw exception;
         }
+        // 선택 단계가 있어도 provider 자체는 이미 연동 시도한 것이므로 확정 전에 이력을 남긴다
+        planService.recordProviderConnected(ownerId, provider);
 
         if (!requiresSelection) {
             pipelineWorkerClient.triggerCollection(provider, projectId);
@@ -395,13 +413,15 @@ public class IntegrationService {
         return externalRef;
     }
 
-    // 재동의는 pending 행에만 허용한다 — 확정된 연동에는 409로 code 교환 전에 막는다
-    private void rejectIfAlreadyConnected(UUID projectId, IntegrationProvider provider) {
-        integrationRepository.findByProject_IdAndProvider(projectId, provider)
-                .filter(integration -> !integration.isPendingSelection())
+    // 재동의는 pending 행에만 허용한다 — 확정된 연동에는 409로 code 교환 전에 막는다.
+    // 조회 결과(기존 행 존재 여부)를 호출부의 한도 검사 분기에도 재사용한다.
+    private Optional<Integration> rejectIfAlreadyConnected(UUID projectId, IntegrationProvider provider) {
+        Optional<Integration> existing = integrationRepository.findByProject_IdAndProvider(projectId, provider);
+        existing.filter(integration -> !integration.isPendingSelection())
                 .ifPresent(integration -> {
                     throw integrationAlreadyExists(provider);
                 });
+        return existing;
     }
 
     private Integration getIntegration(UUID projectId, IntegrationProvider provider) {
@@ -439,9 +459,13 @@ public class IntegrationService {
             return integrationRepository.saveAndFlush(integration);
         }
         try {
-            return integrationRepository.saveAndFlush(requiresSelection
+            Integration integration = requiresSelection
                     ? Integration.pendingSelection(project, provider, encryptedCredential)
-                    : Integration.oauth(project, provider, externalRef, encryptedCredential));
+                    : Integration.oauth(project, provider, externalRef, encryptedCredential);
+            if (!planService.isIncrementalEnabled(ownerId)) {
+                integration.disableIncremental();
+            }
+            return integrationRepository.saveAndFlush(integration);
         } catch (DataIntegrityViolationException exception) {
             // 동시 연결 경합 시 unique 제약 위반을 409로 변환
             throw integrationAlreadyExists(provider);
@@ -458,33 +482,119 @@ public class IntegrationService {
         projectService.getProject(ownerId, projectId);
         Integration integration = integrationRepository.findByProject_IdAndProvider(projectId, provider)
                 .orElseThrow(() -> new NotFoundException(provider.displayName() + " integration not found."));
+        disconnectIntegration(integration);
+    }
 
+    /**
+     * Slack app_uninstalled 이벤트 — 워크스페이스 전체 Slack 연동 해제.
+     *
+     * <p>JWT 없는 이벤트 경로라 projectService.getProject(소유권 검사)를 호출하지 않는다.
+     * integrationRepository.findAllByProvider 후 Java 필터로 매칭한다 — 새 native query 없이
+     * 기존 쿼리 재사용을 위해 intentional.</p>
+     */
+    public void disconnectSlackWorkspace(String workspaceId) {
+        if (workspaceId == null || workspaceId.isBlank()) {
+            return;
+        }
+        integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
+                .filter(i -> workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                .forEach(this::disconnectSlackIntegrationQuietly);
+    }
+
+    /**
+     * Slack tokens_revoked 이벤트 — oauth 사용자 목록 매칭 행 해제.
+     *
+     * <p>connected_user_id가 없는 레거시 행은 키 자체가 없으므로 externalRefValue가 null을 반환해 자동으로 건너뛴다.</p>
+     */
+    public void disconnectSlackUsers(String workspaceId, Collection<String> slackUserIds) {
+        if (slackUserIds == null || slackUserIds.isEmpty()) {
+            return;
+        }
+        integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
+                .filter(i -> workspaceId != null && workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                .filter(i -> {
+                    // externalRefValue가 null이면 contains(null)이 NPE — null 선검사 필요
+                    String userId = i.externalRefValue(SlackOAuthConnectFlow.CONNECTED_USER_ID);
+                    return userId != null && slackUserIds.contains(userId);
+                })
+                .forEach(this::disconnectSlackIntegrationQuietly);
+    }
+
+    /**
+     * /why-code 슬래시 커맨드 대상 조회.
+     *
+     * <p>트랜잭션 안에서 프로젝트·소유자·자격증명을 DTO로 복사한다 — 커맨드 질의는 executor 스레드에서
+     * 돌므로 lazy 프록시를 비동기 밖으로 내보내면 LazyInitializationException이 난다.</p>
+     */
+    public List<SlackCommandTarget> listSlackCommandTargets(String workspaceId) {
+        return transactionTemplate.execute(status ->
+                integrationRepository.findAllByProvider(IntegrationProvider.SLACK).stream()
+                        .filter(i -> workspaceId.equals(i.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)))
+                        .filter(i -> !i.isPendingSelection())
+                        .map(this::toSlackCommandTarget)
+                        .toList());
+    }
+
+    // connected_user_id가 없던 레거시 행을 auth.test 결과로 승급. 다른 external_ref 키는 유지한다.
+    public void backfillSlackConnectedUserId(UUID integrationId, String slackUserId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            Integration integration = integrationRepository.findById(integrationId)
+                    .orElseThrow(() -> new NotFoundException("Slack integration not found."));
+            Map<String, Object> updated = new HashMap<>(integration.getExternalRef());
+            updated.put(SlackOAuthConnectFlow.CONNECTED_USER_ID, slackUserId);
+            integration.applyExternalRef(updated);
+        });
+    }
+
+    private SlackCommandTarget toSlackCommandTarget(Integration integration) {
+        Project project = integration.getProject();
+        return new SlackCommandTarget(
+                integration.getId(),
+                project.getId(),
+                project.getName(),
+                project.getOwner().getId(),
+                integration.externalRefValue(SlackOAuthConnectFlow.CONNECTED_USER_ID),
+                integration.getEncryptedCredential());
+    }
+
+    public record SlackCommandTarget(
+            UUID integrationId,
+            UUID projectId,
+            String projectName,
+            UUID ownerUserId,
+            String connectedUserId,
+            byte[] encryptedCredential
+    ) {
+    }
+
+    // 이벤트 경로 전용 — 한 행의 그래프 삭제 실패가 같은 워크스페이스의 다른 행 해제를 막으면 안 된다.
+    // JWT disconnect()는 단건이라 disconnectIntegration을 직접 호출해 예외를 사용자에게 그대로 보낸다.
+    private void disconnectSlackIntegrationQuietly(Integration integration) {
+        try {
+            disconnectIntegration(integration);
+        } catch (RuntimeException e) {
+            log.error("Slack lifecycle disconnect failed. integrationId={}, error={}",
+                    integration.getId(), e.getMessage(), e);
+        }
+    }
+
+    // 폐기 → 그래프 삭제 → RDB 삭제 공통 경로 (소유권 검사 없음 — 이벤트 경로에서 호출 가능)
+    private void disconnectIntegration(Integration integration) {
+        UUID projectId = integration.getProject().getId();
+        IntegrationProvider provider = integration.getProvider();
         // provider 쪽 권한 폐기를 먼저 한다 — 우리 DB의 토큰을 지우면 폐기에 쓸 값 자체가 사라진다.
         // 실패해도 진행한다(각 client가 삼킨다): 이미 폐기된 토큰이나 provider 장애 때문에
         // 해제가 막히면 사용자가 데이터를 지울 방법을 잃는다.
-        revokeProviderAccess(integration, provider);
-
+        revocationService.revoke(integration);
         // 그래프를 먼저 지우는 순서·이유는 프로젝트 삭제와 같다(ProjectService.deleteProject 주석):
         // 외부 HTTP를 트랜잭션 밖에 둬 커넥션 점유를 피하고, 그래프 삭제가 멱등이라 RDB 삭제가
         // 뒤에서 실패해도 재시도 시 no-op으로 통과해 수렴한다(원자적 보장은 아님).
         aiEngineGraphClient.deleteProjectSourceGraph(projectId, provider);
-
         transactionTemplate.executeWithoutResult(status -> {
             // checkpoint를 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이 데이터가 누락된다
             checkpointRepository.deleteByProject_IdAndId_Provider(projectId, provider);
             integrationRepository.deleteById(integration.getId());
         });
-    }
-
-    // 폐기 방법은 provider의 ProviderCredentialLifecycle이 소유한다. GitHub은 폐기 대상이 없어
-    // 구현이 없다 — App 설치는 계정 단위(다른 프로젝트도 쓴다)라 유지하고, installation token은
-    // 1시간짜리 캐시라 방치해도 곧 만료된다. 제거는 GitHub 설정에서 한다.
-    // registry에 등록된 provider는 항상 암호화된 credential을 갖고 있으므로(등록되지 않은 GitHub만
-    // credential이 없다) find(provider)로만 걸러도 안전하다.
-    private void revokeProviderAccess(Integration integration, IntegrationProvider provider) {
-        credentialLifecycles.find(provider)
-                .ifPresent(lifecycle -> lifecycle.revoke(
-                        integration.getEncryptedCredential(), integration.getExternalRef()));
     }
 
     // 프로젝트당 provider별 1개 연동 제한 검증

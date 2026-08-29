@@ -1,7 +1,6 @@
 package com.history.backend.notion.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -107,16 +106,31 @@ class NotionClientTest {
     }
 
     @Test
-    @DisplayName("폐기 요청은 access_token을 담아 Basic auth로 보내고, 실패해도 예외를 던지지 않는다")
-    void revokeSendsAccessTokenAndSwallowsFailure() {
+    @DisplayName("폐기 요청은 access_token을 담아 Basic auth로 보내고, 성공하면 true를 반환한다")
+    void revokeSendsAccessTokenAndReturnsTrueOnSuccess() {
         NotionClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://notion.test/v1/oauth/revoke"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", EXPECTED_BASIC_AUTH))
                 .andExpect(jsonPath("$.token").value("access-token"))
+                .andRespond(withSuccess());
+
+        boolean result = fixture.client.revoke("access-token");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("폐기 요청이 실패해도 예외를 던지지 않고 false를 반환한다")
+    void revokeReturnsFalseWhenRequestFails() {
+        NotionClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://notion.test/v1/oauth/revoke"))
                 .andRespond(withServerError());
 
-        assertThatCode(() -> fixture.client.revoke("access-token")).doesNotThrowAnyException();
+        boolean result = fixture.client.revoke("access-token");
+
+        assertThat(result).isFalse();
         fixture.server.verify();
     }
 

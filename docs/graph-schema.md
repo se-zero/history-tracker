@@ -327,7 +327,7 @@ Document 본문을 heading 경계로 쪼갠 임베딩 단위(`graph/document_chu
 재수집 시 한 문서의 섹션은 **전량 교체**한다(upsert가 아니라 delete-then-create) — 본문 중간
 편집은 이후 ordinal을 전부 밀어 부분 갱신이 무의미하기 때문이다. 시맨틱 엣지를 섹션이 아니라
 Document에 걸어 두므로(관계 목록 참고) 섹션이 통째로 갈려도 링크는 끊기지 않는다.
-`DocumentSection`은 검색 내부 단위라 그래프 뷰·성좌에는 노출하지 않는다.
+`DocumentSection`은 검색 내부 단위라 그래프 뷰·작업 단위 뷰에는 노출하지 않는다.
 
 ---
 

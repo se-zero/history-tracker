@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icons } from "@/components/Icons";
-import { ConstellationDetail } from "@/components/graph/ConstellationDetail";
+import { ClusterDetail } from "@/components/graph/ClusterDetail";
 import { sourceNameForNode } from "@/components/sources/sourceCatalog";
 import { rgba, resolveVarRgb, shade, varName, type Rgb } from "@/lib/canvasColor";
 import {
-  buildConstellations,
-  type ConstellationLayout,
-} from "@/lib/constellation";
+  buildWorkUnitLayout,
+  type GraphLayout,
+} from "@/lib/workUnitLayout";
 import { useTheme } from "@/theme/ThemeProvider";
 import {
   NODE_TYPE_INFO,
@@ -19,14 +19,14 @@ import {
 interface Props {
   nodes: GraphNode[];
   edges: GraphEdge[];
-  /** 별성으로 그릴 노드 id — 서버가 정한 작업 단위 목록. */
+  /** 작업 단위로 그릴 노드 id — 서버가 정한 작업 단위 목록. */
   workUnitIds: string[];
   selectedId: string | null;
   onSelect: (node: GraphNode) => void;
   onBackgroundClick: () => void;
-  /** 성좌를 열 때 그 작업 단위의 이웃을 채워 달라는 요청 (드릴인 지연 로딩). */
+  /** 묶음을 열 때 그 작업 단위의 이웃을 채워 달라는 요청 (드릴인 지연 로딩). */
   onExpandWorkUnit?: (nodeId: string) => void;
-  /** 드릴인 조회가 진행 중인지 — 열린 성좌 패널에 표시한다. */
+  /** 드릴인 조회가 진행 중인지 — 열린 묶음 패널에 표시한다. */
   expanding?: boolean;
 }
 
@@ -36,10 +36,10 @@ const MIN_ZOOM = 0.35;
 /**
  * 최대 확대는 고정 배율(k)이 아니라 "월드 1단위가 화면 몇 px이 되는가"로 정한다.
  * 기본 배율은 그래프 규모(extent)에 따라 달라지므로 k에 고정 상한을 두면,
- * 성좌를 여는 순간 이미 상한에 닿아 그 안에서 더 확대할 수 없게 된다.
+ * 묶음을 여는 순간 이미 상한에 닿아 그 안에서 더 확대할 수 없게 된다.
  */
 const MAX_SCALE = 28;
-/** 성좌를 열면 왼쪽 패널이 화면을 가리므로, 그만큼 중심을 오른쪽으로 민다. */
+/** 묶음을 열면 왼쪽 패널이 화면을 가리므로, 그만큼 중심을 오른쪽으로 민다. */
 const PANEL_SHIFT = 150;
 /** 카메라 이동 보간 계수 — 프레임마다 목표까지 남은 거리의 이 비율만큼 다가간다. */
 const CAMERA_EASE = 0.16;
@@ -59,11 +59,11 @@ const REST_ALPHA = 0.8;
 
 /**
  * 라벨은 노드가 화면에서 이 반지름(px)보다 커졌을 때부터 나타난다.
- * 노드 크기는 별성이 위성 수에, 위성이 타입에 따라 다르므로 큰 것부터 차례로 켜진다 —
+ * 노드 크기는 작업 단위가 구성 노드 수에, 구성 노드가 타입에 따라 다르므로 큰 것부터 차례로 켜진다 —
  * 배율 구간을 따로 나누지 않아도 확대에 따라 라벨이 순차적으로 드러난다.
  */
-const STAR_LABEL_MIN_R = 6;
-const SATELLITE_LABEL_MIN_R = 4;
+const WORK_UNIT_LABEL_MIN_R = 6;
+const MEMBER_LABEL_MIN_R = 4;
 
 /** 출처가 여러 제품으로 갈리는 렌더링 분류 — 이 타입만 source별로 줄을 나눈다. */
 const MULTI_SOURCE_TYPES: ReadonlySet<GraphNodeType> = new Set(["jira", "slack", "doc"]);
@@ -81,8 +81,8 @@ interface Size {
 
 interface Hit {
   node: GraphNode;
-  starIndex: number | null;
-  isStar: boolean;
+  workUnitIndex: number | null;
+  isWorkUnit: boolean;
 }
 
 /** 화면에 자리를 가진 노드 — 좌표 조회와 엣지 그리기에 쓴다. */
@@ -91,9 +91,9 @@ interface Placed {
   x: number;
   y: number;
   r: number;
-  isStar: boolean;
-  /** 소속 성좌 인덱스. 먼지는 null. */
-  starIndex: number | null;
+  isWorkUnit: boolean;
+  /** 소속 작업 단위 묶음 인덱스. 미소속 노드는 null. */
+  workUnitIndex: number | null;
 }
 
 /** 노드 렌즈(범례) 한 줄 — MULTI_SOURCE_TYPES면 source별로, 아니면 type별로 하나씩 만든다. */
@@ -117,21 +117,21 @@ interface Palette {
   accent: Rgb;
   /**
    * 배경이 어두운지. 색이 아니라 "방향"이 갈리는 표현들이 있어서 필요하다 —
-   * 테두리를 밝혀야 또렷한지 어둡게 해야 또렷한지, 별먼지가 성립하는지 등.
+   * 테두리를 밝혀야 또렷한지 어둡게 해야 또렷한지, 배경 장식 점이 성립하는지 등.
    */
   isDark: boolean;
   fontFamily: string;
 }
 
-interface BgStar {
+interface BackdropDot {
   x: number;
   y: number;
   r: number;
   a: number;
 }
 
-function makeStarfield(count: number): BgStar[] {
-  // 고정 시드 LCG — 새로고침해도 같은 하늘이 나온다.
+function makeBackdropDots(count: number): BackdropDot[] {
+  // 고정 시드 LCG — 새로고침해도 같은 배경이 나온다.
   let seed = 20260726;
   const rand = () => {
     seed = (seed * 1664525 + 1013904223) % 4294967296;
@@ -148,11 +148,11 @@ function makeStarfield(count: number): BgStar[] {
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 /** 뷰포트 전체를 채우는 기본 배율 (줌 1일 때). */
-function baseScale(layout: ConstellationLayout, size: Size): number {
+function baseScale(layout: GraphLayout, size: Size): number {
   return (Math.min(size.w, size.h) / (2 * Math.max(layout.extent, 1))) * FIT_MARGIN;
 }
 
-function transform(layout: ConstellationLayout, size: Size, view: View) {
+function transform(layout: GraphLayout, size: Size, view: View) {
   return {
     s: baseScale(layout, size) * view.k,
     cx: size.w / 2 + view.tx,
@@ -171,7 +171,7 @@ function inView(x: number, y: number, radius: number, size: Size): boolean {
   );
 }
 
-export function ConstellationVis({
+export function WorkUnitCanvas({
   nodes,
   edges,
   workUnitIds,
@@ -188,14 +188,14 @@ export function ConstellationVis({
 
   // 뷰(줌·팬)는 매 프레임 캔버스가 다시 그려지므로 React state로 둘 필요가 없다.
   const viewRef = useRef<View>({ k: 1, tx: 0, ty: 0 });
-  // 카메라가 향할 목표 — 성좌를 열 때 부드럽게 날아가기 위한 것. 사용자가 직접 조작하면 취소된다.
+  // 카메라가 향할 목표 — 묶음을 열 때 부드럽게 날아가기 위한 것. 사용자가 직접 조작하면 취소된다.
   const targetRef = useRef<View | null>(null);
   const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const draggedRef = useRef(false);
   const hitRef = useRef<Hit | null>(null);
   const selectedRef = useRef<string | null>(selectedId);
   const focusedRef = useRef<number | null>(null);
-  /** 성좌를 열기 직전의 카메라 — 닫을 때 사용자가 맞춰 둔 배율·위치로 되돌리는 데 쓴다. */
+  /** 묶음을 열기 직전의 카메라 — 닫을 때 사용자가 맞춰 둔 배율·위치로 되돌리는 데 쓴다. */
   const preFocusViewRef = useRef<View | null>(null);
 
   const [hovered, setHovered] = useState<GraphNode | null>(null);
@@ -210,7 +210,7 @@ export function ConstellationVis({
   const [lensActorIds, setLensActorIds] = useState<string[]>([]);
   /** 노드 렌즈 — 고른 노드 분류(타입, 또는 MULTI_SOURCE_TYPES면 타입:출처)만 밝히는 필터. */
   const [lensTypeKeys, setLensTypeKeys] = useState<string[]>([]);
-  // 열린 성좌의 도달 반경 — 드릴인으로 위성이 늘어 커졌는지 판단해 카메라를 다시 맞춘다.
+  // 열린 묶음의 도달 반경 — 드릴인으로 구성 노드가 늘어 커졌는지 판단해 카메라를 다시 맞춘다.
   const focusedReachRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -220,18 +220,20 @@ export function ConstellationVis({
     focusedRef.current = focused;
   }, [focused]);
 
-  // 직전 배치의 별성 좌표. 드릴인으로 위성이 늘어도 은하가 재배치되지 않도록 고정에 쓴다.
-  const starPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // 직전 배치의 작업 단위 좌표. 드릴인으로 구성 노드가 늘어도 전체가 재배치되지 않도록 고정에 쓴다.
+  const workUnitPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const layout = useMemo(
-    () => buildConstellations(nodes, edges, workUnitIds, starPosRef.current),
+    () => buildWorkUnitLayout(nodes, edges, workUnitIds, workUnitPosRef.current),
     [nodes, edges, workUnitIds],
   );
   useEffect(() => {
     const positions = new Map<string, { x: number; y: number }>();
-    for (const star of layout.stars) positions.set(star.node.id, { x: star.x, y: star.y });
-    starPosRef.current = positions;
+    for (const workUnit of layout.workUnits) {
+      positions.set(workUnit.node.id, { x: workUnit.x, y: workUnit.y });
+    }
+    workUnitPosRef.current = positions;
   }, [layout]);
-  const starfield = useMemo(() => makeStarfield(140), []);
+  const backdropDots = useMemo(() => makeBackdropDots(140), []);
 
   // 확대 상한은 그래프 규모·뷰포트에 따라 달라진다. 휠 핸들러가 [] deps라 ref로 전달한다.
   const maxZoomRef = useRef(MAX_SCALE);
@@ -242,26 +244,26 @@ export function ConstellationVis({
   /** 노드 id → 화면상의 자리. 강조·엣지 그리기에서 좌표를 찾는 데 쓴다. */
   const placed = useMemo(() => {
     const map = new Map<string, Placed>();
-    layout.stars.forEach((star, i) => {
-      map.set(star.node.id, {
-        node: star.node, x: star.x, y: star.y, r: star.r, isStar: true, starIndex: i,
+    layout.workUnits.forEach((workUnit, i) => {
+      map.set(workUnit.node.id, {
+        node: workUnit.node, x: workUnit.x, y: workUnit.y, r: workUnit.r, isWorkUnit: true, workUnitIndex: i,
       });
-      star.satellites.forEach((sat) => {
-        map.set(sat.node.id, {
-          node: sat.node, x: sat.x, y: sat.y, r: sat.r, isStar: false, starIndex: i,
+      workUnit.members.forEach((member) => {
+        map.set(member.node.id, {
+          node: member.node, x: member.x, y: member.y, r: member.r, isWorkUnit: false, workUnitIndex: i,
         });
       });
     });
-    layout.dust.forEach((d) => {
+    layout.unattached.forEach((d) => {
       map.set(d.node.id, {
-        node: d.node, x: d.x, y: d.y, r: d.r, isStar: false, starIndex: null,
+        node: d.node, x: d.x, y: d.y, r: d.r, isWorkUnit: false, workUnitIndex: null,
       });
     });
     return map;
   }, [layout]);
 
   /**
-   * 실제 그래프 인접 관계. 성좌 배치가 만드는 스포크·다리와 달리 원본 엣지 그대로다 —
+   * 실제 그래프 인접 관계. 배치가 만드는 구성선·공유 연결과 달리 원본 엣지 그대로다 —
    * 선택한 노드의 "진짜 이웃"을 강조하고 그 연결선을 그리는 데 쓴다.
    */
   const adjacency = useMemo(() => {
@@ -278,29 +280,29 @@ export function ConstellationVis({
     return map;
   }, [edges]);
 
-  /** 별성 id → 그 성좌에 속한 위성 id들. 별성을 고를 때 성좌 전체를 살리는 데 쓴다. */
-  const constellationMembers = useMemo(() => {
+  /** 작업 단위 id → 그 묶음에 속한 구성 노드 id들. 작업 단위를 고를 때 묶음 전체를 살리는 데 쓴다. */
+  const clusterMembers = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const star of layout.stars) {
-      map.set(star.node.id, star.satellites.map((sat) => sat.node.id));
+    for (const workUnit of layout.workUnits) {
+      map.set(workUnit.node.id, workUnit.members.map((member) => member.node.id));
     }
     return map;
   }, [layout]);
 
   /**
-   * 열린 성좌 안의 실제 그래프 엣지.
+   * 열린 묶음 안의 실제 그래프 엣지.
    *
-   * 별성→위성 스포크는 배치가 만든 소속 표시일 뿐 원본 관계가 아니다. 스키마상 PR에서
+   * 작업 단위→구성 노드 선은 배치가 만든 소속 표시일 뿐 원본 관계가 아니다. 스키마상 PR에서
    * 나가는 관계는 CONTAINS(→커밋) 하나뿐이고 파일·티켓·대화는 커밋을 거치므로,
-   * 스포크만 그리면 "왜 바뀌었나"의 사슬(커밋→파일, 커밋→티켓, 티켓→대화)이 보이지 않는다.
+   * 그 선만 그리면 "왜 바뀌었나"의 사슬(커밋→파일, 커밋→티켓, 티켓→대화)이 보이지 않는다.
    */
   const focusedEdges = useMemo(() => {
     if (focused === null) return [];
-    const star = layout.stars[focused];
-    if (!star) return [];
+    const workUnit = layout.workUnits[focused];
+    if (!workUnit) return [];
 
-    const members = new Set<string>([star.node.id]);
-    for (const sat of star.satellites) members.add(sat.node.id);
+    const members = new Set<string>([workUnit.node.id]);
+    for (const member of workUnit.members) members.add(member.node.id);
 
     const pairs: Array<[Placed, Placed]> = [];
     const seen = new Set<string>();
@@ -329,7 +331,7 @@ export function ConstellationVis({
   /**
    * 액터 렌즈 후보 — 배치된 노드에 실제로 관여한 사람만.
    *
-   * 액터는 연결 수가 50~133으로 다른 노드(중앙값 3)의 수십 배라 배치에 넣으면 은하가
+   * 액터는 연결 수가 50~133으로 다른 노드(중앙값 3)의 수십 배라 배치에 넣으면 전체가
    * 붕괴한다. 그래서 노드로 그리지 않고, 대신 "이 사람이 무엇을 했나"를 강조로 답한다.
    * 기여 수를 함께 보여주는 건 동일인이 여러 액터로 남아 있을 때(병합 전) 구분하기 위함이다.
    */
@@ -443,14 +445,14 @@ export function ConstellationVis({
     setLensTypeKeys([]);
   }, [nodes]);
 
-  /** 별성 인덱스 → 다리로 이어진 다른 별성들. */
-  const starNeighbors = useMemo(() => {
+  /** 작업 단위 인덱스 → 공유 연결로 이어진 다른 작업 단위들. */
+  const workUnitNeighbors = useMemo(() => {
     const map = new Map<number, Set<number>>();
-    for (const b of layout.bridges) {
-      if (!map.has(b.a)) map.set(b.a, new Set());
-      if (!map.has(b.b)) map.set(b.b, new Set());
-      map.get(b.a)!.add(b.b);
-      map.get(b.b)!.add(b.a);
+    for (const link of layout.sharedLinks) {
+      if (!map.has(link.a)) map.set(link.a, new Set());
+      if (!map.has(link.b)) map.set(link.b, new Set());
+      map.get(link.a)!.add(link.b);
+      map.get(link.b)!.add(link.a);
     }
     return map;
   }, [layout]);
@@ -487,8 +489,8 @@ export function ConstellationVis({
   }, []);
 
   // 그래프가 바뀌면 열려 있던 포커스는 의미가 없다.
-  // 판정 기준을 layout이 아니라 작업 단위 목록으로 둔다 — 드릴인으로 위성만 늘어난 경우엔
-  // layout 객체가 새로 만들어져도 보고 있던 성좌를 닫으면 안 된다.
+  // 판정 기준을 layout이 아니라 작업 단위 목록으로 둔다 — 드릴인으로 구성 노드만 늘어난 경우엔
+  // layout 객체가 새로 만들어져도 보고 있던 묶음을 닫으면 안 된다.
   const workSignature = workUnitIds.join("|");
   useEffect(() => {
     setFocused(null);
@@ -527,22 +529,22 @@ export function ConstellationVis({
 
   const focusOn = useCallback(
     (index: number) => {
-      const star = layout.stars[index];
-      if (!star) return;
-      // 처음 성좌를 여는 순간의 카메라만 저장한다 — 성좌→성좌 이동이나 드릴인 재조정에서
+      const workUnit = layout.workUnits[index];
+      if (!workUnit) return;
+      // 처음 묶음을 여는 순간의 카메라만 저장한다 — 묶음→묶음 이동이나 드릴인 재조정에서
       // 덮어쓰면 "맨 처음 확대 직전" 상태가 사라진다.
       if (focusedRef.current === null) {
         preFocusViewRef.current = { ...viewRef.current };
       }
       const base = baseScale(layout, size);
-      // 성좌 하나가 화면의 약 36%를 차지하도록 배율을 정한다.
-      const wanted = (Math.min(size.w, size.h) * 0.36) / Math.max(star.reach, 1);
+      // 묶음 하나가 화면의 약 36%를 차지하도록 배율을 정한다.
+      const wanted = (Math.min(size.w, size.h) * 0.36) / Math.max(workUnit.reach, 1);
       const k = clamp(wanted / base, MIN_ZOOM, maxZoomRef.current);
       const s = base * k;
-      targetRef.current = { k, tx: PANEL_SHIFT - star.x * s, ty: -star.y * s };
+      targetRef.current = { k, tx: PANEL_SHIFT - workUnit.x * s, ty: -workUnit.y * s };
       setFocused(index);
-      // 위성이 아직 없는 성좌(최신 창 밖의 오래된 작업)를 채워 달라고 알린다.
-      onExpandWorkUnit?.(star.node.id);
+      // 구성 노드가 아직 없는 작업 단위(최신 창 밖의 오래된 작업)를 채워 달라고 알린다.
+      onExpandWorkUnit?.(workUnit.node.id);
     },
     [layout, size, onExpandWorkUnit],
   );
@@ -562,17 +564,17 @@ export function ConstellationVis({
     targetRef.current = { k: 1, tx: 0, ty: 0 };
   }, []);
 
-  // 드릴인으로 위성이 채워지면 성좌가 커진다 — 새 위성이 화면 밖에 놓이지 않게 다시 맞춘다.
+  // 드릴인으로 구성 노드가 채워지면 묶음이 커진다 — 새 구성 노드가 화면 밖에 놓이지 않게 다시 맞춘다.
   useEffect(() => {
     if (focused === null) return;
-    const star = layout.stars[focused];
-    if (!star) return;
+    const workUnit = layout.workUnits[focused];
+    if (!workUnit) return;
     const prev = focusedReachRef.current;
-    focusedReachRef.current = star.reach;
-    if (prev !== null && Math.abs(star.reach - prev) > 1) focusOn(focused);
+    focusedReachRef.current = workUnit.reach;
+    if (prev !== null && Math.abs(workUnit.reach - prev) > 1) focusOn(focused);
   }, [layout, focused, focusOn]);
 
-  // ESC로 성좌에서 빠져나온다.
+  // ESC로 묶음에서 빠져나온다.
   useEffect(() => {
     if (focused === null) return;
     const handler = (e: KeyboardEvent) => {
@@ -606,25 +608,25 @@ export function ConstellationVis({
         view: viewRef.current,
         layout,
         palette,
-        starfield,
+        backdropDots,
         placed,
         adjacency,
         activeId,
         // 선택이 렌즈보다 우선 — 렌즈는 아무것도 안 짚었을 때의 바탕 상태다.
         highlight:
-          buildHighlight(selected, adjacency, placed, constellationMembers) ??
+          buildHighlight(selected, adjacency, placed, clusterMembers) ??
           lensHighlightRef.current,
-        hoverLift: buildHighlight(hoveredId, adjacency, placed, constellationMembers),
+        hoverLift: buildHighlight(hoveredId, adjacency, placed, clusterMembers),
         focusedEdges: focusedEdgesRef.current,
         focused: focusedIndex,
-        related: focusedIndex === null ? null : (starNeighbors.get(focusedIndex) ?? new Set()),
+        related: focusedIndex === null ? null : (workUnitNeighbors.get(focusedIndex) ?? new Set()),
         selectedId: selectedRef.current,
       });
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [layout, palette, size, starfield, starNeighbors, placed, adjacency, constellationMembers]);
+  }, [layout, palette, size, backdropDots, workUnitNeighbors, placed, adjacency, clusterMembers]);
 
   /** 카메라 목표가 있으면 매 프레임 조금씩 다가간다. */
   const stepCamera = () => {
@@ -691,15 +693,15 @@ export function ConstellationVis({
       onBackgroundClick();
       return;
     }
-    // 별성을 누르면 그 성좌로 파고들고, 위성을 누르면 노드 상세만 연다.
-    if (hit.isStar && hit.starIndex !== null) focusOn(hit.starIndex);
+    // 작업 단위를 누르면 그 묶음으로 파고들고, 구성 노드를 누르면 노드 상세만 연다.
+    if (hit.isWorkUnit && hit.workUnitIndex !== null) focusOn(hit.workUnitIndex);
     onSelect(hit.node);
   };
 
   /**
-   * 확대/축소 버튼. 성좌를 열었으면 그 성좌를 축으로 삼는다 —
-   * 열린 성좌는 패널을 피해 중심에서 비켜나 있어서, 화면 중앙 기준으로 배율만 바꾸면
-   * 확대할수록 성좌가 화면 밖으로 밀려난다.
+   * 확대/축소 버튼. 묶음을 열었으면 그 묶음을 축으로 삼는다 —
+   * 열린 묶음은 패널을 피해 중심에서 비켜나 있어서, 화면 중앙 기준으로 배율만 바꾸면
+   * 확대할수록 묶음이 화면 밖으로 밀려난다.
    */
   const zoom = (factor: number) => {
     targetRef.current = null;
@@ -709,10 +711,10 @@ export function ConstellationVis({
     if (ratio === 1) return;
     const cx = size.w / 2 + view.tx;
     const cy = size.h / 2 + view.ty;
-    const star = focused === null ? null : layout.stars[focused];
+    const workUnit = focused === null ? null : layout.workUnits[focused];
     const s = baseScale(layout, size) * view.k;
-    const ax = star ? cx + star.x * s : size.w / 2;
-    const ay = star ? cy + star.y * s : size.h / 2;
+    const ax = workUnit ? cx + workUnit.x * s : size.w / 2;
+    const ay = workUnit ? cy + workUnit.y * s : size.h / 2;
     viewRef.current = {
       k,
       tx: view.tx + (ax - cx) * (1 - ratio),
@@ -720,13 +722,13 @@ export function ConstellationVis({
     };
   };
 
-  const focusedStar = focused === null ? null : (layout.stars[focused] ?? null);
+  const focusedWorkUnit = focused === null ? null : (layout.workUnits[focused] ?? null);
 
   return (
-    <div className="galaxy-wrap" ref={wrapRef}>
+    <div className="wu-wrap" ref={wrapRef}>
       <canvas
         ref={canvasRef}
-        className="galaxy-canvas"
+        className="wu-canvas"
         style={{ width: size.w, height: size.h, cursor: hovered ? "pointer" : "grab" }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
@@ -740,28 +742,28 @@ export function ConstellationVis({
       />
 
       {/* 상시 마운트 — 내부에서 null 처리 및 퇴장 모션을 담당(useExitPresence).
-          범례는 focusedStar가 사라지는 즉시 돌아오므로 퇴장 120ms 동안 잠깐 겹칠 수 있다(수용). */}
-      <ConstellationDetail
-        star={focusedStar}
+          범례는 focusedWorkUnit이 사라지는 즉시 돌아오므로 퇴장 120ms 동안 잠깐 겹칠 수 있다(수용). */}
+      <ClusterDetail
+        workUnit={focusedWorkUnit}
         selectedId={selectedId}
         loading={expanding}
         onSelectNode={onSelect}
         onClose={exitFocus}
       />
-      {!focusedStar && (
-        <div className="galaxy-legend">
+      {!focusedWorkUnit && (
+        <div className="wu-legend">
           {lensActors.length > 0 && (
-            <div className="galaxy-lens">
-              <div className="galaxy-legend-hint">
+            <div className="wu-lens">
+              <div className="wu-legend-hint">
                 사람별로 보기{lensActorIds.length > 0 ? ` · ${lensActorIds.length}명` : ""}
               </div>
               {/* 사람은 프로젝트가 커질수록 늘어난다 — 목록만 스크롤하고 제목은 남긴다. */}
-              <div className="galaxy-lens-list scrollable">
+              <div className="wu-lens-list scrollable">
                 {lensActors.map(({ node, count }) => (
                   <button
                     key={node.id}
                     className={
-                      "galaxy-lens-chip" +
+                      "wu-lens-chip" +
                       (lensActorIds.includes(node.id) ? " active" : "")
                     }
                     onClick={() =>
@@ -773,22 +775,22 @@ export function ConstellationVis({
                     }
                     title={`${node.title} — 관여한 노드 ${count}개 (여러 명 함께 선택 가능)`}
                   >
-                    <span className="galaxy-lens-name">{node.title}</span>
-                    <span className="galaxy-lens-count">{count}</span>
+                    <span className="wu-lens-name">{node.title}</span>
+                    <span className="wu-lens-count">{count}</span>
                   </button>
                 ))}
               </div>
             </div>
           )}
           {nodeLensGroups.length > 0 && (
-            <div className="galaxy-lens">
-              <div className="galaxy-legend-hint">노드별로 보기</div>
-              <div className="galaxy-lens-list">
+            <div className="wu-lens">
+              <div className="wu-legend-hint">노드별로 보기</div>
+              <div className="wu-lens-list">
                 {nodeLensGroups.map((group) => (
                   <button
                     key={group.key}
                     className={
-                      "galaxy-lens-chip" +
+                      "wu-lens-chip" +
                       (lensTypeKeys.includes(group.key) ? " active" : "")
                     }
                     onClick={() =>
@@ -801,10 +803,10 @@ export function ConstellationVis({
                     title={`${group.label} 노드만 보기 (여러 개 함께 선택 가능)`}
                   >
                     <span
-                      className="galaxy-legend-dot"
+                      className="wu-legend-dot"
                       style={{ background: group.color }}
                     />
-                    <span className="galaxy-lens-name">{group.label}</span>
+                    <span className="wu-lens-name">{group.label}</span>
                   </button>
                 ))}
               </div>
@@ -832,8 +834,8 @@ export function ConstellationVis({
  * 강조 집합 = 대상 노드 + 실제 엣지로 이어진 이웃.
  * Actor처럼 배치에서 빠진 노드는 그릴 자리가 없으므로 제외한다.
  *
- * 별성(작업 단위)을 고르면 그 성좌 전체를 함께 살린다. 작업 단위는 커밋만 직접 이웃이고
- * 파일·티켓·대화는 2~3홉이라, 1홉만 살리면 방금 연 성좌의 대부분이 눌려서 안 보인다.
+ * 작업 단위를 고르면 그 묶음 전체를 함께 살린다. 작업 단위는 커밋만 직접 이웃이고
+ * 파일·티켓·대화는 2~3홉이라, 1홉만 살리면 방금 연 묶음의 대부분이 눌려서 안 보인다.
  */
 function buildHighlight(
   activeId: string | null,
@@ -849,14 +851,14 @@ function buildHighlight(
   for (const nb of adjacency.get(activeId) ?? []) {
     if (placed.has(nb)) set.add(nb);
   }
-  if (node.isStar) {
+  if (node.isWorkUnit) {
     for (const id of members.get(activeId) ?? []) set.add(id);
   }
   return set;
 }
 
 function hitTest(
-  layout: ConstellationLayout,
+  layout: GraphLayout,
   size: Size,
   view: View,
   px: number,
@@ -871,8 +873,8 @@ function hitTest(
     wx: number,
     wy: number,
     radius: number,
-    star: number | null,
-    isStar: boolean,
+    workUnitIdx: number | null,
+    isWorkUnit: boolean,
   ) => {
     const x = cx + wx * s;
     const y = cy + wy * s;
@@ -881,17 +883,17 @@ function hitTest(
     const d = Math.hypot(x - px, y - py);
     if (d <= hitR && d < bestDist) {
       bestDist = d;
-      best = { node, starIndex: star, isStar };
+      best = { node, workUnitIndex: workUnitIdx, isWorkUnit };
     }
   };
 
-  layout.stars.forEach((star, i) => {
-    star.satellites.forEach((sat) => consider(sat.node, sat.x, sat.y, sat.r, i, false));
+  layout.workUnits.forEach((workUnit, i) => {
+    workUnit.members.forEach((member) => consider(member.node, member.x, member.y, member.r, i, false));
   });
-  layout.dust.forEach((d) => consider(d.node, d.x, d.y, d.r, null, false));
-  // 별성을 마지막에 보아 겹칠 때 우선 잡히게 한다.
-  layout.stars.forEach((star, i) =>
-    consider(star.node, star.x, star.y, star.r, i, true),
+  layout.unattached.forEach((d) => consider(d.node, d.x, d.y, d.r, null, false));
+  // 작업 단위를 마지막에 보아 겹칠 때 우선 잡히게 한다.
+  layout.workUnits.forEach((workUnit, i) =>
+    consider(workUnit.node, workUnit.x, workUnit.y, workUnit.r, i, true),
   );
 
   return best;
@@ -901,9 +903,9 @@ interface SceneParams {
   dpr: number;
   size: Size;
   view: View;
-  layout: ConstellationLayout;
+  layout: GraphLayout;
   palette: Palette;
-  starfield: BgStar[];
+  backdropDots: BackdropDot[];
   placed: Map<string, Placed>;
   adjacency: Map<string, string[]>;
   activeId: string | null;
@@ -911,7 +913,7 @@ interface SceneParams {
   highlight: Set<string> | null;
   /** 밝히기만 하는 강조 — hover. 주변 밝기를 건드리지 않아 마우스를 움직여도 출렁이지 않는다. */
   hoverLift: Set<string> | null;
-  /** 열린 성좌 내부의 실제 엣지 (월드 좌표 노드 쌍). */
+  /** 열린 묶음 내부의 실제 엣지 (월드 좌표 노드 쌍). */
   focusedEdges: Array<[Placed, Placed]>;
   focused: number | null;
   related: Set<number> | null;
@@ -919,11 +921,11 @@ interface SceneParams {
 }
 
 /**
- * 성좌별 기본 밝기(0~1). 성좌를 열었을 때만 주변을 눌러 주고,
+ * 작업 단위별 기본 밝기(0~1). 묶음을 열었을 때만 주변을 눌러 주고,
  * 그 외에는 전부 같은 밝기다 — 노드 단위 강조가 흐려지지 않게.
  */
 function computeEmphasis(p: SceneParams): number[] {
-  const n = p.layout.stars.length;
+  const n = p.layout.workUnits.length;
   const emph = new Array<number>(n).fill(1);
   if (p.focused !== null) {
     for (let i = 0; i < n; i++) {
@@ -941,11 +943,11 @@ function computeEmphasis(p: SceneParams): number[] {
  */
 function nodeAlpha(p: SceneParams, node: Placed, emph: number[]): number {
   let alpha =
-    node.starIndex === null
+    node.workUnitIndex === null
       ? p.focused === null
         ? 0.5
         : 0.14
-      : emph[node.starIndex] * REST_ALPHA;
+      : emph[node.workUnitIndex] * REST_ALPHA;
 
   if (p.highlight) {
     alpha = p.highlight.has(node.node.id) ? 1 : Math.min(alpha, MUTED_ALPHA);
@@ -963,9 +965,9 @@ function drawScene(ctx: CanvasRenderingContext2D, p: SceneParams): void {
   ctx.scale(dpr, dpr);
 
   drawBackground(ctx, p);
-  drawBridges(ctx, p, emph, s, cx, cy);
-  drawSpokes(ctx, p, emph, s, cx, cy);
-  drawConstellationEdges(ctx, p, s, cx, cy);
+  drawSharedLinks(ctx, p, emph, s, cx, cy);
+  drawMemberLinks(ctx, p, emph, s, cx, cy);
+  drawClusterEdges(ctx, p, s, cx, cy);
   drawHighlightEdges(ctx, p, s, cx, cy);
   drawNodes(ctx, p, emph, s, cx, cy);
   drawLabels(ctx, p, emph, s, cx, cy);
@@ -974,30 +976,30 @@ function drawScene(ctx: CanvasRenderingContext2D, p: SceneParams): void {
 }
 
 function drawBackground(ctx: CanvasRenderingContext2D, p: SceneParams): void {
-  const { size, palette, starfield, view } = p;
+  const { size, palette, backdropDots, view } = p;
 
   ctx.fillStyle = rgba(palette.canvas, 1);
   ctx.fillRect(0, 0, size.w, size.h);
 
-  // 별먼지는 밤하늘의 장치라 밝은 배경에선 성립하지 않는다 — 어두운 점 140개가
+  // 배경 장식 점은 다크 전용 장치라 밝은 배경에선 성립하지 않는다 — 어두운 점 140개가
   // 질감이 아니라 얼룩으로 보인다. 라이트에서 그래프는 "잉크로 찍힌 도식"이므로
   // 배경은 비워 둔다.
   if (!palette.isDark) return;
 
   const ox = view.tx * 0.04;
   const oy = view.ty * 0.04;
-  for (const st of starfield) {
-    const x = (((st.x * size.w + ox) % size.w) + size.w) % size.w;
-    const y = (((st.y * size.h + oy) % size.h) + size.h) % size.h;
-    ctx.fillStyle = rgba(palette.fg, st.a);
+  for (const dot of backdropDots) {
+    const x = (((dot.x * size.w + ox) % size.w) + size.w) % size.w;
+    const y = (((dot.y * size.h + oy) % size.h) + size.h) % size.h;
+    ctx.fillStyle = rgba(palette.fg, dot.a);
     ctx.beginPath();
-    ctx.arc(x, y, st.r, 0, Math.PI * 2);
+    ctx.arc(x, y, dot.r, 0, Math.PI * 2);
     ctx.fill();
   }
 }
 
-/** 성좌 사이의 다리 — 같은 파일·티켓을 공유한 작업들을 잇는다. */
-function drawBridges(
+/** 작업 단위 사이의 공유 연결 — 같은 파일·티켓을 공유한 작업들을 잇는다. */
+function drawSharedLinks(
   ctx: CanvasRenderingContext2D,
   p: SceneParams,
   emph: number[],
@@ -1007,13 +1009,13 @@ function drawBridges(
 ): void {
   const { layout, palette, focused, highlight } = p;
 
-  for (const bridge of layout.bridges) {
-    const a = layout.stars[bridge.a];
-    const b = layout.stars[bridge.b];
+  for (const link of layout.sharedLinks) {
+    const a = layout.workUnits[link.a];
+    const b = layout.workUnits[link.b];
     if (!a || !b) continue;
 
-    const isFocusLink = focused !== null && (bridge.a === focused || bridge.b === focused);
-    let strength = isFocusLink ? 1 : Math.min(emph[bridge.a], emph[bridge.b]);
+    const isFocusLink = focused !== null && (link.a === focused || link.b === focused);
+    let strength = isFocusLink ? 1 : Math.min(emph[link.a], emph[link.b]);
     // 노드 강조 중에는 구조선을 확실히 눌러 강조 대상이 묻히지 않게 한다.
     if (highlight) strength = Math.min(strength, 0.25);
 
@@ -1030,7 +1032,7 @@ function drawBridges(
     const bow = Math.min(60, len * 0.12);
 
     ctx.strokeStyle = rgba(palette.edge, 0.5 * strength);
-    ctx.lineWidth = Math.min(1.8, 0.5 + bridge.weight * 0.16);
+    ctx.lineWidth = Math.min(1.8, 0.5 + link.weight * 0.16);
     ctx.beginPath();
     ctx.moveTo(ax, ay);
     ctx.quadraticCurveTo(mx + (-dy / len) * bow, my + (dx / len) * bow, bx, by);
@@ -1038,8 +1040,8 @@ function drawBridges(
   }
 }
 
-/** 별성 → 위성 연결선. 성좌의 소속감만 만드는 얇은 구조선이다. */
-function drawSpokes(
+/** 작업 단위 → 구성 노드 연결선. 묶음의 소속감만 만드는 얇은 구조선이다. */
+function drawMemberLinks(
   ctx: CanvasRenderingContext2D,
   p: SceneParams,
   emph: number[],
@@ -1048,34 +1050,34 @@ function drawSpokes(
   cy: number,
 ): void {
   const { layout, palette, size, highlight } = p;
-  layout.stars.forEach((star, i) => {
-    // 열린 성좌는 방사형 소속선 대신 실제 엣지를 그린다 — drawConstellationEdges가 맡는다.
+  layout.workUnits.forEach((workUnit, i) => {
+    // 열린 묶음은 방사형 소속선 대신 실제 엣지를 그린다 — drawClusterEdges가 맡는다.
     if (p.focused === i) return;
     let strength = emph[i];
-    // 강조 중이면 "다른" 성좌의 구조선만 눌러 둔다.
-    // 일괄로 누르면 방금 연 성좌의 위성 연결까지 사라져, 커밋만 이어진 것처럼 보인다.
-    if (highlight && !highlight.has(star.node.id)) strength = Math.min(strength, 0.15);
+    // 강조 중이면 "다른" 묶음의 구조선만 눌러 둔다.
+    // 일괄로 누르면 방금 연 묶음의 구성 노드 연결까지 사라져, 커밋만 이어진 것처럼 보인다.
+    if (highlight && !highlight.has(workUnit.node.id)) strength = Math.min(strength, 0.15);
     if (strength < 0.05) return;
-    const x = cx + star.x * s;
-    const y = cy + star.y * s;
-    if (!inView(x, y, star.reach * s, size)) return;
+    const x = cx + workUnit.x * s;
+    const y = cy + workUnit.y * s;
+    if (!inView(x, y, workUnit.reach * s, size)) return;
     ctx.strokeStyle = rgba(palette.edge, 0.45 * strength);
     ctx.lineWidth = 0.6;
     ctx.beginPath();
-    for (const sat of star.satellites) {
+    for (const member of workUnit.members) {
       ctx.moveTo(x, y);
-      ctx.lineTo(cx + sat.x * s, cy + sat.y * s);
+      ctx.lineTo(cx + member.x * s, cy + member.y * s);
     }
     ctx.stroke();
   });
 }
 
 /**
- * 열린 성좌 안의 실제 관계를 그린다 — 커밋→파일, 커밋→티켓, 티켓→대화.
- * 별성에서 뻗는 방사선만 있으면 "PR은 커밋에만 이어진다"로만 읽히고,
- * 나머지 위성이 왜 이 작업에 속하는지가 화면에서 사라진다.
+ * 열린 묶음 안의 실제 관계를 그린다 — 커밋→파일, 커밋→티켓, 티켓→대화.
+ * 작업 단위에서 뻗는 방사선만 있으면 "PR은 커밋에만 이어진다"로만 읽히고,
+ * 나머지 구성 노드가 왜 이 작업에 속하는지가 화면에서 사라진다.
  */
-function drawConstellationEdges(
+function drawClusterEdges(
   ctx: CanvasRenderingContext2D,
   p: SceneParams,
   s: number,
@@ -1104,7 +1106,7 @@ function drawConstellationEdges(
 
 /**
  * 선택(또는 hover)한 노드의 실제 그래프 엣지.
- * 성좌 스포크는 배치가 만든 선이라 원본 관계와 다르다 — 여기서만 진짜 관계를 그린다.
+ * 묶음 내 구조선은 배치가 만든 선이라 원본 관계와 다르다 — 여기서만 진짜 관계를 그린다.
  */
 function drawHighlightEdges(
   ctx: CanvasRenderingContext2D,
@@ -1157,7 +1159,7 @@ function drawNodes(
     // hover로 밝아진 이웃 — 크기는 건드리지 않는다. 마우스가 스칠 때마다 수십 개가
     // 커졌다 작아지면 밝기만 바뀌는 것보다 훨씬 어지럽다.
     const isLifted = !isActive && !isNeighbor && !!p.hoverLift?.has(node.node.id);
-    const minR = node.isStar ? 5 : 1.6;
+    const minR = node.isWorkUnit ? 5 : 1.6;
     let r = Math.max(node.r * s, minR);
     if (isActive) r *= 1.5;
     else if (isNeighbor) r *= 1.15;
@@ -1200,34 +1202,34 @@ function drawNodes(
     }
   };
 
-  // 위성 → 먼지 → 별성 순으로 그려 큰 노드가 위에 오게 한다.
-  layout.stars.forEach((star) => {
-    star.satellites.forEach((sat) => {
-      const node = p.placed.get(sat.node.id);
+  // 구성 노드 → 미소속 노드 → 작업 단위 순으로 그려 큰 노드가 위에 오게 한다.
+  layout.workUnits.forEach((workUnit) => {
+    workUnit.members.forEach((member) => {
+      const node = p.placed.get(member.node.id);
       if (node) paint(node);
     });
   });
-  layout.dust.forEach((d) => {
+  layout.unattached.forEach((d) => {
     const node = p.placed.get(d.node.id);
     if (node) paint(node);
   });
-  layout.stars.forEach((star) => {
-    const node = p.placed.get(star.node.id);
+  layout.workUnits.forEach((workUnit) => {
+    const node = p.placed.get(workUnit.node.id);
     if (node) paint(node);
   });
 
-  // 열린 성좌의 궤도 경계 — 점선 링 하나로만 표시한다.
+  // 열린 묶음의 반경 밴드 경계 — 점선 링 하나로만 표시한다.
   if (p.focused !== null) {
-    const star = layout.stars[p.focused];
-    if (star) {
-      const x = cx + star.x * s;
-      const y = cy + star.y * s;
-      if (inView(x, y, star.reach * s, size)) {
+    const workUnit = layout.workUnits[p.focused];
+    if (workUnit) {
+      const x = cx + workUnit.x * s;
+      const y = cy + workUnit.y * s;
+      if (inView(x, y, workUnit.reach * s, size)) {
         ctx.strokeStyle = rgba(palette.edge, 0.6);
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 6]);
         ctx.beginPath();
-        ctx.arc(x, y, star.reach * s, 0, Math.PI * 2);
+        ctx.arc(x, y, workUnit.reach * s, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -1241,14 +1243,14 @@ interface LabelCandidate {
   x: number;
   y: number;
   title: string;
-  isStar: boolean;
+  isWorkUnit: boolean;
   /** 화면상의 노드 반지름 — 노출 판정 기준이자 라벨을 밀어낼 거리다. */
   r: number;
-  /** 위성은 성좌 중심에서 바깥으로 뻗는다 — 그 방향. */
+  /** 구성 노드는 작업 단위 중심에서 바깥으로 뻗는다 — 그 방향. */
   dx: number;
   dy: number;
   alpha: number;
-  /** 별성의 부제(작성자). 위성은 없다. */
+  /** 작업 단위의 부제(작성자). 구성 노드는 없다. */
   sub: string | null;
   subColor: Rgb;
 }
@@ -1258,7 +1260,7 @@ interface LabelCandidate {
  * 어느 배율에서든 읽힌다.
  *
  * 표시 규칙은 배율 하나로 정한다 — 노드가 화면에서 일정 크기보다 커져야 라벨이 붙는다.
- * 노드 크기가 제각각이라(별성은 위성 수, 위성은 타입에 따라) 확대할수록 큰 것부터
+ * 노드 크기가 제각각이라(작업 단위는 구성 노드 수, 구성 노드는 타입에 따라) 확대할수록 큰 것부터
  * 차례로 켜지고, 전체 뷰에서는 아무 라벨도 뜨지 않는다.
  * hover·선택한 노드만 배율과 무관하게 항상 보인다.
  */
@@ -1277,49 +1279,49 @@ function drawLabels(
 
   const candidates: LabelCandidate[] = [];
 
-  layout.stars.forEach((star) => {
-    const x = cx + star.x * s;
-    const y = cy + star.y * s;
+  layout.workUnits.forEach((workUnit) => {
+    const x = cx + workUnit.x * s;
+    const y = cy + workUnit.y * s;
     if (!onScreen(x, y)) return;
-    const node = placed.get(star.node.id);
+    const node = placed.get(workUnit.node.id);
     candidates.push({
-      id: star.node.id,
+      id: workUnit.node.id,
       x,
       y,
-      title: star.node.title,
-      isStar: true,
+      title: workUnit.node.title,
+      isWorkUnit: true,
       // 최소 크기 보정 없이 실제 배율 크기로 판정해야 확대에 비례해 차례로 켜진다.
-      r: star.r * s,
+      r: workUnit.r * s,
       dx: 0,
       dy: 0,
       alpha: node ? nodeAlpha(p, node, emph) : 1,
-      sub: star.authors.length > 0 ? star.authors.join(", ") : star.node.meta,
-      subColor: palette.byType[star.node.type],
+      sub: workUnit.authors.length > 0 ? workUnit.authors.join(", ") : workUnit.node.meta,
+      subColor: palette.byType[workUnit.node.type],
     });
   });
 
-  // 위성도 모든 성좌에서 후보가 된다 — 노출을 배율만으로 정하므로
-  // 성좌를 열지 않고 확대해 들어가도 라벨이 나타난다.
-  layout.stars.forEach((star) => {
-    const sx = cx + star.x * s;
-    const sy = cy + star.y * s;
-    for (const sat of star.satellites) {
-      const x = cx + sat.x * s;
-      const y = cy + sat.y * s;
+  // 구성 노드도 모든 묶음에서 후보가 된다 — 노출을 배율만으로 정하므로
+  // 묶음을 열지 않고 확대해 들어가도 라벨이 나타난다.
+  layout.workUnits.forEach((workUnit) => {
+    const wx = cx + workUnit.x * s;
+    const wy = cy + workUnit.y * s;
+    for (const member of workUnit.members) {
+      const x = cx + member.x * s;
+      const y = cy + member.y * s;
       if (!onScreen(x, y)) continue;
-      const node = placed.get(sat.node.id);
+      const node = placed.get(member.node.id);
       candidates.push({
-        id: sat.node.id,
+        id: member.node.id,
         x,
         y,
-        title: sat.node.title,
-        isStar: false,
-        r: sat.r * s,
-        dx: x - sx,
-        dy: y - sy,
+        title: member.node.title,
+        isWorkUnit: false,
+        r: member.r * s,
+        dx: x - wx,
+        dy: y - wy,
         alpha: node ? nodeAlpha(p, node, emph) : 1,
         sub: null,
-        subColor: palette.byType[sat.node.type],
+        subColor: palette.byType[member.node.type],
       });
     }
   });
@@ -1327,20 +1329,20 @@ function drawLabels(
   for (const c of candidates) {
     const active = c.id === activeId || c.id === selectedId;
     // 배율 게이트 — 노드가 충분히 커지기 전엔 라벨을 달지 않는다.
-    if (!active && c.r < (c.isStar ? STAR_LABEL_MIN_R : SATELLITE_LABEL_MIN_R)) continue;
+    if (!active && c.r < (c.isWorkUnit ? WORK_UNIT_LABEL_MIN_R : MEMBER_LABEL_MIN_R)) continue;
     // 강조 대상 바깥으로 밀려난 노드의 라벨은 읽을 필요가 없다.
     if (!active && c.alpha <= MUTED_ALPHA) continue;
 
-    const title = truncate(c.title, c.isStar ? 26 : 22);
+    const title = truncate(c.title, c.isWorkUnit ? 26 : 22);
 
-    if (c.isStar) {
+    if (c.isWorkUnit) {
       const drawR = Math.max(c.r, 5);
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.font = `600 12px ${palette.fontFamily}`;
       ctx.fillStyle = rgba(palette.fg, 0.94 * (active ? 1 : c.alpha));
       ctx.fillText(title, c.x, c.y + drawR + 9);
-      // 부제는 주목 중인 성좌에만 — 평소엔 화면을 어지럽히지 않는다.
+      // 부제는 주목 중인 작업 단위에만 — 평소엔 화면을 어지럽히지 않는다.
       if (c.sub && (active || c.alpha > 0.9)) {
         ctx.font = `500 10px ${palette.fontFamily}`;
         ctx.fillStyle = rgba(c.subColor, 0.85);

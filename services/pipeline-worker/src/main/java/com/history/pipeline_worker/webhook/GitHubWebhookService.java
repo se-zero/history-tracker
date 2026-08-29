@@ -86,6 +86,9 @@ public class GitHubWebhookService {
 
         GitHubWebhookIntegrationResolution resolution = projectIntegrationService
                 .resolveGitHubPullRequestWebhook(webhook);
+        if (resolution.status() == GitHubWebhookIntegrationResolution.Status.INCREMENTAL_DISABLED) {
+            return new WebhookResult(WebhookStatus.IGNORED, "incremental collection disabled for this project");
+        }
         if (resolution.status() == GitHubWebhookIntegrationResolution.Status.TOKEN_REFRESH_REQUIRED) {
             if (!installationTokenClient.ensureInstallationToken(webhook.installationId())) {
                 return new WebhookResult(WebhookStatus.NOT_FOUND, "GitHub installation not found");

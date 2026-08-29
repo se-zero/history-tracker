@@ -20,6 +20,7 @@ import pytest
 # Every first-party module. New modules created by a refactor should be added
 # here so they stay covered.
 MODULES = [
+    "auth",
     "main",
     "openai_client",
     "query_models",
@@ -50,7 +51,6 @@ MODULES = [
     "graph.path_filter",
     "graph.postprocess",
     "graph.privacy",
-    "graph.project_context",
     "graph.reference_builder",
     "graph.reference_store",
     "graph.reference_verifier",

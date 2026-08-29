@@ -158,7 +158,7 @@ class StructuredCallUsageTest(unittest.IsolatedAsyncioTestCase):
 
 class QueryRouterDebugTest(unittest.IsolatedAsyncioTestCase):
     def _fake_run(self):
-        async def fake_run(question, project_context="", *, debug=None, **kwargs):
+        async def fake_run(question, *, debug=None, **kwargs):
             if debug is not None:
                 debug["tool_calls"] = [{"name": "t", "arguments": {}, "status": "ok", "result": "r"}]
                 debug["usage"] = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2, "llm_calls": 1}

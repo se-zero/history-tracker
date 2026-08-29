@@ -26,8 +26,8 @@ public interface ProviderCredentialLifecycle {
      * {@code external_ref.guild_id}가 필요하다. Slack·Jira처럼 자격증명만으로 충분한 provider는
      * 이 인자를 무시하면 된다.</p>
      *
-     * <p>실패는 구현이 삼킨다 — 이미 폐기된 토큰이나 provider 장애로 해제가 막히면 사용자가 데이터를
-     * 지울 방법을 잃는다.</p>
+     * <p>구현은 성공 여부를 boolean으로 신고한다. 호출부가 실패를 어떻게 다룰지(무시할지 반응할지)
+     * 정한다.</p>
      */
-    void revoke(byte[] encryptedCredential, Map<String, Object> externalRef);
+    boolean revoke(byte[] encryptedCredential, Map<String, Object> externalRef);
 }

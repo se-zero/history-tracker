@@ -18,7 +18,8 @@ import { PATHS } from "@/routes";
 //   요청 권한  → backend application.yaml의 slack.user-scopes / atlassian.scopes /
 //                discord.scopes·permissions / google-chat.scopes
 //   위탁       → ai-engine의 OpenAI 임베딩·질의 모델
-//   파기 기한  → backend user-lifecycle.purge.grace-period (P30D)
+//   파기 기한  → backend user-lifecycle.purge.grace-period (P30D) +
+//                권한 회수 실패 시 강제 진행 유예 force-purge-after (P7D, UserPurgeService)
 //   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
 // 이 중 하나라도 코드가 바뀌면 이 파일과 PrivacyBodyEn.tsx도 함께 고쳐야 한다.
 export function PrivacyBodyKo() {
@@ -432,8 +433,16 @@ export function PrivacyBodyKo() {
           </li>
           <li>
             <strong>회원 탈퇴</strong> — 탈퇴 즉시 계정을 비활성화해 서비스 이용을 중단시키고,
-            30일이 지나면 계정과 관련 데이터를 완전히 삭제합니다. 이 30일은 착오 탈퇴를
-            되돌리기 위한 기간입니다.
+            30일이 지나면 계정과 관련 데이터를 삭제합니다. 이 30일은 착오 탈퇴를
+            되돌리기 위한 기간입니다. 이때 연동한 외부 서비스의 접근 권한도 함께 회수하고,
+            수집된 기록과 지식 그래프를 삭제합니다. 외부 서비스 쪽 사정으로 권한 회수가
+            곧바로 되지 않으면 최대 7일간 다시 시도하며, 그래도 회수되지 않으면 권한 회수
+            여부와 무관하게 데이터를 삭제합니다(늦어도 탈퇴 후 37일 이내).
+            <br />
+            다만 <strong>GitHub App 설치 정보는 남습니다</strong> — 설치는 개인이 아니라 계정
+            단위이고, 같은 조직의 다른 이용자가 계속 쓰고 있을 수 있기 때문입니다. 이 기록에는
+            GitHub 계정명과 암호화된 접근 토큰이 포함되며, 이용자와의 연결(누가 접근할 수 있는지)은
+            탈퇴 시 함께 삭제됩니다. 이 기록의 삭제를 원하시면 아래 문의처로 요청해 주세요.
           </li>
           <li>
             법령이 보존을 요구하는 기록은 해당 법령이 정한 기간 동안 분리 보관한 뒤
@@ -487,7 +496,8 @@ export function PrivacyBodyKo() {
       <LegalSection index={9} heading="브라우저에 저장되는 정보">
         <p>
           서비스는 광고·분석 목적의 쿠키를 사용하지 않습니다. 로그인 상태를 유지하기 위해
-          인증 토큰을 브라우저의 로컬 저장소에 보관하며, 로그아웃 시 삭제됩니다.
+          갱신 토큰을 httpOnly 쿠키로 보관합니다. 이 쿠키는 스크립트가 읽을 수 없고, 로그아웃
+          시 삭제됩니다. 단기 접근 토큰은 브라우저 메모리에만 두며 저장소에 남기지 않습니다.
         </p>
         <p>
           이 외에 화면 표시 설정 — 앱 테마(<code>ht.theme</code>), 소개 페이지의 언어(

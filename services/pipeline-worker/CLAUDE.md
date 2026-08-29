@@ -26,7 +26,7 @@ cd services/pipeline-worker
 | `source.linear` | Linear 자격증명 해석·수집·정규화·rate limit (`LinearCollector`). |
 | `source.asana` | Asana 자격증명 해석·수집·정규화·rate limit (`AsanaCollector`). |
 | `source.clickup` | ClickUp 자격증명 해석·수집·정규화·rate limit (`ClickUpCollector`). |
-| `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). |
+| `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). 자격증명은 JSON `{user_token, bot_token}` 또는 레거시 평문 두 가지를 `SlackCredentialCodec`으로 읽는다 — 수집에는 `user_token`만 사용한다. |
 | `source.discord` | Discord 수집·정규화·rate limit (`DiscordCollector`). 자격증명은 DB가 아니라 이 worker의 설정(`app.discord.bot-token`)에서 온다 — 수집 주체가 앱 전체 공유 봇이라서다. |
 | `source.googlechat` | Google Chat 수집·정규화·rate limit (`GoogleChatCollector`). Jira와 같은 모양 — DB의 사용자별 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고, 만료 시 backend(`GoogleChatTokenService`)가 갱신한다. 사용자 인증으로는 메시지 작성자 표시 이름이 Chat API 응답에 오지 않아(실측 확인) `GoogleChatRawService`가 People API(`people.googleapis.com`, 별도 호스트)로 이름·이메일을 보강한다 — 메시지에 등장한 sender만, 그 실행(컨텍스트) 안에서만 재사용하며 지연 조회한다. |
 | `source.notion` | Notion 수집·정규화·rate limit (`NotionCollector`, **문서 아키타입 1호** — `Document` nodeType 발행). ClickUp과 같은 모양 — DB의 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고 만료 판정을 하지 않는다(갱신 응답에 만료 정보가 없어 비만료 취급). `POST /v1/search`(최신 API 버전은 `Notion-Version` 헤더로 고정)를 `last_edited_time` 내림차순으로 훑고, 페이지마다 `GET /v1/blocks/{id}/children`을 재귀 조회해 `NotionBlockFlattener`로 평문화한다(깊이 5·블록 2,000·본문 100,000자 상한). `created_by`/`last_edited_by`는 partial user(id만)라, 처리할 페이지가 실제로 나온 뒤 실행당 한 번 지연 조회하는 `GET /v1/users` 전량 결과로 이름·이메일·bot 여부를 보강한다 — capability 미설정으로 인한 403은 삼키고 빈 맵으로 계속한다. |
@@ -75,6 +75,17 @@ backend·프론트까지 포함한 커넥터 전체 순서는 `docs/integration-
 
 ## Endpoint
 
+**인바운드 인증** — `InternalServiceAuthenticationFilter`(`security` 패키지)가
+`/api/v1/collect/`·`/api/v1/raw/`를 `X-Internal-Service-Token`으로 막는다. backend의 같은 이름 필터와
+동일한 규약(timing-safe 비교, 토큰 미설정 시 기동 거부)이며, 이 서비스에는 Spring Security가 없어
+`OncePerRequestFilter`를 `@Component`로 등록해 서블릿 체인에 넣는다. 경로 매칭은 `UrlPathHelper`로
+디코딩한 뒤 비교한다(`getRequestURI()` 직접 비교는 percent-encoding으로 우회된다 — backend
+CLAUDE.md 「내부 서비스 API」 절 참고, 헤더 이름·매칭 방식을 공유 모듈로 안 뽑은 이유도 거기 있다).
+
+**`/api/v1/webhook/`는 의도적으로 예외다** — GitHub 서버가 직접 호출해 우리 헤더를 붙일 수 없다.
+그 경로는 `GitHubWebhookVerifier`의 HMAC 서명 검증(secret이 비면 전부 거부하는 fail-closed)이 지킨다.
+**이 예외를 "구멍"으로 오인해 막으면 webhook 수집이 통째로 끊긴다.**
+
 진입점별 상세 동작은 아래 흐름 다이어그램을 참고한다.
 
 - `POST /api/v1/webhook/github` — GitHub webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거.
@@ -120,6 +131,8 @@ GitHub PR merge webhook
 ```
 
 `ProjectIntegrationService`가 GitHub installation/repository 정보를 DB의 project/integration row와 매칭한다. 매칭되는 integration이 없으면 `404`를 반환한다.
+
+**무료 티어 증분 수집 차단** — 매칭된 GitHub integration의 `incremental_enabled`(backend가 소유하는 컬럼, FREE 플랜 연동 저장 시 `false`)가 꺼져 있으면 토큰 신선도 확인·context 조립(`findAllByProjectId` 등)을 전혀 하지 않고 즉시 `WebhookStatus.IGNORED`(`200`)를 반환한다 — GitHub이 이 프로젝트의 유일한 webhook 앵커이므로 여기서 막으면 그 프로젝트에 연동된 모든 provider(Slack·Jira 등)의 증분 수집이 함께 막힌다. `404`(NOT_FOUND)가 아니라 `200`(IGNORED)인 이유는 "연동을 못 찾음"과 "정책상 허용 안 함"을 구분해서다 — 전자로 답하면 GitHub이 잘못된 신호(연동이 끊겼다고 오인)를 받을 수 있다. **초기 전체 수집(`POST /api/v1/collect/{provider}` → `resolveFetchRequest`)은 이 검사를 타지 않는 별개 경로라 영향받지 않는다** — FREE 플랜도 최초 1회 수집은 허용돼야 하기 때문이다.
 installation token이 충분히 유효하면 backend를 호출하지 않는다. token이 없거나 만료 5분 이내면 `GitHubInstallationTokenClient`가 `X-Internal-Service-Token`으로 backend의 token 보장 API를 호출한 뒤 DB를 재조회한다. backend는 token 평문을 반환하지 않는다.
 backend에 installation이 없으면 `404`, backend 호출 실패 또는 token 갱신 실패는 `500`으로 처리해 GitHub 재시도를 허용한다.
 GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
@@ -159,10 +172,17 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
   예외로 실패시킨다(조용히 넘기면 "채널 완주"로 위장돼 채널 커서를 잘못 전진시킨다).
 - **Jira**: 호출당 200ms 고정 딜레이.
 - **Discord**: 호출마다 기본 250ms 고정 딜레이(봇당 초당 50요청 상한에 여유). 429 응답은 본문의
-  `retry_after`(초)만큼 대기 후 최대 3회 재시도한다.
+  `retry_after`(초)만큼 대기 후 최대 3회 재시도한다. **자격증명(봇 토큰)을 앱 전체 프로젝트가
+  공유하므로**, 이 고정 딜레이는 프로젝트별로 독립적으로 도는 게 아니라 `ProjectFairGate`(`collection`
+  패키지)를 거쳐 프로젝트별 라운드로빈으로 순번이 배정된다 — 채널이 많은 큰 길드를 붙인 프로젝트
+  하나가 이 자원을 독점하지 못하게 하기 위함이다(`docs/public-readiness.md` 1-3).
+  같은 프로젝트의 초기 수집과 webhook 수집이 겹쳐 waiter가 둘 이상이 되어도, 대기 수를 세어
+  슬롯을 다시 회전열에 넣기 때문에 한 쪽이 영구히 멈추지 않는다.
 - **Google Chat**: 호출마다 기본 100ms 고정 딜레이(Cloud 프로젝트당 60초 3,000요청 쿼터 — 사용자 수와
   무관하게 앱 전체가 공유). 429 응답에는 Discord처럼 재시도 대기 시간을 알려주는 필드가 없어 지수
-  백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다.
+  백오프(`min((2^n)+jitter, 30s)`)로 최대 5회 재시도한다. Discord와 같은 이유로 이 딜레이도
+  `ProjectFairGate`를 거쳐 프로젝트별 라운드로빈으로 배정된다(Chat API·People API 호출 모두 같은
+  게이트를 공유 — 두 API가 Google 쪽에서는 별도 쿼터지만 이 앱의 페이싱은 기존부터 하나로 묶여 있다).
 - **Linear**: 호출당 720ms 고정 딜레이 (API 한도 5,000 req/h 기준).
 - **Asana**: 호출당 400ms 고정 딜레이 (무료 워크스페이스 한도 150 req/min 기준).
 - **ClickUp**: 호출당 600ms 고정 딜레이 (무료 워크스페이스 한도 100 req/min 기준).
@@ -239,6 +259,11 @@ GitHub/Slack/Jira/Google Chat credential은 모두 Bearer 토큰으로 사용한
 전환 후 DB에 JSON(`access_token`·`refresh_token`·`expires_at`)으로 저장되며, 각 `*Collector`가
 복호화해 `access_token`만 꺼내 Bearer로 감싼다. 사용자가 토큰을 직접 입력하는 경로가 없으므로
 `JiraRawService.resolveAuth`는 **Bearer 외 포맷을 거부한다** — 과거 `email:token`(Basic) 지원은 제거됐다.
+
+**Slack은 Jira와 달리 파싱 실패 시 평문 폴백이다** — `SlackCredentialCodec.userToken()`이 JSON `{user_token, bot_token}`이면
+`user_token`만 꺼내 Bearer로 감싸고, 파싱 실패나 루트가 object가 아니면(레거시 평문 토큰 등) 복호화된 문자열을 그대로 Bearer로 쓴다.
+수집에는 `user_token`만 사용한다(bot_token은 읽지 않는다). backend가 JSON 포맷 쓰기를 시작해도(S2-b)
+기존 평문 credential이 남아 있는 worker가 깨지지 않는 이유가 이 폴백 덕분이다.
 
 **Discord는 이 패턴의 예외다** — DB row의 `encrypted_credential`(사용자 OAuth refresh token)을 전혀
 복호화하지 않는다. 수집 주체가 프로젝트별 사용자가 아니라 앱 전체가 공유하는 봇이라, `DiscordCollector`는

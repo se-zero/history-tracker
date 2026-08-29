@@ -70,7 +70,7 @@ function resolveIntegrations(lang) {
   return INTEGRATION_DEFS.map((def) => ({ ...def, displayName: pick(def.displayName, lang) }));
 }
 
-// ── 그래프(성좌 시드 + 배경 노드) ──────────────────────────────────────────
+// ── 그래프(작업 단위 묶음 시드 + 배경 노드) ──────────────────────────────────────────
 // 시드 3개는 evidence 순서와 그대로 대응한다(인용 카드 ↔ 노드 매핑, 점등 안무 순서).
 // 이 대응은 노드 id·EDGES·SEEDS가 언어와 무관한 단일 출처이기 때문에 lang 분기와 무관하게
 // 항상 유지된다 — evidence 배열 순서 = 출처 카드 순서 = subgraph 응답 seeds 순서(README 참고).
