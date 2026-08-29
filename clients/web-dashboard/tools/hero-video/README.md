@@ -120,5 +120,4 @@ cp out/hero-demo-en-light-click-poster.jpg ../../public/hero-demo-en-light-poste
   `chat:graphPanel`("1"). 예전 `ht.access_token`·`ht.refresh_token` 키는 쓰지 않는다.
   영어로 보고 싶으면 `HERO_LANG=en PORT=8099 npm run mock`으로 목 서버를 띄운다(이 수동
   경로에는 en-dom-overlay가 주입되지 않으므로 앱 크롬 자체는 여전히 한국어다).
-- 랜딩 쪽 교체 계약은 `HeroProductSlot.tsx` 상단 주석과 `docs/LANDING_BRIEF.md` §5,
-  단계 전체 경위는 `docs/landing-roadmap.md`(로컬 문서) 히어로 영상 절.
+- 랜딩 쪽 교체 계약은 `HeroProductSlot.tsx` 상단 주석과 `docs/DESIGN.md` 「랜딩 페이지 · 히어로」.

@@ -105,13 +105,14 @@ cd infra/docker
 ## 참고 문서
 
 `docs/`에 상세한 사양이 있으며, 필요할 때 Claude가 이를 읽는 구조다.
+각 문서의 완료·미완은 [`docs/README.md`](docs/README.md)를 본다.
 
 - `docs/graph-schema.md` - 지식 그래프 노드, 관계 정의
 - `docs/data-collection.md` - pipeline-worker의 플랫폼별 수집·정규화·checkpoint 전략
 - `docs/normalized-event.md` - pipeline-worker ↔ ai-engine 수집 계약 (nodeType별 properties·refs·source 표기). **새 커넥터 작업의 체크리스트**
 - `docs/integration-abstraction.md` - 신규 integration(Linear·Teams·Notion 등) 추가를 위한 provider 추상화 계획 — 아키타입 분류, 서비스별 SPI 설계, 진행 순서
 - `docs/discord-integration.md` - Discord 커넥터(**대화 아키타입 1호**) 계획 — 봇 토큰 수집 모델, 선택 단계 없는 연결(Slack형), snowflake 증분, MESSAGE_CONTENT intent 게이트, 선행 공용 변경(revoke 시그니처)
-- `docs/google-chat-integration.md` - Google Chat 커넥터(**대화 아키타입에서 A4 다단 선택(1단 space)을 처음 검증**) — 코드 작업 완료(backend·pipeline-worker·web-dashboard, 선행 PR 2건 포함). Workspace 계정 게이트 실측·실기동은 미착수
+- `docs/google-chat-integration.md` - Google Chat 커넥터(**대화 아키타입에서 A4 다단 선택(1단 space)을 처음 검증**) — 코드 작업 완료(backend·pipeline-worker·web-dashboard, 선행 PR 2건 포함). Workspace 계정 게이트 실측·우리 앱 실기동(연결·스페이스 선택·초기 수집) 확인. PR 머지 웹훅 증분·1시간 토큰 갱신은 실기동하지 않음. Chat 앱 구성 강제 여부 등은 문서 §12에 미확인
 - `docs/teams-integration.md` - MS Teams 커넥터 계획(**착수 보류 — 유료 테넌트·관리자 동의 필요로 2호로 연기**) — Graph API 조사 근거의 결정 사항, 1단 team 선택, 정렬 기반 증분 전략, 선행 공용 변경(webhook 토큰 확보 일반화)
 - `docs/notion-integration.md` - Notion 커넥터(**문서 아키타입 1호 — 유일하게 ai-engine 신규 설계가 선행하는 예외**) 계획 — `Document`/`DocumentSection` 노드 설계, 섹션 단위 청킹·임베딩, Layer 4 시간 윈도우 재설계, 선행 공용 변경(REFERENCE의 text/semantic 분리), PR 4분할
 - `docs/actor-node-design.md` - Actor 동일인 판단 파이프라인 상세 설계 (스코어링 로직, LLM 프롬프트, Neo4j 쿼리)
@@ -124,5 +125,5 @@ cd infra/docker
 - `docs/tools.md` - ai-engine의 LLM tool-calling 도구 레퍼런스 (계약·반환·동작, 코드 위치 포인터)
 - `docs/query-quality-issues.md` - GraphRAG 쿼리 품질 이슈 분석
 - `docs/measurement.md` - GraphRAG 정량 측정(eval) 가이드 — 그래프·응답 품질 개선을 숫자로 검증하는 방법
-- `docs/DESIGN.md` - 디자인 시스템(팔레트·타이포·모션). **UI 작업 전에 읽고 모든 시각 결정을 여기서 파생시킨다**
+- `docs/DESIGN.md` - 디자인 시스템(팔레트·타이포·모션·랜딩). **UI 작업 전에 읽고 모든 시각 결정을 여기서 파생시킨다**
 - `docs/i18n.md` - 다국어 준비 메모(**언어 분리 착수 전**) — 시각 표시 작업이 세워 둔 계약. 로캘(UI 언어)과 타임존(기기 설정)은 독립 축이며, 언어 기본값을 위치로 정하더라도 시각 표시에 위치를 끌어들이지 않는다. 서버는 UTC ISO만 내보내고 표시 변환은 프론트가 전담

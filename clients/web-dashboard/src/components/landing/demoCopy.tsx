@@ -43,7 +43,7 @@ export const RAIL_NAV: Localized<{
   },
 };
 
-// 레일 히스토리 4건 — 제목은 그럴듯한 데모 데이터(실제 앱 값 금지, LANDING_BRIEF.md 6번),
+// 레일 히스토리 4건 — 제목은 그럴듯한 데모 데이터(실제 앱 값 금지, DESIGN.md 랜딩 데모 세계관),
 // 날짜는 언어 무관 리터럴.
 export const RAIL_HISTORY: Array<{ id: string; title: Localized<string>; date: string }> = [
   {
@@ -69,7 +69,7 @@ export const RAIL_HISTORY: Array<{ id: string; title: Localized<string>; date: s
 ];
 
 // 질문 버블 — payflow 세계관(티켓·프로젝트)은 히어로 영상과 공유하되 질문 자체는 다르게
-// 유지한다(LANDING_BRIEF.md §6 "질문·스토리는 영상과 다르게 유지" 규칙 — 영상과 다른
+// 유지한다(DESIGN.md 랜딩 「질문·스토리는 영상과 다르게 유지」 — 영상과 다른
 // 질문이 제품의 질문 폭을 전달한다).
 export const DEMO_QUESTION: Localized<string> = {
   ko: "결제 라우팅 로직 관련 PR이랑 지라 티켓 찾아줘",
