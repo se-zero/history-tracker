@@ -14,6 +14,3 @@ ALTER TABLE integrations ADD COLUMN incremental_enabled BOOLEAN NOT NULL DEFAULT
 INSERT INTO user_provider_connections (user_id, provider)
 SELECT DISTINCT p.owner_id, i.provider
 FROM integrations i JOIN projects p ON p.id = i.project_id;
-
--- 기존 사용자는 PAID로 둔다 — 안 하면 개발 계정이 즉시 한도에 걸린다
-UPDATE users SET plan = 'PAID';

@@ -423,7 +423,7 @@ GitHub 계정만 있으면 누구나 로그인이 통과한다
 
 | 무엇 | 어디 |
 |---|---|
-| 사용량·플랜 컬럼 | `V19__add_plan_limits.sql` — `users.plan`·`free_query_count`, `integrations.incremental_enabled`, `user_provider_connections` 신규 테이블(해제 후에도 남는 provider 연동 이력). **기존 사용자는 `UPDATE users SET plan = 'PAID'`로 전원 유료 전환** — 배포 시 개발·기존 계정이 즉시 한도에 걸리지 않게 하기 위함이며, 되돌리기 어려운 데이터 변경이다 |
+| 사용량·플랜 컬럼 | `V19__add_plan_limits.sql` — `users.plan`(기본값 `FREE`)·`free_query_count`, `integrations.incremental_enabled`, `user_provider_connections` 신규 테이블(해제 후에도 남는 provider 연동 이력). **기존 사용자도 별도 백필 없이 컬럼 기본값(`FREE`)을 그대로 적용받는다** |
 | 한도 검증·기록 leaf 서비스 | `PlanService`(backend, 신규) — `ensureProjectCreatable`·`ensureProviderConnectable`·`recordProviderConnected`·`ensureQueryAllowed`·`recordQuery`·`ensurePreciseRebuildAllowed`·`isIncrementalEnabled`·`upgradeToPaid`. PAID는 매 검사가 plan부터 확인해 FREE 전용 조회를 건너뛴다. 질의 카운트는 `UPDATE ... WHERE free_query_count < 10` 원자 증가, 프로젝트 생성은 사용자 행 `PESSIMISTIC_WRITE`, 연동 이력은 `ON CONFLICT DO NOTHING`, 업그레이드는 플랜 전환과 incremental 재활성을 한 트랜잭션 |
 | 호출부 연동 | `ProjectService.createProject`·`IntegrationService`(3개 연동 메서드)·`ConversationService.createConversation`·`MessageService.addMessage`·`GraphService.buildProjectGraph(verify=true)` |
 | 업그레이드 API | `POST /api/v1/me/plan/upgrade` — 서버 설정 코드(`PLAN_UPGRADE_CODE`)와 timing-safe 비교. 코드 미설정이면 항상 거부(빈 문자열끼리 매치되는 사고 방지) |
