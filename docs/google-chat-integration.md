@@ -13,14 +13,14 @@ Discord 문서의 「확인 완료」에 해당하는 절이 §11에 있다. 실
 **순서**: 문서상 3호지만 Teams가 라이선스 확보를 기다리는 중이라 실제 착수는 2호가 됐다.
 Discord와 Teams 중 어느 쪽이 앞서든 이 커넥터가 맡는 검증 항목은 그대로다(아래).
 
-**진행 상황(2026-08-09)**: §3 backend 연결·§4 pipeline-worker 수집·§5 web-dashboard 화면 코드 작업과
+**진행 상황(2026-08-29)**: §3 backend 연결·§4 pipeline-worker 수집·§5 web-dashboard 화면 코드 작업과
 People API 보강(§7) 코드까지 완료(backend `./gradlew test` 562개, pipeline-worker `./gradlew test`
 245개, 프론트 `typecheck && build` 전체 그린 — 전부 mock/Testcontainers 기반 단위 테스트다). §2의
 두 선행 변경(webhook 토큰 확보 일반화, `checkpoints` provider CHECK 제거)도 함께 처리했다.
-§1-0 계정 게이트는 OAuth Playground로 수동 실측해 **통과 확인**했다(§11). **다만 우리 앱을 통한
-실기동(§1-1의 실제 OAuth 클라이언트 등록 → backend 연결 → 초기 수집)은 아직 하지 않았다** —
-지금까지의 실측은 Google 자체 테스트 클라이언트(OAuth Playground)로 API 응답 형태만 확인한 것이라,
-§1-1을 실제로 밟아야 알 수 있는 항목(Chat 앱 구성 필요 여부 등)은 여전히 열려 있다(§12).
+§1-0 계정 게이트는 OAuth Playground로 수동 실측해 **통과 확인**했다(§11). **우리 앱을 통한 실기동도
+확인했다** — 실제 OAuth 클라이언트 등록(§1-1) → 연결 → 스페이스 선택 → 초기 수집(§9).
+PR 머지 웹훅 증분과 1시간 뒤 토큰 갱신 경로는 **실기동하지 않았다.** Chat 앱 구성 강제 여부·멘션
+표기·`pageSize` 상한은 §12에 미확인으로 남는다.
 
 ## 이 커넥터가 검증하는 것
 
@@ -412,12 +412,12 @@ API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더
   전체를 0건으로 만들던 문제의 재발 방지).
   `GoogleChatNormalizerTest`가 actorInfo 반영·임베디드 displayName 우선순위·미해결 시 null 폴백을
   고정한다. `GoogleChatCollectorTest`가 raw 메시지의 고유 sender 집합만 조회 대상으로 삼는지 고정한다.
-- 실기동 시나리오(**미착수** — §11에서 API 응답 형태는 수동 확인했지만, 우리 앱을 통한 연결·수집은
-  아직이다): 실제 OAuth 클라이언트 등록(§1-1) → 연결 → 스페이스 선택 → 초기 수집 → 그래프에
-  GOOGLE_CHAT Communication과 이름·이메일이 채워진 Actor 확인 → 스레드 답글이 같은
-  `conversation_id`로 묶이는지 → 새 메시지 추가 후 PR 머지 웹훅으로 증분(**1시간 뒤 토큰 갱신 경로
-  포함** — §2-1 선행 PR이 실제로 도는지 보는 유일한 지점) → 해제 시 GOOGLE_CHAT 노드만 삭제되고
-  Google 계정의 앱 권한도 사라지는지 확인.
+- 실기동 시나리오(우리 앱 OAuth 클라이언트, 2026-08-29): 연결 ✅ → 스페이스 선택(A4 1단) ✅ →
+  초기 수집 ✅ → 그래프에 GOOGLE_CHAT Communication 확인 ✅ →
+  스레드 답글이 같은 `conversation_id`로 묶이는지(미확인) →
+  새 메시지 추가 후 PR 머지 웹훅으로 증분·1시간 뒤 토큰 갱신 경로(**안 함** — §2-1이 실제로 도는지
+  보는 유일한 지점) → 해제 시 GOOGLE_CHAT 노드만 삭제되고 Google 계정의 앱 권한도 사라지는지
+  (해제는 로컬 스택에서 확인 — `docs/public-readiness.md` 0-1c).
 
 ## 10. 미리 정한 것 — provider 표기 (`integration-abstraction.md` §5-2 종결)
 
@@ -459,7 +459,7 @@ API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더
    붙는 건 학교 디렉터리 프로필 설정으로 보인다)과 verified primary 이메일이 둘 다 나온다.
    `people.getBatchGet`은 최대 200개 resourceNames/호출을 지원해 배치 조회로 구현했다.
 
-## 12. 구현 시 확인 (미확정 — 실제 OAuth 앱 등록·실기동 때 확인)
+## 12. 구현 시 확인 (미확정 — 실기동으로도 여기 적지 않은 항목)
 
 1. **사용자 인증만 쓸 때도 Chat 앱 구성이 필요한지** — OAuth Playground는 Google 자체 테스트
    클라이언트를 썼기 때문에 우리 앱의 Chat 앱 구성 페이지(이름·아바타·설명)를 거치지 않았다.
