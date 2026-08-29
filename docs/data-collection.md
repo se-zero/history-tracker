@@ -430,11 +430,17 @@ Slack checkpoint는 `checkpoints` 테이블에 **채널별로** 저장한다: `p
 ### 라이프사이클 이벤트 (backend 처리, 수집 경로 외)
 
 Slack Events API(`POST /api/v1/slack/events`, JWT 없이 허용)를 통해 backend가 두 가지 라이프사이클 이벤트를 처리한다.
+대상은 **우리 앱 OAuth 행만**이다. `external_ref.connect_method = "byo"`(고객 앱 토큰 붙여넣기) 행은
+건너뛴다 — 그 이벤트는 우리 앱이 워크스페이스에서 빠지거나 우리 앱 grant가 폐기됐다는 신호라서다.
+같은 `workspace_id`라도 BYO 행은 다른 앱의 토큰이다.
 
-- **`app_uninstalled`**: 워크스페이스 전체 Slack 연동(`workspace_id` 매칭)을 해제하고 그래프를 삭제한다.
-- **`tokens_revoked`**: `tokens.oauth` 배열의 사용자 ID와 `connected_user_id`가 일치하는 행만 해제한다. bot 배열은 무시. `connected_user_id` 키가 없는 레거시 행은 건너뛴다.
+- **`app_uninstalled`**: `workspace_id`가 일치하는 **OAuth** Slack 연동을 해제하고 그래프를 삭제한다.
+- **`tokens_revoked`**: `tokens.oauth` 배열의 사용자 ID와 `connected_user_id`가 일치하는 **OAuth** 행만
+  해제한다. bot 배열은 무시. `connected_user_id` 키가 없는 레거시 행은 건너뛴다.
 
 수집 경로 자체는 이 이벤트에 영향받지 않는다 — 연동 해제 후에는 해당 워크스페이스 수집이 더 이상 트리거되지 않는다.
+수집 HTTP는 BYO·OAuth 모두 **`user_token` Bearer**다(워커는 `connect_method`를 읽지 않는다). 상세는
+[slack-byo.md](slack-byo.md).
 
 ---
 

@@ -20,11 +20,18 @@
 .btn-primary:active { background: var(--accent-pressed); border-color: var(--accent-pressed); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--fg-muted); }
 .btn-ghost:hover { background: var(--surface-2); color: var(--fg); }
+/* DESIGN.md 보조 버튼 — 실행(accent)도 고스트도 아닌 선택지. hex 없이 surface-2 + border. */
+.btn-secondary {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.btn-secondary:hover { background: var(--surface-3); border-color: var(--border-strong); }
 .btn-danger { color: var(--danger); border-color: var(--border); }
 .btn-danger:hover { background: color-mix(in oklab, var(--danger) 10%, transparent); border-color: var(--danger); }
 .btn-lg { padding: 10px 16px; font-size: 14px; }
-/* disabled는 variant(primary/ghost)와 무관하게 항상 무채 배경·muted 텍스트로 눌러앉힌다 —
-   :disabled 두 클래스 결합 특이도가 .btn-primary/.btn-ghost보다 높아 항상 이긴다. */
+/* disabled는 variant(primary/ghost/secondary)와 무관하게 항상 무채 배경·muted 텍스트로 눌러앉힌다 —
+   :disabled 두 클래스 결합 특이도가 .btn-primary/.btn-ghost/.btn-secondary보다 높아 항상 이긴다. */
 .btn:disabled, .btn:disabled:hover {
   background: var(--surface-2);
   border-color: var(--border);

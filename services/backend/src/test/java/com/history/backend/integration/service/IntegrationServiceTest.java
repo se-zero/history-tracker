@@ -10,9 +10,12 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,9 +25,11 @@ import com.history.backend.common.crypto.CredentialCryptoService;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.service.PlanService;
 import com.history.backend.common.error.BadGatewayException;
+import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.PlanLimitExceededException;
+import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.discord.service.DiscordClient;
 import com.history.backend.discord.service.DiscordCredentialLifecycle;
 import com.history.backend.discord.service.DiscordOAuthConnectFlow;
@@ -41,7 +46,6 @@ import com.history.backend.graph.service.AiEngineGraphClient;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.domain.SelectionStep;
-import com.history.backend.common.error.BadRequestException;
 import com.history.backend.integration.dto.IntegrationResponse;
 import com.history.backend.integration.repository.IntegrationRepository;
 import com.history.backend.jira.service.JiraAccessTokenRefresher;
@@ -629,6 +633,144 @@ class IntegrationServiceTest {
         assertThatThrownBy(() -> service.connectOAuth(OWNER_ID, PROJECT_ID, flow, "auth-code"))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Slack integration already exists.");
+    }
+
+    // ─── connectSlackWorkspace (BYO xoxp 붙여넣기) ───────────────────────────────
+
+    @Test
+    @DisplayName("BYO Slack 연결 성공 — JSON 자격증명(평문 xoxp가 아님), external_ref 4키, "
+            + "수집 트리거, plan ensure+record. 반환은 Integration")
+    void connectSlackWorkspaceSavesJsonCredentialAndTriggersCollection() {
+        IntegrationService service = service();
+        Project project = project();
+        byte[] encryptedCredential = new byte[] {1, 2, 3};
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+        when(slackClient.verifyToken("xoxp-user"))
+                .thenReturn(new SlackClient.SlackVerifiedUser("T123", "Acme", "U123"));
+        when(credentialCryptoService.encrypt(anyString())).thenReturn(encryptedCredential);
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        doAnswer(invocation -> {
+            assertThat(transactionManager.transactionActive).isFalse();
+            return null;
+        }).when(pipelineWorkerClient).triggerCollection(IntegrationProvider.SLACK, PROJECT_ID);
+
+        Integration integration = service.connectSlackWorkspace(OWNER_ID, PROJECT_ID, "  xoxp-user  ");
+
+        assertThat(integration.getProject()).isSameAs(project);
+        assertThat(integration.getProvider()).isEqualTo(IntegrationProvider.SLACK);
+        assertThat(integration.isPendingSelection()).isFalse();
+        assertThat(integration.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_ID)).isEqualTo("T123");
+        assertThat(integration.externalRefValue(SlackOAuthConnectFlow.WORKSPACE_NAME)).isEqualTo("Acme");
+        assertThat(integration.externalRefValue(SlackOAuthConnectFlow.CONNECTED_USER_ID)).isEqualTo("U123");
+        assertThat(integration.externalRefValue(SlackOAuthConnectFlow.CONNECT_METHOD)).isEqualTo("byo");
+        assertThat(integration.getExternalRef().keySet()).containsExactlyInAnyOrder(
+                SlackOAuthConnectFlow.WORKSPACE_ID,
+                SlackOAuthConnectFlow.WORKSPACE_NAME,
+                SlackOAuthConnectFlow.CONNECTED_USER_ID,
+                SlackOAuthConnectFlow.CONNECT_METHOD);
+        assertThat(integration.getEncryptedCredential()).containsExactly(encryptedCredential);
+
+        ArgumentCaptor<String> encryptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(credentialCryptoService).encrypt(encryptCaptor.capture());
+        String plaintext = encryptCaptor.getValue();
+        assertThat(plaintext).isNotEqualTo("xoxp-user");
+        assertThat(plaintext).isEqualTo(
+                new SlackCredentialCodec(credentialCryptoService).serialize(new SlackCredential("xoxp-user", null)));
+
+        verify(slackClient).verifyToken("xoxp-user");
+        verifyNoMoreInteractions(slackClient);
+        verify(pipelineWorkerClient).triggerCollection(IntegrationProvider.SLACK, PROJECT_ID);
+        verify(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.SLACK);
+        verify(planService).recordProviderConnected(OWNER_ID, IntegrationProvider.SLACK);
+    }
+
+    @Test
+    @DisplayName("이미 확정된 Slack 연동 → 409, verifyToken 호출 없음")
+    void connectSlackWorkspaceRejectsAlreadyConnectedWithoutVerifyingToken() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.of(Integration.oauth(
+                        project(),
+                        IntegrationProvider.SLACK,
+                        Map.of("workspace_id", "T123", "workspace_name", "Acme"),
+                        new byte[] {1, 2, 3})));
+
+        assertThatThrownBy(() -> service.connectSlackWorkspace(OWNER_ID, PROJECT_ID, "xoxp-user"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Slack integration already exists.");
+
+        verifyNoInteractions(slackClient);
+        verify(planService, never()).ensureProviderConnectable(any(), any());
+        verify(credentialCryptoService, never()).encrypt(anyString());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+    }
+
+    @Test
+    @DisplayName("무료 티어 provider 연동 한도 초과 시 거부 — verifyToken도 저장도 일어나지 않음")
+    void connectSlackWorkspaceRejectsWhenProviderLimitExceededWithoutVerifyingToken() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+        doThrow(new PlanLimitExceededException("Free plan only allows GitHub/Slack/Jira, one each."))
+                .when(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.SLACK);
+
+        assertThatThrownBy(() -> service.connectSlackWorkspace(OWNER_ID, PROJECT_ID, "xoxp-user"))
+                .isInstanceOf(PlanLimitExceededException.class);
+
+        verify(slackClient, never()).verifyToken(anyString());
+        verify(credentialCryptoService, never()).encrypt(anyString());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(planService, never()).recordProviderConnected(any(), any());
+    }
+
+    @Test
+    @DisplayName("저장 경합 409여도 고객 BYO 토큰은 auth.revoke 하지 않는다")
+    void connectSlackWorkspaceDoesNotRevokeCustomerTokenWhenSaveConflicts() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+        when(slackClient.verifyToken("xoxp-user"))
+                .thenReturn(new SlackClient.SlackVerifiedUser("T123", "Acme", "U123"));
+        when(credentialCryptoService.encrypt(anyString())).thenReturn(new byte[] {1, 2, 3});
+        when(integrationRepository.saveAndFlush(any(Integration.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate integration"));
+
+        assertThatThrownBy(() -> service.connectSlackWorkspace(OWNER_ID, PROJECT_ID, "xoxp-user"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Slack integration already exists.");
+
+        verify(slackClient).verifyToken("xoxp-user");
+        verify(slackClient, never()).revoke(any());
+        verifyNoMoreInteractions(slackClient);
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+        verify(planService, never()).recordProviderConnected(any(), any());
+    }
+
+    @Test
+    @DisplayName("무효 Slack 토큰은 BadRequest(400) — JWT 401이 되면 프론트가 세션을 지운다")
+    void connectSlackWorkspaceMapsInvalidTokenToBadRequest() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.SLACK))
+                .thenReturn(Optional.empty());
+        when(slackClient.verifyToken("xoxp-user"))
+                .thenThrow(new UnauthorizedException("Invalid Slack token."));
+
+        assertThatThrownBy(() -> service.connectSlackWorkspace(OWNER_ID, PROJECT_ID, "xoxp-user"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Invalid Slack token.");
+
+        verify(slackClient).verifyToken("xoxp-user");
+        verify(credentialCryptoService, never()).encrypt(anyString());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+        verify(planService, never()).recordProviderConnected(any(), any());
     }
 
     @Test
@@ -1462,6 +1604,23 @@ class IntegrationServiceTest {
                 .deleteByProject_IdAndId_Provider(PROJECT_ID_2, IntegrationProvider.SLACK);
     }
 
+    @Test
+    @DisplayName("disconnectSlackWorkspace — 같은 workspace의 BYO 행은 건너뛰고 OAuth 행만 해제한다")
+    void disconnectSlackWorkspaceSkipsByoRowAndDisconnectsOauthRow() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration oauthRow = slackUserIntegration("T_MATCH", "U111", INTEGRATION_ID);
+        Integration byoRow = slackByoWorkspaceIntegration("T_MATCH", "U111", INTEGRATION_ID_2);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(oauthRow, byoRow));
+
+        service.disconnectSlackWorkspace("T_MATCH");
+
+        verify(revocationService).revoke(oauthRow);
+        verify(revocationService, never()).revoke(byoRow);
+        verify(integrationRepository).deleteById(INTEGRATION_ID);
+        verify(integrationRepository, never()).deleteById(INTEGRATION_ID_2);
+    }
+
     // ─── disconnectSlackUsers ───────────────────────────────────────────────────
 
     @Test
@@ -1557,6 +1716,23 @@ class IntegrationServiceTest {
         verify(integrationRepository).deleteById(INTEGRATION_ID_2);
     }
 
+    @Test
+    @DisplayName("disconnectSlackUsers — connect_method=byo 행은 같은 workspace·user여도 건너뛴다")
+    void disconnectSlackUsersSkipsByoRows() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration oauthRow = slackUserIntegration("T123", "U111", INTEGRATION_ID);
+        Integration byoRow = slackByoWorkspaceIntegration("T123", "U111", INTEGRATION_ID_2);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(oauthRow, byoRow));
+
+        service.disconnectSlackUsers("T123", List.of("U111"));
+
+        verify(revocationService).revoke(oauthRow);
+        verify(revocationService, never()).revoke(byoRow);
+        verify(integrationRepository).deleteById(INTEGRATION_ID);
+        verify(integrationRepository, never()).deleteById(INTEGRATION_ID_2);
+    }
+
     // ─── Slack slash command 대상 조회·백필 ─────────────────────────────────────
 
     @Test
@@ -1618,6 +1794,22 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("listSlackCommandTargets — connect_method=byo 행은 제외하고, 키 없는 레거시는 계속 포함한다")
+    void listSlackCommandTargetsExcludesByoRowsAndKeepsLegacyRows() {
+        IntegrationService service = service();
+        Integration byo = slackByoWorkspaceIntegration("T123", "U111", INTEGRATION_ID);
+        Integration legacy = slackWorkspaceIntegration("T123", INTEGRATION_ID_2);
+        when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
+                .thenReturn(List.of(byo, legacy));
+
+        List<IntegrationService.SlackCommandTarget> targets = service.listSlackCommandTargets("T123");
+
+        assertThat(targets).extracting(IntegrationService.SlackCommandTarget::integrationId)
+                .containsExactly(INTEGRATION_ID_2);
+        assertThat(targets.get(0).connectedUserId()).isNull();
+    }
+
+    @Test
     @DisplayName("backfillSlackConnectedUserId — 기존 external_ref 키를 유지한 채 connected_user_id만 추가")
     void backfillSlackConnectedUserIdAddsConnectedUserIdAndKeepsOtherKeys() {
         IntegrationService service = service();
@@ -1665,6 +1857,25 @@ class IntegrationServiceTest {
     private Integration slackWorkspaceIntegration(String workspaceId, UUID integrationId, Project project) {
         Integration i = Integration.oauth(project, IntegrationProvider.SLACK,
                 Map.of(SlackOAuthConnectFlow.WORKSPACE_ID, workspaceId), new byte[]{1, 2, 3});
+        ReflectionTestUtils.setField(i, "id", integrationId);
+        return i;
+    }
+
+    // connect_method=byo 인 Slack 행. connectedUserId 가 있으면 tokens_revoked 매칭 키도 넣는다.
+    private Integration slackByoWorkspaceIntegration(String workspaceId, String connectedUserId, UUID integrationId) {
+        return slackByoWorkspaceIntegration(workspaceId, connectedUserId, integrationId, project());
+    }
+
+    private Integration slackByoWorkspaceIntegration(
+            String workspaceId, String connectedUserId, UUID integrationId, Project project
+    ) {
+        Map<String, Object> externalRef = new LinkedHashMap<>();
+        externalRef.put(SlackOAuthConnectFlow.WORKSPACE_ID, workspaceId);
+        if (connectedUserId != null) {
+            externalRef.put(SlackOAuthConnectFlow.CONNECTED_USER_ID, connectedUserId);
+        }
+        externalRef.put(SlackOAuthConnectFlow.CONNECT_METHOD, SlackOAuthConnectFlow.CONNECT_METHOD_BYO);
+        Integration i = Integration.oauth(project, IntegrationProvider.SLACK, externalRef, new byte[]{1, 2, 3});
         ReflectionTestUtils.setField(i, "id", integrationId);
         return i;
     }
@@ -1805,7 +2016,9 @@ class IntegrationServiceTest {
                 new AccessTokenRefresherRegistry(List.of()),
                 new IntegrationSelectionFlowRegistry(List.of(flow)),
                 new TransactionTemplate(transactionManager),
-                planService
+                planService,
+                slackClient,
+                new SlackCredentialCodec(credentialCryptoService)
         );
     }
 
@@ -1826,7 +2039,9 @@ class IntegrationServiceTest {
                 new AccessTokenRefresherRegistry(List.of()),
                 new IntegrationSelectionFlowRegistry(List.of()),
                 new TransactionTemplate(transactionManager),
-                planService
+                planService,
+                slackClient,
+                new SlackCredentialCodec(credentialCryptoService)
         );
     }
 
@@ -1834,8 +2049,9 @@ class IntegrationServiceTest {
         // 실제 lifecycle 구현을 물린 IntegrationRevocationService — disconnect가 이를 통해
         // provider 클라이언트까지 닿는지 기존과 동일하게 검증한다(위임 자체는
         // disconnectDelegatesRevocationToIntegrationRevocationService가 mock으로 별도 고정한다).
+        SlackCredentialCodec slackCredentialCodec = new SlackCredentialCodec(credentialCryptoService);
         ProviderCredentialLifecycleRegistry credentialLifecycleRegistry = new ProviderCredentialLifecycleRegistry(List.of(
-                new SlackCredentialLifecycle(slackClient, new SlackCredentialCodec(credentialCryptoService)),
+                new SlackCredentialLifecycle(slackClient, slackCredentialCodec),
                 new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec),
                 new DiscordCredentialLifecycle(discordClient, credentialCryptoService),
                 new GoogleChatCredentialLifecycle(googleChatClient, googleChatCredentialCodec)
@@ -1859,7 +2075,9 @@ class IntegrationServiceTest {
                         new JiraSelectionFlow(jiraOAuthClient, jiraClient, jiraTokenService),
                         new GoogleChatSelectionFlow(googleChatClient, googleChatTokenService))),
                 new TransactionTemplate(transactionManager),
-                planService
+                planService,
+                slackClient,
+                slackCredentialCodec
         );
     }
 
