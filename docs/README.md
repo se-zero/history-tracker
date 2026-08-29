@@ -95,6 +95,7 @@
 | 문서 | 필요 | 종류 | 남은 것 |
 |------|------|------|---------|
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
+| [slack-marketplace.md](slack-marketplace.md) | 작업 | 등재 계획 | 착수 전. `/why-code` 슬래시 커맨드·Events API 라이프사이클·제출물 — public-readiness 0-3 D 트랙의 실행 계획 |
 
 ---
 
