@@ -236,7 +236,7 @@ provider 열거형 CHECK는 V12에서 제거했다 — 새 연동을 붙일 때�
 
 **`external_ref` JSON 키**
 - GitHub: `repository_id`, `repository_full_name`, `branch`(선택 — 지정하면 해당 브랜치로 수집을 스코프한다)
-- Slack: `workspace_id`, `workspace_name` (`connected_user_id`는 S2에서 같은 JSONB에 추가 — 스키마 변경 없음)
+- Slack: `workspace_id`, `workspace_name`, `connected_user_id`(신규 연결 — Slack `authed_user.id`. 레거시 행에는 없음)
 - Jira: `cloud_id`, `site_name`, `project_key`, `project_name`(선택)
   - 최초 동의 직후에는 사이트·프로젝트를 아직 모르므로 `status`(`pending_selection`) 하나만 담긴다
   - 토큰 갱신이 영구 실패해 pending으로 되돌아온 경우는 기존 키를 유지한 채 `status`만 덧붙는다
@@ -254,7 +254,7 @@ AES-256-GCM으로 암호화한다(`security.credentials.key`, base64 디코딩 �
 | provider | 평문 |
 |----------|------|
 | `github` | NULL — installation token은 `github_installations.encrypted_installation_token`에 따로 캐싱한다 |
-| `slack` | user access token 문자열 그대로 (`xoxp-...`) — 동의 URL이 `user_scope`를 쓰므로 응답의 `authed_user.access_token`을 저장한다 |
+| `slack` | JSON `{"user_token": ..., "bot_token": ...}` — `user_token`은 `authed_user.access_token`, `bot_token`은 루트 `access_token`(없으면 null). 레거시 행은 user 토큰 평문이며 복호화 시 폴백한다. 재동의 때 승급하고 마이그레이션은 하지 않는다 |
 | `jira` | OAuth 토큰 JSON — `{"access_token": ..., "refresh_token": ..., "expires_at": ...}` |
 
 Jira는 Atlassian refresh token이 회전하므로 갱신할 때마다 세 값이 통째로 교체된다.

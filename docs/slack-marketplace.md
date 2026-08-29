@@ -236,7 +236,7 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 | 묶음 | 내용 | 선행 | 성공 기준 |
 |------|------|------|----------|
 | **S1** | Events API 수신 — 서명 검증 필터, `url_verification`, `app_uninstalled`·`tokens_revoked` 멱등 정리, `SLACK_SIGNING_SECRET` 배선(compose·SecurityConfig) | — | 코드 완료, 실기동 미확인. 서명 검증(타임스탬프 창 포함)·이벤트 처리 단위 테스트 통과. 로컬 실기동(앱 제거 → 행·그래프 삭제 확인)은 아직 진행하지 않음. |
-| **S2** | 자격증명 이중화 — DTO 확장(`access_token`·`authed_user.id`), `SlackCredentialCodec`(JSON+평문 폴백), `connected_user_id` 저장, lifecycle 양 토큰 폐기, **worker 폴백 먼저** | S1과 독립이나 순차 권장 | 신규/레거시 자격증명 왕복 테스트(backend·worker 각각), 기존 Slack 수집 회귀 그린. **S2-a(worker 읽기 호환) 완료** — `SlackCredentialCodec` + `SlackCollector.resolveFetchRequest` 구현, 전체 테스트 그린. |
+| **S2** | 자격증명 이중화 — DTO 확장(`access_token`·`authed_user.id`), `SlackCredentialCodec`(JSON+평문 폴백), `connected_user_id` 저장, lifecycle 양 토큰 폐기, **worker 폴백 먼저** | S1과 독립이나 순차 권장 | 신규/레거시 자격증명 왕복 테스트(backend·worker 각각), 기존 Slack 수집 회귀 그린. **S2-a(worker 읽기 호환) 완료** — `SlackCredentialCodec` + `SlackCollector.resolveFetchRequest` 구현, 전체 테스트 그린. **S2-b(backend 쓰기) 완료** — JSON 자격증명 저장, `connected_user_id`, lifecycle 양 토큰 폐기. |
 | **S3** | `/why-code` 커맨드 — commands 엔드포인트, 3초 ack + 비동기 단발 질의(대화 저장 없음), 매핑·게이팅·다중 매칭 규칙, help/오류 응답 | S1(서명 공용)·S2(게이팅 키) | 매핑·게이팅·다중 매칭 단위 테스트, 실기동: Slack에서 질의 → ephemeral 답변. 미연결 사용자 안내 확인 |
 | **S4** | Slack 앱 설정 — bot user·`commands` scope·커맨드 등록·Event Subscriptions URL·staging 앱 생성. **public distribution은 아직 켜지 않는다** | S1~S3 배포 | dev 워크스페이스에서 재동의 → 새 자격증명 형식 확인, 이벤트·커맨드 왕복 확인 |
 | **S5** | 제출물 — 랜딩 Slack 절, support 페이지, privacy 보강, 스크린샷·비디오, scope 사유서, AI 공시 초안 | S3(스크린샷 소재) | 페이지 공개 접근 확인, `typecheck && build` 그린, 사유서·공시 사용자 검토 완료 |
@@ -250,8 +250,8 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 
 - `docs/public-readiness.md` §0-3 — 자격 수치 정정(완료), D 착수 상태 갱신(S1).
 - `docs/data-collection.md` — Slack 절에 라이프사이클 이벤트 절 추가(S1 완료), 승인 후 한도 복구 주석(S6).
-- `docs/DB.md` — 스키마 변경 없음 확인(S1). 자격증명 JSON·`connected_user_id`는 S2에서 같은 BYTEA/JSONB에 추가.
-- `services/backend/CLAUDE.md` — slack Events API 서술(S1 완료). 커맨드·코덱은 S2·S3.
+- `docs/DB.md` — 스키마 변경 없음 확인(S1). 자격증명 JSON·`connected_user_id`는 S2-b에서 같은 BYTEA/JSONB에 반영.
+- `services/backend/CLAUDE.md` — slack Events API 서술(S1 완료). 코덱(S2-b 완료). 커맨드는 S3.
 - `services/pipeline-worker/CLAUDE.md` — 자격증명 폴백 규칙(S2).
 - `clients/web-dashboard/CLAUDE.md`·`/privacy` — deletedData 문구·방침 보강(S5).
 - `docs/deployment.md` — `SLACK_SIGNING_SECRET`·Events URL(S1 완료). 커맨드 URL은 S3·S4.

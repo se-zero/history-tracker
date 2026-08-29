@@ -6,6 +6,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record SlackOAuthAccessResponse(
         Boolean ok,
         String error,
+        // 루트 access_token은 bot 토큰(xoxb-) — bot scope 없이 user scope만 있으면 오지 않는다
+        @JsonProperty("access_token")
+        String accessToken,
         Team team,
         @JsonProperty("authed_user")
         AuthedUser authedUser
@@ -18,6 +21,7 @@ public record SlackOAuthAccessResponse(
     }
 
     public record AuthedUser(
+            String id,
             @JsonProperty("access_token")
             String accessToken
     ) {

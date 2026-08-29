@@ -26,8 +26,8 @@ import org.springframework.web.client.RestClient;
 class SlackClientTest {
 
     @Test
-    @DisplayName("Slack code 교환 성공 → 워크스페이스 정보와 access token 반환")
-    void exchangeCodeReturnsWorkspaceAndAccessToken() {
+    @DisplayName("Slack code 교환 성공 → 워크스페이스·user token·authed user id 반환, bot 토큰 없으면 null")
+    void exchangeCodeReturnsWorkspaceAndTokens() {
         SlackClientFixture fixture = fixture();
         MultiValueMap<String, String> expectedForm = new LinkedMultiValueMap<>();
         expectedForm.add("client_id", "test-client-id");
@@ -42,7 +42,7 @@ class SlackClientTest {
                         {
                           "ok": true,
                           "team": { "id": "T123", "name": "Acme" },
-                          "authed_user": { "access_token": "xoxp-token" }
+                          "authed_user": { "id": "U123", "access_token": "xoxp-token" }
                         }
                         """, MediaType.APPLICATION_JSON));
 
@@ -50,7 +50,50 @@ class SlackClientTest {
 
         assertThat(result.id()).isEqualTo("T123");
         assertThat(result.name()).isEqualTo("Acme");
-        assertThat(result.accessToken()).isEqualTo("xoxp-token");
+        assertThat(result.userToken()).isEqualTo("xoxp-token");
+        assertThat(result.authedUserId()).isEqualTo("U123");
+        assertThat(result.botToken()).isNull();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("루트 access_token(bot 토큰)이 있으면 botToken 필드로 매핑된다")
+    void exchangeCodeReturnsBotTokenWhenPresent() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/oauth.v2.access"))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "access_token": "xoxb-bot",
+                          "team": { "id": "T123", "name": "Acme" },
+                          "authed_user": { "id": "U123", "access_token": "xoxp-token" }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        SlackClient.SlackWorkspace result = fixture.client.exchangeCode("auth-code");
+
+        assertThat(result.userToken()).isEqualTo("xoxp-token");
+        assertThat(result.botToken()).isEqualTo("xoxb-bot");
+        assertThat(result.authedUserId()).isEqualTo("U123");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("authed_user.id 누락 응답 → BadGatewayException 발생")
+    void exchangeCodeRejectsMissingAuthedUserId() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.test/api/oauth.v2.access"))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "team": { "id": "T123", "name": "Acme" },
+                          "authed_user": { "access_token": "xoxp-token" }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.exchangeCode("auth-code"))
+                .isInstanceOf(BadGatewayException.class)
+                .hasMessage("Slack OAuth response is missing authed user id.");
         fixture.server.verify();
     }
 
@@ -112,7 +155,7 @@ class SlackClientTest {
                         {
                           "ok": true,
                           "team": { "id": "", "name": "" },
-                          "authed_user": { "access_token": "xoxp-token" }
+                          "authed_user": { "id": "U123", "access_token": "xoxp-token" }
                         }
                         """, MediaType.APPLICATION_JSON));
 

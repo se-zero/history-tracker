@@ -55,6 +55,7 @@ import com.history.backend.shared.domain.Checkpoint;
 import com.history.backend.shared.repository.CheckpointRepository;
 import com.history.backend.slack.service.SlackClient;
 import com.history.backend.slack.service.SlackCredentialLifecycle;
+import com.history.backend.integration.service.SlackCredentialCodec;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -1739,7 +1740,7 @@ class IntegrationServiceTest {
         // provider 클라이언트까지 닿는지 기존과 동일하게 검증한다(위임 자체는
         // disconnectDelegatesRevocationToIntegrationRevocationService가 mock으로 별도 고정한다).
         ProviderCredentialLifecycleRegistry credentialLifecycleRegistry = new ProviderCredentialLifecycleRegistry(List.of(
-                new SlackCredentialLifecycle(slackClient, credentialCryptoService),
+                new SlackCredentialLifecycle(slackClient, new SlackCredentialCodec(credentialCryptoService)),
                 new JiraCredentialLifecycle(jiraOAuthClient, jiraCredentialCodec),
                 new DiscordCredentialLifecycle(discordClient, credentialCryptoService),
                 new GoogleChatCredentialLifecycle(googleChatClient, googleChatCredentialCodec)

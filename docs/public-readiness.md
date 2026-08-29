@@ -43,7 +43,7 @@
 
 **다음**: 0-1b(사용자 GitHub 토큰 저장, Critical — GitHub App 설정 확인이 선행돼야 함).
 1-2는 OpenAI 계정 하드 캡으로 대체하기로 결정(2026-08-28) — 코드 작업 없음. 0-3 Slack은
-방향(B+C+D 병행) 결정 완료, D는 S1(Events API) 코드 완료·실기동·S2~S6은 남음. 1-3(provider 쿼터 공유)은 Discord·Google Chat
+방향(B+C+D 병행) 결정 완료, D는 S1·S2 코드 완료·실기동·S3~S6은 남음. 1-3(provider 쿼터 공유)은 Discord·Google Chat
 공정 큐(`ProjectFairGate`)로 완료.
 아래 「다음 순서」 참고.
 
@@ -342,8 +342,8 @@ C의 근거는 changelog의 **"Internal customer-built applications are not impa
       바꾸지 못하고, 채널마다 초대·관리자 승인이 필요해 **개인 사용자에게는 오히려 불리**하다
 
 **우선순위: 중 — 방향 결정 완료, D 착수.** 대화 소스에 대안이 있어 Slack이 막혀도 제품이 성립한다.
-**D의 실행 계획은 [slack-marketplace.md](slack-marketplace.md)** — S1(Events API 수신) 코드 완료,
-실기동·S2(자격증명)·S3(`/why-code`)·제출물은 남음.
+**D의 실행 계획은 [slack-marketplace.md](slack-marketplace.md)** — S1(Events API 수신)·S2(자격증명) 코드 완료,
+실기동·S3(`/why-code`)·제출물은 남음.
 
 **근거**: [rate limits](https://docs.slack.dev/apis/web-api/rate-limits/) ·
 [2025-05-29 changelog](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps) ·
@@ -898,7 +898,7 @@ nginx에 `client_max_body_size`가 없어 기본 1MB가 걸린다. GitHub webhoo
 
 1. **0-1b 사용자 GitHub 토큰** — Critical. GitHub App 설정 확인이 선행돼야 한다
 2. **4-5 제3자 창구·내보내기**
-3. ~~**0-3 Slack** — A~D 결정.~~ **결정 완료(2026-08-28) — B+C+D 병행.** D는 S1 코드 완료, S2~S6·실기동 남음
+3. ~~**0-3 Slack** — A~D 결정.~~ **결정 완료(2026-08-28) — B+C+D 병행.** D는 S1·S2 코드 완료, S3~S6·실기동 남음
 4. ~~**1층 비용 가드** — 원가 측정 → 무료 한도 설계~~ **1-1·1-3 구현 완료(2026-08-28)** — 원가 측정은
    생략, 무료 한도(프로젝트·연동·질의·증분 수집)를 backend·pipeline-worker에 강제. **1-2는
    OpenAI 계정 하드 캡으로 대체 결정(2026-08-28, 코드 불필요)**. Discord·Google Chat 공정 큐는

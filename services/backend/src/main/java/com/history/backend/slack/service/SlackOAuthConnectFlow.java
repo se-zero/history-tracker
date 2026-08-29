@@ -5,6 +5,8 @@ import java.util.Map;
 import com.history.backend.integration.domain.IntegrationProvider;
 import com.history.backend.integration.service.OAuthConnectFlow;
 import com.history.backend.integration.service.OAuthConnection;
+import com.history.backend.integration.service.SlackCredential;
+import com.history.backend.integration.service.SlackCredentialCodec;
 import com.history.backend.slack.SlackProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,6 +24,7 @@ public class SlackOAuthConnectFlow implements OAuthConnectFlow {
 
     private final SlackProperties slackProperties;
     private final SlackClient slackClient;
+    private final SlackCredentialCodec codec;
 
     @Override
     public IntegrationProvider provider() {
@@ -45,10 +48,11 @@ public class SlackOAuthConnectFlow implements OAuthConnectFlow {
     public OAuthConnection exchangeCode(String code) {
         SlackClient.SlackWorkspace workspace = slackClient.exchangeCode(code);
         return new OAuthConnection(
-                workspace.accessToken(),
+                codec.serialize(new SlackCredential(workspace.userToken(), workspace.botToken())),
                 Map.of(
                         WORKSPACE_ID, workspace.id(),
-                        WORKSPACE_NAME, workspace.name()
+                        WORKSPACE_NAME, workspace.name(),
+                        CONNECTED_USER_ID, workspace.authedUserId()
                 )
         );
     }
