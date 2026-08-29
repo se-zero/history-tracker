@@ -357,6 +357,46 @@ class SlackCollectorTest {
                 .hasMessage("Missing encrypted credential for provider: slack");
     }
 
+    @Test
+    void resolveFetchRequest_jsonCredential_extractsUserToken() {
+        when(credentialCryptoService.decrypt(SLACK_TOKEN))
+                .thenReturn("{\"user_token\":\"xoxp-user\",\"bot_token\":\"xoxb-bot\"}");
+
+        Optional<RawFetchRequest> result = collector.resolveFetchRequest(slackRow(SLACK_TOKEN));
+
+        assertThat(result).hasValueSatisfying(request ->
+                assertThat(request.credentials()).isEqualTo("Bearer xoxp-user"));
+    }
+
+    @Test
+    void resolveFetchRequest_legacyUserToken_wrapsAsBearer() {
+        when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("xoxp-legacy");
+
+        Optional<RawFetchRequest> result = collector.resolveFetchRequest(slackRow(SLACK_TOKEN));
+
+        assertThat(result).hasValueSatisfying(request ->
+                assertThat(request.credentials()).isEqualTo("Bearer xoxp-legacy"));
+    }
+
+    @Test
+    void resolveFetchRequest_jsonMissingUserToken_throwsIllegalStateException() {
+        when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("{\"bot_token\":\"xoxb-bot\"}");
+
+        assertThatThrownBy(() -> collector.resolveFetchRequest(slackRow(SLACK_TOKEN)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Missing Slack credential field: user_token");
+    }
+
+    @Test
+    void resolveFetchRequest_malformedJson_fallsBackToPlaintext() {
+        when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("not-json{");
+
+        Optional<RawFetchRequest> result = collector.resolveFetchRequest(slackRow(SLACK_TOKEN));
+
+        assertThat(result).hasValueSatisfying(request ->
+                assertThat(request.credentials()).isEqualTo("Bearer not-json{"));
+    }
+
     private ProjectIntegrationRepository.IntegrationRow slackRow(byte[] credential) {
         return new ProjectIntegrationRepository.IntegrationRow(
                 PROJECT_UUID, "slack", Map.of("workspace_id", "T123"), credential, null, null);
