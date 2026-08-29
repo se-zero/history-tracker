@@ -2,6 +2,7 @@ package com.history.backend.slack.service;
 
 import java.util.Set;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.slack.SlackProperties;
@@ -16,7 +17,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import lombok.extern.slf4j.Slf4j;
 
-// Slack OAuth API 클라이언트 (authorization code → user access token 교환)
+// Slack OAuth API 클라이언트 (authorization code → user 토큰·선택적 bot 토큰 교환)
 @Slf4j
 @Component
 public class SlackClient {
@@ -37,7 +38,8 @@ public class SlackClient {
         this.restClient = restClient;
     }
 
-    // authorization code를 user 토큰(xoxp-)과 workspace 정보로 교환
+    // authorization code를 user 토큰·선택적 bot 토큰·authed user id·workspace로 교환.
+    // bot scope가 없으면 루트 access_token이 오지 않는다 — 그 경우 botToken은 null이다.
     public SlackWorkspace exchangeCode(String code) {
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("client_id", properties.clientId());
@@ -66,19 +68,26 @@ public class SlackClient {
             throw new UnauthorizedException("Invalid Slack authorization code.");
         }
 
-        String accessToken = response.authedUser() == null ? null : response.authedUser().accessToken();
-        if (accessToken == null || accessToken.isBlank()) {
+        String userToken = response.authedUser() == null ? null : response.authedUser().accessToken();
+        if (userToken == null || userToken.isBlank()) {
             throw new BadGatewayException("Slack OAuth response is missing user access token.");
+        }
+        String botToken = (response.accessToken() != null && !response.accessToken().isBlank())
+                ? response.accessToken() : null;
+        String authedUserId = response.authedUser().id();
+        if (authedUserId == null || authedUserId.isBlank()) {
+            throw new BadGatewayException("Slack OAuth response is missing authed user id.");
         }
         SlackOAuthAccessResponse.Team team = response.team();
         if (team == null || team.id() == null || team.id().isBlank() || team.name() == null || team.name().isBlank()) {
             throw new BadGatewayException("Slack OAuth response is missing workspace information.");
         }
-        return new SlackWorkspace(team.id(), team.name(), accessToken);
+        return new SlackWorkspace(team.id(), team.name(), userToken, botToken, authedUserId);
     }
 
     /**
-     * user 토큰 폐기 (연동 해제 시). 우리 DB에서 토큰을 지워도 Slack 쪽 권한 부여는 남으므로,
+     * user 또는 bot 토큰 폐기 (연동 해제 시). 호출부가 어떤 토큰을 넘기든 동일하다.
+     * 우리 DB에서 토큰을 지워도 Slack 쪽 권한 부여는 남으므로,
      * "해제하면 접근 권한이 끊긴다"를 실제로 만들려면 이 호출이 필요하다.
      *
      * <p>실패해도 예외를 던지지 않는다 — 이미 폐기된 토큰이거나 Slack 장애일 때 연동 해제
@@ -114,9 +123,52 @@ public class SlackClient {
         }
     }
 
-    public record SlackWorkspace(String id, String name, String accessToken) {
+    // 레거시 행 게이팅용 — SlackProperties URL이 아니라 고정 auth.test 엔드포인트다.
+    // 실패해도 커맨드 전체를 죽이지 않기 위해 예외를 삼키고 null을 반환한다.
+    public String authTest(String userToken) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("token", userToken);
+        try {
+            SlackApiResponse response = restClient
+                    .post()
+                    .uri("https://slack.com/api/auth.test")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(SlackApiResponse.class);
+            if (response == null || !Boolean.TRUE.equals(response.ok())) {
+                return null;
+            }
+            String userId = response.userId();
+            return userId == null || userId.isBlank() ? null : userId;
+        } catch (RestClientException exception) {
+            log.warn("Slack auth.test request failed. error={}", exception.getMessage());
+            return null;
+        }
     }
 
-    private record SlackApiResponse(Boolean ok, String error) {
+    // response_url 유효 시간(30분) 안에만 도달하면 되므로, 실패해도 커맨드 ack는 이미 끝난 뒤다.
+    public void postEphemeral(String responseUrl, String text) {
+        try {
+            restClient
+                    .post()
+                    .uri(responseUrl)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new SlackCommandAck("ephemeral", text))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException exception) {
+            log.warn("Slack response_url post failed. error={}", exception.getMessage());
+        }
+    }
+
+    public record SlackWorkspace(String id, String name, String userToken, String botToken, String authedUserId) {
+    }
+
+    private record SlackApiResponse(
+            Boolean ok,
+            String error,
+            @JsonProperty("user_id") String userId
+    ) {
     }
 }

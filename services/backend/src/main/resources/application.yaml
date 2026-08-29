@@ -90,6 +90,10 @@ slack:
   authorize-url: ${SLACK_AUTHORIZE_URL:https://slack.com/oauth/v2/authorize}
   oauth-access-url: ${SLACK_OAUTH_ACCESS_URL:https://slack.com/api/oauth.v2.access}
   revoke-url: ${SLACK_REVOKE_URL:https://slack.com/api/auth.revoke}
+  signing-secret: ${SLACK_SIGNING_SECRET:}
+  commands-executor-pool-size: 1
+  commands-executor-queue-capacity: 20
+  commands-executor-await-termination-seconds: 60
 
 atlassian:
   client-id: ${ATLASSIAN_CLIENT_ID:}
