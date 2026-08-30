@@ -6,4 +6,5 @@ export const PATHS = {
   onboarding: "/onboarding",
   terms: "/terms",
   privacy: "/privacy",
+  support: "/support",
 } as const;
