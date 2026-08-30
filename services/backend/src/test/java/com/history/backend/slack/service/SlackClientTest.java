@@ -538,6 +538,7 @@ class SlackClientTest {
                         "test-client-secret",
                         "https://slack.test/callback",
                         "channels:read,groups:read,channels:history,groups:history,users:read,users:read.email",
+                        "commands",
                         "https://slack.test/oauth/v2/authorize",
                         "https://slack.test/api/oauth.v2.access",
                         "https://slack.test/api/auth.revoke"

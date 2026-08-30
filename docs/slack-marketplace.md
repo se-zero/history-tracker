@@ -154,13 +154,13 @@ Slack → POST /api/v1/slack/commands (form-encoded: team_id, user_id, text, res
 - **pipeline-worker도 같은 폴백을 구현한다** — Slack 수집이 행 자격증명을 복호화해 user 토큰으로
   쓰므로, 새 형식 행에서 user 토큰을 꺼내는 코드가 없으면 수집이 깨진다. 배포 순서는 worker(읽기
   호환) 먼저, backend(쓰기 전환) 다음.
-- `SlackCredentialLifecycle.revoke`는 두 토큰을 각각 `auth.revoke`하고 AND로 결합한다 —
-  short-circuit으로 두 번째 호출이 생략되지 않게 지역 변수에 담아 결합한다(Discord에서 실제로
-  났던 버그 — public-readiness 0-1c 수정 내용 참고).
+- `SlackCredentialLifecycle.revoke`는 **user 토큰만** `auth.revoke`한다. 봇 토큰은 워크스페이스당
+  하나라, 한 프로젝트 해제가 같은 워크스페이스의 다른 프로젝트 `/why-code`까지 끊는다.
 - **해제해도 앱은 워크스페이스에 남는다.** 같은 워크스페이스를 다른 프로젝트가 쓰고 있을 수 있어
-  `apps.uninstall`(앱 전체 제거 API)은 부르지 않는다. 우리 쪽 토큰 폐기가 해제의 전부이고, 앱
-  제거는 워크스페이스 관리자의 행동 → `app_uninstalled` 이벤트(§4)로 돌아온다. 프론트
-  `sourceCatalog`의 Slack `deletedData`에 이 비대칭("앱 자체는 Slack 관리 화면에서 제거")을 명시한다.
+  `apps.uninstall`(앱 전체 제거 API)도 봇 토큰 `auth.revoke`도 부르지 않는다. 우리 쪽 폐기는
+  그 연결의 user 토큰이 전부이고, 앱 제거는 워크스페이스 관리자의 행동 → `app_uninstalled`
+  이벤트(§4)로 돌아온다. 프론트 `sourceCatalog`의 Slack `deletedData`에 이 비대칭("앱 자체는
+  Slack 관리 화면에서 제거")을 명시한다.
 
 ## 6. 수집 경로 — 변경 없음
 
@@ -236,7 +236,7 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 | 묶음 | 내용 | 선행 | 성공 기준 |
 |------|------|------|----------|
 | **S1** | Events API 수신 — 서명 검증 필터, `url_verification`, `app_uninstalled`·`tokens_revoked` 멱등 정리, `SLACK_SIGNING_SECRET` 배선(compose·SecurityConfig) | — | 코드 완료, 실기동 미확인. 서명 검증(타임스탬프 창 포함)·이벤트 처리 단위 테스트 통과. 로컬 실기동(앱 제거 → 행·그래프 삭제 확인)은 아직 진행하지 않음. |
-| **S2** | 자격증명 이중화 — DTO 확장(`access_token`·`authed_user.id`), `SlackCredentialCodec`(JSON+평문 폴백), `connected_user_id` 저장, lifecycle 양 토큰 폐기, **worker 폴백 먼저** | S1과 독립이나 순차 권장 | 신규/레거시 자격증명 왕복 테스트(backend·worker 각각), 기존 Slack 수집 회귀 그린. **S2-a(worker 읽기 호환) 완료** — `SlackCredentialCodec` + `SlackCollector.resolveFetchRequest` 구현, 전체 테스트 그린. **S2-b(backend 쓰기) 완료** — JSON 자격증명 저장, `connected_user_id`, lifecycle 양 토큰 폐기. |
+| **S2** | 자격증명 이중화 — DTO 확장(`access_token`·`authed_user.id`), `SlackCredentialCodec`(JSON+평문 폴백), `connected_user_id` 저장, lifecycle은 user 토큰만 폐기, **worker 폴백 먼저** | S1과 독립이나 순차 권장 | 신규/레거시 자격증명 왕복 테스트(backend·worker 각각), 기존 Slack 수집 회귀 그린. **S2-a(worker 읽기 호환) 완료** — `SlackCredentialCodec` + `SlackCollector.resolveFetchRequest` 구현, 전체 테스트 그린. **S2-b(backend 쓰기) 완료** — JSON 자격증명 저장, `connected_user_id`, lifecycle은 user 토큰만 폐기(봇은 워크스페이스 공유). |
 | **S3** | `/why-code` 커맨드 — commands 엔드포인트, 3초 ack + 비동기 단발 질의(대화 저장 없음), 매핑·게이팅·다중 매칭 규칙, help/오류 응답 | S1(서명 공용)·S2(게이팅 키) | **코드 완료**, 실기동 미확인. 매핑·게이팅·다중 매칭 단위 테스트. 실기동(Slack에서 질의 → ephemeral, 미연결 안내)은 아직 진행하지 않음. |
 | **S4** | Slack 앱 설정 — bot user·`commands` scope·커맨드 등록·Event Subscriptions URL·staging 앱 생성. **public distribution은 아직 켜지 않는다** | S1~S3 배포 | dev 워크스페이스에서 재동의 → 새 자격증명 형식 확인, 이벤트·커맨드 왕복 확인 |
 | **S5** | 제출물 — 랜딩 Slack 절, support 페이지, privacy 보강, 스크린샷·비디오, scope 사유서, AI 공시 초안 | S3(스크린샷 소재) | 페이지 공개 접근 확인, `typecheck && build` 그린, 사유서·공시 사용자 검토 완료 |

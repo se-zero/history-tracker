@@ -22,6 +22,7 @@ class SlackOAuthConnectFlowTest {
             "test-client-secret",
             "https://slack.test/callback",
             "channels:read,groups:read",
+            "commands",
             "https://slack.test/oauth/v2/authorize",
             "https://slack.test/api/oauth.v2.access",
             "https://slack.test/api/auth.revoke"
@@ -37,11 +38,12 @@ class SlackOAuthConnectFlowTest {
     }
 
     @Test
-    @DisplayName("동의 URL은 client_id·user_scope·redirect_uri·state를 담는다")
+    @DisplayName("동의 URL은 client_id·봇 scope·user_scope·redirect_uri·state를 담는다")
     void buildAuthorizeUrlAssemblesSlackParameters() {
         assertThat(flow.buildAuthorizeUrl("signed-state")).isEqualTo(
                 "https://slack.test/oauth/v2/authorize"
                         + "?client_id=test-client-id"
+                        + "&scope=commands"
                         + "&user_scope=channels:read,groups:read"
                         + "&redirect_uri=https://slack.test/callback"
                         + "&state=signed-state"

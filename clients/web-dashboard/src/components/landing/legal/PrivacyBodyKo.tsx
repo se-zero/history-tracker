@@ -16,7 +16,7 @@ import { PATHS } from "@/routes";
 //   수집 대상  → pipeline-worker source/*의 정규화 코드 (CollectionProvider 등재 provider 전부)
 //   자격증명   → provider별 저장 형태가 다르다(Slack JSON user/bot 토큰 · Discord 리프레시 /
 //                Jira·Google Chat JSON). Slack BYO는 고객 앱 xoxp 붙여넣기.
-//   요청 권한  → backend application.yaml의 slack.user-scopes / atlassian.scopes /
+//   요청 권한  → backend application.yaml의 slack.user-scopes·bot-scopes / atlassian.scopes /
 //                discord.scopes·permissions / google-chat.scopes
 //   위탁       → ai-engine의 OpenAI 임베딩·질의 모델
 //   파기 기한  → backend user-lifecycle.purge.grace-period (P30D) +
@@ -151,6 +151,10 @@ export function PrivacyBodyKo() {
               <li>
                 <code>users:read</code> · <code>users:read.email</code> — 메시지 작성자를
                 사람 단위로 식별하고, 이메일로 GitHub 커밋 작성자와 동일인 여부를 판단하기 위함
+              </li>
+              <li>
+                <code>commands</code> — 연결한 워크스페이스에서{" "}
+                <code>/why-code</code> 슬래시 커맨드로 질의하기 위함(봇)
               </li>
             </ul>
           </LegalSourceRow>

@@ -38,6 +38,7 @@ public class SlackOAuthConnectFlow implements OAuthConnectFlow {
     public String buildAuthorizeUrl(String state) {
         return UriComponentsBuilder.fromUriString(slackProperties.authorizeUrl())
                 .queryParam("client_id", slackProperties.clientId())
+                .queryParam("scope", slackProperties.botScopes())
                 .queryParam("user_scope", slackProperties.userScopes())
                 .queryParam("redirect_uri", slackProperties.redirectUri())
                 .queryParam("state", state)

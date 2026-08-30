@@ -87,6 +87,8 @@ slack:
   client-secret: ${SLACK_CLIENT_SECRET:}
   redirect-uri: ${SLACK_REDIRECT_URI:}
   user-scopes: "${SLACK_USER_SCOPES:channels:read,groups:read,channels:history,groups:history,users:read,users:read.email}"
+  # 슬래시 커맨드(/why-code)용 봇 스코프. user_scope만 있으면 워크스페이스에 봇이 안 깔려 커맨드가 안 뜬다
+  bot-scopes: "${SLACK_BOT_SCOPES:commands}"
   authorize-url: ${SLACK_AUTHORIZE_URL:https://slack.com/oauth/v2/authorize}
   oauth-access-url: ${SLACK_OAUTH_ACCESS_URL:https://slack.com/api/oauth.v2.access}
   revoke-url: ${SLACK_REVOKE_URL:https://slack.com/api/auth.revoke}
