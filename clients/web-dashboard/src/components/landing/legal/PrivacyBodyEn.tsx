@@ -174,6 +174,11 @@ export function PrivacyBodyEn() {
                 determine whether they are the same person as a GitHub commit
                 author
               </li>
+              <li>
+                <code>commands</code> — so the User can ask questions with the{" "}
+                <code>/why-code</code> slash command in the connected workspace
+                (bot)
+              </li>
             </ul>
           </LegalSourceRow>
           <LegalSourceRow label="Data collected">

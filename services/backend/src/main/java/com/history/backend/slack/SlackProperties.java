@@ -8,6 +8,7 @@ public record SlackProperties(
         String clientSecret,
         String redirectUri,
         String userScopes,
+        String botScopes,
         String authorizeUrl,
         String oauthAccessUrl,
         String revokeUrl
