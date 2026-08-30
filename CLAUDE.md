@@ -114,6 +114,7 @@ cd infra/docker
 - `docs/discord-integration.md` - Discord 커넥터(**대화 아키타입 1호**) 계획 — 봇 토큰 수집 모델, 선택 단계 없는 연결(Slack형), snowflake 증분, MESSAGE_CONTENT intent 게이트, 선행 공용 변경(revoke 시그니처)
 - `docs/google-chat-integration.md` - Google Chat 커넥터(**대화 아키타입에서 A4 다단 선택(1단 space)을 처음 검증**) — 코드 작업 완료(backend·pipeline-worker·web-dashboard, 선행 PR 2건 포함). Workspace 계정 게이트 실측·우리 앱 실기동(연결·스페이스 선택·초기 수집) 확인. PR 머지 웹훅 증분·1시간 토큰 갱신은 실기동하지 않음. Chat 앱 구성 강제 여부 등은 문서 §12에 미확인
 - `docs/teams-integration.md` - MS Teams 커넥터 계획(**착수 보류 — 유료 테넌트·관리자 동의 필요로 2호로 연기**) — Graph API 조사 근거의 결정 사항, 1단 team 선택, 정렬 기반 증분 전략, 선행 공용 변경(webhook 토큰 확보 일반화)
+- `docs/slack-byo.md` - Slack 토큰 보조 연결(public-readiness §0-3 C 트랙) — 고객 Internal 앱 `xoxp` 붙여넣기, `connect_method=byo`, Events/`/why-code` 격리, C0 문의(배포 전 게이트)
 - `docs/slack-marketplace.md` - Slack 마켓플레이스 등재(public-readiness §0-3 D 트랙) 실행 계획 — `/why-code` 슬래시 커맨드, Events API 라이프사이클(`app_uninstalled`·`tokens_revoked`), bot 토큰 자격증명 이중화, 심사 제출물·리스크 등록부
 - `docs/notion-integration.md` - Notion 커넥터(**문서 아키타입 1호 — 유일하게 ai-engine 신규 설계가 선행하는 예외**) 계획 — `Document`/`DocumentSection` 노드 설계, 섹션 단위 청킹·임베딩, Layer 4 시간 윈도우 재설계, 선행 공용 변경(REFERENCE의 text/semantic 분리), PR 4분할
 - `docs/actor-node-design.md` - Actor 동일인 판단 파이프라인 상세 설계 (스코어링 로직, LLM 프롬프트, Neo4j 쿼리)

@@ -26,7 +26,7 @@ cd services/pipeline-worker
 | `source.linear` | Linear 자격증명 해석·수집·정규화·rate limit (`LinearCollector`). |
 | `source.asana` | Asana 자격증명 해석·수집·정규화·rate limit (`AsanaCollector`). |
 | `source.clickup` | ClickUp 자격증명 해석·수집·정규화·rate limit (`ClickUpCollector`). |
-| `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). 자격증명은 JSON `{user_token, bot_token}` 또는 레거시 평문 두 가지를 `SlackCredentialCodec`으로 읽는다 — 수집에는 `user_token`만 사용한다. |
+| `source.slack` | Slack 자격증명 해석·수집·정규화·rate limit (`SlackCollector`). 자격증명은 JSON `{user_token, bot_token}` 또는 레거시 평문 두 가지를 `SlackCredentialCodec`으로 읽는다 — 수집에는 `user_token`만 사용한다. BYO(붙여넣기) 행도 같은 코덱·같은 `user_token`이다. 워커는 `external_ref.connect_method`를 읽지 않는다(C 트랙에서 pipeline-worker 변경 없음). |
 | `source.discord` | Discord 수집·정규화·rate limit (`DiscordCollector`). 자격증명은 DB가 아니라 이 worker의 설정(`app.discord.bot-token`)에서 온다 — 수집 주체가 앱 전체 공유 봇이라서다. |
 | `source.googlechat` | Google Chat 수집·정규화·rate limit (`GoogleChatCollector`). Jira와 같은 모양 — DB의 사용자별 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고, 만료 시 backend(`GoogleChatTokenService`)가 갱신한다. 사용자 인증으로는 메시지 작성자 표시 이름이 Chat API 응답에 오지 않아(실측 확인) `GoogleChatRawService`가 People API(`people.googleapis.com`, 별도 호스트)로 이름·이메일을 보강한다 — 메시지에 등장한 sender만, 그 실행(컨텍스트) 안에서만 재사용하며 지연 조회한다. |
 | `source.notion` | Notion 수집·정규화·rate limit (`NotionCollector`, **문서 아키타입 1호** — `Document` nodeType 발행). ClickUp과 같은 모양 — DB의 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고 만료 판정을 하지 않는다(갱신 응답에 만료 정보가 없어 비만료 취급). `POST /v1/search`(최신 API 버전은 `Notion-Version` 헤더로 고정)를 `last_edited_time` 내림차순으로 훑고, 페이지마다 `GET /v1/blocks/{id}/children`을 재귀 조회해 `NotionBlockFlattener`로 평문화한다(깊이 5·블록 2,000·본문 100,000자 상한). `created_by`/`last_edited_by`는 partial user(id만)라, 처리할 페이지가 실제로 나온 뒤 실행당 한 번 지연 조회하는 `GET /v1/users` 전량 결과로 이름·이메일·bot 여부를 보강한다 — capability 미설정으로 인한 403은 삼키고 빈 맵으로 계속한다. |
@@ -264,6 +264,7 @@ GitHub/Slack/Jira/Google Chat credential은 모두 Bearer 토큰으로 사용한
 `user_token`만 꺼내 Bearer로 감싸고, 파싱 실패나 루트가 object가 아니면(레거시 평문 토큰 등) 복호화된 문자열을 그대로 Bearer로 쓴다.
 수집에는 `user_token`만 사용한다(bot_token은 읽지 않는다). backend가 JSON 포맷 쓰기를 시작해도(S2-b)
 기존 평문 credential이 남아 있는 worker가 깨지지 않는 이유가 이 폴백 덕분이다.
+BYO 행도 같은 JSON(`bot_token` null)이라 워커 분기가 없다 — `connect_method`는 backend 격리용이고 수집 경로는 OAuth와 동일하다.
 
 **Discord는 이 패턴의 예외다** — DB row의 `encrypted_credential`(사용자 OAuth refresh token)을 전혀
 복호화하지 않는다. 수집 주체가 프로젝트별 사용자가 아니라 앱 전체가 공유하는 봇이라, `DiscordCollector`는

@@ -21,6 +21,9 @@ public class SlackOAuthConnectFlow implements OAuthConnectFlow {
     public static final String WORKSPACE_NAME = "workspace_name";
     // tokens_revoked 매칭 키 — Slack 연동 행에서 사용자를 식별하는 external_ref 필드명
     public static final String CONNECTED_USER_ID = "connected_user_id";
+    // BYO(붙여넣기)와 OAuth를 구분한다 — 키가 없으면 OAuth/레거시. 라이프사이클 이벤트에서 BYO 행을 건너뛴다
+    public static final String CONNECT_METHOD = "connect_method";
+    public static final String CONNECT_METHOD_BYO = "byo";
 
     private final SlackProperties slackProperties;
     private final SlackClient slackClient;
@@ -35,6 +38,7 @@ public class SlackOAuthConnectFlow implements OAuthConnectFlow {
     public String buildAuthorizeUrl(String state) {
         return UriComponentsBuilder.fromUriString(slackProperties.authorizeUrl())
                 .queryParam("client_id", slackProperties.clientId())
+                .queryParam("scope", slackProperties.botScopes())
                 .queryParam("user_scope", slackProperties.userScopes())
                 .queryParam("redirect_uri", slackProperties.redirectUri())
                 .queryParam("state", state)

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.slack.SlackProperties;
+import com.history.backend.slack.dto.SlackAuthTestResponse;
 import com.history.backend.slack.dto.SlackOAuthAccessResponse;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
@@ -147,6 +148,53 @@ public class SlackClient {
         }
     }
 
+    // BYO 연결은 사용자에게 실패 이유를 돌려줘야 해서, 커맨드 백필용 authTest와 달리 예외를 삼키지 않는다.
+    public SlackVerifiedUser verifyToken(String token) {
+        String trimmed = token.trim();
+        if (!trimmed.startsWith("xoxp-")) {
+            throw new UnauthorizedException("Invalid Slack token.");
+        }
+
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("token", trimmed);
+
+        SlackAuthTestResponse response;
+        try {
+            response = restClient
+                    .post()
+                    .uri("https://slack.com/api/auth.test")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(SlackAuthTestResponse.class);
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is4xxClientError()) {
+                throw new UnauthorizedException("Invalid Slack token.");
+            }
+            throw new BadGatewayException("Slack auth test request failed.", exception);
+        } catch (RestClientException exception) {
+            throw new BadGatewayException("Slack auth test request failed.", exception);
+        }
+
+        if (response == null || !Boolean.TRUE.equals(response.ok())) {
+            throw new UnauthorizedException("Invalid Slack token.");
+        }
+        // bot_id가 있으면 봇 토큰이다 — 사용자 xoxp만 받는다
+        if (response.botId() != null && !response.botId().isBlank()) {
+            throw new UnauthorizedException("Invalid Slack token.");
+        }
+        String teamId = response.teamId();
+        String teamName = response.team();
+        if (teamId == null || teamId.isBlank() || teamName == null || teamName.isBlank()) {
+            throw new BadGatewayException("Slack auth test response is missing workspace information.");
+        }
+        String userId = response.userId();
+        if (userId == null || userId.isBlank()) {
+            throw new BadGatewayException("Slack auth test response is missing authed user id.");
+        }
+        return new SlackVerifiedUser(teamId, teamName, userId);
+    }
+
     // response_url 유효 시간(30분) 안에만 도달하면 되므로, 실패해도 커맨드 ack는 이미 끝난 뒤다.
     public void postEphemeral(String responseUrl, String text) {
         try {
@@ -163,6 +211,9 @@ public class SlackClient {
     }
 
     public record SlackWorkspace(String id, String name, String userToken, String botToken, String authedUserId) {
+    }
+
+    public record SlackVerifiedUser(String teamId, String teamName, String userId) {
     }
 
     private record SlackApiResponse(

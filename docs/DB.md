@@ -236,7 +236,8 @@ provider 열거형 CHECK는 V12에서 제거했다 — 새 연동을 붙일 때�
 
 **`external_ref` JSON 키**
 - GitHub: `repository_id`, `repository_full_name`, `branch`(선택 — 지정하면 해당 브랜치로 수집을 스코프한다)
-- Slack: `workspace_id`, `workspace_name`, `connected_user_id`(신규 연결 — Slack `authed_user.id`. 레거시 행에는 없음)
+- Slack: `workspace_id`, `workspace_name`, `connected_user_id`(신규 연결 — Slack `authed_user.id`. 레거시 행에는 없음),
+  `connect_method`(BYO 붙여넣기만 `"byo"`. OAuth·레거시는 키 없음. 값은 `SlackOAuthConnectFlow.CONNECT_METHOD_BYO`와 동일 문자열)
 - Jira: `cloud_id`, `site_name`, `project_key`, `project_name`(선택)
   - 최초 동의 직후에는 사이트·프로젝트를 아직 모르므로 `status`(`pending_selection`) 하나만 담긴다
   - 토큰 갱신이 영구 실패해 pending으로 되돌아온 경우는 기존 키를 유지한 채 `status`만 덧붙는다

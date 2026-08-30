@@ -314,6 +314,191 @@ class SlackClientTest {
     }
 
     @Test
+    @DisplayName("verifyToken 성공 → Slack.com auth.test 에 form token= 로 호출하고 team/user 매핑 "
+            + "(앞뒤 공백은 trim, SlackProperties URL이 아님, 반환값에 토큰 없음)")
+    void verifyTokenReturnsWorkspaceAndUserWhenOk() {
+        SlackClientFixture fixture = fixture();
+        MultiValueMap<String, String> expectedForm = new LinkedMultiValueMap<>();
+        expectedForm.add("token", "xoxp-user");
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().formData(expectedForm))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "team": "Acme",
+                          "team_id": "T123",
+                          "user_id": "U123"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        SlackClient.SlackVerifiedUser result = fixture.client.verifyToken("  xoxp-user  ");
+
+        assertThat(result).isEqualTo(new SlackClient.SlackVerifiedUser("T123", "Acme", "U123"));
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken — xoxb- 접두사는 HTTP 없이 Unauthorized (봇 토큰 거절)")
+    void verifyTokenRejectsBotTokenPrefixWithoutCallingSlack() {
+        SlackClientFixture fixture = fixture();
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxb-bot"))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid Slack token.");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken — xoxe- 접두사는 HTTP 없이 Unauthorized")
+    void verifyTokenRejectsExchangeTokenPrefixWithoutCallingSlack() {
+        SlackClientFixture fixture = fixture();
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxe-exchange"))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid Slack token.");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken — xoxp- 가 아니면 HTTP 없이 Unauthorized (xoxp 하이픈 없는 값 포함)")
+    void verifyTokenRejectsTokenThatDoesNotStartWithUserPrefixWithoutCallingSlack() {
+        SlackClientFixture fixture = fixture();
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("not-a-slack-token"))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid Slack token.");
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxp"))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid Slack token.");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken ok:false → Unauthorized. authTest는 같은 응답을 삼키고 null "
+            + "(커맨드 백필과 BYO 검증 계약이 갈라진다)")
+    void verifyTokenThrowsUnauthorizedWhenSlackReportsNotOkUnlikeAuthTest() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "invalid_auth" }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxp-user"))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid Slack token.");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken HTTP 4xx → Unauthorized")
+    void verifyTokenThrowsUnauthorizedOnHttpClientError() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withResourceNotFound());
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxp-user"))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid Slack token.");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken HTTP 5xx → BadGateway (authTest가 삼키는 것과 다르고, "
+            + "exchangeCode가 4xx/5xx를 모두 Unauthorized로 묶는 것과도 다르다). 메시지에 토큰 원문 없음")
+    void verifyTokenThrowsBadGatewayOnHttpServerErrorUnlikeAuthTest() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxp-user"))
+                .isInstanceOf(BadGatewayException.class)
+                .hasMessageNotContaining("xoxp-user");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken — ok:true 여도 bot_id가 있으면 Unauthorized (봇 토큰 거절)")
+    void verifyTokenRejectsResponseWithBotId() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "team": "Acme",
+                          "team_id": "T123",
+                          "user_id": "U123",
+                          "bot_id": "B123"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxp-user"))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid Slack token.");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken — team_id 없음 → BadGateway (workspace 정보 없음)")
+    void verifyTokenRejectsMissingTeamId() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "team": "Acme",
+                          "team_id": "",
+                          "user_id": "U123"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxp-user"))
+                .isInstanceOf(BadGatewayException.class)
+                .hasMessageNotContaining("xoxp-user");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken — team 없음 → BadGateway (workspace 정보 없음)")
+    void verifyTokenRejectsMissingTeamName() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "team": "",
+                          "team_id": "T123",
+                          "user_id": "U123"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxp-user"))
+                .isInstanceOf(BadGatewayException.class)
+                .hasMessageNotContaining("xoxp-user");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("verifyToken — user_id 없음 → BadGateway (authed user id 없음)")
+    void verifyTokenRejectsMissingUserId() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/auth.test"))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "team": "Acme",
+                          "team_id": "T123",
+                          "user_id": ""
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.verifyToken("xoxp-user"))
+                .isInstanceOf(BadGatewayException.class)
+                .hasMessageNotContaining("xoxp-user");
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("postEphemeral — JSON response_type=ephemeral 을 response_url에 POST")
     void postEphemeralPostsEphemeralJsonToResponseUrl() {
         SlackClientFixture fixture = fixture();
@@ -353,6 +538,7 @@ class SlackClientTest {
                         "test-client-secret",
                         "https://slack.test/callback",
                         "channels:read,groups:read,channels:history,groups:history,users:read,users:read.email",
+                        "commands",
                         "https://slack.test/oauth/v2/authorize",
                         "https://slack.test/api/oauth.v2.access",
                         "https://slack.test/api/auth.revoke"

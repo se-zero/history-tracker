@@ -70,6 +70,7 @@ slack:
   client-secret: test-client-secret
   redirect-uri: https://slack.test/callback
   user-scopes: "channels:read,groups:read,channels:history,groups:history,users:read,users:read.email"
+  bot-scopes: "commands"
   authorize-url: https://slack.test/oauth/v2/authorize
   oauth-access-url: https://slack.test/api/oauth.v2.access
   signing-secret: test-slack-signing-secret

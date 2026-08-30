@@ -43,7 +43,8 @@
 
 **다음**: 0-1b(사용자 GitHub 토큰 저장, Critical — GitHub App 설정 확인이 선행돼야 함).
 1-2는 OpenAI 계정 하드 캡으로 대체하기로 결정(2026-08-28) — 코드 작업 없음. 0-3 Slack은
-방향(B+C+D 병행) 결정 완료, D는 S1~S3 코드 완료·실기동·S4~S6은 남음. 1-3(provider 쿼터 공유)은 Discord·Google Chat
+방향(B+C+D 병행) 결정 완료. C는 연결 API·격리·문서가 붙는 중 — **C0 Slack 문의는 미회신(배포 전
+게이트)**. D는 S1~S3 코드 완료·실기동·S4~S6은 남음. 1-3(provider 쿼터 공유)은 Discord·Google Chat
 공정 큐(`ProjectFairGate`)로 완료.
 아래 「다음 순서」 참고.
 
@@ -335,15 +336,25 @@ C의 근거는 changelog의 **"Internal customer-built applications are not impa
       - **열린 위험**: C가 "빠른 탈출구"로 있으면 B를 참고 쓰는 사람이 줄어, D에 필요한
         "주간 활성 10명" 실적이 오히려 더디게 쌓일 수 있다. 지금은 결정하지 않고 관찰한다
       - **아직 안 정해진 것**: 유료 구독을 시작하는 시점에 B가 Slack 약관과 충돌하는 문제를
-        어떻게 풀지(그때 B를 접고 C만 남길지 등)는 결제 작업과 함께 다시 판단한다
-- [ ] C로 간다면 **Slack에 문의해 "고객이 만든 앱의 토큰을 외부 서비스가 쓰는 것"이 내부 앱
-      예외에 해당하는지 확답**을 받는다 — 되돌리기 비싼 작업이다
+        어떻게 풀지(그때 B를 접고 C만 남길지 등)는 결제 작업과 함께 다시 판단한다.
+        등재 후 C(토큰 경로)를 유지할지도 미정 — 지금 범위 아님
+- [x] C 연결 API — `POST /api/v1/projects/{projectId}/integrations/slack` (JWT, body `token`),
+      `connect_method=byo`, 무효 토큰은 HTTP 400
+- [x] C 격리 — Events API·`/why-code`는 BYO 행 제외. 해제 시 원격 `auth.revoke` 생략
+- [x] C UI — 타일에서 OAuth vs 토큰, 주 카드는 `OAuthSourceCard`, 카탈로그 `secondaryConnect: "token"`
+- [x] C 문서 — [slack-byo.md](slack-byo.md), Privacy `#slack`, DB·수집·서비스 CLAUDE.md
+- [ ] **C0 Slack 문의** — 고객 Internal 앱의 User OAuth Token(`xoxp`)을 우리 SaaS가 보관하고
+      `conversations.history` 수집에 쓰는 것이 2025-05-29 changelog의 "Internal customer-built
+      applications are not impacted" 예외에 해당하는가(제3자가 그 토큰을 들고 쓰는 경우).
+      **미회신 — 배포 전 게이트.** 문의 초안은 [slack-byo.md](slack-byo.md) 「C0 문의」.
+      거절이면 C를 접는다. 예외에 해당한다고 단정하지 않는다
 - [ ] 봇 토큰 전환은 **별개 항목**으로 둔다. 최소 권한이라는 장점은 있지만 rate limit도 등재 자격도
       바꾸지 못하고, 채널마다 초대·관리자 승인이 필요해 **개인 사용자에게는 오히려 불리**하다
 
-**우선순위: 중 — 방향 결정 완료, D 착수.** 대화 소스에 대안이 있어 Slack이 막혀도 제품이 성립한다.
+**우선순위: 중 — 방향 결정 완료, C·D 착수.** 대화 소스에 대안이 있어 Slack이 막혀도 제품이 성립한다.
+**C의 실행 정본은 [slack-byo.md](slack-byo.md)** — 연결·격리·문서. **C0 문의는 열린 체크박스**(배포 전 게이트).
 **D의 실행 계획은 [slack-marketplace.md](slack-marketplace.md)** — S1(Events API 수신)·S2(자격증명)·S3(`/why-code`) 코드 완료,
-실기동·S4~S6 제출물은 남음.
+실기동·S4~S6 제출물은 남음. C가 D를 대체하지 않는다.
 
 **근거**: [rate limits](https://docs.slack.dev/apis/web-api/rate-limits/) ·
 [2025-05-29 changelog](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps) ·
@@ -898,7 +909,8 @@ nginx에 `client_max_body_size`가 없어 기본 1MB가 걸린다. GitHub webhoo
 
 1. **0-1b 사용자 GitHub 토큰** — Critical. GitHub App 설정 확인이 선행돼야 한다
 2. **4-5 제3자 창구·내보내기**
-3. ~~**0-3 Slack** — A~D 결정.~~ **결정 완료(2026-08-28) — B+C+D 병행.** D는 S1~S3 코드 완료, 실기동·S4~S6 남음
+3. ~~**0-3 Slack** — A~D 결정.~~ **결정 완료(2026-08-28) — B+C+D 병행.** C는 [slack-byo.md](slack-byo.md)
+   (C0 문의 미회신 — 배포 전 게이트). D는 S1~S3 코드 완료, 실기동·S4~S6 남음
 4. ~~**1층 비용 가드** — 원가 측정 → 무료 한도 설계~~ **1-1·1-3 구현 완료(2026-08-28)** — 원가 측정은
    생략, 무료 한도(프로젝트·연동·질의·증분 수집)를 backend·pipeline-worker에 강제. **1-2는
    OpenAI 계정 하드 캡으로 대체 결정(2026-08-28, 코드 불필요)**. Discord·Google Chat 공정 큐는
