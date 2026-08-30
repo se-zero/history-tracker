@@ -47,6 +47,9 @@ export type SourceCatalogItem = SourceBase &
         // BYO(고객 앱 토큰) 해제 때 붙는 추가 고지 — 그래프·저장 자격증명은 지우지만 고객 앱
         // 토큰은 우리가 provider에 폐기 요청하지 않는다는 뜻. OAuth/레거시(키 없음)는 비운다.
         byoKeptNote?: string;
+        // OAuth(우리 앱) 해제 때 붙는 추가 고지 — 우리 쪽 연동·그래프는 지워도 provider 쪽에
+        // 앱 설치가 남는 비대칭. BYO와 문구가 갈리므로 필드를 나눈다. 해당 없는 소스는 비운다.
+        oauthKeptNote?: string;
       }
     // backend 연동이 아직 없는 소스 — 타일 자리만 잡는다.
     | { status: "planned" }
@@ -86,6 +89,8 @@ export const sourceCatalog: SourceCatalogItem[] = [
     secondaryConnect: "token",
     byoKeptNote:
       "우리가 저장한 자격증명은 지우지만, 고객 앱의 토큰은 Slack에 폐기 요청하지 않습니다. 앱 자체는 Slack 설정에서 제거해 주세요.",
+    oauthKeptNote:
+      "whycode 연동을 해제해도 Slack 워크스페이스의 앱은 남습니다. 앱 자체는 Slack 관리 화면에서 제거해 주세요.",
   },
   {
     id: "google-chat",
@@ -210,4 +215,10 @@ export function consentSideEffectOf(id: string | null | undefined): string | nul
 export function byoKeptNoteOf(id: string | null | undefined): string | null {
   const source = findSource(id);
   return source?.status === "wired" ? (source.byoKeptNote ?? null) : null;
+}
+
+// OAuth 해제 때 붙는 추가 고지 (없으면 null). 호출부가 provider id를 비교하지 않게 카탈로그가 소유한다.
+export function oauthKeptNoteOf(id: string | null | undefined): string | null {
+  const source = findSource(id);
+  return source?.status === "wired" ? (source.oauthKeptNote ?? null) : null;
 }

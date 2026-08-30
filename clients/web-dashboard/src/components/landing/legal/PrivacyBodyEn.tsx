@@ -195,10 +195,12 @@ export function PrivacyBodyEn() {
           <LegalSourceRow label="Deletion">
             Disconnecting deletes the stored credential and the message and member
             data collected from that workspace. For a connection made by consenting
-            to our app (OAuth), we also request that Slack revoke the access token,
-            cutting off access. For a connection made by pasting a token from the
-            User's own app (BYO), we do not request remote revocation from Slack;
-            remove that app from Slack settings.
+            to our app (OAuth), we also request that Slack revoke the user access
+            token, cutting off that connection. The bot is shared with other
+            projects in the same workspace, so the app itself remains — to remove
+            the app, do so from Slack settings. For a connection made by pasting a
+            token from the User's own app (BYO), we do not request remote
+            revocation from Slack; remove that app from Slack settings.
           </LegalSourceRow>
           <LegalSourceRow label="Write access">
             None is requested. The Service does not send, edit, or delete
@@ -509,6 +511,10 @@ export function PrivacyBodyEn() {
             </tbody>
           </table>
         </div>
+        <p>
+          Data transmitted in this process is not used to train or improve OpenAI
+          models. It is used only to generate embeddings and to answer questions.
+        </p>
         <p>
           Other than as described above, the Service does not provide a User's
           personal information to third parties, and under no circumstances does

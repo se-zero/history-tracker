@@ -2548,6 +2548,140 @@ body:has(.lp) {
   }
 }
 
+/* ── Slack 앱 절 ───────────────────────────────────────────────
+   유스케이스(카드 그리드)와 최종 CTA(중앙 선언) 사이. 형식은 좌측 정렬 타이포 +
+   세로 스텝 — 작동 방식의 미니 그래프 3단·유스케이스 카드와 겹치지 않게 한다.
+   앰버 없음(이 절엔 실행 버튼이 없다). /why-code 만 모노(라틴 기술 토큰).
+   --------------------------------------------------------- */
+.lp-slack {
+  padding-block: clamp(80px, 9vw, 112px);
+  padding-inline: 32px;
+  scroll-margin-top: 64px;
+}
+
+.lp-slack-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.lp-slack-header {
+  margin-bottom: 24px;
+}
+
+.lp-slack-eyebrow {
+  margin: 0;
+  font-family: var(--lp-font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  color: var(--lp-text-secondary);
+}
+
+.lp-slack-headline {
+  margin: 16px 0 0;
+  font-family: var(--lp-font-display);
+  font-weight: 500;
+  font-size: clamp(1.75rem, 4.2vw, 2.5rem);
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  color: var(--lp-text-primary);
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+.lp-slack-body {
+  margin: 0;
+  max-width: 640px;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--lp-text-secondary);
+  word-break: keep-all;
+}
+
+.lp-slack-cmd {
+  font-family: var(--lp-font-mono);
+  font-size: 13px;
+  color: var(--lp-text-primary);
+}
+
+.lp-slack-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
+  margin: 48px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lp-slack-step {
+  margin: 0;
+}
+
+.lp-slack-step-title {
+  margin: 0;
+  font-family: var(--lp-font-body);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--lp-text-primary);
+  word-break: keep-all;
+}
+
+.lp-slack-step-num {
+  margin-right: 8px;
+  font-family: var(--lp-font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--lp-text-secondary);
+}
+
+.lp-slack-step-body {
+  margin: 8px 0 0;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--lp-text-secondary);
+  word-break: keep-all;
+}
+
+.lp-slack-notice {
+  margin: 40px 0 0;
+  max-width: 640px;
+  padding: 14px 16px;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-r-md);
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--lp-text-muted);
+  word-break: keep-all;
+}
+
+.lp-slack-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 24px 0 0;
+}
+
+.lp-slack-link {
+  font-size: 13px;
+  color: var(--lp-text-secondary);
+  transition: color var(--lp-dur-fast) var(--lp-ease-standard);
+}
+.lp-slack-link:hover {
+  color: var(--lp-text-primary);
+}
+
+@media (max-width: 767px) {
+  .lp-slack {
+    padding-inline: 24px;
+  }
+  .lp-slack-steps {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
 /* ── 최종 CTA 섹션 ─────────────────────────────────────────────
    중앙 정렬, 넓은 상하 여백으로 페이지를 닫는 조용한 선언 + 실행 버튼 하나.
    8차 — 경계 방식 전환("단절"에서 "흐름"으로): 7차의 상단 헤어라인 + 에코 0.5는 섹션
@@ -2666,8 +2800,8 @@ body:has(.lp) {
 
 /* ── 푸터 ─────────────────────────────────────────────────────
    페이지의 마지막 섹션 — 미니멀 한 줄. 상단 헤어라인으로 본문과 구분하고,
-   좌측 제품명 텍스트 / 우측 GitHub·로그인 링크만 둔다(브리프가 명시한 세 항목뿐 —
-   ©연도·슬로건·소셜 아이콘·추가 내비 없음). 로고 마크는 재사용하지 않는다(미니멀이 목표).
+   좌측 제품명 텍스트 / 우측 약관·개인정보·지원·로그인 링크만 둔다.
+   ©연도·슬로건·소셜 아이콘·추가 내비 없음. 로고 마크는 재사용하지 않는다(미니멀이 목표).
    앰버·노드 색 없음, 애니메이션·트랜지션 없음(모션은 나중에 페이지 전체에 일괄 적용).
    --------------------------------------------------------- */
 .lp-footer {
@@ -2865,12 +2999,13 @@ body:has(.lp) {
    폴백으로 렌더돼 제품의 체감 디스플레이 서체는 처음부터 Wanted Sans였는데, 영문판이 스택
    첫 번째 Space Grotesk를 처음으로 실노출하자 "다른 제품 인상 + 각짐"이 생겼다 — 언어를
    바꿔도 같은 제품으로 보이게 영문도 Wanted Sans로 통일한다(신규 서체 아님 — 한글용으로
-   이미 로드되는 패밀리의 라틴 글리프). 대상은 display 서체를 쓰는 섹션 헤드라인 6곳. */
+   이미 로드되는 패밀리의 라틴 글리프). 대상은 display 서체를 쓰는 섹션 헤드라인 7곳. */
 .lp[data-lang="en"] .lp-headline,
 .lp[data-lang="en"] .lp-problem-headline,
 .lp[data-lang="en"] .lp-how-headline,
 .lp[data-lang="en"] .lp-feature-headline,
 .lp[data-lang="en"] .lp-cases-headline,
+.lp[data-lang="en"] .lp-slack-headline,
 .lp[data-lang="en"] .lp-final-cta-headline {
   font-family: "Wanted Sans Variable", "Wanted Sans", sans-serif;
   font-weight: 600;

@@ -17,6 +17,7 @@ import { OnboardingPage } from "@/pages/OnboardingPage";
 import { PrivacyPage } from "@/pages/PrivacyPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SourcesPage } from "@/pages/SourcesPage";
+import { SupportPage } from "@/pages/SupportPage";
 import { TermsPage } from "@/pages/TermsPage";
 import { PATHS } from "@/routes";
 import type { Project } from "@/types/api";
@@ -73,6 +74,7 @@ export default function App() {
           <Route path={PATHS.landing} element={<LandingPage />} />
           <Route path={PATHS.terms} element={<TermsPage />} />
           <Route path={PATHS.privacy} element={<PrivacyPage />} />
+          <Route path={PATHS.support} element={<SupportPage />} />
           <Route path={PATHS.authCallback} element={<AuthCallbackPage />} />
           <Route
             path={PATHS.onboarding}

@@ -66,17 +66,19 @@ src/
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
     landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
-                    LegalLayout — 약관·개인정보 공통 셸(헤더/푸터 재사용 + 산문 컬럼)
+                    LegalLayout — 약관·개인정보·지원 공통 셸(헤더/푸터 재사용 + 산문 컬럼)
+                    SlackAppSection — 랜딩 Slack 앱 절(`/landing#in-slack`)
+                    SupportBody — `/support` 본문
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
     Onboarding · Chat · Sources · Settings · Account · GraphPage(작업 단위 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
-    Actors · Landing · Terms · Privacy · AuthCallback · NotFound
+    Actors · Landing · Terms · Privacy · Support · AuthCallback · NotFound
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
-    ※ Terms(`/terms`)·Privacy(`/privacy`)도 AuthGate 밖 공개 라우트다. 랜딩과 같은 `.lp` 스코프를
-      쓰며 헤더·푸터를 공유한다(LegalLayout). 내용은 실제 수집 항목·권한 scope·보유 기간을
-      반영하므로 **수집 코드나 purge 설정이 바뀌면 이 두 페이지도 함께 고친다**.
+    ※ Terms(`/terms`)·Privacy(`/privacy`)·Support(`/support`)도 AuthGate 밖 공개 라우트다. 랜딩과
+      같은 `.lp` 스코프를 쓰며 헤더·푸터를 공유한다(LegalLayout). 약관·방침 내용은 실제 수집 항목·권한
+      scope·보유 기간을 반영하므로 **수집 코드나 purge 설정이 바뀌면 이 두 페이지도 함께 고친다**.
       본문은 언어별 컴포넌트로 갈린다 — 이용약관은 `components/landing/legal/`의
       `TermsBodyKo.tsx`·`TermsBodyEn.tsx`, 개인정보처리방침도 같은 방식으로
       `PrivacyBodyKo.tsx`·`PrivacyBodyEn.tsx`로 갈려 있다 — 위 내용이 바뀌면 해당 언어별

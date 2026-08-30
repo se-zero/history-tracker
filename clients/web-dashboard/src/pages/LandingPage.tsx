@@ -6,10 +6,12 @@ import { LandingHeader } from "@/components/landing/LandingHeader";
 import { LandingHero } from "@/components/landing/LandingHero";
 import { LandingLanguageProvider, useLandingLanguage } from "@/components/landing/LandingLanguageProvider";
 import { ProblemSection } from "@/components/landing/ProblemSection";
+import { SlackAppSection } from "@/components/landing/SlackAppSection";
 import { UseCasesSection } from "@/components/landing/UseCasesSection";
+import { useDocumentHashScroll } from "@/components/landing/useDocumentHashScroll";
 import { useLandingTheme } from "@/components/landing/useLandingTheme";
 
-// 제품 소개(랜딩) 페이지. 인증 가드 없는 공개 라우트이며, 현재는 히어로·문제 정의·작동 방식·기능 3섹션·유스케이스·최종 CTA·푸터까지 있다.
+// 제품 소개(랜딩) 페이지. 인증 가드 없는 공개 라우트이며, 히어로·문제 정의·작동 방식·기능 3섹션·유스케이스·Slack 앱 절·최종 CTA·푸터까지 있다.
 // 테마(랜딩 자체 다크/라이트 토글, 기본 다크)는 useLandingTheme이 소유한다 — 약관·개인정보
 // 처리방침 페이지도 같은 훅을 쓰므로 전환 방식의 사유는 그쪽 주석에 모아 뒀다.
 // 언어는 LandingLanguageProvider가 소유한다 — `.lp` 래퍼의 data-lang은 Provider 안에서만
@@ -25,6 +27,7 @@ export function LandingPage() {
 function LandingPageBody() {
   const { theme, toggleTheme } = useLandingTheme();
   const { lang } = useLandingLanguage();
+  useDocumentHashScroll();
 
   return (
     <div className="lp" data-theme={theme} data-lang={lang}>
@@ -34,6 +37,7 @@ function LandingPageBody() {
       <HowItWorksSection />
       <FeatureSections />
       <UseCasesSection />
+      <SlackAppSection />
       <FinalCtaSection />
       <LandingFooter />
     </div>

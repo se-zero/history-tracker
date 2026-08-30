@@ -1,9 +1,7 @@
-import { useEffect } from "react";
-import { useLocation } from "react-router-dom";
-
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import { LandingHeader } from "@/components/landing/LandingHeader";
 import { LandingLanguageProvider, useLandingLanguage, type Localized } from "@/components/landing/LandingLanguageProvider";
+import { useDocumentHashScroll } from "@/components/landing/useDocumentHashScroll";
 import { useLandingTheme } from "@/components/landing/useLandingTheme";
 
 // ⚠️ 배포 전 실제 값으로 교체할 자리 — 운영 주체명·문의처. 지금 값은 자리표시자다.
@@ -12,14 +10,15 @@ export const LEGAL_OPERATOR: Localized<string> = { ko: "whycode 팀", en: "the w
 export const LEGAL_CONTACT_EMAIL = "contact@why-code.com";
 export const LEGAL_CONTACT_URL = "https://github.com/se-zero/history-tracker/issues";
 
-// 약관·개인정보처리방침 공통 셸. 랜딩과 같은 `.lp` 스코프를 써서 헤더·푸터·토큰(다크/라이트
+// 약관·개인정보처리방침·지원 공통 셸. 랜딩과 같은 `.lp` 스코프를 써서 헤더·푸터·토큰(다크/라이트
 // 토글 포함)을 그대로 재사용한다 — 공개 페이지끼리 크롬이 끊기면 이탈 지점처럼 보인다.
 // 본문은 산문 한 컬럼(legal.css)이라 랜딩의 섹션 리듬을 따르지 않는다.
 // 언어는 LandingPage와 마찬가지로 LandingLanguageProvider가 소유한다 — `.lp` 래퍼의
 // data-lang을 Provider 안에서 읽어야 해서 본문을 내부 컴포넌트(LegalLayoutBody)로 분리했다.
 export function LegalLayout(props: {
   title: Localized<string>;
-  effectiveDate: string;
+  // 약관·방침만 시행일을 둔다. 지원 페이지는 조항 문서가 아니라 생략한다.
+  effectiveDate?: string;
   summary: Localized<string>;
   children: React.ReactNode;
 }) {
@@ -37,25 +36,13 @@ function LegalLayoutBody({
   children,
 }: {
   title: Localized<string>;
-  effectiveDate: string;
+  effectiveDate?: string;
   summary: Localized<string>;
   children: React.ReactNode;
 }) {
   const { theme, toggleTheme } = useLandingTheme();
   const { lang } = useLandingLanguage();
-
-  // 랜딩에서 스크롤한 상태로 푸터 링크를 누르면 문서 중간이 첫 화면이 된다.
-  // 단 앵커(#slack 등)로 들어온 경우는 그 조항이 목적지다 — 외부 앱 심사에 제출하는 URL이라
-  // 최상단으로 되돌리면 안 된다. SPA는 초기 렌더 전에 브라우저의 기본 앵커 이동이 끝나
-  // 대상이 없으므로 여기서 직접 스크롤한다.
-  const { hash } = useLocation();
-  useEffect(() => {
-    if (!hash) {
-      window.scrollTo(0, 0);
-      return;
-    }
-    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView();
-  }, [hash]);
+  useDocumentHashScroll();
 
   return (
     <div className="lp" data-theme={theme} data-lang={lang}>
@@ -64,13 +51,13 @@ function LegalLayoutBody({
         <article className="lp-legal-inner">
           <header className="lp-legal-head">
             <h1 className="lp-legal-title">{title[lang]}</h1>
-            {/* 날짜만 모노 — 라벨("시행일"/"Effective date")은 두 언어 다 본문 서체다.
-                한글이라 모노를 피하는 게 아니라, 라벨 자체가 기술 토큰이 아니라서다
-                (DESIGN.md 모노 스코프 규칙) — 값(날짜)만 모노로 남는다. */}
-            <p className="lp-legal-meta">
-              {lang === "en" ? "Effective date" : "시행일"}{" "}
-              <time className="lp-legal-date">{effectiveDate}</time>
-            </p>
+            {effectiveDate && (
+              // 날짜만 모노 — 라벨("시행일"/"Effective date")은 두 언어 다 본문 서체다.
+              <p className="lp-legal-meta">
+                {lang === "en" ? "Effective date" : "시행일"}{" "}
+                <time className="lp-legal-date">{effectiveDate}</time>
+              </p>
+            )}
             <p className="lp-legal-summary">{summary[lang]}</p>
           </header>
           {children}

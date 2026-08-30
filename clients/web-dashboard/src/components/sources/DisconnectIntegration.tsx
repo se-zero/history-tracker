@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { InlineError } from "@/components/ui/InlineError";
-import { byoKeptNoteOf, deletedDataOf, sourceName } from "@/components/sources/sourceCatalog";
+import { byoKeptNoteOf, deletedDataOf, oauthKeptNoteOf, sourceName } from "@/components/sources/sourceCatalog";
 import { useDisconnectIntegration } from "@/hooks/useIntegrations";
 import type { IntegrationProvider } from "@/api/integrations";
 
@@ -26,9 +26,11 @@ export function DisconnectIntegration({
   // "무엇이 지워지는지"는 소스마다 다르다 — 문구는 sourceCatalog가 소유한다
   // (연동이 붙은 소스는 타입상 반드시 갖는다. deletedDataOf의 폴백은 배포 시차용이다).
   const deletedData = deletedDataOf(provider);
-  // BYO만 추가 고지한다. OAuth/레거시(키 없음)는 기존 3줄이면 충분하고, 문구는 카탈로그에서
+  // BYO만 해당 고지를, 그 외(OAuth·레거시)는 oauth 고지를 붙인다. 문구는 카탈로그에서
   // 읽는다 — 공용 컴포넌트가 provider id를 비교하지 않기 위함이다.
   const byoKeptNote = connectMethod === "byo" ? byoKeptNoteOf(provider) : null;
+  // BYO가 아니면(OAuth·레거시 키 없음) oauth 고지를 붙인다. 두 필드를 동시에 보여 주지 않는다.
+  const oauthKeptNote = connectMethod === "byo" ? null : oauthKeptNoteOf(provider);
 
   // 다이얼로그를 닫았다 다시 열면 지난 실패 문구가 남아 있지 않게 한다.
   useEffect(() => {
@@ -84,6 +86,12 @@ export function DisconnectIntegration({
                 <li>
                   <span className="confirm-mark" aria-hidden />
                   {byoKeptNote}
+                </li>
+              )}
+              {oauthKeptNote && (
+                <li>
+                  <span className="confirm-mark" aria-hidden />
+                  {oauthKeptNote}
                 </li>
               )}
             </ul>
