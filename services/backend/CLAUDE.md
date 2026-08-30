@@ -156,7 +156,8 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   수집 트리거는 커밋 뒤에 한다.
 - `DELETE /api/v1/projects/{projectId}/integrations/{provider}`(연동 해제)는 provider 권한 폐기 →
   그래프 삭제 → RDB(연동 행·checkpoint) 삭제 순서다. **권한 폐기가 가장 먼저인 이유**: 우리 DB의
-  토큰을 지우면 폐기에 쓸 값 자체가 사라진다. Slack은 `auth.revoke`(단 `connect_method=byo`면 `SlackCredentialLifecycle.revoke`가 원격
+  토큰을 지우면 폐기에 쓸 값 자체가 사라진다. Slack은 user 토큰만 `auth.revoke`(봇 토큰은 워크스페이스
+  공유라 프로젝트 해제 때 폐기하지 않는다. 단 `connect_method=byo`면 `SlackCredentialLifecycle.revoke`가 원격
   호출 없이 true — 고객 붙여넣기 토큰을 우리가 폐기하지 않는다), Jira·Google Chat은 refresh token
   폐기(파생 access token도 함께 무효화)이며, client는 성공/실패를 `boolean`으로 신고하지만
   **`disconnect`는 그 결과를 무시하고 항상 진행한다** — 이미 폐기된 토큰이나 provider 장애로

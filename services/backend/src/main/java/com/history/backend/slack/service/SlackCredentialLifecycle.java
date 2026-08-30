@@ -32,13 +32,8 @@ public class SlackCredentialLifecycle implements ProviderCredentialLifecycle {
             return true;
         }
         SlackCredential credential = codec.decrypt(encryptedCredential);
-        boolean userRevoked = slackClient.revoke(credential.userToken());
-        if (credential.botToken() != null && !credential.botToken().isBlank()) {
-            // 각 호출을 지역 변수에 담는다 — &&를 호출식에 직접 쓰면 short-circuit으로
-            // user 폐기가 false일 때 bot revoke가 아예 호출되지 않아 grant가 남는다.
-            boolean botRevoked = slackClient.revoke(credential.botToken());
-            return userRevoked && botRevoked;
-        }
-        return userRevoked;
+        // 봇 토큰은 워크스페이스당 하나다. 여기서 auth.revoke 하면 같은 워크스페이스를 연결한
+        // 다른 프로젝트의 /why-code까지 끊긴다. 앱 제거는 워크스페이스 관리자 → app_uninstalled.
+        return slackClient.revoke(credential.userToken());
     }
 }
