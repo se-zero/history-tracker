@@ -18,7 +18,7 @@ import { PATHS } from "@/routes";
 //                Jira·Google Chat JSON). Slack BYO는 고객 앱 xoxp 붙여넣기.
 //   요청 권한  → backend application.yaml의 slack.user-scopes·bot-scopes / atlassian.scopes /
 //                discord.scopes·permissions / google-chat.scopes
-//   위탁       → ai-engine의 OpenAI 임베딩·질의 모델
+//   위탁       → ai-engine의 OpenAI 임베딩·질의 모델(학습 미사용 — 제4조)
 //   파기 기한  → backend user-lifecycle.purge.grace-period (P30D) +
 //                권한 회수 실패 시 강제 진행 유예 force-purge-after (P7D, UserPurgeService)
 //   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
@@ -168,9 +168,11 @@ export function PrivacyBodyKo() {
           </LegalSourceRow>
           <LegalSourceRow label="삭제">
             연동을 해제하면 저장된 자격증명과 해당 워크스페이스에서 수집한 메시지·멤버 데이터를
-            삭제합니다. 우리 앱으로 동의해 연결한 경우(OAuth)에는 Slack에 액세스 토큰 폐기를
-            요청해 접근 권한을 끊습니다. 이용자가 자기 앱의 토큰을 붙여 넣어 연결한 경우(BYO)에는
-            Slack에 원격 폐기 요청을 하지 않으며, 고객 앱은 Slack 설정에서 제거해 주세요.
+            삭제합니다. 우리 앱으로 동의해 연결한 경우(OAuth)에는 Slack에 사용자 액세스 토큰
+            폐기를 요청해 그 연결의 접근 권한을 끊습니다. 다만 봇은 같은 워크스페이스의 다른
+            프로젝트와 공유되므로 앱 자체는 남아 있습니다. 앱을 제거하려면 Slack 관리 화면에서
+            해 주세요. 이용자가 자기 앱의 토큰을 붙여 넣어 연결한 경우(BYO)에는 Slack에 원격
+            폐기 요청을 하지 않으며, 고객 앱은 Slack 설정에서 제거해 주세요.
           </LegalSourceRow>
           <LegalSourceRow label="쓰기 권한">
             요청하지 않습니다. 메시지 전송·수정·삭제, 채널 생성 등 워크스페이스를 변경하는
@@ -424,6 +426,10 @@ export function PrivacyBodyKo() {
             </tbody>
           </table>
         </div>
+        <p>
+          위탁 과정에서 전송된 데이터는 OpenAI 모델의 학습이나 개선에 사용되지 않습니다.
+          임베딩 생성과 질의응답에만 쓰입니다.
+        </p>
         <p>
           이 외에 이용자의 개인정보를 제3자에게 제공하지 않으며, 어떤 경우에도{" "}
           <strong>판매하거나 광고·마케팅 목적으로 이용하지 않습니다</strong>. 다만 법령에

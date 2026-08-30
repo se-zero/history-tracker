@@ -31,7 +31,7 @@ interface LandingLanguageContextValue {
 
 const LandingLanguageContext = createContext<LandingLanguageContextValue | null>(null);
 
-// 랜딩 계열 공개 페이지(랜딩·약관·개인정보처리방침)가 쓰는 언어 상태. 페이지마다 Provider
+// 랜딩 계열 공개 페이지(랜딩·약관·개인정보처리방침·지원)가 쓰는 언어 상태. 페이지마다 Provider
 // 인스턴스가 따로 뜨지만(useLandingTheme과 달리 전역 하나가 아니다), ht.lang 저장값 +
 // 결정적 감지 로직을 공유하므로 랜딩→약관 이동처럼 컴포넌트 트리가 언마운트·재마운트돼도
 // 같은 값을 다시 계산해 언어가 이어진다. useLandingTheme의 "페이지 이동 시 리셋"은 테마가
