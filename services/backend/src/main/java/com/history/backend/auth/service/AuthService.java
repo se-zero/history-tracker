@@ -16,6 +16,7 @@ import com.history.backend.github.dto.GitHubInstallationsResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
+import com.history.backend.github.service.GitHubUserTokenService;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class AuthService {
     private final GitHubAppProperties gitHubAppProperties;
     private final GitHubOAuthClient gitHubOAuthClient;
     private final GitHubInstallationService gitHubInstallationService;
+    private final GitHubUserTokenService gitHubUserTokenService;
     private final UserService userService;
     private final RefreshTokenService refreshTokenService;
     private final JwtTokenService jwtTokenService;
@@ -89,13 +91,15 @@ public class AuthService {
     @Transactional
     public IssuedSession loginWithGitHub(GitHubCallbackRequest request) {
         // GitHub code를 user access token으로 교환
-        String accessToken = requireAccessToken(gitHubOAuthClient.exchangeCode(request.code()));
+        GitHubAccessTokenResponse tokenResponse = gitHubOAuthClient.exchangeCode(request.code());
+        String accessToken = requireAccessToken(tokenResponse);
 
         // GitHub 사용자 정보 조회
         GitHubUserResponse gitHubUser = gitHubOAuthClient.fetchUser(accessToken);
 
         // 내부 user 생성 또는 갱신
         User user = userService.upsertGitHubUser(gitHubUser);
+        gitHubUserTokenService.save(user.getId(), tokenResponse);
 
         syncInstallations(user, gitHubUser, accessToken);
 

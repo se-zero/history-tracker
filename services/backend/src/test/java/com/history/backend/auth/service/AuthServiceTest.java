@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -27,12 +28,14 @@ import com.history.backend.github.dto.GitHubInstallationsResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
+import com.history.backend.github.service.GitHubUserTokenService;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -56,7 +59,9 @@ class AuthServiceTest {
             "https://api.github.com/app/installations/{installation_id}/access_tokens",
             "https://api.github.com/installation/repositories",
             "https://api.github.com/repos/{owner}/{repo}/branches",
-            "https://api.github.com/user/installations/{installation_id}/repositories"
+            "https://api.github.com/user/installations/{installation_id}/repositories",
+            "https://api.github.test/applications/{client_id}/grant",
+            Duration.ofMinutes(5)
     );
 
     private static final JwtProperties JWT_PROPERTIES = new JwtProperties(
@@ -73,6 +78,9 @@ class AuthServiceTest {
 
     @Mock
     private GitHubInstallationService gitHubInstallationService;
+
+    @Mock
+    private GitHubUserTokenService gitHubUserTokenService;
 
     @Mock
     private UserService userService;
@@ -128,7 +136,9 @@ class AuthServiceTest {
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
                 "https://api.github.com/installation/repositories",
                 "https://api.github.com/repos/{owner}/{repo}/branches",
-                "https://api.github.com/user/installations/{installation_id}/repositories"
+                "https://api.github.com/user/installations/{installation_id}/repositories",
+                "https://api.github.test/applications/{client_id}/grant",
+                Duration.ofMinutes(5)
         );
 
         URI uri = authService(properties).buildGitHubInstallUri(null);
@@ -154,7 +164,9 @@ class AuthServiceTest {
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
                 "https://api.github.com/installation/repositories",
                 "https://api.github.com/repos/{owner}/{repo}/branches",
-                "https://api.github.com/user/installations/{installation_id}/repositories"
+                "https://api.github.com/user/installations/{installation_id}/repositories",
+                "https://api.github.test/applications/{client_id}/grant",
+                Duration.ofMinutes(5)
         );
 
         assertThrows(IllegalStateException.class, () -> authService(properties).buildGitHubInstallUri(null));
@@ -167,7 +179,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
 
         when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
@@ -182,6 +194,9 @@ class AuthServiceTest {
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
         assertThat(response.expiresIn()).isEqualTo(900);
         verify(gitHubOAuthClient).fetchUser("github-user-token");
+        InOrder inOrder = inOrder(userService, gitHubUserTokenService);
+        inOrder.verify(userService).upsertGitHubUser(githubUser);
+        inOrder.verify(gitHubUserTokenService).save(eq(userId), eq(githubToken));
     }
 
     @Test
@@ -189,7 +204,7 @@ class AuthServiceTest {
     void loginWithGitHubRejectsInvalidGitHubCode() {
         AuthService authService = authService();
         when(gitHubOAuthClient.exchangeCode("bad-code"))
-                .thenReturn(new GitHubAccessTokenResponse(null, null, null));
+                .thenReturn(new GitHubAccessTokenResponse(null, null, null, null, null, null));
 
         UnauthorizedException thrown = assertThrows(UnauthorizedException.class,
                 () -> authService.loginWithGitHub(new GitHubCallbackRequest("bad-code", null)));
@@ -198,6 +213,7 @@ class AuthServiceTest {
         // refresh 쿠키(재설치 흐름 중일 수 있다)를 지울 이유가 없다.
         assertThat(thrown.clearsRefreshCookie()).isFalse();
         verify(gitHubOAuthClient, never()).fetchUser(any());
+        verify(gitHubUserTokenService, never()).save(any(), any());
     }
 
     @Test
@@ -207,7 +223,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
                 98765L,
@@ -227,6 +243,7 @@ class AuthServiceTest {
         verify(gitHubInstallationService).upsertInstallation(user, ownInstallation);
         // 불필요한 API 호출 회귀 방지 — 본인 개인 계정 설치는 접근 검증이 필요 없다
         verify(gitHubOAuthClient, never()).checkInstallationAccess(any(), any());
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -236,7 +253,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         GitHubInstallationResponse orgInstallation = new GitHubInstallationResponse(
                 22222L,
@@ -256,6 +273,7 @@ class AuthServiceTest {
         authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
 
         verify(gitHubInstallationService).upsertInstallation(user, orgInstallation);
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -265,7 +283,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         GitHubInstallationResponse orgInstallation = new GitHubInstallationResponse(
                 22222L,
@@ -287,6 +305,7 @@ class AuthServiceTest {
         verify(gitHubInstallationService, never()).upsertInstallation(user, orgInstallation);
         // DENIED는 진짜 접근 없음으로 확정됐으니 prune은 그대로 수행돼 멤버십에서 제거된다
         verify(gitHubInstallationService).pruneMemberships(eq(userId), any());
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -296,7 +315,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         // App manager 권한으로 /user/installations에 함께 노출되는 다른 사용자의 개인 설치
         GitHubInstallationResponse otherUsersInstallation = new GitHubInstallationResponse(
@@ -318,6 +337,7 @@ class AuthServiceTest {
 
         verify(gitHubOAuthClient).checkInstallationAccess("github-user-token", 11111L);
         verify(gitHubInstallationService, never()).upsertInstallation(user, otherUsersInstallation);
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -327,7 +347,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         // GitHub 부분 장애(5xx·타임아웃 등)로 접근 여부를 확인하지 못한 조직 installation
         GitHubInstallationResponse unknownOrgInstallation = new GitHubInstallationResponse(
@@ -359,6 +379,7 @@ class AuthServiceTest {
         verify(gitHubInstallationService, never()).pruneMemberships(any(), any());
         // 그와 무관하게 ACCESSIBLE로 확인된 installation의 수집(upsert)은 계속된다
         verify(gitHubInstallationService).upsertInstallation(user, accessibleOrgInstallation);
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -368,7 +389,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         GitHubInstallationResponse orgInstallation = new GitHubInstallationResponse(
                 22222L,
@@ -395,6 +416,7 @@ class AuthServiceTest {
         verify(gitHubInstallationService, never()).upsertInstallation(user, orgInstallation);
         verify(gitHubInstallationService).upsertInstallation(user, ownInstallation);
         verify(gitHubInstallationService, never()).pruneMemberships(any(), any());
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -455,7 +477,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
                 98765L,
@@ -495,6 +517,7 @@ class AuthServiceTest {
         // 접근 가능했던 두 installation만 남고, 접근 불가로 판정된 세 번째는 kept 집합에서 빠진다
         assertThat(keptInstallationIdsCaptor.getValue())
                 .containsExactlyInAnyOrder(OWN_INSTALLATION_ID, ORG_INSTALLATION_ID);
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -504,7 +527,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
                 98765L,
@@ -534,6 +557,7 @@ class AuthServiceTest {
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
         verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
         assertThat(keptInstallationIdsCaptor.getValue()).containsExactly(OWN_INSTALLATION_ID);
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -543,7 +567,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
         GitHubInstallationResponse orgInstallation = new GitHubInstallationResponse(
                 22222L,
@@ -566,6 +590,7 @@ class AuthServiceTest {
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
         verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
         assertThat(keptInstallationIdsCaptor.getValue()).isEmpty();
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     @Test
@@ -575,7 +600,7 @@ class AuthServiceTest {
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
         ReflectionTestUtils.setField(user, "id", userId);
-        GitHubAccessTokenResponse githubToken = new GitHubAccessTokenResponse("github-user-token", "bearer", "");
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
         GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
 
         when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
@@ -589,6 +614,7 @@ class AuthServiceTest {
 
         // GitHub 장애로 installation 목록이 비어 오면(null) 멤버십을 건드리지 않아야 한다 — early return 유지 확인
         verifyNoInteractions(gitHubInstallationService);
+        verifyGitHubUserTokenSaved(userId, githubToken);
     }
 
     private AuthService authService() {
@@ -600,11 +626,27 @@ class AuthServiceTest {
                 gitHubAppProperties,
                 gitHubOAuthClient,
                 gitHubInstallationService,
+                gitHubUserTokenService,
                 userService,
                 refreshTokenService,
                 jwtTokenService,
                 JWT_PROPERTIES
         );
+    }
+
+    private GitHubAccessTokenResponse githubAccessTokenResponse() {
+        return new GitHubAccessTokenResponse(
+                "github-user-token",
+                "bearer",
+                "",
+                "ghr_test",
+                28800L,
+                15897600L
+        );
+    }
+
+    private void verifyGitHubUserTokenSaved(UUID userId, GitHubAccessTokenResponse githubToken) {
+        verify(gitHubUserTokenService).save(eq(userId), eq(githubToken));
     }
 
     private GitHubInstallation installation(

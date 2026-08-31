@@ -13,6 +13,7 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.service.UserService;
+import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.domain.GitHubInstallation;
 import com.history.backend.github.dto.GitHubInstallationAccountResponse;
@@ -39,13 +40,13 @@ class GitHubInstallationServiceTest {
     private GitHubInstallationMemberRepository gitHubInstallationMemberRepository;
 
     @Mock
-    private GitHubAppClient gitHubAppClient;
-
-    @Mock
-    private InstallationTokenService installationTokenService;
-
-    @Mock
     private UserService userService;
+
+    @Mock
+    private GitHubUserTokenService gitHubUserTokenService;
+
+    @Mock
+    private GitHubOAuthClient gitHubOAuthClient;
 
     private static final UUID INSTALLER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID INSTALLATION_ID = UUID.fromString("45b30a75-46d0-4402-b842-9e9c7d07e9ab");
@@ -203,7 +204,7 @@ class GitHubInstallationServiceTest {
     }
 
     @Test
-    @DisplayName("소유한 설치의 리포지토리 목록 반환")
+    @DisplayName("멤버인 사용자의 설치 저장소 목록을 user token ACL로 조회")
     void findRepositoriesReturnsRepositoriesForOwnedInstallation() {
         GitHubInstallationService service = service();
         User installer = installer();
@@ -212,9 +213,8 @@ class GitHubInstallationServiceTest {
         when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
         when(gitHubInstallationRepository.findByIdAndMemberUserId(INSTALLATION_ID, INSTALLER_ID))
                 .thenReturn(Optional.of(installation));
-        when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
-                .thenReturn("installation-token");
-        when(gitHubAppClient.fetchInstallationRepositories("installation-token"))
+        when(gitHubUserTokenService.getAccessToken(INSTALLER_ID)).thenReturn("user-access-token");
+        when(gitHubOAuthClient.fetchUserInstallationRepositories("user-access-token", 98765L))
                 .thenReturn(List.of(new GitHubRepositoryResponse(
                         12345L,
                         "widget",
@@ -231,7 +231,9 @@ class GitHubInstallationServiceTest {
         assertThat(result.get(0).id()).isEqualTo(12345L);
         assertThat(result.get(0).fullName()).isEqualTo("acme/widget");
         assertThat(result.get(0).privateRepository()).isTrue();
-        verify(gitHubAppClient, never()).createInstallationAccessToken(any());
+        verify(gitHubUserTokenService).getAccessToken(INSTALLER_ID);
+        verify(gitHubOAuthClient).fetchUserInstallationRepositories("user-access-token", 98765L);
+        verify(gitHubOAuthClient, never()).fetchRepositoryBranches(any(), any(), any());
     }
 
     @Test
@@ -245,17 +247,96 @@ class GitHubInstallationServiceTest {
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("User not found.");
         verify(gitHubInstallationRepository, never()).findByIdAndMemberUserId(any(), any());
-        verify(installationTokenService, never()).getInstallationAccessToken(any());
-        verify(gitHubAppClient, never()).fetchInstallationRepositories(any());
+        verify(gitHubUserTokenService, never()).getAccessToken(any());
+        verify(gitHubOAuthClient, never()).fetchUserInstallationRepositories(any(), any());
+    }
+
+    @Test
+    @DisplayName("user token이 없으면 ForbiddenException을 전파하고 저장소 목록을 조회하지 않음")
+    void findRepositoriesPropagatesReauthorizationRequired() {
+        GitHubInstallationService service = service();
+        User installer = installer();
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
+        ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
+        when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
+        when(gitHubInstallationRepository.findByIdAndMemberUserId(INSTALLATION_ID, INSTALLER_ID))
+                .thenReturn(Optional.of(installation));
+        when(gitHubUserTokenService.getAccessToken(INSTALLER_ID))
+                .thenThrow(new ForbiddenException("GitHub reauthorization required."));
+
+        assertThatThrownBy(() -> service.findRepositories(INSTALLER_ID, INSTALLATION_ID))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("GitHub reauthorization required.");
+        verify(gitHubOAuthClient, never()).fetchUserInstallationRepositories(any(), any());
+    }
+
+    @Test
+    @DisplayName("멤버인 사용자의 브랜치 목록을 user token으로 조회")
+    void findRepositoryBranchesReturnsBranchesForOwnedInstallation() {
+        GitHubInstallationService service = service();
+        User installer = installer();
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
+        ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
+        when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
+        when(gitHubInstallationRepository.findByIdAndMemberUserId(INSTALLATION_ID, INSTALLER_ID))
+                .thenReturn(Optional.of(installation));
+        when(gitHubUserTokenService.getAccessToken(INSTALLER_ID)).thenReturn("user-access-token");
+        when(gitHubOAuthClient.fetchRepositoryBranches("user-access-token", "acme", "widget"))
+                .thenReturn(List.of("main", "develop"));
+
+        var result = service.findRepositoryBranches(INSTALLER_ID, INSTALLATION_ID, "acme", "widget");
+
+        assertThat(result).containsExactly("main", "develop");
+        verify(gitHubUserTokenService).getAccessToken(INSTALLER_ID);
+        verify(gitHubOAuthClient).fetchRepositoryBranches("user-access-token", "acme", "widget");
+        verify(gitHubOAuthClient, never()).fetchUserInstallationRepositories(any(), any());
+    }
+
+    @Test
+    @DisplayName("브랜치 조회 중 NotFoundException을 그대로 전파")
+    void findRepositoryBranchesPropagatesNotFound() {
+        GitHubInstallationService service = service();
+        User installer = installer();
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
+        ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
+        when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
+        when(gitHubInstallationRepository.findByIdAndMemberUserId(INSTALLATION_ID, INSTALLER_ID))
+                .thenReturn(Optional.of(installation));
+        when(gitHubUserTokenService.getAccessToken(INSTALLER_ID)).thenReturn("user-access-token");
+        when(gitHubOAuthClient.fetchRepositoryBranches("user-access-token", "acme", "widget"))
+                .thenThrow(new NotFoundException("GitHub repository not found."));
+
+        assertThatThrownBy(() -> service.findRepositoryBranches(INSTALLER_ID, INSTALLATION_ID, "acme", "widget"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("GitHub repository not found.");
+    }
+
+    @Test
+    @DisplayName("브랜치 조회 시 user token이 없으면 ForbiddenException을 전파하고 브랜치를 조회하지 않음")
+    void findRepositoryBranchesPropagatesReauthorizationRequired() {
+        GitHubInstallationService service = service();
+        User installer = installer();
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
+        ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
+        when(userService.getActiveUser(INSTALLER_ID)).thenReturn(installer);
+        when(gitHubInstallationRepository.findByIdAndMemberUserId(INSTALLATION_ID, INSTALLER_ID))
+                .thenReturn(Optional.of(installation));
+        when(gitHubUserTokenService.getAccessToken(INSTALLER_ID))
+                .thenThrow(new ForbiddenException("GitHub reauthorization required."));
+
+        assertThatThrownBy(() -> service.findRepositoryBranches(INSTALLER_ID, INSTALLATION_ID, "acme", "widget"))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("GitHub reauthorization required.");
+        verify(gitHubOAuthClient, never()).fetchRepositoryBranches(any(), any(), any());
     }
 
     private GitHubInstallationService service() {
         return new GitHubInstallationService(
                 gitHubInstallationRepository,
                 gitHubInstallationMemberRepository,
-                gitHubAppClient,
-                installationTokenService,
-                userService
+                userService,
+                gitHubUserTokenService,
+                gitHubOAuthClient
         );
     }
 

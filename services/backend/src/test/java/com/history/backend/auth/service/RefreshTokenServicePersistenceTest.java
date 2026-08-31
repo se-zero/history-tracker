@@ -74,7 +74,9 @@ class RefreshTokenServicePersistenceTest {
         @Bean
         GitHubAppProperties gitHubAppProperties() {
             return new GitHubAppProperties(
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "https://api.github.test/applications/{client_id}/grant",
+                    Duration.ofMinutes(5)
             );
         }
     }

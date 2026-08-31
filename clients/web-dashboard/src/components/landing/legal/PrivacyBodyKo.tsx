@@ -16,6 +16,8 @@ import { PATHS } from "@/routes";
 //   수집 대상  → pipeline-worker source/*의 정규화 코드 (CollectionProvider 등재 provider 전부)
 //   자격증명   → provider별 저장 형태가 다르다(Slack JSON user/bot 토큰 · Discord 리프레시 /
 //                Jira·Google Chat JSON). Slack BYO는 고객 앱 xoxp 붙여넣기.
+//                GitHub 사용자 액세스·리프레시 토큰은 로그인 시 발급해 github_user_credentials에
+//                사용자 단위로 둔다(프로젝트 연동 행·설치 토큰과 별개).
 //   요청 권한  → backend application.yaml의 slack.user-scopes·bot-scopes / atlassian.scopes /
 //                discord.scopes·permissions / google-chat.scopes
 //   위탁       → ai-engine의 OpenAI 임베딩·질의 모델(학습 미사용 — 제4조)
@@ -49,13 +51,16 @@ export function PrivacyBodyKo() {
               <tr>
                 <td>연동 자격증명</td>
                 <td>
-                  GitHub App 설치 토큰, Slack·ClickUp 액세스 토큰, Jira·Google Chat·Linear·Asana·Notion
-                  액세스·리프레시 토큰, Discord 리프레시 토큰
+                  GitHub App 설치 토큰, GitHub 사용자 액세스·리프레시 토큰, Slack·ClickUp 액세스
+                  토큰, Jira·Google Chat·Linear·Asana·Notion 액세스·리프레시 토큰, Discord 리프레시
+                  토큰
                 </td>
                 <td>
-                  이용자가 각 서비스에서 연동에 동의할 때 발급합니다. Slack은 동의 외에, 이용자가
-                  자기 워크스페이스에 만든 앱의 User OAuth Token을 붙여 넣는 경로가 있습니다. 다른
-                  소스는 동의로 발급받은 자격증명만 저장합니다.
+                  GitHub 사용자 액세스·리프레시 토큰은 GitHub 로그인 시 발급됩니다. 프로젝트 연동이
+                  아니며, App 설치 토큰과 별개입니다. 그 외 자격증명은 이용자가 각 서비스에서 연동에
+                  동의할 때 발급합니다. Slack은 동의 외에, 이용자가 자기 워크스페이스에 만든 앱의
+                  User OAuth Token을 붙여 넣는 경로가 있습니다. 다른 소스는 동의로 발급받은
+                  자격증명만 저장합니다.
                 </td>
               </tr>
               <tr>
@@ -120,7 +125,9 @@ export function PrivacyBodyKo() {
           <LegalSourceRow label="요청 권한">
             GitHub App 설치 시 <strong>이용자가 선택한 저장소</strong>에 대한 읽기 권한
             (콘텐츠·이슈·Pull Request·메타데이터). 설치 범위는 GitHub 설정에서 언제든 바꿀 수
-            있습니다.
+            있습니다. 로그인 시 발급된 사용자 액세스 토큰과 리프레시 토큰은 AES-GCM으로 암호화해
+            사용자 단위(<code>github_user_credentials</code>)로 저장하며, 프로젝트 연동 행이
+            아닙니다.
           </LegalSourceRow>
           <LegalSourceRow label="수집하는 정보">
             커밋(메시지, 작성자 이름·이메일, 시각, 변경된 파일 경로와 변경 내용, 증감 라인 수),
@@ -128,12 +135,16 @@ export function PrivacyBodyKo() {
           </LegalSourceRow>
           <LegalSourceRow label="이용 목적">
             코드 변경을 그래프의 중심축으로 삼아 이슈·대화와 연결하고, 변경의 배경을 답변의
-            근거로 제시하기 위함입니다.
+            근거로 제시하기 위함입니다. 사용자 액세스 토큰은 이 이용자가 그 GitHub App 설치에서
+            볼 수 있는 저장소만 목록·연결에 쓰기 위함이며, 수집은 기존 설치 토큰으로 합니다.
           </LegalSourceRow>
           <LegalSourceRow label="삭제">
-            연동을 해제하면 저장된 자격증명과 해당 저장소에서 수집한 그래프 데이터를 삭제합니다.
+            연동을 해제하면 해당 저장소에서 수집한 그래프 데이터와 연동 행만 삭제합니다. 사용자
+            액세스·리프레시 토큰과 GitHub App grant는 다른 프로젝트·재연결에 쓰이므로 남깁니다.
             GitHub App 설치는 이용자의 계정에 속하고 다른 프로젝트에서도 쓰일 수 있어 그대로
-            두므로, 앱 자체를 제거하려면 GitHub 설정에서 해주세요.
+            두므로, 앱 자체를 제거하려면 GitHub 설정에서 해주세요. 회원 파기(유예 경과 후 계정
+            삭제) 때에만 GitHub App grant를 폐기해 해당 이용자의 앱 승인을 끊습니다. 로그아웃·연동
+            해제·소프트 삭제는 grant를 건드리지 않습니다.
           </LegalSourceRow>
         </LegalSourceBlock>
 

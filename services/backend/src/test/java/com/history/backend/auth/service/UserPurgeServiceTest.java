@@ -7,6 +7,7 @@ import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -22,6 +23,7 @@ import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.BadGatewayException;
+import com.history.backend.github.service.GitHubUserTokenService;
 import com.history.backend.project.service.ProjectService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,9 @@ class UserPurgeServiceTest {
 
     @Mock
     private ProjectService projectService;
+
+    @Mock
+    private GitHubUserTokenService gitHubUserTokenService;
 
     @Mock
     private TransactionTemplate transactionTemplate;
@@ -277,6 +282,53 @@ class UserPurgeServiceTest {
     }
 
     @Test
+    @DisplayName("GitHub grant 폐기가 실패한 사용자는 삭제 대상에서 빠지고 나머지는 계속 파기")
+    void purgeExpiredUsersSkipsUserWhenGitHubRevokeFails() {
+        UserPurgeService service = userPurgeService(3);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID, THIRD_USER_ID))
+                .thenReturn(List.of());
+        when(gitHubUserTokenService.revokeGrant(SECOND_USER_ID)).thenReturn(false);
+
+        int purgedCount = service.purgeExpiredUsers(NOW);
+
+        assertThat(purgedCount).isEqualTo(2);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UUID>> deletedIdsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(userRepository).deleteAllByIdInBatch(deletedIdsCaptor.capture());
+        assertThat(deletedIdsCaptor.getValue()).containsExactly(FIRST_USER_ID, THIRD_USER_ID);
+        verify(projectService, never()).forcePurgeExternalResources(SECOND_USER_ID);
+    }
+
+    @Test
+    @DisplayName("force cutoff를 넘긴 사용자는 GitHub grant 폐기가 실패해도 forcePurgeExternalResources 후 삭제된다")
+    void purgeExpiredUsersForcePurgesUserWhenGitHubRevokeFailsPastForceCutoff() {
+        UserPurgeService service = userPurgeService(2);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID))
+                .thenReturn(List.of());
+        when(gitHubUserTokenService.revokeGrant(FIRST_USER_ID)).thenReturn(false);
+        when(userRepository.findById(FIRST_USER_ID))
+                .thenReturn(Optional.of(softDeletedUser(FORCE_CUTOFF.minus(Duration.ofDays(1)))));
+
+        int purgedCount = service.purgeExpiredUsers(NOW);
+
+        assertThat(purgedCount).isEqualTo(1);
+        verify(projectService).forcePurgeExternalResources(FIRST_USER_ID);
+        verify(userRepository).deleteAllByIdInBatch(List.of(FIRST_USER_ID));
+    }
+
+    @Test
     @DisplayName("배치 크기를 페이지 크기로 사용")
     void purgeExpiredUsersUsesBatchSizeAsPageSize() {
         UserPurgeService service = userPurgeService(100);
@@ -296,9 +348,12 @@ class UserPurgeServiceTest {
     }
 
     private UserPurgeService userPurgeService(int batchSize) {
+        // 기존 케이스는 GitHub 폐기가 성공한다고 두고, 실패 분기는 개별 테스트가 덮어쓴다.
+        lenient().when(gitHubUserTokenService.revokeGrant(any())).thenReturn(true);
         return new UserPurgeService(
                 userRepository,
                 projectService,
+                gitHubUserTokenService,
                 new UserPurgeProperties(true, Duration.ofDays(30), "0 0 3 * * *", batchSize, Duration.ofDays(60)),
                 transactionTemplate
         );

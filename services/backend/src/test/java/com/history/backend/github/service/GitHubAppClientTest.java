@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -211,7 +212,9 @@ class GitHubAppClientTest {
                 "https://api.github.test/app/installations/{installation_id}/access_tokens",
                 "https://api.github.test/installation/repositories",
                 "https://api.github.test/repos/{owner}/{repo}/branches",
-                "https://api.github.test/user/installations/{installation_id}/repositories"
+                "https://api.github.test/user/installations/{installation_id}/repositories",
+                "https://api.github.test/applications/{client_id}/grant",
+                Duration.ofMinutes(5)
         );
     }
 

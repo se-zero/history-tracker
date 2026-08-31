@@ -229,6 +229,11 @@ backend(:8080)를 직접 가리키면 연동은 성공해도 마지막 리다이
 | Callback URL | `https://<도메인>/auth/callback` | 사용자 브라우저 → 프론트 |
 | **Webhook URL** | `https://<도메인>/api/v1/webhook/github` | **GitHub 서버 → 우리 서버** |
 | Webhook secret | `.env`의 `GITHUB_WEBHOOK_SECRET`과 동일 | 직접 정하는 값(`openssl rand -hex 32`) |
+| **Expire user authorization tokens** | **ON (필수)** | GitHub App settings → Optional features |
+
+코드는 Expire ON을 전제로 한다 — `exchangeCode`가 `refresh_token`·`expires_in`·
+`refresh_token_expires_in`이 없으면 로그인을 `Invalid GitHub authorization code.`로 거절한다.
+꺼 두면 배포 후 GitHub 로그인이 통째로 실패한다.
 
 Webhook은 바깥에서 들어오는 방향이라 **공개 접근 가능한 실제 도메인**이어야 한다. 개발용 터널
 주소를 남겨 두면 배포 후 증분 수집이 멈춘다. `GITHUB_WEBHOOK_SECRET`이 비면 모든 webhook이
