@@ -2,16 +2,19 @@ package com.history.backend.github.service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubBranchResponse;
+import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubInstallationTokenResponse;
 import com.history.backend.github.dto.GitHubRepositoriesResponse;
 import com.history.backend.github.dto.GitHubRepositoryResponse;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -67,6 +70,29 @@ public class GitHubAppClient {
             throw new IllegalStateException("GitHub installation access token expiry is empty.");
         }
         return new InstallationAccessToken(response.token(), parseExpiresAt(response.expiresAt()));
+    }
+
+    // 계정 단위(개인) installation 단건 조회. GET /user/installations는 저장소 접근 판정 기반이라
+    // 저장소가 0개인 설치를 누락하므로, 목록에 없을 때의 폴백 확인 용도로 쓴다.
+    public Optional<GitHubInstallationResponse> fetchUserInstallation(String username) {
+        try {
+            GitHubInstallationResponse response = restClient
+                    .get()
+                    .uri(properties.userInstallationUrl(), username)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + gitHubAppJwtService.createJwt())
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .retrieve()
+                    .body(GitHubInstallationResponse.class);
+            return Optional.ofNullable(response);
+        } catch (RestClientResponseException exception) {
+            // 404는 해당 계정에 앱이 설치되지 않았다는 정상적인 판정이므로 예외로 취급하지 않는다.
+            if (exception.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                return Optional.empty();
+            }
+            throw gitHubApiException("GitHub user installation request failed.", exception);
+        } catch (RestClientException exception) {
+            throw new BadGatewayException("GitHub user installation request failed.", exception);
+        }
     }
 
     // 설치 저장소 전체 조회 (100개 단위 페이지네이션, 마지막 페이지까지 반복)
