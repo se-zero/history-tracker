@@ -21,7 +21,7 @@ B(우리 앱, 느린 채로 유지)·D(마켓플레이스 등재)는 이 문서�
 | 무효 토큰 HTTP | `verifyToken`의 `UnauthorizedException` → `connectSlackWorkspace`가 **`BadRequestException`(HTTP 400)** | JWT 401과 구분해 프론트 인터셉터가 세션을 지우지 않게 |
 | 해제 | `connect_method=byo`면 `SlackCredentialLifecycle.revoke`가 원격 `auth.revoke` 없이 true | 그래프·행·checkpoint는 기존처럼 삭제. 앱은 고객이 Slack 설정에서 제거 |
 | Events / `/why-code` | **BYO 행 제외** | `disconnectSlackWorkspace` / `disconnectSlackUsers` / `listSlackCommandTargets`가 `isSlackByo`로 건너뜀. 같은 `workspace_id`의 OAuth 행만 `app_uninstalled`로 지워진다 |
-| UI | 타일에서 OAuth vs 토큰 선택. 주 카드는 `OAuthSourceCard` | 카탈로그 `secondaryConnect: "token"`. 토큰 직접 입력은 Slack BYO만 예외 |
+| UI | 타일 "연결" 클릭 → 방식 선택 다이얼로그에서 OAuth vs 토큰. 주 카드는 `OAuthSourceCard` | 카탈로그 `secondaryConnect: { kind: "token", oauthHint, tokenHint }`. 토큰 직접 입력은 Slack BYO만 예외 |
 | 한도 | 워커 history 고정 딜레이 **1.2s** ≈ 내부 앱 Tier 3(~50/min) | `SlackRateLimiter` 기본 `conversations-history-delay-ms:1200`. 우리 앱 OAuth는 느린 B(비등재) |
 | 킬 스위치 | **없음** | 등재 후 토큰 경로 폐쇄는 지금 범위 아님 |
 
@@ -44,7 +44,7 @@ B(우리 앱, 느린 채로 유지)·D(마켓플레이스 등재)는 이 문서�
 흐름:
 
 ```
-프론트(타일 보조 CTA) → JWT POST .../integrations/slack { "token": "<xoxp-…>" }
+프론트(방식 선택 다이얼로그의 토큰 선택지 → 토큰 폼) → JWT POST .../integrations/slack { "token": "<xoxp-…>" }
   1. 확정 Slack 행 있으면 409 (verifyToken 호출 없음)
   2. SlackClient.verifyToken — 접두사 xoxp- 아니면 즉시 거절, auth.test, bot_id면 거절
   3. UnauthorizedException → BadRequestException (HTTP 400)
@@ -90,9 +90,11 @@ OAuth 연결(`SlackOAuthConnectFlow.exchangeCode`)은 `connect_method`를 **넣�
 
 ## 5. UI
 
-미연결 Slack 타일에서 주 경로는 우리 앱 OAuth(`OAuthSourceCard`). 보조로 토큰 붙여넣기를 고른다.
-카탈로그는 Slack만 `secondaryConnect: "token"`. **`TokenIntegrationCard`/`SlackCard`를 주 카드로
-두지 않는다.** 토큰 직접 입력은 Slack BYO만 예외 — 다른 소스는 동의·설치만.
+미연결 Slack 타일의 "연결"을 누르면 방식 선택 다이얼로그(`ConnectMethodDialog`)가 열리고,
+OAuth 앱 설치 vs 토큰 붙여넣기 중 고른다 — 선택지 문구는 카탈로그의
+`secondaryConnect: { kind: "token", oauthHint, tokenHint }`(Slack만)가 소유한다.
+**`TokenIntegrationCard`/`SlackCard`를 주 카드로 두지 않는다** — 연동 행은 `OAuthSourceCard`.
+토큰 직접 입력은 Slack BYO만 예외 — 다른 소스는 동의·설치만.
 토큰 폼은 `clients/web-dashboard/src/components/sources/SlackTokenConnectDialog.tsx`다.
 
 ## 6. 한도
@@ -192,7 +194,7 @@ C 작업으로 그 묶음(S4~S6)을 바꾸지 않는다.
 | Events / 커맨드에서 BYO 건너뜀 | `IntegrationService.isSlackByo` — `disconnectSlackWorkspace`, `disconnectSlackUsers`, `listSlackCommandTargets` |
 | JSON 코덱 | backend·worker 각각 `SlackCredentialCodec` (`user_token` / `bot_token`) |
 | 수집 | pipeline-worker `SlackCollector` — `user_token` Bearer. `connect_method` 미사용 |
-| 프론트 | `sourceCatalog` `secondaryConnect: "token"`. 주 카드 `OAuthSourceCard`. 타일 보조 CTA + `SlackTokenConnectDialog` |
+| 프론트 | `sourceCatalog` `secondaryConnect: { kind: "token", … }`. 주 카드 `OAuthSourceCard`. `ConnectMethodDialog`(방식 선택) + `SlackTokenConnectDialog`(토큰 폼) |
 
 ## 11. 문서 동반 갱신
 

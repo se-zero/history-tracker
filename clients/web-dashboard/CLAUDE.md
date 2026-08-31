@@ -43,9 +43,10 @@ src/
     sources/        GitHubCard(설치 기반 전용) · OAuthSourceCard(OAuth 소스 공용 행 — backend가
                     선언한 선택 단계를 그대로 렌더, provider별 카드를 만들지 않는다) ·
                     sourceCatalog(소스 메타 단일 출처 — 9종의 마크·설명이 등재돼 있고, 항목은
-                    status로 갈리는 판별 유니온이다. Slack만 보조 연결이 있다
-                    (`secondaryConnect: "token"`) — **토큰 직접 입력은 Slack BYO만 예외**,
-                    미연결 타일의 보조 CTA(`SlackTokenConnectDialog`). 주 카드는
+                    status로 갈리는 판별 유니온이다. Slack만 연결 방식이 둘이다
+                    (`secondaryConnect: { kind: "token", ... }`) — **토큰 직접 입력은 Slack BYO만
+                    예외**. 타일 "연결" 클릭 시 `ConnectMethodDialog`가 열려 OAuth 앱/토큰 중 방식을
+                    고르고, 토큰을 고르면 `SlackTokenConnectDialog`로 넘어간다. 주 카드는
                     `OAuthSourceCard`다 (`TokenIntegrationCard`/`SlackCard`를 주 카드로 두지 않는다).
                     신규 소스의 프론트 작업은 보통 항목을 추가하고
                     status를 "wired"로 두면서 connect·deletedData를 채우는 게 전부다(연동 전에 타일
