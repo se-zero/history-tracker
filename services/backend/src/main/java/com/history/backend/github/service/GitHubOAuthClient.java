@@ -107,6 +107,12 @@ public class GitHubOAuthClient {
             throw new BadGatewayException("GitHub OAuth token refresh request failed.", exception);
         }
 
+        // GitHub는 이 엔드포인트에서 RFC와 달리 실패를 HTTP 200 + {"error":"..."} 로도 준다.
+        // 4xx catch에 안 걸리면 아래 missing-field 분기가 502로 삼켜, 행 삭제·재로그인 안내가 안 탄다.
+        if (isRevokedRefreshError(response)) {
+            throw new UnauthorizedException("GitHub refresh token is invalid or revoked.");
+        }
+
         // 회전 응답에서 필드가 빠지면 옛 refresh를 덮어쓸 값이 없다. 로그인 code 교환과 달리
         // 여기 실패는 사용자 입력이 아니라 GitHub 측 이상 응답이므로 401이 아니라 502다.
         if (response == null
@@ -162,6 +168,12 @@ public class GitHubOAuthClient {
         return statusCode == HttpStatus.BAD_REQUEST.value()
                 || statusCode == HttpStatus.UNAUTHORIZED.value()
                 || statusCode == HttpStatus.FORBIDDEN.value();
+    }
+
+    // bad_refresh_token만 사용자 토큰 폐기다. incorrect_client_credentials 같은 앱 설정 오류는
+    // 여기 넣으면 아직 유효한 행을 지운다.
+    private static boolean isRevokedRefreshError(GitHubAccessTokenResponse response) {
+        return response != null && "bad_refresh_token".equals(response.error());
     }
 
     public GitHubUserResponse fetchUser(String accessToken) {

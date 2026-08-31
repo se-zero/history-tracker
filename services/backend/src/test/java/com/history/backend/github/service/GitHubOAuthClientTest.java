@@ -525,6 +525,42 @@ class GitHubOAuthClientTest {
     }
 
     @Test
+    @DisplayName("refresh HTTP 200 + error=bad_refresh_token → UnauthorizedException (GitHub은 실패도 200으로 줌)")
+    void refreshRejectsHttp200BadRefreshTokenAsUnauthorized() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(ACCESS_TOKEN_URL))
+                .andRespond(withSuccess("""
+                        {
+                          "error": "bad_refresh_token",
+                          "error_description": "The refresh token passed is incorrect or expired."
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.refresh("revoked-refresh-token"))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("invalid")
+                .hasMessageContaining("revoked");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("refresh HTTP 200 + error=incorrect_client_credentials → BadGatewayException (자격증명 행을 지우면 안 됨)")
+    void refreshRejectsHttp200IncorrectClientCredentialsAsBadGateway() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(ACCESS_TOKEN_URL))
+                .andRespond(withSuccess("""
+                        {
+                          "error": "incorrect_client_credentials",
+                          "error_description": "The client_id and/or client_secret passed are incorrect."
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.refresh("old-refresh-token"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("grant 폐기는 DELETE + Basic auth + access_token JSON, 2xx이면 true")
     void revokeGrantSendsDeleteWithBasicAuthAndReturnsTrueOnSuccess() {
         GitHubOAuthClientFixture fixture = fixture();
