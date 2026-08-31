@@ -64,6 +64,7 @@ github:
     installation-access-token-url: https://api.github.com/app/installations/{installation_id}/access_tokens
     installation-repositories-url: https://api.github.com/installation/repositories
     repository-branches-url: https://api.github.com/repos/{owner}/{repo}/branches
+    user-installation-url: https://api.github.com/users/{username}/installation
 
 slack:
   client-id: test-client-id

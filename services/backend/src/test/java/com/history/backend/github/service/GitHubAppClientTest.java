@@ -8,13 +8,16 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.GitHubAppProperties;
+import com.history.backend.github.dto.GitHubInstallationResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -171,6 +174,61 @@ class GitHubAppClientTest {
         fixture.server.verify();
     }
 
+    @Test
+    @DisplayName("App JWT로 사용자 개인 installation 조회")
+    void fetchUserInstallationRequestsWithAppJwtAndReturnsInstallation() {
+        GitHubAppClientFixture fixture = fixture();
+        when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
+        fixture.server.expect(once(), requestTo("https://api.github.test/users/octocat/installation"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer app-jwt"))
+                .andExpect(header("Accept", "application/vnd.github+json"))
+                .andRespond(withSuccess("""
+                        {
+                          "id": 98765,
+                          "account": {
+                            "login": "octocat",
+                            "type": "User"
+                          }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        Optional<GitHubInstallationResponse> result = fixture.client.fetchUserInstallation("octocat");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().id()).isEqualTo(98765L);
+        assertThat(result.get().account().login()).isEqualTo("octocat");
+        assertThat(result.get().account().type()).isEqualTo("User");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("미설치(404)면 빈 Optional 반환")
+    void fetchUserInstallationReturnsEmptyWhenNotInstalled() {
+        GitHubAppClientFixture fixture = fixture();
+        when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
+        fixture.server.expect(once(), requestTo("https://api.github.test/users/octocat/installation"))
+                .andRespond(withResourceNotFound());
+
+        Optional<GitHubInstallationResponse> result = fixture.client.fetchUserInstallation("octocat");
+
+        assertThat(result).isEmpty();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("GitHub 오류 응답(5xx)을 BadGatewayException으로 변환")
+    void fetchUserInstallationWrapsGitHubErrorsOnServerError() {
+        GitHubAppClientFixture fixture = fixture();
+        when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
+        fixture.server.expect(once(), requestTo("https://api.github.test/users/octocat/installation"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.fetchUserInstallation("octocat"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
     private GitHubAppClientFixture fixture() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -211,7 +269,8 @@ class GitHubAppClientTest {
                 "https://api.github.test/app/installations/{installation_id}/access_tokens",
                 "https://api.github.test/installation/repositories",
                 "https://api.github.test/repos/{owner}/{repo}/branches",
-                "https://api.github.test/user/installations/{installation_id}/repositories"
+                "https://api.github.test/user/installations/{installation_id}/repositories",
+                "https://api.github.test/users/{username}/installation"
         );
     }
 

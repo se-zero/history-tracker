@@ -18,6 +18,7 @@ public record GitHubAppProperties(
         String installationAccessTokenUrl,
         String installationRepositoriesUrl,
         String repositoryBranchesUrl,
-        String userInstallationRepositoriesUrl
+        String userInstallationRepositoriesUrl,
+        String userInstallationUrl
 ) {
 }
