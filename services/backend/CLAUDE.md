@@ -113,8 +113,10 @@ code를 교환하지 않아 어느 서버인지 모른다. 여기서 정리하�
 여부로 갈린다 — 두 SPI의 선언이 어긋나 영영 확정할 수 없는 행이 생기는 것을 막기 위함이다.
 
 해당 동작이 없는 provider는 **빈을 만들지 않으면 된다** — Slack·Discord·Notion은 폐기만 있고 갱신은 없어
-`ProviderCredentialLifecycle`만, Jira·Google Chat은 갱신·선택·폐기 셋 다 있어 전부, GitHub은
-자격증명이 없어 어느 쪽도 없다.
+`ProviderCredentialLifecycle`만, Jira·Google Chat은 갱신·선택·폐기 셋 다 있어 전부, GitHub **연동 행**에는
+자격증명이 없어 `AccessTokenRefresher`/`ProviderCredentialLifecycle` SPI에 등록하지 않는다. 사용자
+OAuth 토큰은 `github_user_credentials` + `GitHubUserTokenService`(userId 키, projectId SPI와 안 맞음).
+수집은 설치 토큰.
 Discord의 `revoke`는 자격증명(refresh token)뿐 아니라 `externalRef`의 `guild_id`도 쓴다 — 봇이 길드를
 나가는 것이 실질적인 폐기라서다(A8로 시그니처를 넓힌 이유). Google Chat은 남겨질 봇이 없어
 `externalRef`를 쓰지 않고 refresh token(grant) 폐기만으로 끝난다.
@@ -169,8 +171,9 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   (`SlackClient.ALREADY_REVOKED_ERRORS`). 나머지 provider는 표준을 따를 것으로 보여(실기동에서도
   실패가 관측된 적 없음) 같은 재해석을 적용하지 않는다 — 확인 안 된 걸 코드에 가정으로 박지 않는다.
   Linear는 refresh token을 직접 폐기(파생 access token도 함께 무효화)하며, Asana도 refresh
-  token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은
-  폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시). ClickUp도
+  token을 폐기한다(비회전이라 최초 발급 값을 그대로 유지해 오던 값이다). GitHub은 **연동 해제**
+  때 폐기 대상이 없다(App 설치는 계정 단위 유지, installation token은 1시간 캐시). **사용자 파기**는
+  `GitHubUserTokenService.revokeGrant`(DELETE grant)로 해당 이용자의 앱 승인을 끊는다. ClickUp도
   폐기 대상이 없다(원격 revoke API 자체가 없음 — 앱 권한 해제는 사용자가 ClickUp 설정의
   Apps에서 직접 한다). Notion은 access_token을 폐기한다(`POST /v1/oauth/revoke`, Basic auth —
   refresh_token이 아니라 access_token으로 호출하는 계약이다).
@@ -180,7 +183,10 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   데이터가 영구 누락된다. GitHub App 설치(`github_installations`)는 계정 단위라 건드리지 않는다.
 - **GitHub App 설치의 접근권은 `github_installation_users`(멤버십)가 갖는다.** 인가 게이트는
   `GitHubInstallationService.getAccessibleInstallation`뿐이고, 레포 목록·브랜치 목록·연동·
-  프로젝트 생성+연동이 전부 이걸 먼저 호출한다. **`installer_user_id`로 인가하지 않는다** —
+  프로젝트 생성+연동이 전부 이걸 먼저 호출한다. 레포 목록·브랜치·연동은 **추가로** 사용자 토큰
+  ACL(`findRepositories` / `requireVisibleGitHubRepository`)을 탄다 — 멤버십만으로는 조직 설치의
+  전체 레포가 보이기 때문이다. 사용자 토큰이 없으면 403 `GitHub reauthorization required.`
+  (앱 세션 401이 아니다). **`installer_user_id`로 인가하지 않는다** —
   설치는 계정 단위라 조직 설치는 구성원 여럿이 공유하고, 그 컬럼은 최초 설치자 기록일 뿐이다
   (덮어쓰지 않는다). 멤버십은 로그인 동기화가 등록하며, 사용자 파기 시 멤버십 행만 사라지고
   설치 행은 남는다(다른 멤버가 계속 쓴다). 배경은 `docs/DB.md`의 `github_installations` 절 참고.

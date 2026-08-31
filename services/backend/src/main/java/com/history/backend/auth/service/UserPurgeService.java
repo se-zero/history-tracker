@@ -10,6 +10,8 @@ import java.util.UUID;
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.common.error.BadGatewayException;
+import com.history.backend.github.service.GitHubUserTokenService;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +27,7 @@ public class UserPurgeService {
 
     private final UserRepository userRepository;
     private final ProjectService projectService;
+    private final GitHubUserTokenService gitHubUserTokenService;
     private final UserPurgeProperties properties;
     private final TransactionTemplate transactionTemplate;
 
@@ -71,6 +74,11 @@ public class UserPurgeService {
         List<UUID> purgedIds = new ArrayList<>();
         for (UUID userId : candidateIds) {
             try {
+                // 사용자 GitHub grant를 프로젝트 정리보다 먼저 폐기한다 — 행이 지워지면 폐기에
+                // 쓸 access token이 사라진다. false면 기존 catch(스킵/force)로 넘긴다.
+                if (!gitHubUserTokenService.revokeGrant(userId)) {
+                    throw new BadGatewayException("Failed to revoke GitHub user grant.");
+                }
                 projectService.releaseExternalResources(userId);
                 purgedIds.add(userId);
             } catch (RuntimeException exception) {

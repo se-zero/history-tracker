@@ -85,7 +85,7 @@
 | [query-followups.md](query-followups.md) | 작업 | TODO | LLM 빈 답 위장 수정 | Responses API, README→Document, 랭킹·인용 |
 | [i18n.md](i18n.md) | 정본 | 계약 | 시각 표시 계약, 랜딩 ko/en | 앱 UI 언어 분리 착수 전 |
 | [deployment-followups.md](deployment-followups.md) | 작업 | TODO | 인바운드 인증 | RabbitMQ URL 분리, 터널 실기동, GitHub 설치 404 |
-| [public-readiness.md](public-readiness.md) | 정본 | 점검표 | 0~2층·4층 다수, Slack D S1~S3 코드, Slack C 연결·격리·문서 | 0-1b, 4-5 내보내기, Slack C0 문의 미회신, Slack 실기동·S4~S6, 3층 심사, 5층 운영, 2-4 |
+| [public-readiness.md](public-readiness.md) | 정본 | 점검표 | 0~2층·4층 다수, Slack D S1~S3 코드, Slack C 연결·격리·문서, 0-1b 사용자 GitHub 토큰 | 4-5 내보내기, Slack C0 문의 미회신, Slack 실기동·S4~S6, 3층 심사, 5층 운영, 2-4 |
 | [slack-marketplace.md](slack-marketplace.md) | 작업 | 등재 계획 (D) | S1 Events API·S2 자격증명·S3 `/why-code` 코드 | 실기동, S4~S6 앱 설정·제출 |
 | [slack-byo.md](slack-byo.md) | 작업 | BYO 계획 (C) | 연결 API·격리·UI·문서 | **C0 Slack 문의 미회신**(배포 전 게이트). 등재 후 토큰 경로 유지 여부는 미정 |
 | [query-quality-issues.md](query-quality-issues.md) | 정본 | 분석 로그 | 케이스별 원인·개선안 | 닫히지 않음 |

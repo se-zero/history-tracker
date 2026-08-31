@@ -1,7 +1,7 @@
 # DB 스키마
 
 backend 서비스(`services/backend`)의 PostgreSQL 테이블 정의 및 관계를 기술한다.
-마이그레이션 파일: `src/main/resources/db/migration/V1~V14`
+마이그레이션 파일: `src/main/resources/db/migration/V1~`
 
 ---
 
@@ -29,6 +29,10 @@ erDiagram
         UUID id PK
         bigint installation_id
         UUID installer_user_id FK
+    }
+    github_user_credentials {
+        UUID user_id PK
+        bytea encrypted_credential
     }
     projects {
         UUID id PK
@@ -77,6 +81,7 @@ erDiagram
     }
 
     users          ||..o{ refresh_tokens        : "1:N"
+    users          ||--|| github_user_credentials : "1:1 CASCADE"
     users          ||..o{ github_installations  : "1:N"
     users          ||..o{ projects              : "1:N"
     users          |o..o{ conversations         : "0/1:N  (SET NULL)"
@@ -188,6 +193,27 @@ V17에서 접근권을 `github_installation_users`로 분리하고 이 FK를 `SE
 지금은 의도적으로 남긴다 — GitHub 쪽 설치가 살아 있는 한 계정 단위로 재사용될 수 있고, 지웠다가
 같은 설치가 다시 동기화되면 `installation_id` 유니크 충돌 경로가 생긴다. **멤버가 0이 된 설치를
 정리할지는 열린 항목이다**(개인정보 관점에서는 지우는 편이 낫다).
+
+---
+
+### `github_user_credentials` (V21)
+
+GitHub App **사용자** OAuth 토큰. 로그인 `exchangeCode` 직후 사용자당 1행. 레포 목록 ACL용.
+수집용 설치 토큰(`github_installations.encrypted_installation_token`)과 별개.
+`integrations.encrypted_credential`에도 넣지 않는다(GitHub 행은 credential NULL 제약).
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `user_id` | UUID | PK, FK → `users.id` CASCADE | 토큰 소유자 |
+| `encrypted_credential` | BYTEA | NOT NULL | 사용자 OAuth 자격증명 (AES-GCM) |
+| `created_at` | TIMESTAMPTZ | NOT NULL | 최초 저장 시각 |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | 갱신으로 덮어쓴 시각 |
+
+평문 JSON 키 이름은 Jira와 같다: `access_token`, `refresh_token`, `expires_at`,
+`refresh_token_expires_at`. AES-GCM. 갱신 시 access·refresh 둘 다 회전하므로 둘 다 덮어쓴다.
+
+Expire user authorization tokens ON 전제: access 8시간, refresh 6개월.
+`exchangeCode`는 refresh/`expires_in`이 없으면 로그인을 실패시킨다.
 
 ---
 

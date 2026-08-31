@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -94,11 +95,12 @@ public class IntegrationService {
         Project project = projectService.getProject(ownerId, projectId);
         planService.ensureProviderConnectable(ownerId, IntegrationProvider.GITHUB);
         GitHubInstallation installation = gitHubInstallationService.getAccessibleInstallation(ownerId, installationId);
+        // 중복 409를 ACL보다 먼저 알려 이미 연결된 프로젝트에서 GitHub 왕복을 하지 않는다
         validateProviderAvailable(projectId, IntegrationProvider.GITHUB);
-        installationTokenService.getInstallationAccessToken(installationId);
-
         String normalizedRepositoryFullName = repositoryFullName.trim();
         String normalizedBranch = branch.trim();
+        requireVisibleGitHubRepository(ownerId, installationId, repositoryId, normalizedRepositoryFullName);
+        installationTokenService.getInstallationAccessToken(installationId);
         // 토큰 발급 중 DB 커넥션·행 락 점유를 늘리지 않도록 연동 저장만 별도 트랜잭션으로 실행
         Integration integration = transactionTemplate.execute(status -> saveGitHubRepository(
                 project,
@@ -128,10 +130,10 @@ public class IntegrationService {
         GitHubInstallation installation = gitHubInstallationService.getAccessibleInstallation(ownerId, installationId);
         // 이 경로는 계획상 GitHub 연동 제한이 처음 붙는 자리다 — 프로젝트가 만들어지기 전에 막는다
         planService.ensureProviderConnectable(ownerId, IntegrationProvider.GITHUB);
-        installationTokenService.getInstallationAccessToken(installationId);
-
         String normalizedRepositoryFullName = repositoryFullName.trim();
         String normalizedBranch = branch.trim();
+        requireVisibleGitHubRepository(ownerId, installationId, repositoryId, normalizedRepositoryFullName);
+        installationTokenService.getInstallationAccessToken(installationId);
         // 프로젝트 생성과 연동 저장을 한 트랜잭션에 묶는다 — 연동 저장이 실패하면 프로젝트도 함께
         // 롤백돼 GitHub 없는 빈 프로젝트가 남지 않는다. 갓 만든 프로젝트라 중복 연동 검사는 생략한다.
         Project project = transactionTemplate.execute(status -> {
@@ -647,6 +649,21 @@ public class IntegrationService {
             checkpointRepository.deleteByProject_IdAndId_Provider(projectId, provider);
             integrationRepository.deleteById(integration.getId());
         });
+    }
+
+    // id와 fullName을 둘 다 맞춰야 클라이언트가 한쪽만 바꿔 다른 저장소를 연결하지 못한다
+    private void requireVisibleGitHubRepository(
+            UUID ownerId,
+            UUID installationId,
+            Long repositoryId,
+            String repositoryFullName
+    ) {
+        boolean visible = gitHubInstallationService.findRepositories(ownerId, installationId).stream()
+                .anyMatch(repo -> Objects.equals(repo.id(), repositoryId)
+                        && repositoryFullName.equals(repo.fullName()));
+        if (!visible) {
+            throw new NotFoundException("GitHub repository not found.");
+        }
     }
 
     // 프로젝트당 provider별 1개 연동 제한 검증

@@ -29,7 +29,7 @@
 
 | 층 | 무엇이 문제인가 | 항목 | 성격 |
 |---|---|---|---|
-| **0층** | 기능이 아예 막힌다 | 4 (**2 완료**, 1 범위 밖) | 코드 변경 |
+| **0층** | 기능이 아예 막힌다 | 4 (**3 완료**, 1 범위 밖) | 코드 변경 |
 | **1층** | 비용·쿼터를 전원이 공유한다 | 3 (**2 완료**, 1 결정-코드불필요) | 코드 변경 + 정책 |
 | **2층** | 인증·시크릿·세션에 구멍이 있다 | 4 (**3 완료**, 1 남음) | 코드 변경 |
 | **3층** | 외부 앱이 공개 배포 상태가 아니다 | 9종 (**1 완료**) | **외부 심사 대기** |
@@ -39,9 +39,10 @@
 
 **완료**: M0 = 4-1(탈퇴 시 파기 누락) · M1a = 0-4(운영자 PAT) · M1b = 0-1(조직 레포) ·
 4-2(연락처) · 2-1·2-2(인증 구멍) · 2-3(세션 쿠키·재사용 탐지) · 4-4(동의 기록) · 0-1c(파기 폐기 가드) ·
-1-1(무료 티어 한도) · 1-3(Discord·Google Chat 공정 큐) · 5-4(webhook 본문 상한) · 3층 GitHub App(이미 Public 확인).
+1-1(무료 티어 한도) · 1-3(Discord·Google Chat 공정 큐) · 5-4(webhook 본문 상한) · 3층 GitHub App(이미 Public 확인) ·
+0-1b(사용자 GitHub 토큰).
 
-**다음**: 0-1b(사용자 GitHub 토큰 저장, Critical — GitHub App 설정 확인이 선행돼야 함).
+**다음**: 4-5(제3자 창구·내보내기).
 1-2는 OpenAI 계정 하드 캡으로 대체하기로 결정(2026-08-28) — 코드 작업 없음. 0-3 Slack은
 방향(B+C+D 병행) 결정 완료. C는 연결 API·격리·문서가 붙는 중 — **C0 Slack 문의는 미회신(배포 전
 게이트)**. D는 S1~S3 코드 완료·실기동·S4~S6은 남음. 1-3(provider 쿼터 공유)은 Discord·Google Chat
@@ -112,13 +113,16 @@ backend 테스트 **761개 통과**.
 
 **우선순위: 최상 — 완료.**
 
-### 0-1b. 조직 설치에서 남의 레포까지 보이고 연동된다 (0-1의 후속)
+### 0-1b. 조직 설치에서 남의 레포까지 보이고 연동된다 (0-1의 후속) — ✅ 수정 완료
+
+> **2026-08-31 수정.** 사용자 GitHub OAuth 토큰을 `github_user_credentials`에 저장하고,
+> 레포 목록·연동을 user token ACL로 거른다. 아래는 수정 전 구멍과, 무엇을 바꿨는지다.
 
 **0-1로 조직 설치를 열면서 새로 생긴 구멍이다.** PR #121 봇 리뷰에서 발견했다.
 
-레포 목록은 **installation token**으로 `GET /installation/repositories`를 부른다
+레포 목록은 **installation token**으로 `GET /installation/repositories`를 불렀다
 (`GitHubInstallationService.findRepositories`). 이 엔드포인트는 **설치가 가진 전체 레포**를
-돌려주며 사용자 범위가 아니다.
+돌려주며 사용자 범위가 아니었다.
 
 설치가 개인 계정 전용이던 시절에는 "설치의 레포 = 내 레포"라 문제가 아니었다.
 **조직 설치를 허용하는 순간 "설치의 권한 ≠ 사용자의 권한"이 된다.**
@@ -136,10 +140,10 @@ backend 테스트 **761개 통과**.
 #### 해결 방식 — 사용자 GitHub 토큰을 저장한다
 
 "이 사용자가 이 설치에서 무엇을 볼 수 있나"는 **사용자 access token**으로만 물을 수 있다
-(`GET /user/installations/{id}/repositories`). 그런데 우리는 그 토큰을 **로그인 때 쓰고 버린다**
+(`GET /user/installations/{id}/repositories`). 그런데 우리는 그 토큰을 **로그인 때 쓰고 버렸다**
 (`users` 테이블에 토큰 컬럼이 없다).
 
-검토한 두 안 중 **B를 채택한다.**
+검토한 두 안 중 **B를 채택했다.**
 
 | | 방식 | 문제 |
 |---|---|---|
@@ -148,25 +152,41 @@ backend 테스트 **761개 통과**.
 
 **B가 이 레포의 기존 패턴이다.** Slack·Jira·Google Chat·Linear·Asana·ClickUp·Notion은 전부
 사용자 OAuth 자격증명을 암호화 저장한다. GitHub만 App(installation) 방식이라 예외였고, 조직 설치를
-열면서 나머지와 같은 모양이 필요해졌다. 암호화(`credentialCryptoService`)·갱신
-(`AccessTokenRefresher`)·폐기(`ProviderCredentialLifecycle`) 기계장치는 이미 있다.
+열면서 나머지와 같은 모양이 필요해졌다. 암호화(`credentialCryptoService`)는 공용이다.
+갱신·폐기는 연동 SPI(`AccessTokenRefresher`/`ProviderCredentialLifecycle`)가 아니라
+`GitHubUserTokenService`(userId 키)가 맡는다 — 프로젝트 행이 아니어서 SPI와 안 맞는다.
 
-- [ ] **선행 확인** — GitHub App 설정의 "Expire user authorization tokens"가 켜져 있는지.
+- [x] **선행 확인** — GitHub App 설정의 "Expire user authorization tokens"가 켜져 있는지.
       켜져 있으면 사용자 토큰이 **8시간** 만료라 refresh 토큰(6개월) 갱신 구조가 필요하고,
-      꺼져 있으면 저장만 하면 된다. **이 답이 작업량을 크게 가른다**
-- [ ] 저장 위치 — 기존 자격증명은 `integrations`의 **(프로젝트, provider)** 단위인데 GitHub 사용자
-      토큰은 **사용자 단위**다(프로젝트가 없어도 존재). 새 테이블이 필요하다
-- [ ] `findRepositories`가 사용자 토큰으로 조회하도록 교체
-- [ ] 개인정보처리방침 `#github` 절에 저장 항목 추가 — 새 자격증명을 저장하게 된다
-- [ ] 연동 시점 검증도 함께 볼 것 — 목록만 거르고 연동을 안 막으면 우회할 수 있다
+      꺼져 있으면 저장만 하면 된다. **코드가 Expire ON을 강제한다**(`exchangeCode`가
+      refresh/`expires_in`/`refresh_token_expires_in` 없으면 로그인 실패). 운영은 GitHub App
+      설정을 켠 채로 유지해야 한다 (`docs/deployment.md` §3-2)
+- [x] 저장 위치 — `github_user_credentials` (사용자 단위). 기존 자격증명은 `integrations`의
+      **(프로젝트, provider)** 단위인데 GitHub 사용자 토큰은 프로젝트가 없어도 존재한다
+- [x] `findRepositories`가 사용자 토큰으로 `GET /user/installations/{id}/repositories` 조회.
+      설치 토큰 목록 경로 제거
+- [x] 개인정보처리방침 `#github` 절에 저장 항목 추가 — 새 자격증명을 저장하게 된다
+- [x] 연동 시점 `repositoryId`+`full_name` ACL(`requireVisibleGitHubRepository`), 없으면 404
+- [x] **실기동 검증** (2026-08-31, 로컬 스택, Flyway V21 적용 확인) —
+      로그인 직후 `github_user_credentials`에 사용자당 1행이 생기고(`encrypted_credential` 길이 268),
+      온보딩 STEP 02 목록이 github.com에서 그 계정이 여는 저장소와 같고, 보이는 저장소 연결·브랜치
+      선택·프로젝트 생성·초기 수집이 된다(수집은 설치 토큰이라 이번 변경과 별개 경로).
+      세션을 유지한 채 자격증명 행을 지운 뒤 STEP 02를 다시 열면 로그아웃되지 않고
+      「다시 로그인하고 연결 확인」 CTA가 뜨고, 그 버튼으로 GitHub 로그인을 다시 하면 행이 복구된다.
+      CTA 로그인 콜백은 온보딩 STEP 02로 돌아가지 않는다 — `/` → 기존 프로젝트 채팅으로 보낸다
+      (프로젝트가 이미 있을 때의 로그인 착지와 같다). STEP 02는 URL이 아니라 화면 상태라
+      `/onboarding` 새로고침은 항상 STEP 01(「첫 프로젝트를 만들어 보세요」)이다. CTA를 보려면
+      이름을 적고 「다음: GitHub 연결」까지 가야 한다.
+      **하지 않은 것**: 조직 All-repos 설치 + 제한 멤버 계정으로 "남의 레포가 목록에 안 보이는지"
+      (본 계정이 admin이면 예전 설치 토큰 목록과 구분이 안 된다), `GITHUB_REFRESH_SKEW`로 갱신
+      경로, 계정 하드 파기 때 grant DELETE. 뒤 둘은 단위 테스트가 커버한다.
 
-**우선순위: 최상(공개 전 필수) — 후속 PR.** 지금 사용자가 둘뿐이고 테스트 조직도 본인 소유라
-실제 노출은 없지만, **공개 전에는 반드시 닫아야 한다.**
+**우선순위: 최상 — 완료.** 조직 소속이 섞인 사용자를 받아도 목록·연동은 그 이용자가 볼 수 있는
+저장소로만 제한된다. 제한 멤버 계정으로의 ACL 대비 실기동은 위 체크리스트에 적힌 대로 아직이다.
 
 > **PR #121은 이 항목을 남긴 채 머지한다(2026-08-27 결정).** 봇 리뷰가 Critical로 판정했고
 > 그 판정은 옳다 — 다만 조직 설치를 여는 PR에서 사용자 토큰 저장까지 함께 하면 범위가 두 배가
-> 되고, 실제 노출이 아직 없어 후속 PR로 나눴다. **이 항목이 닫히기 전에는 조직 소속이 섞인
-> 사용자를 받으면 안 된다.**
+> 되고, 실제 노출이 아직 없어 후속 PR로 나눴다. 그 후속 작업을 여기서 닫았다.
 
 ### 0-1c. 파기의 provider 권한 폐기 가드가 실제로는 동작하지 않는다 (0-1의 후속) — ✅ 수정 완료
 
@@ -907,7 +927,7 @@ nginx에 `client_max_body_size`가 없어 기본 1MB가 걸린다. GitHub webhoo
 
 **결제를 미뤘으므로 1층보다 인증·법적 항목이 앞선다.** 2층 인증 구멍·동의 기록·세션 쿠키는 완료.
 
-1. **0-1b 사용자 GitHub 토큰** — Critical. GitHub App 설정 확인이 선행돼야 한다
+1. ~~**0-1b 사용자 GitHub 토큰** — Critical. GitHub App 설정 확인이 선행돼야 한다~~ **완료(2026-08-31)**
 2. **4-5 제3자 창구·내보내기**
 3. ~~**0-3 Slack** — A~D 결정.~~ **결정 완료(2026-08-28) — B+C+D 병행.** C는 [slack-byo.md](slack-byo.md)
    (C0 문의 미회신 — 배포 전 게이트). D는 S1~S3 코드 완료, 실기동·S4~S6 남음

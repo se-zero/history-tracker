@@ -23,9 +23,9 @@ public class GitHubInstallationService {
 
     private final GitHubInstallationRepository gitHubInstallationRepository;
     private final GitHubInstallationMemberRepository gitHubInstallationMemberRepository;
-    private final GitHubAppClient gitHubAppClient;
-    private final InstallationTokenService installationTokenService;
     private final UserService userService;
+    private final GitHubUserTokenService gitHubUserTokenService;
+    private final GitHubOAuthClient gitHubOAuthClient;
 
     // installation 저장 또는 계정 정보 갱신 후 동기화한 사용자를 멤버로 등록(멱등)
     @Transactional
@@ -81,10 +81,16 @@ public class GitHubInstallationService {
                 .orElseThrow(() -> new NotFoundException("GitHub installation not found."));
     }
 
+    // 설치 토큰이 아니라 user token으로 조회한다 — 설치 토큰은 설치에 열린 저장소 전부를
+    // 보여 사용자가 접근할 수 없는 비공개 저장소까지 연결 후보로 노출한다.
     public List<RepositoryResponse> findRepositories(UUID userId, UUID installationId) {
         GitHubInstallation installation = getAccessibleInstallation(userId, installationId);
-        String installationAccessToken = installationTokenService.getInstallationAccessToken(installation.getId());
-        return gitHubAppClient.fetchInstallationRepositories(installationAccessToken).stream()
+        String userAccessToken = gitHubUserTokenService.getAccessToken(userId);
+        return gitHubOAuthClient.fetchUserInstallationRepositories(
+                        userAccessToken,
+                        installation.getInstallationId()
+                )
+                .stream()
                 .map(RepositoryResponse::from)
                 .toList();
     }
@@ -95,8 +101,8 @@ public class GitHubInstallationService {
             String owner,
             String repo
     ) {
-        GitHubInstallation installation = getAccessibleInstallation(userId, installationId);
-        String installationAccessToken = installationTokenService.getInstallationAccessToken(installation.getId());
-        return gitHubAppClient.fetchRepositoryBranches(installationAccessToken, owner, repo);
+        getAccessibleInstallation(userId, installationId);
+        String userAccessToken = gitHubUserTokenService.getAccessToken(userId);
+        return gitHubOAuthClient.fetchRepositoryBranches(userAccessToken, owner, repo);
     }
 }

@@ -82,6 +82,8 @@ github:
     repository-branches-url: ${GITHUB_REPOSITORY_BRANCHES_URL:https://api.github.com/repos/{owner}/{repo}/branches}
     user-installation-repositories-url: ${GITHUB_USER_INSTALLATION_REPOSITORIES_URL:https://api.github.com/user/installations/{installation_id}/repositories}
     user-installation-url: ${GITHUB_USER_INSTALLATION_URL:https://api.github.com/users/{username}/installation}
+    grant-revoke-url: ${GITHUB_GRANT_REVOKE_URL:https://api.github.com/applications/{client_id}/grant}
+    refresh-skew: ${GITHUB_REFRESH_SKEW:PT5M}
 
 slack:
   client-id: ${SLACK_CLIENT_ID:}

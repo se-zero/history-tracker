@@ -20,6 +20,8 @@ import { PATHS } from "@/routes";
 // (PrivacyBodyKo.tsx 상단 주석 참고). LegalSourceRow의 label(Requested scopes/Data
 // collected/Purpose/Deletion 등)은 이 파일에서 영어 리터럴로 직접 쓰고, 같은 라벨은 전
 // 블록에서 동일 문자열로 통일한다.
+// 자격증명: GitHub 사용자 액세스·리프레시 토큰은 로그인 시 발급, github_user_credentials
+// (사용자 단위 — 프로젝트 연동 행·설치 토큰과 별개). 목록 정본은 PrivacyBodyKo.tsx 상단.
 export function PrivacyBodyEn() {
   return (
     <>
@@ -49,15 +51,17 @@ export function PrivacyBodyEn() {
               <tr>
                 <td>Connection credentials</td>
                 <td>
-                  GitHub App installation token, Slack and ClickUp access tokens,
-                  Jira, Google Chat, Linear, Asana, and Notion access and refresh
-                  tokens, Discord refresh token
+                  GitHub App installation token, GitHub user access and refresh tokens,
+                  Slack and ClickUp access tokens, Jira, Google Chat, Linear, Asana, and
+                  Notion access and refresh tokens, Discord refresh token
                 </td>
                 <td>
-                  Issued when the User consents to a connection with each service. For Slack,
-                  there is also a path where the User pastes a User OAuth Token from an app
-                  they created in their own workspace. Other sources store only credentials
-                  issued through consent.
+                  GitHub user access and refresh tokens are issued on GitHub sign-in. They
+                  are not a project connection, and they are distinct from the App
+                  installation token. Other credentials are issued when the User consents to
+                  a connection with each service. For Slack, there is also a path where the
+                  User pastes a User OAuth Token from an app they created in their own
+                  workspace. Other sources store only credentials issued through consent.
                 </td>
               </tr>
               <tr>
@@ -136,7 +140,9 @@ export function PrivacyBodyEn() {
             On GitHub App installation, read access to{" "}
             <strong>the repositories the User selects</strong> (contents, issues,
             pull requests, metadata). The installation scope can be changed at any
-            time from GitHub settings.
+            time from GitHub settings. User access and refresh tokens issued at
+            sign-in are encrypted with AES-GCM and stored per user (
+            <code>github_user_credentials</code>), not on a project connection row.
           </LegalSourceRow>
           <LegalSourceRow label="Data collected">
             Commits (message, author name and email, timestamp, changed file paths
@@ -146,13 +152,21 @@ export function PrivacyBodyEn() {
           <LegalSourceRow label="Purpose">
             Code changes are used as the central axis of the graph, linked to
             issues and conversations, so the background of a change can be cited
-            as evidence in answers.
+            as evidence in answers. The user access token is used only so that
+            listing and connecting show repositories this User can see in that
+            GitHub App installation; collection still uses the existing
+            installation token.
           </LegalSourceRow>
           <LegalSourceRow label="Deletion">
-            Disconnecting deletes the stored credential and the graph data
-            collected from that repository. Because the GitHub App installation
+            Disconnecting deletes only the graph data collected from that
+            repository and the connection row. The user access and refresh tokens
+            and the GitHub App grant are kept so they can be used by other
+            projects and for reconnecting. Because the GitHub App installation
             belongs to the User's account and may be used by other projects, it is
             left in place — to remove the app itself, do so from GitHub settings.
+            The GitHub App grant is revoked only on account purge (hard delete
+            after the grace period), which ends this User's app authorization.
+            Sign-out, disconnect, and soft delete do not touch the grant.
           </LegalSourceRow>
         </LegalSourceBlock>
 
