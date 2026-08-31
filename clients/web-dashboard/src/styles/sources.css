@@ -74,20 +74,12 @@
 .source-tile-main { flex: 1; min-width: 0; }
 .source-tile-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .source-tile-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 타일 CTA는 세로로만 묶는다 — 두 개의 큰 primary를 가로로 나란히 두지 않기 위함이다. */
 .source-tile-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: center;
   flex-shrink: 0;
 }
 .source-tile-actions .btn { white-space: nowrap; }
-.source-tile-actions .btn-secondary {
-  padding: 4px 8px;
-  font-size: 11.5px;
-  font-weight: 500;
-}
 
 /* 로고 칩 — 9개 소스 전부 동일 처리(surface-3 + 헤어라인 + 실색 브랜드 마크). 브랜드별 틴트 배경은
    쓰지 않는다(마크 자체가 브랜드 색을 담는다). 행 40px / 타일 36px(.sm). */
@@ -383,3 +375,27 @@
 .confirm-mark.danger { background: var(--danger); }
 
 .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+/* 연결 방식 선택지 행(ConnectMethodDialog) — 중립 카드형. DESIGN.md 앰버 독점 규칙 때문에
+   primary(앰버)를 칠하지 않고 .source-tile:hover와 같은 기법(테두리만 진하게)으로 상호작용을 준다. */
+.connect-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+.connect-choice + .connect-choice { margin-top: 10px; }
+.connect-choice:hover { border-color: var(--border-strong); }
+.connect-choice:disabled { opacity: 0.55; cursor: default; }
+.connect-choice:disabled:hover { border-color: var(--border); }
+.connect-choice-icon { display: inline-flex; color: var(--fg-subtle); flex-shrink: 0; margin-top: 2px; }
+.connect-choice-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.connect-choice-title { font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.connect-choice-desc { font-size: 12.5px; color: var(--fg-muted); line-height: 1.5; word-break: keep-all; }
