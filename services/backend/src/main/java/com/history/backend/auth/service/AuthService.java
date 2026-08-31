@@ -3,6 +3,7 @@ package com.history.backend.auth.service;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
@@ -14,8 +15,10 @@ import com.history.backend.github.dto.GitHubAccessTokenResponse;
 import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubInstallationsResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
+import com.history.backend.github.service.GitHubAppClient;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
+import com.history.backend.github.service.GitHubUserTokenService;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +34,9 @@ public class AuthService {
 
     private final GitHubAppProperties gitHubAppProperties;
     private final GitHubOAuthClient gitHubOAuthClient;
+    private final GitHubAppClient gitHubAppClient;
     private final GitHubInstallationService gitHubInstallationService;
+    private final GitHubUserTokenService gitHubUserTokenService;
     private final UserService userService;
     private final RefreshTokenService refreshTokenService;
     private final JwtTokenService jwtTokenService;
@@ -89,13 +94,15 @@ public class AuthService {
     @Transactional
     public IssuedSession loginWithGitHub(GitHubCallbackRequest request) {
         // GitHub code를 user access token으로 교환
-        String accessToken = requireAccessToken(gitHubOAuthClient.exchangeCode(request.code()));
+        GitHubAccessTokenResponse tokenResponse = gitHubOAuthClient.exchangeCode(request.code());
+        String accessToken = requireAccessToken(tokenResponse);
 
         // GitHub 사용자 정보 조회
         GitHubUserResponse gitHubUser = gitHubOAuthClient.fetchUser(accessToken);
 
         // 내부 user 생성 또는 갱신
         User user = userService.upsertGitHubUser(gitHubUser);
+        gitHubUserTokenService.save(user.getId(), tokenResponse);
 
         syncInstallations(user, gitHubUser, accessToken);
 
@@ -155,8 +162,11 @@ public class AuthService {
 
         List<UUID> keptInstallationIds = new ArrayList<>();
         boolean hasUnknownAccess = false;
+        boolean hasOwnPersonalInstallation = false;
         for (GitHubInstallationResponse installation : installations.installations()) {
-            GitHubOAuthClient.InstallationAccess access = isOwnPersonalInstallation(installation, gitHubUser)
+            boolean isOwnPersonal = isOwnPersonalInstallation(installation, gitHubUser);
+            hasOwnPersonalInstallation = hasOwnPersonalInstallation || isOwnPersonal;
+            GitHubOAuthClient.InstallationAccess access = isOwnPersonal
                     ? GitHubOAuthClient.InstallationAccess.ACCESSIBLE
                     : checkInstallationAccess(accessToken, installation);
 
@@ -174,6 +184,14 @@ public class AuthService {
             }
         }
 
+        // /user/installations는 접근 판정이 저장소 기반이라, 저장소가 0개인 설치(막 설치만 하고
+        // 저장소를 아직 안 고른 경우 등)는 목록에서 통째로 빠진다. 본인 개인 설치가 목록에 없었을
+        // 때만 계정 단위 조회로 한 번 더 확인한다 — 이미 있으면 불필요한 API 호출이다.
+        if (!hasOwnPersonalInstallation) {
+            hasUnknownAccess = syncOwnPersonalInstallationFallback(user, gitHubUser, keptInstallationIds)
+                    || hasUnknownAccess;
+        }
+
         // UNKNOWN이 하나라도 있으면 이번 로그인에서는 prune을 건너뛴다 — 일부 설치만 확인된 상태로
         // 지우면 장애 중이던 설치의 멀쩡한 멤버십까지 사라진다(위 early return과 같은 취지).
         // prune은 정리 작업일 뿐이라 다음 로그인으로 미뤄도 안전하다.
@@ -181,6 +199,33 @@ public class AuthService {
             return;
         }
         gitHubInstallationService.pruneMemberships(user.getId(), keptInstallationIds);
+    }
+
+    // 계정 단위 폴백 조회 결과를 kept 집합에 반영한다. 반환값은 "prune을 건너뛰어야 하는지" —
+    // 폴백 자체가 실패(예외)하면 접근 확인이 불완전한 상태라, 여기서 prune을 돌리면 이전 로그인에서
+    // 이 폴백으로 등록된 멀쩡한 멤버십까지 지워진다(checkInstallationAccess의 UNKNOWN 처리와 같은 취지).
+    private boolean syncOwnPersonalInstallationFallback(
+            User user,
+            GitHubUserResponse gitHubUser,
+            List<UUID> keptInstallationIds
+    ) {
+        Optional<GitHubInstallationResponse> fallback;
+        try {
+            fallback = gitHubAppClient.fetchUserInstallation(gitHubUser.login());
+        } catch (RuntimeException exception) {
+            log.warn("GitHub user installation fallback failed for {}", gitHubUser.login(), exception);
+            return true;
+        }
+
+        if (fallback.isEmpty() || !isOwnPersonalInstallation(fallback.get(), gitHubUser)) {
+            return false;
+        }
+
+        GitHubInstallation upserted = gitHubInstallationService.upsertInstallation(user, fallback.get());
+        if (upserted != null) {
+            keptInstallationIds.add(upserted.getId());
+        }
+        return false;
     }
 
     private boolean isOwnPersonalInstallation(GitHubInstallationResponse installation, GitHubUserResponse gitHubUser) {

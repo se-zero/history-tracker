@@ -43,6 +43,8 @@
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
+  display: flex;
+  flex-direction: column;
 }
 .step-num {
   font-family: var(--font-mono);
@@ -51,7 +53,7 @@
   letter-spacing: 0.04em;
 }
 .step-card h3 { font-size: 15px; margin: 6px 0 6px; font-weight: 600; }
-.step-card p { font-size: 13px; color: var(--fg-muted); margin: 0; line-height: 1.55; }
+.step-card p { font-size: 13px; color: var(--fg-muted); margin: 0; line-height: 1.55; flex: 1; }
 .step-card .step-visual {
   height: 64px;
   margin-top: 14px;

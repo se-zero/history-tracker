@@ -12,8 +12,10 @@ import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.github.GitHubAppProperties;
+import com.history.backend.github.service.GitHubAppClient;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
+import com.history.backend.github.service.GitHubUserTokenService;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.DisplayName;
@@ -74,7 +76,9 @@ class RefreshTokenServicePersistenceTest {
         @Bean
         GitHubAppProperties gitHubAppProperties() {
             return new GitHubAppProperties(
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "https://api.github.test/applications/{client_id}/grant",
+                    Duration.ofMinutes(5)
             );
         }
     }
@@ -83,7 +87,13 @@ class RefreshTokenServicePersistenceTest {
     private GitHubOAuthClient gitHubOAuthClient;
 
     @MockitoBean
+    private GitHubAppClient gitHubAppClient;
+
+    @MockitoBean
     private GitHubInstallationService gitHubInstallationService;
+
+    @MockitoBean
+    private GitHubUserTokenService gitHubUserTokenService;
 
     @MockitoBean
     private UserService userService;

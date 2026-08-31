@@ -1,5 +1,7 @@
 package com.history.backend.github;
 
+import java.time.Duration;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "github.app")
@@ -18,6 +20,9 @@ public record GitHubAppProperties(
         String installationAccessTokenUrl,
         String installationRepositoriesUrl,
         String repositoryBranchesUrl,
-        String userInstallationRepositoriesUrl
+        String userInstallationRepositoriesUrl,
+        String userInstallationUrl,
+        String grantRevokeUrl,
+        Duration refreshSkew
 ) {
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 import { BranchSelect } from "@/components/BranchSelect";
 import { Icons } from "@/components/Icons";
@@ -82,7 +83,7 @@ function CreateProjectStep({
   return (
     <>
       <StepIndicator step={1} />
-      <h1>첫 프로젝트를 만들어 보세요</h1>
+      <h1>프로젝트를 만들어 보세요</h1>
       <p className="lead">
         분석할 단위(서비스 또는 팀)를 만들면, 연동된 소스들로부터 자동으로 그래프가
         만들어집니다.
@@ -167,6 +168,7 @@ function ConnectGitHubStep({
     installations,
     rows: repoRows,
     reposLoading,
+    repoQueries,
   } = useGithubRepoRows();
 
   // 연결하려고 선택한 저장소(브랜치 선택 단계)
@@ -210,6 +212,11 @@ function ConnectGitHubStep({
   };
 
   const connected = installations.length > 0;
+  // 빈 목록과 같은 화면이 되지만 원인은 권한 만료라, 저장소 권한 안내로 보내면 빠져나올 수 없다.
+  const needsGitHubReauthorization =
+    connected &&
+    !reposLoading &&
+    repoQueries.some((query) => isGitHubReauthorizationRequired(query.error));
 
   return (
     <>
@@ -240,6 +247,8 @@ function ConnectGitHubStep({
           </div>
         ) : reposLoading ? (
           <div className="onb-muted-block">저장소 목록을 불러오는 중…</div>
+        ) : needsGitHubReauthorization ? (
+          <GitHubReauthorizationCta />
         ) : repoRows.length === 0 ? (
           <div className="onb-muted-block">
             접근 가능한 저장소가 없어요. GitHub App 설정에서 저장소 권한을 확인해 주세요.
@@ -306,7 +315,7 @@ function ConnectGitHubStep({
 
         {connectMutation.isError && (
           <InlineError style={{ marginTop: 10 }}>
-            프로젝트를 만들지 못했어요. 잠시 후 다시 시도해 주세요.
+            {connectErrorContent(connectMutation.error)}
           </InlineError>
         )}
 
@@ -340,6 +349,44 @@ function ConnectGitHubStep({
       </div>
     </>
   );
+}
+
+const GITHUB_REAUTHORIZATION_MESSAGE = "GitHub reauthorization required.";
+
+function isGitHubReauthorizationRequired(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  if (error.response?.status !== 403) return false;
+  const data = error.response.data as { message?: unknown } | undefined;
+  return data?.message === GITHUB_REAUTHORIZATION_MESSAGE;
+}
+
+function GitHubReauthorizationCta() {
+  return (
+    <div className="onboarding-gh-empty">
+      <span>
+        로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소 목록을 볼 수 없어요.
+      </span>
+      <a className="btn btn-primary" href={GITHUB_AUTHORIZE_URL}>
+        다시 로그인하고 연결 확인
+      </a>
+    </div>
+  );
+}
+
+function connectErrorContent(error: unknown) {
+  if (isGitHubReauthorizationRequired(error)) {
+    return (
+      <>
+        로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소를 연결할 수 없어요.{" "}
+        <a href={GITHUB_AUTHORIZE_URL}>다시 로그인하고 연결 확인</a>
+      </>
+    );
+  }
+  // 연동 한도 403은 재로그인으로 풀리지 않는다.
+  if (axios.isAxiosError(error) && error.response?.status === 403) {
+    return "플랜 한도에 도달했어요.";
+  }
+  return "프로젝트를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
 }
 
 function StepIndicator({ step }: { step: 1 | 2 }) {

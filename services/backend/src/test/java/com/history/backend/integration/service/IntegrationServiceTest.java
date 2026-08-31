@@ -27,6 +27,7 @@ import com.history.backend.auth.service.PlanService;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
+import com.history.backend.common.error.ForbiddenException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.common.error.UnauthorizedException;
@@ -35,6 +36,7 @@ import com.history.backend.discord.service.DiscordCredentialLifecycle;
 import com.history.backend.discord.service.DiscordOAuthConnectFlow;
 import com.history.backend.slack.service.SlackOAuthConnectFlow;
 import com.history.backend.github.domain.GitHubInstallation;
+import com.history.backend.github.dto.RepositoryResponse;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.googlechat.dto.GoogleChatSpaceListResponse;
@@ -200,6 +202,8 @@ class IntegrationServiceTest {
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation);
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo()));
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
         doAnswer(invocation -> {
@@ -236,6 +240,19 @@ class IntegrationServiceTest {
         // 무료 티어 provider 연동 한도 검증 → 저장 성공 후 이력 기록까지 이어진다
         verify(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.GITHUB);
         verify(planService).recordProviderConnected(OWNER_ID, IntegrationProvider.GITHUB);
+        InOrder order = inOrder(
+                projectService,
+                planService,
+                gitHubInstallationService,
+                integrationRepository,
+                installationTokenService
+        );
+        order.verify(projectService).getProject(OWNER_ID, PROJECT_ID);
+        order.verify(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.GITHUB);
+        order.verify(gitHubInstallationService).getAccessibleInstallation(OWNER_ID, INSTALLATION_ID);
+        order.verify(integrationRepository).existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB);
+        order.verify(gitHubInstallationService).findRepositories(OWNER_ID, INSTALLATION_ID);
+        order.verify(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
     }
 
     @Test
@@ -247,6 +264,8 @@ class IntegrationServiceTest {
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project);
         when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation);
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo()));
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
@@ -296,6 +315,8 @@ class IntegrationServiceTest {
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo()));
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
@@ -326,6 +347,8 @@ class IntegrationServiceTest {
         GitHubInstallation installation = installation();
         when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation);
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo()));
         doAnswer(invocation -> {
             assertThat(transactionManager.transactionActive).isFalse();
             return "installation-token";
@@ -369,6 +392,12 @@ class IntegrationServiceTest {
         // 처음으로 이 검사가 붙는 자리다)
         verify(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.GITHUB);
         verify(planService).recordProviderConnected(OWNER_ID, IntegrationProvider.GITHUB);
+        InOrder createOrder = inOrder(gitHubInstallationService, planService, installationTokenService, projectService);
+        createOrder.verify(gitHubInstallationService).getAccessibleInstallation(OWNER_ID, INSTALLATION_ID);
+        createOrder.verify(planService).ensureProviderConnectable(OWNER_ID, IntegrationProvider.GITHUB);
+        createOrder.verify(gitHubInstallationService).findRepositories(OWNER_ID, INSTALLATION_ID);
+        createOrder.verify(installationTokenService).getInstallationAccessToken(INSTALLATION_ID);
+        createOrder.verify(projectService).createProject(OWNER_ID, "History Tracker", "GraphRAG backend");
     }
 
     @Test
@@ -404,6 +433,8 @@ class IntegrationServiceTest {
         IntegrationService service = service();
         when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo()));
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
                 .thenReturn("installation-token");
         when(projectService.createProject(OWNER_ID, "History Tracker", null)).thenReturn(project());
@@ -431,6 +462,8 @@ class IntegrationServiceTest {
         IntegrationService service = service();
         when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo()));
         when(installationTokenService.getInstallationAccessToken(INSTALLATION_ID))
                 .thenThrow(new IllegalStateException("GitHub token issuance failed."));
 
@@ -472,6 +505,8 @@ class IntegrationServiceTest {
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("GitHub integration already exists.");
+        verify(gitHubInstallationService, never()).findRepositories(any(), any());
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
     }
 
     @Test
@@ -501,6 +536,8 @@ class IntegrationServiceTest {
         when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
         when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
                 .thenReturn(installation());
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo()));
         when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(false);
         when(integrationRepository.saveAndFlush(any(Integration.class)))
@@ -516,6 +553,171 @@ class IntegrationServiceTest {
         ))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("GitHub integration already exists.");
+    }
+
+    @Test
+    @DisplayName("GitHub 연동 — 사용자 ACL 목록에 없는 저장소는 404, 저장·설치 토큰·수집 트리거 없음")
+    void connectGitHubRepositoryRejectsRepositoryNotVisibleToUser() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(false);
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo(99999L, "acme/secret")));
+
+        assertThatThrownBy(() -> service.connectGitHubRepository(
+                OWNER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("GitHub repository not found.");
+
+        verify(gitHubInstallationService).findRepositories(OWNER_ID, INSTALLATION_ID);
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+    }
+
+    @Test
+    @DisplayName("GitHub 연동 — repositoryId만 같고 fullName이 다르면 404")
+    void connectGitHubRepositoryRejectsWhenFullNameDoesNotMatchVisibleRepository() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(false);
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo(12345L, "acme/other")));
+
+        assertThatThrownBy(() -> service.connectGitHubRepository(
+                OWNER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("GitHub repository not found.");
+
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+    }
+
+    @Test
+    @DisplayName("GitHub 연동 — fullName만 같고 repositoryId가 다르면 404")
+    void connectGitHubRepositoryRejectsWhenRepositoryIdDoesNotMatchVisibleRepository() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(false);
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of(visibleRepo(99999L, "acme/widget")));
+
+        assertThatThrownBy(() -> service.connectGitHubRepository(
+                OWNER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("GitHub repository not found.");
+
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+    }
+
+    @Test
+    @DisplayName("GitHub 연동 — 재로그인 필요(403)면 저장·설치 토큰·수집 트리거 없이 전파")
+    void connectGitHubRepositoryPropagatesReauthorizationRequired() {
+        IntegrationService service = service();
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(integrationRepository.existsByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
+                .thenReturn(false);
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenThrow(new ForbiddenException("GitHub reauthorization required."));
+
+        assertThatThrownBy(() -> service.connectGitHubRepository(
+                OWNER_ID,
+                PROJECT_ID,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("GitHub reauthorization required.");
+
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+    }
+
+    @Test
+    @DisplayName("프로젝트+GitHub 생성 — 사용자 ACL 목록에 없으면 프로젝트·설치 토큰 없음")
+    void createProjectWithGitHubRepositoryRejectsRepositoryNotVisibleToUser() {
+        IntegrationService service = service();
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.createProjectWithGitHubRepository(
+                OWNER_ID,
+                "History Tracker",
+                null,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("GitHub repository not found.");
+
+        verify(gitHubInstallationService).findRepositories(OWNER_ID, INSTALLATION_ID);
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
+        verify(projectService, never()).createProject(any(), anyString(), any());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
+        verify(pipelineWorkerClient, never()).triggerCollection(any(), any());
+    }
+
+    @Test
+    @DisplayName("프로젝트+GitHub 생성 — 재로그인 필요(403)면 프로젝트·설치 토큰 없이 전파")
+    void createProjectWithGitHubRepositoryPropagatesReauthorizationRequired() {
+        IntegrationService service = service();
+        when(gitHubInstallationService.getAccessibleInstallation(OWNER_ID, INSTALLATION_ID))
+                .thenReturn(installation());
+        when(gitHubInstallationService.findRepositories(OWNER_ID, INSTALLATION_ID))
+                .thenThrow(new ForbiddenException("GitHub reauthorization required."));
+
+        assertThatThrownBy(() -> service.createProjectWithGitHubRepository(
+                OWNER_ID,
+                "History Tracker",
+                null,
+                INSTALLATION_ID,
+                12345L,
+                "acme/widget",
+                "main"
+        ))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("GitHub reauthorization required.");
+
+        verify(installationTokenService, never()).getInstallationAccessToken(any());
+        verify(projectService, never()).createProject(any(), anyString(), any());
+        verify(integrationRepository, never()).saveAndFlush(any(Integration.class));
     }
 
     @Test
@@ -1920,6 +2122,22 @@ class IntegrationServiceTest {
         GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", user());
         ReflectionTestUtils.setField(installation, "id", INSTALLATION_ID);
         return installation;
+    }
+
+    private RepositoryResponse visibleRepo() {
+        return visibleRepo(12345L, "acme/widget");
+    }
+
+    private RepositoryResponse visibleRepo(Long repositoryId, String fullName) {
+        return new RepositoryResponse(
+                repositoryId,
+                "widget",
+                fullName,
+                "acme",
+                true,
+                "private",
+                "main"
+        );
     }
 
     private Checkpoint checkpoint(Project project, String cursorKey, Instant updatedAt) {
