@@ -341,7 +341,7 @@ C의 근거는 changelog의 **"Internal customer-built applications are not impa
 - [x] C 연결 API — `POST /api/v1/projects/{projectId}/integrations/slack` (JWT, body `token`),
       `connect_method=byo`, 무효 토큰은 HTTP 400
 - [x] C 격리 — Events API·`/why-code`는 BYO 행 제외. 해제 시 원격 `auth.revoke` 생략
-- [x] C UI — 타일에서 OAuth vs 토큰, 주 카드는 `OAuthSourceCard`, 카탈로그 `secondaryConnect: "token"`
+- [x] C UI — 타일 "연결" 클릭 → 방식 선택 다이얼로그에서 OAuth vs 토큰, 주 카드는 `OAuthSourceCard`, 카탈로그 `secondaryConnect: { kind: "token", … }`
 - [x] C 문서 — [slack-byo.md](slack-byo.md), Privacy `#slack`, DB·수집·서비스 CLAUDE.md
 - [ ] **C0 Slack 문의** — 고객 Internal 앱의 User OAuth Token(`xoxp`)을 우리 SaaS가 보관하고
       `conversations.history` 수집에 쓰는 것이 2025-05-29 changelog의 "Internal customer-built

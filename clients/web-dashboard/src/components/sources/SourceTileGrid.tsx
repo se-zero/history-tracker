@@ -58,7 +58,12 @@ export function SourceTileGrid({
             onConnect={
               isOAuthConnectable(source)
                 ? hasSecondaryConnect(source)
-                  ? () => setMethodDialogSource(source)
+                  ? () => {
+                      // 이전 시도의 실패 기록이 새로 연 다이얼로그에 미리 뜨지 않게 초기화 —
+                      // SlackTokenConnectDialog의 마운트 시 reset과 같은 이유.
+                      authorize.reset();
+                      setMethodDialogSource(source);
+                    }
                   : () => authorize.mutate(source.id)
                 : undefined
             }
