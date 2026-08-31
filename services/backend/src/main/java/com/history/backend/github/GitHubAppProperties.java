@@ -21,6 +21,7 @@ public record GitHubAppProperties(
         String installationRepositoriesUrl,
         String repositoryBranchesUrl,
         String userInstallationRepositoriesUrl,
+        String userInstallationUrl,
         String grantRevokeUrl,
         Duration refreshSkew
 ) {

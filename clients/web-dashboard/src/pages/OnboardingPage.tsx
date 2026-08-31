@@ -83,7 +83,7 @@ function CreateProjectStep({
   return (
     <>
       <StepIndicator step={1} />
-      <h1>첫 프로젝트를 만들어 보세요</h1>
+      <h1>프로젝트를 만들어 보세요</h1>
       <p className="lead">
         분석할 단위(서비스 또는 팀)를 만들면, 연동된 소스들로부터 자동으로 그래프가
         만들어집니다.

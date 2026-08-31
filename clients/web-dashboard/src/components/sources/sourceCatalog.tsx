@@ -41,9 +41,14 @@ export type SourceCatalogItem = SourceBase &
         // 실패로 끝나도 남을 수 있다(Discord: 동의 순간 봇이 서버에 들어간다). 그중 서버가 정리할
         // 수단이 없는 경우를 사용자에게 알리는 문구다. 부수효과가 없는 소스는 비워 둔다.
         consentSideEffect?: string;
-        // 타일에 OAuth "연결" 외에 붙여넣기 보조 CTA를 둘 소스만 채운다. 공용 코드는
-        // hasTokenConnect로 조회하고 provider id를 비교하지 않는다.
-        secondaryConnect?: "token";
+        // 연결 클릭 시 방식 선택 다이얼로그에 둘째 선택지를 띄울 소스만 채운다. 공용 코드는
+        // hasTokenConnect로 조회하고 provider id를 비교하지 않는다 — 다이얼로그 선택지 문구·능력은
+        // 전부 이 필드가 소유한다.
+        secondaryConnect?: {
+          kind: "token";
+          oauthHint: string; // 방식 선택 다이얼로그의 OAuth 선택지 설명
+          tokenHint: string; // 토큰 붙여넣기 선택지 설명
+        };
         // BYO(고객 앱 토큰) 해제 때 붙는 추가 고지 — 그래프·저장 자격증명은 지우지만 고객 앱
         // 토큰은 우리가 provider에 폐기 요청하지 않는다는 뜻. OAuth/레거시(키 없음)는 비운다.
         byoKeptNote?: string;
@@ -86,7 +91,11 @@ export const sourceCatalog: SourceCatalogItem[] = [
     status: "wired",
     connect: "oauth",
     deletedData: "수집한 채널 메시지·스레드와 그 그래프",
-    secondaryConnect: "token",
+    secondaryConnect: {
+      kind: "token",
+      oauthHint: "Slack 워크스페이스에 whycode 앱을 설치해 연결합니다.",
+      tokenHint: "워크스페이스에 직접 만든 Internal 앱의 User OAuth Token을 붙여넣습니다. 수집이 더 빨라요.",
+    },
     byoKeptNote:
       "우리가 저장한 자격증명은 지우지만, 고객 앱의 토큰은 Slack에 폐기 요청하지 않습니다. 앱 자체는 Slack 설정에서 제거해 주세요.",
     oauthKeptNote:
@@ -187,9 +196,9 @@ export function isOAuthConnectable(source: SourceCatalogItem): boolean {
   return source.status === "wired" && source.connect === "oauth";
 }
 
-// 타일의 보조 "토큰으로 연결" CTA를 둘 소스인지 (공용 코드에 provider 분기를 두지 않기 위한 조회)
+// 연결 방식 선택 다이얼로그에 토큰 선택지를 띄울 소스인지 (공용 코드에 provider 분기를 두지 않기 위한 조회)
 export function hasTokenConnect(source: SourceCatalogItem): boolean {
-  return source.status === "wired" && source.secondaryConnect === "token";
+  return source.status === "wired" && source.secondaryConnect?.kind === "token";
 }
 
 /**

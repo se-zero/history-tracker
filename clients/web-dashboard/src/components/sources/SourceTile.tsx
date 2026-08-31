@@ -3,19 +3,16 @@ import type { SourceCatalogItem } from "@/components/sources/sourceCatalog";
 
 // "추가 가능" 구역의 균일 타일. 미지원 소스는 onConnect가 없어 버튼이 아무 동작도 하지 않는다
 // (no-op) — OAuth가 아직 없는 소스에 실제 호출을 붙이지 않기 위함이다.
-// 보조 토큰 CTA는 타일을 행 카드로 되살리지 않고, 미연결 타일의 선택지로만 붙인다.
 export function SourceTile({
   source,
   onConnect,
   pending,
   error,
-  onTokenConnect,
 }: {
   source: SourceCatalogItem;
   onConnect?: () => void;
   pending?: boolean;
   error?: boolean;
-  onTokenConnect?: () => void;
 }) {
   const Mark = source.Mark;
   // onConnect가 없으면 아직 연결할 수 없는 소스다(status가 "planned") — 호버 반응을
@@ -45,16 +42,6 @@ export function SourceTile({
         >
           <BusyLabel busy={Boolean(pending)} label="연결" busyLabel="이동 중…" />
         </button>
-        {onTokenConnect && (
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={onTokenConnect}
-            disabled={pending || unavailable}
-          >
-            토큰으로 연결
-          </button>
-        )}
       </div>
     </div>
   );
