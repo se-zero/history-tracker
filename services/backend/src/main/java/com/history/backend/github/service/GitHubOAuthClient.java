@@ -270,6 +270,11 @@ public class GitHubOAuthClient {
                     .retrieve()
                     .body(GitHubRepositoriesResponse.class);
         } catch (RestClientResponseException exception) {
+            // 저장소 0개 설치는 404를 줄 수 있다는 게 문서로 확정되진 않았지만, 방어적으로
+            // 빈 페이지로 처리한다 — 페이지네이션 루프가 정상 종료되고 프론트엔 "저장소 없음"으로 보인다.
+            if (exception.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                return List.of();
+            }
             throw gitHubApiException("GitHub repository list request failed.", exception);
         } catch (RestClientException exception) {
             throw new BadGatewayException("GitHub repository list request failed.", exception);

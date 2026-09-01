@@ -683,17 +683,32 @@ class GitHubOAuthClientTest {
     }
 
     @Test
-    @DisplayName("사용자 설치 저장소 목록 HTTP 오류 → BadGatewayException (상태코드 포함, 403도 404로 바꾸지 않음)")
-    void fetchUserInstallationRepositoriesWrapsGitHubErrorsAsBadGateway() {
+    @DisplayName("사용자 설치 저장소 목록 HTTP 404 → 빈 목록 반환 (저장소 0개 설치의 사용자 토큰 조회 방어, 예외 아님)")
+    void fetchUserInstallationRepositoriesReturnsEmptyListOnNotFound() {
         GitHubOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo(
                         "https://api.github.test/user/installations/98765/repositories?per_page=100&page=1"))
                 .andRespond(withResourceNotFound());
 
+        List<GitHubRepositoryResponse> result =
+                fixture.client.fetchUserInstallationRepositories("user-access-token", 98765L);
+
+        assertThat(result).isEmpty();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("사용자 설치 저장소 목록 HTTP 5xx → BadGatewayException (상태코드 포함, 403도 404로 바꾸지 않음)")
+    void fetchUserInstallationRepositoriesWrapsGitHubErrorsAsBadGateway() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(
+                        "https://api.github.test/user/installations/98765/repositories?per_page=100&page=1"))
+                .andRespond(withServerError());
+
         assertThatThrownBy(() -> fixture.client.fetchUserInstallationRepositories("user-access-token", 98765L))
                 .isInstanceOf(BadGatewayException.class)
                 .hasMessageContaining("GitHub repository list request failed.")
-                .hasMessageContaining("404");
+                .hasMessageContaining("500");
         fixture.server.verify();
     }
 
