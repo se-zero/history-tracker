@@ -13,7 +13,6 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 import com.history.backend.common.error.BadGatewayException;
@@ -127,46 +126,6 @@ class GitHubAppClientTest {
                 .isInstanceOf(BadGatewayException.class)
                 .hasMessageContaining("GitHub installation access token request failed.")
                 .hasMessageContaining("404");
-        fixture.server.verify();
-    }
-
-    @Test
-    @DisplayName("설치 저장소 단건 확인 — 저장소 1개 응답이면 true (per_page=1, 유지 판정 전용)")
-    void hasInstallationRepositoriesReturnsTrueWhenAtLeastOneRepository() {
-        GitHubAppClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=1"))
-                .andExpect(method(HttpMethod.GET))
-                .andExpect(header("Authorization", "Bearer installation-token"))
-                .andRespond(withSuccess(repositoriesJson(1), MediaType.APPLICATION_JSON));
-
-        boolean result = fixture.client.hasInstallationRepositories("installation-token");
-
-        assertThat(result).isTrue();
-        fixture.server.verify();
-    }
-
-    @Test
-    @DisplayName("설치 저장소 단건 확인 — 빈 응답이면 false")
-    void hasInstallationRepositoriesReturnsFalseWhenEmpty() {
-        GitHubAppClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=1"))
-                .andRespond(withSuccess(repositoriesJson(0), MediaType.APPLICATION_JSON));
-
-        boolean result = fixture.client.hasInstallationRepositories("installation-token");
-
-        assertThat(result).isFalse();
-        fixture.server.verify();
-    }
-
-    @Test
-    @DisplayName("설치 저장소 단건 확인 중 GitHub 오류(5xx)를 BadGatewayException으로 변환")
-    void hasInstallationRepositoriesWrapsServerErrorAsBadGateway() {
-        GitHubAppClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=1"))
-                .andRespond(withServerError());
-
-        assertThatThrownBy(() -> fixture.client.hasInstallationRepositories("installation-token"))
-                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 
@@ -287,23 +246,6 @@ class GitHubAppClientTest {
         return new GitHubAppClientFixture(client, server);
     }
 
-    private String repositoriesJson(int count) {
-        List<String> repositories = java.util.stream.IntStream.rangeClosed(1, count)
-                .mapToObj(index -> """
-                        {
-                          "id": %d,
-                          "name": "repo-%d",
-                          "full_name": "acme/repo-%d",
-                          "owner": {"login": "acme"},
-                          "private": true,
-                          "visibility": "private",
-                          "default_branch": "main"
-                        }
-                        """.formatted(index, index, index))
-                .toList();
-        return "{\"repositories\":[" + String.join(",", repositories) + "]}";
-    }
-
     private GitHubAppProperties properties() {
         return new GitHubAppProperties(
                 "123456",
@@ -318,7 +260,6 @@ class GitHubAppClientTest {
                 "https://api.github.com/user",
                 "https://api.github.com/user/installations",
                 "https://api.github.test/app/installations/{installation_id}/access_tokens",
-                "https://api.github.test/installation/repositories",
                 "https://api.github.test/repos/{owner}/{repo}/branches",
                 "https://api.github.test/user/installations/{installation_id}/repositories",
                 "https://api.github.test/users/{username}/installation",

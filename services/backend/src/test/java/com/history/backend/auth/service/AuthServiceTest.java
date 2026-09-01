@@ -31,7 +31,6 @@ import com.history.backend.github.service.GitHubAppClient;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.github.service.GitHubUserTokenService;
-import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.DisplayName;
@@ -60,7 +59,6 @@ class AuthServiceTest {
             "https://api.github.com/user",
             "https://api.github.com/user/installations",
             "https://api.github.com/app/installations/{installation_id}/access_tokens",
-            "https://api.github.com/installation/repositories",
             "https://api.github.com/repos/{owner}/{repo}/branches",
             "https://api.github.com/user/installations/{installation_id}/repositories",
             "https://api.github.com/users/{username}/installation",
@@ -90,9 +88,6 @@ class AuthServiceTest {
 
     @Mock
     private GitHubInstallationService gitHubInstallationService;
-
-    @Mock
-    private InstallationTokenService installationTokenService;
 
     @Mock
     private GitHubUserTokenService gitHubUserTokenService;
@@ -149,7 +144,6 @@ class AuthServiceTest {
                 "https://api.github.com/user",
                 "https://api.github.com/user/installations",
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
-                "https://api.github.com/installation/repositories",
                 "https://api.github.com/repos/{owner}/{repo}/branches",
                 "https://api.github.com/user/installations/{installation_id}/repositories",
                 "https://api.github.com/users/{username}/installation",
@@ -180,7 +174,6 @@ class AuthServiceTest {
                 "https://api.github.com/user",
                 "https://api.github.com/user/installations",
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
-                "https://api.github.com/installation/repositories",
                 "https://api.github.com/repos/{owner}/{repo}/branches",
                 "https://api.github.com/user/installations/{installation_id}/repositories",
                 "https://api.github.com/users/{username}/installation",
@@ -1083,8 +1076,8 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("저장소가 0개라 목록에 없는 조직 멤버십은 유지 판정을 거쳐 kept 집합에 남는다")
-    void loginWithGitHubKeepsUnverifiableOrganizationMembershipWithZeroRepositories() {
+    @DisplayName("목록에 없는 조직 멤버십은 사용자 토큰의 활성 멤버십 확인을 거쳐 kept 집합에 남는다")
+    void loginWithGitHubKeepsUnverifiableOrganizationMembershipWhenUserIsActiveMember() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -1095,12 +1088,13 @@ class AuthServiceTest {
                 98765L,
                 new GitHubInstallationAccountResponse("octocat", "User")
         );
-        // /user/installations 목록에는 없지만(저장소 0개) DB엔 이미 저장돼 있는 조직 멤버십
+        // /user/installations 목록에는 없지만(저장소 0개) DB엔 이미 저장돼 있는 조직 멤버십.
+        // DB엔 개명 전 login이 남아 있고, GitHub 원격 응답은 개명된 login을 준다 — 판정은 원격 기준이어야 한다.
         GitHubInstallation missingOrgMembership =
-                installation(MISSING_ORG_INSTALLATION_ROW_ID, 77777L, "Organization", "empty-org", user);
+                installation(MISSING_ORG_INSTALLATION_ROW_ID, 77777L, "Organization", "empty-org-old", user);
         GitHubInstallationResponse missingOrgInstallation = new GitHubInstallationResponse(
                 77777L,
-                new GitHubInstallationAccountResponse("empty-org", "Organization")
+                new GitHubInstallationAccountResponse("empty-org-renamed", "Organization")
         );
 
         when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
@@ -1112,15 +1106,16 @@ class AuthServiceTest {
         when(gitHubInstallationService.findMemberInstallations(userId))
                 .thenReturn(List.of(missingOrgMembership));
         when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
-        when(installationTokenService.getInstallationAccessToken(MISSING_ORG_INSTALLATION_ROW_ID))
-                .thenReturn("installation-token");
-        when(gitHubAppClient.hasInstallationRepositories("installation-token")).thenReturn(false);
+        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "empty-org-renamed", "octocat"))
+                .thenReturn(true);
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
         authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
+        // 멤버십 확인 인자는 DB 행의 login이 아니라 fetchInstallation 원격 응답의 account().login()이어야 한다
+        verify(gitHubOAuthClient).isActiveOrganizationMember("github-user-token", "empty-org-renamed", "octocat");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
         verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
@@ -1129,8 +1124,8 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("저장소가 남아있는 조직 멤버십은 접근 상실로 판정돼 kept 집합에서 제외된다")
-    void loginWithGitHubExcludesUnverifiableOrganizationMembershipWithRemainingRepositories() {
+    @DisplayName("목록에 없는 조직 멤버십이 활성 멤버가 아니면(이탈) kept 집합에서 제외되고 정리(prune)된다")
+    void loginWithGitHubExcludesUnverifiableOrganizationMembershipWhenMembershipIsNotActive() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -1157,9 +1152,8 @@ class AuthServiceTest {
         when(gitHubInstallationService.findMemberInstallations(userId))
                 .thenReturn(List.of(missingOrgMembership));
         when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
-        when(installationTokenService.getInstallationAccessToken(MISSING_ORG_INSTALLATION_ROW_ID))
-                .thenReturn("installation-token");
-        when(gitHubAppClient.hasInstallationRepositories("installation-token")).thenReturn(true);
+        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "empty-org", "octocat"))
+                .thenReturn(false);
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
@@ -1173,7 +1167,7 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("앱이 삭제되어 조직 설치 단건 조회가 비어있으면 kept에서 제외되고 토큰은 발급하지 않는다")
+    @DisplayName("앱이 삭제되어 조직 설치 단건 조회가 비어있으면 kept에서 제외되고 멤버십 확인은 호출하지 않는다")
     void loginWithGitHubExcludesUnverifiableOrganizationMembershipWhenInstallationWasDeleted() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
@@ -1203,7 +1197,7 @@ class AuthServiceTest {
 
         authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
-        verifyNoInteractions(installationTokenService);
+        verify(gitHubOAuthClient, never()).isActiveOrganizationMember(any(), any(), any());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
         verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
@@ -1211,8 +1205,8 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("유지 판정 중 예외가 발생하면 prune 전체를 건너뛰고 로그인은 정상 완료된다")
-    void loginWithGitHubSkipsPruneEntirelyWhenKeepDeterminationThrows() {
+    @DisplayName("유지 판정의 멤버십 확인이 예외를 던지면 prune 전체를 건너뛰고 로그인은 정상 완료된다")
+    void loginWithGitHubSkipsPruneEntirelyWhenMembershipCheckThrows() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -1239,8 +1233,8 @@ class AuthServiceTest {
         when(gitHubInstallationService.findMemberInstallations(userId))
                 .thenReturn(List.of(missingOrgMembership));
         when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
-        when(installationTokenService.getInstallationAccessToken(MISSING_ORG_INSTALLATION_ROW_ID))
-                .thenThrow(new RuntimeException("DB unavailable"));
+        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "empty-org", "octocat"))
+                .thenThrow(new RuntimeException("GitHub API unavailable"));
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
@@ -1283,7 +1277,6 @@ class AuthServiceTest {
 
         authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
-        verifyNoInteractions(installationTokenService);
         verify(gitHubAppClient, never()).fetchInstallation(88888L);
     }
 
@@ -1324,7 +1317,6 @@ class AuthServiceTest {
 
         authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
-        verifyNoInteractions(installationTokenService);
         verify(gitHubAppClient, never()).fetchInstallation(22222L);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
@@ -1343,7 +1335,6 @@ class AuthServiceTest {
                 gitHubOAuthClient,
                 gitHubAppClient,
                 gitHubInstallationService,
-                installationTokenService,
                 gitHubUserTokenService,
                 userService,
                 refreshTokenService,

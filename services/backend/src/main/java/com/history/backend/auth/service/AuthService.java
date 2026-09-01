@@ -21,7 +21,6 @@ import com.history.backend.github.service.GitHubAppClient;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.github.service.GitHubUserTokenService;
-import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +38,6 @@ public class AuthService {
     private final GitHubOAuthClient gitHubOAuthClient;
     private final GitHubAppClient gitHubAppClient;
     private final GitHubInstallationService gitHubInstallationService;
-    private final InstallationTokenService installationTokenService;
     private final GitHubUserTokenService gitHubUserTokenService;
     private final UserService userService;
     private final RefreshTokenService refreshTokenService;
@@ -204,7 +202,8 @@ public class AuthService {
             return;
         }
         // 유지 판정 실패 = 접근 확인이 불완전한 상태 — 폴백 실패와 같은 취지로 prune만 건너뛴다.
-        if (keepUnverifiableOrganizationMemberships(user, installations.installations(), keptInstallationIds)) {
+        if (keepUnverifiableOrganizationMemberships(
+                user, gitHubUser, installations.installations(), keptInstallationIds, accessToken)) {
             return;
         }
         gitHubInstallationService.pruneMemberships(user.getId(), keptInstallationIds);
@@ -213,7 +212,8 @@ public class AuthService {
     // 설치 직후 콜백의 installation_id로 설치 등록 — 저장소 0개 조직 설치는 /user/installations에
     // 안 나와 동기화가 놓치므로 이 경로가 유일한 등록 기회다. installation_id는 위조·재사용될 수 있어
     // Organization 설치는 등록 전에 사용자 토큰으로 활성 멤버십을 확인한다(위조 installation_id 방어).
-    // 어떤 실패도 로그인을 막지 않는다.
+    // 외부 확인 실패는 로그인을 막지 않는다 — DB 저장(upsert) 실패는 로그인 트랜잭션과 운명을 같이한다
+    // (참여 트랜잭션의 실패를 잡아도 rollback-only라 살릴 수 없다).
     private void registerCallbackInstallation(
             User user,
             GitHubUserResponse gitHubUser,
@@ -260,7 +260,11 @@ public class AuthService {
 
         if (isActiveMember) {
             gitHubInstallationService.upsertInstallation(user, installation.get());
+            return;
         }
+        // 배포 후 실계정으로 "권한 부재로 조용한 no-op"이 됐는지 확인하기 위한 관측 지점.
+        log.info("GitHub callback installation registration skipped for organization {} — user {} is not an active member.",
+                installation.get().account().login(), gitHubUser.login());
     }
 
     // 위조·변형된 installation_id(비숫자)로 로그인이 막히면 안 되므로 파싱 실패는 null로 무시
@@ -304,12 +308,18 @@ public class AuthService {
 
     // prune 직전 유지 판정 — /user/installations는 접근 판정이 저장소 기반이라 저장소 0개 조직 설치가
     // 목록에서 통째로 빠진다. 목록에도 kept에도 없는 조직 멤버십은 (1) 설치 실존 확인(404면 앱 삭제 → 정리),
-    // (2) 설치 토큰으로 실제 저장소 수 확인(0개 → 검증 불가한 정상 상태 → 유지, 1개 이상 → 접근 상실 → 정리).
+    // (2) 사용자 토큰으로 활성 멤버십 확인(활성 → 유지, 비활성 → 이탈 → 정리)한다.
+    // 설치 토큰으로 저장소 수를 세던 이전 방식은 installationTokenService.getInstallationAccessToken이
+    // @Transactional이라 이 로그인 트랜잭션에 참여했다 — 예외가 프록시 밖으로 나가면 catch로 잡아도
+    // 공유 트랜잭션에 rollback-only가 찍혀 커밋 시 로그인이 500이 됐고, 비관적 잠금도 로그인 커밋까지
+    // 끌고 갔다. 멤버십 확인은 단순 HTTP 조회라 이 문제가 없다.
     // User 타입 부재 멤버십은 계정 단위 폴백이 담당하므로 건드리지 않는다. 반환값은 prune 스킵 여부.
     private boolean keepUnverifiableOrganizationMemberships(
             User user,
+            GitHubUserResponse gitHubUser,
             List<GitHubInstallationResponse> listedInstallations,
-            List<UUID> keptInstallationIds
+            List<UUID> keptInstallationIds,
+            String accessToken
     ) {
         Set<Long> listedIds = new HashSet<>();
         for (GitHubInstallationResponse listed : listedInstallations) {
@@ -331,11 +341,16 @@ public class AuthService {
             try {
                 Optional<GitHubInstallationResponse> remoteInstallation =
                         gitHubAppClient.fetchInstallation(installation.getInstallationId());
-                if (remoteInstallation.isEmpty()) {
+                if (remoteInstallation.isEmpty() || remoteInstallation.get().account() == null) {
                     continue;
                 }
-                String installationToken = installationTokenService.getInstallationAccessToken(installation.getId());
-                if (!gitHubAppClient.hasInstallationRepositories(installationToken)) {
+                // DB 행의 login은 조직 개명 전 값일 수 있다 — 판정은 방금 조회한 원격 응답 기준이어야 한다.
+                boolean isActiveMember = gitHubOAuthClient.isActiveOrganizationMember(
+                        accessToken,
+                        remoteInstallation.get().account().login(),
+                        gitHubUser.login()
+                );
+                if (isActiveMember) {
                     keptInstallationIds.add(installation.getId());
                 }
             } catch (RuntimeException exception) {

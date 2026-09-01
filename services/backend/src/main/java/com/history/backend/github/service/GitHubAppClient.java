@@ -11,7 +11,6 @@ import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubBranchResponse;
 import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubInstallationTokenResponse;
-import com.history.backend.github.dto.GitHubRepositoriesResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -112,34 +111,6 @@ public class GitHubAppClient {
         } catch (RestClientException exception) {
             throw new BadGatewayException("GitHub app installation request failed.", exception);
         }
-    }
-
-    // 설치에 저장소가 하나라도 있는지 (설치 토큰, per_page=1 단건 조회) — prune 유지 판정 전용.
-    public boolean hasInstallationRepositories(String installationAccessToken) {
-        GitHubRepositoriesResponse response;
-        try {
-            response = restClient
-                    .get()
-                    .uri(installationRepositoriesProbeUri())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + installationAccessToken)
-                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                    .accept(MediaType.APPLICATION_JSON)
-                    .retrieve()
-                    .body(GitHubRepositoriesResponse.class);
-        } catch (RestClientResponseException exception) {
-            throw gitHubApiException("GitHub repository list request failed.", exception);
-        } catch (RestClientException exception) {
-            throw new BadGatewayException("GitHub repository list request failed.", exception);
-        }
-
-        return response != null && response.repositories() != null && !response.repositories().isEmpty();
-    }
-
-    private String installationRepositoriesProbeUri() {
-        return UriComponentsBuilder.fromUriString(properties.installationRepositoriesUrl())
-                .queryParam("per_page", 1)
-                .build()
-                .toUriString();
     }
 
     // 저장소 브랜치 전체 조회 (100개 단위 페이지네이션)

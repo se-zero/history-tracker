@@ -78,7 +78,6 @@ github:
     user-url: ${GITHUB_USER_URL:https://api.github.com/user}
     installations-url: ${GITHUB_INSTALLATIONS_URL:https://api.github.com/user/installations}
     installation-access-token-url: ${GITHUB_INSTALLATION_ACCESS_TOKEN_URL:https://api.github.com/app/installations/{installation_id}/access_tokens}
-    installation-repositories-url: ${GITHUB_INSTALLATION_REPOSITORIES_URL:https://api.github.com/installation/repositories}
     repository-branches-url: ${GITHUB_REPOSITORY_BRANCHES_URL:https://api.github.com/repos/{owner}/{repo}/branches}
     user-installation-repositories-url: ${GITHUB_USER_INSTALLATION_REPOSITORIES_URL:https://api.github.com/user/installations/{installation_id}/repositories}
     user-installation-url: ${GITHUB_USER_INSTALLATION_URL:https://api.github.com/users/{username}/installation}

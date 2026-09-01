@@ -16,7 +16,6 @@ import com.history.backend.github.service.GitHubAppClient;
 import com.history.backend.github.service.GitHubInstallationService;
 import com.history.backend.github.service.GitHubOAuthClient;
 import com.history.backend.github.service.GitHubUserTokenService;
-import com.history.backend.github.service.InstallationTokenService;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.DisplayName;
@@ -77,7 +76,7 @@ class RefreshTokenServicePersistenceTest {
         @Bean
         GitHubAppProperties gitHubAppProperties() {
             return new GitHubAppProperties(
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                     "https://api.github.test/applications/{client_id}/grant",
                     "https://api.github.test/app/installations/{installation_id}",
                     "",
@@ -94,9 +93,6 @@ class RefreshTokenServicePersistenceTest {
 
     @MockitoBean
     private GitHubInstallationService gitHubInstallationService;
-
-    @MockitoBean
-    private InstallationTokenService installationTokenService;
 
     @MockitoBean
     private GitHubUserTokenService gitHubUserTokenService;
