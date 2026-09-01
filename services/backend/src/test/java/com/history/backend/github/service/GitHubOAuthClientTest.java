@@ -127,6 +127,77 @@ class GitHubOAuthClientTest {
     }
 
     @Test
+    @DisplayName("조직 활성 멤버십(200+state=active) → true, URL 치환·Bearer 사용자 토큰 검증")
+    void isActiveOrganizationMemberReturnsTrueWhenStateIsActive() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer user-access-token"))
+                .andRespond(withSuccess("""
+                        { "state": "active" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십이 pending 상태면 false — 활성 멤버십만 등록을 허용한다")
+    void isActiveOrganizationMemberReturnsFalseWhenStateIsPending() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(withSuccess("""
+                        { "state": "pending" }
+                        """, MediaType.APPLICATION_JSON));
+
+        boolean result = fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isFalse();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십 확인 HTTP 404 → false (멤버 아님/확인 불가로 취급)")
+    void isActiveOrganizationMemberReturnsFalseOnNotFound() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(withResourceNotFound());
+
+        boolean result = fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isFalse();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십 확인 HTTP 403 → false (멤버 아님/확인 불가로 취급)")
+    void isActiveOrganizationMemberReturnsFalseOnForbidden() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(withForbiddenRequest());
+
+        boolean result = fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isFalse();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십 확인 HTTP 5xx → BadGatewayException (일시 장애를 멤버 아님으로 오판하지 않는다)")
+    void isActiveOrganizationMemberWrapsServerErrorAsBadGateway() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() ->
+                fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("installation 목록 조회는 per_page=100으로 요청해 기본 30개 절단을 막는다")
     void fetchInstallationsRequestsWithPerPage100() {
         GitHubOAuthClientFixture fixture = fixture();
@@ -698,6 +769,22 @@ class GitHubOAuthClientTest {
     }
 
     @Test
+    @DisplayName("사용자 설치 저장소 목록 — 2페이지 이상의 HTTP 404는 BadGatewayException (중간 페이지 실패를 빈 결과로 뭉개지 않음)")
+    void fetchUserInstallationRepositoriesWrapsNotFoundOnSecondPageAsBadGateway() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(
+                        "https://api.github.test/user/installations/98765/repositories?per_page=100&page=1"))
+                .andRespond(withSuccess(repositoriesJson(100), MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo(
+                        "https://api.github.test/user/installations/98765/repositories?per_page=100&page=2"))
+                .andRespond(withResourceNotFound());
+
+        assertThatThrownBy(() -> fixture.client.fetchUserInstallationRepositories("user-access-token", 98765L))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("사용자 설치 저장소 목록 HTTP 5xx → BadGatewayException (상태코드 포함, 403도 404로 바꾸지 않음)")
     void fetchUserInstallationRepositoriesWrapsGitHubErrorsAsBadGateway() {
         GitHubOAuthClientFixture fixture = fixture();
@@ -866,6 +953,7 @@ class GitHubOAuthClientTest {
                 "https://api.github.test/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
                 "https://api.github.test/app/installations/{installation_id}",
+                "https://api.github.test/orgs/{org}/memberships/{username}",
                 Duration.ofMinutes(5)
         );
     }

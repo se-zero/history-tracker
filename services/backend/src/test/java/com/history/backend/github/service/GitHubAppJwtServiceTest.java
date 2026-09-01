@@ -172,6 +172,7 @@ class GitHubAppJwtServiceTest {
                 "https://api.github.com/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
                 "https://api.github.test/app/installations/{installation_id}",
+                "https://api.github.test/orgs/{org}/memberships/{username}",
                 Duration.ofMinutes(5)
         );
     }

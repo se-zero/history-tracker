@@ -109,7 +109,7 @@ public class AuthService {
         gitHubUserTokenService.save(user.getId(), tokenResponse);
 
         syncInstallations(user, gitHubUser, accessToken);
-        registerCallbackInstallation(user, gitHubUser, request.installationId());
+        registerCallbackInstallation(user, gitHubUser, request.installationId(), accessToken);
 
         // 서비스 access token 발급. refresh 원문은 컨트롤러가 httpOnly 쿠키로만 내려보낸다.
         return new IssuedSession(
@@ -211,10 +211,15 @@ public class AuthService {
     }
 
     // 설치 직후 콜백의 installation_id로 설치 등록 — 저장소 0개 조직 설치는 /user/installations에
-    // 안 나와 동기화가 놓치므로 이 경로가 유일한 등록 기회다. 조직에 앱을 설치할 수 있는 사람은
-    // 그 조직의 관리자뿐이라 멤버십 확인 없이 등록해도 안전하고(레포 노출은 사용자 토큰 ACL이 거른다),
+    // 안 나와 동기화가 놓치므로 이 경로가 유일한 등록 기회다. installation_id는 위조·재사용될 수 있어
+    // Organization 설치는 등록 전에 사용자 토큰으로 활성 멤버십을 확인한다(위조 installation_id 방어).
     // 어떤 실패도 로그인을 막지 않는다.
-    private void registerCallbackInstallation(User user, GitHubUserResponse gitHubUser, String rawInstallationId) {
+    private void registerCallbackInstallation(
+            User user,
+            GitHubUserResponse gitHubUser,
+            String rawInstallationId,
+            String accessToken
+    ) {
         Long installationId = parseInstallationId(rawInstallationId);
         if (installationId == null) {
             return;
@@ -232,8 +237,28 @@ public class AuthService {
             return;
         }
 
-        if (isOwnPersonalInstallation(installation.get(), gitHubUser)
-                || "Organization".equals(installation.get().account().type())) {
+        if (isOwnPersonalInstallation(installation.get(), gitHubUser)) {
+            gitHubInstallationService.upsertInstallation(user, installation.get());
+            return;
+        }
+
+        if (!"Organization".equals(installation.get().account().type())) {
+            return;
+        }
+
+        boolean isActiveMember;
+        try {
+            isActiveMember = gitHubOAuthClient.isActiveOrganizationMember(
+                    accessToken,
+                    installation.get().account().login(),
+                    gitHubUser.login()
+            );
+        } catch (RuntimeException exception) {
+            log.warn("GitHub organization membership check failed for installation {}", installationId, exception);
+            return;
+        }
+
+        if (isActiveMember) {
             gitHubInstallationService.upsertInstallation(user, installation.get());
         }
     }
@@ -310,7 +335,7 @@ public class AuthService {
                     continue;
                 }
                 String installationToken = installationTokenService.getInstallationAccessToken(installation.getId());
-                if (gitHubAppClient.fetchInstallationRepositories(installationToken).isEmpty()) {
+                if (!gitHubAppClient.hasInstallationRepositories(installationToken)) {
                     keptInstallationIds.add(installation.getId());
                 }
             } catch (RuntimeException exception) {

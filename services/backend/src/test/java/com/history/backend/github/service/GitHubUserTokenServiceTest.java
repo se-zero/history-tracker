@@ -394,6 +394,7 @@ class GitHubUserTokenServiceTest {
                 "https://api.github.test/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
                 "https://api.github.test/app/installations/{installation_id}",
+                "https://api.github.test/orgs/{org}/memberships/{username}",
                 REFRESH_SKEW
         );
     }

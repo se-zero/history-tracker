@@ -12,7 +12,6 @@ import com.history.backend.github.dto.GitHubBranchResponse;
 import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubInstallationTokenResponse;
 import com.history.backend.github.dto.GitHubRepositoriesResponse;
-import com.history.backend.github.dto.GitHubRepositoryResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -27,7 +26,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Component
 public class GitHubAppClient {
 
-    private static final int REPOSITORIES_PER_PAGE = 100;
     private static final int BRANCHES_PER_PAGE = 100;
 
     private final GitHubAppProperties properties;
@@ -116,32 +114,13 @@ public class GitHubAppClient {
         }
     }
 
-    // 설치 저장소 전체 조회 (100개 단위 페이지네이션, 마지막 페이지까지 반복)
-    public List<GitHubRepositoryResponse> fetchInstallationRepositories(String installationAccessToken) {
-        List<GitHubRepositoryResponse> repositories = new ArrayList<>();
-        int page = 1;
-        while (true) {
-            List<GitHubRepositoryResponse> pageRepositories = fetchInstallationRepositoryPage(
-                    installationAccessToken,
-                    page
-            );
-            repositories.addAll(pageRepositories);
-            if (pageRepositories.size() < REPOSITORIES_PER_PAGE) {
-                return repositories;
-            }
-            page++;
-        }
-    }
-
-    private List<GitHubRepositoryResponse> fetchInstallationRepositoryPage(
-            String installationAccessToken,
-            int page
-    ) {
+    // 설치에 저장소가 하나라도 있는지 (설치 토큰, per_page=1 단건 조회) — prune 유지 판정 전용.
+    public boolean hasInstallationRepositories(String installationAccessToken) {
         GitHubRepositoriesResponse response;
         try {
             response = restClient
                     .get()
-                    .uri(repositoryPageUri(page))
+                    .uri(installationRepositoriesProbeUri())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + installationAccessToken)
                     .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
                     .accept(MediaType.APPLICATION_JSON)
@@ -153,16 +132,12 @@ public class GitHubAppClient {
             throw new BadGatewayException("GitHub repository list request failed.", exception);
         }
 
-        if (response == null || response.repositories() == null) {
-            return List.of();
-        }
-        return response.repositories();
+        return response != null && response.repositories() != null && !response.repositories().isEmpty();
     }
 
-    private String repositoryPageUri(int page) {
+    private String installationRepositoriesProbeUri() {
         return UriComponentsBuilder.fromUriString(properties.installationRepositoriesUrl())
-                .queryParam("per_page", REPOSITORIES_PER_PAGE)
-                .queryParam("page", page)
+                .queryParam("per_page", 1)
                 .build()
                 .toUriString();
     }

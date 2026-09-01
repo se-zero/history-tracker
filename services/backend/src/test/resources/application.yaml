@@ -68,6 +68,7 @@ github:
     user-installation-url: https://api.github.com/users/{username}/installation
     grant-revoke-url: https://api.github.com/applications/{client_id}/grant
     app-installation-url: https://api.github.com/app/installations/{installation_id}
+    organization-membership-url: https://api.github.com/orgs/{org}/memberships/{username}
     refresh-skew: PT5M
 
 slack:

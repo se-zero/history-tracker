@@ -11,6 +11,7 @@ import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
 import com.history.backend.github.dto.GitHubBranchResponse;
 import com.history.backend.github.dto.GitHubInstallationsResponse;
+import com.history.backend.github.dto.GitHubOrganizationMembershipResponse;
 import com.history.backend.github.dto.GitHubRepositoriesResponse;
 import com.history.backend.github.dto.GitHubRepositoryResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
@@ -233,6 +234,32 @@ public class GitHubOAuthClient {
         }
     }
 
+    // 조직 활성 멤버십 확인 (사용자 토큰). 콜백 installation_id 등록의 인가 게이트 —
+    // 200 + state=active만 true. 403/404는 "멤버 아님·확인 불가"로 false, 5xx·네트워크는 예외
+    // (호출부가 등록만 건너뛰고 로그인은 통과시킨다).
+    public boolean isActiveOrganizationMember(String accessToken, String organizationLogin, String username) {
+        GitHubOrganizationMembershipResponse response;
+        try {
+            response = restClient
+                    .get()
+                    .uri(properties.organizationMembershipUrl(), organizationLogin, username)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .retrieve()
+                    .body(GitHubOrganizationMembershipResponse.class);
+        } catch (RestClientResponseException exception) {
+            int statusCode = exception.getStatusCode().value();
+            if (statusCode == HttpStatus.FORBIDDEN.value() || statusCode == HttpStatus.NOT_FOUND.value()) {
+                return false;
+            }
+            throw gitHubApiException("GitHub organization membership request failed.", exception);
+        } catch (RestClientException exception) {
+            throw new BadGatewayException("GitHub organization membership request failed.", exception);
+        }
+
+        return response != null && "active".equals(response.state());
+    }
+
     // 사용자 access token으로 설치 저장소 목록 조회. 설치 토큰은 설치에 열린 저장소 전부를
     // 돌려줘서 사용자가 볼 수 없는 비공개 저장소까지 노출한다.
     public List<GitHubRepositoryResponse> fetchUserInstallationRepositories(
@@ -272,7 +299,9 @@ public class GitHubOAuthClient {
         } catch (RestClientResponseException exception) {
             // 저장소 0개 설치는 404를 줄 수 있다는 게 문서로 확정되진 않았지만, 방어적으로
             // 빈 페이지로 처리한다 — 페이지네이션 루프가 정상 종료되고 프론트엔 "저장소 없음"으로 보인다.
-            if (exception.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+            // 1페이지에서만 흡수한다: 중간 페이지 404까지 빈 결과로 뭉개면 진짜 실패가 부분 결과로
+            // 조용히 끝난다.
+            if (page == 1 && exception.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
                 return List.of();
             }
             throw gitHubApiException("GitHub repository list request failed.", exception);

@@ -131,47 +131,42 @@ class GitHubAppClientTest {
     }
 
     @Test
-    @DisplayName("단일 부분 페이지 리포지토리 반환")
-    void fetchInstallationRepositoriesReturnsSinglePartialPage() {
+    @DisplayName("설치 저장소 단건 확인 — 저장소 1개 응답이면 true (per_page=1, 유지 판정 전용)")
+    void hasInstallationRepositoriesReturnsTrueWhenAtLeastOneRepository() {
         GitHubAppClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=100&page=1"))
+        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=1"))
                 .andExpect(method(HttpMethod.GET))
                 .andExpect(header("Authorization", "Bearer installation-token"))
-                .andRespond(withSuccess(repositoriesJson(99), MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(repositoriesJson(1), MediaType.APPLICATION_JSON));
 
-        var result = fixture.client.fetchInstallationRepositories("installation-token");
+        boolean result = fixture.client.hasInstallationRepositories("installation-token");
 
-        assertThat(result).hasSize(99);
-        assertThat(result.get(0).fullName()).isEqualTo("acme/repo-1");
+        assertThat(result).isTrue();
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("부분 페이지까지 모든 페이지 조회")
-    void fetchInstallationRepositoriesFetchesUntilPartialPage() {
+    @DisplayName("설치 저장소 단건 확인 — 빈 응답이면 false")
+    void hasInstallationRepositoriesReturnsFalseWhenEmpty() {
         GitHubAppClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=100&page=1"))
-                .andRespond(withSuccess(repositoriesJson(100), MediaType.APPLICATION_JSON));
-        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=100&page=2"))
-                .andRespond(withSuccess(repositoriesJson(50), MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=1"))
+                .andRespond(withSuccess(repositoriesJson(0), MediaType.APPLICATION_JSON));
 
-        var result = fixture.client.fetchInstallationRepositories("installation-token");
+        boolean result = fixture.client.hasInstallationRepositories("installation-token");
 
-        assertThat(result).hasSize(150);
+        assertThat(result).isFalse();
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("리포지토리 조회 중 GitHub 오류를 BadGatewayException으로 변환")
-    void fetchInstallationRepositoriesWrapsGitHubErrors() {
+    @DisplayName("설치 저장소 단건 확인 중 GitHub 오류(5xx)를 BadGatewayException으로 변환")
+    void hasInstallationRepositoriesWrapsServerErrorAsBadGateway() {
         GitHubAppClientFixture fixture = fixture();
-        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=100&page=1"))
-                .andRespond(withResourceNotFound());
+        fixture.server.expect(once(), requestTo("https://api.github.test/installation/repositories?per_page=1"))
+                .andRespond(withServerError());
 
-        assertThatThrownBy(() -> fixture.client.fetchInstallationRepositories("installation-token"))
-                .isInstanceOf(BadGatewayException.class)
-                .hasMessageContaining("GitHub repository list request failed.")
-                .hasMessageContaining("404");
+        assertThatThrownBy(() -> fixture.client.hasInstallationRepositories("installation-token"))
+                .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }
 
@@ -329,6 +324,7 @@ class GitHubAppClientTest {
                 "https://api.github.test/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
                 "https://api.github.test/app/installations/{installation_id}",
+                "https://api.github.test/orgs/{org}/memberships/{username}",
                 Duration.ofMinutes(5)
         );
     }
