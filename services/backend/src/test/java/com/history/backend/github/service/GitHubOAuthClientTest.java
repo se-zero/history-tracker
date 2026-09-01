@@ -850,6 +850,7 @@ class GitHubOAuthClientTest {
                 "https://api.github.test/user/installations/{installation_id}/repositories",
                 "https://api.github.test/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
+                "https://api.github.test/app/installations/{installation_id}",
                 Duration.ofMinutes(5)
         );
     }

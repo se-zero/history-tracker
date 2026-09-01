@@ -230,6 +230,61 @@ class GitHubAppClientTest {
         fixture.server.verify();
     }
 
+    @Test
+    @DisplayName("App JWT로 installation 단건 조회")
+    void fetchInstallationRequestsWithAppJwtAndReturnsInstallation() {
+        GitHubAppClientFixture fixture = fixture();
+        when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
+        fixture.server.expect(once(), requestTo("https://api.github.test/app/installations/98765"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer app-jwt"))
+                .andExpect(header("Accept", "application/vnd.github+json"))
+                .andRespond(withSuccess("""
+                        {
+                          "id": 98765,
+                          "account": {
+                            "login": "octocat",
+                            "type": "User"
+                          }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        Optional<GitHubInstallationResponse> result = fixture.client.fetchInstallation(98765L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().id()).isEqualTo(98765L);
+        assertThat(result.get().account().login()).isEqualTo("octocat");
+        assertThat(result.get().account().type()).isEqualTo("User");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("설치 부재(404)면 빈 Optional 반환")
+    void fetchInstallationReturnsEmptyWhenNotFound() {
+        GitHubAppClientFixture fixture = fixture();
+        when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
+        fixture.server.expect(once(), requestTo("https://api.github.test/app/installations/98765"))
+                .andRespond(withResourceNotFound());
+
+        Optional<GitHubInstallationResponse> result = fixture.client.fetchInstallation(98765L);
+
+        assertThat(result).isEmpty();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("GitHub 오류 응답(5xx)을 BadGatewayException으로 변환")
+    void fetchInstallationWrapsGitHubErrorsOnServerError() {
+        GitHubAppClientFixture fixture = fixture();
+        when(gitHubAppJwtService.createJwt()).thenReturn("app-jwt");
+        fixture.server.expect(once(), requestTo("https://api.github.test/app/installations/98765"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.fetchInstallation(98765L))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
     private GitHubAppClientFixture fixture() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -273,6 +328,7 @@ class GitHubAppClientTest {
                 "https://api.github.test/user/installations/{installation_id}/repositories",
                 "https://api.github.test/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
+                "https://api.github.test/app/installations/{installation_id}",
                 Duration.ofMinutes(5)
         );
     }

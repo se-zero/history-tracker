@@ -95,6 +95,27 @@ public class GitHubAppClient {
         }
     }
 
+    // 설치 단건 조회 (App JWT). 404는 "설치가 삭제/부재"라는 정상 판정 — fetchUserInstallation과 동일 계약.
+    public Optional<GitHubInstallationResponse> fetchInstallation(Long installationId) {
+        try {
+            GitHubInstallationResponse response = restClient
+                    .get()
+                    .uri(properties.appInstallationUrl(), installationId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + gitHubAppJwtService.createJwt())
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .retrieve()
+                    .body(GitHubInstallationResponse.class);
+            return Optional.ofNullable(response);
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                return Optional.empty();
+            }
+            throw gitHubApiException("GitHub app installation request failed.", exception);
+        } catch (RestClientException exception) {
+            throw new BadGatewayException("GitHub app installation request failed.", exception);
+        }
+    }
+
     // 설치 저장소 전체 조회 (100개 단위 페이지네이션, 마지막 페이지까지 반복)
     public List<GitHubRepositoryResponse> fetchInstallationRepositories(String installationAccessToken) {
         List<GitHubRepositoryResponse> repositories = new ArrayList<>();

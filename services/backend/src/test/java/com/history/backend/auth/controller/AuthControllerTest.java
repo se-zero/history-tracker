@@ -15,6 +15,7 @@ import java.net.URI;
 import java.time.Duration;
 
 import com.history.backend.auth.RefreshTokenCookies;
+import com.history.backend.auth.dto.GitHubCallbackRequest;
 import com.history.backend.auth.service.AuthService;
 import com.history.backend.auth.service.IssuedSession;
 import com.history.backend.common.error.GlobalExceptionHandler;
@@ -89,6 +90,33 @@ class AuthControllerTest {
                 .andExpect(cookie().value(RefreshTokenCookies.NAME, "refresh-token"))
                 .andExpect(cookie().httpOnly(RefreshTokenCookies.NAME, true))
                 .andExpect(cookie().path(RefreshTokenCookies.NAME, RefreshTokenCookies.PATH));
+    }
+
+    @Test
+    @DisplayName("GitHub 콜백 → installation_id 쿼리 파라미터를 서비스로 전달")
+    void callbackPassesInstallationIdToService() throws Exception {
+        when(authService.loginWithGitHub(any())).thenReturn(session("access-token", "refresh-token"));
+
+        mockMvc.perform(get("/api/v1/auth/github/callback")
+                        .queryParam("code", "code-123")
+                        .queryParam("state", "state-123")
+                        .queryParam("installation_id", "12345"))
+                .andExpect(status().isOk());
+
+        verify(authService).loginWithGitHub(new GitHubCallbackRequest("code-123", "state-123", "12345"));
+    }
+
+    @Test
+    @DisplayName("GitHub 콜백 → installation_id 파라미터가 없으면 null로 전달")
+    void callbackPassesNullInstallationIdWhenAbsent() throws Exception {
+        when(authService.loginWithGitHub(any())).thenReturn(session("access-token", "refresh-token"));
+
+        mockMvc.perform(get("/api/v1/auth/github/callback")
+                        .queryParam("code", "code-123")
+                        .queryParam("state", "state-123"))
+                .andExpect(status().isOk());
+
+        verify(authService).loginWithGitHub(new GitHubCallbackRequest("code-123", "state-123", null));
     }
 
     @Test
