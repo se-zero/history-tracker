@@ -303,7 +303,7 @@ public class AuthService {
     // prune 직전 유지 판정 — /user/installations는 접근 판정이 저장소 기반이라 저장소 0개 조직 설치가
     // 목록에서 통째로 빠진다. 목록에도 kept에도 없는 조직 멤버십은 (1) 설치 실존 확인(404면 앱 삭제 → 정리),
     // (2) 사용자 토큰으로 멤버십 확인(ACTIVE → 유지, NOT_MEMBER → 이탈 → 정리, UNKNOWN(403 등 확인 불가) →
-    // prune 전체 보류 — 확인 불가를 이탈로 오판해 멀쩡한 멤버십을 지우면 안 된다)한다.
+    // 그 행만 유지하고 나머지 정리는 계속 — 확인 불가를 이탈로 오판해 멀쩡한 멤버십을 지우면 안 된다)한다.
     // 설치 토큰으로 저장소 수를 세던 이전 방식은 installationTokenService.getInstallationAccessToken이
     // @Transactional이라 이 로그인 트랜잭션에 참여했다 — 예외가 프록시 밖으로 나가면 catch로 잡아도
     // 공유 트랜잭션에 rollback-only가 찍혀 커밋 시 로그인이 500이 됐고, 비관적 잠금도 로그인 커밋까지
@@ -350,10 +350,13 @@ public class AuthService {
                     continue;
                 }
                 if (membership == GitHubOAuthClient.OrganizationMembership.UNKNOWN) {
-                    // 403 등 확인 불가 — hasUnknownAccess·폴백 실패와 같은 방향으로 이번 로그인의 prune 전체를 보류한다.
+                    // 403 등 확인 불가 — 확인 불가를 삭제로 오독하지 않게 이 행만 유지한다.
+                    // 전체 보류(hasUnknownAccess 방향)로 하지 않는 이유: 영구 403 조직(권한 미승인·SAML)이
+                    // 하나 있으면 다른 조직의 이탈 정리까지 무기한 막힌다 — 여기는 행 UUID가 있어 행 단위가 가능하다.
                     log.warn("GitHub organization membership check returned UNKNOWN for installation {}",
                             installation.getId());
-                    return true;
+                    keptInstallationIds.add(installation.getId());
+                    continue;
                 }
             } catch (RuntimeException exception) {
                 log.warn("GitHub unverifiable organization membership check failed for installation {}",
