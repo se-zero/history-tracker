@@ -30,9 +30,18 @@ erDiagram
         bigint installation_id
         UUID installer_user_id FK
     }
+    github_installation_users {
+        UUID installation_id PK,FK
+        UUID user_id PK,FK
+    }
     github_user_credentials {
         UUID user_id PK
         bytea encrypted_credential
+    }
+    user_provider_connections {
+        UUID user_id PK,FK
+        string provider PK
+        timestamptz first_connected_at
     }
     projects {
         UUID id PK
@@ -83,6 +92,9 @@ erDiagram
     users          ||..o{ refresh_tokens        : "1:N"
     users          ||--|| github_user_credentials : "1:1 CASCADE"
     users          ||..o{ github_installations  : "1:N"
+    users          ||--o{ github_installation_users : "1:N  (식별)"
+    github_installations ||--o{ github_installation_users : "1:N  (식별)"
+    users          ||--o{ user_provider_connections : "1:N  (식별, CASCADE)"
     users          ||..o{ projects              : "1:N"
     users          |o..o{ conversations         : "0/1:N  (SET NULL)"
     projects       ||..o{ integrations          : "1:N"
@@ -112,6 +124,10 @@ erDiagram
 | `created_at` | TIMESTAMPTZ | NOT NULL | 사용자 최초 생성 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | row 수정 시각 |
 | `deleted_at` | TIMESTAMPTZ | soft-delete 마커 | 탈퇴 시각. NULL이면 활성 사용자 |
+| `consent_terms_version` | TEXT | nullable | 가입 시 동의한 약관 버전 (V18). NULL이면 다음 로그인 때 동의 화면을 본다 |
+| `consent_recorded_at` | TIMESTAMPTZ | nullable | 약관 동의 기록 시각 (V18) |
+| `plan` | TEXT | NOT NULL, DEFAULT `FREE` | 요금제 (V19) |
+| `free_query_count` | INTEGER | NOT NULL, DEFAULT 0 | FREE 플랜 질의 횟수 카운트 (V19) |
 
 **인덱스**
 - UNIQUE `(provider, provider_user_id)` WHERE `deleted_at IS NULL`
@@ -225,6 +241,26 @@ Expire user authorization tokens ON 전제: access 8시간, refresh 6개월.
 
 ---
 
+### `user_provider_connections` (V19)
+
+사용자가 한 번이라도 연동한 provider 이력. FREE 플랜은 연동을 해제·삭제해도 같은 provider를
+재연동해 증분 수집을 다시 얻을 수 없어야 하므로, `integrations` 행 존재 여부가 아니라 이 이력으로
+"이미 연동한 적 있는지"를 판정한다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `user_id` | UUID | PK, FK → `users.id` CASCADE | 연동 이력의 소유자 |
+| `provider` | TEXT | PK | 연동했던 provider 종류 |
+| `first_connected_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `now()` | 최초 연동 시각 |
+
+V19 배포 시 그 시점까지 존재하던 `integrations` 행을 근거로 백필됐다(연동을 해제·삭제한
+이력까지 소급하지는 않는다 — 배포 시점에 살아 있던 연동만).
+
+**인덱스**
+- PRIMARY KEY `(user_id, provider)`
+
+---
+
 ### `projects`
 
 사용자가 생성한 분석 프로젝트.
@@ -258,6 +294,7 @@ Expire user authorization tokens ON 전제: access 8시간, refresh 6개월.
 | `external_ref` | JSONB | NOT NULL | provider별 식별자 묶음 |
 | `installation_id` | UUID | FK → `github_installations.id` CASCADE, nullable | GitHub 연동 시 installation 참조 |
 | `encrypted_credential` | BYTEA | nullable | provider별 자격증명 암호화 보관 (AES-GCM). 평문 포맷은 아래 참고 |
+| `incremental_enabled` | BOOLEAN | NOT NULL, DEFAULT TRUE | FALSE면 webhook 증분 수집을 막는다 (V19). FREE 플랜 연동 저장 시 false로 시작, PAID 전환 시 소유 연동 전체 true로 갱신 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 연동 등록 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 메타데이터 변경 시각 |
 
