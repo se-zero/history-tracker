@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -175,6 +176,20 @@ class GitHubInstallationServiceTest {
 
         assertThat(result).hasSize(1);
         verify(userService).getActiveUser(INSTALLER_ID);
+    }
+
+    @Test
+    @DisplayName("로그인 동기화 전용 멤버십 설치 목록은 활성 사용자 게이트 없이 저장소에 위임한다")
+    void findMemberInstallationsDelegatesToRepositoryWithoutActiveUserGate() {
+        GitHubInstallationService service = service();
+        User installer = installer();
+        GitHubInstallation installation = new GitHubInstallation(98765L, "Organization", "acme", installer);
+        when(gitHubInstallationRepository.findAllByMemberUserId(INSTALLER_ID)).thenReturn(List.of(installation));
+
+        var result = service.findMemberInstallations(INSTALLER_ID);
+
+        assertThat(result).containsExactly(installation);
+        verifyNoInteractions(userService);
     }
 
     @Test

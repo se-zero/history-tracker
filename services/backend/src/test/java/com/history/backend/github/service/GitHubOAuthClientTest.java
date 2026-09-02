@@ -127,6 +127,98 @@ class GitHubOAuthClientTest {
     }
 
     @Test
+    @DisplayName("조직 활성 멤버십(200+state=active) → ACTIVE, URL 치환·Bearer 사용자 토큰 검증")
+    void checkOrganizationMembershipReturnsActiveWhenStateIsActive() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer user-access-token"))
+                .andRespond(withSuccess("""
+                        { "state": "active" }
+                        """, MediaType.APPLICATION_JSON));
+
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.ACTIVE);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십이 pending 상태면 NOT_MEMBER — 활성 멤버십만 등록을 허용한다")
+    void checkOrganizationMembershipReturnsNotMemberWhenStateIsPending() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(withSuccess("""
+                        { "state": "pending" }
+                        """, MediaType.APPLICATION_JSON));
+
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십 확인 HTTP 404 → NOT_MEMBER")
+    void checkOrganizationMembershipReturnsNotMemberOnNotFound() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(withResourceNotFound());
+
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십 확인 HTTP 403 → UNKNOWN (권한 부재·SAML SSO 등 확인 불가 — 멤버 아님과 구분)")
+    void checkOrganizationMembershipReturnsUnknownOnForbidden() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(withForbiddenRequest());
+
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십 확인 HTTP 5xx → UNKNOWN, 예외를 던지지 않는다 (일시 장애를 멤버 아님으로 오판하지 않는다)")
+    void checkOrganizationMembershipReturnsUnknownOnServerError() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(withServerError());
+
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십 확인 네트워크 예외(타임아웃 등) → UNKNOWN, 예외를 던지지 않는다")
+    void checkOrganizationMembershipReturnsUnknownOnNetworkException() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(request -> {
+                    throw new IOException("Connection refused");
+                });
+
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
+        fixture.server.verify();
+    }
+
+    @Test
     @DisplayName("installation 목록 조회는 per_page=100으로 요청해 기본 30개 절단을 막는다")
     void fetchInstallationsRequestsWithPerPage100() {
         GitHubOAuthClientFixture fixture = fixture();
@@ -683,17 +775,48 @@ class GitHubOAuthClientTest {
     }
 
     @Test
-    @DisplayName("사용자 설치 저장소 목록 HTTP 오류 → BadGatewayException (상태코드 포함, 403도 404로 바꾸지 않음)")
-    void fetchUserInstallationRepositoriesWrapsGitHubErrorsAsBadGateway() {
+    @DisplayName("사용자 설치 저장소 목록 HTTP 404 → 빈 목록 반환 (저장소 0개 설치의 사용자 토큰 조회 방어, 예외 아님)")
+    void fetchUserInstallationRepositoriesReturnsEmptyListOnNotFound() {
         GitHubOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo(
                         "https://api.github.test/user/installations/98765/repositories?per_page=100&page=1"))
                 .andRespond(withResourceNotFound());
 
+        List<GitHubRepositoryResponse> result =
+                fixture.client.fetchUserInstallationRepositories("user-access-token", 98765L);
+
+        assertThat(result).isEmpty();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("사용자 설치 저장소 목록 — 2페이지 이상의 HTTP 404는 BadGatewayException (중간 페이지 실패를 빈 결과로 뭉개지 않음)")
+    void fetchUserInstallationRepositoriesWrapsNotFoundOnSecondPageAsBadGateway() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(
+                        "https://api.github.test/user/installations/98765/repositories?per_page=100&page=1"))
+                .andRespond(withSuccess(repositoriesJson(100), MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo(
+                        "https://api.github.test/user/installations/98765/repositories?per_page=100&page=2"))
+                .andRespond(withResourceNotFound());
+
+        assertThatThrownBy(() -> fixture.client.fetchUserInstallationRepositories("user-access-token", 98765L))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("사용자 설치 저장소 목록 HTTP 5xx → BadGatewayException (상태코드 포함, 403도 404로 바꾸지 않음)")
+    void fetchUserInstallationRepositoriesWrapsGitHubErrorsAsBadGateway() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(
+                        "https://api.github.test/user/installations/98765/repositories?per_page=100&page=1"))
+                .andRespond(withServerError());
+
         assertThatThrownBy(() -> fixture.client.fetchUserInstallationRepositories("user-access-token", 98765L))
                 .isInstanceOf(BadGatewayException.class)
                 .hasMessageContaining("GitHub repository list request failed.")
-                .hasMessageContaining("404");
+                .hasMessageContaining("500");
         fixture.server.verify();
     }
 
@@ -845,11 +968,12 @@ class GitHubOAuthClientTest {
                 "https://api.github.test/user",
                 "https://api.github.test/user/installations",
                 "https://api.github.test/app/installations/{installation_id}/access_tokens",
-                "https://api.github.test/installation/repositories",
                 "https://api.github.test/repos/{owner}/{repo}/branches",
                 "https://api.github.test/user/installations/{installation_id}/repositories",
                 "https://api.github.test/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
+                "https://api.github.test/app/installations/{installation_id}",
+                "https://api.github.test/orgs/{org}/memberships/{username}",
                 Duration.ofMinutes(5)
         );
     }

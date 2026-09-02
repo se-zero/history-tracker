@@ -166,11 +166,12 @@ class GitHubAppJwtServiceTest {
                 "https://api.github.com/user",
                 "https://api.github.com/user/installations",
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
-                "https://api.github.com/installation/repositories",
                 "https://api.github.com/repos/{owner}/{repo}/branches",
                 "https://api.github.com/user/installations/{installation_id}/repositories",
                 "https://api.github.com/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
+                "https://api.github.test/app/installations/{installation_id}",
+                "https://api.github.test/orgs/{org}/memberships/{username}",
                 Duration.ofMinutes(5)
         );
     }

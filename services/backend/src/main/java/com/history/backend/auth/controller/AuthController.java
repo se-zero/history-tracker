@@ -52,9 +52,10 @@ public class AuthController {
     public ResponseEntity<TokenResponse> handleGitHubCallback(
             @RequestParam @NotBlank String code,
             @RequestParam(required = false) String state,
+            @RequestParam(name = "installation_id", required = false) String installationId,
             HttpServletRequest request
     ) {
-        IssuedSession session = authService.loginWithGitHub(new GitHubCallbackRequest(code, state));
+        IssuedSession session = authService.loginWithGitHub(new GitHubCallbackRequest(code, state, installationId));
         return withRefreshCookie(session, request);
     }
 
