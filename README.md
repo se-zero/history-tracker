@@ -26,7 +26,7 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
 |--------|------|
 | 데이터 수집 | Spring Boot (Java), GitHub API, Jira API, Slack API |
 | 메시지 큐 | RabbitMQ |
-| AI 처리 | Python/FastAPI, OpenAI GPT-4o-mini, text-embedding-3-large (1536차원 절삭) |
+| AI 처리 | Python/FastAPI, OpenAI (질의 gpt-5.4-mini · 그래프 구축 gpt-4o-mini), text-embedding-3-large (1536차원 절삭) |
 | 그래프 DB | Neo4j (벡터 인덱스 포함) |
 
 ## 핵심 기능
