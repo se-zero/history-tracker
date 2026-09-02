@@ -234,10 +234,10 @@ public class GitHubOAuthClient {
         }
     }
 
-    // 조직 활성 멤버십 확인 (사용자 토큰). 콜백 installation_id 등록의 인가 게이트 —
-    // 200 + state=active만 true. 403/404는 "멤버 아님·확인 불가"로 false, 5xx·네트워크는 예외
-    // (호출부가 등록만 건너뛰고 로그인은 통과시킨다).
-    public boolean isActiveOrganizationMember(String accessToken, String organizationLogin, String username) {
+    // 조직 멤버십 3값 판정 (사용자 토큰) — checkInstallationAccess와 같은 무예외 계약.
+    // 403은 "멤버 아님"과 "확인 불가(권한 부재·SAML SSO·rate limit)"를 구분할 수 없어 UNKNOWN —
+    // 호출부가 확인 불가를 삭제로 오독하지 않게 한다.
+    public OrganizationMembership checkOrganizationMembership(String accessToken, String organizationLogin, String username) {
         GitHubOrganizationMembershipResponse response;
         try {
             response = restClient
@@ -249,15 +249,23 @@ public class GitHubOAuthClient {
                     .body(GitHubOrganizationMembershipResponse.class);
         } catch (RestClientResponseException exception) {
             int statusCode = exception.getStatusCode().value();
-            if (statusCode == HttpStatus.FORBIDDEN.value() || statusCode == HttpStatus.NOT_FOUND.value()) {
-                return false;
+            if (statusCode == HttpStatus.NOT_FOUND.value()) {
+                return OrganizationMembership.NOT_MEMBER;
             }
-            throw gitHubApiException("GitHub organization membership request failed.", exception);
+            if (statusCode == HttpStatus.FORBIDDEN.value()) {
+                return OrganizationMembership.UNKNOWN;
+            }
+            log.warn("GitHub organization membership check failed for organization {}: {}",
+                    organizationLogin, exception.getStatusCode());
+            return OrganizationMembership.UNKNOWN;
         } catch (RestClientException exception) {
-            throw new BadGatewayException("GitHub organization membership request failed.", exception);
+            log.warn("GitHub organization membership check failed for organization {}", organizationLogin, exception);
+            return OrganizationMembership.UNKNOWN;
         }
 
-        return response != null && "active".equals(response.state());
+        return response != null && "active".equals(response.state())
+                ? OrganizationMembership.ACTIVE
+                : OrganizationMembership.NOT_MEMBER;
     }
 
     // 사용자 access token으로 설치 저장소 목록 조회. 설치 토큰은 설치에 열린 저장소 전부를
@@ -394,6 +402,14 @@ public class GitHubOAuthClient {
     public enum InstallationAccess {
         ACCESSIBLE,
         DENIED,
+        UNKNOWN
+    }
+
+    // 조직 멤버십 판정 3상태 — NOT_MEMBER만 진짜 멤버 아님이고, UNKNOWN은 판단 보류(403·5xx·네트워크 등)다.
+    // 둘을 boolean으로 합치면 확인 불가 상황이 멤버십 삭제로 오판된다.
+    public enum OrganizationMembership {
+        ACTIVE,
+        NOT_MEMBER,
         UNKNOWN
     }
 }

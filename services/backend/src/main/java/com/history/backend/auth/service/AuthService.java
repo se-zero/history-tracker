@@ -246,25 +246,19 @@ public class AuthService {
             return;
         }
 
-        boolean isActiveMember;
-        try {
-            isActiveMember = gitHubOAuthClient.isActiveOrganizationMember(
-                    accessToken,
-                    installation.get().account().login(),
-                    gitHubUser.login()
-            );
-        } catch (RuntimeException exception) {
-            log.warn("GitHub organization membership check failed for installation {}", installationId, exception);
-            return;
-        }
+        GitHubOAuthClient.OrganizationMembership membership = gitHubOAuthClient.checkOrganizationMembership(
+                accessToken,
+                installation.get().account().login(),
+                gitHubUser.login()
+        );
 
-        if (isActiveMember) {
+        if (membership == GitHubOAuthClient.OrganizationMembership.ACTIVE) {
             gitHubInstallationService.upsertInstallation(user, installation.get());
             return;
         }
         // 배포 후 실계정으로 "권한 부재로 조용한 no-op"이 됐는지 확인하기 위한 관측 지점.
-        log.info("GitHub callback installation registration skipped for organization {} — user {} is not an active member.",
-                installation.get().account().login(), gitHubUser.login());
+        log.info("GitHub callback installation registration skipped for organization {} — user {} membership is {}.",
+                installation.get().account().login(), gitHubUser.login(), membership);
     }
 
     // 위조·변형된 installation_id(비숫자)로 로그인이 막히면 안 되므로 파싱 실패는 null로 무시
@@ -308,7 +302,8 @@ public class AuthService {
 
     // prune 직전 유지 판정 — /user/installations는 접근 판정이 저장소 기반이라 저장소 0개 조직 설치가
     // 목록에서 통째로 빠진다. 목록에도 kept에도 없는 조직 멤버십은 (1) 설치 실존 확인(404면 앱 삭제 → 정리),
-    // (2) 사용자 토큰으로 활성 멤버십 확인(활성 → 유지, 비활성 → 이탈 → 정리)한다.
+    // (2) 사용자 토큰으로 멤버십 확인(ACTIVE → 유지, NOT_MEMBER → 이탈 → 정리, UNKNOWN(403 등 확인 불가) →
+    // prune 전체 보류 — 확인 불가를 이탈로 오판해 멀쩡한 멤버십을 지우면 안 된다)한다.
     // 설치 토큰으로 저장소 수를 세던 이전 방식은 installationTokenService.getInstallationAccessToken이
     // @Transactional이라 이 로그인 트랜잭션에 참여했다 — 예외가 프록시 밖으로 나가면 catch로 잡아도
     // 공유 트랜잭션에 rollback-only가 찍혀 커밋 시 로그인이 500이 됐고, 비관적 잠금도 로그인 커밋까지
@@ -345,13 +340,20 @@ public class AuthService {
                     continue;
                 }
                 // DB 행의 login은 조직 개명 전 값일 수 있다 — 판정은 방금 조회한 원격 응답 기준이어야 한다.
-                boolean isActiveMember = gitHubOAuthClient.isActiveOrganizationMember(
+                GitHubOAuthClient.OrganizationMembership membership = gitHubOAuthClient.checkOrganizationMembership(
                         accessToken,
                         remoteInstallation.get().account().login(),
                         gitHubUser.login()
                 );
-                if (isActiveMember) {
+                if (membership == GitHubOAuthClient.OrganizationMembership.ACTIVE) {
                     keptInstallationIds.add(installation.getId());
+                    continue;
+                }
+                if (membership == GitHubOAuthClient.OrganizationMembership.UNKNOWN) {
+                    // 403 등 확인 불가 — hasUnknownAccess·폴백 실패와 같은 방향으로 이번 로그인의 prune 전체를 보류한다.
+                    log.warn("GitHub organization membership check returned UNKNOWN for installation {}",
+                            installation.getId());
+                    return true;
                 }
             } catch (RuntimeException exception) {
                 log.warn("GitHub unverifiable organization membership check failed for installation {}",

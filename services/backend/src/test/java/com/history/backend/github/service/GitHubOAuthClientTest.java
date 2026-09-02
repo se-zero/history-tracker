@@ -127,8 +127,8 @@ class GitHubOAuthClientTest {
     }
 
     @Test
-    @DisplayName("조직 활성 멤버십(200+state=active) → true, URL 치환·Bearer 사용자 토큰 검증")
-    void isActiveOrganizationMemberReturnsTrueWhenStateIsActive() {
+    @DisplayName("조직 활성 멤버십(200+state=active) → ACTIVE, URL 치환·Bearer 사용자 토큰 검증")
+    void checkOrganizationMembershipReturnsActiveWhenStateIsActive() {
         GitHubOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
                 .andExpect(method(HttpMethod.GET))
@@ -137,63 +137,84 @@ class GitHubOAuthClientTest {
                         { "state": "active" }
                         """, MediaType.APPLICATION_JSON));
 
-        boolean result = fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat");
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
 
-        assertThat(result).isTrue();
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.ACTIVE);
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("조직 멤버십이 pending 상태면 false — 활성 멤버십만 등록을 허용한다")
-    void isActiveOrganizationMemberReturnsFalseWhenStateIsPending() {
+    @DisplayName("조직 멤버십이 pending 상태면 NOT_MEMBER — 활성 멤버십만 등록을 허용한다")
+    void checkOrganizationMembershipReturnsNotMemberWhenStateIsPending() {
         GitHubOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
                 .andRespond(withSuccess("""
                         { "state": "pending" }
                         """, MediaType.APPLICATION_JSON));
 
-        boolean result = fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat");
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
 
-        assertThat(result).isFalse();
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("조직 멤버십 확인 HTTP 404 → false (멤버 아님/확인 불가로 취급)")
-    void isActiveOrganizationMemberReturnsFalseOnNotFound() {
+    @DisplayName("조직 멤버십 확인 HTTP 404 → NOT_MEMBER")
+    void checkOrganizationMembershipReturnsNotMemberOnNotFound() {
         GitHubOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
                 .andRespond(withResourceNotFound());
 
-        boolean result = fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat");
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
 
-        assertThat(result).isFalse();
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("조직 멤버십 확인 HTTP 403 → false (멤버 아님/확인 불가로 취급)")
-    void isActiveOrganizationMemberReturnsFalseOnForbidden() {
+    @DisplayName("조직 멤버십 확인 HTTP 403 → UNKNOWN (권한 부재·SAML SSO 등 확인 불가 — 멤버 아님과 구분)")
+    void checkOrganizationMembershipReturnsUnknownOnForbidden() {
         GitHubOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
                 .andRespond(withForbiddenRequest());
 
-        boolean result = fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat");
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
 
-        assertThat(result).isFalse();
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("조직 멤버십 확인 HTTP 5xx → BadGatewayException (일시 장애를 멤버 아님으로 오판하지 않는다)")
-    void isActiveOrganizationMemberWrapsServerErrorAsBadGateway() {
+    @DisplayName("조직 멤버십 확인 HTTP 5xx → UNKNOWN, 예외를 던지지 않는다 (일시 장애를 멤버 아님으로 오판하지 않는다)")
+    void checkOrganizationMembershipReturnsUnknownOnServerError() {
         GitHubOAuthClientFixture fixture = fixture();
         fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
                 .andRespond(withServerError());
 
-        assertThatThrownBy(() ->
-                fixture.client.isActiveOrganizationMember("user-access-token", "acme-corp", "octocat"))
-                .isInstanceOf(BadGatewayException.class);
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("조직 멤버십 확인 네트워크 예외(타임아웃 등) → UNKNOWN, 예외를 던지지 않는다")
+    void checkOrganizationMembershipReturnsUnknownOnNetworkException() {
+        GitHubOAuthClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://api.github.test/orgs/acme-corp/memberships/octocat"))
+                .andRespond(request -> {
+                    throw new IOException("Connection refused");
+                });
+
+        GitHubOAuthClient.OrganizationMembership result =
+                fixture.client.checkOrganizationMembership("user-access-token", "acme-corp", "octocat");
+
+        assertThat(result).isEqualTo(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
         fixture.server.verify();
     }
 

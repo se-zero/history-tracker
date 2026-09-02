@@ -843,8 +843,8 @@ class AuthServiceTest {
         when(gitHubOAuthClient.fetchInstallations("github-user-token"))
                 .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
         when(gitHubAppClient.fetchInstallation(55555L)).thenReturn(Optional.of(callbackOrgInstallation));
-        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "acme-corp", "octocat"))
-                .thenReturn(true);
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "acme-corp", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.ACTIVE);
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
@@ -876,8 +876,8 @@ class AuthServiceTest {
         when(gitHubOAuthClient.fetchInstallations("github-user-token"))
                 .thenReturn(new GitHubInstallationsResponse(List.of()));
         when(gitHubAppClient.fetchInstallation(55555L)).thenReturn(Optional.of(callbackOrgInstallation));
-        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "acme-corp", "octocat"))
-                .thenReturn(false);
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "acme-corp", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
@@ -889,8 +889,8 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("콜백의 조직 멤버십 확인이 예외를 던지면 등록하지 않고 로그인은 성공한다")
-    void loginWithGitHubSkipsCallbackOrganizationInstallationWhenMembershipCheckThrows() {
+    @DisplayName("콜백의 조직 멤버십 확인이 UNKNOWN이면 등록하지 않고 로그인은 성공한다")
+    void loginWithGitHubSkipsCallbackOrganizationInstallationWhenMembershipIsUnknown() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -907,8 +907,8 @@ class AuthServiceTest {
         when(gitHubOAuthClient.fetchInstallations("github-user-token"))
                 .thenReturn(new GitHubInstallationsResponse(List.of()));
         when(gitHubAppClient.fetchInstallation(55555L)).thenReturn(Optional.of(callbackOrgInstallation));
-        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "acme-corp", "octocat"))
-                .thenThrow(new RuntimeException("GitHub API unavailable"));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "acme-corp", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
@@ -946,7 +946,7 @@ class AuthServiceTest {
 
         verify(gitHubInstallationService).upsertInstallation(user, callbackOwnInstallation);
         // 본인 개인(User) 설치 경로는 멤버십 확인을 타지 않는다
-        verify(gitHubOAuthClient, never()).isActiveOrganizationMember(any(), any(), any());
+        verify(gitHubOAuthClient, never()).checkOrganizationMembership(any(), any(), any());
     }
 
     @Test
@@ -1106,8 +1106,8 @@ class AuthServiceTest {
         when(gitHubInstallationService.findMemberInstallations(userId))
                 .thenReturn(List.of(missingOrgMembership));
         when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
-        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "empty-org-renamed", "octocat"))
-                .thenReturn(true);
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "empty-org-renamed", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.ACTIVE);
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
@@ -1115,7 +1115,7 @@ class AuthServiceTest {
         authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         // 멤버십 확인 인자는 DB 행의 login이 아니라 fetchInstallation 원격 응답의 account().login()이어야 한다
-        verify(gitHubOAuthClient).isActiveOrganizationMember("github-user-token", "empty-org-renamed", "octocat");
+        verify(gitHubOAuthClient).checkOrganizationMembership("github-user-token", "empty-org-renamed", "octocat");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
         verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
@@ -1152,8 +1152,8 @@ class AuthServiceTest {
         when(gitHubInstallationService.findMemberInstallations(userId))
                 .thenReturn(List.of(missingOrgMembership));
         when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
-        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "empty-org", "octocat"))
-                .thenReturn(false);
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "empty-org", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
@@ -1197,7 +1197,7 @@ class AuthServiceTest {
 
         authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
-        verify(gitHubOAuthClient, never()).isActiveOrganizationMember(any(), any(), any());
+        verify(gitHubOAuthClient, never()).checkOrganizationMembership(any(), any(), any());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
         verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
@@ -1205,8 +1205,8 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("유지 판정의 멤버십 확인이 예외를 던지면 prune 전체를 건너뛰고 로그인은 정상 완료된다")
-    void loginWithGitHubSkipsPruneEntirelyWhenMembershipCheckThrows() {
+    @DisplayName("유지 판정의 멤버십 확인이 UNKNOWN이면 prune 전체를 건너뛰고 로그인은 정상 완료된다")
+    void loginWithGitHubSkipsPruneEntirelyWhenMembershipCheckIsUnknown() {
         AuthService authService = authService();
         User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
         UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
@@ -1233,8 +1233,8 @@ class AuthServiceTest {
         when(gitHubInstallationService.findMemberInstallations(userId))
                 .thenReturn(List.of(missingOrgMembership));
         when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
-        when(gitHubOAuthClient.isActiveOrganizationMember("github-user-token", "empty-org", "octocat"))
-                .thenThrow(new RuntimeException("GitHub API unavailable"));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "empty-org", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
         when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
