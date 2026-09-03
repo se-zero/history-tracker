@@ -26,6 +26,10 @@ def test_normalize_evidence_rules():
     assert _normalize_evidence({"type": "pull_request", "id": "#42"}) == ("pull_request", "42")
     assert _normalize_evidence({"type": "pull_request", "id": "99"}) == ("pull_request", "99")
     assert _normalize_evidence({"type": "issue", "id": " HT-37 "}) == ("issue", "HT-37")
+    # GitHub 이슈 키는 "#142"인데 모델이 숫자만 쓰기도 한다 — PR의 "#" 제거와 대칭 보정.
+    assert _normalize_evidence({"type": "issue", "id": "142"}) == ("issue", "#142")
+    assert _normalize_evidence({"type": "issue", "id": "#142"}) == ("issue", "#142")
+    assert _normalize_evidence({"type": "issue", "id": "HT-45"}) == ("issue", "HT-45")
     # document는 issue와 같은 규칙 — id가 곧 external_id.
     assert _normalize_evidence({"type": "document", "id": " page-1 "}) == ("document", "page-1")
     # message(Slack)는 숫자 ts 정규형(점 제거)으로 — 저장된 conversation_id와 점 제거 비교한다.
@@ -236,12 +240,16 @@ def test_to_graph_node_ref_carries_query_key():
 
     issue = _to_graph_node({"id": "n3", "label": "Issue", "issue_key": "HT-37", "title": "t"})
     assert issue["ref"] == {"type": "issue", "id": "HT-37"}
+    assert issue["type"] == "jira"
 
-    # GitHub Issue Communication → message 도구 대상, conversation_id를 실어 보낸다.
+    # GitHub 이슈는 Issue 노드(source=GITHUB) → type/source/meta가 GitHub 전용으로 갈린다.
     gh = _to_graph_node(
-        {"id": "n4", "label": "Communication", "source": "GITHUB", "conversation_id": "77", "body": "b"}
+        {"id": "n4", "label": "Issue", "source": "GITHUB", "issue_key": "#77", "title": "t"}
     )
-    assert gh["ref"] == {"type": "message", "id": "77"}
+    assert gh["type"] == "issue"
+    assert gh["source"] == "github"
+    assert gh["meta"] == "#77"
+    assert gh["ref"] == {"type": "issue", "id": "#77"}
 
     # Slack Communication → conversation_id는 meta엔 없지만 ref로 표면화된다.
     slack = _to_graph_node(
@@ -333,17 +341,29 @@ def test_to_graph_node_chat_title_uses_source_when_channel_missing():
 
 
 def test_chat_type_filter_matches_renderer_archetype():
-    # 필터와 렌더러가 어긋나면 대화가 "slack"으로 그려지는데 "slack" 필터에서는 빠져 사라진다.
-    # 렌더러(_to_graph_node)는 GITHUB이 아닌 Communication을 전부 대화로 보내므로 필터도 그래야 한다.
+    # 필터와 렌더러가 어긋나면 노드가 화면에서 사라지거나 다른 필터에 잘못 걸린다.
+    # 이제 Issue가 GitHub 이슈(issue)/이슈 트래커(jira)로 갈리고, Communication은 전부 대화(slack)다.
+    issue_pred = _CONTENT_TYPE_PREDICATES["issue"]
+    assert "n:Issue" in issue_pred and "'GITHUB'" in issue_pred, "issue 필터는 GitHub Issue 기준이어야 한다"
+
+    jira_pred = _CONTENT_TYPE_PREDICATES["jira"]
+    assert "<>" in jira_pred, "jira 필터는 'GitHub 아님' 기준이어야 한다"
+
     chat_pred = _CONTENT_TYPE_PREDICATES["slack"]
-    assert "'GITHUB'" in chat_pred and "<>" in chat_pred, "대화 필터는 'GitHub 아님' 기준이어야 한다"
+    assert "Communication" in chat_pred
+    assert "GITHUB" not in chat_pred, "Communication은 더 이상 소스로 갈리지 않는다"
     assert "'SLACK'" not in chat_pred, "특정 소스로 좁히면 Discord·Teams가 필터에서 빠진다"
 
     # 렌더러 쪽 기준도 함께 고정 — 둘이 같은 기준임을 이 테스트가 보증한다
-    for source in ("DISCORD", "TEAMS", "GOOGLE_CHAT", "SLACK"):
+    for source in ("DISCORD", "TEAMS", "GOOGLE_CHAT", "SLACK", "GITHUB"):
         node = _to_graph_node({"id": "n", "label": "Communication", "source": source, "body": "b"})
         assert node["type"] == "slack", f"{source}는 대화 분류로 렌더돼야 한다"
-    github = _to_graph_node(
-        {"id": "n", "label": "Communication", "source": "GITHUB", "conversation_id": "7", "body": "b"}
+
+    github_issue = _to_graph_node(
+        {"id": "n", "label": "Issue", "source": "GITHUB", "issue_key": "#7", "title": "t"}
     )
-    assert github["type"] == "issue"
+    assert github_issue["type"] == "issue"
+    jira_issue = _to_graph_node(
+        {"id": "n", "label": "Issue", "source": "JIRA", "issue_key": "HT-1", "title": "t"}
+    )
+    assert jira_issue["type"] == "jira"

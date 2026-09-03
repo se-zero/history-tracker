@@ -74,8 +74,8 @@ async def handle(event: dict, *, prepared: "ChangesetPrepared | None" = None) ->
 
     logger.info("[%s/%s] actor=%s 수신", source, node_type, actor_id)
 
-    # GitHub 봇 커밋/PR은 그래프에서 제외 (의사결정 맥락 노이즈)
-    if source == "GITHUB" and node_type in ("ChangeSet", "PullRequest") and _is_bot_actor(actor_id):
+    # GitHub 봇 커밋/PR/이슈는 그래프에서 제외 (의사결정 맥락 노이즈)
+    if source == "GITHUB" and node_type in ("ChangeSet", "PullRequest", "Issue") and _is_bot_actor(actor_id):
         logger.debug("봇 이벤트 건너뜀: actor=%s nodeType=%s", actor_id, node_type)
         return
 
