@@ -98,7 +98,7 @@ class GitHubCollectorTest {
         ArgumentCaptor<List<NormalizedEvent>> eventsCaptor = ArgumentCaptor.forClass(List.class);
         verify(eventPublisher, times(3)).publishAll(eventsCaptor.capture());
         assertThat(eventsCaptor.getAllValues()).extracting(events -> events.get(0).nodeType())
-                .containsExactly("PullRequest", "ChangeSet", "Communication");
+                .containsExactly("PullRequest", "ChangeSet", "Issue");
     }
 
     @Test
@@ -246,6 +246,7 @@ class GitHubCollectorTest {
 
     private Map<String, Object> buildIssue(int number, String updatedAt) {
         Map<String, Object> issue = new HashMap<>();
+        issue.put("id", 1000L + number);   // GitHub 불변 id — 없으면 normalizer가 이슈를 버린다
         issue.put("number", number);
         issue.put("title", "issue");
         issue.put("body", "body");

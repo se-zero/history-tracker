@@ -113,7 +113,8 @@ public class GitHubRawService {
                 closedPullRequests.items(),
                 context.checkpoint().pullRequestsScannedAt()
         );
-        return new GitHubPage(enrichUserObjects(context, mergedPullRequests), closedPullRequests.finished());
+        // PR의 assignees는 normalizer가 읽지 않으므로 보강하지 않는다 — rate limit 절약.
+        return new GitHubPage(enrichUserObjects(context, mergedPullRequests, false), closedPullRequests.finished());
     }
 
     public Map<String, String> fetchCommitPrNumbers(GitHubFetchContext context, List<Object> pullRequests) {
@@ -147,7 +148,7 @@ public class GitHubRawService {
                 "updated_at",
                 page
         );
-        return new GitHubPage(enrichUserObjects(context, issues.items()), issues.finished());
+        return new GitHubPage(enrichUserObjects(context, issues.items(), true), issues.finished());
     }
 
     @SuppressWarnings("unchecked")
@@ -285,26 +286,48 @@ public class GitHubRawService {
         return result;
     }
 
-    /** PR·Issue의 user 객체에 email·name을 보강 (GET /users/{login}) */
+    /**
+     * PR·Issue의 user 객체에 email·name을 보강 (GET /users/{login}).
+     * includeAssignees가 true면 assignees 배열도 같은 방식으로 보강한다 — Issue만 담당자를 쓴다.
+     */
     @SuppressWarnings("unchecked")
-    private List<Object> enrichUserObjects(GitHubFetchContext context, List<Object> items) {
+    private List<Object> enrichUserObjects(GitHubFetchContext context, List<Object> items, boolean includeAssignees) {
         List<Object> result = new ArrayList<>();
         for (Object raw : items) {
             Map<String, Object> item = new HashMap<>((Map<String, Object>) raw);
+
             Map<String, Object> user = (Map<String, Object>) item.get("user");
-            if (user != null) {
-                String login = (String) user.get("login");
-                if (login != null) {
-                    Map<String, String> profile = fetchUserProfile(context, login);
-                    Map<String, Object> enrichedUser = new HashMap<>(user);
-                    if (profile.containsKey("email")) enrichedUser.put("email", profile.get("email"));
-                    if (profile.containsKey("name"))  enrichedUser.put("name",  profile.get("name"));
-                    item.put("user", enrichedUser);
-                }
+            Map<String, Object> enrichedUser = enrichUserObject(context, user);
+            if (enrichedUser != null) {
+                item.put("user", enrichedUser);
             }
+
+            List<Object> assignees = (List<Object>) item.get("assignees");
+            if (includeAssignees && assignees != null) {
+                List<Object> enrichedAssignees = new ArrayList<>();
+                for (Object assigneeRaw : assignees) {
+                    Map<String, Object> enrichedAssignee = enrichUserObject(context, (Map<String, Object>) assigneeRaw);
+                    enrichedAssignees.add(enrichedAssignee != null ? enrichedAssignee : assigneeRaw);
+                }
+                item.put("assignees", enrichedAssignees);
+            }
+
             result.add(item);
         }
         return result;
+    }
+
+    /** user 객체 하나에 email·name을 보강. login이 없으면 null을 반환해 원본 유지를 호출부에 맡긴다. */
+    private Map<String, Object> enrichUserObject(GitHubFetchContext context, Map<String, Object> user) {
+        if (user == null) return null;
+        String login = (String) user.get("login");
+        if (login == null) return null;
+
+        Map<String, String> profile = fetchUserProfile(context, login);
+        Map<String, Object> enrichedUser = new HashMap<>(user);
+        if (profile.containsKey("email")) enrichedUser.put("email", profile.get("email"));
+        if (profile.containsKey("name"))  enrichedUser.put("name",  profile.get("name"));
+        return enrichedUser;
     }
 
     /** GET /users/{login} → {email, name}. 이 실행에서 이미 조회한 login은 재사용한다. */

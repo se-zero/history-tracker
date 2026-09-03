@@ -259,7 +259,7 @@ class GitHubNormalizerTest {
     @Test
     @DisplayName("pull_request 키가 있는 항목은 필터링")
     void normalizeIssues_itemWithPullRequestKey_filtered() {
-        Map<String, Object> item = buildIssue(1, "PR disguised as issue", null);
+        Map<String, Object> item = buildIssue(101L, 1, "PR disguised as issue", null);
         item.put("pull_request", Map.of("url", "https://api.github.com/repos/..."));
 
         List<NormalizedEvent> events = normalizer.normalizeIssues(PROJECT_ID, List.of(item));
@@ -268,49 +268,165 @@ class GitHubNormalizerTest {
     }
 
     @Test
-    @DisplayName("일반 이슈 → Communication 이벤트 생성")
-    void normalizeIssues_normalIssue_createsCommunicationEvent() {
-        Map<String, Object> issue = buildIssue(7, "Bug report", "Some body");
+    @DisplayName("id가 없으면 skip")
+    void normalizeIssues_missingId_skipped() {
+        Map<String, Object> issue = buildIssue(101L, 7, "Bug report", "Some body");
+        issue.remove("id");
+
+        List<NormalizedEvent> events = normalizer.normalizeIssues(PROJECT_ID, List.of(issue));
+
+        assertThat(events).isEmpty();
+    }
+
+    @Test
+    @DisplayName("정상 open 이슈 → Issue 이벤트, title/body 분리, status_category=open, closed_at 키 없음")
+    void normalizeIssues_normalOpenIssue_createsIssueEvent() {
+        Map<String, Object> issue = buildIssue(101L, 7, "Bug report", "Some body");
 
         List<NormalizedEvent> events = normalizer.normalizeIssues(PROJECT_ID, List.of(issue));
 
         assertThat(events).hasSize(1);
-        assertThat(events.get(0).nodeType()).isEqualTo("Communication");
-        assertThat(events.get(0).properties()).containsEntry("channel", "github_issues");
+        NormalizedEvent event = events.get(0);
+        assertThat(event.nodeType()).isEqualTo("Issue");
+        assertThat(event.source()).isEqualTo("GITHUB");
+        Map<String, Object> properties = event.properties();
+        assertThat(properties).containsEntry("external_id", "101")
+                .containsEntry("issue_key", "#7")
+                .containsEntry("title", "Bug report")
+                .containsEntry("body", "Some body")
+                .containsEntry("status_category", "open")
+                .containsEntry("status", "open");
+        assertThat(properties).doesNotContainKey("closed_at");
+        assertThat(properties).doesNotContainKeys("channel", "conversation_id", "url");
     }
 
     @Test
-    @DisplayName("GitHub issue occurredAt은 updated_at을 우선 사용")
+    @DisplayName("closed + state_reason=not_planned + closed_at → status_category=closed, status=not_planned, closed_at 존재")
+    void normalizeIssues_closedWithStateReason_createsIssueEvent() {
+        Map<String, Object> issue = buildIssue(102L, 8, "Won't fix", "detail");
+        issue.put("state", "closed");
+        issue.put("state_reason", "not_planned");
+        issue.put("closed_at", "2024-03-05T00:00:00Z");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
+
+        assertThat(event.properties()).containsEntry("status_category", "closed")
+                .containsEntry("status", "not_planned")
+                .containsEntry("closed_at", "2024-03-05T00:00:00Z");
+    }
+
+    @Test
+    @DisplayName("closed + state_reason null → status=closed")
+    void normalizeIssues_closedWithNullStateReason_statusClosed() {
+        Map<String, Object> issue = buildIssue(103L, 9, "Fixed", "detail");
+        issue.put("state", "closed");
+        issue.put("closed_at", "2024-03-06T00:00:00Z");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
+
+        assertThat(event.properties()).containsEntry("status_category", "closed")
+                .containsEntry("status", "closed");
+    }
+
+    @Test
+    @DisplayName("open인데 응답에 closed_at 값이 있어도(재오픈) closed_at 키를 넣지 않는다")
+    void normalizeIssues_reopenedWithStaleClosedAt_noClosedAtKey() {
+        Map<String, Object> issue = buildIssue(104L, 10, "Reopened", "detail");
+        issue.put("state", "open");
+        issue.put("closed_at", "2024-02-01T00:00:00Z");  // 과거 종료 이력이 응답에 남아있는 케이스
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
+
+        assertThat(event.properties()).containsEntry("status_category", "open")
+                .containsEntry("status", "open");
+        assertThat(event.properties()).doesNotContainKey("closed_at");
+    }
+
+    @Test
+    @DisplayName("GitHub issue occurredAt은 updated_at을 우선 사용, 없으면 created_at")
     void normalizeIssues_usesUpdatedAtForOccurredAt() {
-        Map<String, Object> issue = buildIssue(7, "Bug report", "Some body");
+        Map<String, Object> issue = buildIssue(105L, 7, "Bug report", "Some body");
         issue.put("updated_at", "2024-03-03T12:00:00Z");
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
 
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2024-03-03T12:00:00Z"));
         assertThat(event.properties()).containsEntry("created_at", "2024-03-01T00:00:00Z");
-        assertThat(event.properties()).doesNotContainKey("updated_at");
+
+        Map<String, Object> issueNoUpdatedAt = buildIssue(106L, 8, "No updated_at", "body");
+        issueNoUpdatedAt.remove("updated_at");
+        NormalizedEvent eventFallback = normalizer.normalizeIssues(PROJECT_ID, List.of(issueNoUpdatedAt)).get(0);
+        assertThat(eventFallback.occurredAt()).isEqualTo(Instant.parse("2024-03-01T00:00:00Z"));
     }
 
     @Test
-    @DisplayName("title + body → combinedBody: title\\n\\nbody 형식")
-    void normalizeIssues_titleAndBody_combined() {
-        Map<String, Object> issue = buildIssue(3, "My Title", "Detailed body");
+    @DisplayName("title/body는 합산하지 않고 별도 필드로 유지, body null이면 빈 문자열")
+    void normalizeIssues_titleAndBody_notCombined() {
+        Map<String, Object> issue = buildIssue(107L, 3, "My Title", "Detailed body");
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
 
-        String body = (String) event.properties().get("body");
-        assertThat(body).startsWith("My Title").contains("Detailed body");
+        assertThat(event.properties()).containsEntry("title", "My Title")
+                .containsEntry("body", "Detailed body");
+
+        Map<String, Object> issueNullBody = buildIssue(108L, 4, "Only Title", null);
+        NormalizedEvent eventNullBody = normalizer.normalizeIssues(PROJECT_ID, List.of(issueNullBody)).get(0);
+        assertThat(eventNullBody.properties()).containsEntry("title", "Only Title")
+                .containsEntry("body", "");
     }
 
     @Test
-    @DisplayName("body가 null이면 combinedBody는 title만")
-    void normalizeIssues_nullBody_onlyTitle() {
-        Map<String, Object> issue = buildIssue(4, "Only Title", null);
+    @DisplayName("assignees 2명(한 명은 name 보강, 한 명은 login만) → refs.assignees 매핑, login null 항목 제외")
+    void normalizeIssues_assignees_mappedToRefs() {
+        Map<String, Object> issue = buildIssue(109L, 11, "Needs help", "detail");
+        Map<String, Object> withName = new HashMap<>();
+        withName.put("login", "alice");
+        withName.put("name", "Alice Kim");
+        withName.put("email", "alice@example.com");
+        Map<String, Object> withoutName = new HashMap<>();
+        withoutName.put("login", "bob");
+        Map<String, Object> nullLogin = new HashMap<>();
+        nullLogin.put("login", null);
+        issue.put("assignees", List.of(withName, withoutName, nullLogin));
 
         NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
 
-        assertThat(event.properties().get("body")).isEqualTo("Only Title");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> assignees = (List<Map<String, Object>>) event.refs().get("assignees");
+        assertThat(assignees).hasSize(2);
+        assertThat(assignees).anySatisfy(a -> {
+            assertThat(a).containsEntry("id", "alice").containsEntry("name", "Alice Kim").containsEntry("email", "alice@example.com");
+        });
+        assertThat(assignees).anySatisfy(a -> {
+            assertThat(a).containsEntry("id", "bob").containsEntry("name", "bob");
+        });
+    }
+
+    @Test
+    @DisplayName("assignees가 없거나 빈 배열이어도 refs.assignees는 빈 리스트로 키가 존재한다")
+    void normalizeIssues_emptyAssignees_refsAssigneesKeyPresentAsEmptyList() {
+        Map<String, Object> issueNoAssignees = buildIssue(110L, 12, "No assignees key", "detail");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issueNoAssignees)).get(0);
+
+        assertThat(event.refs()).containsKey("assignees");
+        assertThat((List<?>) event.refs().get("assignees")).isEmpty();
+
+        Map<String, Object> issueEmptyAssignees = buildIssue(111L, 13, "Empty assignees", "detail");
+        issueEmptyAssignees.put("assignees", List.of());
+        NormalizedEvent eventEmpty = normalizer.normalizeIssues(PROJECT_ID, List.of(issueEmptyAssignees)).get(0);
+        assertThat(eventEmpty.refs()).containsKey("assignees");
+        assertThat((List<?>) eventEmpty.refs().get("assignees")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("body에 이슈 키가 있으면 refsExtractor를 거쳐 refs.issueKey로 추출")
+    void normalizeIssues_bodyWithIssueKey_refsExtracted() {
+        Map<String, Object> issue = buildIssue(112L, 14, "Fix bug", "Relates to HT-7");
+
+        NormalizedEvent event = normalizer.normalizeIssues(PROJECT_ID, List.of(issue)).get(0);
+
+        assertThat(event.refs()).containsEntry("issueKey", "HT-7");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -362,15 +478,17 @@ class GitHubNormalizerTest {
         return pr;
     }
 
-    /** 이슈 raw 데이터 빌더 */
-    private Map<String, Object> buildIssue(int number, String title, String body) {
+    /** 이슈 raw 데이터 빌더 (open 기본값) */
+    private Map<String, Object> buildIssue(long id, int number, String title, String body) {
         Map<String, Object> user = new HashMap<>();
         user.put("login", "test-user");
 
         Map<String, Object> issue = new HashMap<>();
+        issue.put("id", id);
         issue.put("number", number);
         issue.put("title", title);
         issue.put("body", body);
+        issue.put("state", "open");
         issue.put("created_at", "2024-03-01T00:00:00Z");
         issue.put("updated_at", "2024-03-01T00:00:00Z");
         issue.put("user", user);
