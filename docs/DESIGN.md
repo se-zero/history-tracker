@@ -63,11 +63,10 @@ colors:
   node-commit: "#6FB58A"   # green — 생성 / 성장
   node-pr:     "#5FA8B5"   # teal
   node-issue:  "#C97A5A"   # clay
-  node-slack:  "#A88BC4"   # mauve
-  node-jira:   "#7C93C9"   # slate-blue
+  node-communication: "#A88BC4"   # mauve
   node-person: "#C77D9E"   # rose
   node-file:   "#7E8794"   # cool grey (가장 수가 많음 — 중립 유지)
-  node-doc:    "#B86FB8"   # orchid — hue 300°(HSL), node-slack(270°)·node-person(333°) 사이의
+  node-doc:    "#B86FB8"   # orchid — hue 300°(HSL), node-communication(270°)·node-person(333°) 사이의
                            # 빈 구간에서 채도(34%)·명도(58%)를 패밀리 평균에 맞춰 재선정. 앰버
                            # 예약 구간(hue 60~90)과 멀어 액센트와 충돌하지 않는다(문서 아키타입,
                            # docs/notion-integration.md §7).
@@ -114,8 +113,7 @@ colors-light:
   node-commit: "#2F7D54"   # 노드 7종 — 동일 hue 계열의 저명도 재선정.
   node-pr:     "#1F7A8C"   # "발광 파스텔 → 잉크로 찍힌 점" 번역. 우물 위 전부 3:1 이상.
   node-issue:  "#AC4A2E"
-  node-slack:  "#7A5CA8"
-  node-jira:   "#4C67A9"
+  node-communication: "#7A5CA8"
   node-person: "#A4517A"
   node-file:   "#6F7987"   # 여전히 가장 조용하게
   node-doc:    "#823082"   # 같은 hue(300°), 저명도 재선정(S46%/L35%) — 다크 대응 색과 같은
@@ -265,7 +263,7 @@ elevation에서 나온다 — 테두리는 헤어라인·저대비로 유지한�
 경계가 위치가 아니라 지시 대상이므로, 캔버스 밖이라고 노드 색이 금지되지 않고
 반대로 노드와 무관하면 캔버스 근처라도 쓰지 않는다. 데이터 소스 카드의 커넥터
 로고가 대표적인 금지 사례다 — Jira 로고는 어떤 노드도 가리키지 않으므로
-`node-jira`가 아니라 Jira 브랜드 색을 쓴다.
+`node-issue`가 아니라 Jira 브랜드 색을 쓴다.
 
 이 규칙 덕분에 시맨틱과 노드가 같은 hex를 공유해도 충돌하지 않는다. `success`와
 `node-commit`은 같은 초록이지만, 초록 점이 노드 라벨 옆에 있으면 "커밋"이고 상태

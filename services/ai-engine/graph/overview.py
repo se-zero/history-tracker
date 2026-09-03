@@ -27,20 +27,15 @@ MAX_LIMIT = 500
 _SNIPPET_LEN = 240
 
 # 프론트 type → content 노드 선택 술어.
-# 프론트의 type은 제품명이 아니라 **렌더링 분류**다 — "jira"는 이슈 트래커 전체(Linear·Asana…),
-# "slack"은 대화 전체(Discord·Teams·Google Chat…)를 가리킨다. 실제 출처는 노드의 source가 싣는다.
-# Communication은 GitHub 이슈(issue)와 대화(slack)가 같은 라벨이라 source로 가른다. 이 분기는
-# _to_graph_node의 `is_github`와 **같은 기준이어야 한다** — 어긋나면 대화가 "slack"으로 그려지는데
-# "slack" 필터에서는 빠져 화면에서 사라진다(옛 `source = 'SLACK'`이 그랬다).
+# 프론트의 type은 제품명이 아니라 렌더링 분류다 — 노드 종류와 1:1(`issue`는 이슈 트래커 전체,
+# `communication`은 대화 전체). 실제 출처는 노드의 source가 싣는다.
 # 값은 고정 Cypher 조각이고 사용자 입력은 키 매칭에만 쓰므로 인젝션 위험 없음.
 _CONTENT_TYPE_PREDICATES = {
-    "commit": "n:ChangeSet",
-    "pr":     "n:PullRequest",
-    "jira":   "n:Issue",
-    "issue":  "(n:Communication AND n.source = 'GITHUB')",
-    # coalesce — source가 빈 레거시 노드도 대화로 본다(_to_graph_node가 그렇게 렌더한다)
-    "slack":  "(n:Communication AND coalesce(n.source, '') <> 'GITHUB')",
-    "doc":    "n:Document",
+    "commit":        "n:ChangeSet",
+    "pr":            "n:PullRequest",
+    "issue":         "n:Issue",
+    "communication": "n:Communication",
+    "doc":           "n:Document",
 }
 # DocumentSection은 의도적으로 뺐다 — 검색 내부 단위지 사용자가 볼 개체가 아니다
 # (docs/notion-integration.md §6-5). content/확장 술어 어디에도 넣지 않는다.
@@ -231,41 +226,27 @@ def _to_graph_node(row: dict) -> dict:
         }
 
     if label == "Issue":
+        # type은 렌더링 분류, 출처는 source.
         return {
             "id": row["id"],
-            # type은 프론트의 렌더링 분류(색·범례)라 이슈 트래커 공용 값을 쓴다.
-            # 실제 출처는 source가 싣는다 — Linear 이슈가 "jira"로 보이지 않게.
-            "type": "jira",
+            "type": "issue",
             "title": row.get("title") or row.get("issue_key") or "(issue)",
             "meta": row.get("issue_key") or "",
-            "source": src.lower() or "jira",
+            "source": src.lower(),
             "snippet": _truncate(row.get("body")),
             # ref는 issue_key 기준 — 키 없는(issue_key nullable) 소스가 도입되면 재검토 필요.
             "ref": _node_ref("issue", row.get("issue_key")),
         }
 
     if label == "Communication":
-        # GitHub Issue와 Slack 메시지 둘 다 Communication 노드 — source로 구분.
-        is_github = src == "GITHUB"
         channel = row.get("channel") or ""
         date = _date_part(row.get("occurred_at"))
-        if is_github:
-            return {
-                "id": row["id"],
-                "type": "issue",
-                "title": _first_line(row.get("body")) or "(issue)",
-                "meta": f"Issue #{row['conversation_id']}" if row.get("conversation_id") else "issue",
-                "source": "github",
-                "snippet": _truncate(row.get("body")),
-                # GitHub Issue·Slack 모두 message 도구(get_thread_context) 대상 — conversation_id로 조회.
-                "ref": _node_ref("message", row.get("conversation_id")),
-            }
-        # GitHub이 아닌 Communication은 모두 대화 소스(Slack·Discord·Teams·Google Chat).
+        # 대화 소스(Slack·Discord·Teams·Google Chat…) 전부 이 렌더로 간다.
         # 채널 이름이 없을 때 제목을 "Slack 메시지"로 굳히면 Discord 대화가 Slack으로 보인다.
         return {
             "id": row["id"],
             # type은 프론트의 렌더링 분류(색·범례)라 대화 공용 값을 쓴다. 실제 출처는 source가 싣는다.
-            "type": "slack",
+            "type": "communication",
             "title": f"#{channel}" if channel else (f"{_source_label(src)} 메시지" if src else "메시지"),
             "meta": " · ".join(p for p in (channel, date) if p),
             "source": src.lower() or "slack",
@@ -335,7 +316,7 @@ async def get_project_overview(
     선택하고, 그에 연결된 Actor/File을 이웃으로 확장한 뒤, 선택된 노드 집합 내부의
     엣지만 모은다. 전부 project_id 스코프.
 
-    types: 프론트 type 화이트리스트(commit/pr/jira/issue/slack/actor/code). None/빈 값이면 전체.
+    types: 프론트 type 화이트리스트(commit/pr/issue/communication/actor/code). None/빈 값이면 전체.
            content 타입만 노드 선택에 영향을 주고(필터 후 top-N), actor/code는 이웃 확장 토글.
            content 타입을 하나도 안 고르면 빈 결과 (확장 노드는 content에 매달려야 등장).
     """
@@ -638,8 +619,9 @@ def _normalize_evidence(item: dict) -> tuple[str, str] | None:
 
     빈 id·미지 타입·숫자 아닌 PR 번호·숫자로 환원 안 되는 message는 무효로 None. 파싱 규칙을
     한 곳에 모아, 한쪽만 바뀌어 "group은 수집했는데 resolve는 못 찾는" drift를 구조적으로 막는다.
-    pull_request는 "#42"/"42"를 "42"로, message는 ts/퍼머링크/점없는 ts를 숫자 정규형으로,
-    나머지(document 포함, id=external_id)는 strip한 id를 그대로 키로 쓴다.
+    pull_request는 "#42"/"42"를 "42"로, issue는 GitHub 이슈 키("#142")를 숫자만 왔을 때 보정,
+    message는 ts/퍼머링크/점없는 ts를 숫자 정규형으로, 나머지(document 포함, id=external_id)는
+    strip한 id를 그대로 키로 쓴다.
     """
     etype = (item.get("type") or "").strip()
     eid = (item.get("id") or "").strip()
@@ -651,7 +633,9 @@ def _normalize_evidence(item: dict) -> tuple[str, str] | None:
         num = eid.lstrip("#").strip()
         return ("pull_request", num) if num.isdigit() else None
     if etype == "issue":
-        return ("issue", eid)
+        # GitHub 이슈 키는 "#142"인데 모델이 숫자만 쓰기도 한다 — PR의 "#" 제거와 대칭.
+        # Jira/Linear 키("HT-45")는 숫자만일 수 없어 충돌 없음.
+        return ("issue", "#" + eid) if eid.isdigit() else ("issue", eid)
     if etype == "document":
         return ("document", eid)
     if etype == "message":

@@ -9,8 +9,7 @@ from graph.driver import get_driver
 async def fetch_unfiltered_communications(project_id: str | None = None) -> list[dict]:
     """LLM 필터 미적용(llm_filtered=False) Slack Communication을 배치 필터용으로 조회한다.
 
-    source='SLACK'로 스코프 — GitHub 이슈(source='GITHUB')도 Communication이고 수집 시
-    llm_filtered=False로 들어오지만, 이는 Slack 노이즈 필터(삭제) 대상이 아니다.
+    source='SLACK'로 스코프 — Slack 외 대화 소스(Discord 등)는 필터 대상이 아니다.
     project_id를 주면 그 프로젝트 메시지만 조회한다(per-project 빌드).
     """
     query = """

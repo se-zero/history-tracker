@@ -8,7 +8,7 @@
 
 import unittest
 
-from tools.queries.actor import _build_activity_tiers, _cap_issues, _comm_detail, _stub
+from tools.queries.actor import _build_activity_tiers, _cap_issues, _comm_detail, _issue_key_order, _stub
 
 
 def _commits(n=5):
@@ -123,6 +123,16 @@ class CapIssuesTest(unittest.TestCase):
     def test_title_clipped(self):
         capped, _, _ = _cap_issues([{"issue_key": "HT-1", "title": "x" * 200}])
         self.assertLessEqual(len(capped[0]["title"]), 40)
+
+
+class IssueKeyOrderTest(unittest.TestCase):
+    def test_extracts_trailing_number_for_jira_and_github_keys(self):
+        self.assertEqual(_issue_key_order({"issue_key": "#142"}), 142)
+        self.assertEqual(_issue_key_order({"issue_key": "HT-45"}), 45)
+
+    def test_no_trailing_number_returns_minus_one(self):
+        self.assertEqual(_issue_key_order({"issue_key": "abc"}), -1)
+        self.assertEqual(_issue_key_order({}), -1)
 
 
 if __name__ == "__main__":

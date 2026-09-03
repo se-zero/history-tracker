@@ -15,7 +15,7 @@ TOOLS = [
                 "properties": {
                     "issue_key": {
                         "type": "string",
-                        "description": "이슈 트래커의 사람용 키 (예: HT-12)",
+                        "description": "이슈 트래커의 사람용 키 (예: HT-12, GitHub 이슈는 #142)",
                     },
                     "source": {
                         "type": "string",
@@ -91,7 +91,7 @@ TOOLS = [
                 "properties": {
                     "issue_key": {
                         "type": "string",
-                        "description": "이슈 스코프 — 이슈 트래커 키 (예: HT-45). 자식 이슈(CHILD_OF)까지 포함한다",
+                        "description": "이슈 스코프 — 이슈 트래커 키 (예: HT-45, GitHub 이슈는 #142). 자식 이슈(CHILD_OF)까지 포함한다",
                     },
                     "path": {
                         "type": "string",
@@ -168,7 +168,7 @@ TOOLS = [
         "function": {
             "name": "search_by_keyword",
             "description": (
-                "자연어 키워드로 의미적으로 유사한 Slack/GitHub 메시지와 이슈를 탐색한다. "
+                "자연어 키워드로 의미적으로 유사한 Slack 메시지와 이슈를 탐색한다. "
                 "특정 hash나 issue key를 모를 때 진입점을 찾는 용도. "
                 "결과에 연결된 커밋 hash와 issue key가 포함되므로 이후 다른 도구 호출에 활용."
             ),

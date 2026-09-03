@@ -43,8 +43,8 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 **소스 단위 삭제(`delete_project_source_graph`)는 다섯 단계다.** `source` 속성 하나로 지우고
 끝낼 수 없는 이유가 각 단계에 있다.
 
-1. **도메인 노드** — `source` 속성으로 스코프한다. `Communication`이 SLACK·GITHUB 공용이라
-   라벨이 아니라 속성으로 걸러야 한다. Issue 실노드·parent pre-node는 여기서 잡히지만,
+1. **도메인 노드** — `source` 속성으로 스코프한다. `Issue`(JIRA·LINEAR·GITHUB…)와
+   `Communication`(SLACK·DISCORD…)이 여러 소스 공용 라벨이라 라벨이 아니라 속성으로 걸러야 한다. Issue 실노드·parent pre-node는 여기서 잡히지만,
    `__stub__` 센티널은 특정 소스 소속이 아니라 안 잡힌다 — 5단계 참고. `Document`·
    `DocumentSection`도 둘 다 `source` 속성을 가지므로 라벨을 한정하지 않는 이 단계가 자동으로
    함께 지운다 — File처럼 별도 고아 정리가 필요 없다(`DocumentSection`엔 `source`가 있다).
@@ -125,18 +125,18 @@ Actor가 가진 소스 계정 하나 (예: `GITHUB:se-zero`, `JIRA:5b10a2`). 개
 ---
 
 ### Issue
-이슈 트래커의 작업 단위 (Jira 티켓, Linear 이슈 등).
+이슈 트래커의 작업 단위 (Jira 티켓, Linear 이슈, GitHub 이슈 등).
 
 ```json
 {
   "projectId": "",                     // 프로젝트 UUID — 노드 project_id로 저장 (격리 기준)
   "nodeType": "Issue",
-  "source": "",                        // JIRA | LINEAR | ...
+  "source": "",                        // JIRA | LINEAR | GITHUB | ...
   "occurredAt": "",                    // ISO-8601 — 최종 수정 시각 기준 (변경 이력 반영); 생성만 있으면 created 사용
   "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
   "properties": {
     "external_id": "",                 // 플랫폼 불변 ID (Jira issue id 등) — (project_id, source, external_id) MERGE 키. 필수
-    "issue_key": "",                    // 사람용 표시 키 (예: HT-7) — 검색·표시·텍스트 링크 매칭용, 키 없는 소스는 생략
+    "issue_key": "",                    // 사람용 표시 키 (예: HT-7, GitHub은 #142) — 검색·표시·텍스트 링크 매칭용, 키 없는 소스는 생략
     "title": "",                       // 티켓 제목
     "body": "",                        // 티켓 본문
     "status": "",                      // 워크플로 상태 원문 (예: 진행 중) — 표시·답변용, 기계 판정에 안 씀
@@ -181,24 +181,22 @@ Linear)를 같은 프로젝트에 동시 연동했는데 두 소스의 키 접�
 ---
 
 ### Communication
-Slack 메시지 또는 GitHub Issue. 텍스트 기반 의사소통 단위.
+Slack·Discord·Google Chat 등 대화 소스의 메시지. 텍스트 기반 의사소통 단위.
+(GitHub 이슈는 여기가 아니라 `Issue` 노드다 — 위 §Issue.)
 
 ```json
 {
   "projectId": "",                     // 프로젝트 UUID — 노드 project_id로 저장 (격리 기준)
   "nodeType": "Communication",
-  "source": "",                        // SLACK | GITHUB
-  "occurredAt": "",                    // ISO-8601
-                                       // SLACK: 메시지 ts (Unix epoch 소수) 변환 기준
-                                       // GITHUB: updated_at 기준 (fallback: created_at)
-  "actor": { "id": "", "name": "", "email": "" },  // id: GitHub=login, Jira=accountId, Slack=userId / email: null 허용
+  "source": "",                        // SLACK | DISCORD | GOOGLE_CHAT | ...
+  "occurredAt": "",                    // ISO-8601 — 메시지 ts (Unix epoch 소수) 변환 기준
+  "actor": { "id": "", "name": "", "email": "" },  // id: Slack=userId 등 / email: null 허용
   "properties": {
-    "body": "",                        // 메시지 본문 (GitHub Issue는 title + "\n\n" + body)
-    "channel": "",                     // Slack 채널명 또는 "github_issues"
+    "body": "",                        // 메시지 본문
+    "channel": "",                     // 채널/공간 이름
     "url": "",                         // 원본 링크
-    "conversation_id": "",             // Slack: 루트 메시지 ts / 스레드 reply는 부모 ts
-                                       // GitHub Issue: issue number (string)
-    "created_at": ""                   // GitHub Issue 최초 생성 시각 (ISO-8601); SLACK은 null
+    "conversation_id": "",             // 루트 메시지 ts / 스레드 reply는 부모 ts
+    "created_at": ""                   // 대부분 null (메시지는 occurredAt이 곧 생성 시각)
   },
   "refs": {}                            // 예: { "issueKey": "PAYMENT-301", "prNumber": "142" }
 }
@@ -336,7 +334,7 @@ Document에 걸어 두므로(관계 목록 참고) 섹션이 통째로 갈려도
 | 관계 | 방향 | 속성 | 설명 |
 |------|------|------|------|
 | `CREATED` | `(Actor)→(Issue)` | — | Actor가 이슈를 생성 |
-| `WROTE` | `(Actor)→(Communication)` | — | Actor가 메시지/이슈를 작성 |
+| `WROTE` | `(Actor)→(Communication)` | — | Actor가 메시지를 작성 |
 | `AUTHORED` | `(Actor)→(PullRequest)`, `(Actor)→(ChangeSet)` | — | Actor가 PR/commit을 생성 |
 | `ASSIGNED_TO` | `(Issue)→(Actor)` | — | 이슈의 담당자 (복수 가능 — `refs.assignees` 스냅샷을 통째로 반영) |
 | `ALIAS_OF` | `(ActorAlias)→(Actor)` | — | ActorAlias(소스 계정)가 속한 Actor. Step 0 조회, 수동 병합·복원·분리의 재연결 대상 |

@@ -2,8 +2,7 @@ export type GraphNodeType =
   | "commit"
   | "pr"
   | "issue"
-  | "slack"
-  | "jira"
+  | "communication"
   | "actor"
   | "code"
   | "doc";
@@ -92,8 +91,7 @@ export const NODE_TYPE_INFO: Record<
   commit: { label: "Commit", cssVar: "var(--node-commit)" },
   pr: { label: "PR", cssVar: "var(--node-pr)" },
   issue: { label: "Issue", cssVar: "var(--node-issue)" },
-  slack: { label: "Slack", cssVar: "var(--node-slack)" },
-  jira: { label: "Jira", cssVar: "var(--node-jira)" },
+  communication: { label: "Communication", cssVar: "var(--node-communication)" },
   actor: { label: "Person", cssVar: "var(--node-actor)" },
   code: { label: "File", cssVar: "var(--node-code)" },
   doc: { label: "Document", cssVar: "var(--node-doc)" },
