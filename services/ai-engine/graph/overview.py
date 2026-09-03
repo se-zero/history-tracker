@@ -27,19 +27,15 @@ MAX_LIMIT = 500
 _SNIPPET_LEN = 240
 
 # 프론트 type → content 노드 선택 술어.
-# 프론트의 type은 제품명이 아니라 **렌더링 분류**다 — "jira"는 이슈 트래커 전체(Linear·Asana…),
-# "slack"은 대화 전체(Discord·Teams·Google Chat…)를 가리킨다. 실제 출처는 노드의 source가 싣는다.
-# Issue는 GitHub 이슈(issue)와 이슈 트래커(jira)가 같은 라벨이라 source로 가른다. 이 분기는
-# _to_graph_node의 Issue 분기와 **같은 기준이어야 한다** — 어긋나면 GitHub 이슈가 "jira"로
-# 그려지는데 "issue" 필터에서는 빠져 화면에서 사라진다.
+# 프론트의 type은 제품명이 아니라 렌더링 분류다 — 노드 종류와 1:1(`issue`는 이슈 트래커 전체,
+# `communication`은 대화 전체). 실제 출처는 노드의 source가 싣는다.
 # 값은 고정 Cypher 조각이고 사용자 입력은 키 매칭에만 쓰므로 인젝션 위험 없음.
 _CONTENT_TYPE_PREDICATES = {
-    "commit": "n:ChangeSet",
-    "pr":     "n:PullRequest",
-    "jira":   "(n:Issue AND coalesce(n.source, '') <> 'GITHUB')",
-    "issue":  "(n:Issue AND n.source = 'GITHUB')",
-    "slack":  "n:Communication",
-    "doc":    "n:Document",
+    "commit":        "n:ChangeSet",
+    "pr":            "n:PullRequest",
+    "issue":         "n:Issue",
+    "communication": "n:Communication",
+    "doc":           "n:Document",
 }
 # DocumentSection은 의도적으로 뺐다 — 검색 내부 단위지 사용자가 볼 개체가 아니다
 # (docs/notion-integration.md §6-5). content/확장 술어 어디에도 넣지 않는다.
@@ -230,15 +226,13 @@ def _to_graph_node(row: dict) -> dict:
         }
 
     if label == "Issue":
-        is_github = src == "GITHUB"
+        # type은 렌더링 분류, 출처는 source.
         return {
             "id": row["id"],
-            # type은 프론트의 렌더링 분류(색·범례)다. GitHub 이슈는 "issue", 그 외 이슈
-            # 트래커(Jira·Linear…)는 공용 값 "jira" — 실제 출처는 source가 싣는다.
-            "type": "issue" if is_github else "jira",
+            "type": "issue",
             "title": row.get("title") or row.get("issue_key") or "(issue)",
             "meta": row.get("issue_key") or "",
-            "source": "github" if is_github else (src.lower() or "jira"),
+            "source": src.lower(),
             "snippet": _truncate(row.get("body")),
             # ref는 issue_key 기준 — 키 없는(issue_key nullable) 소스가 도입되면 재검토 필요.
             "ref": _node_ref("issue", row.get("issue_key")),
@@ -252,7 +246,7 @@ def _to_graph_node(row: dict) -> dict:
         return {
             "id": row["id"],
             # type은 프론트의 렌더링 분류(색·범례)라 대화 공용 값을 쓴다. 실제 출처는 source가 싣는다.
-            "type": "slack",
+            "type": "communication",
             "title": f"#{channel}" if channel else (f"{_source_label(src)} 메시지" if src else "메시지"),
             "meta": " · ".join(p for p in (channel, date) if p),
             "source": src.lower() or "slack",
@@ -322,7 +316,7 @@ async def get_project_overview(
     선택하고, 그에 연결된 Actor/File을 이웃으로 확장한 뒤, 선택된 노드 집합 내부의
     엣지만 모은다. 전부 project_id 스코프.
 
-    types: 프론트 type 화이트리스트(commit/pr/jira/issue/slack/actor/code). None/빈 값이면 전체.
+    types: 프론트 type 화이트리스트(commit/pr/issue/communication/actor/code). None/빈 값이면 전체.
            content 타입만 노드 선택에 영향을 주고(필터 후 top-N), actor/code는 이웃 확장 토글.
            content 타입을 하나도 안 고르면 빈 결과 (확장 노드는 content에 매달려야 등장).
     """

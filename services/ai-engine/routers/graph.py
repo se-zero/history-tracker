@@ -35,7 +35,7 @@ async def graph_overview(project_id: str, limit: int = 200, types: str = ""):
     project_id로 스코프된 최근 content 노드 + 연결 Actor/File을 {nodes, edges}로 반환한다.
     인가는 backend가 담당 — ai-engine은 backend가 넘긴 project_id를 신뢰하는 내부 서비스다.
 
-    types: 쉼표 구분 프론트 type 화이트리스트(예: "commit,pr,jira"). 생략 시 전체.
+    types: 쉼표 구분 프론트 type 화이트리스트(예: "commit,pr,issue"). 생략 시 전체.
     """
     type_list = [t for t in (types.split(",") if types else []) if t.strip()] or None
     return await get_project_overview(project_id, limit, type_list)

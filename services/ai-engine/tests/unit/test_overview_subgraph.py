@@ -238,11 +238,14 @@ def test_to_graph_node_ref_carries_query_key():
     pr = _to_graph_node({"id": "n2", "label": "PullRequest", "pr_number": 42, "title": "t"})
     assert pr["ref"] == {"type": "pull_request", "id": "42"}
 
-    issue = _to_graph_node({"id": "n3", "label": "Issue", "issue_key": "HT-37", "title": "t"})
+    issue = _to_graph_node(
+        {"id": "n3", "label": "Issue", "source": "JIRA", "issue_key": "HT-37", "title": "t"}
+    )
     assert issue["ref"] == {"type": "issue", "id": "HT-37"}
-    assert issue["type"] == "jira"
+    assert issue["type"] == "issue"
+    assert issue["source"] == "jira"
 
-    # GitHub 이슈는 Issue 노드(source=GITHUB) → type/source/meta가 GitHub 전용으로 갈린다.
+    # GitHub 이슈도 같은 Issue 노드 — 렌더 분류는 같고 출처(source)만 다르다.
     gh = _to_graph_node(
         {"id": "n4", "label": "Issue", "source": "GITHUB", "issue_key": "#77", "title": "t"}
     )
@@ -310,19 +313,19 @@ def test_actor_source_summary_dedupes_and_keeps_order():
 
 
 def test_to_graph_node_carries_actual_source_not_archetype():
-    # type은 프론트 렌더링 분류(색·범례)라 공용 값이지만, source는 실제 출처여야 한다 —
-    # 커넥터가 늘어도 Linear 이슈가 "jira"로, Discord 대화가 "slack"으로 보이지 않게.
+    # type은 프론트 렌더링 분류(색·범례)라 노드 종류와 1:1인 공용 값이고, source는 실제 출처여야
+    # 한다 — 커넥터가 늘어도 Linear 이슈가 Jira로, Discord 대화가 Slack으로 보이지 않게.
     linear = _to_graph_node(
         {"id": "n1", "label": "Issue", "source": "LINEAR", "issue_key": "ENG-42", "title": "t"}
     )
     assert linear["source"] == "linear"
-    assert linear["type"] == "jira"  # 렌더링 분류는 이슈 트래커 공용
+    assert linear["type"] == "issue"  # 렌더링 분류는 이슈 트래커 공용
 
     discord = _to_graph_node(
         {"id": "n2", "label": "Communication", "source": "DISCORD", "conversation_id": "c1", "body": "b"}
     )
     assert discord["source"] == "discord"
-    assert discord["type"] == "slack"  # 렌더링 분류는 대화 공용
+    assert discord["type"] == "communication"  # 렌더링 분류는 대화 공용
 
 
 def test_to_graph_node_chat_title_uses_source_when_channel_missing():
@@ -342,28 +345,23 @@ def test_to_graph_node_chat_title_uses_source_when_channel_missing():
 
 def test_chat_type_filter_matches_renderer_archetype():
     # 필터와 렌더러가 어긋나면 노드가 화면에서 사라지거나 다른 필터에 잘못 걸린다.
-    # 이제 Issue가 GitHub 이슈(issue)/이슈 트래커(jira)로 갈리고, Communication은 전부 대화(slack)다.
+    # 렌더 분류는 노드 종류와 1:1이다 — 이슈 트래커 전체가 issue, 대화 전체가 communication.
+    # 특정 소스로 좁히면(옛 `source = 'SLACK'`, GitHub 분기) 다른 출처의 노드가 필터에서 빠진다.
+    assert "jira" not in _CONTENT_TYPE_PREDICATES and "slack" not in _CONTENT_TYPE_PREDICATES
+
     issue_pred = _CONTENT_TYPE_PREDICATES["issue"]
-    assert "n:Issue" in issue_pred and "'GITHUB'" in issue_pred, "issue 필터는 GitHub Issue 기준이어야 한다"
+    assert "n:Issue" in issue_pred
+    assert "GITHUB" not in issue_pred, "issue 필터는 출처로 갈리지 않는다"
 
-    jira_pred = _CONTENT_TYPE_PREDICATES["jira"]
-    assert "<>" in jira_pred, "jira 필터는 'GitHub 아님' 기준이어야 한다"
-
-    chat_pred = _CONTENT_TYPE_PREDICATES["slack"]
+    chat_pred = _CONTENT_TYPE_PREDICATES["communication"]
     assert "Communication" in chat_pred
-    assert "GITHUB" not in chat_pred, "Communication은 더 이상 소스로 갈리지 않는다"
-    assert "'SLACK'" not in chat_pred, "특정 소스로 좁히면 Discord·Teams가 필터에서 빠진다"
+    assert "'SLACK'" not in chat_pred and "GITHUB" not in chat_pred, "특정 소스로 좁히면 Discord·Teams가 필터에서 빠진다"
 
     # 렌더러 쪽 기준도 함께 고정 — 둘이 같은 기준임을 이 테스트가 보증한다
-    for source in ("DISCORD", "TEAMS", "GOOGLE_CHAT", "SLACK", "GITHUB"):
+    for source in ("DISCORD", "TEAMS", "GOOGLE_CHAT", "SLACK"):
         node = _to_graph_node({"id": "n", "label": "Communication", "source": source, "body": "b"})
-        assert node["type"] == "slack", f"{source}는 대화 분류로 렌더돼야 한다"
+        assert node["type"] == "communication", f"{source}는 대화 분류로 렌더돼야 한다"
 
-    github_issue = _to_graph_node(
-        {"id": "n", "label": "Issue", "source": "GITHUB", "issue_key": "#7", "title": "t"}
-    )
-    assert github_issue["type"] == "issue"
-    jira_issue = _to_graph_node(
-        {"id": "n", "label": "Issue", "source": "JIRA", "issue_key": "HT-1", "title": "t"}
-    )
-    assert jira_issue["type"] == "jira"
+    for source, key in (("GITHUB", "#7"), ("JIRA", "HT-1"), ("LINEAR", "ENG-1")):
+        node = _to_graph_node({"id": "n", "label": "Issue", "source": source, "issue_key": key, "title": "t"})
+        assert node["type"] == "issue", f"{source} 이슈는 이슈 분류로 렌더돼야 한다"
