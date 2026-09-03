@@ -86,7 +86,7 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| `issue_key` | string | ✔ | 이슈 트래커의 사람용 키 (예: `HT-12`) — 표시용 속성으로 매칭하며 `__stub__` 센티널은 제외 |
+| `issue_key` | string | ✔ | 이슈 트래커의 사람용 키 (예: `HT-12`, GitHub 이슈는 `#142`) — 표시용 속성으로 매칭하며 `__stub__` 센티널은 제외 |
 
 - 반환: 이슈 메타(`title`/`body`/`status`/`creator`/`assignee` 등) + root 이슈에 직접 연결된
   `changesets` / `pull_requests` / `discussions` / `documents`, 그리고 **`descendants[]`**.
