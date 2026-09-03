@@ -77,7 +77,7 @@
 | [discord-integration.md](discord-integration.md) | 근거 | 커넥터 계획 | 코드 + 연결·초기 수집 실기동 | 웹훅 증분, 해제 시 봇 퇴장, 아카이브 스레드·포럼 |
 | [google-chat-integration.md](google-chat-integration.md) | 근거 | 커넥터 계획 | 코드 + 연결·스페이스 선택·초기 수집 | **PR 머지 웹훅 증분·1시간 토큰 갱신은 안 함.** 스레드 `conversation_id`, §12 |
 | [notion-integration.md](notion-integration.md) | 근거 | 커넥터 계획 | N0~N3 코드 | §13 실기동, Phase 2 삭제·아카이브 |
-| [integration-abstraction.md](integration-abstraction.md) | 정본 | 추상화 계획 | Part A, Linear·Asana·ClickUp·Discord·Google Chat·Notion | monday.com 미착수, Teams 보류. Part B Notion 행이 코드와 어긋남(N3 남음으로 적힘) |
+| [integration-abstraction.md](integration-abstraction.md) | 정본 | 추상화 계획 | Part A, Linear·Asana·ClickUp·Discord·Google Chat·Notion | monday.com 미착수, Teams 보류 |
 | [actor-manual-merge.md](actor-manual-merge.md) | 정본 | 스펙 | 병합·unmerge·split·프론트 | 봇 플래그 미승계 |
 | [embedding-design.md](embedding-design.md) | 정본 | 스펙 | 임베딩·벡터 인덱스·Layer 4 | refs 없는 시맨틱 엣지, REFERENCE vector index는 미채택 |
 | [graph-query-tool.md](graph-query-tool.md) | 근거 | 설계 | 코드 + 라우팅 확인 런 | 품질 측정 미실시. 계약의 정본은 [tools.md](tools.md) |

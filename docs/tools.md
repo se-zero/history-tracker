@@ -9,11 +9,15 @@ LLM은 자연어 질문에서 파라미터를 추출해 도구를 호출하고, 
 | 파일 | 역할 |
 |------|------|
 | `services/ai-engine/tools/definitions.py` | LLM에 노출되는 tool 스키마(이름·설명·파라미터). OpenAI function-calling 포맷 |
-| `services/ai-engine/tools/queries.py` | 각 도구의 실제 Neo4j Cypher 구현. 반환 구조의 진실 |
+| `services/ai-engine/tools/queries/` | 각 도구의 실제 Neo4j Cypher 구현. 반환 구조의 진실. **도메인별 모듈 패키지**다 — `issue.py`(이슈·에픽·타임라인) · `changeset.py`(커밋·PR) · `actor.py`(사람) · `files.py`(파일 이력) · `discovery.py`(키워드·최근·스레드) · `document.py`(문서) · `explore.py`(범용 Cypher) · `_common.py`(공용 헬퍼, 내부) |
+| `services/ai-engine/tools/queries/__init__.py` | facade — 공개 쿼리 함수 19개를 re-export. 호출부(`executor.py`)는 여기로 import한다 |
 | `services/ai-engine/tools/executor.py` | tool_name → queries 함수 디스패치. project_id 주입, 이메일 마스킹, 결과 크기 제한 |
 
-> 도구를 추가하려면 세 곳을 모두 손봐야 한다: `definitions.TOOLS`에 스키마, `queries.py`에 함수,
-> `executor._dispatch`에 case. 이름이 세 곳에서 정확히 일치해야 한다.
+> 도구를 추가하려면 **네 곳**을 모두 손봐야 한다: `definitions.TOOLS`에 스키마,
+> `queries/` **도메인 모듈**에 함수, `queries/__init__.py` facade에 **re-export**,
+> `executor._dispatch`에 case. 이름이 전부 정확히 일치해야 한다.
+> **facade re-export를 빠뜨리면 `executor`가 함수를 찾지 못한다** — 모듈에 함수만 넣고 끝내기 쉬운 자리다
+> (facade 규칙은 `services/ai-engine/CLAUDE.md` 「코딩 규칙」).
 
 ---
 

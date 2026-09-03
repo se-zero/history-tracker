@@ -309,7 +309,7 @@ Part A가 끝났다면 커넥터끼리 서로 독립이므로 순서 제약 없�
 |----------|------|------|
 | 이슈 트래커 | ~~Linear~~ ✅ · ~~Asana~~ ✅ · monday.com · ~~ClickUp~~ ✅ | `Issue` 노드 재사용, ai-engine 무변경 |
 | 대화 | **Discord**(코드 작업 완료 ✅ — 연결·수집(A9 수정 후 checkpoint 갱신 실측 확인) 전부 정상) · MS Teams(계획 완료, 라이선스 대기) · **Google Chat**(코드 작업 완료 ✅ — backend·pipeline-worker·web-dashboard, 선행 PR 2건(webhook 토큰 확보 일반화·A9) 포함. `docs/google-chat-integration.md`. §1-0 Workspace 계정 게이트 실측 + 우리 앱 실기동(연결·스페이스 선택·초기 수집) 확인. PR 머지 웹훅 증분·1시간 토큰 갱신은 실기동하지 않음) | `Communication` 노드 재사용, ai-engine 무변경. Slack 노이즈 필터가 자동 적용된다 |
-| 문서 | Notion(N0~N2 완료 ✅ — 공용 REFERENCE text/semantic 분리, ai-engine `Document`/`DocumentSection` 소비 경로, backend OAuth·pipeline-worker 수집기. `docs/notion-integration.md`) | **예외** — `Document` 노드 신규 설계가 선행했다. **커넥터 1개 = 1 PR 규칙의 예외로 4개(N0~N3)로 나눴다** — 남은 건 N3(Layer 4 시맨틱 링크·질의 도구 2종·작업 단위 뷰·PrivacyPage) |
+| 문서 | **Notion**(N0~N3 코드 작업 완료 ✅ — 공용 REFERENCE text/semantic 분리, ai-engine `Document`/`DocumentSection` 소비 경로, backend OAuth·pipeline-worker 수집기, Layer 4 시맨틱 링크·질의 도구 2종·작업 단위 뷰·개인정보 고지. `docs/notion-integration.md`) | **예외** — `Document` 노드 신규 설계가 선행했다. **커넥터 1개 = 1 PR 규칙의 예외로 4개(N0~N3)로 나눴다.** 실기동은 `docs/notion-integration.md` §13에 남는다 |
 
 Linear를 이슈 트래커 1호로 권한다: 선택이 1단(team)이라 A4 메커니즘의 최소 경로를 먼저 태워 보고,
 이후 2단(Asana·monday)·가변단(ClickUp)이 같은 메커니즘에 얹히는지 확인하는 순서가 된다.
@@ -393,9 +393,12 @@ Google Chat 몫으로 남는다. Discord가 실제로 검증하는 것은 ① �
       `"wired"`인데 두 필드가 없으면 **컴파일이 깨진다**(의도된 안전망 — 반쪽 배선은 화면에서 조용히 실패한다).
 - [ ] 연동 행·선택 폼·타일·해제 다이얼로그는 `OAuthSourceCard`가 backend 단계 선언으로 렌더하므로
       **provider별 컴포넌트를 만들지 않는다.**
-- [ ] **`pages/PrivacyPage.tsx` 고지 추가 — 배포 기준이다.** 카탈로그와 달리 자동으로 채워지지 않고
+- [ ] **`components/landing/legal/PrivacyBodyKo.tsx`·`PrivacyBodyEn.tsx` 고지 추가 — 배포 기준이다.**
+      `pages/PrivacyPage.tsx`는 얇은 진입점이라 조항 본문이 없다 — 본문은 언어별 컴포넌트가 갖는다.
+      **한국어·영어 두 벌을 함께 고친다**(한 벌만 고치면 다른 언어의 방침이 고지 없이 배포된다).
+      카탈로그와 달리 자동으로 채워지지 않고
       컴파일도 막아주지 않아, 빠뜨리면 **고지 없이 개인정보를 수집하는 상태로 배포된다**
-      (Discord·Google Chat이 실제로 이렇게 새어 이 항목이 생겼다). 세 곳을 함께 고친다 —
+      (Discord·Google Chat이 실제로 이렇게 새어 이 항목이 생겼다). 각 벌에서 세 곳을 고친다 —
       제1조 「연동 자격증명」 행(저장하는 토큰 종류가 provider마다 다르다),
       제1조 「연동으로 수집되는 기록」 목록, 제2조 `LegalSourceBlock`(요청 권한·수집하는 정보·
       이용 목적·삭제·쓰기 권한). 이름·이메일을 수집하면 **어느 API로 얻는지까지 밝힌다**

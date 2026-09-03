@@ -155,7 +155,7 @@ O(M × n × D)
 
 ### 개선 방향 — Neo4j Vector Index
 
-Neo4j 5.x HNSW 벡터 인덱스(`comm_embedding`, `issue_embedding`)는 **이미 생성·사용 중**이다 — 기동 시 `ensure_vector_indexes()`가 생성하고, 용도는 **쿼리 시 시맨틱 검색**이다 (`tools/queries.py`가 `db.index.vector.queryNodes`로 Communication/Issue를 검색). 다만 **REFERENCE 엣지 배치 빌더(`reference_builder.py`)는 이 인덱스를 쓰지 않고 여전히 브루트포스 + 시간 윈도우**다.
+Neo4j 5.x HNSW 벡터 인덱스(`comm_embedding`, `issue_embedding`, `doc_section_embedding`)는 **이미 생성·사용 중**이다 — 기동 시 `ensure_vector_indexes()`가 생성하고, 용도는 **쿼리 시 시맨틱 검색**이다 (`tools/queries/discovery.py`가 Communication·Issue를, `tools/queries/document.py`가 DocumentSection을 `db.index.vector.queryNodes`로 검색). `doc_section_embedding`은 Notion 커넥터가 추가한 세 번째 인덱스다(`docs/notion-integration.md`). 다만 **REFERENCE 엣지 배치 빌더(`reference_builder.py`)는 이 인덱스를 쓰지 않고 여전히 브루트포스 + 시간 윈도우**다.
 
 > **project_id 후필터 (over-fetch)**: `db.index.vector.queryNodes`는 전역 top-K만 반환하고 project_id 사전 필터가 불가능하다. 단일 Neo4j에 여러 프로젝트가 섞여 있으므로, `top_k`의 배수만큼 넉넉히 가져온 뒤 `project_id`로 후필터해 잘라낸다.
 
