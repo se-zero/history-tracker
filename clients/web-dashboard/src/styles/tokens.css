@@ -38,17 +38,14 @@
      채도를 낮춘 "무채도 통일 패밀리"인 이유: 7종이 무지개가 아니라 하나의 시스템으로
      읽혀야 하고, 그 위로 앰버 액센트(선택·답변 경로)가 항상 튀어야 한다.
 
-     앰버 계열(hue 60~90)은 액센트가 독점한다 — 노드 팔레트는 이 영역에 들어오지 않는다.
-     그래서 node-jira는 앰버가 아니라 slate-blue다(hue 266). 여기를 앰버로 되돌리면
-     "앰버 = 지금 살아있는 것" 신호가 무너진다. */
+     앰버 계열(hue 60~90)은 액센트가 독점한다 — 노드 팔레트는 이 영역에 들어오지 않는다. */
   --node-commit:   oklch(0.53 0.101 157);  /* green      #2F7D54 */
   --node-pr:       oklch(0.54 0.085 214);  /* teal       #1F7A8C */
   --node-issue:    oklch(0.53 0.136  37);  /* clay       #AC4A2E */
-  --node-slack:    oklch(0.54 0.119 301);  /* mauve      #7A5CA8 */
-  --node-jira:     oklch(0.52 0.109 266);  /* slate-blue #4C67A9 */
+  --node-communication: oklch(0.54 0.119 301);  /* mauve #7A5CA8 */
   --node-actor:    oklch(0.55 0.119 351);  /* rose       #A4517A */
   --node-code:     oklch(0.57 0.025 257);  /* cool grey  #6F7987 — 가장 수가 많아 가장 조용하게 */
-  --node-doc:      oklch(0.46 0.153 328);  /* orchid     #823082 — node-slack(301)과 node-actor(351) 사이 빈 hue */
+  --node-doc:      oklch(0.46 0.153 328);  /* orchid     #823082 — node-communication(301)과 node-actor(351) 사이 빈 hue */
 
   /* workunit.css(.cd-item.active)가 아직 --primary-soft를 참조해 완전 제거가 보류됐다 —
      상세 사유는 tokens.css 하단 --primary-soft 선언부 주석 참고. */
@@ -329,11 +326,10 @@ body:has(.lp[data-theme="dark"]) {
   --node-commit:   oklch(0.71 0.095 156);  /* green      #6FB58A */
   --node-pr:       oklch(0.69 0.075 210);  /* teal       #5FA8B5 */
   --node-issue:    oklch(0.66 0.109  43);  /* clay       #C97A5A */
-  --node-slack:    oklch(0.68 0.088 307);  /* mauve      #A88BC4 */
-  --node-jira:     oklch(0.67 0.085 266);  /* slate-blue #7C93C9 */
+  --node-communication: oklch(0.68 0.088 307);  /* mauve #A88BC4 */
   --node-actor:    oklch(0.68 0.100 352);  /* rose       #C77D9E */
   --node-code:     oklch(0.62 0.022 257);  /* cool grey  #7E8794 */
-  --node-doc:      oklch(0.65 0.133 327);  /* orchid     #B86FB8 — node-slack(307)과 node-actor(352) 사이 빈 hue */
+  --node-doc:      oklch(0.65 0.133 327);  /* orchid     #B86FB8 — node-communication(307)과 node-actor(352) 사이 빈 hue */
 
   /* 그래프 우물 — 사다리보다 한 칸 더 내린다. 노드가 더 떠 보인다. */
   --surface-canvas: oklch(0.14 0.008 256);  /* #07090C — 틴트 유지, 순수 검정 금지 */

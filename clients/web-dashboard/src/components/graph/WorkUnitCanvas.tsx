@@ -66,7 +66,7 @@ const WORK_UNIT_LABEL_MIN_R = 6;
 const MEMBER_LABEL_MIN_R = 4;
 
 /** 출처가 여러 제품으로 갈리는 렌더링 분류 — 이 타입만 source별로 줄을 나눈다. */
-const MULTI_SOURCE_TYPES: ReadonlySet<GraphNodeType> = new Set(["jira", "slack", "doc"]);
+const MULTI_SOURCE_TYPES: ReadonlySet<GraphNodeType> = new Set(["issue", "communication", "doc"]);
 
 interface View {
   k: number;
@@ -350,7 +350,7 @@ export function WorkUnitCanvas({
    * 노드 렌즈 후보 — 화면에 실제로 배치된 노드만 훑어 만든 그룹 목록.
    *
    * NODE_TYPE_INFO 상수 전체를 도는 대신 `placed`에서 뽑으므로, 연결하지 않은 소스나
-   * 노드가 0개인 분류는 저절로 빠진다. jira/slack/doc는 렌더링 분류일 뿐 실제 제품이
+   * 노드가 0개인 분류는 저절로 빠진다. issue/communication/doc는 렌더링 분류일 뿐 실제 제품이
    * 여럿 섞여 있어(Jira·Linear·Asana·ClickUp 등) source별로 줄을 나눈다.
    */
   const nodeLensGroups = useMemo(() => {

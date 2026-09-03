@@ -192,7 +192,8 @@ ClickUp도 Custom Task ID가 없는 워크스페이스에서는 이슈 키가 �
 `occurredAt`: `updated_at`(없으면 `created_at`).
 
 ai-engine은 GitHub 봇 계정(`[bot]` 접미 login)이 만든 이슈를 커밋·PR과 같은 게이트로 버린다.
-프론트 그래프 뷰의 렌더 분류는 `source`로 가른다 — GitHub 이슈는 `issue`, 그 외 트래커는 `jira`.
+프론트 그래프 뷰에서는 다른 트래커의 이슈와 같은 `issue` 분류로 그려지고, 출처(GitHub·Jira·Linear…)는
+노드의 `source`로 구분된다.
 
 ### Communication — 대화 (자연키: `url`)
 

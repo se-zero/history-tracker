@@ -60,7 +60,7 @@ function resolveWorkUnitPredicate(
 
 /**
  * 작업 단위에서 몇 홉까지 구성 노드로 끌어올지.
- * PR 기준 실제 거리: commit 1홉 · file/Issue 2홉 · (Issue를 거친) Slack 대화 3홉.
+ * PR 기준 실제 거리: commit 1홉 · file/Issue 2홉 · (Issue를 거친) 대화 3홉.
  * 3홉까지 봐야 DISCUSSED_IN으로만 이어진 대화가 묶음 안으로 들어온다.
  */
 const MAX_HOPS = 3;
@@ -72,9 +72,8 @@ const MAX_HOPS = 3;
 const RADIUS_BAND: Partial<Record<GraphNodeType, [number, number]>> = {
   commit: [36, 62],
   code: [68, 94],
-  jira: [100, 132],
-  issue: [138, 172],
-  slack: [138, 172],
+  issue: [100, 132],
+  communication: [138, 172],
 };
 const DEFAULT_BAND: [number, number] = [68, 94];
 
@@ -82,9 +81,8 @@ const DEFAULT_BAND: [number, number] = [68, 94];
 const MEMBER_RADIUS: Partial<Record<GraphNodeType, number>> = {
   commit: 2.6,
   code: 2.1,
-  jira: 3.6,
-  issue: 3.2,
-  slack: 3.2,
+  issue: 3.6,
+  communication: 3.2,
 };
 
 /** 황금각 — 구성 노드를 밴드 안에 고르게 흩는 phyllotaxis 배치에 쓴다. */
