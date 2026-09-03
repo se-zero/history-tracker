@@ -59,11 +59,12 @@ class AuthServiceTest {
             "https://api.github.com/user",
             "https://api.github.com/user/installations",
             "https://api.github.com/app/installations/{installation_id}/access_tokens",
-            "https://api.github.com/installation/repositories",
             "https://api.github.com/repos/{owner}/{repo}/branches",
             "https://api.github.com/user/installations/{installation_id}/repositories",
             "https://api.github.com/users/{username}/installation",
             "https://api.github.test/applications/{client_id}/grant",
+            "https://api.github.test/app/installations/{installation_id}",
+            "https://api.github.test/orgs/{org}/memberships/{username}",
             Duration.ofMinutes(5)
     );
 
@@ -75,6 +76,10 @@ class AuthServiceTest {
 
     private static final UUID OWN_INSTALLATION_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID ORG_INSTALLATION_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    private static final UUID MISSING_ORG_INSTALLATION_ROW_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
+    private static final UUID MISSING_USER_INSTALLATION_ROW_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
+    private static final UUID LISTED_ORG_INSTALLATION_ROW_ID = UUID.fromString("66666666-6666-6666-6666-666666666666");
+    private static final UUID NOT_MEMBER_ORG_INSTALLATION_ROW_ID = UUID.fromString("77777777-7777-7777-7777-777777777777");
 
     @Mock
     private GitHubOAuthClient gitHubOAuthClient;
@@ -140,11 +145,12 @@ class AuthServiceTest {
                 "https://api.github.com/user",
                 "https://api.github.com/user/installations",
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
-                "https://api.github.com/installation/repositories",
                 "https://api.github.com/repos/{owner}/{repo}/branches",
                 "https://api.github.com/user/installations/{installation_id}/repositories",
                 "https://api.github.com/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
+                "https://api.github.test/app/installations/{installation_id}",
+                "https://api.github.test/orgs/{org}/memberships/{username}",
                 Duration.ofMinutes(5)
         );
 
@@ -169,11 +175,12 @@ class AuthServiceTest {
                 "https://api.github.com/user",
                 "https://api.github.com/user/installations",
                 "https://api.github.com/app/installations/{installation_id}/access_tokens",
-                "https://api.github.com/installation/repositories",
                 "https://api.github.com/repos/{owner}/{repo}/branches",
                 "https://api.github.com/user/installations/{installation_id}/repositories",
                 "https://api.github.com/users/{username}/installation",
                 "https://api.github.test/applications/{client_id}/grant",
+                "https://api.github.test/app/installations/{installation_id}",
+                "https://api.github.test/orgs/{org}/memberships/{username}",
                 Duration.ofMinutes(5)
         );
 
@@ -196,7 +203,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
@@ -215,7 +222,7 @@ class AuthServiceTest {
                 .thenReturn(new GitHubAccessTokenResponse(null, null, null, null, null, null));
 
         UnauthorizedException thrown = assertThrows(UnauthorizedException.class,
-                () -> authService.loginWithGitHub(new GitHubCallbackRequest("bad-code", null)));
+                () -> authService.loginWithGitHub(new GitHubCallbackRequest("bad-code", null, null)));
 
         // 로그인 실패는 새 세션을 못 만든다는 뜻일 뿐, 브라우저가 이미 가진 다른 유효한
         // refresh 쿠키(재설치 흐름 중일 수 있다)를 지울 이유가 없다.
@@ -246,7 +253,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         verify(gitHubInstallationService).upsertInstallation(user, ownInstallation);
         // 불필요한 API 호출 회귀 방지 — 본인 개인 계정 설치는 접근 검증이 필요 없다
@@ -278,7 +285,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         verify(gitHubInstallationService).upsertInstallation(user, orgInstallation);
         verifyGitHubUserTokenSaved(userId, githubToken);
@@ -308,7 +315,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         verify(gitHubInstallationService, never()).upsertInstallation(user, orgInstallation);
         // DENIED는 진짜 접근 없음으로 확정됐으니 prune은 그대로 수행돼 멤버십에서 제거된다
@@ -341,7 +348,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         verify(gitHubOAuthClient).checkInstallationAccess("github-user-token", 11111L);
         verify(gitHubInstallationService, never()).upsertInstallation(user, otherUsersInstallation);
@@ -381,7 +388,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         // 핵심 회귀 대상: UNKNOWN이 섞여 있으면 일부만 확인된 상태로 prune을 돌리면 안 된다
         verify(gitHubInstallationService, never()).pruneMemberships(any(), any());
@@ -418,7 +425,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         verify(gitHubInstallationService, never()).upsertInstallation(user, orgInstallation);
@@ -517,7 +524,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
@@ -559,7 +566,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
@@ -592,7 +599,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
@@ -618,7 +625,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         // GitHub 장애로 installation 목록이 비어 오면(null) 멤버십을 건드리지 않아야 한다 — early return 유지 확인
         verifyNoInteractions(gitHubInstallationService);
@@ -650,7 +657,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         verify(gitHubInstallationService).upsertInstallation(user, ownInstallation);
         @SuppressWarnings("unchecked")
@@ -689,7 +696,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         verify(gitHubAppClient).fetchUserInstallation("octocat");
         verify(gitHubInstallationService).upsertInstallation(user, orgInstallation);
@@ -718,7 +725,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         // 불필요한 API 호출 회귀 방지 — 목록에 이미 본인 개인 설치가 있으면 폴백 조회가 필요 없다
         verify(gitHubAppClient, never()).fetchUserInstallation(any());
@@ -743,7 +750,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         verify(gitHubInstallationService, never()).upsertInstallation(any(), any());
         @SuppressWarnings("unchecked")
@@ -772,7 +779,7 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
@@ -804,13 +811,615 @@ class AuthServiceTest {
         when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
 
-        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null));
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
 
         verify(gitHubInstallationService, never()).upsertInstallation(any(), any());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
         verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
         assertThat(keptInstallationIdsCaptor.getValue()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("콜백의 installation_id로 조회된 Organization 설치는 로그인 동기화(prune) 이후에 등록된다")
+    void loginWithGitHubRegistersCallbackOrganizationInstallationAfterPruningMemberships() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        // prune이 실제로 돌게 하는 목적으로만 목록에 둔다 — 콜백 경로 검증과는 무관
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        GitHubInstallationResponse callbackOrgInstallation = new GitHubInstallationResponse(
+                55555L,
+                new GitHubInstallationAccountResponse("acme-corp", "Organization")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
+        when(gitHubAppClient.fetchInstallation(55555L)).thenReturn(Optional.of(callbackOrgInstallation));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "acme-corp", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.ACTIVE);
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, "55555"));
+
+        // 같은 로그인의 prune이 방금 콜백 경로로 등록한 설치를 지우면 안 된다
+        InOrder inOrder = inOrder(gitHubInstallationService);
+        inOrder.verify(gitHubInstallationService).pruneMemberships(eq(userId), any());
+        inOrder.verify(gitHubInstallationService).upsertInstallation(user, callbackOrgInstallation);
+    }
+
+    @Test
+    @DisplayName("콜백의 installation_id가 Organization 설치를 가리켜도 멤버십이 활성이 아니면 등록하지 않고 로그인은 성공한다")
+    void loginWithGitHubSkipsCallbackOrganizationInstallationWhenMembershipIsNotActive() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse callbackOrgInstallation = new GitHubInstallationResponse(
+                55555L,
+                new GitHubInstallationAccountResponse("acme-corp", "Organization")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of()));
+        when(gitHubAppClient.fetchInstallation(55555L)).thenReturn(Optional.of(callbackOrgInstallation));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "acme-corp", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, "55555"));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(gitHubInstallationService, never()).upsertInstallation(user, callbackOrgInstallation);
+    }
+
+    @Test
+    @DisplayName("콜백의 조직 멤버십 확인이 UNKNOWN이면 등록하지 않고 로그인은 성공한다")
+    void loginWithGitHubSkipsCallbackOrganizationInstallationWhenMembershipIsUnknown() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse callbackOrgInstallation = new GitHubInstallationResponse(
+                55555L,
+                new GitHubInstallationAccountResponse("acme-corp", "Organization")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of()));
+        when(gitHubAppClient.fetchInstallation(55555L)).thenReturn(Optional.of(callbackOrgInstallation));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "acme-corp", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, "55555"));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(gitHubInstallationService, never()).upsertInstallation(user, callbackOrgInstallation);
+    }
+
+    @Test
+    @DisplayName("콜백의 installation_id로 조회된 본인 개인 설치는 등록된다(폴백과 중복돼도 안전)")
+    void loginWithGitHubRegistersCallbackOwnPersonalInstallation() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse callbackOwnInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of()));
+        when(gitHubAppClient.fetchInstallation(98765L)).thenReturn(Optional.of(callbackOwnInstallation));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, "98765"));
+
+        verify(gitHubInstallationService).upsertInstallation(user, callbackOwnInstallation);
+        // 본인 개인(User) 설치 경로는 멤버십 확인을 타지 않는다
+        verify(gitHubOAuthClient, never()).checkOrganizationMembership(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("콜백의 installation_id가 타인의 개인 설치를 가리키면 등록하지 않는다")
+    void loginWithGitHubIgnoresCallbackInstallationOwnedByAnotherUser() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse othersInstallation = new GitHubInstallationResponse(
+                77777L,
+                new GitHubInstallationAccountResponse("teammate", "User")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of()));
+        when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(othersInstallation));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, "77777"));
+
+        verify(gitHubInstallationService, never()).upsertInstallation(user, othersInstallation);
+    }
+
+    @Test
+    @DisplayName("콜백의 installation_id가 조회되지 않으면(404·위조 id) 등록 없이 로그인은 정상 완료된다")
+    void loginWithGitHubIgnoresCallbackInstallationWhenNotFound() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of()));
+        when(gitHubAppClient.fetchInstallation(99999L)).thenReturn(Optional.empty());
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, "99999"));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(gitHubInstallationService, never()).upsertInstallation(any(), any());
+    }
+
+    @Test
+    @DisplayName("콜백의 installation 단건 조회가 예외를 던지면 무시하고 로그인은 정상 완료된다")
+    void loginWithGitHubIgnoresCallbackInstallationLookupFailureAndStillSucceeds() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of()));
+        when(gitHubAppClient.fetchInstallation(12345L))
+                .thenThrow(new RuntimeException("GitHub API unavailable"));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, "12345"));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(gitHubInstallationService, never()).upsertInstallation(any(), any());
+    }
+
+    @Test
+    @DisplayName("콜백에 installation_id가 없으면 installation 단건 조회를 호출하지 않는다")
+    void loginWithGitHubSkipsCallbackInstallationLookupWhenInstallationIdIsNull() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of()));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        verify(gitHubAppClient, never()).fetchInstallation(any());
+    }
+
+    @Test
+    @DisplayName("콜백의 installation_id가 숫자가 아니면 installation 단건 조회를 호출하지 않고 로그인은 정상 완료된다")
+    void loginWithGitHubSkipsCallbackInstallationLookupWhenInstallationIdIsNotNumeric() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of()));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, "abc"));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(gitHubAppClient, never()).fetchInstallation(any());
+    }
+
+    @Test
+    @DisplayName("목록에 없는 조직 멤버십은 사용자 토큰의 활성 멤버십 확인을 거쳐 kept 집합에 남는다")
+    void loginWithGitHubKeepsUnverifiableOrganizationMembershipWhenUserIsActiveMember() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        // /user/installations 목록에는 없지만(저장소 0개) DB엔 이미 저장돼 있는 조직 멤버십.
+        // DB엔 개명 전 login이 남아 있고, GitHub 원격 응답은 개명된 login을 준다 — 판정은 원격 기준이어야 한다.
+        GitHubInstallation missingOrgMembership =
+                installation(MISSING_ORG_INSTALLATION_ROW_ID, 77777L, "Organization", "empty-org-old", user);
+        GitHubInstallationResponse missingOrgInstallation = new GitHubInstallationResponse(
+                77777L,
+                new GitHubInstallationAccountResponse("empty-org-renamed", "Organization")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
+        when(gitHubInstallationService.upsertInstallation(user, ownInstallation))
+                .thenReturn(installation(OWN_INSTALLATION_ID, 98765L, "User", "octocat", user));
+        when(gitHubInstallationService.findMemberInstallations(userId))
+                .thenReturn(List.of(missingOrgMembership));
+        when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "empty-org-renamed", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.ACTIVE);
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        // 멤버십 확인 인자는 DB 행의 login이 아니라 fetchInstallation 원격 응답의 account().login()이어야 한다
+        verify(gitHubOAuthClient).checkOrganizationMembership("github-user-token", "empty-org-renamed", "octocat");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
+        assertThat(keptInstallationIdsCaptor.getValue())
+                .containsExactlyInAnyOrder(OWN_INSTALLATION_ID, MISSING_ORG_INSTALLATION_ROW_ID);
+    }
+
+    @Test
+    @DisplayName("목록에 없는 조직 멤버십이 활성 멤버가 아니면(이탈) kept 집합에서 제외되고 정리(prune)된다")
+    void loginWithGitHubExcludesUnverifiableOrganizationMembershipWhenMembershipIsNotActive() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        GitHubInstallation missingOrgMembership =
+                installation(MISSING_ORG_INSTALLATION_ROW_ID, 77777L, "Organization", "empty-org", user);
+        GitHubInstallationResponse missingOrgInstallation = new GitHubInstallationResponse(
+                77777L,
+                new GitHubInstallationAccountResponse("empty-org", "Organization")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
+        when(gitHubInstallationService.upsertInstallation(user, ownInstallation))
+                .thenReturn(installation(OWN_INSTALLATION_ID, 98765L, "User", "octocat", user));
+        when(gitHubInstallationService.findMemberInstallations(userId))
+                .thenReturn(List.of(missingOrgMembership));
+        when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "empty-org", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
+        assertThat(keptInstallationIdsCaptor.getValue()).containsExactly(OWN_INSTALLATION_ID);
+    }
+
+    @Test
+    @DisplayName("앱이 삭제되어 조직 설치 단건 조회가 비어있으면 kept에서 제외되고 멤버십 확인은 호출하지 않는다")
+    void loginWithGitHubExcludesUnverifiableOrganizationMembershipWhenInstallationWasDeleted() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        GitHubInstallation missingOrgMembership =
+                installation(MISSING_ORG_INSTALLATION_ROW_ID, 77777L, "Organization", "empty-org", user);
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
+        when(gitHubInstallationService.upsertInstallation(user, ownInstallation))
+                .thenReturn(installation(OWN_INSTALLATION_ID, 98765L, "User", "octocat", user));
+        when(gitHubInstallationService.findMemberInstallations(userId))
+                .thenReturn(List.of(missingOrgMembership));
+        when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.empty());
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        verify(gitHubOAuthClient, never()).checkOrganizationMembership(any(), any(), any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
+        assertThat(keptInstallationIdsCaptor.getValue()).containsExactly(OWN_INSTALLATION_ID);
+    }
+
+    @Test
+    @DisplayName("유지 판정의 멤버십 확인이 UNKNOWN이면 그 행만 kept에 남기고 정리(prune)는 계속된다")
+    void loginWithGitHubKeepsMembershipAndContinuesPruneWhenMembershipCheckIsUnknown() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        GitHubInstallation missingOrgMembership =
+                installation(MISSING_ORG_INSTALLATION_ROW_ID, 77777L, "Organization", "empty-org", user);
+        GitHubInstallationResponse missingOrgInstallation = new GitHubInstallationResponse(
+                77777L,
+                new GitHubInstallationAccountResponse("empty-org", "Organization")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
+        when(gitHubInstallationService.upsertInstallation(user, ownInstallation))
+                .thenReturn(installation(OWN_INSTALLATION_ID, 98765L, "User", "octocat", user));
+        when(gitHubInstallationService.findMemberInstallations(userId))
+                .thenReturn(List.of(missingOrgMembership));
+        when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(missingOrgInstallation));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "empty-org", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        // 영구 403 조직 하나가 다른 조직의 정리(이탈 멤버 청소)까지 무기한 막으면 안 된다 —
+        // UNKNOWN 행은 유지한 채로 prune 자체는 계속 호출돼야 한다
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
+        assertThat(keptInstallationIdsCaptor.getValue())
+                .containsExactlyInAnyOrder(OWN_INSTALLATION_ID, MISSING_ORG_INSTALLATION_ROW_ID);
+    }
+
+    @Test
+    @DisplayName("유지 판정에서 UNKNOWN과 NOT_MEMBER가 섞이면 UNKNOWN 행만 kept에 남고 NOT_MEMBER 행은 정리된다")
+    void loginWithGitHubKeepsOnlyUnknownMembershipAndPrunesNotMemberInMixedCase() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        // 목록에 없는 조직 멤버십 두 건 — 확인 불가(UNKNOWN)와 이탈(NOT_MEMBER)이 같은 로그인에서 섞인 경우
+        GitHubInstallation unknownOrgMembership =
+                installation(MISSING_ORG_INSTALLATION_ROW_ID, 77777L, "Organization", "flaky-org", user);
+        GitHubInstallation notMemberOrgMembership =
+                installation(NOT_MEMBER_ORG_INSTALLATION_ROW_ID, 88888L, "Organization", "left-org", user);
+        GitHubInstallationResponse unknownOrgInstallation = new GitHubInstallationResponse(
+                77777L,
+                new GitHubInstallationAccountResponse("flaky-org", "Organization")
+        );
+        GitHubInstallationResponse notMemberOrgInstallation = new GitHubInstallationResponse(
+                88888L,
+                new GitHubInstallationAccountResponse("left-org", "Organization")
+        );
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
+        when(gitHubInstallationService.upsertInstallation(user, ownInstallation))
+                .thenReturn(installation(OWN_INSTALLATION_ID, 98765L, "User", "octocat", user));
+        when(gitHubInstallationService.findMemberInstallations(userId))
+                .thenReturn(List.of(unknownOrgMembership, notMemberOrgMembership));
+        when(gitHubAppClient.fetchInstallation(77777L)).thenReturn(Optional.of(unknownOrgInstallation));
+        when(gitHubAppClient.fetchInstallation(88888L)).thenReturn(Optional.of(notMemberOrgInstallation));
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "flaky-org", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.UNKNOWN);
+        when(gitHubOAuthClient.checkOrganizationMembership("github-user-token", "left-org", "octocat"))
+                .thenReturn(GitHubOAuthClient.OrganizationMembership.NOT_MEMBER);
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
+        assertThat(keptInstallationIdsCaptor.getValue())
+                .containsExactlyInAnyOrder(OWN_INSTALLATION_ID, MISSING_ORG_INSTALLATION_ROW_ID);
+    }
+
+    @Test
+    @DisplayName("유지 판정 중 installation 단건 조회가 예외를 던지면 prune 전체를 건너뛰고 로그인은 정상 완료된다")
+    void loginWithGitHubSkipsPruneEntirelyWhenFetchInstallationThrowsDuringKeepDetermination() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        GitHubInstallation missingOrgMembership =
+                installation(MISSING_ORG_INSTALLATION_ROW_ID, 77777L, "Organization", "empty-org", user);
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
+        when(gitHubInstallationService.upsertInstallation(user, ownInstallation))
+                .thenReturn(installation(OWN_INSTALLATION_ID, 98765L, "User", "octocat", user));
+        when(gitHubInstallationService.findMemberInstallations(userId))
+                .thenReturn(List.of(missingOrgMembership));
+        when(gitHubAppClient.fetchInstallation(77777L))
+                .thenThrow(new RuntimeException("GitHub API unavailable"));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        var response = authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(gitHubInstallationService, never()).pruneMemberships(any(), any());
+    }
+
+    @Test
+    @DisplayName("부재 멤버십이 User 타입이면 유지 판정을 수행하지 않는다")
+    void loginWithGitHubSkipsKeepDeterminationForUserTypeMissingMembership() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        // 목록에 본인 개인 설치가 이미 있어 폴백은 돌지 않는 상태
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        // 목록에는 없지만 DB엔 있는, User 타입(개인) 멤버십 — Organization이 아니므로 유지 판정 대상이 아니다
+        GitHubInstallation missingUserMembership =
+                installation(MISSING_USER_INSTALLATION_ROW_ID, 88888L, "User", "someone-else", user);
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation)));
+        when(gitHubInstallationService.upsertInstallation(user, ownInstallation))
+                .thenReturn(installation(OWN_INSTALLATION_ID, 98765L, "User", "octocat", user));
+        when(gitHubInstallationService.findMemberInstallations(userId))
+                .thenReturn(List.of(missingUserMembership));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        verify(gitHubAppClient, never()).fetchInstallation(88888L);
+    }
+
+    @Test
+    @DisplayName("조직 설치가 API 목록에 있으면(DENIED 포함) 유지 판정 없이 기존 정리 결과를 따른다")
+    void loginWithGitHubSkipsKeepDeterminationWhenOrganizationInstallationIsListedByApi() {
+        AuthService authService = authService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        UUID userId = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
+        ReflectionTestUtils.setField(user, "id", userId);
+        GitHubAccessTokenResponse githubToken = githubAccessTokenResponse();
+        GitHubUserResponse githubUser = new GitHubUserResponse(12345L, "octocat", "Octocat", null, null);
+        GitHubInstallationResponse ownInstallation = new GitHubInstallationResponse(
+                98765L,
+                new GitHubInstallationAccountResponse("octocat", "User")
+        );
+        GitHubInstallationResponse deniedOrgInstallation = new GitHubInstallationResponse(
+                22222L,
+                new GitHubInstallationAccountResponse("acme-corp", "Organization")
+        );
+        // DB에는 있고, /user/installations 목록에도 있는(DENIED로 판정된) 조직 멤버십
+        GitHubInstallation listedOrgMembership =
+                installation(LISTED_ORG_INSTALLATION_ROW_ID, 22222L, "Organization", "acme-corp", user);
+
+        when(gitHubOAuthClient.exchangeCode("code-123")).thenReturn(githubToken);
+        when(gitHubOAuthClient.fetchUser("github-user-token")).thenReturn(githubUser);
+        when(gitHubOAuthClient.fetchInstallations("github-user-token"))
+                .thenReturn(new GitHubInstallationsResponse(List.of(ownInstallation, deniedOrgInstallation)));
+        when(gitHubOAuthClient.checkInstallationAccess("github-user-token", 22222L))
+                .thenReturn(GitHubOAuthClient.InstallationAccess.DENIED);
+        when(gitHubInstallationService.upsertInstallation(user, ownInstallation))
+                .thenReturn(installation(OWN_INSTALLATION_ID, 98765L, "User", "octocat", user));
+        when(gitHubInstallationService.findMemberInstallations(userId))
+                .thenReturn(List.of(listedOrgMembership));
+        when(userService.upsertGitHubUser(githubUser)).thenReturn(user);
+        when(jwtTokenService.issueAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(user)).thenReturn("refresh-token");
+
+        authService.loginWithGitHub(new GitHubCallbackRequest("code-123", null, null));
+
+        verify(gitHubAppClient, never()).fetchInstallation(22222L);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<UUID>> keptInstallationIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(gitHubInstallationService).pruneMemberships(eq(userId), keptInstallationIdsCaptor.capture());
+        // 기존 DENIED 정리 결과 그대로 — 목록에 있었으니 유지 판정 없이 kept에서 빠진다
+        assertThat(keptInstallationIdsCaptor.getValue()).containsExactly(OWN_INSTALLATION_ID);
     }
 
     private AuthService authService() {

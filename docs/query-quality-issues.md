@@ -228,7 +228,7 @@ LLM이 그룹 안의 개별 메시지 `occurredAt`을 id로 꺼내 쓴 것. 스�
 - 같은 `conversation_id` 그룹이면 evidence를 **1건**으로 등재하고 id = `conversation_id`(루트 ts) 사용
 - 또는 `get_thread_context("1778586053.322069")` 호출로 스레드 전체 조회 후 1건 등재
 
-시스템 프롬프트에 이미 "한 스레드의 대표 메시지만 보이면 `get_thread_context`를 호출하라"는 규칙이 있으나 지켜지지 않았다([orchestrator.py:143](services/ai-engine/agent/orchestrator.py#L143)).
+시스템 프롬프트에 이미 "한 스레드의 대표 메시지만 보이면 `get_thread_context`를 호출하라"는 규칙이 있으나 지켜지지 않았다([orchestrator.py:143](../services/ai-engine/agent/orchestrator.py#L143)).
 
 **개선 방안:**
 - 시스템 프롬프트 강화:
@@ -295,7 +295,7 @@ LLM이 그룹 안의 개별 메시지 `occurredAt`을 id로 꺼내 쓴 것. 스�
 
 HT-37 evidence의 `occurredAt`이 `"unknown"` 문자열. ISO-8601 규칙 위반이고 `event_meaning: issue_closed`와도 모순이다.
 
-**근본 원인은 `get_pr_context` 쿼리 갭.** 이슈를 collect할 때 타임스탬프와 creator를 반환하지 않는다([queries.py:886-902](services/ai-engine/tools/queries.py#L886-L902)):
+**근본 원인은 `get_pr_context` 쿼리 갭.** 이슈를 collect할 때 타임스탬프와 creator를 반환하지 않는다([changeset.py의 `get_pr_context`](../services/ai-engine/tools/queries/changeset.py#L157) — 분석 당시에는 `tools/queries.py:886-902`였고, 이후 `tools/queries/` 패키지로 분해됐다):
 
 ```cypher
 collect(DISTINCT {

@@ -96,7 +96,7 @@ record ActorDto(String id, String name, String email, Boolean bot)
 | 키 | 타입 | 비고 |
 |----|------|------|
 | `external_id` | string | **자연키. 없으면 ai-engine이 이벤트를 버린다.** 플랫폼 **불변 ID** (Jira issue id, Linear UUID, Asana gid 등). 그래프 MERGE 키는 `(project_id, source, external_id)` |
-| `issue_key` | string \| 생략 | 사람용 표시 키 (Jira `HT-7`, Linear `ENG-42`). 검색·표시·텍스트 링크 매칭용. 키가 없는 소스(Asana·monday)는 생략 |
+| `issue_key` | string \| 생략 | 사람용 표시 키 (Jira `HT-7`, Linear `ENG-42`, GitHub `#142`). 검색·표시·텍스트 링크 매칭용. 키가 없는 소스(Asana·monday)는 생략 |
 | `title` · `body` | string | 합쳐서 임베딩된다 |
 | `status` | string \| null | 워크플로 상태 **원문** (팀 어휘, 예: "배포 대기"). 표시·답변용 — 기계 판정에는 쓰지 않는다 |
 | `status_category` | string | **필수.** 소스 중립 3값 `open \| in_progress \| closed`. 종료 판정·`closed_at` 유도는 이 축 하나로 한다. `closed`는 완료+취소를 포함한 "닫힘". 세분 신호가 없는 소스는 열린 이슈를 전부 `open`으로 둔다 |
@@ -172,20 +172,43 @@ ClickUp도 Custom Task ID가 없는 워크스페이스에서는 이슈 키가 �
 (Asana에 이은 둘째 사례). Custom Task ID URL(`app.clickup.com/t/{team_id}/{ABC-123}`)에 담긴
 키는 기존 이슈 키 정규식(`ISSUE_KEY`)이 커버한다.
 
+**GitHub 매핑** (`source = "GITHUB"`) — GitHub 이슈는 대화가 아니라 **이슈 트래커 아키타입**이다
+(예전엔 `Communication`으로 발행했다 — GitHub만 연결한 프로젝트에 Issue 노드가 0개가 되는 문제로 전환).
+`GET /repos/{owner}/{repo}/issues` 응답 중 `pull_request` 키가 있는 항목(PR)은 제외한다.
+
+| 정규화 키 | GitHub 원본 필드 |
+|-----------|-----------------|
+| `external_id` | `id` (불변 정수 id, 문자열화). 없으면 그 이슈는 발행하지 않는다 |
+| `issue_key` | `"#" + number` — 사람이 실제로 쓰는 표기. 프로젝트당 저장소가 하나라 프로젝트 안에서 유일하다 |
+| `title` · `body` | 각각 그대로 (`body` null → `""`) |
+| `status_category` | `state` — `closed` → `closed`, 그 외 `open`. GitHub엔 in_progress 신호가 없다 |
+| `status` | 닫혔으면 `state_reason`(`completed` \| `not_planned`, null이면 `closed`), 열려 있으면 `open` — "안 하기로 한 이슈"를 구분하기 위해 사유를 원문으로 싣는다 |
+| `closed_at` | `status_category == closed`일 때만 `closed_at` |
+| `issue_type` · `priority` | 생략 — GitHub `labels`는 자유 문자열 복수라 1:1 대응이 없다(Asana·ClickUp과 같은 처리) |
+| `actor` | `user` → `{id: login, name, email}`. name/email은 수집 시 `GET /users/{login}`으로 보강 |
+| `refs.assignees` | `assignees` 배열 → `[{id: login, name, email}]`. 없으면 빈 배열(키는 유지). login 없는 항목 제외. 프로필 보강은 작성자와 같은 캐시를 탄다(이슈 페이지에서만 — PR의 assignees는 쓰지 않아 보강하지 않는다) |
+| `refs.issueKey`… | `title + "\n\n" + body`에서 기존 `RefsExtractor`로 추출. **`#N` 텍스트 참조 패턴은 없다** — 이슈·PR이 번호를 공유해 오연결 위험이 있어 별도 작업으로 미뤘다 |
+
+`occurredAt`: `updated_at`(없으면 `created_at`).
+
+ai-engine은 GitHub 봇 계정(`[bot]` 접미 login)이 만든 이슈를 커밋·PR과 같은 게이트로 버린다.
+프론트 그래프 뷰에서는 다른 트래커의 이슈와 같은 `issue` 분류로 그려지고, 출처(GitHub·Jira·Linear…)는
+노드의 `source`로 구분된다.
+
 ### Communication — 대화 (자연키: `url`)
 
-Slack 메시지와 GitHub 이슈가 **공용**으로 쓴다. 그래서 소스별 삭제가 라벨이 아니라
+Slack·Discord·Google Chat 등 대화 소스가 **공용**으로 쓴다. 그래서 소스별 삭제가 라벨이 아니라
 `source` 속성으로 걸러진다.
 
 | 키 | 타입 | 비고 |
 |----|------|------|
 | `url` | string | **자연키. 없으면 ai-engine이 이벤트를 버린다** |
 | `body` | string | 임베딩 대상 |
-| `channel` | string | 채널/공간 이름 (GitHub 이슈는 `github_issues` 고정) |
+| `channel` | string | 채널/공간 이름 |
 | `conversation_id` | string | 스레드 묶음 키. 루트는 자기 자신, 답글은 부모의 키 |
 | `created_at` | string \| null | |
 
-`occurredAt`: 메시지 시각 / 이슈 최종 수정 시각.
+`occurredAt`: 메시지 시각.
 
 ### Document — 문서 (자연키: `external_id` — source와 함께 유니크)
 

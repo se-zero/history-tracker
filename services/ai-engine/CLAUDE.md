@@ -111,9 +111,9 @@ tools/             LLM tool-calling
   definitions.py     도구 스키마 (OpenAI function 정의)
   executor.py        도구 디스패치 → queries 호출
   queries/           도메인별 Neo4j 읽기 쿼리 (패키지)
-    __init__.py        facade — 13개 공개 쿼리 함수 re-export
+    __init__.py        facade — 19개 공개 쿼리 함수 re-export
     _common.py         공용 드라이버/상수/헬퍼 (_MIN_CONFIDENCE, _group_communications_by_thread)
-    issue.py changeset.py actor.py files.py discovery.py
+    issue.py changeset.py actor.py files.py discovery.py document.py explore.py
 
 graph/             Neo4j 그래프 구축 + 수집
   consumer.py        RabbitMQ consumer

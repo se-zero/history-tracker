@@ -92,6 +92,173 @@ class GitHubRawServiceTest {
     }
 
     @Test
+    @DisplayName("fetchIssuePage: assignees 각각도 user와 같은 방식으로 /users/{login}로 name/email이 보강된다")
+    @SuppressWarnings("unchecked")
+    void fetchIssuePage_assignees_enrichedWithProfileNameAndEmail() {
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/issues")) {
+                        return Mono.just(jsonResponse("""
+                                [
+                                  {
+                                    "id": 1,
+                                    "number": 7,
+                                    "title": "Bug",
+                                    "body": "detail",
+                                    "state": "open",
+                                    "created_at": "2024-01-01T00:00:00Z",
+                                    "updated_at": "2024-01-02T00:00:00Z",
+                                    "user": {"login": "author"},
+                                    "assignees": [{"login": "alice"}, {"login": "bob"}]
+                                  }
+                                ]
+                                """));
+                    }
+                    if (path.equals("/users/author")) {
+                        return Mono.just(jsonResponse("""
+                                {"email": "author@example.com", "name": "Author"}
+                                """));
+                    }
+                    if (path.equals("/users/alice")) {
+                        return Mono.just(jsonResponse("""
+                                {"email": "alice@example.com", "name": "Alice"}
+                                """));
+                    }
+                    if (path.equals("/users/bob")) {
+                        return Mono.just(jsonResponse("""
+                                {"email": "bob@example.com", "name": "Bob"}
+                                """));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                detailExecutor()
+        );
+
+        GitHubRawService.GitHubPage page = service.fetchIssuePage(fetchContext(), 1);
+
+        Map<String, Object> issue = (Map<String, Object>) page.items().get(0);
+        List<Map<String, Object>> assignees = (List<Map<String, Object>>) issue.get("assignees");
+        assertThat(assignees).hasSize(2);
+        assertThat(assignees.get(0)).containsEntry("login", "alice")
+                .containsEntry("name", "Alice").containsEntry("email", "alice@example.com");
+        assertThat(assignees.get(1)).containsEntry("login", "bob")
+                .containsEntry("name", "Bob").containsEntry("email", "bob@example.com");
+    }
+
+    @Test
+    @DisplayName("fetchIssuePage: 작성자와 같은 login의 assignee는 /users/{login}이 재호출되지 않는다")
+    void fetchIssuePage_assigneeSameAsAuthor_notReFetched() {
+        AtomicInteger authorProfileCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/issues")) {
+                        return Mono.just(jsonResponse("""
+                                [
+                                  {
+                                    "id": 1,
+                                    "number": 7,
+                                    "title": "Bug",
+                                    "body": "detail",
+                                    "state": "open",
+                                    "created_at": "2024-01-01T00:00:00Z",
+                                    "updated_at": "2024-01-02T00:00:00Z",
+                                    "user": {"login": "dev"},
+                                    "assignees": [{"login": "dev"}]
+                                  }
+                                ]
+                                """));
+                    }
+                    if (path.equals("/users/dev")) {
+                        authorProfileCallCount.incrementAndGet();
+                        return Mono.just(jsonResponse("""
+                                {"email": "dev@example.com", "name": "Dev"}
+                                """));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                detailExecutor()
+        );
+
+        service.fetchIssuePage(fetchContext(), 1);
+
+        assertThat(authorProfileCallCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("fetchMergedPullRequestPage: assignees는 Normalizer가 읽지 않으므로 보강하지 않는다")
+    @SuppressWarnings("unchecked")
+    void fetchPullRequestPage_assignees_notEnriched() {
+        AtomicInteger reviewerProfileCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    String query = request.url().getQuery();
+                    if (path.equals("/repos/owner/repo/pulls")) {
+                        if (query != null && query.contains("page=1")) {
+                            return Mono.just(jsonResponse("""
+                                    [
+                                      {
+                                        "number": 10,
+                                        "title": "merged",
+                                        "state": "closed",
+                                        "created_at": "2024-01-01T00:00:00Z",
+                                        "updated_at": "2024-01-03T00:00:00Z",
+                                        "merged_at": "2024-01-02T00:00:00Z",
+                                        "merge_commit_sha": "merge-sha",
+                                        "user": {"login": "author"},
+                                        "assignees": [{"login": "reviewer"}],
+                                        "base": {"ref": "main"},
+                                        "html_url": "https://github.com/owner/repo/pull/10"
+                                      }
+                                    ]
+                                    """));
+                        }
+                        return Mono.just(jsonResponse("[]"));
+                    }
+                    if (path.equals("/users/author")) {
+                        return Mono.just(jsonResponse("""
+                                {"email": "author@example.com", "name": "Author"}
+                                """));
+                    }
+                    if (path.equals("/users/reviewer")) {
+                        reviewerProfileCallCount.incrementAndGet();
+                        return Mono.just(jsonResponse("""
+                                {"email": "reviewer@example.com", "name": "Reviewer"}
+                                """));
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                new GitHubRateLimiter(0, 0, 0),
+                detailExecutor()
+        );
+
+        GitHubRawService.GitHubPage page = service.fetchMergedPullRequestPage(fetchContext(), 1);
+
+        Map<String, Object> pullRequest = (Map<String, Object>) page.items().get(0);
+        List<Map<String, Object>> assignees = (List<Map<String, Object>>) pullRequest.get("assignees");
+        assertThat(assignees).hasSize(1);
+        assertThat(assignees.get(0)).containsEntry("login", "reviewer")
+                .doesNotContainKeys("name", "email");
+        assertThat(reviewerProfileCallCount.get()).isZero();
+    }
+
+    @Test
     @DisplayName("branch 옵션 지정 시 commits 요청 URL에 sha 파라미터 포함")
     void prepareFetchContext_withBranchOption_addsShaParam() {
         AtomicReference<String> capturedCommitsQuery = new AtomicReference<>();

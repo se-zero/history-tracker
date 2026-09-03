@@ -11,6 +11,7 @@ import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubAccessTokenResponse;
 import com.history.backend.github.dto.GitHubBranchResponse;
 import com.history.backend.github.dto.GitHubInstallationsResponse;
+import com.history.backend.github.dto.GitHubOrganizationMembershipResponse;
 import com.history.backend.github.dto.GitHubRepositoriesResponse;
 import com.history.backend.github.dto.GitHubRepositoryResponse;
 import com.history.backend.github.dto.GitHubUserResponse;
@@ -233,6 +234,40 @@ public class GitHubOAuthClient {
         }
     }
 
+    // 조직 멤버십 3값 판정 (사용자 토큰) — checkInstallationAccess와 같은 무예외 계약.
+    // 403은 "멤버 아님"과 "확인 불가(권한 부재·SAML SSO·rate limit)"를 구분할 수 없어 UNKNOWN —
+    // 호출부가 확인 불가를 삭제로 오독하지 않게 한다.
+    public OrganizationMembership checkOrganizationMembership(String accessToken, String organizationLogin, String username) {
+        GitHubOrganizationMembershipResponse response;
+        try {
+            response = restClient
+                    .get()
+                    .uri(properties.organizationMembershipUrl(), organizationLogin, username)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .retrieve()
+                    .body(GitHubOrganizationMembershipResponse.class);
+        } catch (RestClientResponseException exception) {
+            int statusCode = exception.getStatusCode().value();
+            if (statusCode == HttpStatus.NOT_FOUND.value()) {
+                return OrganizationMembership.NOT_MEMBER;
+            }
+            if (statusCode == HttpStatus.FORBIDDEN.value()) {
+                return OrganizationMembership.UNKNOWN;
+            }
+            log.warn("GitHub organization membership check failed for organization {}: {}",
+                    organizationLogin, exception.getStatusCode());
+            return OrganizationMembership.UNKNOWN;
+        } catch (RestClientException exception) {
+            log.warn("GitHub organization membership check failed for organization {}", organizationLogin, exception);
+            return OrganizationMembership.UNKNOWN;
+        }
+
+        return response != null && "active".equals(response.state())
+                ? OrganizationMembership.ACTIVE
+                : OrganizationMembership.NOT_MEMBER;
+    }
+
     // 사용자 access token으로 설치 저장소 목록 조회. 설치 토큰은 설치에 열린 저장소 전부를
     // 돌려줘서 사용자가 볼 수 없는 비공개 저장소까지 노출한다.
     public List<GitHubRepositoryResponse> fetchUserInstallationRepositories(
@@ -270,6 +305,13 @@ public class GitHubOAuthClient {
                     .retrieve()
                     .body(GitHubRepositoriesResponse.class);
         } catch (RestClientResponseException exception) {
+            // 저장소 0개 설치는 404를 줄 수 있다는 게 문서로 확정되진 않았지만, 방어적으로
+            // 빈 페이지로 처리한다 — 페이지네이션 루프가 정상 종료되고 프론트엔 "저장소 없음"으로 보인다.
+            // 1페이지에서만 흡수한다: 중간 페이지 404까지 빈 결과로 뭉개면 진짜 실패가 부분 결과로
+            // 조용히 끝난다.
+            if (page == 1 && exception.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                return List.of();
+            }
             throw gitHubApiException("GitHub repository list request failed.", exception);
         } catch (RestClientException exception) {
             throw new BadGatewayException("GitHub repository list request failed.", exception);
@@ -360,6 +402,14 @@ public class GitHubOAuthClient {
     public enum InstallationAccess {
         ACCESSIBLE,
         DENIED,
+        UNKNOWN
+    }
+
+    // 조직 멤버십 판정 3상태 — NOT_MEMBER만 진짜 멤버 아님이고, UNKNOWN은 판단 보류(403·5xx·네트워크 등)다.
+    // 둘을 boolean으로 합치면 확인 불가 상황이 멤버십 삭제로 오판된다.
+    public enum OrganizationMembership {
+        ACTIVE,
+        NOT_MEMBER,
         UNKNOWN
     }
 }

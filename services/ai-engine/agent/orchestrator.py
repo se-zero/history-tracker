@@ -193,7 +193,7 @@ _GROUNDED_ANSWER_SCHEMA = {
 
 _SYSTEM_PROMPT = """\
 당신은 코드 변경 맥락 분석 AI입니다.
-GitHub(커밋, PR), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서) 데이터가 Neo4j 지식
+GitHub(커밋, PR, 이슈), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서) 데이터가 Neo4j 지식
 그래프로 연결되어 있습니다. 제공된 도구를 사용해 그래프를 탐색하고 사용자의 질문에 답하세요.
 
 [답변 규칙]
@@ -291,7 +291,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - evidence[*].id 형식 (반드시 준수):
     commit       → hash 앞 7자
     pull_request → "#번호" (예: "#18")
-    issue        → issue_key (예: "HT-37")
+    issue        → issue_key (예: "HT-37", GitHub 이슈는 "#142")
     message      → conversation_id (Slack ts)
     document     → external_id (Notion page id 등)
 - evidence[*].event_meaning은 위 [타임스탬프 의미 사전]의 enum 값만 사용.

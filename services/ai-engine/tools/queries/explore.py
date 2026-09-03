@@ -488,9 +488,9 @@ SCHEMA_CARD = """\
 노드 (전부 project_id를 갖지만 쿼리에 쓰지 말 것 — 서버가 주입한다)
 - ChangeSet(커밋): hash, message, occurredAt(=커밋 시각), source
 - PullRequest: pr_number, title, body, state, base_branch, url, createdAt(=오픈), occurredAt(=머지), issue_keys
-- Issue: external_id(불변 ID, source와 함께 유니크 키), source, issue_key(사람용 표시 키, nullable), status(원문, nullable), status_category(open|in_progress|closed — 종료 판정은 이 축), title, body, issue_type, priority, createdAt, closedAt, occurredAt(=최종 수정)
+- Issue: external_id(불변 ID, source와 함께 유니크 키), source, issue_key(사람용 표시 키, nullable), status(원문, nullable), status_category(open|in_progress|closed — 종료 판정은 이 축), title, body, issue_type, priority, createdAt, closedAt, occurredAt(=최종 수정) — GitHub 이슈는 source='GITHUB', issue_key='#N'
   ※ source='__stub__'는 텍스트 참조만 있고 아직 수집되지 않은 이슈의 센티널 노드 — title/body 없음, 실이벤트 도착 시 흡수된다
-- Communication(Slack/GitHub 메시지): body, channel, url, conversation_id, createdAt, occurredAt, source, llm_filtered
+- Communication(Slack 등 대화 메시지): body, channel, url, conversation_id, createdAt, occurredAt, source, llm_filtered
 - File: path
 - Actor(사람): uuid, name, aliases
 - Document(문서, 예: Notion 페이지): external_id(불변 ID, source와 함께 유니크 키), source, title, body(평문 전체 — 길다, 필요하면 get_document_context를 우선 고려), url, createdAt, occurredAt(=최종 수정), parent_type, parent_external_id

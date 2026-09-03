@@ -11,8 +11,6 @@ import com.history.backend.github.GitHubAppProperties;
 import com.history.backend.github.dto.GitHubBranchResponse;
 import com.history.backend.github.dto.GitHubInstallationResponse;
 import com.history.backend.github.dto.GitHubInstallationTokenResponse;
-import com.history.backend.github.dto.GitHubRepositoriesResponse;
-import com.history.backend.github.dto.GitHubRepositoryResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -27,7 +25,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Component
 public class GitHubAppClient {
 
-    private static final int REPOSITORIES_PER_PAGE = 100;
     private static final int BRANCHES_PER_PAGE = 100;
 
     private final GitHubAppProperties properties;
@@ -95,55 +92,25 @@ public class GitHubAppClient {
         }
     }
 
-    // 설치 저장소 전체 조회 (100개 단위 페이지네이션, 마지막 페이지까지 반복)
-    public List<GitHubRepositoryResponse> fetchInstallationRepositories(String installationAccessToken) {
-        List<GitHubRepositoryResponse> repositories = new ArrayList<>();
-        int page = 1;
-        while (true) {
-            List<GitHubRepositoryResponse> pageRepositories = fetchInstallationRepositoryPage(
-                    installationAccessToken,
-                    page
-            );
-            repositories.addAll(pageRepositories);
-            if (pageRepositories.size() < REPOSITORIES_PER_PAGE) {
-                return repositories;
-            }
-            page++;
-        }
-    }
-
-    private List<GitHubRepositoryResponse> fetchInstallationRepositoryPage(
-            String installationAccessToken,
-            int page
-    ) {
-        GitHubRepositoriesResponse response;
+    // 설치 단건 조회 (App JWT). 404는 "설치가 삭제/부재"라는 정상 판정 — fetchUserInstallation과 동일 계약.
+    public Optional<GitHubInstallationResponse> fetchInstallation(Long installationId) {
         try {
-            response = restClient
+            GitHubInstallationResponse response = restClient
                     .get()
-                    .uri(repositoryPageUri(page))
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + installationAccessToken)
+                    .uri(properties.appInstallationUrl(), installationId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + gitHubAppJwtService.createJwt())
                     .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                    .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
-                    .body(GitHubRepositoriesResponse.class);
+                    .body(GitHubInstallationResponse.class);
+            return Optional.ofNullable(response);
         } catch (RestClientResponseException exception) {
-            throw gitHubApiException("GitHub repository list request failed.", exception);
+            if (exception.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                return Optional.empty();
+            }
+            throw gitHubApiException("GitHub app installation request failed.", exception);
         } catch (RestClientException exception) {
-            throw new BadGatewayException("GitHub repository list request failed.", exception);
+            throw new BadGatewayException("GitHub app installation request failed.", exception);
         }
-
-        if (response == null || response.repositories() == null) {
-            return List.of();
-        }
-        return response.repositories();
-    }
-
-    private String repositoryPageUri(int page) {
-        return UriComponentsBuilder.fromUriString(properties.installationRepositoriesUrl())
-                .queryParam("per_page", REPOSITORIES_PER_PAGE)
-                .queryParam("page", page)
-                .build()
-                .toUriString();
     }
 
     // 저장소 브랜치 전체 조회 (100개 단위 페이지네이션)

@@ -18,11 +18,12 @@ public record GitHubAppProperties(
         String userUrl,
         String installationsUrl,
         String installationAccessTokenUrl,
-        String installationRepositoriesUrl,
         String repositoryBranchesUrl,
         String userInstallationRepositoriesUrl,
         String userInstallationUrl,
         String grantRevokeUrl,
+        String appInstallationUrl,
+        String organizationMembershipUrl,
         Duration refreshSkew
 ) {
 }

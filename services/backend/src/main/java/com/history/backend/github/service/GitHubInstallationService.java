@@ -74,6 +74,12 @@ public class GitHubInstallationService {
                 .toList();
     }
 
+    // 로그인 동기화 전용 멤버십 설치 목록 — 방금 upsert된 사용자라 getActiveUser 게이트를 타지 않는다
+    @Transactional(readOnly = true)
+    public List<GitHubInstallation> findMemberInstallations(UUID userId) {
+        return gitHubInstallationRepository.findAllByMemberUserId(userId);
+    }
+
     @Transactional(readOnly = true)
     public GitHubInstallation getAccessibleInstallation(UUID userId, UUID installationId) {
         userService.getActiveUser(userId);

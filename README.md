@@ -26,7 +26,7 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
 |--------|------|
 | 데이터 수집 | Spring Boot (Java), GitHub API, Jira API, Slack API |
 | 메시지 큐 | RabbitMQ |
-| AI 처리 | Python/FastAPI, OpenAI GPT-4o-mini, text-embedding-3-large (1536차원 절삭) |
+| AI 처리 | Python/FastAPI, OpenAI (질의 gpt-5.4-mini · 그래프 구축 gpt-4o-mini), text-embedding-3-large (1536차원 절삭) |
 | 그래프 DB | Neo4j (벡터 인덱스 포함) |
 
 ## 핵심 기능
@@ -50,8 +50,8 @@ GitHub 커밋/PR/이슈, Jira 티켓, Slack 메시지를 수집해 Neo4j 지식 
 
 ### 노드 (6종)
 - **Actor**: GitHub·Jira·Slack의 사용자. 플랫폼을 넘어 동일인을 하나의 노드로 통합
-- **Issue**: Jira 티켓
-- **Communication**: Slack 메시지 또는 GitHub Issue 코멘트
+- **Issue**: 이슈 트래커의 작업 단위 (Jira·Linear·Asana·ClickUp 이슈, GitHub 이슈)
+- **Communication**: 대화 메시지 (Slack·Discord·Google Chat)
 - **PullRequest**: GitHub PR
 - **ChangeSet**: GitHub 커밋
 - **File**: 저장소 내 파일

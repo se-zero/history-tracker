@@ -669,25 +669,30 @@ refs.issueKeys / issueExternalRefs → DESCRIBED_IN(source='text', confidence=1.
 쪽 작업이 함께 있다.** 「커넥터 엔드투엔드 체크리스트」 3단계가 이 커넥터에는 부족하다는 뜻이라,
 아래를 별도로 챙긴다.
 
-- [ ] `types/graph.ts` — `GraphNodeType`에 `"doc"` 추가 + `NODE_TYPE_INFO`에
+**완료.** 아래는 전부 코드에 반영돼 있다 — 2026-09-02에 코드와 1:1로 대조하고
+`npm run typecheck && npm run build`로 확인했다.
+
+- [x] `types/graph.ts` — `GraphNodeType`에 `"doc"` 추가 + `NODE_TYPE_INFO`에
       `doc: { label: "Document", cssVar: "var(--node-doc)" }`.
       **`NODE_TYPE_INFO`는 `Record<GraphNodeType, …>`라 유니온에 추가하는 순간 컴파일이 깨진다** —
       의도된 안전망이다.
-- [ ] `NodeRef["type"]`에 `"document"` 추가(채팅 첨부 칩 → focus evidence 경로).
-- [ ] `styles/tokens.css`에 `--node-doc` 신규 토큰. **`docs/DESIGN.md`를 먼저 읽고 팔레트에서
+- [x] `NodeRef["type"]`에 `"document"` 추가(채팅 첨부 칩 → focus evidence 경로).
+- [x] `styles/tokens.css`에 `--node-doc` 신규 토큰. **`docs/DESIGN.md`를 먼저 읽고 팔레트에서
       파생시킨다** — 기존 7색과 구분되면서 같은 계열이어야 한다. 다크·라이트 양쪽 값을 정한다.
-- [ ] `GraphBuildResult`에 신규 카운터 필드(§6-2).
-- [ ] `sourceCatalog.tsx` — `notion` 항목을 `status: "wired"`로, `connect: "oauth"`,
+- [x] `GraphBuildResult`에 신규 카운터 필드(§6-2).
+- [x] `sourceCatalog.tsx` — `notion` 항목을 `status: "wired"`로, `connect: "oauth"`,
       `deletedData: "수집한 Notion 페이지 본문·섹션과 그 그래프 연결"`.
       `consentSideEffect`는 비워 둔다(동의만으로 Notion 쪽에 남는 것이 없다).
-- [ ] **`pages/PrivacyPage.tsx` — 배포 기준이다.** 세 곳을 함께 고친다:
+- [x] **`components/landing/legal/PrivacyBodyKo.tsx`·`PrivacyBodyEn.tsx` — 배포 기준이다.**
+      `pages/PrivacyPage.tsx`는 얇은 진입점이라 조항 본문이 없다 — 본문은 언어별 컴포넌트가 갖는다.
+      **한국어·영어 두 벌을 함께 고친다.** 각 벌에서 세 곳을 고친다:
       제1조 「연동 자격증명」 행(Notion access token + refresh token),
       제1조 「연동으로 수집되는 기록」 목록(페이지 제목·본문·작성자·편집자),
       제2조 `LegalSourceBlock`(앵커 `#notion`) — 요청 capability, 수집 정보, 이용 목적, 삭제,
       쓰기 권한 없음. **이름·이메일을 `GET /v1/users`로 얻는다는 것까지 밝힌다**(Google Chat이
       People API를 밝히는 것과 같은 수준).
       **여기에 "선택한 페이지의 하위 페이지도 함께 수집된다"를 반드시 적는다**(§1-3).
-- [ ] 검증: `npm run typecheck && npm run build`
+- [x] 검증: `npm run typecheck && npm run build`
 
 ---
 

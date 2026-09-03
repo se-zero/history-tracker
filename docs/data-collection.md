@@ -24,7 +24,7 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 |------|-----------|---------------|
 | Commit | `GET /repos/{owner}/{repo}/commits` | `github/github_commits` |
 | Pull Request | `GET /repos/{owner}/{repo}/pulls?state=closed` | `github/github_pull_requests` |
-| Issue | `GET /repos/{owner}/{repo}/issues?state=all` | `github/github_issues` |
+| Issue | `GET /repos/{owner}/{repo}/issues?state=all` (`pull_request` 키 있는 항목 제외) → `Issue` 노드(`issue_key=#N`) | `github/github_issues` |
 
 타입별 checkpoint가 독립적이라 재시작 시 완료된 타입은 건너뛴다. 코드 내부에서는 GitHub checkpoint snapshot을 `commitsScannedAt`, `pullRequestsScannedAt`, `issuesScannedAt` 필드로 다룬다.
 

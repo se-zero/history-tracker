@@ -126,7 +126,7 @@ public class GitHubNormalizer {
         return events;
     }
 
-    // issues (PR 제외) → Communication 이벤트 목록
+    // issues (PR 제외) → Issue 이벤트 목록
     @SuppressWarnings("unchecked")
     public List<NormalizedEvent> normalizeIssues(String projectId, List<Object> issues) {
         List<NormalizedEvent> events = new ArrayList<>();
@@ -136,28 +136,42 @@ public class GitHubNormalizer {
             // pull_request 키가 있으면 PR — 이미 normalizePullRequests에서 처리
             if (issue.containsKey("pull_request")) continue;
 
+            // external_id(id)는 이벤트 식별의 필수값이라, 없는 이슈는 건너뛴다 (AsanaNormalizer와 동일 규약).
+            Object id = issue.get("id");
+            if (id == null) continue;
+
             Map<String, Object> user = (Map<String, Object>) issue.get("user");
             String createdAt = (String) issue.get("created_at");
             String updatedAt = (String) issue.get("updated_at");
             String title = (String) issue.get("title");
             String body = (String) issue.get("body");
 
-            // title을 body 앞에 합산 — GitHub issue는 title이 핵심 맥락
-            String combinedBody = (title != null ? title : "") +
-                    (body != null && !body.isBlank() ? "\n\n" + body : "");
+            String state = (String) issue.get("state");
+            boolean closed = "closed".equals(state);
+            String statusCategory = closed ? "closed" : "open";
+            // closed면 state_reason(완료/취소 등 사유)을 status로, 없으면 "closed"로 폴백.
+            // open이면 사유 개념이 없으니 항상 "open"으로 고정한다.
+            String status = closed
+                    ? firstNonNull((String) issue.get("state_reason"), "closed")
+                    : "open";
 
             Map<String, Object> properties = new HashMap<>();
-            properties.put("body", combinedBody);
-            properties.put("channel", "github_issues");
-            properties.put("url", issue.get("html_url"));
-            properties.put("conversation_id", String.valueOf(issue.get("number")));
+            properties.put("external_id", String.valueOf(id));
+            properties.put("issue_key", "#" + issue.get("number"));
+            properties.put("title", title != null ? title : "");
+            properties.put("body", body != null ? body : "");
+            properties.put("status_category", statusCategory);
+            properties.put("status", status);
             properties.put("created_at", createdAt);
-
-            String content = combinedBody;
+            // 종료된 이슈만 closed_at을 채운다 — 미종료(재오픈 포함)에서 키를 생략해야
+            // ai-engine builder가 status_category를 보고 closedAt을 null로 클리어한다 (Linear와 동일 규약).
+            if (closed) {
+                properties.put("closed_at", (String) issue.get("closed_at"));
+            }
 
             events.add(new NormalizedEvent(
                     projectId,
-                    "Communication",
+                    "Issue",
                     "GITHUB",
                     resolveInstant(updatedAt, createdAt),
                     new ActorDto(
@@ -166,10 +180,39 @@ public class GitHubNormalizer {
                             user != null ? (String) user.get("email") : null
                     ),
                     properties,
-                    refsExtractor.extract(content)
+                    resolveIssueRefs(title, body, issue)
             ));
         }
         return events;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> resolveIssueRefs(String title, String body, Map<String, Object> issue) {
+        Map<String, Object> refs = new HashMap<>(
+                refsExtractor.extract((title != null ? title : "") + "\n\n" + (body != null ? body : "")));
+
+        // Issue는 최신 스냅샷이라 담당자 없음도 명시적 빈 배열로 나타내야 기존 ASSIGNED_TO가 해제된다.
+        List<Object> assignees = (List<Object>) issue.get("assignees");
+        List<Map<String, Object>> resolvedAssignees = new ArrayList<>();
+        if (assignees != null) {
+            for (Object raw : assignees) {
+                Map<String, Object> assignee = (Map<String, Object>) raw;
+                String login = (String) assignee.get("login");
+                if (login == null) continue;
+                Map<String, Object> entry = new HashMap<>();
+                entry.put("id", login);
+                entry.put("name", resolveDisplayName(assignee));
+                entry.put("email", assignee.get("email"));
+                resolvedAssignees.add(entry);
+            }
+        }
+        refs.put("assignees", resolvedAssignees);
+
+        return refs;
+    }
+
+    private String firstNonNull(String primary, String fallback) {
+        return primary != null ? primary : fallback;
     }
 
     /** enrichUserObjects가 name을 보강했으면 사용, 없으면 login으로 대체 */

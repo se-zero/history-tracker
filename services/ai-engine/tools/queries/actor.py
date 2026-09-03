@@ -1,6 +1,7 @@
 """사람(Actor) 컨텍스트 조회 — 전문가 추천, 활동 내역, 동일인 inspect."""
 
 import os
+import re
 
 from tools.queries._common import _detail_count_for_budget, _priority_order, get_driver
 
@@ -95,12 +96,14 @@ def _first_line(text: str | None) -> str:
 
 
 def _issue_key_order(issue: dict) -> int:
-    """issue_key 번호 내림차순 정렬용 — 번호가 클수록 최근 이슈 (이슈 쿼리엔 시각이 없다)."""
+    """issue_key 번호 내림차순 정렬용 — 번호가 클수록 최근 이슈 (이슈 쿼리엔 시각이 없다).
+
+    끝자리 연속 숫자를 정규식으로 뽑는다 — "HT-45"뿐 아니라 GitHub 이슈 키("#142")도
+    끝자리 숫자로 정렬된다. 끝자리에 숫자가 없으면 -1(가장 오래된 취급).
+    """
     key = issue.get("issue_key") or ""
-    try:
-        return int(key.rsplit("-", 1)[-1])
-    except ValueError:
-        return -1
+    m = re.search(r"(\d+)$", key)
+    return int(m.group(1)) if m else -1
 
 
 def _cap_issues(issues: list[dict], cap: int = _ISSUES_CAP) -> tuple[list[dict], int, str]:
