@@ -43,8 +43,8 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 **소스 단위 삭제(`delete_project_source_graph`)는 다섯 단계다.** `source` 속성 하나로 지우고
 끝낼 수 없는 이유가 각 단계에 있다.
 
-1. **도메인 노드** — `source` 속성으로 스코프한다. `Communication`이 SLACK·GITHUB 공용이라
-   라벨이 아니라 속성으로 걸러야 한다. Issue 실노드·parent pre-node는 여기서 잡히지만,
+1. **도메인 노드** — `source` 속성으로 스코프한다. `Issue`(JIRA·LINEAR·GITHUB…)와
+   `Communication`(SLACK·DISCORD…)이 여러 소스 공용 라벨이라 라벨이 아니라 속성으로 걸러야 한다. Issue 실노드·parent pre-node는 여기서 잡히지만,
    `__stub__` 센티널은 특정 소스 소속이 아니라 안 잡힌다 — 5단계 참고. `Document`·
    `DocumentSection`도 둘 다 `source` 속성을 가지므로 라벨을 한정하지 않는 이 단계가 자동으로
    함께 지운다 — File처럼 별도 고아 정리가 필요 없다(`DocumentSection`엔 `source`가 있다).
@@ -334,7 +334,7 @@ Document에 걸어 두므로(관계 목록 참고) 섹션이 통째로 갈려도
 | 관계 | 방향 | 속성 | 설명 |
 |------|------|------|------|
 | `CREATED` | `(Actor)→(Issue)` | — | Actor가 이슈를 생성 |
-| `WROTE` | `(Actor)→(Communication)` | — | Actor가 메시지/이슈를 작성 |
+| `WROTE` | `(Actor)→(Communication)` | — | Actor가 메시지를 작성 |
 | `AUTHORED` | `(Actor)→(PullRequest)`, `(Actor)→(ChangeSet)` | — | Actor가 PR/commit을 생성 |
 | `ASSIGNED_TO` | `(Issue)→(Actor)` | — | 이슈의 담당자 (복수 가능 — `refs.assignees` 스냅샷을 통째로 반영) |
 | `ALIAS_OF` | `(ActorAlias)→(Actor)` | — | ActorAlias(소스 계정)가 속한 Actor. Step 0 조회, 수동 병합·복원·분리의 재연결 대상 |
