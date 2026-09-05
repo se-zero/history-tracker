@@ -127,10 +127,19 @@ def _resolve_filters(types: list[str] | None) -> tuple[str, str]:
 
 
 # 선택된 노드 집합(id) 안에서만 엣지를 수집한다 — 한쪽 끝이 잘려나간 dangling 엣지는 제외.
+# DISTINCT를 쓰지 않는다 — 관계 메타데이터(kind/method/...)를 실으면 행이 관계당 1개가 되어
+# DISTINCT는 아무 것도 접지 못한다. 남겨두면 "여기서 중복이 접힌다"는 오해만 준다. 같은
+# (source, target) 쌍의 대표 엣지 선정(접기)은 Cypher가 아니라 아래 _collapse_edges가 한다.
+# properties(r)를 통째로 반환하지 않는다 — MODIFIED 관계에는 1536차원 r.embedding이 붙어 있어
+# (모듈 docstring의 "embedding은 응답에 넣지 않는다" 규칙 위반) 스칼라만 명시 select한다.
+# r.source를 method로 이름을 바꿔 내보낸다 — 노드의 source(github/slack 같은 제품명)와 이름이
+# 겹치면 소비자가 "이 source가 노드 source인지 엣지 생성 방식인지" 헷갈린다.
 _EDGE_QUERY = """
 MATCH (a)-[r]->(b)
 WHERE elementId(a) IN $ids AND elementId(b) IN $ids
-RETURN DISTINCT elementId(a) AS source, elementId(b) AS target
+RETURN elementId(a) AS source, elementId(b) AS target,
+       type(r) AS kind, r.source AS method,
+       r.confidence AS confidence, r.section AS section
 """
 
 
@@ -305,6 +314,70 @@ def _to_graph_node(row: dict) -> dict:
     }
 
 
+# evidence(REFERENCE류) 관계 타입 — "명시 참조냐 구조 관계냐"를 가르는 기준.
+# _edge_rank가 관계 스키마(type(r))로만 판별하고, method(r.source) 유무로는 나누지 않는다 —
+# 구 데이터에는 r.source가 NULL인 REFERENCE 엣지가 남아 있어서, 속성 유무로 나누면 그 엣지들이
+# 구조 관계로 잘못 분류된다.
+_EVIDENCE_KINDS = frozenset({"TRIGGERED_BY", "REFERENCE", "DESCRIBED_IN", "DISCUSSED_IN"})
+
+
+def _edge_rank(row: dict) -> tuple:
+    """엣지 대표 선정용 정렬 키 — 가장 확정적인 것이 이긴다(작을수록 우선).
+
+    rank 0: 명시 참조(evidence kind + method=="text") — URL 등으로 확정된 연결.
+    rank 1: 구조 관계(evidence kind가 아님) — 소스 시스템이 준 사실(CONTAINS 등).
+    rank 2: 추측 연결(evidence kind + method가 semantic/propagated, 또는 method 없음).
+            method 없는 구 데이터를 따로 두지 않는 이유: N0 이전 REFERENCE는 전부 임베딩
+            산물이라 coalesce(r.source, 'semantic') 규약으로 semantic 취급한다
+            (graph/maintenance.py, docs/notion-integration.md §2-7). 실데이터에서도 이런
+            엣지는 예외 없이 confidence를 갖고 있다.
+    타이브레이크는 confidence 내림차순(없으면 0.0) → kind 오름차순(결정성 확보용).
+    kind는 빈 문자열로 낮춰서 비교한다 — Neo4j type(r)은 항상 문자열이지만, 이 함수를
+    직접 호출하는 쪽이 kind를 빼면 None과 str 비교로 TypeError가 난다.
+    """
+    kind = row.get("kind")
+    method = row.get("method")
+    is_evidence = kind in _EVIDENCE_KINDS
+
+    if is_evidence and method == "text":
+        rank = 0
+    elif not is_evidence:
+        rank = 1
+    else:
+        # semantic·propagated와 method 없음(구 데이터)을 한 칸에 둔다 — 위 docstring의 coalesce 규약.
+        rank = 2
+
+    confidence = row.get("confidence")
+    return (rank, -(confidence or 0.0), kind or "")
+
+
+def _collapse_edges(rows: list[dict]) -> list[dict]:
+    """같은 (source, target) 쌍의 관계를 대표 엣지 1개로 접는다.
+
+    관계 타입을 키에 넣지 않는 이유: 넣으면 같은 두 노드 사이의 서로 다른 관계가 별개
+    엣지가 되어(예: Actor→Document의 WROTE+EDITED) 프론트의 "연결 N" 카운트·레이아웃 선
+    굵기·관여 노드 수가 조용히 부풀어 오른다. 대표는 _edge_rank로 고른다(확정 > 구조 > 추측 > 미상).
+    삽입 순서를 유지한다(정렬하지 않음) — Neo4j 반환 순서를 그대로 쓰는 기존 동작과 동일하다.
+    """
+    best: dict[tuple, dict] = {}
+    for row in rows:
+        key = (row["source"], row["target"])
+        if key not in best or _edge_rank(row) < _edge_rank(best[key]):
+            best[key] = row
+
+    return [
+        {
+            "source": row["source"],
+            "target": row["target"],
+            "kind": row.get("kind"),
+            "method": row.get("method"),
+            "confidence": row.get("confidence"),
+            "section": row.get("section"),
+        }
+        for row in best.values()
+    ]
+
+
 async def get_project_overview(
     project_id: str,
     limit: int = DEFAULT_LIMIT,
@@ -342,7 +415,7 @@ async def get_project_overview(
         edge_rows = await edge_result.data()
 
     nodes = [_to_graph_node(r) for r in node_rows]
-    edges = [[r["source"], r["target"]] for r in edge_rows]
+    edges = _collapse_edges(edge_rows)
 
     logger.info(
         "overview project=%s nodes=%d edges=%d (limit=%d, types=%s)",
@@ -465,7 +538,7 @@ async def get_work_units_view(
         edge_rows = await edge_result.data()
 
     nodes = [_to_graph_node(r) for r in node_rows]
-    edges = [[r["source"], r["target"]] for r in edge_rows]
+    edges = _collapse_edges(edge_rows)
     work_unit_ids = [r["id"] for r in work_rows]
 
     logger.info(
@@ -539,7 +612,7 @@ async def get_work_unit_neighborhood(project_id: str, node_id: str) -> dict:
         edge_rows = await edge_result.data()
 
     nodes = [_to_graph_node(r) for r in node_rows]
-    edges = [[r["source"], r["target"]] for r in edge_rows]
+    edges = _collapse_edges(edge_rows)
     logger.info(
         "work-unit project=%s node=%s nodes=%d edges=%d",
         project_id, node_id, len(nodes), len(edges),
@@ -774,7 +847,7 @@ async def get_evidence_subgraph(project_id: str, evidence: list[dict]) -> dict:
         edge_rows = await edge_result.data()
 
     nodes = [_to_graph_node(r) for r in node_rows]
-    edges = [[r["source"], r["target"]] for r in edge_rows]
+    edges = _collapse_edges(edge_rows)
     seeds = _resolve_seed_ids(evidence, node_rows)
 
     logger.info(
