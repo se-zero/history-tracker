@@ -259,6 +259,44 @@ Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 �
 하고 지우지 않는다** — 배열에 없다고 해제되지 않는다. 같은 모양의 배열이 반대로 동작하므로
 다음 커넥터를 붙일 때 이 문단을 놓치면 반드시 틀린다.
 
+**Document 참조 상한(`DOCUMENT_ISSUE_REF_LIMIT`, 기본 5)**: `issueKeys` distinct 개수와
+`issueExternalRefs` distinct 개수의 **합**이 이 값을 넘으면, ai-engine은 두 refs가 만드는
+`(Issue)-[:DESCRIBED_IN {source:'text'}]->(Document)` 링크를 **상위 N개로 자르지 않고 전량
+스킵**한다(`graph/event_handler.py`의 `_handle_document`, 상수는 `graph/document_policy.py`).
+"이슈 키가 이렇게 많다"는 사실 자체가 그 문서가 특정 이슈를 설명하는 게 아니라 색인·나열용
+문서라는 신호이므로, 상위 몇 개만 골라 남기지도 않는다 — 나열 순서에는 우선순위 정보가 없어
+무엇을 남길지 고를 기준이 없다.
+
+**이 상한은 Document 소비 경로에만 걸린다.** ChangeSet·PullRequest·Communication의
+`issueKeys`/`issueExternalRefs`에는 같은 상한이 없다 — 커밋 메시지 한 줄, PR 본문, 채팅
+메시지 한 줄에 나열 가능한 이슈 키 수는 텍스트 길이가 자연히 제한한다. 반면 Notion 문서
+본문은 최대 **10만 자**(`NotionRawService.MAX_BODY_CHARS`)까지 오므로 오탐·나열 노출량이
+자릿수로 2~3개 차이 난다 — 같은 문제가 다른 nodeType에서는 이 정도 규모로 나타나지 않는다.
+실측·간극 근거는 `docs/notion-integration.md`「참조 상한」 절 참고.
+
+### 추출 계약과 그래프 의미론의 분리
+
+`RefsExtractor`의 이슈 키 정규식(`\b([A-Z]{2,}-\d+)\b`)은 `ISO-8601`·`UTF-8` 같은 오탐을
+만든다는 걸 알면서도 **의도적으로 유지한다.** 연동된 트래커의 프로젝트 키만 허용하는
+화이트리스트를 대신 채택하지 않은 이유는 세 가지다.
+
+1. **화이트리스트를 만들 재료가 없다.** Linear는 팀의 사람용 키(식별자 접두, 예: `ENG`)를
+   저장하지 않는다 — backend `LinearApiClient`의 GraphQL 질의가 팀마다 `id`·`name`만
+   요청하고 `key`를 요청하지 않는다. 화이트리스트를 만들려면 이 조회부터 새로 넓혀야 한다.
+2. **normalizer 시그니처가 프로젝트 키 집합을 받지 못한다.** 각 소스 normalizer는
+   `projectId`(UUID)만 받고 "이 프로젝트에 연동된 트래커들의 사람용 키 접두" 같은 참조
+   정보를 받지 않는다. 화이트리스트를 걸려면 이 시그니처부터 넓혀야 하는데, 그 변경이 닿는
+   테스트 파일이 11개다.
+3. **회귀를 만든다.** `RefsExtractorTest`는 ClickUp Custom Task ID URL(`/t/{team_id}/ABC-123`)
+   안의 `ABC-123`, Linear 이슈 URL(`linear.app/.../issue/ENG-42/...`) 안의 `ENG-42`, 2글자
+   접두사 짧은 키(`AB-1`) 추출을 **의도적으로 고정**하고 있다. 셋 다 특정 트래커의 "연동된
+   프로젝트 키"가 아니라 URL 경로·자유 텍스트 안에 등장하는 임의의 키라, 화이트리스트를 걸면
+   이 테스트들이 그대로 깨진다.
+
+**결론: 추출(`RefsExtractor`)은 지금처럼 충실하게 넓게 잡고, 자르기는 소비 측(ai-engine)에서
+한다.** 위 Document 참조 상한이 그 자르기다 — 오탐 자체를 걸러내지는 못하지만, 오탐이 쌓여
+상한을 넘긴 문서는 어차피 "색인성 문서"로 간주해 링크를 만들지 않으므로 실효적으로 흡수된다.
+
 ---
 
 ## 발행·소비 규약

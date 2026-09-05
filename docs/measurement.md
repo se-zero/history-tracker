@@ -339,7 +339,7 @@ pairs:
 2. **그래프를 재구축한다.** 변경 종류에 따라 두 갈래다.
 
    **(a) 임계값·시맨틱 엣지 빌더만 바꾼 경우** (대부분) — 노드·임베딩은 그대로 두고 엣지만 재계산.
-   ai-engine 재기동 후, 아래 **표준 체인**을 순서대로 호출한다. 지우개(clear) 3개로 이전 빌드의
+   ai-engine 재기동 후, 아래 **표준 체인**을 순서대로 호출한다. 지우개(clear) 4개로 이전 빌드의
    시맨틱 엣지를 비우고, 임계값을 파라미터로 주입해 다시 긋는다 — 코드 수정·재배포 없이 스윕할 수 있다.
    > **ai-engine의 모든 라우터는 내부 서비스 토큰을 요구한다**(`/health`만 예외).
    > 아래 호출은 전부 `-H "$AUTH"`를 달아야 하며, 빠뜨리면 **401**이 돌아온다.
@@ -361,7 +361,10 @@ pairs:
    # 1) 지우고
    curl -X POST -H "$AUTH" "$BASE/migrations/clear-semantic-triggered-by?project_id=$PID"
    curl -X POST -H "$AUTH" "$BASE/migrations/clear-semantic-discussed-in?project_id=$PID"
+   # clear-reference는 끝 라벨을 제한하지 않는다 — ChangeSet→Communication뿐 아니라
+   # ChangeSet→Document(Notion) REFERENCE도 함께 지운다.
    curl -X POST -H "$AUTH" "$BASE/migrations/clear-reference?project_id=$PID"
+   curl -X POST -H "$AUTH" "$BASE/migrations/clear-semantic-described-in?project_id=$PID"
 
    # 2) 새 파라미터로 다시 긋는다 (임계값은 스윕 대상 — 아래는 현행 채택값)
    curl -X POST -H "$AUTH" "$BASE/reference/backfill"
@@ -369,8 +372,21 @@ pairs:
         -d '{"triggered_by_threshold": 0.34, "discussed_in_threshold": 0.48}'
    curl -X POST -H "$AUTH" "$BASE/reference/build?threshold=0.44"
    curl -X POST -H "$AUTH" "$BASE/reference/propagate-threads"
+   # 1)에서 clear-reference·clear-semantic-described-in으로 지운 Document 쪽(REFERENCE·
+   # DESCRIBED_IN)은 위 세 호출로 다시 그어지지 않는다 — 별도 빌드 라우트가 필요하다.
+   curl -X POST -H "$AUTH" "$BASE/document-links/build"
    ```
 
+   > **비대칭 이력 — 이 체인은 한동안 Document를 복구 불가로 지웠다.** `clear-reference`는
+   > 끝 라벨을 좁히지 않고(Document REFERENCE까지 삭제) 넓게 지우도록 설계됐는데, 이 표준
+   > 체인의 "다시 긋기" 단계에는 `document-links/build` 호출이 없었다(라우트 자체가 없었다).
+   > 그 결과 Notion 데이터가 있는 프로젝트에서 이 체인을 돌리면 ChangeSet→Document REFERENCE가
+   > 지워진 채 복구되지 않았고, 유일한 복구 경로가 `POST /graph/build`(전체 재구축)뿐이었다.
+   > **일반화한 점검 규칙**: 지우는 함수(`clear-*`)와 다시 긋는 함수(`*/build`)를 짝지을 때,
+   > **끝 라벨 집합이 같은지 대조한다.** 지우개가 여러 라벨을 한 번에 지우도록 넓게 설계됐다면
+   > (예: `clear-reference`의 의도적 설계), 그 라벨 각각에 대응하는 build 라우트가 표준 체인에
+   > 전부 들어 있는지 확인한다 — 하나라도 빠지면 그 라벨의 엣지는 이 체인으로 영구 소실된다.
+   >
    > **임베딩을 다시 만들어야 하는 경우에만** 위 체인 앞에 재임베딩 backfill을 넣는다.
    > 임베딩이 저장된 곳은 4곳(`Communication`·`ChangeSet`·`Issue` 노드와 `MODIFIED` 엣지)이고,
    > 라우트도 4개다. **임계값 튜닝에는 불필요하다** — 임베딩은 그대로고 엣지만 다시 그으면 된다.
@@ -440,6 +456,97 @@ pairs:
     - e2e 측정에서 "필요한 근거를 못 찾은" 케이스를 발견했을 때, 그 근거로
    이어졌어야 할 노드 쌍을 골든 쌍에 추가한다. 
     - 원천 데이터를 읽다가 명백한 연결을 발견했을 때, **기존 쌍은 고치지 않고 추가만 한다.**
+
+### 4.6 문서 엣지 — 라벨 없는 측정
+
+문서 대상 엣지(`DESCRIBED_IN`(Issue→Document)·`REFERENCE`(ChangeSet→Document))는 위 4.2~4.4의
+엣지 레벨 eval이 **커버하지 않는다.**
+
+- `eval/edge_eval.py`의 `EXISTS_Q`는 `REFERENCE`(→Communication)·`DISCUSSED_IN`·`TRIGGERED_BY`
+  3종뿐이다. Document로 끝나는 엣지가 없다.
+- `eval/sample_edges.py`의 `EDGE_SPECS`는 `REFERENCE`의 끝 라벨을 `(comm:Communication)`으로
+  고정한다 — `(doc:Document)`로 끝나는 REFERENCE는 이 샘플러가 애초에 뽑지 못한다.
+- `eval/graph_lookup.py`의 `ID_RE`(`^(issue|pull_request|commit|message):(.+)$`)에 document
+  표기법이 없다.
+- 골든셋(`eval/golden/`)에도 문서 쌍이 0건이다.
+
+라벨셋·골든셋이 갖춰지기 전까지는, 아래 **라벨 없는 지표 5개(M1~M5)**로 문서 엣지 로직 변경의
+회귀만 잡는다. precision(이 엣지가 실제로 맞는 연결인가)은 이 지표들로 잴 수 없다 — 존재
+여부·개수만 잰다.
+
+기준선은 문서 상한 가드(`DOCUMENT_ISSUE_REF_LIMIT`, `docs/normalized-event.md`「Document 참조
+상한」)와 소급 정리(`clear_bulk_document_issue_links`)를 적용하기 전/후 실측이다
+(project_id `15f83a55-fb4c-417c-b20e-657644ec323c`).
+
+| 지표 | 전 | 후 |
+|---|---|---|
+| M1 — 대량 문서만 붙은 이슈 / 문서 붙은 이슈 전체 | 24 / 83 | 0 / 62 |
+| M2 — text DESCRIBED_IN 엣지 합계 / 문서 수 / 최대 | 88 / 10 / 29 | 10 / 5 / 3 |
+| M4 — semantic DESCRIBED_IN 총량 | 142 | 142 (무손실) |
+| M4 — REFERENCE→Document 총량 | 177 | 177 (무손실) |
+
+M3(보존 대상 합)은 위 가드·정리와 같은 실행에서 나온 값이 아니라, 그 결과가 맞는지 대조하는
+용도의 파생 쿼리라 별도 전/후 값이 없다 — M2의 "후" 값과 일치해야 한다. M5(문서당 semantic
+REFERENCE 분포)도 이 정리의 대상이 아니라 별도로 발견된 현상(top-5가 사실상 할당량으로
+굳어짐 — `docs/notion-integration.md` §2-6 실측)이라 전/후 비교 대상이 아니고, 현재 상태를
+보는 관찰 지표로 함께 싣는다.
+
+**M1 — 대량 문서 의존 이슈**
+
+```cypher
+MATCH (d:Document {project_id:$pid})<-[r:DESCRIBED_IN {source:'text'}]-(:Issue)
+WITH d, count(r) AS refs
+WITH collect(CASE WHEN refs > 5 THEN d END) AS bulk
+MATCH (i:Issue {project_id:$pid})-[:DESCRIBED_IN]->(d2:Document)
+WHERE i.source <> '__stub__'
+WITH i, bulk, collect(DISTINCT d2) AS docs
+RETURN count(i) AS issues_with_docs,
+       count(CASE WHEN all(x IN docs WHERE x IN bulk) THEN 1 END) AS only_bulk;
+```
+
+**M2 — 문서당 text DESCRIBED_IN 히스토그램** (합계 / 문서 수 / 최대)
+
+```cypher
+MATCH (d:Document {project_id:$pid})<-[r:DESCRIBED_IN {source:'text'}]-(:Issue)
+WITH d, count(r) AS refs
+RETURN count(d) AS docs_with_text_refs, sum(refs) AS total_text_edges, max(refs) AS max_text_edges_per_doc;
+```
+
+**M3 — 보존 대상 합** (상한 이하 문서들의 text 엣지 총합 — 정리 후 남아 있어야 할 총량과 대조)
+
+```cypher
+MATCH (d:Document {project_id:$pid})<-[r:DESCRIBED_IN {source:'text'}]-(:Issue)
+WITH d, count(r) AS refs
+WHERE refs <= $limit
+RETURN count(d) AS docs_kept, sum(refs) AS preserved_text_edges;
+```
+
+**M4 — semantic 무손실** (가드·소급 정리는 text만 지운다 — semantic 엣지 총량이 그대로인지 확인)
+
+```cypher
+MATCH (:Issue {project_id:$pid})-[r:DESCRIBED_IN {source:'semantic'}]->(:Document)
+RETURN count(r) AS semantic_described_in;
+```
+
+```cypher
+MATCH (:ChangeSet {project_id:$pid})-[r:REFERENCE]->(:Document)
+RETURN count(r) AS reference_to_document;
+```
+
+**M5 — 문서당 semantic REFERENCE 분포**
+
+```cypher
+MATCH (d:Document {project_id:$pid})<-[r:REFERENCE {source:'semantic'}]-(:ChangeSet)
+WITH d, count(r) AS refs
+RETURN refs, count(d) AS doc_count
+ORDER BY refs DESC;
+```
+
+**미해결**: M1~M4로 "가드·소급 정리가 대량 문서 오염을 없앴는가"와 "관계없는 엣지 타입을
+건드리지 않았는가"는 회귀 없이 확인할 수 있다. 하지만 문서 대상 엣지의 **precision**(이
+REFERENCE·DESCRIBED_IN이 실제로 맞는 연결인가)을 라벨 없는 지표로는 잴 수 없다 — 제대로
+재려면 Notion 데이터가 있는 **새 그래프 스냅샷**과 `eval/edge_labels/`의 문서 쌍 라벨링이
+필요하다.
 
 ---
 
