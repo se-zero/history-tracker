@@ -7,6 +7,7 @@ from graph import builder
 from graph.actor_resolver import resolve_actor
 from graph.builder import make_neo4j_actor_store
 from graph.document_chunker import chunk_document
+from graph.document_policy import DOCUMENT_ISSUE_REF_LIMIT
 from graph.embed_batcher import embed_text_batched
 from graph.embedder import embed_batch, embed_text
 from graph.path_filter import should_skip
@@ -454,12 +455,36 @@ async def _handle_document(event: dict) -> None:
     # 문서에는 여러 이슈가 명시될 수 있다. 구 형식의 단수 issueKey도 읽어 마이그레이션 중
     # 이벤트를 잃지 않는다.
     issue_keys = refs.get("issueKeys") or ([] if not refs.get("issueKey") else [refs["issueKey"]])
-    for issue_key in dict.fromkeys(key for key in issue_keys if key):
-        await builder.link_issue_to_document(project_id, issue_key, source, external_id)
-    await _link_external_refs(
-        refs, "issueExternalRefs",
-        lambda s, e: builder.link_issue_external_to_document(project_id, s, e, source, external_id),
-    )
+    distinct_issue_keys = list(dict.fromkeys(key for key in issue_keys if key))
+    # 발행 측(RefsExtractor)이 LinkedHashSet으로 이미 중복을 제거해 보내지만, 그 보장에
+    # 기대지 않고 여기서도 (source, externalId) 쌍 기준으로 다시 distinct를 센다 — 아래 상한
+    # 판단과 소급 정리 마이그레이션의 카운트 기준(§DOCUMENT_ISSUE_REF_LIMIT)이 정확히 일치해야 한다.
+    distinct_external_refs = list(dict.fromkeys(
+        (ref["source"], ref["externalId"])
+        for ref in (refs.get("issueExternalRefs") or [])
+        if ref.get("source") and ref.get("externalId")
+    ))
+
+    # issueKeys·issueExternalRefs 둘 다 같은 text DESCRIBED_IN(confidence=1.0)을 만들기 때문에
+    # 합산 기준으로 상한을 건다 — 한쪽만 막으면 URL 나열로 우회된다. 상한을 넘으면 상위 N개만
+    # 남기지 않고 두 링크를 전부 건너뛴다: 순서에 우선순위 정보가 없어 무엇을 고를 기준이 없고,
+    # "이슈 키가 이렇게 많다"는 사실 자체가 이 문서가 특정 이슈 전용 설계 문서가 아니라는
+    # 신호이기 때문이다(색인·QA 문서 패턴).
+    total_refs = len(distinct_issue_keys) + len(distinct_external_refs)
+    if total_refs > DOCUMENT_ISSUE_REF_LIMIT:
+        logger.warning(
+            "Document 이슈 참조 %d개가 상한(%d) 초과 — DESCRIBED_IN 링크 전체 건너뜀 "
+            "(source=%s external_id=%s issueKeys=%d issueExternalRefs=%d)",
+            total_refs, DOCUMENT_ISSUE_REF_LIMIT, source, external_id,
+            len(distinct_issue_keys), len(distinct_external_refs),
+        )
+    else:
+        for issue_key in distinct_issue_keys:
+            await builder.link_issue_to_document(project_id, issue_key, source, external_id)
+        await _link_external_refs(
+            refs, "issueExternalRefs",
+            lambda s, e: builder.link_issue_external_to_document(project_id, s, e, source, external_id),
+        )
 
 
 async def _handle_communication(event: dict) -> None:
