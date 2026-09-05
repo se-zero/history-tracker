@@ -59,6 +59,15 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* 확정/추측 엣지 카운트 — 캔버스에서 점선(추측)이 전체 보기에선 잘 안 보여서 두는
+   유일한 전역 감각. 색은 쓰지 않는다(결과 신뢰도 고지 규칙). */
+.wu-legend-counts {
+  color: var(--fg-subtle);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
 /* ── 액터 렌즈 — 사람을 골라 그 사람의 자취만 밝힌다 ───────────────────── */
 
 .wu-lens {
@@ -303,6 +312,18 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 근거 배지 — "추측 0.62 · §대안 비교" 형태. 확정(기본값)은 표시하지 않으므로 이 배지는
+   전부 추측 엣지다. 노드 제목보다 약하게 — 색 없이 헤어라인 테두리 + text-muted 계열. */
+.cd-evidence {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  font-size: 10px;
+  color: var(--fg-subtle);
   white-space: nowrap;
 }
 

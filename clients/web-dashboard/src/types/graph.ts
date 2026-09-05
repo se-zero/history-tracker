@@ -77,6 +77,12 @@ export function edgeCertainty(edge: Pick<GraphEdge, "kind" | "method">): EdgeCer
   return "inferred"; // semantic·propagated, 그리고 method 없는 구 데이터
 }
 
+// 두 노드 id로 무향 엣지의 맵 키를 만든다. 사전순으로 고정해 (a,b)와 (b,a)가 같은 키가 되게 한다 —
+// GraphEdge.source/target 방향은 배치·조회 목적에는 중요하지 않기 때문이다.
+export function edgePairKey(a: string, b: string): string {
+  return a < b ? `${a} ${b}` : `${b} ${a}`;
+}
+
 // 그래프 확인 화면용 그래프 — GraphData에 작업 단위 목록을 더한다.
 // workUnitIds가 작업 단위로 그릴 노드다. 어떤 노드가 작업 단위인지는 서버가 정한다 —
 // 프론트가 노드 타입으로 하드코딩하면 PR이 0건인 프로젝트에서 작업 단위가 사라진다.

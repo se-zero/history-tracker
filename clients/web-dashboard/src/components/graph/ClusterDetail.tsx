@@ -3,10 +3,19 @@ import { useMemo } from "react";
 import { Icons } from "@/components/Icons";
 import { useExitPresence } from "@/hooks/useExitPresence";
 import type { WorkUnit } from "@/lib/workUnitLayout";
-import { NODE_TYPE_INFO, type GraphNode, type GraphNodeType } from "@/types/graph";
+import {
+  NODE_TYPE_INFO,
+  edgeCertainty,
+  edgePairKey,
+  type GraphEdge,
+  type GraphNode,
+  type GraphNodeType,
+} from "@/types/graph";
 
 interface Props {
   workUnit: WorkUnit | null;
+  /** 노드 쌍 → 원본 엣지 — 구성 노드와 작업 단위를 잇는 엣지의 근거 배지를 조회하는 데 쓴다. */
+  edgeByPair: Map<string, GraphEdge>;
   selectedId: string | null;
   /** 이 작업의 이웃을 불러오는 중인지 (묶음 드릴인 지연 로딩). */
   loading?: boolean;
@@ -14,11 +23,24 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * 구성 노드 하나의 근거 배지 문구 — 확정(기본값)이거나 근거 엣지가 없으면 표시하지 않는다.
+ * 예: "추측 0.62 · §대안 비교". section이 없으면 점수만 보여준다.
+ */
+function evidenceBadge(edge: GraphEdge | undefined): string | null {
+  if (!edge || edgeCertainty(edge) !== "inferred") return null;
+  let text = "추측";
+  if (edge.confidence !== null) text += ` ${edge.confidence.toFixed(2)}`;
+  if (edge.section) text += ` · §${edge.section}`;
+  return text;
+}
+
 /** 세부 노드 목록 표시 순서 — 안쪽 반경(코드)부터 바깥(논의)으로. */
 const GROUP_ORDER: GraphNodeType[] = ["commit", "code", "issue", "doc", "communication"];
 
 export function ClusterDetail({
   workUnit,
+  edgeByPair,
   selectedId,
   loading = false,
   onSelectNode,
@@ -85,19 +107,24 @@ export function ClusterDetail({
         {groups.map((g) => (
           <div key={g.type} className="cd-section">
             <div className="cd-section-title">{NODE_TYPE_INFO[g.type].label}</div>
-            {g.nodes.map((node) => (
-              <button
-                key={node.id}
-                className={"cd-item" + (selectedId === node.id ? " active" : "")}
-                onClick={() => onSelectNode(node)}
-              >
-                <span
-                  className="cd-dot"
-                  style={{ background: NODE_TYPE_INFO[node.type].cssVar }}
-                />
-                <span className="cd-item-text">{node.title}</span>
-              </button>
-            ))}
+            {g.nodes.map((node) => {
+              const edge = edgeByPair.get(edgePairKey(shown.node.id, node.id));
+              const badge = evidenceBadge(edge);
+              return (
+                <button
+                  key={node.id}
+                  className={"cd-item" + (selectedId === node.id ? " active" : "")}
+                  onClick={() => onSelectNode(node)}
+                >
+                  <span
+                    className="cd-dot"
+                    style={{ background: NODE_TYPE_INFO[node.type].cssVar }}
+                  />
+                  <span className="cd-item-text">{node.title}</span>
+                  {badge && <span className="cd-evidence">{badge}</span>}
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
