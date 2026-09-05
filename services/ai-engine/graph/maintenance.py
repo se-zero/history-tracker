@@ -8,6 +8,7 @@ import logging
 import re
 
 from graph.actor_store import _compute_display_name, recompute_display_name
+from graph.document_policy import DOCUMENT_ISSUE_REF_LIMIT
 from graph.driver import get_driver
 from graph.writes import link_pr_changesets_to_issues
 
@@ -461,6 +462,64 @@ async def clear_semantic_described_in(project_id: str | None = None) -> int:
         deleted = summary.counters.relationships_deleted
     logger.info("시맨틱 DESCRIBED_IN 엣지 삭제 완료: %d개", deleted)
     return deleted
+
+
+async def clear_bulk_document_issue_links(project_id: str | None = None) -> dict:
+    """상한(DOCUMENT_ISSUE_REF_LIMIT)을 넘는 문서의 text DESCRIBED_IN(Issue→Document) 엣지를
+    일괄 삭제하고, 그 결과로 차수 0이 된 __stub__ Issue를 함께 수거한다.
+
+    배경: graph.event_handler._handle_document의 런타임 가드는 "앞으로 들어오는" 이벤트만
+    막는다. 이미 상한을 넘겨 만들어진 링크는 text DESCRIBED_IN이 전부 MERGE 전용이라 삭제
+    의미론이 없고, Notion은 웹훅이 없고 checkpoint가 last_edited_time 기반이라 편집되지 않은
+    페이지는 재발행되지 않는다 — 소급 정리 없이는 가드 도입 이전의 오염이 영구히 남는다.
+
+    카운트 기준은 런타임 가드와 정확히 일치한다: 가드는 issueKeys distinct + issueExternalRefs
+    distinct의 합으로 상한을 판단하는데, 그래프에는 그 둘 다 같은
+    (Issue)-[:DESCRIBED_IN {source:'text'}]->(Document) 엣지로 남는다(graph/writes.py의
+    link_issue_to_document·link_issue_external_to_document가 동일한 관계 타입·source로
+    MERGE) — 따라서 "문서별 text DESCRIBED_IN 엣지 수"를 세는 것이 곧 그 합을 세는 것과 같다.
+
+    semantic DESCRIBED_IN(source='semantic')은 이 쿼리의 대상이 아니다 — text로 스코프된다.
+
+    project_id를 주면 그 프로젝트만, 없으면 전체를 대상으로 한다. 멱등 — 재실행 시 이미
+    지워진 문서는 남은 엣지 수가 상한 이하로 내려가 다시 대상이 되지 않는다.
+
+    Returns:
+        {"edges_deleted": 삭제된 DESCRIBED_IN 엣지 수, "stubs_collected": 수거된 __stub__ Issue 수}.
+    """
+    # DESCRIBED_IN은 항상 Issue→Document라 i:Issue 바인딩으로 project_id 스코프를 건다
+    # (clear_semantic_described_in과 동일한 관례).
+    edges_query = """
+        MATCH (i:Issue)-[r:DESCRIBED_IN]->(d:Document)
+        WHERE r.source = 'text'
+        __PROJECT_FILTER__
+        WITH d, collect(r) AS rels
+        WHERE size(rels) > $limit
+        UNWIND rels AS rel
+        DELETE rel
+        RETURN count(rel) AS deleted
+    """.replace("__PROJECT_FILTER__", "AND i.project_id = $project_id" if project_id else "")
+    async with get_driver().session() as session:
+        result = await session.run(edges_query, project_id=project_id, limit=DOCUMENT_ISSUE_REF_LIMIT)
+        record = await result.single()
+        edges_deleted = record["deleted"] if record else 0
+
+        # 위 삭제로 참조가 하나도 안 남은 __stub__ Issue 수거 — delete_project_source_graph의
+        # 고아 stub 수거(5단계)와 같은 술어(NOT (s)--())를 쓴다.
+        stub_query = """
+            MATCH (s:Issue {source: '__stub__'})
+            WHERE NOT (s)--()
+            __STUB_PROJECT_FILTER__
+            DETACH DELETE s
+        """.replace("__STUB_PROJECT_FILTER__", "AND s.project_id = $project_id" if project_id else "")
+        stub_result = await session.run(stub_query, project_id=project_id)
+        stubs_collected = (await stub_result.consume()).counters.nodes_deleted
+
+    logger.info(
+        "대량 문서-이슈 text DESCRIBED_IN 정리 완료: edges_deleted=%d, stubs_collected=%d",
+        edges_deleted, stubs_collected,
+    )
+    return {"edges_deleted": edges_deleted, "stubs_collected": stubs_collected}
 
 
 async def delete_project_source_graph(
