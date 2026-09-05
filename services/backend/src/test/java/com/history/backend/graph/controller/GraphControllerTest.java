@@ -19,6 +19,7 @@ import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
+import com.history.backend.graph.dto.GraphEdgeResponse;
 import com.history.backend.graph.dto.GraphNodeResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
@@ -67,7 +68,7 @@ class GraphControllerTest {
                 List.of(new GraphNodeResponse(
                         "n1", "commit", "feat: x", "abc1234", "github", "body",
                         new EvidenceRef("commit", "abc1234def"))),
-                List.of(List.of("n1", "n2"))
+                List.of(new GraphEdgeResponse("n1", "n2", "REFERENCE", "text", 0.9, null))
         );
         when(graphService.getProjectGraph(USER_ID, PROJECT_ID, 50, "commit,pr")).thenReturn(graph);
 
@@ -78,10 +79,27 @@ class GraphControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nodes[0].id").value("n1"))
                 .andExpect(jsonPath("$.nodes[0].type").value("commit"))
-                .andExpect(jsonPath("$.edges[0][0]").value("n1"))
-                .andExpect(jsonPath("$.edges[0][1]").value("n2"));
+                .andExpect(jsonPath("$.edges[0].source").value("n1"))
+                .andExpect(jsonPath("$.edges[0].target").value("n2"));
 
         verify(graphService).getProjectGraph(USER_ID, PROJECT_ID, 50, "commit,pr");
+    }
+
+    @Test
+    @DisplayName("객체 엣지의 source/kind/confidence가 프론트로 그대로 전달")
+    void passesThroughEdgeObjectFieldsToFrontend() throws Exception {
+        GraphResponse graph = new GraphResponse(
+                List.of(),
+                List.of(new GraphEdgeResponse("n1", "n2", "REFERENCE", "semantic", 0.87, null))
+        );
+        when(graphService.getProjectGraph(USER_ID, PROJECT_ID, null, null)).thenReturn(graph);
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/graph", PROJECT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.edges[0].source").value("n1"))
+                .andExpect(jsonPath("$.edges[0].kind").value("REFERENCE"))
+                .andExpect(jsonPath("$.edges[0].confidence").value(0.87));
     }
 
     @Test
@@ -125,7 +143,7 @@ class GraphControllerTest {
                 List.of(new GraphNodeResponse(
                         "n1", "commit", "feat: x", "abc1234", "github", "body",
                         new EvidenceRef("commit", "abc1234def"))),
-                List.of(List.of("n1", "n2")),
+                List.of(new GraphEdgeResponse("n1", "n2", "REFERENCE", "text", 0.9, null)),
                 List.of("n1")
         );
         when(graphService.getSubgraph(USER_ID, PROJECT_ID, request)).thenReturn(subgraph);
@@ -138,7 +156,7 @@ class GraphControllerTest {
                 .andExpect(jsonPath("$.nodes[0].id").value("n1"))
                 .andExpect(jsonPath("$.nodes[0].ref.type").value("commit"))
                 .andExpect(jsonPath("$.nodes[0].ref.id").value("abc1234def"))
-                .andExpect(jsonPath("$.edges[0][0]").value("n1"))
+                .andExpect(jsonPath("$.edges[0].source").value("n1"))
                 .andExpect(jsonPath("$.seeds[0]").value("n1"));
 
         verify(graphService).getSubgraph(USER_ID, PROJECT_ID, request);
@@ -272,7 +290,7 @@ class GraphControllerTest {
                 List.of(new GraphNodeResponse(
                         "pr1", "pr", "feat: x", "#7", "github", "body",
                         new EvidenceRef("pull_request", "7"))),
-                List.of(List.of("pr1", "c1")),
+                List.of(new GraphEdgeResponse("pr1", "c1", "CONTAINS", null, null, null)),
                 List.of("pr1")
         );
         when(graphService.getWorkUnits(USER_ID, PROJECT_ID, 400)).thenReturn(workUnits);
@@ -317,7 +335,7 @@ class GraphControllerTest {
                 List.of(new GraphNodeResponse(
                         "c1", "commit", "fix: y", "abc1234", "github", "body",
                         new EvidenceRef("commit", "abc1234def"))),
-                List.of(List.of("pr1", "c1"))
+                List.of(new GraphEdgeResponse("pr1", "c1", "CONTAINS", null, null, null))
         );
         when(graphService.getWorkUnitNeighbors(USER_ID, PROJECT_ID, nodeId)).thenReturn(graph);
 
@@ -326,7 +344,7 @@ class GraphControllerTest {
                         .param("nodeId", nodeId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nodes[0].id").value("c1"))
-                .andExpect(jsonPath("$.edges[0][0]").value("pr1"));
+                .andExpect(jsonPath("$.edges[0].source").value("pr1"));
 
         verify(graphService).getWorkUnitNeighbors(USER_ID, PROJECT_ID, nodeId);
     }

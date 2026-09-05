@@ -9,7 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 // ai-engine은 snake_case로 응답하므로 @JsonProperty로 매핑한다.
 public record GraphWorkUnitsResponse(
         @JsonProperty("nodes") List<GraphNodeResponse> nodes,
-        @JsonProperty("edges") List<List<String>> edges,
+        @JsonProperty("edges") List<GraphEdgeResponse> edges,
         @JsonProperty("work_unit_ids") List<String> workUnitIds
 ) {
 

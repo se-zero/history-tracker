@@ -18,6 +18,7 @@ import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.graph.dto.EvidenceRef;
 import com.history.backend.graph.dto.GraphActivityResponse;
 import com.history.backend.graph.dto.GraphBuildStatusResponse;
+import com.history.backend.graph.dto.GraphEdgeResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.GraphWorkUnitsResponse;
@@ -50,7 +51,9 @@ class AiEngineGraphClientTest {
                             {"id":"n1","type":"commit","title":"feat: x","meta":"abc1234",
                              "source":"github","snippet":"body"}
                           ],
-                          "edges": [["n1","n2"]]
+                          "edges": [
+                            {"source":"n1","target":"n2","kind":"REFERENCE","method":"text","confidence":0.92,"section":null}
+                          ]
                         }
                         """, MediaType.APPLICATION_JSON));
 
@@ -59,7 +62,8 @@ class AiEngineGraphClientTest {
         assertThat(result.nodes()).hasSize(1);
         assertThat(result.nodes().get(0).id()).isEqualTo("n1");
         assertThat(result.nodes().get(0).type()).isEqualTo("commit");
-        assertThat(result.edges()).containsExactly(java.util.List.of("n1", "n2"));
+        assertThat(result.edges()).containsExactly(
+                new GraphEdgeResponse("n1", "n2", "REFERENCE", "text", 0.92, null));
         fixture.server.verify();
     }
 
@@ -89,6 +93,49 @@ class AiEngineGraphClientTest {
 
         assertThatThrownBy(() -> fixture.client.fetchOverview(PROJECT_ID, null, null))
                 .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("엣지 객체 역직렬화 — 6개 필드가 모두 채워지면 GraphEdgeResponse로 정확히 매핑되고 confidence는 Double")
+    void deserializesFullyPopulatedGraphEdgeResponse() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/overview")))
+                .andRespond(withSuccess("""
+                        {"nodes": [], "edges": [
+                          {"source":"n1","target":"n2","kind":"REFERENCE","method":"semantic",
+                           "confidence":0.87,"section":"## Section A"}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        GraphResponse result = fixture.client.fetchOverview(PROJECT_ID, null, null);
+
+        assertThat(result.edges()).containsExactly(
+                new GraphEdgeResponse("n1", "n2", "REFERENCE", "semantic", 0.87, "## Section A"));
+        assertThat(result.edges().get(0).confidence()).isInstanceOf(Double.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("엣지 객체 역직렬화 — method/confidence/section 키가 아예 없는 구조 관계 엣지도 통과하고 세 필드는 null")
+    void deserializesStructuralEdgeWithMissingOptionalKeysAsNull() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith("https://ai-engine.test/graph/overview")))
+                .andRespond(withSuccess("""
+                        {"nodes": [], "edges": [
+                          {"source":"a","target":"b","kind":"CONTAINS"}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        GraphResponse result = fixture.client.fetchOverview(PROJECT_ID, null, null);
+
+        GraphEdgeResponse edge = result.edges().get(0);
+        assertThat(edge.source()).isEqualTo("a");
+        assertThat(edge.target()).isEqualTo("b");
+        assertThat(edge.kind()).isEqualTo("CONTAINS");
+        assertThat(edge.method()).isNull();
+        assertThat(edge.confidence()).isNull();
+        assertThat(edge.section()).isNull();
         fixture.server.verify();
     }
 
@@ -205,7 +252,9 @@ class AiEngineGraphClientTest {
                             {"id":"n1","type":"commit","title":"feat: x","meta":"abc1234",
                              "source":"github","snippet":"body"}
                           ],
-                          "edges": [["n1","n2"]],
+                          "edges": [
+                            {"source":"n1","target":"n2","kind":"REFERENCE","method":"semantic","confidence":0.81,"section":null}
+                          ],
                           "seeds": ["n1", null]
                         }
                         """, MediaType.APPLICATION_JSON));
@@ -215,7 +264,8 @@ class AiEngineGraphClientTest {
 
         assertThat(result.nodes()).hasSize(1);
         assertThat(result.nodes().get(0).id()).isEqualTo("n1");
-        assertThat(result.edges()).containsExactly(List.of("n1", "n2"));
+        assertThat(result.edges()).containsExactly(
+                new GraphEdgeResponse("n1", "n2", "REFERENCE", "semantic", 0.81, null));
         // seeds는 evidence 순서 정렬 — 미해석 위치는 null로 유지된다
         assertThat(result.seeds()).containsExactly("n1", null);
         fixture.server.verify();
@@ -264,7 +314,10 @@ class AiEngineGraphClientTest {
                             {"id":"pr1","type":"pr","title":"feat: x","meta":"#7",
                              "source":"github","snippet":"body"}
                           ],
-                          "edges": [["pr1","c1"]],
+                          "edges": [
+                            {"source":"pr1","target":"c1","kind":"CONTAINS",
+                             "method":null,"confidence":null,"section":null}
+                          ],
                           "work_unit_ids": ["pr1"]
                         }
                         """, MediaType.APPLICATION_JSON));
@@ -274,7 +327,10 @@ class AiEngineGraphClientTest {
         assertThat(result.nodes()).hasSize(1);
         // 작업 단위 판정은 서버가 내려주는 이 목록이 유일한 출처다
         assertThat(result.workUnitIds()).containsExactly("pr1");
-        assertThat(result.edges()).containsExactly(List.of("pr1", "c1"));
+        // ai-engine은 구조 관계(CONTAINS 등)도 여섯 키를 모두 실어 보내고 값만 null이다 — 이게 실제 와이어 형태다.
+        // 키 자체가 빠진 형태도 받아들이는지는 deserializesStructuralEdgeWithMissingOptionalKeysAsNull이 따로 본다.
+        assertThat(result.edges()).containsExactly(
+                new GraphEdgeResponse("pr1", "c1", "CONTAINS", null, null, null));
         fixture.server.verify();
     }
 
@@ -338,13 +394,14 @@ class AiEngineGraphClientTest {
                 .andRespond(withSuccess("""
                         {"nodes": [{"id":"c1","type":"commit","title":"fix: y","meta":"abc1234",
                                     "source":"github","snippet":"b"}],
-                         "edges": [["pr1","c1"]]}
+                         "edges": [{"source":"pr1","target":"c1","kind":"CONTAINS"}]}
                         """, MediaType.APPLICATION_JSON));
 
         GraphResponse result = fixture.client.fetchWorkUnitNeighbors(PROJECT_ID, nodeId);
 
         assertThat(result.nodes()).hasSize(1);
-        assertThat(result.edges()).containsExactly(List.of("pr1", "c1"));
+        assertThat(result.edges()).containsExactly(
+                new GraphEdgeResponse("pr1", "c1", "CONTAINS", null, null, null));
         fixture.server.verify();
     }
 
