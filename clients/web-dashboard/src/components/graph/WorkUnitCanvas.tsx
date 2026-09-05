@@ -273,9 +273,9 @@ export function WorkUnitCanvas({
       if (list) list.push(b);
       else map.set(a, [b]);
     };
-    for (const [a, b] of edges) {
-      push(a, b);
-      push(b, a);
+    for (const e of edges) {
+      push(e.source, e.target);
+      push(e.target, e.source);
     }
     return map;
   }, [edges]);

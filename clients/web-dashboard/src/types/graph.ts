@@ -31,11 +31,50 @@ export type AttachedNode = {
   nodeType: GraphNodeType;
 };
 
-export type GraphEdge = [string, string];
+export interface GraphEdge {
+  source: string;
+  target: string;
+  kind: string; // 관계 타입 (REFERENCE, CONTAINS, TRIGGERED_BY …)
+  // 관계의 판별 방식(명시 참조 vs 임베딩 추론) — GraphNode.source(github/slack 같은 제품명)와는
+  // 별개 축이다. 서버 Neo4j 속성명은 r.source지만 그 이름과 헷갈리지 않도록 계약에서 바꿨다.
+  method: "text" | "semantic" | "propagated" | null;
+  confidence: number | null;
+  section: string | null;
+}
 
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+// 근거 관계 4종 — 소스 노드 자체가 아니라 다른 노드를 "근거로" 잇는 관계다.
+// 이 목록에 없는 관계(CONTAINS 등)는 소스 시스템이 준 구조적 사실이라 늘 confirmed다.
+const EVIDENCE_KINDS: ReadonlySet<string> = new Set([
+  "TRIGGERED_BY",
+  "REFERENCE",
+  "DESCRIBED_IN",
+  "DISCUSSED_IN",
+]);
+
+export type EdgeCertainty = "confirmed" | "inferred";
+
+// 엣지 확실성 판정 — 서버가 대표 엣지를 고를 때 쓰는 것과 같은 어휘(kind/method)를 그대로 쓴다.
+//
+// confidence 유무로 판정하지 않는 이유: DISCUSSED_IN의 text 엣지는 의도적으로 confidence를
+// 부여하지 않아, confidence만 보면 "낮은 확실성"으로 오판된다.
+//
+// method가 없는 구 데이터(N0 이전 REFERENCE)는 추측으로 본다 — 서버가 coalesce(r.source,
+// 'semantic') 규약으로 semantic 취급하는 것과 같은 판정이다(graph/maintenance.py,
+// docs/notion-integration.md §2-7). 별도의 "미상" 상태를 두면 실데이터의 상당수가 그리로
+// 빠져 화면에 의미 없는 세 번째 분류가 생긴다.
+//
+// 이 판정을 서버가 아니라 프론트에 두는 이유: 임계값을 실험할 때 프론트 1티어만 고치면 끝나야
+// 한다. 서버가 파생 분류(confirmed/inferred)를 내려보내면, 기준을 만질 때마다 ai-engine·
+// backend·프론트 3티어를 다시 돌아야 한다.
+export function edgeCertainty(edge: Pick<GraphEdge, "kind" | "method">): EdgeCertainty {
+  if (!EVIDENCE_KINDS.has(edge.kind)) return "confirmed";
+  if (edge.method === "text") return "confirmed";
+  return "inferred"; // semantic·propagated, 그리고 method 없는 구 데이터
 }
 
 // 그래프 확인 화면용 그래프 — GraphData에 작업 단위 목록을 더한다.

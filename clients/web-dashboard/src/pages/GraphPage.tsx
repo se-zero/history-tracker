@@ -13,7 +13,7 @@ import {
   useWorkUnitNeighborhoods,
 } from "@/hooks/useGraph";
 import type { Project } from "@/types/api";
-import type { GraphNode } from "@/types/graph";
+import type { GraphEdge, GraphNode } from "@/types/graph";
 
 /**
  * 그래프 확인 화면 — Issue/PR을 작업 단위로 삼아 그 주변 노드를 묶어 보여주는 페이지.
@@ -57,7 +57,10 @@ export function GraphPage({ project }: { project: Project }) {
       nodes.push(node);
     }
 
-    const edgeKey = (edge: readonly [string, string]) => `${edge[0]} ${edge[1]}`;
+    // 키에 kind를 넣지 않는다 — 서버가 노드쌍당 대표 엣지 1개만 내려주는 게 계약이라(쌍당
+    // 여러 관계가 동시에 존재하지 않는다), kind까지 키에 넣으면 그 전제를 깨고 "한 쌍에 여러
+    // 선이 가능하다"는 잘못된 신호를 코드에 남기게 된다.
+    const edgeKey = (edge: GraphEdge) => `${edge.source} ${edge.target}`;
     const seenEdges = new Set(base.edges.map(edgeKey));
     const edges = [...base.edges];
     for (const edge of expanded.edges) {
