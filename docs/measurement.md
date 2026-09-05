@@ -441,6 +441,52 @@ pairs:
    이어졌어야 할 노드 쌍을 골든 쌍에 추가한다. 
     - 원천 데이터를 읽다가 명백한 연결을 발견했을 때, **기존 쌍은 고치지 않고 추가만 한다.**
 
+### 4.6 Slack 노이즈 필터 — 프롬프트 변경 측정 (2026-09-05 신설)
+
+Slack 메시지는 그래프에 들어가기 전에 룰 필터(`graph/slack_filter.py`)와 LLM 필터
+(`graph/slack_llm_filter.py`)를 거치고, LLM이 "제거"로 판정한 메시지는 **삭제**된다. 프롬프트를
+바꾸면 그래프에 남는 메시지 집합이 바뀌므로, 바꾸기 전후를 같은 코퍼스로 비교해야 한다.
+2026-04-26의 실측(Accuracy 88.6% 등)은 정답 라벨이 레포 밖에 있어 재현할 수 없었고, 그 대신
+아래 하네스와 라벨 파일을 새로 만들었다.
+
+**무엇을 재나** — 스냅샷(`eval/snapshots/events-2026-07-05.jsonl`)의 Slack 메시지 616건에 룰 필터를
+적용한 뒤 남는 467건을 **프로덕션과 같은 묶음**(`graph.slack_batch_filter.group_for_filter` —
+스레드 단위, 단독 메시지는 채널·날짜별 50개)으로 LLM 필터에 넣어 메시지별 보존/제거 판정을 얻는다.
+같은 프롬프트를 3회 돌려 다수결을 판정으로 쓰고, 런 간 판정이 갈린 메시지(`unstable_urls`)를
+노이즈로 기록한다(2026-09-05 기준선에서 8건, 1.7%).
+
+**코드와 파일**
+
+| 파일 | 역할 |
+|---|---|
+| `eval/slack_filter_eval.py` | 하네스. `run`(판정 생성) · `compare`(두 결과의 뒤집힘을 라벨링 yaml로) · `score`(라벨로 채점) · `profile`(스냅샷에서 프로젝트 프로필 생성) |
+| `eval/results/slack-filter-<tag>.json` | run 결과 — 런별 판정, 다수결, 불안정 목록, 프롬프트·컨텍스트 해시 |
+| `eval/results/slack-filter-profile-*.txt` | 프로젝트 프로필 문장(`--context-file`로 run에 넘긴다) |
+| `eval/slack_filter_labels/*.yaml` | 사람 라벨. `label` 칸만 `keep | remove | unsure`. 판정과 독립적인 정답지라 프롬프트를 바꿔도 유지하고 새 뒤집힘만 추가한다 |
+
+**수행 절차**
+
+```bash
+PY=services/ai-engine/.venv/Scripts/python.exe   # OPENAI_API_KEY는 infra/docker/.env에서 그 키만 읽는다
+$PY eval/slack_filter_eval.py run --runs 3 --tag <tag>                 # 컨텍스트 없이
+$PY eval/slack_filter_eval.py profile --out eval/results/slack-filter-profile-<날짜>.txt
+$PY eval/slack_filter_eval.py run --runs 3 --tag <tag> --context-file eval/results/slack-filter-profile-<날짜>.txt
+$PY eval/slack_filter_eval.py compare --base eval/results/slack-filter-<a>.json --new eval/results/slack-filter-<b>.json     --out eval/slack_filter_labels/flips-<날짜>.yaml          # 뒤집힌 메시지만 라벨링 시트로
+$PY eval/slack_filter_eval.py score --labels eval/slack_filter_labels/flips-<날짜>.yaml     --results eval/results/slack-filter-<a>.json eval/results/slack-filter-<b>.json   # 개선/악화 건수 + 네 지표
+```
+
+**판정 기준** — 뒤집힌 메시지 가운데 정답과 맞게 바뀐 것(개선)과 틀리게 바뀐 것(악화)을 센다.
+악화가 노이즈 건수 이하이고 개선이 악화보다 많으면 "큰 하락 없음"으로 본다. 삭제는 비가역이므로
+Recall(남겨야 할 것을 남긴 비율)을 Specificity보다 우선한다. 뒤집힌 항목만 라벨링하므로
+절대 지표(Accuracy 등)는 뒤집힌 부분집합 안의 값이고, 옛 실측 표와 직접 비교하지 않는다.
+
+**주의**
+- 이 코퍼스는 우리 팀 채널 하나라 "다른 프로젝트" 메시지가 거의 없다. 프로젝트 컨텍스트가 곁가지를
+  얼마나 걸러 주는지는 여기서 크게 드러나지 않는다.
+- 라벨은 사람의 기준이고 프롬프트의 기준보다 넓을 수 있다(예: 스레드 안의 얇은 결정 흐름 메시지를
+  보존으로 봄). 채점 결과와 프롬프트 기준이 어긋나면 어느 쪽을 고칠지 먼저 정한다.
+- 같은 라벨로 변형을 여러 번 돌리면 그 라벨에 과적합된다. 변형 몇 개를 본 뒤에는 결정한다.
+
 ---
 
 ## 5. 개선 이력을 남긴다
