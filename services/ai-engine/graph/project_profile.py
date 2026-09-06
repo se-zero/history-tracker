@@ -5,7 +5,9 @@ README나 온보딩 설문 같은 별도 입력 없이, 이미 수집된 PR·이
 pipeline-worker)를 변경하지 않고 ai-engine 안에서 완결된다.
 
 요약은 그래프 후처리 빌드마다(활발한 프로젝트는 하루 수십 번) 다시 만들지 않고, 프로젝트별로
-메모리에 캐시해 PROJECT_PROFILE_TTL_SECONDS(기본 24시간) 동안 재사용한다.
+메모리에 캐시해 PROJECT_PROFILE_TTL_SECONDS(기본 24시간) 동안 재사용한다. 재료 부족·LLM null로
+빈 문자열이 캐시된 경우는 EMPTY_PROFILE_TTL_SECONDS(기본 1시간)로 더 짧게 캐시한다 — 신규·소규모
+프로젝트가 그날 그래프를 채워도 하루 종일 컨텍스트 없이 판정하지 않도록 한다.
 
 재료(PR·이슈·커밋 제목 합)가 MIN_MATERIAL_ITEMS 미만이거나 LLM이 설명 불가로 판단하면 빈
 문자열을 반환한다 — 호출자(slack_llm_filter.filter_messages)는 project_context가 빈
@@ -30,6 +32,10 @@ logger = logging.getLogger(__name__)
 # (재료가 부실하면 LLM이 뭉뚱그린 설명을 지어낼 위험이 더 크다).
 MIN_MATERIAL_ITEMS = 10
 PROFILE_MODEL = "gpt-4o-mini"
+
+# 빈 프로필(재료 부족·LLM null)의 캐시 TTL — 이 경우 LLM을 부르지 않으므로 재조회 비용은
+# Cypher 쿼리 한 번뿐이라, 정상 프로필보다 짧게 잡아 그래프가 채워지면 금방 반영되게 한다.
+EMPTY_PROFILE_TTL_SECONDS = 3600.0
 
 # 재료별 한도 (최신 절반 + 가장 오래된 절반으로 나눠 뽑는다 — mixed_sample 참고)
 PR_LIMIT = 20
@@ -278,15 +284,37 @@ async def summarize_material(material: dict) -> str:
     return content
 
 
+def _ttl_seconds() -> float:
+    """PROJECT_PROFILE_TTL_SECONDS를 float로 변환한다. 빈 값·숫자가 아닌 값·0 이하는
+    경고를 남기고 기본값(24시간)으로 대체한다 — 이 레포의 compose는 미설정 env를 빈
+    문자열로 넘기는 관행이 있어, 여기서 막지 않으면 ValueError가 전파돼 필터 단계
+    전체가 스킵된다.
+    """
+    raw = os.environ.get("PROJECT_PROFILE_TTL_SECONDS", "86400")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("PROJECT_PROFILE_TTL_SECONDS 값이 올바르지 않아 기본값을 사용합니다: %r", raw)
+        return 86400.0
+    if value <= 0:
+        logger.warning("PROJECT_PROFILE_TTL_SECONDS 값이 0 이하라 기본값을 사용합니다: %r", raw)
+        return 86400.0
+    return value
+
+
 async def get_project_profile(project_id: str) -> str:
     """project_id의 프로필 요약을 반환한다(캐시 우선). 실패는 로그만 남기고 빈 문자열을
     반환한다 — 프로필 조회 실패가 Slack 필터 전체를 막으면 안 되므로 예외를 전파하지 않는다.
+    캐시된 프로필이 빈 문자열이면 EMPTY_PROFILE_TTL_SECONDS를, 아니면 _ttl_seconds()를
+    만료 기준으로 쓴다.
     """
-    ttl_seconds = float(os.environ.get("PROJECT_PROFILE_TTL_SECONDS", "86400"))
     now = time.monotonic()
     cached = _profile_cache.get(project_id)
-    if cached is not None and (now - cached[1]) < ttl_seconds:
-        return cached[0]
+    if cached is not None:
+        cached_profile, cached_at = cached
+        ttl_seconds = EMPTY_PROFILE_TTL_SECONDS if cached_profile == "" else _ttl_seconds()
+        if (now - cached_at) < ttl_seconds:
+            return cached_profile
 
     try:
         material = await fetch_profile_material(project_id)

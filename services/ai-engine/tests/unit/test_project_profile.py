@@ -167,6 +167,32 @@ class SummarizeMaterialTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "결제 서비스를 만드는 프로젝트입니다.")
 
 
+class TtlSecondsTest(unittest.TestCase):
+    def test_empty_string_falls_back_to_default(self):
+        with patch.dict(os.environ, {"PROJECT_PROFILE_TTL_SECONDS": ""}):
+            self.assertEqual(project_profile._ttl_seconds(), 86400.0)
+
+    def test_whitespace_only_falls_back_to_default(self):
+        with patch.dict(os.environ, {"PROJECT_PROFILE_TTL_SECONDS": "   "}):
+            self.assertEqual(project_profile._ttl_seconds(), 86400.0)
+
+    def test_non_numeric_falls_back_to_default(self):
+        with patch.dict(os.environ, {"PROJECT_PROFILE_TTL_SECONDS": "abc"}):
+            self.assertEqual(project_profile._ttl_seconds(), 86400.0)
+
+    def test_zero_falls_back_to_default(self):
+        with patch.dict(os.environ, {"PROJECT_PROFILE_TTL_SECONDS": "0"}):
+            self.assertEqual(project_profile._ttl_seconds(), 86400.0)
+
+    def test_negative_falls_back_to_default(self):
+        with patch.dict(os.environ, {"PROJECT_PROFILE_TTL_SECONDS": "-5"}):
+            self.assertEqual(project_profile._ttl_seconds(), 86400.0)
+
+    def test_valid_value_is_parsed(self):
+        with patch.dict(os.environ, {"PROJECT_PROFILE_TTL_SECONDS": "100"}):
+            self.assertEqual(project_profile._ttl_seconds(), 100.0)
+
+
 class GetProjectProfileTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         project_profile.clear_profile_cache()
@@ -225,6 +251,63 @@ class GetProjectProfileTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second, "")
         self.assertEqual(mock_fetch.await_count, 2)  # 캐시되지 않아 매번 다시 fetch
         mock_summarize.assert_not_called()
+
+    async def test_empty_ttl_env_does_not_raise_and_uses_default(self):
+        with patch.dict(os.environ, {"PROJECT_PROFILE_TTL_SECONDS": ""}), patch.object(
+            project_profile, "fetch_profile_material", AsyncMock(return_value=_material())
+        ) as mock_fetch, patch.object(
+            project_profile, "summarize_material", AsyncMock(return_value="프로필 문장")
+        ), patch.object(project_profile.time, "monotonic", return_value=0.0):
+            first = await project_profile.get_project_profile("p1")
+            second = await project_profile.get_project_profile("p1")
+
+        self.assertEqual(first, "프로필 문장")
+        self.assertEqual(second, "프로필 문장")
+        mock_fetch.assert_awaited_once()  # 기본 TTL(24시간)로 캐시되어 재fetch 없음
+
+    async def test_non_numeric_ttl_env_does_not_raise_and_uses_default(self):
+        with patch.dict(os.environ, {"PROJECT_PROFILE_TTL_SECONDS": "abc"}), patch.object(
+            project_profile, "fetch_profile_material", AsyncMock(return_value=_material())
+        ) as mock_fetch, patch.object(
+            project_profile, "summarize_material", AsyncMock(return_value="프로필 문장")
+        ), patch.object(project_profile.time, "monotonic", return_value=0.0):
+            first = await project_profile.get_project_profile("p1")
+            second = await project_profile.get_project_profile("p1")
+
+        self.assertEqual(first, "프로필 문장")
+        self.assertEqual(second, "프로필 문장")
+        mock_fetch.assert_awaited_once()  # 기본 TTL(24시간)로 캐시되어 재fetch 없음
+
+    async def test_empty_profile_uses_short_ttl(self):
+        with patch.object(
+            project_profile, "fetch_profile_material", AsyncMock(return_value=_material())
+        ) as mock_fetch, patch.object(
+            project_profile, "summarize_material", AsyncMock(return_value="")
+        ), patch.object(
+            project_profile.time, "monotonic", side_effect=[0.0, 1000.0, 3601.0]
+        ):
+            first = await project_profile.get_project_profile("p1")  # t=0, fetch
+            second = await project_profile.get_project_profile("p1")  # t=1000, cache (1000 < 3600)
+            third = await project_profile.get_project_profile("p1")  # t=3601, expired, refetch
+
+        self.assertEqual(first, "")
+        self.assertEqual(second, "")
+        self.assertEqual(third, "")
+        self.assertEqual(mock_fetch.await_count, 2)
+
+    async def test_non_empty_profile_keeps_long_ttl_at_same_times(self):
+        with patch.object(
+            project_profile, "fetch_profile_material", AsyncMock(return_value=_material())
+        ) as mock_fetch, patch.object(
+            project_profile, "summarize_material", AsyncMock(return_value="문장")
+        ), patch.object(
+            project_profile.time, "monotonic", side_effect=[0.0, 1000.0, 3601.0]
+        ):
+            await project_profile.get_project_profile("p1")
+            await project_profile.get_project_profile("p1")
+            await project_profile.get_project_profile("p1")
+
+        self.assertEqual(mock_fetch.await_count, 1)  # 기본 TTL(24시간)이라 세 번 다 캐시
 
 
 if __name__ == "__main__":

@@ -271,10 +271,11 @@ def cmd_run(args: argparse.Namespace) -> None:
     _ensure_openai_api_key()
 
     runs: list[dict] = []
-    failed_batches = 0
+    failed_batches_per_run: list[int] = []
     for i in range(args.runs):
         verdicts, failed_batches = asyncio.run(_run_llm_once(batches, args.concurrency, context_text))
         runs.append(verdicts)
+        failed_batches_per_run.append(failed_batches)
         print(f"  run {i + 1}/{args.runs} 완료 (실패 배치 {failed_batches}건)")
 
     majority = majority_verdict(runs)
@@ -299,8 +300,9 @@ def cmd_run(args: argparse.Namespace) -> None:
             "standalone_batches": standalone_batches,
             "kept": kept,
             "deleted": deleted,
-            "failed_batches": failed_batches,
+            "failed_batches": sum(failed_batches_per_run),
         },
+        "failed_batches_per_run": failed_batches_per_run,
         "rule_removed": rule_removed,
         "runs": runs,
         "majority": majority,

@@ -277,10 +277,10 @@ README→Document 설계가 먼저 정리된 뒤에 같이 볼 것.
       중립 문장으로 바꾸는 안은 쓰지 않았다 — 고객 프로젝트 설명 자리에 우리 제품 설명을 넣는 셈이라 오도한다
 - [x] (2026-09-05) 재측정했다. 2026-04-26 라벨은 레포 밖에 있어 재현 불가라 하네스
       (`eval/slack_filter_eval.py`)와 라벨(`eval/slack_filter_labels/`)을 새로 만들었다. 결과·해석은
-      `docs/post-mvp-work.md` 「하드코딩 제거」, 방법은 `docs/measurement.md` 4.6
+      PR #147 본문과 `eval/improvement-log.md`(2026-09-05 행), 방법은 `docs/measurement.md` 4.6
 - [x] (2026-09-05) README를 기다리지 않고 **프로젝트 그래프에서 프로필을 자동 도출**해 채웠다
       (`graph/project_profile.py` — PR url의 저장소 이름·이슈/PR 제목·커밋 메시지·디렉터리·문서 제목을
       최신 절반+최초 절반으로 모아 gpt-4o-mini 요약, 프로젝트별 24h 캐시). README → Document가 들어오면
       `document_titles` 재료로 자동 반영된다
 
-**2026-09-05 처리 완료.** 배포 전 결함으로 재분류돼 `docs/post-mvp-work.md`에서 진행했다.
+**2026-09-05 처리 완료.** 배포 전 결함으로 재분류해 PR #147에서 진행했다.

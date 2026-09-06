@@ -462,7 +462,7 @@ Slack 메시지는 그래프에 들어가기 전에 룰 필터(`graph/slack_filt
 | `eval/slack_filter_eval.py` | 하네스. `run`(판정 생성) · `compare`(두 결과의 뒤집힘을 라벨링 yaml로) · `score`(라벨로 채점) · `profile`(스냅샷에서 프로젝트 프로필 생성) |
 | `eval/results/slack-filter-<tag>.json` | run 결과 — 런별 판정, 다수결, 불안정 목록, 프롬프트·컨텍스트 해시 |
 | `eval/results/slack-filter-profile-*.txt` | 프로젝트 프로필 문장(`--context-file`로 run에 넘긴다) |
-| `eval/slack_filter_labels/*.yaml` | 사람 라벨. `label` 칸만 `keep | remove | unsure`. 판정과 독립적인 정답지라 프롬프트를 바꿔도 유지하고 새 뒤집힘만 추가한다 |
+| `eval/slack_filter_labels/*.yaml` | 사람 라벨. `label` 칸만 `keep` / `remove` / `unsure`. 판정과 독립적인 정답지라 프롬프트를 바꿔도 유지하고 새 뒤집힘만 추가한다 |
 
 **수행 절차**
 
