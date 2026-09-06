@@ -1,21 +1,19 @@
-# Slack LLM 필터 비교 라벨셋 — base/new 판정이 갈린(flip) 메시지 검수용
-# label 칸만 채우세요: keep | remove | unsure
+# Slack LLM 필터 비교 라벨셋 — 판정이 갈린(flip) 메시지 검수용. label 칸만 채운다: keep | remove | unsure
 #   - keep  : 그래프에 남길 가치가 있음 (보존이 맞음)
 #   - remove: 노이즈라 제거가 맞음
 #   - unsure: 원문만으로 판단 불가
 # unstable: true인 항목은 런 간 판정이 갈린 노이즈이므로 score 채점에서 제외된다.
-# verdicts: baseline(하드코딩 문장) / B(중립화) / C2(중립화 + 그래프 프로필, 혼합 재료) / C4(C2 + 원래 강도의 컨텍스트 무관 기준)
-# 2026-09-05 추가: C4 실행으로 새로 뒤집힌 9건이 맨 뒤에 붙었다(label 비어 있음). 앞 28건의 라벨은 그대로 유지한다.
-# flipped: 어느 비교에서 판정이 뒤집혔는지. unstable은 세 실행 중 어느 하나라도 런 간 판정이 갈린 메시지.
+# verdicts 열: hardcoded(캡스톤 문장 하드코딩 기준선) / neutral(하드코딩 제거, 프로필 없음) /
+#   profile_experiment(프로필 주입, 코드 반영 전 실험) / profile_adopted(프로필 주입, 코드 반영 후 최종·채택)
+# flipped: 어느 비교에서 판정이 뒤집혔는지. 기각한 변형(최신 재료 프로필, 약한 기준)의 뒤집힘으로 추가됐던
+#   항목은 라벨을 살리기 위해 그대로 두었고 flipped가 비어 있을 수 있다.
 # 판단 기준은 필터 프롬프트의 보존/제거 기준과 같다 — 기술적 결정·버그 원인·작업 분담·구체적 요구사항은 keep,
 # 단순 확인·내용 없는 요청·사적 대화·잡담은 remove. "이 메시지가 그래프에 남아 나중에 근거로 쓰일 가치가 있나"로 물으면 된다.
-# C4final: C4를 실제 코드에 반영한 뒤 재측정한 판정(최종 후보). 뒤에 붙은 라벨 없는 항목들을 채워 주세요.
 results:
-  baseline: slack-filter-baseline-2026-09-05.json
-  B: slack-filter-B-2026-09-05.json
-  C2: slack-filter-C2-mixed-2026-09-05.json
-  C4: slack-filter-C4-mixed-orig-2026-09-05.json
-  C4final: slack-filter-C4-final-2026-09-05.json
+  hardcoded: slack-filter-2026-09-05-baseline-hardcoded.json
+  neutral: slack-filter-2026-09-05-neutral-no-profile.json
+  profile_experiment: slack-filter-2026-09-05-profile-experiment.json
+  profile_adopted: slack-filter-2026-09-05-profile-adopted.json
 snapshot: events-2026-07-05.jsonl
 items:
 - url: https://slack.com/archives/C0AKGMT5S3X/p1777038660049469
@@ -28,13 +26,12 @@ items:
   - '[+1] 그래야할듯'
   - '[+2] 내일 메일 보내놓을게'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: remove
-    C4: remove
-    C4final: remove
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: false
   kind: flip
   label: remove
@@ -47,13 +44,12 @@ items:
   - '[+1] 이렇게 쓰면 될 것 같아'
   - '[+2] 오케 이렇게 추가해서 제출하자'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: true
   kind: flip
   label: remove
@@ -67,13 +63,12 @@ items:
   - '[+1] 오케 이렇게 추가해서 제출하자'
   - '[+2] '
   verdicts:
-    baseline: remove
-    B: keep
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: true
   kind: flip
   label: remove
@@ -88,13 +83,12 @@ items:
   - '[+1] 복잡하네..'
   - '[+2] 대충 4o-mini 기준으로 질문 10번에 0.1달러 정도 나가고 임베딩은 large로 하면 한번에 1달러정도 나가더라'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: false
   kind: flip
   label: remove
@@ -105,13 +99,12 @@ items:
   thread_context:
   - '[+0] 우리 tcp 슬랙 데이터 거의 1년 다된거 같은데 정규화된거 백업 한번 해놔야 할듯'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: false
   kind: flip
   label: remove
@@ -127,13 +120,12 @@ items:
   - '[+1] 오키'
   - '[+2] 일단 머지하면 좋을 것 같긴 해'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: remove
-    C4: remove
-    C4final: remove
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: false
   kind: flip
   label: keep
@@ -148,15 +140,14 @@ items:
   - '[+1] pr날렸어'
   - '[+2] approve했어'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
-  - B->C2
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: keep
@@ -226,13 +217,12 @@ items:
   - '[+1] 1번2번은 작업해서 pr날렸어'
   - '[+2] assignee accountId를 refs에 추가해야 동명이인을 구분할 수 있다고 하는데 assignee는 이름만 들어오는거 맞아?'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: false
   kind: flip
   label: keep
@@ -255,15 +245,14 @@ items:
   - '[+1] 이런 식으로 이름이랑 계정 아이디까지'
   - '[+2] assignee properties에 말고 refs에 넣는게 그래프 만들때 편하지?'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: remove
-    C4: remove
-    C4final: remove
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
-  - B->C2
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: true
   kind: flip
   label: keep
@@ -276,14 +265,13 @@ items:
   - '[+1] 노션 10주차 회의록에 액터 노드 병합 테스트 결과 작성해놨는데 한번 확인해줘'
   - '[+2] Approve했어'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: keep
-    C4: remove
-    C4final: keep
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: keep
   flipped:
-  - baseline->B
-  - B->C2
+  - hardcoded->neutral
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: keep
@@ -297,13 +285,12 @@ items:
   - '[+1] 좀 더 살펴봐야 할 거 같기는 한데 지금까지 보면 괜찮아보여'
   - '[+2] 자연어 질문 테스트도 다 분석해놔서 이번 주차 보고서는 그냥 이 노션 문서 제출해도 될듯'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: remove
-    C4: remove
-    C4final: remove
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: true
   kind: flip
   label: keep
@@ -317,13 +304,12 @@ items:
   - '[+0] 좀 더 살펴봐야 할 거 같기는 한데 지금까지 보면 괜찮아보여'
   - '[+1] 자연어 질문 테스트도 다 분석해놔서 이번 주차 보고서는 그냥 이 노션 문서 제출해도 될듯'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: remove
-    C4: remove
-    C4final: remove
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: true
   kind: flip
   label: keep
@@ -338,14 +324,14 @@ items:
   - '[+1] 그정도로 차이가 꽤 많이 나나봐'
   - '[+2] 아 그래?'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: keep
-    C4: remove
-    C4final: remove
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: remove
@@ -359,13 +345,12 @@ items:
   - '[+1] 응 backend 폴더 안에 있으면 매번 export 안해도 되게 하려고'
   - '[+2] source setenv.sh 만 치면 안에 있는 내용들 다 export 되더라고'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: false
   kind: flip
   label: keep
@@ -380,15 +365,14 @@ items:
   - '[+1] infra/docker 폴더에 env파일에 빈칸값 넣어놓은 다음 따로 export 하던지 아님 setenv파일을 만들던지 해야하는거지?'
   - '[+2] 응 둘 중 하나만 하면 될듯'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: remove
-    C4: remove
-    C4final: remove
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
-  - B->C2
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: keep
@@ -414,15 +398,14 @@ items:
   - '[+1] 나 지금 프론트 오류 있는거 좀 수정하고 있었는데'
   - '[+2] 일단 보고서는 지금까지 한거로 쓰고'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
-  - B->C2
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: true
   kind: flip
   label: keep
@@ -437,13 +420,12 @@ items:
   - '[+1] 선택을 해야할거같아'
   - '[+2] 프론트에서는 레포지토리 연결할때 브랜치 하나만 선택할 수 있게하고 생성된 프로젝트에 대해서는 브랜치 변경이 안되게 하는게 좋을거같고'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: remove
-    C4: remove
-    C4final: remove
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: true
   kind: flip
   label: keep
@@ -454,15 +436,13 @@ items:
   thread_context:
   - '[+0] 나는 일단 ai-engine 리팩토링 할게'
   verdicts:
-    baseline: remove
-    B: keep
-    C2: remove
-    C4: remove
-    C4final: keep
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: keep
   flipped:
-  - baseline->B
-  - B->C2
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
   unstable: false
   kind: flip
   label: keep
@@ -477,13 +457,12 @@ items:
   - '[+1] 7번도 하면 좋을거 같긴한데'
   - '[+2] 너무 많으면 내가 해도 되고'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: remove
-    C4: remove
-    C4final: remove
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->B
+  - hardcoded->neutral
   unstable: false
   kind: flip
   label: keep
@@ -505,15 +484,14 @@ items:
   - '[+1] 캡스톤으로 프로젝트 만들면 될듯'
   - '[+2] 이렇게 하는게 맞나'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
-  - B->C2
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: true
   kind: flip
   label: keep
@@ -529,15 +507,14 @@ items:
   - '[+1] 다시 만들어서 보내줄게'
   - '[+2] approve했어'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
-  - B->C2
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: keep
@@ -553,15 +530,14 @@ items:
   - '[+1] approve했어'
   - '[+2] 머지완료'
   verdicts:
-    baseline: keep
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->B
-  - B->C2
-  - B->C4
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: keep
@@ -573,14 +549,13 @@ items:
   - '[+0] 슬랙메시지는 예시같은거 넣었어?'
   - '[+1] 지금 몇개 추려서 넣고 있어'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - B->C2
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: remove
@@ -592,13 +567,11 @@ items:
   - '[+0] 보내준거 추가해서 작성했어'
   - '[+1] 오키 이대로 제출하자'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: keep
-    C4: remove
-    C4final: remove
-  flipped:
-  - B->C2
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped: []
   unstable: true
   kind: flip
   label: remove
@@ -613,13 +586,12 @@ items:
   - '[+1] 그럼 시연 차례일때만 내가 발표하면 될까?'
   - '[+2] 응 그냥 로그인은 건너뛰고 페이지 기능들만 좀 소개하면 될듯'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: keep
-    C4: remove
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: keep
   flipped:
-  - B->C2
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: remove
@@ -632,14 +604,13 @@ items:
   - '[+1] 따로 하고있는건 없어'
   - '[+2] 지금 남은거 해야할거 정리할겸 시간날때 회의 한번 진행하는거 어때?'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - B->C2
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: remove
@@ -670,14 +641,13 @@ items:
         ◦ recall 골든 쌍(연결됐어야 할 걸 놓쳤나) 10~20쌍
             ▪︎ B-2 recall: 사람이 아는 "연결됐어야 할 쌍"을 놓고 "그래프가 이걸 만들었나?"를 잰다 → 항목은 그래프에 없을 수도 있는 기대값
   verdicts:
-    baseline: remove
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - B->C2
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: keep
@@ -690,14 +660,13 @@ items:
   - '[+1] 덤프파일이랑 원천 데이터 스냅샷은 용량때문에 계속 커밋하게 되면 깃허브가 무거워진다고 해서 gitignore에 추가했어'
   - '[+2] eval/snapshots/ 폴더 만들어서 여기에 두고 각자 가지고 있으면 될거같아'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: keep
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - B->C2
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
   label: keep
@@ -710,17 +679,16 @@ items:
   - '[+1] 이대로 제출하자'
   - '[+2] 오케이'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: remove
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: true
   kind: flip
-  label: 'remove'
+  label: remove
   note: ''
 - url: https://slack.com/archives/C0AKGMT5S3X/p1778928032947499
   channel: 일반
@@ -730,17 +698,16 @@ items:
   - '[+0] 이대로 제출하자'
   - '[+1] 오케이'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: remove
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: true
   kind: flip
-  label: 'remove'
+  label: remove
   note: ''
 - url: https://slack.com/archives/C0AKGMT5S3X/p1779368534109489
   channel: 일반
@@ -752,17 +719,15 @@ items:
   - '[-1] 오케이'
   - '[+0] 내쪽은 다 만들었어'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: remove
-    C4: keep
-    C4final: remove
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: remove
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
   unstable: true
   kind: flip
-  label: 'remove'
+  label: remove
   note: ''
 - url: https://slack.com/archives/C0AKGMT5S3X/p1781420622941349
   channel: 일반
@@ -773,17 +738,16 @@ items:
   - '[+1] 오키 이대로 제출하자'
   - '[+2] 오키'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: remove
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
-  label: 'remove'
+  label: remove
   note: ''
 - url: https://slack.com/archives/C0AKGMXN8A1/p1778395772515779
   channel: 프로젝트
@@ -795,17 +759,16 @@ items:
   - '[+1] 일단 머지했어'
   - '[+2] 동명이인 구별하려고하기로 했었어서 이름 같은걸로만으로는 안될거야'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: remove
-    C4: keep
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
-  label: 'keep'
+  label: keep
   note: ''
 - url: https://slack.com/archives/C0AKGMXN8A1/p1781836030455689
   channel: 프로젝트
@@ -817,17 +780,15 @@ items:
   - '[+1] 파이프라인 연결해야겠네'
   - '[+2] 내가 수정할게'
   verdicts:
-    baseline: keep
-    B: keep
-    C2: keep
-    C4: remove
-    C4final: keep
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: keep
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
   unstable: true
   kind: flip
-  label: 'keep'
+  label: keep
   note: ''
 - url: https://slack.com/archives/C0AKGMXN8A1/p1781997962483799
   channel: 프로젝트
@@ -835,17 +796,16 @@ items:
   thread_context:
   - '[+0] 나는 Backend 리팩토링 작업 할게'
   verdicts:
-    baseline: keep
-    B: keep
-    C2: keep
-    C4: remove
-    C4final: remove
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: true
   kind: flip
-  label: 'keep'
+  label: keep
   note: ''
 - url: https://slack.com/archives/C0AKGMXN8A1/p1782195223827759
   channel: 프로젝트
@@ -857,17 +817,15 @@ items:
   - '[+1] 일단 수정하는것도 괜찮을 것 같은데 나는 ai-engine 자세히 한번 봐볼게'
   - '[+2] 오키 디퍼는 납두고 개선만 해서 backend 작업하고 이후에 pipeline-worker 작업해볼게'
   verdicts:
-    baseline: remove
-    B: remove
-    C2: remove
-    C4: keep
-    C4final: remove
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: remove
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
   unstable: false
   kind: flip
-  label: 'keep'
+  label: keep
   note: ''
 - url: https://slack.com/archives/C0AKGMXN8A1/p1782656605626879
   channel: 프로젝트
@@ -879,17 +837,16 @@ items:
   - '[+1] 아직 프론트에서도 구현이 안된거 같기는 한데'
   - '[+2] 오키 그럼 이거 프론트랑 같이 해서 작업 해볼게'
   verdicts:
-    baseline: keep
-    B: keep
-    C2: keep
-    C4: remove
-    C4final: remove
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
   flipped:
-  - baseline->C4
-  - B->C4
+  - neutral->profile_experiment
+  - neutral->profile_adopted
   unstable: false
   kind: flip
-  label: 'keep'
+  label: keep
   note: ''
 - url: https://slack.com/archives/C0AKGMT5S3X/p1776432079742629
   channel: 일반
@@ -899,15 +856,15 @@ items:
   - '[+0] 이대로 제출하자'
   - '[+1] 오케이'
   verdicts:
-    baseline: remove
-    B: remove
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: keep
   flipped:
-  - baseline->C4final
-  - B->C4final
+  - neutral->profile_adopted
   unstable: true
   kind: flip
-  label: 'remove'
+  label: remove
   note: ''
 - url: https://slack.com/archives/C0AKGMXN8A1/p1778154594148819
   channel: 프로젝트
@@ -919,15 +876,15 @@ items:
   - '[+1] 오케이'
   - '[+2] 이름은 assignee에 있는데'
   verdicts:
-    baseline: keep
-    B: keep
-    C4final: remove
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: remove
   flipped:
-  - baseline->C4final
-  - B->C4final
+  - neutral->profile_adopted
   unstable: true
   kind: flip
-  label: 'keep'
+  label: keep
   note: ''
 - url: https://slack.com/archives/C0AKGMXN8A1/p1781836119528519
   channel: 프로젝트
@@ -938,15 +895,15 @@ items:
   - '[+0] 내가 수정할게'
   - '[+1] 오케이'
   verdicts:
-    baseline: remove
-    B: remove
-    C4final: keep
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: keep
   flipped:
-  - baseline->C4final
-  - B->C4final
+  - neutral->profile_adopted
   unstable: true
   kind: flip
-  label: 'keep'
+  label: keep
   note: ''
 - url: https://slack.com/archives/C0AKGMXN8A1/p1782296287608509
   channel: 프로젝트
@@ -958,13 +915,13 @@ items:
   - '[+1] Openai 호출을 관리하는 파일을 확장해서 실제 한도(RPM과 TPM)에 맞춰서 호출하게 하면 될거같아'
   - '[+2] 토큰을 추정해야 하겠네 한번 해볼게'
   verdicts:
-    baseline: keep
-    B: keep
-    C4final: remove
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: remove
   flipped:
-  - baseline->C4final
-  - B->C4final
+  - neutral->profile_adopted
   unstable: false
   kind: flip
-  label: 'keep'
+  label: keep
   note: ''

@@ -1,8 +1,8 @@
 {
-  "tag": "C4-final-2026-09-05",
+  "tag": "2026-09-05-profile-adopted",
   "snapshot": "events-2026-07-05.jsonl",
   "created_at": "2026-09-05T10:08:06.794275+00:00",
-  "context_file": "slack-filter-profile-C4-2026-09-05.txt",
+  "context_file": "slack-filter-2026-09-05-profile-adopted.txt",
   "context_sha256": "afededbe0942494be679f0e14a1d6af0e9f0765ff1b5bb8d9077b406e509caa7",
   "prompt_sha256": "f88310f2d9d2db3393edc91f64c619e92a9d8afb10b6d322e6f4b55e194f2756",
   "counts": {
