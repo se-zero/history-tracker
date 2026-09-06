@@ -69,6 +69,25 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 
 RDB 쪽(연동 행·checkpoint) 삭제는 backend가 담당한다 — `services/backend/CLAUDE.md` 참고.
 
+## 정리 — 소급 마이그레이션
+
+삭제(cascade)와 달리, 정책 상수가 나중에 추가되거나 바뀌면 **이미 만들어진 데이터**가 새
+정책을 어길 수 있다. 이런 경우를 위한 일회성 정리 엔드포인트가 `POST /migrations/*`에 있다
+(운영자가 필요할 때 수동 호출, 전부 멱등).
+
+- `clear_bulk_document_issue_links`(`POST /migrations/clear-bulk-document-issue-links?project_id=`)
+  — 문서당 `(Issue)-[:DESCRIBED_IN {source:'text'}]->(Document)` 엣지 수가
+  `DOCUMENT_ISSUE_REF_LIMIT`(기본 5, `docs/normalized-event.md`「Document 참조 상한」)를 넘는
+  문서의 그 엣지를 전량 삭제하고, 그 결과 차수 0이 된 `__stub__` Issue를 함께 수거한다.
+  `source='semantic'` 엣지는 건드리지 않는다.
+
+  **재수집으로는 제거되지 않는다** — 가드(`_handle_document`) 도입 이전에 이미 만들어진 대량
+  text 링크는 이 정리 없이는 영구히 남는다. 이유가 둘이다. (1) 문서 링크는 전부 `MERGE`뿐이라
+  삭제 의미론이 없다 — 같은 문서 이벤트를 다시 소비해도 기존 엣지를 지우는 경로가 없다.
+  (2) Notion은 웹훅이 없고 checkpoint가 `last_edited_time` 기반 정렬 증분이라, 편집되지 않은
+  페이지는 재수집 대상에 다시 오르지 않는다 — 문서를 고치지 않는 한 이벤트 자체가 재발행되지
+  않는다.
+
 ## 노드 목록
 
 ### Actor
@@ -419,7 +438,7 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.issueKey`, 또는 PR `issue_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
 | Layer 2 | `CHILD_OF` (Document) | `properties.parent_external_id` 존재 시 | Document의 properties (부모 page) — Issue와 달리 refs가 아니다. parent는 실키 pre-node로 선생성 |
-| Layer 2 | `DESCRIBED_IN` (text) | Document `refs.issueKeys`/`issueExternalRefs` 존재 시 | Document의 refs — 이슈 실노드 없으면 `__stub__` 폴백(issueKeys) 또는 실키 pre-node(issueExternalRefs). `source='text'`, `confidence=1.0` |
+| Layer 2 | `DESCRIBED_IN` (text) | Document `refs.issueKeys`/`issueExternalRefs` 존재 시, **단 distinct 합이 `DOCUMENT_ISSUE_REF_LIMIT`(기본 5) 이하일 때만** | Document의 refs — 이슈 실노드 없으면 `__stub__` 폴백(issueKeys) 또는 실키 pre-node(issueExternalRefs). `source='text'`, `confidence=1.0`. 상한 초과 시 두 refs가 만드는 링크를 자르지 않고 전량 스킵(`docs/normalized-event.md`「Document 참조 상한」) |
 | Layer 2 | `DISCUSSED_IN` (Document, text) | Communication `refs.documentExternalRefs` 존재 시 | 대화 본문의 문서 URL. `source='text'`, confidence 없음 |
 | Layer 2 | `REFERENCE` (ChangeSet→Document, text) | ChangeSet `refs.documentExternalRefs`, 또는 PR `document_external_ids`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 URL. `source='text'`, `confidence=1.0` — REFERENCE의 첫 text 경로(N0가 `source` 필드를 선행 도입) |
 | Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary; 임베딩은 MODIFIED 엣지 속성으로 저장 |

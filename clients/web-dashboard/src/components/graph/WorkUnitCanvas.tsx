@@ -11,6 +11,9 @@ import {
 import { useTheme } from "@/theme/ThemeProvider";
 import {
   NODE_TYPE_INFO,
+  edgeCertainty,
+  edgePairKey,
+  type EdgeCertainty,
   type GraphEdge,
   type GraphNode,
   type GraphNodeType,
@@ -68,6 +71,13 @@ const MEMBER_LABEL_MIN_R = 4;
 /** 출처가 여러 제품으로 갈리는 렌더링 분류 — 이 타입만 source별로 줄을 나눈다. */
 const MULTI_SOURCE_TYPES: ReadonlySet<GraphNodeType> = new Set(["issue", "communication", "doc"]);
 
+/**
+ * 확정/추측 엣지 표현 — 색은 쓰지 않는다(DESIGN.md "결과 신뢰도 고지 → 색 없이").
+ * 대신 점선 + 저알파로 구분한다. 확정은 기존 실선/알파를 그대로 쓴다.
+ */
+const INFERRED_DASH: [number, number] = [3, 3];
+const INFERRED_ALPHA_SCALE = 0.75;
+
 interface View {
   k: number;
   tx: number;
@@ -94,6 +104,15 @@ interface Placed {
   isWorkUnit: boolean;
   /** 소속 작업 단위 묶음 인덱스. 미소속 노드는 null. */
   workUnitIndex: number | null;
+}
+
+/** 열린 묶음 안에서 그릴 실제 엣지 한 줄 — 버킷(확정/추측)은 그리기 전에 미리 분류해 둔다. */
+interface FocusedEdge {
+  from: Placed;
+  to: Placed;
+  /** 원본 엣지 — edgeByPair에서 못 찾으면 undefined다(아래 폴백 참고). */
+  edge: GraphEdge | undefined;
+  bucket: EdgeCertainty;
 }
 
 /** 노드 렌즈(범례) 한 줄 — MULTI_SOURCE_TYPES면 source별로, 아니면 type별로 하나씩 만든다. */
@@ -273,9 +292,9 @@ export function WorkUnitCanvas({
       if (list) list.push(b);
       else map.set(a, [b]);
     };
-    for (const [a, b] of edges) {
-      push(a, b);
-      push(b, a);
+    for (const e of edges) {
+      push(e.source, e.target);
+      push(e.target, e.source);
     }
     return map;
   }, [edges]);
@@ -290,13 +309,27 @@ export function WorkUnitCanvas({
   }, [layout]);
 
   /**
+   * 노드 쌍 → 원본 엣지. 확정/추측 판정은 그리기 시점(버킷 분류·ClusterDetail 배지)에만
+   * 조회한다 — adjacency(인접 리스트)는 여러 소비처가 기대하는 형태라 건드리지 않는다.
+   */
+  const edgeByPair = useMemo(() => {
+    const map = new Map<string, GraphEdge>();
+    for (const e of edges) {
+      map.set(edgePairKey(e.source, e.target), e);
+    }
+    return map;
+  }, [edges]);
+
+  /**
    * 열린 묶음 안의 실제 그래프 엣지.
    *
    * 작업 단위→구성 노드 선은 배치가 만든 소속 표시일 뿐 원본 관계가 아니다. 스키마상 PR에서
    * 나가는 관계는 CONTAINS(→커밋) 하나뿐이고 파일·티켓·대화는 커밋을 거치므로,
    * 그 선만 그리면 "왜 바뀌었나"의 사슬(커밋→파일, 커밋→티켓, 티켓→대화)이 보이지 않는다.
+   *
+   * 버킷(확정/추측) 분류는 여기서 미리 끝낸다 — 프레임마다 다시 하지 않는다.
    */
-  const focusedEdges = useMemo(() => {
+  const focusedEdges = useMemo<FocusedEdge[]>(() => {
     if (focused === null) return [];
     const workUnit = layout.workUnits[focused];
     if (!workUnit) return [];
@@ -304,7 +337,7 @@ export function WorkUnitCanvas({
     const members = new Set<string>([workUnit.node.id]);
     for (const member of workUnit.members) members.add(member.node.id);
 
-    const pairs: Array<[Placed, Placed]> = [];
+    const result: FocusedEdge[] = [];
     const seen = new Set<string>();
     for (const id of members) {
       const from = placed.get(id);
@@ -312,20 +345,55 @@ export function WorkUnitCanvas({
       for (const nb of adjacency.get(id) ?? []) {
         if (!members.has(nb)) continue;
         // 무향으로 다루므로 같은 쌍을 양쪽에서 두 번 그리지 않게 정렬한 키로 거른다.
-        const key = id < nb ? `${id} ${nb}` : `${nb} ${id}`;
+        const key = edgePairKey(id, nb);
         if (seen.has(key)) continue;
         seen.add(key);
         const to = placed.get(nb);
-        if (to) pairs.push([from, to]);
+        const edge = edgeByPair.get(key);
+        // 엣지를 못 찾아도 선은 그린다 — drawHighlightEdges와 같은 폴백이다. 둘 다 같은
+        // edges 배열에서 파생돼 지금은 발생하지 않지만, 한쪽만 버리면 나중에 어긋났을 때
+        // 묶음 뷰에서만 선이 조용히 사라지는 비대칭이 된다.
+        if (to) result.push({ from, to, edge, bucket: edge ? edgeCertainty(edge) : "confirmed" });
       }
     }
-    return pairs;
-  }, [focused, layout, adjacency, placed]);
+    return result;
+  }, [focused, layout, adjacency, placed, edgeByPair]);
 
   // 렌더 루프를 재시작시키지 않으려고 ref로 넘긴다(재시작하면 캔버스가 리사이즈되며 깜빡인다).
-  const focusedEdgesRef = useRef<Array<[Placed, Placed]>>([]);
+  const focusedEdgesRef = useRef<FocusedEdge[]>([]);
   useEffect(() => {
     focusedEdgesRef.current = focusedEdges;
+  }, [focusedEdges]);
+
+  /**
+   * 구성 노드 → 그 노드를 클러스터에 붙인 추측 엣지 중 가장 신뢰도 높은 것(ClusterDetail 배지 조회용).
+   *
+   * 작업 단위↔구성 노드 직접 엣지(edgeByPair)로는 조회할 수 없다 — 문서는 ChangeSet에,
+   * 이슈도 ChangeSet에 붙지 PR/작업 단위에 직접 붙지 않기 때문이다. focusedEdges는 이미
+   * 클러스터 내부(양 끝 모두 멤버)의 실제 엣지를 모아 뒀으므로 여기서 노드별로 재인덱싱한다.
+   * confirmed 엣지는 담지 않는다 — 배지는 "이 노드는 추론으로 붙었다"만 말한다.
+   */
+  const clusterEvidence = useMemo(() => {
+    const best = new Map<string, GraphEdge>();
+    for (const item of focusedEdges) {
+      if (!item.edge || item.bucket !== "inferred") continue;
+      for (const id of [item.edge.source, item.edge.target]) {
+        const cur = best.get(id);
+        if (!cur || (item.edge.confidence ?? 0) > (cur.confidence ?? 0)) best.set(id, item.edge);
+      }
+    }
+    return best;
+  }, [focusedEdges]);
+
+  /** 열린 클러스터 내부의 확정/추측 카운트 — 전체 보기 범례(certaintyCounts)와 달리 이 묶음 기준이다. */
+  const clusterCounts = useMemo(() => {
+    let confirmed = 0;
+    let inferred = 0;
+    for (const item of focusedEdges) {
+      if (item.bucket === "confirmed") confirmed++;
+      else inferred++;
+    }
+    return { confirmed, inferred };
   }, [focusedEdges]);
 
   /**
@@ -379,6 +447,21 @@ export function WorkUnitCanvas({
       return order !== 0 ? order : b.ids.length - a.ids.length;
     });
   }, [placed]);
+
+  /**
+   * 확정/추측 엣지 전체 카운트 — 전체 보기에서는 점선(추측)이 화면에 거의 안 보이므로
+   * (drawSharedLinks·drawMemberLinks는 배치가 만든 파생선이라 메타가 없다), 범례 숫자가
+   * 유일한 전역 감각이다.
+   */
+  const certaintyCounts = useMemo(() => {
+    let confirmed = 0;
+    let inferred = 0;
+    for (const e of edges) {
+      if (edgeCertainty(e) === "confirmed") confirmed++;
+      else inferred++;
+    }
+    return { confirmed, inferred };
+  }, [edges]);
 
   /** 렌즈가 켜졌을 때 밝힐 노드 집합(고른 사람들의 합집합). 액터 자신은 배치되지 않아 제외된다. */
   const lensSignature = lensActorIds.join("|");
@@ -611,6 +694,7 @@ export function WorkUnitCanvas({
         backdropDots,
         placed,
         adjacency,
+        edgeByPair,
         activeId,
         // 선택이 렌즈보다 우선 — 렌즈는 아무것도 안 짚었을 때의 바탕 상태다.
         highlight:
@@ -626,7 +710,17 @@ export function WorkUnitCanvas({
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [layout, palette, size, backdropDots, workUnitNeighbors, placed, adjacency, clusterMembers]);
+  }, [
+    layout,
+    palette,
+    size,
+    backdropDots,
+    workUnitNeighbors,
+    placed,
+    adjacency,
+    edgeByPair,
+    clusterMembers,
+  ]);
 
   /** 카메라 목표가 있으면 매 프레임 조금씩 다가간다. */
   const stepCamera = () => {
@@ -745,6 +839,8 @@ export function WorkUnitCanvas({
           범례는 focusedWorkUnit이 사라지는 즉시 돌아오므로 퇴장 120ms 동안 잠깐 겹칠 수 있다(수용). */}
       <ClusterDetail
         workUnit={focusedWorkUnit}
+        clusterEvidence={clusterEvidence}
+        clusterCounts={clusterCounts}
         selectedId={selectedId}
         loading={expanding}
         onSelectNode={onSelect}
@@ -752,6 +848,11 @@ export function WorkUnitCanvas({
       />
       {!focusedWorkUnit && (
         <div className="wu-legend">
+          {/* 전체 보기에서는 추측 엣지가 점선으로 잘 안 보인다(drawSharedLinks·drawMemberLinks는
+              배치가 만든 파생선이라 메타가 없다) — 이 카운트가 유일한 전역 감각이다. */}
+          <div className="wu-legend-counts">
+            실선 {certaintyCounts.confirmed} · 점선 {certaintyCounts.inferred}
+          </div>
           {lensActors.length > 0 && (
             <div className="wu-lens">
               <div className="wu-legend-hint">
@@ -814,6 +915,29 @@ export function WorkUnitCanvas({
           )}
         </div>
       )}
+
+      {/* 선 종류 범례 — 왼쪽 wu-legend(렌즈)와 달리 묶음을 연 상태에서도 계속 보인다.
+          그 순간이 바로 실선/점선을 구분해서 봐야 할 때라서다. */}
+      <div className="wu-line-legend">
+        <div className="wu-line-legend-row">
+          <svg className="wu-line-legend-swatch" viewBox="0 0 24 8" aria-hidden="true">
+            <line x1="1" y1="4" x2="23" y2="4" className="wu-line-legend-line" />
+          </svg>
+          <span>실선: 명시된 참조·소스가 준 사실</span>
+        </div>
+        <div className="wu-line-legend-row">
+          <svg className="wu-line-legend-swatch" viewBox="0 0 24 8" aria-hidden="true">
+            <line
+              x1="1"
+              y1="4"
+              x2="23"
+              y2="4"
+              className="wu-line-legend-line wu-line-legend-line--dashed"
+            />
+          </svg>
+          <span>점선: 내용 유사도로 연결</span>
+        </div>
+      </div>
 
       <div className="graph-controls">
         <button className="icon-btn" title="확대" onClick={() => zoom(1.25)}>
@@ -908,13 +1032,15 @@ interface SceneParams {
   backdropDots: BackdropDot[];
   placed: Map<string, Placed>;
   adjacency: Map<string, string[]>;
+  /** 노드 쌍 → 원본 엣지. 확정/추측 버킷을 그리기 시점에 조회하는 데만 쓴다. */
+  edgeByPair: Map<string, GraphEdge>;
   activeId: string | null;
   /** 나머지를 눌러 대비를 만드는 강조 — 선택·렌즈처럼 의도한 행위에서만 온다. */
   highlight: Set<string> | null;
   /** 밝히기만 하는 강조 — hover. 주변 밝기를 건드리지 않아 마우스를 움직여도 출렁이지 않는다. */
   hoverLift: Set<string> | null;
-  /** 열린 묶음 내부의 실제 엣지 (월드 좌표 노드 쌍). */
-  focusedEdges: Array<[Placed, Placed]>;
+  /** 열린 묶음 내부의 실제 엣지 (버킷별로 미리 분류돼 있다). */
+  focusedEdges: FocusedEdge[];
   focused: number | null;
   related: Set<number> | null;
   selectedId: string | null;
@@ -1076,6 +1202,10 @@ function drawMemberLinks(
  * 열린 묶음 안의 실제 관계를 그린다 — 커밋→파일, 커밋→티켓, 티켓→대화.
  * 작업 단위에서 뻗는 방사선만 있으면 "PR은 커밋에만 이어진다"로만 읽히고,
  * 나머지 구성 노드가 왜 이 작업에 속하는지가 화면에서 사라진다.
+ *
+ * 확정은 실선, 추측(semantic·propagated·구 데이터)은 점선으로 갈라 그린다 — 버킷별로
+ * beginPath/stroke를 따로 호출한다. setLineDash는 경로 전체에 소급 적용돼 누적 중에
+ * 바꿀 수 없기 때문이다(루프 안에서 바꾸면 전부 마지막 값으로 그려진다).
  */
 function drawClusterEdges(
   ctx: CanvasRenderingContext2D,
@@ -1087,26 +1217,39 @@ function drawClusterEdges(
   const { focusedEdges, palette, size } = p;
   if (focusedEdges.length === 0) return;
 
-  // 밝은 배경에선 같은 알파라도 선이 훨씬 진하게 읽혀 도식이 지저분해진다.
-  ctx.strokeStyle = rgba(palette.fg, palette.isDark ? 0.3 : 0.2);
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  for (const [from, to] of focusedEdges) {
-    const fx = cx + from.x * s;
-    const fy = cy + from.y * s;
-    const tx = cx + to.x * s;
-    const ty = cy + to.y * s;
-    // 양 끝이 모두 화면 밖이면 선분도 대체로 밖이다 — 확대 시 그리기 비용을 줄인다.
-    if (!inView(fx, fy, 0, size) && !inView(tx, ty, 0, size)) continue;
-    ctx.moveTo(fx, fy);
-    ctx.lineTo(tx, ty);
+  for (const bucket of ["confirmed", "inferred"] as const) {
+    const isInferred = bucket === "inferred";
+    ctx.setLineDash(isInferred ? INFERRED_DASH : []);
+    // 밝은 배경에선 같은 알파라도 선이 훨씬 진하게 읽혀 도식이 지저분해진다.
+    ctx.strokeStyle = rgba(
+      palette.fg,
+      (palette.isDark ? 0.3 : 0.2) * (isInferred ? INFERRED_ALPHA_SCALE : 1),
+    );
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    for (const item of focusedEdges) {
+      if (item.bucket !== bucket) continue;
+      const fx = cx + item.from.x * s;
+      const fy = cy + item.from.y * s;
+      const tx = cx + item.to.x * s;
+      const ty = cy + item.to.y * s;
+      // 양 끝이 모두 화면 밖이면 선분도 대체로 밖이다 — 확대 시 그리기 비용을 줄인다.
+      if (!inView(fx, fy, 0, size) && !inView(tx, ty, 0, size)) continue;
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(tx, ty);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
+  // 뒤따르는 노드 테두리·라벨까지 점선이 되지 않도록 복원한다.
+  ctx.setLineDash([]);
 }
 
 /**
  * 선택(또는 hover)한 노드의 실제 그래프 엣지.
  * 묶음 내 구조선은 배치가 만든 선이라 원본 관계와 다르다 — 여기서만 진짜 관계를 그린다.
+ *
+ * activeId는 hover로 프레임마다 바뀔 수 있어 버킷을 미리 계산해 둘 수 없다 — 그래도
+ * 대상은 "활성 노드의 이웃"뿐이라(전체 엣지가 아니라) 매 프레임 조회해도 비용이 작다.
  */
 function drawHighlightEdges(
   ctx: CanvasRenderingContext2D,
@@ -1115,23 +1258,36 @@ function drawHighlightEdges(
   cx: number,
   cy: number,
 ): void {
-  const { activeId, adjacency, placed, palette } = p;
+  const { activeId, adjacency, placed, palette, edgeByPair } = p;
   if (!activeId) return;
   const from = placed.get(activeId);
   if (!from) return;
 
   const fx = cx + from.x * s;
   const fy = cy + from.y * s;
-  ctx.strokeStyle = rgba(palette.fg, palette.isDark ? 0.5 : 0.38);
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  for (const nbId of adjacency.get(activeId) ?? []) {
-    const to = placed.get(nbId);
-    if (!to) continue;
-    ctx.moveTo(fx, fy);
-    ctx.lineTo(cx + to.x * s, cy + to.y * s);
+
+  for (const bucket of ["confirmed", "inferred"] as const) {
+    const isInferred = bucket === "inferred";
+    ctx.setLineDash(isInferred ? INFERRED_DASH : []);
+    ctx.strokeStyle = rgba(
+      palette.fg,
+      (palette.isDark ? 0.5 : 0.38) * (isInferred ? INFERRED_ALPHA_SCALE : 1),
+    );
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (const nbId of adjacency.get(activeId) ?? []) {
+      const to = placed.get(nbId);
+      if (!to) continue;
+      const edge = edgeByPair.get(edgePairKey(activeId, nbId));
+      const edgeBucket = edge ? edgeCertainty(edge) : "confirmed";
+      if (edgeBucket !== bucket) continue;
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(cx + to.x * s, cy + to.y * s);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
+  // 뒤따르는 노드 테두리·라벨까지 점선이 되지 않도록 복원한다.
+  ctx.setLineDash([]);
 }
 
 /**

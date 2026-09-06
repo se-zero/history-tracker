@@ -20,9 +20,12 @@ from graph.builder import (
     backfill_discussed_in_source,
     backfill_pr_issue_keys,
     backfill_triggered_by_source,
+    clear_bulk_document_issue_links,
     clear_reference,
+    clear_semantic_described_in,
     clear_semantic_discussed_in,
     clear_semantic_triggered_by,
+    make_neo4j_document_link_store,
     make_neo4j_issue_link_store,
     make_neo4j_reference_store,
     propagate_thread_discussed_in,
@@ -34,6 +37,14 @@ from graph.consumer import (
     PARKING_QUEUE,
     RABBITMQ_URL,
     RETRY_ROUTING_KEY,
+)
+from graph.document_linker import (
+    DESCRIBED_IN_THRESHOLD as DESCRIBED_IN_DEFAULT_THRESHOLD,
+    DOCUMENT_PRE_BUFFER_DAYS as DOCUMENT_DEFAULT_PRE_DAYS,
+    DOCUMENT_REFERENCE_THRESHOLD as DOCUMENT_REFERENCE_DEFAULT_THRESHOLD,
+    DOCUMENT_TOP_K as DOCUMENT_DEFAULT_TOP_K,
+    build_described_in_document_edges,
+    build_document_reference_edges,
 )
 from graph.event_handler import handle
 from graph.issue_linker import (
@@ -209,6 +220,30 @@ async def trigger_clear_reference(project_id: str | None = None):
     return {"deleted": deleted}
 
 
+@router.post("/migrations/clear-semantic-described-in")
+async def trigger_clear_semantic_described_in(project_id: str | None = None):
+    """source='semantic'인 DESCRIBED_IN(Issue→Document) 엣지를 삭제한다. project_id를 주면 그 프로젝트만.
+
+    text(명시 이슈 키/URL 참조) 엣지는 보존된다. 임계값을 바꿔 재구축(POST /document-links/build)하기
+    전에 호출한다 — clear-reference는 REFERENCE만 지우고 DESCRIBED_IN은 지우지 않는다.
+    """
+    deleted = await clear_semantic_described_in(project_id)
+    return {"deleted": deleted}
+
+
+@router.post("/migrations/clear-bulk-document-issue-links")
+async def trigger_clear_bulk_document_issue_links(project_id: str | None = None):
+    """상한(DOCUMENT_ISSUE_REF_LIMIT)을 넘는 문서의 text DESCRIBED_IN(Issue→Document) 엣지를
+    삭제한다. project_id를 주면 그 프로젝트만.
+
+    이건 semantic이 아니라 **text 엣지를 지운다** — graph/event_handler.py의 런타임 가드가
+    막는 건 "앞으로 들어오는" 이벤트뿐이라, 가드 도입 이전에 이미 상한을 넘겨 만들어진
+    text 링크(색인·QA 문서가 이슈 키를 대량 나열한 경우)는 이 소급 정리로만 지울 수 있다.
+    상한 이하인 문서의 링크는 건드리지 않는다.
+    """
+    return await clear_bulk_document_issue_links(project_id)
+
+
 @router.post("/migrations/pr-issue-keys")
 async def trigger_pr_issue_keys_backfill():
     """기존 PR 노드 title/body에서 issue_keys를 추출해 pr.issue_keys로 저장하고
@@ -275,6 +310,39 @@ async def trigger_issue_links(options: IssueLinkOptions = IssueLinkOptions()):
         post_days=options.discussed_in_post_days,
     )
     return {"triggered_by": triggered_by, "discussed_in": discussed_in}
+
+
+class DocumentLinkOptions(BaseModel):
+    # REFERENCE(ChangeSet→Document) 시맨틱 매칭 임계값 (기본값 근거는 document_linker 상수 주석 참고)
+    reference_threshold: float = DOCUMENT_REFERENCE_DEFAULT_THRESHOLD
+    # DESCRIBED_IN(Issue→Document) 시맨틱 매칭 임계값 (기본값 근거는 document_linker 상수 주석 참고)
+    described_in_threshold: float = DESCRIBED_IN_DEFAULT_THRESHOLD
+    # 문서당 유지할 최대 매칭 수 (fan-out 컷 — 반대편인 ChangeSet/Issue는 열어 둔다). REFERENCE·DESCRIBED_IN 공용.
+    top_k: int = DOCUMENT_DEFAULT_TOP_K
+    # 문서 시간 윈도우 하한 버퍼(일) — 문서 생성일 이전의 ChangeSet/Issue는 후보에서 제외. 상한은 없다.
+    pre_days: int = DOCUMENT_DEFAULT_PRE_DAYS
+
+
+@router.post("/document-links/build")
+async def trigger_document_links(options: DocumentLinkOptions = DocumentLinkOptions()):
+    """ChangeSet ↔ Document REFERENCE, Issue ↔ Document DESCRIBED_IN 엣지 생성 (임베딩 유사도만).
+
+    LLM 검수 빌더는 없다 — 자동구축(임베딩만) 경로만 있다(document_linker 모듈 docstring 참고).
+    """
+    store = make_neo4j_document_link_store()
+    reference = await build_document_reference_edges(
+        store,
+        threshold=options.reference_threshold,
+        top_k=options.top_k,
+        pre_days=options.pre_days,
+    )
+    described_in = await build_described_in_document_edges(
+        store,
+        threshold=options.described_in_threshold,
+        top_k=options.top_k,
+        pre_days=options.pre_days,
+    )
+    return {"reference": reference, "described_in": described_in}
 
 
 class ActorMergeRequest(BaseModel):

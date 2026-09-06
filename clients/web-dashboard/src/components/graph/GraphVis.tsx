@@ -205,9 +205,9 @@ export function GraphVis({
     !activeFilters || activeFilters.has(n.type);
 
   const visibleEdges = useMemo(() => {
-    return edges.filter(([a, b]) => {
-      const A = nodeById.get(a);
-      const B = nodeById.get(b);
+    return edges.filter((e) => {
+      const A = nodeById.get(e.source);
+      const B = nodeById.get(e.target);
       return A && B && isAllowed(A) && isAllowed(B);
     });
   }, [edges, nodeById, activeFilters]);
@@ -295,7 +295,9 @@ export function GraphVis({
           <rect width={size.w} height={size.h} fill="url(#ht-grid)" opacity="0.5" />
         )}
         <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
-          {visibleEdges.map(([a, b], i) => {
+          {visibleEdges.map((e, i) => {
+            const a = e.source;
+            const b = e.target;
             const A = nodeById.get(a)!;
             const B = nodeById.get(b)!;
             const cls = ["gedge"];
@@ -312,7 +314,9 @@ export function GraphVis({
             // 데이터에 같은 시드 쌍이 중복(양방향·다중 엣지)으로 와도 오버레이는 한 번만
             // 그린다 — edgeKey가 React key라 중복이면 키 충돌 + 이중 렌더가 된다.
             const litSeen = new Set<string>();
-            return visibleEdges.map(([a, b]) => {
+            return visibleEdges.map((e) => {
+            const a = e.source;
+            const b = e.target;
             if (!hi || !hi.has(a) || !hi.has(b)) return null;
             const key = edgeKey(a, b);
             if (litSeen.has(key)) return null;

@@ -161,10 +161,10 @@ export function buildWorkUnitLayout(
     if (list) list.push(b);
     else adj.set(a, [b]);
   };
-  for (const [a, b] of edges) {
-    if (!byId.has(a) || !byId.has(b)) continue;
-    push(a, b);
-    push(b, a);
+  for (const e of edges) {
+    if (!byId.has(e.source) || !byId.has(e.target)) continue;
+    push(e.source, e.target);
+    push(e.target, e.source);
   }
 
   const workUnitNodes = nodes.filter(isWorkUnit);
@@ -254,9 +254,9 @@ export function buildWorkUnitLayout(
 
   // 작업 단위끼리 직접 이어진 경우도 공유 연결로 본다.
   // (현재 스키마에 PR↔PR 관계는 없어 거의 발생하지 않지만, 작업 단위 타입이 바뀌어도 안전하도록 둔다.)
-  for (const [a, b] of edges) {
-    const ia = workUnitIndex.get(a);
-    const ib = workUnitIndex.get(b);
+  for (const e of edges) {
+    const ia = workUnitIndex.get(e.source);
+    const ib = workUnitIndex.get(e.target);
     if (ia !== undefined && ib !== undefined) addSharedLink(ia, ib);
   }
 
