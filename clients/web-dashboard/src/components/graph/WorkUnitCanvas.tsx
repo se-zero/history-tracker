@@ -366,6 +366,37 @@ export function WorkUnitCanvas({
   }, [focusedEdges]);
 
   /**
+   * 구성 노드 → 그 노드를 클러스터에 붙인 추측 엣지 중 가장 신뢰도 높은 것(ClusterDetail 배지 조회용).
+   *
+   * 작업 단위↔구성 노드 직접 엣지(edgeByPair)로는 조회할 수 없다 — 문서는 ChangeSet에,
+   * 이슈도 ChangeSet에 붙지 PR/작업 단위에 직접 붙지 않기 때문이다. focusedEdges는 이미
+   * 클러스터 내부(양 끝 모두 멤버)의 실제 엣지를 모아 뒀으므로 여기서 노드별로 재인덱싱한다.
+   * confirmed 엣지는 담지 않는다 — 배지는 "이 노드는 추론으로 붙었다"만 말한다.
+   */
+  const clusterEvidence = useMemo(() => {
+    const best = new Map<string, GraphEdge>();
+    for (const item of focusedEdges) {
+      if (!item.edge || item.bucket !== "inferred") continue;
+      for (const id of [item.edge.source, item.edge.target]) {
+        const cur = best.get(id);
+        if (!cur || (item.edge.confidence ?? 0) > (cur.confidence ?? 0)) best.set(id, item.edge);
+      }
+    }
+    return best;
+  }, [focusedEdges]);
+
+  /** 열린 클러스터 내부의 확정/추측 카운트 — 전체 보기 범례(certaintyCounts)와 달리 이 묶음 기준이다. */
+  const clusterCounts = useMemo(() => {
+    let confirmed = 0;
+    let inferred = 0;
+    for (const item of focusedEdges) {
+      if (item.bucket === "confirmed") confirmed++;
+      else inferred++;
+    }
+    return { confirmed, inferred };
+  }, [focusedEdges]);
+
+  /**
    * 액터 렌즈 후보 — 배치된 노드에 실제로 관여한 사람만.
    *
    * 액터는 연결 수가 50~133으로 다른 노드(중앙값 3)의 수십 배라 배치에 넣으면 전체가
@@ -808,7 +839,8 @@ export function WorkUnitCanvas({
           범례는 focusedWorkUnit이 사라지는 즉시 돌아오므로 퇴장 120ms 동안 잠깐 겹칠 수 있다(수용). */}
       <ClusterDetail
         workUnit={focusedWorkUnit}
-        edgeByPair={edgeByPair}
+        clusterEvidence={clusterEvidence}
+        clusterCounts={clusterCounts}
         selectedId={selectedId}
         loading={expanding}
         onSelectNode={onSelect}
@@ -819,7 +851,7 @@ export function WorkUnitCanvas({
           {/* 전체 보기에서는 추측 엣지가 점선으로 잘 안 보인다(drawSharedLinks·drawMemberLinks는
               배치가 만든 파생선이라 메타가 없다) — 이 카운트가 유일한 전역 감각이다. */}
           <div className="wu-legend-counts">
-            확정 {certaintyCounts.confirmed} · 추측 {certaintyCounts.inferred}
+            실선 {certaintyCounts.confirmed} · 점선 {certaintyCounts.inferred}
           </div>
           {lensActors.length > 0 && (
             <div className="wu-lens">
@@ -883,6 +915,29 @@ export function WorkUnitCanvas({
           )}
         </div>
       )}
+
+      {/* 선 종류 범례 — 왼쪽 wu-legend(렌즈)와 달리 묶음을 연 상태에서도 계속 보인다.
+          그 순간이 바로 실선/점선을 구분해서 봐야 할 때라서다. */}
+      <div className="wu-line-legend">
+        <div className="wu-line-legend-row">
+          <svg className="wu-line-legend-swatch" viewBox="0 0 24 8" aria-hidden="true">
+            <line x1="1" y1="4" x2="23" y2="4" className="wu-line-legend-line" />
+          </svg>
+          <span>실선: 명시된 참조·소스가 준 사실</span>
+        </div>
+        <div className="wu-line-legend-row">
+          <svg className="wu-line-legend-swatch" viewBox="0 0 24 8" aria-hidden="true">
+            <line
+              x1="1"
+              y1="4"
+              x2="23"
+              y2="4"
+              className="wu-line-legend-line wu-line-legend-line--dashed"
+            />
+          </svg>
+          <span>점선: 내용 유사도로 연결</span>
+        </div>
+      </div>
 
       <div className="graph-controls">
         <button className="icon-btn" title="확대" onClick={() => zoom(1.25)}>
