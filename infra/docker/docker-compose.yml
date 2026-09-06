@@ -90,6 +90,8 @@ services:
       INGEST_PREFETCH: ${INGEST_PREFETCH:-}
       INGEST_EMBED_COALESCE_MAX: ${INGEST_EMBED_COALESCE_MAX:-8}
       INGEST_EMBED_COALESCE_WINDOW_MS: ${INGEST_EMBED_COALESCE_WINDOW_MS:-50}
+      # Slack 필터용 프로젝트 프로필(그래프 요약) 메모리 캐시 TTL(초). 기본 24시간.
+      PROJECT_PROFILE_TTL_SECONDS: ${PROJECT_PROFILE_TTL_SECONDS:-86400}
 
       # 보안 키 — backend·pipeline-worker와 같은 값을 공유해야 라우터 인증이 통과한다.
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}

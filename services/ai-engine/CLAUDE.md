@@ -139,6 +139,8 @@ graph/             Neo4j 그래프 구축 + 수집
   actor_admin.py     Actor 수동 병합·복원·분리 (운영 쓰기 경로, docs/actor-manual-merge.md)
   privacy.py         개인정보 보고 대상 조회 (project_id 스코프 없는 예외 — 모듈 docstring 참고)
   slack_filter.py / slack_llm_filter.py / slack_batch_filter.py  Slack 노이즈 필터
+  project_profile.py  Slack 필터 프롬프트에 넣을 프로젝트 프로필을 그래프에서 도출(gpt-4o-mini 요약,
+                     프로젝트별 메모리 캐시 `PROJECT_PROFILE_TTL_SECONDS` 기본 24h, 재료 부족 시 빈 문자열)
   summarizer.py / path_filter.py / overview.py
 ```
 
