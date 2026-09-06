@@ -51,6 +51,7 @@ MODULES = [
     "graph.path_filter",
     "graph.postprocess",
     "graph.privacy",
+    "graph.project_profile",
     "graph.reference_builder",
     "graph.reference_store",
     "graph.reference_verifier",

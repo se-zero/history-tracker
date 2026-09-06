@@ -13,8 +13,8 @@ _SHARED_CRITERIA = """\
 
 제거 기준 (다음 중 하나라도 해당되면 제거):
 - "approve 했어", "머지 완료", "확인할게", "오케", "알겠어" 등 단순 행위 확인
-- 위 프로젝트 컨텍스트와 무관한 내용 (다른 프로젝트, 다른 수업, 관계없는 서버/DB 오류 등)
-- "시간될 때 확인해줘"처럼 내용 없이 요청만 있는 메시지
+- 업무·프로젝트 진행과 무관한 사적 대화 (일정 잡기, 안부, 회식·모임 얘기 등)
+{context_criteria}- "시간될 때 확인해줘"처럼 내용 없이 요청만 있는 메시지
 - 단순 감사, 인사, 잡담
 
 ⚠️ 기준 충돌 시: 기술적 내용이 포함된 메시지는 요청 형식이더라도 보존합니다.
@@ -26,7 +26,7 @@ _SHARED_CRITERIA = """\
 판단: 보존 (요청 + 기술 내용 → 기술 우선)
 
 입력: "이번 주 회식 어디서 해?"
-판단: 제거 (잡담, 프로젝트 무관)
+판단: 제거 (사적 대화, 업무 무관)
 
 입력: "그건 어제 회의에서 얘기한 대로 가자"
 판단: 제거 (구체적 내용 없음, 외부 맥락 의존)\
@@ -35,10 +35,7 @@ _SHARED_CRITERIA = """\
 _THREAD_PROMPT = """\
 당신은 팀의 지식 그래프 구축을 위해 슬랙 메시지를 분류하는 도우미입니다.
 
-[프로젝트 컨텍스트]
-GitHub, Jira, Slack 데이터를 연동하여 지식 그래프를 만드는 캡스톤 프로젝트입니다.
-
-아래 메시지들은 하나의 슬랙 스레드에서 시간 순서대로 발생한 대화입니다.
+{context_block}아래 메시지들은 하나의 슬랙 스레드에서 시간 순서대로 발생한 대화입니다.
 앞뒤 맥락을 고려해 각 메시지의 보존 여부를 판단하세요.
 
 {shared_criteria}
@@ -55,10 +52,7 @@ GitHub, Jira, Slack 데이터를 연동하여 지식 그래프를 만드는 캡�
 _STANDALONE_PROMPT = """\
 당신은 팀의 지식 그래프 구축을 위해 슬랙 메시지를 분류하는 도우미입니다.
 
-[프로젝트 컨텍스트]
-GitHub, Jira, Slack 데이터를 연동하여 지식 그래프를 만드는 캡스톤 프로젝트입니다.
-
-아래 메시지들은 서로 독립적인 슬랙 메시지입니다. 각 메시지를 개별적으로 판단하세요.
+{context_block}아래 메시지들은 서로 독립적인 슬랙 메시지입니다. 각 메시지를 개별적으로 판단하세요.
 
 {shared_criteria}
 
@@ -67,15 +61,31 @@ GitHub, Jira, Slack 데이터를 연동하여 지식 그래프를 만드는 캡�
 """
 
 
-def build_prompt(is_thread: bool) -> str:
+def build_prompt(is_thread: bool, project_context: str = "") -> str:
+    """project_context는 호출자가 넘긴다 — 비어 있으면(공백만 있어도) 프로젝트 컨텍스트 블록과
+    조건부 제거 기준 줄이 프롬프트에서 빠진다 (특정 프로젝트 정체성을 하드코딩하지 않기 위함)."""
+    ctx = project_context.strip()
+    context_block = f"[프로젝트 컨텍스트]\n{ctx}\n\n" if ctx else ""
+    # "명백히…애매하면 보존"은 프로젝트에 살짝 걸친 곁가지(외부 강의 얘기, 지원사업 행정 등)를
+    # 거르지 못해 원래 프롬프트가 쓰던 강도로 되돌렸다.
+    context_criteria = (
+        "- [프로젝트 컨텍스트]와 무관한 내용 (다른 프로젝트·다른 팀의 일, 외부 강의나 행정 절차, "
+        "관계없는 서버/DB 오류 등)\n"
+        if ctx
+        else ""
+    )
+    shared_criteria = _SHARED_CRITERIA.format(context_criteria=context_criteria)
     template = _THREAD_PROMPT if is_thread else _STANDALONE_PROMPT
-    return template.format(shared_criteria=_SHARED_CRITERIA)
+    return template.format(context_block=context_block, shared_criteria=shared_criteria)
 
 
-async def filter_messages(messages: list[str], is_thread: bool = False) -> list[bool]:
+async def filter_messages(
+    messages: list[str], is_thread: bool = False, project_context: str = ""
+) -> list[bool]:
     """
     messages: 메시지 body 문자열 리스트
     is_thread: True면 스레드 맥락 고려 프롬프트 사용
+    project_context: 있으면 프롬프트에 프로젝트 컨텍스트로 포함 (build_prompt 참고)
     반환: 각 메시지의 보존 여부 (True=보존, False=제거)
     """
     if not messages:
@@ -88,7 +98,7 @@ async def filter_messages(messages: list[str], is_thread: bool = False) -> list[
         model="gpt-4o-mini",
         response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": build_prompt(is_thread)},
+            {"role": "system", "content": build_prompt(is_thread, project_context)},
             {"role": "user", "content": numbered},
         ],
         temperature=0,
