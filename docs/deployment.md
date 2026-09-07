@@ -74,7 +74,7 @@ CPU 상한은 걸지 않는다. 수집이 버스트성이라 커널 스케줄러
 |---|---|
 | **Docker Engine + Compose plugin** | 스택 전체가 compose다 |
 | **git** | 레포를 받아 온다 |
-| **`docker` 그룹 멤버십** | `prod.sh`·`backup.sh`가 docker를 직접 부른다. sudo가 필요하면 cron 백업이 조용히 실패한다 |
+| **`docker` 그룹 멤버십** | `prod.sh`·`backup.sh`·`restart-check.sh`가 docker를 직접 부른다. sudo가 필요하면 cron 백업·재시작 감지가 조용히 실패한다 |
 
 설치는 [Docker 공식 apt 저장소 절차](https://docs.docker.com/engine/install/ubuntu/)를 따른다.
 배포판의 `docker.io` 패키지는 Compose plugin이 빠져 있거나 오래된 경우가 있어 권장하지 않는다.
@@ -112,6 +112,7 @@ cp .env.example .env
 | `BACKEND_CREDENTIAL_KEY` | `openssl rand -base64 32` | **형식 고정**(32-byte Base64) — hex를 쓰면 안 된다 |
 | `RABBITMQ_USER` · `RABBITMQ_PASSWORD` | `openssl rand -hex 32` | **URL-safe 값만** — 아래 경고 참고 |
 | `TUNNEL_TOKEN` | Cloudflare 대시보드 | 2-2에서 발급받는다. 이것이 있어야 바깥에서 접근할 수 있다 |
+| `ALERT_SLACK_WEBHOOK_URL` | Slack 앱 → Incoming Webhooks | 선택. 비우면 알림 없이 로그만. 4-6 참고 |
 
 > ⚠️ **RabbitMQ 비밀번호에 `/`·`@`·`#`·`?`를 쓰지 않는다.** ai-engine이 이 값을 AMQP URL
 > (`amqp://user:password@rabbitmq:5672/`) 안에 끼워 넣기 때문에, 특수문자가 있으면 파서가 vhost나
@@ -278,6 +279,8 @@ Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 �
 로그는 컨테이너당 30MB(10MB × 3)로 로테이션된다 — 기본 json-file 드라이버는 상한이 없어
 홈서버에서 몇 달이면 디스크를 채운다.
 
+재시작 정책이 되살린 재시작은 4-6의 `restart-check.sh`가 Slack으로 알린다.
+
 ### 4-2. 인프라 접근 (외부에 열린 포트가 없다)
 
 배포에서는 Postgres·Neo4j·RabbitMQ 포트가 호스트에 없고, 웹조차 `127.0.0.1`에만 묶여 있다.
@@ -425,6 +428,136 @@ docker run --rm -i neo4j:5.26-community \
 있어 같은 호스트에 두 번째 스택을 띄우면 이름이 충돌한다. 리허설을 하려면 운영 스택을
 내리고 백업에서 되돌린 뒤 로그인·그래프 조회까지 확인하는 방식이 된다.
 
+### 4-6. 모니터링·알림
+
+정식 지표 스택(actuator·prometheus·grafana)은 두지 않는다. 얇게 간다 — ai-engine이 사건을 직접 Slack
+Incoming Webhook으로 push하고, 컨테이너 재시작만 호스트 cron 스크립트가 5분마다 확인한다. 약 한 달 뒤
+예정된 클라우드(AWS/Azure, 형태 미정) 이전이 재시작·자원 지표를 플랫폼 기능으로 제공하므로, 호스트에
+묶인 `restart-check.sh`는 그때 폐기하고 앱 안의 감지(ai-engine `alerts.py`)는 그대로 가져간다.
+
+| 종류 | 감지 위치 | 조건 | 억제 |
+|---|---|---|---|
+| `openai_quota` | ai-engine `openai_client.py` 관문 | OpenAI 잔액·쿼터 소진(`insufficient_quota`), 즉시 | 1시간 1회 |
+| `openai_unrecoverable` | 〃 | 회복 불가 4xx(400/401/403/404/422), 즉시 | 1시간 1회 |
+| `openai_transient` | 〃 | 일시 오류(429 일반·5xx·연결·타임아웃) 10분 창에 5건 이상 | 1시간 1회 |
+| `dlq_parked` | ai-engine `graph/consumer.py`(`_handle_failure`) | 재시도 소진 이벤트가 DLQ로 파킹, 즉시 | 1시간 1회 |
+| `parking` | ai-engine `graph/consumer.py`(`_route_message`) | malformed(JSON 파싱 실패) 이벤트가 parking 큐로, 즉시 | 1시간 1회 |
+| 컨테이너 재시작 | `infra/scripts/restart-check.sh`(호스트 cron, 5분 주기) | `RestartCount` 증가 | 증가할 때마다(상태 파일 기준선을 매번 갱신) |
+
+같은 종류가 억제 중일 때 발생한 건수는 사라지지 않고 다음 알림 본문에 "N건 추가 발생"으로 붙는다
+(`openai_transient`는 10분 창이 다시 찬 뒤의 발생 수).
+
+#### Slack 웹훅 준비
+
+고객용 OAuth/마켓플레이스 앱과 **별도의 내부 앱**을 같은 워크스페이스에 만들고 Incoming Webhooks를
+켠 뒤 알림을 받을 채널을 선택해 웹훅 URL을 복사한다. 같은 URL을 `infra/docker/.env`(ai-engine의
+`ALERT_SLACK_WEBHOOK_URL`)와 crontab(아래 `restart-check.sh` cron 줄) **두 곳**에 넣는다.
+
+URL은 시크릿이다 — crontab 파일 권한은 `600`으로 하고, 유출되면 Slack 앱에서 해당 웹훅을 삭제하고
+재발급한다.
+
+#### `restart-check.sh`
+
+`docker inspect`의 `RestartCount`를 5분마다 이전 실행 값과 비교한다. RestartCount는 **재시작 정책이
+죽은 컨테이너를 되살릴 때만** 오른다(OOM kill·크래시·기동 실패 루프) — 운영자의 `docker stop`/`kill`은
+정책을 취소해 오르지 않고, `docker restart`·`docker start`·컨테이너 재생성은 **0으로 리셋**된다.
+`backup.sh`의 Neo4j stop/start도 재시작 정책을 거치지 않으므로 알림이 오지 않는다(의도).
+
+| 변수 | 기본 | 설명 |
+|---|---|---|
+| `ALERT_SLACK_WEBHOOK_URL` | (없음) | 비우면 stderr에 WARN 한 줄 후 기록만 하고 전송하지 않는다 |
+| `RESTART_CHECK_STATE_FILE` | `$HOME/.history-tracker-restart-check.state` | 컨테이너별 RestartCount 기준선 |
+| `RESTART_CHECK_CONTAINERS` | 스택 8개(스크립트 상단 `RESTART_CHECK_CONTAINERS_DEFAULT` 참고) | 공백 구분 컨테이너명 목록 |
+
+```bash
+./infra/scripts/restart-check.sh
+ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... ./infra/scripts/restart-check.sh
+```
+
+cron 등록 (5분마다):
+
+```cron
+*/5 * * * * ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... /path/to/infra/scripts/restart-check.sh >> /var/log/history-restart-check.log 2>&1
+```
+
+**커밋 시 실행 비트** — 이 저장소는 Windows에서 `core.filemode=false`라 커밋 전에
+`git update-index --chmod=+x infra/scripts/restart-check.sh`를 한 번 실행해야 서버에서 cron이
+`Permission denied` 없이 돈다.
+
+#### `/health` 확인
+
+무인증 엔드포인트라 컨테이너 밖에 노출하지 않는다. 서버 안에서(컨테이너에 curl이 없을 수 있어
+python으로):
+
+```bash
+docker exec history-graph-ai-engine python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/health').read().decode())"
+```
+
+`alerts` 키에 종류별 누적 카운터(`counters`)·억제 건수(`suppressed`)·일시 오류 창 안 건수
+(`transient_in_window`)·쿼터 소진 최초 감지 시각(`quota_exhausted_at`)·웹훅 설정 여부
+(`webhook_configured`)·전송 성공/실패 수(`alerts_sent`/`send_failures`)가 담긴다.
+
+#### 검증 시나리오
+
+전제: dev 스택 `./dev.sh up -d --build`, `.env`에 실제 `ALERT_SLACK_WEBHOOK_URL`. 2026-09-07에 1~5를 dev
+스택에서 실측했다(`/health` 카운터·큐 깊이·`alerts_sent` 증가까지 확인). 잘못된 키는 `.env`를 고치지 않고
+`OPENAI_API_KEY=sk-bad ./dev.sh up -d --no-deps --force-recreate ai-engine`처럼 셸 환경변수로 덮어쓰면 된다
+(compose는 셸 값을 `.env`보다 우선한다). 되돌릴 때는 같은 명령을 변수 없이 다시 실행한다.
+
+1. **parking** — RabbitMQ 관리 API(dev는 15672 노출)로 깨진 JSON을 발행한다. 계정은 로컬 dev 스택이면
+   `guest:guest`, 배포 서버면 `.env`의 `RABBITMQ_USER`:`RABBITMQ_PASSWORD`다(시나리오 2도 같다).
+
+   ```bash
+   curl -u guest:guest -X POST localhost:15672/api/exchanges/%2F/history.exchange/publish \
+     -H 'content-type: application/json' \
+     -d '{"properties":{},"routing_key":"event.test","payload":"{not json","payload_encoding":"string"}'
+   ```
+
+   → Slack에 `[ai-engine] malformed 이벤트 parking …`.
+
+2. **DLQ 1건 강제 적재** — 같은 API로 재시도 헤더를 상한값으로 붙인 이벤트를 발행한다. `properties`를
+   문자열로 주면 Issue 핸들러가 `props.get(...)`에서 예외를 내므로 Neo4j를 멈추지 않아도 확실히 실패한다.
+   `properties`가 빈 객체면 "external_id 없음 — 건너뜀"으로 조용히 무시돼 DLQ에 가지 **않는다**.
+
+   ```bash
+   curl -u guest:guest -X POST localhost:15672/api/exchanges/%2F/history.exchange/publish \
+     -H 'content-type: application/json' \
+     -d '{"properties":{"headers":{"x-retry-count":20}},"routing_key":"event.test","payload_encoding":"string","payload":"{\"projectId\":\"alert-test\",\"source\":\"JIRA\",\"nodeType\":\"Issue\",\"properties\":\"bad\",\"actor\":{\"id\":\"alert-test\"}}"}'
+   ```
+
+   `x-retry-count`=20은 `RETRY_MAX` 기본값이다. 처리 실패 → 재시도 없이 DLQ → Slack `[ai-engine] DLQ 파킹 …`.
+   RabbitMQ 관리 API `GET /api/queues/%2F/history.events.dlq`의 `messages`가 1인지 확인하고, 테스트 메시지는
+   `DELETE /api/queues/%2F/history.events.dlq/contents`로 비운다(parking 큐도 같은 방식).
+
+3. **잘못된 키** — `.env`의 `OPENAI_API_KEY`를 `sk-bad`로 바꾸고 `./dev.sh up -d ai-engine`(클라이언트가
+   `lru_cache`라 재기동이 필요하다). 가장 쉬운 재현은 **대시보드에서 아무 프로젝트에 질문 하나를 던지는
+   것**이다(backend를 거쳐 ai-engine `/query`로 간다). 직접 부르려면 내부 토큰 헤더와 JSON 본문이 필요하다:
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8000/query \
+     -H "X-Internal-Service-Token: $INTERNAL_SERVICE_TOKEN" -H 'content-type: application/json' \
+     -d '{"question":"테스트","project_id":"<프로젝트 id>"}'
+   ```
+
+   → 502 + Slack `[ai-engine] OpenAI 회복 불가 오류 — chat(...) HTTP 401 invalid_api_key …`. 확인 후
+   키를 복원하고 다시 재기동한다.
+
+4. **재시작** — `./infra/scripts/restart-check.sh`(기준선 기록) → `docker inspect history-graph-ai-engine --format
+   '{{.HostConfig.RestartPolicy.Name}}'`가 `unless-stopped`가 아니면
+   `docker update --restart unless-stopped history-graph-ai-engine` →
+   `docker exec history-graph-ai-engine sh -c 'kill 1'` → 5초 뒤 `RestartCount` 1을 확인 →
+   `./infra/scripts/restart-check.sh` → Slack에 `RestartCount 0→1`. **`docker restart`/`docker kill`로는 재현이 안
+   된다.** (2026-09-07 dev 스택에서 실측 — `kill 1` 뒤 정책이 되살려 `RestartCount` 0→1, `docker update
+   --restart`는 실행 중 컨테이너에 즉시 적용됐다. 검증 후 `docker update --restart no <c>`로 되돌린다.)
+
+5. `curl -s localhost:8000/health`로 카운터를 확인한다. 잔액 소진(`openai_quota`)은 단위 테스트
+   `test_classify_quota_by_code`로 대체한다.
+
+#### 한계
+
+카운터·억제 상태는 in-process라 재기동하면 0으로 리셋된다. 큐 적체·수집 정지·디스크 사용량은
+감지하지 않는다.
+
 ---
 
 ## 5. 아직 이 문서가 다루지 않는 것
@@ -432,5 +565,5 @@ docker run --rm -i neo4j:5.26-community \
 | 항목 | 상태 |
 |---|---|
 | 오프사이트 백업 | 하지 않는다 — 4-5의 전제 참고 |
-| 모니터링·알림 | 아직 없음 |
+| 모니터링·알림 | 4-6 — Slack 웹훅(DLQ·LLM 실패·잔액 소진·컨테이너 재시작). 큐 적체·수집 정지·디스크는 아직 없음 |
 | Cloudflare Access(접근 제한) | 아직 없음. 지금은 도메인을 아는 누구나 로그인 화면까지 닿는다 |
