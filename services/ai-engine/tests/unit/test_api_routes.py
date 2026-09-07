@@ -33,7 +33,6 @@ EXPECTED_ROUTES = {
     ("POST", "/graph/subgraph"),
     ("POST", "/issue-links/build"),
     ("POST", "/migrations/changeset-embeddings"),
-    ("POST", "/migrations/clear-bulk-document-issue-links"),
     ("POST", "/migrations/clear-reference"),
     ("POST", "/migrations/clear-semantic-described-in"),
     ("POST", "/migrations/clear-semantic-discussed-in"),

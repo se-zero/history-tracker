@@ -20,7 +20,6 @@ from graph.builder import (
     backfill_discussed_in_source,
     backfill_pr_issue_keys,
     backfill_triggered_by_source,
-    clear_bulk_document_issue_links,
     clear_reference,
     clear_semantic_described_in,
     clear_semantic_discussed_in,
@@ -229,19 +228,6 @@ async def trigger_clear_semantic_described_in(project_id: str | None = None):
     """
     deleted = await clear_semantic_described_in(project_id)
     return {"deleted": deleted}
-
-
-@router.post("/migrations/clear-bulk-document-issue-links")
-async def trigger_clear_bulk_document_issue_links(project_id: str | None = None):
-    """상한(DOCUMENT_ISSUE_REF_LIMIT)을 넘는 문서의 text DESCRIBED_IN(Issue→Document) 엣지를
-    삭제한다. project_id를 주면 그 프로젝트만.
-
-    이건 semantic이 아니라 **text 엣지를 지운다** — graph/event_handler.py의 런타임 가드가
-    막는 건 "앞으로 들어오는" 이벤트뿐이라, 가드 도입 이전에 이미 상한을 넘겨 만들어진
-    text 링크(색인·QA 문서가 이슈 키를 대량 나열한 경우)는 이 소급 정리로만 지울 수 있다.
-    상한 이하인 문서의 링크는 건드리지 않는다.
-    """
-    return await clear_bulk_document_issue_links(project_id)
 
 
 @router.post("/migrations/pr-issue-keys")

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -7,7 +8,6 @@ from graph import builder
 from graph.actor_resolver import resolve_actor
 from graph.builder import make_neo4j_actor_store
 from graph.document_chunker import chunk_document
-from graph.document_policy import DOCUMENT_ISSUE_REF_LIMIT
 from graph.embed_batcher import embed_text_batched
 from graph.embedder import embed_batch, embed_text
 from graph.path_filter import should_skip
@@ -15,6 +15,13 @@ from graph.slack_filter import should_skip_slack
 from graph.summarizer import summarize_diff
 
 logger = logging.getLogger(__name__)
+
+# Document → Issue text DESCRIBED_IN 상한 (issueKeys distinct + issueExternalRefs distinct 합).
+# 실측: QA 문서처럼 이슈 키를 나열만 한 문서는 text 엣지 10~29개를 만드는 반면, 실제로
+# 특정 이슈를 설명하는 정상 문서는 1~3개에 그친다 — 3과 10 사이에 뚜렷한 간극이 있어 그 사이인
+# 5를 기본값으로 둔다. text 엣지는 confidence=1.0 고정이라 읽기 필터(0.5)를 무조건 통과해
+# 진짜 설계 문서를 밀어내므로, 이 상한이 없으면 색인성 문서가 그래프 품질을 갉아먹는다.
+DOCUMENT_ISSUE_REF_LIMIT = int(os.environ.get("DOCUMENT_ISSUE_REF_LIMIT", "5"))
 
 
 def _is_bot_actor(actor_id: str) -> bool:
@@ -457,8 +464,8 @@ async def _handle_document(event: dict) -> None:
     issue_keys = refs.get("issueKeys") or ([] if not refs.get("issueKey") else [refs["issueKey"]])
     distinct_issue_keys = list(dict.fromkeys(key for key in issue_keys if key))
     # 발행 측(RefsExtractor)이 LinkedHashSet으로 이미 중복을 제거해 보내지만, 그 보장에
-    # 기대지 않고 여기서도 (source, externalId) 쌍 기준으로 다시 distinct를 센다 — 아래 상한
-    # 판단과 소급 정리 마이그레이션의 카운트 기준(§DOCUMENT_ISSUE_REF_LIMIT)이 정확히 일치해야 한다.
+    # 기대지 않고 여기서도 (source, externalId) 쌍 기준으로 다시 distinct를 센다 — 상한 판단이
+    # 발행 측 구현에 의존하면 그쪽이 바뀔 때 조용히 기준이 달라진다.
     distinct_external_refs = list(dict.fromkeys(
         (ref["source"], ref["externalId"])
         for ref in (refs.get("issueExternalRefs") or [])

@@ -475,8 +475,8 @@ pairs:
 여부·개수만 잰다.
 
 기준선은 문서 상한 가드(`DOCUMENT_ISSUE_REF_LIMIT`, `docs/normalized-event.md`「Document 참조
-상한」)와 소급 정리(`clear_bulk_document_issue_links`)를 적용하기 전/후 실측이다
-(project_id `15f83a55-fb4c-417c-b20e-657644ec323c`).
+상한」) 도입 전/후 실측이다 — "후" 값은 가드 도입 이전에 이미 쌓여 있던 대량 링크를 한 차례
+소급 삭제한 뒤의 수치다(project_id `15f83a55-fb4c-417c-b20e-657644ec323c`).
 
 | 지표 | 전 | 후 |
 |---|---|---|

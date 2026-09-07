@@ -935,7 +935,7 @@ export function WorkUnitCanvas({
               className="wu-line-legend-line wu-line-legend-line--dashed"
             />
           </svg>
-          <span>점선: 내용 유사도로 연결</span>
+          <span>점선: 내용 유사도·스레드 전파로 연결</span>
         </div>
       </div>
 

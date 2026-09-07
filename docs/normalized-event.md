@@ -262,7 +262,7 @@ Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 �
 **Document 참조 상한(`DOCUMENT_ISSUE_REF_LIMIT`, 기본 5)**: `issueKeys` distinct 개수와
 `issueExternalRefs` distinct 개수의 **합**이 이 값을 넘으면, ai-engine은 두 refs가 만드는
 `(Issue)-[:DESCRIBED_IN {source:'text'}]->(Document)` 링크를 **상위 N개로 자르지 않고 전량
-스킵**한다(`graph/event_handler.py`의 `_handle_document`, 상수는 `graph/document_policy.py`).
+스킵**한다(`graph/event_handler.py`의 `_handle_document`, 상수도 같은 모듈 상단에 있다).
 "이슈 키가 이렇게 많다"는 사실 자체가 그 문서가 특정 이슈를 설명하는 게 아니라 색인·나열용
 문서라는 신호이므로, 상위 몇 개만 골라 남기지도 않는다 — 나열 순서에는 우선순위 정보가 없어
 무엇을 남길지 고를 기준이 없다.
