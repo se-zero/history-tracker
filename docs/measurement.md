@@ -475,8 +475,9 @@ pairs:
 여부·개수만 잰다.
 
 기준선은 문서 상한 가드(`DOCUMENT_ISSUE_REF_LIMIT`, `docs/normalized-event.md`「Document 참조
-상한」) 도입 전/후 실측이다 — "후" 값은 가드 도입 이전에 이미 쌓여 있던 대량 링크를 한 차례
-소급 삭제한 뒤의 수치다(project_id `15f83a55-fb4c-417c-b20e-657644ec323c`).
+상한」) 도입 전/후 실측이다 — "후" 값은 가드 도입 이전에 이미 쌓여 있던 대량 링크를 로컬에서
+한 차례 직접 지운 뒤의 수치다(project_id `15f83a55-fb4c-417c-b20e-657644ec323c`). 그 삭제는
+일회성 조작이고 제품에는 그런 정리 경로가 없다 — 기존 링크를 없애려면 연동을 다시 건다.
 
 | 지표 | 전 | 후 |
 |---|---|---|
@@ -521,7 +522,7 @@ WHERE refs <= $limit
 RETURN count(d) AS docs_kept, sum(refs) AS preserved_text_edges;
 ```
 
-**M4 — semantic 무손실** (가드·소급 정리는 text만 지운다 — semantic 엣지 총량이 그대로인지 확인)
+**M4 — semantic 무손실** (가드는 text 링크만 막는다 — semantic 엣지 총량이 그대로인지 확인)
 
 ```cypher
 MATCH (:Issue {project_id:$pid})-[r:DESCRIBED_IN {source:'semantic'}]->(:Document)
@@ -542,7 +543,7 @@ RETURN refs, count(d) AS doc_count
 ORDER BY refs DESC;
 ```
 
-**미해결**: M1~M4로 "가드·소급 정리가 대량 문서 오염을 없앴는가"와 "관계없는 엣지 타입을
+**미해결**: M1~M4로 "가드가 대량 문서 오염을 막는가"와 "관계없는 엣지 타입을
 건드리지 않았는가"는 회귀 없이 확인할 수 있다. 하지만 문서 대상 엣지의 **precision**(이
 REFERENCE·DESCRIBED_IN이 실제로 맞는 연결인가)을 라벨 없는 지표로는 잴 수 없다 — 제대로
 재려면 Notion 데이터가 있는 **새 그래프 스냅샷**과 `eval/edge_labels/`의 문서 쌍 라벨링이
