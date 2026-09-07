@@ -7,6 +7,7 @@ alerts.drain()으로 태스크 완료를 기다린다. 각 테스트는 alerts.r
 
 import asyncio
 import logging
+import time
 from types import SimpleNamespace
 from unittest.mock import patch
 import unittest
@@ -159,6 +160,71 @@ def test_different_kinds_not_suppressed_by_each_other(monkeypatch):
     alerts.record_dlq_parked("p1")
 
     assert len(calls) == 2
+
+
+# --- 롤백(전송 실패 시 억제 되돌리기) --------------------------------------------
+
+def _seed_post_rollback_state(monkeypatch, calls, t):
+    """t=0 전송(held 0) → t=10 억제(held 1) → t=3601 전송(held 1 실림) 순으로 진행한 뒤,
+    그 t=3601 전송이 실패했다고 가정하고 롤백해 _suppressed[kind]==2·
+    _last_alert_at[kind]==301.0 상태를 만든다. kind를 반환한다.
+    """
+    monkeypatch.setattr(alerts, "_dispatch", lambda kind, text: calls.append((kind, text)))
+    monkeypatch.setattr(alerts.time, "monotonic", lambda: t[0])
+
+    kind = alerts.record_openai_failure(_StubAPIError(401), caller="chat")
+    t[0] = 10.0
+    alerts.record_openai_failure(_StubAPIError(401), caller="chat")
+    t[0] = 3601.0
+    alerts.record_openai_failure(_StubAPIError(401), caller="chat")
+    alerts._rollback_after_send_failure(kind, 3601.0)
+    return kind
+
+
+def test_rollback_restores_held_and_shortens_suppression(monkeypatch):
+    alerts.reset()
+    calls = []
+    t = [0.0]
+
+    kind = _seed_post_rollback_state(monkeypatch, calls, t)
+
+    assert alerts._suppressed[kind] == 2  # 실린 1건 + 실패한 이번 건
+    assert alerts._last_alert_at[kind] == 3601.0 - 3600.0 + 300.0
+
+
+def test_after_rollback_next_event_realerts_after_retry_window(monkeypatch):
+    # 롤백 직후 상태에서 SEND_RETRY_SECONDS(300s) 전이면 여전히 억제된다.
+    alerts.reset()
+    calls = []
+    t = [0.0]
+    kind = _seed_post_rollback_state(monkeypatch, calls, t)
+    sent_before = len(calls)
+
+    t[0] = 3601.0 + 299.0
+    alerts.record_openai_failure(_StubAPIError(401), caller="chat")
+
+    assert len(calls) == sent_before  # 아직 억제 — 새 전송 없음
+
+    # 같은 롤백 상태에서 SEND_RETRY_SECONDS가 지나면 억제를 통과해 다시 보낸다.
+    alerts.reset()
+    calls2 = []
+    t2 = [0.0]
+    _seed_post_rollback_state(monkeypatch, calls2, t2)
+    sent_before2 = len(calls2)
+
+    t2[0] = 3601.0 + 300.0
+    alerts.record_openai_failure(_StubAPIError(401), caller="chat")
+
+    assert len(calls2) == sent_before2 + 1  # 재시딩 이후 새 전송 1건
+    assert "2건 추가 발생" in calls2[-1][1]
+
+
+def test_rollback_without_inflight_counts_only_the_failed_one():
+    alerts.reset()
+
+    alerts._rollback_after_send_failure(alerts.KIND_DLQ, 100.0)
+
+    assert alerts._suppressed[alerts.KIND_DLQ] == 1
 
 
 # --- 일시 오류 창 -----------------------------------------------------------------
@@ -337,6 +403,41 @@ def test_post_failure_is_swallowed_and_counted(monkeypatch):
     asyncio.run(scenario())  # 예외 없이 끝나야 한다(전송 실패는 삼킨다)
 
     assert alerts._send_failures == 1
+
+
+def test_post_failure_rolls_back_suppression(monkeypatch):
+    # 실제 time.monotonic을 그대로 쓴다 — 롤백된 _last_alert_at이 "5분 뒤 재시도 가능"
+    # 지점으로 당겨졌는지를 진짜 시계 기준으로 확인해야 한다(monotonic 패치 금지).
+    alerts.reset()
+    monkeypatch.setenv("ALERT_SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x")
+    monkeypatch.setattr(alerts.httpx, "AsyncClient", _BoomAsyncClient)
+
+    async def scenario():
+        alerts.record_dlq_parked("p1")
+        await alerts.drain()
+
+    asyncio.run(scenario())
+
+    assert alerts._send_failures == 1
+    assert alerts._suppressed[alerts.KIND_DLQ] == 1
+    age_until_retry_ok = time.monotonic() - alerts._last_alert_at[alerts.KIND_DLQ]
+    assert age_until_retry_ok >= alerts.SUPPRESS_SECONDS - alerts.SEND_RETRY_SECONDS - 5
+
+
+def test_post_success_clears_inflight(monkeypatch):
+    alerts.reset()
+    monkeypatch.setenv("ALERT_SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x")
+    _FakeAsyncClient.instances = []
+    monkeypatch.setattr(alerts.httpx, "AsyncClient", _FakeAsyncClient)
+
+    async def scenario():
+        alerts.record_dlq_parked("p1")
+        await alerts.drain()
+
+    asyncio.run(scenario())
+
+    assert alerts.KIND_DLQ not in alerts._inflight_held
+    assert alerts._suppressed.get(alerts.KIND_DLQ, 0) == 0
 
 
 # --- 형태 ----------------------------------------------------------------------

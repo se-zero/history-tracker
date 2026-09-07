@@ -9,6 +9,8 @@
 
 억제: 같은 종류는 SUPPRESS_SECONDS(1시간)에 한 번만 보낸다. 억제된 동안의 발생 건수는
 누적해뒀다가 다음 전송 본문에 "N건 추가 발생"으로 실어 보낸다(사라지지 않고 다음 알림에 흡수).
+전송 자체가 실패하면(Slack 4xx·네트워크 오류) 억제 장부를 되돌려 SEND_RETRY_SECONDS(5분) 뒤
+같은 종류가 다시 억제를 통과하게 한다 — "보냈다고 착각"해 1시간을 그냥 흘려보내지 않는다.
 
 원칙:
   - 본 처리(수집·질의)를 절대 막거나 깨지 않는다 — record_*는 동기이고 raise하지 않으며,
@@ -36,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "ai-engine"
 SUPPRESS_SECONDS = 3600.0
+# 전송 실패 후 같은 종류를 다시 시도하기까지의 최소 간격. Slack이 오래 죽어 있을 때
+# 매 사건마다 5초 타임아웃 POST를 쏘지 않게 하는 상한이다.
+SEND_RETRY_SECONDS = 300.0
 TRANSIENT_THRESHOLD = 5
 TRANSIENT_WINDOW_SECONDS = 600.0
 SEND_TIMEOUT_SECONDS = 5.0
@@ -54,6 +59,7 @@ KINDS = (KIND_QUOTA, KIND_UNRECOVERABLE, KIND_TRANSIENT, KIND_DLQ, KIND_PARKING)
 _counters: dict[str, int] = {}          # kind -> 누적 발생 건수
 _suppressed: dict[str, int] = {}        # kind -> 억제 창 안에서 안 보낸 건수(다음 전송에 흡수)
 _last_alert_at: dict[str, float] = {}   # kind -> 마지막 전송 monotonic 시각
+_inflight_held: dict[str, int] = {}     # kind -> 지금 전송 중인 메시지에 실어 보낸 억제 건수(전송 실패 시 롤백용)
 _transient_window: deque = deque()      # openai_transient 발생 시각(monotonic) 슬라이딩 윈도
 _quota_exhausted_at: str | None = None  # 쿼터 소진 최초 감지 시각(UTC ISO8601)
 _send_tasks: set = set()                # 띄운 전송 태스크 참조 보관(GC 방지 — postprocess.py 선례)
@@ -177,6 +183,7 @@ def reset() -> None:
     _counters.clear()
     _suppressed.clear()
     _last_alert_at.clear()
+    _inflight_held.clear()
     _transient_window.clear()
     _quota_exhausted_at = None
     _send_tasks.clear()
@@ -201,9 +208,22 @@ def _maybe_alert(kind: str, now: float, text: str) -> bool:
     held = _suppressed.pop(kind, 0)
     if held:
         text = f"{text} (지난 {int(SUPPRESS_SECONDS // 60)}분간 같은 종류 {held}건 추가 발생)"
+    # 전송 실패 시 되돌릴 수 있도록, 이번 메시지에 실어 보낸 억제 건수를 기억해둔다.
+    _inflight_held[kind] = held
     _last_alert_at[kind] = now
     _dispatch(kind, text)
     return True
+
+
+def _rollback_after_send_failure(kind: str, now: float) -> None:
+    """전송 실패 시 억제 장부를 되돌린다.
+
+    이번에 실어 보내려던 억제 건수(_inflight_held)와 전송에 실패한 이번 건 자체를
+    다시 _suppressed에 합산하고, _last_alert_at을 SEND_RETRY_SECONDS 뒤에 억제 창을
+    통과하도록 앞당긴다 — "보냈다고 착각"해 남은 SUPPRESS_SECONDS를 그냥 흘려보내지 않는다.
+    """
+    _suppressed[kind] = _suppressed.get(kind, 0) + _inflight_held.pop(kind, 0) + 1
+    _last_alert_at[kind] = now - SUPPRESS_SECONDS + SEND_RETRY_SECONDS
 
 
 def _dispatch(kind: str, text: str) -> None:
@@ -225,24 +245,26 @@ def _dispatch(kind: str, text: str) -> None:
         # 실행 중인 루프가 없음(동기 호출·테스트) — 카운트는 이미 끝났으니 전송만 건너뛴다.
         return
 
-    task = loop.create_task(_post(url, message))
+    task = loop.create_task(_post(url, message, kind))
     _send_tasks.add(task)
     task.add_done_callback(_send_tasks.discard)
 
 
-async def _post(url: str, message: str) -> None:
+async def _post(url: str, message: str, kind: str) -> None:
     global _alerts_sent, _send_failures
     try:
         async with httpx.AsyncClient(timeout=SEND_TIMEOUT_SECONDS) as client:
             resp = await client.post(url, json={"text": message})
             resp.raise_for_status()
         _alerts_sent += 1
+        _inflight_held.pop(kind, None)
     except Exception as exc:
         # str(exc)는 httpx 예외 문자열에 웹훅 URL이 그대로 들어가 로그에 시크릿을 남긴다.
         # 무인증 엔드포인트(/health)에도 안 실으니 여기 로그도 예외 타입·상태 코드만 남긴다.
         _send_failures += 1
         status = getattr(getattr(exc, "response", None), "status_code", None)
         logger.warning("Slack 알림 전송 실패 (무시): %s status=%s", type(exc).__name__, status)
+        _rollback_after_send_failure(kind, time.monotonic())
 
 
 def _webhook_url() -> str:
