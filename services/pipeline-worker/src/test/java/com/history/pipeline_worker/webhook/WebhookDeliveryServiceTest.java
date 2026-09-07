@@ -35,18 +35,33 @@ class WebhookDeliveryServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    // claim 단위가 (delivery_id, project_id)로 바뀌면서 markProcessed도 projectId를 UUID로 변환해
+    // 리포지토리에 넘겨야 한다 — 넘기지 않으면 다른 프로젝트의 같은 delivery_id 행까지 갱신된다.
     @Test
-    void markFailed_preservesLastError() {
-        service.markFailed("delivery-1", "collection failed");
+    void markProcessed_delegatesToRepositoryWithUuidProjectId() {
+        UUID projectId = UUID.fromString(PROJECT_ID);
 
-        verify(repository).markFailed("delivery-1", "collection failed");
+        service.markProcessed("delivery-1", PROJECT_ID);
+
+        verify(repository).markProcessed("delivery-1", projectId);
     }
 
     @Test
-    void releaseClaim_deletesInProgressClaim() {
-        service.releaseClaim("delivery-1");
+    void markFailed_preservesLastErrorAndDelegatesWithUuidProjectId() {
+        UUID projectId = UUID.fromString(PROJECT_ID);
 
-        verify(repository).releaseClaim("delivery-1");
+        service.markFailed("delivery-1", PROJECT_ID, "collection failed");
+
+        verify(repository).markFailed("delivery-1", projectId, "collection failed");
+    }
+
+    @Test
+    void releaseClaim_delegatesToRepositoryWithUuidProjectId() {
+        UUID projectId = UUID.fromString(PROJECT_ID);
+
+        service.releaseClaim("delivery-1", PROJECT_ID);
+
+        verify(repository).releaseClaim("delivery-1", projectId);
     }
 
     @Test

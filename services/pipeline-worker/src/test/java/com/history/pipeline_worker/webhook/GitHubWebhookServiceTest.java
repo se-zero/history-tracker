@@ -197,7 +197,7 @@ class GitHubWebhookServiceTest {
         // GitHub는 별도 installation token 플로우로 이미 처리되므로, 일반화된 토큰 확보 루프
         // 대상에서 제외되어야 한다 (재조회 endpoint가 없는 provider라 404를 유발할 뿐이다).
         verify(integrationTokenClient, never()).ensure(any(), eq(CollectionProvider.GITHUB));
-        verify(webhookDeliveryService).markProcessed("delivery-1");
+        verify(webhookDeliveryService).markProcessed("delivery-1", projectId());
     }
 
     @Test
@@ -327,7 +327,7 @@ class GitHubWebhookServiceTest {
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
 
         assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
-        verify(webhookDeliveryService).markFailed("delivery-1", "IllegalStateException: collection failed");
+        verify(webhookDeliveryService).markFailed("delivery-1", projectId(), "IllegalStateException: collection failed");
     }
 
     @Test
@@ -355,8 +355,8 @@ class GitHubWebhookServiceTest {
 
         assertThrows(RejectedExecutionException.class, () -> rejectingService.handle(headers, payload));
 
-        verify(webhookDeliveryService).releaseClaim("delivery-1");
-        verify(webhookDeliveryService, never()).markFailed(anyString(), anyString());
+        verify(webhookDeliveryService).releaseClaim("delivery-1", projectId());
+        verify(webhookDeliveryService, never()).markFailed(anyString(), anyString(), anyString());
     }
 
     private HttpHeaders headers() {

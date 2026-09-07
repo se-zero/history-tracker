@@ -111,10 +111,10 @@ public class GitHubWebhookService {
             // 반복 발생 시 P-2 2단계(webhook 동시성 증가) 신호 — webhook 풀 큐(capacity) 초과
             log.warn("webhook executor 포화로 수집 거부(큐 용량 초과): deliveryId={}, projectId={}",
                     deliveryId, collectionContext.projectId());
-            webhookDeliveryService.releaseClaim(deliveryId);
+            webhookDeliveryService.releaseClaim(deliveryId, collectionContext.projectId());
             throw e;
         } catch (RuntimeException e) {
-            webhookDeliveryService.markFailed(deliveryId, failureReason(e));
+            webhookDeliveryService.markFailed(deliveryId, collectionContext.projectId(), failureReason(e));
             throw e;
         }
         return new WebhookResult(WebhookStatus.ACCEPTED, "collection queued");
@@ -184,11 +184,11 @@ public class GitHubWebhookService {
             CollectionResult result = collectionSerializer.callExclusively(
                     context.projectId(),
                     () -> pipelineService.collectIncremental(context));
-            webhookDeliveryService.markProcessed(deliveryId);
+            webhookDeliveryService.markProcessed(deliveryId, context.projectId());
             log.info("Webhook-triggered collection completed: deliveryId={}, projectId={}, published={}",
                     deliveryId, context.projectId(), result.published());
         } catch (Exception e) {
-            webhookDeliveryService.markFailed(deliveryId, failureReason(e));
+            webhookDeliveryService.markFailed(deliveryId, context.projectId(), failureReason(e));
             log.error("Webhook-triggered collection failed: deliveryId={}", deliveryId, e);
         }
     }
