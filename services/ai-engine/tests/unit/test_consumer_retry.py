@@ -104,6 +104,40 @@ def test_handle_failure_publish_error_does_not_ack():
     assert msg.acked is False  # 재발행 실패 → ack 안 함 → 브로커 재배달
 
 
+def test_handle_failure_at_max_records_dlq_alert(monkeypatch):
+    calls = []
+    monkeypatch.setattr(consumer.alerts, "record_dlq_parked", lambda project_id: calls.append(project_id))
+    ch = _FakeChannel()
+    msg = _FakeMessage(headers={"x-retry-count": RETRY_MAX})
+
+    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch))
+
+    assert calls == ["p1"]
+
+
+def test_handle_failure_below_max_does_not_record_dlq_alert(monkeypatch):
+    calls = []
+    monkeypatch.setattr(consumer.alerts, "record_dlq_parked", lambda project_id: calls.append(project_id))
+    ch = _FakeChannel()
+    msg = _FakeMessage(headers={"x-retry-count": 0})
+
+    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch))
+
+    assert calls == []
+
+
+def test_handle_failure_publish_error_does_not_record_dlq_alert(monkeypatch):
+    calls = []
+    monkeypatch.setattr(consumer.alerts, "record_dlq_parked", lambda project_id: calls.append(project_id))
+    ch = _FakeChannel(exchange=_BoomExchange())
+    msg = _FakeMessage(headers={"x-retry-count": RETRY_MAX})
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch))
+
+    assert calls == []  # 재발행 실패 → DLQ 파킹으로 못 봄(재배달 대상) → 알림 없음
+
+
 # --- _route_message ---------------------------------------------------------
 
 def test_route_message_malformed_goes_to_parking_and_acks():
@@ -132,6 +166,30 @@ def test_route_message_valid_submits_to_partition():
     assert key == "p9"
     assert event == {"projectId": "p9"}
     assert msg.acked is False  # ack은 워커(_process_event)가 처리 후
+
+
+def test_route_message_malformed_records_parking_alert(monkeypatch):
+    calls = []
+    monkeypatch.setattr(consumer.alerts, "record_parking", lambda routing_key: calls.append(routing_key))
+    ch = _FakeChannel()
+    dispatcher = _FakeDispatcher()
+    msg = _FakeMessage(body=b"{not json", headers=None, routing_key="event.github")
+
+    asyncio.run(_route_message(msg, dispatcher, ch))
+
+    assert calls == ["event.github"]
+
+
+def test_route_message_valid_does_not_record_parking_alert(monkeypatch):
+    calls = []
+    monkeypatch.setattr(consumer.alerts, "record_parking", lambda routing_key: calls.append(routing_key))
+    ch = _FakeChannel()
+    dispatcher = _FakeDispatcher()
+    msg = _FakeMessage(body=b'{"projectId":"p9"}')
+
+    asyncio.run(_route_message(msg, dispatcher, ch))
+
+    assert calls == []
 
 
 # --- _process_event ---------------------------------------------------------

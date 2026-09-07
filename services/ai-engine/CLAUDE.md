@@ -51,6 +51,13 @@ consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·�
 JSON 파싱 실패(malformed)는 재시도·replay가 무의미하므로 DLQ가 아닌 별도 inspect 큐
 `history.events.parking`으로 보낸다(운영자 수동 확인용). 재발행은 소비 채널과 분리된 별도 채널에서 한다.
 
+운영자 알림(선택): `ALERT_SLACK_WEBHOOK_URL`(기본 빈 값 = 로그만)을 설정하면 `alerts.py`가 다섯 종류의
+사건 — OpenAI 잔액·쿼터 소진(`openai_quota`), 회복 불가 4xx(`openai_unrecoverable`), 일시 오류 10분 창
+5건 이상(`openai_transient`), DLQ 파킹(`dlq_parked`), malformed parking(`parking`) — 을 감지해 Slack
+Incoming Webhook으로 보낸다. 같은 종류는 1시간에 한 번만 보내고 억제 중 발생분은 다음 알림에 누적된다.
+`/health`가 `alerts` 스냅샷(카운터·억제 건수·창 안 일시 오류 수·쿼터 소진 시각·전송 성공/실패 수)을
+노출한다. 상태는 in-process라 재기동하면 0으로 리셋된다.
+
 ## 테스트
 
 테스트는 두 계층으로 나뉜다.
@@ -90,6 +97,7 @@ PYTHONPATH=. python tests/integration/test_phase1_regression.py
 ```
 main.py            FastAPI 앱 부트스트랩 — lifespan(Neo4j 초기화·consumer 기동) + /health + 라우터 include
 openai_client.py   공유 OpenAI 클라이언트 (lazy lru_cache 팩토리)
+alerts.py          운영자 알림 — Slack 웹훅 감지·억제·발송·카운터 (openai_client.py·consumer.py 훅)
 query_models.py    요청/응답 Pydantic 모델 (QueryRequest, SummaryRequest)
 conftest.py        pytest 부트스트랩 (OPENAI_API_KEY shim)
 
@@ -155,6 +163,8 @@ graph/             Neo4j 그래프 구축 + 수집
   `client.chat.completions.create()`를 직접 호출하지 않는다 — 게이트웨이가 `rate_limiter`로 RPM·TPM을
   페이싱하고 우선순위(`Priority.INTERACTIVE` 질의 / `Priority.BACKGROUND` 수집·빌드)를 적용한다.
   한도는 env(`OPENAI_RPM_CHAT`/`OPENAI_TPM_CHAT`/`OPENAI_RPM_EMBED`/`OPENAI_TPM_EMBED`)로 외부화돼 있다.
+  OpenAI 실패 감지·알림도 관문(`openai_client.chat_completion`/`embed` → `alerts.record_openai_failure`)에서만
+  한다 — 호출부(summarizer·embedder 등)에 `alerts`를 넣지 않는다.
 - **import 시점 부작용 금지**: 모듈 최상단에서 네트워크 호출, 클라이언트 생성, `os.environ["X"]` 하드 subscript를
   하지 않는다 — 오프라인 import(테스트 포함)가 가능해야 한다. 설정은 함수 호출 시점에 lazy하게 읽는다.
 - **HTTP 엔드포인트는 `routers/`에** 추가한다. `main.py`는 부트스트랩(lifespan·라우터 include)만 둔다.
