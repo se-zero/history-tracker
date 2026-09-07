@@ -450,11 +450,13 @@ Incoming Webhook으로 push하고, 컨테이너 재시작만 호스트 cron 스�
 #### Slack 웹훅 준비
 
 고객용 OAuth/마켓플레이스 앱과 **별도의 내부 앱**을 같은 워크스페이스에 만들고 Incoming Webhooks를
-켠 뒤 알림을 받을 채널을 선택해 웹훅 URL을 복사한다. 같은 URL을 `infra/docker/.env`(ai-engine의
-`ALERT_SLACK_WEBHOOK_URL`)와 crontab(아래 `restart-check.sh` cron 줄) **두 곳**에 넣는다.
+켠 뒤 알림을 받을 채널을 선택해 웹훅 URL을 복사한다. 같은 URL을 **두 곳**에 넣는다 — `infra/docker/.env`
+(ai-engine의 `ALERT_SLACK_WEBHOOK_URL`)와, `restart-check.sh`가 읽는 `~/.history-tracker-alert.env`
+(cron을 등록하는 사용자의 홈, 권한 `600`, 내용은 `ALERT_SLACK_WEBHOOK_URL=https://...` 한 줄).
 
-URL은 시크릿이다 — crontab 파일 권한은 `600`으로 하고, 유출되면 Slack 앱에서 해당 웹훅을 삭제하고
-재발급한다.
+URL은 시크릿이다. **cron 명령줄에 `ALERT_SLACK_WEBHOOK_URL=... script.sh`처럼 직접 쓰지 않는다** —
+스크립트가 도는 동안 `ps` 출력에 URL이 그대로 보여 같은 호스트의 다른 사용자가 읽을 수 있다. 600 권한
+파일이면 `ps`에는 파일 경로만 남는다. 유출되면 Slack 앱에서 해당 웹훅을 삭제하고 재발급한다.
 
 #### `restart-check.sh`
 
@@ -465,19 +467,23 @@ URL은 시크릿이다 — crontab 파일 권한은 `600`으로 하고, 유출�
 
 | 변수 | 기본 | 설명 |
 |---|---|---|
-| `ALERT_SLACK_WEBHOOK_URL` | (없음) | 비우면 stderr에 WARN 한 줄 후 기록만 하고 전송하지 않는다 |
+| `ALERT_SLACK_WEBHOOK_URL` | (없음) | 비우면 stderr에 WARN 한 줄 후 기록만 하고 전송하지 않는다. 명령줄 값이 파일보다 우선 |
+| `RESTART_CHECK_ENV_FILE` | `$HOME/.history-tracker-alert.env` | 웹훅 URL을 담은 600 권한 파일. `ALERT_SLACK_WEBHOOK_URL`이 비어 있을 때만 읽는다 |
 | `RESTART_CHECK_STATE_FILE` | `$HOME/.history-tracker-restart-check.state` | 컨테이너별 RestartCount 기준선 |
 | `RESTART_CHECK_CONTAINERS` | 스택 8개(스크립트 상단 `RESTART_CHECK_CONTAINERS_DEFAULT` 참고) | 공백 구분 컨테이너명 목록 |
 
 ```bash
-./infra/scripts/restart-check.sh
-ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... ./infra/scripts/restart-check.sh
+# 최초 1회 — 웹훅 URL 파일 (cron을 등록할 사용자로)
+umask 077
+echo 'ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...' > ~/.history-tracker-alert.env
+
+./infra/scripts/restart-check.sh          # 파일에서 URL을 읽는다
 ```
 
-cron 등록 (5분마다):
+cron 등록 (5분마다, 같은 사용자로):
 
 ```cron
-*/5 * * * * ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... /path/to/infra/scripts/restart-check.sh >> /var/log/history-restart-check.log 2>&1
+*/5 * * * * /path/to/infra/scripts/restart-check.sh >> /var/log/history-restart-check.log 2>&1
 ```
 
 **커밋 시 실행 비트** — 이 저장소는 Windows에서 `core.filemode=false`라 커밋 전에
@@ -499,8 +505,9 @@ docker exec history-graph-ai-engine python -c "import urllib.request;print(urlli
 
 #### 검증 시나리오
 
-전제: dev 스택 `./dev.sh up -d --build`, `.env`에 실제 `ALERT_SLACK_WEBHOOK_URL`. 2026-09-07에 1~5를 dev
-스택에서 실측했다(`/health` 카운터·큐 깊이·`alerts_sent` 증가까지 확인). 잘못된 키는 `.env`를 고치지 않고
+전제: dev 스택 `./dev.sh up -d --build`, `.env`에 실제 `ALERT_SLACK_WEBHOOK_URL`. 2026-09-07에 dev 스택에서
+1~4를 실기동하고 5의 `/health` 확인까지 했다(`/health` 카운터·큐 깊이·`alerts_sent` 증가·Slack 도착 확인).
+**잔액 소진은 실기동하지 않았고** 오류 코드 분류 단위 테스트로 대체한다. 잘못된 키는 `.env`를 고치지 않고
 `OPENAI_API_KEY=sk-bad ./dev.sh up -d --no-deps --force-recreate ai-engine`처럼 셸 환경변수로 덮어쓰면 된다
 (compose는 셸 값을 `.env`보다 우선한다). 되돌릴 때는 같은 명령을 변수 없이 다시 실행한다.
 

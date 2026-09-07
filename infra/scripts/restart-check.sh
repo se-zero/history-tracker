@@ -16,16 +16,23 @@
 #   재시작만 맡는다. 한 달 뒤 클라우드 이전 시 관리형 컨테이너의 재시작 알림으로
 #   대체하는 **폐기 예정** 스크립트다.
 #
-# 설정 (환경변수, .env는 읽지 않는다 — backup.sh와 같은 방침)
+# 설정 (환경변수. infra/docker/.env는 읽지 않는다 — backup.sh와 같은 방침)
 #   ALERT_SLACK_WEBHOOK_URL     비우면 stderr에 WARN 한 줄 후 기록만 하고 전송하지 않는다
+#   RESTART_CHECK_ENV_FILE      웹훅 URL을 담은 파일. 기본 $HOME/.history-tracker-alert.env (권한 600).
+#                               ALERT_SLACK_WEBHOOK_URL이 비어 있을 때만 읽는다. 내용은 한 줄:
+#                                 ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 #   RESTART_CHECK_STATE_FILE    기본 $HOME/.history-tracker-restart-check.state
 #   RESTART_CHECK_CONTAINERS    공백 구분 컨테이너 목록. 기본은 스택 8개(아래 상수 참고)
+#
+#   URL을 cron 명령줄(ALERT_SLACK_WEBHOOK_URL=... script.sh)에 직접 쓰지 않는다 — 스크립트가 도는
+#   동안 ps 출력에 URL이 그대로 보여 같은 호스트의 다른 사용자가 읽을 수 있다. 600 권한 파일이면
+#   ps에는 파일 경로만 남는다.
 #
 # 사용법
 #   ./restart-check.sh
 #
-# cron 등록 예시 (5분마다, backup.sh와 같은 사용자로 — 상태 파일이 $HOME 기준이다):
-#   */5 * * * * ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... /path/to/infra/scripts/restart-check.sh >> /var/log/history-restart-check.log 2>&1
+# cron 등록 예시 (5분마다, backup.sh와 같은 사용자로 — 상태 파일·env 파일이 $HOME 기준이다):
+#   */5 * * * * /path/to/infra/scripts/restart-check.sh >> /var/log/history-restart-check.log 2>&1
 #
 # 재현 절차
 #   `docker restart`/`docker kill`로는 RestartCount가 오르지 않는다(정책을 거치지 않음).
@@ -38,6 +45,14 @@ set -euo pipefail
 
 RESTART_CHECK_CONTAINERS_DEFAULT="history-tracker-postgres history-graph-neo4j history-graph-rabbitmq history-graph-ai-engine history-tracker-backend history-tracker-pipeline-worker history-tracker-web history-tracker-tunnel"
 
+# 명령줄 환경변수가 우선. 비어 있으면 600 권한 env 파일에서 읽는다(헤더 「설정」 참고).
+ENV_FILE="${RESTART_CHECK_ENV_FILE:-$HOME/.history-tracker-alert.env}"
+if [ -z "${ALERT_SLACK_WEBHOOK_URL:-}" ] && [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
 WEBHOOK_URL="${ALERT_SLACK_WEBHOOK_URL:-}"
 STATE_FILE="${RESTART_CHECK_STATE_FILE:-$HOME/.history-tracker-restart-check.state}"
 CONTAINERS="${RESTART_CHECK_CONTAINERS:-$RESTART_CHECK_CONTAINERS_DEFAULT}"
