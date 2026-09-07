@@ -14,6 +14,7 @@ import json
 import logging
 from dataclasses import dataclass
 
+from alerts import UNRECOVERABLE_STATUS as _UNRECOVERABLE_STATUS
 from openai_client import Priority, chat_completion
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,6 @@ JUDGE_MODEL = "gpt-4o-mini"
 DEFAULT_LLM_THRESHOLD = 0.7
 
 _MAX_TEXT_LEN = 800
-
-# 재시도로 회복되지 않는 클라이언트 오류 — orchestrator._UNRECOVERABLE_STATUS와 같은 정책.
-_UNRECOVERABLE_STATUS = {400, 401, 403, 404, 422}
 
 
 @dataclass

@@ -12,6 +12,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
+import alerts
 from auth import ensure_token_configured, verify_internal_token
 from graph.builder import (
     backfill_actor_aliases,
@@ -99,4 +100,4 @@ app.include_router(privacy_router, dependencies=[Depends(verify_internal_token)]
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "alerts": alerts.snapshot()}

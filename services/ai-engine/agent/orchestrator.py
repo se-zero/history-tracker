@@ -5,6 +5,7 @@ import re
 from collections import Counter
 
 from agent.glossary import DETECT_ONLY, REPLACEMENTS, prompt_glossary
+from alerts import UNRECOVERABLE_STATUS as _UNRECOVERABLE_STATUS
 from graph.overview import resolve_evidence_sources
 from openai_client import Priority, chat_completion
 from tools.definitions import TOOLS
@@ -458,7 +459,7 @@ _LLM_FAILURE_ANSWER = "AI 응답 생성에 실패했습니다. 잠시 후 다시
 # 이걸 삼키면 HTTP 200 + 빈 답변으로 위장돼 운영·eval 양쪽에서 조용한 장애가 된다
 # (실례: QUERY_REASONING_EFFORT=low 설정 시 400이 로그에만 남고 9/9 질의가 빈 답변).
 # 일시 오류(429·5xx·타임아웃)는 기존대로 삼키고 재시도 안내 답변으로 degrade한다.
-_UNRECOVERABLE_STATUS = {400, 401, 403, 404, 422}
+# 집합 자체는 alerts.UNRECOVERABLE_STATUS(운영자 알림 분류)와 같은 정책을 공유한다.
 
 
 def _is_unrecoverable(exc: Exception) -> bool:

@@ -15,6 +15,7 @@ from functools import lru_cache
 
 from openai import OpenAI
 
+import alerts
 from rate_limiter import (
     Priority,
     estimate_chat_tokens,
@@ -65,7 +66,11 @@ async def chat_completion(*, priority: Priority, **kwargs):
     resp = None
     try:
         resp = await asyncio.to_thread(lambda: get_openai_client().chat.completions.create(**kwargs))
+        alerts.record_openai_success()
         return resp
+    except Exception as exc:  # CancelledError는 BaseException — 의도적으로 안 잡음
+        alerts.record_openai_failure(exc, caller="chat", model=kwargs.get("model"))
+        raise
     finally:
         limiter.reconcile(reserved, _usage_total(resp, reserved))
 
@@ -85,6 +90,10 @@ async def embed(*, model: str, input, priority: Priority, dimensions: int | None
     resp = None
     try:
         resp = await asyncio.to_thread(lambda: get_openai_client().embeddings.create(**kwargs))
+        alerts.record_openai_success()
         return resp
+    except Exception as exc:  # CancelledError는 BaseException — 의도적으로 안 잡음
+        alerts.record_openai_failure(exc, caller="embed", model=model)
+        raise
     finally:
         limiter.reconcile(reserved, _usage_total(resp, reserved))
