@@ -167,7 +167,7 @@ def test_different_kinds_not_suppressed_by_each_other(monkeypatch):
 def _seed_post_rollback_state(monkeypatch, calls, t):
     """t=0 전송(held 0) → t=10 억제(held 1) → t=3601 전송(held 1 실림) 순으로 진행한 뒤,
     그 t=3601 전송이 실패했다고 가정하고 롤백해 _suppressed[kind]==2·
-    _last_alert_at[kind]==301.0 상태를 만든다. kind를 반환한다.
+    _suppress_until[kind]==3901.0 상태를 만든다. kind를 반환한다.
     """
     monkeypatch.setattr(alerts, "_dispatch", lambda kind, text: calls.append((kind, text)))
     monkeypatch.setattr(alerts.time, "monotonic", lambda: t[0])
@@ -189,7 +189,7 @@ def test_rollback_restores_held_and_shortens_suppression(monkeypatch):
     kind = _seed_post_rollback_state(monkeypatch, calls, t)
 
     assert alerts._suppressed[kind] == 2  # 실린 1건 + 실패한 이번 건
-    assert alerts._last_alert_at[kind] == 3601.0 - 3600.0 + 300.0
+    assert alerts._suppress_until[kind] == 3601.0 + 300.0
 
 
 def test_after_rollback_next_event_realerts_after_retry_window(monkeypatch):
@@ -283,6 +283,77 @@ def test_transient_window_cleared_after_alert(monkeypatch):
         alerts.record_openai_failure(_StubAPIError(503), caller="embed")
 
     assert len(alerts._transient_window) == 0
+
+
+# --- 일시 오류 창 롤백(전송 실패 시 비운 창도 되돌리기) ---------------------------
+
+def _fire_five_transient_failures(monkeypatch, calls, t):
+    """t=0,1,2,3,4에 일시 오류 5회를 기록해 알림 1건을 내고 창을 비운다(호출 뒤 t[0]==5.0)."""
+    monkeypatch.setattr(alerts, "_dispatch", lambda kind, text: calls.append((kind, text)))
+    monkeypatch.setattr(alerts.time, "monotonic", lambda: t[0])
+    for _ in range(5):
+        alerts.record_openai_failure(_StubAPIError(503), caller="embed")
+        t[0] += 1.0
+
+
+def test_transient_rollback_restores_window(monkeypatch):
+    alerts.reset()
+    calls = []
+    t = [0.0]
+    _fire_five_transient_failures(monkeypatch, calls, t)
+
+    assert len(calls) == 1
+    assert len(alerts._transient_window) == 0
+    assert alerts._inflight_window == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+    alerts._rollback_after_send_failure(alerts.KIND_TRANSIENT, t[0])
+
+    assert list(alerts._transient_window) == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert alerts._inflight_window == []
+    assert alerts._suppressed[alerts.KIND_TRANSIENT] == 1
+
+
+def test_transient_realerts_after_retry_window_when_failures_persist(monkeypatch):
+    alerts.reset()
+    calls = []
+    t = [0.0]
+    _fire_five_transient_failures(monkeypatch, calls, t)
+    alerts._rollback_after_send_failure(alerts.KIND_TRANSIENT, t[0])
+
+    t[0] += 300.0  # 롤백 뒤 SEND_RETRY_SECONDS 경과
+    alerts.record_openai_failure(_StubAPIError(503), caller="embed")
+
+    assert len(calls) == 2  # 되돌린 창 덕분에 새 실패 1건만으로 다시 임계치 도달
+    assert "1건 추가 발생" in calls[-1][1]
+
+
+def test_transient_restored_entries_expire_with_window(monkeypatch):
+    alerts.reset()
+    calls = []
+    t = [0.0]
+    _fire_five_transient_failures(monkeypatch, calls, t)
+    alerts._rollback_after_send_failure(alerts.KIND_TRANSIENT, t[0])
+
+    t[0] += 601.0  # 되돌린 5개가 10분 창을 벗어나는 시점
+    alerts.record_openai_failure(_StubAPIError(503), caller="embed")
+
+    assert len(calls) == 1  # 추가 알림 없음 — 새로 5건이 다시 쌓여야 한다
+    assert len(alerts._transient_window) == 1
+
+
+def test_rollback_keeps_window_time_order(monkeypatch):
+    alerts.reset()
+    calls = []
+    t = [0.0]
+    _fire_five_transient_failures(monkeypatch, calls, t)
+
+    t[0] = 10.0
+    alerts.record_openai_failure(_StubAPIError(503), caller="embed")
+    assert list(alerts._transient_window) == [10.0]  # 아직 임계치 미달 — 알림 없음
+
+    alerts._rollback_after_send_failure(alerts.KIND_TRANSIENT, 11.0)
+
+    assert list(alerts._transient_window) == [0.0, 1.0, 2.0, 3.0, 4.0, 10.0]  # 되돌린 항목이 앞
 
 
 # --- 안전 ----------------------------------------------------------------------
@@ -406,7 +477,7 @@ def test_post_failure_is_swallowed_and_counted(monkeypatch):
 
 
 def test_post_failure_rolls_back_suppression(monkeypatch):
-    # 실제 time.monotonic을 그대로 쓴다 — 롤백된 _last_alert_at이 "5분 뒤 재시도 가능"
+    # 실제 time.monotonic을 그대로 쓴다 — 롤백된 _suppress_until이 "5분 뒤 재시도 가능"
     # 지점으로 당겨졌는지를 진짜 시계 기준으로 확인해야 한다(monotonic 패치 금지).
     alerts.reset()
     monkeypatch.setenv("ALERT_SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x")
@@ -420,8 +491,10 @@ def test_post_failure_rolls_back_suppression(monkeypatch):
 
     assert alerts._send_failures == 1
     assert alerts._suppressed[alerts.KIND_DLQ] == 1
-    age_until_retry_ok = time.monotonic() - alerts._last_alert_at[alerts.KIND_DLQ]
-    assert age_until_retry_ok >= alerts.SUPPRESS_SECONDS - alerts.SEND_RETRY_SECONDS - 5
+    # 전송이 실패했으니 "실제 전달된 마지막 시각"은 아직 없어야 한다.
+    assert alerts.KIND_DLQ not in alerts._last_alert_at
+    remaining = alerts._suppress_until[alerts.KIND_DLQ] - time.monotonic()
+    assert 0 < remaining <= alerts.SEND_RETRY_SECONDS
 
 
 def test_post_success_clears_inflight(monkeypatch):
@@ -440,6 +513,84 @@ def test_post_success_clears_inflight(monkeypatch):
     assert alerts._suppressed.get(alerts.KIND_DLQ, 0) == 0
 
 
+def test_post_failure_restores_transient_window(monkeypatch):
+    # 실제 time.monotonic을 그대로 쓴다 — 5회 기록이 거의 동시에 일어나 10분 창 밖으로
+    # 밀려날 일이 없다(monotonic 패치 금지).
+    alerts.reset()
+    monkeypatch.setenv("ALERT_SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x")
+    monkeypatch.setattr(alerts.httpx, "AsyncClient", _BoomAsyncClient)
+
+    async def scenario():
+        for _ in range(5):
+            alerts.record_openai_failure(_StubAPIError(503), caller="embed")
+        await alerts.drain()
+
+    asyncio.run(scenario())
+
+    assert len(alerts._transient_window) == 5
+    assert alerts._send_failures == 1
+
+
+def test_post_success_clears_inflight_window(monkeypatch):
+    alerts.reset()
+    monkeypatch.setenv("ALERT_SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x")
+    _FakeAsyncClient.instances = []
+    monkeypatch.setattr(alerts.httpx, "AsyncClient", _FakeAsyncClient)
+
+    async def scenario():
+        for _ in range(5):
+            alerts.record_openai_failure(_StubAPIError(503), caller="embed")
+        await alerts.drain()
+
+    asyncio.run(scenario())
+
+    assert len(alerts._transient_window) == 0
+    assert alerts._inflight_window == []
+
+
+def test_post_success_marks_delivered(monkeypatch):
+    alerts.reset()
+    monkeypatch.setenv("ALERT_SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x")
+    _FakeAsyncClient.instances = []
+    monkeypatch.setattr(alerts.httpx, "AsyncClient", _FakeAsyncClient)
+
+    async def scenario():
+        alerts.record_dlq_parked("p1")
+        await alerts.drain()
+
+    asyncio.run(scenario())
+
+    assert alerts.KIND_DLQ in alerts._last_alert_at
+    assert alerts.snapshot()["last_alert_age_seconds"][alerts.KIND_DLQ] <= 5
+
+
+def test_post_failure_keeps_last_alert_untouched(monkeypatch):
+    alerts.reset()
+    monkeypatch.setenv("ALERT_SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/x")
+    monkeypatch.setattr(alerts.httpx, "AsyncClient", _BoomAsyncClient)
+
+    async def scenario():
+        alerts.record_dlq_parked("p1")
+        await alerts.drain()
+
+    asyncio.run(scenario())
+
+    assert alerts.KIND_DLQ not in alerts._last_alert_at
+    assert alerts.snapshot()["suppressed_for_seconds"][alerts.KIND_DLQ] <= alerts.SEND_RETRY_SECONDS
+
+
+def test_log_only_mode_marks_delivered(monkeypatch):
+    alerts.reset()
+    monkeypatch.delenv("ALERT_SLACK_WEBHOOK_URL", raising=False)
+
+    async def scenario():
+        alerts.record_dlq_parked("p1")
+
+    asyncio.run(scenario())
+
+    assert alerts.KIND_DLQ in alerts._last_alert_at
+
+
 # --- 형태 ----------------------------------------------------------------------
 
 def test_snapshot_shape():
@@ -447,8 +598,9 @@ def test_snapshot_shape():
     snap = alerts.snapshot()
 
     assert set(snap.keys()) == {
-        "webhook_configured", "counters", "suppressed", "transient_in_window",
-        "quota_exhausted_at", "last_alert_age_seconds", "alerts_sent", "send_failures",
+        "webhook_configured", "counters", "suppressed", "suppressed_for_seconds",
+        "transient_in_window", "quota_exhausted_at", "last_alert_age_seconds",
+        "alerts_sent", "send_failures",
     }
     assert set(snap["counters"].keys()) == set(alerts.KINDS)
     assert all(v == 0 for v in snap["counters"].values())
@@ -468,6 +620,30 @@ def test_snapshot_prunes_stale_transient_window(monkeypatch):
     assert alerts.snapshot()["transient_in_window"] == 0
 
 
+def test_maybe_alert_sets_suppress_until_not_last_alert(monkeypatch):
+    alerts.reset()
+    monkeypatch.setattr(alerts, "_dispatch", lambda kind, text: None)
+    monkeypatch.setattr(alerts.time, "monotonic", lambda: 0.0)
+
+    kind = alerts.record_openai_failure(_StubAPIError(401), caller="chat")
+
+    assert alerts._suppress_until[kind] == 3600.0
+    # _dispatch를 기록기로 대체했으니 "실제 전달" 표시(_mark_delivered)는 일어나지 않는다.
+    assert kind not in alerts._last_alert_at
+
+
+def test_snapshot_reports_remaining_suppression(monkeypatch):
+    alerts.reset()
+    monkeypatch.setattr(alerts, "_dispatch", lambda kind, text: None)
+    t = [0.0]
+    monkeypatch.setattr(alerts.time, "monotonic", lambda: t[0])
+
+    kind = alerts.record_openai_failure(_StubAPIError(401), caller="chat")
+    t[0] = 100.0
+
+    assert alerts.snapshot()["suppressed_for_seconds"][kind] == 3500
+
+
 def test_reset_clears_everything(monkeypatch):
     monkeypatch.setattr(alerts, "_dispatch", lambda kind, text: None)
     monkeypatch.setattr(alerts.time, "monotonic", lambda: 0.0)
@@ -480,6 +656,7 @@ def test_reset_clears_everything(monkeypatch):
     snap = alerts.snapshot()
     assert all(v == 0 for v in snap["counters"].values())
     assert all(v == 0 for v in snap["suppressed"].values())
+    assert snap["suppressed_for_seconds"] == {}
     assert snap["quota_exhausted_at"] is None
     assert snap["alerts_sent"] == 0
     assert snap["send_failures"] == 0

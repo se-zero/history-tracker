@@ -7,10 +7,14 @@
   - dlq_parked: DLQ 파킹(재시도 소진) — 즉시 알림
   - parking: malformed 이벤트 parking(JSON 파싱 실패) — 즉시 알림
 
-억제: 같은 종류는 SUPPRESS_SECONDS(1시간)에 한 번만 보낸다. 억제된 동안의 발생 건수는
+억제: 같은 종류는 SUPPRESS_SECONDS(1시간)에 한 번만 보낸다. 억제 해제 시각(_suppress_until)과
+마지막으로 실제 전달된 시각(_last_alert_at)을 분리해서 관리한다 — 전송이 실패해도 "언제 억제가
+풀리는지"만 앞당기고, "언제 마지막으로 보냈는지"는 실제로 전달된 시점 그대로 남겨 /health가
+방금 실패한 건을 "N분 전에 보냄"으로 잘못 표시하지 않게 한다. 억제된 동안의 발생 건수는
 누적해뒀다가 다음 전송 본문에 "N건 추가 발생"으로 실어 보낸다(사라지지 않고 다음 알림에 흡수).
 전송 자체가 실패하면(Slack 4xx·네트워크 오류) 억제 장부를 되돌려 SEND_RETRY_SECONDS(5분) 뒤
 같은 종류가 다시 억제를 통과하게 한다 — "보냈다고 착각"해 1시간을 그냥 흘려보내지 않는다.
+일시 오류(openai_transient)는 알림을 위해 비웠던 10분 창도 함께 되돌린다.
 
 원칙:
   - 본 처리(수집·질의)를 절대 막거나 깨지 않는다 — record_*는 동기이고 raise하지 않으며,
@@ -58,9 +62,11 @@ KINDS = (KIND_QUOTA, KIND_UNRECOVERABLE, KIND_TRANSIENT, KIND_DLQ, KIND_PARKING)
 
 _counters: dict[str, int] = {}          # kind -> 누적 발생 건수
 _suppressed: dict[str, int] = {}        # kind -> 억제 창 안에서 안 보낸 건수(다음 전송에 흡수)
-_last_alert_at: dict[str, float] = {}   # kind -> 마지막 전송 monotonic 시각
+_suppress_until: dict[str, float] = {}  # kind -> 억제가 풀리는 monotonic 시각
+_last_alert_at: dict[str, float] = {}   # kind -> 실제로 전달된(성공·로그 전용) 마지막 알림 monotonic 시각
 _inflight_held: dict[str, int] = {}     # kind -> 지금 전송 중인 메시지에 실어 보낸 억제 건수(전송 실패 시 롤백용)
 _transient_window: deque = deque()      # openai_transient 발생 시각(monotonic) 슬라이딩 윈도
+_inflight_window: list = []             # 지금 전송 중인 메시지를 위해 비운 _transient_window 내용(전송 실패 시 롤백용)
 _quota_exhausted_at: str | None = None  # 쿼터 소진 최초 감지 시각(UTC ISO8601)
 _send_tasks: set = set()                # 띄운 전송 태스크 참조 보관(GC 방지 — postprocess.py 선례)
 _alerts_sent = 0
@@ -121,6 +127,8 @@ def _record_openai_failure(kind: str, exc: Exception, caller: str, model: str | 
                 f"최근: {target} {_describe(exc)}"
             )
             if _maybe_alert(kind, now, text):
+                # 전송 실패 시 되돌릴 수 있도록 비우기 전 내용을 기억해둔다.
+                _inflight_window[:] = list(_transient_window)
                 _transient_window.clear()
 
 
@@ -169,6 +177,9 @@ def snapshot() -> dict:
         "webhook_configured": bool(_webhook_url()),
         "counters": {kind: _counters.get(kind, 0) for kind in KINDS},
         "suppressed": {kind: _suppressed.get(kind, 0) for kind in KINDS},
+        "suppressed_for_seconds": {
+            kind: max(0, int(until - now)) for kind, until in _suppress_until.items() if until > now
+        },
         "transient_in_window": len(_transient_window),
         "quota_exhausted_at": _quota_exhausted_at,
         "last_alert_age_seconds": {kind: int(now - ts) for kind, ts in _last_alert_at.items()},
@@ -182,9 +193,11 @@ def reset() -> None:
     global _quota_exhausted_at, _alerts_sent, _send_failures, _url_missing_logged
     _counters.clear()
     _suppressed.clear()
+    _suppress_until.clear()
     _last_alert_at.clear()
     _inflight_held.clear()
     _transient_window.clear()
+    _inflight_window.clear()
     _quota_exhausted_at = None
     _send_tasks.clear()
     _alerts_sent = 0
@@ -199,9 +212,8 @@ async def drain() -> None:
 
 
 def _maybe_alert(kind: str, now: float, text: str) -> bool:
-    """억제 판정. 억제 창 밖이면 전송하고 True, 억제 중이면 카운트만 하고 False를 반환한다."""
-    last = _last_alert_at.get(kind)
-    if last is not None and now - last < SUPPRESS_SECONDS:
+    """억제 판정. 억제가 풀려 있으면 전송하고 True, 억제 중이면 카운트만 하고 False를 반환한다."""
+    if now < _suppress_until.get(kind, 0.0):
         _suppressed[kind] = _suppressed.get(kind, 0) + 1
         return False
 
@@ -210,20 +222,40 @@ def _maybe_alert(kind: str, now: float, text: str) -> bool:
         text = f"{text} (지난 {int(SUPPRESS_SECONDS // 60)}분간 같은 종류 {held}건 추가 발생)"
     # 전송 실패 시 되돌릴 수 있도록, 이번 메시지에 실어 보낸 억제 건수를 기억해둔다.
     _inflight_held[kind] = held
-    _last_alert_at[kind] = now
+    _suppress_until[kind] = now + SUPPRESS_SECONDS
     _dispatch(kind, text)
     return True
+
+
+def _mark_delivered(kind: str) -> None:
+    """알림이 실제로 전달됐을 때(전송 성공 또는 URL 미설정 로그 전용 폴백) 호출한다.
+
+    "마지막으로 실제 전달된 시각"만 갱신한다 — 억제 해제 시각(_suppress_until)은
+    _maybe_alert가 이미 정했으므로 여기서 건드리지 않는다.
+    """
+    _last_alert_at[kind] = time.monotonic()
+    _inflight_held.pop(kind, None)
+    if kind == KIND_TRANSIENT:
+        _inflight_window.clear()
 
 
 def _rollback_after_send_failure(kind: str, now: float) -> None:
     """전송 실패 시 억제 장부를 되돌린다.
 
     이번에 실어 보내려던 억제 건수(_inflight_held)와 전송에 실패한 이번 건 자체를
-    다시 _suppressed에 합산하고, _last_alert_at을 SEND_RETRY_SECONDS 뒤에 억제 창을
-    통과하도록 앞당긴다 — "보냈다고 착각"해 남은 SUPPRESS_SECONDS를 그냥 흘려보내지 않는다.
+    다시 _suppressed에 합산하고, _suppress_until을 SEND_RETRY_SECONDS 뒤로 앞당겨 같은
+    종류가 그때 다시 억제를 통과하게 한다 — "보냈다고 착각"해 남은 SUPPRESS_SECONDS를
+    그냥 흘려보내지 않는다. _last_alert_at은 건드리지 않는다(실제로 전달되지 않았으므로).
+    일시 오류(openai_transient)는 알림을 위해 비웠던 10분 창도 시간순으로 되돌린다.
     """
     _suppressed[kind] = _suppressed.get(kind, 0) + _inflight_held.pop(kind, 0) + 1
-    _last_alert_at[kind] = now - SUPPRESS_SECONDS + SEND_RETRY_SECONDS
+    _suppress_until[kind] = now + SEND_RETRY_SECONDS
+    if kind == KIND_TRANSIENT:
+        # 비운 뒤 새로 들어온 실패들이 더 최신이므로 되돌린 항목은 앞쪽에 넣는다 —
+        # _transient_window[0]이 가장 오래된 항목이라는 prune의 전제를 유지한다.
+        _transient_window.extendleft(reversed(_inflight_window))
+        _inflight_window.clear()
+        _prune_transient(now)
 
 
 def _dispatch(kind: str, text: str) -> None:
@@ -237,12 +269,14 @@ def _dispatch(kind: str, text: str) -> None:
         if not _url_missing_logged:
             logger.warning("ALERT_SLACK_WEBHOOK_URL 미설정 — 알림을 로그로만 남깁니다")
             _url_missing_logged = True
+        _mark_delivered(kind)  # 로그로는 남겼으니 "전달됨"으로 본다
         return
 
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         # 실행 중인 루프가 없음(동기 호출·테스트) — 카운트는 이미 끝났으니 전송만 건너뛴다.
+        _mark_delivered(kind)
         return
 
     task = loop.create_task(_post(url, message, kind))
@@ -257,7 +291,7 @@ async def _post(url: str, message: str, kind: str) -> None:
             resp = await client.post(url, json={"text": message})
             resp.raise_for_status()
         _alerts_sent += 1
-        _inflight_held.pop(kind, None)
+        _mark_delivered(kind)
     except Exception as exc:
         # str(exc)는 httpx 예외 문자열에 웹훅 URL이 그대로 들어가 로그에 시크릿을 남긴다.
         # 무인증 엔드포인트(/health)에도 안 실으니 여기 로그도 예외 타입·상태 코드만 남긴다.
