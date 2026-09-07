@@ -89,6 +89,9 @@ public class GitHubWebhookService {
         if (resolution.status() == GitHubWebhookIntegrationResolution.Status.INCREMENTAL_DISABLED) {
             return new WebhookResult(WebhookStatus.IGNORED, "incremental collection disabled for this project");
         }
+        if (resolution.status() == GitHubWebhookIntegrationResolution.Status.BRANCH_MISMATCH) {
+            return new WebhookResult(WebhookStatus.IGNORED, "pull request base branch does not match any project branch");
+        }
         if (resolution.status() == GitHubWebhookIntegrationResolution.Status.TOKEN_REFRESH_REQUIRED) {
             if (!installationTokenClient.ensureInstallationToken(webhook.installationId())) {
                 return new WebhookResult(WebhookStatus.NOT_FOUND, "GitHub installation not found");
@@ -98,26 +101,38 @@ public class GitHubWebhookService {
         if (resolution.status() != GitHubWebhookIntegrationResolution.Status.READY) {
             return new WebhookResult(WebhookStatus.NOT_FOUND, "no project integration found");
         }
-        ProjectCollectionContext collectionContext = ensureFreshTokens(resolution.context());
 
-        if (!webhookDeliveryService.tryClaim(deliveryId, collectionContext.projectId())) {
-            return new WebhookResult(WebhookStatus.DUPLICATE, "duplicate delivery");
-        }
+        // 같은 웹훅을 여러 프로젝트가 각자 claim한다 — claim 키가 (delivery_id, project_id)라 GitHub
+        // 재전송 시 앞서 큐잉된 프로젝트는 DUPLICATE로 건너뛰고 거부된 프로젝트만 재claim된다.
+        int accepted = 0;
+        for (ProjectCollectionContext context : resolution.contexts()) {
+            // claim이 provider 토큰 확보보다 앞 — 이미 claim된(재전송) 프로젝트에 backend 토큰 확보 호출이
+            // 나가지 않게 한다. 토큰 확보 중 예외는 큐잉 실패와 같이 FAILED로 남긴다.
+            if (!webhookDeliveryService.tryClaim(deliveryId, context.projectId())) {
+                continue;
+            }
 
-        try {
-            taskExecutor.execute(() -> runCollection(deliveryId, collectionContext));
-        } catch (RejectedExecutionException e) {
-            // executor 포화로 큐잉 실패 시 claim 해제 — GitHub 재전송의 재claim 허용 (FAILED로 굳히지 않음)
-            // 반복 발생 시 P-2 2단계(webhook 동시성 증가) 신호 — webhook 풀 큐(capacity) 초과
-            log.warn("webhook executor 포화로 수집 거부(큐 용량 초과): deliveryId={}, projectId={}",
-                    deliveryId, collectionContext.projectId());
-            webhookDeliveryService.releaseClaim(deliveryId, collectionContext.projectId());
-            throw e;
-        } catch (RuntimeException e) {
-            webhookDeliveryService.markFailed(deliveryId, collectionContext.projectId(), failureReason(e));
-            throw e;
+            try {
+                ProjectCollectionContext collectionContext = ensureFreshTokens(context);
+                taskExecutor.execute(() -> runCollection(deliveryId, collectionContext));
+                accepted++;
+            } catch (RejectedExecutionException e) {
+                // executor 포화로 큐잉 실패 시 claim 해제 — GitHub 재전송의 재claim 허용 (FAILED로 굳히지 않음)
+                // 반복 발생 시 P-2 2단계(webhook 동시성 증가) 신호 — webhook 풀 큐(capacity) 초과
+                log.warn("webhook executor 포화로 수집 거부(큐 용량 초과): deliveryId={}, projectId={}",
+                        deliveryId, context.projectId());
+                webhookDeliveryService.releaseClaim(deliveryId, context.projectId());
+                throw e;
+            } catch (RuntimeException e) {
+                webhookDeliveryService.markFailed(deliveryId, context.projectId(), failureReason(e));
+                throw e;
+            }
         }
-        return new WebhookResult(WebhookStatus.ACCEPTED, "collection queued");
+        log.info("Webhook collection queued: deliveryId={}, queued={}/{}",
+                deliveryId, accepted, resolution.contexts().size());
+        return accepted > 0
+                ? new WebhookResult(WebhookStatus.ACCEPTED, "collection queued")
+                : new WebhookResult(WebhookStatus.DUPLICATE, "duplicate delivery");
     }
 
     // GitHub은 앵커라 이미 신선한 토큰으로 context에 들어와 있다 — 나머지 provider만 확인한다.
@@ -170,7 +185,8 @@ public class GitHubWebhookService {
             Long installationId = installation.path("id").canConvertToLong()
                     ? installation.path("id").asLong()
                     : null;
-            return new GitHubWebhookPayload(action, merged, repositoryFullName, repositoryId, installationId);
+            String baseRef = root.path("pull_request").path("base").path("ref").asText(null);
+            return new GitHubWebhookPayload(action, merged, repositoryFullName, repositoryId, installationId, baseRef);
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {

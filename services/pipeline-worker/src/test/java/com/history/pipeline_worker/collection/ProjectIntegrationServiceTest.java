@@ -40,10 +40,14 @@ import static org.mockito.Mockito.when;
 class ProjectIntegrationServiceTest {
 
     private static final UUID PROJECT_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    // PROJECT_ID보다 큰 값으로 두어 "project_id 순" 팬아웃 정렬을 명확히 검증한다.
+    private static final UUID PROJECT_ID_2 = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private static final byte[] GITHUB_TOKEN = new byte[] {1};
     private static final byte[] JIRA_TOKEN = new byte[] {2};
     private static final byte[] SLACK_TOKEN = new byte[] {3};
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
+    private static final Instant FRESH_TOKEN_EXPIRY = Instant.parse("2026-01-01T01:00:00Z");
+    private static final Instant STALE_TOKEN_EXPIRY = Instant.parse("2025-12-31T23:59:59Z");
     private static final String GATEWAY_BASE_URL = "https://api.atlassian.com/ex/jira";
     private static final String JIRA_CREDENTIAL_JSON =
             "{\"access_token\":\"jira-access-token\",\"refresh_token\":\"jira-refresh-token\","
@@ -59,12 +63,9 @@ class ProjectIntegrationServiceTest {
 
     @Test
     void resolveGitHubPullRequestWebhook_buildsCollectionContextFromProjectIntegrations() {
-        ProjectIntegrationRepository.IntegrationRow github = githubRow(
-                Instant.parse("2026-01-01T01:00:00Z"),
-                GITHUB_TOKEN
-        );
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.of(github));
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(FRESH_TOKEN_EXPIRY, GITHUB_TOKEN);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
         when(repository.findAllByProjectId(PROJECT_ID))
                 .thenReturn(List.of(github, jiraRow(), slackRow()));
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
@@ -74,7 +75,8 @@ class ProjectIntegrationServiceTest {
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
         assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.READY);
-        ProjectCollectionContext context = result.context();
+        assertThat(result.contexts()).hasSize(1);
+        ProjectCollectionContext context = result.contexts().get(0);
         assertThat(context.projectId()).isEqualTo(PROJECT_ID.toString());
         assertThat(context.request(CollectionProvider.GITHUB)).hasValueSatisfying(request -> {
             assertThat(request.credentials()).isEqualTo("Bearer gh-token");
@@ -91,23 +93,20 @@ class ProjectIntegrationServiceTest {
 
     @Test
     void resolveGitHubPullRequestWebhook_returnsNotFoundWhenNoGitHubIntegrationMatches() {
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.empty());
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of());
 
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
         assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.NOT_FOUND);
-        verify(repository).findGitHubWebhookIntegration(456L, 123L, "owner/repo");
+        verify(repository).findGitHubWebhookIntegrations(456L, 123L, "owner/repo");
     }
 
     @Test
     void resolveGitHubPullRequestWebhook_requiresRefreshWhenInstallationTokenIsMissing() {
-        ProjectIntegrationRepository.IntegrationRow github = githubRow(
-                Instant.parse("2026-01-01T01:00:00Z"),
-                null
-        );
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.of(github));
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(FRESH_TOKEN_EXPIRY, null);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
 
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
@@ -116,12 +115,9 @@ class ProjectIntegrationServiceTest {
 
     @Test
     void resolveGitHubPullRequestWebhook_requiresRefreshWhenInstallationTokenIsExpired() {
-        ProjectIntegrationRepository.IntegrationRow github = githubRow(
-                Instant.parse("2025-12-31T23:59:59Z"),
-                GITHUB_TOKEN
-        );
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.of(github));
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(STALE_TOKEN_EXPIRY, GITHUB_TOKEN);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
 
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
@@ -134,20 +130,46 @@ class ProjectIntegrationServiceTest {
                 Instant.parse("2026-01-01T00:05:00Z"),
                 GITHUB_TOKEN
         );
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.of(github));
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
 
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
         assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.TOKEN_REFRESH_REQUIRED);
     }
 
+    // 브랜치가 일치하지 않으면 토큰 신선도조차 확인하지 않고 BRANCH_MISMATCH로 끊는다 — DB 기록·토큰
+    // 갱신·claim·큐잉 전부보다 앞이어야 한다는 설계 전제를 고정한다.
+    @Test
+    void resolveGitHubPullRequestWebhook_branchMismatch_returnsBranchMismatchWithoutBuildingContext() {
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(FRESH_TOKEN_EXPIRY, GITHUB_TOKEN);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload("develop"));
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.BRANCH_MISMATCH);
+        assertThat(result.contexts()).isEmpty();
+        verify(repository, never()).findAllByProjectId(any());
+    }
+
+    // 비교 순서 고정: 토큰이 만료됐어도 브랜치가 먼저 걸러지면 TOKEN_REFRESH_REQUIRED가 아니라
+    // BRANCH_MISMATCH여야 한다. 순서를 뒤집은 구현(토큰 갱신 판정을 먼저 하는 구현)에서는 이 테스트가
+    // TOKEN_REFRESH_REQUIRED를 돌려줘 실패한다.
+    @Test
+    void resolveGitHubPullRequestWebhook_branchMismatchWithExpiredToken_returnsBranchMismatchBeforeTokenRefresh() {
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(STALE_TOKEN_EXPIRY, GITHUB_TOKEN);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload("develop"));
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.BRANCH_MISMATCH);
+    }
+
     @Test
     void resolveGitHubPullRequestWebhook_skipsInvalidOptionalIntegration() {
-        ProjectIntegrationRepository.IntegrationRow github = githubRow(
-                Instant.parse("2026-01-01T01:00:00Z"),
-                GITHUB_TOKEN
-        );
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(FRESH_TOKEN_EXPIRY, GITHUB_TOKEN);
         // cloud_id 누락 — 선택 연동의 설정 오류는 그 provider만 건너뛰고 나머지는 수집한다
         ProjectIntegrationRepository.IntegrationRow invalidJira = new ProjectIntegrationRepository.IntegrationRow(
                 PROJECT_ID,
@@ -157,8 +179,8 @@ class ProjectIntegrationServiceTest {
                 null,
                 null
         );
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.of(github));
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
         when(repository.findAllByProjectId(PROJECT_ID))
                 .thenReturn(List.of(github, invalidJira, slackRow()));
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
@@ -168,7 +190,8 @@ class ProjectIntegrationServiceTest {
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
         assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.READY);
-        ProjectCollectionContext context = result.context();
+        assertThat(result.contexts()).hasSize(1);
+        ProjectCollectionContext context = result.contexts().get(0);
         assertThat(context.request(CollectionProvider.GITHUB)).hasValueSatisfying(request ->
                 assertThat(request.credentials()).isEqualTo("Bearer gh-token"));
         assertThat(context.request(CollectionProvider.JIRA)).isEmpty();
@@ -182,13 +205,13 @@ class ProjectIntegrationServiceTest {
         ProjectIntegrationRepository.IntegrationRow invalidGitHub = new ProjectIntegrationRepository.IntegrationRow(
                 PROJECT_ID,
                 "github",
-                Map.of("repository_id", 123L),
+                Map.of("repository_id", 123L, "branch", "main"),
                 null,
                 GITHUB_TOKEN,
-                Instant.parse("2026-01-01T01:00:00Z")
+                FRESH_TOKEN_EXPIRY
         );
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.of(invalidGitHub));
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(invalidGitHub));
         when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(invalidGitHub));
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
 
@@ -200,10 +223,9 @@ class ProjectIntegrationServiceTest {
     @Test
     void resolveGitHubPullRequestWebhook_unresolvableGitHub_returnsNotFound() {
         // 만료된 토큰처럼 "지금은 수집 불가"인 경우는 예외가 아니라 not found로 떨어진다
-        ProjectIntegrationRepository.IntegrationRow github = githubRow(
-                Instant.parse("2026-01-01T01:00:00Z"), GITHUB_TOKEN);
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.of(github));
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(FRESH_TOKEN_EXPIRY, GITHUB_TOKEN);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
         when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(slackRow()));
         when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("xoxb-slack-token");
 
@@ -212,12 +234,91 @@ class ProjectIntegrationServiceTest {
         assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.NOT_FOUND);
     }
 
+    // 팬아웃: 같은 레포를 연결한 두 프로젝트 중 브랜치가 맞는 프로젝트만 골라야 한다. 첫 context만
+    // 처리하거나 브랜치를 무시하고 전부 담는 구현에서는 contexts에 P1이 섞이거나 크기가 달라져 실패한다.
+    @Test
+    void resolveGitHubPullRequestWebhook_secondProjectBranchMatches_returnsOnlyMatchingProjectContext() {
+        ProjectIntegrationRepository.IntegrationRow p1 = githubRow(PROJECT_ID, "main", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, true);
+        ProjectIntegrationRepository.IntegrationRow p2 = githubRow(PROJECT_ID_2, "develop", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, true);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(p1, p2));
+        when(repository.findAllByProjectId(PROJECT_ID_2)).thenReturn(List.of(p2));
+        when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload("develop"));
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.READY);
+        assertThat(result.contexts()).hasSize(1);
+        assertThat(result.contexts().get(0).projectId()).isEqualTo(PROJECT_ID_2.toString());
+        verify(repository, never()).findAllByProjectId(PROJECT_ID);
+    }
+
+    // 팬아웃: 둘 다 브랜치가 맞으면 전부 큐잉 대상이 되고, project_id 오름차순으로 정렬돼 있어야 한다.
+    // 첫 context만 처리(팬아웃 미구현)하는 실수는 contexts 크기가 1로 나와 이 테스트에서 잡힌다.
+    @Test
+    void resolveGitHubPullRequestWebhook_bothProjectsBranchMatch_returnsContextsOrderedByProjectId() {
+        ProjectIntegrationRepository.IntegrationRow p1 = githubRow(PROJECT_ID, "main", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, true);
+        ProjectIntegrationRepository.IntegrationRow p2 = githubRow(PROJECT_ID_2, "main", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, true);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(p1, p2));
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(p1));
+        when(repository.findAllByProjectId(PROJECT_ID_2)).thenReturn(List.of(p2));
+        when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload("main"));
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.READY);
+        assertThat(result.contexts()).hasSize(2);
+        assertThat(result.contexts().get(0).projectId()).isEqualTo(PROJECT_ID.toString());
+        assertThat(result.contexts().get(1).projectId()).isEqualTo(PROJECT_ID_2.toString());
+    }
+
+    @Test
+    void resolveGitHubPullRequestWebhook_bothProjectsIncrementalDisabled_returnsIncrementalDisabled() {
+        ProjectIntegrationRepository.IntegrationRow p1 = githubRow(PROJECT_ID, "main", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, false);
+        ProjectIntegrationRepository.IntegrationRow p2 = githubRow(PROJECT_ID_2, "develop", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, false);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(p1, p2));
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload("main"));
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.INCREMENTAL_DISABLED);
+        verify(repository, never()).findAllByProjectId(any());
+    }
+
+    // eligible이 비어도 원인이 "전부 disabled"가 아니면(하나는 그냥 브랜치가 다름) INCREMENTAL_DISABLED가
+    // 아니라 BRANCH_MISMATCH로 떨어진다 — 두 원인을 뭉뚱그리면 사용자에게 잘못된 이유가 전달된다.
+    @Test
+    void resolveGitHubPullRequestWebhook_oneDisabledOneBranchMismatch_returnsBranchMismatch() {
+        ProjectIntegrationRepository.IntegrationRow p1 = githubRow(PROJECT_ID, "main", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, false);
+        ProjectIntegrationRepository.IntegrationRow p2 = githubRow(PROJECT_ID_2, "develop", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, true);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(p1, p2));
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload("main"));
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.BRANCH_MISMATCH);
+        verify(repository, never()).findAllByProjectId(any());
+    }
+
+    // installation token은 공유 자원이라 팬아웃 대상 중 하나만 만료돼도 전체를 TOKEN_REFRESH_REQUIRED로
+    // 묶어야 한다 — 그래야 재해석 이후 모든 프로젝트가 같은 신선한 토큰으로 다시 평가된다.
+    @Test
+    void resolveGitHubPullRequestWebhook_onlyOneOfTwoProjectsHasExpiredToken_returnsTokenRefreshRequired() {
+        ProjectIntegrationRepository.IntegrationRow p1 = githubRow(PROJECT_ID, "main", FRESH_TOKEN_EXPIRY, GITHUB_TOKEN, true);
+        ProjectIntegrationRepository.IntegrationRow p2 = githubRow(PROJECT_ID_2, "main", STALE_TOKEN_EXPIRY, GITHUB_TOKEN, true);
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(p1, p2));
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload("main"));
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.TOKEN_REFRESH_REQUIRED);
+        verify(repository, never()).findAllByProjectId(any());
+    }
+
     @Test
     void resolveFetchRequest_buildsOnlyRequestedProvider() {
-        ProjectIntegrationRepository.IntegrationRow github = githubRow(
-                Instant.parse("2026-01-01T01:00:00Z"),
-                GITHUB_TOKEN
-        );
+        ProjectIntegrationRepository.IntegrationRow github = githubRow(FRESH_TOKEN_EXPIRY, GITHUB_TOKEN);
         when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(jiraRow(), github, slackRow()));
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
 
@@ -285,7 +386,7 @@ class ProjectIntegrationServiceTest {
                 Map.of(),
                 null,
                 GITHUB_TOKEN,
-                Instant.parse("2026-01-01T01:00:00Z")
+                FRESH_TOKEN_EXPIRY
         );
         when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(invalidGitHub));
         when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
@@ -301,11 +402,11 @@ class ProjectIntegrationServiceTest {
                 Map.of("repository_id", 123L, "repository_full_name", "owner/repo"),
                 null,
                 GITHUB_TOKEN,
-                Instant.parse("2026-01-01T01:00:00Z"),
+                FRESH_TOKEN_EXPIRY,
                 false
         );
-        when(repository.findGitHubWebhookIntegration(456L, 123L, "owner/repo"))
-                .thenReturn(Optional.of(github));
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
 
         GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
 
@@ -347,17 +448,29 @@ class ProjectIntegrationServiceTest {
     }
 
     private GitHubWebhookPayload payload() {
-        return new GitHubWebhookPayload("closed", true, "owner/repo", 123L, 456L);
+        return payload("main");
+    }
+
+    private GitHubWebhookPayload payload(String baseRef) {
+        return new GitHubWebhookPayload("closed", true, "owner/repo", 123L, 456L, baseRef);
     }
 
     private ProjectIntegrationRepository.IntegrationRow githubRow(Instant expiresAt, byte[] encryptedToken) {
+        return githubRow(PROJECT_ID, "main", expiresAt, encryptedToken, true);
+    }
+
+    // GitHubCollector.BRANCH(private)와 같은 "branch" 키를 쓴다 — 선택 브랜치.
+    private ProjectIntegrationRepository.IntegrationRow githubRow(
+            UUID projectId, String branch, Instant expiresAt, byte[] encryptedToken, boolean incrementalEnabled
+    ) {
         return new ProjectIntegrationRepository.IntegrationRow(
-                PROJECT_ID,
+                projectId,
                 "github",
-                Map.of("repository_id", 123L, "repository_full_name", "owner/repo"),
+                Map.of("repository_id", 123L, "repository_full_name", "owner/repo", "branch", branch),
                 null,
                 encryptedToken,
-                expiresAt
+                expiresAt,
+                incrementalEnabled
         );
     }
 

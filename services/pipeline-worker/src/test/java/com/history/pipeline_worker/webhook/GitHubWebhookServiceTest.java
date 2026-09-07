@@ -11,9 +11,11 @@ import com.history.pipeline_worker.pipeline.CollectionResult;
 import com.history.pipeline_worker.pipeline.PipelineService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -139,6 +141,44 @@ class GitHubWebhookServiceTest {
         verifyNoInteractions(pipelineService);
     }
 
+    // 파서가 pull_request.base.ref를 읽어 해석 호출에 그대로 넘기는지 확인한다 — 이 값이 프로젝트별
+    // 선택 브랜치와의 비교 기준이 된다.
+    @Test
+    void handle_parsesBaseRefAndPassesItToResolution() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed", "develop");
+        ProjectCollectionContext context = collectionContext();
+        ArgumentCaptor<GitHubWebhookPayload> payloadCaptor = ArgumentCaptor.forClass(GitHubWebhookPayload.class);
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(payloadCaptor.capture()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(context)));
+        when(pipelineService.collectIncremental(context)).thenReturn(collectionResult(1, 2, 3));
+
+        service.handle(headers, payload);
+
+        assertThat(payloadCaptor.getValue().baseRef()).isEqualTo("develop");
+    }
+
+    // 맞는 프로젝트가 하나도 없으면 claim·토큰 갱신 전부보다 앞에서 끊긴다 — webhook_deliveries에
+    // 행이 남지 않고, installation/provider 토큰 확보도 시도하지 않는다.
+    @Test
+    void handle_branchMismatch_isIgnoredWithoutClaimingOrTouchingTokenClients() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed", "feature/x");
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.branchMismatch());
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.IGNORED);
+        // pipelineService를 포함한다 — taskExecutor가 SyncTaskExecutor라 큐잉되면 즉시 동기 실행되므로,
+        // pipelineService가 호출되지 않았다는 것 자체가 "아무 프로젝트도 큐잉되지 않았다"는 증거다.
+        verifyNoInteractions(webhookDeliveryService, installationTokenClient, integrationTokenClient, pipelineService);
+    }
+
     @Test
     void handle_tokenRefreshRequired_refreshesAndResolvesIntegrationAgain() {
         HttpHeaders headers = headers();
@@ -148,7 +188,7 @@ class GitHubWebhookServiceTest {
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
                 .thenReturn(
                         GitHubWebhookIntegrationResolution.tokenRefreshRequired(),
-                        GitHubWebhookIntegrationResolution.ready(context)
+                        GitHubWebhookIntegrationResolution.ready(List.of(context))
                 );
         when(installationTokenClient.ensureInstallationToken(456L)).thenReturn(true);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
@@ -168,7 +208,7 @@ class GitHubWebhookServiceTest {
         String payload = payload(true, "closed");
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(collectionContext()));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(collectionContext())));
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(false);
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
@@ -186,7 +226,7 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(context)));
         when(pipelineService.collectIncremental(context)).thenReturn(collectionResult(1, 2, 3));
 
         GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
@@ -211,7 +251,7 @@ class GitHubWebhookServiceTest {
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithStaleJira));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextWithStaleJira)));
         when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.JIRA))
                 .thenReturn(IntegrationTokenClient.TokenStatus.REFRESHED);
         when(projectIntegrationService.resolveFetchRequest(UUID.fromString(projectId()), CollectionProvider.JIRA))
@@ -237,7 +277,7 @@ class GitHubWebhookServiceTest {
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(contextWithStaleLinear));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextWithStaleLinear)));
         when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.LINEAR))
                 .thenReturn(IntegrationTokenClient.TokenStatus.REFRESHED);
         when(projectIntegrationService.resolveFetchRequest(UUID.fromString(projectId()), CollectionProvider.LINEAR))
@@ -263,7 +303,7 @@ class GitHubWebhookServiceTest {
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(context)));
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(pipelineService.collectIncremental(context)).thenReturn(collectionResult(1, 0, 3));
 
@@ -285,7 +325,7 @@ class GitHubWebhookServiceTest {
 
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(context)));
         when(integrationTokenClient.ensure(UUID.fromString(projectId()), CollectionProvider.SLACK))
                 .thenReturn(IntegrationTokenClient.TokenStatus.FAILED);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
@@ -320,7 +360,7 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(context)));
         when(pipelineService.collectIncremental(context))
                 .thenThrow(new IllegalStateException("collection failed"));
 
@@ -351,12 +391,174 @@ class GitHubWebhookServiceTest {
         when(verifier.verify(payload, "sig")).thenReturn(true);
         when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
         when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
-                .thenReturn(GitHubWebhookIntegrationResolution.ready(context));
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(context)));
 
         assertThrows(RejectedExecutionException.class, () -> rejectingService.handle(headers, payload));
 
         verify(webhookDeliveryService).releaseClaim("delivery-1", projectId());
         verify(webhookDeliveryService, never()).markFailed(anyString(), anyString(), anyString());
+    }
+
+    // 팬아웃: 브랜치가 맞는 프로젝트가 여럿이면 전부 claim·수집·markProcessed까지 간다.
+    @Test
+    void handle_readyWithTwoProjects_queuesBothAndReturnsAccepted() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextA = collectionContext();
+        ProjectCollectionContext contextB = collectionContextForProject(projectIdB());
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextA, contextB)));
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectIdB())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextA)).thenReturn(collectionResult(1, 0, 3));
+        when(pipelineService.collectIncremental(contextB)).thenReturn(collectionResult(1, 0, 3));
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
+        verify(pipelineService).collectIncremental(contextA);
+        verify(pipelineService).collectIncremental(contextB);
+        verify(webhookDeliveryService).markProcessed("delivery-1", projectId());
+        verify(webhookDeliveryService).markProcessed("delivery-1", projectIdB());
+    }
+
+    // 팬아웃 중 이미 claim된(중복) 프로젝트 하나는 건너뛰고 나머지는 계속 수집한다 — "첫 context만
+    // 처리하는" 구현이면 B가 A의 claim 실패로 함께 스킵돼 이 테스트가 실패한다.
+    @Test
+    void handle_readyWithTwoProjects_firstAlreadyClaimed_onlySecondCollected() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextA = collectionContext();
+        ProjectCollectionContext contextB = collectionContextForProject(projectIdB());
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextA, contextB)));
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(false);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectIdB())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextB)).thenReturn(collectionResult(1, 0, 3));
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.ACCEPTED);
+        verify(pipelineService, never()).collectIncremental(contextA);
+        verify(pipelineService).collectIncremental(contextB);
+    }
+
+    @Test
+    void handle_readyWithTwoProjects_bothAlreadyClaimed_returnsDuplicateWithoutCollecting() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextA = collectionContext();
+        ProjectCollectionContext contextB = collectionContextForProject(projectIdB());
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextA, contextB)));
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(false);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectIdB())).thenReturn(false);
+
+        GitHubWebhookService.WebhookResult result = service.handle(headers, payload);
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookService.WebhookStatus.DUPLICATE);
+        verifyNoInteractions(pipelineService);
+    }
+
+    // 두 번째 프로젝트를 큐잉하다 executor가 거부하면, 이미 성공적으로 큐잉·처리된 첫 프로젝트의 claim은
+    // 손대지 않고 두 번째 프로젝트의 claim만 해제해야 한다 — projectId 없이(또는 잘못된 project로)
+    // 지우는 구현이면 releaseClaim("delivery-1", projectIdB()) 검증에서 실패한다.
+    @Test
+    void handle_secondProjectExecutorRejection_releasesOnlySecondProjectClaimAndPropagates() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextA = collectionContext();
+        ProjectCollectionContext contextB = collectionContextForProject(projectIdB());
+        ThrowOnSecondCallExecutor rejectingExecutor =
+                new ThrowOnSecondCallExecutor(new RejectedExecutionException("queue full"));
+        GitHubWebhookService rejectingService = new GitHubWebhookService(
+                new ObjectMapper(),
+                verifier,
+                webhookDeliveryService,
+                installationTokenClient,
+                integrationTokenClient,
+                projectIntegrationService,
+                pipelineService,
+                rejectingExecutor,
+                new ProjectCollectionSerializer(8)
+        );
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextA, contextB)));
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectIdB())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextA)).thenReturn(collectionResult(1, 0, 3));
+
+        assertThrows(RejectedExecutionException.class, () -> rejectingService.handle(headers, payload));
+
+        verify(webhookDeliveryService).markProcessed("delivery-1", projectId());
+        verify(webhookDeliveryService).releaseClaim("delivery-1", projectIdB());
+        verify(webhookDeliveryService, never()).releaseClaim("delivery-1", projectId());
+        verify(webhookDeliveryService, never()).markFailed(anyString(), anyString(), anyString());
+    }
+
+    // 두 번째 프로젝트 큐잉에서 executor 포화가 아닌 예상 밖의 오류가 나면, 그 프로젝트만 FAILED로 기록하고
+    // (재전송으로 재시도할 일시 장애가 아니므로 claim은 유지) 이미 큐잉된 첫 프로젝트는 건드리지 않는다.
+    @Test
+    void handle_secondProjectExecutorFailure_marksOnlySecondProjectFailedAndPropagates() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextA = collectionContext();
+        ProjectCollectionContext contextB = collectionContextForProject(projectIdB());
+        GitHubWebhookService failingService = new GitHubWebhookService(
+                new ObjectMapper(),
+                verifier,
+                webhookDeliveryService,
+                installationTokenClient,
+                integrationTokenClient,
+                projectIntegrationService,
+                pipelineService,
+                new ThrowOnSecondCallExecutor(new IllegalStateException("executor broken")),
+                new ProjectCollectionSerializer(8)
+        );
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextA, contextB)));
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(true);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectIdB())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextA)).thenReturn(collectionResult(1, 0, 3));
+
+        assertThrows(IllegalStateException.class, () -> failingService.handle(headers, payload));
+
+        verify(webhookDeliveryService).markProcessed("delivery-1", projectId());
+        verify(webhookDeliveryService).markFailed("delivery-1", projectIdB(), "IllegalStateException: executor broken");
+        verify(webhookDeliveryService, never()).markFailed(eq("delivery-1"), eq(projectId()), anyString());
+        verify(webhookDeliveryService, never()).releaseClaim(anyString(), anyString());
+    }
+
+    // 이미 claim된(중복) 프로젝트에는 provider 토큰 확보 호출도 나가지 않아야 한다 — claim이 토큰 확보보다
+    // 앞이어야 GitHub 재전송 때 backend에 헛호출이 없다. 순서가 반대인 구현은 A에 대한 ensure 호출이 잡혀 실패한다.
+    @Test
+    void handle_readyWithTwoProjects_firstAlreadyClaimed_skipsTokenEnsureForClaimedProject() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextA = collectionContext();
+        ProjectCollectionContext contextB = collectionContextForProject(projectIdB());
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextA, contextB)));
+        when(webhookDeliveryService.tryClaim("delivery-1", projectId())).thenReturn(false);
+        when(webhookDeliveryService.tryClaim("delivery-1", projectIdB())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextB)).thenReturn(collectionResult(1, 0, 3));
+
+        service.handle(headers, payload);
+
+        verify(integrationTokenClient, never()).ensure(eq(UUID.fromString(projectId())), any());
+        verify(integrationTokenClient).ensure(UUID.fromString(projectIdB()), CollectionProvider.SLACK);
     }
 
     private HttpHeaders headers() {
@@ -368,20 +570,30 @@ class GitHubWebhookServiceTest {
     }
 
     private String payload(boolean merged, String action) {
+        return payload(merged, action, "main");
+    }
+
+    private String payload(boolean merged, String action, String baseRef) {
         return """
                 {
                   "action": "%s",
-                  "pull_request": { "merged": %s },
+                  "pull_request": { "merged": %s, "base": { "ref": "%s" } },
                   "repository": { "full_name": "owner/repo", "id": 123 },
                   "installation": { "id": 456 }
                 }
-                """.formatted(action, merged);
+                """.formatted(action, merged, baseRef);
     }
 
     private ProjectCollectionContext collectionContext() {
         // 이 fixture는 GitHub webhook 흐름 자체를 검증하는 테스트에서 공용으로 쓴다 — Jira 토큰
         // 보장·재해석은 별도 fixture(collectionContextWithJira)로 검증하므로 Jira는 비워 둔다.
-        return new ProjectCollectionContext(projectId(), Map.of(
+        return collectionContextForProject(projectId());
+    }
+
+    // 팬아웃 테스트에서 두 번째 프로젝트용 context를 만들 때 재사용한다 — provider 구성은
+    // collectionContext()와 동일하고 projectId만 다르다.
+    private ProjectCollectionContext collectionContextForProject(String projectId) {
+        return new ProjectCollectionContext(projectId, Map.of(
                 CollectionProvider.GITHUB, new RawFetchRequest("Bearer gh", "owner/repo", Map.of()),
                 CollectionProvider.SLACK, new RawFetchRequest("Bearer slack", null, Map.of())
         ));
@@ -415,10 +627,36 @@ class GitHubWebhookServiceTest {
         return "11111111-1111-1111-1111-111111111111";
     }
 
+    // 팬아웃 테스트 전용 두 번째 프로젝트 id — PROJECT_ID와 값만 다르면 되므로 별도 상수로 둔다.
+    private String projectIdB() {
+        return "22222222-2222-2222-2222-222222222222";
+    }
+
     private static class TaskExecutorRejector extends SyncTaskExecutor {
         @Override
         public void execute(Runnable task) {
             throw new RejectedExecutionException("queue full");
+        }
+    }
+
+    // 첫 번째 큐잉(호출)은 동기 실행을 흉내 내고(SyncTaskExecutor 위임), 두 번째 호출부터 주어진 예외를
+    // 던진다 — 팬아웃 중 두 번째 프로젝트에서만 executor 포화(RejectedExecutionException)나 예상 밖 오류가
+    // 발생하는 상황을 재현한다.
+    private static class ThrowOnSecondCallExecutor extends SyncTaskExecutor {
+        private final RuntimeException failure;
+        private int calls = 0;
+
+        private ThrowOnSecondCallExecutor(RuntimeException failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public void execute(Runnable task) {
+            calls++;
+            if (calls >= 2) {
+                throw failure;
+            }
+            super.execute(task);
         }
     }
 }
