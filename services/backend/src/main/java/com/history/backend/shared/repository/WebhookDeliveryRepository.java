@@ -12,11 +12,11 @@ import org.springframework.data.repository.query.Param;
 
 public interface WebhookDeliveryRepository extends JpaRepository<WebhookDelivery, UUID> {
 
-    Optional<WebhookDelivery> findByDeliveryId(String deliveryId);
+    Optional<WebhookDelivery> findByDeliveryIdAndProjectId(String deliveryId, UUID projectId);
 
-    boolean existsByDeliveryId(String deliveryId);
+    boolean existsByDeliveryIdAndProjectId(String deliveryId, UUID projectId);
 
-    // delivery_id 선점 insert — 이미 처리 중/완료된 중복 webhook이면 0 반환 (멱등 처리)
+    // (delivery_id, project_id) 선점 insert — 이미 처리 중/완료된 중복 webhook이면 0 반환 (멱등 처리)
     @Modifying
     @Query(
             value = """
@@ -24,7 +24,7 @@ public interface WebhookDeliveryRepository extends JpaRepository<WebhookDelivery
                         delivery_id, project_id, status, received_at, updated_at
                     )
                     VALUES (:deliveryId, :projectId, 'IN_PROGRESS', :claimedAt, :claimedAt)
-                    ON CONFLICT (delivery_id) DO NOTHING
+                    ON CONFLICT (delivery_id, project_id) DO NOTHING
                     """,
             nativeQuery = true
     )

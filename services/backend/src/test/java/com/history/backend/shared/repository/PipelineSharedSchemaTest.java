@@ -54,14 +54,32 @@ class PipelineSharedSchemaTest {
     }
 
     @Test
-    @DisplayName("delivery_id 유니크 제약")
-    void webhookDeliveryIdIsUnique() {
+    @DisplayName("같은 delivery·같은 project 중복 거부")
+    void webhookDeliverySameDeliveryAndProjectRejectsDuplicate() {
         UUID ownerId = insertUser("owner@example.com");
         UUID projectId = insertProject(ownerId);
         insertWebhookDelivery("delivery-2", projectId, "IN_PROGRESS");
 
         assertThatThrownBy(() -> insertWebhookDelivery("delivery-2", projectId, "IN_PROGRESS"))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("같은 delivery·다른 project는 각각 저장 가능")
+    void webhookDeliverySameDeliveryDifferentProjectCanBothBeStored() {
+        UUID ownerId = insertUser("owner11@example.com");
+        UUID firstProjectId = insertProject(ownerId);
+        UUID secondProjectId = insertProject(ownerId);
+
+        insertWebhookDelivery("delivery-11", firstProjectId, "IN_PROGRESS");
+        insertWebhookDelivery("delivery-11", secondProjectId, "IN_PROGRESS");
+
+        Integer deliveryCount = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM webhook_deliveries WHERE delivery_id = ?",
+                Integer.class,
+                "delivery-11"
+        );
+        assertThat(deliveryCount).isEqualTo(2);
     }
 
     @Test

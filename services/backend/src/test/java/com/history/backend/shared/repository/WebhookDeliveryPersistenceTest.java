@@ -72,7 +72,8 @@ class WebhookDeliveryPersistenceTest {
                 project
         ));
 
-        Optional<WebhookDelivery> result = webhookDeliveryRepository.findByDeliveryId("delivery-1");
+        Optional<WebhookDelivery> result = webhookDeliveryRepository
+                .findByDeliveryIdAndProjectId("delivery-1", project.getId());
 
         assertThat(result).contains(delivery);
         assertThat(result.orElseThrow().getProject()).isEqualTo(project);
@@ -80,7 +81,8 @@ class WebhookDeliveryPersistenceTest {
         assertThat(result.orElseThrow().getLastError()).isNull();
         assertThat(result.orElseThrow().getReceivedAt()).isNotNull();
         assertThat(result.orElseThrow().getUpdatedAt()).isNotNull();
-        assertThat(webhookDeliveryRepository.existsByDeliveryId("delivery-1")).isTrue();
+        assertThat(webhookDeliveryRepository.existsByDeliveryIdAndProjectId("delivery-1", project.getId()))
+                .isTrue();
     }
 
     @Test
@@ -93,11 +95,28 @@ class WebhookDeliveryPersistenceTest {
 
         assertThat(firstClaim).isOne();
         assertThat(duplicateClaim).isZero();
-        assertThat(webhookDeliveryRepository.findByDeliveryId("delivery-2"))
+        assertThat(webhookDeliveryRepository.findByDeliveryIdAndProjectId("delivery-2", project.getId()))
                 .hasValueSatisfying(delivery -> {
                     assertThat(delivery.getProject()).isEqualTo(project);
                     assertThat(delivery.getStatus()).isEqualTo(WebhookDeliveryStatus.IN_PROGRESS);
                 });
+    }
+
+    @Test
+    @DisplayName("같은 delivery·다른 project는 각각 claim 가능")
+    void tryClaimAllowsSameDeliveryForDifferentProject() {
+        Project firstProject = createProject();
+        Project secondProject = createProject();
+
+        int firstClaim = webhookDeliveryRepository.tryClaim("delivery-8", firstProject.getId());
+        int secondClaim = webhookDeliveryRepository.tryClaim("delivery-8", secondProject.getId());
+
+        assertThat(firstClaim).isOne();
+        assertThat(secondClaim).isOne();
+        assertThat(webhookDeliveryRepository.findByDeliveryIdAndProjectId("delivery-8", firstProject.getId()))
+                .hasValueSatisfying(delivery -> assertThat(delivery.getProject()).isEqualTo(firstProject));
+        assertThat(webhookDeliveryRepository.findByDeliveryIdAndProjectId("delivery-8", secondProject.getId()))
+                .hasValueSatisfying(delivery -> assertThat(delivery.getProject()).isEqualTo(secondProject));
     }
 
     @Test
@@ -106,7 +125,7 @@ class WebhookDeliveryPersistenceTest {
         int inserted = webhookDeliveryRepository.tryClaim("delivery-3", null);
 
         assertThat(inserted).isOne();
-        assertThat(webhookDeliveryRepository.findByDeliveryId("delivery-3"))
+        assertThat(webhookDeliveryRepository.findByDeliveryIdAndProjectId("delivery-3", null))
                 .hasValueSatisfying(delivery -> assertThat(delivery.getProject()).isNull());
     }
 
