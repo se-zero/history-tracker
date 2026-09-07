@@ -82,7 +82,7 @@ eval 러너도 HTTP 실패만 세므로 **"실패 0건"으로 집계**된다.
 - [x] `routers/query.py`: 전파된 `APIStatusError`를 502 + 명시적 detail로 반환 (/query, /query/summary).
       reasoning_effort=low 재현 시나리오로 검증 — 이전 200+빈답변 → 현재 502 (2026-07-14)
 - [x] `eval/runner.py`: `structured=null`을 실패로 집계하고 exit code 반영 (2026-07-14)
-- [ ] (선택) LLM 오류율을 메트릭/헬스에 노출해 운영 중 조기 감지
+- [x] (선택) LLM 오류율을 메트릭/헬스에 노출해 운영 중 조기 감지 — /health의 alerts 카운터 + Slack 알림(alerts.py, 2026-09-06)
 - [ ] backend 프록시·web-dashboard가 502 응답을 사용자에게 어떻게 보여줄지 확인
       (현재는 backend가 5xx를 그대로 전달한다고 가정 — 프론트 오류 UX 검토는 별도)
 

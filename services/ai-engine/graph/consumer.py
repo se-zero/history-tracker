@@ -6,6 +6,7 @@ from typing import Awaitable, Callable
 
 import aio_pika
 
+import alerts
 from graph.event_handler import handle, is_prefetchable_changeset, prepare_changeset
 from graph.postprocess import mark_dirty
 
@@ -262,6 +263,7 @@ async def _route_message(
             message.routing_key, message.body[:200],
         )
         await _publish(publish_channel, PARKING_QUEUE, message.body, {"x-parse-error": "1"})
+        alerts.record_parking(message.routing_key)
         await message.ack()
         return
 
@@ -330,6 +332,7 @@ async def _handle_failure(
     else:
         await _publish(publish_channel, DLQ_QUEUE, message.body, {"x-retry-count": n})
         logger.error("처리 실패 — 재시도 %d회 초과, DLQ 파킹 (project=%s)", RETRY_MAX, project_id)
+        alerts.record_dlq_parked(project_id)
     await message.ack()
 
 
