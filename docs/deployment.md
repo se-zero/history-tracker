@@ -499,9 +499,11 @@ python으로):
 docker exec history-graph-ai-engine python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/health').read().decode())"
 ```
 
-`alerts` 키에 종류별 누적 카운터(`counters`)·억제 건수(`suppressed`)·일시 오류 창 안 건수
-(`transient_in_window`)·쿼터 소진 최초 감지 시각(`quota_exhausted_at`)·웹훅 설정 여부
-(`webhook_configured`)·전송 성공/실패 수(`alerts_sent`/`send_failures`)가 담긴다.
+`alerts` 키에 종류별 누적 카운터(`counters`)·억제 건수(`suppressed`)·지금 억제 중인 종류와 남은 초
+(`suppressed_for_seconds`)·일시 오류 창 안 건수(`transient_in_window`)·쿼터 소진 최초 감지 시각
+(`quota_exhausted_at`)·마지막으로 **실제 전달된** 알림의 경과 초(`last_alert_age_seconds`)·웹훅 설정 여부
+(`webhook_configured`)·전송 성공/실패 수(`alerts_sent`/`send_failures`)가 담긴다. 전송이 실패하면
+`suppressed_for_seconds`가 5분 이하로 줄어 곧 재시도됨을 보여 주고, `last_alert_age_seconds`는 바뀌지 않는다.
 
 #### 검증 시나리오
 
