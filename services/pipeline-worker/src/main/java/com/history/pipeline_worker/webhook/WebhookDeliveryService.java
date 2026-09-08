@@ -46,24 +46,24 @@ public class WebhookDeliveryService {
         return repository.tryClaim(deliveryId, UUID.fromString(projectId));
     }
 
-    public void markProcessed(String deliveryId) {
-        int updated = repository.markProcessed(deliveryId);
+    public void markProcessed(String deliveryId, String projectId) {
+        int updated = repository.markProcessed(deliveryId, UUID.fromString(projectId));
         if (updated == 0) {
-            log.warn("No webhook delivery was marked PROCESSED: deliveryId={}", deliveryId);
+            log.warn("No webhook delivery was marked PROCESSED: deliveryId={}, projectId={}", deliveryId, projectId);
         }
     }
 
-    public void markFailed(String deliveryId, String lastError) {
-        int updated = repository.markFailed(deliveryId, lastError);
+    public void markFailed(String deliveryId, String projectId, String lastError) {
+        int updated = repository.markFailed(deliveryId, UUID.fromString(projectId), lastError);
         if (updated == 0) {
-            log.warn("No webhook delivery was marked FAILED: deliveryId={}", deliveryId);
+            log.warn("No webhook delivery was marked FAILED: deliveryId={}, projectId={}", deliveryId, projectId);
         }
     }
 
-    public void releaseClaim(String deliveryId) {
-        int deleted = repository.releaseClaim(deliveryId);
+    public void releaseClaim(String deliveryId, String projectId) {
+        int deleted = repository.releaseClaim(deliveryId, UUID.fromString(projectId));
         if (deleted == 0) {
-            log.warn("No IN_PROGRESS webhook delivery claim was released: deliveryId={}", deliveryId);
+            log.warn("No IN_PROGRESS webhook delivery claim was released: deliveryId={}, projectId={}", deliveryId, projectId);
         }
     }
 }

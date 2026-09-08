@@ -28,7 +28,7 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 
 타입별 checkpoint가 독립적이라 재시작 시 완료된 타입은 건너뛴다. 코드 내부에서는 GitHub checkpoint snapshot을 `commitsScannedAt`, `pullRequestsScannedAt`, `issuesScannedAt` 필드로 다룬다.
 
-**브랜치 스코프**: integration에 브랜치가 지정되면 해당 단일 브랜치로 수집을 제한한다 — PR은 `&base={branch}`(타겟 브랜치 기준), commit은 `&sha={branch}`. 브랜치 미지정 시 전체 브랜치를 수집한다. (브랜치는 `RawFetchRequest.options["branch"]`로 전달된다.)
+**브랜치 스코프**: integration의 선택 브랜치(연동 시 필수 — backend가 빈 값을 거부한다)로 수집을 제한한다 — PR은 `&base={branch}`(타겟 브랜치 기준), commit은 `&sha={branch}`. (브랜치는 `RawFetchRequest.options["branch"]`로 전달된다.) 웹훅 수집은 이보다 앞서 payload의 `pull_request.base.ref`(머지 대상 브랜치명)가 선택 브랜치와 정확히 같은 프로젝트만 남기는 식으로 프로젝트 자체를 걸러낸다 — API 스코프는 "수집할 때 무엇을 가져올지"를, 웹훅 필터는 "수집을 돌릴지 말지"를 정한다는 점에서 역할이 다르다(`services/pipeline-worker/CLAUDE.md` 「브랜치 불일치 조기 무시와 프로젝트 팬아웃」 참고).
 
 ### 페이지네이션
 

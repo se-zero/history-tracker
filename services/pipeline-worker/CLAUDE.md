@@ -88,7 +88,7 @@ CLAUDE.md 「내부 서비스 API」 절 참고, 헤더 이름·매칭 방식을
 
 진입점별 상세 동작은 아래 흐름 다이어그램을 참고한다.
 
-- `POST /api/v1/webhook/github` — GitHub webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거.
+- `POST /api/v1/webhook/github` — GitHub webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거하며, 머지 대상 브랜치(`pull_request.base.ref`)가 선택 브랜치와 같은 프로젝트 전부에 큐잉한다. 맞는 프로젝트가 없으면 `IGNORED`(200).
 - `POST /api/v1/collect/{provider}` — backend 연동 완료 후 해당 단일 provider의 초기 수집을 비동기로 요청(`202` 반환, 완료를 기다리지 않음). `{provider}`는 `CollectionProvider`가 아는 값이면 전부 받는다(github/jira/slack/discord/google-chat/linear/asana/clickup/notion).
 - `POST /api/v1/raw/{provider}` — 디버그용 raw 샘플(1페이지). DB checkpoint를 사용하지 않으며 전체 수집 용도가 아니다.
 
@@ -115,24 +115,29 @@ GitHub PR merge webhook
   -> GitHubWebhookController
   -> GitHubWebhookVerifier로 HMAC 검증
   -> pull_request / closed / merged=true 필터
-  -> ProjectIntegrationService로 integration과 installation token freshness 조회
-  -> token이 없거나 만료 5분 이내면 backend 내부 API로 token 갱신
+  -> ProjectIntegrationService로 연결된 프로젝트 전부 조회 -> base.ref와 선택 브랜치가 같은 프로젝트만
+     남김(없으면 IGNORED — 토큰 갱신·claim·큐잉 전)
+  -> token이 없거나 만료 5분 이내면 backend 내부 API로 installation token 갱신(installation 공유 토큰이라 한 번만)
   -> 갱신한 경우 ProjectIntegrationService로 DB integration 재조회
-  -> context에 담긴 provider(GitHub 제외) 각각에 대해 backend 내부 API로 토큰 확보 요청
-     -> REFRESHED: 그 provider 부분만 재해석해 context 교체
-     -> NOT_SUPPORTED(501, 갱신 수단 없음 — Slack·Discord·ClickUp): 저장된 자격증명 그대로 context 유지
-     -> FAILED(404 연동 행 없음 · 그 밖의 오류): 그 provider만 context에서 제외
-  -> WebhookDeliveryService.tryClaim(deliveryId, projectId)
-  -> webhookTaskExecutor에서 비동기 실행
-  -> PipelineService.collectIncremental(context)
-  -> RabbitMQ publish
-  -> CheckpointService로 DB checkpoint 갱신
-  -> WebhookDeliveryService.markProcessed/markFailed
+  -> (남은 프로젝트마다 반복)
+     -> WebhookDeliveryService.tryClaim(deliveryId, projectId) — 이미 claim된 프로젝트는 여기서 건너뜀
+     -> context에 담긴 provider(GitHub 제외) 각각에 대해 backend 내부 API로 토큰 확보 요청
+        -> REFRESHED: 그 provider 부분만 재해석해 context 교체
+        -> NOT_SUPPORTED(501, 갱신 수단 없음 — Slack·Discord·ClickUp): 저장된 자격증명 그대로 context 유지
+        -> FAILED(404 연동 행 없음 · 그 밖의 오류): 그 provider만 context에서 제외
+     -> webhookTaskExecutor에서 비동기 실행
+     -> PipelineService.collectIncremental(context)
+     -> RabbitMQ publish
+     -> CheckpointService로 DB checkpoint 갱신
+     -> WebhookDeliveryService.markProcessed/markFailed
 ```
 
 `ProjectIntegrationService`가 GitHub installation/repository 정보를 DB의 project/integration row와 매칭한다. 매칭되는 integration이 없으면 `404`를 반환한다.
 
 **무료 티어 증분 수집 차단** — 매칭된 GitHub integration의 `incremental_enabled`(backend가 소유하는 컬럼, FREE 플랜 연동 저장 시 `false`)가 꺼져 있으면 토큰 신선도 확인·context 조립(`findAllByProjectId` 등)을 전혀 하지 않고 즉시 `WebhookStatus.IGNORED`(`200`)를 반환한다 — GitHub이 이 프로젝트의 유일한 webhook 앵커이므로 여기서 막으면 그 프로젝트에 연동된 모든 provider(Slack·Jira 등)의 증분 수집이 함께 막힌다. `404`(NOT_FOUND)가 아니라 `200`(IGNORED)인 이유는 "연동을 못 찾음"과 "정책상 허용 안 함"을 구분해서다 — 전자로 답하면 GitHub이 잘못된 신호(연동이 끊겼다고 오인)를 받을 수 있다. **초기 전체 수집(`POST /api/v1/collect/{provider}` → `resolveFetchRequest`)은 이 검사를 타지 않는 별개 경로라 영향받지 않는다** — FREE 플랜도 최초 1회 수집은 허용돼야 하기 때문이다.
+
+**브랜치 불일치 조기 무시와 프로젝트 팬아웃** — `ProjectIntegrationService`는 installation+repository로 연결된 프로젝트 전부를 조회하고, payload의 `pull_request.base.ref`(머지 대상 브랜치명)가 각 프로젝트의 선택 브랜치(`external_ref.branch`)와 같은 프로젝트만 남긴다. 맞는 프로젝트가 하나도 없으면 installation token 갱신·delivery claim·큐잉·`ProjectCollectionSerializer` 직렬화 락 전부보다 앞에서 `WebhookStatus.IGNORED`(`200`)를 반환한다 — `webhook_deliveries`에도 행이 남지 않는다. 선택하지 않은 브랜치로의 머지마다 (1) GitHub API 호출 2건(빈 페이지, installation 공유 rate limit 소모) (2) 같은 프로젝트의 Jira·Slack 등 다른 provider 증분 수집까지 동반 실행 (3) 프로젝트 직렬화 락을 무의미한 작업이 선점해 진짜 머지의 수집이 밀림 (4) `webhook_deliveries` 행 기록 — 이 넷을 없애기 위해서다. `404`가 아니라 `200`인 이유는 위 무료 티어 차단과 같다("연동 없음"과 "정책상 무시"를 구분). 맞는 프로젝트가 여럿이면 전부 큐잉한다(팬아웃, 하나의 입력을 여러 대상으로 나눠 보내는 것) — 프로젝트마다 `WebhookDeliveryService.tryClaim(deliveryId, projectId)` → provider 토큰 확보 → 큐잉을 반복하고, 하나라도 큐잉되면 `202`(ACCEPTED), 전부 이미 claim된 상태면 `200`(DUPLICATE)을 반환한다. claim이 토큰 확보보다 앞이라 이미 claim된 프로젝트(재전송)에는 backend 토큰 확보 호출이 나가지 않는다. delivery claim 단위가 `(delivery_id, project_id)`라 GitHub 재전송 시 앞서 큐잉된 프로젝트는 DUPLICATE로 건너뛰고, executor 거부로 claim이 해제된 프로젝트만 다시 claim된다. 팬아웃 도중 한 프로젝트의 큐잉이 실패해도 루프를 끊지 않고 나머지 프로젝트까지 처리한 뒤 첫 예외를 던진다(`500`) — GitHub은 실패한 delivery를 자동 재전송하지 않아, 끊으면 뒤 순서 프로젝트가 이번 머지를 통째로 건너뛰기 때문이다. 뒷단 GitHub API 브랜치 스코프(`base=`/`sha=`)는 그대로 유지된다 — 초기 전체 수집·수동 수집은 웹훅을 거치지 않아 거기서 계속 필요하다. 웹훅 필터는 "수집을 돌릴지 말지"를, API 스코프는 "돌릴 때 무엇을 가져올지"를 정한다는 점에서 역할이 다르다.
+
 installation token이 충분히 유효하면 backend를 호출하지 않는다. token이 없거나 만료 5분 이내면 `GitHubInstallationTokenClient`가 `X-Internal-Service-Token`으로 backend의 token 보장 API를 호출한 뒤 DB를 재조회한다. backend는 token 평문을 반환하지 않는다.
 backend에 installation이 없으면 `404`, backend 호출 실패 또는 token 갱신 실패는 `500`으로 처리해 GitHub 재시도를 허용한다.
 GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 credential 또는 external_ref가 잘못된 경우 해당 provider를 건너뛰고 가능한 provider 수집은 진행한다.
@@ -293,5 +298,5 @@ GitHub App private key는 pipeline-worker에 설정하지 않는다. token 발�
   다음 수집에서 재발행된다. 삼키면 그 구간이 영구 누락된다.
 - GitHub merge commit은 `GitHubRawService`가 목록 응답의 parents 개수로 상세 조회 전에 사전 스킵하고, `GitHubNormalizer`가 이중 방어로 필터링한다.
 - GitHub PR 수집은 `/pulls?state=closed` + 클라이언트 `merged_at != null` 필터 방식이다.
-- GitHub 수집은 integration에 브랜치가 지정되면 해당 단일 브랜치로 스코프한다: PR은 `base={branch}`(타겟 브랜치 기준), commit은 `sha={branch}` 파라미터로 제한한다. 브랜치 미지정이면 전체 브랜치를 수집한다.
+- GitHub 수집은 integration의 선택 브랜치(연동 시 필수 — backend가 빈 값을 거부한다)로 스코프한다: PR은 `base={branch}`(타겟 브랜치 기준), commit은 `sha={branch}` 파라미터로 제한한다. 웹훅은 이 스코프와 별개로 `base.ref`가 선택 브랜치와 정확히 같은 프로젝트만 고른다 — 브랜치 값이 없는 행은 어떤 머지와도 매칭되지 않으며, "미지정 = 전체 브랜치" 분기는 두지 않는다(그런 행은 생성 경로상 만들어지지 않는다).
 - `/api/v1/raw/*` endpoint는 디버그용 샘플이다. 전체 수집 용도로 사용하지 않는다.

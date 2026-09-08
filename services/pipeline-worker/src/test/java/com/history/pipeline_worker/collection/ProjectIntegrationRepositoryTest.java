@@ -10,7 +10,6 @@ import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,13 +21,15 @@ import static org.mockito.Mockito.when;
 
 class ProjectIntegrationRepositoryTest {
 
+    // null 인자(installationId 누락)면 jdbc를 타지 않고 빈 리스트로 조기 반환 — 여러 프로젝트가 매칭될
+    // 수 있는 팬아웃 메서드라 반환 타입이 Optional에서 List로 바뀌었다.
     @Test
-    void findGitHubWebhookIntegration_returnsEmptyWithoutRequiredPayloadFields() {
+    void findGitHubWebhookIntegrations_returnsEmptyListWithoutRequiredPayloadFields() {
         NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
         ProjectIntegrationRepository repository = new ProjectIntegrationRepository(jdbcTemplate, new ObjectMapper());
 
-        Optional<ProjectIntegrationRepository.IntegrationRow> result =
-                repository.findGitHubWebhookIntegration(null, 123L, "acme/widget");
+        List<ProjectIntegrationRepository.IntegrationRow> result =
+                repository.findGitHubWebhookIntegrations(null, 123L, "acme/widget");
 
         assertThat(result).isEmpty();
         verifyNoInteractions(jdbcTemplate);
