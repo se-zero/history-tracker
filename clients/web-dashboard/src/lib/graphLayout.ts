@@ -23,8 +23,8 @@ export function runSimulation(nodes: GraphNode[], edges: GraphEdge[]): SimNode[]
   const simNodes: SimNode[] = nodes.map((n) => ({ ...n }));
   const idx = new Map(simNodes.map((n) => [n.id, n]));
   const simLinks: SimLink[] = edges
-    .filter(([a, b]) => idx.has(a) && idx.has(b))
-    .map(([a, b]) => ({ source: a, target: b }));
+    .filter((e) => idx.has(e.source) && idx.has(e.target))
+    .map((e) => ({ source: e.source, target: e.target }));
   const sim = forceSimulation<SimNode>(simNodes)
     .force(
       "link",

@@ -47,9 +47,9 @@ export function buildIgniteSchedule(
   // 3. 시드-시드 엣지만 추린다(양 끝이 모두 시드). edgeKey 기준 중복 제거.
   const seedSet = new Set(order);
   const seedEdges = new Map<string, [string, string]>();
-  for (const [a, b] of edges) {
-    if (seedSet.has(a) && seedSet.has(b)) {
-      seedEdges.set(edgeKey(a, b), [a, b]);
+  for (const e of edges) {
+    if (seedSet.has(e.source) && seedSet.has(e.target)) {
+      seedEdges.set(edgeKey(e.source, e.target), [e.source, e.target]);
     }
   }
 

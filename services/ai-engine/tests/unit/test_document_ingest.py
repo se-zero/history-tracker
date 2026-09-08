@@ -140,6 +140,91 @@ class HandleDocumentTest(unittest.TestCase):
         upsert.assert_not_awaited()
 
 
+def _document_event_with_issue_refs(issue_keys=None, issue_external_refs=None):
+    refs = {}
+    if issue_keys is not None:
+        refs["issueKeys"] = issue_keys
+    if issue_external_refs is not None:
+        refs["issueExternalRefs"] = issue_external_refs
+    return {
+        "nodeType": "Document",
+        "source": "NOTION",
+        "projectId": "project-1",
+        "occurredAt": "2026-08-14T09:00:00Z",
+        "actor": {"id": "creator", "name": "Creator", "email": "creator@example.com"},
+        "properties": {
+            "external_id": "page-1",
+            "title": "QA 문서",
+            "body": "본문",
+        },
+        "refs": refs,
+    }
+
+
+class DocumentIssueRefLimitTest(unittest.TestCase):
+    """_handle_document의 참조 개수 가드 — 이슈 키를 대량 나열한 QA/색인 문서가
+    confidence=1.0 text DESCRIBED_IN을 남발해 읽기 필터(0.5)를 무조건 통과하는 문제를 막는다
+    (실측: 정상 문서 1~3개 vs 대량 문서 10~29개, 기본 상한 DOCUMENT_ISSUE_REF_LIMIT=5)."""
+
+    def _run(self, event):
+        issue_link_mock = AsyncMock()
+        external_issue_link_mock = AsyncMock()
+        with patch("graph.event_handler.builder.upsert_document", AsyncMock()), \
+             patch("graph.event_handler.builder.replace_document_sections", AsyncMock()), \
+             patch("graph.event_handler.builder.set_document_editors", AsyncMock()), \
+             patch("graph.event_handler.builder.link_issue_to_document", issue_link_mock), \
+             patch("graph.event_handler.builder.link_issue_external_to_document", external_issue_link_mock), \
+             patch("graph.event_handler.resolve_actor", AsyncMock(return_value={"uuid": "creator-uuid"})), \
+             patch("graph.event_handler.make_neo4j_actor_store", return_value="STORE"), \
+             patch("graph.event_handler.chunk_document", return_value=[]), \
+             patch("graph.event_handler.embed_batch", AsyncMock(return_value=[])):
+            asyncio.run(handle(event))
+        return issue_link_mock, external_issue_link_mock
+
+    def test_over_limit_skips_both_link_calls_entirely(self):
+        # 상위 N개만 남기지 않는다 — 순서에 우선순위 정보가 없어 두 호출 모두 전부 건너뛴다.
+        event = _document_event_with_issue_refs(issue_keys=[f"HT-{i}" for i in range(6)])
+        issue_link_mock, external_issue_link_mock = self._run(event)
+
+        issue_link_mock.assert_not_awaited()
+        external_issue_link_mock.assert_not_awaited()
+
+    def test_limit_counts_combined_issue_keys_and_external_refs(self):
+        # 각각은 상한(5) 미만(3개씩)이지만 합이 6이라 URL 나열 우회를 막기 위해 스킵돼야 한다.
+        event = _document_event_with_issue_refs(
+            issue_keys=["HT-1", "HT-2", "HT-3"],
+            issue_external_refs=[
+                {"source": "ASANA", "externalId": "task-1"},
+                {"source": "ASANA", "externalId": "task-2"},
+                {"source": "ASANA", "externalId": "task-3"},
+            ],
+        )
+        issue_link_mock, external_issue_link_mock = self._run(event)
+
+        issue_link_mock.assert_not_awaited()
+        external_issue_link_mock.assert_not_awaited()
+
+    def test_dedupe_applies_before_limit_check(self):
+        # 같은 키 30회는 distinct 1이지 색인이 아니다 — dedupe 이후 카운트(1)로 판단해 통과해야 한다.
+        event = _document_event_with_issue_refs(issue_keys=["HT-1"] * 30)
+        issue_link_mock, external_issue_link_mock = self._run(event)
+
+        issue_link_mock.assert_awaited_once_with("project-1", "HT-1", "NOTION", "page-1")
+        external_issue_link_mock.assert_not_awaited()
+
+    def test_boundary_exactly_at_limit_still_links(self):
+        event = _document_event_with_issue_refs(issue_keys=[f"HT-{i}" for i in range(5)])
+        issue_link_mock, _external_issue_link_mock = self._run(event)
+
+        self.assertEqual(issue_link_mock.await_count, 5)
+
+    def test_boundary_one_over_limit_skips(self):
+        event = _document_event_with_issue_refs(issue_keys=[f"HT-{i}" for i in range(6)])
+        issue_link_mock, _external_issue_link_mock = self._run(event)
+
+        issue_link_mock.assert_not_awaited()
+
+
 class DocumentWritesTest(unittest.TestCase):
     def test_upsert_uses_immutable_document_key_and_wrote(self):
         session = _FakeSession()

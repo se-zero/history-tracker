@@ -11,6 +11,7 @@ from unittest.mock import patch
 from graph.overview import (
     WORK_UNITS_MAX_LIMIT,
     WORK_UNIT_MAX,
+    _collapse_edges,
     get_work_unit_neighborhood,
     get_work_units_view,
 )
@@ -36,6 +37,20 @@ def _row(node_id: str, label: str, **extra) -> dict:
         "aliases": None,
         "path": None,
         "occurred_at": "2026-07-01T00:00:00Z",
+    }
+    row.update(extra)
+    return row
+
+
+def _edge_row(source: str, target: str, **extra) -> dict:
+    """_EDGE_QUERY가 반환하는 6키를 모두 채운 엣지 행 하나. 기본은 구조 관계(CONTAINS)."""
+    row = {
+        "source": source,
+        "target": target,
+        "kind": "CONTAINS",
+        "method": None,
+        "confidence": None,
+        "section": None,
     }
     row.update(extra)
     return row
@@ -107,14 +122,18 @@ class WorkUnitsView(unittest.TestCase):
             "work:PullRequest": [_row("pr1", "PullRequest"), _row("pr2", "PullRequest")],
             "recent": [_row("pr2", "PullRequest"), _row("c1", "ChangeSet")],
             "neighbors": [_row("f1", "File", path="src/a.ts")],
-            "edges": [{"source": "pr1", "target": "c1"}],
+            "edges": [_edge_row("pr1", "c1")],
         })
 
         self.assertEqual(result["work_unit_ids"], ["pr1", "pr2"])
         ids = [n["id"] for n in result["nodes"]]
         self.assertEqual(ids, ["pr1", "pr2", "c1", "f1"])
         self.assertEqual(len(ids), len(set(ids)), "합집합에 중복 노드가 있으면 안 된다")
-        self.assertEqual(result["edges"], [["pr1", "c1"]])
+        self.assertEqual(
+            result["edges"],
+            [{"source": "pr1", "target": "c1", "kind": "CONTAINS",
+              "method": None, "confidence": None, "section": None}],
+        )
 
     def test_recent_window_does_not_drop_work_units(self):
         # 최신 창에 전혀 없는 오래된 작업 단위도 반드시 살아남아야 한다 —
@@ -191,7 +210,7 @@ class WorkUnitNeighborhood(unittest.TestCase):
     def test_returns_nodes_and_edges_for_one_work_unit(self):
         def responder(query, _params):
             if "MATCH (a)-[r]->(b)" in query:
-                return [{"source": "pr1", "target": "c1"}]
+                return [_edge_row("pr1", "c1")]
             return [_row("pr1", "PullRequest"), _row("c1", "ChangeSet")]
 
         driver = _FakeDriver(responder)
@@ -199,7 +218,11 @@ class WorkUnitNeighborhood(unittest.TestCase):
             result = asyncio.run(get_work_unit_neighborhood("p1", "pr1"))
 
         self.assertEqual([n["id"] for n in result["nodes"]], ["pr1", "c1"])
-        self.assertEqual(result["edges"], [["pr1", "c1"]])
+        self.assertEqual(
+            result["edges"],
+            [{"source": "pr1", "target": "c1", "kind": "CONTAINS",
+              "method": None, "confidence": None, "section": None}],
+        )
 
     def test_missing_node_returns_empty_without_edge_query(self):
         driver = _FakeDriver(lambda q, p: [])
@@ -223,6 +246,57 @@ class WorkUnitNeighborhood(unittest.TestCase):
             )
 
         self.assertEqual(driver.session_obj.calls, [])
+
+
+class EdgeCollapsing(unittest.TestCase):
+    """_collapse_edges 단위 테스트 — 순수 함수라 fake 드라이버 없이 직접 호출한다.
+
+    확정 연결(명시 참조)과 추측 연결(임베딩 유사도)을 프론트가 구분할 수 있도록 엣지에
+    관계 메타데이터(kind/method/confidence/section)를 싣는 계약과, 같은 노드쌍의 관계가
+    여럿이어도 대표 1개로 접히는 규칙을 검증한다.
+    """
+
+    def test_edge_is_returned_as_six_key_dict(self):
+        rows = [_edge_row("a", "b", kind="REFERENCE", method="text", confidence=0.9, section="intro")]
+
+        self.assertEqual(
+            _collapse_edges(rows),
+            [{"source": "a", "target": "b", "kind": "REFERENCE",
+              "method": "text", "confidence": 0.9, "section": "intro"}],
+        )
+
+    def test_duplicate_relations_between_same_pair_collapse_to_one(self):
+        # Actor→Document의 WROTE+EDITED처럼 같은 두 노드 사이에 관계가 둘이어도
+        # "연결 N" 카운트·레이아웃이 부풀지 않도록 대표 1개로 접는다.
+        rows = [_edge_row("a", "b", kind="WROTE"), _edge_row("a", "b", kind="EDITED")]
+
+        self.assertEqual(len(_collapse_edges(rows)), 1)
+
+    def test_representative_edge_follows_rank_order(self):
+        # 구조 관계(rank 1)가 추측 연결(rank 2, semantic)보다 우선한다.
+        structural = _edge_row("a", "b", kind="CONTAINS")
+        semantic = _edge_row("a", "b", kind="REFERENCE", method="semantic", confidence=0.7)
+        self.assertEqual(_collapse_edges([semantic, structural])[0]["kind"], "CONTAINS")
+
+        # 명시 참조(rank 0, method=text)가 추측 연결(rank 2, method=semantic)보다 우선한다.
+        text_ref = _edge_row("c", "d", kind="REFERENCE", method="text")
+        semantic_ref = _edge_row("c", "d", kind="REFERENCE", method="semantic", confidence=0.99)
+        self.assertEqual(_collapse_edges([semantic_ref, text_ref])[0]["method"], "text")
+
+        # method가 없는 구 데이터는 semantic과 같은 칸이다(coalesce(r.source,'semantic') 규약) —
+        # 최후순위로 밀지 않으므로 같은 rank 안에서 confidence로만 갈린다.
+        legacy = _edge_row("e", "f", kind="REFERENCE", method=None, confidence=0.9)
+        semantic_legacy = _edge_row("e", "f", kind="REFERENCE", method="semantic", confidence=0.5)
+        self.assertIsNone(_collapse_edges([semantic_legacy, legacy])[0]["method"])
+
+    def test_edge_without_properties_has_none_metadata(self):
+        # CONTAINS 같은 구조 관계는 method/confidence/section 속성 자체가 없다.
+        rows = [_edge_row("a", "b", kind="CONTAINS")]
+
+        collapsed = _collapse_edges(rows)[0]
+        self.assertIsNone(collapsed["method"])
+        self.assertIsNone(collapsed["confidence"])
+        self.assertIsNone(collapsed["section"])
 
 
 class ActorPrivacyInGraphNode(unittest.TestCase):

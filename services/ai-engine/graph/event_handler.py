@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -14,6 +15,13 @@ from graph.slack_filter import should_skip_slack
 from graph.summarizer import summarize_diff
 
 logger = logging.getLogger(__name__)
+
+# Document → Issue text DESCRIBED_IN 상한 (issueKeys distinct + issueExternalRefs distinct 합).
+# 실측: QA 문서처럼 이슈 키를 나열만 한 문서는 text 엣지 10~29개를 만드는 반면, 실제로
+# 특정 이슈를 설명하는 정상 문서는 1~3개에 그친다 — 3과 10 사이에 뚜렷한 간극이 있어 그 사이인
+# 5를 기본값으로 둔다. text 엣지는 confidence=1.0 고정이라 읽기 필터(0.5)를 무조건 통과해
+# 진짜 설계 문서를 밀어내므로, 이 상한이 없으면 색인성 문서가 그래프 품질을 갉아먹는다.
+DOCUMENT_ISSUE_REF_LIMIT = int(os.environ.get("DOCUMENT_ISSUE_REF_LIMIT", "5"))
 
 
 def _is_bot_actor(actor_id: str) -> bool:
@@ -454,12 +462,36 @@ async def _handle_document(event: dict) -> None:
     # 문서에는 여러 이슈가 명시될 수 있다. 구 형식의 단수 issueKey도 읽어 마이그레이션 중
     # 이벤트를 잃지 않는다.
     issue_keys = refs.get("issueKeys") or ([] if not refs.get("issueKey") else [refs["issueKey"]])
-    for issue_key in dict.fromkeys(key for key in issue_keys if key):
-        await builder.link_issue_to_document(project_id, issue_key, source, external_id)
-    await _link_external_refs(
-        refs, "issueExternalRefs",
-        lambda s, e: builder.link_issue_external_to_document(project_id, s, e, source, external_id),
-    )
+    distinct_issue_keys = list(dict.fromkeys(key for key in issue_keys if key))
+    # 발행 측(RefsExtractor)이 LinkedHashSet으로 이미 중복을 제거해 보내지만, 그 보장에
+    # 기대지 않고 여기서도 (source, externalId) 쌍 기준으로 다시 distinct를 센다 — 상한 판단이
+    # 발행 측 구현에 의존하면 그쪽이 바뀔 때 조용히 기준이 달라진다.
+    distinct_external_refs = list(dict.fromkeys(
+        (ref["source"], ref["externalId"])
+        for ref in (refs.get("issueExternalRefs") or [])
+        if ref.get("source") and ref.get("externalId")
+    ))
+
+    # issueKeys·issueExternalRefs 둘 다 같은 text DESCRIBED_IN(confidence=1.0)을 만들기 때문에
+    # 합산 기준으로 상한을 건다 — 한쪽만 막으면 URL 나열로 우회된다. 상한을 넘으면 상위 N개만
+    # 남기지 않고 두 링크를 전부 건너뛴다: 순서에 우선순위 정보가 없어 무엇을 고를 기준이 없고,
+    # "이슈 키가 이렇게 많다"는 사실 자체가 이 문서가 특정 이슈 전용 설계 문서가 아니라는
+    # 신호이기 때문이다(색인·QA 문서 패턴).
+    total_refs = len(distinct_issue_keys) + len(distinct_external_refs)
+    if total_refs > DOCUMENT_ISSUE_REF_LIMIT:
+        logger.warning(
+            "Document 이슈 참조 %d개가 상한(%d) 초과 — DESCRIBED_IN 링크 전체 건너뜀 "
+            "(source=%s external_id=%s issueKeys=%d issueExternalRefs=%d)",
+            total_refs, DOCUMENT_ISSUE_REF_LIMIT, source, external_id,
+            len(distinct_issue_keys), len(distinct_external_refs),
+        )
+    else:
+        for issue_key in distinct_issue_keys:
+            await builder.link_issue_to_document(project_id, issue_key, source, external_id)
+        await _link_external_refs(
+            refs, "issueExternalRefs",
+            lambda s, e: builder.link_issue_external_to_document(project_id, s, e, source, external_id),
+        )
 
 
 async def _handle_communication(event: dict) -> None:
