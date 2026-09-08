@@ -104,7 +104,10 @@ public class GitHubWebhookService {
 
         // 같은 웹훅을 여러 프로젝트가 각자 claim한다 — claim 키가 (delivery_id, project_id)라 GitHub
         // 재전송 시 앞서 큐잉된 프로젝트는 DUPLICATE로 건너뛰고 거부된 프로젝트만 재claim된다.
+        // 한 프로젝트의 큐잉이 실패해도 루프를 끊지 않는다 — GitHub은 실패한 delivery를 자동 재전송하지
+        // 않으므로 여기서 끊으면 뒤 순서 프로젝트는 이번 머지를 통째로 건너뛴다. 첫 예외는 다 돈 뒤 던진다.
         int accepted = 0;
+        RuntimeException firstFailure = null;
         for (ProjectCollectionContext context : resolution.contexts()) {
             // claim이 provider 토큰 확보보다 앞 — 이미 claim된(재전송) 프로젝트에 backend 토큰 확보 호출이
             // 나가지 않게 한다. 토큰 확보 중 예외는 큐잉 실패와 같이 FAILED로 남긴다.
@@ -122,14 +125,17 @@ public class GitHubWebhookService {
                 log.warn("webhook executor 포화로 수집 거부(큐 용량 초과): deliveryId={}, projectId={}",
                         deliveryId, context.projectId());
                 webhookDeliveryService.releaseClaim(deliveryId, context.projectId());
-                throw e;
+                firstFailure = firstFailure == null ? e : firstFailure;
             } catch (RuntimeException e) {
                 webhookDeliveryService.markFailed(deliveryId, context.projectId(), failureReason(e));
-                throw e;
+                firstFailure = firstFailure == null ? e : firstFailure;
             }
         }
         log.info("Webhook collection queued: deliveryId={}, queued={}/{}",
                 deliveryId, accepted, resolution.contexts().size());
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
         return accepted > 0
                 ? new WebhookResult(WebhookStatus.ACCEPTED, "collection queued")
                 : new WebhookResult(WebhookStatus.DUPLICATE, "duplicate delivery");

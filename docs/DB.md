@@ -306,7 +306,7 @@ provider 열거형 CHECK는 V12에서 제거했다 — 새 연동을 붙일 때�
 자격증명 형태 제약은 provider 목록이 아니라 "installation 기반인가"로 표현돼 provider가 늘어도 그대로 성립한다.
 
 **`external_ref` JSON 키**
-- GitHub: `repository_id`, `repository_full_name`, `branch`(선택 — 지정하면 해당 브랜치로 수집을 스코프한다)
+- GitHub: `repository_id`, `repository_full_name`, `branch`(필수 — 연동 시 backend가 빈 값을 거부한다. 수집은 이 브랜치로 스코프하고, 웹훅은 `base.ref`가 이 값과 같은 프로젝트만 고른다)
 - Slack: `workspace_id`, `workspace_name`, `connected_user_id`(신규 연결 — Slack `authed_user.id`. 레거시 행에는 없음),
   `connect_method`(BYO 붙여넣기만 `"byo"`. OAuth·레거시는 키 없음. 값은 `SlackOAuthConnectFlow.CONNECT_METHOD_BYO`와 동일 문자열)
 - Jira: `cloud_id`, `site_name`, `project_key`, `project_name`(선택)

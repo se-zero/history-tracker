@@ -539,6 +539,45 @@ class GitHubWebhookServiceTest {
         verify(webhookDeliveryService, never()).releaseClaim(anyString(), anyString());
     }
 
+    // 팬아웃 도중 한 프로젝트의 큐잉이 실패해도 루프를 끊지 않는다 — 뒤 순서 프로젝트도 claim·큐잉까지 가고,
+    // 예외는 전부 돈 뒤에 던진다. GitHub은 실패한 delivery를 자동 재전송하지 않으므로, 여기서 끊으면 뒤
+    // 프로젝트는 이번 머지를 통째로 건너뛴다. 실패 시 즉시 throw하는 구현은 C가 claim되지 않아 실패한다.
+    @Test
+    void handle_middleProjectExecutorRejection_continuesToRemainingProjectsThenPropagates() {
+        HttpHeaders headers = headers();
+        String payload = payload(true, "closed");
+        ProjectCollectionContext contextA = collectionContext();
+        ProjectCollectionContext contextB = collectionContextForProject(projectIdB());
+        ProjectCollectionContext contextC = collectionContextForProject(projectIdC());
+        GitHubWebhookService rejectingService = new GitHubWebhookService(
+                new ObjectMapper(),
+                verifier,
+                webhookDeliveryService,
+                installationTokenClient,
+                integrationTokenClient,
+                projectIntegrationService,
+                pipelineService,
+                new ThrowOnSecondCallExecutor(new RejectedExecutionException("queue full")),
+                new ProjectCollectionSerializer(8)
+        );
+
+        when(verifier.verify(payload, "sig")).thenReturn(true);
+        when(projectIntegrationService.resolveGitHubPullRequestWebhook(any()))
+                .thenReturn(GitHubWebhookIntegrationResolution.ready(List.of(contextA, contextB, contextC)));
+        when(webhookDeliveryService.tryClaim(eq("delivery-1"), anyString())).thenReturn(true);
+        when(pipelineService.collectIncremental(contextA)).thenReturn(collectionResult(1, 0, 3));
+        when(pipelineService.collectIncremental(contextC)).thenReturn(collectionResult(1, 0, 3));
+
+        assertThrows(RejectedExecutionException.class, () -> rejectingService.handle(headers, payload));
+
+        verify(webhookDeliveryService).markProcessed("delivery-1", projectId());
+        verify(webhookDeliveryService).releaseClaim("delivery-1", projectIdB());
+        verify(webhookDeliveryService).tryClaim("delivery-1", projectIdC());
+        verify(webhookDeliveryService).markProcessed("delivery-1", projectIdC());
+        verify(pipelineService, never()).collectIncremental(contextB);
+        verify(webhookDeliveryService, never()).markFailed(anyString(), anyString(), anyString());
+    }
+
     // 이미 claim된(중복) 프로젝트에는 provider 토큰 확보 호출도 나가지 않아야 한다 — claim이 토큰 확보보다
     // 앞이어야 GitHub 재전송 때 backend에 헛호출이 없다. 순서가 반대인 구현은 A에 대한 ensure 호출이 잡혀 실패한다.
     @Test
@@ -632,6 +671,10 @@ class GitHubWebhookServiceTest {
         return "22222222-2222-2222-2222-222222222222";
     }
 
+    private String projectIdC() {
+        return "33333333-3333-3333-3333-333333333333";
+    }
+
     private static class TaskExecutorRejector extends SyncTaskExecutor {
         @Override
         public void execute(Runnable task) {
@@ -639,9 +682,9 @@ class GitHubWebhookServiceTest {
         }
     }
 
-    // 첫 번째 큐잉(호출)은 동기 실행을 흉내 내고(SyncTaskExecutor 위임), 두 번째 호출부터 주어진 예외를
-    // 던진다 — 팬아웃 중 두 번째 프로젝트에서만 executor 포화(RejectedExecutionException)나 예상 밖 오류가
-    // 발생하는 상황을 재현한다.
+    // 두 번째 호출에서만 주어진 예외를 던지고 나머지는 동기 실행을 흉내 낸다(SyncTaskExecutor 위임) —
+    // 팬아웃 중 두 번째 프로젝트에서만 executor 포화(RejectedExecutionException)나 예상 밖 오류가
+    // 발생하고, 그 뒤 프로젝트는 다시 받아주는 상황을 재현한다.
     private static class ThrowOnSecondCallExecutor extends SyncTaskExecutor {
         private final RuntimeException failure;
         private int calls = 0;
@@ -653,7 +696,7 @@ class GitHubWebhookServiceTest {
         @Override
         public void execute(Runnable task) {
             calls++;
-            if (calls >= 2) {
+            if (calls == 2) {
                 throw failure;
             }
             super.execute(task);
