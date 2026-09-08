@@ -10,6 +10,7 @@
 import math
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch
 
 from graph.document_linker import (
     DESCRIBED_IN_THRESHOLD,
@@ -22,6 +23,7 @@ from graph.document_linker import (
     select_described_in_pairs,
     select_document_reference_pairs,
 )
+from routers.admin import DocumentLinkOptions, trigger_document_links
 
 NOW = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
@@ -266,6 +268,45 @@ class BuildDescribedInDocumentEdgesTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, 1)
         self.assertEqual(created[0][:3], ("p1", "JIRA:HT-1", "NOTION:d1"))
         self.assertEqual(created[0][4], "배경")
+
+
+class TriggerDocumentLinksRouteTest(unittest.IsolatedAsyncioTestCase):
+    """POST /document-links/build 라우터 핸들러 — 옵션이 빌더까지 그대로 전달되는지 검증.
+
+    routers.admin.trigger_document_links는 이름을 직접 들여와 바인딩하므로(graph.document_linker
+    쪽 원본이 아니라) routers.admin의 참조를 patch해야 라우터가 호출하는 대상이 바뀐다
+    (tests/unit/test_privacy_accounts.py의 관례와 동일).
+    """
+
+    async def test_default_options_use_module_constants(self):
+        with (
+            patch("routers.admin.make_neo4j_document_link_store", return_value="store") as make_store,
+            patch("routers.admin.build_document_reference_edges", AsyncMock(return_value=3)) as build_reference,
+            patch("routers.admin.build_described_in_document_edges", AsyncMock(return_value=2)) as build_described_in,
+        ):
+            result = await trigger_document_links()
+
+        make_store.assert_called_once_with()
+        build_reference.assert_awaited_once_with(
+            "store", threshold=DOCUMENT_REFERENCE_THRESHOLD, top_k=DOCUMENT_TOP_K, pre_days=DOCUMENT_PRE_BUFFER_DAYS
+        )
+        build_described_in.assert_awaited_once_with(
+            "store", threshold=DESCRIBED_IN_THRESHOLD, top_k=DOCUMENT_TOP_K, pre_days=DOCUMENT_PRE_BUFFER_DAYS
+        )
+        self.assertEqual(result, {"reference": 3, "described_in": 2})
+
+    async def test_explicit_options_are_passed_through(self):
+        options = DocumentLinkOptions(reference_threshold=0.6, described_in_threshold=0.7, top_k=2, pre_days=14)
+
+        with (
+            patch("routers.admin.make_neo4j_document_link_store", return_value="store"),
+            patch("routers.admin.build_document_reference_edges", AsyncMock(return_value=0)) as build_reference,
+            patch("routers.admin.build_described_in_document_edges", AsyncMock(return_value=0)) as build_described_in,
+        ):
+            await trigger_document_links(options)
+
+        build_reference.assert_awaited_once_with("store", threshold=0.6, top_k=2, pre_days=14)
+        build_described_in.assert_awaited_once_with("store", threshold=0.7, top_k=2, pre_days=14)
 
 
 if __name__ == "__main__":

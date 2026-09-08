@@ -419,7 +419,7 @@ ai-engine은 NormalizedEvent를 4개 레이어로 처리한다.
 | Layer 2 | `TRIGGERED_BY` (text) | ChangeSet `refs.issueKey`, 또는 PR `issue_keys`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 키. `source='text'`, `confidence=1.0` |
 | Layer 2 | `CONTAINS` | `refs.prNumber` 존재 시 | ChangeSet의 refs (GitHub API 기반으로 구축) |
 | Layer 2 | `CHILD_OF` (Document) | `properties.parent_external_id` 존재 시 | Document의 properties (부모 page) — Issue와 달리 refs가 아니다. parent는 실키 pre-node로 선생성 |
-| Layer 2 | `DESCRIBED_IN` (text) | Document `refs.issueKeys`/`issueExternalRefs` 존재 시 | Document의 refs — 이슈 실노드 없으면 `__stub__` 폴백(issueKeys) 또는 실키 pre-node(issueExternalRefs). `source='text'`, `confidence=1.0` |
+| Layer 2 | `DESCRIBED_IN` (text) | Document `refs.issueKeys`/`issueExternalRefs` 존재 시, **단 distinct 합이 `DOCUMENT_ISSUE_REF_LIMIT`(기본 5) 이하일 때만** | Document의 refs — 이슈 실노드 없으면 `__stub__` 폴백(issueKeys) 또는 실키 pre-node(issueExternalRefs). `source='text'`, `confidence=1.0`. 상한 초과 시 두 refs가 만드는 링크를 자르지 않고 전량 스킵(`docs/normalized-event.md`「Document 참조 상한」). 문서 링크는 `MERGE`뿐이라 삭제 의미론이 없고 Notion은 웹훅이 없어, 상한 도입 이전에 만들어진 링크는 연동을 다시 걸지 않는 한 남는다 |
 | Layer 2 | `DISCUSSED_IN` (Document, text) | Communication `refs.documentExternalRefs` 존재 시 | 대화 본문의 문서 URL. `source='text'`, confidence 없음 |
 | Layer 2 | `REFERENCE` (ChangeSet→Document, text) | ChangeSet `refs.documentExternalRefs`, 또는 PR `document_external_ids`를 그 PR의 CONTAINS 커밋에 전파 | ChangeSet refs + PR 제목/본문 추출 URL. `source='text'`, `confidence=1.0` — REFERENCE의 첫 text 경로(N0가 `source` 필드를 선행 도입) |
 | Layer 3 | `MODIFIED` | ChangeSet 이벤트 | `files[].path` + LLM diffSummary; 임베딩은 MODIFIED 엣지 속성으로 저장 |

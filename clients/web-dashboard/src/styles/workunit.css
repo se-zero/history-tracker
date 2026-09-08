@@ -59,6 +59,59 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* 확정/추측 엣지 카운트 — 캔버스에서 점선(추측)이 전체 보기에선 잘 안 보여서 두는
+   유일한 전역 감각. 색은 쓰지 않는다(결과 신뢰도 고지 규칙). */
+.wu-legend-counts {
+  color: var(--fg-subtle);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 선 종류 범례 — 오른쪽 아래, 왼쪽의 wu-legend(렌즈)와는 별개 요소다.
+   묶음을 연 상태에서도 항상 보인다(왼쪽 렌즈와 달리 focusedWorkUnit에 안 숨는다) — 실선/점선을
+   가장 궁금해할 때가 바로 그때라서다. 색은 쓰지 않는다(결과 신뢰도 고지 규칙). */
+.wu-line-legend {
+  position: absolute;
+  right: var(--gutter);
+  bottom: var(--gutter);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--surface) 62%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+
+.wu-line-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wu-line-legend-swatch {
+  flex: none;
+  width: 24px;
+  height: 8px;
+  overflow: visible;
+}
+
+/* 캔버스 INFERRED_DASH([3,3])와 같은 비율로 맞춘 견본선. */
+.wu-line-legend-line {
+  stroke: var(--fg-subtle);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.wu-line-legend-line--dashed {
+  stroke-dasharray: 3 3;
+}
+
 /* ── 액터 렌즈 — 사람을 골라 그 사람의 자취만 밝힌다 ───────────────────── */
 
 .wu-lens {
@@ -214,6 +267,15 @@
   white-space: nowrap;
 }
 
+/* 클러스터 내부 확정/추측 카운트 — wu-legend-counts(전체 보기)와 의미가 다르다(이 묶음 안 기준).
+   헤어라인 구분선 + fg-subtle로 제목(cd-title)보다 약하게, 색은 쓰지 않는다(결과 신뢰도 고지 규칙). */
+.cd-counts {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+
 .cd-chips {
   display: flex;
   flex-wrap: wrap;
@@ -303,6 +365,18 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 근거 배지 — "추측 0.62 · §대안 비교" 형태. 확정(기본값)은 표시하지 않으므로 이 배지는
+   전부 추측 엣지다. 노드 제목보다 약하게 — 색 없이 헤어라인 테두리 + text-muted 계열. */
+.cd-evidence {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  font-size: 10px;
+  color: var(--fg-subtle);
   white-space: nowrap;
 }
 

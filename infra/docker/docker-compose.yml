@@ -76,6 +76,7 @@ services:
       QUERY_MODEL: ${QUERY_MODEL:-gpt-5.4-mini}
       QUERY_REASONING_EFFORT: ${QUERY_REASONING_EFFORT:-}
       TOOLS_MIN_CONFIDENCE: ${TOOLS_MIN_CONFIDENCE:-0.5}
+      DOCUMENT_ISSUE_REF_LIMIT: ${DOCUMENT_ISSUE_REF_LIMIT:-5}
       # OpenAI rate limiter — Tier 변경 시 이 값들만 수정 (코드 불변). 기본값 = Tier 1.
       OPENAI_RPM_CHAT: ${OPENAI_RPM_CHAT:-500}
       OPENAI_TPM_CHAT: ${OPENAI_TPM_CHAT:-200000}
@@ -90,6 +91,11 @@ services:
       INGEST_PREFETCH: ${INGEST_PREFETCH:-}
       INGEST_EMBED_COALESCE_MAX: ${INGEST_EMBED_COALESCE_MAX:-8}
       INGEST_EMBED_COALESCE_WINDOW_MS: ${INGEST_EMBED_COALESCE_WINDOW_MS:-50}
+      # Slack 필터용 프로젝트 프로필(그래프 요약) 메모리 캐시 TTL(초). 기본 24시간.
+      PROJECT_PROFILE_TTL_SECONDS: ${PROJECT_PROFILE_TTL_SECONDS:-86400}
+
+      # 운영자 알림 — Slack Incoming Webhook. 비우면 로그만 남긴다 (docs/deployment.md 4-6).
+      ALERT_SLACK_WEBHOOK_URL: ${ALERT_SLACK_WEBHOOK_URL:-}
 
       # 보안 키 — backend·pipeline-worker와 같은 값을 공유해야 라우터 인증이 통과한다.
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}

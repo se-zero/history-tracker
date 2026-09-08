@@ -22,6 +22,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.UuidGenerator;
 
 // webhook 중복 처리 방지용 수신 기록 — pipeline-worker 공유 테이블
+// claim 단위는 (delivery_id, project_id) — 한 웹훅이 여러 프로젝트로 팬아웃된다
 @Getter
 @Entity
 @Table(name = "webhook_deliveries")

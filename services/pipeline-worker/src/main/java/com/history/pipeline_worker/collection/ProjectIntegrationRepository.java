@@ -12,7 +12,6 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -31,13 +30,13 @@ public class ProjectIntegrationRepository {
         this.rowMapper = new IntegrationRowMapper(objectMapper);
     }
 
-    public Optional<IntegrationRow> findGitHubWebhookIntegration(
+    public List<IntegrationRow> findGitHubWebhookIntegrations(
             Long installationId,
             Long repositoryId,
             String repositoryFullName
     ) {
         if (installationId == null || repositoryId == null || repositoryFullName == null || repositoryFullName.isBlank()) {
-            return Optional.empty();
+            return List.of();
         }
 
         String sql = """
@@ -54,6 +53,7 @@ public class ProjectIntegrationRepository {
                   AND gi.installation_id = :installationId
                   AND i.external_ref->>'repository_id' = :repositoryId
                   AND i.external_ref->>'repository_full_name' = :repositoryFullName
+                ORDER BY i.project_id
                 """;
 
         MapSqlParameterSource params = new MapSqlParameterSource()
@@ -61,7 +61,7 @@ public class ProjectIntegrationRepository {
                 .addValue("repositoryId", String.valueOf(repositoryId))
                 .addValue("repositoryFullName", repositoryFullName);
 
-        return jdbcTemplate.query(sql, params, rowMapper).stream().findFirst();
+        return jdbcTemplate.query(sql, params, rowMapper);
     }
 
     public List<IntegrationRow> findAllByProjectId(UUID projectId) {

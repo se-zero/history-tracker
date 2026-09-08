@@ -1,0 +1,927 @@
+# Slack LLM 필터 비교 라벨셋 — 판정이 갈린(flip) 메시지 검수용. label 칸만 채운다: keep | remove | unsure
+#   - keep  : 그래프에 남길 가치가 있음 (보존이 맞음)
+#   - remove: 노이즈라 제거가 맞음
+#   - unsure: 원문만으로 판단 불가
+# unstable: true인 항목은 런 간 판정이 갈린 노이즈이므로 score 채점에서 제외된다.
+# verdicts 열: hardcoded(캡스톤 문장 하드코딩 기준선) / neutral(하드코딩 제거, 프로필 없음) /
+#   profile_experiment(프로필 주입, 코드 반영 전 실험) / profile_adopted(프로필 주입, 코드 반영 후 최종·채택)
+# flipped: 어느 비교에서 판정이 뒤집혔는지. 기각한 변형(최신 재료 프로필, 약한 기준)의 뒤집힘으로 추가됐던
+#   항목은 라벨을 살리기 위해 그대로 두었고 flipped가 비어 있을 수 있다.
+# 판단 기준은 필터 프롬프트의 보존/제거 기준과 같다 — 기술적 결정·버그 원인·작업 분담·구체적 요구사항은 keep,
+# 단순 확인·내용 없는 요청·사적 대화·잡담은 remove. "이 메시지가 그래프에 남아 나중에 근거로 쓰일 가치가 있나"로 물으면 된다.
+results:
+  hardcoded: slack-filter-2026-09-05-baseline-hardcoded.json
+  neutral: slack-filter-2026-09-05-neutral-no-profile.json
+  profile_experiment: slack-filter-2026-09-05-profile-experiment.json
+  profile_adopted: slack-filter-2026-09-05-profile-adopted.json
+snapshot: events-2026-07-05.jsonl
+items:
+- url: https://slack.com/archives/C0AKGMT5S3X/p1777038660049469
+  channel: 일반
+  body: 일단 캡스톤디자인 교과목 고도화 확인서 작성해서 월요일에 교수님한테 이메일 보내고 화요일에 과사무실 가서 도장 받아야 할 것 같아
+  thread_context:
+  - '[-2] 지원사업 문항은 그냥 둘이 똑같이 채워서 내면 되는건가?'
+  - '[-1] 그거 문항 쓰는 페이지에 팀원 추가하기 있어서 한명이 써서 제출하는거 같아'
+  - '[+0] 일단 캡스톤디자인 교과목 고도화 확인서 작성해서 월요일에 교수님한테 이메일 보내고 화요일에 과사무실 가서 도장 받아야 할 것 같아'
+  - '[+1] 그래야할듯'
+  - '[+2] 내일 메일 보내놓을게'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  unstable: false
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1780130283409449
+  channel: 일반
+  body: 내가 한건 정리했는데, 추가할거 있으면 추가해줘
+  thread_context:
+  - '[+0] 내가 한건 정리했는데, 추가할거 있으면 추가해줘'
+  - '[+1] 이렇게 쓰면 될 것 같아'
+  - '[+2] 오케 이렇게 추가해서 제출하자'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  unstable: true
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1780225314542709
+  channel: 일반
+  body: 이렇게 쓰면 될 것 같아
+  thread_context:
+  - '[-1] 내가 한건 정리했는데, 추가할거 있으면 추가해줘'
+  - '[+0] 이렇게 쓰면 될 것 같아'
+  - '[+1] 오케 이렇게 추가해서 제출하자'
+  - '[+2] '
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  unstable: true
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1782191866823469
+  channel: 일반
+  body: Rise 캡스톤 지원한거 신청반려되었는데 견적을 1회 호출당 얼마정도 나가고 몇명이서 얼마나 어느 규모로 사용할지 전부계산후에 달러로
+    환산해서 신청해야된다고 해서 이건 견적 내서 다시 신청해볼게
+  thread_context:
+  - '[+0] Rise 캡스톤 지원한거 신청반려되었는데 견적을 1회 호출당 얼마정도 나가고 몇명이서 얼마나 어느 규모로 사용할지 전부계산후에 달러로
+    환산해서 신청해야된다고 해서 이건 견적 내서 다시 신청해볼게'
+  - '[+1] 복잡하네..'
+  - '[+2] 대충 4o-mini 기준으로 질문 10번에 0.1달러 정도 나가고 임베딩은 large로 하면 한번에 1달러정도 나가더라'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  unstable: false
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1775883351093789
+  channel: 프로젝트
+  body: 우리 tcp 슬랙 데이터 거의 1년 다된거 같은데 정규화된거 백업 한번 해놔야 할듯
+  thread_context:
+  - '[+0] 우리 tcp 슬랙 데이터 거의 1년 다된거 같은데 정규화된거 백업 한번 해놔야 할듯'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  unstable: false
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1777616280298739
+  channel: 프로젝트
+  body: 클로드랑 얘길할때 설명한하고 md파일의 노드 정의 보라고 하면 편할까봐
+  thread_context:
+  - '[-2] issue는 update시간이고, communication에선 슬랙의 전송시간이랑 깃허브의 issue의 update시간, PullRequest에선
+    머지된 시간, ChangeSet에선 커밋된 시간'
+  - '[-1] 작업중인 브랜치에선 md파일에 노드 속성같은거 전부 수정시켜놨는데 먼저 머지시킬까?'
+  - '[+0] 클로드랑 얘길할때 설명한하고 md파일의 노드 정의 보라고 하면 편할까봐'
+  - '[+1] 오키'
+  - '[+2] 일단 머지하면 좋을 것 같긴 해'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1777616514791849
+  channel: 프로젝트
+  body: 일단 머지하면 좋을 것 같긴 해
+  thread_context:
+  - '[-2] 클로드랑 얘길할때 설명한하고 md파일의 노드 정의 보라고 하면 편할까봐'
+  - '[-1] 오키'
+  - '[+0] 일단 머지하면 좋을 것 같긴 해'
+  - '[+1] pr날렸어'
+  - '[+2] approve했어'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1778149901838579
+  channel: 프로젝트
+  body: 3번 관련해서 occurredAt이 보고자고 assignee가 할당자여서 이미 둘다 포함되고 있었더라고
+  thread_context:
+  - |-
+    [-2] pipeline-worker 수정 요청 (re)
+
+    1. Slack 메시지 URL 수정 — `SlackNormalizer.java`
+    *문제*: 모든 메시지의 URL이 채널 URL로 동일해서 같은 채널 메시지들이 Neo4j에서 하나의 노드로 덮어씌워짐
+    *수정* (82번 줄)
+
+    ```// 현재
+    properties.put("url", "<https://slack.com/archives/>" + channelId);
+
+    // 수정
+    String tsForUrl = ts != null ? ts.replace(".", "") : "";
+    properties.put("url", "<https://slack.com/archives/>" + channelId + "/p" + tsForUrl);```
+    2. Jira Issue CHILD_OF 엣지 추가 — `JiraNormalizer.java`
+    *문제*: Subtask의 `fields.parent.key`를 `refs`에 넣지 않아서 이슈 계층 구조(CHILD_OF 엣지)가 그래프에 반영 안 됨
+    *수정* (`refsExtractor.extract(...)` 직후에 추가)
+
+    ```Map&lt;String, String&gt; refs = refsExtractor.extract(summary + " " + descriptionText);
+
+    Map&lt;String, Object&gt; parent = (Map&lt;String, Object&gt;) fields.get("parent");
+    if (parent != null) {
+        String parentKey = (String) parent.get("key");
+        if (parentKey != null) {
+            refs.put("parentKey", parentKey);
+        }
+    }```
+    3. Jira Issue Actor 연결 방식 변경 — `JiraNormalizer.java` + ai-engine
+    *문제*: 현재 reporter만 CREATED 엣지로 연결. assignee(실제 작업자)도 연결 필요
+    *수정 방향*
+    • `(Actor)-[:CREATED]-&gt;(Issue)`— reporter (현행 유지)
+    • `(Actor)-[:ASSIGNED_TO]-&gt;(Issue)`— assignee (있을 때만)
+    *pipeline-worker*: `NormalizedEvent`의 `refs`에 assignee accountId 추가
+
+    ```Map&lt;String, Object&gt; assigneeField = (Map&lt;String, Object&gt;) fields.get("assignee");
+    if (assigneeField != null) {
+        refs.put("assigneeId", (String) assigneeField.get("accountId"));
+    }```
+    *ai-engine (`event_handler.py`, `builder.py`)*: `refs.assigneeId` 존재 시 ASSIGNED_TO 엣지 생성 로직 추가 (ai-engine 쪽은 추후 별도 구현)
+  - |-
+    [-1] 지라가 현재 이러한데
+    {
+      "nodeType": "Issue",
+      "source": "",
+      "occurredAt": "",
+      "actor": { "id": "", "name": "", "email": "" },
+      "properties": {
+        "jira_key": "",
+        "title": "",
+        "body": "",
+        "status": "",
+        "issue_type": "",
+        "priority": "",
+        "assignee": "",
+        "created_at": ""
+      },
+      "refs": {}
+    }
+  - '[+0] 3번 관련해서 occurredAt이 보고자고 assignee가 할당자여서 이미 둘다 포함되고 있었더라고'
+  - '[+1] 1번2번은 작업해서 pr날렸어'
+  - '[+2] assignee accountId를 refs에 추가해야 동명이인을 구분할 수 있다고 하는데 assignee는 이름만 들어오는거 맞아?'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1778154350055019
+  channel: 프로젝트
+  body: |-
+    ```Map&lt;String, Object&gt; assigneeField = (Map&lt;String, Object&gt;) fields.get("assignee");
+    if (assigneeField != null) {
+        refs.put("assigneeId", (String) assigneeField.get("accountId"));
+    }```
+  thread_context:
+  - '[-2] 현재는 이름만 들어오게 되어있어'
+  - '[-1] 어떤 방식이 필요해?'
+  - |-
+    [+0] ```Map&lt;String, Object&gt; assigneeField = (Map&lt;String, Object&gt;) fields.get("assignee");
+    if (assigneeField != null) {
+        refs.put("assigneeId", (String) assigneeField.get("accountId"));
+    }```
+  - '[+1] 이런 식으로 이름이랑 계정 아이디까지'
+  - '[+2] assignee properties에 말고 refs에 넣는게 그래프 만들때 편하지?'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1778329685720139
+  channel: 프로젝트
+  body: make-graph 브랜치 pr 날렸어
+  thread_context:
+  - '[+0] make-graph 브랜치 pr 날렸어'
+  - '[+1] 노션 10주차 회의록에 액터 노드 병합 테스트 결과 작성해놨는데 한번 확인해줘'
+  - '[+2] Approve했어'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1778845416987619
+  channel: 프로젝트
+  body: 꽤 잘나온거 같은데?
+  thread_context:
+  - '[-1] 그래프 생성이랑 테스트 한거 노션에 문서 작성해놨어'
+  - '[+0] 꽤 잘나온거 같은데?'
+  - '[+1] 좀 더 살펴봐야 할 거 같기는 한데 지금까지 보면 괜찮아보여'
+  - '[+2] 자연어 질문 테스트도 다 분석해놔서 이번 주차 보고서는 그냥 이 노션 문서 제출해도 될듯'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1778845763614289
+  channel: 프로젝트
+  body: 좀 더 살펴봐야 할 거 같기는 한데 지금까지 보면 괜찮아보여
+  thread_context:
+  - '[-2] 그래프 생성이랑 테스트 한거 노션에 문서 작성해놨어'
+  - '[-1] 꽤 잘나온거 같은데?'
+  - '[+0] 좀 더 살펴봐야 할 거 같기는 한데 지금까지 보면 괜찮아보여'
+  - '[+1] 자연어 질문 테스트도 다 분석해놔서 이번 주차 보고서는 그냥 이 노션 문서 제출해도 될듯'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1779974784731079
+  channel: 프로젝트
+  body: 지금 대기업 내부 강의 듣고 있는데 RAG 관련해서 비용이 10배정도 더 들어도 무조건 large를 쓴다고 하더라고
+  thread_context:
+  - '[-2] Small midium large 차이가 임베딩 단어 벡터 크기 차이일거야'
+  - '[-1] Large가 벡터 크기가 더 커서 성능이 더 좋긴할거야'
+  - '[+0] 지금 대기업 내부 강의 듣고 있는데 RAG 관련해서 비용이 10배정도 더 들어도 무조건 large를 쓴다고 하더라고'
+  - '[+1] 그정도로 차이가 꽤 많이 나나봐'
+  - '[+2] 아 그래?'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1780209535331209
+  channel: 프로젝트
+  body: setenv.sh 파일 필요한거야?
+  thread_context:
+  - '[-1] 프론트엔드 pr 날렸어'
+  - '[+0] setenv.sh 파일 필요한거야?'
+  - '[+1] 응 backend 폴더 안에 있으면 매번 export 안해도 되게 하려고'
+  - '[+2] source setenv.sh 만 치면 안에 있는 내용들 다 export 되더라고'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1780209771267749
+  channel: 프로젝트
+  body: source setenv.sh 만 치면 안에 있는 내용들 다 export 되더라고
+  thread_context:
+  - '[-2] setenv.sh 파일 필요한거야?'
+  - '[-1] 응 backend 폴더 안에 있으면 매번 export 안해도 되게 하려고'
+  - '[+0] source setenv.sh 만 치면 안에 있는 내용들 다 export 되더라고'
+  - '[+1] infra/docker 폴더에 env파일에 빈칸값 넣어놓은 다음 따로 export 하던지 아님 setenv파일을 만들던지 해야하는거지?'
+  - '[+2] 응 둘 중 하나만 하면 될듯'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1781357503879479
+  channel: 프로젝트
+  body: 더 필요한 작업 있어보여?
+  thread_context:
+  - |-
+    [-2] 금요일 전까지 작업해야할거를 현재 완성되어있는 api들 기준으로 정리해봤는데
+
+    백엔드에서는
+    • 각 integration(깃허브 지라 슬랙)연결시 pipeline-worker의 수집을 트리거 하는 로직 필요
+    • webhook github app에 등록
+    • 암호화 키 하드코딩 제거
+    프론트에서는
+    • 아직 연결 안된 api (회원탈퇴, 채팅 제목 수정, 채팅 삭제, 그래프 조회) 연결
+    • 프로젝트 생성시 깃허브 레포 선택 UI 필요
+    • 채팅 ui 질문은 오른쪽에 응답은 왼쪽에 배치
+    • 백엔드에서의 pipeline-worker의 수집을 트리거하는 api 연결
+  - '[-1] 이정도 인거 같은데 나눠서 역할을 나눠야 할거 같아서'
+  - '[+0] 더 필요한 작업 있어보여?'
+  - '[+1] 나 지금 프론트 오류 있는거 좀 수정하고 있었는데'
+  - '[+2] 일단 보고서는 지금까지 한거로 쓰고'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1781569133083469
+  channel: 프로젝트
+  body: 선택할 수 있게 할까?
+  thread_context:
+  - '[-2] 그래서 노드가 제대로 수집이 안되서 그래프가 잘 안만들어지는데 이부분 작업 필요해보이네'
+  - '[-1] 아 맞아 브랜치는 테스트용으로 만들어놨던건데'
+  - '[+0] 선택할 수 있게 할까?'
+  - '[+1] 선택을 해야할거같아'
+  - '[+2] 프론트에서는 레포지토리 연결할때 브랜치 하나만 선택할 수 있게하고 생성된 프로젝트에 대해서는 브랜치 변경이 안되게 하는게 좋을거같고'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1781955637087379
+  channel: 프로젝트
+  body: 나는 일단 ai-engine 리팩토링 할게
+  thread_context:
+  - '[+0] 나는 일단 ai-engine 리팩토링 할게'
+  verdicts:
+    hardcoded: remove
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1782655773956719
+  channel: 프로젝트
+  body: 7번도 하는게 좋을까?
+  thread_context:
+  - '[-2] Pipeline은 개선이라고 표기한거 다 하고 있는거야?'
+  - '[-1] 응 7번은 보류하고 나머지는 하고 있어'
+  - '[+0] 7번도 하는게 좋을까?'
+  - '[+1] 7번도 하면 좋을거 같긴한데'
+  - '[+2] 너무 많으면 내가 해도 되고'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - hardcoded->neutral
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1783227154810519
+  channel: 프로젝트
+  body: 그래프 새로 만들어야 되나
+  thread_context:
+  - |-
+    [-2] 그리고 테스트 셋은 둘이 같이 만들면 될거같아
+    • e2e 골든셋(질의 품질용) 40개
+    • 엣지 라벨셋 (그래프 개선용)
+        ◦ precision 라벨(그린 엣지가 맞나) 50~100개
+            ▪︎ B-1 precision: 그래프에 실제로 있는 엣지를 놓고 "이거 맞아?"를 잰다 → 항목은 현재 그래프에 존재하는 엣지
+        ◦ recall 골든 쌍(연결됐어야 할 걸 놓쳤나) 10~20쌍
+            ▪︎ B-2 recall: 사람이 아는 "연결됐어야 할 쌍"을 놓고 "그래프가 이걸 만들었나?"를 잰다 → 항목은 그래프에 없을 수도 있는 기대값
+  - '[-1] 오키 이렇게 하자'
+  - '[+0] 그래프 새로 만들어야 되나'
+  - '[+1] 캡스톤으로 프로젝트 만들면 될듯'
+  - '[+2] 이렇게 하는게 맞나'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1783239928830699
+  channel: 프로젝트
+  body: 생각해보니까 이거 최신거로 새로 만드는게 좋을 것 같아서
+  thread_context:
+  - '[-2] eval/snapshots/ 폴더 만들어서 여기에 두고 각자 가지고 있으면 될거같아'
+  - '[-1] 오늘 받은 덤프파일은 오늘 날자로 붙여서 md 파일의 명칭 컨벤션에 따라서 아까 받은 덤프파일은 eval/snapshots/graph-2026-07-05.dump
+    이렇게 할게'
+  - '[+0] 생각해보니까 이거 최신거로 새로 만드는게 좋을 것 같아서'
+  - '[+1] 다시 만들어서 보내줄게'
+  - '[+2] approve했어'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1783239935117479
+  channel: 프로젝트
+  body: 다시 만들어서 보내줄게
+  thread_context:
+  - '[-2] 오늘 받은 덤프파일은 오늘 날자로 붙여서 md 파일의 명칭 컨벤션에 따라서 아까 받은 덤프파일은 eval/snapshots/graph-2026-07-05.dump
+    이렇게 할게'
+  - '[-1] 생각해보니까 이거 최신거로 새로 만드는게 좋을 것 같아서'
+  - '[+0] 다시 만들어서 보내줄게'
+  - '[+1] approve했어'
+  - '[+2] 머지완료'
+  verdicts:
+    hardcoded: keep
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - hardcoded->neutral
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1776952072092499
+  channel: 일반
+  body: 슬랙메시지는 예시같은거 넣었어?
+  thread_context:
+  - '[+0] 슬랙메시지는 예시같은거 넣었어?'
+  - '[+1] 지금 몇개 추려서 넣고 있어'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1780750345396799
+  channel: 일반
+  body: 보내준거 추가해서 작성했어
+  thread_context:
+  - '[+0] 보내준거 추가해서 작성했어'
+  - '[+1] 오키 이대로 제출하자'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped: []
+  unstable: true
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1781762167026499
+  channel: 일반
+  body: 내일 발표할 때 시연은 너거로 보여줘야 할 것 같아
+  thread_context:
+  - '[-2] 음 다른 할거는 딱히 없어보이긴 하는데..'
+  - '[-1] 오키 그 방향으로 작성해볼게'
+  - '[+0] 내일 발표할 때 시연은 너거로 보여줘야 할 것 같아'
+  - '[+1] 그럼 시연 차례일때만 내가 발표하면 될까?'
+  - '[+2] 응 그냥 로그인은 건너뛰고 페이지 기능들만 좀 소개하면 될듯'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1782885461105129
+  channel: 프로젝트
+  body: 이제 그래프랑 llm 성능 높이는 작업 할까? 아직 하고 있는 작업 있어?
+  thread_context:
+  - '[+0] 이제 그래프랑 llm 성능 높이는 작업 할까? 아직 하고 있는 작업 있어?'
+  - '[+1] 따로 하고있는건 없어'
+  - '[+2] 지금 남은거 해야할거 정리할겸 시간날때 회의 한번 진행하는거 어때?'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1783157935995229
+  channel: 프로젝트
+  body: 선행계획 하나 만들어놨는데 테스트를 우리가 서로 동일한 db를 가지고 할 수 없어서 좀 그렇네
+  thread_context:
+  - |-
+    [-2] 회의 때 노션에 정한 작업은 다 한거 같은데, 이제 남은게 내 생각엔 성능 향상이랑 배포 준비인거 같아
+    그래서 배포준비(redis 포함)전에 성능을 올릴 차례인거 같은데
+    그래프 구축, 응답 퀄리티 개선 작업 전에 지금 상태에서 테스트 케이스를 만들어 측정한 다음 개선작업이 진행될때마다 얼마나 향상되었는지 기록하는게 좋을거 같아
+  - '[-1] 관련해서 작성해놓은 md 파일이 있는데 노션에 올려둘테니까 한번 읽어보고 의견 부탁할게'
+  - '[+0] 선행계획 하나 만들어놨는데 테스트를 우리가 서로 동일한 db를 가지고 할 수 없어서 좀 그렇네'
+  - |-
+    [+1] 그래프만 같으면 서로 테스트 가능하니깐 이렇게 하는게 나을거 같아
+    1. A가 그래프를 구축하고 덤프파일로 B에게 공유
+    2. B는 공유받은 덤프파일을 로드 (빌드X)
+    3. 각자 테스트 가능
+    4. 그래프 연결 로직을 바꿔서 그 그래프를 채택하기로 확정을 하게되면 A가 다시 덤프파일로 공유
+    5. B는 새로받은 덤프파일을 로드해서 이어서 테스트
+  - |-
+    [+2] 그리고 테스트 셋은 둘이 같이 만들면 될거같아
+    • e2e 골든셋(질의 품질용) 40개
+    • 엣지 라벨셋 (그래프 개선용)
+        ◦ precision 라벨(그린 엣지가 맞나) 50~100개
+            ▪︎ B-1 precision: 그래프에 실제로 있는 엣지를 놓고 "이거 맞아?"를 잰다 → 항목은 현재 그래프에 존재하는 엣지
+        ◦ recall 골든 쌍(연결됐어야 할 걸 놓쳤나) 10~20쌍
+            ▪︎ B-2 recall: 사람이 아는 "연결됐어야 할 쌍"을 놓고 "그래프가 이걸 만들었나?"를 잰다 → 항목은 그래프에 없을 수도 있는 기대값
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1783238894462559
+  channel: 프로젝트
+  body: CLAUDE.md 최신화 한거랑 측정 계획문서 pr 날렸어
+  thread_context:
+  - '[+0] CLAUDE.md 최신화 한거랑 측정 계획문서 pr 날렸어'
+  - '[+1] 덤프파일이랑 원천 데이터 스냅샷은 용량때문에 계속 커밋하게 되면 깃허브가 무거워진다고 해서 gitignore에 추가했어'
+  - '[+2] eval/snapshots/ 폴더 만들어서 여기에 두고 각자 가지고 있으면 될거같아'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1778925508027549
+  channel: 일반
+  body: 이렇게 쓰면 될까?
+  thread_context:
+  - '[+0] 이렇게 쓰면 될까?'
+  - '[+1] 이대로 제출하자'
+  - '[+2] 오케이'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1778928032947499
+  channel: 일반
+  body: 이대로 제출하자
+  thread_context:
+  - '[-1] 이렇게 쓰면 될까?'
+  - '[+0] 이대로 제출하자'
+  - '[+1] 오케이'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1779368534109489
+  channel: 일반
+  body: 내쪽은 다 만들었어
+  thread_context:
+  - |-
+    [-2] <https://canva.link/flcv662opqgw8ub>
+    발표자료 앞부분에 작업 내용들 정리해줄래?
+  - '[-1] 오케이'
+  - '[+0] 내쪽은 다 만들었어'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: remove
+  flipped:
+  - neutral->profile_experiment
+  unstable: true
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1781420622941349
+  channel: 일반
+  body: 내가 한 작업도 추가해서 보고서 만들었어
+  thread_context:
+  - '[-1] 일단 백엔드랑 그래프 부분만 작성했어'
+  - '[+0] 내가 한 작업도 추가해서 보고서 만들었어'
+  - '[+1] 오키 이대로 제출하자'
+  - '[+2] 오키'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1778395772515779
+  channel: 프로젝트
+  body: 이름이 똑같은데도 안되나
+  thread_context:
+  - '[-2] Approve했어'
+  - '[-1] 병합 안된건 너무 달라서 안되는게 맞는거 같긴해서 어쩔 수 없는거 같아'
+  - '[+0] 이름이 똑같은데도 안되나'
+  - '[+1] 일단 머지했어'
+  - '[+2] 동명이인 구별하려고하기로 했었어서 이름 같은걸로만으로는 안될거야'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1781836030455689
+  channel: 프로젝트
+  body: api는 있어서 수동으로 호출 하니깐 나뉜거 없이 전부 연결됐어
+  thread_context:
+  - '[-2] 혹시 2개로 나뉜 그래프에서 임베딩 벡터 한번 확인해줄 수 있어?'
+  - '[-1] 확인해봤는데 임베딩 유사도 측정해서 reference edge 생성하는 로직이 호출되는곳이 아예 없어서 그랬던거였어'
+  - '[+0] api는 있어서 수동으로 호출 하니깐 나뉜거 없이 전부 연결됐어'
+  - '[+1] 파이프라인 연결해야겠네'
+  - '[+2] 내가 수정할게'
+  verdicts:
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_experiment
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1781997962483799
+  channel: 프로젝트
+  body: 나는 Backend 리팩토링 작업 할게
+  thread_context:
+  - '[+0] 나는 Backend 리팩토링 작업 할게'
+  verdicts:
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1782195223827759
+  channel: 프로젝트
+  body: 일단 문서 확인 후에 피드백 주면 그때 작업 들어가는걸로 하게
+  thread_context:
+  - '[-2] 그래서 특히 ai-engine쪽을 자세히 확인해줬으면 좋을거 같고'
+  - '[-1] 우선 난 문서의 결정란에 개선이라고 표시해놓은 부분중에서 backend 먼저 작업을 해볼까하는데'
+  - '[+0] 일단 문서 확인 후에 피드백 주면 그때 작업 들어가는걸로 하게'
+  - '[+1] 일단 수정하는것도 괜찮을 것 같은데 나는 ai-engine 자세히 한번 봐볼게'
+  - '[+2] 오키 디퍼는 납두고 개선만 해서 backend 작업하고 이후에 pipeline-worker 작업해볼게'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: keep
+    profile_adopted: remove
+  flipped:
+  - neutral->profile_experiment
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1782656605626879
+  channel: 프로젝트
+  body: 응 이거 맞아
+  thread_context:
+  - '[-2] '
+  - '[-1] 이거 프론트 초안이었는데 여기서 오른쪽에 뜨는거?'
+  - '[+0] 응 이거 맞아'
+  - '[+1] 아직 프론트에서도 구현이 안된거 같기는 한데'
+  - '[+2] 오키 그럼 이거 프론트랑 같이 해서 작업 해볼게'
+  verdicts:
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: remove
+    profile_adopted: remove
+  flipped:
+  - neutral->profile_experiment
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMT5S3X/p1776432079742629
+  channel: 일반
+  body: 이대로 제출하자
+  thread_context:
+  - '[-1] 보고서 작성했는데 시간 날때 확인 부탁할게'
+  - '[+0] 이대로 제출하자'
+  - '[+1] 오케이'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: remove
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1778154594148819
+  channel: 프로젝트
+  body: 응 refs에 넣는게 좋지
+  thread_context:
+  - '[-2] 이런 식으로 이름이랑 계정 아이디까지'
+  - '[-1] assignee properties에 말고 refs에 넣는게 그래프 만들때 편하지?'
+  - '[+0] 응 refs에 넣는게 좋지'
+  - '[+1] 오케이'
+  - '[+2] 이름은 assignee에 있는데'
+  verdicts:
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: remove
+  flipped:
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1781836119528519
+  channel: 프로젝트
+  body: 내가 수정할게
+  thread_context:
+  - '[-2] api는 있어서 수동으로 호출 하니깐 나뉜거 없이 전부 연결됐어'
+  - '[-1] 파이프라인 연결해야겠네'
+  - '[+0] 내가 수정할게'
+  - '[+1] 오케이'
+  verdicts:
+    hardcoded: remove
+    neutral: remove
+    profile_experiment: remove
+    profile_adopted: keep
+  flipped:
+  - neutral->profile_adopted
+  unstable: true
+  kind: flip
+  label: keep
+  note: ''
+- url: https://slack.com/archives/C0AKGMXN8A1/p1782296287608509
+  channel: 프로젝트
+  body: 우선 한도량 고려해서 처리할 수 있는 방법 찾아보고 해볼게
+  thread_context:
+  - '[-2] openai api 호출에 rate limit 때문에 동시에 처리하는게 좀 걸리는데 llm 호출쪽은 지금이 낫지 않을까?'
+  - '[-1] 아 그러네'
+  - '[+0] 우선 한도량 고려해서 처리할 수 있는 방법 찾아보고 해볼게'
+  - '[+1] Openai 호출을 관리하는 파일을 확장해서 실제 한도(RPM과 TPM)에 맞춰서 호출하게 하면 될거같아'
+  - '[+2] 토큰을 추정해야 하겠네 한번 해볼게'
+  verdicts:
+    hardcoded: keep
+    neutral: keep
+    profile_experiment: keep
+    profile_adopted: remove
+  flipped:
+  - neutral->profile_adopted
+  unstable: false
+  kind: flip
+  label: keep
+  note: ''
