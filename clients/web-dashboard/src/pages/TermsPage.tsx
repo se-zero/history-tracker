@@ -11,7 +11,7 @@ export function TermsPage() {
       title={{ ko: "이용약관", en: "Terms of Service" }}
       effectiveDate="2026-08-01"
       summary={{
-        ko: `${LEGAL_OPERATOR.ko}이 제공하는 whycode(이하 "서비스")의 이용 조건을 정합니다. 서비스에 로그인하면 이 약관에 동의한 것으로 봅니다.`,
+        ko: `${LEGAL_OPERATOR.ko}가 제공하는 whycode(이하 "서비스")의 이용 조건을 정합니다. 서비스에 로그인하면 이 약관에 동의한 것으로 봅니다.`,
         en: `These Terms set out the conditions for using whycode (the "Service"), provided by ${LEGAL_OPERATOR.en}. Logging in to the Service is considered agreement to these Terms.`,
       }}
     >

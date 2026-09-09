@@ -4,9 +4,13 @@ import { LandingLanguageProvider, useLandingLanguage, type Localized } from "@/c
 import { useDocumentHashScroll } from "@/components/landing/useDocumentHashScroll";
 import { useLandingTheme } from "@/components/landing/useLandingTheme";
 
-// ⚠️ 배포 전 실제 값으로 교체할 자리 — 운영 주체명·문의처. 지금 값은 자리표시자다.
-//    법인/사업자로 운영한다면 상호·대표자·주소·사업자등록번호도 여기서 채운다.
-export const LEGAL_OPERATOR: Localized<string> = { ko: "whycode 팀", en: "the whycode team" };
+// 운영 주체는 개인이다 — Slack 마켓플레이스 Security & Compliance 폼의 Company / developer
+// name에 답한 값과 같은 표기를 쓴다(심사자가 폼과 이 페이지를 대조한다).
+// ⚠️ 값을 바꿀 때 조사를 함께 본다 — PrivacyPage("…는")·TermsPage("…가")가 모음으로 끝나는
+//    지금 값에 맞춰 고정돼 있어, 자음으로 끝나는 이름으로 바꾸면 "은"·"이"로 같이 고쳐야 한다.
+// ⚠️ 사업자등록을 하고 유료화하면 상호·대표자·주소·사업자등록번호·통신판매업신고번호가
+//    추가로 필요하다(docs/public-readiness.md §4-3).
+export const LEGAL_OPERATOR: Localized<string> = { ko: "JUNSU SEO", en: "JUNSU SEO" };
 export const LEGAL_CONTACT_EMAIL = "contact@why-code.com";
 export const LEGAL_CONTACT_URL = "https://github.com/se-zero/history-tracker/issues";
 

@@ -20,7 +20,8 @@ import { PATHS } from "@/routes";
 //                사용자 단위로 둔다(프로젝트 연동 행·설치 토큰과 별개).
 //   요청 권한  → backend application.yaml의 slack.user-scopes·bot-scopes / atlassian.scopes /
 //                discord.scopes·permissions / google-chat.scopes
-//   위탁       → ai-engine의 OpenAI 임베딩·질의 모델(학습 미사용 — 제4조)
+//   위탁       → ai-engine의 OpenAI 임베딩·질의 모델(학습 미사용 — 제4조) + 공개 경로의
+//                Cloudflare(터널·TLS 종단·DNS·메일 전달 — 저장 없음, docs/deployment.md)
 //   파기 기한  → backend user-lifecycle.purge.grace-period (P30D) +
 //                권한 회수 실패 시 강제 진행 유예 force-purge-after (P7D, UserPurgeService)
 //   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
@@ -414,10 +415,11 @@ export function PrivacyBodyKo() {
         </ul>
       </LegalSection>
 
-      <LegalSection index={4} heading="처리 위탁과 국외 이전">
+      <LegalSection id="subprocessors" index={4} heading="처리 위탁과 국외 이전">
         <p>
-          서비스는 답변 생성과 의미 검색을 위해 아래 사업자에 처리를 위탁합니다. 이용자의
-          질문과 그래프에 저장된 기록의 일부(제목·본문·요약 등)가 이 과정에서 전송됩니다.
+          서비스는 답변 생성·의미 검색과 서비스 운영을 위해 아래 사업자에 처리를 위탁합니다.
+          이용자의 질문과 그래프에 저장된 기록의 일부(제목·본문·요약 등)가 OpenAI로 전송되며,
+          서비스에 접속하는 통신은 Cloudflare의 네트워크를 지나갑니다.
         </p>
         <div className="lp-legal-table-scroll">
           <table className="lp-legal-table">
@@ -434,12 +436,22 @@ export function PrivacyBodyKo() {
                 <td>텍스트 임베딩 생성, 자연어 질의응답 및 요약 처리</td>
                 <td>미국</td>
               </tr>
+              <tr>
+                <td>Cloudflare, Inc.</td>
+                <td>서비스 공개 경로(터널) 제공과 TLS 종단, DNS 및 문의 메일 전달</td>
+                <td>미국</td>
+              </tr>
             </tbody>
           </table>
         </div>
         <p>
           위탁 과정에서 전송된 데이터는 OpenAI 모델의 학습이나 개선에 사용되지 않습니다.
-          임베딩 생성과 질의응답에만 쓰입니다.
+          임베딩 생성과 질의응답에만 쓰입니다. OpenAI는 남용 여부를 확인하기 위해 전송된
+          데이터를 최대 30일 보관한 뒤 삭제합니다.
+        </p>
+        <p>
+          Cloudflare는 통신을 중계하고 문의 메일을 전달할 뿐, 수집된 기록이나 지식 그래프를
+          저장하지 않습니다.
         </p>
         <p>
           이 외에 이용자의 개인정보를 제3자에게 제공하지 않으며, 어떤 경우에도{" "}
@@ -473,6 +485,11 @@ export function PrivacyBodyKo() {
             단위이고, 같은 조직의 다른 이용자가 계속 쓰고 있을 수 있기 때문입니다. 이 기록에는
             GitHub 계정명과 암호화된 접근 토큰이 포함되며, 이용자와의 연결(누가 접근할 수 있는지)은
             탈퇴 시 함께 삭제됩니다. 이 기록의 삭제를 원하시면 아래 문의처로 요청해 주세요.
+          </li>
+          <li>
+            <strong>백업</strong> — 서버 백업은 14일 주기로 순환합니다. 위 경로로 삭제된
+            데이터가 그 이전에 만들어진 백업에 남아 있을 수 있으나, 늦어도 14일 안에
+            백업에서도 사라집니다.
           </li>
           <li>
             법령이 보존을 요구하는 기록은 해당 법령이 정한 기간 동안 분리 보관한 뒤
