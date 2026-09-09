@@ -181,8 +181,11 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 | 랜딩 페이지 | `/landing` (ko/en), Slack 절 `#in-slack` | Slack 안 동작 스크린샷·Add to Slack은 등재 후. Installation landing page는 이 URL |
 | support 페이지 | `/support` | 2영업일 응답 유지. 스크린샷·비디오 등과 별개 |
 | 개인정보처리방침 | `/privacy` `#slack` 앵커 | 보존·삭제·학습 미사용 반영. 앵커 id는 심사 제출 후 불변 |
+| sub-processor 목록 | `/privacy` `#subprocessors` 앵커(제4조 표) | Security & Compliance 폼의 "Guidelines for sub-processors URL"이 요구. 전용 페이지를 두지 않고 제4조를 그대로 쓴다 — 위탁처가 늘 때 두 곳이 갈라지지 않게. 이 id도 제출 후 불변 |
 | scope 사유서 | — | scope별 "무엇에 쓰는가"(기능 기준). `*:history`는 "히스토리 전반의 맥락 검색·질의"가 요건인 이유를 서술 — Real-time Search 예외 인정 사례에 정렬 |
-| Security & Compliance | — | AI 공시 4종(모델·데이터 보존·테넌시·리전), 보안 문항 |
+| Security & Compliance | 폼 답 초안 작성(2026-09-09) — General·Privacy & data governance·Certifications·Security 4개 절 | AI 공시 4종은 코드에서 확정(질의 `gpt-5.4-mini`, 임베딩 `text-embedding-3-large`, 내부 판단 `gpt-4o-mini` / 학습 미사용 / 저장 한국·처리 미국 / OpenAI 공용 API). 남은 것은 §12-7(OpenAI ZDR 실측) |
+| 보안 연락처 | ✅ `security@why-code.com` — Cloudflare Email Routing 수신, 2026-09-09 생성·**도착 확인 완료** | 발신은 개인 메일함에서 나간다(전용 발신 미착수) — 약관 이행 전제는 아니다(제11조는 "서비스 내에 공지") |
+| VDP(취약점 공개 정책) | 없음 — 폼에 No로 답한다 | `/support`에 신고 절차 한 절을 두거나 GitHub 비공개 취약점 신고를 켜면 Yes로 올릴 수 있다. 발신 수단 없이도 성립한다 — 등재 후 후보 |
 | 심사용 시나리오 | — | 심사자는 앱을 설치·시험한다. GitHub 로그인 → 프로젝트 생성이 선행되는 온보딩이라 **테스트 계정·데모 조직·안내 문서**를 Testing information에 제공해야 한다 |
 | staging 앱 | — | published 앱 manifest 복제본. 승인 후 변경 검증·재심사용 |
 
@@ -212,6 +215,13 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
    Communication을 걸러내는 방안이 있으나 scope가 하나 늘어난다 — 해석을 먼저 확인하고 결정한다(§12).
 5. **리스팅 언어 일관성** — 이번 작업에서는 다루지 않는다. 앱 내 언어(현재 한국어 중심)와
    리스팅 언어가 어긋나면 심사에서 걸릴 수는 있으나, i18n 착수와 함께 본다.
+6. **자체 단일 서버 운영이 Security & Compliance 폼에 그대로 드러난다.** 호스팅 답이
+   "on-premise 단일 서버, 제3자 호스팅 없음"이고, 인증(SOC 2·ISO 27001·CSA STAR·FedRAMP)은
+   전부 없으며, 오프사이트 백업도 없다([public-readiness.md](public-readiness.md) §5-2).
+   인증란은 전부 optional이라 **등재를 막는 요건은 아니지만**, 규제 산업 워크스페이스의 설치
+   승인에서 걸리고 심사자가 가용성·물리보안을 되물을 여지가 있다. **빈칸과 No로 정직하게
+   제출한다** — 없는 인증을 적으면 심사자가 증서를 열어보고, 그건 인증 없음보다 치명적이다
+   (2026-09-09, 폼 작성 중 확인).
 
 ## 9. 하지 않는 것
 
@@ -271,6 +281,256 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 
 3. bot scope 추가 후 재동의 시 기존 user 토큰이 유지되는지(재발급인지) — S2 실기동에서 확인.
 4. `auth.test`가 user 토큰으로 `user_id`를 돌려주는 형식(레거시 백필 경로) — S3 전에 확인.
+
+**Security & Compliance 폼 작성 중 열린 것(2026-09-09):**
+
+5. ✅ **운영 주체 실명 확정(2026-09-09)** — 폼의 Company / developer name과 `LEGAL_OPERATOR`를
+   모두 **"JUNSU SEO"**로 맞췄다. 심사자가 폼과 방침·약관을 대조한다
+   ([public-readiness.md](public-readiness.md) §4-3).
+6. ✅ **Cloudflare를 sub-processor로 표기한다(2026-09-09)** — 터널이 TLS를 엣지에서 끊어 트래픽이
+   통과하기 때문이다(저장은 없다). 방침 제4조 표에 행을 추가했고 "중계·메일 전달만 하며 저장하지
+   않는다"를 함께 명시했다. `#subprocessors` 앵커가 가리키는 것이 그 표다.
+7. ✅ **OpenAI ZDR 없음 — 기본값으로 확정(2026-09-09)** — ZDR은 셀프서비스 토글이 아니라
+   신청·승인제이고, **신청한 적이 없다.** 따라서 기본값이다 — 요청·응답을 남용 모니터링 목적으로
+   최대 30일 보관 후 삭제, 학습에는 미사용. "LLM retention settings" 답은 §13-2의 문구로 확정한다.
+   **신청은 지금 하지 않는다**: 마켓플레이스 요건이 아니고, 승인은 규모·사용 사례를 보며,
+   병목은 자격 모수(§8-2)지 보관 정책이 아니다. 기업 고객이 실제로 요구하면 그때 검토한다.
+8. ✅ **GDPR commitment URL은 비운다(2026-09-09)** — 방침에 EU 이용자 절이 없어 링크할 것이 없다.
+   등재가 가까워지면 법률 검토와 함께 별도로 본다(방침은 아직 법률 검토 전 초안이다).
+9. ✅ **백업 보존(14일)을 방침 제5조에 명시했다(2026-09-09)** — 폼의 삭제 정책 답과 방침이
+   어긋나지 않게 한다. 근거는 `BACKUP_RETENTION_DAYS=14`([deployment.md](deployment.md) §4-5).
+
+**방침 변경 절차는 즉시 시행으로 간다(2026-09-09 결정).** 6·9는 개인정보처리방침의 실질
+변경이고 제11조가 "시행 7일 전까지 서비스 내에 공지"를 약속하지만, **공지를 띄울 화면이 아직
+없고**([public-readiness.md](public-readiness.md) §5-3) 실사용자가 사실상 없는 단계라 시행일을
+`2026-09-09`로 올리고 사전 공지 없이 배포한다. **다음 개정부터는 절차대로 간다** — 공지 화면이
+생기면(§5-3) 7일 전 공지를 실제로 띄운다. 심사 시점에 방침 변경 이력을 물으면 이 결정을 근거로
+설명한다.
+
+## 13. 제출 폼 답안과 재개 지점 (2026-09-09)
+
+Security & Compliance 폼을 채우며 확정한 값과, 다시 앉았을 때 이어갈 지점을 모은다.
+**폼 화면은 로그인해야 보이고 서술 답변은 재작성 비용이 크므로** 값 자체를 여기에 둔다.
+제출 전에 §12의 열린 항목을 먼저 닫는다.
+
+### 13-1. 확정값
+
+| 절 | 칸 | 값 |
+|---|---|---|
+| General | Company / developer name | `JUNSU SEO` — 사업자등록이 없어 폼 설명의 "Or your name if there is no company"를 따랐다. `LEGAL_OPERATOR`와 같은 표기 |
+| General | Company headquarters location | Republic of Korea |
+| General | Terms of service URL | `https://why-code.com/terms` — **`www.`를 붙이면 죽는다**(apex만 살아 있다) |
+| Privacy | Data center location(s) | South Korea **만**. 미국을 함께 고르지 않는다 — OpenAI는 sub-processor지 우리 데이터센터가 아니다 |
+| Privacy | How do you host your data? | On-premise. 단일 자체 서버, 인바운드 포트 0, Cloudflare Tunnel로만 공개 |
+| Privacy | Data host company | None — self-hosted. Cloudflare는 네트워크·TLS만 |
+| Privacy | Do you have sub-processors? | **Yes** — OpenAI, L.L.C.(미국) + Cloudflare, Inc.(미국) |
+| Privacy | Guidelines for sub-processors URL | `https://why-code.com/privacy#subprocessors` |
+| Privacy | Exposes an LLM to customers? | **Yes** |
+| Privacy | LLM model(s) | `gpt-5.4-mini`(질의·요약·재작성) · `gpt-4o-mini`(내부 그래프 판단, 사용자 비노출) · `text-embedding-3-large`(임베딩). 전부 OpenAI 호스팅 API |
+| Certifications | SOC · COPPA · ISO 27001/27017/27018 · FedRAMP · CSA STAR · Privacy Shield · GDPR · pen test 날짜 | **전부 비움** — 하나도 해당 없다. 빈칸은 감점이 아니지만 없는 인증을 적으면 심사자가 증서를 열어본다 |
+| Certifications | Are you HIPAA compliant? | **No** — 진료기록을 다루지 않는다. Yes는 BAA 체결 가능 선언이라 사실과 다르다 |
+| Security | SSO / SAML | **No / No** — 인증은 GitHub OAuth 전용이라 기업 IdP를 붙일 수단이 없다. 비밀번호를 저장하지 않는다는 점은 "third party services" 답에서 밝힌다 |
+| Security | Dedicated security team / Bug bounty | **No / No** |
+| Security | Vulnerability disclosure program | **No** — `/support`에 신고 절차를 두거나 GitHub 비공개 취약점 신고를 켜면 Yes로 올릴 수 있다(발신 수단 없이 성립) |
+| Security | Third party auths/connections required? | **Yes** — GitHub 로그인이 유일한 가입 경로, 소스 1개 이상 연동 필요, 답변은 OpenAI 의존 |
+| Security | Security contact | `security@why-code.com` — 도착 확인 완료 |
+| Testing | 알림 대상 | JUNSU SEO / seoultechse13@gmail.com / **`+82 10-5911-9189`**(국제 표기라 앞 `0`을 뺀다) |
+| Testing | Notification channel | Email — 심사 피드백은 길고 링크가 붙어 SMS로는 놓친다 |
+
+### 13-2. 서술 답변 (영문 원문)
+
+**Data retention policy**
+
+> JUNSU SEO retains Customer Data only while the integration that produced it remains connected.
+> Slack data collected through the granted read scopes — channel names and IDs, channel messages and
+> thread replies, and workspace member display names and emails — is stored in a per-project knowledge
+> graph for one purpose: answering the connecting user's natural-language questions about why their code
+> changed. The stored text is an index that makes retrieval possible; the product provides no export, no
+> backup, no archive browsing, and no bulk message viewing. Encrypted OAuth credentials are retained
+> until the integration is disconnected. No Customer Data is sold, used for advertising, or used to train
+> any model.
+
+"질의를 위한 인덱스지 내보내기·백업 기능이 아니다"를 여기서부터 못 박는다 — §8-1(최대 리스크)의
+판정이 실제로 내려지는 칸이다.
+
+**Data archival/removal policy**
+
+> Customer Data is removed on any of these triggers: **Disconnect** — the stored credentials and all data
+> collected from that workspace, including its knowledge-graph nodes, are deleted without delay.
+> **App uninstall / token revocation** — we subscribe to `app_uninstalled` and `tokens_revoked` and treat
+> them as the strongest withdrawal signal: they run the same deletion path as an explicit disconnect.
+> Handling is idempotent, since Slack does not guarantee event ordering. **Project deletion / account
+> closure** — deleting a project deletes its integrations, conversations, collected records and graph;
+> closing an account deactivates it immediately and deletes all associated data after a 30-day reversal
+> window. Encrypted server backups are kept on a rolling 14-day basis; deleted data ages out of backups
+> within that window.
+
+**Data storage policy**
+
+> Customer Data is stored in a Neo4j graph database and a PostgreSQL relational database running on a
+> single server we operate ourselves. No database port is exposed to the internet — the only public path
+> is an outbound-only Cloudflare Tunnel, with TLS 1.2+ terminated at the Cloudflare edge. OAuth
+> credentials are never stored in plaintext: they are encrypted with AES-256-GCM using a key held outside
+> the database, and sign-in refresh tokens are stored only as hashes. Each project's graph is isolated by
+> a composite key, so one customer's data is never reachable from another project's queries. We request
+> read-only scopes and never write to a customer's Slack workspace.
+
+⚠️ **"encrypted at rest"라고 쓰지 않는다.** 암호화되는 것은 자격증명이고, 메시지 본문이 든
+Neo4j·Postgres 디스크에는 암호화가 걸려 있지 않다. 과장하면 보안 문항과 어긋난다.
+
+**What is your procedure for handling requests for data deletion?**
+
+> Most deletion is self-service and requires no request: disconnecting an integration deletes that
+> source's stored credentials and every record collected from it, including its knowledge-graph nodes;
+> deleting a project deletes everything under it; and closing an account deletes all associated data after
+> a 30-day reversal window. These paths are listed in Article 8 of our privacy policy.
+>
+> For requests that cannot be handled in-product, we accept them at contact@why-code.com, published on
+> our public support page, which requires no login or account. This includes requests from people who are
+> not our users — a workspace member whose messages were collected through someone else's connection — as
+> described in Article 7 of our privacy policy. We respond within 2 business days.
+>
+> On receiving a request we verify that the requester controls the account or the identity concerned,
+> identify every project and graph node holding the data, and run the same deletion path used by
+> self-service disconnection. Deletion is idempotent and propagates to the knowledge graph, not only to
+> the relational database. Encrypted server backups roll off on a 14-day cycle, after which no copy remains.
+
+⚠️ **"삭제 완료를 이메일로 통지한다"는 넣지 않았다.** `contact@`·`security@`는 전달 전용이라
+그 주소를 발신인으로 답장할 수 없다([public-readiness.md](public-readiness.md) §4-2·§5-3).
+지킬 수 없는 문장을 쓰지 않는다.
+
+**LLM data tenancy policy**
+
+> Our LLM usage runs on OpenAI's shared, multi-tenant hosted API. We do not operate a dedicated model
+> instance, and we do not fine-tune or train any model on Customer Data — each request is stateless and
+> carries only the context needed to answer that one question. Isolation is enforced on our side: every
+> graph node is keyed per project, so a query can only retrieve data from the project the asking user is
+> authorized for, and the `/why-code` command is restricted to the user who connected that workspace.
+
+**LLM data residency policy**
+
+> Customer Data is stored in South Korea on our own server. When a question is asked, the question text
+> and the relevant retrieved context (titles, message bodies, summaries) are transmitted to OpenAI, L.L.C.
+> in the United States for embedding and answer generation. This cross-border transfer is disclosed in
+> Article 4 of our privacy policy. No other region processes Customer Data.
+
+**LLM retention settings** — 확정(2026-09-09). ZDR 미신청이라 기본값이다(§12-7).
+
+> Data sent to OpenAI is never used to train or improve their models. Under OpenAI's standard API terms,
+> request and response data may be retained by OpenAI for up to 30 days for abuse monitoring and is then
+> deleted; we have not enabled Zero Data Retention. On our side, `/why-code` queries in Slack are one-shot
+> and are not persisted as conversation history — only questions asked in our web dashboard are stored,
+> and those are deleted when the project or account is deleted.
+
+**What third party services does your app use?**
+
+> **Receives customer data (sub-processor):** OpenAI API — embeddings and answer generation.
+> **Infrastructure:** Cloudflare — Tunnel ingress, TLS termination, DNS, and email routing. No customer
+> data is stored there.
+> **Data source APIs, connected by the user and only with their consent:** GitHub, Slack, Atlassian Jira,
+> Discord, Google Chat, Notion, Linear, Asana, ClickUp. All connections are read-only; we never write to a
+> customer's workspace.
+> **Front-end assets:** web fonts served from jsDelivr and Google Fonts. A strict Content-Security-Policy
+> restricts scripts to our own origin.
+> **Not used:** no analytics or advertising trackers, no payment processor (the service is currently
+> free), and no error-reporting SaaS. Databases (Neo4j, PostgreSQL) and the message broker (RabbitMQ) are
+> open-source software we run ourselves, not hosted services.
+> Authentication is GitHub OAuth only — we never store passwords, and sign-in refresh tokens are stored as
+> hashes.
+
+폰트 CDN까지 적는 이유는 방문자 IP가 그쪽에 노출되는 것이 사실이고 CSP 헤더
+(`clients/web-dashboard/nginx.conf`)에 허용 출처로 박혀 있어 심사자가 직접 볼 수 있기 때문이다.
+마지막 줄이 SSO=No가 "비밀번호를 쓰나 보다"로 오해되는 것을 막는다.
+
+**Are any third party auths/connections required for your app to function?** — Yes.
+
+> Signing in requires a GitHub account (our only authentication method). The product answers questions
+> from a knowledge graph built out of the user's own connected tools, so at least one data source
+> connection — GitHub, Slack, Jira, Discord, Google Chat, Notion, Linear, Asana, or ClickUp — is required
+> for it to be useful. Answer generation and semantic search depend on the OpenAI API.
+
+**How to test your app** — 실기동 확인 후 문구를 다듬는다. 뼈대는 이렇다.
+
+> **What the app does in Slack.** One slash command, `/why-code <question>`. It answers in natural
+> language, from a knowledge graph built out of the user's own connected tools, explaining why a piece of
+> code changed. Replies are always ephemeral. The app never posts, edits, or deletes anything in the
+> workspace — we do not request `chat:write`.
+>
+> **Setup.** 1) Go to https://why-code.com and sign in with GitHub. 2) Create a project. 3) Connect a
+> GitHub repository — for testing, fork https://github.com/se-zero/history-tracker, which has an extensive
+> commit history. 4) Connect Slack from the same screen; this installs the app into your workspace.
+> 5) Wait for the first collection to finish (progress is shown on the sources screen).
+>
+> **Then test these.** (a) `/why-code <question>` → an ephemeral answer with cited sources. (b) `/why-code`
+> with no text → usage help. (c) Run the command from a different Slack account in the same workspace → a
+> message explaining that only the user who connected the workspace can use it; answers contain data from
+> private repositories, and workspace membership is not repository access. (d) Disconnect Slack in our
+> dashboard, or uninstall the app from Slack → all data collected from that workspace, including its graph
+> nodes, is deleted.
+
+(d)를 명시적으로 안내한다 — §8-1의 "export or backup" 의심을 실물로 반박하는 장면이다.
+
+### 13-3. 열린 항목 — 여기서부터 재개한다
+
+**① OpenAI ZDR — 닫혔다(2026-09-09).** 신청·승인제이고 신청한 적이 없으므로 기본값이다
+(§12-7). 폼 문구는 §13-2로 확정했고, **방침 제4조에도 "OpenAI가 남용 확인 목적으로 최대 30일
+보관 후 삭제"를 명시했다** — 폼이 방침보다 상세한 상태를 남기지 않는다(백업 14일과 같은 처리).
+같은 개정(시행일 2026-09-09) 안에 들어가 개정 이벤트가 늘지 않았다.
+
+**② `/why-code` 실기동 범위 확인** — 워크스페이스에서 커맨드가 동작하는 것은 확인됐다(2026-09-09).
+아래가 미확인이라 S1·S3·S4의 상태를 아직 고치지 않았다.
+
+1. **로컬(ngrok)인가 배포 서버인가** — 배포면 S4를 완료로 쓸 수 있고, 로컬이면 배포 확인이 남는다
+   (`.env`의 redirect URI가 ngrok을 가리키고 있다)
+2. Events Request URL 등록과 앱 제거 테스트 — S1 실기동. 폼의 삭제 정책 답을 뒷받침하는 증거다
+3. 재동의 후 기존 Slack 수집이 정상인지 — §12-3이 닫힌다
+4. 다른 계정 게이팅 안내 / 빈 입력·`help` 응답 — 폼 "How to test"의 (b)(c)
+
+**③ 테스트 계정 방식** — 심사자는 우리 워크스페이스에 로그인할 수 없고 자기 워크스페이스에 설치해
+시험한다. 온보딩이 GitHub 로그인 → 프로젝트 생성 → 연동 → 수집 대기라 빈손으로 시작하면 답할
+데이터가 없다.
+
+- **A. 공개 레포 포크** — `se-zero/history-tracker`가 public이다. 심사자가 포크해 우리 앱을 설치하면
+  커밋 히스토리로 답이 나온다. 계정 공유가 없고 심사자가 자기 계정으로 전 과정을 밟는다는 게 장점.
+  **포크에는 PR·이슈가 따라오지 않아** 제품의 핵심(맥락 연결)이 약해진다
+- **B. 데모 조직 초대** — PR·이슈까지 있는 데모를 만들고 심사자 계정을 초대. 완전하지만 데이터 제작
+  비용과 리뷰 중 왕복(연락 → 초대 → 재개)이 생긴다
+- **C. 테스트 GitHub 계정 자격증명 제공** — 권하지 않는다. 계정 공유는 약관 소지가 있다
+- **권장: A + 비디오.** 포크로 손에 잡히는 체험을 주고, PR·이슈·Slack이 엮이는 장면은 녹화로 보인다
+
+**④ 자산 제작(S5)** — 스크린샷 1600×1000(8:5)·2MB 이하, 비디오 30~90초 YouTube 공개(자막 on,
+광고 off). **Slack 안에서 동작하는 화면**이어야 한다 — 대시보드 화면만 내면 "Slack 안에 기능이 없다"는
+부적격 사유를 스스로 증명하는 꼴이다. 동작 환경이 살아 있을 때 찍는 것이 가장 싸다.
+
+### 13-4. 배포해야 반영되는 것
+
+`#subprocessors` 앵커와 방침 개정(Cloudflare 위탁·백업 14일·실명 표기·시행일 2026-09-09)은
+빌드에 들어 있어야 공개된다.
+
+```bash
+cd infra/docker && ./prod.sh up -d --build web-dashboard
+```
+
+**폼에 sub-processors URL을 제출하기 전에 배포한다.** 배포 전에는 해시가 안 맞아 방침 맨 위로
+착지하며(깨지지는 않는다), 심사자에게는 "목록으로 보내준다더니 첫 화면"으로 보인다.
+
+### 13-5. 제출까지 남은 순서와 금지 사항
+
+```
+S4 앱 설정 마무리(Events URL·staging 앱)
+  → 실기동 4종 확인(13-3 ②)
+  → 스크린샷·비디오(13-3 ④)
+  → Testing information 작성
+  → 활성 워크스페이스 10곳 + 주간 활성 10명 축적   ← 코드가 아닌 문제, 가장 오래 걸린다
+  → public distribution 활성화
+  → 제출
+```
+
+- **동의 체크박스를 미리 누르지 않는다** — 필수 항목이 빈 채로 반려되면 **재제출 시 큐가 리셋**된다
+  (예비 심사 최대 10영업일 재대기).
+- **인증 URL을 지어내지 않는다** — 심사자가 연다. 빈칸은 감점이 아니지만 허위는 치명적이다(§8-6).
+- **public distribution을 미리 켜지 않는다** — `conversations.history`가 1 req/min으로 떨어져
+  초기 수집이 11시간짜리가 된다(§1). 되돌리기 어렵다.
 
 ## 참고 (2026-08-29 확인)
 
