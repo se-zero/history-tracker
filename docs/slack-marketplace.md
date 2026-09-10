@@ -297,8 +297,11 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
    병목은 자격 모수(§8-2)지 보관 정책이 아니다. 기업 고객이 실제로 요구하면 그때 검토한다.
 8. ✅ **GDPR commitment URL은 비운다(2026-09-09)** — 방침에 EU 이용자 절이 없어 링크할 것이 없다.
    등재가 가까워지면 법률 검토와 함께 별도로 본다(방침은 아직 법률 검토 전 초안이다).
-9. ✅ **백업 보존(14일)을 방침 제5조에 명시했다(2026-09-09)** — 폼의 삭제 정책 답과 방침이
-   어긋나지 않게 한다. 근거는 `BACKUP_RETENTION_DAYS=14`([deployment.md](deployment.md) §4-5).
+9. ✅ **백업 보존을 방침 제5조에 명시했다(2026-09-09)** — 폼의 삭제 정책 답과 방침이
+   어긋나지 않게 한다. 설정값은 `BACKUP_RETENTION_DAYS=14`([deployment.md](deployment.md) §4-5)지만,
+   **대외 문구는 "약 2주"로 쓴다** — `backup.sh:131`의 `find -mtime +14`는 14×24h를 *넘긴* 파일을
+   지우므로 15일차부터 삭제되고, cron이 하루 1회(04:00)라 최악 ~16일이다. "늦어도 14일"은
+   지킬 수 없는 약속이라 방침(한/영)과 폼 답안을 모두 "약 2주"로 맞췄다(2026-09-10 리뷰 지적 반영).
 
 **방침 변경 절차는 즉시 시행으로 간다(2026-09-09 결정).** 6·9는 개인정보처리방침의 실질
 변경이고 제11조가 "시행 7일 전까지 서비스 내에 공지"를 약속하지만, **공지를 띄울 화면이 아직
@@ -326,7 +329,7 @@ Security & Compliance 폼을 채우며 확정한 값과, 다시 앉았을 때 �
 | Privacy | Do you have sub-processors? | **Yes** — OpenAI, L.L.C.(미국) + Cloudflare, Inc.(미국) |
 | Privacy | Guidelines for sub-processors URL | `https://why-code.com/privacy#subprocessors` |
 | Privacy | Exposes an LLM to customers? | **Yes** |
-| Privacy | LLM model(s) | `gpt-5.4-mini`(질의·요약·재작성) · `gpt-4o-mini`(내부 그래프 판단, 사용자 비노출) · `text-embedding-3-large`(임베딩). 전부 OpenAI 호스팅 API |
+| Privacy | LLM model(s) | `gpt-5.4-mini`(질의·요약·재작성) · `gpt-4o-mini`(커밋 diff 요약·그래프 판단 — **요약은 그래프에 저장돼 답변에 인용된다**) · `text-embedding-3-large`(임베딩). 전부 OpenAI 호스팅 API |
 | Certifications | SOC · COPPA · ISO 27001/27017/27018 · FedRAMP · CSA STAR · Privacy Shield · GDPR · pen test 날짜 | **전부 비움** — 하나도 해당 없다. 빈칸은 감점이 아니지만 없는 인증을 적으면 심사자가 증서를 열어본다 |
 | Certifications | Are you HIPAA compliant? | **No** — 진료기록을 다루지 않는다. Yes는 BAA 체결 가능 선언이라 사실과 다르다 |
 | Security | SSO / SAML | **No / No** — 인증은 GitHub OAuth 전용이라 기업 IdP를 붙일 수단이 없다. 비밀번호를 저장하지 않는다는 점은 "third party services" 답에서 밝힌다 |
@@ -334,7 +337,7 @@ Security & Compliance 폼을 채우며 확정한 값과, 다시 앉았을 때 �
 | Security | Vulnerability disclosure program | **No** — `/support`에 신고 절차를 두거나 GitHub 비공개 취약점 신고를 켜면 Yes로 올릴 수 있다(발신 수단 없이 성립) |
 | Security | Third party auths/connections required? | **Yes** — GitHub 로그인이 유일한 가입 경로, 소스 1개 이상 연동 필요, 답변은 OpenAI 의존 |
 | Security | Security contact | `security@why-code.com` — 도착 확인 완료 |
-| Testing | 알림 대상 | JUNSU SEO / seoultechse13@gmail.com / **`+82 10-5911-9189`**(국제 표기라 앞 `0`을 뺀다) |
+| Testing | 알림 대상 | 이름은 `JUNSU SEO`. **연락처(개인 메일·휴대전화)는 폼에 직접 입력하고 이 문서에 남기지 않는다** — 레포가 public이다. 전화는 국제 표기라 앞 `0`을 뺀다 |
 | Testing | Notification channel | Email — 심사 피드백은 길고 링크가 붙어 SMS로는 놓친다 |
 
 ### 13-2. 서술 답변 (영문 원문)
@@ -362,8 +365,8 @@ Security & Compliance 폼을 채우며 확정한 값과, 다시 앉았을 때 �
 > Handling is idempotent, since Slack does not guarantee event ordering. **Project deletion / account
 > closure** — deleting a project deletes its integrations, conversations, collected records and graph;
 > closing an account deactivates it immediately and deletes all associated data after a 30-day reversal
-> window. Encrypted server backups are kept on a rolling 14-day basis; deleted data ages out of backups
-> within that window.
+> window. Server backups are kept on a rolling basis for roughly two weeks; deleted data ages out of
+> backups within that window.
 
 **Data storage policy**
 
@@ -393,7 +396,7 @@ Neo4j·Postgres 디스크에는 암호화가 걸려 있지 않다. 과장하면 
 > On receiving a request we verify that the requester controls the account or the identity concerned,
 > identify every project and graph node holding the data, and run the same deletion path used by
 > self-service disconnection. Deletion is idempotent and propagates to the knowledge graph, not only to
-> the relational database. Encrypted server backups roll off on a 14-day cycle, after which no copy remains.
+> the relational database. Server backups roll off on a roughly two-week cycle, after which no copy remains.
 
 ⚠️ **"삭제 완료를 이메일로 통지한다"는 넣지 않았다.** `contact@`·`security@`는 전달 전용이라
 그 주소를 발신인으로 답장할 수 없다([public-readiness.md](public-readiness.md) §4-2·§5-3).
@@ -430,8 +433,8 @@ Neo4j·Postgres 디스크에는 암호화가 걸려 있지 않다. 과장하면 
 > **Data source APIs, connected by the user and only with their consent:** GitHub, Slack, Atlassian Jira,
 > Discord, Google Chat, Notion, Linear, Asana, ClickUp. All connections are read-only; we never write to a
 > customer's workspace.
-> **Front-end assets:** web fonts served from jsDelivr and Google Fonts. A strict Content-Security-Policy
-> restricts scripts to our own origin.
+> **Front-end assets:** web fonts served from jsDelivr, Google Fonts, and Fontshare. A strict
+> Content-Security-Policy restricts scripts to our own origin.
 > **Not used:** no analytics or advertising trackers, no payment processor (the service is currently
 > free), and no error-reporting SaaS. Databases (Neo4j, PostgreSQL) and the message broker (RabbitMQ) are
 > open-source software we run ourselves, not hosted services.
@@ -474,7 +477,7 @@ Neo4j·Postgres 디스크에는 암호화가 걸려 있지 않다. 과장하면 
 
 **① OpenAI ZDR — 닫혔다(2026-09-09).** 신청·승인제이고 신청한 적이 없으므로 기본값이다
 (§12-7). 폼 문구는 §13-2로 확정했고, **방침 제4조에도 "OpenAI가 남용 확인 목적으로 최대 30일
-보관 후 삭제"를 명시했다** — 폼이 방침보다 상세한 상태를 남기지 않는다(백업 14일과 같은 처리).
+보관 후 삭제"를 명시했다** — 폼이 방침보다 상세한 상태를 남기지 않는다(백업 보존과 같은 처리).
 같은 개정(시행일 2026-09-09) 안에 들어가 개정 이벤트가 늘지 않았다.
 
 **② `/why-code` 실기동 범위 확인** — 워크스페이스에서 커맨드가 동작하는 것은 확인됐다(2026-09-09).
@@ -504,7 +507,7 @@ Neo4j·Postgres 디스크에는 암호화가 걸려 있지 않다. 과장하면 
 
 ### 13-4. 배포해야 반영되는 것
 
-`#subprocessors` 앵커와 방침 개정(Cloudflare 위탁·백업 14일·실명 표기·시행일 2026-09-09)은
+`#subprocessors` 앵커와 방침 개정(Cloudflare 위탁·백업 보존·실명 표기·시행일 2026-09-09)은
 빌드에 들어 있어야 공개된다.
 
 ```bash

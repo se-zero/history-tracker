@@ -589,10 +589,10 @@ export function PrivacyBodyEn() {
             want the record itself removed, please contact us at the address below.
           </li>
           <li>
-            <strong>Backups</strong> — Server backups roll on a 14-day cycle.
-            Data deleted through the paths above may remain in a backup taken
-            before the deletion, but disappears from backups within 14 days at
-            the latest.
+            <strong>Backups</strong> — Server backups roll on a roughly
+            two-week cycle. Data deleted through the paths above may remain in
+            a backup taken before the deletion, but disappears from backups
+            within about two weeks.
           </li>
           <li>
             Records that a law requires to be retained are kept separately for

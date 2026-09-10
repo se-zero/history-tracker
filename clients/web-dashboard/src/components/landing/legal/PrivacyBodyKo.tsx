@@ -25,6 +25,9 @@ import { PATHS } from "@/routes";
 //   파기 기한  → backend user-lifecycle.purge.grace-period (P30D) +
 //                권한 회수 실패 시 강제 진행 유예 force-purge-after (P7D, UserPurgeService)
 //   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
+//   백업 보존  → infra/scripts/backup.sh의 BACKUP_RETENTION_DAYS(14). 다만 대외 문구는
+//                "약 2주"다 — `find -mtime +14`가 15일차부터 지우고 cron이 하루 1회라
+//                실제 최대는 ~16일이다. 설정값을 그대로 옮겨 적지 않는다(제5조).
 // 이 중 하나라도 코드가 바뀌면 이 파일과 PrivacyBodyEn.tsx도 함께 고쳐야 한다.
 export function PrivacyBodyKo() {
   return (
@@ -487,8 +490,8 @@ export function PrivacyBodyKo() {
             탈퇴 시 함께 삭제됩니다. 이 기록의 삭제를 원하시면 아래 문의처로 요청해 주세요.
           </li>
           <li>
-            <strong>백업</strong> — 서버 백업은 14일 주기로 순환합니다. 위 경로로 삭제된
-            데이터가 그 이전에 만들어진 백업에 남아 있을 수 있으나, 늦어도 14일 안에
+            <strong>백업</strong> — 서버 백업은 약 2주 주기로 순환합니다. 위 경로로 삭제된
+            데이터가 그 이전에 만들어진 백업에 남아 있을 수 있으나, 약 2주 안에
             백업에서도 사라집니다.
           </li>
           <li>
