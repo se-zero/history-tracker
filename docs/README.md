@@ -97,6 +97,7 @@
 | 문서 | 필요 | 종류 | 남은 것 |
 |------|------|------|---------|
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
+| [evidence-retrieval-fixes.md](evidence-retrieval-fixes.md) | 작업 | 수정 계획 | 근거 회수 결함 12건을 묶음 A~F로 수정. 후속 10건(임계값·시간 창·검색 확장)은 §7 |
 
 ---
 
