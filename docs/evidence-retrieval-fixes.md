@@ -1,6 +1,6 @@
 # 근거 회수 품질 개선 — 코드 결함 수정 계획
 
-> 상태: **계획 확정, 착수 전** (2026-09-11). 진행은 `feature-cycle` 스킬의 묶음 단위(계획 → 위임 → 리뷰)로 돈다.
+> 상태: **묶음 A 완료(미커밋), B~F 대기** (2026-09-12). 진행은 `feature-cycle` 스킬의 묶음 단위(계획 → 위임 → 리뷰)로 돈다.
 > 원인 분석의 근거는 2026-09-10 코드 분석과 `eval/results/20260821T060820Z` 트랜스크립트 재분류다.
 
 ## 1. 배경
@@ -86,7 +86,8 @@ eval 재측정이 전제인 항목은 §7 "하지 않는 것"으로 남기고 `d
 - `tools/queries/changeset.py` `get_changeset_context`·`get_conflict_context`: `hash: $hash` 정확
   일치를 **`cs.hash STARTS WITH $hash`** 로. 매칭 0건이면 기존 "찾을 수 없음", 2건 이상이면
   `{message, candidates:[{hash, message 첫 줄, occurredAt}]}` 반환(get_issue_context의 후보 반환
-  규약 재사용). 입력이 7자 미만이면 후보 폭주 방지로 거부 메시지.
+  규약 재사용). 입력이 7자 미만이면 후보 폭주 방지로 거부 메시지. 40자 전체 해시는 접두어
+  해석을 건너뛴다(§6-A).
 - `tools/definitions.py` 두 도구 `hash` 설명에 "앞 7자 이상 접두어 가능" 추가.
 - 성공 기준: 새 테스트 `tests/unit/test_changeset_hash_prefix.py` — 접두어 매칭·후보 반환·짧은
   입력 거부가 통과(Neo4j 세션은 기존 테스트의 mock 방식 재사용).
@@ -119,7 +120,7 @@ eval 재측정이 전제인 항목은 §7 "하지 않는 것"으로 남기고 `d
 
 ### A-6. 문서 검색이 "문서 없음"을 구분
 - `tools/queries/document.py` `search_documents`: 벡터 검색 전에 `MATCH (d:Document {project_id})
-  RETURN count(d)`가 0이면 `{"message": "이 프로젝트에는 연결된 문서 소스가 없습니다. 문서 검색을
+  ... LIMIT 1`로 존재만 확인해 없으면 `{"message": "이 프로젝트에는 연결된 문서 소스가 없습니다. 문서 검색을
   다시 시도하지 말고 다른 도구로 진행하세요.", "no_documents": true}` 반환.
 - `agent/orchestrator.py` 프롬프트 [문서 처리] 절에 한 줄: "`no_documents`가 오면 이 질의에서
   search_documents·get_document_context를 다시 부르지 않는다."
@@ -141,6 +142,8 @@ eval 재측정이 전제인 항목은 §7 "하지 않는 것"으로 남기고 `d
   400자로 자른다(`files.py`의 `_DIFF_SUMMARY_MAX_CHARS`·`_DETAIL_MESSAGE_MAX_CHARS`를 `_common.py`로
   옮겨 공유). `get_issue_context`의 root·descendants `changesets[*].message`도 같은 캡.
 - PR `body`·이슈 `body`는 자르지 않는다(quote 원문이라 잘리면 인용이 깨진다).
+- **묶음 A 리뷰 이월**: `_first_line`이 `actor.py`(`str` 반환)·`changeset.py`(`str | None`)·
+  `issue.py`(cap 인자)에 세 번 정의돼 있다. 캡 상수를 `_common.py`로 옮기는 이 단계에서 함께 합친다.
 - 성공 기준: 캡 적용 단위 테스트(순수 함수로 분리해 Neo4j 없이).
 
 ### B-2. executor 공용 dict 트리머 (별도 커밋)
@@ -192,6 +195,16 @@ eval 재측정이 전제인 항목은 §7 "하지 않는 것"으로 남기고 `d
   `created_at`(event_meaning=issue_created) 또는 `closed_at`(issue_closed)을 쓴다. 둘 다 없으면
   get_issue_context로 조회한 뒤 인용한다" 추가.
 
+### C-4. `get_timeline` actor 후보 안내 (묶음 A 리뷰 이월)
+
+묶음 A가 actor 스코프에도 `scope.candidates`를 실어 보내게 했는데, 프롬프트 [시간순 질문 처리]
+절은 `candidates`의 원인을 경로와 이슈 키로만 열거한다. actor 후보가 와도 모델이 무엇을 해야
+할지 모른다.
+
+- 그 절에 actor 스코프를 추가하고, 표시 이름이 같을 수 있으니 alias로 재호출해도 된다고 명시한다
+  (도구 응답의 안내 문구와 같은 취지).
+- 성공 기준: 프롬프트 문자열 테스트 1건.
+
 묶음 C 성공 기준: pytest 통과.
 
 ---
@@ -227,11 +240,32 @@ eval 재측정이 전제인 항목은 §7 "하지 않는 것"으로 남기고 `d
 
 - `docs/tools.md`: 공통 규칙의 TRIGGERED_BY 컷오프 서술을 C-2와 맞춤, 2·10(해시 접두어·후보),
   5(dedupe 순서), 6(종류별 개요 상한), 7(`limit` 제거), 12(캡)·잘림 안내 문구.
+  **묶음 A 리뷰 이월**: L273이 사라진 상수 `ACTOR_ACTIVITY_CONTEXT_CAP`(기본 15)를 안내한다 →
+  `ACTOR_ACTIVITY_CONTEXT_CAP_PER_KIND`(기본 10, 종류별)로 정정.
 - `services/ai-engine/CLAUDE.md`: 새 env 노브(`ACTOR_ACTIVITY_CONTEXT_CAP_PER_KIND`), 자동 빌드가
   세 종류 임베딩을 보정한다는 한 줄.
 - `docs/query-followups.md`: §7 "하지 않는 것"을 후속 TODO로 등록.
 - `docs/deployment.md` 또는 backend CLAUDE.md: 새 프로퍼티 한 줄.
 - 이 문서 상단 상태를 "완료"로 갱신.
+
+---
+
+## 6-A. 묶음 A 리뷰 결과 (2026-09-12)
+
+`branch-review` 단계 리뷰: Critical 0 · Major 0 · Minor 8 · Note 2 → 🟢. 테스트 929개 통과
+(묶음 A 착수 전 기준선 898).
+
+**반영한 것** — Actor 메타 조회의 None 가드 복원(연동 해제가 두 쿼리 사이에 끼면 `dict(None)`),
+모호 안내에 alias 병기(표시 이름이 같은 노드가 여럿이면 이름으로는 영원히 모호하다),
+후보 목록 6건 잘림 고지(고지가 없으면 모델이 목록을 전부로 믿는다), 40자 전체 해시는 접두어
+해석을 건너뜀(타임라인·파일 이력이 넘기는 형태이고 `STARTS WITH`가 복합 인덱스를 못 타면
+전체 스캔), 문서 존재 확인을 전수 카운트에서 `LIMIT 1`로.
+
+**현행 유지** — 부분 일치에 최소 길이 가드를 두지 않는다. `LIMIT 6`이 이미 후보 폭주를 막고,
+한두 글자가 정당한 이름인 언어가 있어 해시(A-1의 7자)와 같은 기준을 적용할 수 없다.
+
+**이월** — `_first_line` 3중 정의는 B-1, `get_timeline` actor 후보 프롬프트는 C-4,
+`docs/tools.md` 상수 참조는 묶음 F.
 
 ---
 
