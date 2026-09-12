@@ -141,12 +141,13 @@ class IssueTimelineStubGuardTest(unittest.TestCase):
 
 class ChangesetContextStubGuardTest(unittest.TestCase):
     def test_triggered_by_issue_match_excludes_stub(self):
-        session = _FakeSession(records=[None])
+        resolve_candidates = [{"hash": "abc1234", "message": "m", "occurredAt": None}]
+        session = _FakeSession(records=[resolve_candidates, None])
         with patch("tools.queries.changeset.get_driver", return_value=_FakeDriver(session)):
-            asyncio.run(get_changeset_context("p1", "abc123"))
+            asyncio.run(get_changeset_context("p1", "abc1234"))
 
-        self.assertEqual(len(session.calls), 1)
-        query, _params = session.calls[0]
+        self.assertEqual(len(session.calls), 2)
+        query, _params = session.calls[1]
         self.assertIn("i.source <> '__stub__'", query)
 
 

@@ -292,11 +292,12 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
             )
 
         case "get_file_history":
+            # limit은 의도적으로 전달하지 않는다 — get_actor_activity와 같은 이유로, LLM이
+            # 지어낸 limit이 관련도 재랭킹 전에 최신 N개로 이력을 잘라 옛 관련 커밋 구제를 무력화한다
             return await queries.get_file_history(
                 project_id=project_id,
                 path=args["path"],
                 question_embedding=await _question_embedding(question),
-                limit=args.get("limit"),
             )
 
         case "check_missing_context":

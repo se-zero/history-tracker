@@ -13,7 +13,10 @@ from tools.queries._common import _detail_count_for_budget, _priority_order, get
 # 늘어나면 컷 문제가 커지므로 병합 전에 반환 정책을 바꿔 둔다.
 _ACTIVITY_FETCH_MAX = int(os.environ.get("ACTOR_ACTIVITY_MAX", "100"))          # 카테고리별 조회 상한(최신순)
 _ACTIVITY_DETAIL_BUDGET = int(os.environ.get("ACTOR_ACTIVITY_DETAIL_BUDGET", "4000"))  # detail 직렬화 합 상한(자)
-_ACTIVITY_CONTEXT_CAP = int(os.environ.get("ACTOR_ACTIVITY_CONTEXT_CAP", "15"))  # context stub 총 상한
+# context stub 상한 — 종류별(커밋·메시지·PR)로 독립 배정한다. 메시지가 가장 많고 최신이라
+# 종류 구분 없는 총량 상한을 쓰면 메시지가 자리를 독식해 오래된 PR·커밋이 개요에서도
+# 사라진다(모델이 드릴다운할 식별자를 잃는다).
+_ACTIVITY_CONTEXT_CAP_PER_KIND = int(os.environ.get("ACTOR_ACTIVITY_CONTEXT_CAP_PER_KIND", "10"))
 _ISSUES_CAP = int(os.environ.get("ACTOR_ACTIVITY_ISSUES_CAP", "20"))             # 생성/담당 이슈 리스트 상한
 _ISSUE_TITLE_MAX_CHARS = 40
 _ACTIVITY_DETAIL_K_MAX = 20        # 카테고리별 detail 행 수 하드 상한 (기존 limit 20과 동일한 천장)
@@ -30,6 +33,9 @@ _TIER_NOTE = (
     "commit→get_changeset_context, message→get_thread_context, "
     "pull_request→get_pr_context로 본문을 조회한 뒤 인용하세요."
 )
+
+# context_truncated 문구용 — kind 코드를 사람이 읽는 표기로.
+_KIND_LABEL_KO = {"commit": "커밋", "message": "메시지", "pull_request": "PR"}
 
 
 async def find_expert(project_id: str, path_prefix: str) -> list[dict]:
@@ -141,14 +147,19 @@ def _stub(kind: str, r: dict) -> dict:
 
 def _build_activity_tiers(
     commits: list[dict], prs: list[dict], comms: list[dict], comm_ranked: bool,
-    budget: int = _ACTIVITY_DETAIL_BUDGET, context_cap: int = _ACTIVITY_CONTEXT_CAP,
-) -> tuple[list[dict], list[dict], int]:
+    budget: int = _ACTIVITY_DETAIL_BUDGET, context_cap_per_kind: int = _ACTIVITY_CONTEXT_CAP_PER_KIND,
+) -> tuple[list[dict], list[dict], dict[str, int]]:
     """카테고리별 예산으로 detail을 뽑고 나머지를 stub으로 내려 시간순 병합한다.
 
     커밋·PR은 최신순(노드 임베딩 없음), 메시지는 comm_ranked=True면 관련도순으로 승격.
     카테고리별 예산 배분(_BUDGET_SPLIT)으로 한 카테고리의 독식을 막는다.
 
-    Returns: (detail, context, overflow) — overflow는 context_cap 초과로 생략된 stub 수.
+    leftover stub도 **종류별로 독립 상한**을 적용한 뒤 합쳐 시간순으로 병합한다 — 메시지가
+    가장 많고 최신이라 종류 구분 없는 총량 상한을 쓰면 메시지가 자리를 독식해 오래된 PR·커밋이
+    context에서도 사라진다(모델이 드릴다운할 식별자를 잃는다).
+
+    Returns: (detail, context, overflow_by_kind) — overflow_by_kind는 종류별로 상한 초과해
+    생략된 stub 수(초과가 없는 종류는 키 자체가 없다).
     """
     plan = [
         ("commit", commits, False, _commit_detail),
@@ -156,30 +167,103 @@ def _build_activity_tiers(
         ("pull_request", prs, False, _pr_detail),
     ]
     detail: list[dict] = []
-    leftovers: list[tuple[str, dict]] = []
+    leftovers_by_kind: dict[str, list[dict]] = {}
     for kind, rows, ranked, render in plan:
         k = _detail_count_for_budget(rows, ranked, int(budget * _BUDGET_SPLIT[kind]),
                                      _ACTIVITY_DETAIL_K_MAX, render)
         chosen = _priority_order(rows, ranked)[:k]
         chosen_ids = {id(r) for r in chosen}
         detail.extend(render(r, ranked) for r in chosen)
-        leftovers.extend((kind, r) for r in rows if id(r) not in chosen_ids)
+        leftovers_by_kind[kind] = [r for r in rows if id(r) not in chosen_ids]
 
     detail.sort(key=lambda r: r.get("occurredAt") or "", reverse=True)
-    stubs = [_stub(kind, r) for kind, r in leftovers]
-    stubs.sort(key=lambda r: r.get("occurredAt") or "", reverse=True)
-    context = stubs[:context_cap]
-    return detail, context, len(stubs) - len(context)
+
+    context: list[dict] = []
+    overflow: dict[str, int] = {}
+    for kind, rows in leftovers_by_kind.items():
+        rows_sorted = sorted(rows, key=lambda r: r.get("occurredAt") or "", reverse=True)
+        kept = rows_sorted[:context_cap_per_kind]
+        context.extend(_stub(kind, r) for r in kept)
+        if len(rows_sorted) > len(kept):
+            overflow[kind] = len(rows_sorted) - len(kept)
+
+    context.sort(key=lambda r: r.get("occurredAt") or "", reverse=True)
+    return detail, context, overflow
 
 
-# Actor 식별자(이름/alias/이메일) 매칭 WHERE 조각 — get_actor_activity·inspect_actor에서 반복
-# 사용한다. 개인정보(표시 이름·이메일)는 ActorAlias로 이전됐으므로 EXISTS 서브쿼리로 조회한다.
+# Actor 식별자(이름/alias/이메일) 정확 일치 WHERE 조각 — _resolve_actor 1차 시도에서만 쓴다.
+# 개인정보(표시 이름·이메일)는 ActorAlias로 이전됐으므로 EXISTS 서브쿼리로 조회한다.
 # al.pd_name 매칭은 의도된 확장 — 표시 이름이 GitHub 기준으로 바뀌어도 LLM이 Jira 실명("김영희")
 # 으로 사람을 찾을 수 있어야 한다. ALIAS_OF는 항상 같은 project 안에서만 이어지므로 project_id
 # 중복 필터는 불필요하다.
 _ACTOR_MATCH_WHERE = """a.name = $identifier
    OR $identifier IN a.aliases
    OR EXISTS { MATCH (al:ActorAlias)-[:ALIAS_OF]->(a) WHERE al.pd_email = $identifier OR al.pd_name = $identifier }"""
+
+# 후보 상한 — candidates로 되돌릴 목록이 무한정 늘어나지 않게 한다.
+# 잘림을 알리려면 상한보다 1건 더 조회해야 한다(_actor_ambiguous_response가 고지).
+_ACTOR_RESOLVE_LIMIT = 6
+
+
+async def _resolve_actor(session, project_id: str, identifier: str) -> list[dict]:
+    """식별자(이름/alias/이메일)로 매칭되는 Actor 후보를 조회한다.
+
+    1차: 정확 일치(_ACTOR_MATCH_WHERE, 오늘의 동작과 동일) — 매칭이 있으면 그대로 반환하고
+    2차를 실행하지 않는다(정확 일치 입력의 동작을 완전히 보존하기 위한 순서).
+    2차(1차가 0건일 때만): 대소문자 무시 부분 일치 — "junsu"처럼 부분 이름·대소문자가
+    다른 입력을 구제한다.
+
+    호출부는 반환 건수로 없음(0)/바로 사용(1)/모호(2+, candidates)를 판단한다.
+    """
+    result = await session.run(
+        """
+        MATCH (a:Actor {project_id: $project_id})
+        WHERE """ + _ACTOR_MATCH_WHERE + """
+        RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases
+        LIMIT $resolve_limit
+        """,
+        project_id=project_id, identifier=identifier, resolve_limit=_ACTOR_RESOLVE_LIMIT + 1,
+    )
+    exact = await result.data()
+    if exact:
+        return exact
+
+    result = await session.run(
+        """
+        MATCH (a:Actor {project_id: $project_id})
+        WHERE toLower(a.name) CONTAINS toLower($identifier)
+           OR any(x IN a.aliases WHERE toLower(x) CONTAINS toLower($identifier))
+           OR EXISTS {
+                MATCH (al:ActorAlias)-[:ALIAS_OF]->(a)
+                WHERE toLower(al.pd_name) CONTAINS toLower($identifier)
+                   OR toLower(al.pd_email) CONTAINS toLower($identifier)
+              }
+        RETURN a.uuid AS uuid, a.name AS name, a.aliases AS aliases
+        LIMIT $resolve_limit
+        """,
+        project_id=project_id, identifier=identifier, resolve_limit=_ACTOR_RESOLVE_LIMIT + 1,
+    )
+    return await result.data()
+
+
+def _actor_ambiguous_response(candidates: list[dict]) -> dict:
+    """후보 목록 응답.
+
+    **alias를 함께 안내하는 이유**: Actor 동일인 판단이 실패해 같은 사람이 여러 노드로 갈리면
+    표시 이름까지 같을 수 있다. 그때 "이름으로 재호출"은 같은 모호함으로 돌아오는 지시가 된다 —
+    alias는 소스별로 유일하므로(예: GITHUB:se-zero) 그쪽이 탈출로다.
+    """
+    message = (
+        "이 이름에 해당하는 사람이 여러 명입니다. candidates 중 한 명의 이름 또는 alias로 다시 "
+        "호출하세요 — 표시 이름이 서로 같으면 alias가 유일한 구분자입니다."
+    )
+    if len(candidates) > _ACTOR_RESOLVE_LIMIT:
+        candidates = candidates[:_ACTOR_RESOLVE_LIMIT]
+        message += f" 후보가 {_ACTOR_RESOLVE_LIMIT}명을 넘어 일부만 표시했습니다 — 이름을 더 길게 지정하세요."
+    return {
+        "message": message,
+        "candidates": [{"name": c["name"], "aliases": c["aliases"]} for c in candidates],
+    }
 
 
 async def get_actor_activity(
@@ -197,55 +281,59 @@ async def get_actor_activity(
     """
     fetch_cap = min(limit, _ACTIVITY_FETCH_MAX) if limit else _ACTIVITY_FETCH_MAX
     async with get_driver().session() as session:
-        # Actor 확인
+        candidates = await _resolve_actor(session, project_id, identifier)
+        if not candidates:
+            return {"message": f"Actor를 찾을 수 없습니다: {identifier}"}
+        if len(candidates) > 1:
+            return _actor_ambiguous_response(candidates)
+        actor_uuid = candidates[0]["uuid"]
+
+        # Actor 메타(표시명·alias·이메일) — 해석된 uuid로 확정 스코프
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})
-            WHERE """ + _ACTOR_MATCH_WHERE + """
+            MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})
             RETURN a.name AS name, a.aliases AS aliases,
                    [x IN [(al:ActorAlias)-[:ALIAS_OF]->(a) | al.pd_email] WHERE x IS NOT NULL] AS emails
-            LIMIT 1
             """,
-            project_id=project_id,
-            identifier=identifier,
+            project_id=project_id, actor_uuid=actor_uuid,
         )
         actor_row = await result.single()
         if not actor_row:
+            # resolve 직후라 정상 경로에선 반드시 있다. 연동 해제(delete_project_source_graph)가
+            # 두 쿼리 사이에 끼어 노드가 사라진 경우에만 비며, 그때 dict(None) TypeError로
+            # 터뜨리지 않고 안내로 떨어뜨린다.
             return {"message": f"Actor를 찾을 수 없습니다: {identifier}"}
         actor = dict(actor_row)
 
         # 커밋 (최신순)
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})-[:AUTHORED]->(cs:ChangeSet)
-            WHERE (""" + _ACTOR_MATCH_WHERE + """)
-              AND ($from_time IS NULL OR cs.occurredAt >= datetime($from_time))
+            MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})-[:AUTHORED]->(cs:ChangeSet)
+            WHERE $from_time IS NULL OR cs.occurredAt >= datetime($from_time)
             WITH cs ORDER BY cs.occurredAt DESC LIMIT $fetch_cap
             RETURN cs.hash AS hash, cs.message AS message, toString(cs.occurredAt) AS occurredAt
             """,
-            project_id=project_id, identifier=identifier, from_time=from_time, fetch_cap=fetch_cap,
+            project_id=project_id, actor_uuid=actor_uuid, from_time=from_time, fetch_cap=fetch_cap,
         )
         commits = await result.data()
 
         # PR (최신순)
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})-[:AUTHORED]->(pr:PullRequest)
-            WHERE (""" + _ACTOR_MATCH_WHERE + """)
-              AND ($from_time IS NULL OR pr.occurredAt >= datetime($from_time))
+            MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})-[:AUTHORED]->(pr:PullRequest)
+            WHERE $from_time IS NULL OR pr.occurredAt >= datetime($from_time)
             WITH pr ORDER BY pr.occurredAt DESC LIMIT $fetch_cap
             RETURN pr.pr_number AS pr_number, pr.title AS title, toString(pr.occurredAt) AS occurredAt
             """,
-            project_id=project_id, identifier=identifier, from_time=from_time, fetch_cap=fetch_cap,
+            project_id=project_id, actor_uuid=actor_uuid, from_time=from_time, fetch_cap=fetch_cap,
         )
         prs = await result.data()
 
         # 메시지 (최신순 조회 + 질문 관련도 계산 — 승격은 Python 단에서)
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})-[:WROTE]->(c:Communication)
-            WHERE (""" + _ACTOR_MATCH_WHERE + """)
-              AND ($from_time IS NULL OR c.occurredAt >= datetime($from_time))
+            MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})-[:WROTE]->(c:Communication)
+            WHERE $from_time IS NULL OR c.occurredAt >= datetime($from_time)
             WITH c ORDER BY c.occurredAt DESC LIMIT $fetch_cap
             RETURN c.body AS body, c.channel AS channel,
                    c.conversation_id AS conversation_id,
@@ -253,7 +341,7 @@ async def get_actor_activity(
                    CASE WHEN $q_embedding IS NULL OR c.embedding IS NULL THEN null
                         ELSE vector.similarity.cosine(c.embedding, $q_embedding) END AS relevance
             """,
-            project_id=project_id, identifier=identifier, from_time=from_time,
+            project_id=project_id, actor_uuid=actor_uuid, from_time=from_time,
             fetch_cap=fetch_cap, q_embedding=question_embedding,
         )
         comms = await result.data()
@@ -271,22 +359,22 @@ async def get_actor_activity(
                               "commit": "recency", "pull_request": "recency"}
         actor["detail"] = detail
         actor["context"] = context
-        if overflow > 0:
-            actor["context_truncated"] = f"context 개요 상한 초과 — 오래된 {overflow}건 생략."
+        if overflow:
+            parts = ", ".join(f"{_KIND_LABEL_KO[kind]} {n}건" for kind, n in overflow.items())
+            actor["context_truncated"] = f"context 개요 생략 — {parts}."
         actor["_note"] = _TIER_NOTE
 
         # Jira 생성 / 담당
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})
-            WHERE """ + _ACTOR_MATCH_WHERE + """
+            MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})
             OPTIONAL MATCH (a)-[:CREATED]->(i:Issue)
             OPTIONAL MATCH (assigned:Issue)-[:ASSIGNED_TO]->(a)
             RETURN collect(DISTINCT {issue_key: i.issue_key, title: i.title}) AS issues_created,
                    collect(DISTINCT {issue_key: assigned.issue_key, title: assigned.title}) AS issues_assigned
             """,
             project_id=project_id,
-            identifier=identifier,
+            actor_uuid=actor_uuid,
         )
         row = await result.single()
         if row:
@@ -303,10 +391,16 @@ async def get_actor_activity(
 
 async def inspect_actor(project_id: str, identifier: str) -> dict:
     async with get_driver().session() as session:
+        candidates = await _resolve_actor(session, project_id, identifier)
+        if not candidates:
+            return {"message": f"Actor를 찾을 수 없습니다: {identifier}"}
+        if len(candidates) > 1:
+            return _actor_ambiguous_response(candidates)
+        actor_uuid = candidates[0]["uuid"]
+
         result = await session.run(
             """
-            MATCH (a:Actor {project_id: $project_id})
-            WHERE """ + _ACTOR_MATCH_WHERE + """
+            MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})
             OPTIONAL MATCH (al:ActorAlias)-[:ALIAS_OF]->(a)
             WITH a, collect(DISTINCT al.pd_email) AS raw_emails
             RETURN a.uuid AS uuid,
@@ -319,7 +413,7 @@ async def inspect_actor(project_id: str, identifier: str) -> dict:
                    count { (a)-[:CREATED]->(:Issue) } AS issue_created_count
             """,
             project_id=project_id,
-            identifier=identifier,
+            actor_uuid=actor_uuid,
         )
         row = await result.single()
         if not row:

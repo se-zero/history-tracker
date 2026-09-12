@@ -128,11 +128,11 @@ class GetDocumentContextAmbiguityTest(unittest.TestCase):
 
 class SearchDocumentsTest(unittest.TestCase):
     def test_uses_doc_section_vector_index(self):
-        session = _FakeSession(records=[[]])
+        session = _FakeSession(records=[{"external_id": "page-1"}, []])
         with patch("tools.queries.document.get_driver", return_value=_FakeDriver(session)):
             asyncio.run(search_documents("p1", [0.1, 0.2], top_k=5, threshold=0.3))
 
-        query, params = session.calls[0]
+        query, params = session.calls[1]
         self.assertIn("db.index.vector.queryNodes('doc_section_embedding', $fetch_k, $embedding)", query)
         self.assertIn("MATCH (s)-[:PART_OF]->(d:Document)", query)
         self.assertEqual(params["project_id"], "p1")
@@ -147,7 +147,7 @@ class SearchDocumentsTest(unittest.TestCase):
             {"source": "NOTION", "external_id": "page-1", "title": "t", "url": "u",
              "section": "토큰 갱신", "excerpt": "높은 점수 섹션", "score": 0.9},
         ]
-        session = _FakeSession(records=[rows])
+        session = _FakeSession(records=[{"external_id": "page-1"}, rows])
         with patch("tools.queries.document.get_driver", return_value=_FakeDriver(session)):
             result = asyncio.run(search_documents("p1", [0.1, 0.2]))
 
@@ -156,11 +156,30 @@ class SearchDocumentsTest(unittest.TestCase):
         self.assertEqual(result[0]["score"], 0.9)
 
     def test_no_results_returns_message(self):
-        session = _FakeSession(records=[[]])
+        session = _FakeSession(records=[{"external_id": "page-1"}, []])
         with patch("tools.queries.document.get_driver", return_value=_FakeDriver(session)):
             result = asyncio.run(search_documents("p1", [0.1, 0.2]))
 
         self.assertEqual(result, [{"message": "유사한 문서를 찾지 못했습니다. threshold를 낮추거나 다른 질의를 시도하세요."}])
+
+    def test_no_documents_in_project_skips_vector_search(self):
+        # A-6: 문서 소스가 아예 없으면 threshold 안내 대신 no_documents를 반환하고,
+        # 벡터 검색(doc_section_embedding)은 실행되지 않는다.
+        session = _FakeSession(records=[None])
+        with patch("tools.queries.document.get_driver", return_value=_FakeDriver(session)):
+            result = asyncio.run(search_documents("p1", [0.1, 0.2]))
+
+        self.assertEqual(len(session.calls), 1)
+        exists_query, exists_params = session.calls[0]
+        self.assertIn("MATCH (d:Document {project_id: $project_id})", exists_query)
+        # 존재 여부만 보므로 전수 카운트가 아니라 첫 한 건으로 끊어야 한다
+        self.assertIn("LIMIT 1", exists_query)
+        self.assertNotIn("count(d)", exists_query)
+        self.assertEqual(exists_params["project_id"], "p1")
+        self.assertEqual(result, [{
+            "message": "이 프로젝트에는 연결된 문서 소스가 없습니다. 문서 검색을 다시 시도하지 말고 다른 도구로 진행하세요.",
+            "no_documents": True,
+        }])
 
 
 if __name__ == "__main__":

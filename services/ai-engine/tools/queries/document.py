@@ -152,6 +152,20 @@ async def search_documents(
     """
     fetch_k = min(top_k * _VECTOR_OVERFETCH, _VECTOR_OVERFETCH_CAP)
     async with get_driver().session() as session:
+        # 문서 소스가 아예 없는 프로젝트에서는 threshold를 낮추라는 안내가 무의미하다 —
+        # 벡터 검색 전에 먼저 갈라서, 시스템 프롬프트가 "왜" 질문마다 반복시키는 재시도를 막는다.
+        # 존재 여부만 필요하므로 전수 카운트가 아니라 첫 한 건으로 끊는다 — 문서가 많은
+        # 프로젝트에서 매 호출 전수 카운트를 도는 비용을 피한다.
+        exists_result = await session.run(
+            "MATCH (d:Document {project_id: $project_id}) RETURN d.external_id AS external_id LIMIT 1",
+            project_id=project_id,
+        )
+        if await exists_result.single() is None:
+            return [{
+                "message": "이 프로젝트에는 연결된 문서 소스가 없습니다. 문서 검색을 다시 시도하지 말고 다른 도구로 진행하세요.",
+                "no_documents": True,
+            }]
+
         result = await session.run(
             """
             CALL db.index.vector.queryNodes('doc_section_embedding', $fetch_k, $embedding)

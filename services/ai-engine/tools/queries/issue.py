@@ -11,6 +11,7 @@ from tools.queries._common import (
     normalize_time,
     sort_events,
 )
+from tools.queries.actor import _actor_ambiguous_response, _resolve_actor
 from tools.queries.files import (
     _FUZZY_CANDIDATE_LIMIT,
     _find_files_by_stem,
@@ -683,13 +684,23 @@ async def _resolve_path(session, project_id: str, path: str):
 
 
 async def _actor_events(session, project_id: str, actor: str) -> tuple[dict, list[dict] | None]:
-    """사람 스코프 — 이름·alias·email 중 하나로 Actor를 찾아 그 사람의 활동 이벤트."""
+    """사람 스코프 — actor._resolve_actor(이름·alias·이메일 정확 일치 → 부분 일치 폴백)로
+    Actor를 찾아 그 사람의 활동 이벤트. 후보가 여러 명이면 scope에 candidates를 실어
+    반환한다(_issue_events의 candidates 처리와 같은 모양)."""
+    candidates = await _resolve_actor(session, project_id, actor)
+    if not candidates:
+        return {"type": "actor", "value": actor,
+                "message": f"해당 사람을 찾지 못했습니다: {actor}"}, None
+    if len(candidates) > 1:
+        return {
+            "type": "actor", "value": actor,
+            **_actor_ambiguous_response(candidates),
+        }, None
+    actor_uuid = candidates[0]["uuid"]
+
     result = await session.run(
         """
-        MATCH (a:Actor {project_id: $project_id})
-        WHERE a.name = $actor
-           OR $actor IN a.aliases
-           OR EXISTS { MATCH (al:ActorAlias)-[:ALIAS_OF]->(a) WHERE al.pd_email = $actor OR al.pd_name = $actor }
+        MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})
         OPTIONAL MATCH (a)-[:AUTHORED]->(cs:ChangeSet)
         OPTIONAL MATCH (a)-[:AUTHORED]->(pr:PullRequest)
         OPTIONAL MATCH (a)-[:WROTE]->(c:Communication)
@@ -706,7 +717,7 @@ async def _actor_events(session, project_id: str, actor: str) -> tuple[dict, lis
                collect(DISTINCT {createdAt: toString(i.createdAt), closedAt: toString(i.closedAt),
                                  issue_key: i.issue_key, title: i.title, status: i.status}) AS issues
         """,
-        project_id=project_id, actor=actor,
+        project_id=project_id, actor_uuid=actor_uuid,
     )
     row = await result.single()
     if not row or not row["name"]:

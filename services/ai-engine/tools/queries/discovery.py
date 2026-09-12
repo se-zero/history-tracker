@@ -11,7 +11,9 @@ from tools.queries._common import (
 async def search_by_keyword(project_id: str, embedding: list[float], top_k: int = 5, threshold: float = 0.30) -> list[dict]:
     fetch_k = min(top_k * _VECTOR_OVERFETCH, _VECTOR_OVERFETCH_CAP)
     async with get_driver().session() as session:
-        # Communication 인덱스 검색 — 전역 fetch_k 후보를 project_id로 필터하고 top_k로 자른다.
+        # Communication 인덱스 검색 — 전역 fetch_k 후보를 project_id로 필터한다.
+        # LIMIT은 top_k가 아니라 fetch_k다 — dedupe 전에 top_k로 잘라내면 한 스레드의
+        # 메시지가 상위를 채웠을 때 결과가 그 스레드 하나로 쪼그라든다. dedupe 후에 top_k로 자른다.
         result = await session.run(
             """
             CALL db.index.vector.queryNodes('comm_embedding', $fetch_k, $embedding)
@@ -29,12 +31,11 @@ async def search_by_keyword(project_id: str, embedding: list[float], top_k: int 
                    collect(DISTINCT cs.hash) AS related_changesets,
                    collect(DISTINCT i.issue_key) AS related_issues
             ORDER BY score DESC
-            LIMIT $top_k
+            LIMIT $fetch_k
             """,
             project_id=project_id,
             embedding=embedding,
             fetch_k=fetch_k,
-            top_k=top_k,
             threshold=threshold,
         )
         comm_rows = await result.data()
@@ -50,7 +51,7 @@ async def search_by_keyword(project_id: str, embedding: list[float], top_k: int 
             if cid:
                 seen_threads.add(cid)
             deduped_comm_rows.append(r)
-        comm_rows = deduped_comm_rows
+        comm_rows = deduped_comm_rows[:top_k]
 
         # Issue 인덱스 검색 — 동일하게 over-fetch 후 project_id 필터 + top_k.
         result = await session.run(
