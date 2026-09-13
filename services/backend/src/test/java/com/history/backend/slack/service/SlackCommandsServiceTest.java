@@ -47,14 +47,16 @@ class SlackCommandsServiceTest {
     private static final String TEAM_ID = "T123ABC";
     private static final String USER_ID = "U123XYZ";
     private static final String RESPONSE_URL = "https://hooks.slack.com/commands/T123/123/abc";
-    private static final String SEARCHING = "질문을 찾고 있어요. 잠시만 기다려 주세요.";
+    // "찾는 중" ack는 질문을 인용해 보여준다 — 질문 자체엔 mrkdwn 특수문자가 없어 이스케이프 결과가 그대로다.
+    private static final String SEARCHING_SUFFIX = "찾고 있어요. 잠시만 기다려 주세요.";
+    private static final String QUESTION = "why did auth change?";
+    private static final String SEARCHING = "> " + QUESTION + "\n" + SEARCHING_SUFFIX;
     private static final String BUSY = "지금은 요청이 많아요. 잠시 후 다시 시도해 주세요.";
     private static final String QUERY_FAILED = "답변을 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
     private static final String GATING = "이 워크스페이스를 연결한 계정만 사용할 수 있어요.";
     private static final String SITE = "https://why-code.com";
     private static final String PLAN_LIMIT =
             "무료 플랜의 질문 한도에 도달했어요. https://why-code.com 에서 플랜을 확인해주세요.";
-    private static final String QUESTION = "why did auth change?";
     private static final String ANSWER = "OAuth callback was updated.";
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
@@ -198,6 +200,30 @@ class SlackCommandsServiceTest {
         verify(mockExecutor).execute(any());
         verifyNoInteractions(integrationService, slackClient, planService, aiEngineQueryClient);
         verifyNoInteractions(conversationRepository, messageService);
+    }
+
+    @Test
+    @DisplayName("찾는 중 ack — 질문을 mrkdwn 이스케이프해 인용한다 (& → &amp;, < → &lt;, > → &gt; 이 순서)")
+    void handleQuotesAndEscapesQuestionInSearchingAck() {
+        SlackCommandsService service = serviceWith(mockExecutor);
+        String body = form(TEAM_ID, USER_ID, "<b> & c", RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+
+        SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
+
+        assertThat(ack.text()).isEqualTo("> &lt;b&gt; &amp; c\n" + SEARCHING_SUFFIX);
+    }
+
+    @Test
+    @DisplayName("찾는 중 ack — 질문의 줄바꿈은 각 줄을 \"> \"로 인용해 이어 붙인다")
+    void handleQuotesEachLineOfMultilineQuestionInSearchingAck() {
+        SlackCommandsService service = serviceWith(mockExecutor);
+        String body = form(TEAM_ID, USER_ID, "a\nb", RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+
+        SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
+
+        assertThat(ack.text()).isEqualTo("> a\n> b\n" + SEARCHING_SUFFIX);
     }
 
     @Test
@@ -543,7 +569,7 @@ class SlackCommandsServiceTest {
         assertThat(ack.responseType()).isEqualTo("ephemeral");
         assertThat(ack.text()).contains("/why-code").contains("help");
         assertThat(ack.text()).doesNotContain("Oops").doesNotContain("😅");
-        assertThat(ack.text()).isNotEqualTo(SEARCHING);
+        assertThat(ack.text()).doesNotContain(SEARCHING_SUFFIX);
     }
 
     private static IntegrationService.SlackCommandTarget target(

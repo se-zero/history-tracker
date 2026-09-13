@@ -32,7 +32,8 @@ import org.springframework.stereotype.Service;
 public class SlackCommandsService {
 
     private static final String RESPONSE_TYPE = "ephemeral";
-    private static final String SEARCHING = "질문을 찾고 있어요. 잠시만 기다려 주세요.";
+    // "찾는 중" ack에 질문을 인용해 붙인다 — 사용자가 자기 질문이 접수됐는지 화면에서 바로 확인할 수 있게.
+    private static final String SEARCHING_SUFFIX = "찾고 있어요. 잠시만 기다려 주세요.";
     private static final String BUSY = "지금은 요청이 많아요. 잠시 후 다시 시도해 주세요.";
     private static final String QUERY_FAILED = "답변을 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
     private static final String GATING =
@@ -111,7 +112,18 @@ public class SlackCommandsService {
             // 큐가 가득 차면 5xx를 주면 Slack이 재시도한다 — 이미 바쁜 상태를 안내하는 편이 맞다
             return new SlackCommandAck(RESPONSE_TYPE, BUSY);
         }
-        return new SlackCommandAck(RESPONSE_TYPE, SEARCHING);
+        return new SlackCommandAck(RESPONSE_TYPE, searchingAck(text));
+    }
+
+    // 질문을 mrkdwn 인용구로 붙인다 — 여러 줄이면 각 줄을 "> "로 인용해 이어 붙인다.
+    private static String searchingAck(String text) {
+        String quoted = escapeMrkdwn(text).replace("\n", "\n> ");
+        return "> " + quoted + "\n" + SEARCHING_SUFFIX;
+    }
+
+    // Slack mrkdwn 이스케이프 규칙 — &를 먼저 바꾸지 않으면 <, > 치환 결과의 &까지 다시 이스케이프된다.
+    private static String escapeMrkdwn(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private void runCommand(String teamId, String userId, String text, String responseUrl) {
