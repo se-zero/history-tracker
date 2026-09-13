@@ -279,7 +279,7 @@ class SlackCommandsServiceTest {
         assertThat(ack.text()).isEqualTo(SEARCHING);
         verify(integrationService).backfillSlackConnectedUserId(INTEGRATION_ID, USER_ID);
         verify(aiEngineQueryClient).ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of());
-        verify(slackClient).postEphemeral(RESPONSE_URL, ANSWER);
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         verifyNoInteractions(conversationRepository, messageService);
     }
 
@@ -365,7 +365,7 @@ class SlackCommandsServiceTest {
 
         assertThat(ack.text()).isEqualTo(SEARCHING);
         verify(aiEngineQueryClient).ask(QUESTION, PROJECT_ID_2, List.of(), List.of(), null, List.of());
-        verify(slackClient).postEphemeral(RESPONSE_URL, ANSWER);
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         verify(slackClient, never()).postEphemeral(RESPONSE_URL, QUERY_FAILED);
         verify(integrationService, never()).backfillSlackConnectedUserId(any(), any());
         verify(slackCredentialCodec, never()).decrypt(ENCRYPTED);
@@ -391,7 +391,7 @@ class SlackCommandsServiceTest {
         order.verify(planService).ensureQueryAllowed(OWNER_ID);
         order.verify(planService).recordQuery(OWNER_ID);
         order.verify(aiEngineQueryClient).ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of());
-        order.verify(slackClient).postEphemeral(RESPONSE_URL, ANSWER);
+        order.verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         verify(slackClient, never()).authTest(any());
         verifyNoInteractions(conversationRepository, messageService);
         verify(slackCredentialCodec, never()).decrypt(any());
@@ -436,7 +436,7 @@ class SlackCommandsServiceTest {
         service.handle(TIMESTAMP, SIGNATURE, body);
 
         verify(aiEngineQueryClient).ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of());
-        verify(slackClient).postEphemeral(RESPONSE_URL, ANSWER);
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         Mockito.verifyNoMoreInteractions(aiEngineQueryClient);
     }
 

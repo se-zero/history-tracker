@@ -194,7 +194,7 @@ public class SlackCommandsService {
             slackClient.postEphemeral(responseUrl, QUERY_FAILED);
             return;
         }
-        slackClient.postEphemeral(responseUrl, result.answer());
+        slackClient.postEphemeralMarkdown(responseUrl, result.answer());
     }
 
     private static String listProjects(List<SlackCommandTarget> candidates) {

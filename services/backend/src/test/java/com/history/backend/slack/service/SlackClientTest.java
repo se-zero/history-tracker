@@ -5,12 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.UnauthorizedException;
 import com.history.backend.slack.SlackProperties;
@@ -18,6 +21,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -25,6 +29,10 @@ import org.springframework.web.client.RestClient;
 
 @DisplayName("SlackClient: Slack API 호출")
 class SlackClientTest {
+
+    // postEphemeralMarkdown 절단 안내 — 12,000자 초과 시에만 붙는다
+    private static final String TRUNCATION_NOTICE =
+            "\n\n답변이 길어 일부만 표시했어요. 대시보드에서 질문하면 전체 답변을 볼 수 있어요.";
 
     @Test
     @DisplayName("Slack code 교환 성공 → 워크스페이스·user token·authed user id 반환, bot 토큰 없으면 null")
@@ -525,6 +533,107 @@ class SlackClientTest {
                 .andRespond(withServerError());
 
         assertThatCode(() -> fixture.client.postEphemeral(responseUrl, "찾는 중"))
+                .doesNotThrowAnyException();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeralMarkdown — JSON response_type=ephemeral, text와 blocks[0](type=markdown)의 text가 같은 본문")
+    void postEphemeralMarkdownPostsSameBodyInTextAndMarkdownBlock() {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        String markdown = "## 답변\n\n**bold** 텍스트입니다.";
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.response_type").value("ephemeral"))
+                .andExpect(jsonPath("$.text").value(markdown))
+                .andExpect(jsonPath("$.blocks[0].type").value("markdown"))
+                .andExpect(jsonPath("$.blocks[0].text").value(markdown))
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        fixture.client.postEphemeralMarkdown(responseUrl, markdown);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeralMarkdown — 12,000자 초과 시 잘라내고 안내 문구를 붙이며 최종 길이는 12,000자 이하")
+    void postEphemeralMarkdownTruncatesBodyOver12000CharsAndAppendsNotice() throws Exception {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        String markdown = "a".repeat(13_000);
+        ObjectMapper objectMapper = new ObjectMapper();
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(request -> {
+                    String body = ((MockClientHttpRequest) request).getBodyAsString();
+                    JsonNode json = objectMapper.readTree(body);
+                    String text = json.path("text").asText();
+                    String blockText = json.path("blocks").get(0).path("text").asText();
+                    assertThat(blockText).isEqualTo(text);
+                    assertThat(text).endsWith(TRUNCATION_NOTICE);
+                    assertThat(text).startsWith(markdown.substring(0, 100));
+                    assertThat(text.length()).isLessThanOrEqualTo(12_000);
+                })
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        fixture.client.postEphemeralMarkdown(responseUrl, markdown);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeralMarkdown — 절단은 한도 안의 마지막 줄바꿈에서 한다 (줄 중간에서 끊지 않는다)")
+    void postEphemeralMarkdownTruncatesAtLastLineBreakWithinLimit() throws Exception {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        // 99자 + 줄바꿈 = 100자짜리 줄 130개 → 13,000자
+        String markdown = ("a".repeat(99) + "\n").repeat(130);
+        int contentLimit = 12_000 - TRUNCATION_NOTICE.length();
+        ObjectMapper objectMapper = new ObjectMapper();
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(request -> {
+                    String body = ((MockClientHttpRequest) request).getBodyAsString();
+                    String text = objectMapper.readTree(body).path("text").asText();
+                    assertThat(text).endsWith(TRUNCATION_NOTICE);
+                    String content = text.substring(0, text.length() - TRUNCATION_NOTICE.length());
+                    // 줄 경계에서 잘렸다면 모든 줄이 온전한 99자다
+                    assertThat(content.split("\n")).allSatisfy(line -> assertThat(line).hasSize(99));
+                    // 한도 안의 "마지막" 줄바꿈이어야 한다 — 한 줄(100자) 이상 일찍 자르면 안 된다
+                    assertThat(content.length()).isLessThanOrEqualTo(contentLimit).isGreaterThan(contentLimit - 100);
+                })
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        fixture.client.postEphemeralMarkdown(responseUrl, markdown);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeralMarkdown — 정확히 12,000자면 자르지 않고 안내 문구도 붙이지 않는다")
+    void postEphemeralMarkdownDoesNotTruncateWhenExactlyAtLimit() {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        String markdown = "a".repeat(12_000);
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(jsonPath("$.blocks[0].text").value(markdown))
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        fixture.client.postEphemeralMarkdown(responseUrl, markdown);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeralMarkdown HTTP 실패 → 예외를 던지지 않는다")
+    void postEphemeralMarkdownSwallowsHttpError() {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andRespond(withServerError());
+
+        assertThatCode(() -> fixture.client.postEphemeralMarkdown(responseUrl, "본문"))
                 .doesNotThrowAnyException();
         fixture.server.verify();
     }
