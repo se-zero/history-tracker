@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -47,14 +48,16 @@ class SlackCommandsServiceTest {
     private static final String TEAM_ID = "T123ABC";
     private static final String USER_ID = "U123XYZ";
     private static final String RESPONSE_URL = "https://hooks.slack.com/commands/T123/123/abc";
-    private static final String SEARCHING = "질문을 찾고 있어요. 잠시만 기다려 주세요.";
+    // "찾는 중" ack는 질문을 인용해 보여준다 — 질문 자체엔 mrkdwn 특수문자가 없어 이스케이프 결과가 그대로다.
+    private static final String SEARCHING_SUFFIX = "찾고 있어요. 잠시만 기다려 주세요.";
+    private static final String QUESTION = "why did auth change?";
+    private static final String SEARCHING = "> " + QUESTION + "\n" + SEARCHING_SUFFIX;
     private static final String BUSY = "지금은 요청이 많아요. 잠시 후 다시 시도해 주세요.";
     private static final String QUERY_FAILED = "답변을 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
     private static final String GATING = "이 워크스페이스를 연결한 계정만 사용할 수 있어요.";
     private static final String SITE = "https://why-code.com";
     private static final String PLAN_LIMIT =
             "무료 플랜의 질문 한도에 도달했어요. https://why-code.com 에서 플랜을 확인해주세요.";
-    private static final String QUESTION = "why did auth change?";
     private static final String ANSWER = "OAuth callback was updated.";
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
@@ -201,6 +204,30 @@ class SlackCommandsServiceTest {
     }
 
     @Test
+    @DisplayName("찾는 중 ack — 질문을 mrkdwn 이스케이프해 인용한다 (& → &amp;, < → &lt;, > → &gt; 이 순서)")
+    void handleQuotesAndEscapesQuestionInSearchingAck() {
+        SlackCommandsService service = serviceWith(mockExecutor);
+        String body = form(TEAM_ID, USER_ID, "<b> & c", RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+
+        SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
+
+        assertThat(ack.text()).isEqualTo("> &lt;b&gt; &amp; c\n" + SEARCHING_SUFFIX);
+    }
+
+    @Test
+    @DisplayName("찾는 중 ack — 질문의 줄바꿈은 각 줄을 \"> \"로 인용해 이어 붙인다")
+    void handleQuotesEachLineOfMultilineQuestionInSearchingAck() {
+        SlackCommandsService service = serviceWith(mockExecutor);
+        String body = form(TEAM_ID, USER_ID, "a\nb", RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+
+        SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
+
+        assertThat(ack.text()).isEqualTo("> a\n> b\n" + SEARCHING_SUFFIX);
+    }
+
+    @Test
     @DisplayName("executor가 TaskRejectedException을 던지면 5xx가 아니라 200 + 바쁨 문구 (execute는 응답 전에)")
     void handleReturnsBusyWhenExecutorRejects() {
         SlackCommandsService service = serviceWithRejectingExecutor();
@@ -247,13 +274,14 @@ class SlackCommandsServiceTest {
         when(slackClient.authTest("xoxp-user")).thenReturn(USER_ID);
         when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
 
         SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
 
         assertThat(ack.text()).isEqualTo(SEARCHING);
         verify(integrationService).backfillSlackConnectedUserId(INTEGRATION_ID, USER_ID);
         verify(aiEngineQueryClient).ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of());
-        verify(slackClient).postEphemeral(RESPONSE_URL, ANSWER);
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         verifyNoInteractions(conversationRepository, messageService);
     }
 
@@ -334,15 +362,18 @@ class SlackCommandsServiceTest {
                 .thenThrow(new IllegalStateException("Missing Slack credential field: user_token"));
         when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID_2, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        // 답변 후 시간대 조회용 — 직접 매칭된 후보라 resolveCandidates 단계에선 decrypt되지 않았다
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
 
         SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
 
         assertThat(ack.text()).isEqualTo(SEARCHING);
         verify(aiEngineQueryClient).ask(QUESTION, PROJECT_ID_2, List.of(), List.of(), null, List.of());
-        verify(slackClient).postEphemeral(RESPONSE_URL, ANSWER);
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         verify(slackClient, never()).postEphemeral(RESPONSE_URL, QUERY_FAILED);
         verify(integrationService, never()).backfillSlackConnectedUserId(any(), any());
-        verify(slackCredentialCodec, never()).decrypt(ENCRYPTED);
+        verify(slackCredentialCodec).decrypt(ENCRYPTED);
         verifyNoInteractions(conversationRepository, messageService);
     }
 
@@ -356,6 +387,8 @@ class SlackCommandsServiceTest {
                 target(INTEGRATION_ID, PROJECT_ID, "Alpha", USER_ID, ENCRYPTED)));
         when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
 
         SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
 
@@ -365,10 +398,66 @@ class SlackCommandsServiceTest {
         order.verify(planService).ensureQueryAllowed(OWNER_ID);
         order.verify(planService).recordQuery(OWNER_ID);
         order.verify(aiEngineQueryClient).ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of());
-        order.verify(slackClient).postEphemeral(RESPONSE_URL, ANSWER);
+        order.verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         verify(slackClient, never()).authTest(any());
         verifyNoInteractions(conversationRepository, messageService);
-        verify(slackCredentialCodec, never()).decrypt(any());
+        verify(slackCredentialCodec).decrypt(ENCRYPTED);
+    }
+
+    @Test
+    @DisplayName("성공 답변 — userTimezone이 zone을 반환하면 답변의 ISO 시각을 로컬라이즈해 markdown으로 전송한다")
+    void handlePostsLocalizedAnswerWhenUserTimezoneResolves() {
+        SlackCommandsService service = service();
+        String body = form(TEAM_ID, USER_ID, QUESTION, RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+        when(integrationService.listSlackCommandTargets(TEAM_ID)).thenReturn(List.of(
+                target(INTEGRATION_ID, PROJECT_ID, "Alpha", USER_ID, ENCRYPTED)));
+        String answerWithTimestamp = "완료: 2026-09-10T07:24:34Z";
+        when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success(answerWithTimestamp, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(ZoneId.of("Asia/Seoul"));
+
+        service.handle(TIMESTAMP, SIGNATURE, body);
+
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, "완료: 2026년 9월 10일 오후 4:24");
+    }
+
+    @Test
+    @DisplayName("성공 답변 — userTimezone이 null이면 원문 그대로 전송한다 (UTC로 포맷하지 않는다)")
+    void handlePostsRawAnswerWhenUserTimezoneIsUnavailable() {
+        SlackCommandsService service = service();
+        String body = form(TEAM_ID, USER_ID, QUESTION, RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+        when(integrationService.listSlackCommandTargets(TEAM_ID)).thenReturn(List.of(
+                target(INTEGRATION_ID, PROJECT_ID, "Alpha", USER_ID, ENCRYPTED)));
+        String answerWithTimestamp = "완료: 2026-09-10T07:24:34Z";
+        when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success(answerWithTimestamp, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
+
+        service.handle(TIMESTAMP, SIGNATURE, body);
+
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, answerWithTimestamp);
+    }
+
+    @Test
+    @DisplayName("성공 답변 — 시간대 조회용 decrypt가 예외를 던져도 원문 답변은 그대로 나간다")
+    void handlePostsRawAnswerWhenCredentialDecryptFailsForTimezoneLookup() {
+        SlackCommandsService service = service();
+        String body = form(TEAM_ID, USER_ID, QUESTION, RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+        when(integrationService.listSlackCommandTargets(TEAM_ID)).thenReturn(List.of(
+                target(INTEGRATION_ID, PROJECT_ID, "Alpha", USER_ID, ENCRYPTED)));
+        when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenThrow(new RuntimeException("decrypt failed"));
+
+        service.handle(TIMESTAMP, SIGNATURE, body);
+
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
+        verify(slackClient, never()).userTimezone(any(), any());
     }
 
     @Test
@@ -406,11 +495,13 @@ class SlackCommandsServiceTest {
                 target(INTEGRATION_ID_2, PROJECT_ID_2, "Beta", USER_ID, ENCRYPTED)));
         when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
 
         service.handle(TIMESTAMP, SIGNATURE, body);
 
         verify(aiEngineQueryClient).ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of());
-        verify(slackClient).postEphemeral(RESPONSE_URL, ANSWER);
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         Mockito.verifyNoMoreInteractions(aiEngineQueryClient);
     }
 
@@ -543,7 +634,7 @@ class SlackCommandsServiceTest {
         assertThat(ack.responseType()).isEqualTo("ephemeral");
         assertThat(ack.text()).contains("/why-code").contains("help");
         assertThat(ack.text()).doesNotContain("Oops").doesNotContain("😅");
-        assertThat(ack.text()).isNotEqualTo(SEARCHING);
+        assertThat(ack.text()).doesNotContain(SEARCHING_SUFFIX);
     }
 
     private static IntegrationService.SlackCommandTarget target(

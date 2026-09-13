@@ -2,6 +2,7 @@ package com.history.backend.slack.service;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,7 +33,8 @@ import org.springframework.stereotype.Service;
 public class SlackCommandsService {
 
     private static final String RESPONSE_TYPE = "ephemeral";
-    private static final String SEARCHING = "질문을 찾고 있어요. 잠시만 기다려 주세요.";
+    // "찾는 중" ack에 질문을 인용해 붙인다 — 사용자가 자기 질문이 접수됐는지 화면에서 바로 확인할 수 있게.
+    private static final String SEARCHING_SUFFIX = "찾고 있어요. 잠시만 기다려 주세요.";
     private static final String BUSY = "지금은 요청이 많아요. 잠시 후 다시 시도해 주세요.";
     private static final String QUERY_FAILED = "답변을 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
     private static final String GATING =
@@ -111,7 +113,18 @@ public class SlackCommandsService {
             // 큐가 가득 차면 5xx를 주면 Slack이 재시도한다 — 이미 바쁜 상태를 안내하는 편이 맞다
             return new SlackCommandAck(RESPONSE_TYPE, BUSY);
         }
-        return new SlackCommandAck(RESPONSE_TYPE, SEARCHING);
+        return new SlackCommandAck(RESPONSE_TYPE, searchingAck(text));
+    }
+
+    // 질문을 mrkdwn 인용구로 붙인다 — 여러 줄이면 각 줄을 "> "로 인용해 이어 붙인다.
+    private static String searchingAck(String text) {
+        String quoted = escapeMrkdwn(text).replace("\n", "\n> ");
+        return "> " + quoted + "\n" + SEARCHING_SUFFIX;
+    }
+
+    // Slack mrkdwn 이스케이프 규칙 — &를 먼저 바꾸지 않으면 <, > 치환 결과의 &까지 다시 이스케이프된다.
+    private static String escapeMrkdwn(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private void runCommand(String teamId, String userId, String text, String responseUrl) {
@@ -121,7 +134,7 @@ public class SlackCommandsService {
             return;
         }
         if (candidates.size() == 1) {
-            ask(candidates.get(0), text, responseUrl);
+            ask(candidates.get(0), text, responseUrl, userId);
             return;
         }
         Matcher selector = PROJECT_SELECTOR.matcher(text);
@@ -131,7 +144,7 @@ public class SlackCommandsService {
                     .filter(target -> target.projectName().equalsIgnoreCase(name))
                     .toList();
             if (matched.size() == 1) {
-                ask(matched.get(0), selector.group(2).trim(), responseUrl);
+                ask(matched.get(0), selector.group(2).trim(), responseUrl, userId);
                 return;
             }
         }
@@ -168,7 +181,7 @@ public class SlackCommandsService {
         return candidates;
     }
 
-    private void ask(SlackCommandTarget target, String question, String responseUrl) {
+    private void ask(SlackCommandTarget target, String question, String responseUrl, String userId) {
         try {
             planService.ensureQueryAllowed(target.ownerUserId());
         } catch (PlanLimitExceededException e) {
@@ -182,7 +195,25 @@ public class SlackCommandsService {
             slackClient.postEphemeral(responseUrl, QUERY_FAILED);
             return;
         }
-        slackClient.postEphemeral(responseUrl, result.answer());
+        // 시간대 조회는 질의 성공 후에만 한다 — 실패한 질의에 users.info 호출을 낭비하지 않는다.
+        ZoneId zone = resolveUserZone(target, userId);
+        String answer = zone == null
+                ? result.answer()
+                : SlackAnswerTimeLocalizer.localize(result.answer(), zone);
+        slackClient.postEphemeralMarkdown(responseUrl, answer);
+    }
+
+    // 답변 현지화용 시간대 조회. 자격증명 복호화 실패는 표시 품질 저하일 뿐이므로
+    // 원문 답변 전송을 막지 않고 null(현지화 생략)로 흡수한다.
+    private ZoneId resolveUserZone(SlackCommandTarget target, String userId) {
+        try {
+            SlackCredential credential = slackCredentialCodec.decrypt(target.encryptedCredential());
+            return slackClient.userTimezone(credential.userToken(), userId);
+        } catch (RuntimeException e) {
+            log.warn("Slack answer timezone lookup failed. integrationId={}, error={}",
+                    target.integrationId(), e.getMessage());
+            return null;
+        }
     }
 
     private static String listProjects(List<SlackCommandTarget> candidates) {
