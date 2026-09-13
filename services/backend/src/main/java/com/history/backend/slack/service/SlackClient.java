@@ -33,6 +33,8 @@ public class SlackClient {
     // Slack markdown 블록 한도(페이로드당 12,000자) — 넘기면 Slack이 요청 전체를 거부해
     // 사용자가 아무 답변도 받지 못한다. 그래서 넘는 부분은 잘라내고 안내를 붙여 최소한은 전달한다.
     private static final int MARKDOWN_BLOCK_LIMIT = 12_000;
+    // 절단 시 줄 경계를 택하는 허용 범위 — 한도에서 이보다 멀리 있는 줄바꿈은 무시하고 한도에서 자른다
+    private static final int LINE_BREAK_SEARCH_WINDOW = 1_000;
     private static final String TRUNCATION_NOTICE =
             "\n\n답변이 길어 일부만 표시했어요. 대시보드에서 질문하면 전체 답변을 볼 수 있어요.";
 
@@ -205,31 +207,45 @@ public class SlackClient {
     }
 
     // 고정 문구용(사용법·게이팅·오류) — 평문 mrkdwn으로 보낸다.
+    // response_url 유효 시간(30분) 안에만 도달하면 되므로, 실패해도 커맨드 ack는 이미 끝난 뒤다.
     public void postEphemeral(String responseUrl, String text) {
-        postToResponseUrl(responseUrl, new SlackCommandAck("ephemeral", text));
+        try {
+            postToResponseUrl(responseUrl, new SlackCommandAck("ephemeral", text));
+        } catch (RestClientException exception) {
+            log.warn("Slack response_url post failed. error={}", exception.getMessage());
+        }
     }
 
     // 질의 성공 답변 전용 — 마크다운이 렌더되도록 markdown 블록으로 보낸다.
     // text는 Slack 알림(모바일 푸시 등)에 쓰는 대체 텍스트라 blocks[0].text와 같은 본문을 넣는다.
     public void postEphemeralMarkdown(String responseUrl, String markdown) {
         String body = truncateForMarkdownBlock(markdown);
-        postToResponseUrl(responseUrl,
-                new SlackResponseUrlMessage("ephemeral", body, List.of(new SlackMarkdownBlock("markdown", body))));
+        try {
+            postToResponseUrl(responseUrl,
+                    new SlackResponseUrlMessage("ephemeral", body, List.of(new SlackMarkdownBlock("markdown", body))));
+        } catch (RestClientResponseException exception) {
+            if (!exception.getStatusCode().is4xxClientError()) {
+                log.warn("Slack response_url markdown post failed. status={}", exception.getStatusCode());
+                return;
+            }
+            // Slack이 블록 페이로드를 거부한 경우(4xx) — 답이 아예 안 가는 것보다 평문이 낫다.
+            // 평문 경로엔 이 실패 모드가 없었으므로, 같은 본문을 평문으로 한 번 더 보낸다.
+            log.warn("Slack rejected markdown blocks, falling back to plain text. status={}, body={}",
+                    exception.getStatusCode(), exception.getResponseBodyAsString());
+            postEphemeral(responseUrl, body);
+        } catch (RestClientException exception) {
+            log.warn("Slack response_url markdown post failed. error={}", exception.getMessage());
+        }
     }
 
-    // response_url 유효 시간(30분) 안에만 도달하면 되므로, 실패해도 커맨드 ack는 이미 끝난 뒤다.
     private void postToResponseUrl(String responseUrl, Object payload) {
-        try {
-            restClient
-                    .post()
-                    .uri(responseUrl)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(payload)
-                    .retrieve()
-                    .toBodilessEntity();
-        } catch (RestClientException exception) {
-            log.warn("Slack response_url post failed. error={}", exception.getMessage());
-        }
+        restClient
+                .post()
+                .uri(responseUrl)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(payload)
+                .retrieve()
+                .toBodilessEntity();
     }
 
     private static String truncateForMarkdownBlock(String markdown) {
@@ -237,11 +253,13 @@ public class SlackClient {
             return markdown;
         }
         int limit = MARKDOWN_BLOCK_LIMIT - TRUNCATION_NOTICE.length();
-        // 줄 중간(표 행·이모지 서로게이트 쌍 사이)에서 끊지 않도록 한도 안의 마지막 줄바꿈에서 자른다.
-        // 짝이 깨진 서로게이트는 Slack이 페이로드째 거부할 수 있다 — 가드가 막으려는 바로 그 결과다.
+        // 줄 중간(표 행 등)에서 끊지 않도록 한도 안의 마지막 줄바꿈에서 자른다 — 단, 줄바꿈이
+        // 한도 근처에 있을 때만. 줄바꿈이 앞쪽에만 있으면(제목 한 줄 + 긴 한 덩어리) 줄 경계를
+        // 고집하다 본문 대부분을 잃으므로 한도에서 자른다.
         int cut = markdown.lastIndexOf('\n', limit);
-        if (cut <= 0) {
-            cut = limit;
+        if (cut < limit - LINE_BREAK_SEARCH_WINDOW) {
+            // 이모지 등 서로게이트 쌍 사이를 가르면 짝 깨진 문자가 생겨 Slack이 페이로드째 거부할 수 있다.
+            cut = Character.isHighSurrogate(markdown.charAt(limit - 1)) ? limit - 1 : limit;
         }
         return markdown.substring(0, cut) + TRUNCATION_NOTICE;
     }

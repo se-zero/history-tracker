@@ -8,6 +8,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -637,6 +638,75 @@ class SlackClientTest {
 
         assertThatCode(() -> fixture.client.postEphemeralMarkdown(responseUrl, "본문"))
                 .doesNotThrowAnyException();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeralMarkdown — Slack이 블록 페이로드를 거부(4xx)하면 같은 본문을 평문으로 다시 보낸다")
+    void postEphemeralMarkdownFallsBackToPlainTextWhenBlocksRejected() {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        String markdown = "## 답변\n\n**bold**";
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(jsonPath("$.blocks[0].type").value("markdown"))
+                .andRespond(withBadRequest().body("invalid_blocks"));
+        // 재전송은 blocks 없는 평문 페이로드여야 한다 (strict: 여분 필드가 있으면 실패)
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(content().json("""
+                        { "response_type": "ephemeral", "text": "## 답변\\n\\n**bold**" }
+                        """, true))
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        assertThatCode(() -> fixture.client.postEphemeralMarkdown(responseUrl, markdown))
+                .doesNotThrowAnyException();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeralMarkdown — 줄바꿈이 한도 근처(1,000자 안)에 없으면 줄 경계를 포기하고 한도에서 자른다")
+    void postEphemeralMarkdownFallsBackToHardCutWhenLineBreakIsTooEarly() throws Exception {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        // 첫 줄 뒤에 줄바꿈 없는 긴 한 줄 — 줄 경계를 고집하면 "제목"만 남는다
+        String markdown = "제목\n" + "a".repeat(13_000);
+        int contentLimit = 12_000 - TRUNCATION_NOTICE.length();
+        ObjectMapper objectMapper = new ObjectMapper();
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(request -> {
+                    String body = ((MockClientHttpRequest) request).getBodyAsString();
+                    String text = objectMapper.readTree(body).path("text").asText();
+                    String content = text.substring(0, text.length() - TRUNCATION_NOTICE.length());
+                    assertThat(content).startsWith("제목\na");
+                    assertThat(content.length()).isEqualTo(contentLimit);
+                })
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        fixture.client.postEphemeralMarkdown(responseUrl, markdown);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("postEphemeralMarkdown — 한도에서 자를 때 이모지(서로게이트 쌍) 사이를 가르지 않는다")
+    void postEphemeralMarkdownDoesNotSplitSurrogatePairAtHardCut() throws Exception {
+        SlackClientFixture fixture = fixture();
+        String responseUrl = "https://hooks.slack.com/commands/T123/resp";
+        int contentLimit = 12_000 - TRUNCATION_NOTICE.length();
+        // 이모지의 앞 조각이 정확히 한도 마지막 자리(contentLimit - 1)에 오도록 배치한다
+        String markdown = "a".repeat(contentLimit - 1) + "😀" + "b".repeat(2_000);
+        ObjectMapper objectMapper = new ObjectMapper();
+        fixture.server.expect(once(), requestTo(responseUrl))
+                .andExpect(request -> {
+                    String body = ((MockClientHttpRequest) request).getBodyAsString();
+                    String text = objectMapper.readTree(body).path("text").asText();
+                    String content = text.substring(0, text.length() - TRUNCATION_NOTICE.length());
+                    assertThat(content).isEqualTo("a".repeat(contentLimit - 1));
+                    assertThat(content.chars().anyMatch(c -> Character.isSurrogate((char) c))).isFalse();
+                })
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        fixture.client.postEphemeralMarkdown(responseUrl, markdown);
+
         fixture.server.verify();
     }
 
