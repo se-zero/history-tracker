@@ -72,12 +72,13 @@ B가 D의 자격 모수(활성 워크스페이스 수)를 쌓는다는 의존 �
 ```
 Slack → POST /api/v1/slack/commands (form-encoded: team_id, user_id, text, response_url …)
   1. 서명 검증 (§4와 공용) — 실패 시 401
-  2. 즉시 200 ack (3초 제한) — "찾는 중" ephemeral 텍스트
+  2. 즉시 200 ack (3초 제한) — 질문을 "> " 인용으로 되비추고 "찾고 있어요" (ephemeral 텍스트)
   3. 비동기:
      team_id → integrations(provider=slack, external_ref.workspace_id) 조회
      user_id ≟ external_ref.connected_user_id 게이팅
      → 프로젝트 확정 → 기존 질의 경로(AiEngineQueryClient) 재사용
-     → response_url로 ephemeral 응답 POST (30분 유효, 토큰 불필요)
+     → users.info로 질문자 시간대 조회 → 본문의 UTC ISO 시각을 그 시간대로 변환
+     → response_url로 ephemeral 응답 POST — 답변은 markdown 블록, 고정 문구는 평문 (30분 유효, 토큰 불필요)
 ```
 
 - **ai-engine은 무변경**이다. backend의 기존 `/query` 프록시 경로를 그대로 쓴다. **대화에 저장하지
@@ -115,6 +116,19 @@ Slack → POST /api/v1/slack/commands (form-encoded: team_id, user_id, text, res
 - `help`·빈 입력에는 사용법을, 질의 실패에는 행동 가능한 오류 메시지를 ephemeral로 답한다
   ("Oops!"류 금지 — 가이드라인 명시).
 - hint·short description 텍스트를 커맨드 등록에 채운다.
+- **ack가 질문을 되비춘다**(2026-09-13). Slack은 슬래시 커맨드 입력을 채널에 남기지 않으므로,
+  우리가 인용하지 않으면 답만 보이고 무엇을 물었는지 안 보인다. mrkdwn 특수문자(`&` `<` `>`)는
+  이스케이프한다 — `<!everyone>`류 토큰이 인용을 타고 살아나면 안 된다.
+- **답변은 markdown 블록으로 보낸다**(2026-09-13). ai-engine 답변은 마크다운(`##`·`**`·목록·인용)인데
+  평문 `text`로 보내면 Slack이 기호를 그대로 찍는다(실기동에서 확인). 블록 한도 12,000자를 넘으면
+  Slack이 메시지 전체를 거부하므로, 한도 안의 마지막 줄바꿈에서 잘라 "대시보드에서 질문하면 전체
+  답변을 볼 수 있어요"를 붙인다(단발 질의라 대시보드에 저장되지 않는다 — "대시보드에서 볼 수 있다"고
+  쓰지 않는다). 사용법·게이팅 같은 고정 문구는 평문 경로(`postEphemeral`) 그대로다.
+- **UTC 시각은 질문자의 Slack 프로필 시간대로 변환한다**(2026-09-13). 대시보드는 `remarkLocalTime`이
+  뷰어 기기 시간대로 그리지만 Slack에는 그 계층이 없다. 답변이 본인에게만 보여 "뷰어 = 질문자"이므로
+  `users.info`(`users:read`, 이미 받는 scope)의 `tz` 하나로 충분하다. 저장하지 않고 전송 직전에만
+  바꾸며(`SlackAnswerTimeLocalizer` — 규칙은 `remarkLocalTime.ts`와 동일), 시간대를 못 얻으면 ISO
+  원문을 그대로 둔다(라벨 없는 UTC 표기는 현지 시각으로 오해된다). 상세는 [i18n.md](i18n.md) §4.
 
 ## 4. 제품 변경 2 — Events API 라이프사이클
 
