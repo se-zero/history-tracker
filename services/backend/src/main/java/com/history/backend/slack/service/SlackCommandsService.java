@@ -2,6 +2,7 @@ package com.history.backend.slack.service;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -133,7 +134,7 @@ public class SlackCommandsService {
             return;
         }
         if (candidates.size() == 1) {
-            ask(candidates.get(0), text, responseUrl);
+            ask(candidates.get(0), text, responseUrl, userId);
             return;
         }
         Matcher selector = PROJECT_SELECTOR.matcher(text);
@@ -143,7 +144,7 @@ public class SlackCommandsService {
                     .filter(target -> target.projectName().equalsIgnoreCase(name))
                     .toList();
             if (matched.size() == 1) {
-                ask(matched.get(0), selector.group(2).trim(), responseUrl);
+                ask(matched.get(0), selector.group(2).trim(), responseUrl, userId);
                 return;
             }
         }
@@ -180,7 +181,7 @@ public class SlackCommandsService {
         return candidates;
     }
 
-    private void ask(SlackCommandTarget target, String question, String responseUrl) {
+    private void ask(SlackCommandTarget target, String question, String responseUrl, String userId) {
         try {
             planService.ensureQueryAllowed(target.ownerUserId());
         } catch (PlanLimitExceededException e) {
@@ -194,7 +195,25 @@ public class SlackCommandsService {
             slackClient.postEphemeral(responseUrl, QUERY_FAILED);
             return;
         }
-        slackClient.postEphemeralMarkdown(responseUrl, result.answer());
+        // 시간대 조회는 질의 성공 후에만 한다 — 실패한 질의에 users.info 호출을 낭비하지 않는다.
+        ZoneId zone = resolveUserZone(target, userId);
+        String answer = zone == null
+                ? result.answer()
+                : SlackAnswerTimeLocalizer.localize(result.answer(), zone);
+        slackClient.postEphemeralMarkdown(responseUrl, answer);
+    }
+
+    // 답변 현지화용 시간대 조회. 자격증명 복호화 실패는 표시 품질 저하일 뿐이므로
+    // 원문 답변 전송을 막지 않고 null(현지화 생략)로 흡수한다.
+    private ZoneId resolveUserZone(SlackCommandTarget target, String userId) {
+        try {
+            SlackCredential credential = slackCredentialCodec.decrypt(target.encryptedCredential());
+            return slackClient.userTimezone(credential.userToken(), userId);
+        } catch (RuntimeException e) {
+            log.warn("Slack answer timezone lookup failed. integrationId={}, error={}",
+                    target.integrationId(), e.getMessage());
+            return null;
+        }
     }
 
     private static String listProjects(List<SlackCommandTarget> candidates) {

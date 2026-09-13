@@ -12,6 +12,8 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.time.ZoneId;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.backend.common.error.BadGatewayException;
@@ -635,6 +637,84 @@ class SlackClientTest {
 
         assertThatCode(() -> fixture.client.postEphemeralMarkdown(responseUrl, "본문"))
                 .doesNotThrowAnyException();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("userTimezone — users.info 성공(ok+tz) → ZoneId 반환, form token=/user= 로 호출")
+    void userTimezoneReturnsZoneIdWhenSlackRespondsOk() {
+        SlackClientFixture fixture = fixture();
+        MultiValueMap<String, String> expectedForm = new LinkedMultiValueMap<>();
+        expectedForm.add("token", "xoxp-user");
+        expectedForm.add("user", "U123XYZ");
+        fixture.server.expect(once(), requestTo("https://slack.com/api/users.info"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().formData(expectedForm))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "user": {
+                            "id": "U123XYZ",
+                            "tz": "Asia/Seoul",
+                            "tz_label": "Korean Standard Time",
+                            "tz_offset": 32400
+                          }
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        ZoneId result = fixture.client.userTimezone("xoxp-user", "U123XYZ");
+
+        assertThat(result).isEqualTo(ZoneId.of("Asia/Seoul"));
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("userTimezone — users.info ok:false → 예외 없이 null")
+    void userTimezoneReturnsNullWhenSlackReportsNotOk() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/users.info"))
+                .andRespond(withSuccess("""
+                        { "ok": false, "error": "user_not_found" }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client.userTimezone("xoxp-user", "U123XYZ")).isNull();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("userTimezone — HTTP 오류 → 예외 없이 null")
+    void userTimezoneReturnsNullWhenRequestFails() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/users.info"))
+                .andRespond(withServerError());
+
+        assertThat(fixture.client.userTimezone("xoxp-user", "U123XYZ")).isNull();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("userTimezone — tz 필드 없음 → null")
+    void userTimezoneReturnsNullWhenTzFieldMissing() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/users.info"))
+                .andRespond(withSuccess("""
+                        { "ok": true, "user": { "id": "U123XYZ" } }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client.userTimezone("xoxp-user", "U123XYZ")).isNull();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("userTimezone — tz가 잘못된 ZoneId 값(Not/AZone)이면 예외 없이 null")
+    void userTimezoneReturnsNullWhenTzIsInvalidZoneId() {
+        SlackClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://slack.com/api/users.info"))
+                .andRespond(withSuccess("""
+                        { "ok": true, "user": { "id": "U123XYZ", "tz": "Not/AZone" } }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client.userTimezone("xoxp-user", "U123XYZ")).isNull();
         fixture.server.verify();
     }
 

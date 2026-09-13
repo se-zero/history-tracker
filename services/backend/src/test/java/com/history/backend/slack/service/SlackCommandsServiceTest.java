@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -273,6 +274,7 @@ class SlackCommandsServiceTest {
         when(slackClient.authTest("xoxp-user")).thenReturn(USER_ID);
         when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
 
         SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
 
@@ -360,6 +362,9 @@ class SlackCommandsServiceTest {
                 .thenThrow(new IllegalStateException("Missing Slack credential field: user_token"));
         when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID_2, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        // 답변 후 시간대 조회용 — 직접 매칭된 후보라 resolveCandidates 단계에선 decrypt되지 않았다
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
 
         SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
 
@@ -368,7 +373,7 @@ class SlackCommandsServiceTest {
         verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         verify(slackClient, never()).postEphemeral(RESPONSE_URL, QUERY_FAILED);
         verify(integrationService, never()).backfillSlackConnectedUserId(any(), any());
-        verify(slackCredentialCodec, never()).decrypt(ENCRYPTED);
+        verify(slackCredentialCodec).decrypt(ENCRYPTED);
         verifyNoInteractions(conversationRepository, messageService);
     }
 
@@ -382,6 +387,8 @@ class SlackCommandsServiceTest {
                 target(INTEGRATION_ID, PROJECT_ID, "Alpha", USER_ID, ENCRYPTED)));
         when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
 
         SlackCommandAck ack = service.handle(TIMESTAMP, SIGNATURE, body);
 
@@ -394,7 +401,63 @@ class SlackCommandsServiceTest {
         order.verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
         verify(slackClient, never()).authTest(any());
         verifyNoInteractions(conversationRepository, messageService);
-        verify(slackCredentialCodec, never()).decrypt(any());
+        verify(slackCredentialCodec).decrypt(ENCRYPTED);
+    }
+
+    @Test
+    @DisplayName("성공 답변 — userTimezone이 zone을 반환하면 답변의 ISO 시각을 로컬라이즈해 markdown으로 전송한다")
+    void handlePostsLocalizedAnswerWhenUserTimezoneResolves() {
+        SlackCommandsService service = service();
+        String body = form(TEAM_ID, USER_ID, QUESTION, RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+        when(integrationService.listSlackCommandTargets(TEAM_ID)).thenReturn(List.of(
+                target(INTEGRATION_ID, PROJECT_ID, "Alpha", USER_ID, ENCRYPTED)));
+        String answerWithTimestamp = "완료: 2026-09-10T07:24:34Z";
+        when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success(answerWithTimestamp, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(ZoneId.of("Asia/Seoul"));
+
+        service.handle(TIMESTAMP, SIGNATURE, body);
+
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, "완료: 2026년 9월 10일 오후 4:24");
+    }
+
+    @Test
+    @DisplayName("성공 답변 — userTimezone이 null이면 원문 그대로 전송한다 (UTC로 포맷하지 않는다)")
+    void handlePostsRawAnswerWhenUserTimezoneIsUnavailable() {
+        SlackCommandsService service = service();
+        String body = form(TEAM_ID, USER_ID, QUESTION, RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+        when(integrationService.listSlackCommandTargets(TEAM_ID)).thenReturn(List.of(
+                target(INTEGRATION_ID, PROJECT_ID, "Alpha", USER_ID, ENCRYPTED)));
+        String answerWithTimestamp = "완료: 2026-09-10T07:24:34Z";
+        when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success(answerWithTimestamp, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
+
+        service.handle(TIMESTAMP, SIGNATURE, body);
+
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, answerWithTimestamp);
+    }
+
+    @Test
+    @DisplayName("성공 답변 — 시간대 조회용 decrypt가 예외를 던져도 원문 답변은 그대로 나간다")
+    void handlePostsRawAnswerWhenCredentialDecryptFailsForTimezoneLookup() {
+        SlackCommandsService service = service();
+        String body = form(TEAM_ID, USER_ID, QUESTION, RESPONSE_URL);
+        when(verifier.verify(TIMESTAMP, SIGNATURE, body)).thenReturn(true);
+        when(integrationService.listSlackCommandTargets(TEAM_ID)).thenReturn(List.of(
+                target(INTEGRATION_ID, PROJECT_ID, "Alpha", USER_ID, ENCRYPTED)));
+        when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
+                .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenThrow(new RuntimeException("decrypt failed"));
+
+        service.handle(TIMESTAMP, SIGNATURE, body);
+
+        verify(slackClient).postEphemeralMarkdown(RESPONSE_URL, ANSWER);
+        verify(slackClient, never()).userTimezone(any(), any());
     }
 
     @Test
@@ -432,6 +495,8 @@ class SlackCommandsServiceTest {
                 target(INTEGRATION_ID_2, PROJECT_ID_2, "Beta", USER_ID, ENCRYPTED)));
         when(aiEngineQueryClient.ask(QUESTION, PROJECT_ID, List.of(), List.of(), null, List.of()))
                 .thenReturn(AiEngineQueryResult.success(ANSWER, null));
+        when(slackCredentialCodec.decrypt(ENCRYPTED)).thenReturn(new SlackCredential("xoxp-user", null));
+        when(slackClient.userTimezone("xoxp-user", USER_ID)).thenReturn(null);
 
         service.handle(TIMESTAMP, SIGNATURE, body);
 

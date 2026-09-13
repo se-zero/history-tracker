@@ -1,5 +1,7 @@
 package com.history.backend.slack.service;
 
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
 
@@ -244,6 +246,40 @@ public class SlackClient {
         return markdown.substring(0, cut) + TRUNCATION_NOTICE;
     }
 
+    // Slack 답변의 시각을 사용자 현지 시간으로 바꾸기 위한 시간대 조회.
+    // 실패해도 답변 자체를 막으면 안 되므로 모든 실패 경로에서 null을 반환한다.
+    public ZoneId userTimezone(String userToken, String userId) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("token", userToken);
+        form.add("user", userId);
+        try {
+            SlackUsersInfoResponse response = restClient
+                    .post()
+                    .uri("https://slack.com/api/users.info")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(SlackUsersInfoResponse.class);
+            if (response == null || !Boolean.TRUE.equals(response.ok()) || response.user() == null) {
+                // missing_scope(옛 설치본에 users:read 없음)·user_not_found 등 — 원인이 남아야 "왜 시각이 안 바뀌지"를 추적한다
+                log.warn("Slack users.info failed. error={}",
+                        response == null ? "empty_response" : response.error());
+                return null;
+            }
+            String tz = response.user().tz();
+            if (tz == null || tz.isBlank()) {
+                return null;
+            }
+            return ZoneId.of(tz);
+        } catch (RestClientException exception) {
+            log.warn("Slack users.info request failed. error={}", exception.getMessage());
+            return null;
+        } catch (DateTimeException exception) {
+            log.warn("Slack users.info returned an invalid timezone. error={}", exception.getMessage());
+            return null;
+        }
+    }
+
     public record SlackWorkspace(String id, String name, String userToken, String botToken, String authedUserId) {
     }
 
@@ -266,5 +302,11 @@ public class SlackClient {
     }
 
     private record SlackMarkdownBlock(String type, String text) {
+    }
+
+    private record SlackUsersInfoResponse(Boolean ok, String error, SlackUserInfo user) {
+    }
+
+    private record SlackUserInfo(String tz) {
     }
 }
