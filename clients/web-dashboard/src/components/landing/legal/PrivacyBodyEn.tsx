@@ -499,12 +499,13 @@ export function PrivacyBodyEn() {
         </ul>
       </LegalSection>
 
-      <LegalSection index={4} heading="Outsourcing of Processing and Cross-Border Transfer">
+      <LegalSection id="subprocessors" index={4} heading="Outsourcing of Processing and Cross-Border Transfer">
         <p>
-          The Service outsources processing to the provider below for answer
-          generation and semantic search. A User's questions and part of the
-          records stored in the graph (titles, bodies, summaries, and the like)
-          are transmitted in this process.
+          The Service outsources processing to the providers below for answer
+          generation, semantic search, and service operation. A User's questions
+          and part of the records stored in the graph (titles, bodies, summaries,
+          and the like) are transmitted to OpenAI, and all traffic reaching the
+          Service passes through Cloudflare's network.
         </p>
         <div className="lp-legal-table-scroll">
           <table className="lp-legal-table">
@@ -522,12 +523,24 @@ export function PrivacyBodyEn() {
                   answering and summarization</td>
                 <td>United States</td>
               </tr>
+              <tr>
+                <td>Cloudflare, Inc.</td>
+                <td>Providing the Service's public path (tunnel) and TLS
+                  termination, DNS, and forwarding of inquiry email</td>
+                <td>United States</td>
+              </tr>
             </tbody>
           </table>
         </div>
         <p>
           Data transmitted in this process is not used to train or improve OpenAI
           models. It is used only to generate embeddings and to answer questions.
+          OpenAI retains transmitted data for up to 30 days to check for abuse,
+          after which it is deleted.
+        </p>
+        <p>
+          Cloudflare only relays traffic and forwards inquiry email; it does not
+          store collected records or the knowledge graph.
         </p>
         <p>
           Other than as described above, the Service does not provide a User's
@@ -574,6 +587,12 @@ export function PrivacyBodyEn() {
             encrypted access token; the link between you and the installation
             (that is, who may access it) is deleted when you withdraw. If you
             want the record itself removed, please contact us at the address below.
+          </li>
+          <li>
+            <strong>Backups</strong> — Server backups roll on a roughly
+            two-week cycle. Data deleted through the paths above may remain in
+            a backup taken before the deletion, but disappears from backups
+            within about two weeks.
           </li>
           <li>
             Records that a law requires to be retained are kept separately for
