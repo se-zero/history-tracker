@@ -1,6 +1,6 @@
 # 근거 회수 품질 개선 — 코드 결함 수정 계획
 
-> 상태: **묶음 A 완료(미커밋), B~F 대기** (2026-09-12). 진행은 `feature-cycle` 스킬의 묶음 단위(계획 → 위임 → 리뷰)로 돈다.
+> 상태: **묶음 A 커밋, 묶음 B 완료(미커밋), C~F 대기** (2026-09-14). 진행은 `feature-cycle` 스킬의 묶음 단위(계획 → 위임 → 리뷰)로 돈다.
 > 원인 분석의 근거는 2026-09-10 코드 분석과 `eval/results/20260821T060820Z` 트랜스크립트 재분류다.
 
 ## 1. 배경
@@ -242,6 +242,15 @@ eval 재측정이 전제인 항목은 §7 "하지 않는 것"으로 남기고 `d
   5(dedupe 순서), 6(종류별 개요 상한), 7(`limit` 제거), 12(캡)·잘림 안내 문구.
   **묶음 A 리뷰 이월**: L273이 사라진 상수 `ACTOR_ACTIVITY_CONTEXT_CAP`(기본 15)를 안내한다 →
   `ACTOR_ACTIVITY_CONTEXT_CAP_PER_KIND`(기본 10, 종류별)로 정정.
+  **묶음 B 반영 목록**: 캡이 붙은 필드와 `" …(생략)"` 표기(changeset·conflict·PR의
+  `file_changes` diff 300자, PR·이슈 결과의 `changesets[*].message` 400자 — `commit_message`와
+  PR·이슈 본문은 제외), 일반 dict 트리머의 `<필드>_truncated` 고지 형식(식별자 우선순위
+  hash → issue_key → pr_number → conversation_id → external_id → path → id, 20개 초과 시 " 외 M건"),
+  문자열 컷 안내 문구, 중첩 이슈의 `created_at`·`closed_at`(UTC 정규화) 위치(changeset·conflict·PR의
+  이슈 목록, 파일 이력 detail의 이슈, 이슈 결과의 루트와 `descendants`).
+- `services/ai-engine/graph/overview.py:221` 주석 정정(묶음 B 리뷰 이월): "get_changeset_context는
+  정확 매칭이라 7자 접두어로는 조회 실패"는 묶음 A 이후 사실이 아니다. 코드는 전체 해시를 넘기므로
+  그대로 두고, 주석만 "전체 해시를 넘긴다 — 40자면 접두어 해석 없이 바로 조회"로 고친다.
 - `services/ai-engine/CLAUDE.md`: 새 env 노브(`ACTOR_ACTIVITY_CONTEXT_CAP_PER_KIND`), 자동 빌드가
   세 종류 임베딩을 보정한다는 한 줄.
 - `docs/query-followups.md`: §7 "하지 않는 것"을 후속 TODO로 등록.
@@ -266,6 +275,38 @@ eval 재측정이 전제인 항목은 §7 "하지 않는 것"으로 남기고 `d
 
 **이월** — `_first_line` 3중 정의는 B-1, `get_timeline` actor 후보 프롬프트는 C-4,
 `docs/tools.md` 상수 참조는 묶음 F.
+
+## 6-B. 묶음 B 리뷰 결과 (2026-09-14)
+
+`branch-review` 단계 리뷰: Critical 0 · Major 0 · Minor 5 · Note 4 → 🟢. 반영 후 테스트 956개 통과
+(묶음 B 착수 전 기준선 929). B-2(`tools/executor.py`와 그 테스트)는 새 테스트도 executor만
+import하므로 B-1·B-3과 독립된 커밋으로 나눌 수 있다.
+
+**검증 방식** — 리뷰 중 변이 7건을 넣어 6건이 잡혔다. 잡히지 않은 1건이 일반 트리머의 적용
+조건(`is_tiered`)이었다. 기존 테스트는 tiered 트리머가 맞출 수 있는 dict만 넣어 그 조건에 닿지
+않았다. 반영 후 변이 3건(적용 조건·`id` 폴백·정규화 헬퍼)을 다시 넣어 전부 잡히는 것을 확인했다.
+
+**반영한 것**
+- detail 한 행만으로 상한을 넘는 tiered dict가 문자열 컷으로 떨어지는지 확인하는 테스트.
+  일반 트리머로 넘어가면 detail이 비워져 인용 대상이 조용히 사라진다.
+- 식별자 우선순위 끝에 `id` 폴백. `get_conflict_context`는 이슈·PR·문서 행의 식별자를 범용 키
+  `id`에 담아, 잘리면 고지에 개수만 남고 드릴다운할 식별자가 없었다.
+- 중첩 이슈 시각 정규화를 `_common.normalize_issue_times` 한 곳으로. `changeset.py`의 헬퍼와
+  `files.py`의 인라인 반복문이 같은 일을 했다.
+- `_DETAIL_MESSAGE_MAX_CHARS` 주석. "커밋/이슈 메시지"라 이슈 본문도 자르는 것처럼 읽혔다 →
+  "커밋 메시지. 이슈·PR 본문은 인용 원문이라 적용하지 않는다".
+
+**현행 유지**
+- 일반 트리머 지연이 리스트 길이의 제곱으로 는다(매 반복 전체 재직렬화). 기존 두 트리머와 같은
+  방식이고, 실측으로 파일 50·150·300·600개 PR이 12·45·136·450ms였다. 문제가 되면 행 크기를
+  빼는 증분 계산으로 바꾼다.
+- 일반 고지는 식별자만 나열하고 조회 도구를 적지 않는다. 식별자 모양(해시·이슈 키·`#N`·스레드 ts)이
+  도구를 정한다.
+- 문서 본문이 8,000자를 넘으면 여전히 문자열 컷이다. 이번 변경 전부터 그랬고, 이제는 연결 목록이
+  식별자와 함께 먼저 줄어든다. 문서 본문 캡은 이 계획 범위 밖이다.
+
+**이월** — `graph/overview.py:221`의 낡은 주석은 묶음 F. 중첩 이슈 시각이 답변에 쓰이려면 C-3이
+`created_at`→issue_created, `closed_at`→issue_closed 매핑을 안내해야 한다(C-3 문구에 이미 있다).
 
 ---
 
