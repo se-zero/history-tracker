@@ -1,9 +1,14 @@
 """코드 변경 컨텍스트 조회 — 커밋(ChangeSet)·PR·충돌·맥락 누락 커밋."""
 
 from tools.queries._common import (
+    _DETAIL_MESSAGE_MAX_CHARS,
+    _DIFF_SUMMARY_MAX_CHARS,
     _MIN_CONFIDENCE,
     _group_communications_by_thread,
+    cap_text,
+    first_line,
     get_driver,
+    normalize_issue_times,
 )
 
 
@@ -13,13 +18,6 @@ _MIN_HASH_PREFIX_LEN = 7
 _FULL_HASH_LEN = 40
 # candidates로 되돌릴 후보 상한. 잘림을 알리려면 상한보다 1건 더 조회해야 한다.
 _HASH_CANDIDATE_LIMIT = 6
-
-
-def _first_line(text: str | None) -> str | None:
-    """candidates 목록에 커밋 본문 전체가 실리지 않도록 첫 줄만 남긴다."""
-    if not text:
-        return None
-    return text.splitlines()[0]
 
 
 async def _resolve_changeset_hash(session, project_id: str, hash: str) -> list[dict]:
@@ -53,7 +51,7 @@ def _hash_candidates_response(candidates: list[dict]) -> dict:
     return {
         "message": message,
         "candidates": [
-            {"hash": c["hash"], "message": _first_line(c["message"]), "occurredAt": c["occurredAt"]}
+            {"hash": c["hash"], "message": first_line(c["message"]), "occurredAt": c["occurredAt"]}
             for c in candidates
         ],
     }
@@ -104,7 +102,8 @@ async def get_changeset_context(project_id: str, hash: str) -> dict:
                        issue_key: i.issue_key, title: i.title,
                        body: i.body, status: i.status,
                        confidence: tb.confidence,
-                       link_source: tb.source
+                       link_source: tb.source,
+                       created_at: toString(i.createdAt), closed_at: toString(i.closedAt)
                    }) AS issues,
                    collect(DISTINCT {
                        body: c.body, channel: c.channel, source: c.source,
@@ -128,6 +127,9 @@ async def get_changeset_context(project_id: str, hash: str) -> dict:
         if not row:
             return {"message": f"커밋을 찾을 수 없습니다: {hash}"}
         out = dict(row)
+        normalize_issue_times(out.get("issues"))
+        for fc in out.get("file_changes") or []:
+            fc["diffSummary"] = cap_text(fc.get("diffSummary"), _DIFF_SUMMARY_MAX_CHARS)
         # Slack 스레드 경계 보존 — communications를 conversation_id별로 그룹핑.
         out["communications"] = _group_communications_by_thread(out.get("communications") or [])
         return out
@@ -197,7 +199,8 @@ async def get_conflict_context(project_id: str, hash: str) -> dict:
                        id: i.issue_key,
                        text: i.title + '\n' + coalesce(i.body, ''),
                        confidence: tb.confidence,
-                       link_source: tb.source
+                       link_source: tb.source,
+                       created_at: toString(i.createdAt), closed_at: toString(i.closedAt)
                    }) AS issue_contexts,
                    collect(DISTINCT {
                        source: c.source,
@@ -230,6 +233,9 @@ async def get_conflict_context(project_id: str, hash: str) -> dict:
         if not row:
             return {"message": f"커밋을 찾을 수 없습니다: {hash}"}
         out = dict(row)
+        normalize_issue_times(out.get("issue_contexts"))
+        for fc in out.get("file_changes") or []:
+            fc["diff_summary"] = cap_text(fc.get("diff_summary"), _DIFF_SUMMARY_MAX_CHARS)
         # Slack 스레드 경계 보존. (기존 comm_contexts는 text 키로 본문을 노출했지만,
         # 그룹핑 결과에서는 messages[*].body로 정규화 — _group_communications_by_thread가
         # GROUP_KEYS 외 모든 필드를 메시지 dict에 그대로 넘김.)
@@ -266,7 +272,8 @@ async def get_pr_context(project_id: str, pr_number: int) -> dict:
                        issue_key: i.issue_key, title: i.title,
                        status: i.status,
                        confidence: tb.confidence,
-                       link_source: tb.source
+                       link_source: tb.source,
+                       created_at: toString(i.createdAt), closed_at: toString(i.closedAt)
                    }) AS issues,
                    collect(DISTINCT {
                        body: c.body, channel: c.channel, source: c.source,
@@ -288,5 +295,10 @@ async def get_pr_context(project_id: str, pr_number: int) -> dict:
         if not row:
             return {"message": f"PR을 찾을 수 없습니다: #{pr_number}"}
         out = dict(row)
+        normalize_issue_times(out.get("issues"))
+        for fc in out.get("file_changes") or []:
+            fc["diff_summary"] = cap_text(fc.get("diff_summary"), _DIFF_SUMMARY_MAX_CHARS)
+        for cs in out.get("changesets") or []:
+            cs["message"] = cap_text(cs.get("message"), _DETAIL_MESSAGE_MAX_CHARS)
         out["discussions"] = _group_communications_by_thread(out.get("discussions") or [])
         return out

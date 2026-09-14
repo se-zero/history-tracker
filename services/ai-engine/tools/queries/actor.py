@@ -3,7 +3,7 @@
 import os
 import re
 
-from tools.queries._common import _detail_count_for_budget, _priority_order, get_driver
+from tools.queries._common import _detail_count_for_budget, _priority_order, first_line, get_driver
 
 
 # get_actor_activity 2계층 반환 노브 (file_history와 같은 정책 — env로 eval 스윕).
@@ -96,11 +96,6 @@ def _comm_detail(r: dict, ranked: bool) -> dict:
     return row
 
 
-def _first_line(text: str | None) -> str:
-    text = (text or "").strip()
-    return text.splitlines()[0][:_STUB_TITLE_MAX_CHARS] if text else ""
-
-
 def _issue_key_order(issue: dict) -> int:
     """issue_key 번호 내림차순 정렬용 — 번호가 클수록 최근 이슈 (이슈 쿼리엔 시각이 없다).
 
@@ -136,10 +131,12 @@ def _cap_issues(issues: list[dict], cap: int = _ISSUES_CAP) -> tuple[list[dict],
 def _stub(kind: str, r: dict) -> dict:
     """개요 stub — 식별자·시각·제목만, 본문 없음(대량 인용 구조적 차단). 드릴다운 id 포함."""
     if kind == "commit":
-        return {"kind": kind, "hash": r["hash"], "title": _first_line(r.get("message")),
+        return {"kind": kind, "hash": r["hash"],
+                "title": first_line(r.get("message"), _STUB_TITLE_MAX_CHARS) or "",
                 "occurredAt": r.get("occurredAt")}
     if kind == "pull_request":
-        return {"kind": kind, "pr_number": r["pr_number"], "title": _first_line(r.get("title")),
+        return {"kind": kind, "pr_number": r["pr_number"],
+                "title": first_line(r.get("title"), _STUB_TITLE_MAX_CHARS) or "",
                 "occurredAt": r.get("occurredAt")}
     return {"kind": "message", "conversation_id": r.get("conversation_id"),
             "channel": r.get("channel"), "occurredAt": r.get("occurredAt")}
