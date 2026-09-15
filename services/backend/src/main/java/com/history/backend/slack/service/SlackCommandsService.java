@@ -118,13 +118,8 @@ public class SlackCommandsService {
 
     // 질문을 mrkdwn 인용구로 붙인다 — 여러 줄이면 각 줄을 "> "로 인용해 이어 붙인다.
     private static String searchingAck(String text) {
-        String quoted = escapeMrkdwn(text).replace("\n", "\n> ");
+        String quoted = SlackMrkdwnConverter.escape(text).replace("\n", "\n> ");
         return "> " + quoted + "\n" + SEARCHING_SUFFIX;
-    }
-
-    // Slack mrkdwn 이스케이프 규칙 — &를 먼저 바꾸지 않으면 <, > 치환 결과의 &까지 다시 이스케이프된다.
-    private static String escapeMrkdwn(String text) {
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private void runCommand(String teamId, String userId, String text, String responseUrl) {
@@ -197,10 +192,10 @@ public class SlackCommandsService {
         }
         // 시간대 조회는 질의 성공 후에만 한다 — 실패한 질의에 users.info 호출을 낭비하지 않는다.
         ZoneId zone = resolveUserZone(target, userId);
-        String answer = zone == null
+        String localized = zone == null
                 ? result.answer()
                 : SlackAnswerTimeLocalizer.localize(result.answer(), zone);
-        slackClient.postEphemeralMarkdown(responseUrl, answer);
+        slackClient.postEphemeralAnswer(responseUrl, SlackMrkdwnConverter.convert(localized));
     }
 
     // 답변 현지화용 시간대 조회. 자격증명 복호화 실패는 표시 품질 저하일 뿐이므로
