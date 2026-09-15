@@ -2,7 +2,6 @@ package com.history.backend.slack.service;
 
 import java.time.DateTimeException;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -30,9 +29,9 @@ public class SlackClient {
     private static final Set<String> ALREADY_REVOKED_ERRORS = Set.of(
             "invalid_auth", "token_revoked", "token_expired");
 
-    // Slack markdown 블록 한도(페이로드당 12,000자) — 넘기면 Slack이 요청 전체를 거부해
-    // 사용자가 아무 답변도 받지 못한다. 그래서 넘는 부분은 잘라내고 안내를 붙여 최소한은 전달한다.
-    private static final int MARKDOWN_BLOCK_LIMIT = 12_000;
+    // response_url 텍스트 한도는 문서화돼 있지 않다 — 12,000자는 ephemeral 메시지 가독성
+    // 상한이자 안전 여유다. 넘는 부분은 잘라내고 안내를 붙여 최소한은 전달한다.
+    private static final int ANSWER_TEXT_LIMIT = 12_000;
     // 절단 시 줄 경계를 택하는 허용 범위 — 한도에서 이보다 멀리 있는 줄바꿈은 무시하고 한도에서 자른다
     private static final int LINE_BREAK_SEARCH_WINDOW = 1_000;
     private static final String TRUNCATION_NOTICE =
@@ -210,58 +209,37 @@ public class SlackClient {
     // response_url 유효 시간(30분) 안에만 도달하면 되므로, 실패해도 커맨드 ack는 이미 끝난 뒤다.
     public void postEphemeral(String responseUrl, String text) {
         try {
-            postToResponseUrl(responseUrl, new SlackCommandAck("ephemeral", text));
+            restClient
+                    .post()
+                    .uri(responseUrl)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new SlackCommandAck("ephemeral", text))
+                    .retrieve()
+                    .toBodilessEntity();
         } catch (RestClientException exception) {
             log.warn("Slack response_url post failed. error={}", exception.getMessage());
         }
     }
 
-    // 질의 성공 답변 전용 — 마크다운이 렌더되도록 markdown 블록으로 보낸다.
-    // text는 Slack 알림(모바일 푸시 등)에 쓰는 대체 텍스트라 blocks[0].text와 같은 본문을 넣는다.
-    public void postEphemeralMarkdown(String responseUrl, String markdown) {
-        String body = truncateForMarkdownBlock(markdown);
-        try {
-            postToResponseUrl(responseUrl,
-                    new SlackResponseUrlMessage("ephemeral", body, List.of(new SlackMarkdownBlock("markdown", body))));
-        } catch (RestClientResponseException exception) {
-            if (!exception.getStatusCode().is4xxClientError()) {
-                log.warn("Slack response_url markdown post failed. status={}", exception.getStatusCode());
-                return;
-            }
-            // Slack이 블록 페이로드를 거부한 경우(4xx) — 답이 아예 안 가는 것보다 평문이 낫다.
-            // 평문 경로엔 이 실패 모드가 없었으므로, 같은 본문을 평문으로 한 번 더 보낸다.
-            log.warn("Slack rejected markdown blocks, falling back to plain text. status={}, body={}",
-                    exception.getStatusCode(), exception.getResponseBodyAsString());
-            postEphemeral(responseUrl, body);
-        } catch (RestClientException exception) {
-            log.warn("Slack response_url markdown post failed. error={}", exception.getMessage());
-        }
+    // 질의 성공 답변 전용 — SlackMrkdwnConverter로 이미 변환된 mrkdwn 평문을 절단 후 그대로 보낸다.
+    public void postEphemeralAnswer(String responseUrl, String mrkdwn) {
+        postEphemeral(responseUrl, truncate(mrkdwn));
     }
 
-    private void postToResponseUrl(String responseUrl, Object payload) {
-        restClient
-                .post()
-                .uri(responseUrl)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(payload)
-                .retrieve()
-                .toBodilessEntity();
-    }
-
-    private static String truncateForMarkdownBlock(String markdown) {
-        if (markdown.length() <= MARKDOWN_BLOCK_LIMIT) {
-            return markdown;
+    private static String truncate(String text) {
+        if (text.length() <= ANSWER_TEXT_LIMIT) {
+            return text;
         }
-        int limit = MARKDOWN_BLOCK_LIMIT - TRUNCATION_NOTICE.length();
+        int limit = ANSWER_TEXT_LIMIT - TRUNCATION_NOTICE.length();
         // 줄 중간(표 행 등)에서 끊지 않도록 한도 안의 마지막 줄바꿈에서 자른다 — 단, 줄바꿈이
         // 한도 근처에 있을 때만. 줄바꿈이 앞쪽에만 있으면(제목 한 줄 + 긴 한 덩어리) 줄 경계를
         // 고집하다 본문 대부분을 잃으므로 한도에서 자른다.
-        int cut = markdown.lastIndexOf('\n', limit);
+        int cut = text.lastIndexOf('\n', limit);
         if (cut < limit - LINE_BREAK_SEARCH_WINDOW) {
             // 이모지 등 서로게이트 쌍 사이를 가르면 짝 깨진 문자가 생겨 Slack이 페이로드째 거부할 수 있다.
-            cut = Character.isHighSurrogate(markdown.charAt(limit - 1)) ? limit - 1 : limit;
+            cut = Character.isHighSurrogate(text.charAt(limit - 1)) ? limit - 1 : limit;
         }
-        return markdown.substring(0, cut) + TRUNCATION_NOTICE;
+        return text.substring(0, cut) + TRUNCATION_NOTICE;
     }
 
     // Slack 답변의 시각을 사용자 현지 시간으로 바꾸기 위한 시간대 조회.
@@ -309,17 +287,6 @@ public class SlackClient {
             String error,
             @JsonProperty("user_id") String userId
     ) {
-    }
-
-    // response_url로 보내는 메시지 — HTTP 즉답인 SlackCommandAck와 달리 blocks를 실을 수 있다.
-    private record SlackResponseUrlMessage(
-            @JsonProperty("response_type") String responseType,
-            String text,
-            List<SlackMarkdownBlock> blocks
-    ) {
-    }
-
-    private record SlackMarkdownBlock(String type, String text) {
     }
 
     private record SlackUsersInfoResponse(Boolean ok, String error, SlackUserInfo user) {
