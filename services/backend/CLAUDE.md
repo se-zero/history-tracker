@@ -37,9 +37,11 @@ cd services/backend
 
 ## AI Engine 연동
 
-- `AiEngineConfig`는 `ai.engine.url` 기반 `aiEngineRestClient`와 connect(3s)/read(60s) timeout을 구성한다.
+- `AiEngineConfig`는 `ai.engine.url` 기반 `aiEngineRestClient`와 connect(3s)/read
+  (`ai.engine.read-timeout-seconds`, 기본 120s, env `AI_ENGINE_READ_TIMEOUT_SECONDS`) timeout을 구성한다.
   timeout이 없으면 ai-engine hang 시 Tomcat 스레드가 무한 점유돼 fallback/502가 작동하지 못한다.
-  빌드는 비동기 202라 짧고, read(60s)는 LLM tool-calling 질의(/query)를 위한 여유다.
+  빌드는 비동기 202라 짧고, read는 LLM tool-calling 질의(/query)를 위한 여유다. Cloudflare
+  Proxy Read Timeout(125초 524)보다 5초 짧아, 앱이 엣지보다 먼저 끊는다.
 - 그래프 데이터의 단일 소유자는 ai-engine(Neo4j)다. backend는 인가를 통과시킨 뒤 조회·삭제를 프록시만 한다.
   - 엔드포인트 계약의 단일 출처는 `AiEngineGraphClient`(그래프 조회·빌드·삭제)와 `AiEngineQueryClient`(질의·요약) 코드다 — 메서드 목록을 여기에 중복 기재하지 않는다.
   - ai-engine 호출 실패는 `BadGatewayException`(502)으로 변환한다. 단 대화 질의(`AiEngineQueryClient`)는 예외 대신 fallback 답변을 반환해 대화 흐름을 유지한다.

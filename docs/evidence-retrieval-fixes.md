@@ -1,6 +1,6 @@
 # 근거 회수 품질 개선 — 코드 결함 수정 계획
 
-> 상태: **묶음 A·B 커밋, 묶음 C 완료(미커밋), D~F 대기** (2026-09-16). 진행은 `feature-cycle` 스킬의 묶음 단위(계획 → 위임 → 리뷰)로 돈다.
+> 상태: **완료** (2026-09-17). 묶음 A~E 코드 커밋, 묶음 F 문서 동기화.
 > 원인 분석의 근거는 2026-09-10 코드 분석과 `eval/results/20260821T060820Z` 트랜스크립트 재분류다.
 
 ## 1. 배경
@@ -346,13 +346,39 @@ import하므로 B-1·B-3과 독립된 커밋으로 나눌 수 있다.
 - `get_conflict_context`의 이슈·PR 맥락은 `title`과 `body`를 한 `text` 필드로 합쳐 줘서 이어 붙인
   인용도 통과한다. 인용 규칙은 일괄 "한 필드"로 안내하는데, 보수적일 뿐 해롭지 않다.
 
-**후속 등록** — `check_missing_context`의 필터 불일치를 §7에 올렸다.
+**후속 등록** — `check_missing_context`의 필터 불일치를 §7에 올렸다. `docs/query-followups.md` §8에도 같은 목록을 등록했다.
+
+## 6-D. 묶음 D 리뷰 결과 (2026-09-17)
+
+`branch-review` 단계 리뷰: Critical 0 · Major 0 · Minor 1 · Note 4 → 🟢. 반영 후 테스트 981개 통과.
+
+**반영한 것** — `replace_document_sections` docstring. CASE는 `DETACH DELETE` 뒤 MERGE라 이전
+벡터를 지키지 못하고, 하는 일은 실패 임베딩 `[]` 대신 `null`을 남기는 것까지다. 보존을 주장하지 않는다.
+
+**현행 유지**
+- 이미 `embedding=[]`로 저장된 구멍은 `IS NULL` 백필이 못 채운다. 이번 가드 이후 신규 실패는
+  null이라 자동 빌드 대상이다. 쌓여 있는 `[]`는 admin `force=true`.
+- `MODIFIED` 엣지는 여전히 무조건 SET. 계획 범위 밖.
+- `backfilled_issues`·`backfilled_changesets`는 backend `GraphBuildResponse`에 없다.
+  `backfilled`(Communication 건수) 계약은 그대로다.
+
+## 6-E. 묶음 E (2026-09-17)
+
+`config/` 패키지라 TDD 면제. 단계 리뷰는 하지 않았다. `./gradlew test` 통과, 기동 로그에
+`ai-engine RestClient read timeout=120s`. 프로퍼티 `ai.engine.read-timeout-seconds`(기본 120),
+compose env `AI_ENGINE_READ_TIMEOUT_SECONDS`.
+
+## 6-F. 묶음 F (2026-09-17)
+
+문서·주석을 A~E 구현 계약에 맞춤. `docs/tools.md`(신뢰도 필터·트리머·해시 접두어·actor 종류별
+상한·file-history `limit` 제거·본문 캡·중첩 시각·`link_source`), `overview.py` 주석,
+ai-engine/backend CLAUDE.md, `docs/deployment.md` 120초 프로퍼티, `docs/query-followups.md` §8.
 
 ---
 
 ## 7. 하지 않는 것 (후속 — eval 재측정 또는 별도 설계가 전제)
 
-번호는 2026-09-10 코드 분석의 22개 문제 번호다.
+번호는 2026-09-10 코드 분석의 22개 문제 번호다. 체크리스트는 `docs/query-followups.md` §8.
 
 | # | 항목 | 이유 |
 |---|---|---|

@@ -29,18 +29,32 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
   사용자의 `project_id`를 주입한다. 모든 Cypher가 이 값으로 스코프되어 다른 프로젝트 그래프를
   조회할 수 없다. **LLM은 project_id를 보지도 못하고 인자로 바꿀 수도 없다** (도구 파라미터에 없음).
   `run_graph_query`만 주입 방식이 다르다 — LLM이 쓴 Cypher의 노드 패턴을 서버가 재작성해 넣는다(#14).
-- **TRIGGERED_BY confidence 컷오프** (`_MIN_CONFIDENCE = 0.5`): TRIGGERED_BY 엣지를 따라가는
-  모든 도구는 `confidence >= 0.5`만 통과시킨다. 텍스트 매칭(`source='text'`)은 항상 `1.0`이라
-  항상 통과하고, 시맨틱 매칭은 0.5 미만이면 응답에서 제외된다.
-- **link_source 노출**: TRIGGERED_BY를 반환하는 도구는 각 항목에 `link_source`(`'text'` |
-  `'semantic'`)와 `confidence`를 함께 실어, LLM이 확정 연결과 추정 연결을 구분하게 한다.
+- **신뢰도 필터** (`TOOLS_MIN_CONFIDENCE`, 기본 0.5, 코드 상수 `_MIN_CONFIDENCE`): 시맨틱
+  연결을 도구마다 일괄 거르지 않는다. 차단되는 것은 커밋→이슈(`TRIGGERED_BY`), 이슈→문서
+  (`DESCRIBED_IN`), 문서 도구(`get_document_context`)의 커밋→문서(`REFERENCE`)뿐이다.
+  `source='text'`는 confidence 1.0이라 항상 통과한다. 커밋·충돌·PR 결과의 대화 연결
+  (`REFERENCE`)과 이슈↔대화(`DISCUSSED_IN`)는 필터 없이 통과하고 `link_source`로 구분한다.
+- **link_source 노출**: 커밋→이슈는 `'text'`|`'semantic'`과 `confidence`를 함께 싣는다. 이슈
+  도구의 대화 항목은 `'text'`|`'semantic'`|`'propagated'`(스레드 전파 — confidence를 옮기지
+  않아 값이 비어 있을 수 있고, 원래 연결이 추정일 수 있다). 커밋·충돌·PR 결과의 대화 항목은
+  `link_source`(`ref.source`, 시맨틱이면 `'semantic'`).
 - **Slack 스레드 그룹핑**: Communication을 반환하는 도구(`get_issue_context`,
   `get_changeset_context`, `get_conflict_context`, `get_pr_context`)는 flat 메시지 목록을
   `conversation_id` 기준으로 묶어 `{conversation_id, source, channel, messages[...]}` 구조로
   반환한다. LLM이 서로 다른 스레드를 한 대화로 합치거나 화자를 뒤섞지 않게 하기 위함
   (`queries._group_communications_by_thread`).
-- **결과 크기 제한**: 도구 결과 JSON이 8000자(`_MAX_RESULT_CHARS`, 약 4k 토큰)를 넘으면 잘리고
-  "limit을 줄이거나 더 좁은 범위로 재호출하라"는 안내가 붙는다.
+- **결과 크기 제한**: 도구 결과 JSON이 8000자(`_MAX_RESULT_CHARS`, 약 4k 토큰)를 넘으면
+  문자열 중간을 자르지 않고 행 단위로 줄인다. list는 뒤 행을 빼고 `_truncated` 마커를 붙인다.
+  `detail`/`context` 계층 dict는 context부터, 그래도 넘치면 detail을 줄인다. 그 외 dict는
+  리스트 필드를 줄이며 `<필드>_truncated`로 고지한다(식별자 우선순위 hash → issue_key →
+  pr_number → conversation_id → external_id → path → id, 20개 초과 시 " 외 M건"). 재호출
+  안내는 범위 축소이지 `limit` 축소가 아니다(`limit`이 없는 도구가 있고, 최신순에서
+  `limit`을 줄이면 잘린 옛 행을 영영 못 본다). 한 행만으로도 상한을 넘으면 문자열 컷이 남고,
+  잘린 항목은 식별자로 상세 도구를 호출하라고 안내한다.
+- **본문 캡**: 도구가 결과를 만들 때 일부 필드를 미리 자르고 `" …(생략)"`을 붙인다.
+  changeset·conflict·PR의 `file_changes` diff는 300자, PR·이슈 결과의 `changesets[*].message`와
+  파일 이력 detail의 커밋 메시지는 400자. `get_changeset_context`의 `commit_message`와 이슈·PR
+  본문(`body`)은 인용 원문이라 적용하지 않는다.
 - **에러 / 빈 결과 형태**: 필수 인자 누락은 `{"error": "필수 인자 누락: ..."}`, 내부 예외는
   `{"error": "... 내부 오류가 발생했습니다."}`(상세는 로그에만). 조회 결과가 없으면 각 도구가
   `{"message": "..."}` 또는 `[{"message": "..."}]`를 반환한다.
@@ -88,11 +102,13 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 |---------|------|------|------|
 | `issue_key` | string | ✔ | 이슈 트래커의 사람용 키 (예: `HT-12`, GitHub 이슈는 `#142`) — 표시용 속성으로 매칭하며 `__stub__` 센티널은 제외 |
 
-- 반환: 이슈 메타(`title`/`body`/`status`/`creator`/`assignee` 등) + root 이슈에 직접 연결된
-  `changesets` / `pull_requests` / `discussions` / `documents`, 그리고 **`descendants[]`**.
+- 반환: 이슈 메타(`title`/`body`/`status`/`created_at`/`closed_at`(UTC 정규화)/`creator`/`assignee`
+  등) + root 이슈에 직접 연결된 `changesets` / `pull_requests` / `discussions` / `documents`,
+  그리고 **`descendants[]`**. `descendants[*]`에도 `created_at`/`closed_at`이 있다.
 - **CHILD_OF 자식 이슈까지 집계**: epic/스토리 구조를 따라 `CHILD_OF*1..5`로 자식 이슈를 모아
   각각의 작업/논의/문서를 `descendants`에 담는다 (root 작업은 하위 호환을 위해 top-level에도 그대로 둠).
-- `changesets[*]`에 `confidence` + `link_source` 포함. `discussions`는 스레드 그룹핑 구조.
+- `changesets[*]`에 `confidence` + `link_source` 포함. `discussions`는 스레드 그룹핑 구조이고
+  각 대화 항목에 `link_source`(`text`·`semantic`·`propagated`)를 싣는다.
 - `documents[*]`는 `DESCRIBED_IN`(Issue→Document) 유입 — `confidence`/`link_source`('text'|'semantic')/
   `section` 포함, `get_document_context`의 `issues` 필드와 반대 방향의 같은 관계다. 문서 id를
   몰라도 이슈에서 바로 연결된 문서(설계 배경 등)를 찾을 수 있다.
@@ -103,12 +119,17 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| `hash` | string | ✔ | Git commit hash |
+| `hash` | string | ✔ | Git commit hash. 앞 7자 이상 접두어 허용. 40자면 접두어 해석 없이 그대로 조회 |
 
-- 반환: `hash`, `commit_message`, `author`, `issues[]`(연결 이슈, confidence/link_source),
-  `communications`(스레드 그룹핑), `documents[]`(연결 문서, `REFERENCE` 엣지 기준),
-  `pull_request`(단일), `file_changes[]`(`path`+`diffSummary`).
-- 논의는 `REFERENCE` 엣지 기준(커밋→Communication).
+- 7자 미만은 거부. 접두어가 여러 커밋에 겹치면 `{message, candidates}`(최대 6건, 넘으면 잘림
+  고지)를 돌려 전체 hash로 재호출하게 한다.
+- 반환: `hash`, `commit_message`(캡 없음 — 인용 원문), `author`,
+  `issues[]`(연결 이슈, `confidence`/`link_source`/`created_at`/`closed_at`),
+  `communications`(스레드 그룹핑, 각 항목 `link_source`), `documents[]`(연결 문서,
+  `REFERENCE` 엣지 기준), `pull_request`(단일), `file_changes[]`(`path`+`diffSummary`, diff 300자
+  캡).
+- 논의는 `REFERENCE` 엣지 기준(커밋→Communication). 신뢰도 필터를 타지 않고 `link_source`만
+  싣는다. 이슈 연결만 0.5 컷.
 - `documents[*]`에 `external_id`(`title`/`url`/`source`/`confidence`와 함께) 포함 — 이 값으로
   `get_document_context`를 호출해 본문 전체를 조회한다.
 
@@ -243,8 +264,11 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
   queries에 넘긴다(queries 함수 시그니처는 `embedding: list[float]`).
 - Neo4j 벡터 인덱스 `comm_embedding` / `issue_embedding`을 사용. `db.index.vector.queryNodes`는
   전역 top-K만 주고 project_id 사전 필터가 불가하므로, **`top_k`의 20배(상한 500)만큼 over-fetch한 뒤
-  project_id로 후필터하고 top_k로 자른다**.
-- 같은 스레드 중복 메시지는 최고 score 1건만 남긴다(이후 `get_thread_context`로 전체 확보 유도).
+  project_id로 후필터한다**. Communication은 스레드 중복을 걷은 다음 `top_k`로 자르고, Issue는
+  후필터 직후 `top_k`다.
+- 같은 스레드 중복 메시지는 최고 score 1건만 남긴다. **dedupe는 최종 top_k 자르기 앞에 한다** —
+  한 스레드가 상위 후보를 채운 뒤 자르면 결과가 그 스레드 하나로 쪼그라든다. 이후
+  `get_thread_context`로 전체 스레드를 확보한다.
 - 각 항목에 `related_changesets`(hash) / `related_issues`(issue_key)를 실어 다음 도구 호출의 진입점 제공.
 
 ### 6. `get_actor_activity`
@@ -259,9 +283,10 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 `limit`은 의도적으로 스키마에 없다 — LLM이 습관적으로 20을 넣어 조회 창을 옛 컷 크기로
 되돌리는 것을 봉인 (조회 창은 서버 정책 `ACTOR_ACTIVITY_MAX`, 기본 100/카테고리).
 
-- **alias/email/이름 통합 매칭**: `a.name = identifier OR identifier IN a.aliases OR`
-  `ActorAlias.pd_email/pd_name = identifier`(EXISTS 서브쿼리). 개인정보(이메일·원 이름)는
-  `ActorAlias`에 있어 이쪽으로 조회한다. Identity Resolution으로 통합된 Actor를 단일 식별자로 찾는다.
+- **alias/email/이름 통합 매칭**: 1차는 정확 일치(`a.name` / aliases / `ActorAlias.pd_email`·
+  `pd_name`). 0건일 때만 2차로 대소문자 무시 부분 일치(`CONTAINS`). 후보가 둘 이상이면
+  `{message, candidates}`(이름+alias, 최대 6명) — 표시 이름이 같을 수 있어 재호출은 alias가
+  구분자다. 개인정보(이메일·원 이름)는 `ActorAlias`에 있다.
 - 반환 구조: `name`/`aliases`/`emails`(ActorAlias의 pd_email 수집) + `totals` + `ranked_by` + `detail[]`/`context[]` +
   `issues_created`/`issues_assigned`(+`*_total`/`*_older_keys`) + `_note`.
   - `detail[]` — **인용 대상**(kind 필드로 commit/pull_request/message 구분). 카테고리별 바이트
@@ -270,7 +295,8 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
     없으면 최신순 폴백, `relevance` 포함).
   - `context[]` — 나머지 활동의 시간순 stub(식별자·제목만, 본문 없음). 인용하려면 kind별 상세
     도구(commit→`get_changeset_context`, message→`get_thread_context`, pull_request→`get_pr_context`)로
-    본문 조회 후 인용. 상한 `ACTOR_ACTIVITY_CONTEXT_CAP`(기본 15).
+    본문 조회 후 인용. 상한 `ACTOR_ACTIVITY_CONTEXT_CAP_PER_KIND`(기본 10, 커밋·메시지·PR
+    종류별). 종류 구분 없는 총량 상한이면 메시지가 자리를 독식해 PR·커밋 stub이 사라진다.
   - `totals` — 카테고리별 조회 건수. **조회 상한 도달 시 `"100+ (…)"` 문자열** — 모델이 캡된
     수치를 절대 수치로 단정하는 것 방지.
   - `issues_created`/`issues_assigned` — 최근(번호 큰) 순 `ACTOR_ACTIVITY_ISSUES_CAP`(기본 20)개
@@ -286,13 +312,16 @@ executor가 사용자 질문을 임베딩해 넘기면, 각 커밋의 `MODIFIED.
 | 파라미터 | 타입 | 필수 | 기본 | 설명 |
 |---------|------|------|------|------|
 | `path` | string | ✔ | — | 파일 경로 (예: `src/auth/token.py`) |
-| `limit` | integer | | (전체) | 관련도 산정 대상 커밋 상한. 보통 지정 불필요 |
+
+`limit`은 스키마에 없다 — LLM이 넣은 값이 관련도 재랭킹 전에 최신 N개로 이력을 잘라 옛
+관련 커밋 구제를 무력화하기 때문이다. 조회 창은 서버 정책(`FILE_HISTORY_MAX_COMMITS`).
 
 - 반환 구조: `{path, total_commits, ranked_by, detail[], context[], _note}`.
   - `detail[]` — **인용 대상**. 관련도 상위 커밋을 바이트 예산(`FILE_HISTORY_DETAIL_BUDGET`,
     기본 6500자)이 되는 만큼 담는다. 커밋당 1행 — `hash`, `message`(400자 컷), `author`,
-    `diff_summary`(300자 컷), `issues[]`(`issue_key`/`title`/`confidence`/`source`),
-    `prs[]`(`pr_number`/`url`), `relevance`(랭킹 시). 이슈·PR 링크가 여러 개여도 행이 곱으로 불어나지 않는다.
+    `diff_summary`(300자 컷), `issues[]`(`issue_key`/`title`/`confidence`/`source`/`created_at`/
+    `closed_at`), `prs[]`(`pr_number`/`url`), `relevance`(랭킹 시). 이슈·PR 링크가 여러 개여도
+    행이 곱으로 불어나지 않는다.
   - `context[]` — 나머지 이력의 **시간순 개요 stub**(`hash`/`occurredAt`/`title`/`issues[issue_key]`,
     본문 없음). 전체 흐름 파악·드릴다운용. context 커밋을 인용하려면 그 hash로 `get_changeset_context`를
     호출해 본문을 조회한 뒤 인용한다(stub 요약만으로 quote 생성 금지).
@@ -319,8 +348,9 @@ executor가 사용자 질문을 임베딩해 넘기면, 각 커밋의 `MODIFIED.
 | `to_time` | string | | (현재) | 조회 종료 시각 ISO-8601 |
 | `limit` | integer | | 50 | 최대 반환 수 |
 
-- confidence 컷오프 적용: `confidence >= 0.5`인 TRIGGERED_BY만 "연결됨"으로 본다(약한 시맨틱
-  링크만 있는 커밋도 고아로 잡힐 수 있음). 반환: `hash`/`message`/`author`/`occurredAt`/`files`.
+- 고아 판정: TRIGGERED_BY는 `confidence >= 0.5`만 "연결됨"으로 본다(약한 시맨틱 이슈 링크만
+  있는 커밋도 고아로 잡힐 수 있음). 대화(`REFERENCE`)·문서 연결은 존재만 본다 — 낮은
+  confidence 대화 연결 하나면 고아에서 빠진다. 반환: `hash`/`message`/`author`/`occurredAt`/`files`.
 
 ### 9. `inspect_actor`
 
@@ -339,10 +369,11 @@ Actor 통합 결과를 확인한다 (Identity Resolution 검증).
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| `hash` | string | ✔ | Git commit hash |
+| `hash` | string | ✔ | Git commit hash. `get_changeset_context`와 같은 접두어·후보 규칙 |
 
-- 반환: `issue_contexts[]`(confidence/link_source), `comm_contexts`(스레드 그룹핑),
-  `pr_contexts[]`, `file_changes[]`. LLM이 다중 관점을 비교해 실제 이유를 추론하도록 설계.
+- 반환: `issue_contexts[]`(`confidence`/`link_source`/`created_at`/`closed_at`),
+  `comm_contexts`(스레드 그룹핑, 각 항목 `link_source`), `pr_contexts[]`,
+  `file_changes[]`(diff 300자 캡). LLM이 다중 관점을 비교해 실제 이유를 추론하도록 설계.
 
 ### 11. `get_recent_activity`
 
@@ -366,9 +397,10 @@ PR 번호로 시작하는 탐색.
 |---------|------|------|------|
 | `pr_number` | integer | ✔ | GitHub PR 번호 |
 
-- 반환: PR 메타(`title`/`body`/`merged_at`/`created_at`/`url`/`author`) + `changesets[]` +
-  `issues[]`(confidence/link_source) + `discussions`(스레드 그룹핑) + `documents[]`(연결 문서,
-  `external_id` 포함 — `get_document_context`로 이어 조회) + `file_changes[]`.
+- 반환: PR 메타(`title`/`body`(캡 없음)/`merged_at`/`created_at`/`url`/`author`) +
+  `changesets[]`(`message` 400자 캡) + `issues[]`(`confidence`/`link_source`/`created_at`/
+  `closed_at`) + `discussions`(스레드 그룹핑, 각 항목 `link_source`) + `documents[]`(연결 문서,
+  `external_id` 포함 — `get_document_context`로 이어 조회) + `file_changes[]`(diff 300자 캡).
 
 ### 13. `get_thread_context`
 
