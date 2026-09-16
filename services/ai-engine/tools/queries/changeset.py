@@ -110,7 +110,8 @@ async def get_changeset_context(project_id: str, hash: str) -> dict:
                        occurredAt: toString(c.occurredAt),
                        conversation_id: c.conversation_id,
                        author: c_author.name,
-                       confidence: ref.confidence
+                       confidence: ref.confidence,
+                       link_source: ref.source
                    }) AS communications,
                    collect(DISTINCT {
                        external_id: d.external_id, title: d.title, url: d.url, source: d.source,
@@ -209,7 +210,8 @@ async def get_conflict_context(project_id: str, hash: str) -> dict:
                        body: c.body,
                        author: c_author.name,
                        occurredAt: toString(c.occurredAt),
-                       confidence: ref.confidence
+                       confidence: ref.confidence,
+                       link_source: ref.source
                    }) AS comm_contexts,
                    collect(DISTINCT {
                        source: 'GitHub PR',
@@ -279,7 +281,8 @@ async def get_pr_context(project_id: str, pr_number: int) -> dict:
                        body: c.body, channel: c.channel, source: c.source,
                        occurredAt: toString(c.occurredAt),
                        conversation_id: c.conversation_id,
-                       author: c_author.name, confidence: ref.confidence
+                       author: c_author.name, confidence: ref.confidence,
+                       link_source: ref.source
                    }) AS discussions,
                    collect(DISTINCT {
                        external_id: d.external_id, title: d.title, url: d.url, source: d.source,

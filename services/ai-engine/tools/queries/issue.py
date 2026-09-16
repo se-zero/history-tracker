@@ -204,7 +204,8 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
                        occurredAt: toString(c.occurredAt),
                        conversation_id: c.conversation_id,
                        author: c_author.name,
-                       confidence: disc.confidence
+                       confidence: disc.confidence,
+                       link_source: disc.source
                    }}) AS discussions
             """,
             project_id=project_id,

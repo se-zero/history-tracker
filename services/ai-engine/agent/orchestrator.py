@@ -167,8 +167,8 @@ _GROUNDED_ANSWER_SCHEMA = {
                         "quote": {
                             "type": "string",
                             "description": (
-                                "도구 결과에서 직접 가져온 텍스트(commit message / pr title / issue title+body / "
-                                "message body / document body 또는 매칭 섹션 발췌). "
+                                "도구 결과에서 직접 가져온 텍스트(commit message / pr title 또는 body 중 한 필드 / "
+                                "issue title 또는 body 중 한 필드 / message body / document body 또는 매칭 섹션 발췌). "
                                 "요약·번역·재구성 금지. 길면 앞부분만 인용."
                             ),
                         },
@@ -201,8 +201,13 @@ GitHub(커밋, PR, 이슈), Jira/Linear(이슈), Slack(메시지), Notion(설계
 - 도구 결과에 없는 내용은 절대 추측하거나 지어내지 마세요. 그래프에 근거가 없는 측면은
   unknown_aspects[]에 명시하고, summary에 일반론·추정으로 채우지 마세요.
 - 여러 출처(Jira, Linear, Slack, PR)가 서로 다른 이유를 설명하면 각 관점을 구분해 제시하세요.
-- 연결 confidence가 __MIN_CONF__~0.7 구간인 항목을 인용할 때는 summary에서 "유사도 기반 추정" 등으로 명시하세요.
-  __MIN_CONF__ 미만 엣지는 쿼리 단에서 이미 차단되어 도구 결과에 없습니다.
+- 연결 confidence가 0.7 미만인 항목을 인용할 때는 summary에서 "유사도 기반 추정" 등으로 명시하세요.
+  __MIN_CONF__ 미만이 쿼리 단에서 차단되는 연결은 커밋→이슈(TRIGGERED_BY), 이슈→문서(DESCRIBED_IN),
+  그리고 get_document_context 결과의 커밋→문서 연결입니다. 커밋↔대화, 커밋·PR 결과의 문서 연결,
+  이슈↔대화는 차단되지 않으므로 confidence가 낮거나 없어도 도구 결과에 그대로 실립니다.
+- link_source가 'text'면 본문에 명시된 참조, 'semantic'이면 유사도로 추론한 연결입니다.
+  'propagated'(이슈↔대화에만 있음)는 같은 스레드의 다른 메시지에 걸린 연결을 옮겨 온 것이라
+  원래 연결이 추정이었을 수 있으니 확정 사실로 단정하지 마세요. 전파된 연결에는 confidence가 없습니다.
 - summary·unknown_aspects는 한국어로 서술하고, evidence[*].quote는 원문 언어 그대로 인용하세요 (원문이 영어·코드면 번역하지 말 것).
 
 [summary 서식 규칙 — 화면은 markdown으로 렌더됩니다]
@@ -287,8 +292,10 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - summary에 적힌 사실은 evidence[]에 매핑되어야 합니다. evidence 없는 합성 문장 금지.
 - 마무리/종결/요약 문장(예: "추가 궁금한 점이 있으면…", "이 정보를 통해…", "모든 작업이 완료되어 …")
   을 summary에 추가하지 마세요. summary가 곧 답변의 시작이자 끝입니다.
-- evidence[*].quote는 도구 결과 텍스트(commit message / pr title+body / issue title+body / message body /
-  document body 또는 매칭 섹션 발췌)에서 요약·번역·재구성 없이 직접 인용하세요. 너무 길면 앞부분만 잘라 인용.
+- evidence[*].quote는 도구 결과 텍스트(commit message / pr title 또는 body 중 한 필드 / issue title 또는
+  body 중 한 필드 / message body / document body 또는 매칭 섹션 발췌)에서 요약·번역·재구성 없이 직접
+  인용하세요(제목과 본문은 도구 결과에서 별개 필드라 이어 붙이면 원문 검증에서 삭제됩니다). 너무 길면
+  앞부분만 잘라 인용.
 - evidence[*].id 형식 (반드시 준수):
     commit       → hash 앞 7자
     pull_request → "#번호" (예: "#18")
@@ -296,6 +303,11 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
     message      → conversation_id (Slack ts)
     document     → external_id (Notion page id 등)
 - evidence[*].event_meaning은 위 [타임스탬프 의미 사전]의 enum 값만 사용.
+- 도구 결과에 실린 이슈 항목(get_changeset_context·get_pr_context의 issues[*], get_conflict_context의
+  issue_contexts[*], get_file_history의 detail[*].issues[*], get_issue_context의 루트 자체와
+  descendants[*])를 인용할 때 occurredAt에는 그 항목의 created_at(→ event_meaning=issue_created)
+  또는 closed_at(→ issue_closed)을 쓰세요. 둘 다 없으면 시각을 지어내지 말고 get_issue_context로
+  그 이슈를 조회한 뒤 인용하세요.
 - "왜", "배경", "이유" 류 질문에 명확한 근거(이슈 본문 / 슬랙 메시지)가 없으면
   unknown_aspects에 명시하고, summary에서 일반론으로 채우지 마세요.
 - 근거가 이유·배경을 직접 명시하지 않고 시사만 한다면, 단정형("~때문이다", "~하기 위해서였다")
@@ -353,8 +365,11 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
     그대로 쓸 수 있다. 다만 **중간 사건**은 빠졌을 수 있으니, 중간 흐름이 필요하면 truncated
     안내대로 from_time/to_time으로 구간을 좁혀 다시 호출한다.
   - scope.candidates가 있으면 스코프가 모호한 것이니(path 스코프는 경로, issue_key 스코프는
-    같은 키가 여러 이슈 트래커에 걸침) 후보 중 하나로 재호출한다. issue_key 스코프의 candidates는
-    source를 지정해 재호출하고, 문맥상 특정이 안 되면 후보(소스 포함)를 사용자에게 제시해 되묻는다.
+    같은 키가 여러 이슈 트래커에 걸침, actor 스코프는 표시 이름이 여러 사람에 걸침) 후보 중
+    하나로 재호출한다. issue_key 스코프의 candidates는 source를 지정해 재호출하고, actor
+    스코프의 candidates는 이름 또는 alias로 재호출한다 — 표시 이름이 서로 같으면 alias
+    (예: GITHUB:se-zero)가 유일한 구분자다. 문맥상 특정이 안 되면 후보(issue_key는 소스 포함,
+    actor는 alias 포함)를 사용자에게 제시해 되묻는다.
     scope.resolved_path가 있으면 인용에 그 값을 쓴다(추정한 path 금지).
 
 [파일 경로 모호 처리]
@@ -736,8 +751,11 @@ def _canon(text: str) -> str:
     CRLF 주의: GitHub PR·이슈 본문은 "\\r\\n"으로 저장되는 경우가 흔한데, "\\n"만 치환하면
     haystack에 "\\r" 리터럴이 남아 개행만 있는 quote와 어긋난다 — 여러 줄 인용이 항상 검증에
     실패해 유효한 근거가 삭제됐다(실측: PR 근거 4건). "\\r"도 같이 공백으로 접는다.
+
+    탭도 같은 문제다: json.dumps는 원문의 탭 문자를 "\\t" 리터럴로 이스케이프하지만 LLM이
+    뽑아내는 quote에는 실제 탭 문자가 남아 있어 그대로면 어긋난다 — "\\t"도 공백으로 접는다.
     """
-    text = text.replace('\\"', '"').replace("\\r", " ").replace("\\n", " ")
+    text = text.replace('\\"', '"').replace("\\r", " ").replace("\\n", " ").replace("\\t", " ")
     text = _WHITESPACE_RE.sub(" ", text)
     return text.strip().casefold()
 

@@ -140,5 +140,37 @@ class GetIssueContextNestedTimesTest(unittest.TestCase):
         self.assertTrue(child_message.endswith(_ELLIPSIS))
 
 
+class GetIssueContextDiscussionLinkSourceTest(unittest.TestCase):
+    def test_discussion_link_source_selected_and_survives_grouping(self):
+        # 스레드 전파 엣지는 source='propagated'만 쓰고 confidence를 옮기지 않는다
+        # (graph/maintenance.py). 노출하지 않으면 모델에게 명시 참조와 전파가 똑같이
+        # "confidence 없음"으로 보여, 시맨틱 추정에서 퍼진 연결을 확정으로 읽는다.
+        candidates = [{"source": "JIRA", "issue_key": "ENG-1", "title": "t", "status": "open"}]
+        base_row = {
+            "issue_key": "ENG-1", "title": "t", "body": "b", "status": "open",
+            "issue_type": "Task", "priority": "Medium", "occurredAt": None,
+            "created_at": None, "closed_at": None, "creator": None, "assignee": None,
+        }
+        scope_issues = [{"issue_key": "ENG-1", "title": "t", "status": "open",
+                         "created_at": None, "closed_at": None}]
+        work_rows = [{"issue_key": "ENG-1", "changesets": [], "pull_requests": []}]
+        disc_rows = [{"issue_key": "ENG-1", "discussions": [
+            {"body": "b", "channel": "ch", "source": "SLACK", "occurredAt": "2026-05-18T00:00:00Z",
+             "conversation_id": "t1", "author": "a", "confidence": None, "link_source": "propagated"},
+        ]}]
+        doc_rows = [{"issue_key": "ENG-1", "documents": []}]
+        session = _FakeSession(
+            records=[candidates, base_row, scope_issues, work_rows, disc_rows, doc_rows]
+        )
+
+        with patch("tools.queries.issue.get_driver", return_value=_FakeDriver(session)):
+            result = asyncio.run(get_issue_context("p1", "ENG-1"))
+
+        disc_query, _ = session.calls[4]
+        self.assertIn("link_source: disc.source", disc_query)
+        message = result["discussions"][0]["messages"][0]
+        self.assertEqual("propagated", message["link_source"])  # 그룹 키(source)와 충돌 없이 남는다
+
+
 if __name__ == "__main__":
     unittest.main()
