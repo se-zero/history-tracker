@@ -220,6 +220,9 @@ async def upsert_issue(
         (재오픈된 이슈가 비대칭 시간 윈도우 계산에서 오래된 종료 시각을 쓰지 않도록 함)
 
     createdAt 정책: 원래대로 — 값 있으면 SET, 없으면 null (이벤트 소스가 항상 보내는 게 정상).
+
+    embedding은 실패 시 빈 리스트가 오는데, 그때는 기존 i.embedding을 보존한다 —
+    재수집이 정상 임베딩을 지우지 않도록. (구멍은 backfill_issue_embeddings가 채운다.)
     """
     async with get_driver().session() as session:
         await session.run(
@@ -235,7 +238,7 @@ async def upsert_issue(
                 i.priority = $priority,
                 i.occurredAt = datetime($occurred_at),
                 i.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
-                i.embedding  = $embedding,
+                i.embedding  = CASE WHEN size($embedding) > 0 THEN $embedding ELSE i.embedding END,
                 i.closedAt   = CASE
                                   WHEN $closed_at IS NOT NULL THEN datetime($closed_at)
                                   WHEN $status_category = $closed_category THEN i.closedAt
@@ -276,6 +279,11 @@ async def upsert_communication(
     embedding: list[float],
     llm_filtered: bool = False,
 ) -> None:
+    """Communication 노드 upsert.
+
+    embedding은 실패 시 빈 리스트가 오는데, 그때는 기존 comm.embedding을 보존한다 —
+    재수집이 정상 임베딩을 지우지 않도록. (구멍은 backfill_communication_embeddings가 채운다.)
+    """
     async with get_driver().session() as session:
         await session.run(
             """
@@ -291,7 +299,7 @@ async def upsert_communication(
                 comm.occurredAt = datetime($occurred_at),
                 comm.createdAt  = CASE WHEN $created_at IS NOT NULL THEN datetime($created_at) ELSE null END,
                 comm.source = $source,
-                comm.embedding = $embedding
+                comm.embedding = CASE WHEN size($embedding) > 0 THEN $embedding ELSE comm.embedding END
             MERGE (a)-[:WROTE]->(comm)
             """,
             actor_uuid=actor_uuid,
@@ -368,6 +376,9 @@ async def replace_document_sections(
     본문 중간 편집은 이후 ordinal을 전부 밀 수 있어 부분 upsert가 안전하지 않다. 삭제 후
     생성 사이에 실패해도 이벤트 재시도는 멱등적으로 다시 채우므로, 두 문으로 분리해 Cypher의
     빈 UNWIND 함정을 피한다.
+
+    섹션 임베딩이 빈 리스트면 []를 쓰지 않고 null로 둔다. 이 함수는 전량 삭제 뒤 MERGE라
+    이전 벡터를 지키지는 못하고, IS NULL 백필·검색에서 빈 리스트가 있는 것처럼 잡히지 않게 한다.
     """
     async with get_driver().session() as session:
         await session.run(
@@ -397,7 +408,7 @@ async def replace_document_sections(
             })
             SET s.heading_path = section.heading_path,
                 s.text = section.text,
-                s.embedding = section.embedding
+                s.embedding = CASE WHEN size(section.embedding) > 0 THEN section.embedding ELSE s.embedding END
             MERGE (s)-[:PART_OF]->(d)
             """,
             project_id=project_id,
