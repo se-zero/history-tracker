@@ -116,6 +116,8 @@ services:
       DB_USERNAME: history_tracker
       DB_PASSWORD: ${POSTGRES_PASSWORD:-history_tracker}
       AI_ENGINE_URL: http://ai-engine:8000
+      # 질의 read timeout(초). 기본 120. 빈 문자열이 넘어가면 int 파싱이 깨지므로 compose 기본값을 둔다.
+      AI_ENGINE_READ_TIMEOUT_SECONDS: ${AI_ENGINE_READ_TIMEOUT_SECONDS:-120}
       PIPELINE_WORKER_URL: ${PIPELINE_WORKER_URL:-http://pipeline-worker:8081}
 
       # 보안 키
