@@ -142,7 +142,8 @@ cp .env.example .env
 `./prod.sh`가 터널까지 함께 띄운다.
 
 1. **도메인 확보** — Cloudflare에서 구입하거나, 다른 곳에서 산 도메인의 네임서버를
-   Cloudflare로 옮긴다.
+   Cloudflare로 옮긴다. **이 서비스의 확정 도메인은 `why-code.com`이다**(서비스명과 함께
+   2026-08-23 확정 — `docs/DESIGN.md` 개요). 아래 문서 전체에서 `<도메인>`은 이 값을 가리킨다.
 2. **터널 생성** — Zero Trust → Networks → Tunnels → Create a tunnel → **Cloudflared** 선택.
    생성 후 화면에 나오는 설치 명령 안의 `eyJ...` 문자열이 토큰이다.
    `.env`의 `TUNNEL_TOKEN`에 넣는다.
@@ -196,7 +197,8 @@ cp .env.example .env
 
 ### 3-1. OAuth redirect URI (9종)
 
-`<도메인>`은 배포 도메인이다. 각 provider 콘솔에 등록한 값과 `.env`의 값이 **정확히 일치**해야 한다.
+`<도메인>`은 배포 도메인 — **`why-code.com`**이다(§2-2). 각 provider 콘솔에 등록한 값과
+`.env`의 값이 **정확히 일치**해야 한다.
 
 | Provider | `.env` 키 | 등록할 URL |
 |---|---|---|
@@ -268,6 +270,40 @@ pipeline-worker로 프록시하지 않는다 — 연동 행·그래프 삭제와
 Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 사용자 토큰이 아니라 **봇 계정의 앱
 수준 토큰**으로 보고한다. 절차는 `docs/jira-personal-data-policy.md`의 「배포 절차 — 봇 계정 등록」을
 그대로 따르고, 끝나면 `.env`에 `ATLASSIAN_PDR_ENABLED=true`를 켠다.
+
+### 3-4. Google Search Console (검색 노출, 최초 1회)
+
+검색에 잡히게 하려면 구글에 사이트맵을 알려야 한다. 안 해도 서비스는 정상 동작한다 —
+**랜딩이 검색으로 발견되길 바랄 때만** 한다.
+
+사이트맵과 `robots.txt`는 코드에 이미 있다. 빌드하면 `dist/` 루트로 복사되고 nginx가 그대로
+내보낸다(SPA 폴백이 실제 파일을 삼키지 않는다).
+
+| 파일 | 내용 |
+|---|---|
+| `clients/web-dashboard/public/sitemap.xml` | 공개 라우트 4개 — `/landing`·`/terms`·`/privacy`·`/support` |
+| `clients/web-dashboard/public/robots.txt` | `/projects/`·`/onboarding`·`/auth/`·`/api/` 차단 + 사이트맵 위치 |
+
+**두 파일 모두 도메인이 절대 URL로 박혀 있다**(`https://why-code.com`). 도메인을 바꾸면
+여기도 함께 고친다 — 사이트맵의 `<loc>`이 등록한 속성과 다른 호스트면 구글이 통째로 거부한다.
+`index.html`의 `og:url`·`og:image`도 같은 이유로 절대 URL이다(§3-1의 도메인 일치 원칙과 같다).
+
+**절차**
+
+1. [Search Console](https://search.google.com/search-console) → 속성 추가 → **도메인** 선택.
+   URL 접두어가 아니라 도메인 속성을 쓰는 이유는 `https`/`www` 유무를 한 속성이 다 덮기 때문이다.
+2. 소유 확인 — 구글이 주는 TXT 레코드를 Cloudflare DNS에 추가한다(네임서버가 이미 Cloudflare에
+   있으므로, §2-2 1번에서 네임서버를 옮겨 둔 그 DNS다).
+3. 좌측 **Sitemaps** → `sitemap.xml` 입력 후 제출. "성공"으로 바뀌면 끝이다.
+4. **URL 검사**에 `https://why-code.com/landing`을 넣고 «실제 URL 테스트» → «렌더링된 HTML»에
+   히어로 문구가 보이는지 본다.
+
+4번을 꼭 보는 이유는 이 프론트가 SPA이기 때문이다. 크롤러가 처음 받는 HTML에는
+`<div id="root">` 하나뿐이고, 본문은 자바스크립트가 그린 뒤에야 생긴다. 구글은 렌더링을 하므로
+정상이지만 **눈으로 한 번 확인하기 전까지는 가정일 뿐이다.** 빈 화면이 보이면 색인이 안 된다.
+
+> 색인 대상은 위 공개 4개뿐이다. `/projects/*`는 인증 가드 뒤라 크롤러에게는 어차피 빈
+> 화면이고, `robots.txt`로도 막아 뒀다.
 
 ---
 
