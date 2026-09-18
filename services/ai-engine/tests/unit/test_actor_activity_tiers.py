@@ -36,7 +36,7 @@ class BuildActivityTiersTest(unittest.TestCase):
     def test_ranked_promotes_relevant_old_message(self):
         # 메시지 예산을 1건 수준으로 좁힘 — 관련도 최고(t3, 가장 오래됨)가 승격돼야 한다
         detail, context, _ = _build_activity_tiers(
-            [], [], _comms(), comm_ranked=True, budget=300, context_cap=40,
+            [], [], _comms(), comm_ranked=True, budget=300, context_cap_per_kind=40,
         )
         msg_detail = [r for r in detail if r["kind"] == "message"]
         self.assertEqual(msg_detail[0]["conversation_id"], "t3")
@@ -75,11 +75,11 @@ class BuildActivityTiersTest(unittest.TestCase):
         )
         self.assertEqual(len(detail), 7)
         self.assertEqual(context, [])
-        self.assertEqual(overflow, 0)
+        self.assertEqual(overflow, {})
 
     def test_detail_and_context_sorted_desc(self):
         detail, context, _ = _build_activity_tiers(
-            _commits(), _prs(), _comms(), comm_ranked=False, budget=600, context_cap=40,
+            _commits(), _prs(), _comms(), comm_ranked=False, budget=600, context_cap_per_kind=40,
         )
         for rows in (detail, context):
             dates = [r.get("occurredAt") or "" for r in rows]
@@ -87,10 +87,35 @@ class BuildActivityTiersTest(unittest.TestCase):
 
     def test_context_cap_overflow_counted(self):
         _, context, overflow = _build_activity_tiers(
-            _commits(30), [], [], comm_ranked=False, budget=120, context_cap=5,
+            _commits(30), [], [], comm_ranked=False, budget=120, context_cap_per_kind=5,
         )
         self.assertEqual(len(context), 5)
-        self.assertGreater(overflow, 0)
+        self.assertGreater(overflow.get("commit", 0), 0)
+
+    def test_per_kind_cap_keeps_pr_and_commit_stubs_despite_message_flood(self):
+        # A-4: 종류 구분 없는 총량 상한이면 최신·대량인 메시지가 개요를 독식해 오래된
+        # PR·커밋 stub이 밀려난다 — 종류별 독립 상한이면 메시지가 100건이어도 살아남는다.
+        commits = [
+            {"hash": f"c{i}", "message": f"commit {i}", "occurredAt": f"2026-01-{i + 1:02d}"}
+            for i in range(5)
+        ]
+        prs = [
+            {"pr_number": i, "title": f"pr {i}", "occurredAt": f"2026-02-{i + 1:02d}"}
+            for i in range(5)
+        ]
+        messages = [
+            {"body": f"msg {i}", "channel": "ch", "conversation_id": f"t{i}",
+             "occurredAt": f"2026-08-{(i % 28) + 1:02d}"}
+            for i in range(100)
+        ]
+        _, context, _ = _build_activity_tiers(
+            commits, prs, messages, comm_ranked=False, budget=300, context_cap_per_kind=10,
+        )
+        kinds_in_context = {c["kind"] for c in context}
+        self.assertIn("commit", kinds_in_context)
+        self.assertIn("pull_request", kinds_in_context)
+        # 상한은 메시지에도 똑같이 걸린다 — 한 종류가 개요를 독식하지 못하는 것이 계약이다
+        self.assertEqual(len([c for c in context if c["kind"] == "message"]), 10)
 
     def test_comm_detail_relevance_rounded_only_when_ranked(self):
         row = {"body": "b", "channel": "c", "conversation_id": "t", "occurredAt": "x", "relevance": 0.87654}

@@ -126,6 +126,7 @@ cd infra/docker
 - `docs/deployment-followups.md` - 배포 경로 후속 작업 — RabbitMQ 자격증명 URL 분리, 터널 실기동 검증(도메인 대기), pipeline-worker 인바운드 인증 검토
 - `docs/tools.md` - ai-engine의 LLM tool-calling 도구 레퍼런스 (계약·반환·동작, 코드 위치 포인터)
 - `docs/query-quality-issues.md` - GraphRAG 쿼리 품질 이슈 분석
+- `docs/evidence-retrieval-fixes.md` - 근거 회수 품질 개선 계획(**착수 전**) — 코드 분석으로 찾은 22개 결함 중 측정 없이 방향이 분명한 12건을 묶음 A~F로 수정. 임계값·시간 창·필터 정책·검색 확장 10건은 후속으로 분리
 - `docs/measurement.md` - GraphRAG 정량 측정(eval) 가이드 — 그래프·응답 품질 개선을 숫자로 검증하는 방법
 - `docs/DESIGN.md` - 디자인 시스템(팔레트·타이포·모션·랜딩). **UI 작업 전에 읽고 모든 시각 결정을 여기서 파생시킨다**
 - `docs/i18n.md` - 다국어 준비 메모(**언어 분리 착수 전**) — 시각 표시 작업이 세워 둔 계약. 로캘(UI 언어)과 타임존(기기 설정)은 독립 축이며, 언어 기본값을 위치로 정하더라도 시각 표시에 위치를 끌어들이지 않는다. 서버는 UTC ISO만 내보내고 표시 변환은 프론트가 전담

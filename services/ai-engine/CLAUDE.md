@@ -28,6 +28,7 @@ uvicorn main:app --reload --port 8000
 세션 메모리 노브(선택, 전부 `/query/config`로 노출): `SUMMARY_MODEL`/`REWRITE_MODEL`(요약·질문 재작성 모델,
 기본 `gpt-5.4-mini`), `QUERY_HISTORY_BUDGET_CHARS`(tool 루프 history 글자 예산, 기본 `16000`),
 `CONTEXT_CARD_BUDGET_CHARS`(최종 답변 맥락 카드 글자 예산, 기본 `6000`).
+질의 도구 노브(선택): `ACTOR_ACTIVITY_CONTEXT_CAP_PER_KIND`(사람 활동 개요 stub 종류별 상한, 기본 `10`).
 
 수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_CHANGESET_LOOKAHEAD`(기본 `8`, `0`=비활성),
 `INGEST_EMBED_COALESCE_MAX`/`INGEST_EMBED_COALESCE_WINDOW_MS`(커밋 메시지 임베딩 코얼레싱, 기본 `8`/`50ms` —
@@ -129,7 +130,9 @@ graph/             Neo4j 그래프 구축 + 수집
   postprocess.py     per-project 후처리(Layer 4) 빌드 + 디바운스. 빌드는 프로젝트 단위 비동기
                      (POST /graph/build는 202 후 백그라운드 태스크, GET /graph/build/status 폴링).
                      같은 프로젝트는 coalesce, 다른 프로젝트는 _build_semaphore(MAX_CONCURRENCY)로 제한.
-                     상태/dirty는 in-process — 수평 확장 시 공유 저장소로 교체 필요
+                     상태/dirty는 in-process — 수평 확장 시 공유 저장소로 교체 필요.
+                     자동 빌드는 빌더 전에 Communication·Issue·ChangeSet 메시지 임베딩 누락분을
+                     보정한다(`backfilled`는 Communication 건수, Issue·ChangeSet은 별 키).
   embed_batcher.py    커밋 메시지 임베딩 마이크로배처 — 짧은 대기창 동안 단건 호출을 코얼레싱해 embed_batch 1콜로 묶음
   builder.py         facade — 아래 분해 모듈의 공개 심볼 re-export (하위 호환)
     driver.py            드라이버 수명주기 (get_driver/close_driver)

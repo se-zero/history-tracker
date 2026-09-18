@@ -51,19 +51,20 @@ class _FakeDriver:
 
 class GetChangesetContextDocumentExternalIdTest(unittest.TestCase):
     def test_query_selects_external_id_and_returns_it(self):
+        resolve_candidates = [{"hash": "abc1234", "message": "m", "occurredAt": None}]
         row = {
-            "hash": "abc123", "commit_message": "m", "occurredAt": None, "author": "A",
+            "hash": "abc1234", "commit_message": "m", "occurredAt": None, "author": "A",
             "issues": [], "communications": [],
             "documents": [{"external_id": "page-1", "title": "설계 문서", "url": "u",
                             "source": "NOTION", "confidence": 1.0}],
             "pull_request": {"pr_number": None, "title": None, "url": None},
             "file_changes": [],
         }
-        session = _FakeSession(records=[row])
+        session = _FakeSession(records=[resolve_candidates, row])
         with patch("tools.queries.changeset.get_driver", return_value=_FakeDriver(session)):
-            result = asyncio.run(get_changeset_context("p1", "abc123"))
+            result = asyncio.run(get_changeset_context("p1", "abc1234"))
 
-        query, _params = session.calls[0]
+        query, _params = session.calls[1]
         self.assertIn("external_id: d.external_id", query)
         self.assertEqual(result["documents"][0]["external_id"], "page-1")
 

@@ -105,18 +105,33 @@ def _truncate_payload(result, payload: str) -> str:
     # get_file_history 등 detail/context 계층 dict — 문자열 컷(JSON 파손)으로 떨어뜨리지 않고
     # 개요(context)부터, 그래도 넘치면 인용 대상(detail)까지 행 단위로 줄인다. 문자열 중간
     # 컷은 JSON을 깨고 오래된 행 증발을 숨긴다(case-27) — 이 dict는 항상 유효 JSON을 보장.
-    if isinstance(result, dict) and (
+    is_tiered = isinstance(result, dict) and (
         isinstance(result.get("context"), list) or isinstance(result.get("detail"), list)
-    ):
+    )
+    if is_tiered:
         trimmed = _trim_tiered_dict(result)
         if trimmed is not None:
             return trimmed
     # get_timeline의 events dict — 계층 dict가 아니라 위 트리머가 못 잡는다.
-    if isinstance(result, dict) and isinstance(result.get("events"), list):
+    is_timeline = isinstance(result, dict) and isinstance(result.get("events"), list)
+    if is_timeline:
         trimmed = _trim_timeline_dict(result)
         if trimmed is not None:
             return trimmed
-    return payload[:_MAX_RESULT_CHARS] + " ...[결과 뒷부분이 잘렸습니다 — JSON이 불완전할 수 있습니다. 더 좁은 범위로 다시 호출하세요.]"
+    # get_pr_context·get_issue_context·get_changeset_context·get_document_context 등 —
+    # tiered도 timeline도 아닌 일반 dict. 위 두 트리머가 None을 반환했을 때(=이미 최소
+    # 형태까지 줄였는데도 넘침)는 여기로 넘기지 않는다 — _trim_tiered_dict가 지키는
+    # "detail 최소 1건"을 이 일반 트리머가 다시 비울 수 있기 때문이다.
+    if isinstance(result, dict) and not is_tiered and not is_timeline:
+        trimmed = _trim_generic_dict(result)
+        if trimmed is not None:
+            return trimmed
+    return (
+        payload[:_MAX_RESULT_CHARS]
+        + " ...[결과 뒷부분이 잘렸습니다 — JSON이 불완전할 수 있습니다. 잘린 항목은 식별자로 "
+        "상세 도구(커밋→get_changeset_context, 이슈→get_issue_context, PR→get_pr_context, "
+        "스레드→get_thread_context)를 호출해 조회하세요.]"
+    )
 
 
 def _trim_timeline_dict(result: dict) -> str | None:
@@ -201,6 +216,101 @@ def _trim_tiered_dict(result: dict) -> str | None:
                 return candidate
 
     return None
+
+
+# 잘림 고지에 실을 식별자 최대 개수 — 넘으면 " 외 M건"으로 뭉친다(후보 폭주 방지, 다른
+# candidates 계열 상한과 같은 취지).
+_GENERIC_TRUNCATION_ID_CAP = 20
+
+
+def _identifier_for(row) -> str | None:
+    """생략된 행의 식별자 — 잘림 고지에 실어 상세 도구로 바로 드릴다운하게 한다.
+
+    "범위를 좁혀 재호출"은 get_pr_context·get_issue_context 등 범위 인자가 없는 도구에는
+    따를 수 없는 지시였다(계획 문제 #11). 식별자가 있으면 그 값으로 상세 도구를 다시 부를
+    수 있다 — 우선순위: hash(커밋) → issue_key → pr_number → conversation_id(스레드) →
+    external_id(문서) → path(파일) → id(get_conflict_context의 범용 키).
+    """
+    if not isinstance(row, dict):
+        return None
+    if row.get("hash"):
+        return str(row["hash"])[:7]
+    if row.get("issue_key"):
+        return str(row["issue_key"])
+    if row.get("pr_number") is not None:
+        return f"#{row['pr_number']}"
+    if row.get("conversation_id"):
+        return str(row["conversation_id"])
+    if row.get("external_id"):
+        return str(row["external_id"])
+    if row.get("path"):
+        return str(row["path"])
+    # get_conflict_context는 이슈·PR·문서 행의 식별자를 범용 키 `id`에 담는다
+    # (issue_contexts·pr_contexts·doc_contexts). 이 폴백이 없으면 그 도구의 생략 고지가
+    # 개수만 알려 드릴다운할 수 없다 — 앞의 키가 하나도 없을 때만 쓴다.
+    if row.get("id") is not None:
+        return str(row["id"])
+    return None
+
+
+def _generic_truncation_notice(total: int, kept_count: int, omitted_rows: list) -> str:
+    """<field>_truncated 고지 문자열. 식별자가 있으면 나열(20개 초과 시 " 외 M건"),
+    없으면 개수만 알린다."""
+    # omitted_rows는 뒤에서부터 뺀 순서(= 원래 순서의 역순)로 쌓인다 — 사람이 읽기 좋게
+    # 원래 리스트 순서로 되돌린다.
+    ordered = list(reversed(omitted_rows))
+    ids = [i for i in (_identifier_for(row) for row in ordered) if i]
+    notice = f"전체 {total}건 중 앞 {kept_count}건만 표시"
+    if not ids:
+        return notice + f" — {total - kept_count}건 생략"
+    shown = ids[:_GENERIC_TRUNCATION_ID_CAP]
+    id_text = ", ".join(shown)
+    extra = len(ids) - len(shown)
+    if extra > 0:
+        id_text += f" 외 {extra}건"
+    return notice + f" — 생략: {id_text}"
+
+
+def _trim_generic_dict(result: dict) -> str | None:
+    """tiered(detail/context)·timeline(events) 트리머가 못 잡는 일반 dict를 상한 이하로
+    줄인다 — 항상 유효 JSON 반환.
+
+    get_pr_context·get_issue_context·get_changeset_context·get_document_context는 file_changes·
+    changesets·issues·descendants 등 최상위 리스트를 여러 개 갖는데, 문자열 컷으로 떨어지면
+    이 리스트들이 JSON 파손과 함께 통째로 사라진다(실측 2026-08-21: get_pr_context 49회 중
+    37회가 이 컷에 걸림, 절단 지점이 file_changes·body·descendants 안쪽). 매 반복 **직렬화
+    크기가 가장 큰 리스트**에서 마지막 행 하나씩 빼서, 한 필드만 전멸시키지 않고 고르게
+    줄인다. 문자열·dict·숫자 필드(PR·이슈 body 등 인용 원문)는 절대 건드리지 않는다.
+    """
+    def dumps(obj) -> str:
+        return json.dumps(obj, ensure_ascii=False, default=_json_default)
+
+    list_fields = [key for key, value in result.items() if isinstance(value, list) and value]
+    if not list_fields:
+        return None
+
+    kept: dict[str, list] = {key: list(result[key]) for key in list_fields}
+    omitted: dict[str, list] = {key: [] for key in list_fields}
+
+    def render() -> dict:
+        out = dict(result)
+        for key in list_fields:
+            out[key] = kept[key]
+            if omitted[key]:
+                out[f"{key}_truncated"] = _generic_truncation_notice(
+                    len(result[key]), len(kept[key]), omitted[key]
+                )
+        return out
+
+    while True:
+        candidate = dumps(render())
+        if len(candidate) <= _MAX_RESULT_CHARS:
+            return candidate
+        sizeable = [key for key in list_fields if kept[key]]
+        if not sizeable:
+            return None  # 리스트를 전부 비워도 넘침 — 호출부가 문자열 컷으로 폴백
+        target = max(sizeable, key=lambda k: len(dumps(kept[k])))
+        omitted[target].append(kept[target].pop())
 
 
 async def _question_embedding(question: str) -> list[float] | None:
@@ -292,11 +402,12 @@ async def _dispatch(tool_name: str, args: dict, project_id: str, question: str =
             )
 
         case "get_file_history":
+            # limit은 의도적으로 전달하지 않는다 — get_actor_activity와 같은 이유로, LLM이
+            # 지어낸 limit이 관련도 재랭킹 전에 최신 N개로 이력을 잘라 옛 관련 커밋 구제를 무력화한다
             return await queries.get_file_history(
                 project_id=project_id,
                 path=args["path"],
                 question_embedding=await _question_embedding(question),
-                limit=args.get("limit"),
             )
 
         case "check_missing_context":

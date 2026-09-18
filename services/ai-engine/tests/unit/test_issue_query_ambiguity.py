@@ -124,13 +124,14 @@ class GetIssueContextAmbiguityTest(unittest.TestCase):
             result = asyncio.run(get_issue_context("p1", "ENG-123"))
 
         self.assertEqual(len(session.calls), 6)
-        # 하위 호환: 기존 단일 매칭 시 반환 구조(키 목록)가 그대로 유지된다(documents는 신규 추가).
+        # 하위 호환: 기존 단일 매칭 시 반환 구조(키 목록)가 그대로 유지된다
+        # (documents는 신규 추가, created_at/closed_at은 B-3에서 중첩 이슈 인용용으로 신규 추가).
         self.assertEqual(
             set(result.keys()),
             {
                 "issue_key", "title", "body", "status", "issue_type", "priority",
-                "occurredAt", "creator", "assignee", "changesets", "pull_requests",
-                "discussions", "documents", "descendants",
+                "occurredAt", "created_at", "closed_at", "creator", "assignee",
+                "changesets", "pull_requests", "discussions", "documents", "descendants",
             },
         )
         self.assertEqual(result["descendants"], [])

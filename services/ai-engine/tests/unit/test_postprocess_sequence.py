@@ -44,8 +44,8 @@ def _fake_store():
     )
 
 
-def _run_sequence(verify: bool) -> list[str]:
-    """모든 단계를 대역으로 바꾼 뒤 시퀀스를 1회 돌리고 호출 순서를 반환한다.
+def _run_sequence(verify: bool) -> tuple[list[str], dict]:
+    """모든 단계를 대역으로 바꾼 뒤 시퀀스를 1회 돌리고 호출 순서와 결과 dict를 반환한다.
 
     run_postprocess_sequence가 빌더를 함수 안에서 lazy import하므로 모듈 속성 패치로 격리된다.
     """
@@ -77,11 +77,22 @@ def _run_sequence(verify: bool) -> list[str]:
         step("graph.builder.clear_reference", "clear_reference")
         step("graph.builder.clear_semantic_described_in", "clear_described_in")
         step("graph.builder.propagate_thread_discussed_in", "propagate")
-        # backfill만 {"saved", "total"}를 반환한다 — 시퀀스가 saved를 꺼내 쓴다
+        # backfill만 {"saved", "total"}를 반환한다 — 시퀀스가 saved를 꺼내 쓴다.
+        # saved 값을 종류별로 다르게 두어 결과 dict 키가 서로 섞이지 않는지 본다.
         step(
             "graph.reference_builder.backfill_communication_embeddings",
             "backfill",
-            {"saved": 0, "total": 0},
+            {"saved": 1, "total": 1},
+        )
+        step(
+            "graph.issue_linker.backfill_issue_embeddings",
+            "backfill_issues",
+            {"saved": 2, "total": 2},
+        )
+        step(
+            "graph.reference_builder.backfill_changeset_message_embeddings",
+            "backfill_changesets",
+            {"saved": 3, "total": 3},
         )
 
         # 임베딩 전용(자동 재구축) 빌더
@@ -97,16 +108,16 @@ def _run_sequence(verify: bool) -> list[str]:
         step("graph.issue_verifier.build_issue_communication_links_filtered", "di_filtered")
         step("graph.reference_verifier.build_reference_edges_filtered", "ref_filtered")
 
-        asyncio.run(postprocess.run_postprocess_sequence("p1", verify=verify))
+        result = asyncio.run(postprocess.run_postprocess_sequence("p1", verify=verify))
 
-    return log.calls
+    return log.calls, result
 
 
 class AutoRebuildSequenceTest(unittest.TestCase):
     """verify=False — 자동 재구축은 임베딩 유사도만 쓰고 아무것도 지우지 않는다."""
 
     def setUp(self):
-        self.calls = _run_sequence(verify=False)
+        self.calls, self.result = _run_sequence(verify=False)
 
     def test_uses_embedding_only_builders(self):
         self.assertIn("tb_embedding", self.calls)
@@ -127,12 +138,32 @@ class AutoRebuildSequenceTest(unittest.TestCase):
         self.assertIn("doc_reference", self.calls)
         self.assertIn("doc_described_in", self.calls)
 
+    def test_issue_and_changeset_backfills_run_before_builders(self):
+        builders = (
+            "tb_embedding", "di_embedding", "ref_embedding",
+            "propagate", "doc_reference", "doc_described_in",
+        )
+        for backfill in ("backfill_issues", "backfill_changesets"):
+            self.assertIn(backfill, self.calls)
+            for builder in builders:
+                self.assertLess(
+                    self.calls.index(backfill),
+                    self.calls.index(builder),
+                    f"{backfill}는 {builder}보다 먼저 돌아야 한다",
+                )
+
+    def test_backfill_counts_keep_backend_contract(self):
+        # backfilled는 Communication 보정 건수(기존 backend 계약). Issue·ChangeSet는 별도 키.
+        self.assertEqual(self.result["backfilled"], 1)
+        self.assertEqual(self.result["backfilled_issues"], 2)
+        self.assertEqual(self.result["backfilled_changesets"], 3)
+
 
 class VerifiedRebuildSequenceTest(unittest.TestCase):
     """verify=True — 타입별 채택 조합(TB 추천형 / DI 필터형 / REF 필터형)."""
 
     def setUp(self):
-        self.calls = _run_sequence(verify=True)
+        self.calls, self.result = _run_sequence(verify=True)
 
     def test_uses_adopted_builder_per_edge_type(self):
         self.assertIn("tb_verified", self.calls)
@@ -167,6 +198,20 @@ class VerifiedRebuildSequenceTest(unittest.TestCase):
         # 문서 빌더는 verify 여부와 무관하게 항상 임베딩 전용이다(LLM 검수 변형 없음)
         self.assertIn("doc_reference", self.calls)
         self.assertIn("doc_described_in", self.calls)
+
+    def test_issue_and_changeset_backfills_run_before_builders(self):
+        builders = (
+            "tb_verified", "di_filtered", "ref_filtered",
+            "propagate", "doc_reference", "doc_described_in",
+        )
+        for backfill in ("backfill_issues", "backfill_changesets"):
+            self.assertIn(backfill, self.calls)
+            for builder in builders:
+                self.assertLess(
+                    self.calls.index(backfill),
+                    self.calls.index(builder),
+                    f"{backfill}는 {builder}보다 먼저 돌아야 한다",
+                )
 
 
 if __name__ == "__main__":

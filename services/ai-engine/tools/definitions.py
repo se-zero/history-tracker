@@ -45,7 +45,10 @@ TOOLS = [
                 "properties": {
                     "hash": {
                         "type": "string",
-                        "description": "Git commit hash",
+                        "description": (
+                            "Git commit hash. 앞 7자 이상 접두어로 지정 가능. 앞자리가 겹치면 결과가 "
+                            "{message, candidates}로 오니 candidates의 전체 hash로 재호출한다."
+                        ),
                     }
                 },
                 "required": ["hash"],
@@ -312,10 +315,9 @@ TOOLS = [
                         "type": "string",
                         "description": "파일 경로 (예: src/auth/token.py)",
                     },
-                    "limit": {
-                        "type": "integer",
-                        "description": "관련도 산정 대상 커밋 상한 (미지정 시 전체 이력). 보통 지정 불필요.",
-                    },
+                    # limit은 의도적으로 스키마에 없다 — get_actor_activity와 같은 이유로,
+                    # LLM이 습관적으로 낮은 값을 넣으면 관련도 재랭킹 전에 최신 N개로 잘려
+                    # 옛 관련 커밋 구제(2계층 반환의 목적)가 무력화된다.
                 },
                 "required": ["path"],
             },
@@ -385,7 +387,10 @@ TOOLS = [
                 "properties": {
                     "hash": {
                         "type": "string",
-                        "description": "Git commit hash",
+                        "description": (
+                            "Git commit hash. 앞 7자 이상 접두어로 지정 가능. 앞자리가 겹치면 결과가 "
+                            "{message, candidates}로 오니 candidates의 전체 hash로 재호출한다."
+                        ),
                     }
                 },
                 "required": ["hash"],

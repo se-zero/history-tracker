@@ -196,7 +196,7 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
          Document 대상 시맨틱 엣지도 함께 비운다(끝 라벨을 제한하지 않는 쿼리라서다).
          DESCRIBED_IN(Issue→Document) semantic도 여기서 함께 비운다 — 이 엣지는 LLM 검수
          빌더가 없어(아래 5) verify에서도 항상 자동구축으로만 다시 채워진다.
-      1. 임베딩 누락 Communication 보정 (이후 비교 대상에 포함되도록)
+      1. 임베딩 누락 보정 (Issue·Communication·ChangeSet 메시지 — 이후 비교 대상에 포함되도록)
       2. TRIGGERED_BY + DISCUSSED_IN 시맨틱 링크 (GitHub↔Jira, Jira↔Slack)
       3. REFERENCE 시맨틱 링크 (GitHub↔Slack/GitHub이슈)
       4. DISCUSSED_IN 스레드 전파 (2에서 만든 엣지를 같은 스레드로 확장)
@@ -219,7 +219,11 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
         propagate_thread_discussed_in,
     )
     from graph.document_linker import build_described_in_document_edges, build_document_reference_edges
-    from graph.reference_builder import backfill_communication_embeddings
+    from graph.issue_linker import backfill_issue_embeddings
+    from graph.reference_builder import (
+        backfill_changeset_message_embeddings,
+        backfill_communication_embeddings,
+    )
     from graph.slack_batch_filter import run_slack_llm_filter
 
     # verify에 따라 임베딩 전용 빌더 또는 LLM이 개입하는 빌더를 고른다.
@@ -244,7 +248,7 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
     # 같은 시퀀스 안에서 동일 임베딩을 두 번 읽지 않도록 공유 메모이즈한다.
     #   - issue 임베딩: triggered_by·discussed_in·described_in(문서) 세 빌더가 동일 쿼리로 읽음
     #   - communication 임베딩: discussed_in·reference 두 빌더가 동일 쿼리로 읽음
-    #     (comm 메모이즈는 backfill 이후 첫 호출되므로 보정된 임베딩까지 반영됨)
+    #     (issue·comm 메모이즈는 backfill 이후 첫 호출되므로 보정된 임베딩까지 반영됨)
     #   - modified 임베딩(전체, text TRIGGERED_BY 제외 없음): reference·reference(문서) 두 빌더가
     #     동일 쿼리로 읽음. issue-linking용(text TRIGGERED_BY 제외)은 여전히 다른 쿼리라 별도.
     shared_issue_fetch = _memoize_async(link_store.fetch_issue_embeddings)
@@ -283,12 +287,20 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
         # 남지 않도록, 나머지 세 clear와 같은 이유).
         await clear_semantic_described_in(project_id)
 
+    # 1) 임베딩 누락 보정 — 이후 비교 대상에 포함되도록 빌더보다 먼저.
+    #    backfill은 {"saved", "total"}을 주지만 여기선 saved만 싣는다.
+    #    빌드 결과의 backfilled는 backend가 Communication 보정 건수를 int로 역직렬화하는
+    #    기존 계약이라 키를 유지하고, Issue·ChangeSet 보정 건수는 별도 키로 싣는다.
+    backfilled = (await backfill_communication_embeddings(ref_store))["saved"]
+    backfilled_issues = (await backfill_issue_embeddings(link_store))["saved"]
+    backfilled_changesets = (await backfill_changeset_message_embeddings(ref_store))["saved"]
+
     results = {
         "slack_kept":        slack["kept"],
         "slack_deleted":     slack["deleted"],
-        # backfill은 {"saved", "total"}을 주지만 여기선 saved만 싣는다 —
-        # 빌드 결과의 backfilled는 backend가 int로 역직렬화하는 기존 계약이다.
-        "backfilled":        (await backfill_communication_embeddings(ref_store))["saved"],
+        "backfilled":        backfilled,
+        "backfilled_issues": backfilled_issues,
+        "backfilled_changesets": backfilled_changesets,
         "triggered_by":      await build_triggered_by(link_store),
         "discussed_in":      await build_discussed_in(link_store),
         "reference":         await build_reference(ref_store),

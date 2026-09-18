@@ -306,7 +306,7 @@ ssh -L 7474:127.0.0.1:7474 -L 7687:127.0.0.1:7687 <user>@<서버>
 
 | 항목 | 값 | 우리에게 의미 |
 |---|---|---|
-| Proxy Read Timeout | **125초** 초과 시 524 | 질의(`/query`)가 평균 12초대이고, backend가 ai-engine 호출에 60초 read timeout을 걸어 앱이 먼저 끊는다. 지금은 2배 이상 여유가 있다 |
+| Proxy Read Timeout | **125초** 초과 시 524 | 질의(`/query`)가 평균 12초대이고, backend가 ai-engine 호출에 `ai.engine.read-timeout-seconds`(기본 120초, env `AI_ENGINE_READ_TIMEOUT_SECONDS`)를 걸어 앱이 먼저 끊는다. Cloudflare 524와 5초 차이라 여유는 예전 60초 때보다 줄었다 |
 | 요청 본문 | 무료 플랜 100MB | webhook·API 페이로드가 근처에도 가지 않는다 |
 
 **125초는 올릴 수 없다 — Enterprise 플랜 전용이다**(최대 6000초). 그리고 **스트리밍도 예외가
