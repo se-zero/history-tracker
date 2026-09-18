@@ -342,7 +342,7 @@ ssh -L 7474:127.0.0.1:7474 -L 7687:127.0.0.1:7687 <user>@<서버>
 
 | 항목 | 값 | 우리에게 의미 |
 |---|---|---|
-| Proxy Read Timeout | **125초** 초과 시 524 | 질의(`/query`)가 평균 12초대이고, backend가 ai-engine 호출에 `ai.engine.read-timeout-seconds`(기본 120초, env `AI_ENGINE_READ_TIMEOUT_SECONDS`)를 걸어 앱이 먼저 끊는다. Cloudflare 524와 5초 차이라 여유는 예전 60초 때보다 줄었다 |
+| Proxy Read Timeout | **125초** 초과 시 524 | 질의(`/query`)가 평균 12초대다. 타임아웃 체인은 backend `ai.engine.read-timeout-seconds`(기본 120초) → nginx `location /api/` `proxy_read_timeout` 125초 → Cloudflare 125초다. 앱이 먼저 끊고 nginx는 그 응답을 통과시키며, 엣지 524는 그 바깥이다. nginx를 빼면 기본 60초에서 504가 나고 backend fallback도 타지 않는다 |
 | 요청 본문 | 무료 플랜 100MB | webhook·API 페이로드가 근처에도 가지 않는다 |
 
 **125초는 올릴 수 없다 — Enterprise 플랜 전용이다**(최대 6000초). 그리고 **스트리밍도 예외가
