@@ -1,0 +1,355 @@
+# 결제·구독 계획 — Paddle(MoR) 기반 월 정기구독
+
+[public-readiness.md §1-1](public-readiness.md)이 "결제 구현은 후순위"로 미뤄 두고 **공유 전환 코드**
+(`POST /api/v1/me/plan/upgrade`)를 임시 수단으로 남겨 둔 자리를 실제 결제로 바꾸는 계획이다.
+무료 티어 한도 자체는 이미 코드로 강제되고 있으므로([PlanService.java](../services/backend/src/main/java/com/history/backend/auth/service/PlanService.java)),
+이 문서의 범위는 **돈을 받는 경로**와 **플랜의 만료·회수**다.
+
+근거는 두 갈래다 — 결제 수단은 각 사업자의 공식 문서·안내를 **2026-09-19에 확인**했고(맨 아래
+「참고」), 현재 구현 상태는 backend·web-dashboard 코드에서 직접 확인했다.
+
+조사에서 **사전 판단이 둘 뒤집혔다.** 계획을 읽을 때 이 둘을 먼저 알아야 나머지가 이해된다.
+
+1. **"사업자등록 없이 국내 결제는 전부 불가"는 과한 단정이었다.** 국내 PG 4사는 맞지만,
+   페이앱에 비사업자(개인판매자) 경로가 있다 — 그럼에도 채택하지 않는 이유는 §2-2.
+2. **"정기구독은 기간제보다 무겁다"는 MoR 구조에서 성립하지 않는다.** 갱신·재청구·카드만료
+   대응을 Paddle이 가져가므로 **정기구독이 기간제보다 우리 쪽 구현이 가볍다**(§4).
+
+---
+
+## 0. 결정 사항 요약
+
+| 항목 | 결정 | 근거 |
+|------|------|------|
+| 결제 수단 | **Paddle (Merchant of Record)** | 사업자등록을 하지 않겠다는 결정과 모순되지 않는 유일한 구조. 한국 결제 수단을 지원하는 유일한 MoR(§2-3) |
+| 판매 주체 | **Paddle** — 우리는 Paddle에 공급 | 통신판매업 신고는 사업자등록이 선행 조건이라 비사업자는 신고 자체가 불가. MoR은 그 의무의 귀속을 바꾼다 (**법률 검토 필요** — §9) |
+| 과금 모델 | **월 정기구독(자동갱신)** | 목표가 자동갱신이고, MoR에서는 이게 더 가볍다(§4). 기간제 1회 결제는 **채택하지 않는다** |
+| 통화 | **KRW 고정** | ⚠️ KRW 가격 + 한국 주소일 때만 국내 카드·간편결제가 결제창에 뜬다(§3). USD로 매기면 국내 사용자가 결제 수단을 못 고른다 |
+| 가격 | **미정** | 금액만 비어 있고 통화·주기는 확정. G3에서 닫는다 |
+| 플랜의 진실의 원천 | **Paddle** — 우리 `users.plan`은 캐시 | 구독 상태를 우리가 계산하면 Paddle과 갈라진다. 웹훅으로 따라간다(§5) |
+| 만료 시 플랜 | FREE로 강등 + **`free_query_count = 0`으로 초기화** | 사용자 결정(2026-09-19). 만료 후 무료 10회를 **새로 받는다** |
+| 만료 시 연동 | **연동 행은 유지, 증분 수집만 중단** | 사용자 결정(2026-09-19). 연동을 끊으면 재구독 시 전체 재수집이라 비용이 더 든다 |
+| 만료 시 프로젝트 | 기존 것 유지, **신규 생성만 차단** | 별도 코드가 필요 없다 — `ensureProjectCreatable`이 생성 시점만 보기 때문에 자연히 이 동작이 된다 |
+| 해지·결제수단 변경 화면 | **만들지 않는다** — Paddle 고객 포털로 보낸다 | 카드 만료·변경·해지는 전부 Paddle 소관. 우리가 만들면 상태가 두 곳에 생긴다 |
+| 웹훅 엔드포인트 | **backend** — `/api/v1/billing/webhook/paddle` | 플랜 전환이 backend 소관. nginx `/api/`가 이미 backend로 프록시한다. `/api/v1/webhook/` prefix는 pipeline-worker로 가므로 **쓰지 않는다** |
+| 요청 인증 | Paddle 서명 검증 (HMAC) — JWT 없이 열되 **서명이 유일한 인증 수단** | Slack Events(`/api/v1/slack/events`)가 이미 쓰는 패턴 |
+| 전환 코드(`PLAN_UPGRADE_CODE`) | **미결** — §15-1 | 운영자·베타 수단으로 남길지, 결제와 함께 제거할지 정해지지 않았다 |
+
+---
+
+## 1. 무엇이 걸려 있는가
+
+- **임시 수단의 종료.** 지금 유료 전환은 서버 설정 코드를 아는 사람이면 누구나 쓸 수 있다
+  ([MeController.java:45](../services/backend/src/main/java/com/history/backend/auth/controller/MeController.java#L45)).
+- **비용 회수.** FREE 한도는 코드로 막혀 있지만, 한 번 PAID가 된 계정은 **영원히 PAID다.**
+  플랜을 되돌리는 경로가 코드에 아예 없어서(§7), 결제를 붙이는 순간 이게 그대로 구멍이 된다.
+- **약관·사업자 정보.** [public-readiness.md §4-6](public-readiness.md)이 "약관 없이 결제만
+  붙이면 안 된다"고 못 박아 둔 항목이 여기서 열린다(§9).
+- **Slack 약관 마찰.** 유료화하면 "commercially distributing"이 확정돼 B 트랙이 Slack 약관과
+  충돌한다 — [public-readiness.md §0-3](public-readiness.md)이 "결제 작업과 함께 다시 판단"으로
+  미뤄 둔 건이다.
+
+---
+
+## 2. 결제 수단 — 후보와 탈락 근거
+
+전제: **사업자등록·통신판매업 신고를 하지 않는다**(사용자 결정, 2026-09-18). 대상은 **국내 사용자
+위주**. 이 둘이 후보를 거의 다 지운다.
+
+### 2-1. 국내 PG 4사 — 불가
+
+토스페이먼츠·KG이니시스·NHN KCP·나이스페이 전부 **사업자등록번호가 가입 요건**이다. 포트원 같은
+중개 서비스도 결국 하위 PG 계약을 요구하므로 같다. 검토 종료.
+
+### 2-2. 페이앱 개인판매자 — 되지만, 채택하지 않는다
+
+페이앱의 가입 구분 셋 중 **개인판매자**는 사업자등록증을 내지 않는다(날인 계약서·신분증·통장사본).
+정기결제 기능과 API도 있다. **기능만 보면 못 쓸 이유가 없다.**
+
+| 조건 | 값 |
+|------|-----|
+| 수수료 | 카드·간편결제 4.0% |
+| 연 한도 | 2,400만원 — 초과 시 사업자용으로 전환 가입 |
+| 심사 | 서류검토 + **업종심사** (약 2영업일) |
+| 세무 | 카드 거래내역 국세청 자동 통보 |
+
+그럼에도 접는 이유는 수수료도 한도도 아니다. **판매 주체가 우리가 되기 때문이다.**
+페이앱은 결제를 대행할 뿐이므로 전자상거래법상 통신판매자는 본인이고, 그러면
+[public-readiness.md §4-3](public-readiness.md)의 사업자 정보 표시(상호·사업자등록번호·
+**통신판매업신고번호**)를 채워야 하는데 — **통신판매업 신고는 사업자등록이 선행이라 비사업자는
+신고 자체를 할 수 없다.** 즉 "사업자등록은 안 하면서 내가 판매자"인 상태가 되고, 이는 기능 가부가
+아니라 법적으로 애매한 자리다. 페이앱 스스로도 "비사업자로 지속 판매 시 사업자 전환 필수"로
+안내한다.
+
+**차선으로는 살려 둔다.** G1(Paddle 심사)이 반려되면 여기로 되돌아오되, 그때는 사업자등록을
+다시 검토하는 쪽이 오히려 깔끔할 수 있다(§15-2).
+
+### 2-3. 해외 MoR — Paddle 외에는 한국 결제 수단이 없다
+
+MoR(Merchant of Record)은 그 업체가 **자기 이름으로 고객에게 팔고** 세금 처리 후 정산해 주는
+구조다. 후보는 Paddle · Lemon Squeezy · Polar · Creem 넷인데 **한국 결제 수단에서 갈린다.**
+
+| | 한국 로컬 카드 | 카카오·네이버·페이코·삼성페이 | KRW 가격 | 구독 |
+|---|---|---|---|---|
+| **Paddle** | 22종 | 전부 지원 | 지원 | 지원 |
+| Lemon Squeezy | ✗ | ✗ | 불명 | 지원 |
+| Polar / Creem | ✗ (Stripe 기반) | ✗ | — | 지원 |
+
+한국 카드는 대부분 국제 브랜드망이 아니라 **국내 9개 결제망**을 타기 때문에, 해외 결제가 막힌
+카드라면 Lemon Squeezy 계열에서는 결제 자체가 실패한다. Paddle만 국내 처리사를 끼고 이 문제를
+해결해 뒀다. 국내 사용자 위주라는 전제에서 이건 결정적 차이다.
+
+Paddle 계정 심사는 **도메인 리뷰 / 사업자 확인 / 신원 확인** 3단계인데, **개인·1인 사업자는
+사업자 확인이 면제**된다. 이것이 "사업자등록 없이"와 양립하는 근거다.
+
+---
+
+## 3. ⚠️ 가격은 KRW로 매겨야 한다
+
+Paddle은 **"KRW로 가격이 매겨졌고 고객 주소가 한국일 때"**만 국내 카드·간편결제를 결제창에
+노출한다. USD로 가격을 매기면 국내 사용자에게 카카오페이·네이버페이가 **아예 뜨지 않는다.**
+
+가격 결정(G3)에서 금액보다 이 제약이 먼저다. 나중에 해외 사용자를 받더라도 KRW 가격을 없애면
+안 되고, 통화를 추가하는 방향으로 간다.
+
+---
+
+## 4. 과금 모델 — 정기구독이 기간제보다 가볍다
+
+직접 PG를 붙일 때는 정기구독이 무겁다. **빌링키**(카드를 등록해 두고 자동 청구할 때 PG가 주는
+토큰 — 카드번호는 PG가 갖고 우리는 토큰만 가진다) 보관, 매월 재청구, 결제 실패 재시도(dunning),
+카드 만료 대응이 전부 우리 몫이기 때문이다.
+
+MoR에서는 그게 전부 Paddle 쪽이다. 우리 코드가 하는 일은 하나로 줄어든다.
+
+> **Paddle이 보내는 웹훅을 받아 `users.plan`을 켜고 끈다.**
+
+기간제 1회 결제로 내려도 우리 구현이 줄지 않는다 — 오히려 만료 관리를 우리가 더 떠안는다.
+그래서 **기간제는 대안으로도 두지 않는다.**
+
+---
+
+## 5. 상태 모델 — 진실의 원천은 Paddle, 우리 DB는 캐시
+
+구독 상태를 우리가 계산하면(결제일 + 30일 등) 환불·연체·해지·카드 실패에서 Paddle과 갈라진다.
+**우리 테이블은 Paddle 상태의 캐시**로만 둔다.
+
+| 무엇 | 어디 |
+|---|---|
+| `users.plan` | 지금 그대로 쓴다 (`FREE`/`PAID`). 게이트 검사는 전부 여기를 본다 |
+| `users.plan_expires_at` (신규) | 이 시각이 지나면 FREE로 내린다. 스케줄러 안전망(§6-4)의 기준 |
+| `billing_subscriptions` (신규) | Paddle subscription id, 상태, `current_period_end`, `user_id` |
+| `billing_events` (신규) | 수신한 웹훅 원장 — Paddle event id **unique**(§6-2). append만 하고 덮어쓰지 않는다 |
+
+`free_query_count`·`integrations.incremental_enabled`는 기존 컬럼을 그대로 쓴다(V19).
+
+---
+
+## 6. backend — 웹훅 수신과 동기화
+
+### 6-1. 엔드포인트 위치와 인증
+
+경로는 이미 뚫려 있다. Cloudflare Tunnel → [nginx.conf](../clients/web-dashboard/nginx.conf)의
+`/api/` → backend. 새로 여는 것은 없다.
+
+[SecurityConfig.java](../services/backend/src/main/java/com/history/backend/security/SecurityConfig.java)의
+permitAll 목록에 `/api/v1/billing/webhook/paddle`을 추가한다. Slack Events와 같은 이유로
+**JWT 없이 열되 서명 검증이 유일한 인증 수단**이다.
+
+### 6-2. 멱등
+
+같은 웹훅이 두 번 와도 구독이 두 번 연장되면 안 된다. Paddle event id에 unique 제약을 걸고,
+이미 있는 id면 조용히 끝낸다 — `webhook_deliveries`가 GitHub 웹훅에서 쓰는 방식과 같다.
+
+### 6-3. ⚠️ 사용자 매칭은 이메일로 하면 안 된다
+
+사용자가 로그인 계정과 **다른 이메일로 결제할 수 있다.** 체크아웃을 열 때 `customData`에
+`userId`를 실어 보내고 웹훅에서 그 값으로 매칭한다. Paddle customer id를 받아 두면 이후 이벤트는
+그것으로도 찾을 수 있다.
+
+### 6-4. 만료 스케줄러 — 웹훅 유실 안전망
+
+웹훅은 유실될 수 있고, 유실되면 **돈을 안 낸 계정이 PAID로 남는다.** `plan_expires_at`이 지난
+PAID 사용자를 주기적으로 쓸어 FREE로 내린다. `@EnableScheduling`과 스케줄러 3종
+(`UserPurgeScheduler`·`RefreshTokenPurgeScheduler`·`JiraPersonalDataReportScheduler`)이 이미
+있으므로 `@ConditionalOnProperty` + cron 패턴을 그대로 따른다.
+
+---
+
+## 7. ⚠️ 다운그레이드 — `upgradeToPaid`의 역연산이 없다
+
+**이 문서에서 가장 중요한 구멍이다.** 지금 `PlanService`에는 올리는 길만 있다.
+
+```
+upgradeToPaid()  : plan = PAID + 모든 integration.enableIncremental()
+downgradeToFree(): 없음
+```
+
+`Integration.disableIncremental()`은 이미 존재하지만, 호출부는 **연동 생성 시점 두 곳뿐**이다
+([IntegrationService.java:177](../services/backend/src/main/java/com/history/backend/integration/service/IntegrationService.java#L177)·
+[:511](../services/backend/src/main/java/com/history/backend/integration/service/IntegrationService.java#L511) —
+FREE 사용자가 새로 연동할 때 끄는 용도). **이미 켜진 연동을 다시 끄는 경로가 없다.**
+
+만료 시 해야 할 일:
+
+| 대상 | 동작 | 안 하면 |
+|------|------|--------|
+| `users.plan` | `PAID` → `FREE` | 만료돼도 전 기능이 열린 채로 남는다 |
+| `integrations.incremental_enabled` | 그 사용자의 **전 연동을 false로** | ⚠️ 수집이 계속 돌아 **OpenAI 비용이 새어 나간다.** 만료 중 가장 실질적인 손해 |
+| `free_query_count` | **0으로 초기화** | 유료 전에 10회를 다 쓴 사용자는 만료 후 0회가 된다 (사용자 결정은 "새로 10회") |
+| 프로젝트·연동 초과분 | **아무것도 안 한다** | — 생성 시점만 검사하므로 기존 것은 남고 신규만 막힌다. 의도된 동작 |
+| 화이트리스트 밖 소스(Notion·Discord 등) | 연동 유지, 증분만 중단 | 끊으면 재구독 시 전체 재수집이라 비용이 더 든다 |
+
+업그레이드와 마찬가지로 **플랜 전환과 integration 갱신은 한 트랜잭션**이어야 한다. 한쪽만 적용된
+채 남으면 "FREE인데 증분이 도는" 상태가 된다.
+
+---
+
+## 8. web-dashboard
+
+- [PlanCard.tsx](../clients/web-dashboard/src/components/settings/PlanCard.tsx)의 **전환 코드 입력
+  폼을 Paddle 체크아웃 버튼으로 교체**한다. 플랜 배지·질의 사용량 게이지는 그대로 둔다.
+- 해지·결제수단 변경·영수증은 **Paddle 고객 포털 링크**로 보낸다(§0).
+- ⚠️ **CSP를 고쳐야 한다.** 지금 [nginx.conf](../clients/web-dashboard/nginx.conf)는
+  `script-src 'self'`라 Paddle.js가 **차단된다.** 이 파일의 주석이 경고하듯 `add_header`는
+  상속이 아니라 덮어쓰기이므로, 헤더 목록 전체를 함께 다뤄야 한다.
+- 만료 안내 화면이 필요하다 — 구독이 끝난 사용자가 "왜 안 되지"를 겪지 않게.
+
+---
+
+## 9. 법무·세무 — 코드와 같이 움직인다
+
+[public-readiness.md §4-6](public-readiness.md)이 "결제 작업을 시작할 때 같은 묶음으로 잡는다"고
+해 둔 항목들이다. **B3은 B2와 같이 배포한다. 결제만 먼저 열지 않는다.**
+
+- **약관 전면 개정** — 현재 약관은 "무상으로 제공"을 면책 근거로 삼는다([TermsBodyKo.tsx:83](../clients/web-dashboard/src/components/landing/legal/TermsBodyKo.tsx#L83)·[:152](../clients/web-dashboard/src/components/landing/legal/TermsBodyKo.tsx#L152)).
+  요금·갱신·**환불/청약철회**·중단 시 처리를 넣고, 한국어·영어 두 벌을 함께 고친다.
+  시행 7일 전(불리한 변경은 30일 전) 공지 의무가 이미 약관 제11조에 있다.
+- **개인정보 보호책임자 표시** — 무상이어도 필요한 항목이라 이미 열려 있다(§4-3).
+- **사업자 정보 표시** — MoR이면 판매 주체가 Paddle이라 요건이 달라질 수 있다.
+  **단정하지 않는다 — 법률 검토 영역이다.**
+- **Slack 마찰 재판단** — §0-3의 B 트랙을 접을지 여기서 결정한다.
+- **세무** — Paddle이 VAT를 처리해도 **정산금은 본인 소득**이다. 계속·반복적 수입이면 세법상
+  사업자등록 의무가 생길 수 있고 건강보험 피부양자 자격에도 영향이 간다. 금액이 의미 있어지는
+  시점에 세무 상담이 필요하다. **이 문서의 판단은 개발자 관점의 정리일 뿐이다.**
+
+---
+
+## 10. 하지 않는 것
+
+- **기간제 1회 결제** — §4의 이유로 대안으로도 두지 않는다.
+- **우리 쪽 해지·카드 변경 UI** — Paddle 포털로 보낸다.
+- **카드 정보 저장** — 어떤 형태로도 우리 DB에 들어오지 않는다. MoR이라 빌링키조차 우리 것이 아니다.
+- **일할 환불 계산** — Paddle 정책을 따른다.
+- **연 구독·다중 요금제** — 월 단일 요금제로 시작한다.
+- **원가 측정** — [public-readiness.md §1-1](public-readiness.md)에서 하지 않기로 결정된 항목이다.
+
+---
+
+## 11. 문서 동반 갱신
+
+- `docs/public-readiness.md` — §1-1(결제 착수 상태), §4-3(사업자 정보 판단), §4-6(약관 개정 진행),
+  §0-3(Slack 마찰 재판단), 「남은 항목과 시점」 표의 "유료화 시" 열.
+- `docs/DB.md` — `users.plan_expires_at`, `billing_subscriptions`, `billing_events` (관계도 포함).
+- `docs/deployment.md` — `PADDLE_*` 환경변수, Paddle 대시보드의 웹훅 URL 등록(OAuth 콜백 체크리스트와
+  같은 자리), CSP 변경.
+- `services/backend/CLAUDE.md` — `billing` 패키지.
+- `clients/web-dashboard/CLAUDE.md` — 결제 화면·외부 스크립트 예외.
+- `docs/README.md` — 이 문서 등재.
+
+---
+
+## 12. 진행 순서 — 게이트가 코드보다 먼저다
+
+**G1이 반려되면 이 계획 전체가 §2-2로 되돌아간다.** 그래서 코드보다 게이트가 앞이다.
+다만 **B0은 G1과 독립**이라 심사를 기다리는 동안 진행할 수 있다.
+
+| 묶음 | 내용 | 선행 | 성공 기준 |
+|------|------|------|----------|
+| **G1** | Paddle 계정 가입·심사 (도메인 리뷰 + 신원 확인) | — | 승인. 반려 시 §2-2 재검토 |
+| **G2** | 샌드박스 실측 — 한국 카드·카카오페이로 구독 생성 후 **갱신이 사용자 개입 없이 청구되는지**(§15-3) | G1 | 무인 갱신 1회 성공 |
+| **G3** | 가격 확정(KRW) + 약관 개정 초안 | G1과 병렬 | 금액·주기 확정, 약관 문안 준비 |
+| **B0** | 구독 상태 모델·**다운그레이드**(§7) — `plan_expires_at`, `downgradeToFree`, 만료 스케줄러 | — (G1과 병렬) | 만료 → FREE 강등·incremental 회수·카운트 초기화가 한 트랜잭션으로 검증 |
+| **B1** | Paddle 웹훅 — 서명 검증, 멱등, 구독 상태 동기화, `billing` 패키지 | G1·B0 | 서명·멱등 단위 테스트, 샌드박스 왕복 |
+| **B2** | 프론트 — `PlanCard` 체크아웃 교체, CSP, 만료 안내 | B1 | 결제 → PAID 반영까지 실기동 |
+| **B3** | 법무 — 약관 개정, 보호책임자, 사업자 정보 판단 | G3 | **B2와 동시 배포.** 단독 선행 금지 |
+
+**B0을 먼저 두는 이유**: 결제와 무관하게 지금 있는 구멍이고(§7), B1이 붙은 뒤에 발견하면
+"돈은 받았는데 만료가 안 되는" 상태를 운영 중에 고치게 된다.
+
+---
+
+## 13. 검증 계획
+
+- **단위**: backend `./gradlew test` · 프론트 `npm run typecheck && npm run build`.
+- **다운그레이드 회귀(B0)**: PAID 사용자를 만료시켰을 때 ─ `plan=FREE`, 전 연동
+  `incremental_enabled=false`, `free_query_count=0`이 **한 트랜잭션**으로 적용되는지.
+  → 이 테스트가 없으면 B0은 아무것도 보장하지 않는다.
+- **비용 누수 회귀**: 만료된 사용자의 GitHub 웹훅이 `INCREMENTAL_DISABLED`로 끝나는지
+  (pipeline-worker `ProjectIntegrationService`). 만료가 수집까지 실제로 멈추는지를 보는 유일한 지점.
+- **멱등(B1)**: 같은 Paddle event id를 두 번 주입해도 만료일이 한 번만 연장되는지.
+- **서명(B1)**: 잘못된 서명·오래된 타임스탬프를 거부하는지.
+- **매칭(B1)**: 로그인 이메일과 다른 이메일로 결제해도 `customData.userId`로 매칭되는지(§6-3).
+- **스케줄러 안전망(B0)**: 웹훅을 **일부러 누락**시키고 만료일이 지난 계정이 회수되는지.
+- **실기동 시나리오**: 구독 결제 → PAID 반영 → 잠긴 기능(정밀 재구축·증분) 해제 확인 →
+  Paddle 포털에서 해지 → 기간 만료 → FREE 강등 → 질의 10회 복원·증분 중단 확인 → 재구독 시
+  기존 연동이 재수집 없이 살아나는지.
+
+---
+
+## 14. 확인 완료 (2026-09-19 조사)
+
+1. **국내 PG 4사는 사업자등록번호가 가입 요건** — 비사업자 불가(§2-1).
+2. **페이앱에 개인판매자(비사업자) 구분이 있다** — 사업자등록증 불필요. 단 업종심사가 따로 있고,
+   비사업자는 수수료 4.0%·연 2,400만원 한도(§2-2).
+3. **Paddle은 개인·1인 사업자의 사업자 확인을 면제**한다 — 도메인 리뷰·신원 확인만.
+4. **Paddle 판매자 국가에 한국이 포함**된다(제재국 외 전 세계).
+5. **Paddle이 한국 결제 수단을 지원한다** — 로컬 카드 22종 + 카카오페이·네이버페이·페이코·삼성페이.
+   결제 수단 비교표에서 **이들 전부 구독(subscriptions) 지원**으로 표기돼 있다.
+6. **국내 결제 수단은 KRW 가격 + 한국 주소 조건**에서만 결제창에 노출된다(§3).
+7. **"Customers can save: 미지원"은 구독 갱신 불가가 아니다.** Paddle 문서상 저장 결제수단
+   엔티티는 *향후 구매 시 보여주기* 용도이고, 구독 갱신은 **구독에 결제수단을 따로 물려** 청구한다.
+8. **Lemon Squeezy는 한국 결제 수단이 없다** — 카드·PayPal·Alipay·WeChat Pay 등만.
+   Polar·Creem은 Stripe 기반이라 사정이 같다(§2-3).
+9. **`disableIncremental()`은 이미 있지만 다운그레이드 호출부가 없다** — 코드 확인(§7).
+
+---
+
+## 15. 확인 필요
+
+### 15-1. 사용자 결정 (코드 착수 전)
+
+1. **전환 코드(`PLAN_UPGRADE_CODE`)를 결제 후에도 남길지.** 운영자·베타 계정 부여 수단으로
+   유용하지만, 유출되면 무료 PAID 경로가 된다.
+2. **가격(금액).** 통화·주기는 확정(KRW·월).
+
+### 15-2. 문의로만 풀리는 것
+
+1. **Paddle 심사 통과 여부** — G1. 이 계획 전체의 전제다.
+2. **차선(§2-2)을 살릴 경우** — 페이앱 개인판매자 구분에서 정기결제 API가 열리는지, SaaS 구독이
+   업종심사를 통과하는지 (페이앱 1800-3772).
+3. **사업자 정보 표시 요건** — MoR 구조에서 우리 표시 의무가 어디까지인지. 법률 검토.
+
+### 15-3. ⚠️ 실측으로만 알 수 있는 것
+
+1. **한국 결제 수단의 자동갱신이 진짜 무인인가.** Paddle 로컬 카드 문서에 "결제 시 은행 앱에서
+   확인"이라는 설명이 있는데, **최초 결제만인지 매 갱신마다인지 문서로 갈리지 않는다.**
+   매 갱신마다 사용자 확인이 필요하면 자동갱신의 의미가 크게 줄고, 그때는 카카오페이·네이버페이
+   쪽 동작도 함께 봐야 한다. **G2에서 가장 먼저 확인할 항목.**
+2. **KRW 정산 방식** — KRW 페이아웃이 되는지, 아니면 기본 통화로 받아 은행에서 환전되는지.
+3. **환불 흐름** — Paddle에서 환불했을 때 우리 쪽에 어떤 웹훅이 오고 플랜을 언제 내려야 하는지.
+
+---
+
+## 참고 (2026-09-19 조사)
+
+- Paddle 계정 심사(개인·1인 사업자 면제): paddle.com/help/start/account-verification/what-is-account-verification
+- Paddle 지원 국가: paddle.com/help/start/intro-to-paddle/which-countries-are-supported-by-paddle
+- Paddle 한국 로컬 카드(KRW·한국 주소 조건, 구독 지원): developer.paddle.com/concepts/payment-methods/korean/local-cobranded-cards
+- Paddle 결제 수단 비교표: developer.paddle.com/concepts/payment-methods/
+- Paddle 한국 결제 수단 개선: developer.paddle.com/changelog/2025/improved-korean-payment-methods
+- Paddle 구독 갱신과 저장 결제수단의 차이: developer.paddle.com/changelog/2025/spm-consent-subscriptions
+- Lemon Squeezy 결제 수단(한국 없음): docs.lemonsqueezy.com/help/checkout/payment-methods
+- 페이앱 구비서류·심사(개인판매자): payapp.kr/homepage/guide/guide3.html
+- 페이앱 정기결제: payapp.kr/homepage/pay/pay_recurring.html · 정산: payapp.kr/homepage/guide/guide5.html
+- 국내 PG 사업자등록 요건: imweb.me/faq (전자결제 FAQ)

@@ -96,6 +96,7 @@
 
 | 문서 | 필요 | 종류 | 남은 것 |
 |------|------|------|---------|
+| [billing.md](billing.md) | 작업 | 결제 계획 | 착수 전. Paddle(MoR) 월 정기구독. **G1(Paddle 심사)이 전제**이고, B0(다운그레이드)은 결제와 무관하게 선행 가능 |
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
 | [evidence-retrieval-fixes.md](evidence-retrieval-fixes.md) | 작업 | 수정 계획 | 근거 회수 결함 12건을 묶음 A~F로 수정. 후속 10건(임계값·시간 창·검색 확장)은 §7 |
 
@@ -108,5 +109,8 @@
 질의·도구: [tools.md](tools.md). 품질은 [query-quality-issues.md](query-quality-issues.md)·[measurement.md](measurement.md).
 
 배포·공개: [deployment.md](deployment.md) → [deployment-followups.md](deployment-followups.md) → [public-readiness.md](public-readiness.md).
+
+결제: [billing.md](billing.md). 무료 한도 자체는 [public-readiness.md](public-readiness.md) §1-1이 정본이고,
+billing.md는 **돈을 받는 경로와 플랜 만료·회수**만 다룬다.
 
 Slack: C(BYO 토큰 병기)는 [slack-byo.md](slack-byo.md), D(마켓플레이스 등재)는 [slack-marketplace.md](slack-marketplace.md). 범위를 섞지 않는다.
