@@ -71,6 +71,10 @@ src/
                     SlackAppSection — 랜딩 Slack 앱 절(`/landing#in-slack`)
                     SupportBody — `/support` 본문
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
+                    LandingLanguageProvider — 랜딩 계열 ko/en 상태(`ht.lang` + 브라우저 언어 감지).
+                    문서 헤드(`<html lang>`·`meta description`)도 여기서 언어에 맞춰 바꾸고 이탈 시
+                    되돌린다 — **검색 노출에 직결되므로 index.html의 정적 메타와 짝으로 본다**
+                    (영어 문구는 이 파일, 한국어 문구는 index.html. docs/i18n.md §3-1)
     BranchSelect · Icons · StatusView · ErrorBoundary
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
@@ -106,6 +110,17 @@ src/
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)
   styles/           index.css(@import 진입점) + 기능별 분할 CSS, tokens.css(디자인 토큰)
+
+index.html          문서 셸. 검색·공유 메타(title · description · og:* · twitter:*)가 여기 있다.
+                    **SPA 폴백이라 이 파일이 모든 경로에 그대로 나간다** — 값은 특정 페이지가
+                    아니라 서비스 전체를 설명해야 한다. rel=canonical을 두지 않는 것도 같은 이유다
+                    (/terms·/privacy까지 랜딩의 중복으로 선언돼 색인에서 빠진다). 상세는 파일 주석.
+public/             빌드 시 dist/ 루트로 그대로 복사된다(Vite 기본 publicDir).
+                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 4개만
+                    싣고 도메인이 절대 URL로 박혀 있다. **App.tsx에 공개 라우트를 추가하면
+                    사이트맵도 함께 고친다** (등록 절차는 docs/deployment.md §3-4)
+                    favicon.svg · hero-demo-{ko,en}-{dark,light}.mp4 + 같은 이름의 poster.jpg
+                    (포스터는 og:image로도 쓰인다 — 2400x1266이라 OG 권장비와 맞는다)
 ```
 
 ## 코딩 규칙

@@ -85,6 +85,18 @@ class DropUnverifiedQuotesTest(unittest.TestCase):
 
         self.assertEqual(1, len(result["evidence"]))
 
+    def test_tab_source_body_quote_passes(self):
+        # json.dumps는 원문의 탭을 "\t" 리터럴로 이스케이프하지만, 모델이 뽑는 quote에는 실제
+        # 탭 문자가 남는다 — \t를 정규화하지 않으면 탭이 든 본문의 인용이 항상 검증에 실패한다.
+        original = "변경 요약:\tcursor 기반 페이지네이션으로 전환\t완료"
+        tool_content = json.dumps({"id": "abc1234", "body": original}, ensure_ascii=False)
+        messages = [{"role": "tool", "content": tool_content}]
+        structured = {"summary": "s", "evidence": [_evidence(original)], "unknown_aspects": []}
+
+        result = orchestrator._drop_unverified_quotes(structured, messages, 0, None)
+
+        self.assertEqual(1, len(result["evidence"]))
+
     def test_fabricated_quote_dropped_others_kept(self):
         original = 'Fixed bug in "auth" module.'
         tool_content = json.dumps({"id": "real1", "body": original}, ensure_ascii=False)

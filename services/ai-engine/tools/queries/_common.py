@@ -140,6 +140,46 @@ def _detail_count_for_budget(
     return max(k, 1) if rows else 0
 
 
+# ─── 본문 캡·첫 줄 헬퍼 (모든 쿼리 모듈이 공유) ─────────────────────────────────
+# get_file_history에서 시작한 정책 — executor 상한(8,000자)에서 결과가 문자열 중간
+# 절단되면 JSON이 깨지고 뒤쪽 필드가 통째로 사라진다. 도구 결과를 만드는 시점에 본문
+# 필드를 미리 상한만큼 자르고 " …(생략)" 표시를 붙여, 모델이 전문이 아님을 알게 한다.
+
+_DIFF_SUMMARY_MAX_CHARS = 300   # detail 행당 diffSummary 상한
+_DETAIL_MESSAGE_MAX_CHARS = 400 # 커밋 메시지 상한 — 이슈·PR 본문은 인용 원문이라 적용하지 않는다
+_STUB_TITLE_MAX_CHARS = 100     # context stub의 요약(첫 줄) 상한
+
+
+def cap_text(text, limit: int):
+    """limit을 넘는 문자열만 앞부분 + " …(생략)"으로 자른다. None·비문자열은 그대로 둔다."""
+    if not isinstance(text, str) or len(text) <= limit:
+        return text
+    return text[:limit] + " …(생략)"
+
+
+def first_line(text: str | None, cap: int | None = None) -> str | None:
+    """앞뒤 공백을 걷어낸 뒤 첫 줄만 남긴다. cap이 있으면 그 길이까지. 결과가 비면 None."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    line = text.splitlines()[0]
+    if cap is not None:
+        line = line[:cap]
+    return line or None
+
+
+def normalize_issue_times(issues) -> None:
+    """중첩 이슈 목록의 created_at/closed_at을 UTC로 정규화한다(in-place).
+
+    Issue.createdAt/closedAt만 +09:00 오프셋으로 저장돼 있어(_event_time docstring)
+    정규화하지 않으면 한 결과 안에서 시각 표기가 다른 노드와 섞인다. 커밋·PR 결과와
+    파일 이력이 같은 규칙을 쓰도록 여기 한 곳에 둔다.
+    """
+    for issue in issues or ():
+        issue["created_at"] = normalize_time(issue.get("created_at"))
+        issue["closed_at"] = normalize_time(issue.get("closed_at"))
+
+
 # 시맨틱 엣지 노이즈 컷오프 (도구 응답 단의 소비 임계값).
 # 텍스트 매칭은 항상 1.0이므로 항상 통과. 시맨틱은 이 값 미만이면 응답에서 제외.
 # (issue_linker 자체 생성 임계값은 0.34라 기본값 0.5에서는 0.34~0.49 구간이 응답 단에서 마저 차단됨)

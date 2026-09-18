@@ -4,7 +4,45 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>whycode</title>
+
+    <!-- 검색·공유 메타 — 이 파일은 SPA 폴백으로 **모든 경로**에 그대로 나간다(nginx.conf의
+         try_files). 그래서 여기 값은 특정 페이지가 아니라 서비스 전체를 설명해야 한다.
+         · rel=canonical은 일부러 넣지 않는다 — 정적 파일이라 /terms·/privacy까지 같은 값을
+           달고 나가고, 그러면 구글이 그 페이지들을 랜딩의 중복으로 보고 색인에서 뺀다.
+           canonical 없이 두면 각 URL이 자기 자신을 기준으로 잡는다(self-canonical).
+         · 문구는 한국어다. 랜딩은 브라우저 언어로 ko/en을 고르지만(LandingLanguageProvider),
+           정적 메타는 하나뿐이고 <html lang>의 기본값이 ko라 그쪽에 맞췄다.
+           공유 카드를 긁는 크롤러(Slack·카카오·LinkedIn)는 JS를 돌리지 않아 항상 이 값을 본다. -->
+    <title>whycode — 코드 변경의 이유를 찾는 지식 그래프</title>
+    <meta
+      name="description"
+      content="흩어진 커밋·PR·이슈·대화·문서를 하나의 지식 그래프로 묶어, 이 코드가 왜 이렇게 바뀌었는지 근거와 함께 답합니다. GitHub·Jira·Slack 등 9종 소스 연결."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="whycode" />
+    <meta property="og:url" content="https://why-code.com/landing" />
+    <meta property="og:title" content="whycode — 코드 변경의 이유를 찾는 지식 그래프" />
+    <meta
+      property="og:description"
+      content="흩어진 커밋·PR·이슈·대화·문서를 하나의 지식 그래프로 묶어, 이 코드가 왜 이렇게 바뀌었는지 근거와 함께 답합니다."
+    />
+    <!-- 히어로 영상의 포스터를 그대로 쓴다(2400x1266 ≈ 1.9:1, OG 권장비와 같다).
+         절대 URL이어야 한다 — 크롤러는 페이지 기준 상대경로를 풀지 않는다. -->
+    <meta property="og:image" content="https://why-code.com/hero-demo-ko-dark-poster.jpg" />
+    <meta property="og:image:width" content="2400" />
+    <meta property="og:image:height" content="1266" />
+    <meta property="og:image:alt" content="whycode 화면 — 질문에 대한 답과 함께 관련 노드가 켜진 지식 그래프" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:locale:alternate" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="whycode — 코드 변경의 이유를 찾는 지식 그래프" />
+    <meta
+      name="twitter:description"
+      content="흩어진 커밋·PR·이슈·대화·문서를 하나의 지식 그래프로 묶어, 이 코드가 왜 이렇게 바뀌었는지 근거와 함께 답합니다."
+    />
+    <meta name="twitter:image" content="https://why-code.com/hero-demo-ko-dark-poster.jpg" />
   </head>
   <body>
     <div id="root"></div>
