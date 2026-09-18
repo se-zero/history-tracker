@@ -83,7 +83,7 @@
 | [graph-query-tool.md](graph-query-tool.md) | 근거 | 설계 | 코드 + 라우팅 확인 런 | 품질 측정 미실시. 계약의 정본은 [tools.md](tools.md) |
 | [timeline-scope.md](timeline-scope.md) | 근거 | 설계 | 스코프 일반화, eval 채택 | `get_recent_activity` 통합, 시간 인덱스. 계약의 정본은 [tools.md](tools.md) |
 | [query-followups.md](query-followups.md) | 작업 | TODO | LLM 빈 답 위장 수정 | Responses API, README→Document, 랭킹·인용 |
-| [i18n.md](i18n.md) | 정본 | 계약 | 시각 표시 계약, 랜딩 ko/en | 앱 UI 언어 분리 착수 전 |
+| [i18n.md](i18n.md) | 정본 | 계약 | 시각 표시 계약, 랜딩 ko/en, 문서 헤드(검색 메타) 교체 지점 | 앱 UI 언어 분리 착수 전 |
 | [deployment-followups.md](deployment-followups.md) | 작업 | TODO | 인바운드 인증 | RabbitMQ URL 분리, 터널 실기동, GitHub 설치 404 |
 | [public-readiness.md](public-readiness.md) | 정본 | 점검표 | 0~2층·4층 다수, Slack D S1~S3 코드, Slack C 연결·격리·문서, 0-1b 사용자 GitHub 토큰 | 4-5 내보내기, Slack C0 문의 미회신, Slack 실기동·S4~S6, 3층 심사, 5층 운영, 2-4 |
 | [slack-marketplace.md](slack-marketplace.md) | 작업 | 등재 계획 (D) | S1 Events API·S2 자격증명·S3 `/why-code` 코드 | 실기동, S4~S6 앱 설정·제출 |
