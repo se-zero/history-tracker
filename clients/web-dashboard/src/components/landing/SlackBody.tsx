@@ -53,7 +53,7 @@ const COPY: Localized<{
       "커맨드는 워크스페이스를 연결한 whycode 계정의 사용자만 쓸 수 있습니다. 다른 사람이 실행하면 안내 메시지가 돌아옵니다.",
     installHeading: "설치",
     installItem1: "GitHub으로 로그인한 뒤 프로젝트를 만듭니다.",
-    installItem2: "프로젝트의 소스 화면에서 Slack을 고르고, Slack 동의 화면에서 워크스페이스를 승인합니다.",
+    installItem2: "프로젝트의 소스 화면에서 Slack의 연결을 누르고 'Slack 앱으로 연결'을 고른 뒤, Slack 동의 화면에서 워크스페이스를 승인합니다.",
     installItem3: (
       <>
         채널에서 <code>/why-code</code>를 사용합니다.
@@ -96,7 +96,7 @@ const COPY: Localized<{
       "The command works for the Slack user whose whycode account connected the workspace. Anyone else gets a short notice instead.",
     installHeading: "Install",
     installItem1: "Sign in with GitHub and create a project.",
-    installItem2: "In the project's Sources, choose Slack and approve the workspace on Slack's consent screen.",
+    installItem2: "In the project's Sources, press Connect on Slack, pick the Slack app option (not the token one), then approve the workspace on Slack's consent screen.",
     installItem3: (
       <>
         Use <code>/why-code</code> in a channel.

@@ -116,7 +116,7 @@ index.html          문서 셸. 검색·공유 메타(title · description · og
                     아니라 서비스 전체를 설명해야 한다. rel=canonical을 두지 않는 것도 같은 이유다
                     (/terms·/privacy까지 랜딩의 중복으로 선언돼 색인에서 빠진다). 상세는 파일 주석.
 public/             빌드 시 dist/ 루트로 그대로 복사된다(Vite 기본 publicDir).
-                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 4개만
+                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 5개만
                     싣고 도메인이 절대 URL로 박혀 있다. **App.tsx에 공개 라우트를 추가하면
                     사이트맵도 함께 고친다** (등록 절차는 docs/deployment.md §3-4)
                     favicon.svg · hero-demo-{ko,en}-{dark,light}.mp4 + 같은 이름의 poster.jpg
