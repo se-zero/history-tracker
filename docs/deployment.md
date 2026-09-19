@@ -281,7 +281,7 @@ Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 �
 
 | 파일 | 내용 |
 |---|---|
-| `clients/web-dashboard/public/sitemap.xml` | 공개 라우트 4개 — `/landing`·`/terms`·`/privacy`·`/support` |
+| `clients/web-dashboard/public/sitemap.xml` | 공개 라우트 5개 — `/landing`·`/terms`·`/privacy`·`/support`·`/slack` |
 | `clients/web-dashboard/public/robots.txt` | `/projects/`·`/onboarding`·`/auth/`·`/api/` 차단 + 사이트맵 위치 |
 
 **두 파일 모두 도메인이 절대 URL로 박혀 있다**(`https://why-code.com`). 도메인을 바꾸면
