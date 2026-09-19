@@ -7,4 +7,5 @@ export const PATHS = {
   terms: "/terms",
   privacy: "/privacy",
   support: "/support",
+  slack: "/slack",
 } as const;

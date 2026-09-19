@@ -45,11 +45,11 @@ B가 D의 자격 모수(활성 워크스페이스 수)를 쌓는다는 의존 �
 | 활성 워크스페이스 **10곳**(28일 내 사용, 샌드박스 제외) + 주간 활성 **10명** | ❌ 1곳 | B 트랙 실적 축적 (§8). ⚠️ 기존 기록(5곳)에서 **상향 확인됨** |
 | user token `*:history` scope | ⚠️ `channels:history`·`groups:history` 사용 | 유지 + scope 사유서. **enhanced review 대상**임을 전제로 준비 (§7) |
 | "export or backup message data" (부적격 사유) | ⚠️ 메시지 본문을 Neo4j `Communication.body`에 저장 | 리스팅 포지셔닝 + 개인정보처리방침 보강으로 방어. **최대 리스크** (§8) |
-| AI 공시 | ⚠️ 랜딩 Slack 절에 오답 고지. Security 폼·long description은 제출 때 | Security & Compliance 4종, 리스팅 long description |
+| AI 공시 | ⚠️ `/slack` 페이지에 오답 고지. Security 폼·long description은 제출 때 | Security & Compliance 4종, 리스팅 long description |
 | LLM 학습 금지 | ✅ 학습 안 함. `/privacy` 제4조에 명시 | 없음 |
 | 무료 티어 90일 조항 | ⚠️ 90일 지난 메시지가 그래프에 남아 질의로 노출될 수 있음 | 해석 확인 필요 — **열린 리스크** (§8) |
 | 리스팅 자산(아이콘·스크린샷 1600×1000·비디오 30~90초) | ❌ 없음 | 제작 (§7) |
-| 랜딩 페이지(공개, 설치 경로, 방침 링크) | ✅ `/landing#in-slack` — 설치 경로·방침·지원 링크·오답 고지. Slack 안 스크린샷·Add to Slack은 없음 | 스크린샷은 자산. direct install은 등재 후 (§9) |
+| 설치 안내 페이지(공개, 설치 경로, 방침 링크) | ✅ `/slack` — 개요·Slack 안 동작·설치 경로·연결 후·오답 고지·방침·지원 링크. 랜딩에서 분리(2026-09-19). Slack 안 스크린샷·Add to Slack은 없음 | 스크린샷은 자산. direct install은 등재 후 (§9) |
 | 지원 채널(로그인 없는 문의, 2영업일 응답) | ✅ `/support` | 2영업일 응답 유지 |
 | 개인정보처리방침(수집·용도·보존·삭제 경로·연락처) | ✅ `/privacy` `#slack` — 학습 미사용·OAuth 앱 잔류 고지 | 앵커 id 불변 |
 | OAuth `state` | ✅ `OAuthStateService` 서명 state | 없음 |
@@ -198,7 +198,7 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 | 아이콘·스크린샷 | — | 1600×1000(8:5)·2MB 이하, **Slack 안에서 동작하는 모습**(우리 대시보드 화면이 아니라) |
 | 비디오 | — | 30~90초 YouTube 공개 링크, 자막 on·광고 off, 실제 환경 스크린캐스트. 강력 권장이라 만든다 |
 | pricing 표시 | 유료 구독 결정됨 | "Free and paid plans available" 또는 확정 모델로 표기 |
-| 랜딩 페이지 | `/landing` (ko/en), Slack 절 `#in-slack` | Slack 안 동작 스크린샷·Add to Slack은 등재 후. Installation landing page는 이 URL |
+| 설치 안내 페이지 | `/slack` (ko/en) — 랜딩 `/landing`과 분리된 전용 페이지 | Slack 안 동작 스크린샷·Add to Slack은 등재 후. **Installation landing page URL은 `https://why-code.com/slack`** |
 | support 페이지 | `/support` | 2영업일 응답 유지. 스크린샷·비디오 등과 별개 |
 | 개인정보처리방침 | `/privacy` `#slack` 앵커 | 보존·삭제·학습 미사용 반영. 앵커 id는 심사 제출 후 불변 |
 | sub-processor 목록 | `/privacy` `#subprocessors` 앵커(제4조 표) | Security & Compliance 폼의 "Guidelines for sub-processors URL"이 요구. 전용 페이지를 두지 않고 제4조를 그대로 쓴다 — 위탁처가 늘 때 두 곳이 갈라지지 않게. 이 id도 제출 후 불변 |
@@ -252,7 +252,7 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 - **App Home·Home 탭** — 가이드라인이 "쓰지 않는 탭은 켜지 말라"고 명시한다. 커맨드만으로
   시작하고, 심사 피드백이 요구하면 그때 설계한다(Phase 2 후보).
 - **direct install** — 설치-우선 온보딩(계정 없이 설치한 사용자 유도)을 새로 설계해야 한다.
-  리스팅 → 랜딩 → 가입 → 연결의 기본 경로로 제출하고, 등재 후 개선 항목으로 미룬다.
+  리스팅 → `/slack` → 가입 → 연결의 기본 경로로 제출하고, 등재 후 개선 항목으로 미룬다.
 - **org-ready deployment(Enterprise Grid)** — Slack Connect 채널 대응 등 별도 요건이 붙는다. 범위 밖.
 - **Slack으로의 알림·메시지 발송** — `chat:write`를 받지 않는다. 커맨드 응답은 전부 `response_url`.
 - **`/why-code` 결과를 대화로 저장** — 단발 질의만 한다. 웹 채팅과 이력을 합치는 것은 등재 후 후보.
@@ -268,8 +268,8 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 | **S1** | Events API 수신 — 서명 검증 필터, `url_verification`, `app_uninstalled`·`tokens_revoked` 멱등 정리, `SLACK_SIGNING_SECRET` 배선(compose·SecurityConfig) | — | 코드 완료, 실기동 미확인. 서명 검증(타임스탬프 창 포함)·이벤트 처리 단위 테스트 통과. 로컬 실기동(앱 제거 → 행·그래프 삭제 확인)은 아직 진행하지 않음. |
 | **S2** | 자격증명 이중화 — DTO 확장(`access_token`·`authed_user.id`), `SlackCredentialCodec`(JSON+평문 폴백), `connected_user_id` 저장, lifecycle은 user 토큰만 폐기, **worker 폴백 먼저** | S1과 독립이나 순차 권장 | 신규/레거시 자격증명 왕복 테스트(backend·worker 각각), 기존 Slack 수집 회귀 그린. **S2-a(worker 읽기 호환) 완료** — `SlackCredentialCodec` + `SlackCollector.resolveFetchRequest` 구현, 전체 테스트 그린. **S2-b(backend 쓰기) 완료** — JSON 자격증명 저장, `connected_user_id`, lifecycle은 user 토큰만 폐기(봇은 워크스페이스 공유). |
 | **S3** | `/why-code` 커맨드 — commands 엔드포인트, 3초 ack + 비동기 단발 질의(대화 저장 없음), 매핑·게이팅·다중 매칭 규칙, help/오류 응답 | S1(서명 공용)·S2(게이팅 키) | **코드 완료**, 실기동 미확인. 매핑·게이팅·다중 매칭 단위 테스트. 실기동(Slack에서 질의 → ephemeral, 미연결 안내)은 아직 진행하지 않음. |
-| **S4** | Slack 앱 설정 — bot user·`commands` scope·커맨드 등록·Event Subscriptions URL·staging 앱 생성. **public distribution은 아직 켜지 않는다** | S1~S3 배포 | dev 워크스페이스에서 재동의 → 새 자격증명 형식 확인, 이벤트·커맨드 왕복 확인 |
-| **S5** | 제출물 — 랜딩 Slack 절·support·privacy는 코드 완료. 스크린샷·비디오, scope 사유서, Security 폼 AI 공시 | S3(스크린샷 소재) | 페이지 공개 접근 확인됨(코드). 사유서·공시 사용자 검토·자산은 남음 |
+| **S4** | Slack 앱 설정 — bot user·`commands` scope·커맨드 등록·Event Subscriptions URL·staging 앱 생성·Your listing 탭 **Installation landing page URL**(`https://why-code.com/slack`) 입력. **public distribution은 아직 켜지 않는다** | S1~S3 배포 | dev 워크스페이스에서 재동의 → 새 자격증명 형식 확인, 이벤트·커맨드 왕복 확인 |
+| **S5** | 제출물 — `/slack` 페이지·support·privacy는 코드 완료. 스크린샷·비디오, scope 사유서, Security 폼 AI 공시 | S3(스크린샷 소재) | 페이지 공개 접근 확인됨(코드). 사유서·공시 사용자 검토·자산은 남음 |
 | **S6** | 실적·제출 — public distribution 활성화(속도 하락 시작 — B 트랙), 10곳·10명 축적, Testing information 준비, 제출 | 전부 + 모수 충족 | 예비 심사 통과 → 기능 심사 대응 |
 
 **S1·S2는 등재와 무관하게 가치가 있다**(라이프사이클 위생·게이팅 기반) — 모수 축적(§8-2)이
@@ -283,7 +283,7 @@ Tier 3 복구도 **설정 변경 없이** 흡수한다. 승인이 나면 429가 
 - `docs/DB.md` — 스키마 변경 없음 확인(S1). 자격증명 JSON·`connected_user_id`는 S2-b에서 같은 BYTEA/JSONB에 반영.
 - `services/backend/CLAUDE.md` — slack Events API 서술(S1 완료). 코덱(S2-b 완료). 커맨드(S3 완료).
 - `services/pipeline-worker/CLAUDE.md` — 자격증명 폴백 규칙(S2).
-- `clients/web-dashboard/CLAUDE.md`·`/privacy`·`/support`·`/landing#in-slack` — deletedData 문구·방침·지원 페이지(S5 페이지 완료).
+- `clients/web-dashboard/CLAUDE.md`·`/privacy`·`/support`·`/slack` — deletedData 문구·방침·지원 페이지(S5 페이지 완료).
 - `docs/deployment.md` — `SLACK_SIGNING_SECRET`·Events URL(S1 완료). Commands Request URL(S3 완료). 앱에 커맨드 등록·bot scope는 S4.
 
 ## 12. 확인 필요 (착수 전 문의·실측)
