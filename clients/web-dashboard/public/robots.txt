@@ -1,0 +1,9 @@
+# 로그인 뒤 화면은 크롤링 대상이 아니다. 어차피 인증 가드에 막혀 빈 화면만 렌더되지만,
+# 크롤 예산을 거기 쓰지 않도록 명시한다.
+User-agent: *
+Disallow: /projects/
+Disallow: /onboarding
+Disallow: /auth/
+Disallow: /api/
+
+Sitemap: https://why-code.com/sitemap.xml

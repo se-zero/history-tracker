@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 export type LandingLang = "ko" | "en";
 
@@ -23,6 +23,14 @@ function readInitialLang(): LandingLang {
   const browserLang = navigator.languages?.[0] ?? navigator.language ?? "en";
   return browserLang.startsWith("ko") ? "ko" : "en";
 }
+
+// meta description의 영어판. 한국어판은 index.html에 정적으로 박혀 있고(문서 전체의 기본값),
+// 여기엔 영어일 때 갈아끼울 문구만 둔다 — 같은 문장을 두 곳에 두면 한쪽만 고치게 된다.
+// 문구는 랜딩 히어로의 en 서브카피(LandingHero.tsx COPY.en.sub)와 같은 주장을 유지한다.
+const DESCRIPTION_EN =
+  "Ties scattered commits, PRs, issues, conversations, and docs into one knowledge graph, " +
+  "then answers why your code changed — with the evidence. " +
+  "Connects 9 sources including GitHub, Jira, and Slack.";
 
 interface LandingLanguageContextValue {
   lang: LandingLang;
@@ -52,13 +60,38 @@ export function LandingLanguageProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // <html lang>을 랜딩이 보여주는 언어에 동기화한다. cleanup에서 "ko"로 복원하는 이유는
-  // index.html의 정적 기본값이 "ko"이고 앱(제품 본체) 라우트는 한국어로 고정돼 있어서다 —
-  // 랜딩을 벗어난 뒤에도 영어가 남아 있으면 앱 쪽 lang 속성이 실제 언어와 어긋난다.
+  // index.html의 정적 description을 처음 한 번만 담아 둔다(= 한국어 원문). 아래 effect가
+  // 영어로 덮어쓴 뒤에도 되돌릴 원본이 필요한데, 매번 DOM에서 읽으면 이미 덮어쓴 영어를
+  // "원본"으로 착각하게 된다. ko 문구를 이 파일에 복제하지 않는 이유이기도 하다 —
+  // 한국어 문구의 단일 출처는 index.html 하나로 남는다.
+  const koDescriptionRef = useRef<string | null>(null);
+
+  // 문서 헤드(<html lang>, meta description)를 랜딩이 보여주는 언어에 맞춘다.
+  //
+  // <html lang>의 cleanup이 "ko"로 복원하는 이유는 index.html의 정적 기본값이 "ko"이고
+  // 앱(제품 본체) 라우트는 한국어로 고정돼 있어서다 — 랜딩을 벗어난 뒤에도 영어가 남아
+  // 있으면 앱 쪽 lang 속성이 실제 언어와 어긋난다.
+  //
+  // meta description을 함께 바꾸는 이유: SPA라 정적 메타는 문서 전체에 하나뿐인데, 랜딩은
+  // 브라우저 언어로 ko/en을 고른다(readInitialLang). 영어권에서 크롤링하는 검색엔진은
+  // 영어 본문에 한국어 설명문이 붙은 페이지를 보게 된다. 구글은 렌더링된 DOM을 색인하므로
+  // 이 교체가 검색 결과 스니펫에 반영된다.
+  //   ⚠️ og:description·twitter:description은 여기서 건드리지 않는다 — 공유 카드를 긁는
+  //      크롤러(Slack·카카오·LinkedIn)는 JS를 돌리지 않아 어차피 index.html의 정적 값만 본다.
+  //      바꿔봐야 아무도 읽지 않는 DOM만 흔드는 셈이다.
   useEffect(() => {
     document.documentElement.lang = lang;
+
+    const meta = document.querySelector('meta[name="description"]');
+    if (koDescriptionRef.current === null) {
+      koDescriptionRef.current = meta?.getAttribute("content") ?? "";
+    }
+    const koDescription = koDescriptionRef.current;
+    meta?.setAttribute("content", lang === "en" ? DESCRIPTION_EN : koDescription);
+
     return () => {
       document.documentElement.lang = "ko";
+      meta?.setAttribute("content", koDescription);
     };
   }, [lang]);
 

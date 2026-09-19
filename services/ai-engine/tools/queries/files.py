@@ -3,17 +3,20 @@
 import os
 
 from tools.queries._common import (
+    _DETAIL_MESSAGE_MAX_CHARS,
+    _DIFF_SUMMARY_MAX_CHARS,
     _MIN_CONFIDENCE,
+    _STUB_TITLE_MAX_CHARS,
     _detail_count_for_budget as _budget_count,
     _priority_order,
+    cap_text,
+    first_line,
     get_driver,
+    normalize_issue_times,
 )
 
 
 _FUZZY_CANDIDATE_LIMIT = 5      # candidates 리스트에 노출할 최대 후보 수
-_DIFF_SUMMARY_MAX_CHARS = 300   # detail 행당 diffSummary 상한 — executor 결과 상한(8000자)에 이력 행이 잘려나가는 것 방지
-_DETAIL_MESSAGE_MAX_CHARS = 400 # detail 행당 커밋 메시지 상한 — 8행이 상한을 넘겨 string-cut(JSON 파손)으로 떨어지는 것 방지
-_STUB_TITLE_MAX_CHARS = 100     # context stub의 요약(커밋 메시지 첫 줄) 상한
 
 # 반환 정책 노브 (eval 스윕용 env 외부화 — TOOLS_MIN_CONFIDENCE 선례와 동일).
 #   detail : 본문 포함 인용 대상 — 관련도 순으로 "예산이 되는 만큼" 채운다
@@ -145,9 +148,7 @@ def _split_tiers(
 
 def _detail_row(r: dict, ranked: bool) -> dict:
     """인용 대상 행 — 본문(message)·diffSummary·연결 이슈/PR 포함."""
-    message = r.get("message")
-    if isinstance(message, str) and len(message) > _DETAIL_MESSAGE_MAX_CHARS:
-        message = message[:_DETAIL_MESSAGE_MAX_CHARS] + " …(생략)"
+    message = cap_text(r.get("message"), _DETAIL_MESSAGE_MAX_CHARS)
     row = {
         "hash": r["hash"],
         "message": message,
@@ -164,12 +165,10 @@ def _detail_row(r: dict, ranked: bool) -> dict:
 
 def _stub_row(r: dict) -> dict:
     """개요 stub — hash·시각·요약 첫 줄·연결 이슈키만. 본문(diffSummary) 없음."""
-    message = (r.get("message") or "").strip()
-    first_line = message.splitlines()[0][:_STUB_TITLE_MAX_CHARS] if message else ""
     return {
         "hash": r["hash"],
         "occurredAt": r.get("occurredAt"),
-        "title": first_line,
+        "title": first_line(r.get("message"), _STUB_TITLE_MAX_CHARS) or "",
         "issues": [i["issue_key"] for i in (r.get("issues") or []) if i.get("issue_key")],
     }
 
@@ -227,7 +226,8 @@ async def _fetch_file_history(
         WITH cs, m, a,
              collect(DISTINCT CASE WHEN i IS NOT NULL THEN {
                  issue_key: i.issue_key, title: i.title,
-                 confidence: tb.confidence, source: tb.source
+                 confidence: tb.confidence, source: tb.source,
+                 created_at: toString(i.createdAt), closed_at: toString(i.closedAt)
              } END) AS issue_links,
              collect(DISTINCT CASE WHEN pr IS NOT NULL THEN {
                  pr_number: pr.pr_number, url: pr.url
@@ -254,9 +254,10 @@ async def _fetch_file_history(
     # diffSummary가 행당 수천 자면 오래된 행이 executor 상한에 통째로 밀려난다 —
     # 이력 질문의 핵심은 커밋 나열·방향이므로 요약은 앞부분만 남긴다
     for row in rows:
-        ds = row.get("diff_summary")
-        if isinstance(ds, str) and len(ds) > _DIFF_SUMMARY_MAX_CHARS:
-            row["diff_summary"] = ds[:_DIFF_SUMMARY_MAX_CHARS] + " …(생략)"
+        row["diff_summary"] = cap_text(row.get("diff_summary"), _DIFF_SUMMARY_MAX_CHARS)
+        # Issue.createdAt/closedAt만 +09:00 오프셋으로 저장돼 있어 UTC Z로 맞춘다 —
+        # 규칙은 _common.normalize_issue_times 한 곳(커밋·PR 결과와 같은 정규화).
+        normalize_issue_times(row.get("issues"))
     return rows
 
 

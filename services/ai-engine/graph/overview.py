@@ -218,7 +218,7 @@ def _to_graph_node(row: dict) -> dict:
             "meta": (row.get("hash") or "")[:7],
             "source": "github",
             "snippet": _truncate(row.get("message")),
-            # ref엔 전체 해시 — get_changeset_context는 정확 매칭이라 [:7] 프리픽스로는 조회 실패.
+            # ref엔 전체 해시를 넘긴다 — 40자면 접두어 해석 없이 바로 조회.
             "ref": _node_ref("commit", row.get("hash")),
         }
 

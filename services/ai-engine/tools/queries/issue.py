@@ -4,13 +4,17 @@ import json
 import os
 
 from tools.queries._common import (
+    _DETAIL_MESSAGE_MAX_CHARS,
     _MIN_CONFIDENCE,
     _group_communications_by_thread,
+    cap_text,
     expand_events,
+    first_line,
     get_driver,
     normalize_time,
     sort_events,
 )
+from tools.queries.actor import _actor_ambiguous_response, _resolve_actor
 from tools.queries.files import (
     _FUZZY_CANDIDATE_LIMIT,
     _find_files_by_stem,
@@ -33,12 +37,6 @@ _TIMELINE_BUDGET = int(os.environ.get("TIMELINE_BUDGET_CHARS", "7000"))
 _BODY_CHARS = int(os.environ.get("TIMELINE_BODY_CHARS", "200"))
 _TITLE_CHARS = int(os.environ.get("TIMELINE_TITLE_CHARS", "120"))
 
-
-def _first_line(text: str | None, cap: int) -> str | None:
-    """첫 줄만 cap자까지 — 타임라인 이벤트를 뼈대 크기로 유지(예산 절약)."""
-    if not text:
-        return None
-    return text.splitlines()[0][:cap] or None
 
 async def _resolve_issue_root(
     session, project_id: str, issue_key: str, source: str | None
@@ -81,13 +79,14 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
 
     반환 구조:
       {
-        issue_key, title, body, status, ..., creator, assignee,
+        issue_key, title, body, status, ..., created_at, closed_at, creator, assignee,
         changesets:    [...],   # root 이슈에 직접 연결된 커밋
         pull_requests: [...],
         discussions:   [...],
         documents:     [{external_id, title, source, confidence, link_source, section}, ...],
         descendants: [
-          {issue_key, title, status, changesets, pull_requests, discussions, documents},
+          {issue_key, title, status, created_at, closed_at, changesets, pull_requests,
+           discussions, documents},
           ...
         ]
       }
@@ -121,6 +120,7 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
             RETURN i.issue_key AS issue_key, i.title AS title, i.body AS body,
                    i.status AS status, i.issue_type AS issue_type,
                    i.priority AS priority, toString(i.occurredAt) AS occurredAt,
+                   toString(i.createdAt) AS created_at, toString(i.closedAt) AS closed_at,
                    creator.name AS creator, assignee.name AS assignee
             """,
             project_id=project_id,
@@ -131,6 +131,10 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
         if not row:
             return {"message": f"이슈를 찾을 수 없습니다: {issue_key}"}
         base = dict(row)
+        # Issue.createdAt/closedAt만 +09:00 오프셋으로 저장돼 있어(_common._event_time
+        # docstring) UTC Z로 정규화해야 근거 카드의 시각 표기가 섞이지 않는다.
+        base["created_at"] = normalize_time(base.get("created_at"))
+        base["closed_at"] = normalize_time(base.get("closed_at"))
 
         # 2단계: 스코프 결정 — root + 자식 이슈 메타데이터 (root 자체는 항상 첫 항목)
         result = await session.run(
@@ -141,7 +145,8 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
             WITH root, collect(DISTINCT desc) AS descs
             UNWIND ([root] + descs) AS i
             WITH i WHERE i IS NOT NULL
-            RETURN i.issue_key AS issue_key, i.title AS title, i.status AS status
+            RETURN i.issue_key AS issue_key, i.title AS title, i.status AS status,
+                   toString(i.createdAt) AS created_at, toString(i.closedAt) AS closed_at
             """,
             project_id=project_id,
             issue_key=issue_key,
@@ -199,7 +204,8 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
                        occurredAt: toString(c.occurredAt),
                        conversation_id: c.conversation_id,
                        author: c_author.name,
-                       confidence: disc.confidence
+                       confidence: disc.confidence,
+                       link_source: disc.source
                    }}) AS discussions
             """,
             project_id=project_id,
@@ -240,9 +246,12 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
 
         def _per_issue(key: str) -> dict:
             w = work_rows.get(key, {})
+            changesets = _filter_empty(w.get("changesets", []))
+            for cs in changesets:
+                cs["message"] = cap_text(cs.get("message"), _DETAIL_MESSAGE_MAX_CHARS)
             # discussions는 thread별 그룹핑된 구조로 반환 — LLM이 스레드 경계 명확히 인지하도록.
             return {
-                "changesets":    _filter_empty(w.get("changesets", [])),
+                "changesets":    changesets,
                 "pull_requests": _filter_empty(w.get("pull_requests", [])),
                 "discussions":   _group_communications_by_thread(disc_rows.get(key, [])),
                 "documents":     _filter_empty(doc_rows.get(key, [])),
@@ -257,6 +266,8 @@ async def get_issue_context(project_id: str, issue_key: str, source: str | None 
                 "issue_key": i["issue_key"],
                 "title":    i["title"],
                 "status":   i["status"],
+                "created_at": normalize_time(i.get("created_at")),
+                "closed_at":  normalize_time(i.get("closed_at")),
                 **_per_issue(i["issue_key"]),
             }
             for i in sorted(scope_issues, key=lambda x: x["issue_key"])
@@ -313,7 +324,7 @@ async def rank_issues(project_id: str, by: str = "discussion", top_k: int = 5) -
     ranked = [
         {
             "issue_key": r["issue_key"],
-            "title": _first_line(r["title"], _TITLE_CHARS),
+            "title": first_line(r["title"], _TITLE_CHARS),
             "status": r["status"],
             "created_at": normalize_time(r["created_at"]),
             "closed_at": normalize_time(r["closed_at"]),
@@ -472,7 +483,7 @@ def _cs_events(rows: list[dict]) -> list[dict]:
     파일 스코프에서 이슈를 별도 생명주기 이벤트로 만들지 않기 위한 경로다."""
     out = []
     for cs in rows:
-        data = {"hash": cs.get("hash"), "message": _first_line(cs.get("message"), _TITLE_CHARS)}
+        data = {"hash": cs.get("hash"), "message": first_line(cs.get("message"), _TITLE_CHARS)}
         for k in ("confidence", "link_source"):
             if cs.get(k) is not None:
                 data[k] = cs[k]
@@ -487,7 +498,7 @@ def _pr_events(rows: list[dict]) -> list[dict]:
         e for pr in rows
         for e in expand_events("PullRequest", pr, {
             "pr_number": pr.get("pr_number"),
-            "title": _first_line(pr.get("title"), _TITLE_CHARS), "url": pr.get("url"),
+            "title": first_line(pr.get("title"), _TITLE_CHARS), "url": pr.get("url"),
         })
     ]
 
@@ -508,7 +519,7 @@ def _issue_lifecycle_events(rows: list[dict]) -> list[dict]:
         e for i in rows
         for e in expand_events("Issue", i, {
             "issue_key": i.get("issue_key"),
-            "title": _first_line(i.get("title"), _TITLE_CHARS), "status": i.get("status"),
+            "title": first_line(i.get("title"), _TITLE_CHARS), "status": i.get("status"),
         })
     ]
 
@@ -683,13 +694,23 @@ async def _resolve_path(session, project_id: str, path: str):
 
 
 async def _actor_events(session, project_id: str, actor: str) -> tuple[dict, list[dict] | None]:
-    """사람 스코프 — 이름·alias·email 중 하나로 Actor를 찾아 그 사람의 활동 이벤트."""
+    """사람 스코프 — actor._resolve_actor(이름·alias·이메일 정확 일치 → 부분 일치 폴백)로
+    Actor를 찾아 그 사람의 활동 이벤트. 후보가 여러 명이면 scope에 candidates를 실어
+    반환한다(_issue_events의 candidates 처리와 같은 모양)."""
+    candidates = await _resolve_actor(session, project_id, actor)
+    if not candidates:
+        return {"type": "actor", "value": actor,
+                "message": f"해당 사람을 찾지 못했습니다: {actor}"}, None
+    if len(candidates) > 1:
+        return {
+            "type": "actor", "value": actor,
+            **_actor_ambiguous_response(candidates),
+        }, None
+    actor_uuid = candidates[0]["uuid"]
+
     result = await session.run(
         """
-        MATCH (a:Actor {project_id: $project_id})
-        WHERE a.name = $actor
-           OR $actor IN a.aliases
-           OR EXISTS { MATCH (al:ActorAlias)-[:ALIAS_OF]->(a) WHERE al.pd_email = $actor OR al.pd_name = $actor }
+        MATCH (a:Actor {project_id: $project_id, uuid: $actor_uuid})
         OPTIONAL MATCH (a)-[:AUTHORED]->(cs:ChangeSet)
         OPTIONAL MATCH (a)-[:AUTHORED]->(pr:PullRequest)
         OPTIONAL MATCH (a)-[:WROTE]->(c:Communication)
@@ -706,7 +727,7 @@ async def _actor_events(session, project_id: str, actor: str) -> tuple[dict, lis
                collect(DISTINCT {createdAt: toString(i.createdAt), closedAt: toString(i.closedAt),
                                  issue_key: i.issue_key, title: i.title, status: i.status}) AS issues
         """,
-        project_id=project_id, actor=actor,
+        project_id=project_id, actor_uuid=actor_uuid,
     )
     row = await result.single()
     if not row or not row["name"]:

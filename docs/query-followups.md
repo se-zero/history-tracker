@@ -327,3 +327,37 @@ return "idle"
 
 `docs/public-readiness.md` 0-5·0-6과 같은 날 실기동에서 나왔다. 그 둘(재연결 불가 · PR base
 브랜치 단일 필터)을 고치는 과정에서 연동을 해제·재연결하다 이 현상을 밟았다.
+
+---
+
+## 8. 근거 회수 결함 수정에서 넘긴 항목 (2026-09-17)
+
+`docs/evidence-retrieval-fixes.md`가 고친 12건의 바깥이다. 번호는 2026-09-10 코드 분석과 같다.
+측정 없이 방향을 정할 수 없거나, 인덱스·수집 경로가 붙는 기능 단위라 이번 사이클에서 뺐다.
+
+| # | 항목 | 이유 |
+|---|---|---|
+| 6 | 검색 threshold 0.30 재조정 | 3-large 점수 분포를 라이브 그래프에서 재고 스윕해야 한다 |
+| 7 | ChangeSet 벡터 인덱스 + PR 임베딩 | 인덱스·수집 경로·백필이 붙는 기능 단위. 검색 결과가 잘리지 않고 인용되게 한 12건이 먼저였다 |
+| 9 | 멀티테넌트 over-fetch | 규모 문제. 테넌트 수가 늘 때 |
+| 13 | REFERENCE·DISCUSSED_IN에 0.5 필터 통일 | recall에 직접 영향 — 스윕 필요. 이번엔 설명만 코드에 맞춤 |
+| 15 | 나열형 질문의 detail 예산·반복 상한 | 예산 스윕이 전제 |
+| 17 | Slack 룰 필터 7자·삭제 정책 | slack_filter_eval 재측정 전제 |
+| 18 | REFERENCE ±5일, TRIGGERED_BY 후보 제외 규칙 | 엣지 레벨 eval 전제 |
+| 19 | 파일 이름 변경 추적 | File 노드 표현 설계(별칭 vs RENAMED_TO) 필요 |
+| 20 | 커밋 메시지의 `#123` 추출 | PR 번호와 구분 불가 — stub 오염 위험. GitHub Issue 소스 설계와 함께 |
+| 21 | 대형 diff placeholder 임베딩 | 요약 전략 변경 |
+
+### 할 일
+
+- [ ] #6 `search_by_keyword` threshold 스윕 (`docs/measurement.md` 질의 골든)
+- [ ] #7 ChangeSet 메시지 벡터 인덱스 + PR 본문 임베딩·검색 경로
+- [ ] #9 테넌트 수가 늘면 벡터 over-fetch 상한 재검토
+- [ ] #13 대화·문서 연결에도 0.5 필터를 둘지 eval로 결정
+- [ ] #15 나열형 질문의 detail 예산·tool 반복 상한 스윕
+- [ ] #17 Slack 룰 필터 7자·삭제 정책 — `eval/slack_filter_eval.py` 재측정
+- [ ] #18 REFERENCE ±5일 창, TRIGGERED_BY 후보 제외 규칙 — 엣지 eval
+- [ ] #19 파일 이름 변경 추적 설계
+- [ ] #20 커밋 메시지 `#123` 추출 vs GitHub Issue 소스
+- [ ] #21 대형 diff placeholder 임베딩 요약 전략
+- [ ] `check_missing_context` 고아 판정 — 커밋→이슈만 신뢰도로 거르고 대화·문서 연결은 존재만 본다. 0.44짜리 대화 연결 하나로 고아에서 빠진다. 묶음 C 이전부터의 동작. 기준을 바꾸려면 eval이 전제다

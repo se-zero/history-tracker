@@ -24,6 +24,8 @@ server:
 ai:
   engine:
     url: http://localhost:8000
+    # LLM 질의(/query) read timeout(초). 넘으면 fallback 답변으로 근거가 사라진다.
+    read-timeout-seconds: ${AI_ENGINE_READ_TIMEOUT_SECONDS:120}
 
 app:
   legal:
