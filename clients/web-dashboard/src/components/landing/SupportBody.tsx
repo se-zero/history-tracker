@@ -93,7 +93,7 @@ export function SupportBody() {
             <Link to={PATHS.terms}>{t.terms}</Link>
           </li>
           <li>
-            <Link to={`${PATHS.landing}#in-slack`}>{t.slack}</Link>
+            <Link to={PATHS.slack}>{t.slack}</Link>
           </li>
         </ul>
       </section>
