@@ -133,8 +133,18 @@
   text-decoration-color: var(--lp-text-secondary);
 }
 
-/* OAuth scope 같은 라틴 기술 토큰 — 모노 스코프. */
-.lp-legal-section code {
+/* /slack 설치 절의 실행 버튼 — 본문 링크 규칙(무채+밑줄)이 앰버 버튼에 번지지 않게 되돌린다.
+   버튼 자체는 landing.css의 .lp-btn / .lp-btn--primary 그대로. */
+.lp-legal-section a.lp-btn {
+  text-decoration: none;
+}
+.lp-legal-section a.lp-btn--primary {
+  color: var(--lp-surface-0);
+}
+
+/* OAuth scope·커맨드 같은 라틴 기술 토큰 — 모노 스코프. 요약문(리드) 안의 커맨드도 같은 칩. */
+.lp-legal-section code,
+.lp-legal-summary code {
   padding: 1px 5px;
   border: 1px solid var(--lp-border);
   border-radius: var(--lp-r-sm);

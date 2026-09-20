@@ -16,6 +16,7 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { PrivacyPage } from "@/pages/PrivacyPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { SlackPage } from "@/pages/SlackPage";
 import { SourcesPage } from "@/pages/SourcesPage";
 import { SupportPage } from "@/pages/SupportPage";
 import { TermsPage } from "@/pages/TermsPage";
@@ -75,6 +76,7 @@ export default function App() {
           <Route path={PATHS.terms} element={<TermsPage />} />
           <Route path={PATHS.privacy} element={<PrivacyPage />} />
           <Route path={PATHS.support} element={<SupportPage />} />
+          <Route path={PATHS.slack} element={<SlackPage />} />
           <Route path={PATHS.authCallback} element={<AuthCallbackPage />} />
           <Route
             path={PATHS.onboarding}

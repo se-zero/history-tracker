@@ -14,7 +14,7 @@ export const LEGAL_OPERATOR: Localized<string> = { ko: "JUNSU SEO", en: "JUNSU S
 export const LEGAL_CONTACT_EMAIL = "contact@why-code.com";
 export const LEGAL_CONTACT_URL = "https://github.com/se-zero/history-tracker/issues";
 
-// 약관·개인정보처리방침·지원 공통 셸. 랜딩과 같은 `.lp` 스코프를 써서 헤더·푸터·토큰(다크/라이트
+// 약관·개인정보처리방침·지원·Slack 안내 공통 셸. 랜딩과 같은 `.lp` 스코프를 써서 헤더·푸터·토큰(다크/라이트
 // 토글 포함)을 그대로 재사용한다 — 공개 페이지끼리 크롬이 끊기면 이탈 지점처럼 보인다.
 // 본문은 산문 한 컬럼(legal.css)이라 랜딩의 섹션 리듬을 따르지 않는다.
 // 언어는 LandingPage와 마찬가지로 LandingLanguageProvider가 소유한다 — `.lp` 래퍼의
@@ -23,7 +23,7 @@ export function LegalLayout(props: {
   title: Localized<string>;
   // 약관·방침만 시행일을 둔다. 지원 페이지는 조항 문서가 아니라 생략한다.
   effectiveDate?: string;
-  summary: Localized<string>;
+  summary: Localized<React.ReactNode>;
   children: React.ReactNode;
 }) {
   return (
@@ -41,7 +41,7 @@ function LegalLayoutBody({
 }: {
   title: Localized<string>;
   effectiveDate?: string;
-  summary: Localized<string>;
+  summary: Localized<React.ReactNode>;
   children: React.ReactNode;
 }) {
   const { theme, toggleTheme } = useLandingTheme();
