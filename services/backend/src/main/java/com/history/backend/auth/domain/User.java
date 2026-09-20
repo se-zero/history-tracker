@@ -65,6 +65,9 @@ public class User {
     @Column(name = "free_query_count", nullable = false)
     private int freeQueryCount;
 
+    @Column(name = "plan_expires_at")
+    private Instant planExpiresAt;
+
     public User(String provider, String providerUserId, String email, String displayName, String avatarUrl) {
         this.provider = provider;
         this.providerUserId = providerUserId;
@@ -94,6 +97,13 @@ public class User {
 
     public void upgradeToPaid() {
         this.plan = Plan.PAID;
+        this.planExpiresAt = null;
+    }
+
+    public void downgradeToFree() {
+        this.plan = Plan.FREE;
+        this.freeQueryCount = 0;
+        this.planExpiresAt = null;
     }
 
     @PrePersist

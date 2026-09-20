@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -17,6 +18,7 @@ import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserProviderConnectionRepository;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.integration.domain.Integration;
 import com.history.backend.integration.domain.IntegrationProvider;
@@ -26,6 +28,7 @@ import com.history.backend.project.repository.ProjectRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -36,6 +39,7 @@ class PlanServiceTest {
 
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final String UPGRADE_CODE = "SECRET-UPGRADE-CODE";
+    private static final Instant PLAN_EXPIRES_AT = Instant.parse("2026-05-18T01:00:00Z");
 
     @Mock
     private UserRepository userRepository;
@@ -301,6 +305,101 @@ class PlanServiceTest {
         verifyNoInteractions(userRepository, integrationRepository);
     }
 
+    @Test
+    @DisplayName("PAID 전환 시 이전에 남아있던 planExpiresAt도 함께 초기화된다")
+    void upgradeToPaidClearsAnyPreviousPlanExpiresAt() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.FREE, 0, PLAN_EXPIRES_AT);
+        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID)).thenReturn(List.of());
+
+        service.upgradeToPaid(OWNER_ID, UPGRADE_CODE);
+
+        assertThat(user.getPlanExpiresAt()).isNull();
+    }
+
+    // ── downgradeToFree ──
+
+    @Test
+    @DisplayName("PAID 강등: plan·freeQueryCount·planExpiresAt이 전부 초기화된다")
+    void downgradeToFreeResetsAllFieldsForPaidUser() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 7, PLAN_EXPIRES_AT);
+        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID)).thenReturn(List.of());
+
+        service.downgradeToFree(OWNER_ID);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        assertThat(user.getFreeQueryCount()).isZero();
+        assertThat(user.getPlanExpiresAt()).isNull();
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("PAID 강등 시 소유 연동 전부 incrementalEnabled=false로 저장된다")
+    void downgradeToFreeDisablesIncrementalForAllOwnedIntegrations() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID);
+        Integration githubIntegration = integration(IntegrationProvider.GITHUB, true);
+        Integration slackIntegration = integration(IntegrationProvider.SLACK, true);
+        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID))
+                .thenReturn(List.of(githubIntegration, slackIntegration));
+
+        service.downgradeToFree(OWNER_ID);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Integration>> integrationsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(integrationRepository).saveAll(integrationsCaptor.capture());
+        assertThat(integrationsCaptor.getValue())
+                .containsExactlyInAnyOrder(githubIntegration, slackIntegration);
+        assertThat(integrationsCaptor.getValue())
+                .allSatisfy(saved -> assertThat(saved.isIncrementalEnabled()).isFalse());
+    }
+
+    @Test
+    @DisplayName("소유 연동이 하나도 없어도 예외 없이 끝난다")
+    void downgradeToFreeSucceedsWithNoOwnedIntegrations() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID);
+        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID)).thenReturn(List.of());
+
+        service.downgradeToFree(OWNER_ID);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        verify(integrationRepository).saveAll(List.of());
+    }
+
+    @Test
+    @DisplayName("이미 FREE인 사용자에게 부르면 멱등 — freeQueryCount 보존, 연동 조회 자체를 하지 않는다"
+            + " (중복 웹훅·스케줄러 경합으로 무료 질의 10회를 공짜로 다시 받는 버그 방지)")
+    void downgradeToFreeIsNoOpForAlreadyFreeUser() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.FREE, 7);
+        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+
+        service.downgradeToFree(OWNER_ID);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        assertThat(user.getFreeQueryCount()).isEqualTo(7);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("사용자를 못 찾으면 NotFoundException, 연동 조회도 하지 않는다")
+    void downgradeToFreeThrowsWhenUserNotFound() {
+        PlanService service = service(UPGRADE_CODE);
+        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.downgradeToFree(OWNER_ID))
+                .isInstanceOf(NotFoundException.class);
+
+        verifyNoInteractions(integrationRepository);
+    }
+
     private PlanService service(String upgradeCode) {
         return new PlanService(
                 userRepository,
@@ -316,10 +415,15 @@ class PlanServiceTest {
     }
 
     private User user(Plan plan, int freeQueryCount) {
+        return user(plan, freeQueryCount, null);
+    }
+
+    private User user(Plan plan, int freeQueryCount, Instant planExpiresAt) {
         User user = new User("github", "12345", "owner@example.com", "Owner", null);
         ReflectionTestUtils.setField(user, "id", OWNER_ID);
         ReflectionTestUtils.setField(user, "plan", plan);
         ReflectionTestUtils.setField(user, "freeQueryCount", freeQueryCount);
+        ReflectionTestUtils.setField(user, "planExpiresAt", planExpiresAt);
         return user;
     }
 
