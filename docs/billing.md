@@ -209,6 +209,29 @@ PAID 사용자를 주기적으로 쓸어 FREE로 내린다. `@EnableScheduling`�
 (`UserPurgeScheduler`·`RefreshTokenPurgeScheduler`·`JiraPersonalDataReportScheduler`)이 이미
 있으므로 `@ConditionalOnProperty` + cron 패턴을 그대로 따른다.
 
+**B0-b에서 구현 완료.** `PlanExpiryProperties`·`PlanExpiryService`·`PlanExpiryScheduler`가
+매 실행마다 `UserRepository.findExpiredPaidUserIds`로 batchSize건을 조회해
+`PlanService.downgradeToFree`로 건별 강등한다(각 호출이 `PlanService`의 클래스 레벨
+`@Transactional`로 독립 트랜잭션이라, 한 건 실패가 나머지 성공 건을 롤백시키지 않는다).
+한 번 실행에 batchSize건만 처리하고 루프를 돌지 않는다 — 성공한 건은 FREE로 빠지므로
+나머지는 다음 실행이 가져간다.
+
+| 키 | 환경변수 | 기본값 | 의미 |
+|---|---|---|---|
+| `app.plan.expiry.enabled` | `PLAN_EXPIRY_ENABLED` | `true` | 스케줄러 on/off. 기본 켜짐 — B1 전까지는 `plan_expires_at`이 전부 NULL이라 대상 0건이지만, 켜 둬야 결제를 붙이는 순간 별도 조작 없이 동작한다 |
+| `app.plan.expiry.cron` | `PLAN_EXPIRY_CRON` | `0 15 * * * *`(매시 15분) | 결제 누락 안전망이라 일 1회면 최대 24시간 공짜 사용 창이 생긴다. 부분 인덱스 조회라 매시간도 비용이 거의 없다. 03:00·03:30 배치(`UserPurgeScheduler`·`JiraPersonalDataReportScheduler`)와 분이 겹치지 않게 15분으로 잡았다 |
+| `app.plan.expiry.batch-size` | `PLAN_EXPIRY_BATCH_SIZE` | `100` | 실행 1회당 강등 후보 상한 |
+
+**알고 둔 한계 — 반복 실패 건이 배치를 막을 수 있다** (B0-b 리뷰, 2026-09-21). 조회에 정렬이 없고
+한 번에 한 페이지만 처리하는데, 부분 인덱스 때문에 Postgres는 대개 만료일 오래된 순으로 읽는다.
+강등이 **계속** 실패하는 계정은 매 실행마다 맨 앞에 다시 나오고, 그런 계정이 `batch-size`만큼
+쌓이면 **새로 만료된 계정은 영원히 처리되지 않는다.**
+
+지금 막지 않는 이유: `downgradeToFree`는 단순 DB 쓰기라 계속 실패하려면 데이터 자체가 망가져
+있어야 하고, 그런 계정이 100개 쌓이는 건 비현실적이다. 실패는 스택 트레이스와 함께 `warn`으로
+남으므로 로그로 발견할 수 있다. 막아야 할 상황이 생기면 `UserPurgeService`처럼 실패 id를
+`excludedIds`로 누적해 다음 페이지를 읽는 방식으로 바꾼다.
+
 ### 6-5. ⚠️ 열린 항목 — 갱신과 강등의 경합 (B1에서 판단)
 
 B0 리뷰에서 나온 항목이다. `PlanService.downgradeToFree`도 `upgradeToPaid`도 사용자 행을

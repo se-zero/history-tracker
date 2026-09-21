@@ -88,6 +88,7 @@
 | [public-readiness.md](public-readiness.md) | 정본 | 점검표 | 0~2층·4층 다수, Slack D S1~S3 코드, Slack C 연결·격리·문서, 0-1b 사용자 GitHub 토큰 | 4-5 내보내기, Slack C0 문의 미회신, Slack 실기동·S4~S6, 3층 심사, 5층 운영, 2-4 |
 | [slack-marketplace.md](slack-marketplace.md) | 작업 | 등재 계획 (D) | S1 Events API·S2 자격증명·S3 `/why-code` 코드 | 실기동, S4~S6 앱 설정·제출 |
 | [slack-byo.md](slack-byo.md) | 작업 | BYO 계획 (C) | 연결 API·격리·UI·문서 | **C0 Slack 문의 미회신**(배포 전 게이트). 등재 후 토큰 경로 유지 여부는 미정 |
+| [billing.md](billing.md) | 작업 | 결제 계획 (Paddle MoR 월 정기구독) | B0 — 강등 회수(`PlanService.downgradeToFree`)·만료 스케줄러(`PlanExpiryScheduler`) | G1 Paddle 심사·G2 한국 결제수단 자동갱신 실측·G3 가격·약관, B1 웹훅·B2 프론트·B3 법무 |
 | [query-quality-issues.md](query-quality-issues.md) | 정본 | 분석 로그 | 케이스별 원인·개선안 | 닫히지 않음 |
 
 ---
@@ -96,7 +97,6 @@
 
 | 문서 | 필요 | 종류 | 남은 것 |
 |------|------|------|---------|
-| [billing.md](billing.md) | 작업 | 결제 계획 | 착수 전. Paddle(MoR) 월 정기구독. **G1(Paddle 심사)이 전제**이고, B0(다운그레이드)은 결제와 무관하게 선행 가능 |
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
 | [evidence-retrieval-fixes.md](evidence-retrieval-fixes.md) | 작업 | 수정 계획 | 근거 회수 결함 12건을 묶음 A~F로 수정. 후속 10건(임계값·시간 창·검색 확장)은 §7 |
 
