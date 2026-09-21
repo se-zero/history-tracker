@@ -34,6 +34,14 @@ app:
     terms-version: "2026-08-01"
   plan:
     upgrade-code: ${PLAN_UPGRADE_CODE:}
+    expiry:
+      # 기본 켜짐 — B1 전까지는 plan_expires_at이 전부 NULL이라 대상 0건이지만, 켜 둬야
+      # 결제를 붙이는 순간 별도 조작 없이 안전망이 동작한다.
+      enabled: ${PLAN_EXPIRY_ENABLED:true}
+      # 매시 15분 — 결제 누락 안전망이라 일 1회면 최대 24시간 공짜 사용 창이 생긴다. 부분
+      # 인덱스 조회라 매시간 돌아도 비용이 거의 없다. 03:00·03:30 배치와 분이 겹치지 않게 15분.
+      cron: "${PLAN_EXPIRY_CRON:0 15 * * * *}"
+      batch-size: ${PLAN_EXPIRY_BATCH_SIZE:100}
 
 conversation:
   memory:

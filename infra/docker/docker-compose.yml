@@ -125,6 +125,9 @@ services:
       BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
       PLAN_UPGRADE_CODE: ${PLAN_UPGRADE_CODE:-}
+      # 플랜 만료 강등 배치 — 결제 웹훅 유실 안전망 (기본 true, 매시 15분)
+      PLAN_EXPIRY_ENABLED: ${PLAN_EXPIRY_ENABLED:-true}
+      PLAN_EXPIRY_CRON: ${PLAN_EXPIRY_CRON:-0 15 * * * *}
 
       # GitHub App — infra/docker/.env 에서 forward (필수: APP_ID, SLUG, CLIENT_ID/SECRET, PRIVATE_KEY)
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
