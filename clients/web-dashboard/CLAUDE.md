@@ -40,6 +40,9 @@ src/
   components/
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
+                    TermsNoticeBanner — 약관 개정 공지(`.main` 맨 위). 기기 로컬 날짜가 `TERMS_EFFECTIVE_DATE`
+                    이전일 때만 보이고 닫기는 localStorage(`ht.termsNotice.dismissed`)에 시행일로 기억한다.
+                    기존 이용자 재동의를 받지 않는 대신 이 배너가 약관 제12조의 "서비스 내 공지"다
     sources/        GitHubCard(설치 기반 전용) · OAuthSourceCard(OAuth 소스 공용 행 — backend가
                     선언한 선택 단계를 그대로 렌더, provider별 카드를 만들지 않는다) ·
                     sourceCatalog(소스 메타 단일 출처 — 9종의 마크·설명이 등재돼 있고, 항목은
@@ -67,9 +70,12 @@ src/
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
     landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
-                    LegalLayout — 약관·개인정보·지원 공통 셸(헤더/푸터 재사용 + 산문 컬럼)
+                    LegalLayout — 약관·개인정보·환불정책·지원·요금 공통 셸(헤더/푸터 재사용 + 산문 컬럼).
+                    `TERMS_EFFECTIVE_DATE`(약관·환불정책 시행일)도 여기 있다 — backend
+                    `app.legal.terms-version`과 같은 문자열이어야 한다
                     SlackBody — `/slack` 본문(Slack 마켓플레이스 Installation landing page. 랜딩 절에서 분리)
                     SupportBody — `/support` 본문
+                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts)
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
                     LandingLanguageProvider — 랜딩 계열 ko/en 상태(`ht.lang` + 브라우저 언어 감지).
                     문서 헤드(`<html lang>`·`meta description`)도 여기서 언어에 맞춰 바꾸고 이탈 시
@@ -79,15 +85,16 @@ src/
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
     Onboarding · Chat · Sources · Settings · Account · GraphPage(작업 단위 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
-    Actors · Landing · Terms · Privacy · Support · Slack · AuthCallback · NotFound
+    Actors · Landing · Terms · Privacy · Refund · Support · Slack · Pricing · AuthCallback · NotFound
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
-    ※ Terms(`/terms`)·Privacy(`/privacy`)·Support(`/support`)·Slack(`/slack`)도 AuthGate 밖 공개 라우트다. 랜딩과
+    ※ Terms(`/terms`)·Privacy(`/privacy`)·Refund(`/refund`)·Support(`/support`)·Slack(`/slack`)·Pricing(`/pricing`)도
+      AuthGate 밖 공개 라우트다. 요금·환불정책은 Paddle 심사(도메인 리뷰)가 요구하는 페이지다(docs/billing.md §8-1). 랜딩과
       같은 `.lp` 스코프를 쓰며 헤더·푸터를 공유한다(LegalLayout). 약관·방침 내용은 실제 수집 항목·권한
       scope·보유 기간을 반영하므로 **수집 코드나 purge 설정이 바뀌면 이 두 페이지도 함께 고친다**.
       본문은 언어별 컴포넌트로 갈린다 — 이용약관은 `components/landing/legal/`의
       `TermsBodyKo.tsx`·`TermsBodyEn.tsx`, 개인정보처리방침도 같은 방식으로
-      `PrivacyBodyKo.tsx`·`PrivacyBodyEn.tsx`로 갈려 있다 — 위 내용이 바뀌면 해당 언어별
-      파일도 함께 고친다.
+      `PrivacyBodyKo.tsx`·`PrivacyBodyEn.tsx`, 환불정책도 `RefundBodyKo.tsx`·`RefundBodyEn.tsx`로
+      갈려 있다 — 위 내용이 바뀌면 해당 언어별 파일도 함께 고친다.
       Privacy 하나로 연동 앱 심사의 개인정보처리방침 URL을 모두 감당한다(서비스별로 나누면
       문서가 갈라진다). 제2조에 소스별 앵커를 두며 — `#github`·`#slack`·`#jira`·`#discord`·
       `#google-chat`·`#notion` — 앞의 셋은 **이미 심사에 제출돼 있어 그 id는 바꾸지 않는다**(바꾸면
@@ -98,6 +105,8 @@ src/
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
                     workUnitLayout(작업 단위 배치: 작업 단위 force + 구성 노드 반경) · canvasColor(CSS 토큰 → Canvas RGB)
                     heroBackdropGraph · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
+                    plans — Free/Pro 가격·기능 목록의 단일 출처(요금 페이지와 PlanCard가 같이 읽는다).
+                    한도의 원본은 backend PlanService라 거기가 바뀌면 여기도 고친다
                     remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
                     **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
                     (서버가 타임존을 굳히면 저장된 답변이 그 타임존에 영구히 묶인다, docs/tools.md).
@@ -116,7 +125,7 @@ index.html          문서 셸. 검색·공유 메타(title · description · og
                     아니라 서비스 전체를 설명해야 한다. rel=canonical을 두지 않는 것도 같은 이유다
                     (/terms·/privacy까지 랜딩의 중복으로 선언돼 색인에서 빠진다). 상세는 파일 주석.
 public/             빌드 시 dist/ 루트로 그대로 복사된다(Vite 기본 publicDir).
-                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 5개만
+                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 7개만
                     싣고 도메인이 절대 URL로 박혀 있다. **App.tsx에 공개 라우트를 추가하면
                     사이트맵도 함께 고친다** (등록 절차는 docs/deployment.md §3-4)
                     favicon.svg · hero-demo-{ko,en}-{dark,light}.mp4 + 같은 이름의 poster.jpg
