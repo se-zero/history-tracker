@@ -7,18 +7,6 @@ import { useLandingLanguage, type Localized } from "@/components/landing/Landing
 import { PLAN_FEATURE_ROWS, PRO_MONTHLY_PRICE_KRW } from "@/lib/plans";
 import { PATHS } from "@/routes";
 
-// 비교표 첫 열(행 이름표) — plans.ts의 PlanFeatureRow는 free/pro 각자의 표시 문구만 갖고
-// 공통 행 이름은 없다(PlanCard가 free/pro를 표로 묶지 않고 각자 나열하기 때문). 이 페이지만
-// 표로 묶어 보여주므로 행 이름은 여기 로컬로 두고, 순서를 plans.ts의 PLAN_FEATURE_ROWS와
-// 맞춘다("행 순서: 프로젝트 / 연동 소스 / 질의 / 증분 수집 / 정밀 재구축").
-const FEATURE_ROW_NAMES: Localized<string>[] = [
-  { ko: "프로젝트", en: "Projects" },
-  { ko: "연동 소스", en: "Connected sources" },
-  { ko: "질의", en: "Queries" },
-  { ko: "증분 수집", en: "Incremental sync" },
-  { ko: "정밀 재구축", en: "Precise rebuild" },
-];
-
 const COPY: Localized<{
   compareHeading: string;
   colFree: string;
@@ -115,11 +103,11 @@ export function PricingBody() {
                 <td>{t.freePriceValue}</td>
                 <td>{t.proPriceValue}</td>
               </tr>
-              {PLAN_FEATURE_ROWS.map((row, index) => (
-                <tr key={FEATURE_ROW_NAMES[index].ko}>
-                  <td>{FEATURE_ROW_NAMES[index][lang]}</td>
-                  <td>{row.free.included ? row.free.label[lang] : t.notIncluded}</td>
-                  <td>{row.pro.included ? row.pro.label[lang] : t.notIncluded}</td>
+              {PLAN_FEATURE_ROWS.map((row) => (
+                <tr key={row.name.ko}>
+                  <td>{row.name[lang]}</td>
+                  <td>{row.free.included && row.free.value ? row.free.value[lang] : t.notIncluded}</td>
+                  <td>{row.pro.included && row.pro.value ? row.pro.value[lang] : t.notIncluded}</td>
                 </tr>
               ))}
             </tbody>

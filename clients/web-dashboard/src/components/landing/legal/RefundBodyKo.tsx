@@ -2,9 +2,10 @@ import { LEGAL_CONTACT_EMAIL, LegalSection } from "@/components/landing/LegalLay
 
 // 환불정책 본문(한국어) — 조항 6개. 이 파일의 조항을 고치면 RefundBodyEn.tsx의 같은 조항도
 // 함께 고친다. 초안이며 법률 검토 전이다(TermsBodyKo.tsx와 같은 톤).
-// 제2조("사용"하지 않은 경우에만 7일 전액 환불)·제3조(일할 환불) 기준은 Paddle 환불정책이
-// 주는 "사용 여부 무관 7일 철회"보다 좁다 — 판매 주체가 Paddle이라 구매자가 Paddle에 직접
-// 요청하면 Paddle 정책으로 전액 환불될 수 있다(docs/billing.md에 위험으로 기록됨).
+// 제2조("사용"하지 않은 경우에만 7일 전액 환불)는 Paddle 환불정책이 주는 "사용 여부 무관
+// 7일 철회"보다 좁다 — 판매 주체가 Paddle이라 구매자가 Paddle에 직접 요청하면 Paddle 정책으로
+// 전액 환불될 수 있다(docs/billing.md에 위험으로 기록). 제3조(일할 환불)는 Paddle 기본 정책에
+// 없는 것을 우리가 더해 주는 쪽이다.
 export function RefundBodyKo() {
   return (
     <>
