@@ -1,4 +1,4 @@
-import { LEGAL_OPERATOR, LegalLayout } from "@/components/landing/LegalLayout";
+import { LEGAL_OPERATOR, TERMS_EFFECTIVE_DATE, LegalLayout } from "@/components/landing/LegalLayout";
 import { TermsBody } from "@/components/landing/legal/TermsBody";
 
 // 이용약관 — 공개 라우트(/terms). 초안이며 법률 검토 전이다.
@@ -9,7 +9,7 @@ export function TermsPage() {
   return (
     <LegalLayout
       title={{ ko: "이용약관", en: "Terms of Service" }}
-      effectiveDate="2026-08-01"
+      effectiveDate={TERMS_EFFECTIVE_DATE}
       summary={{
         ko: `${LEGAL_OPERATOR.ko}가 제공하는 whycode(이하 "서비스")의 이용 조건을 정합니다. 서비스에 로그인하면 이 약관에 동의한 것으로 봅니다.`,
         en: `These Terms set out the conditions for using whycode (the "Service"), provided by ${LEGAL_OPERATOR.en}. Logging in to the Service is considered agreement to these Terms.`,
