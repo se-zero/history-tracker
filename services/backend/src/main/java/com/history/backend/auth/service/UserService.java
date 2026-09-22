@@ -22,6 +22,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final RefreshTokenService refreshTokenService;
     private final String currentTermsVersion;
+    private final String consentRequiredSinceVersion;
 
     // @Value는 필드가 아니라 생성자 파라미터에 붙여야 한다 — Lombok @RequiredArgsConstructor가
     // 생성한 생성자는 필드 애노테이션을 파라미터로 복사하지 않아 Spring이 "String" 타입 빈을
@@ -29,11 +30,17 @@ public class UserService {
     public UserService(
             UserRepository userRepository,
             RefreshTokenService refreshTokenService,
-            @Value("${app.legal.terms-version}") String currentTermsVersion
+            @Value("${app.legal.terms-version}") String currentTermsVersion,
+            @Value("${app.legal.consent-required-since:}") String consentRequiredSince
     ) {
         this.userRepository = userRepository;
         this.refreshTokenService = refreshTokenService;
         this.currentTermsVersion = currentTermsVersion;
+        // 재동의 기준을 비워 두면 기록 버전과 같게 취급 — 버전을 올릴 때마다 전원 재동의를 받는
+        // 기존 동작을 유지한다.
+        this.consentRequiredSinceVersion = (consentRequiredSince == null || consentRequiredSince.isBlank())
+                ? currentTermsVersion
+                : consentRequiredSince;
     }
 
     // GitHub OAuth 로그인 시, 사용자 정보로 회원 가입 또는 기존 회원 정보 업데이트
@@ -88,7 +95,7 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public UserResponse getCurrentUser(UUID userId) {
-        return UserResponse.from(getActiveUser(userId), currentTermsVersion);
+        return UserResponse.from(getActiveUser(userId), consentRequiredSinceVersion);
     }
 
     // 사용자 soft delete 및 전체 refresh token 폐기
