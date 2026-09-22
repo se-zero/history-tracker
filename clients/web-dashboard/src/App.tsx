@@ -14,7 +14,9 @@ import { GraphPage } from "@/pages/GraphPage";
 import { LandingPage } from "@/pages/LandingPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
+import { PricingPage } from "@/pages/PricingPage";
 import { PrivacyPage } from "@/pages/PrivacyPage";
+import { RefundPage } from "@/pages/RefundPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SlackPage } from "@/pages/SlackPage";
 import { SourcesPage } from "@/pages/SourcesPage";
@@ -77,6 +79,8 @@ export default function App() {
           <Route path={PATHS.privacy} element={<PrivacyPage />} />
           <Route path={PATHS.support} element={<SupportPage />} />
           <Route path={PATHS.slack} element={<SlackPage />} />
+          <Route path={PATHS.pricing} element={<PricingPage />} />
+          <Route path={PATHS.refund} element={<RefundPage />} />
           <Route path={PATHS.authCallback} element={<AuthCallbackPage />} />
           <Route
             path={PATHS.onboarding}

@@ -8,23 +8,20 @@ import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
 import { upgradePlan } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
+import { PLAN_FEATURE_ROWS } from "@/lib/plans";
 import type { Plan } from "@/types/api";
 
-const FREE_FEATURES = [
-  { label: "프로젝트 1개", included: true },
-  { label: "GitHub · Slack · Jira 각 1회", included: true },
-  { label: "질의 10회", included: true },
-  { label: "증분 수집", included: false },
-  { label: "정밀 재구축", included: false },
-] as const;
+// 앱은 한국어 고정 UI라 `.ko`만 읽는다 — 문구는 lib/plans.ts가 단일 출처이므로
+// 요금 페이지(/pricing)와 여기가 갈라지지 않는다.
+const FREE_FEATURES = PLAN_FEATURE_ROWS.map((row) => ({
+  label: row.free.label.ko,
+  included: row.free.included,
+}));
 
-const PAID_FEATURES = [
-  { label: "프로젝트 무제한", included: true },
-  { label: "모든 소스 연동", included: true },
-  { label: "질의 무제한", included: true },
-  { label: "증분 수집", included: true },
-  { label: "정밀 재구축", included: true },
-] as const;
+const PAID_FEATURES = PLAN_FEATURE_ROWS.map((row) => ({
+  label: row.pro.label.ko,
+  included: row.pro.included,
+}));
 
 function planLabel(plan: Plan | undefined) {
   return plan === "PAID" ? "Pro" : "Free";
