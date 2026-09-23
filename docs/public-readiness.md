@@ -697,7 +697,7 @@ DB 백업으로도 복구되지 않는다.
 | **Slack** | **등재는 구조적으로 막혀 있다** — 조사 결과 "Slack 안에 기능이 없는 앱"이 명시적 거부 사유다. 0-3에서 A~D 결정이 먼저 | **보류** |
 | **Atlassian (Jira)** | 앱 Distribution 활성화 + 개인정보 보고(PDR) 의무 이행. 구현은 끝나 있고 `ATLASSIAN_PDR_ENABLED`가 기본 false, 봇 계정 동의(최초 1회)가 미완이다 ([jira-personal-data-policy.md](jira-personal-data-policy.md)) | 중간 |
 | **Discord** | 봇 Public 전환 + MESSAGE_CONTENT intent. 100서버 초과 시 앱 verification 별도 ([discord-integration.md:62](discord-integration.md)) | 중간 |
-| **GitHub App** | ✅ **이미 Public이다** — 비인증 요청에 `github.com/apps/history-tracker`가 200을 반환해 확인(private이면 404). 조직 설치가 가능했던 이유이기도 하다 | 완료 |
+| **GitHub App** | ✅ **이미 Public이다** — 비인증 요청에 `github.com/apps/whycode-app`이 200을 반환해 확인(private이면 404). 조직 설치가 가능했던 이유이기도 하다. ⚠️ **앱 이름이 `history-tracker` → `whycode-app`으로 바뀌었다(2026-09-23 발견)** — 설치 URL을 `GITHUB_APP_SLUG`로 조립하므로 로컬·배포 `.env`를 둘 다 고쳐야 한다. 옛 값이면 설치 버튼이 404로 가서 **새 사용자가 저장소를 연결할 수 없다** | 완료(단 `.env` 갱신 필요) |
 | **Linear** | 앱 "Public" 토글 — 꺼져 있으면 authorize가 앱을 찾지 못한다 | 짧음 |
 | **Notion** | Public connection 유지 확인 (이미 이 전제로 구현) | 짧음 |
 | **Asana · ClickUp** | OAuth 앱 공개 등록 (Asana는 granular scope 등록이어야 한다) | 짧음 |
