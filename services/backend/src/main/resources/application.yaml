@@ -29,11 +29,25 @@ ai:
 
 app:
   legal:
-    # 약관/개인정보처리방침이 개정되면 이 값과 프론트 두 파일의 effectiveDate를 함께 바꿔야 한다
-    # (clients/web-dashboard/src/pages/TermsPage.tsx, PrivacyPage.tsx).
-    terms-version: "2026-08-01"
+    # 새로 동의하는 사용자에게 기록하는 버전이다. 임시값이며 배포 직전에 확정한다.
+    # 프론트 clients/web-dashboard/src/components/landing/LegalLayout.tsx의
+    # TERMS_EFFECTIVE_DATE와 같은 문자열이어야 한다.
+    # 개인정보처리방침의 시행일(PrivacyPage.tsx)은 이 값과 별개다.
+    terms-version: "2026-10-01"
+    # 이 값보다 옛 버전에 동의했거나 동의 기록이 없는 사용자만 재동의 화면을 본다.
+    # 비우면 terms-version과 같게 취급한다(버전을 올리면 전원 재동의).
+    # 2026-10 개정은 공지 후 계속 이용 시 동의 간주로 결정해 옛 기준을 유지한다.
+    consent-required-since: "2026-08-01"
   plan:
     upgrade-code: ${PLAN_UPGRADE_CODE:}
+    expiry:
+      # 기본 켜짐 — B1 전까지는 plan_expires_at이 전부 NULL이라 대상 0건이지만, 켜 둬야
+      # 결제를 붙이는 순간 별도 조작 없이 안전망이 동작한다.
+      enabled: ${PLAN_EXPIRY_ENABLED:true}
+      # 매시 15분 — 결제 누락 안전망이라 일 1회면 최대 24시간 공짜 사용 창이 생긴다. 부분
+      # 인덱스 조회라 매시간 돌아도 비용이 거의 없다. 03:00·03:30 배치와 분이 겹치지 않게 15분.
+      cron: "${PLAN_EXPIRY_CRON:0 15 * * * *}"
+      batch-size: ${PLAN_EXPIRY_BATCH_SIZE:100}
 
 conversation:
   memory:

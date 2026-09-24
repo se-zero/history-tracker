@@ -33,3 +33,42 @@
 .icon-btn:hover { background: var(--surface-2); color: var(--fg); }
 .icon-btn.bordered { border-color: var(--border); }
 
+/* 이용약관 개정 공지 배너 — .main 맨 위, Topbar 위. DESIGN.md "warning이 없는 이유": 결과
+   신뢰도 고지와 같은 급의 안내라 앰버 없이 무채색 헤어라인 상자로 둔다(.composer-notice와
+   같은 계열, 가운데 정렬은 아니고 좌측 정렬 + 닫기 버튼). flex-shrink:0으로 고정해 채팅
+   Composer·그래프 캔버스처럼 `flex:1; min-height:0`으로 남은 높이를 계산하는 형제 요소의
+   레이아웃을 건드리지 않는다. */
+.terms-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.terms-notice-body {
+  flex: 1;
+  min-width: 0;
+}
+.terms-notice-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--fg);
+}
+.terms-notice-text {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+.terms-notice-text a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+.terms-notice-text a:hover { text-decoration-color: var(--fg-muted); }
+.terms-notice-dismiss { flex-shrink: 0; }
+

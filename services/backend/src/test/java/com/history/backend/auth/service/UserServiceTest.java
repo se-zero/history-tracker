@@ -30,6 +30,9 @@ class UserServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final String CURRENT_TERMS_VERSION = "2026-08-01";
+    // 재동의 판정 기준(consent-required-since)과 기록 버전(terms-version) 분리 검증용
+    private static final String RECORDED_TERMS_VERSION = "2026-10-01";
+    private static final String CONSENT_REQUIRED_SINCE = "2026-08-01";
 
     @Mock
     private UserRepository userRepository;
@@ -190,7 +193,101 @@ class UserServiceTest {
         assertThat(response.freeQueryLimit()).isEqualTo(PlanService.FREE_QUERY_LIMIT);
     }
 
+    @Test
+    @DisplayName("재동의 기준이 설정돼 있어도 동의 기록이 없는 사용자는 requiresConsent true")
+    void getCurrentUserRequiresConsentWhenNoConsentRecordedAgainstConsentRequiredSince() {
+        UserService userService = userService(RECORDED_TERMS_VERSION, CONSENT_REQUIRED_SINCE);
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("재동의 기준보다 이전 버전으로 동의한 사용자는 requiresConsent true")
+    void getCurrentUserRequiresConsentWhenConsentedBeforeConsentRequiredSince() {
+        UserService userService = userService(RECORDED_TERMS_VERSION, CONSENT_REQUIRED_SINCE);
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        user.recordConsent("2026-07-01", Instant.now());
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("재동의 기준과 같은 버전으로 동의한 기존 사용자는 재동의를 요구하지 않는다")
+    void getCurrentUserDoesNotRequireConsentWhenConsentedExactlyAtConsentRequiredSince() {
+        UserService userService = userService(RECORDED_TERMS_VERSION, CONSENT_REQUIRED_SINCE);
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        user.recordConsent(CONSENT_REQUIRED_SINCE, Instant.now());
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isFalse();
+    }
+
+    @Test
+    @DisplayName("현재 기록 버전으로 동의한 사용자는 requiresConsent false")
+    void getCurrentUserDoesNotRequireConsentWhenConsentedToCurrentTermsVersion() {
+        UserService userService = userService(RECORDED_TERMS_VERSION, CONSENT_REQUIRED_SINCE);
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        user.recordConsent(RECORDED_TERMS_VERSION, Instant.now());
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isFalse();
+    }
+
+    @Test
+    @DisplayName("약관 동의 기록 시 재동의 기준이 아닌 기록 버전을 저장")
+    void recordConsentStoresCurrentTermsVersionNotConsentRequiredSince() {
+        UserService userService = userService(RECORDED_TERMS_VERSION, CONSENT_REQUIRED_SINCE);
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        userService.recordConsent(USER_ID);
+
+        assertThat(user.getConsentTermsVersion()).isEqualTo(RECORDED_TERMS_VERSION);
+    }
+
+    @Test
+    @DisplayName("재동의 기준이 빈 값이면 기록 버전을 기준으로 사용한다")
+    void getCurrentUserFallsBackToTermsVersionWhenConsentRequiredSinceIsBlank() {
+        UserService userService = userService(RECORDED_TERMS_VERSION, "");
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        user.recordConsent(CONSENT_REQUIRED_SINCE, Instant.now());
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("재동의 기준이 null이면 기록 버전을 기준으로 사용한다")
+    void getCurrentUserFallsBackToTermsVersionWhenConsentRequiredSinceIsNull() {
+        UserService userService = userService(RECORDED_TERMS_VERSION, null);
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        user.recordConsent(CONSENT_REQUIRED_SINCE, Instant.now());
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.requiresConsent()).isTrue();
+    }
+
     private UserService userService() {
-        return new UserService(userRepository, refreshTokenService, CURRENT_TERMS_VERSION);
+        return userService(CURRENT_TERMS_VERSION, "");
+    }
+
+    // consentRequiredSince를 직접 지정하는 헬퍼 — 기록 버전(terms-version)과 재동의 기준을 분리 검증
+    private UserService userService(String termsVersion, String consentRequiredSince) {
+        return new UserService(userRepository, refreshTokenService, termsVersion, consentRequiredSince);
     }
 }

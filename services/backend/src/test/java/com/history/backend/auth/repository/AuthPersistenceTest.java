@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,6 +32,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -348,5 +350,58 @@ class AuthPersistenceTest {
         assertThat(deleted).isEqualTo(1);
         assertThat(refreshTokenRepository.findById(expired.getId())).isEmpty();
         assertThat(refreshTokenRepository.findById(valid.getId())).contains(valid);
+    }
+
+    // 플랜 다운그레이드 스케줄러 후보 조회 — plan=PAID, planExpiresAt IS NOT NULL, planExpiresAt < now
+    // 세 조건을 전부 충족하는 사용자만 강등 대상이다. 하나라도 어긋나면 멀쩡한 계정이 강등된다.
+    @Test
+    @DisplayName("만료된 PAID 사용자만 강등 후보로 반환 — FREE·무기한 PAID·미래 만료 PAID는 제외")
+    void findExpiredPaidUserIdsReturnsOnlyPaidUsersPastExpiry() {
+        Instant now = Instant.now();
+
+        User freeUser = new User(
+                "github", "downgrade-free", "downgrade-free@example.com", "Free", null);
+        ReflectionTestUtils.setField(freeUser, "planExpiresAt", now.minusSeconds(3600));
+        userRepository.saveAndFlush(freeUser);
+
+        User paidUnlimitedUser = new User(
+                "github", "downgrade-paid-unlimited", "downgrade-paid-unlimited@example.com", "PaidUnlimited", null);
+        paidUnlimitedUser.upgradeToPaid();
+        userRepository.saveAndFlush(paidUnlimitedUser);
+
+        User paidFutureUser = new User(
+                "github", "downgrade-paid-future", "downgrade-paid-future@example.com", "PaidFuture", null);
+        paidFutureUser.upgradeToPaid();
+        ReflectionTestUtils.setField(paidFutureUser, "planExpiresAt", now.plusSeconds(3600));
+        userRepository.saveAndFlush(paidFutureUser);
+
+        User paidExpiredUser = new User(
+                "github", "downgrade-paid-expired", "downgrade-paid-expired@example.com", "PaidExpired", null);
+        paidExpiredUser.upgradeToPaid();
+        ReflectionTestUtils.setField(paidExpiredUser, "planExpiresAt", now.minusSeconds(3600));
+        userRepository.saveAndFlush(paidExpiredUser);
+
+        List<UUID> candidateIds = userRepository.findExpiredPaidUserIds(now, PageRequest.of(0, 100));
+
+        assertThat(candidateIds).containsExactly(paidExpiredUser.getId());
+    }
+
+    @Test
+    @DisplayName("Pageable 상한이 강등 후보 개수를 실제로 제한한다")
+    void findExpiredPaidUserIdsRespectsPageableLimit() {
+        Instant now = Instant.now();
+        List<UUID> expiredUserIds = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            User user = new User(
+                    "github", "downgrade-page-" + i, "downgrade-page-" + i + "@example.com", "Page" + i, null);
+            user.upgradeToPaid();
+            ReflectionTestUtils.setField(user, "planExpiresAt", now.minusSeconds(3600));
+            expiredUserIds.add(userRepository.saveAndFlush(user).getId());
+        }
+
+        List<UUID> candidateIds = userRepository.findExpiredPaidUserIds(now, PageRequest.of(0, 2));
+
+        assertThat(candidateIds).hasSize(2);
+        assertThat(expiredUserIds).containsAll(candidateIds);
     }
 }

@@ -148,6 +148,24 @@ public class PlanService {
         integrationRepository.saveAll(integrations);
     }
 
+    // PAID -> FREE 강제 강등 (결제 만료 스케줄러 등에서 호출). 이미 FREE면 아무 것도 하지 않고
+    // 즉시 return한다 — 여기서 downgradeToFree()를 또 부르면 freeQueryCount가 0으로 리셋돼
+    // 중복 웹훅·스케줄러 경합으로 같은 사용자가 두 번 강등될 때 무료 질의 10회를 공짜로 다시
+    // 주는 버그가 된다. 연동 조회·저장도 이 조기 return 뒤에 있어 FREE 사용자에겐 아예 일어나지 않는다.
+    public void downgradeToFree(UUID userId) {
+        User user = getUser(userId);
+        if (user.getPlan() != Plan.PAID) {
+            return;
+        }
+        user.downgradeToFree();
+        userRepository.save(user);
+        List<Integration> integrations = integrationRepository.findAllByProject_Owner_Id(userId);
+        for (Integration integration : integrations) {
+            integration.disableIncremental();
+        }
+        integrationRepository.saveAll(integrations);
+    }
+
     private User getUser(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found."));

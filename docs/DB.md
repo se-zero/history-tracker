@@ -124,15 +124,17 @@ erDiagram
 | `created_at` | TIMESTAMPTZ | NOT NULL | 사용자 최초 생성 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | row 수정 시각 |
 | `deleted_at` | TIMESTAMPTZ | soft-delete 마커 | 탈퇴 시각. NULL이면 활성 사용자 |
-| `consent_terms_version` | TEXT | nullable | 가입 시 동의한 약관 버전 (V18). NULL이면 다음 로그인 때 동의 화면을 본다 |
+| `consent_terms_version` | TEXT | nullable | 동의한 약관 버전 (V18, `YYYY-MM-DD`). 동의 시 `app.legal.terms-version`을 기록한다. NULL이거나 `app.legal.consent-required-since`보다 이전이면 다음 로그인 때 동의 화면을 본다(2026-09-22 — 기록 버전과 재동의 기준 분리) |
 | `consent_recorded_at` | TIMESTAMPTZ | nullable | 약관 동의 기록 시각 (V18) |
 | `plan` | TEXT | NOT NULL, DEFAULT `FREE` | 요금제 (V19) |
 | `free_query_count` | INTEGER | NOT NULL, DEFAULT 0 | FREE 플랜 질의 횟수 카운트 (V19) |
+| `plan_expires_at` | TIMESTAMPTZ | nullable | PAID 플랜 만료 시각 (V23). NULL이면 만료 없음 — 업그레이드 코드로 전환된 기존 PAID 계정은 강등 대상이 아니다 |
 
 **인덱스**
 - UNIQUE `(provider, provider_user_id)` WHERE `deleted_at IS NULL`
 - `(email)`
 - `(deleted_at)` WHERE `deleted_at IS NOT NULL` — purge 후보 조회용
+- `(plan_expires_at)` WHERE `plan_expires_at IS NOT NULL` — 플랜 강등 후보 조회용 (V23)
 
 ---
 

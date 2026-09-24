@@ -19,9 +19,12 @@ public record UserResponse(
         Integer freeQueryLimit
 ) {
 
-    public static UserResponse from(User user, String currentTermsVersion) {
+    // 버전이 전부 YYYY-MM-DD(시행일)라 사전순 비교가 곧 날짜순 비교다. 재동의 기준 이상의
+    // 버전에 이미 동의한 사용자는 재동의를 요구하지 않는다 — 약관 개정은 공지 후 계속 이용하면
+    // 동의로 보는 것이 기본이고(약관 변경 조항), 전원 재동의가 필요한 개정일 때만 기준을 올린다.
+    public static UserResponse from(User user, String consentRequiredSinceVersion) {
         boolean requiresConsent = user.getConsentTermsVersion() == null
-                || !user.getConsentTermsVersion().equals(currentTermsVersion);
+                || user.getConsentTermsVersion().compareTo(consentRequiredSinceVersion) < 0;
         boolean paid = user.getPlan() == Plan.PAID;
         Integer freeQueryRemaining = paid
                 ? null

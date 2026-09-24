@@ -14,6 +14,12 @@ export const LEGAL_OPERATOR: Localized<string> = { ko: "JUNSU SEO", en: "JUNSU S
 export const LEGAL_CONTACT_EMAIL = "contact@why-code.com";
 export const LEGAL_CONTACT_URL = "https://github.com/se-zero/history-tracker/issues";
 
+// 약관 개정 시행일 — 임시값이다. 배포일+7일 이상으로 배포 직전에 확정하고, backend
+// application.yaml의 `app.legal.terms-version`과 같은 문자열이어야 한다(서버는 이 값을 새로
+// 동의하는 사용자에게 기록한다). 재동의 여부는 이 값이 아니라 `app.legal.consent-required-since`
+// 기준이라, 날짜를 바꿔도 기존 동의자에게 재동의 화면이 뜨지 않는다.
+export const TERMS_EFFECTIVE_DATE = "2026-10-01";
+
 // 약관·개인정보처리방침·지원·Slack 안내 공통 셸. 랜딩과 같은 `.lp` 스코프를 써서 헤더·푸터·토큰(다크/라이트
 // 토글 포함)을 그대로 재사용한다 — 공개 페이지끼리 크롬이 끊기면 이탈 지점처럼 보인다.
 // 본문은 산문 한 컬럼(legal.css)이라 랜딩의 섹션 리듬을 따르지 않는다.

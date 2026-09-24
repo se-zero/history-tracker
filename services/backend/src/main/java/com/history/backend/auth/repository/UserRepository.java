@@ -71,4 +71,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
               AND free_query_count < :limit
             """, nativeQuery = true)
     int incrementFreeQueryCountIfBelowLimit(@Param("userId") UUID userId, @Param("limit") int limit);
+
+    // 플랜 다운그레이드 스케줄러 후보 조회 — PAID이면서 만료 시각이 지정돼 있고 이미 지난 사용자만 강등 대상이다.
+    @Query("""
+            SELECT user.id
+            FROM User user
+            WHERE user.plan = com.history.backend.auth.domain.Plan.PAID
+              AND user.planExpiresAt IS NOT NULL
+              AND user.planExpiresAt < :now
+            """)
+    List<UUID> findExpiredPaidUserIds(@Param("now") Instant now, Pageable pageable);
 }
