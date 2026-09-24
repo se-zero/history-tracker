@@ -100,6 +100,12 @@ public class User {
         this.planExpiresAt = null;
     }
 
+    // 만료 시각이 있는 PAID 전환 — 결제 웹훅이 구독 갱신 때마다 부른다(무기한 upgradeToPaid와 다르다)
+    public void activatePaidUntil(Instant expiresAt) {
+        this.plan = Plan.PAID;
+        this.planExpiresAt = expiresAt;
+    }
+
     public void downgradeToFree() {
         this.plan = Plan.FREE;
         this.freeQueryCount = 0;
