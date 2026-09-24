@@ -88,6 +88,20 @@ erDiagram
         bytea encrypted_credential
         timestamptz updated_at
     }
+    billing_subscriptions {
+        string subscription_id PK
+        UUID user_id FK
+        string status
+        timestamptz current_period_ends_at
+        timestamptz last_event_occurred_at
+    }
+    billing_events {
+        UUID id PK
+        string event_id
+        string event_type
+        string outcome
+        UUID user_id
+    }
 
     users          ||..o{ refresh_tokens        : "1:N"
     users          ||--|| github_user_credentials : "1:1 CASCADE"
@@ -103,7 +117,10 @@ erDiagram
     projects       ||--o{ checkpoints           : "1:N  (식별)"
     github_installations |o..o{ integrations   : "0/1:N  (nullable FK)"
     conversations  ||..o{ messages              : "1:N"
+    users          ||..o{ billing_subscriptions : "1:N  (CASCADE)"
 ```
+
+`billing_events.user_id`는 FK가 아니다 — 사용자가 파기된 뒤에도 결제 원장은 남아야 해서 관계선을 두지 않는다.
 
 ---
 
@@ -432,3 +449,56 @@ OAuth 토큰으로, Jira 개인정보 보고 배치가 사용한다. refresh tok
 | `provider` | TEXT | PK | 자격증명 소유 서비스 (`ATLASSIAN`) |
 | `encrypted_credential` | BYTEA | NOT NULL | AES-GCM 암호화된 토큰 묶음 (access + refresh + 만료 시각) |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 마지막 갱신 시각 (토큰 회전마다 갱신) |
+
+---
+
+### `billing_subscriptions` (V24)
+
+Paddle 구독 상태의 **캐시**. 진실의 원천은 Paddle이고, 결제 알림(웹훅)을 받을 때마다 최신 상태로
+수렴한다(docs/billing.md §5). 플랜 게이트는 이 테이블이 아니라 `users.plan`을 본다 — 이 테이블은
+사용자 매칭 폴백·순서 역전 판정·"같은 사용자의 다른 살아 있는 구독" 확인에 쓴다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `subscription_id` | TEXT | PK | Paddle 구독 id (`sub_…`) |
+| `user_id` | UUID | NOT NULL, FK → `users.id` CASCADE | 구독의 소유자. 결제 시 실은 `custom_data.user_id`로 매칭 |
+| `customer_id` | TEXT | NOT NULL | Paddle 고객 id (`ctm_…`) |
+| `status` | TEXT | NOT NULL | Paddle 상태 그대로 — `active`·`trialing`·`past_due`·`paused`·`canceled` |
+| `price_id` | TEXT | nullable | 첫 항목의 가격 id (`pri_…`) |
+| `current_period_ends_at` | TIMESTAMPTZ | nullable | 현재 결제 기간 끝 (해지 후 null 가능). 플랜 만료는 여기에 유예를 더한 값 |
+| `scheduled_change_action` | TEXT | nullable | 예약 변경 — 사용자가 해지하면 `cancel` |
+| `scheduled_change_effective_at` | TIMESTAMPTZ | nullable | 예약 변경 시각 |
+| `canceled_at` | TIMESTAMPTZ | nullable | 해지 확정 시각 |
+| `last_event_occurred_at` | TIMESTAMPTZ | NOT NULL | 마지막으로 반영한 알림의 `occurred_at`. 이보다 오래된 알림은 `STALE`로 무시한다(Paddle은 순서를 보장하지 않는다) |
+| `created_at` · `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+**인덱스**
+- PRIMARY KEY `(subscription_id)`
+- `(user_id)` — 같은 사용자의 다른 구독 확인용
+
+---
+
+### `billing_events` (V24)
+
+Paddle 결제 알림 **수신 원장**. 같은 `event_id`의 재전송을 한 번만 처리하는 선점 테이블이자 처리 결과를
+남기는 감사 기록이다. 수신하면 `INSERT … ON CONFLICT (event_id) DO NOTHING`으로 먼저 행을 잡고(0행이면
+중복), 처리가 끝나면 같은 트랜잭션에서 `outcome`을 갱신한다. 처리 중 예외가 나면 선점까지 롤백돼 Paddle
+재시도 때 다시 처리한다.
+
+**원본 payload는 저장하지 않는다** — customer 알림에 이메일·이름이 들어 있어 쌓으면 개인정보가 남는다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `id` | UUID | PK | |
+| `event_id` | TEXT | NOT NULL, UNIQUE | Paddle 알림 id (`evt_…`). 재시도 때 같은 값이 온다 |
+| `event_type` | TEXT | NOT NULL | 예: `subscription.created` |
+| `occurred_at` | TIMESTAMPTZ | NOT NULL | Paddle 쪽 발생 시각 |
+| `notification_id` | TEXT | nullable | Paddle 전달 id (`ntf_…`) — 알림 로그 대조용 |
+| `outcome` | TEXT | NOT NULL | `RECEIVED`(처리 중) → `APPLIED`·`STALE`·`UNMATCHED`·`IGNORED` |
+| `subscription_id` | TEXT | nullable | 관련 구독 id |
+| `user_id` | UUID | nullable, **FK 아님** | 매칭된 사용자. 파기 뒤에도 원장을 남기려고 FK를 걸지 않는다 |
+| `received_at` | TIMESTAMPTZ | NOT NULL | 수신 시각 |
+
+**인덱스**
+- UNIQUE `(event_id)`
+
