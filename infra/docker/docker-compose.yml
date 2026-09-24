@@ -130,6 +130,13 @@ services:
       PLAN_EXPIRY_CRON: ${PLAN_EXPIRY_CRON:-0 15 * * * *}
       PLAN_EXPIRY_BATCH_SIZE: ${PLAN_EXPIRY_BATCH_SIZE:-100}
 
+      # Paddle 결제 웹훅 — infra/docker/.env 에서 forward. 비면 서명 검증이 전부 거부(fail-closed)된다.
+      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      PADDLE_SIGNATURE_TOLERANCE: ${PADDLE_SIGNATURE_TOLERANCE:-PT5S}
+      PADDLE_PRO_PRICE_ID: ${PADDLE_PRO_PRICE_ID:-}
+      # 결제 갱신 알림 지연·재시도에 대비한 만료 유예. 기본 3일(라이브 재시도 창과 동일).
+      BILLING_EXPIRY_GRACE: ${BILLING_EXPIRY_GRACE:-P3D}
+
       # GitHub App — infra/docker/.env 에서 forward (필수: APP_ID, SLUG, CLIENT_ID/SECRET, PRIVATE_KEY)
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
