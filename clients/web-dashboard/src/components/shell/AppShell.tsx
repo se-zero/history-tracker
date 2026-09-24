@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation, useMatch, useNavigate, useParams } from 
 
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { TermsNoticeBanner } from "./TermsNoticeBanner";
 import { SearchDialog } from "@/components/search/SearchDialog";
 import { StatusView } from "@/components/StatusView";
 import { useProjects, useReorderProjects } from "@/hooks/useProjects";
@@ -164,6 +165,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
         onOpenSearch={() => setSearchOpen(true)}
       />
       <div className="main">
+        {/* Topbar보다 위 — 그래프 확인 페이지는 Topbar를 직접 렌더하므로 그 경우에도
+            이 배너가 먼저 온다. */}
+        <TermsNoticeBanner />
         {/* 그래프 확인 페이지는 우측 액션이 있어 Topbar를 직접 렌더한다. */}
         {route !== "graph" && (
           <Topbar crumbs={crumbsFor(project, route)} />

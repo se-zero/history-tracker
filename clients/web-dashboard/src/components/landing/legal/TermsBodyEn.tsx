@@ -1,13 +1,16 @@
 import { Link } from "react-router-dom";
 
 import { LEGAL_CONTACT_EMAIL, LEGAL_OPERATOR, LegalNotice, LegalSection } from "@/components/landing/LegalLayout";
+import { PRO_MONTHLY_PRICE_KRW } from "@/lib/plans";
 import { PATHS } from "@/routes";
 
 // 이용약관 본문(영어) — TermsBodyKo.tsx의 번역. 이 파일의 조항을 고치면 TermsBodyKo.tsx의
-// 같은 조항도 함께 고친다. 조항 수(12)·순서·구조(p/ul/ol/strong/Link)는 한국어판과 동일하다
-// — 번역만 하고 재구성하지 않았다.
-// Article 9 한 곳에 자기참조("제6조를 위반한 경우" → "violates Article 6")가 있고, 번호는
-// 순서가 그대로라 6으로 유지된다(완료 보고의 대조표 참고).
+// 같은 조항도 함께 고친다. 조항 수(13)·순서·구조(p/ul/ol/strong/Link)는 한국어판과 동일하다
+// — 번역만 하고 재구성하지 않았다. Article 6(Paid Subscription) §2의 Paddle 고지는 핸드북
+// 원문을 그대로 쓴다(번역하지 않는다).
+// Article 10(옛 Article 9) §2에 자기참조("제7조를 위반한 경우" → "violates Article 7")가
+// 있다 — 유료 구독(신설, Article 6)이 앞에 끼어들며 이용자의 의무가 6에서 7로 밀렸다.
+// 같은 조 §3도 Article 6(유료 구독)을 참조한다.
 export function TermsBodyEn() {
   return (
     <>
@@ -39,6 +42,14 @@ export function TermsBodyEn() {
           <li>
             <strong>Data Source</strong> — an external service (a GitHub repository, a
             Jira project, a Slack workspace) that a User connects to a Project.
+          </li>
+          <li>
+            <strong>Free</strong> — the default plan used without any payment.
+          </li>
+          <li>
+            <strong>Pro</strong> — the paid plan billed monthly. The scope of use and
+            price for each plan are posted on the{" "}
+            <Link to={PATHS.pricing}>Pricing</Link> page.
           </li>
         </ul>
       </LegalSection>
@@ -90,10 +101,10 @@ export function TermsBodyEn() {
             natural-language question answering, and conversation history management.
           </li>
           <li>
-            The Service is currently in a development and validation stage and is
-            provided free of charge; {LEGAL_OPERATOR.en} may decide to add, change, or
-            discontinue features, and will give advance notice of any planned
-            discontinuation.
+            The Service is provided under two plans, Free and Pro; the scope of use and
+            price for each are posted on the <Link to={PATHS.pricing}>Pricing</Link>{" "}
+            page. {LEGAL_OPERATOR.en} may decide to add, change, or discontinue features,
+            and will give advance notice of any planned discontinuation.
           </li>
           <li>
             The Service may be temporarily suspended for reasons beyond the operator's
@@ -103,7 +114,47 @@ export function TermsBodyEn() {
         </ol>
       </LegalSection>
 
-      <LegalSection index={6} heading="User Obligations">
+      <LegalSection index={6} heading="Paid Subscription">
+        <ol>
+          <li>
+            The Pro plan costs ₩{PRO_MONTHLY_PRICE_KRW.toLocaleString("en-US")} per month
+            (VAT included), and renews and is charged automatically at each monthly billing
+            cycle unless canceled.
+          </li>
+          <li>
+            Our order process is conducted by our online reseller Paddle.com. Paddle.com
+            is the Merchant of Record for all our orders. Paddle provides all customer
+            service inquiries and handles returns. Billing, receipt issuance, and payment
+            method management are all handled through Paddle.
+          </li>
+          <li>
+            A User may cancel the subscription at any time from the subscription
+            management screen (the Paddle customer portal).
+          </li>
+          <li>
+            Refunds follow the <Link to={PATHS.refund}>Refund Policy</Link>.
+          </li>
+          <li>
+            Upon the end of a subscription, the account switches to Free. Projects and
+            data source connections are kept, automatic sync of new activity
+            (incremental sync) stops, Free usage limits apply, and a free query
+            allowance is granted anew.
+          </li>
+          <li>
+            If the operator changes the price, it will give notice at least 30 days
+            before the change takes effect and obtain the consent of existing
+            subscribers. The changed price will not be charged to a subscriber who does not
+            consent; that subscription ends without renewal when the period already paid
+            for ends.
+          </li>
+          <li>
+            The operator will notify the payment amount and date at least 7 days before
+            each scheduled charge.
+          </li>
+        </ol>
+      </LegalSection>
+
+      <LegalSection index={7} heading="User Obligations">
         <p>A User must not do any of the following:</p>
         <ul>
           <li>
@@ -123,7 +174,7 @@ export function TermsBodyEn() {
         </ul>
       </LegalSection>
 
-      <LegalSection index={7} heading="Limitations of AI-Generated Answers">
+      <LegalSection index={8} heading="Limitations of AI-Generated Answers">
         <ol>
           <li>
             Answers from the Service are generated by a large language model based on
@@ -138,7 +189,7 @@ export function TermsBodyEn() {
         </ol>
       </LegalSection>
 
-      <LegalSection index={8} heading="Intellectual Property">
+      <LegalSection index={9} heading="Intellectual Property">
         <ol>
           <li>
             Rights to the content of a data source that a User connects remain with its
@@ -153,7 +204,7 @@ export function TermsBodyEn() {
         </ol>
       </LegalSection>
 
-      <LegalSection index={9} heading="Termination of the Service Agreement">
+      <LegalSection index={10} heading="Termination of the Service Agreement">
         <ol>
           <li>
             A User may stop using the Service at any time by disconnecting data sources,
@@ -162,19 +213,26 @@ export function TermsBodyEn() {
             graph.
           </li>
           <li>
-            If a User violates Article 6, the operator may restrict use or terminate the
+            If a User violates Article 7, the operator may restrict use or terminate the
             agreement after prior notice. In urgent cases, however, notice may be given
             after the fact.
+          </li>
+          <li>
+            Cancellation and refunds for a paid subscription follow Article 6 and the{" "}
+            <Link to={PATHS.refund}>Refund Policy</Link>.
           </li>
         </ol>
       </LegalSection>
 
-      <LegalSection index={10} heading="Limitation of Liability">
+      <LegalSection index={11} heading="Limitation of Liability">
         <ol>
           <li>
-            The operator is not liable for damages arising from use of the Service,
-            which is provided free of charge, unless caused by the operator's intent or
-            gross negligence.
+            The operator is not liable for damages arising from use of Free, unless
+            caused by the operator's intent or gross negligence.
+          </li>
+          <li>
+            If a Pro subscriber is unable to use the Service due to a cause attributable
+            to the operator, the operator is liable as provided by applicable law.
           </li>
           <li>
             Responsibility for any dispute or damage arising from data that a User
@@ -183,7 +241,7 @@ export function TermsBodyEn() {
         </ol>
       </LegalSection>
 
-      <LegalSection index={11} heading="Amendments to These Terms and Inquiries">
+      <LegalSection index={12} heading="Amendments to These Terms and Inquiries">
         <ol>
           <li>
             The operator may amend these Terms when necessary, and will announce the
@@ -203,7 +261,7 @@ export function TermsBodyEn() {
         </ol>
       </LegalSection>
 
-      <LegalSection index={12} heading="Governing Law and Jurisdiction">
+      <LegalSection index={13} heading="Governing Law and Jurisdiction">
         <p>
           These Terms are governed by the laws of the Republic of Korea, and any dispute
           related to use of the Service shall be brought before the court of competent

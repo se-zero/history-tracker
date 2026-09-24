@@ -1,6 +1,7 @@
 package com.history.backend.config;
 
 import com.history.backend.asana.AsanaProperties;
+import com.history.backend.auth.PlanExpiryProperties;
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.clickup.ClickUpProperties;
 import com.history.backend.common.crypto.CredentialCryptoProperties;
@@ -27,6 +28,7 @@ import org.springframework.context.annotation.Configuration;
         AtlassianProperties.class,
         AtlassianPersonalDataReportProperties.class,
         UserPurgeProperties.class,
+        PlanExpiryProperties.class,
         DiscordProperties.class,
         GoogleChatProperties.class,
         LinearProperties.class,

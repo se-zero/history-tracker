@@ -47,6 +47,11 @@ user-lifecycle:
 app:
   legal:
     terms-version: "2026-08-01"
+  plan:
+    expiry:
+      enabled: false
+      cron: "0 15 * * * *"
+      batch-size: 100
 
 github:
   app:
