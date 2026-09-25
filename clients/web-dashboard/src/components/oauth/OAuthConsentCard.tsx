@@ -101,7 +101,8 @@ export function OAuthConsentCard({ query }: { query: string }) {
         <div className="oauth-consent-section">
           <h2 className="oauth-consent-section-title">허용하면 이 앱이 할 수 있는 것</h2>
           <ul className="oauth-consent-scopes">
-            {preview.scopes.map((scope) => (
+            {/* scope는 요청자가 정하는 값이라 같은 것이 두 번 올 수 있다 — 표시 전에 중복을 뺀다 */}
+            {Array.from(new Set(preview.scopes)).map((scope) => (
               <li key={scope}>{SCOPE_DESCRIPTIONS[scope] ?? UNKNOWN_SCOPE_DESCRIPTION}</li>
             ))}
           </ul>
