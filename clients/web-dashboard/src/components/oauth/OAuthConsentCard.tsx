@@ -16,7 +16,13 @@ const SCOPE_DESCRIPTIONS: Record<string, string> = {
 
 function previewErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as { message?: unknown } | undefined;
+    // 응답이 없거나(네트워크 단절) 5xx면 요청이 아니라 서버 쪽 문제다 — "앱에서 다시 시작하라"고
+    // 안내하면 사용자가 엉뚱한 곳을 고치게 된다.
+    const status = error.response?.status;
+    if (!error.response || (status !== undefined && status >= 500)) {
+      return "서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.";
+    }
+    const data = error.response.data as { message?: unknown } | undefined;
     if (typeof data?.message === "string") return data.message;
   }
   return "요청이 올바르지 않습니다. 앱에서 연결을 다시 시작해 주세요.";
