@@ -107,7 +107,6 @@ public class PaddleWebhookService {
         String subscriptionId = textOrNull(data, "id");
         String status = textOrNull(data, "status");
         String customerId = textOrNull(data, "customer_id");
-        String priceId = firstItemPriceId(data);
 
         // data.id가 없으면 findById(null)이 IllegalArgumentException을 던진다(500 → 무한 재시도) —
         // 가격 검사·사용자 조회보다 먼저 걸러 subscriptionId·userId 둘 다 null로 IGNORED 기록한다.
@@ -117,15 +116,44 @@ public class PaddleWebhookService {
             return;
         }
 
-        // 가격 검사가 사용자 찾기보다 먼저 — pro-price-id가 설정돼 있고 일치하지 않으면 사용자 조회조차 하지 않는다
-        String proPriceId = paddleProperties.proPriceId();
-        if (proPriceId != null && !proPriceId.isBlank() && !proPriceId.equals(priceId)) {
+        // customer_id는 billing_subscriptions에서 NOT NULL이다 — 없는 채로 save하면 제약 위반으로
+        // 500 → Paddle이 최대 3일간 재시도하게 된다. data.id 가드와 같은 급으로 가격 검사보다 먼저 걸러낸다.
+        if (customerId == null) {
+            log.warn("Paddle webhook: subscription 이벤트에 customer_id가 없음. eventId={}, eventType={}", eventId, eventType);
             recordOutcome(eventId, eventType, BillingEventOutcome.IGNORED, subscriptionId, null);
             return;
         }
 
-        // stale 비교와 user 폴백에 공용으로 쓰는 단일 조회
-        Optional<BillingSubscription> existing = billingSubscriptionRepository.findById(subscriptionId);
+        JsonNode items = data.path("items");
+        boolean hasItems = items.isArray() && !items.isEmpty();
+        String proPriceId = paddleProperties.proPriceId();
+        boolean proPriceConfigured = proPriceId != null && !proPriceId.isBlank();
+
+        // 가격 검사가 사용자 찾기보다 먼저 — pro-price-id가 설정돼 있고 일치하는 항목이 없으면
+        // 사용자 조회조차 하지 않는다. 캐시 조회(findById)는 stale 비교·user 폴백과 공용으로 1회만
+        // 하므로, items가 없어 캐시의 priceId로 대신 검사해야 하는 경우에는 그 조회를 여기로 당겨온다.
+        Optional<BillingSubscription> existing;
+        String priceId;
+        if (hasItems) {
+            if (proPriceConfigured) {
+                priceId = findMatchingItemPriceId(items, proPriceId);
+                if (priceId == null) {
+                    recordOutcome(eventId, eventType, BillingEventOutcome.IGNORED, subscriptionId, null);
+                    return;
+                }
+            } else {
+                priceId = firstItemPriceId(data);
+            }
+            existing = billingSubscriptionRepository.findById(subscriptionId);
+        } else {
+            existing = billingSubscriptionRepository.findById(subscriptionId);
+            priceId = existing.map(BillingSubscription::getPriceId).orElse(null);
+            if (proPriceConfigured && !proPriceId.equals(priceId)) {
+                recordOutcome(eventId, eventType, BillingEventOutcome.IGNORED, subscriptionId, null);
+                return;
+            }
+        }
+
         UUID userId = resolveUserId(data, existing);
         if (userId == null) {
             log.warn("Paddle webhook: user_id를 찾을 수 없음. subscriptionId={}", subscriptionId);
@@ -169,8 +197,12 @@ public class PaddleWebhookService {
                     planService.downgradeToFree(userId);
                 }
             } else {
-                // Paddle이 새 상태 값을 추가하는 경우 — 플랜은 건드리지 않고 캐시만 최신화한다
-                log.warn("Paddle webhook: 알 수 없는 구독 상태, 플랜은 바꾸지 않고 캐시만 갱신. status={}", status);
+                // Paddle이 새 상태 값을 추가하는 경우 — 이 분기는 PlanService를 거치지 않아 사용자 없음
+                // 보호(noRollbackFor UNMATCHED 처리)가 없다. 파기된 사용자면 캐시 upsert가 user_id FK
+                // 위반으로 500·무한 재시도가 되므로, 플랜뿐 아니라 캐시도 건드리지 않고 IGNORED로만 남긴다.
+                log.warn("Paddle webhook: 알 수 없는 구독 상태, 플랜·캐시 변경 없이 무시. status={}", status);
+                recordOutcome(eventId, eventType, BillingEventOutcome.IGNORED, subscriptionId, userId);
+                return;
             }
             billingSubscriptionRepository.save(new BillingSubscription(
                     subscriptionId, userId, customerId, status, priceId,
@@ -217,8 +249,21 @@ public class PaddleWebhookService {
         return textOrNull(items.get(0).path("price"), "id");
     }
 
-    // custom_data.user_id 우선, 없으면 같은 subscription_id의 기존 구독 캐시로 폴백
-    // (custom_data는 결제 시점에만 실리므로 subscription.updated 등 후속 알림엔 없을 수 있다)
+    // proPriceId가 설정된 경우 items 중 하나라도 일치하는 항목을 찾는다 — items[0]만 보면 Pro
+    // 가격이 두 번째 이후에 올 때(예: 애드온과 함께 결제) 놓친다.
+    private String findMatchingItemPriceId(JsonNode items, String proPriceId) {
+        for (JsonNode item : items) {
+            String candidate = textOrNull(item.path("price"), "id");
+            if (proPriceId.equals(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    // custom_data.user_id 우선, 없으면 같은 subscription_id의 기존 구독 캐시로 폴백.
+    // Paddle은 결제의 custom_data를 구독과 갱신 결제에 복사하므로 보통은 첫 경로로 찾는다 — 폴백은
+    // 체크아웃이 custom_data를 싣지 않았거나 운영자가 대시보드에서 구독을 만든 경우를 위한 것이다.
     private UUID resolveUserId(JsonNode data, Optional<BillingSubscription> existing) {
         JsonNode customData = data.path("custom_data");
         if (customData.isObject()) {

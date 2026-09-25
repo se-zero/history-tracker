@@ -154,6 +154,71 @@ class PaddleWebhookServiceTest {
     }
 
     @Test
+    @DisplayName("items가 둘 이상이고 두 번째가 Pro 가격이면 → 처리된다(activatePaid 호출),"
+            + " 캐시에는 매칭된 Pro 가격이 저장된다 (지금은 items[0]만 봐서 실패해야 한다)")
+    void handleProcessesWhenProPriceIsNotFirstItem() {
+        PaddleWebhookService service = service(PRICE_ID);
+        Map<String, Object> data = baseSubscriptionData();
+        data.put("items", List.of(
+                Map.of("price", Map.of("id", "pri_other", "product_id", "pro_other")),
+                Map.of("price", Map.of("id", PRICE_ID, "product_id", "pro_01m38fshezrep26abtbj1h1rde"))
+        ));
+        String body = envelope("subscription.created", data);
+        stubValidRequest(body, "subscription.created", 1);
+        // 결함이 있으면 가격 불일치로 findById 전에 IGNORED로 끝나 이 스텁은 안 쓰인다 — lenient로 둔다.
+        lenient().when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        verify(planService).activatePaid(USER_ID, PERIOD_ENDS_AT.plus(GRACE));
+        ArgumentCaptor<BillingSubscription> captor = ArgumentCaptor.forClass(BillingSubscription.class);
+        verify(billingSubscriptionRepository).save(captor.capture());
+        assertThat(captor.getValue().getPriceId()).isEqualTo(PRICE_ID);
+    }
+
+    @Test
+    @DisplayName("items가 없고 기존 캐시의 priceId가 Pro면 canceled 알림도 처리된다(downgradeToFree 호출),"
+            + " 캐시 priceId는 유지된다 (지금은 items[0]만 봐서 실패해야 한다)")
+    void handleProcessesCanceledWithoutItemsWhenCachedPriceIdMatchesProPrice() {
+        PaddleWebhookService service = service(PRICE_ID);
+        Map<String, Object> data = baseSubscriptionData();
+        data.remove("items");
+        data.put("status", "canceled");
+        String body = envelope("subscription.canceled", data);
+        stubValidRequest(body, "subscription.canceled", 1);
+        // existingSubscription()은 PRICE_ID(=proPriceId)를 캐시 priceId로 갖는다
+        lenient().when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID))
+                .thenReturn(Optional.of(existingSubscription(OCCURRED_AT.minusSeconds(3600))));
+        lenient().when(billingSubscriptionRepository.existsByUserIdAndStatusInAndSubscriptionIdNot(
+                eq(USER_ID), any(), eq(SUBSCRIPTION_ID))).thenReturn(false);
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        verify(planService).downgradeToFree(USER_ID);
+        ArgumentCaptor<BillingSubscription> captor = ArgumentCaptor.forClass(BillingSubscription.class);
+        verify(billingSubscriptionRepository).save(captor.capture());
+        assertThat(captor.getValue().getPriceId()).isEqualTo(PRICE_ID);
+    }
+
+    @Test
+    @DisplayName("items가 없고 기존 캐시도 없으면 → IGNORED, 플랜 호출·구독 저장 없음")
+    void handleIgnoresWhenItemsMissingAndNoCachedSubscription() {
+        PaddleWebhookService service = service(PRICE_ID);
+        Map<String, Object> data = baseSubscriptionData();
+        data.remove("items");
+        String body = envelope("subscription.created", data);
+        stubValidRequest(body, "subscription.created", 1);
+        lenient().when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        verify(billingEventRepository)
+                .updateOutcome(EVENT_ID, BillingEventOutcome.IGNORED.name(), SUBSCRIPTION_ID, null);
+        verifyNoInteractions(planService);
+        verify(billingSubscriptionRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("subscription.* 이벤트에 data.id가 없으면 → IGNORED, findById·플랜 호출 없이 예외 없이 끝난다"
             + " (findById(null)은 실제 JpaRepository에서 IllegalArgumentException — 500·무한 재시도 방지)")
     void handleIgnoresSubscriptionEventWithoutSubscriptionId() {
@@ -173,6 +238,27 @@ class PaddleWebhookServiceTest {
         verify(billingEventRepository).updateOutcome(EVENT_ID, BillingEventOutcome.IGNORED.name(), null, null);
         verify(billingSubscriptionRepository, never()).findById(any());
         verifyNoInteractions(planService);
+    }
+
+    @Test
+    @DisplayName("subscription.* 이벤트에 customer_id가 없으면 → IGNORED로 기록하고 플랜 호출·구독 저장 없이"
+            + " 예외 없이 끝난다 (customer_id는 billing_subscriptions에서 NOT NULL — 지금은 save를 호출해"
+            + " 제약 위반으로 500·무한 재시도가 되므로 실패해야 한다)")
+    void handleIgnoresSubscriptionEventWithoutCustomerId() {
+        PaddleWebhookService service = service();
+        Map<String, Object> data = baseSubscriptionData();
+        data.put("customer_id", null);
+        String body = envelope("subscription.created", data);
+        stubValidRequest(body, "subscription.created", 1);
+        // data.id 가드와 같은 급으로 findById보다 먼저 끝나야 하므로 이 스텁은 안 쓰일 수 있다 — lenient.
+        lenient().when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
+
+        assertThatCode(() -> service.handle(SIGNATURE_HEADER, body)).doesNotThrowAnyException();
+
+        verify(billingEventRepository)
+                .updateOutcome(eq(EVENT_ID), eq(BillingEventOutcome.IGNORED.name()), any(), any());
+        verifyNoInteractions(planService);
+        verify(billingSubscriptionRepository, never()).save(any());
     }
 
     @Test
@@ -348,6 +434,27 @@ class PaddleWebhookServiceTest {
         verify(planService, never()).downgradeToFree(any());
         verify(billingEventRepository)
                 .updateOutcome(EVENT_ID, BillingEventOutcome.APPLIED.name(), SUBSCRIPTION_ID, USER_ID);
+    }
+
+    @Test
+    @DisplayName("알 수 없는 status(예: frozen) → IGNORED로만 기록, 플랜 호출·구독 저장 없음"
+            + " (파기된 사용자면 save가 user_id FK 위반으로 500·무한 재시도가 되므로, 구독 저장을 하고"
+            + " APPLIED로 기록하는 지금 코드는 실패해야 한다)")
+    void handleIgnoresUnknownStatusWithoutTouchingPlanOrSubscriptionCache() {
+        PaddleWebhookService service = service();
+        Map<String, Object> data = baseSubscriptionData();
+        data.put("status", "frozen");
+        String body = envelope("subscription.updated", data);
+        stubValidRequest(body, "subscription.updated", 1);
+        // 결함 수정으로 사용자 조회보다 먼저 끝나게 바뀔 수도 있어 이 스텁은 안 쓰일 수 있다 — lenient.
+        lenient().when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        verify(billingEventRepository)
+                .updateOutcome(eq(EVENT_ID), eq(BillingEventOutcome.IGNORED.name()), any(), any());
+        verifyNoInteractions(planService);
+        verify(billingSubscriptionRepository, never()).save(any());
     }
 
     @Test
