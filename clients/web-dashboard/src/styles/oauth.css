@@ -68,6 +68,14 @@
   margin-bottom: 0;
 }
 
+/* scope 없는 요청 안내 — 목록과 같은 톤의 한 줄. */
+.oauth-consent-scopes-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+
 .oauth-consent-redirect {
   margin: 0;
   font-size: 13px;

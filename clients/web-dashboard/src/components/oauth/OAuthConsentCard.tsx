@@ -18,7 +18,9 @@ const SCOPE_DESCRIPTIONS: Record<string, string> = {
 };
 const UNKNOWN_SCOPE_DESCRIPTION = "확인되지 않은 권한 요청";
 
-function previewErrorMessage(error: unknown): string {
+// 미리보기·허용/거부가 같은 기준으로 원인을 나눈다 — 4xx(잘못된 요청·티켓 만료·query 불일치)는
+// 재시도해도 같으니 앱에서 다시 시작하라고, 서버 쪽 문제는 잠시 후 다시 시도하라고 안내한다.
+function consentErrorMessage(error: unknown): string {
   // 401은 api/client.ts 인터셉터가 refresh까지 실패한 뒤 UnauthorizedError로 바꿔 던진다(AxiosError 아님).
   // 새로 고치면 부트 시 미인증으로 판정돼 이 페이지가 GitHub 로그인 → 같은 URL 복귀를 다시 밟는다.
   if (error instanceof UnauthorizedError) {
@@ -33,8 +35,9 @@ function previewErrorMessage(error: unknown): string {
     }
     const data = error.response.data as { message?: unknown } | undefined;
     if (typeof data?.message === "string") return data.message;
+    return "요청이 올바르지 않습니다. 앱에서 연결을 다시 시작해 주세요.";
   }
-  return "요청이 올바르지 않습니다. 앱에서 연결을 다시 시작해 주세요.";
+  return "처리에 실패했어요. 잠시 후 다시 시도해 주세요.";
 }
 
 // client_uri는 MCP 클라이언트가 등록한 값이라 형식이 보장되지 않는다 — 파싱에 실패하면
@@ -65,7 +68,7 @@ export function OAuthConsentCard({ query }: { query: string }) {
       <StatusView
         tone="error"
         title="연결 요청을 처리할 수 없어요"
-        description={previewErrorMessage(previewQuery.error)}
+        description={consentErrorMessage(previewQuery.error)}
         action={
           <Link className="btn btn-primary" to={PATHS.root}>
             앱 열기
@@ -100,12 +103,20 @@ export function OAuthConsentCard({ query }: { query: string }) {
 
         <div className="oauth-consent-section">
           <h2 className="oauth-consent-section-title">허용하면 이 앱이 할 수 있는 것</h2>
-          <ul className="oauth-consent-scopes">
-            {/* scope는 요청자가 정하는 값이라 같은 것이 두 번 올 수 있다 — 표시 전에 중복을 뺀다 */}
-            {Array.from(new Set(preview.scopes)).map((scope) => (
-              <li key={scope}>{SCOPE_DESCRIPTIONS[scope] ?? UNKNOWN_SCOPE_DESCRIPTION}</li>
-            ))}
-          </ul>
+          {preview.scopes.length === 0 ? (
+            // scope 없이 온 요청 — backend가 기본 scope를 채우지 않으면 빈 목록이 된다. 허용해도
+            // 아무 권한이 없다는 사실을 숨기지 않는다.
+            <p className="oauth-consent-scopes-empty">
+              요청된 권한이 없습니다. 허용해도 이 앱은 아무 것도 할 수 없습니다.
+            </p>
+          ) : (
+            <ul className="oauth-consent-scopes">
+              {/* scope는 요청자가 정하는 값이라 같은 것이 두 번 올 수 있다 — 표시 전에 중복을 뺀다 */}
+              {Array.from(new Set(preview.scopes)).map((scope) => (
+                <li key={scope}>{SCOPE_DESCRIPTIONS[scope] ?? UNKNOWN_SCOPE_DESCRIPTION}</li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="oauth-consent-section">
@@ -119,9 +130,7 @@ export function OAuthConsentCard({ query }: { query: string }) {
         </div>
 
         {decision.isError && (
-          <InlineError style={{ marginBottom: 12 }}>
-            처리에 실패했어요. 잠시 후 다시 시도해 주세요.
-          </InlineError>
+          <InlineError style={{ marginBottom: 12 }}>{consentErrorMessage(decision.error)}</InlineError>
         )}
 
         <div className="oauth-consent-actions">
