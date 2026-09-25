@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
 import axios from "axios";
 
+import { UnauthorizedError } from "@/api/client";
+
 import { BusyLabel } from "@/components/ui/BusyLabel";
 import { InlineError } from "@/components/ui/InlineError";
 import { StatusView } from "@/components/StatusView";
@@ -8,13 +10,20 @@ import { useOAuthConsentDecision, useOAuthConsentPreview } from "@/hooks/useOAut
 import { isHttpUrl } from "@/lib/url";
 import { PATHS } from "@/routes";
 
-// scope 식별자 → 사용자에게 보여줄 설명. 모르는 scope는 문자열 그대로 보여준다
-// (새 scope가 backend에 먼저 생겨도 화면이 깨지지 않게).
+// scope 식별자 → 사용자에게 보여줄 설명. 모르는 scope는 원문을 보여주지 않는다 — scope는
+// 요청자가 정하는 문자열이라 그대로 그리면 동의 화면 문구를 요청자가 쓰게 된다. 고정 문구로
+// 대신하므로 새 scope가 backend에 먼저 생겨도 화면은 깨지지 않는다.
 const SCOPE_DESCRIPTIONS: Record<string, string> = {
   "mcp:query": "내 whycode 프로젝트에 질문하고 답을 받습니다(코드 변경 이유·의사결정 맥락).",
 };
+const UNKNOWN_SCOPE_DESCRIPTION = "확인되지 않은 권한 요청";
 
 function previewErrorMessage(error: unknown): string {
+  // 401은 api/client.ts 인터셉터가 refresh까지 실패한 뒤 UnauthorizedError로 바꿔 던진다(AxiosError 아님).
+  // 새로 고치면 부트 시 미인증으로 판정돼 이 페이지가 GitHub 로그인 → 같은 URL 복귀를 다시 밟는다.
+  if (error instanceof UnauthorizedError) {
+    return "로그인이 만료됐어요. 페이지를 새로 고치면 다시 로그인합니다.";
+  }
   if (axios.isAxiosError(error)) {
     // 응답이 없거나(네트워크 단절) 5xx면 요청이 아니라 서버 쪽 문제다 — "앱에서 다시 시작하라"고
     // 안내하면 사용자가 엉뚱한 곳을 고치게 된다.
@@ -93,7 +102,7 @@ export function OAuthConsentCard({ query }: { query: string }) {
           <h2 className="oauth-consent-section-title">허용하면 이 앱이 할 수 있는 것</h2>
           <ul className="oauth-consent-scopes">
             {preview.scopes.map((scope) => (
-              <li key={scope}>{SCOPE_DESCRIPTIONS[scope] ?? scope}</li>
+              <li key={scope}>{SCOPE_DESCRIPTIONS[scope] ?? UNKNOWN_SCOPE_DESCRIPTION}</li>
             ))}
           </ul>
         </div>
