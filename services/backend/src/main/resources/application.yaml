@@ -48,6 +48,10 @@ app:
       # 인덱스 조회라 매시간 돌아도 비용이 거의 없다. 03:00·03:30 배치와 분이 겹치지 않게 15분.
       cron: "${PLAN_EXPIRY_CRON:0 15 * * * *}"
       batch-size: ${PLAN_EXPIRY_BATCH_SIZE:100}
+  billing:
+    # 결제 갱신 알림이 지연되거나 Paddle 재시도가 진행 중일 때 만료 스케줄러가 먼저 강등하는 것을
+    # 막는 유예. 기본값은 Paddle 라이브 재시도 창(~3일)과 같다.
+    expiry-grace: ${BILLING_EXPIRY_GRACE:P3D}
 
 conversation:
   memory:
@@ -77,6 +81,15 @@ user-lifecycle:
     cron: "${USER_PURGE_CRON:0 0 3 * * *}"
     batch-size: ${USER_PURGE_BATCH_SIZE:100}
     force-purge-after: ${USER_PURGE_FORCE_PURGE_AFTER:P7D}
+
+paddle:
+  # 알림 대상(Notification destination)의 서명 키(pdl_ntfset_…). 알림 대상마다 다르고
+  # 샌드박스/라이브가 다르다. 비면 PaddleSignatureVerifier가 모든 알림을 거부한다(fail-closed).
+  webhook-secret: ${PADDLE_WEBHOOK_SECRET:}
+  # Paddle-Signature 헤더 ts 허용 오차. Paddle 기본 권장값(5초)과 같다.
+  signature-tolerance: ${PADDLE_SIGNATURE_TOLERANCE:PT5S}
+  # Pro 플랜 가격 ID(pri_…). 환경마다 다르다(샌드박스/라이브). 비우면 모든 가격의 구독을 허용한다.
+  pro-price-id: ${PADDLE_PRO_PRICE_ID:}
 
 github:
   app:

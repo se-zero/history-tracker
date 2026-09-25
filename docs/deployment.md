@@ -265,6 +265,28 @@ pipeline-worker로 프록시하지 않는다 — 연동 행·그래프 삭제와
 
 앱에 슬래시 커맨드 등록·bot scope(`commands`)는 S4다. 여기서는 Request URL만 적는다.
 
+### 3-2b. Paddle 결제 알림 등록 (라이브 전환 때)
+
+라이브 계정 심사(G1) 승인 뒤, **라이브 대시보드**(`vendors.paddle.com`)에서 한다. 샌드박스 값을 그대로 쓰면
+안 된다 — 두 환경은 키·가격·알림 대상이 전부 따로다(docs/billing.md §12).
+
+| Paddle 설정 | 값 |
+|---|---|
+| **Developer tools → Notifications → New destination** | URL `https://<도메인>/api/v1/billing/webhook/paddle`, Usage type **Platform**, 이벤트 **`subscription.*`만**. 코드는 구독 알림만 처리하고 나머지는 무시한다 — 특히 `customer.*`에는 이메일·이름이 실려 오므로 받지 않는다(최소 수집) |
+| `.env` 키 `PADDLE_WEBHOOK_SECRET` | 위 대상을 저장할 때 나오는 서명 키(`pdl_ntfset_…`). **다시 조회할 수 없으니 바로 옮긴다** |
+| `.env` 키 `PADDLE_PRO_PRICE_ID` | 라이브에서 새로 만든 Pro 가격 id(`pri_…`). 비면 모든 가격의 구독을 받아들인다 |
+| `.env` 키 `PADDLE_SIGNATURE_TOLERANCE`·`BILLING_EXPIRY_GRACE` | 비우면 기본값(5초·3일) |
+
+`PADDLE_WEBHOOK_SECRET`이 비면 모든 알림이 401로 거부되고 Paddle이 재시도한다(fail-closed) — 결제는
+됐는데 플랜이 안 바뀌는 상태가 된다. 등록 직후 대시보드의 알림 로그에서 200이 찍히는지 확인한다.
+
+**서버 시계가 맞아야 한다.** 서명 검증은 Paddle이 붙인 시각과 서버 시각의 차이가 5초(`PADDLE_SIGNATURE_TOLERANCE`)를
+넘으면 거부한다. 호스트의 시계 동기화(NTP — `timedatectl`에서 `System clock synchronized: yes`)가 꺼져 있으면
+모든 알림이 401이 되고 Paddle은 3일간 재시도하다 포기한다.
+
+이 경로는 nginx `/api/`를 타 **backend**로 간다. `/api/v1/webhook/`(GitHub, pipeline-worker)과 다른
+prefix를 쓴 이유다.
+
 ### 3-3. Jira 개인정보 보고 봇 계정 (Jira를 쓰는 경우 최초 1회)
 
 Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 사용자 토큰이 아니라 **봇 계정의 앱

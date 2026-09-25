@@ -39,6 +39,8 @@ public class SecurityConfig {
                                 // Slack Events API·slash command — JWT 없이 열려야 한다. 서명 검증(SlackSignatureVerifier)이 유일한 인증 수단이다.
                                 "/api/v1/slack/events",
                                 "/api/v1/slack/commands",
+                                // Paddle 결제 웹훅 — JWT 없이 열려야 한다. 서명 검증(PaddleSignatureVerifier)이 유일한 인증 수단이다.
+                                "/api/v1/billing/webhook/paddle",
                                 "/error"
                         ).permitAll()
                         .anyRequest().authenticated()

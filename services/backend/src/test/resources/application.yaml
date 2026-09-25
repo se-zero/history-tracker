@@ -52,6 +52,13 @@ app:
       enabled: false
       cron: "0 15 * * * *"
       batch-size: 100
+  billing:
+    expiry-grace: P3D
+
+paddle:
+  webhook-secret: test-paddle-webhook-secret
+  signature-tolerance: PT5S
+  pro-price-id: ""
 
 github:
   app:
