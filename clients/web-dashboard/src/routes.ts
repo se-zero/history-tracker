@@ -10,5 +10,6 @@ export const PATHS = {
   slack: "/slack",
   pricing: "/pricing",
   refund: "/refund",
+  mcpSetup: "/mcp/setup",
   oauthConsent: "/oauth/consent",
 } as const;

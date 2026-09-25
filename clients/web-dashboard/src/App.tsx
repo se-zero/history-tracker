@@ -12,6 +12,7 @@ import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { GraphPage } from "@/pages/GraphPage";
 import { LandingPage } from "@/pages/LandingPage";
+import { McpPage } from "@/pages/McpPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { OAuthConsentPage } from "@/pages/OAuthConsentPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
@@ -82,6 +83,7 @@ export default function App() {
           <Route path={PATHS.slack} element={<SlackPage />} />
           <Route path={PATHS.pricing} element={<PricingPage />} />
           <Route path={PATHS.refund} element={<RefundPage />} />
+          <Route path={PATHS.mcpSetup} element={<McpPage />} />
           {/* MCP 클라이언트 OAuth 동의 화면 — AuthGate가 미인증을 랜딩으로 보내 버리므로
               여기 둔다. 로그인·약관 동의 상태는 이 페이지가 스스로 분기한다. */}
           <Route path={PATHS.oauthConsent} element={<OAuthConsentPage />} />
