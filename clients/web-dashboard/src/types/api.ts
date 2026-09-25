@@ -194,3 +194,13 @@ export interface OAuthConsentDecision {
   redirectTo: string;
 }
 
+// 계정 페이지 "연결된 앱" 카드가 보여주는 MCP OAuth 동의 1건. id는 내부 식별자라
+// 해제 요청 경로에 그대로 쓴다.
+export interface OAuthGrant {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientUri: string | null;
+  grantedAt: string;
+  lastUsedAt: string | null;
+}

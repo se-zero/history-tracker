@@ -42,4 +42,5 @@ export const queryKeys = {
     ["search", projectId, "conversations", q] as const,
   oauthConsentPreview: (query: string) =>
     ["oauth", "consent", "preview", query] as const,
+  oauthGrants: () => ["oauth", "grants"] as const,
 };

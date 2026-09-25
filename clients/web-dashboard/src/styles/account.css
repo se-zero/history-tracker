@@ -122,3 +122,68 @@
     transition: none;
   }
 }
+
+/* 계정 설정 — 연결된 앱 카드 (MCP OAuth 동의 목록). 카드 뼈대는 .source-card/.src-head를
+   그대로 쓰고, 여기서는 행 목록·링크 톤·아래 회원 탈퇴 카드와의 간격만 최소로 더한다
+   (plan-card와 같은 방식 — 각 카드가 자기 마진을 소유). */
+.connected-apps-card {
+  margin-bottom: 16px;
+}
+
+.connected-apps-empty {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.connected-apps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.connected-app-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.connected-app-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.connected-app-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.connected-app-meta {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--fg-subtle);
+}
+
+/* 앱 이름(clientUri 있을 때)·빈 상태 안내 링크 — oauth-consent-client-link와 같은
+   밑줄 muted 톤(코드베이스 전반의 산문 내 링크 표시 방식). */
+.connected-app-link {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+.connected-app-link:hover {
+  color: var(--fg);
+}
+
+@media (max-width: 640px) {
+  .connected-app-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
