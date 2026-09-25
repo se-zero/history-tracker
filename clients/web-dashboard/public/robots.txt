@@ -5,5 +5,6 @@ Disallow: /projects/
 Disallow: /onboarding
 Disallow: /auth/
 Disallow: /api/
+Disallow: /oauth/
 
 Sitemap: https://why-code.com/sitemap.xml

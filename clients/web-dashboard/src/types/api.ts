@@ -178,3 +178,19 @@ export interface ActorDecision {
   note: string;
   decidedAt: string;
 }
+
+// MCP 클라이언트(Claude Code·Codex)가 /oauth2/authorize로 넘긴 요청의 미리보기 — 동의 화면이
+// "어떤 앱이 어떤 권한을 요청하고 어디로 돌아가는지"를 보여주는 데 쓴다.
+export interface OAuthConsentPreview {
+  clientName: string;
+  clientUri: string | null;
+  redirectUri: string;
+  redirectHost: string;
+  loopback: boolean;
+  scopes: string[];
+}
+
+export interface OAuthConsentDecision {
+  redirectTo: string;
+}
+

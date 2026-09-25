@@ -10,4 +10,5 @@ export const PATHS = {
   slack: "/slack",
   pricing: "/pricing",
   refund: "/refund",
+  oauthConsent: "/oauth/consent",
 } as const;
