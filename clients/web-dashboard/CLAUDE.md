@@ -38,6 +38,8 @@ src/
     useSelectionFlow(연동 대상 다단 선택 — provider가 선언한 단계·후보 구독, 일괄 확정)
 
   components/
+    account/        ConnectedAppsCard(MCP OAuth로 연결된 앱 목록·연결 끊기 — 계정 페이지)
+    oauth/          OAuthConsentCard(/oauth/consent 본문 — MCP 클라이언트의 연결 요청 미리보기·허용/거부)
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
                     TermsNoticeBanner — 약관 개정 공지(`.main` 맨 위). 기기 로컬 날짜가 `TERMS_EFFECTIVE_DATE`
@@ -75,6 +77,7 @@ src/
                     `app.legal.terms-version`과 같은 문자열이어야 한다
                     SlackBody — `/slack` 본문(Slack 마켓플레이스 Installation landing page. 랜딩 절에서 분리)
                     SupportBody — `/support` 본문
+                    McpBody — `/mcp/setup` 본문(Claude Code·Codex 연결 안내. 랜딩과 같은 ko/en COPY)
                     PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts)
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
                     LandingLanguageProvider — 랜딩 계열 ko/en 상태(`ht.lang` + 브라우저 언어 감지).
@@ -85,9 +88,9 @@ src/
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
     Onboarding · Chat · Sources · Settings · Account · GraphPage(작업 단위 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
-    Actors · Landing · Terms · Privacy · Refund · Support · Slack · Pricing · AuthCallback · NotFound
+    Actors · Landing · Terms · Privacy · Refund · Support · Slack · Pricing · Mcp · OAuthConsent · AuthCallback · NotFound
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
-    ※ Terms(`/terms`)·Privacy(`/privacy`)·Refund(`/refund`)·Support(`/support`)·Slack(`/slack`)·Pricing(`/pricing`)도
+    ※ Terms(`/terms`)·Privacy(`/privacy`)·Refund(`/refund`)·Support(`/support`)·Slack(`/slack`)·Pricing(`/pricing`)·Mcp(`/mcp/setup`)도
       AuthGate 밖 공개 라우트다. 요금·환불정책은 Paddle 심사(도메인 리뷰)가 요구하는 페이지다(docs/billing.md §8-1). 랜딩과
       같은 `.lp` 스코프를 쓰며 헤더·푸터를 공유한다(LegalLayout). 약관·방침 내용은 실제 수집 항목·권한
       scope·보유 기간을 반영하므로 **수집 코드나 purge 설정이 바뀌면 이 두 페이지도 함께 고친다**.
@@ -101,8 +104,12 @@ src/
       제출된 링크가 깨진다). **새 커넥터를 배선하면 제1조 자격증명 행·수집 기록 목록과
       제2조 소스 블록을 함께 추가한다** — 고지 없이 수집하는 상태가 배포 기준 공백이다.
       Google Chat의 `directory.readonly`는 민감 범위라 OAuth 검증에서 이 URL을 요구한다.
+    ※ `/oauth/consent`는 AuthGate 밖이지만 로그인·약관 동의 상태에 따라 스스로 분기한다 — MCP 클라이언트
+      (Claude Code·Codex)의 OAuth 동의 화면. 미로그인이면 `auth/returnPath`에 복귀 경로를 저장하고 GitHub 로그인으로
+      보내며, `AuthCallbackPage`가 그 경로로 돌려보낸다. `/mcp/setup`은 `/slack`과 같은 공개 설치 안내 페이지다
+      (`/mcp`가 아닌 이유: `/mcp`는 에이전트가 접속하는 backend MCP 엔드포인트).
 
-  lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
+  lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark · url(외부 URL을 href에 넣기 전 http(s) 가드)
                     workUnitLayout(작업 단위 배치: 작업 단위 force + 구성 노드 반경) · canvasColor(CSS 토큰 → Canvas RGB)
                     heroBackdropGraph · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
                     plans — Free/Pro 가격·기능 목록의 단일 출처(요금 페이지와 PlanCard가 같이 읽는다).
@@ -115,7 +122,7 @@ src/
                     기기 설정이 자동 적용되므로 어디에도 하드코딩하지 않는다.
                     **언어 분리 작업 전에 docs/i18n.md를 읽는다** — 로캘·타임존을 묶으면 안 되는
                     이유와 시각 표시 계약(날짜 단독·코드블록 미변환 등)이 거기 있다
-  auth/             AuthProvider(세션 상태) · tokenStorage(access는 메모리만. 레거시 localStorage 키는 기동 시 삭제)
+  auth/             AuthProvider(세션 상태) · tokenStorage(access는 메모리만. 레거시 localStorage 키는 기동 시 삭제) · returnPath(로그인 후 복귀 경로 — sessionStorage, 같은 출처 상대 경로만)
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)
   styles/           index.css(@import 진입점) + 기능별 분할 CSS, tokens.css(디자인 토큰)
@@ -125,7 +132,7 @@ index.html          문서 셸. 검색·공유 메타(title · description · og
                     아니라 서비스 전체를 설명해야 한다. rel=canonical을 두지 않는 것도 같은 이유다
                     (/terms·/privacy까지 랜딩의 중복으로 선언돼 색인에서 빠진다). 상세는 파일 주석.
 public/             빌드 시 dist/ 루트로 그대로 복사된다(Vite 기본 publicDir).
-                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 7개만
+                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 8개만
                     싣고 도메인이 절대 URL로 박혀 있다. **App.tsx에 공개 라우트를 추가하면
                     사이트맵도 함께 고친다** (등록 절차는 docs/deployment.md §3-4)
                     favicon.svg · hero-demo-{ko,en}-{dark,light}.mp4 + 같은 이름의 poster.jpg

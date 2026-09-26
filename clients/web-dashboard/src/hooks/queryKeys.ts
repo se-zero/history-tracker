@@ -40,4 +40,7 @@ export const queryKeys = {
     ["graph", projectId, "subgraph", messageId] as const,
   searchConversations: (projectId: string, q: string) =>
     ["search", projectId, "conversations", q] as const,
+  oauthConsentPreview: (query: string) =>
+    ["oauth", "consent", "preview", query] as const,
+  oauthGrants: () => ["oauth", "grants"] as const,
 };

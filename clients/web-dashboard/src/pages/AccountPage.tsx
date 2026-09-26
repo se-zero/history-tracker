@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
+import { ConnectedAppsCard } from "@/components/account/ConnectedAppsCard";
 import { Icons } from "@/components/Icons";
 import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
@@ -42,6 +43,8 @@ export function AccountPage() {
       </p>
 
       <PlanCard />
+
+      <ConnectedAppsCard />
 
       {/* ─── 회원 탈퇴 (계정 전체) ─── */}
       <section
