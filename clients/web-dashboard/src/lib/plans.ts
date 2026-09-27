@@ -7,7 +7,7 @@ import type { Localized } from "@/components/landing/LandingLanguageProvider";
 // 한도의 원본은 backend PlanService다(FREE_QUERY_LIMIT=10, 프로젝트 1개, GITHUB/SLACK/JIRA
 // 각 1회, 증분 수집·정밀 재구축은 PAID 전용) — 그 값이 바뀌면 여기도 함께 고친다.
 
-// Pro 월 구독료(원, 부가세 포함). 결제 화면(B2)이 열리기 전까지는 표시 전용 상수다.
+// Pro 월 구독료(원, 부가세 포함). 요금 페이지와 계정 설정의 구독 버튼이 같이 읽는다.
 export const PRO_MONTHLY_PRICE_KRW = 14900;
 
 interface PlanFeatureCell {

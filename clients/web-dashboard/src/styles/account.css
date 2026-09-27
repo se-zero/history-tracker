@@ -117,6 +117,18 @@
   gap: 6px;
 }
 
+.plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plan-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .plan-usage-fill {
     transition: none;
