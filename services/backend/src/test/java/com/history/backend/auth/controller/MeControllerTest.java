@@ -2,6 +2,7 @@ package com.history.backend.auth.controller;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -15,8 +16,10 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.dto.UserResponse;
+import com.history.backend.auth.service.AccountWithdrawalService;
 import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
+import com.history.backend.billing.service.BillingAccountService;
 import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
@@ -46,6 +49,12 @@ class MeControllerTest {
 
     @MockitoBean
     private PlanService planService;
+
+    @MockitoBean
+    private AccountWithdrawalService accountWithdrawalService;
+
+    @MockitoBean
+    private BillingAccountService billingAccountService;
 
     @MockitoBean
     private JwtTokenService jwtTokenService;
@@ -79,7 +88,27 @@ class MeControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isNoContent());
 
-        verify(userService).deactivateUser(USER_ID);
+        verify(accountWithdrawalService).withdraw(USER_ID);
+        verify(userService, never()).deactivateUser(USER_ID);
+    }
+
+    @Test
+    @DisplayName("전환 코드 사용자 강등 → 204")
+    void downgradePlanDelegatesToBillingAccountService() throws Exception {
+        mockMvc.perform(post("/api/v1/me/plan/downgrade")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNoContent());
+
+        verify(billingAccountService).downgradeCodePlan(USER_ID);
+    }
+
+    @Test
+    @DisplayName("강등도 액세스 토큰이 없으면 401")
+    void downgradePlanRejectsMissingAccessToken() throws Exception {
+        mockMvc.perform(post("/api/v1/me/plan/downgrade"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(billingAccountService);
     }
 
     @Test

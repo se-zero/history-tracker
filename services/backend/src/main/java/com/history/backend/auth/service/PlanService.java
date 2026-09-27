@@ -11,6 +11,7 @@ import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserProviderConnectionRepository;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.integration.domain.Integration;
@@ -190,6 +191,19 @@ public class PlanService {
         User user = getUserForUpdate(userId);
         if (user.getPlan() != Plan.PAID) {
             return;
+        }
+        applyDowngradeToFree(user);
+    }
+
+    // 전환 코드로 만든 무기한 PAID만 사용자가 직접 FREE로 내린다. 만료 시각이 있으면 구독이라
+    // 여기서 내리면 결제 중인 구독과 플랜이 갈라진다. 살아 있는 구독이 있는지는 호출부가 먼저 막는다.
+    public void downgradeCodeUserToFree(UUID userId) {
+        User user = getUserForUpdate(userId);
+        if (user.getPlan() != Plan.PAID) {
+            return;
+        }
+        if (user.getPlanExpiresAt() != null) {
+            throw new ConflictException("Only upgrade-code plans can be downgraded here.");
         }
         applyDowngradeToFree(user);
     }

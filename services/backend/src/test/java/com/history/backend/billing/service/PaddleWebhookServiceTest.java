@@ -531,7 +531,7 @@ class PaddleWebhookServiceTest {
                 billingEventRepository,
                 billingSubscriptionRepository,
                 planService,
-                new PaddleProperties("test-secret", Duration.ofSeconds(5), proPriceId),
+                new PaddleProperties("test-secret", Duration.ofSeconds(5), proPriceId, null, "sandbox", null),
                 new BillingProperties(GRACE),
                 JSON);
     }
