@@ -129,6 +129,16 @@
   color: var(--fg-muted);
 }
 
+/* 안내 문구 안의 문의 메일 링크 — 본문과 같은 색이라 .connected-app-link와 같은 밑줄 톤으로 구분한다. */
+.plan-note a {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+.plan-note a:hover {
+  color: var(--fg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .plan-usage-fill {
     transition: none;

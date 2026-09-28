@@ -6,6 +6,7 @@ import { Icons } from "@/components/Icons";
 import { BusyLabel } from "@/components/ui/BusyLabel";
 import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
+import { LEGAL_CONTACT_EMAIL } from "@/components/landing/LegalLayout";
 import { useAuth } from "@/auth/AuthProvider";
 import {
   useBillingSummary,
@@ -277,7 +278,9 @@ export function PlanCard() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={checkoutPhase === "opening" || checkoutPhase === "reflecting"}
+                // 결제를 마친 뒤(done·timeout)에도 막는다. 웹훅이 늦으면 서버는 아직 FREE·구독 없음으로
+                // 보고 두 번째 거래를 만들어 주므로, 다시 누르면 실제로 두 번 결제된다.
+                disabled={checkoutPhase !== "idle" && checkoutPhase !== "error"}
                 onClick={() => void onSubscribe()}
               >
                 <BusyLabel
@@ -288,7 +291,12 @@ export function PlanCard() {
               </button>
               {checkoutPhase === "done" && <p className="plan-note">Pro로 전환됐어요.</p>}
               {checkoutPhase === "timeout" && (
-                <p className="plan-note">결제는 완료됐어요. 반영까지 몇 분 걸릴 수 있어요.</p>
+                <p className="plan-note">
+                  결제는 완료됐어요. 반영까지 몇 분 걸릴 수 있어요. 다시 결제하지 마시고, 반영이
+                  계속 안 되면{" "}
+                  <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>으로 알려
+                  주세요.
+                </p>
               )}
               {checkoutPhase === "error" && (
                 <InlineError>결제창을 열지 못했어요. 잠시 후 다시 시도해 주세요.</InlineError>
