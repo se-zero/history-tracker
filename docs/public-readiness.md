@@ -908,7 +908,7 @@ Neo4j 백업은 Community 제약상 `stop → dump → start`라 매번 짧은 �
 
 - [x] 발송 경로를 정한다 (장애 공지·파기 안내용 — 약관 이행과는 무관하다) — **Resend, 발신 도메인
       `mail.why-code.com` 준비 완료(2026-09-26).** 결제 7일 전 안내 의무 때문에 먼저 붙였다. 설정 내역은
-      [billing.md](billing.md) §9-1. 발송 코드는 아직 없다(결제 안내부터 B3에서)
+      [billing.md](billing.md) §9-1. 발송 코드는 결제일 안내에만 연결됐다(2026-09-28, `RenewalNoticeService`)
 - [ ] 창구 일원화가 필요해지면 전용 발신(SMTP 릴레이 또는 메일함)을 붙인다 — 지금은 미뤄 둔다
 
 ### 5-4. 큰 webhook이 조용히 거부될 수 있다

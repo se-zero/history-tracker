@@ -29,7 +29,7 @@ src/
 
   api/              backend 엔드포인트별 axios 클라이언트 (리소스 단위로 얇게)
     client.ts         axios 인스턴스 + 인터셉터 (access 토큰 부착, 401 시 쿠키 refresh·rotation 재시도)
-    그 외는 리소스당 모듈 1개 (auth · projects · conversations · integrations · github · graph · actors)
+    그 외는 리소스당 모듈 1개 (auth · projects · conversations · integrations · github · graph · actors · billing)
 
   hooks/            React Query 캡슐화 레이어 (컴포넌트는 여기로만 서버 상태 접근)
     queryKeys.ts      중앙 키 팩토리 — 모든 queryKey의 단일 출처
@@ -45,6 +45,9 @@ src/
                     TermsNoticeBanner — 약관 개정 공지(`.main` 맨 위). 기기 로컬 날짜가 `TERMS_EFFECTIVE_DATE`
                     이전일 때만 보이고 닫기는 localStorage(`ht.termsNotice.dismissed`)에 시행일로 기억한다.
                     기존 이용자 재동의를 받지 않는 대신 이 배너가 약관 제12조의 "서비스 내 공지"다
+                    PrivacyNoticeBanner — 같은 방식의 개인정보처리방침 개정 공지(`PRIVACY_POLICY_EFFECTIVE_DATE`,
+                    닫기 키 `ht.privacyNotice.dismissed`). 방침 제11조의 "시행 7일 전 서비스 내 공지"라
+                    **시행일은 배포일 + 7일 이상**이어야 한다. 두 배너의 닫기 키를 섞지 않는다
     sources/        GitHubCard(설치 기반 전용) · OAuthSourceCard(OAuth 소스 공용 행 — backend가
                     선언한 선택 단계를 그대로 렌더, provider별 카드를 만들지 않는다) ·
                     sourceCatalog(소스 메타 단일 출처 — 9종의 마크·설명이 등재돼 있고, 항목은
@@ -67,18 +70,22 @@ src/
                     DisconnectIntegration — 해제 버튼 + 사전 경고 다이얼로그(연동 행 공용).
                     해제는 수집된 그래프까지 지우는 파괴적 동작이라 무엇이 삭제·유지되는지 먼저 보여준다
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
-    settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(계정 플랜·전환 코드)
+    settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(요금제 카드 — `GET /me/billing`의
+                    planSource로 결제 구독자·코드 사용자·무료 세 상태를 그린다. 결제창·포털 링크·코드 강등.
+                    포털 링크는 1회용이라 누를 때마다 받아 이동한다. docs/billing.md §8-2)
     graph/          WorkUnitCanvas(작업 단위 뷰 Canvas 렌더러) · ClusterDetail(열린 작업 단위 묶음 패널) · NodeDetail
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
     landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
                     LegalLayout — 약관·개인정보·환불정책·지원·요금 공통 셸(헤더/푸터 재사용 + 산문 컬럼).
                     `TERMS_EFFECTIVE_DATE`(약관·환불정책 시행일)도 여기 있다 — backend
-                    `app.legal.terms-version`과 같은 문자열이어야 한다
+                    `app.legal.terms-version`과 같은 문자열이어야 한다. `PRIVACY_POLICY_EFFECTIVE_DATE`
+                    (방침 시행일)도 여기 있다 — 서버에 대응값이 없고, 약관 시행일과 섞지 않는다
                     SlackBody — `/slack` 본문(Slack 마켓플레이스 Installation landing page. 랜딩 절에서 분리)
                     SupportBody — `/support` 본문
                     McpBody — `/mcp/setup` 본문(Claude Code·Codex 연결 안내. 랜딩과 같은 ko/en COPY)
-                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts)
+                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts). 결제 스위치가
+                    켜졌을 때만(`GET /billing/availability`) "계정 설정에서 구독하기"를, 아니면 "준비 중"을 보인다
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
                     LandingLanguageProvider — 랜딩 계열 ko/en 상태(`ht.lang` + 브라우저 언어 감지).
                     문서 헤드(`<html lang>`·`meta description`)도 여기서 언어에 맞춰 바꾸고 이탈 시
@@ -108,12 +115,19 @@ src/
       (Claude Code·Codex)의 OAuth 동의 화면. 미로그인이면 `auth/returnPath`에 복귀 경로를 저장하고 GitHub 로그인으로
       보내며, `AuthCallbackPage`가 그 경로로 돌려보낸다. `/mcp/setup`은 `/slack`과 같은 공개 설치 안내 페이지다
       (`/mcp`가 아닌 이유: `/mcp`는 에이전트가 접속하는 backend MCP 엔드포인트).
+    ※ `/account`는 공개 라우트가 아니다 — 첫 프로젝트의 계정 설정(`/projects/:id/account`, 없으면 온보딩)으로
+      넘기는 리다이렉트다. 요금 페이지가 로그인 전이면 이 경로를 `auth/returnPath`에 저장하고 GitHub 로그인으로 보낸다.
+      사이트맵에 넣지 않는다.
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark · url(외부 URL을 href에 넣기 전 http(s) 가드)
                     workUnitLayout(작업 단위 배치: 작업 단위 force + 구성 노드 반경) · canvasColor(CSS 토큰 → Canvas RGB)
                     heroBackdropGraph · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
                     plans — Free/Pro 가격·기능 목록의 단일 출처(요금 페이지와 PlanCard가 같이 읽는다).
                     한도의 원본은 backend PlanService라 거기가 바뀌면 여기도 고친다
+                    paddle — Paddle.js 결제창(`@paddle/paddle-js`, 공식 래퍼가 cdn.paddle.com 스크립트를 주입).
+                    **앱에서 유일한 외부 스크립트**라 nginx.conf CSP에 `script-src`·`frame-src`·`connect-src`
+                    예외가 있다. 누를 때 한 번만 초기화하고 토큰·환경은 checkout 응답에서 받는다 —
+                    빌드 시점 환경변수를 만들지 않는다. API 키는 절대 프론트에 두지 않는다
                     remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
                     **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
                     (서버가 타임존을 굳히면 저장된 답변이 그 타임존에 영구히 묶인다, docs/tools.md).

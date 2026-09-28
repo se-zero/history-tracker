@@ -452,11 +452,16 @@ OAuth 토큰으로, Jira 개인정보 보고 배치가 사용한다. refresh tok
 
 ---
 
-### `billing_subscriptions` (V24)
+### `billing_subscriptions` (V24, V25 컬럼 추가)
 
 Paddle 구독 상태의 **캐시**. 진실의 원천은 Paddle이고, 결제 알림(웹훅)을 받을 때마다 최신 상태로
 수렴한다(docs/billing.md §5). 플랜 게이트는 이 테이블이 아니라 `users.plan`을 본다 — 이 테이블은
-사용자 매칭 폴백·순서 역전 판정·"같은 사용자의 다른 살아 있는 구독" 확인에 쓴다.
+사용자 매칭 폴백·순서 역전 판정·"같은 사용자의 다른 살아 있는 구독" 확인에 쓴다. B2부터는 요금제 카드
+상태(`GET /me/billing`)·이중 구독 차단·포털 세션의 고객 id·탈퇴/파기 때 해지할 구독 목록, B3의 결제일
+안내 대상 조회도 여기서 읽는다.
+
+⚠️ `users`를 지우면 CASCADE로 함께 사라져 **Paddle 구독을 멈출 id가 없어진다** — 그래서 파기
+(`UserPurgeService`)는 살아 있는 구독의 해지를 확인한 뒤에만 `users` 행을 지운다(billing.md §8-2).
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |------|------|------|------|
@@ -470,6 +475,7 @@ Paddle 구독 상태의 **캐시**. 진실의 원천은 Paddle이고, 결제 알
 | `scheduled_change_effective_at` | TIMESTAMPTZ | nullable | 예약 변경 시각 |
 | `canceled_at` | TIMESTAMPTZ | nullable | 해지 확정 시각 |
 | `last_event_occurred_at` | TIMESTAMPTZ | NOT NULL | 마지막으로 반영한 알림의 `occurred_at`. 이보다 오래된 알림은 `STALE`로 무시한다(Paddle은 순서를 보장하지 않는다) |
+| `renewal_notice_period_end` | TIMESTAMPTZ | nullable (V25) | 결제일 7일 전 안내를 보낸 주기의 `current_period_ends_at`. 같은 값이면 다시 보내지 않고, 갱신으로 주기 끝이 바뀌면 다음 주기에 다시 보낸다. 웹훅이 행을 다시 쓸 때도 기존 값을 옮겨 적는다 |
 | `created_at` · `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
 **인덱스**
