@@ -1,5 +1,6 @@
 package com.history.backend.oauth.config;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -9,6 +10,10 @@ import com.history.backend.oauth.security.McpAuthorizationRequestValidator;
 import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationConverter;
 import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationProvider;
 import com.history.backend.oauth.security.PublicClientRefreshTokenGenerator;
+import com.history.backend.oauth.security.PublicClientRegistrationConverter;
+import com.history.backend.oauth.service.CimdDocumentFetcher;
+import com.history.backend.oauth.service.CimdRegisteredClientRepository;
+import com.history.backend.oauth.service.McpRegisteredClientPolicy;
 import com.history.backend.oauth.service.OAuthJwkProvider;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -16,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -30,6 +36,7 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationProvider;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientRegistrationAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
@@ -60,9 +67,12 @@ public class OAuthAuthorizationServerConfig {
         return oAuthJwkProvider.jwkSource();
     }
 
+    // CIMD client_id(https URL)는 사전 등록 없이 오므로 JDBC 저장소 앞에 그림자 upsert 래퍼를 둔다.
     @Bean
-    RegisteredClientRepository registeredClientRepository(JdbcTemplate jdbcTemplate) {
-        return new JdbcRegisteredClientRepository(jdbcTemplate);
+    RegisteredClientRepository registeredClientRepository(
+            JdbcTemplate jdbcTemplate, CimdDocumentFetcher fetcher, McpRegisteredClientPolicy policy) {
+        return new CimdRegisteredClientRepository(
+                new JdbcRegisteredClientRepository(jdbcTemplate), fetcher, policy, Clock.systemUTC());
     }
 
     @Bean
@@ -104,7 +114,8 @@ public class OAuthAuthorizationServerConfig {
     @Bean
     @Order(1)
     SecurityFilterChain oauthAuthorizationServerChain(
-            HttpSecurity http, RegisteredClientRepository registeredClientRepository) throws Exception {
+            HttpSecurity http, RegisteredClientRepository registeredClientRepository, McpRegisteredClientPolicy policy)
+            throws Exception {
         OAuth2AuthorizationServerConfigurer configurer = new OAuth2AuthorizationServerConfigurer();
         http.securityMatcher(configurer.getEndpointsMatcher())
                 .with(configurer, server -> server
@@ -124,10 +135,21 @@ public class OAuthAuthorizationServerConfig {
                         // refresh 교환 요청에는 code_verifier가 없어 기본 공개 클라이언트 컨버터가 받지 않는다 — 그보다 먼저 보도록 index 0에 넣는다.
                         .clientAuthentication(client -> client
                                 .authenticationConverters(converters -> converters.add(0, new PublicClientRefreshTokenAuthenticationConverter()))
-                                .authenticationProviders(providers -> providers.add(0, new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository)))))
+                                .authenticationProviders(providers -> providers.add(0, new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository))))
+                        // RFC 7591 DCR 폴백 — CIMD를 못 하는 클라이언트용. 공개 클라이언트(none)만 받는다.
+                        .clientRegistrationEndpoint(registration -> registration
+                                .openRegistrationAllowed(true)
+                                .authenticationProviders(providers -> providers.stream()
+                                        .filter(OAuth2ClientRegistrationAuthenticationProvider.class::isInstance)
+                                        .map(OAuth2ClientRegistrationAuthenticationProvider.class::cast)
+                                        .forEach(provider -> provider.setRegisteredClientConverter(new PublicClientRegistrationConverter(policy))))))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .authorizeHttpRequests(auth -> auth
+                        // DCR 필터도 authorize 필터처럼 AuthorizationFilter 뒤에 붙어 있어 openRegistrationAllowed(true)와
+                        // 무관하게 anyRequest().authenticated()에 걸려 401이 난다(실기동에서 확인된 사실).
+                        .requestMatchers(HttpMethod.POST, "/oauth2/register").permitAll()
+                        .anyRequest().authenticated())
                 // GET /oauth2/authorize 미인증을 SPA로 리다이렉트하는 처리는 B3에서 덧붙인다 — 지금은 401.
                 .exceptionHandling(exception -> exception.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
         return http.build();
