@@ -6,6 +6,9 @@ import java.util.List;
 import com.history.backend.oauth.McpOAuthProperties;
 import com.history.backend.oauth.security.DefaultScopeAuthorizationRequestConverter;
 import com.history.backend.oauth.security.McpAuthorizationRequestValidator;
+import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationConverter;
+import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationProvider;
+import com.history.backend.oauth.security.PublicClientRefreshTokenGenerator;
 import com.history.backend.oauth.service.OAuthJwkProvider;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -19,6 +22,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.core.OAuth2Token;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
@@ -28,8 +33,12 @@ import org.springframework.security.oauth2.server.authorization.authentication.O
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
+import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.JwtGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2AccessTokenGenerator;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 
@@ -80,9 +89,22 @@ public class OAuthAuthorizationServerConfig {
         };
     }
 
+    // Spring 기본 조립(OAuth2ConfigurerUtils.getTokenGenerator)은 이 타입의 빈이 없을 때만 동작하며, 그 기본
+    // refresh 생성기는 공개 클라이언트를 제외한다 — 그래서 직접 조립해 대체한다. 직접 조립하면 tokenCustomizer
+    // 빈이 자동으로 붙지 않으므로 JwtGenerator에 직접 연결해야 access 토큰의 aud 클레임이 유지된다.
+    @Bean
+    OAuth2TokenGenerator<? extends OAuth2Token> tokenGenerator(
+            JWKSource<SecurityContext> jwkSource, OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer) {
+        JwtGenerator jwtGenerator = new JwtGenerator(new NimbusJwtEncoder(jwkSource));
+        jwtGenerator.setJwtCustomizer(tokenCustomizer);
+        return new DelegatingOAuth2TokenGenerator(
+                jwtGenerator, new OAuth2AccessTokenGenerator(), new PublicClientRefreshTokenGenerator());
+    }
+
     @Bean
     @Order(1)
-    SecurityFilterChain oauthAuthorizationServerChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain oauthAuthorizationServerChain(
+            HttpSecurity http, RegisteredClientRepository registeredClientRepository) throws Exception {
         OAuth2AuthorizationServerConfigurer configurer = new OAuth2AuthorizationServerConfigurer();
         http.securityMatcher(configurer.getEndpointsMatcher())
                 .with(configurer, server -> server
@@ -98,7 +120,11 @@ public class OAuthAuthorizationServerConfig {
                                         .filter(OAuth2AuthorizationCodeRequestAuthenticationProvider.class::isInstance)
                                         .map(OAuth2AuthorizationCodeRequestAuthenticationProvider.class::cast)
                                         .forEach(provider -> provider.setAuthenticationValidator(
-                                                new McpAuthorizationRequestValidator(mcpOAuthProperties.resourceUrl()))))))
+                                                new McpAuthorizationRequestValidator(mcpOAuthProperties.resourceUrl())))))
+                        // refresh 교환 요청에는 code_verifier가 없어 기본 공개 클라이언트 컨버터가 받지 않는다 — 그보다 먼저 보도록 index 0에 넣는다.
+                        .clientAuthentication(client -> client
+                                .authenticationConverters(converters -> converters.add(0, new PublicClientRefreshTokenAuthenticationConverter()))
+                                .authenticationProviders(providers -> providers.add(0, new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository)))))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
