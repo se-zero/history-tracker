@@ -53,6 +53,11 @@ public class BillingSubscription {
     @Column(name = "last_event_occurred_at", nullable = false)
     private Instant lastEventOccurredAt;
 
+    // 이 구독의 어느 결제 주기 끝에 대해 7일 전 안내를 보냈는지. 웹훅이 행을 덮어쓸 때
+    // 이 값을 지우면 같은 주기에 메일이 다시 나간다.
+    @Column(name = "renewal_notice_period_end")
+    private Instant renewalNoticePeriodEnd;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -81,6 +86,10 @@ public class BillingSubscription {
         this.scheduledChangeEffectiveAt = scheduledChangeEffectiveAt;
         this.canceledAt = canceledAt;
         this.lastEventOccurredAt = lastEventOccurredAt;
+    }
+
+    public void recordRenewalNoticePeriodEnd(Instant periodEnd) {
+        this.renewalNoticePeriodEnd = periodEnd;
     }
 
     @PrePersist
