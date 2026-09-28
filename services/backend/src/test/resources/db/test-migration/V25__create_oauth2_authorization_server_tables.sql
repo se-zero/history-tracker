@@ -58,6 +58,10 @@ CREATE TABLE oauth2_authorization (
 
 CREATE INDEX idx_oauth2_authorization_principal_name ON oauth2_authorization (principal_name);
 CREATE INDEX idx_oauth2_authorization_registered_client_id ON oauth2_authorization (registered_client_id);
+CREATE INDEX idx_oauth2_authorization_state ON oauth2_authorization (state);
+CREATE INDEX idx_oauth2_authorization_authorization_code_value ON oauth2_authorization (authorization_code_value);
+CREATE INDEX idx_oauth2_authorization_access_token_value ON oauth2_authorization (access_token_value);
+CREATE INDEX idx_oauth2_authorization_refresh_token_value ON oauth2_authorization (refresh_token_value);
 
 CREATE TABLE oauth2_authorization_consent (
     registered_client_id TEXT NOT NULL,

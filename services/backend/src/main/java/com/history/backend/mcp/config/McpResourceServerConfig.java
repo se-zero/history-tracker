@@ -86,7 +86,8 @@ public class McpResourceServerConfig {
                 }
                 String description = oauth2Exception.getError().getDescription();
                 if (description != null) {
-                    challenge.append("error_description=\"").append(description.replace("\"", "")).append("\", ");
+                    // 따옴표는 파라미터 경계를, CR/LF는 헤더 경계를 깨뜨리므로 둘 다 제거한다.
+                    challenge.append("error_description=\"").append(description.replaceAll("[\"\\r\\n]", "")).append("\", ");
                 }
             }
             challenge.append("resource_metadata=\"")

@@ -63,6 +63,12 @@ CREATE TABLE oauth2_authorization (
 
 CREATE INDEX idx_oauth2_authorization_principal_name ON oauth2_authorization (principal_name);
 CREATE INDEX idx_oauth2_authorization_registered_client_id ON oauth2_authorization (registered_client_id);
+-- Spring 기본 스키마에는 토큰 값 컬럼 인덱스가 없어 토큰 교환·refresh마다 findByToken이 풀스캔한다.
+-- 우리가 쓰는 네 컬럼(state·인가 코드·access·refresh)만 건다 — OIDC id_token·device/user code는 발급하지 않는다.
+CREATE INDEX idx_oauth2_authorization_state ON oauth2_authorization (state);
+CREATE INDEX idx_oauth2_authorization_authorization_code_value ON oauth2_authorization (authorization_code_value);
+CREATE INDEX idx_oauth2_authorization_access_token_value ON oauth2_authorization (access_token_value);
+CREATE INDEX idx_oauth2_authorization_refresh_token_value ON oauth2_authorization (refresh_token_value);
 
 CREATE TABLE oauth2_authorization_consent (
     registered_client_id TEXT NOT NULL,
