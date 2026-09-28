@@ -15,6 +15,7 @@ import com.history.backend.jira.AtlassianPersonalDataReportProperties;
 import com.history.backend.jira.AtlassianProperties;
 import com.history.backend.linear.LinearProperties;
 import com.history.backend.notion.NotionProperties;
+import com.history.backend.oauth.McpOAuthProperties;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.slack.SlackProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -38,7 +39,8 @@ import org.springframework.context.annotation.Configuration;
         LinearProperties.class,
         AsanaProperties.class,
         ClickUpProperties.class,
-        NotionProperties.class
+        NotionProperties.class,
+        McpOAuthProperties.class
 })
 public class PropertiesConfig {
 }

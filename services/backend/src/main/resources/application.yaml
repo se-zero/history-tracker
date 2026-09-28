@@ -64,6 +64,15 @@ pipeline:
   worker:
     url: ${PIPELINE_WORKER_URL:http://localhost:8081}
 
+mcp:
+  oauth:
+    # dev에선 Vite(5173)가 API를 프록시하므로 발급되는 토큰의 issuer도 그 주소여야 한다.
+    issuer: ${MCP_OAUTH_ISSUER:http://localhost:5173}
+    # 비우면 OAuthJwkProvider가 임시 RSA 키를 생성한다(재기동 시 발급된 토큰 전부 무효화).
+    private-key: ${MCP_OAUTH_PRIVATE_KEY:}
+    access-token-ttl: PT1H
+    refresh-token-ttl: P30D
+
 security:
   internal-service:
     token: ${INTERNAL_SERVICE_TOKEN}

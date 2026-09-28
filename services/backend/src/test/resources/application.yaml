@@ -26,6 +26,13 @@ pipeline:
   worker:
     url: http://localhost:8081
 
+mcp:
+  oauth:
+    issuer: http://localhost:5173
+    private-key: ""
+    access-token-ttl: PT1H
+    refresh-token-ttl: P30D
+
 security:
   internal-service:
     token: test-internal-service-token
