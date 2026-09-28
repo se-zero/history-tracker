@@ -1,4 +1,4 @@
-import { LEGAL_OPERATOR, LegalLayout } from "@/components/landing/LegalLayout";
+import { LEGAL_OPERATOR, PRIVACY_POLICY_EFFECTIVE_DATE, LegalLayout } from "@/components/landing/LegalLayout";
 import { PrivacyBody } from "@/components/landing/legal/PrivacyBody";
 
 // 개인정보처리방침 — 공개 라우트(/privacy). 초안이며 법률 검토 전이다.
@@ -19,7 +19,7 @@ export function PrivacyPage() {
   return (
     <LegalLayout
       title={{ ko: "개인정보처리방침", en: "Privacy Policy" }}
-      effectiveDate="2026-09-09"
+      effectiveDate={PRIVACY_POLICY_EFFECTIVE_DATE}
       summary={{
         ko: `${LEGAL_OPERATOR.ko}는 whycode를 운영하며 처리하는 개인정보의 항목과 이용 방식을 아래와 같이 안내합니다. 서비스의 성격상 이용자 본인뿐 아니라 이용자가 연동한 협업 도구의 기록도 처리하므로, 그 범위를 구체적으로 밝힙니다.`,
         en: `This page explains, on behalf of ${LEGAL_OPERATOR.en}, what personal information whycode processes and how — including, given the nature of the Service, records from the collaboration tools a User connects, not just the User's own information.`,
