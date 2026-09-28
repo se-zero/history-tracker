@@ -204,11 +204,15 @@ public class PaddleWebhookService {
                 recordOutcome(eventId, eventType, BillingEventOutcome.IGNORED, subscriptionId, userId);
                 return;
             }
-            billingSubscriptionRepository.save(new BillingSubscription(
+            BillingSubscription subscription = new BillingSubscription(
                     subscriptionId, userId, customerId, status, priceId,
                     resolveCurrentPeriodEndsAt(data), scheduledChangeAction, scheduledChangeEffectiveAt,
                     canceledAt, occurredAt
-            ));
+            );
+            // 알림으로 행을 통째로 다시 쓰면, 필드가 없는 새 객체가 이미 보낸 안내 표시를 지운다.
+            existing.map(BillingSubscription::getRenewalNoticePeriodEnd)
+                    .ifPresent(subscription::recordRenewalNoticePeriodEnd);
+            billingSubscriptionRepository.save(subscription);
             outcome = BillingEventOutcome.APPLIED;
         } catch (NotFoundException e) {
             // 사용자가 파기된 뒤에도 알림은 계속 올 수 있다 — 예외를 전파하지 않고 UNMATCHED로 기록한다

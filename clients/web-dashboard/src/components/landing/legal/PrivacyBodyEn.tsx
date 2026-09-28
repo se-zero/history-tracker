@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   LEGAL_CONTACT_EMAIL,
   LEGAL_CONTACT_URL,
+  LEGAL_OPERATOR,
   LegalNotice,
   LegalSection,
   LegalSourceBlock,
@@ -589,6 +590,13 @@ export function PrivacyBodyEn() {
             want the record itself removed, please contact us at the address below.
           </li>
           <li>
+            <strong>Payment records</strong> — After membership withdrawal deletes
+            the account and service data, the time of a payment event, its type,
+            the subscription id, and the user id are kept for the period required
+            by applicable law. Card numbers are not stored. Payments are processed
+            by our reseller, Paddle.
+          </li>
+          <li>
             <strong>Backups</strong> — Server backups roll on a roughly
             two-week cycle. Data deleted through the paths above may remain in
             a backup taken before the deletion, but disappears from backups
@@ -677,6 +685,10 @@ export function PrivacyBodyEn() {
       </LegalSection>
 
       <LegalSection index={10} heading="Contact">
+        <p>
+          The personal-information officer is {LEGAL_OPERATOR.en}. Contact:{" "}
+          <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>.
+        </p>
         <p>
           Please direct any inquiry, complaint, or request for relief regarding
           the processing of personal information to the contacts below. We will

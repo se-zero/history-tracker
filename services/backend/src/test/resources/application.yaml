@@ -54,6 +54,14 @@ app:
       batch-size: 100
   billing:
     expiry-grace: P3D
+    renewal-notice:
+      enabled: false
+      cron: "0 0 4 * * *"
+
+resend:
+  api-key: ""
+  from: "whycode <billing@mail.why-code.com>"
+  reply-to: contact@why-code.com
 
 paddle:
   webhook-secret: test-paddle-webhook-secret

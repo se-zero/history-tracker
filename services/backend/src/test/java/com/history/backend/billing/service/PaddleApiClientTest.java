@@ -225,6 +225,29 @@ class PaddleApiClientTest {
     }
 
     @Test
+    @DisplayName("고객 조회는 이메일만 읽고, 이메일이 없으면 null이다")
+    void getCustomerEmailReadsEmailOnly() {
+        Fixture fixture = fixture(configured("sandbox"));
+        fixture.server.expect(once(), requestTo(SANDBOX + "/customers/ctm_1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer " + API_KEY))
+                .andRespond(withSuccess("""
+                        { "data": { "id": "ctm_1", "email": "payer@example.com", "name": "Payer" } }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client.getCustomerEmail("ctm_1")).isEqualTo("payer@example.com");
+        fixture.server.verify();
+
+        Fixture missing = fixture(configured("sandbox"));
+        missing.server.expect(once(), requestTo(SANDBOX + "/customers/ctm_2"))
+                .andRespond(withSuccess("""
+                        { "data": { "id": "ctm_2", "email": null } }
+                        """, MediaType.APPLICATION_JSON));
+        assertThat(missing.client.getCustomerEmail("ctm_2")).isNull();
+        missing.server.verify();
+    }
+
+    @Test
     @DisplayName("API 키가 비면 호출하지 않고 BadGatewayException")
     void blankApiKeyFailsBeforeCallingPaddle() {
         Fixture fixture = fixture(configured("sandbox", "  "));

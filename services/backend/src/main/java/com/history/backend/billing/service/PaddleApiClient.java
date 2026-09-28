@@ -48,6 +48,13 @@ public class PaddleApiClient {
         return transactionId;
     }
 
+    // 안내 메일의 수신 주소. GitHub 로그인 이메일은 noreply일 수 있어 결제창에 적은 주소를 쓴다.
+    // 이메일은 저장하지 않는다.
+    public String getCustomerEmail(String customerId) {
+        JsonNode data = get("/customers/" + customerId, "Paddle customer request failed.").path("data");
+        return textOrNull(data, "email");
+    }
+
     public PaddleSubscriptionSnapshot getSubscription(String subscriptionId) {
         JsonNode data = get("/subscriptions/" + subscriptionId, "Paddle subscription request failed.").path("data");
         JsonNode scheduledChange = data.path("scheduled_change");

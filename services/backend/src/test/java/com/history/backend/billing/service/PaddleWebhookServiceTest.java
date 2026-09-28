@@ -399,6 +399,24 @@ class PaddleWebhookServiceTest {
     }
 
     @Test
+    @DisplayName("구독 캐시를 덮어쓸 때 이미 보낸 결제 안내 주기는 유지한다")
+    void handleKeepsRenewalNoticePeriodEndWhenUpdatingSubscription() {
+        PaddleWebhookService service = service();
+        String body = envelope("subscription.updated", baseSubscriptionData());
+        stubValidRequest(body, "subscription.updated", 1);
+        BillingSubscription existing = existingSubscription(OCCURRED_AT.minusSeconds(60));
+        Instant noticePeriodEnd = PERIOD_ENDS_AT.minusSeconds(3600);
+        existing.recordRenewalNoticePeriodEnd(noticePeriodEnd);
+        when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID)).thenReturn(Optional.of(existing));
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        ArgumentCaptor<BillingSubscription> saved = ArgumentCaptor.forClass(BillingSubscription.class);
+        verify(billingSubscriptionRepository).save(saved.capture());
+        assertThat(saved.getValue().getRenewalNoticePeriodEnd()).isEqualTo(noticePeriodEnd);
+    }
+
+    @Test
     @DisplayName("canceled + 다른 살아 있는 구독 없음 → downgradeToFree 호출")
     void handleDowngradesToFreeWhenCanceledAndNoOtherActiveSubscription() {
         PaddleWebhookService service = service();

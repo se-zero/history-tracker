@@ -52,6 +52,10 @@ app:
     # 결제 갱신 알림이 지연되거나 Paddle 재시도가 진행 중일 때 만료 스케줄러가 먼저 강등하는 것을
     # 막는 유예. 기본값은 Paddle 라이브 재시도 창(~3일)과 같다.
     expiry-grace: ${BILLING_EXPIRY_GRACE:P3D}
+    # 결제일 6~8일 전 안내. 하루를 놓쳐도 그 주기는 창 안에 남게 6일과 8일 사이로 둔다.
+    renewal-notice:
+      enabled: ${BILLING_RENEWAL_NOTICE_ENABLED:true}
+      cron: "${BILLING_RENEWAL_NOTICE_CRON:0 0 4 * * *}"
 
 conversation:
   memory:
@@ -98,6 +102,12 @@ paddle:
   environment: ${PADDLE_ENVIRONMENT:sandbox}
   # Paddle.js 클라이언트 토큰(test_… / live_…). 공개돼도 되는 값이라 결제 시작 응답에만 싣는다.
   client-token: ${PADDLE_CLIENT_TOKEN:}
+
+resend:
+  # 비면 결제일 안내를 보내지 않는다. 결제·해지는 그대로 동작한다.
+  api-key: ${RESEND_API_KEY:}
+  from: "${RESEND_FROM:whycode <billing@mail.why-code.com>}"
+  reply-to: ${RESEND_REPLY_TO:contact@why-code.com}
 
 github:
   app:

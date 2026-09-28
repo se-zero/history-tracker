@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   LEGAL_CONTACT_EMAIL,
   LEGAL_CONTACT_URL,
+  LEGAL_OPERATOR,
   LegalSection,
   LegalSourceBlock,
   LegalSourceRow,
@@ -490,6 +491,12 @@ export function PrivacyBodyKo() {
             탈퇴 시 함께 삭제됩니다. 이 기록의 삭제를 원하시면 아래 문의처로 요청해 주세요.
           </li>
           <li>
+            <strong>결제 기록</strong> — 회원 탈퇴로 계정과 서비스 데이터를 삭제한 뒤에도,
+            결제 시각·알림 종류·구독 식별자·사용자 식별자는 관계 법령이 정한 기간 동안
+            보관합니다. 카드 번호는 보관하지 않습니다. 결제는 판매 대행자인 Paddle이
+            처리합니다.
+          </li>
+          <li>
             <strong>백업</strong> — 서버 백업은 약 2주 주기로 순환합니다. 위 경로로 삭제된
             데이터가 그 이전에 만들어진 백업에 남아 있을 수 있으나, 약 2주 안에
             백업에서도 사라집니다.
@@ -559,6 +566,11 @@ export function PrivacyBodyKo() {
       </LegalSection>
 
       <LegalSection index={10} heading="문의처">
+        <p>
+          개인정보 보호책임자는 {LEGAL_OPERATOR.ko}이며, 연락처는{" "}
+          <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>
+          입니다.
+        </p>
         <p>
           개인정보 처리에 관한 문의·불만·피해 구제는 아래로 접수해 주세요. 접수 후 지체 없이
           답변하겠습니다.

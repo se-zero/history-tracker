@@ -1,5 +1,6 @@
 package com.history.backend.billing.repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -16,4 +17,9 @@ public interface BillingSubscriptionRepository extends JpaRepository<BillingSubs
     List<BillingSubscription> findByUserIdAndStatusIn(UUID userId, Collection<String> statuses);
 
     Optional<BillingSubscription> findFirstByUserIdAndStatusOrderByCanceledAtDesc(UUID userId, String status);
+
+    List<BillingSubscription> findByCurrentPeriodEndsAtGreaterThanEqualAndCurrentPeriodEndsAtLessThan(
+            Instant windowStart,
+            Instant windowEnd
+    );
 }
