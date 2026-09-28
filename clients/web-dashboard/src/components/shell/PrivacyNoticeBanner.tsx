@@ -55,8 +55,8 @@ export function PrivacyNoticeBanner() {
           개인정보처리방침이 개정됩니다 · {formatMonthDay(PRIVACY_POLICY_EFFECTIVE_DATE)} 시행
         </strong>
         <p className="terms-notice-text">
-          개인정보 보호책임자 표시와, 탈퇴 후에도 결제 기록을 법령이 정한 기간 동안 보관한다는
-          안내가 추가됩니다.{" "}
+          개인정보 보호책임자 표시, 탈퇴 후 결제 기록 보관, 결제 안내 메일 발송 위탁(Resend)이
+          추가됩니다.{" "}
           <a href={PATHS.privacy} target="_blank" rel="noopener noreferrer">
             개인정보처리방침
           </a>

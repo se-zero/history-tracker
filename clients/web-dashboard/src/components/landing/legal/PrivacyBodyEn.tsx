@@ -503,10 +503,12 @@ export function PrivacyBodyEn() {
       <LegalSection id="subprocessors" index={4} heading="Outsourcing of Processing and Cross-Border Transfer">
         <p>
           The Service outsources processing to the providers below for answer
-          generation, semantic search, and service operation. A User's questions
-          and part of the records stored in the graph (titles, bodies, summaries,
-          and the like) are transmitted to OpenAI, and all traffic reaching the
-          Service passes through Cloudflare's network.
+          generation, semantic search, service operation, and renewal notices.
+          A User's questions and part of the records stored in the graph (titles,
+          bodies, summaries, and the like) are transmitted to OpenAI, and all
+          traffic reaching the Service passes through Cloudflare's network.
+          A renewal notice sends only the recipient's email address and the
+          notice text to Resend.
         </p>
         <div className="lp-legal-table-scroll">
           <table className="lp-legal-table">
@@ -530,6 +532,12 @@ export function PrivacyBodyEn() {
                   termination, DNS, and forwarding of inquiry email</td>
                 <td>United States</td>
               </tr>
+              <tr>
+                <td>Resend, Inc.</td>
+                <td>Sending renewal notices. Only the recipient's email address
+                  and the notice text are sent; the knowledge graph is not</td>
+                <td>Japan (sending region: Tokyo)</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -541,7 +549,8 @@ export function PrivacyBodyEn() {
         </p>
         <p>
           Cloudflare only relays traffic and forwards inquiry email; it does not
-          store collected records or the knowledge graph.
+          store collected records or the knowledge graph. Resend is used only to
+          send renewal notices, not advertising or marketing email.
         </p>
         <p>
           Other than as described above, the Service does not provide a User's

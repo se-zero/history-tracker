@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 
@@ -68,6 +68,10 @@ export function PlanCard() {
   const [confirmDowngrade, setConfirmDowngrade] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
   const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("idle");
+  // refresh는 렌더마다 새 함수다. effect 의존성에 넣으면 2초마다 처음부터 다시 시작해
+  // 30초 제한에 닿지 않는다.
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     if (checkoutPhase !== "reflecting") return;
@@ -79,7 +83,7 @@ export function PlanCard() {
     const started = Date.now();
     let timer = 0;
     const tick = () => {
-      void refresh();
+      void refreshRef.current();
       void queryClient.invalidateQueries({ queryKey: queryKeys.billing() });
       if (Date.now() - started >= 30_000) {
         setCheckoutPhase((phase) => (phase === "reflecting" ? "timeout" : phase));
@@ -89,7 +93,7 @@ export function PlanCard() {
     };
     timer = window.setTimeout(tick, 2000);
     return () => window.clearTimeout(timer);
-  }, [checkoutPhase, queryClient, refresh]);
+  }, [checkoutPhase, queryClient]);
 
   if (!user) return null;
 
