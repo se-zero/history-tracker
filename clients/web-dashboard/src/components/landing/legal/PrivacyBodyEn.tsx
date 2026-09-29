@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   LEGAL_CONTACT_EMAIL,
   LEGAL_CONTACT_URL,
+  LEGAL_OPERATOR,
   LegalNotice,
   LegalSection,
   LegalSourceBlock,
@@ -502,10 +503,12 @@ export function PrivacyBodyEn() {
       <LegalSection id="subprocessors" index={4} heading="Outsourcing of Processing and Cross-Border Transfer">
         <p>
           The Service outsources processing to the providers below for answer
-          generation, semantic search, and service operation. A User's questions
-          and part of the records stored in the graph (titles, bodies, summaries,
-          and the like) are transmitted to OpenAI, and all traffic reaching the
-          Service passes through Cloudflare's network.
+          generation, semantic search, service operation, and renewal notices.
+          A User's questions and part of the records stored in the graph (titles,
+          bodies, summaries, and the like) are transmitted to OpenAI, and all
+          traffic reaching the Service passes through Cloudflare's network.
+          A renewal notice sends only the recipient's email address and the
+          notice text to Resend.
         </p>
         <div className="lp-legal-table-scroll">
           <table className="lp-legal-table">
@@ -529,6 +532,12 @@ export function PrivacyBodyEn() {
                   termination, DNS, and forwarding of inquiry email</td>
                 <td>United States</td>
               </tr>
+              <tr>
+                <td>Resend, Inc.</td>
+                <td>Sending renewal notices. Only the recipient's email address
+                  and the notice text are sent; the knowledge graph is not</td>
+                <td>Japan (sending region: Tokyo)</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -540,7 +549,8 @@ export function PrivacyBodyEn() {
         </p>
         <p>
           Cloudflare only relays traffic and forwards inquiry email; it does not
-          store collected records or the knowledge graph.
+          store collected records or the knowledge graph. Resend is used only to
+          send renewal notices, not advertising or marketing email.
         </p>
         <p>
           Other than as described above, the Service does not provide a User's
@@ -587,6 +597,13 @@ export function PrivacyBodyEn() {
             encrypted access token; the link between you and the installation
             (that is, who may access it) is deleted when you withdraw. If you
             want the record itself removed, please contact us at the address below.
+          </li>
+          <li>
+            <strong>Payment records</strong> — After membership withdrawal deletes
+            the account and service data, the time of a payment event, its type,
+            the subscription id, and the user id are kept for the period required
+            by applicable law. Card numbers are not stored. Payments are processed
+            by our reseller, Paddle.
           </li>
           <li>
             <strong>Backups</strong> — Server backups roll on a roughly
@@ -677,6 +694,10 @@ export function PrivacyBodyEn() {
       </LegalSection>
 
       <LegalSection index={10} heading="Contact">
+        <p>
+          The personal-information officer is {LEGAL_OPERATOR.en}. Contact:{" "}
+          <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>.
+        </p>
         <p>
           Please direct any inquiry, complaint, or request for relief regarding
           the processing of personal information to the contacts below. We will

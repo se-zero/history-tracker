@@ -2,8 +2,10 @@ package com.history.backend.auth.controller;
 
 import com.history.backend.auth.dto.UpgradePlanRequest;
 import com.history.backend.auth.dto.UserResponse;
+import com.history.backend.auth.service.AccountWithdrawalService;
 import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
+import com.history.backend.billing.service.BillingAccountService;
 import com.history.backend.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,8 @@ public class MeController {
 
     private final UserService userService;
     private final PlanService planService;
+    private final AccountWithdrawalService accountWithdrawalService;
+    private final BillingAccountService billingAccountService;
 
     @GetMapping
     public UserResponse me(@AuthenticationPrincipal AuthenticatedUser authenticatedUser) {
@@ -33,7 +37,13 @@ public class MeController {
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteMe(@AuthenticationPrincipal AuthenticatedUser authenticatedUser) {
-        userService.deactivateUser(authenticatedUser.id());
+        accountWithdrawalService.withdraw(authenticatedUser.id());
+    }
+
+    @PostMapping("/plan/downgrade")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void downgradePlan(@AuthenticationPrincipal AuthenticatedUser authenticatedUser) {
+        billingAccountService.downgradeCodePlan(authenticatedUser.id());
     }
 
     @PostMapping("/consent")

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   LEGAL_CONTACT_EMAIL,
   LEGAL_CONTACT_URL,
+  LEGAL_OPERATOR,
   LegalSection,
   LegalSourceBlock,
   LegalSourceRow,
@@ -420,9 +421,10 @@ export function PrivacyBodyKo() {
 
       <LegalSection id="subprocessors" index={4} heading="처리 위탁과 국외 이전">
         <p>
-          서비스는 답변 생성·의미 검색과 서비스 운영을 위해 아래 사업자에 처리를 위탁합니다.
-          이용자의 질문과 그래프에 저장된 기록의 일부(제목·본문·요약 등)가 OpenAI로 전송되며,
-          서비스에 접속하는 통신은 Cloudflare의 네트워크를 지나갑니다.
+          서비스는 답변 생성·의미 검색, 서비스 운영, 결제 예정 안내를 위해 아래 사업자에
+          처리를 위탁합니다. 이용자의 질문과 그래프에 저장된 기록의 일부(제목·본문·요약 등)가
+          OpenAI로 전송되고, 서비스에 접속하는 통신은 Cloudflare의 네트워크를 지나갑니다.
+          결제 예정 안내에는 수신 이메일 주소와 안내 본문만 Resend로 전달합니다.
         </p>
         <div className="lp-legal-table-scroll">
           <table className="lp-legal-table">
@@ -444,6 +446,11 @@ export function PrivacyBodyKo() {
                 <td>서비스 공개 경로(터널) 제공과 TLS 종단, DNS 및 문의 메일 전달</td>
                 <td>미국</td>
               </tr>
+              <tr>
+                <td>Resend, Inc.</td>
+                <td>결제 예정 안내 메일 발송. 수신 이메일 주소와 안내 본문만 전달하며, 지식 그래프는 보내지 않음</td>
+                <td>일본 (발송 리전 도쿄)</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -454,7 +461,8 @@ export function PrivacyBodyKo() {
         </p>
         <p>
           Cloudflare는 통신을 중계하고 문의 메일을 전달할 뿐, 수집된 기록이나 지식 그래프를
-          저장하지 않습니다.
+          저장하지 않습니다. Resend로는 결제 예정 안내만 보내며, 광고·마케팅 메일에는
+          쓰지 않습니다.
         </p>
         <p>
           이 외에 이용자의 개인정보를 제3자에게 제공하지 않으며, 어떤 경우에도{" "}
@@ -488,6 +496,12 @@ export function PrivacyBodyKo() {
             단위이고, 같은 조직의 다른 이용자가 계속 쓰고 있을 수 있기 때문입니다. 이 기록에는
             GitHub 계정명과 암호화된 접근 토큰이 포함되며, 이용자와의 연결(누가 접근할 수 있는지)은
             탈퇴 시 함께 삭제됩니다. 이 기록의 삭제를 원하시면 아래 문의처로 요청해 주세요.
+          </li>
+          <li>
+            <strong>결제 기록</strong> — 회원 탈퇴로 계정과 서비스 데이터를 삭제한 뒤에도,
+            결제 시각·알림 종류·구독 식별자·사용자 식별자는 관계 법령이 정한 기간 동안
+            보관합니다. 카드 번호는 보관하지 않습니다. 결제는 판매 대행자인 Paddle이
+            처리합니다.
           </li>
           <li>
             <strong>백업</strong> — 서버 백업은 약 2주 주기로 순환합니다. 위 경로로 삭제된
@@ -559,6 +573,11 @@ export function PrivacyBodyKo() {
       </LegalSection>
 
       <LegalSection index={10} heading="문의처">
+        <p>
+          개인정보 보호책임자는 {LEGAL_OPERATOR.ko}이며, 연락처는{" "}
+          <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>
+          입니다.
+        </p>
         <p>
           개인정보 처리에 관한 문의·불만·피해 구제는 아래로 접수해 주세요. 접수 후 지체 없이
           답변하겠습니다.

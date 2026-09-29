@@ -45,6 +45,8 @@ public class SecurityConfig {
                                 "/api/v1/slack/commands",
                                 // Paddle 결제 웹훅 — JWT 없이 열려야 한다. 서명 검증(PaddleSignatureVerifier)이 유일한 인증 수단이다.
                                 "/api/v1/billing/webhook/paddle",
+                                // 로그인 전 요금 페이지가 결제 버튼 노출 여부만 본다. 비밀값은 없다.
+                                "/api/v1/billing/availability",
                                 "/error"
                         ).permitAll()
                         .anyRequest().authenticated()

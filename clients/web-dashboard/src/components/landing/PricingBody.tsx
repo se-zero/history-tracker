@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 
 import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
+import { saveReturnPath } from "@/auth/returnPath";
 import { useLandingLanguage, type Localized } from "@/components/landing/LandingLanguageProvider";
+import { useCheckoutAvailability } from "@/hooks/useBilling";
 import { PLAN_FEATURE_ROWS, PRO_MONTHLY_PRICE_KRW } from "@/lib/plans";
 import { PATHS } from "@/routes";
 
@@ -17,6 +19,7 @@ const COPY: Localized<{
   notIncluded: string;
   startHeading: string;
   proPreparing: string;
+  subscribe: string;
   ctaStart: string;
   openApp: string;
   paymentNotice: ReactNode;
@@ -35,6 +38,7 @@ const COPY: Localized<{
     notIncluded: "—",
     startHeading: "시작하기",
     proPreparing: "Pro 구독은 준비 중입니다. 결제가 열리면 계정 설정에서 바로 전환할 수 있습니다.",
+  subscribe: "계정 설정에서 구독하기",
     ctaStart: "무료로 시작하기",
     openApp: "whycode 열기",
     paymentNotice: (
@@ -60,6 +64,7 @@ const COPY: Localized<{
     startHeading: "Get started",
     proPreparing:
       "Pro subscriptions are coming soon. Once billing opens, you'll be able to switch right from account settings.",
+    subscribe: "Subscribe from account settings",
     ctaStart: "Start for free",
     openApp: "Open whycode",
     paymentNotice: (
@@ -77,12 +82,14 @@ const COPY: Localized<{
 };
 
 // 요금 본문 — 조 번호 없는 짧은 산문(SupportBody·SlackBody와 같은 패턴). LegalLayout 안에서
-// 렌더되므로 언어는 Provider에서 읽는다. 결제 버튼은 아직 없어(B2) Pro는 "준비 중" 안내로
-// 대신한다.
+// 렌더되므로 언어는 Provider에서 읽는다. 결제 설정이 없으면 "준비 중"을 그대로 두고,
+// 열려 있을 때만 계정 설정으로 보내는 링크를 보여 준다.
 export function PricingBody() {
   const { lang } = useLandingLanguage();
   const { status } = useAuth();
+  const availability = useCheckoutAvailability();
   const t = COPY[lang];
+  const checkoutAvailable = availability.data?.checkoutAvailable === true;
 
   return (
     <>
@@ -117,7 +124,23 @@ export function PricingBody() {
 
       <section className="lp-legal-section">
         <h2 className="lp-legal-heading">{t.startHeading}</h2>
-        <p className="lp-legal-notice">{t.proPreparing}</p>
+        {checkoutAvailable ? (
+          <p>
+            {status === "authenticated" ? (
+              <Link className="lp-btn lp-btn--primary" to={PATHS.account}>{t.subscribe}</Link>
+            ) : (
+              <a
+                className="lp-btn lp-btn--primary"
+                href={GITHUB_AUTHORIZE_URL}
+                onClick={() => saveReturnPath(PATHS.account)}
+              >
+                {t.subscribe}
+              </a>
+            )}
+          </p>
+        ) : (
+          <p className="lp-legal-notice">{t.proPreparing}</p>
+        )}
         <p>
           {status === "authenticated" ? (
             <Link className="lp-btn lp-btn--primary" to={PATHS.root}>{t.openApp}</Link>

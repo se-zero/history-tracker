@@ -19,6 +19,7 @@ import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserProviderConnectionRepository;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.integration.domain.Integration;
@@ -537,6 +538,66 @@ class PlanServiceTest {
         assertThatThrownBy(() -> service.downgradeToFree(OWNER_ID))
                 .isInstanceOf(NotFoundException.class);
 
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("전환 코드 PAID(만료 시각 없음)는 무료로 내리고 증분 수집을 끈다")
+    void downgradeCodeUserToFreeResetsPlanAndDisablesIncremental() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 7, null);
+        Integration githubIntegration = integration(IntegrationProvider.GITHUB, true);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID)).thenReturn(List.of(githubIntegration));
+
+        service.downgradeCodeUserToFree(OWNER_ID);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        assertThat(user.getFreeQueryCount()).isZero();
+        assertThat(user.getPlanExpiresAt()).isNull();
+        verify(userRepository).save(user);
+        assertThat(githubIntegration.isIncrementalEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("이미 FREE인 사용자의 코드 강등은 아무것도 하지 않는다")
+    void downgradeCodeUserToFreeIsNoOpForFreeUser() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.FREE, 4, null);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        service.downgradeCodeUserToFree(OWNER_ID);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        assertThat(user.getFreeQueryCount()).isEqualTo(4);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("만료 시각이 있는 PAID(구독)는 코드 강등 409이고 저장하지 않는다")
+    void downgradeCodeUserToFreeRejectsSubscriptionPlan() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 0, PLAN_EXPIRES_AT);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.downgradeCodeUserToFree(OWNER_ID))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Only upgrade-code plans can be downgraded here.");
+
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("코드 강등 대상 사용자가 없으면 NotFoundException")
+    void downgradeCodeUserToFreeThrowsWhenUserNotFound() {
+        PlanService service = service(UPGRADE_CODE);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.downgradeCodeUserToFree(OWNER_ID))
+                .isInstanceOf(NotFoundException.class);
         verifyNoInteractions(integrationRepository);
     }
 

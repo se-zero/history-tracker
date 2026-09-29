@@ -5,6 +5,7 @@ import com.history.backend.auth.PlanExpiryProperties;
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.billing.BillingProperties;
 import com.history.backend.billing.PaddleProperties;
+import com.history.backend.billing.ResendProperties;
 import com.history.backend.clickup.ClickUpProperties;
 import com.history.backend.common.crypto.CredentialCryptoProperties;
 import com.history.backend.conversation.ChatMemoryProperties;
@@ -34,6 +35,7 @@ import org.springframework.context.annotation.Configuration;
         PlanExpiryProperties.class,
         PaddleProperties.class,
         BillingProperties.class,
+        ResendProperties.class,
         DiscordProperties.class,
         GoogleChatProperties.class,
         LinearProperties.class,

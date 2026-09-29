@@ -43,4 +43,6 @@ export const queryKeys = {
   oauthConsentPreview: (query: string) =>
     ["oauth", "consent", "preview", query] as const,
   oauthGrants: () => ["oauth", "grants"] as const,
+  billing: () => ["billing"] as const,
+  billingAvailability: () => ["billing", "availability"] as const,
 };

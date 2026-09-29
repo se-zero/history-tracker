@@ -52,6 +52,10 @@ app:
     # 결제 갱신 알림이 지연되거나 Paddle 재시도가 진행 중일 때 만료 스케줄러가 먼저 강등하는 것을
     # 막는 유예. 기본값은 Paddle 라이브 재시도 창(~3일)과 같다.
     expiry-grace: ${BILLING_EXPIRY_GRACE:P3D}
+    # 결제일 6~8일 전 안내. 하루를 놓쳐도 그 주기는 창 안에 남게 6일과 8일 사이로 둔다.
+    renewal-notice:
+      enabled: ${BILLING_RENEWAL_NOTICE_ENABLED:true}
+      cron: "${BILLING_RENEWAL_NOTICE_CRON:0 0 4 * * *}"
 
 conversation:
   memory:
@@ -97,8 +101,22 @@ paddle:
   webhook-secret: ${PADDLE_WEBHOOK_SECRET:}
   # Paddle-Signature 헤더 ts 허용 오차. Paddle 기본 권장값(5초)과 같다.
   signature-tolerance: ${PADDLE_SIGNATURE_TOLERANCE:PT5S}
-  # Pro 플랜 가격 ID(pri_…). 환경마다 다르다(샌드박스/라이브). 비우면 모든 가격의 구독을 허용한다.
+  # Pro 플랜 가격 ID(pri_…). 환경마다 다르다(샌드박스/라이브). 비우면 웹훅은 모든 가격을 허용하고,
+  # 결제 버튼은 열리지 않는다(api-key·client-token과 함께 있어야 isCheckoutConfigured).
   pro-price-id: ${PADDLE_PRO_PRICE_ID:}
+  # 서버용 API 키(pdl_sdbx_apikey_… / pdl_live_apikey_…). 프론트에 내려주지 않는다.
+  # 비면 PaddleApiClient가 호출 전에 실패한다(fail-closed).
+  api-key: ${PADDLE_API_KEY:}
+  # sandbox | production. production이 아니면 샌드박스 API를 쓴다.
+  environment: ${PADDLE_ENVIRONMENT:sandbox}
+  # Paddle.js 클라이언트 토큰(test_… / live_…). 공개돼도 되는 값이라 결제 시작 응답에만 싣는다.
+  client-token: ${PADDLE_CLIENT_TOKEN:}
+
+resend:
+  # 비면 결제일 안내를 보내지 않는다. 결제·해지는 그대로 동작한다.
+  api-key: ${RESEND_API_KEY:}
+  from: "${RESEND_FROM:whycode <billing@mail.why-code.com>}"
+  reply-to: ${RESEND_REPLY_TO:contact@why-code.com}
 
 github:
   app:

@@ -115,6 +115,8 @@ export default function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Route>
           <Route path={PATHS.root} element={<RootRedirect />} />
+          {/* 공개 라우트가 아니다. 요금 페이지의 "계정 설정에서 구독하기"가 여기로 온다. */}
+          <Route path={PATHS.account} element={<AccountRedirect />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AuthProvider>
@@ -155,4 +157,36 @@ function RootRedirect() {
   const projects = projectsQuery.data ?? [];
   if (projects.length === 0) return <Navigate to={PATHS.onboarding} replace />;
   return <Navigate to={`/projects/${projects[0].id}/chat`} replace />;
+}
+
+function AccountRedirect() {
+  const { status } = useAuth();
+  const projectsQuery = useProjects({ enabled: status === "authenticated" });
+
+  if (status === "loading") {
+    return <StatusView tone="loading" description="세션 확인 중…" fullPage />;
+  }
+  if (status === "unauthenticated") return <Navigate to={PATHS.landing} replace />;
+  if (projectsQuery.isLoading) {
+    return <StatusView tone="loading" description="프로젝트를 불러오는 중…" fullPage />;
+  }
+  if (projectsQuery.isError) {
+    return (
+      <StatusView
+        tone="error"
+        title="프로젝트를 불러오지 못했어요"
+        description="네트워크나 서버 상태를 확인한 뒤 새로고침해 주세요."
+        action={
+          <button className="btn btn-primary" onClick={() => window.location.reload()}>
+            새로고침
+          </button>
+        }
+        fullPage
+      />
+    );
+  }
+
+  const projects = projectsQuery.data ?? [];
+  if (projects.length === 0) return <Navigate to={PATHS.onboarding} replace />;
+  return <Navigate to={`/projects/${projects[0].id}/account`} replace />;
 }

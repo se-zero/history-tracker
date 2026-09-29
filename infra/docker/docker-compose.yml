@@ -140,6 +140,16 @@ services:
       PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
       PADDLE_SIGNATURE_TOLERANCE: ${PADDLE_SIGNATURE_TOLERANCE:-PT5S}
       PADDLE_PRO_PRICE_ID: ${PADDLE_PRO_PRICE_ID:-}
+      # 서버용 API 키·환경·클라이언트 토큰. 셋 중 하나라도 비면 결제 버튼은 열리지 않는다.
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_ENVIRONMENT: ${PADDLE_ENVIRONMENT:-sandbox}
+      PADDLE_CLIENT_TOKEN: ${PADDLE_CLIENT_TOKEN:-}
+      # 결제일 7일 전 안내. 키가 비면 그 회차는 보내지 않고 결제·해지는 그대로 동작한다.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-whycode <billing@mail.why-code.com>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-contact@why-code.com}
+      BILLING_RENEWAL_NOTICE_ENABLED: ${BILLING_RENEWAL_NOTICE_ENABLED:-true}
+      BILLING_RENEWAL_NOTICE_CRON: ${BILLING_RENEWAL_NOTICE_CRON:-0 0 4 * * *}
       # 결제 갱신 알림 지연·재시도에 대비한 만료 유예. 기본 3일(라이브 재시도 창과 동일).
       BILLING_EXPIRY_GRACE: ${BILLING_EXPIRY_GRACE:-P3D}
 

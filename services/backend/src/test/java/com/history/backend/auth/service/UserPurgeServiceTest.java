@@ -22,6 +22,7 @@ import java.util.UUID;
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.billing.service.SubscriptionCancellationService;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.service.GitHubUserTokenService;
 import com.history.backend.project.service.ProjectService;
@@ -56,6 +57,9 @@ class UserPurgeServiceTest {
 
     @Mock
     private GitHubUserTokenService gitHubUserTokenService;
+
+    @Mock
+    private SubscriptionCancellationService subscriptionCancellationService;
 
     @Mock
     private TransactionTemplate transactionTemplate;
@@ -329,6 +333,35 @@ class UserPurgeServiceTest {
     }
 
     @Test
+    @DisplayName("구독 해지는 외부 자원 정리보다 먼저이고, 해지 실패 사용자는 강제 파기 대상이어도 행이 남는다")
+    void purgeExpiredUsersKeepsUserWhenSubscriptionCancellationFailsEvenOnForcePurge() {
+        UserPurgeService service = userPurgeService(2);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID))
+                .thenReturn(List.of());
+        doThrow(new BadGatewayException("Paddle subscription cancel request failed."))
+                .when(subscriptionCancellationService).cancelLiveSubscriptions(FIRST_USER_ID);
+        when(userRepository.findById(FIRST_USER_ID))
+                .thenReturn(Optional.of(softDeletedUser(FORCE_CUTOFF.minus(Duration.ofDays(1)))));
+
+        int purgedCount = service.purgeExpiredUsers(NOW);
+
+        assertThat(purgedCount).isEqualTo(1);
+        InOrder inOrder = inOrder(subscriptionCancellationService, gitHubUserTokenService, projectService);
+        inOrder.verify(subscriptionCancellationService).cancelLiveSubscriptions(SECOND_USER_ID);
+        inOrder.verify(gitHubUserTokenService).revokeGrant(SECOND_USER_ID);
+        inOrder.verify(projectService).releaseExternalResources(SECOND_USER_ID);
+        verify(projectService, never()).forcePurgeExternalResources(any());
+        verify(projectService, never()).releaseExternalResources(FIRST_USER_ID);
+        verify(userRepository).deleteAllByIdInBatch(List.of(SECOND_USER_ID));
+    }
+
+    @Test
     @DisplayName("배치 크기를 페이지 크기로 사용")
     void purgeExpiredUsersUsesBatchSizeAsPageSize() {
         UserPurgeService service = userPurgeService(100);
@@ -354,6 +387,7 @@ class UserPurgeServiceTest {
                 userRepository,
                 projectService,
                 gitHubUserTokenService,
+                subscriptionCancellationService,
                 new UserPurgeProperties(true, Duration.ofDays(30), "0 0 3 * * *", batchSize, Duration.ofDays(60)),
                 transactionTemplate
         );

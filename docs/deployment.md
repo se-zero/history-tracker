@@ -113,6 +113,7 @@ cp .env.example .env
 | `RABBITMQ_USER` · `RABBITMQ_PASSWORD` | `openssl rand -hex 32` | **URL-safe 값만** — 아래 경고 참고 |
 | `TUNNEL_TOKEN` | Cloudflare 대시보드 | 2-2에서 발급받는다. 이것이 있어야 바깥에서 접근할 수 있다 |
 | `ALERT_SLACK_WEBHOOK_URL` | Slack 앱 → Incoming Webhooks | 선택. 비우면 알림 없이 로그만. 4-6 참고 |
+| `PADDLE_*` · `RESEND_*` | Paddle·Resend 대시보드 | 선택. 비우면 결제는 "준비 중", 결제일 안내는 안 나간다. 라이브 결제를 열 때 3-2b |
 
 > ⚠️ **RabbitMQ 비밀번호에 `/`·`@`·`#`·`?`를 쓰지 않는다.** ai-engine이 이 값을 AMQP URL
 > (`amqp://user:password@rabbitmq:5672/`) 안에 끼워 넣기 때문에, 특수문자가 있으면 파서가 vhost나
@@ -265,17 +266,43 @@ pipeline-worker로 프록시하지 않는다 — 연동 행·그래프 삭제와
 
 앱에 슬래시 커맨드 등록·bot scope(`commands`)는 S4다. 여기서는 Request URL만 적는다.
 
-### 3-2b. Paddle 결제 알림 등록 (라이브 전환 때)
+### 3-2b. Paddle 결제 라이브 전환 (G1 승인 뒤)
 
 라이브 계정 심사(G1) 승인 뒤, **라이브 대시보드**(`vendors.paddle.com`)에서 한다. 샌드박스 값을 그대로 쓰면
-안 된다 — 두 환경은 키·가격·알림 대상이 전부 따로다(docs/billing.md §12).
+안 된다 — 두 환경은 키·가격·알림 대상·토큰이 전부 따로다(docs/billing.md §12).
+
+**결제 버튼은 `PADDLE_API_KEY`·`PADDLE_CLIENT_TOKEN`·`PADDLE_PRO_PRICE_ID` 셋이 다 채워지는 순간 열린다**
+(결제 스위치 — docs/billing.md §0). 하나라도 비어 있으면 요금 페이지·요금제 카드가 "준비 중"이라, 코드는
+G1 전에 배포돼 있어도 된다. 거꾸로 셋을 채우면 **모든 사용자에게** 버튼이 보이므로, 대시보드 준비를 다
+마치고 G2(라이브 소액 실측)를 시작할 때 처음 채운다.
 
 | Paddle 설정 | 값 |
 |---|---|
+| **Catalog → Products** | Pro 상품과 월 가격 **14,900원, 통화 KRW, 세금 포함(`tax_mode: internal`)** — 요금 페이지 금액과 같아야 한다(billing.md §8-1). 샌드박스 상품과 이름·설명을 맞춘다 |
+| **Checkout → Checkout settings** | 한국 결제 수단(로컬 카드·카카오페이·네이버페이 등) 켜기, Default payment link를 샌드박스와 같은 경로로(도메인만 라이브). G2에서 무인 갱신이 안 된 수단은 여기서 끈다 |
+| **Checkout → Website approval** | `why-code.com`이 승인 상태인지 확인 |
 | **Developer tools → Notifications → New destination** | URL `https://<도메인>/api/v1/billing/webhook/paddle`, Usage type **Platform**, 이벤트 **`subscription.*`만**. 코드는 구독 알림만 처리하고 나머지는 무시한다 — 특히 `customer.*`에는 이메일·이름이 실려 오므로 받지 않는다(최소 수집) |
-| `.env` 키 `PADDLE_WEBHOOK_SECRET` | 위 대상을 저장할 때 나오는 서명 키(`pdl_ntfset_…`). **다시 조회할 수 없으니 바로 옮긴다** |
-| `.env` 키 `PADDLE_PRO_PRICE_ID` | 라이브에서 새로 만든 Pro 가격 id(`pri_…`). 비면 모든 가격의 구독을 받아들인다 |
-| `.env` 키 `PADDLE_SIGNATURE_TOLERANCE`·`BILLING_EXPIRY_GRACE` | 비우면 기본값(5초·3일) |
+| **Developer tools → Authentication → API keys** | 서버용 키. 권한 `transaction.write`·`subscription.write`·`customer_portal_session.write`·`customer.read`(write가 read를 포함한다). ⚠️ **만료가 있다 — 기본 90일, 최장 1년.** 1년으로 발급하고 만료일을 달력에 적는다. 로컬(샌드박스) 키와 따로 발급한다 |
+| **Notifications → 이메일 알림 대상** | `api_key.expiring`(만료 7일 전)·`api_key.expired`를 운영자 메일로 받는다. 키가 만료되면 결제 시작·포털·탈퇴 해지·결제일 안내가 전부 502로 실패한다(탈퇴가 막힌다) |
+| **Developer tools → Authentication → Client-side tokens** | Paddle.js용 `live_…` 토큰. 브라우저로 내려가도 되는 값이라 API 키와 다르다 |
+
+| `.env` 키 | 값 |
+|---|---|
+| `PADDLE_ENVIRONMENT` | `production`. 비우거나 다른 값이면 샌드박스 API를 부른다(설정 누락이 실결제가 되지 않게 기본을 샌드박스로 뒀다) |
+| `PADDLE_API_KEY` | 위 서버용 키(`pdl_live_apikey_…`). 프론트에 내려가지 않는다 |
+| `PADDLE_CLIENT_TOKEN` | 위 클라이언트 토큰(`live_…`) |
+| `PADDLE_WEBHOOK_SECRET` | 알림 대상을 저장할 때 나오는 서명 키(`pdl_ntfset_…`). **다시 조회할 수 없으니 바로 옮긴다** |
+| `PADDLE_PRO_PRICE_ID` | 라이브 Pro 가격 id(`pri_…`). 비면 웹훅은 모든 가격을 받아들이고 결제 버튼은 열리지 않는다 |
+| `PADDLE_SIGNATURE_TOLERANCE`·`BILLING_EXPIRY_GRACE` | 비우면 기본값(5초·3일) |
+| `RESEND_API_KEY` | 결제일 7일 전 안내 메일. Resend에서 **서버용 키를 따로** 발급한다(권한 Sending access, 도메인 `mail.why-code.com` 제한). 비면 안내만 안 나가고 결제·해지는 그대로 동작한다 |
+| `RESEND_FROM`·`RESEND_REPLY_TO` | 비우면 `whycode <billing@mail.why-code.com>`·`contact@why-code.com` |
+| `BILLING_RENEWAL_NOTICE_ENABLED`·`BILLING_RENEWAL_NOTICE_CRON` | 비우면 켜짐·매일 04:00(서버 시각) |
+
+**G2 진행** — 1일 주기 가격을 따로 만들어 `PADDLE_PRO_PRICE_ID`에 잠시 넣고 결제 수단마다 구독해 다음 날
+갱신이 사람 손 없이 청구되는지 본다(billing.md §15-3-1). 이 동안 버튼이 모든 사용자에게 열리므로 짧게 끝내고,
+끝나면 1일 가격을 보관(archive) 처리하고 월 가격 id로 되돌린 뒤 재기동한다. 이 결제로 함께 확인한다 —
+**브라우저 콘솔에 CSP 위반이 없는지**(라이브 결제창 도메인 `buy.paddle.com`·`checkout-service.paddle.com`은
+샌드박스 이름에서 추정해 넣은 값이다, `clients/web-dashboard/nginx.conf`), 알림 로그 200, 요금제 카드의 구독자 상태.
 
 `PADDLE_WEBHOOK_SECRET`이 비면 모든 알림이 401로 거부되고 Paddle이 재시도한다(fail-closed) — 결제는
 됐는데 플랜이 안 바뀌는 상태가 된다. 등록 직후 대시보드의 알림 로그에서 200이 찍히는지 확인한다.
