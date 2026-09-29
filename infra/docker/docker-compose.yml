@@ -120,6 +120,12 @@ services:
       AI_ENGINE_READ_TIMEOUT_SECONDS: ${AI_ENGINE_READ_TIMEOUT_SECONDS:-120}
       PIPELINE_WORKER_URL: ${PIPELINE_WORKER_URL:-http://pipeline-worker:8081}
 
+      # MCP OAuth 인가 서버 — infra/docker/.env 에서 forward.
+      # issuer는 사용자가 브라우저·Claude Code로 접근하는 프론트 오리진이어야 한다(로컬은 Vite 5173, 배포는 https://why-code.com).
+      # 서명키가 비면 backend가 임시 RSA 키를 만들어 뜨지만, 재기동마다 이미 발급된 MCP 토큰이 전부 무효화된다.
+      MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER:-http://localhost:5173}
+      MCP_OAUTH_PRIVATE_KEY: ${MCP_OAUTH_PRIVATE_KEY:-}
+
       # 보안 키
       JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-must-be-changed}
       BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}

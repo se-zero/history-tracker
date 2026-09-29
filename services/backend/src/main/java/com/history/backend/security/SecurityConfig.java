@@ -3,8 +3,10 @@ package com.history.backend.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.backend.common.error.ErrorResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -22,8 +24,10 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final InternalServiceAuthenticationFilter internalServiceAuthenticationFilter;
 
-    // stateless API 보안 필터 체인 및 공개 인증 경로 설정
+    // stateless API 보안 필터 체인 및 공개 인증 경로 설정.
+    // securityMatcher가 없는 catch-all이라 인가 서버(1)·MCP 리소스 서버(2) 체인 뒤에 와야 한다.
     @Bean
+    @Order(3)
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -48,6 +52,17 @@ public class SecurityConfig {
                 .addFilterBefore(internalServiceAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    // JwtAuthenticationFilter는 @Component라 Boot가 서블릿 컨테이너에도 "/*"로 자동 등록하는데,
+    // 그 인스턴스는 보안 체인(-100) 뒤에 한 번 더 돌아 MCP 체인이 통과시킨 RS256 Bearer를 HS256으로
+    // 재검사해 401을 낸다. 보안 체인에는 addFilterBefore로 이미 넣고 있으므로 서블릿 등록만 끈다
+    // — /api/** 동작은 변하지 않는다.
+    @Bean
+    FilterRegistrationBean<JwtAuthenticationFilter> jwtAuthenticationFilterRegistration(JwtAuthenticationFilter filter) {
+        FilterRegistrationBean<JwtAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     // 미인증 요청에 대한 공통 JSON 에러 응답 처리
