@@ -69,6 +69,11 @@ src/
                     useOAuthCallbackError — 동의 후 돌아온 리다이렉트의 실패 안내(URL 쿼리 캡처)
                     DisconnectIntegration — 해제 버튼 + 사전 경고 다이얼로그(연동 행 공용).
                     해제는 수집된 그래프까지 지우는 파괴적 동작이라 무엇이 삭제·유지되는지 먼저 보여준다
+                    GitHubInstallEmptyState — GitHub App 미설치 빈 상태(설치 + "연결 확인" 버튼). 온보딩
+                    2단계와 GitHubCard가 같이 쓴다. "연결 확인"이 설치 뒤 유일한 진행 수단이라 버튼이다(#162).
+                    누르면 GitHub 로그인으로 페이지를 떠나므로, 온보딩(OnboardingPage)은 STEP 02로 넘어갈 때
+                    이름·설명을 sessionStorage 초안(`ht.onboarding.draft`, 30분)에 남기고 다시 열리면 STEP 02부터
+                    잇는다. 프로젝트를 만들거나 "이전"을 누르면 지운다. 서버 호출 시점(STEP 02의 "연결")은 그대로다
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(요금제 카드 — `GET /me/billing`의
                     planSource로 결제 구독자·코드 사용자·무료 세 상태를 그린다. 결제창·포털 링크·코드 강등.
@@ -162,6 +167,10 @@ public/             빌드 시 dist/ 루트로 그대로 복사된다(Vite 기�
 - 반복되는 인라인 스타일·에러 문구·폼 래퍼는 **`components/ui` 프리미티브**(MonoChip·InlineError·Field)를 쓴다.
 - **스타일은 글로벌 className + CSS 변수**다. 색·간격·radius는 `styles/tokens.css`의 변수만 쓰고 **hex 하드코딩 금지**.
   규칙은 해당 `styles/<feature>.css`에 추가하고 `styles/index.css`에 `@import`로 등록한다(외부 폰트 @import는 index.css 최상단).
+- **앱 화면의 `<a>`는 기본으로 링크처럼 보이지 않는다** — `base.css`의 `a { color: inherit; text-decoration: none; }`
+  때문이다(랜딩·약관의 `.lp` 스코프는 별도 규칙이 있다). 문장 속 링크에는 `className="text-link"`(밑줄)를 붙이고,
+  다음 단계로 가는 **실행**이면 문장에 넣지 말고 `.btn`으로 올린다. 클래스 없는 `<a>`를 문장에 넣으면 주변
+  글자와 똑같이 보여 누를 수 있다는 걸 알 수 없다(#162 — 새 사용자가 온보딩에서 멈췄다).
 - import 경로는 `@/` alias를 쓴다 (`@/components/...`).
 - **backend API만 호출**한다(`api/`). snake_case ↔ camelCase 매핑은 `api/` 모듈에서 처리하고, 컴포넌트는 camelCase만 본다.
 - 인증 토큰은 `api/client.ts` 인터셉터(자동 refresh·rotation, 401 처리)에 위임한다 — 컴포넌트에서 토큰을 직접 다루지 않는다.

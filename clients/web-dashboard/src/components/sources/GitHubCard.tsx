@@ -1,6 +1,6 @@
 import { GithubMark } from "@/components/brand/BrandMarks";
 import { DisconnectIntegration } from "@/components/sources/DisconnectIntegration";
-import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
+import { GitHubInstallEmptyState } from "@/components/sources/GitHubInstallEmptyState";
 import { useGithubInstallations } from "@/hooks/useGithub";
 import { useIntegrations } from "@/hooks/useIntegrations";
 import { formatTimestamp } from "@/lib/format";
@@ -73,32 +73,7 @@ export function GitHubCard({ projectId }: { projectId: string }) {
       )}
 
       {!installationsQuery.isLoading && !connected && (
-        <div
-          style={{
-            padding: "16px 0 0",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 10,
-            textAlign: "center",
-            color: "var(--fg-muted)",
-            fontSize: 13,
-          }}
-        >
-          <span>이 계정으로 GitHub App이 설치된 워크스페이스가 없습니다.</span>
-          <a
-            className="btn btn-primary"
-            href={GITHUB_INSTALL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub App 연결하기
-          </a>
-          <span style={{ fontSize: 12 }}>
-            설치 후 이 페이지로 돌아와{" "}
-            <a href={GITHUB_AUTHORIZE_URL}>연결 확인</a>을 눌러주세요.
-          </span>
-        </div>
+        <GitHubInstallEmptyState style={{ padding: "16px 0 0" }} />
       )}
     </div>
   );

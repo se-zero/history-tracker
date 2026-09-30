@@ -33,6 +33,13 @@ body {
 button { font-family: inherit; cursor: pointer; }
 input, textarea { font-family: inherit; }
 a { color: inherit; text-decoration: none; }
+/* 문장 속 링크 — 위 규칙이 색·밑줄을 지워 주변 글자와 구분되지 않는다(#162). 색은 문장(오류 문구 등)을
+   그대로 따르고 밑줄로만 링크임을 보인다. 실행 성격의 링크는 이 클래스 대신 .btn으로 올린다. */
+.text-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.text-link:hover { text-decoration-thickness: 2px; }
 
 ::selection { background: var(--accent-soft); color: var(--fg); }
 
