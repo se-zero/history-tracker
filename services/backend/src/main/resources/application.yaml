@@ -76,6 +76,7 @@ mcp:
     private-key: ${MCP_OAUTH_PRIVATE_KEY:}
     access-token-ttl: PT1H
     refresh-token-ttl: P30D
+    consent-path: /oauth/consent
 
 security:
   internal-service:

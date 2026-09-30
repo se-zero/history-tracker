@@ -10,7 +10,8 @@ public record McpOAuthProperties(
         String issuer,
         String privateKey,
         Duration accessTokenTtl,
-        Duration refreshTokenTtl
+        Duration refreshTokenTtl,
+        String consentPath
 ) {
 
     // 끝 슬래시가 붙은 issuer를 그대로 이어 붙이면 aud·메타데이터 URL이 "…//mcp"가 되어 기동은 되지만
@@ -23,6 +24,10 @@ public record McpOAuthProperties(
 
     public String resourceUrl() {
         return issuer + "/mcp";
+    }
+
+    public String consentUrl() {
+        return issuer + consentPath;
     }
 
     public String protectedResourceMetadataUrl() {

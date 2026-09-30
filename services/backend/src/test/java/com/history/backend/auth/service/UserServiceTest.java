@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,6 +19,8 @@ import com.history.backend.auth.dto.UserResponse;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.dto.GitHubUserResponse;
+import com.history.backend.oauth.dto.OAuthGrantResponse;
+import com.history.backend.oauth.service.OAuthGrantService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,6 +42,9 @@ class UserServiceTest {
 
     @Mock
     private RefreshTokenService refreshTokenService;
+
+    @Mock
+    private OAuthGrantService oAuthGrantService;
 
     @Test
     @DisplayName("동시 삽입 충돌 시 재조회로 사용자 반환")
@@ -137,6 +143,29 @@ class UserServiceTest {
 
         assertThrows(NotFoundException.class, () -> userService.deactivateUser(USER_ID));
         verifyNoInteractions(refreshTokenService);
+    }
+
+    @Test
+    @DisplayName("사용자 탈퇴 시 그 사용자의 연결된 앱(OAuth 연결)도 전부 삭제")
+    void deactivateUserRevokesAllOAuthGrants() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        userService.deactivateUser(USER_ID);
+
+        verify(oAuthGrantService).revokeAll(USER_ID);
+        verify(refreshTokenService).revokeAllRefreshTokens(user);
+    }
+
+    @Test
+    @DisplayName("탈퇴·미존재 사용자 탈퇴 요청이면 OAuth 연결 삭제도 하지 않는다")
+    void deactivateUserDoesNotRevokeOAuthGrantsForDeletedOrMissingUser() {
+        UserService userService = userService();
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class, () -> userService.deactivateUser(USER_ID));
+        verifyNoInteractions(oAuthGrantService);
     }
 
     @Test
@@ -282,12 +311,59 @@ class UserServiceTest {
         assertThat(response.requiresConsent()).isTrue();
     }
 
+    @Test
+    @DisplayName("연결된 앱 목록은 활성 사용자에게만 OAuthGrantService 결과를 반환")
+    void listOAuthGrantsDelegatesForActiveUser() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        List<OAuthGrantResponse> grants = List.of(new OAuthGrantResponse(
+                "internal-id", "client-id", "Claude Code", null, Instant.parse("2026-09-20T03:12:00Z"), null));
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+        when(oAuthGrantService.list(USER_ID)).thenReturn(grants);
+
+        List<OAuthGrantResponse> result = userService.listOAuthGrants(USER_ID);
+
+        assertThat(result).isSameAs(grants);
+    }
+
+    @Test
+    @DisplayName("탈퇴·미존재 사용자의 연결된 앱 목록 요청 거부")
+    void listOAuthGrantsRejectsDeletedOrMissingUser() {
+        UserService userService = userService();
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class, () -> userService.listOAuthGrants(USER_ID));
+        verifyNoInteractions(oAuthGrantService);
+    }
+
+    @Test
+    @DisplayName("연결된 앱 철회는 활성 사용자일 때 OAuthGrantService에 위임")
+    void revokeOAuthGrantDelegatesForActiveUser() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        userService.revokeOAuthGrant(USER_ID, "internal-id");
+
+        verify(oAuthGrantService).revoke(USER_ID, "internal-id");
+    }
+
+    @Test
+    @DisplayName("탈퇴·미존재 사용자의 연결된 앱 철회 요청 거부")
+    void revokeOAuthGrantRejectsDeletedOrMissingUser() {
+        UserService userService = userService();
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class, () -> userService.revokeOAuthGrant(USER_ID, "internal-id"));
+        verifyNoInteractions(oAuthGrantService);
+    }
+
     private UserService userService() {
         return userService(CURRENT_TERMS_VERSION, "");
     }
 
     // consentRequiredSince를 직접 지정하는 헬퍼 — 기록 버전(terms-version)과 재동의 기준을 분리 검증
     private UserService userService(String termsVersion, String consentRequiredSince) {
-        return new UserService(userRepository, refreshTokenService, termsVersion, consentRequiredSince);
+        return new UserService(userRepository, refreshTokenService, oAuthGrantService, termsVersion, consentRequiredSince);
     }
 }

@@ -111,7 +111,9 @@ public class McpAuthorizationRequestValidator implements Consumer<OAuth2Authoriz
     }
 
     // urn:·상대 경로처럼 호스트가 없는 URI는 getHost()가 null이고, Set.of(...)는 contains(null)에 NPE를 던진다.
-    private static boolean isLoopbackHost(String host) {
-        return host != null && LOOPBACK_HOSTS.contains(host);
+    // 대괄호는 여기서도 벗긴다 — 밖에서 URI.getHost() 값을 그대로 넘겨도 "[::1]"이 루프백으로 판정되게 하기 위함이다.
+    public static boolean isLoopbackHost(String host) {
+        String bare = stripBrackets(host);
+        return bare != null && LOOPBACK_HOSTS.contains(bare);
     }
 }

@@ -5,14 +5,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.history.backend.oauth.McpOAuthProperties;
+import com.history.backend.oauth.security.ConsentTicketAuthenticationFilter;
 import com.history.backend.oauth.security.DefaultScopeAuthorizationRequestConverter;
 import com.history.backend.oauth.security.McpAuthorizationRequestValidator;
 import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationConverter;
 import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationProvider;
 import com.history.backend.oauth.security.PublicClientRefreshTokenGenerator;
 import com.history.backend.oauth.security.PublicClientRegistrationConverter;
+import com.history.backend.oauth.security.SpaConsentRedirectEntryPoint;
 import com.history.backend.oauth.service.CimdDocumentFetcher;
 import com.history.backend.oauth.service.CimdRegisteredClientRepository;
+import com.history.backend.oauth.service.ConsentTicketService;
 import com.history.backend.oauth.service.McpRegisteredClientPolicy;
 import com.history.backend.oauth.service.OAuthJwkProvider;
 import com.nimbusds.jose.jwk.source.JWKSource;
@@ -46,8 +49,13 @@ import org.springframework.security.oauth2.server.authorization.token.JwtGenerat
 import org.springframework.security.oauth2.server.authorization.token.OAuth2AccessTokenGenerator;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.DelegatingAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcherEntry;
 
 // MCP 클라이언트용 OAuth 2.1 인가 서버(/oauth2/**, /.well-known/oauth-authorization-server) 설정
 @Configuration
@@ -55,6 +63,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 public class OAuthAuthorizationServerConfig {
 
     private final McpOAuthProperties mcpOAuthProperties;
+    private final ConsentTicketService consentTicketService;
 
     @Bean
     AuthorizationServerSettings authorizationServerSettings() {
@@ -111,6 +120,14 @@ public class OAuthAuthorizationServerConfig {
                 jwtGenerator, new OAuth2AccessTokenGenerator(), new PublicClientRefreshTokenGenerator());
     }
 
+    private AuthenticationEntryPoint consentAwareEntryPoint() {
+        return new DelegatingAuthenticationEntryPoint(
+                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                List.of(new RequestMatcherEntry<>(
+                        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, "/oauth2/authorize"),
+                        new SpaConsentRedirectEntryPoint(mcpOAuthProperties))));
+    }
+
     @Bean
     @Order(1)
     SecurityFilterChain oauthAuthorizationServerChain(
@@ -150,8 +167,10 @@ public class OAuthAuthorizationServerConfig {
                         // 무관하게 anyRequest().authenticated()에 걸려 401이 난다(실기동에서 확인된 사실).
                         .requestMatchers(HttpMethod.POST, "/oauth2/register").permitAll()
                         .anyRequest().authenticated())
-                // GET /oauth2/authorize 미인증을 SPA로 리다이렉트하는 처리는 B3에서 덧붙인다 — 지금은 401.
-                .exceptionHandling(exception -> exception.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
+                // 티켓 인증은 SecurityContextHolderFilter가 컨텍스트를 비운 뒤에 세팅해야 살아남는다.
+                .addFilterAfter(new ConsentTicketAuthenticationFilter(consentTicketService), SecurityContextHolderFilter.class)
+                // 미인증 GET /oauth2/authorize만 SPA 허용 화면으로 보내고, 나머지 요청은 기존처럼 401이다.
+                .exceptionHandling(exception -> exception.authenticationEntryPoint(consentAwareEntryPoint()));
         return http.build();
     }
 }

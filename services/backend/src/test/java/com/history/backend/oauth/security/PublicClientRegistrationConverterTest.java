@@ -20,7 +20,7 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 class PublicClientRegistrationConverterTest {
 
     private final McpRegisteredClientPolicy policy =
-            new McpRegisteredClientPolicy(new McpOAuthProperties("http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30)));
+            new McpRegisteredClientPolicy(new McpOAuthProperties("http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent"));
 
     private final PublicClientRegistrationConverter converter = new PublicClientRegistrationConverter(policy);
 
