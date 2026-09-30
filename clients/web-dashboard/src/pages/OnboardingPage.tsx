@@ -9,7 +9,8 @@ import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
 import { MonoChip } from "@/components/ui/MonoChip";
 import { createProject } from "@/api/projects";
-import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
+import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
+import { GitHubInstallEmptyState } from "@/components/sources/GitHubInstallEmptyState";
 import { Topbar } from "@/components/shell/Topbar";
 import { queryKeys } from "@/hooks/queryKeys";
 import { useGithubRepoRows } from "@/hooks/useGithub";
@@ -231,20 +232,7 @@ function ConnectGitHubStep({
         {installationsQuery.isLoading ? (
           <div className="onb-muted-block">GitHub 워크스페이스를 불러오는 중…</div>
         ) : !connected ? (
-          <div className="onboarding-gh-empty">
-            <span>이 계정으로 GitHub App이 설치된 워크스페이스가 없어요.</span>
-            <a
-              className="btn btn-primary"
-              href={GITHUB_INSTALL_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub App 설치하기
-            </a>
-            <span style={{ fontSize: 12 }}>
-              설치 후 <a href={GITHUB_AUTHORIZE_URL}>연결 확인</a>을 눌러주세요.
-            </span>
-          </div>
+          <GitHubInstallEmptyState style={{ padding: "20px 0" }} />
         ) : reposLoading ? (
           <div className="onb-muted-block">저장소 목록을 불러오는 중…</div>
         ) : needsGitHubReauthorization ? (
@@ -378,7 +366,9 @@ function connectErrorContent(error: unknown) {
     return (
       <>
         로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소를 연결할 수 없어요.{" "}
-        <a href={GITHUB_AUTHORIZE_URL}>다시 로그인하고 연결 확인</a>
+        <a className="text-link" href={GITHUB_AUTHORIZE_URL}>
+          다시 로그인하고 연결 확인
+        </a>
       </>
     );
   }
