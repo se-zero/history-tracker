@@ -16,7 +16,7 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 class McpRegisteredClientPolicyTest {
 
     private final McpRegisteredClientPolicy policy =
-            new McpRegisteredClientPolicy(new McpOAuthProperties("http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30)));
+            new McpRegisteredClientPolicy(new McpOAuthProperties("http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent"));
 
     @Test
     @DisplayName("apply — 인증 방식·그랜트·scope·PKCE·동의·TTL·재사용 여부를 강제값으로 덧씌운다")

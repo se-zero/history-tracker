@@ -26,10 +26,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.ResultMatcher;
 
 // B2(CIMD 해석 + DCR 폴백) 종단 — 열린 등록(/oauth2/register)과 CIMD client_id 인식이
 // /oauth2/authorize 진입점까지 이어지는지 확인한다. 로그인 세션이 없으므로 인가 결정 자체는
-// B1 그대로 401(HttpStatusEntryPoint)이고, 여기서는 그 앞 단계(클라이언트 조회·그림자 upsert)만 본다.
+// 허용 화면으로의 302(SpaConsentRedirectEntryPoint)이고, 여기서는 그 앞 단계(클라이언트 조회·그림자 upsert)만 본다.
 @SpringBootTest
 @AutoConfigureMockMvc
 @DisplayName("DCR 등록 엔드포인트·CIMD client_id 인식 체인")
@@ -128,19 +129,21 @@ class ClientRegistrationAndCimdChainTest {
     }
 
     @Test
-    @DisplayName("CIMD client_id로 /oauth2/authorize — 클라이언트를 인식(401)하고 그림자 행을 upsert")
+    @DisplayName("CIMD client_id로 /oauth2/authorize — 클라이언트를 인식(허용 화면 302)하고 그림자 행을 upsert")
     void authorizeRequestWithCimdClientIdRecognizesClientAndShadowsRow() throws Exception {
         String clientIdUrl = "https://cimd.example/client";
         when(fetcher.fetch(clientIdUrl)).thenReturn(new CimdClientMetadata(
                 clientIdUrl, "CIMD Test", "https://cimd.example", Set.of("http://localhost/callback")));
 
         performAuthorize(clientIdUrl, "http://localhost:4321/callback")
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isFound())
+                .andExpect(redirectsToConsentPage());
 
         assertThat(registeredClientCount(clientIdUrl)).isEqualTo(1);
 
         performAuthorize(clientIdUrl, "http://localhost:4321/callback")
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isFound())
+                .andExpect(redirectsToConsentPage());
 
         assertThat(registeredClientCount(clientIdUrl)).isEqualTo(1);
     }
@@ -158,7 +161,7 @@ class ClientRegistrationAndCimdChainTest {
     }
 
     @Test
-    @DisplayName("DCR로 등록한 client_id로 /oauth2/authorize — 실제 저장된 클라이언트로 401")
+    @DisplayName("DCR로 등록한 client_id로 /oauth2/authorize — 실제 저장된 클라이언트로 허용 화면 302")
     void authorizeRequestWithDcrRegisteredClientIdRecognizesClient() throws Exception {
         MvcResult registerResult = mockMvc.perform(post("/oauth2/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -175,10 +178,16 @@ class ClientRegistrationAndCimdChainTest {
         String clientId = body.get("client_id").asText();
 
         performAuthorize(clientId, "http://localhost:4321/callback")
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isFound())
+                .andExpect(redirectsToConsentPage());
     }
 
     // ── 헬퍼 ──
+
+    private ResultMatcher redirectsToConsentPage() {
+        return result -> assertThat(result.getResponse().getHeader("Location"))
+                .startsWith("http://localhost:5173/oauth/consent?");
+    }
 
     private ResultActions performAuthorize(String clientId, String redirectUri) throws Exception {
         return mockMvc.perform(get("/oauth2/authorize")

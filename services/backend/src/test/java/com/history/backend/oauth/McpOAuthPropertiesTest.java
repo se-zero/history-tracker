@@ -14,7 +14,7 @@ class McpOAuthPropertiesTest {
     @DisplayName("issuer 끝 슬래시는 제거되어 파생 URL에 이중 슬래시가 생기지 않는다")
     void stripsTrailingSlashesFromIssuer() {
         McpOAuthProperties properties = new McpOAuthProperties(
-                "https://why-code.com/", "", Duration.ofHours(1), Duration.ofDays(30));
+                "https://why-code.com/", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent");
 
         assertThat(properties.issuer()).isEqualTo("https://why-code.com");
         assertThat(properties.resourceUrl()).isEqualTo("https://why-code.com/mcp");
@@ -26,7 +26,7 @@ class McpOAuthPropertiesTest {
     @DisplayName("끝 슬래시가 여러 개여도 전부 제거된다")
     void stripsMultipleTrailingSlashes() {
         McpOAuthProperties properties = new McpOAuthProperties(
-                "http://localhost:5173///", "", Duration.ofHours(1), Duration.ofDays(30));
+                "http://localhost:5173///", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent");
 
         assertThat(properties.issuer()).isEqualTo("http://localhost:5173");
     }
@@ -35,9 +35,27 @@ class McpOAuthPropertiesTest {
     @DisplayName("끝 슬래시가 없으면 그대로 둔다")
     void keepsIssuerWithoutTrailingSlash() {
         McpOAuthProperties properties = new McpOAuthProperties(
-                "http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30));
+                "http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent");
 
         assertThat(properties.issuer()).isEqualTo("http://localhost:5173");
         assertThat(properties.resourceUrl()).isEqualTo("http://localhost:5173/mcp");
+    }
+
+    @Test
+    @DisplayName("consentUrl은 issuer 뒤에 consentPath를 이어 붙인다")
+    void consentUrlAppendsConsentPathToIssuer() {
+        McpOAuthProperties properties = new McpOAuthProperties(
+                "http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent");
+
+        assertThat(properties.consentUrl()).isEqualTo("http://localhost:5173/oauth/consent");
+    }
+
+    @Test
+    @DisplayName("issuer 끝 슬래시가 있어도 consentUrl에 이중 슬래시가 생기지 않는다")
+    void consentUrlHasNoDoubleSlashWhenIssuerEndsWithSlash() {
+        McpOAuthProperties properties = new McpOAuthProperties(
+                "https://why-code.com/", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent");
+
+        assertThat(properties.consentUrl()).isEqualTo("https://why-code.com/oauth/consent");
     }
 }

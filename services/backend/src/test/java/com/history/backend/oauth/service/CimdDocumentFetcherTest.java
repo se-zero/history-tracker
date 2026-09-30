@@ -337,7 +337,7 @@ class CimdDocumentFetcherTest {
     }
 
     private McpRegisteredClientPolicy policy() {
-        return new McpRegisteredClientPolicy(new McpOAuthProperties("http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30)));
+        return new McpRegisteredClientPolicy(new McpOAuthProperties("http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent"));
     }
 
     private SafeUrlValidator publicUrlValidator() {

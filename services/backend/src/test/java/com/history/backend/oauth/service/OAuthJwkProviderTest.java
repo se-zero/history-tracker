@@ -86,7 +86,7 @@ class OAuthJwkProviderTest {
     // ── 헬퍼 — 레포에 PEM 상수를 박지 않고 매 실행 시 런타임 생성(시크릿 스캐너 회피) ──
 
     private McpOAuthProperties properties(String privateKey) {
-        return new McpOAuthProperties("http://localhost:5173", privateKey, Duration.ofHours(1), Duration.ofDays(30));
+        return new McpOAuthProperties("http://localhost:5173", privateKey, Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent");
     }
 
     private KeyPair generateRsaKeyPair() throws Exception {

@@ -42,7 +42,7 @@ class CimdRegisteredClientRepositoryTest {
     private CimdDocumentFetcher fetcher;
 
     private final McpRegisteredClientPolicy policy =
-            new McpRegisteredClientPolicy(new McpOAuthProperties("http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30)));
+            new McpRegisteredClientPolicy(new McpOAuthProperties("http://localhost:5173", "", Duration.ofHours(1), Duration.ofDays(30), "/oauth/consent"));
 
     @Test
     @DisplayName("같은 URL의 최초 등록이 동시에 일어나 INSERT가 PK 중복으로 실패해도 조립 결과를 돌려준다")
