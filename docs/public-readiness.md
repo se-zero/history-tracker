@@ -411,7 +411,8 @@ ai-engine이 프로젝트 컨텍스트(README 요약)를 만들 때 `GITHUB_TOKE
 `clients/web-dashboard/src/components/sources/GitHubCard.tsx`는 두 갈래만 렌더한다.
 
 - `installationsQuery.isLoading` → "불러오는 중"
-- `!connected`(App 설치가 하나도 없음) → **"GitHub App 연결하기"** 버튼
+- `!connected`(App 설치가 하나도 없음) → **"GitHub App 설치하기"·"연결 확인"** 버튼
+  (`GitHubInstallEmptyState` — 온보딩과 공용. 2026-09-30 #162로 "연결 확인"을 문장 속 링크에서 버튼으로 올렸다)
 
 그런데 상태는 두 축이다. `connected`(App 설치가 있나) × `repoConnected`(이 프로젝트에 저장소가
 연결됐나). **연동 해제 후에는 `connected=true, repoConnected=false`가 되는데 그 조합을 그리는
