@@ -126,6 +126,32 @@ class OAuthGrantServiceTest {
         assertThatCode(() -> oAuthGrantService().revoke(USER_ID, "missing")).doesNotThrowAnyException();
     }
 
+    @Test
+    @DisplayName("전체 철회는 userId 문자열로 사용자 전체 삭제에 위임")
+    void revokeAllDelegatesToRepositoryWithUserIdString() {
+        when(oAuthGrantRepository.deleteByPrincipal(USER_ID.toString())).thenReturn(3);
+
+        oAuthGrantService().revokeAll(USER_ID);
+
+        verify(oAuthGrantRepository).deleteByPrincipal(USER_ID.toString());
+        verifyNoMoreInteractions(oAuthGrantRepository);
+    }
+
+    @Test
+    @DisplayName("만료 정리는 현재 시각 기준으로 위임하고 저장소가 지운 행 수를 그대로 반환")
+    void purgeExpiredDelegatesWithCurrentTimeAndReturnsDeletedCount() {
+        when(oAuthGrantRepository.deleteExpired(any())).thenReturn(7);
+        Instant before = Instant.now();
+
+        int purged = oAuthGrantService().purgeExpired();
+
+        assertThat(purged).isEqualTo(7);
+        ArgumentCaptor<Instant> now = ArgumentCaptor.forClass(Instant.class);
+        verify(oAuthGrantRepository).deleteExpired(now.capture());
+        assertThat(now.getValue()).isBetween(before, Instant.now().plus(Duration.ofSeconds(1)));
+        verifyNoMoreInteractions(oAuthGrantRepository);
+    }
+
     private OAuthGrantService oAuthGrantService() {
         return new OAuthGrantService(oAuthGrantRepository, registeredClientRepository);
     }

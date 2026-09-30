@@ -231,6 +231,189 @@ class OAuthGrantRepositoryPersistenceTest {
         assertThat(remainingAuthorizationIds()).hasSize(1);
     }
 
+    @Test
+    @DisplayName("코드만 있고 코드가 만료된 행은 삭제")
+    void deleteExpiredDeletesCodeOnlyRowWithExpiredCode() {
+        String id = insertWithExpiry(PRINCIPAL, CLIENT_A, NOW.minusSeconds(1), null, null);
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(remainingAuthorizationIds()).doesNotContain(id);
+    }
+
+    @Test
+    @DisplayName("코드만 있고 아직 유효한 행은 유지")
+    void deleteExpiredKeepsCodeOnlyRowWithValidCode() {
+        String id = insertWithExpiry(PRINCIPAL, CLIENT_A, NOW.plusSeconds(60), null, null);
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingAuthorizationIds()).containsExactly(id);
+    }
+
+    @Test
+    @DisplayName("access·코드는 만료됐어도 refresh가 유효하면 유지 — 살아 있는 연결을 지우면 안 된다")
+    void deleteExpiredKeepsRowWithExpiredAccessAndCodeButValidRefresh() {
+        String id = insertWithExpiry(PRINCIPAL, CLIENT_A,
+                NOW.minus(Duration.ofDays(2)), NOW.minus(Duration.ofDays(2)).plusSeconds(3600),
+                NOW.plus(Duration.ofDays(28)));
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingAuthorizationIds()).containsExactly(id);
+    }
+
+    @Test
+    @DisplayName("refresh가 만료된 행은 삭제")
+    void deleteExpiredDeletesRowWithExpiredRefresh() {
+        String id = insertWithExpiry(PRINCIPAL, CLIENT_A,
+                NOW.minus(Duration.ofDays(40)), NOW.minus(Duration.ofDays(40)).plusSeconds(3600),
+                NOW.minusSeconds(1));
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(remainingAuthorizationIds()).doesNotContain(id);
+    }
+
+    @Test
+    @DisplayName("refresh 없이 access만 있고 만료된 행은 삭제")
+    void deleteExpiredDeletesAccessOnlyRowWithExpiredAccess() {
+        String id = insertWithExpiry(PRINCIPAL, CLIENT_A, NOW.minusSeconds(7200), NOW.minusSeconds(1), null);
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(remainingAuthorizationIds()).doesNotContain(id);
+    }
+
+    @Test
+    @DisplayName("refresh 없이 access만 있고 유효하면 유지 — 코드가 만료됐어도 access 기준")
+    void deleteExpiredKeepsAccessOnlyRowWithValidAccess() {
+        String id = insertWithExpiry(PRINCIPAL, CLIENT_A, NOW.minusSeconds(600), NOW.plusSeconds(3000), null);
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingAuthorizationIds()).containsExactly(id);
+    }
+
+    @Test
+    @DisplayName("기준 컬럼이 now와 같으면 유지(경계) — refresh·access·코드 각각")
+    void deleteExpiredKeepsRowsWhoseDecidingColumnEqualsNow() {
+        insertWithExpiry(PRINCIPAL, CLIENT_A, NOW.minusSeconds(600), NOW.minusSeconds(300), NOW);
+        insertWithExpiry(PRINCIPAL, CLIENT_B, NOW.minusSeconds(600), NOW, null);
+        insertWithExpiry(OTHER_PRINCIPAL, CLIENT_A, NOW, null, null);
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingAuthorizationIds()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("만료 시각이 전부 null인 행은 유지")
+    void deleteExpiredKeepsRowWithAllExpiryColumnsNull() {
+        String id = insertWithExpiry(PRINCIPAL, CLIENT_A, null, null, null);
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingAuthorizationIds()).containsExactly(id);
+    }
+
+    @Test
+    @DisplayName("여러 사용자·앱이 섞여 있어도 만료된 행만 지우고 지운 행 수를 반환")
+    void deleteExpiredDeletesOnlyExpiredRowsAcrossPrincipalsAndClients() {
+        String expiredCodeOnly = insertWithExpiry(PRINCIPAL, CLIENT_A, NOW.minusSeconds(1), null, null);
+        String expiredRefresh = insertWithExpiry(OTHER_PRINCIPAL, CLIENT_A,
+                NOW.minus(Duration.ofDays(40)), NOW.minus(Duration.ofDays(40)), NOW.minus(Duration.ofDays(10)));
+        String expiredAccessOnly = insertWithExpiry(OTHER_PRINCIPAL, CLIENT_B,
+                NOW.minusSeconds(7200), NOW.minusSeconds(3600), null);
+        String liveRefresh = insertWithExpiry(PRINCIPAL, CLIENT_B,
+                NOW.minus(Duration.ofDays(2)), NOW.minus(Duration.ofDays(2)), NOW.plus(Duration.ofDays(28)));
+        String liveCodeOnly = insertWithExpiry(OTHER_PRINCIPAL, CLIENT_A, NOW.plusSeconds(120), null, null);
+
+        int deleted = oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(deleted).isEqualTo(3);
+        assertThat(remainingAuthorizationIds())
+                .containsExactlyInAnyOrder(liveRefresh, liveCodeOnly)
+                .doesNotContain(expiredCodeOnly, expiredRefresh, expiredAccessOnly);
+    }
+
+    @Test
+    @DisplayName("만료 행을 지워도 oauth2_authorization_consent는 건드리지 않는다")
+    void deleteExpiredLeavesConsentRows() {
+        insertWithExpiry(PRINCIPAL, CLIENT_A, NOW.minusSeconds(1), null, null);
+        insertConsent(CLIENT_A, PRINCIPAL);
+        insertConsent(CLIENT_B, OTHER_PRINCIPAL);
+
+        oAuthGrantRepository.deleteExpired(NOW);
+
+        assertThat(remainingConsentKeys())
+                .containsExactlyInAnyOrder(CLIENT_A + "/" + PRINCIPAL, CLIENT_B + "/" + OTHER_PRINCIPAL);
+    }
+
+    @Test
+    @DisplayName("사용자 전체 삭제는 그 사용자의 모든 앱 행(유효·만료·코드만)을 지우고 다른 사용자 행은 남기며 지운 행 수를 반환")
+    void deleteByPrincipalDeletesAllRowsOfPrincipalOnly() {
+        String live = insertAuthorization(PRINCIPAL, CLIENT_A, NOW.minusSeconds(60), NOW.minusSeconds(55),
+                "refresh-live", NOW.plus(Duration.ofDays(29)));
+        String expired = insertAuthorization(PRINCIPAL, CLIENT_B, NOW.minus(Duration.ofDays(60)),
+                NOW.minus(Duration.ofDays(60)), "refresh-expired", NOW.minus(Duration.ofDays(30)));
+        String codeOnly = insertWithExpiry(PRINCIPAL, CLIENT_A, NOW.plusSeconds(120), null, null);
+        String otherUser = insertAuthorization(OTHER_PRINCIPAL, CLIENT_A, NOW.minusSeconds(60), NOW.minusSeconds(55),
+                "refresh-other", NOW.plus(Duration.ofDays(29)));
+
+        int deleted = oAuthGrantRepository.deleteByPrincipal(PRINCIPAL);
+
+        assertThat(deleted).isEqualTo(3);
+        assertThat(remainingAuthorizationIds())
+                .containsExactly(otherUser)
+                .doesNotContain(live, expired, codeOnly);
+    }
+
+    @Test
+    @DisplayName("사용자 전체 삭제는 oauth2_authorization_consent의 그 사용자 행 전부를 지우고 다른 사용자 행은 남긴다")
+    void deleteByPrincipalDeletesAllConsentRowsOfPrincipalOnly() {
+        insertAuthorization(PRINCIPAL, CLIENT_A, NOW.minusSeconds(60), NOW.minusSeconds(55),
+                "refresh-live", NOW.plus(Duration.ofDays(29)));
+        insertConsent(CLIENT_A, PRINCIPAL);
+        insertConsent(CLIENT_B, PRINCIPAL);
+        insertConsent(CLIENT_A, OTHER_PRINCIPAL);
+
+        oAuthGrantRepository.deleteByPrincipal(PRINCIPAL);
+
+        assertThat(remainingConsentKeys()).containsExactly(CLIENT_A + "/" + OTHER_PRINCIPAL);
+    }
+
+    @Test
+    @DisplayName("사용자 전체 삭제는 authorization 행이 없고 consent만 있어도 consent를 지운다")
+    void deleteByPrincipalDeletesConsentRowsEvenWithoutAuthorizationRows() {
+        insertConsent(CLIENT_A, PRINCIPAL);
+
+        int deleted = oAuthGrantRepository.deleteByPrincipal(PRINCIPAL);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingConsentKeys()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("사용자 전체 삭제는 지울 행이 없으면 0 반환하고 다른 사용자 행은 그대로")
+    void deleteByPrincipalReturnsZeroWhenNothingToDelete() {
+        insertAuthorization(OTHER_PRINCIPAL, CLIENT_A, NOW.minusSeconds(60), NOW.minusSeconds(55),
+                "refresh-other", NOW.plus(Duration.ofDays(29)));
+
+        int deleted = oAuthGrantRepository.deleteByPrincipal(PRINCIPAL);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingAuthorizationIds()).hasSize(1);
+    }
+
     private String insertAuthorization(
             String principal,
             String registeredClientId,
@@ -249,6 +432,30 @@ class OAuthGrantRepositoryPersistenceTest {
                 """, id, registeredClientId, principal, ts(codeIssuedAt), ts(accessIssuedAt),
                 refreshTokenValue, ts(refreshExpiresAt));
         return id;
+    }
+
+    // 만료 시각 컬럼 세 개만 채운 행 — deleteExpired는 이 컬럼만 본다
+    private String insertWithExpiry(
+            String principal,
+            String registeredClientId,
+            Instant codeExpiresAt,
+            Instant accessExpiresAt,
+            Instant refreshExpiresAt
+    ) {
+        String id = UUID.randomUUID().toString();
+        jdbcTemplate.update("""
+                INSERT INTO oauth2_authorization
+                    (id, registered_client_id, principal_name, authorization_grant_type,
+                     authorization_code_expires_at, access_token_expires_at, refresh_token_expires_at)
+                VALUES (?, ?, ?, 'authorization_code', ?, ?, ?)
+                """, id, registeredClientId, principal,
+                ts(codeExpiresAt), ts(accessExpiresAt), ts(refreshExpiresAt));
+        return id;
+    }
+
+    private List<String> remainingConsentKeys() {
+        return jdbcTemplate.queryForList(
+                "SELECT registered_client_id || '/' || principal_name FROM oauth2_authorization_consent", String.class);
     }
 
     private void insertConsent(String registeredClientId, String principal) {

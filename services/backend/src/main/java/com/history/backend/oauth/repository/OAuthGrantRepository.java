@@ -50,6 +50,22 @@ public class OAuthGrantRepository {
                 principalName, registeredClientId);
     }
 
+    // 탈퇴·파기용 — 사용자의 모든 앱 연결을 지운다. 반환은 지운 oauth2_authorization 행 수
+    public int deleteByPrincipal(String principalName) {
+        jdbcTemplate.update("DELETE FROM oauth2_authorization_consent WHERE principal_name = ?", principalName);
+        return jdbcTemplate.update("DELETE FROM oauth2_authorization WHERE principal_name = ?", principalName);
+    }
+
+    // 가장 오래 사는 토큰(refresh → access → code 순) 기준으로 만료를 판정한다. refresh가 살아 있으면
+    // access가 만료돼도 연결은 살아 있으므로 지우면 안 된다. 경계(==)와 만료 시각이 전부 null인 행은 남긴다.
+    // consent는 사용자의 동의 기록이라 만료와 무관하게 건드리지 않는다.
+    public int deleteExpired(Instant now) {
+        return jdbcTemplate.update("""
+                DELETE FROM oauth2_authorization
+                WHERE COALESCE(refresh_token_expires_at, access_token_expires_at, authorization_code_expires_at) < ?
+                """, Timestamp.from(now));
+    }
+
     private static Instant toInstant(Timestamp timestamp) {
         return timestamp == null ? null : timestamp.toInstant();
     }

@@ -146,6 +146,29 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("사용자 탈퇴 시 그 사용자의 연결된 앱(OAuth 연결)도 전부 삭제")
+    void deactivateUserRevokesAllOAuthGrants() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        userService.deactivateUser(USER_ID);
+
+        verify(oAuthGrantService).revokeAll(USER_ID);
+        verify(refreshTokenService).revokeAllRefreshTokens(user);
+    }
+
+    @Test
+    @DisplayName("탈퇴·미존재 사용자 탈퇴 요청이면 OAuth 연결 삭제도 하지 않는다")
+    void deactivateUserDoesNotRevokeOAuthGrantsForDeletedOrMissingUser() {
+        UserService userService = userService();
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class, () -> userService.deactivateUser(USER_ID));
+        verifyNoInteractions(oAuthGrantService);
+    }
+
+    @Test
     @DisplayName("약관 동의 기록 시 현재 버전과 시각 저장")
     void recordConsentStoresCurrentTermsVersionAndTimestamp() {
         UserService userService = userService();

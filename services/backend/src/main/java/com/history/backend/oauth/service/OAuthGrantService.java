@@ -47,4 +47,14 @@ public class OAuthGrantService {
     public void revoke(UUID userId, String grantId) {
         oAuthGrantRepository.deleteByPrincipalAndClient(userId.toString(), grantId);
     }
+
+    @Transactional
+    public void revokeAll(UUID userId) {
+        oAuthGrantRepository.deleteByPrincipal(userId.toString());
+    }
+
+    @Transactional
+    public int purgeExpired() {
+        return oAuthGrantRepository.deleteExpired(Instant.now());
+    }
 }

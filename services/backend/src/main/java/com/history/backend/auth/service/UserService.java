@@ -104,12 +104,15 @@ public class UserService {
         return UserResponse.from(getActiveUser(userId), consentRequiredSinceVersion);
     }
 
-    // 사용자 soft delete 및 전체 refresh token 폐기
+    // 사용자 soft delete 및 전체 refresh token·연결된 앱(OAuth grant) 폐기
     @Transactional
     public void deactivateUser(UUID userId) {
         User user = getActiveUser(userId);
         user.softDelete(Instant.now());
         refreshTokenService.revokeAllRefreshTokens(user);
+        // OAuth 테이블은 users FK가 없고, 탈퇴는 soft delete라 FK가 있어도 이 시점엔 CASCADE가 돌지 않는다.
+        // 탈퇴 즉시 앱의 refresh 토큰을 끊으려면 여기서 직접 지워야 한다.
+        oAuthGrantService.revokeAll(userId);
     }
 
     // 현재 약관 버전에 대한 동의 기록

@@ -4,20 +4,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.auth.domain.User;
@@ -25,6 +29,7 @@ import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.billing.service.SubscriptionCancellationService;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.service.GitHubUserTokenService;
+import com.history.backend.oauth.service.OAuthGrantService;
 import com.history.backend.project.service.ProjectService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,6 +65,9 @@ class UserPurgeServiceTest {
 
     @Mock
     private SubscriptionCancellationService subscriptionCancellationService;
+
+    @Mock
+    private OAuthGrantService oAuthGrantService;
 
     @Mock
     private TransactionTemplate transactionTemplate;
@@ -362,6 +370,122 @@ class UserPurgeServiceTest {
     }
 
     @Test
+    @DisplayName("파기된 사용자마다 OAuth 연결을 지우고, 그 뒤에 users 배치 삭제")
+    void purgeExpiredUsersRevokesOAuthGrantsBeforeDeletingBatch() {
+        UserPurgeService service = userPurgeService(2);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID))
+                .thenReturn(List.of());
+
+        service.purgeExpiredUsers(NOW);
+
+        InOrder inOrder = inOrder(oAuthGrantService, userRepository);
+        inOrder.verify(oAuthGrantService).revokeAll(FIRST_USER_ID);
+        inOrder.verify(oAuthGrantService).revokeAll(SECOND_USER_ID);
+        inOrder.verify(userRepository).deleteAllByIdInBatch(List.of(FIRST_USER_ID, SECOND_USER_ID));
+    }
+
+    @Test
+    @DisplayName("OAuth 연결 삭제는 users 삭제와 같은 트랜잭션 콜백 안에서 실행")
+    void purgeExpiredUsersRevokesOAuthGrantsInsideTransactionCallback() {
+        UserPurgeService service = userPurgeService(2);
+        AtomicBoolean inTransaction = new AtomicBoolean(false);
+        List<Boolean> inTransactionAtRevoke = new ArrayList<>();
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Object> callback = invocation.getArgument(0);
+            inTransaction.set(true);
+            try {
+                return callback.doInTransaction(null);
+            } finally {
+                inTransaction.set(false);
+            }
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID))
+                .thenReturn(List.of());
+        doAnswer(invocation -> {
+            inTransactionAtRevoke.add(inTransaction.get());
+            return null;
+        }).when(oAuthGrantService).revokeAll(any(UUID.class));
+
+        service.purgeExpiredUsers(NOW);
+
+        // 콜백 밖에서 부르면 연결만 지워지고 users 삭제가 실패해도 되돌릴 수 없다
+        assertThat(inTransactionAtRevoke).containsExactly(true, true);
+    }
+
+    @Test
+    @DisplayName("자원 정리에 실패해 제외된 사용자는 OAuth 연결을 지우지 않는다 — 행이 남으므로 다음 회차에 함께 지운다")
+    void purgeExpiredUsersDoesNotRevokeOAuthGrantsOfSkippedUser() {
+        UserPurgeService service = userPurgeService(3);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID, THIRD_USER_ID))
+                .thenReturn(List.of());
+        doNothing().when(projectService).releaseExternalResources(FIRST_USER_ID);
+        doThrow(new BadGatewayException("Failed to delete project graph."))
+                .when(projectService).releaseExternalResources(SECOND_USER_ID);
+        doNothing().when(projectService).releaseExternalResources(THIRD_USER_ID);
+
+        service.purgeExpiredUsers(NOW);
+
+        verify(oAuthGrantService).revokeAll(FIRST_USER_ID);
+        verify(oAuthGrantService).revokeAll(THIRD_USER_ID);
+        verify(oAuthGrantService, never()).revokeAll(SECOND_USER_ID);
+    }
+
+    @Test
+    @DisplayName("강제 파기된 사용자도 OAuth 연결을 지운다")
+    void purgeExpiredUsersRevokesOAuthGrantsOfForcePurgedUser() {
+        UserPurgeService service = userPurgeService(2);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID))
+                .thenReturn(List.of());
+        doThrow(new BadGatewayException("Failed to release."))
+                .when(projectService).releaseExternalResources(FIRST_USER_ID);
+        when(userRepository.findById(FIRST_USER_ID))
+                .thenReturn(Optional.of(softDeletedUser(FORCE_CUTOFF.minus(Duration.ofDays(1)))));
+
+        service.purgeExpiredUsers(NOW);
+
+        InOrder inOrder = inOrder(oAuthGrantService, userRepository);
+        inOrder.verify(oAuthGrantService).revokeAll(FIRST_USER_ID);
+        inOrder.verify(userRepository).deleteAllByIdInBatch(List.of(FIRST_USER_ID));
+    }
+
+    @Test
+    @DisplayName("파기 대상이 없으면 OAuth 연결 삭제도 호출하지 않는다")
+    void purgeExpiredUsersDoesNotRevokeOAuthGrantsWhenNoCandidates() {
+        UserPurgeService service = userPurgeService(2);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<Integer> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(userRepository.findPurgeCandidateIds(
+                eq(NOW.minus(Duration.ofDays(30))), any(Collection.class), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        service.purgeExpiredUsers(NOW);
+
+        verifyNoInteractions(oAuthGrantService);
+    }
+
+    @Test
     @DisplayName("배치 크기를 페이지 크기로 사용")
     void purgeExpiredUsersUsesBatchSizeAsPageSize() {
         UserPurgeService service = userPurgeService(100);
@@ -388,6 +512,7 @@ class UserPurgeServiceTest {
                 projectService,
                 gitHubUserTokenService,
                 subscriptionCancellationService,
+                oAuthGrantService,
                 new UserPurgeProperties(true, Duration.ofDays(30), "0 0 3 * * *", batchSize, Duration.ofDays(60)),
                 transactionTemplate
         );

@@ -13,6 +13,7 @@ import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.billing.service.SubscriptionCancellationService;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.service.GitHubUserTokenService;
+import com.history.backend.oauth.service.OAuthGrantService;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class UserPurgeService {
     private final ProjectService projectService;
     private final GitHubUserTokenService gitHubUserTokenService;
     private final SubscriptionCancellationService subscriptionCancellationService;
+    private final OAuthGrantService oAuthGrantService;
     private final UserPurgeProperties properties;
     private final TransactionTemplate transactionTemplate;
 
@@ -116,6 +118,9 @@ public class UserPurgeService {
         }
 
         transactionTemplate.execute(status -> {
+            // OAuth 테이블은 users FK가 없어 행을 지워도 CASCADE로 사라지지 않는다. 같은 트랜잭션에 넣어
+            // 사용자 행 삭제와 함께 커밋·롤백되게 한다. 이번 회차에서 제외된 사용자의 연결은 다음 회차에 지운다.
+            purgedIds.forEach(oAuthGrantService::revokeAll);
             userRepository.deleteAllByIdInBatch(purgedIds);
             return null;
         });
