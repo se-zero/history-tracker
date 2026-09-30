@@ -2,6 +2,7 @@ package com.history.backend.auth.service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.User;
@@ -9,6 +10,8 @@ import com.history.backend.auth.dto.UserResponse;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.github.dto.GitHubUserResponse;
+import com.history.backend.oauth.dto.OAuthGrantResponse;
+import com.history.backend.oauth.service.OAuthGrantService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +24,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final RefreshTokenService refreshTokenService;
+    private final OAuthGrantService oAuthGrantService;
     private final String currentTermsVersion;
     private final String consentRequiredSinceVersion;
 
@@ -30,11 +34,13 @@ public class UserService {
     public UserService(
             UserRepository userRepository,
             RefreshTokenService refreshTokenService,
+            OAuthGrantService oAuthGrantService,
             @Value("${app.legal.terms-version}") String currentTermsVersion,
             @Value("${app.legal.consent-required-since:}") String consentRequiredSince
     ) {
         this.userRepository = userRepository;
         this.refreshTokenService = refreshTokenService;
+        this.oAuthGrantService = oAuthGrantService;
         this.currentTermsVersion = currentTermsVersion;
         // 재동의 기준을 비워 두면 기록 버전과 같게 취급 — 버전을 올릴 때마다 전원 재동의를 받는
         // 기존 동작을 유지한다.
@@ -111,6 +117,16 @@ public class UserService {
     public void recordConsent(UUID userId) {
         User user = getActiveUser(userId);
         user.recordConsent(currentTermsVersion, Instant.now());
+    }
+
+    public List<OAuthGrantResponse> listOAuthGrants(UUID userId) {
+        getActiveUser(userId);
+        return oAuthGrantService.list(userId);
+    }
+
+    public void revokeOAuthGrant(UUID userId, String grantId) {
+        getActiveUser(userId);
+        oAuthGrantService.revoke(userId, grantId);
     }
 
     // 활성(미탈퇴) 사용자 조회 — 비공개 API의 공통 사용자 검증 진입점
