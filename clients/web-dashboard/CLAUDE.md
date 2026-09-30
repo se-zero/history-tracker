@@ -88,6 +88,9 @@ src/
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
     Onboarding · Chat · Sources · Settings · Account · GraphPage(작업 단위 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
     Actors · Landing · Terms · Privacy · Refund · Support · Slack · Pricing · AuthCallback · NotFound
+    ※ Onboarding의 단계·입력값은 로컬 state다. STEP 02의 "연결 확인"이 GitHub 로그인으로 페이지를 떠나므로,
+      STEP 02로 넘어갈 때 이름·설명을 sessionStorage 초안(`ht.onboarding.draft`, 30분)에 남기고 다시 열리면
+      STEP 02부터 잇는다. 프로젝트를 만들거나 "이전"을 누르면 지운다. 서버 호출 시점(STEP 02의 "연결")은 그대로다.
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
     ※ Terms(`/terms`)·Privacy(`/privacy`)·Refund(`/refund`)·Support(`/support`)·Slack(`/slack`)·Pricing(`/pricing`)도
       AuthGate 밖 공개 라우트다. 요금·환불정책은 Paddle 심사(도메인 리뷰)가 요구하는 페이지다(docs/billing.md §8-1). 랜딩과
