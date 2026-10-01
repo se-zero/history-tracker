@@ -21,6 +21,8 @@ import { PATHS } from "@/routes";
 // (PrivacyBodyKo.tsx 상단 주석 참고). LegalSourceRow의 label(Requested scopes/Data
 // collected/Purpose/Deletion 등)은 이 파일에서 영어 리터럴로 직접 쓰고, 같은 라벨은 전
 // 블록에서 동일 문자열로 통일한다.
+// 외부 앱 연결: 근거는 PrivacyBodyKo.tsx 상단 "외부 앱 연결" 항목(V25 migration·
+// mcp_workspace_bindings·ConnectedAppsCard·auth/returnPath.ts)과 같다.
 // 자격증명: GitHub 사용자 액세스·리프레시 토큰은 로그인 시 발급, github_user_credentials
 // (사용자 단위 — 프로젝트 연동 행·설치 토큰과 별개). 목록 정본은 PrivacyBodyKo.tsx 상단.
 export function PrivacyBodyEn() {
@@ -30,7 +32,7 @@ export function PrivacyBodyEn() {
 
       <LegalSection index={1} heading="Categories of Personal Information Processed">
         <p>
-          The Service processes four broad categories of information. Of these,{" "}
+          The Service processes five broad categories of information. Of these,{" "}
           <strong>records collected through connections</strong> include information
           about team members other than the User (see Article 7).
         </p>
@@ -118,9 +120,37 @@ export function PrivacyBodyEn() {
                 </td>
                 <td>Generated in the course of using the Service</td>
               </tr>
+              <tr>
+                <td>External app (coding agent) connections</td>
+                <td>
+                  <ul>
+                    <li>
+                      Per-User connection records — which User allowed which app (app
+                      name and identifier) to connect, the access tokens issued to the
+                      app, and their issue and expiry times
+                    </li>
+                    <li>
+                      Working-folder connection information — the path of a working
+                      folder on the User's computer and the project connected to that
+                      folder. The path may contain information such as the PC account
+                      name.
+                    </li>
+                  </ul>
+                </td>
+                <td>
+                  Generated when the User allows a coding agent such as Claude Code or
+                  Codex to connect, and in the course of using it
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
+        <p>
+          Questions sent by an external app (coding agent) and the answers to them are
+          not stored as conversations. Answers are produced through the same processing
+          path as other questions (Articles 3 and 4), and they count toward the free
+          plan's query limit.
+        </p>
         <p className="lp-legal-note">
           The Service does not collect sensitive information or unique identifying
           information such as resident registration numbers or payment details.
@@ -612,6 +642,20 @@ export function PrivacyBodyEn() {
             within about two weeks.
           </li>
           <li>
+            <strong>External app (coding agent) connections</strong> — When a User
+            disconnects an app from Connected apps on the account page, that app's
+            connection records and tokens are deleted immediately, and tokens that
+            were already issued are rejected immediately. On membership withdrawal,
+            the connection records and tokens of all apps are deleted immediately.
+            Recovering the account within the 30 days does not restore app
+            connections; the User must allow the app again. Expired connection records
+            are deleted periodically. Working-folder connection information is
+            deleted together with the account and related data (it remains for the 30
+            days after withdrawal and is used as is if the account is recovered
+            within that time), and deleting the connected project also deletes that
+            folder connection.
+          </li>
+          <li>
             Records that a law requires to be retained are kept separately for
             the period the law specifies before being destroyed.
           </li>
@@ -657,6 +701,12 @@ export function PrivacyBodyEn() {
           request that the relevant project's administrator disconnect a data
           source or delete the project.
         </p>
+        <p>
+          Answers are delivered to an external app (coding agent) the User has allowed
+          to connect, and those answers may include information about members who
+          appear in repositories, issues, and conversations. An app connection can be
+          disconnected at any time from Connected apps on the account page.
+        </p>
       </LegalSection>
 
       <LegalSection index={8} heading="User Rights and How to Exercise Them">
@@ -690,6 +740,15 @@ export function PrivacyBodyEn() {
           selects them explicitly. These values are device-local convenience settings,
           not personal information; they persist independently of sign-out and can be
           removed at any time by clearing the browser's site data.
+        </p>
+        <p>
+          When a User is sent to sign in from a screen that requires sign-in (such as
+          the screen for allowing an external app to connect), the path of that screen
+          and the time it was saved are kept in per-tab temporary storage (
+          <code>ht.return_path</code>) so the User can return to it after signing in.
+          It is not used once 10 minutes have passed since it was saved, and it is read
+          once and deleted when the User returns after sign-in. It disappears when the
+          tab is closed.
         </p>
       </LegalSection>
 
