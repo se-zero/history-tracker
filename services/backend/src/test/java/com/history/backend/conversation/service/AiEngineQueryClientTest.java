@@ -8,12 +8,14 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.net.SocketTimeoutException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import com.history.backend.conversation.dto.AiEngineHistoryMessage;
 import com.history.backend.conversation.dto.AiEnginePriorEvidence;
+import com.history.backend.conversation.service.AiEngineQueryResult.FallbackReason;
 import com.history.backend.graph.dto.EvidenceRef;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -124,6 +126,86 @@ class AiEngineQueryClientTest {
 
         assertThat(result.answer()).isEqualTo("질문을 처리하는 중 오류가 발생했습니다.");
         assertThat(result.fallback()).isTrue();
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("성공하면 실패 사유는 NONE")
+    void askSuccessHasNoneReason() {
+        AiEngineQueryClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
+                .andRespond(withSuccess("""
+                        {"answer":"OAuth callback was updated."}
+                        """, MediaType.APPLICATION_JSON));
+
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of());
+
+        assertThat(result.fallback()).isFalse();
+        assertThat(result.reason()).isEqualTo(FallbackReason.NONE);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("읽기 시간 초과는 TIMEOUT 사유의 fallback")
+    void askReturnsTimeoutReasonWhenReadTimesOut() {
+        AiEngineQueryClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
+                .andRespond(request -> {
+                    throw new SocketTimeoutException("Read timed out");
+                });
+
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of());
+
+        assertThat(result.fallback()).isTrue();
+        assertThat(result.reason()).isEqualTo(FallbackReason.TIMEOUT);
+        fixture.server.verify();
+    }
+
+    // 연결·읽기 시간 초과는 JDK에서 같은 예외 타입이고 메시지만 다르다. 연결 단계(수 초)에서 끊긴 것을
+    // TIMEOUT으로 분류하면 "read timeout 초 안에 답을 못 만들었다"는 안내가 사실과 달라진다.
+    @Test
+    @DisplayName("연결 시간 초과는 TIMEOUT이 아니라 ERROR 사유의 fallback")
+    void askReturnsErrorReasonWhenConnectTimesOut() {
+        AiEngineQueryClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
+                .andRespond(request -> {
+                    throw new SocketTimeoutException("Connect timed out");
+                });
+
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of());
+
+        assertThat(result.fallback()).isTrue();
+        assertThat(result.reason()).isEqualTo(FallbackReason.ERROR);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("서버 오류는 ERROR 사유의 fallback")
+    void askReturnsErrorReasonWhenAiEngineFails() {
+        AiEngineQueryClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
+                .andRespond(withServerError());
+
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of());
+
+        assertThat(result.fallback()).isTrue();
+        assertThat(result.reason()).isEqualTo(FallbackReason.ERROR);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("빈 답은 ERROR 사유의 fallback")
+    void askReturnsErrorReasonWhenAnswerIsBlank() {
+        AiEngineQueryClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/query"))
+                .andRespond(withSuccess("""
+                        {"answer":"  "}
+                        """, MediaType.APPLICATION_JSON));
+
+        AiEngineQueryResult result = fixture.client.ask("Why did auth change?", PROJECT_ID, List.of(), List.of(), null, List.of());
+
+        assertThat(result.fallback()).isTrue();
+        assertThat(result.reason()).isEqualTo(FallbackReason.ERROR);
         fixture.server.verify();
     }
 
