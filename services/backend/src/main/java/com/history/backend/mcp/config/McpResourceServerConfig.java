@@ -77,7 +77,9 @@ public class McpResourceServerConfig {
                                 .bearerMethods(methods -> {
                                     methods.clear();
                                     methods.add("header");
-                                }))));
+                                })
+                                // Spring 기본값은 true인데 mTLS 인증서에 묶인 토큰은 지원하지 않는다 — 틀린 광고를 끈다.
+                                .tlsClientCertificateBoundAccessTokens(false))));
         return http.build();
     }
 

@@ -200,14 +200,17 @@ class OAuthAuthorizationServerChainTest {
                 .andExpect(jsonPath("$.resource").value(MCP_AUDIENCE))
                 .andExpect(jsonPath("$.authorization_servers[0]").value(ISSUER))
                 .andExpect(jsonPath("$.scopes_supported[0]").value("mcp:query"))
-                .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"));
+                .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"))
+                // mTLS 인증서에 묶인 토큰은 지원하지 않는다 — Spring 기본값(true)이 그대로 나가면 틀린 광고다.
+                .andExpect(jsonPath("$.tls_client_certificate_bound_access_tokens").value(false));
 
         mockMvc.perform(get("/.well-known/oauth-protected-resource"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resource").value(MCP_AUDIENCE))
                 .andExpect(jsonPath("$.authorization_servers[0]").value(ISSUER))
                 .andExpect(jsonPath("$.scopes_supported[0]").value("mcp:query"))
-                .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"));
+                .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"))
+                .andExpect(jsonPath("$.tls_client_certificate_bound_access_tokens").value(false));
     }
 
     @Test
