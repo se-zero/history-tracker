@@ -32,6 +32,11 @@ import { PATHS } from "@/routes";
 //                V27__create_mcp_workspace_bindings.sql(user_id·workspace_path·project_id) +
 //                계정 페이지 ConnectedAppsCard·api/oauthGrants.ts(앱 이름·연결 시각·마지막 사용 시각 표시) +
 //                auth/returnPath.ts(sessionStorage ht.return_path, 경로+저장 시각, 10분 TTL, 로그인 콜백에서 1회 소비)
+//   브라우저 저장 → 제9조. 위 ht.return_path 외에 OnboardingPage(sessionStorage ht.onboarding.draft —
+//                프로젝트 이름·설명+저장 시각, 30분, 프로젝트 생성·"이전" 시 삭제),
+//                TermsNoticeBanner·PrivacyNoticeBanner(localStorage ht.termsNotice.dismissed·
+//                ht.privacyNotice.dismissed — 닫은 공지의 시행일 문자열), ChatPage(localStorage
+//                chat:graphPanel "1"/"0"·chat:graphPanelWidth 숫자 — 채팅 화면을 열면 기록된다)
 //   백업 보존  → infra/scripts/backup.sh의 BACKUP_RETENTION_DAYS(14). 다만 대외 문구는
 //                "약 2주"다 — `find -mtime +14`가 15일차부터 지우고 cron이 하루 1회라
 //                실제 최대는 ~16일이다. 설정값을 그대로 옮겨 적지 않는다(제5조).
@@ -609,15 +614,25 @@ export function PrivacyBodyKo() {
         <p>
           이 외에 화면 표시 설정 — 앱 테마(<code>ht.theme</code>), 소개 페이지의 언어(
           <code>ht.lang</code>)와 테마(<code>ht.lp-theme</code>) — 를 이용자가 직접 선택한
-          경우에만 로컬 저장소에 보관합니다. 이 값들은 개인정보가 아닌 기기별 편의 설정으로
-          로그아웃과 무관하게 유지되며, 브라우저의 사이트 데이터 삭제로 언제든 지울 수
-          있습니다.
+          경우에만 로컬 저장소에 보관합니다. 채팅 화면의 관련 그래프 패널을 열어 두었는지(
+          <code>chat:graphPanel</code>)와 패널 너비(<code>chat:graphPanelWidth</code>)는 다음에도
+          같은 배치로 보여 주기 위해 채팅 화면을 열면 로컬 저장소에 기록됩니다. 이용약관·개인정보처리방침
+          개정 공지 배너를 닫으면, 같은 공지를 다시 띄우지 않기 위해 닫은 공지의 시행일을 로컬
+          저장소(<code>ht.termsNotice.dismissed</code>·<code>ht.privacyNotice.dismissed</code>)에
+          보관합니다. 이 값들은 개인정보가 아닌 기기별 편의 설정으로 로그아웃과 무관하게 유지되며,
+          브라우저의 사이트 데이터 삭제로 언제든 지울 수 있습니다.
         </p>
         <p>
           로그인이 필요한 화면(외부 앱 연결 허용 화면 등)에서 로그인하러 이동할 때는, 로그인 후
           원래 화면으로 돌아오기 위해 그 화면의 경로와 저장 시각을 탭 단위 임시 저장소(
           <code>ht.return_path</code>)에 보관합니다. 저장 후 10분이 지나면 쓰지 않으며,
           로그인 후 돌아올 때 한 번 읽고 지웁니다. 탭을 닫으면 함께 사라집니다.
+        </p>
+        <p>
+          첫 프로젝트를 만드는 중 GitHub 연결을 위해 로그인하러 이동할 때는, 돌아와서 이어 진행할 수
+          있도록 입력한 프로젝트 이름·설명과 저장 시각을 탭 단위 임시 저장소(
+          <code>ht.onboarding.draft</code>)에 보관합니다. 저장 후 30분이 지나면 쓰지 않으며,
+          프로젝트를 만들거나 이전 단계로 돌아가면 지웁니다. 탭을 닫으면 함께 사라집니다.
         </p>
       </LegalSection>
 

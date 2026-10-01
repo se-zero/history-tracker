@@ -349,9 +349,9 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 - **CIMD fetch 전체 데드라인.** 연결·읽기에 3초 제한은 있지만 천천히 흘리는(slow-read) 응답에 대한 총 시간 제한이 없다.
   fetcher의 만료된 캐시 항목도 따로 치우지 않는다. SSRF 가드는 DNS 리바인딩(검증 시점과 연결 시점 사이 레코드 변경)의 창이
   있고, CGNAT 같이 JDK가 사설로 보지 않는 예약 대역은 막지 않는다.
-- **개인정보처리방침 제9조(브라우저 저장 항목)의 기존 누락.** 이번에 `ht.return_path`(sessionStorage)를 추가했지만 원래 빠져
-  있던 `ht.onboarding.draft`(sessionStorage), `ht.termsNotice.dismissed`·`ht.privacyNotice.dismissed`·`chat:graphPanel`·
-  `chat:graphPanelWidth`(localStorage)가 아직 없다. 방침 개정은 시행 7일 전 공지가 필요하니 main 릴리스 단위로 한 번에 묶는다.
+- ~~개인정보처리방침 제9조(브라우저 저장 항목)의 기존 누락~~ — **릴리스 직전 반영(2026-10-01).** 빠져 있던
+  `ht.onboarding.draft`(sessionStorage), `ht.termsNotice.dismissed`·`ht.privacyNotice.dismissed`·`chat:graphPanel`·
+  `chat:graphPanelWidth`(localStorage)를 같은 개정에 묶어 넣었고, 방침 시행일은 2026-10-09(배포 2026-10-02 + 7일)로 미뤘다.
 - 허용 화면 후속(동의 화면을 다시 만질 때): 뒤로가기로 복원된 화면의 "취소"가 저장된 복귀 경로를 지우지 않는다(10분 TTL이 막아
   준다), `isSafeRedirect`에 백슬래시 차단이 없다(backend 응답이라 실경로는 없다).
 

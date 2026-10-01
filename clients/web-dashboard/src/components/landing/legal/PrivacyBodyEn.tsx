@@ -23,6 +23,7 @@ import { PATHS } from "@/routes";
 // 블록에서 동일 문자열로 통일한다.
 // 외부 앱 연결: 근거는 PrivacyBodyKo.tsx 상단 "외부 앱 연결" 항목(V25 migration·
 // mcp_workspace_bindings·ConnectedAppsCard·auth/returnPath.ts)과 같다.
+// 브라우저 저장(제9조): 근거는 PrivacyBodyKo.tsx 상단 "브라우저 저장" 항목과 같다.
 // 자격증명: GitHub 사용자 액세스·리프레시 토큰은 로그인 시 발급, github_user_credentials
 // (사용자 단위 — 프로젝트 연동 행·설치 토큰과 별개). 목록 정본은 PrivacyBodyKo.tsx 상단.
 export function PrivacyBodyEn() {
@@ -737,9 +738,16 @@ export function PrivacyBodyEn() {
           Beyond this, display preferences — the app theme (<code>ht.theme</code>) and
           the public pages' language (<code>ht.lang</code>) and theme (
           <code>ht.lp-theme</code>) — are stored in local storage only when a User
-          selects them explicitly. These values are device-local convenience settings,
-          not personal information; they persist independently of sign-out and can be
-          removed at any time by clearing the browser's site data.
+          selects them explicitly. Whether the related-graph panel on the chat screen is
+          left open (<code>chat:graphPanel</code>) and its width (
+          <code>chat:graphPanelWidth</code>) are written to local storage when the chat
+          screen is opened, so the same layout is shown next time. When a User closes the
+          notice banner for a revision of the Terms of Service or this Policy, the
+          effective date of the closed notice is kept in local storage (
+          <code>ht.termsNotice.dismissed</code>, <code>ht.privacyNotice.dismissed</code>)
+          so the same notice is not shown again. These values are device-local convenience
+          settings, not personal information; they persist independently of sign-out and
+          can be removed at any time by clearing the browser's site data.
         </p>
         <p>
           When a User is sent to sign in from a screen that requires sign-in (such as
@@ -749,6 +757,14 @@ export function PrivacyBodyEn() {
           It is not used once 10 minutes have passed since it was saved, and it is read
           once and deleted when the User returns after sign-in. It disappears when the
           tab is closed.
+        </p>
+        <p>
+          When a User is sent to sign in to connect GitHub while creating their first
+          project, the project name and description entered so far and the time they were
+          saved are kept in per-tab temporary storage (<code>ht.onboarding.draft</code>) so
+          the User can continue after returning. They are not used once 30 minutes have
+          passed since they were saved, and are deleted when the project is created or the
+          User goes back to the previous step. They disappear when the tab is closed.
         </p>
       </LegalSection>
 
