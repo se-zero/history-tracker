@@ -87,7 +87,7 @@ const COPY: Localized<{
     folderBody1:
       '에이전트를 여는 저장소 폴더마다 어느 whycode 프로젝트에 물을지 한 번 정해 둡니다. 그 폴더에서 에이전트에게 "whycode 프로젝트 연결해줘"라고 말하면 프로젝트 목록을 보여주고, 고른 프로젝트를 그 폴더(절대 경로) 기준으로 저장합니다.',
     folderBody2:
-      "이 단계를 건너뛰고 바로 질문해도, 그때 물어봅니다. 프로젝트가 하나뿐이면 묻지 않고 자동으로 연결됩니다.",
+      "이 단계를 건너뛰고 바로 질문하면, 그때 어느 프로젝트에 물을지 확인합니다. 프로젝트가 하나뿐이어도 한 번은 확인합니다.",
     folderBody3: "다른 폴더나 다른 PC에서는 다시 정해야 합니다.",
     askHeading: "질문하는 법",
     askIntro: "별도 명령 없이 자연어로 묻습니다. 예:",
@@ -151,7 +151,7 @@ const COPY: Localized<{
     folderBody1:
       'For each repository folder you open the agent in, you pick which whycode project it should ask once. Tell the agent something like "connect a whycode project" in that folder — it shows your project list and saves the one you pick for that folder (by absolute path).',
     folderBody2:
-      "Skip this and ask a question right away, and it will ask then instead. If you only have one project, it connects automatically without asking.",
+      "If you skip this and ask a question right away, it confirms which project to use at that point — even if you only have one project.",
     folderBody3: "You'll set it again in a different folder or on a different machine.",
     askHeading: "How to ask",
     askIntro: "Just ask in plain language — no special command. For example:",
