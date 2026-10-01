@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { exchangeGitHubCode } from "@/api/auth";
 import { StatusView } from "@/components/StatusView";
 import { useAuth } from "@/auth/AuthProvider";
+import { consumeReturnPath } from "@/auth/returnPath";
 import { PATHS } from "@/routes";
 
 export function AuthCallbackPage() {
@@ -24,6 +25,8 @@ export function AuthCallbackPage() {
 
     // 사용자가 GitHub 인증 화면에서 취소한 경우 등 — 에러 화면 없이 조용히 랜딩으로 돌려보낸다.
     if (oauthError || !code) {
+      // 실패하면 저장된 복귀 경로는 버린다 — 다음 로그인이 오래된 동의 URL로 튀지 않게.
+      consumeReturnPath();
       navigate(PATHS.landing, { replace: true });
       return;
     }
@@ -32,9 +35,11 @@ export function AuthCallbackPage() {
       try {
         await exchangeGitHubCode({ code, state, installationId });
         await refresh();
-        navigate("/", { replace: true });
+        navigate(consumeReturnPath() ?? "/", { replace: true });
       } catch (err) {
         console.error("auth callback failed", err);
+        // 실패하면 저장된 복귀 경로는 버린다 — 다음 로그인이 오래된 동의 URL로 튀지 않게.
+        consumeReturnPath();
         setError("로그인 처리에 실패했습니다. 다시 시도해 주세요.");
       }
     })();

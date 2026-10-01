@@ -29,7 +29,7 @@ src/
 
   api/              backend 엔드포인트별 axios 클라이언트 (리소스 단위로 얇게)
     client.ts         axios 인스턴스 + 인터셉터 (access 토큰 부착, 401 시 쿠키 refresh·rotation 재시도)
-    그 외는 리소스당 모듈 1개 (auth · projects · conversations · integrations · github · graph · actors)
+    그 외는 리소스당 모듈 1개 (auth · projects · conversations · integrations · github · graph · actors · billing)
 
   hooks/            React Query 캡슐화 레이어 (컴포넌트는 여기로만 서버 상태 접근)
     queryKeys.ts      중앙 키 팩토리 — 모든 queryKey의 단일 출처
@@ -38,11 +38,16 @@ src/
     useSelectionFlow(연동 대상 다단 선택 — provider가 선언한 단계·후보 구독, 일괄 확정)
 
   components/
+    account/        ConnectedAppsCard(MCP OAuth로 연결된 앱 목록·연결 끊기 — 계정 페이지)
+    oauth/          OAuthConsentCard(/oauth/consent 본문 — MCP 클라이언트의 연결 요청 미리보기·허용/거부)
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
                     TermsNoticeBanner — 약관 개정 공지(`.main` 맨 위). 기기 로컬 날짜가 `TERMS_EFFECTIVE_DATE`
                     이전일 때만 보이고 닫기는 localStorage(`ht.termsNotice.dismissed`)에 시행일로 기억한다.
                     기존 이용자 재동의를 받지 않는 대신 이 배너가 약관 제12조의 "서비스 내 공지"다
+                    PrivacyNoticeBanner — 같은 방식의 개인정보처리방침 개정 공지(`PRIVACY_POLICY_EFFECTIVE_DATE`,
+                    닫기 키 `ht.privacyNotice.dismissed`). 방침 제11조의 "시행 7일 전 서비스 내 공지"라
+                    **시행일은 배포일 + 7일 이상**이어야 한다. 두 배너의 닫기 키를 섞지 않는다
     sources/        GitHubCard(설치 기반 전용) · OAuthSourceCard(OAuth 소스 공용 행 — backend가
                     선언한 선택 단계를 그대로 렌더, provider별 카드를 만들지 않는다) ·
                     sourceCatalog(소스 메타 단일 출처 — 9종의 마크·설명이 등재돼 있고, 항목은
@@ -64,18 +69,28 @@ src/
                     useOAuthCallbackError — 동의 후 돌아온 리다이렉트의 실패 안내(URL 쿼리 캡처)
                     DisconnectIntegration — 해제 버튼 + 사전 경고 다이얼로그(연동 행 공용).
                     해제는 수집된 그래프까지 지우는 파괴적 동작이라 무엇이 삭제·유지되는지 먼저 보여준다
+                    GitHubInstallEmptyState — GitHub App 미설치 빈 상태(설치 + "연결 확인" 버튼). 온보딩
+                    2단계와 GitHubCard가 같이 쓴다. "연결 확인"이 설치 뒤 유일한 진행 수단이라 버튼이다(#162).
+                    누르면 GitHub 로그인으로 페이지를 떠나므로, 온보딩(OnboardingPage)은 STEP 02로 넘어갈 때
+                    이름·설명을 sessionStorage 초안(`ht.onboarding.draft`, 30분)에 남기고 다시 열리면 STEP 02부터
+                    잇는다. 프로젝트를 만들거나 "이전"을 누르면 지운다. 서버 호출 시점(STEP 02의 "연결")은 그대로다
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
-    settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(계정 플랜·전환 코드)
+    settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(요금제 카드 — `GET /me/billing`의
+                    planSource로 결제 구독자·코드 사용자·무료 세 상태를 그린다. 결제창·포털 링크·코드 강등.
+                    포털 링크는 1회용이라 누를 때마다 받아 이동한다. docs/billing.md §8-2)
     graph/          WorkUnitCanvas(작업 단위 뷰 Canvas 렌더러) · ClusterDetail(열린 작업 단위 묶음 패널) · NodeDetail
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
     landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
                     LegalLayout — 약관·개인정보·환불정책·지원·요금 공통 셸(헤더/푸터 재사용 + 산문 컬럼).
                     `TERMS_EFFECTIVE_DATE`(약관·환불정책 시행일)도 여기 있다 — backend
-                    `app.legal.terms-version`과 같은 문자열이어야 한다
+                    `app.legal.terms-version`과 같은 문자열이어야 한다. `PRIVACY_POLICY_EFFECTIVE_DATE`
+                    (방침 시행일)도 여기 있다 — 서버에 대응값이 없고, 약관 시행일과 섞지 않는다
                     SlackBody — `/slack` 본문(Slack 마켓플레이스 Installation landing page. 랜딩 절에서 분리)
                     SupportBody — `/support` 본문
-                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts)
+                    McpBody — `/mcp/setup` 본문(Claude Code·Codex 연결 안내. 랜딩과 같은 ko/en COPY)
+                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts). 결제 스위치가
+                    켜졌을 때만(`GET /billing/availability`) "계정 설정에서 구독하기"를, 아니면 "준비 중"을 보인다
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
                     LandingLanguageProvider — 랜딩 계열 ko/en 상태(`ht.lang` + 브라우저 언어 감지).
                     문서 헤드(`<html lang>`·`meta description`)도 여기서 언어에 맞춰 바꾸고 이탈 시
@@ -85,9 +100,9 @@ src/
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
     Onboarding · Chat · Sources · Settings · Account · GraphPage(작업 단위 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
-    Actors · Landing · Terms · Privacy · Refund · Support · Slack · Pricing · AuthCallback · NotFound
+    Actors · Landing · Terms · Privacy · Refund · Support · Slack · Pricing · Mcp · OAuthConsent · AuthCallback · NotFound
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
-    ※ Terms(`/terms`)·Privacy(`/privacy`)·Refund(`/refund`)·Support(`/support`)·Slack(`/slack`)·Pricing(`/pricing`)도
+    ※ Terms(`/terms`)·Privacy(`/privacy`)·Refund(`/refund`)·Support(`/support`)·Slack(`/slack`)·Pricing(`/pricing`)·Mcp(`/mcp/setup`)도
       AuthGate 밖 공개 라우트다. 요금·환불정책은 Paddle 심사(도메인 리뷰)가 요구하는 페이지다(docs/billing.md §8-1). 랜딩과
       같은 `.lp` 스코프를 쓰며 헤더·푸터를 공유한다(LegalLayout). 약관·방침 내용은 실제 수집 항목·권한
       scope·보유 기간을 반영하므로 **수집 코드나 purge 설정이 바뀌면 이 두 페이지도 함께 고친다**.
@@ -101,12 +116,23 @@ src/
       제출된 링크가 깨진다). **새 커넥터를 배선하면 제1조 자격증명 행·수집 기록 목록과
       제2조 소스 블록을 함께 추가한다** — 고지 없이 수집하는 상태가 배포 기준 공백이다.
       Google Chat의 `directory.readonly`는 민감 범위라 OAuth 검증에서 이 URL을 요구한다.
+    ※ `/oauth/consent`는 AuthGate 밖이지만 로그인·약관 동의 상태에 따라 스스로 분기한다 — MCP 클라이언트
+      (Claude Code·Codex)의 OAuth 동의 화면. 미로그인이면 `auth/returnPath`에 복귀 경로를 저장하고 GitHub 로그인으로
+      보내며, `AuthCallbackPage`가 그 경로로 돌려보낸다. `/mcp/setup`은 `/slack`과 같은 공개 설치 안내 페이지다
+      (`/mcp`가 아닌 이유: `/mcp`는 에이전트가 접속하는 backend MCP 엔드포인트).
+    ※ `/account`는 공개 라우트가 아니다 — 첫 프로젝트의 계정 설정(`/projects/:id/account`, 없으면 온보딩)으로
+      넘기는 리다이렉트다. 요금 페이지가 로그인 전이면 이 경로를 `auth/returnPath`에 저장하고 GitHub 로그인으로 보낸다.
+      사이트맵에 넣지 않는다.
 
-  lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark
+  lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark · url(외부 URL을 href에 넣기 전 http(s) 가드)
                     workUnitLayout(작업 단위 배치: 작업 단위 force + 구성 노드 반경) · canvasColor(CSS 토큰 → Canvas RGB)
                     heroBackdropGraph · howItWorksGraph · graphExplorerPreview 는 랜딩 전용 도식 데이터
                     plans — Free/Pro 가격·기능 목록의 단일 출처(요금 페이지와 PlanCard가 같이 읽는다).
                     한도의 원본은 backend PlanService라 거기가 바뀌면 여기도 고친다
+                    paddle — Paddle.js 결제창(`@paddle/paddle-js`, 공식 래퍼가 cdn.paddle.com 스크립트를 주입).
+                    **앱에서 유일한 외부 스크립트**라 nginx.conf CSP에 `script-src`·`frame-src`·`connect-src`
+                    예외가 있다. 누를 때 한 번만 초기화하고 토큰·환경은 checkout 응답에서 받는다 —
+                    빌드 시점 환경변수를 만들지 않는다. API 키는 절대 프론트에 두지 않는다
                     remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
                     **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
                     (서버가 타임존을 굳히면 저장된 답변이 그 타임존에 영구히 묶인다, docs/tools.md).
@@ -115,7 +141,7 @@ src/
                     기기 설정이 자동 적용되므로 어디에도 하드코딩하지 않는다.
                     **언어 분리 작업 전에 docs/i18n.md를 읽는다** — 로캘·타임존을 묶으면 안 되는
                     이유와 시각 표시 계약(날짜 단독·코드블록 미변환 등)이 거기 있다
-  auth/             AuthProvider(세션 상태) · tokenStorage(access는 메모리만. 레거시 localStorage 키는 기동 시 삭제)
+  auth/             AuthProvider(세션 상태) · tokenStorage(access는 메모리만. 레거시 localStorage 키는 기동 시 삭제) · returnPath(로그인 후 복귀 경로 — sessionStorage, 같은 출처 상대 경로만)
   theme/            ThemeProvider (다크/라이트)
   types/            api.ts · graph.ts (백엔드 응답 타입)
   styles/           index.css(@import 진입점) + 기능별 분할 CSS, tokens.css(디자인 토큰)
@@ -125,7 +151,7 @@ index.html          문서 셸. 검색·공유 메타(title · description · og
                     아니라 서비스 전체를 설명해야 한다. rel=canonical을 두지 않는 것도 같은 이유다
                     (/terms·/privacy까지 랜딩의 중복으로 선언돼 색인에서 빠진다). 상세는 파일 주석.
 public/             빌드 시 dist/ 루트로 그대로 복사된다(Vite 기본 publicDir).
-                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 7개만
+                    sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 8개만
                     싣고 도메인이 절대 URL로 박혀 있다. **App.tsx에 공개 라우트를 추가하면
                     사이트맵도 함께 고친다** (등록 절차는 docs/deployment.md §3-4)
                     favicon.svg · hero-demo-{ko,en}-{dark,light}.mp4 + 같은 이름의 poster.jpg
@@ -141,6 +167,10 @@ public/             빌드 시 dist/ 루트로 그대로 복사된다(Vite 기�
 - 반복되는 인라인 스타일·에러 문구·폼 래퍼는 **`components/ui` 프리미티브**(MonoChip·InlineError·Field)를 쓴다.
 - **스타일은 글로벌 className + CSS 변수**다. 색·간격·radius는 `styles/tokens.css`의 변수만 쓰고 **hex 하드코딩 금지**.
   규칙은 해당 `styles/<feature>.css`에 추가하고 `styles/index.css`에 `@import`로 등록한다(외부 폰트 @import는 index.css 최상단).
+- **앱 화면의 `<a>`는 기본으로 링크처럼 보이지 않는다** — `base.css`의 `a { color: inherit; text-decoration: none; }`
+  때문이다(랜딩·약관의 `.lp` 스코프는 별도 규칙이 있다). 문장 속 링크에는 `className="text-link"`(밑줄)를 붙이고,
+  다음 단계로 가는 **실행**이면 문장에 넣지 말고 `.btn`으로 올린다. 클래스 없는 `<a>`를 문장에 넣으면 주변
+  글자와 똑같이 보여 누를 수 있다는 걸 알 수 없다(#162 — 새 사용자가 온보딩에서 멈췄다).
 - import 경로는 `@/` alias를 쓴다 (`@/components/...`).
 - **backend API만 호출**한다(`api/`). snake_case ↔ camelCase 매핑은 `api/` 모듈에서 처리하고, 컴포넌트는 camelCase만 본다.
 - 인증 토큰은 `api/client.ts` 인터셉터(자동 refresh·rotation, 401 처리)에 위임한다 — 컴포넌트에서 토큰을 직접 다루지 않는다.

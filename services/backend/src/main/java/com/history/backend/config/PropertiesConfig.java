@@ -3,6 +3,9 @@ package com.history.backend.config;
 import com.history.backend.asana.AsanaProperties;
 import com.history.backend.auth.PlanExpiryProperties;
 import com.history.backend.auth.UserPurgeProperties;
+import com.history.backend.billing.BillingProperties;
+import com.history.backend.billing.PaddleProperties;
+import com.history.backend.billing.ResendProperties;
 import com.history.backend.clickup.ClickUpProperties;
 import com.history.backend.common.crypto.CredentialCryptoProperties;
 import com.history.backend.conversation.ChatMemoryProperties;
@@ -12,7 +15,9 @@ import com.history.backend.googlechat.GoogleChatProperties;
 import com.history.backend.jira.AtlassianPersonalDataReportProperties;
 import com.history.backend.jira.AtlassianProperties;
 import com.history.backend.linear.LinearProperties;
+import com.history.backend.mcp.McpRateLimitProperties;
 import com.history.backend.notion.NotionProperties;
+import com.history.backend.oauth.McpOAuthProperties;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.slack.SlackProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -29,12 +34,17 @@ import org.springframework.context.annotation.Configuration;
         AtlassianPersonalDataReportProperties.class,
         UserPurgeProperties.class,
         PlanExpiryProperties.class,
+        PaddleProperties.class,
+        BillingProperties.class,
+        ResendProperties.class,
         DiscordProperties.class,
         GoogleChatProperties.class,
         LinearProperties.class,
         AsanaProperties.class,
         ClickUpProperties.class,
-        NotionProperties.class
+        NotionProperties.class,
+        McpOAuthProperties.class,
+        McpRateLimitProperties.class
 })
 public class PropertiesConfig {
 }

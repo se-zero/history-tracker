@@ -111,8 +111,11 @@ cp .env.example .env
 | `INTERNAL_SERVICE_TOKEN` | `openssl rand -hex 32` | backend·pipeline-worker가 같은 값 |
 | `BACKEND_CREDENTIAL_KEY` | `openssl rand -base64 32` | **형식 고정**(32-byte Base64) — hex를 쓰면 안 된다 |
 | `RABBITMQ_USER` · `RABBITMQ_PASSWORD` | `openssl rand -hex 32` | **URL-safe 값만** — 아래 경고 참고 |
+| `MCP_OAUTH_ISSUER` | 배포 도메인 — `https://why-code.com` | 사용자가 브라우저·코딩 에이전트로 접속하는 **프론트 주소와 같아야 한다**(발급되는 토큰의 issuer이자 MCP 리소스 URL의 기준). 비우면 로컬 값(`http://localhost:5173`)으로 뜨므로 prod 오버라이드가 비어 있으면 기동을 거부한다 |
+| `MCP_OAUTH_PRIVATE_KEY` | `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \| awk '{printf "%s\\n", $0}'` | MCP access token(RS256) 서명키, **PKCS#8 PEM**을 한 줄(`\n` 리터럴)로. `openssl genrsa`가 내는 PKCS#1(`BEGIN RSA PRIVATE KEY`)은 읽지 못한다. 비면 backend가 임시 키로 떠서 **재기동마다 발급된 토큰이 전부 무효화**된다 — prod 오버라이드에서 필수라 비어 있으면 기동을 거부한다 |
 | `TUNNEL_TOKEN` | Cloudflare 대시보드 | 2-2에서 발급받는다. 이것이 있어야 바깥에서 접근할 수 있다 |
 | `ALERT_SLACK_WEBHOOK_URL` | Slack 앱 → Incoming Webhooks | 선택. 비우면 알림 없이 로그만. 4-6 참고 |
+| `PADDLE_*` · `RESEND_*` | Paddle·Resend 대시보드 | 선택. 비우면 결제는 "준비 중", 결제일 안내는 안 나간다. 라이브 결제를 열 때 3-2b |
 
 > ⚠️ **RabbitMQ 비밀번호에 `/`·`@`·`#`·`?`를 쓰지 않는다.** ai-engine이 이 값을 AMQP URL
 > (`amqp://user:password@rabbitmq:5672/`) 안에 끼워 넣기 때문에, 특수문자가 있으면 파서가 vhost나
@@ -186,6 +189,14 @@ cp .env.example .env
 
 - 브라우저로 `https://<도메인>` → 로그인 화면
 - GitHub 로그인 → 프로젝트 생성 → 소스 연동 → 수집 시작
+- MCP 서버(코딩 에이전트 연결 통로)가 배포 도메인으로 서는지 — 설계는 `docs/mcp-integration.md`
+
+  ```bash
+  # issuer가 배포 도메인(https://why-code.com)인지 — localhost가 보이면 MCP_OAUTH_ISSUER가 안 먹은 것이다
+  curl https://why-code.com/.well-known/oauth-authorization-server
+  # 토큰 없이 부르면 401 + WWW-Authenticate 헤더에 resource_metadata가 와야 한다
+  curl -i -X POST https://why-code.com/mcp
+  ```
 - 수집·그래프 상태 점검은 `.claude/skills/pipeline-inspect`의 쿼리를 쓰되, 명령의 `./dev.sh`를
   `./prod.sh`로 바꿔 읽는다
 
@@ -216,6 +227,8 @@ cp .env.example .env
 프론트로 302를 보내지만, GitHub은 React 페이지가 먼저 받아 backend에 code를 넘긴다.
 나머지 8종도 backend가 아니라 **프론트 오리진**을 써야 한다 — 콜백의 302가 상대 경로라
 backend(:8080)를 직접 가리키면 연동은 성공해도 마지막 리다이렉트가 401로 끝난다.
+
+**MCP 쪽 OAuth는 이 표와 방향이 반대다.** 위 9종은 우리가 외부 서비스의 *클라이언트*로 붙는 연동이라 각 콘솔에 우리 redirect URI를 등록한다. MCP(코딩 에이전트 연결)는 우리가 *인가 서버(발급자)* 이고 에이전트가 클라이언트라서, **외부 콘솔에 등록할 것이 없다.** 앱의 redirect URI는 에이전트가 인가 요청 때 스스로 밝히고, 서버 쪽 설정은 `.env`의 `MCP_OAUTH_ISSUER`·`MCP_OAUTH_PRIVATE_KEY`(2-1)뿐이다.
 
 > ⚠️ **배포 URL로 바꾸면 로컬 개발이 깨질 수 있다.** provider마다 redirect URI를 여러 개
 > 등록할 수 있는지가 다르다. GitHub App과 Notion은 로컬·배포를 함께 둘 수 있다(각각 공식
@@ -264,6 +277,54 @@ GitHub App은 Callback URL을 여러 개 등록할 수 있어 로컬과 배포�
 pipeline-worker로 프록시하지 않는다 — 연동 행·그래프 삭제와 `/why-code` 질의가 backend 소관이기 때문이다.
 
 앱에 슬래시 커맨드 등록·bot scope(`commands`)는 S4다. 여기서는 Request URL만 적는다.
+
+### 3-2b. Paddle 결제 라이브 전환 (G1 승인 뒤)
+
+라이브 계정 심사(G1) 승인 뒤, **라이브 대시보드**(`vendors.paddle.com`)에서 한다. 샌드박스 값을 그대로 쓰면
+안 된다 — 두 환경은 키·가격·알림 대상·토큰이 전부 따로다(docs/billing.md §12).
+
+**결제 버튼은 `PADDLE_API_KEY`·`PADDLE_CLIENT_TOKEN`·`PADDLE_PRO_PRICE_ID` 셋이 다 채워지는 순간 열린다**
+(결제 스위치 — docs/billing.md §0). 하나라도 비어 있으면 요금 페이지·요금제 카드가 "준비 중"이라, 코드는
+G1 전에 배포돼 있어도 된다. 거꾸로 셋을 채우면 **모든 사용자에게** 버튼이 보이므로, 대시보드 준비를 다
+마치고 G2(라이브 소액 실측)를 시작할 때 처음 채운다.
+
+| Paddle 설정 | 값 |
+|---|---|
+| **Catalog → Products** | Pro 상품과 월 가격 **14,900원, 통화 KRW, 세금 포함(`tax_mode: internal`)** — 요금 페이지 금액과 같아야 한다(billing.md §8-1). 샌드박스 상품과 이름·설명을 맞춘다 |
+| **Checkout → Checkout settings** | 한국 결제 수단(로컬 카드·카카오페이·네이버페이 등) 켜기, Default payment link를 샌드박스와 같은 경로로(도메인만 라이브). G2에서 무인 갱신이 안 된 수단은 여기서 끈다 |
+| **Checkout → Website approval** | `why-code.com`이 승인 상태인지 확인 |
+| **Developer tools → Notifications → New destination** | URL `https://<도메인>/api/v1/billing/webhook/paddle`, Usage type **Platform**, 이벤트 **`subscription.*`만**. 코드는 구독 알림만 처리하고 나머지는 무시한다 — 특히 `customer.*`에는 이메일·이름이 실려 오므로 받지 않는다(최소 수집) |
+| **Developer tools → Authentication → API keys** | 서버용 키. 권한 `transaction.write`·`subscription.write`·`customer_portal_session.write`·`customer.read`(write가 read를 포함한다). ⚠️ **만료가 있다 — 기본 90일, 최장 1년.** 1년으로 발급하고 만료일을 달력에 적는다. 로컬(샌드박스) 키와 따로 발급한다 |
+| **Notifications → 이메일 알림 대상** | `api_key.expiring`(만료 7일 전)·`api_key.expired`를 운영자 메일로 받는다. 키가 만료되면 결제 시작·포털·탈퇴 해지·결제일 안내가 전부 502로 실패한다(탈퇴가 막힌다) |
+| **Developer tools → Authentication → Client-side tokens** | Paddle.js용 `live_…` 토큰. 브라우저로 내려가도 되는 값이라 API 키와 다르다 |
+
+| `.env` 키 | 값 |
+|---|---|
+| `PADDLE_ENVIRONMENT` | `production`. 비우거나 다른 값이면 샌드박스 API를 부른다(설정 누락이 실결제가 되지 않게 기본을 샌드박스로 뒀다) |
+| `PADDLE_API_KEY` | 위 서버용 키(`pdl_live_apikey_…`). 프론트에 내려가지 않는다 |
+| `PADDLE_CLIENT_TOKEN` | 위 클라이언트 토큰(`live_…`) |
+| `PADDLE_WEBHOOK_SECRET` | 알림 대상을 저장할 때 나오는 서명 키(`pdl_ntfset_…`). **다시 조회할 수 없으니 바로 옮긴다** |
+| `PADDLE_PRO_PRICE_ID` | 라이브 Pro 가격 id(`pri_…`). 비면 웹훅은 모든 가격을 받아들이고 결제 버튼은 열리지 않는다 |
+| `PADDLE_SIGNATURE_TOLERANCE`·`BILLING_EXPIRY_GRACE` | 비우면 기본값(5초·3일) |
+| `RESEND_API_KEY` | 결제일 7일 전 안내 메일. Resend에서 **서버용 키를 따로** 발급한다(권한 Sending access, 도메인 `mail.why-code.com` 제한). 비면 안내만 안 나가고 결제·해지는 그대로 동작한다 |
+| `RESEND_FROM`·`RESEND_REPLY_TO` | 비우면 `whycode <billing@mail.why-code.com>`·`contact@why-code.com` |
+| `BILLING_RENEWAL_NOTICE_ENABLED`·`BILLING_RENEWAL_NOTICE_CRON` | 비우면 켜짐·매일 04:00(서버 시각) |
+
+**G2 진행** — 1일 주기 가격을 따로 만들어 `PADDLE_PRO_PRICE_ID`에 잠시 넣고 결제 수단마다 구독해 다음 날
+갱신이 사람 손 없이 청구되는지 본다(billing.md §15-3-1). 이 동안 버튼이 모든 사용자에게 열리므로 짧게 끝내고,
+끝나면 1일 가격을 보관(archive) 처리하고 월 가격 id로 되돌린 뒤 재기동한다. 이 결제로 함께 확인한다 —
+**브라우저 콘솔에 CSP 위반이 없는지**(라이브 결제창 도메인 `buy.paddle.com`·`checkout-service.paddle.com`은
+샌드박스 이름에서 추정해 넣은 값이다, `clients/web-dashboard/nginx.conf`), 알림 로그 200, 요금제 카드의 구독자 상태.
+
+`PADDLE_WEBHOOK_SECRET`이 비면 모든 알림이 401로 거부되고 Paddle이 재시도한다(fail-closed) — 결제는
+됐는데 플랜이 안 바뀌는 상태가 된다. 등록 직후 대시보드의 알림 로그에서 200이 찍히는지 확인한다.
+
+**서버 시계가 맞아야 한다.** 서명 검증은 Paddle이 붙인 시각과 서버 시각의 차이가 5초(`PADDLE_SIGNATURE_TOLERANCE`)를
+넘으면 거부한다. 호스트의 시계 동기화(NTP — `timedatectl`에서 `System clock synchronized: yes`)가 꺼져 있으면
+모든 알림이 401이 되고 Paddle은 3일간 재시도하다 포기한다.
+
+이 경로는 nginx `/api/`를 타 **backend**로 간다. `/api/v1/webhook/`(GitHub, pipeline-worker)과 다른
+prefix를 쓴 이유다.
 
 ### 3-3. Jira 개인정보 보고 봇 계정 (Jira를 쓰는 경우 최초 1회)
 
@@ -344,6 +405,8 @@ ssh -L 7474:127.0.0.1:7474 -L 7687:127.0.0.1:7687 <user>@<서버>
 |---|---|---|
 | Proxy Read Timeout | **125초** 초과 시 524 | 질의(`/query`)가 평균 12초대다. 타임아웃 체인은 backend `ai.engine.read-timeout-seconds`(기본 120초) → nginx `location /api/` `proxy_read_timeout` 125초 → Cloudflare 125초다. 앱이 먼저 끊고 nginx는 그 응답을 통과시키며, 엣지 524는 그 바깥이다. nginx를 빼면 기본 60초에서 504가 나고 backend fallback도 타지 않는다 |
 | 요청 본문 | 무료 플랜 100MB | webhook·API 페이로드가 근처에도 가지 않는다 |
+
+이 체인(backend 120초 → nginx 125초 → Cloudflare 125초)은 `/api/`뿐 아니라 MCP 엔드포인트 nginx `location = /mcp`에도 같게 걸려 있다 — 에이전트의 질의 한 번도 최대 120초라 앱이 먼저 끊게 하는 이유가 같다. `/mcp`는 **정확 일치**(`=`)라 같은 경로의 SPA 안내 페이지 `/mcp/setup`은 backend로 프록시되지 않고 프론트가 그린다. 끝 슬래시가 붙은 `/mcp/`는 SPA 폴백(200)으로 새지 않도록 nginx가 바른 주소를 알려 주는 JSON 404로 끝낸다.
 
 **125초는 올릴 수 없다 — Enterprise 플랜 전용이다**(최대 6000초). 그리고 **스트리밍도 예외가
 아니다**: Cloudflare 문서는 "요청이 125초를 넘으면(예: 스트리밍) Proxy Read Timeout을 올리라"고

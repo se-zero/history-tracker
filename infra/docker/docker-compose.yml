@@ -120,6 +120,12 @@ services:
       AI_ENGINE_READ_TIMEOUT_SECONDS: ${AI_ENGINE_READ_TIMEOUT_SECONDS:-120}
       PIPELINE_WORKER_URL: ${PIPELINE_WORKER_URL:-http://pipeline-worker:8081}
 
+      # MCP OAuth 인가 서버 — infra/docker/.env 에서 forward.
+      # issuer는 사용자가 브라우저·Claude Code로 접근하는 프론트 오리진이어야 한다(로컬은 Vite 5173, 배포는 https://why-code.com).
+      # 서명키가 비면 backend가 임시 RSA 키를 만들어 뜨지만, 재기동마다 이미 발급된 MCP 토큰이 전부 무효화된다.
+      MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER:-http://localhost:5173}
+      MCP_OAUTH_PRIVATE_KEY: ${MCP_OAUTH_PRIVATE_KEY:-}
+
       # 보안 키
       JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-must-be-changed}
       BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
@@ -129,6 +135,23 @@ services:
       PLAN_EXPIRY_ENABLED: ${PLAN_EXPIRY_ENABLED:-true}
       PLAN_EXPIRY_CRON: ${PLAN_EXPIRY_CRON:-0 15 * * * *}
       PLAN_EXPIRY_BATCH_SIZE: ${PLAN_EXPIRY_BATCH_SIZE:-100}
+
+      # Paddle 결제 웹훅 — infra/docker/.env 에서 forward. 비면 서명 검증이 전부 거부(fail-closed)된다.
+      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      PADDLE_SIGNATURE_TOLERANCE: ${PADDLE_SIGNATURE_TOLERANCE:-PT5S}
+      PADDLE_PRO_PRICE_ID: ${PADDLE_PRO_PRICE_ID:-}
+      # 서버용 API 키·환경·클라이언트 토큰. 셋 중 하나라도 비면 결제 버튼은 열리지 않는다.
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_ENVIRONMENT: ${PADDLE_ENVIRONMENT:-sandbox}
+      PADDLE_CLIENT_TOKEN: ${PADDLE_CLIENT_TOKEN:-}
+      # 결제일 7일 전 안내. 키가 비면 그 회차는 보내지 않고 결제·해지는 그대로 동작한다.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-whycode <billing@mail.why-code.com>}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-contact@why-code.com}
+      BILLING_RENEWAL_NOTICE_ENABLED: ${BILLING_RENEWAL_NOTICE_ENABLED:-true}
+      BILLING_RENEWAL_NOTICE_CRON: ${BILLING_RENEWAL_NOTICE_CRON:-0 0 4 * * *}
+      # 결제 갱신 알림 지연·재시도에 대비한 만료 유예. 기본 3일(라이브 재시도 창과 동일).
+      BILLING_EXPIRY_GRACE: ${BILLING_EXPIRY_GRACE:-P3D}
 
       # GitHub App — infra/docker/.env 에서 forward (필수: APP_ID, SLUG, CLIENT_ID/SECRET, PRIVATE_KEY)
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}

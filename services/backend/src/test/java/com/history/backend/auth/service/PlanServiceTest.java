@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,7 @@ import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserProviderConnectionRepository;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.integration.domain.Integration;
@@ -32,6 +34,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Transactional;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PlanService: 무료 티어 사용량 제한 검증·기록·업그레이드")
@@ -40,6 +43,7 @@ class PlanServiceTest {
     private static final UUID OWNER_ID = UUID.fromString("fdd87bd0-3751-4336-a2db-c05d931c4f50");
     private static final String UPGRADE_CODE = "SECRET-UPGRADE-CODE";
     private static final Instant PLAN_EXPIRES_AT = Instant.parse("2026-05-18T01:00:00Z");
+    private static final Instant NOW = Instant.parse("2026-06-04T00:00:00Z");
 
     @Mock
     private UserRepository userRepository;
@@ -318,14 +322,150 @@ class PlanServiceTest {
         assertThat(user.getPlanExpiresAt()).isNull();
     }
 
-    // ── downgradeToFree ──
+    // ── activatePaid ──
+    // 웹훅이 쓸 "만료 시각 있는 PAID 전환". 스케줄러(downgradeIfExpired)의 재확인 잠금과
+    // 같은 행을 두고 경합하므로 findByIdForUpdate로 잠근다(upgradeToPaid의 findById와 다르다).
 
     @Test
-    @DisplayName("PAID 강등: plan·freeQueryCount·planExpiresAt이 전부 초기화된다")
+    @DisplayName("FREE 사용자 → PAID 전환 + 주어진 만료 시각 설정 + 소유 연동 전체 incrementalEnabled=true,"
+            + " findByIdForUpdate로 잠근다")
+    void activatePaidActivatesPaidPlanWithExpiryAndEnablesIncrementalForAllOwnedIntegrations() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.FREE);
+        Integration githubIntegration = integration(IntegrationProvider.GITHUB, false);
+        Integration slackIntegration = integration(IntegrationProvider.SLACK, false);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID))
+                .thenReturn(List.of(githubIntegration, slackIntegration));
+
+        service.activatePaid(OWNER_ID, PLAN_EXPIRES_AT);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+        assertThat(user.getPlanExpiresAt()).isEqualTo(PLAN_EXPIRES_AT);
+        assertThat(githubIntegration.isIncrementalEnabled()).isTrue();
+        assertThat(slackIntegration.isIncrementalEnabled()).isTrue();
+        verify(userRepository).save(user);
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("이미 PAID인 사용자 → 만료 시각이 새 값으로 연장된다")
+    void activatePaidExtendsExpiryForAlreadyPaidUser() {
+        PlanService service = service(UPGRADE_CODE);
+        Instant extendedExpiresAt = PLAN_EXPIRES_AT.plusSeconds(3600);
+        User user = user(Plan.PAID, 0, PLAN_EXPIRES_AT);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID)).thenReturn(List.of());
+
+        service.activatePaid(OWNER_ID, extendedExpiresAt);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+        assertThat(user.getPlanExpiresAt()).isEqualTo(extendedExpiresAt);
+    }
+
+    // ── downgradeIfExpired ──
+    // 만료 스케줄러 전용 진입점. 조회(findExpiredPaidUserIds)와 강등 사이에 갱신 알림이 끼어들 수
+    // 있어(docs/billing.md §6-5), 잠근 뒤 조건을 반드시 재확인한다 — 그냥 findByIdForUpdate로
+    // 잠그기만 하고 무조건 강등하면 방금 갱신된 계정까지 내려가는 결함이 되는데, 이 스위트의
+    // "연장된 경우" 케이스가 그걸 잡는다.
+
+    @Test
+    @DisplayName("만료 지난 PAID → FREE·질의 횟수 0·만료 null·소유 연동 incremental 꺼짐,"
+            + " findByIdForUpdate로 잠근다")
+    void downgradeIfExpiredDowngradesPaidUserPastExpiry() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 7, NOW.minusSeconds(60));
+        Integration githubIntegration = integration(IntegrationProvider.GITHUB, true);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID))
+                .thenReturn(List.of(githubIntegration));
+
+        boolean downgraded = service.downgradeIfExpired(OWNER_ID, NOW);
+
+        assertThat(downgraded).isTrue();
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        assertThat(user.getFreeQueryCount()).isZero();
+        assertThat(user.getPlanExpiresAt()).isNull();
+        assertThat(githubIntegration.isIncrementalEnabled()).isFalse();
+        verify(userRepository).save(user);
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("조회 뒤 만료가 now 이후로 연장된 PAID(갱신 알림이 먼저 반영된 경합) → 변경 없음,"
+            + " userRepository.save·integrationRepository.saveAll 호출 없음")
+    void downgradeIfExpiredDoesNothingWhenExpiryWasExtendedPastNow() {
+        PlanService service = service(UPGRADE_CODE);
+        Instant extendedExpiresAt = NOW.plusSeconds(60);
+        User user = user(Plan.PAID, 7, extendedExpiresAt);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        boolean downgraded = service.downgradeIfExpired(OWNER_ID, NOW);
+
+        assertThat(downgraded).isFalse();
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+        assertThat(user.getFreeQueryCount()).isEqualTo(7);
+        assertThat(user.getPlanExpiresAt()).isEqualTo(extendedExpiresAt);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("planExpiresAt이 null인 PAID(전환 코드로 만든 무기한 PAID) → 변경 없음")
+    void downgradeIfExpiredDoesNothingWhenPlanExpiresAtIsNull() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 0, null);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        boolean downgraded = service.downgradeIfExpired(OWNER_ID, NOW);
+
+        assertThat(downgraded).isFalse();
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("이미 FREE인 사용자 → 변경 없음")
+    void downgradeIfExpiredDoesNothingForAlreadyFreeUser() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.FREE, 3);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        boolean downgraded = service.downgradeIfExpired(OWNER_ID, NOW);
+
+        assertThat(downgraded).isFalse();
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        assertThat(user.getFreeQueryCount()).isEqualTo(3);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("경계: planExpiresAt == now → 변경 없음 (isBefore 기준, 같은 시각은 아직 만료가 아니다)")
+    void downgradeIfExpiredDoesNothingWhenPlanExpiresAtEqualsNow() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 0, NOW);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        boolean downgraded = service.downgradeIfExpired(OWNER_ID, NOW);
+
+        assertThat(downgraded).isFalse();
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    // ── downgradeToFree ──
+    // 웹훅 해지 경로가 쓰는 강제 강등. activatePaid/downgradeIfExpired와 같은 행을 다투므로
+    // findByIdForUpdate로 조회한다(과거 findById에서 변경).
+
+    @Test
+    @DisplayName("PAID 강등: plan·freeQueryCount·planExpiresAt이 전부 초기화된다, findByIdForUpdate로 잠근다")
     void downgradeToFreeResetsAllFieldsForPaidUser() {
         PlanService service = service(UPGRADE_CODE);
         User user = user(Plan.PAID, 7, PLAN_EXPIRES_AT);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
         when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID)).thenReturn(List.of());
 
         service.downgradeToFree(OWNER_ID);
@@ -334,6 +474,7 @@ class PlanServiceTest {
         assertThat(user.getFreeQueryCount()).isZero();
         assertThat(user.getPlanExpiresAt()).isNull();
         verify(userRepository).save(user);
+        verify(userRepository, never()).findById(any());
     }
 
     @Test
@@ -343,7 +484,7 @@ class PlanServiceTest {
         User user = user(Plan.PAID);
         Integration githubIntegration = integration(IntegrationProvider.GITHUB, true);
         Integration slackIntegration = integration(IntegrationProvider.SLACK, true);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
         when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID))
                 .thenReturn(List.of(githubIntegration, slackIntegration));
 
@@ -363,7 +504,7 @@ class PlanServiceTest {
     void downgradeToFreeSucceedsWithNoOwnedIntegrations() {
         PlanService service = service(UPGRADE_CODE);
         User user = user(Plan.PAID);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
         when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID)).thenReturn(List.of());
 
         service.downgradeToFree(OWNER_ID);
@@ -378,7 +519,7 @@ class PlanServiceTest {
     void downgradeToFreeIsNoOpForAlreadyFreeUser() {
         PlanService service = service(UPGRADE_CODE);
         User user = user(Plan.FREE, 7);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
 
         service.downgradeToFree(OWNER_ID);
 
@@ -392,12 +533,103 @@ class PlanServiceTest {
     @DisplayName("사용자를 못 찾으면 NotFoundException, 연동 조회도 하지 않는다")
     void downgradeToFreeThrowsWhenUserNotFound() {
         PlanService service = service(UPGRADE_CODE);
-        when(userRepository.findById(OWNER_ID)).thenReturn(Optional.empty());
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.downgradeToFree(OWNER_ID))
                 .isInstanceOf(NotFoundException.class);
 
         verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("전환 코드 PAID(만료 시각 없음)는 무료로 내리고 증분 수집을 끈다")
+    void downgradeCodeUserToFreeResetsPlanAndDisablesIncremental() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 7, null);
+        Integration githubIntegration = integration(IntegrationProvider.GITHUB, true);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+        when(integrationRepository.findAllByProject_Owner_Id(OWNER_ID)).thenReturn(List.of(githubIntegration));
+
+        service.downgradeCodeUserToFree(OWNER_ID);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        assertThat(user.getFreeQueryCount()).isZero();
+        assertThat(user.getPlanExpiresAt()).isNull();
+        verify(userRepository).save(user);
+        assertThat(githubIntegration.isIncrementalEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("이미 FREE인 사용자의 코드 강등은 아무것도 하지 않는다")
+    void downgradeCodeUserToFreeIsNoOpForFreeUser() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.FREE, 4, null);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        service.downgradeCodeUserToFree(OWNER_ID);
+
+        assertThat(user.getPlan()).isEqualTo(Plan.FREE);
+        assertThat(user.getFreeQueryCount()).isEqualTo(4);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("만료 시각이 있는 PAID(구독)는 코드 강등 409이고 저장하지 않는다")
+    void downgradeCodeUserToFreeRejectsSubscriptionPlan() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 0, PLAN_EXPIRES_AT);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.downgradeCodeUserToFree(OWNER_ID))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Only upgrade-code plans can be downgraded here.");
+
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("코드 강등 대상 사용자가 없으면 NotFoundException")
+    void downgradeCodeUserToFreeThrowsWhenUserNotFound() {
+        PlanService service = service(UPGRADE_CODE);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.downgradeCodeUserToFree(OWNER_ID))
+                .isInstanceOf(NotFoundException.class);
+        verifyNoInteractions(integrationRepository);
+    }
+
+    // ── noRollbackFor 가드 (결제 웹훅) ──
+    // PaddleWebhookService.handle()은 PlanService가 던지는 NotFoundException(파기된 사용자)을
+    // 잡아 UNMATCHED로 기록하고 정상 종료한다. 하지만 activatePaid/downgradeToFree가 예외를 던지는
+    // 순간, REQUIRED로 합류한 handle()의 바깥 트랜잭션이 rollback-only로 표시된다
+    // (globalRollbackOnParticipationFailure, 기본값) — noRollbackFor 없이는 handle()이 예외를
+    // 잡아도 커밋 시점에 UnexpectedRollbackException이 나 원장까지 롤백되고 Paddle이 무한
+    // 재시도한다. AuthService.refresh의 noRollbackFor = UnauthorizedException과 같은 이유다.
+    // Mockito 단위 테스트로는 이 트랜잭션 경계 문제를 재현할 수 없어 리플렉션으로 선언을 직접 확인한다.
+
+    @Test
+    @DisplayName("activatePaid는 @Transactional(noRollbackFor = NotFoundException.class)여야 한다")
+    void activatePaidDeclaresNoRollbackForNotFoundException() throws NoSuchMethodException {
+        Method method = PlanService.class.getMethod("activatePaid", UUID.class, Instant.class);
+
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.noRollbackFor()).contains(NotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("downgradeToFree는 @Transactional(noRollbackFor = NotFoundException.class)여야 한다")
+    void downgradeToFreeDeclaresNoRollbackForNotFoundException() throws NoSuchMethodException {
+        Method method = PlanService.class.getMethod("downgradeToFree", UUID.class);
+
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.noRollbackFor()).contains(NotFoundException.class);
     }
 
     private PlanService service(String upgradeCode) {

@@ -19,6 +19,7 @@ const COPY: Localized<{
   privacy: string;
   terms: string;
   slack: string;
+  mcp: string;
 }> = {
   ko: {
     contactHeading: "문의",
@@ -33,6 +34,7 @@ const COPY: Localized<{
     privacy: "개인정보처리방침",
     terms: "이용약관",
     slack: "Slack에서 쓰는 방법",
+    mcp: "코딩 에이전트에서 쓰는 방법",
   },
   en: {
     contactHeading: "Contact",
@@ -47,6 +49,7 @@ const COPY: Localized<{
     privacy: "Privacy Policy",
     terms: "Terms of Service",
     slack: "How to use whycode in Slack",
+    mcp: "whycode in your coding agent",
   },
 };
 
@@ -94,6 +97,9 @@ export function SupportBody() {
           </li>
           <li>
             <Link to={PATHS.slack}>{t.slack}</Link>
+          </li>
+          <li>
+            <Link to={PATHS.mcpSetup}>{t.mcp}</Link>
           </li>
         </ul>
       </section>

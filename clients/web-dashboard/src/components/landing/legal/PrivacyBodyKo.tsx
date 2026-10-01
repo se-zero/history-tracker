@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   LEGAL_CONTACT_EMAIL,
   LEGAL_CONTACT_URL,
+  LEGAL_OPERATOR,
   LegalSection,
   LegalSourceBlock,
   LegalSourceRow,
@@ -25,6 +26,17 @@ import { PATHS } from "@/routes";
 //   파기 기한  → backend user-lifecycle.purge.grace-period (P30D) +
 //                권한 회수 실패 시 강제 진행 유예 force-purge-after (P7D, UserPurgeService)
 //   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
+//   외부 앱 연결 → backend db/migration/V25__create_oauth2_authorization_server_tables.sql
+//                (이용자별 연결 기록·접속용 토큰. 앱 등록 행은 이용자에 묶이지 않은 앱 자체의
+//                정보이고 연결을 끊어도 남으므로 제1조 항목에 넣지 않았다) +
+//                V27__create_mcp_workspace_bindings.sql(user_id·workspace_path·project_id) +
+//                계정 페이지 ConnectedAppsCard·api/oauthGrants.ts(앱 이름·연결 시각·마지막 사용 시각 표시) +
+//                auth/returnPath.ts(sessionStorage ht.return_path, 경로+저장 시각, 10분 TTL, 로그인 콜백에서 1회 소비)
+//   브라우저 저장 → 제9조. 위 ht.return_path 외에 OnboardingPage(sessionStorage ht.onboarding.draft —
+//                프로젝트 이름·설명+저장 시각, 30분, 프로젝트 생성·"이전" 시 삭제),
+//                TermsNoticeBanner·PrivacyNoticeBanner(localStorage ht.termsNotice.dismissed·
+//                ht.privacyNotice.dismissed — 닫은 공지의 시행일 문자열), ChatPage(localStorage
+//                chat:graphPanel "1"/"0"·chat:graphPanelWidth 숫자 — 채팅 화면을 열면 기록된다)
 //   백업 보존  → infra/scripts/backup.sh의 BACKUP_RETENTION_DAYS(14). 다만 대외 문구는
 //                "약 2주"다 — `find -mtime +14`가 15일차부터 지우고 cron이 하루 1회라
 //                실제 최대는 ~16일이다. 설정값을 그대로 옮겨 적지 않는다(제5조).
@@ -34,7 +46,7 @@ export function PrivacyBodyKo() {
     <>
       <LegalSection index={1} heading="처리하는 개인정보 항목">
         <p>
-          서비스는 크게 네 갈래의 정보를 처리합니다. 이 중 <strong>연동으로 수집되는 기록</strong>은
+          서비스는 크게 다섯 갈래의 정보를 처리합니다. 이 중 <strong>연동으로 수집되는 기록</strong>은
           이용자 본인 외 팀 구성원의 정보를 포함합니다(제7조 참고).
         </p>
         <div className="lp-legal-table-scroll">
@@ -110,9 +122,32 @@ export function PrivacyBodyKo() {
                 </td>
                 <td>서비스 이용 과정에서 생성</td>
               </tr>
+              <tr>
+                <td>외부 앱(코딩 에이전트) 연결</td>
+                <td>
+                  <ul>
+                    <li>
+                      이용자별 연결 기록 — 어느 이용자가 어느 앱(앱 이름·식별자)의 연결을
+                      허용했는지, 앱에 발급한 접속용 토큰과 그 발급·만료 시각
+                    </li>
+                    <li>
+                      작업 폴더 연결 정보 — 이용자 컴퓨터의 작업 폴더 경로와 그 폴더에 연결한
+                      프로젝트. 경로에는 PC 계정 이름 같은 정보가 들어갈 수 있습니다.
+                    </li>
+                  </ul>
+                </td>
+                <td>
+                  이용자가 Claude Code·Codex 같은 코딩 에이전트의 연결을 허용하고 사용하는 과정에서
+                  생성
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
+        <p>
+          외부 앱(코딩 에이전트)이 보낸 질문과 그 답변은 대화로 저장하지 않습니다. 답변을 만드는
+          처리는 기존 질문과 같은 경로(제3·4조)를 따르며, 무료 플랜의 질의 횟수에는 합산됩니다.
+        </p>
         <p className="lp-legal-note">
           서비스는 주민등록번호·결제 정보 등 민감정보나 고유식별정보를 수집하지 않습니다.
         </p>
@@ -420,9 +455,10 @@ export function PrivacyBodyKo() {
 
       <LegalSection id="subprocessors" index={4} heading="처리 위탁과 국외 이전">
         <p>
-          서비스는 답변 생성·의미 검색과 서비스 운영을 위해 아래 사업자에 처리를 위탁합니다.
-          이용자의 질문과 그래프에 저장된 기록의 일부(제목·본문·요약 등)가 OpenAI로 전송되며,
-          서비스에 접속하는 통신은 Cloudflare의 네트워크를 지나갑니다.
+          서비스는 답변 생성·의미 검색, 서비스 운영, 결제 예정 안내를 위해 아래 사업자에
+          처리를 위탁합니다. 이용자의 질문과 그래프에 저장된 기록의 일부(제목·본문·요약 등)가
+          OpenAI로 전송되고, 서비스에 접속하는 통신은 Cloudflare의 네트워크를 지나갑니다.
+          결제 예정 안내에는 수신 이메일 주소와 안내 본문만 Resend로 전달합니다.
         </p>
         <div className="lp-legal-table-scroll">
           <table className="lp-legal-table">
@@ -444,6 +480,11 @@ export function PrivacyBodyKo() {
                 <td>서비스 공개 경로(터널) 제공과 TLS 종단, DNS 및 문의 메일 전달</td>
                 <td>미국</td>
               </tr>
+              <tr>
+                <td>Resend, Inc.</td>
+                <td>결제 예정 안내 메일 발송. 수신 이메일 주소와 안내 본문만 전달하며, 지식 그래프는 보내지 않음</td>
+                <td>일본 (발송 리전 도쿄)</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -454,7 +495,8 @@ export function PrivacyBodyKo() {
         </p>
         <p>
           Cloudflare는 통신을 중계하고 문의 메일을 전달할 뿐, 수집된 기록이나 지식 그래프를
-          저장하지 않습니다.
+          저장하지 않습니다. Resend로는 결제 예정 안내만 보내며, 광고·마케팅 메일에는
+          쓰지 않습니다.
         </p>
         <p>
           이 외에 이용자의 개인정보를 제3자에게 제공하지 않으며, 어떤 경우에도{" "}
@@ -490,9 +532,24 @@ export function PrivacyBodyKo() {
             탈퇴 시 함께 삭제됩니다. 이 기록의 삭제를 원하시면 아래 문의처로 요청해 주세요.
           </li>
           <li>
+            <strong>결제 기록</strong> — 회원 탈퇴로 계정과 서비스 데이터를 삭제한 뒤에도,
+            결제 시각·알림 종류·구독 식별자·사용자 식별자는 관계 법령이 정한 기간 동안
+            보관합니다. 카드 번호는 보관하지 않습니다. 결제는 판매 대행자인 Paddle이
+            처리합니다.
+          </li>
+          <li>
             <strong>백업</strong> — 서버 백업은 약 2주 주기로 순환합니다. 위 경로로 삭제된
             데이터가 그 이전에 만들어진 백업에 남아 있을 수 있으나, 약 2주 안에
             백업에서도 사라집니다.
+          </li>
+          <li>
+            <strong>외부 앱(코딩 에이전트) 연결</strong> — 이용자가 계정 페이지의 연결된 앱에서
+            앱 연결을 끊으면 그 앱의 연결 기록과 토큰을 즉시 삭제하며, 이미 발급된 토큰도 즉시
+            거부합니다. 회원 탈퇴 시에는 모든 앱의 연결 기록과 토큰을 즉시 삭제합니다. 30일
+            안에 계정을 복구해도 앱 연결은 돌아오지 않으므로 앱에서 다시 허용해야 합니다. 만료된
+            연결 기록은 주기적으로 삭제합니다. 작업 폴더 연결 정보는 계정과 관련 데이터를 삭제할
+            때 함께 삭제하며(탈퇴 후 30일 동안은 남아 있고, 그 안에 복구하면 그대로 쓰입니다),
+            연결한 프로젝트를 삭제하면 그 폴더 연결도 함께 삭제합니다.
           </li>
           <li>
             법령이 보존을 요구하는 기록은 해당 법령이 정한 기간 동안 분리 보관한 뒤
@@ -528,6 +585,11 @@ export function PrivacyBodyKo() {
           기록에 정보가 포함된 구성원은 아래 문의처로 열람·삭제를 요청할 수 있으며, 해당
           프로젝트의 관리자를 통해 연동 해제나 프로젝트 삭제를 요청할 수도 있습니다.
         </p>
+        <p>
+          이용자가 연결을 허용한 외부 앱(코딩 에이전트)에는 답변이 전달되며, 그 답변에는 저장소·이슈·
+          대화에 등장하는 구성원의 정보가 포함될 수 있습니다. 앱 연결은 계정 페이지의 연결된
+          앱에서 언제든 끊을 수 있습니다.
+        </p>
       </LegalSection>
 
       <LegalSection index={8} heading="이용자의 권리와 행사 방법">
@@ -552,13 +614,34 @@ export function PrivacyBodyKo() {
         <p>
           이 외에 화면 표시 설정 — 앱 테마(<code>ht.theme</code>), 소개 페이지의 언어(
           <code>ht.lang</code>)와 테마(<code>ht.lp-theme</code>) — 를 이용자가 직접 선택한
-          경우에만 로컬 저장소에 보관합니다. 이 값들은 개인정보가 아닌 기기별 편의 설정으로
-          로그아웃과 무관하게 유지되며, 브라우저의 사이트 데이터 삭제로 언제든 지울 수
-          있습니다.
+          경우에만 로컬 저장소에 보관합니다. 채팅 화면의 관련 그래프 패널을 열어 두었는지(
+          <code>chat:graphPanel</code>)와 패널 너비(<code>chat:graphPanelWidth</code>)는 다음에도
+          같은 배치로 보여 주기 위해 채팅 화면을 열면 로컬 저장소에 기록됩니다. 이용약관·개인정보처리방침
+          개정 공지 배너를 닫으면, 같은 공지를 다시 띄우지 않기 위해 닫은 공지의 시행일을 로컬
+          저장소(<code>ht.termsNotice.dismissed</code>·<code>ht.privacyNotice.dismissed</code>)에
+          보관합니다. 이 값들은 개인정보가 아닌 기기별 편의 설정으로 로그아웃과 무관하게 유지되며,
+          브라우저의 사이트 데이터 삭제로 언제든 지울 수 있습니다.
+        </p>
+        <p>
+          로그인이 필요한 화면(외부 앱 연결 허용 화면 등)에서 로그인하러 이동할 때는, 로그인 후
+          원래 화면으로 돌아오기 위해 그 화면의 경로와 저장 시각을 탭 단위 임시 저장소(
+          <code>ht.return_path</code>)에 보관합니다. 저장 후 10분이 지나면 쓰지 않으며,
+          로그인 후 돌아올 때 한 번 읽고 지웁니다. 탭을 닫으면 함께 사라집니다.
+        </p>
+        <p>
+          첫 프로젝트를 만드는 중 GitHub 연결을 위해 로그인하러 이동할 때는, 돌아와서 이어 진행할 수
+          있도록 입력한 프로젝트 이름·설명과 저장 시각을 탭 단위 임시 저장소(
+          <code>ht.onboarding.draft</code>)에 보관합니다. 저장 후 30분이 지나면 쓰지 않으며,
+          프로젝트를 만들거나 이전 단계로 돌아가면 지웁니다. 탭을 닫으면 함께 사라집니다.
         </p>
       </LegalSection>
 
       <LegalSection index={10} heading="문의처">
+        <p>
+          개인정보 보호책임자는 {LEGAL_OPERATOR.ko}이며, 연락처는{" "}
+          <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>
+          입니다.
+        </p>
         <p>
           개인정보 처리에 관한 문의·불만·피해 구제는 아래로 접수해 주세요. 접수 후 지체 없이
           답변하겠습니다.

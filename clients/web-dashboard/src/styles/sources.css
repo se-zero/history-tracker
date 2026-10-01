@@ -46,6 +46,16 @@
 .source-row-status { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
 .source-row-synced { color: var(--fg-subtle); font-size: 12px; text-align: right; }
 
+/* GitHub App 미설치 빈 상태(GitHubInstallEmptyState) — 온보딩 2단계와 이 화면의 GitHub 카드가 같이 쓴다.
+   위아래 여백은 놓이는 자리마다 달라 호출부가 준다. */
+.gh-install-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px; text-align: center;
+  color: var(--fg-muted); font-size: 13px;
+}
+.gh-install-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.gh-install-empty-hint { font-size: 12px; }
+
 /* 추가 가능 — 균일 타일. 이름·설명은 한 줄 고정, 로고·버튼 크기 고정으로 내용 길이와 무관하게 동일한 모양을 유지한다. */
 .source-tiles {
   display: grid;

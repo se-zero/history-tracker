@@ -9,7 +9,8 @@ import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
 import { MonoChip } from "@/components/ui/MonoChip";
 import { createProject } from "@/api/projects";
-import { GITHUB_AUTHORIZE_URL, GITHUB_INSTALL_URL } from "@/api/auth";
+import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
+import { GitHubInstallEmptyState } from "@/components/sources/GitHubInstallEmptyState";
 import { Topbar } from "@/components/shell/Topbar";
 import { queryKeys } from "@/hooks/queryKeys";
 import { useGithubRepoRows } from "@/hooks/useGithub";
@@ -21,15 +22,22 @@ import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api"
 // 서버에는 GitHub 연동이 없는 빈 프로젝트가 남았다(새로고침은 STEP 01로 되돌아가므로 같은
 // 이름으로 하나 더 만들어지기까지 했다). 지금은 STEP 01이 서버를 부르지 않고, 생성·연동을
 // backend가 한 트랜잭션으로 처리해(POST /projects의 github 블록) 반쪽 상태 자체가 없다.
+//
+// 대신 STEP 02에서 GitHub 로그인으로 페이지를 떠났다 돌아오면("연결 확인" — App 설치 뒤 설치 목록을
+// 다시 받는 유일한 길) 이름·설명·단계가 전부 사라져 STEP 01이 빈칸으로 다시 떴다. 그래서 STEP 02로
+// 넘어갈 때 입력값을 탭 저장소(sessionStorage)에 초안으로 남기고, 다시 열리면 STEP 02부터 이어 간다.
+// 서버는 여전히 "연결"에서만 부르므로 초안이 남아도 반쪽 프로젝트는 생기지 않는다.
 export function OnboardingPage() {
   const navigate = useNavigate();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [step, setStep] = useState<1 | 2>(1);
+  const [draft] = useState(readOnboardingDraft);
+  const [name, setName] = useState(draft?.name ?? "");
+  const [description, setDescription] = useState(draft?.description ?? "");
+  const [step, setStep] = useState<1 | 2>(draft ? 2 : 1);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    writeOnboardingDraft({ name, description });
     setStep(2);
   };
 
@@ -42,10 +50,14 @@ export function OnboardingPage() {
             <ConnectGitHubStep
               name={name.trim()}
               description={description.trim()}
-              onDone={(projectId) =>
-                navigate(`/projects/${projectId}/chat`, { replace: true })
-              }
-              onBack={() => setStep(1)}
+              onDone={(projectId) => {
+                clearOnboardingDraft();
+                navigate(`/projects/${projectId}/chat`, { replace: true });
+              }}
+              onBack={() => {
+                clearOnboardingDraft();
+                setStep(1);
+              }}
             />
           ) : (
             <CreateProjectStep
@@ -60,6 +72,54 @@ export function OnboardingPage() {
       </div>
     </div>
   );
+}
+
+// 온보딩 초안 — STEP 02에서 GitHub 로그인을 다녀와도 입력을 잃지 않게 한다(OnboardingPage 주석).
+// 탭 단위(sessionStorage)라 다른 탭·창에는 번지지 않는다. App 설치(저장소 고르기)까지 하고 돌아오는
+// 시간을 넉넉히 30분으로 잡고, 지나면 버린다.
+const ONBOARDING_DRAFT_KEY = "ht.onboarding.draft";
+const ONBOARDING_DRAFT_TTL_MS = 30 * 60 * 1000;
+
+type OnboardingDraft = { name: string; description: string };
+
+function readOnboardingDraft(): OnboardingDraft | null {
+  try {
+    const raw = window.sessionStorage.getItem(ONBOARDING_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { name?: unknown; description?: unknown; savedAt?: unknown };
+    const fresh =
+      typeof parsed.savedAt === "number" && Date.now() - parsed.savedAt <= ONBOARDING_DRAFT_TTL_MS;
+    if (!fresh || typeof parsed.name !== "string" || !parsed.name.trim()) {
+      window.sessionStorage.removeItem(ONBOARDING_DRAFT_KEY);
+      return null;
+    }
+    return {
+      name: parsed.name,
+      description: typeof parsed.description === "string" ? parsed.description : "",
+    };
+  } catch {
+    // 프라이버시 모드 등에서 저장소 접근이 throw하거나 값이 깨졌을 수 있다 — STEP 01부터 시작한다.
+    return null;
+  }
+}
+
+function writeOnboardingDraft(draft: OnboardingDraft) {
+  try {
+    window.sessionStorage.setItem(
+      ONBOARDING_DRAFT_KEY,
+      JSON.stringify({ ...draft, savedAt: Date.now() }),
+    );
+  } catch {
+    // 저장에 실패해도 이번 화면 흐름은 그대로 동작한다 — 돌아왔을 때 다시 입력하게 될 뿐이다.
+  }
+}
+
+function clearOnboardingDraft() {
+  try {
+    window.sessionStorage.removeItem(ONBOARDING_DRAFT_KEY);
+  } catch {
+    // 지우지 못해도 30분이 지나면 버려진다.
+  }
 }
 
 // =========================================================
@@ -231,20 +291,7 @@ function ConnectGitHubStep({
         {installationsQuery.isLoading ? (
           <div className="onb-muted-block">GitHub 워크스페이스를 불러오는 중…</div>
         ) : !connected ? (
-          <div className="onboarding-gh-empty">
-            <span>이 계정으로 GitHub App이 설치된 워크스페이스가 없어요.</span>
-            <a
-              className="btn btn-primary"
-              href={GITHUB_INSTALL_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub App 설치하기
-            </a>
-            <span style={{ fontSize: 12 }}>
-              설치 후 <a href={GITHUB_AUTHORIZE_URL}>연결 확인</a>을 눌러주세요.
-            </span>
-          </div>
+          <GitHubInstallEmptyState style={{ padding: "20px 0" }} />
         ) : reposLoading ? (
           <div className="onb-muted-block">저장소 목록을 불러오는 중…</div>
         ) : needsGitHubReauthorization ? (
@@ -378,7 +425,9 @@ function connectErrorContent(error: unknown) {
     return (
       <>
         로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소를 연결할 수 없어요.{" "}
-        <a href={GITHUB_AUTHORIZE_URL}>다시 로그인하고 연결 확인</a>
+        <a className="text-link" href={GITHUB_AUTHORIZE_URL}>
+          다시 로그인하고 연결 확인
+        </a>
       </>
     );
   }

@@ -1,0 +1,109 @@
+/* ── OAuth 동의 카드 (/oauth/consent) ───────────────────────────
+   MCP 클라이언트(Claude Code·Codex)가 whycode 연결을 요청할 때 보여주는 화면. 랜딩(.lp)이
+   아니라 앱 컨텍스트라 ConsentScreen(약관 동의)과 같은 앱 토큰(--surface·--border·--fg-*)을
+   쓴다. 레이아웃도 ConsentScreen과 동일(전체 화면 중앙 정렬 카드) — 새 규칙은 최소로 둔다.
+   --------------------------------------------------------- */
+.oauth-consent {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.oauth-consent-card {
+  width: 100%;
+  max-width: 480px;
+  padding: 28px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.oauth-consent-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  word-break: keep-all;
+  /* clientName은 클라이언트가 스스로 선언한 값이라 공백 없는 긴 문자열일 수 있다 */
+  overflow-wrap: anywhere;
+}
+
+.oauth-consent-client-link {
+  display: inline-block;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.oauth-consent-client-link:hover {
+  color: var(--fg);
+}
+
+.oauth-consent-section {
+  margin-bottom: 20px;
+}
+
+.oauth-consent-section-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.oauth-consent-scopes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+.oauth-consent-scopes li {
+  margin-bottom: 4px;
+}
+.oauth-consent-scopes li:last-child {
+  margin-bottom: 0;
+}
+
+/* scope 없는 요청 안내 — 목록과 같은 톤의 한 줄. */
+.oauth-consent-scopes-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+
+.oauth-consent-redirect {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+/* 루프백(localhost) 경고 — 규격상 필수는 아니지만 낯선 로컬 프로그램으로 돌아가는 경우를
+   눈에 띄게 알린다. 경고지만 DESIGN.md의 앰버 독점 규칙에 따라 색이 아니라 muted 텍스트로. */
+.oauth-consent-loopback-warning {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+
+.oauth-consent-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+}
+.oauth-consent-actions .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+.oauth-consent-footnote {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--fg-subtle);
+  text-align: center;
+}

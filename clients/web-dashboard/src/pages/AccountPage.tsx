@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
+import { ConnectedAppsCard } from "@/components/account/ConnectedAppsCard";
 import { Icons } from "@/components/Icons";
 import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
@@ -9,6 +11,8 @@ import { MonoChip } from "@/components/ui/MonoChip";
 import { PlanCard } from "@/components/settings/PlanCard";
 import { deleteAccount } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
+import { useBillingSummary } from "@/hooks/useBilling";
+import { formatInstant } from "@/lib/format";
 import { PATHS } from "@/routes";
 
 // 계정 단위 설정 — 프로젝트와 무관한 회원 탈퇴 등을 모은다.
@@ -16,6 +20,7 @@ export function AccountPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, logout } = useAuth();
+  const billing = useBillingSummary();
 
   const [withdrawEmail, setWithdrawEmail] = useState("");
 
@@ -34,6 +39,20 @@ export function AccountPage() {
     withdrawEmail.trim().toLowerCase() === user.email.toLowerCase() &&
     !withdrawMutation.isPending;
 
+  const subscription =
+    billing.data?.planSource === "SUBSCRIPTION" ? billing.data.subscription : null;
+  const withdrawNotice = subscription
+    ? subscription.status === "past_due"
+      ? "연체된 구독은 탈퇴하면 즉시 해지되고, 더 이상 결제되지 않습니다."
+      : subscription.currentPeriodEndsAt
+        ? `진행 중인 구독은 ${formatInstant(subscription.currentPeriodEndsAt)}에 해지되고 더 이상 결제되지 않습니다. 남은 기간 환불은 contact@why-code.com으로 요청해 주세요.`
+        : "진행 중인 구독은 이번 결제 기간이 끝날 때 해지되고 더 이상 결제되지 않습니다. 남은 기간 환불은 contact@why-code.com으로 요청해 주세요."
+    : null;
+  const withdrawError =
+    axios.isAxiosError(withdrawMutation.error) && withdrawMutation.error.response?.status === 502
+      ? "구독 해지 처리에 실패해 탈퇴하지 못했어요. 잠시 후 다시 시도해 주세요."
+      : "탈퇴 처리에 실패했어요. 다시 시도해 주세요.";
+
   return (
     <div className="sources-page">
       <h1 className="page-title">계정 설정</h1>
@@ -42,6 +61,8 @@ export function AccountPage() {
       </p>
 
       <PlanCard />
+
+      <ConnectedAppsCard />
 
       {/* ─── 회원 탈퇴 (계정 전체) ─── */}
       <section
@@ -54,6 +75,7 @@ export function AccountPage() {
             <div className="src-sub">
               계정과 모든 프로젝트·대화·연동이 삭제됩니다. 일정 기간 후 영구 삭제되며,
               그 전까지는 다시 로그인하면 복구할 수 있어요.
+              {withdrawNotice ? ` ${withdrawNotice}` : ""}
             </div>
           </div>
         </div>
@@ -78,7 +100,7 @@ export function AccountPage() {
             />
           </Field>
           {withdrawMutation.isError && (
-            <InlineError>탈퇴 처리에 실패했어요. 다시 시도해 주세요.</InlineError>
+            <InlineError>{withdrawError}</InlineError>
           )}
         </div>
 

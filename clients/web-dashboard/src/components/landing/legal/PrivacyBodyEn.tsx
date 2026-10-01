@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   LEGAL_CONTACT_EMAIL,
   LEGAL_CONTACT_URL,
+  LEGAL_OPERATOR,
   LegalNotice,
   LegalSection,
   LegalSourceBlock,
@@ -20,6 +21,9 @@ import { PATHS } from "@/routes";
 // (PrivacyBodyKo.tsx 상단 주석 참고). LegalSourceRow의 label(Requested scopes/Data
 // collected/Purpose/Deletion 등)은 이 파일에서 영어 리터럴로 직접 쓰고, 같은 라벨은 전
 // 블록에서 동일 문자열로 통일한다.
+// 외부 앱 연결: 근거는 PrivacyBodyKo.tsx 상단 "외부 앱 연결" 항목(V25 migration·
+// mcp_workspace_bindings·ConnectedAppsCard·auth/returnPath.ts)과 같다.
+// 브라우저 저장(제9조): 근거는 PrivacyBodyKo.tsx 상단 "브라우저 저장" 항목과 같다.
 // 자격증명: GitHub 사용자 액세스·리프레시 토큰은 로그인 시 발급, github_user_credentials
 // (사용자 단위 — 프로젝트 연동 행·설치 토큰과 별개). 목록 정본은 PrivacyBodyKo.tsx 상단.
 export function PrivacyBodyEn() {
@@ -29,7 +33,7 @@ export function PrivacyBodyEn() {
 
       <LegalSection index={1} heading="Categories of Personal Information Processed">
         <p>
-          The Service processes four broad categories of information. Of these,{" "}
+          The Service processes five broad categories of information. Of these,{" "}
           <strong>records collected through connections</strong> include information
           about team members other than the User (see Article 7).
         </p>
@@ -117,9 +121,37 @@ export function PrivacyBodyEn() {
                 </td>
                 <td>Generated in the course of using the Service</td>
               </tr>
+              <tr>
+                <td>External app (coding agent) connections</td>
+                <td>
+                  <ul>
+                    <li>
+                      Per-User connection records — which User allowed which app (app
+                      name and identifier) to connect, the access tokens issued to the
+                      app, and their issue and expiry times
+                    </li>
+                    <li>
+                      Working-folder connection information — the path of a working
+                      folder on the User's computer and the project connected to that
+                      folder. The path may contain information such as the PC account
+                      name.
+                    </li>
+                  </ul>
+                </td>
+                <td>
+                  Generated when the User allows a coding agent such as Claude Code or
+                  Codex to connect, and in the course of using it
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
+        <p>
+          Questions sent by an external app (coding agent) and the answers to them are
+          not stored as conversations. Answers are produced through the same processing
+          path as other questions (Articles 3 and 4), and they count toward the free
+          plan's query limit.
+        </p>
         <p className="lp-legal-note">
           The Service does not collect sensitive information or unique identifying
           information such as resident registration numbers or payment details.
@@ -502,10 +534,12 @@ export function PrivacyBodyEn() {
       <LegalSection id="subprocessors" index={4} heading="Outsourcing of Processing and Cross-Border Transfer">
         <p>
           The Service outsources processing to the providers below for answer
-          generation, semantic search, and service operation. A User's questions
-          and part of the records stored in the graph (titles, bodies, summaries,
-          and the like) are transmitted to OpenAI, and all traffic reaching the
-          Service passes through Cloudflare's network.
+          generation, semantic search, service operation, and renewal notices.
+          A User's questions and part of the records stored in the graph (titles,
+          bodies, summaries, and the like) are transmitted to OpenAI, and all
+          traffic reaching the Service passes through Cloudflare's network.
+          A renewal notice sends only the recipient's email address and the
+          notice text to Resend.
         </p>
         <div className="lp-legal-table-scroll">
           <table className="lp-legal-table">
@@ -529,6 +563,12 @@ export function PrivacyBodyEn() {
                   termination, DNS, and forwarding of inquiry email</td>
                 <td>United States</td>
               </tr>
+              <tr>
+                <td>Resend, Inc.</td>
+                <td>Sending renewal notices. Only the recipient's email address
+                  and the notice text are sent; the knowledge graph is not</td>
+                <td>Japan (sending region: Tokyo)</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -540,7 +580,8 @@ export function PrivacyBodyEn() {
         </p>
         <p>
           Cloudflare only relays traffic and forwards inquiry email; it does not
-          store collected records or the knowledge graph.
+          store collected records or the knowledge graph. Resend is used only to
+          send renewal notices, not advertising or marketing email.
         </p>
         <p>
           Other than as described above, the Service does not provide a User's
@@ -589,10 +630,31 @@ export function PrivacyBodyEn() {
             want the record itself removed, please contact us at the address below.
           </li>
           <li>
+            <strong>Payment records</strong> — After membership withdrawal deletes
+            the account and service data, the time of a payment event, its type,
+            the subscription id, and the user id are kept for the period required
+            by applicable law. Card numbers are not stored. Payments are processed
+            by our reseller, Paddle.
+          </li>
+          <li>
             <strong>Backups</strong> — Server backups roll on a roughly
             two-week cycle. Data deleted through the paths above may remain in
             a backup taken before the deletion, but disappears from backups
             within about two weeks.
+          </li>
+          <li>
+            <strong>External app (coding agent) connections</strong> — When a User
+            disconnects an app from Connected apps on the account page, that app's
+            connection records and tokens are deleted immediately, and tokens that
+            were already issued are rejected immediately. On membership withdrawal,
+            the connection records and tokens of all apps are deleted immediately.
+            Recovering the account within the 30 days does not restore app
+            connections; the User must allow the app again. Expired connection records
+            are deleted periodically. Working-folder connection information is
+            deleted together with the account and related data (it remains for the 30
+            days after withdrawal and is used as is if the account is recovered
+            within that time), and deleting the connected project also deletes that
+            folder connection.
           </li>
           <li>
             Records that a law requires to be retained are kept separately for
@@ -640,6 +702,12 @@ export function PrivacyBodyEn() {
           request that the relevant project's administrator disconnect a data
           source or delete the project.
         </p>
+        <p>
+          Answers are delivered to an external app (coding agent) the User has allowed
+          to connect, and those answers may include information about members who
+          appear in repositories, issues, and conversations. An app connection can be
+          disconnected at any time from Connected apps on the account page.
+        </p>
       </LegalSection>
 
       <LegalSection index={8} heading="User Rights and How to Exercise Them">
@@ -670,13 +738,41 @@ export function PrivacyBodyEn() {
           Beyond this, display preferences — the app theme (<code>ht.theme</code>) and
           the public pages' language (<code>ht.lang</code>) and theme (
           <code>ht.lp-theme</code>) — are stored in local storage only when a User
-          selects them explicitly. These values are device-local convenience settings,
-          not personal information; they persist independently of sign-out and can be
-          removed at any time by clearing the browser's site data.
+          selects them explicitly. Whether the related-graph panel on the chat screen is
+          left open (<code>chat:graphPanel</code>) and its width (
+          <code>chat:graphPanelWidth</code>) are written to local storage when the chat
+          screen is opened, so the same layout is shown next time. When a User closes the
+          notice banner for a revision of the Terms of Service or this Policy, the
+          effective date of the closed notice is kept in local storage (
+          <code>ht.termsNotice.dismissed</code>, <code>ht.privacyNotice.dismissed</code>)
+          so the same notice is not shown again. These values are device-local convenience
+          settings, not personal information; they persist independently of sign-out and
+          can be removed at any time by clearing the browser's site data.
+        </p>
+        <p>
+          When a User is sent to sign in from a screen that requires sign-in (such as
+          the screen for allowing an external app to connect), the path of that screen
+          and the time it was saved are kept in per-tab temporary storage (
+          <code>ht.return_path</code>) so the User can return to it after signing in.
+          It is not used once 10 minutes have passed since it was saved, and it is read
+          once and deleted when the User returns after sign-in. It disappears when the
+          tab is closed.
+        </p>
+        <p>
+          When a User is sent to sign in to connect GitHub while creating their first
+          project, the project name and description entered so far and the time they were
+          saved are kept in per-tab temporary storage (<code>ht.onboarding.draft</code>) so
+          the User can continue after returning. They are not used once 30 minutes have
+          passed since they were saved, and are deleted when the project is created or the
+          User goes back to the previous step. They disappear when the tab is closed.
         </p>
       </LegalSection>
 
       <LegalSection index={10} heading="Contact">
+        <p>
+          The personal-information officer is {LEGAL_OPERATOR.en}. Contact:{" "}
+          <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>.
+        </p>
         <p>
           Please direct any inquiry, complaint, or request for relief regarding
           the processing of personal information to the contacts below. We will

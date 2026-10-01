@@ -2,6 +2,7 @@ package com.history.backend.auth.service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -10,6 +11,7 @@ import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserProviderConnectionRepository;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.PlanLimitExceededException;
 import com.history.backend.integration.domain.Integration;
@@ -141,6 +143,84 @@ public class PlanService {
         User user = getUser(userId);
         user.upgradeToPaid();
         userRepository.save(user);
+        enableIncrementalForOwnedIntegrations(userId);
+    }
+
+    // 결제 웹훅이 쓸 "만료 시각 있는 PAID 전환". 스케줄러(downgradeIfExpired)의 재확인 잠금과
+    // 같은 행을 두고 경합하므로 findByIdForUpdate로 잠근다(upgradeToPaid의 findById와 다르다).
+    // noRollbackFor: 호출자인 PaddleWebhookService.handle()도 @Transactional이라 이 메서드가
+    // REQUIRED로 그 트랜잭션에 합류한다. 사용자가 파기된 뒤에도 알림은 올 수 있어 여기서
+    // NotFoundException을 던지는데, 이 설정이 없으면 handle()이 그 예외를 잡아 UNMATCHED로
+    // 커밋하려 해도 rollback-only로 표시된 트랜잭션이라 UnexpectedRollbackException으로 커밋이
+    // 실패한다(globalRollbackOnParticipationFailure 기본값) — 그러면 원장까지 롤백되고 Paddle이
+    // 무한 재시도한다. AuthService.refresh의 noRollbackFor = UnauthorizedException과 같은 이유다.
+    @Transactional(noRollbackFor = NotFoundException.class)
+    public void activatePaid(UUID userId, Instant expiresAt) {
+        User user = getUserForUpdate(userId);
+        user.activatePaidUntil(expiresAt);
+        userRepository.save(user);
+        enableIncrementalForOwnedIntegrations(userId);
+    }
+
+    // 만료 스케줄러 전용 진입점. 조회(findExpiredPaidUserIds)와 강등 사이에 갱신 알림이 끼어들
+    // 수 있다(docs/billing.md §6-5) — 잠금만으로는 순서 역전(먼저 조회 → 그 사이 갱신 → 뒤늦게 강등)을
+    // 막지 못하므로, 잠근 상태에서 만료 조건을 반드시 재확인한다.
+    // 반환값: 실제로 강등했으면 true, 재확인에서 조건 불충족으로 건너뛰었으면 false.
+    public boolean downgradeIfExpired(UUID userId, Instant now) {
+        User user = getUserForUpdate(userId);
+        if (user.getPlan() != Plan.PAID
+                || user.getPlanExpiresAt() == null
+                || !user.getPlanExpiresAt().isBefore(now)) {
+            return false;
+        }
+        applyDowngradeToFree(user);
+        return true;
+    }
+
+    // PAID -> FREE 강제 강등 (결제 웹훅 해지 경로 등에서 호출). activatePaid/downgradeIfExpired와
+    // 같은 행을 다투므로 findByIdForUpdate로 잠근다. 이미 FREE면 아무 것도 하지 않고 즉시 return한다 —
+    // 여기서 강등을 또 적용하면 freeQueryCount가 0으로 리셋돼 중복 웹훅·스케줄러 경합으로 같은
+    // 사용자가 두 번 강등될 때 무료 질의 10회를 공짜로 다시 주는 버그가 된다. 연동 조회·저장도 이
+    // 조기 return 뒤에 있어 FREE 사용자에겐 아예 일어나지 않는다.
+    // noRollbackFor: activatePaid와 같은 이유 — 결제 웹훅 해지 경로(PaddleWebhookService.handle)가
+    // 이 메서드를 같은 트랜잭션에서 부르고, 파기된 사용자에 대한 NotFoundException을 잡아
+    // UNMATCHED로 커밋한다. 이 설정이 없으면 rollback-only로 표시된 트랜잭션이라 커밋이
+    // UnexpectedRollbackException으로 실패한다.
+    @Transactional(noRollbackFor = NotFoundException.class)
+    public void downgradeToFree(UUID userId) {
+        User user = getUserForUpdate(userId);
+        if (user.getPlan() != Plan.PAID) {
+            return;
+        }
+        applyDowngradeToFree(user);
+    }
+
+    // 전환 코드로 만든 무기한 PAID만 사용자가 직접 FREE로 내린다. 만료 시각이 있으면 구독이라
+    // 여기서 내리면 결제 중인 구독과 플랜이 갈라진다. 살아 있는 구독이 있는지는 호출부가 먼저 막는다.
+    public void downgradeCodeUserToFree(UUID userId) {
+        User user = getUserForUpdate(userId);
+        if (user.getPlan() != Plan.PAID) {
+            return;
+        }
+        if (user.getPlanExpiresAt() != null) {
+            throw new ConflictException("Only upgrade-code plans can be downgraded here.");
+        }
+        applyDowngradeToFree(user);
+    }
+
+    // downgradeIfExpired·downgradeToFree 공용 강등 본체
+    private void applyDowngradeToFree(User user) {
+        user.downgradeToFree();
+        userRepository.save(user);
+        List<Integration> integrations = integrationRepository.findAllByProject_Owner_Id(user.getId());
+        for (Integration integration : integrations) {
+            integration.disableIncremental();
+        }
+        integrationRepository.saveAll(integrations);
+    }
+
+    // upgradeToPaid·activatePaid 공용 — 소유 연동 전체 증분 수집 켜기
+    private void enableIncrementalForOwnedIntegrations(UUID userId) {
         List<Integration> integrations = integrationRepository.findAllByProject_Owner_Id(userId);
         for (Integration integration : integrations) {
             integration.enableIncremental();
@@ -148,26 +228,13 @@ public class PlanService {
         integrationRepository.saveAll(integrations);
     }
 
-    // PAID -> FREE 강제 강등 (결제 만료 스케줄러 등에서 호출). 이미 FREE면 아무 것도 하지 않고
-    // 즉시 return한다 — 여기서 downgradeToFree()를 또 부르면 freeQueryCount가 0으로 리셋돼
-    // 중복 웹훅·스케줄러 경합으로 같은 사용자가 두 번 강등될 때 무료 질의 10회를 공짜로 다시
-    // 주는 버그가 된다. 연동 조회·저장도 이 조기 return 뒤에 있어 FREE 사용자에겐 아예 일어나지 않는다.
-    public void downgradeToFree(UUID userId) {
-        User user = getUser(userId);
-        if (user.getPlan() != Plan.PAID) {
-            return;
-        }
-        user.downgradeToFree();
-        userRepository.save(user);
-        List<Integration> integrations = integrationRepository.findAllByProject_Owner_Id(userId);
-        for (Integration integration : integrations) {
-            integration.disableIncremental();
-        }
-        integrationRepository.saveAll(integrations);
-    }
-
     private User getUser(UUID userId) {
         return userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("User not found."));
+    }
+
+    private User getUserForUpdate(UUID userId) {
+        return userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new NotFoundException("User not found."));
     }
 }

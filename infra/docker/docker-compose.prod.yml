@@ -78,6 +78,10 @@ services:
       # base의 기본값은 레포에 그대로 적혀 있다. 이 값으로 뜨면 **누구나 세션 토큰을 위조할 수
       # 있다** — 조용히 도는 대신 기동을 막는다(§ postgres 참고).
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be configured - openssl rand -hex 32}"
+      # 로컬 기본값(issuer)이 배포에 실리거나 서명키가 비어 임시 키로 뜨면 재기동마다
+      # 이미 발급된 MCP 토큰이 전부 무효화된다 — 조용히 도는 대신 기동을 막는다.
+      MCP_OAUTH_ISSUER: "${MCP_OAUTH_ISSUER:?MCP_OAUTH_ISSUER must be configured}"
+      MCP_OAUTH_PRIVATE_KEY: "${MCP_OAUTH_PRIVATE_KEY:?MCP_OAUTH_PRIVATE_KEY must be configured}"
 
   pipeline-worker:
     restart: unless-stopped

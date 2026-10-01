@@ -124,7 +124,8 @@ cd infra/docker
 - `docs/DB.md` - backend PostgreSQL 테이블 정의 및 관계도 (Flyway V1~)
 - `docs/deployment.md` - 실사용 배포 가이드 — 호스트 사양(Proxmox VM), `./prod.sh` 절차, OAuth 콜백 9종·GitHub webhook·Search Console 등록 체크리스트, 자원 상한의 근거. **배포 관련 작업 전에 읽는다**
 - `docs/deployment-followups.md` - 배포 경로 후속 작업 — RabbitMQ 자격증명 URL 분리, 터널 실기동 검증(도메인 대기), pipeline-worker 인바운드 인증 검토
-- `docs/billing.md` - 결제·구독 계획(**B0 완료 — 강등 회수·만료 스케줄러. W(심사용 요금·환불정책·약관 개정 페이지) 코드 완료 — 시행일 확정 후 배포하고 Paddle 심사(G1) 신청**) — Paddle(MoR) 기반 월 정기구독. 국내 PG 불가 근거와 수단 비교, 만료 시 다운그레이드 설계(`upgradeToPaid`의 역연산이 없다), 법무 동반 작업. **결제·요금제 관련 작업 전에 읽는다**
+- `docs/billing.md` - 결제·구독 계획(**코드 작업 B0·W·B1·B2·B3 전부 완료(B1·B2 샌드박스 실측 포함). 남은 것은 G1 Paddle 승인 → 라이브 대시보드 준비 → G2 라이브 소액 실측 → 서버 `.env`로 결제 열기(§12)**) — Paddle(MoR) 기반 월 정기구독. 국내 PG 불가 근거와 수단 비교, 만료 시 다운그레이드 설계(`upgradeToPaid`의 역연산이 없다), 법무 동반 작업. **결제·요금제 관련 작업 전에 읽는다**
+- `docs/mcp-integration.md` - whycode 질의를 MCP 서버(`/mcp`)로 노출해 Claude Code·Codex 같은 코딩 에이전트에서 묻게 하는 기능 설계(**코드 완료, 로컬 실기동으로 Claude Code 연결 확인 — 배포 서버·그 외 클라이언트는 미확인**) — 연결·폴더 연결·질의·철회 네 흐름, 자체 OAuth 2.1 인가 서버(CIMD·DCR)·동의 흐름·입구 철회 검증, 도구 4·프롬프트 2 계약, 한계와 후속, 클라이언트 호환표. **MCP·외부 앱 연결 관련 작업 전에 읽는다**
 - `docs/tools.md` - ai-engine의 LLM tool-calling 도구 레퍼런스 (계약·반환·동작, 코드 위치 포인터)
 - `docs/query-quality-issues.md` - GraphRAG 쿼리 품질 이슈 분석
 - `docs/evidence-retrieval-fixes.md` - 근거 회수 품질 개선 계획(**착수 전**) — 코드 분석으로 찾은 22개 결함 중 측정 없이 방향이 분명한 12건을 묶음 A~F로 수정. 임계값·시간 창·필터 정책·검색 확장 10건은 후속으로 분리

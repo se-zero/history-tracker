@@ -1,23 +1,31 @@
 package com.history.backend.auth.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.dto.UserResponse;
+import com.history.backend.auth.service.AccountWithdrawalService;
 import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
+import com.history.backend.billing.service.BillingAccountService;
 import com.history.backend.common.error.PlanLimitExceededException;
+import com.history.backend.oauth.dto.OAuthGrantResponse;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +54,12 @@ class MeControllerTest {
 
     @MockitoBean
     private PlanService planService;
+
+    @MockitoBean
+    private AccountWithdrawalService accountWithdrawalService;
+
+    @MockitoBean
+    private BillingAccountService billingAccountService;
 
     @MockitoBean
     private JwtTokenService jwtTokenService;
@@ -79,7 +93,27 @@ class MeControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
                 .andExpect(status().isNoContent());
 
-        verify(userService).deactivateUser(USER_ID);
+        verify(accountWithdrawalService).withdraw(USER_ID);
+        verify(userService, never()).deactivateUser(USER_ID);
+    }
+
+    @Test
+    @DisplayName("전환 코드 사용자 강등 → 204")
+    void downgradePlanDelegatesToBillingAccountService() throws Exception {
+        mockMvc.perform(post("/api/v1/me/plan/downgrade")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNoContent());
+
+        verify(billingAccountService).downgradeCodePlan(USER_ID);
+    }
+
+    @Test
+    @DisplayName("강등도 액세스 토큰이 없으면 401")
+    void downgradePlanRejectsMissingAccessToken() throws Exception {
+        mockMvc.perform(post("/api/v1/me/plan/downgrade"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(billingAccountService);
     }
 
     @Test
@@ -98,6 +132,99 @@ class MeControllerTest {
         mockMvc.perform(post("/api/v1/me/consent"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.message").value("Authentication is required."));
+    }
+
+    @Test
+    @DisplayName("연결된 앱 목록 → 200, 최상위 배열에 항목 필드 6개, 시각은 UTC ISO 문자열")
+    void listOAuthGrantsReturnsTopLevelArray() throws Exception {
+        when(userService.listOAuthGrants(USER_ID)).thenReturn(List.of(new OAuthGrantResponse(
+                "internal-id-1",
+                "client-id-1",
+                "Claude Code",
+                "https://claude.ai",
+                Instant.parse("2026-09-20T03:12:00Z"),
+                Instant.parse("2026-09-21T05:00:00Z")
+        )));
+
+        mockMvc.perform(get("/api/v1/me/oauth-grants")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].length()").value(6))
+                .andExpect(jsonPath("$[0].id").value("internal-id-1"))
+                .andExpect(jsonPath("$[0].clientId").value("client-id-1"))
+                .andExpect(jsonPath("$[0].clientName").value("Claude Code"))
+                .andExpect(jsonPath("$[0].clientUri").value("https://claude.ai"))
+                .andExpect(jsonPath("$[0].grantedAt").value("2026-09-20T03:12:00Z"))
+                .andExpect(jsonPath("$[0].lastUsedAt").value("2026-09-21T05:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("lastUsedAt·clientUri가 null이면 JSON null로 내려간다")
+    void listOAuthGrantsSerializesNullableFieldsAsJsonNull() throws Exception {
+        when(userService.listOAuthGrants(USER_ID)).thenReturn(List.of(new OAuthGrantResponse(
+                "internal-id-1", "client-id-1", "Claude Code", null, Instant.parse("2026-09-20T03:12:00Z"), null)));
+
+        mockMvc.perform(get("/api/v1/me/oauth-grants")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].length()").value(6))
+                .andExpect(jsonPath("$[0].clientUri").value(nullValue()))
+                .andExpect(jsonPath("$[0].lastUsedAt").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("연결된 앱이 없으면 빈 배열")
+    void listOAuthGrantsReturnsEmptyArray() throws Exception {
+        when(userService.listOAuthGrants(USER_ID)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/me/oauth-grants")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]", true));
+    }
+
+    @Test
+    @DisplayName("연결된 앱 목록도 액세스 토큰이 없으면 401")
+    void listOAuthGrantsRejectsMissingAccessToken() throws Exception {
+        mockMvc.perform(get("/api/v1/me/oauth-grants"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userService);
+    }
+
+    @Test
+    @DisplayName("연결된 앱 철회 → 204, UUID 형태 id로 위임")
+    void revokeOAuthGrantWithUuidId() throws Exception {
+        String grantId = "0b9f3a52-6c1e-4a57-9d7e-2f8d1c4b6a10";
+
+        mockMvc.perform(delete("/api/v1/me/oauth-grants/{id}", grantId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNoContent());
+
+        verify(userService).revokeOAuthGrant(USER_ID, grantId);
+    }
+
+    @Test
+    @DisplayName("연결된 앱 철회 → base64url 형태 id(-·_ 포함)도 그대로 위임")
+    void revokeOAuthGrantWithBase64UrlId() throws Exception {
+        String grantId = "Ab-9_xYz-Q0_k3LmN-pR";
+
+        mockMvc.perform(delete("/api/v1/me/oauth-grants/{id}", grantId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isNoContent());
+
+        verify(userService).revokeOAuthGrant(USER_ID, grantId);
+    }
+
+    @Test
+    @DisplayName("연결된 앱 철회도 액세스 토큰이 없으면 401")
+    void revokeOAuthGrantRejectsMissingAccessToken() throws Exception {
+        mockMvc.perform(delete("/api/v1/me/oauth-grants/internal-id-1"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userService);
     }
 
     @Test

@@ -26,6 +26,16 @@ pipeline:
   worker:
     url: http://localhost:8081
 
+mcp:
+  rate-limit:
+    per-minute: 10
+  oauth:
+    issuer: http://localhost:5173
+    private-key: ""
+    access-token-ttl: PT1H
+    refresh-token-ttl: P30D
+    consent-path: /oauth/consent
+
 security:
   internal-service:
     token: test-internal-service-token
@@ -52,6 +62,21 @@ app:
       enabled: false
       cron: "0 15 * * * *"
       batch-size: 100
+  billing:
+    expiry-grace: P3D
+    renewal-notice:
+      enabled: false
+      cron: "0 0 4 * * *"
+
+resend:
+  api-key: ""
+  from: "whycode <billing@mail.why-code.com>"
+  reply-to: contact@why-code.com
+
+paddle:
+  webhook-secret: test-paddle-webhook-secret
+  signature-tolerance: PT5S
+  pro-price-id: ""
 
 github:
   app:

@@ -10,8 +10,10 @@ import java.util.UUID;
 import com.history.backend.auth.UserPurgeProperties;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
+import com.history.backend.billing.service.SubscriptionCancellationService;
 import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.github.service.GitHubUserTokenService;
+import com.history.backend.oauth.service.OAuthGrantService;
 import com.history.backend.project.service.ProjectService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,8 @@ public class UserPurgeService {
     private final UserRepository userRepository;
     private final ProjectService projectService;
     private final GitHubUserTokenService gitHubUserTokenService;
+    private final SubscriptionCancellationService subscriptionCancellationService;
+    private final OAuthGrantService oAuthGrantService;
     private final UserPurgeProperties properties;
     private final TransactionTemplate transactionTemplate;
 
@@ -74,6 +78,9 @@ public class UserPurgeService {
         List<UUID> purgedIds = new ArrayList<>();
         for (UUID userId : candidateIds) {
             try {
+                // 구독 해지가 확인되기 전에 users 행을 지우면 billing_subscriptions도 CASCADE로 사라져
+                // 카드 결제를 멈출 id가 없다. 그래프 삭제와 같이 강제 파기에서도 건너뛰지 않는다.
+                subscriptionCancellationService.cancelLiveSubscriptions(userId);
                 // 사용자 GitHub grant를 프로젝트 정리보다 먼저 폐기한다 — 행이 지워지면 폐기에
                 // 쓸 access token이 사라진다. false면 기존 catch(스킵/force)로 넘긴다.
                 if (!gitHubUserTokenService.revokeGrant(userId)) {
@@ -84,6 +91,8 @@ public class UserPurgeService {
             } catch (RuntimeException exception) {
                 if (shouldForcePurge(userId, now)) {
                     try {
+                        // 강제 파기라도 해지 실패는 행을 남긴다. 이미 예약된 해지는 재조회 후 건너뛴다.
+                        subscriptionCancellationService.cancelLiveSubscriptions(userId);
                         projectService.forcePurgeExternalResources(userId);
                         log.error("Force-purged user after repeated provider revocation failures — "
                                 + "provider grant may remain live. userId={}, error={}",
@@ -109,6 +118,9 @@ public class UserPurgeService {
         }
 
         transactionTemplate.execute(status -> {
+            // OAuth 테이블은 users FK가 없어 행을 지워도 CASCADE로 사라지지 않는다. 같은 트랜잭션에 넣어
+            // 사용자 행 삭제와 함께 커밋·롤백되게 한다. 이번 회차에서 제외된 사용자의 연결은 다음 회차에 지운다.
+            purgedIds.forEach(oAuthGrantService::revokeAll);
             userRepository.deleteAllByIdInBatch(purgedIds);
             return null;
         });

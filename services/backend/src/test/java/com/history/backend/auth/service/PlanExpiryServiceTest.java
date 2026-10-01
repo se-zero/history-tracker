@@ -2,9 +2,8 @@ package com.history.backend.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -42,18 +41,39 @@ class PlanExpiryServiceTest {
     private PlanService planService;
 
     @Test
-    @DisplayName("후보 3건 모두 강등 처리하고 성공 건수를 반환한다")
+    @DisplayName("후보 3건 모두 downgradeIfExpired(id, now)로 재확인시켜 강등 처리하고(true 반환) 성공 건수를 반환한다"
+            + " — downgradeToFree를 직접 부르면 잠근 뒤 조건 재확인 없이 강등해 §6-5 경합을 막지 못한다")
     void downgradeExpiredPlansDowngradesAllCandidates() {
         PlanExpiryService service = service(100);
         when(userRepository.findExpiredPaidUserIds(any(Instant.class), any(Pageable.class)))
                 .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID, THIRD_USER_ID));
+        when(planService.downgradeIfExpired(FIRST_USER_ID, NOW)).thenReturn(true);
+        when(planService.downgradeIfExpired(SECOND_USER_ID, NOW)).thenReturn(true);
+        when(planService.downgradeIfExpired(THIRD_USER_ID, NOW)).thenReturn(true);
 
         int downgradedCount = service.downgradeExpiredPlans(NOW);
 
         assertThat(downgradedCount).isEqualTo(3);
-        verify(planService).downgradeToFree(FIRST_USER_ID);
-        verify(planService).downgradeToFree(SECOND_USER_ID);
-        verify(planService).downgradeToFree(THIRD_USER_ID);
+        verify(planService).downgradeIfExpired(FIRST_USER_ID, NOW);
+        verify(planService).downgradeIfExpired(SECOND_USER_ID, NOW);
+        verify(planService).downgradeIfExpired(THIRD_USER_ID, NOW);
+        verify(planService, never()).downgradeToFree(any());
+    }
+
+    @Test
+    @DisplayName("후보 중 재확인에서 걸러진 건(downgradeIfExpired가 false 반환 — 조회 뒤 만료가 연장돼 실제로는"
+            + " 강등하지 않은 경우)은 성공 건수로 세지 않는다 — 그냥 호출 건수를 세면 스케줄러 로그가 실제보다 많아진다")
+    void downgradeExpiredPlansDoesNotCountCandidateSkippedByRecheck() {
+        PlanExpiryService service = service(100);
+        when(userRepository.findExpiredPaidUserIds(any(Instant.class), any(Pageable.class)))
+                .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID, THIRD_USER_ID));
+        when(planService.downgradeIfExpired(FIRST_USER_ID, NOW)).thenReturn(true);
+        when(planService.downgradeIfExpired(SECOND_USER_ID, NOW)).thenReturn(false);
+        when(planService.downgradeIfExpired(THIRD_USER_ID, NOW)).thenReturn(true);
+
+        int downgradedCount = service.downgradeExpiredPlans(NOW);
+
+        assertThat(downgradedCount).isEqualTo(2);
     }
 
     @Test
@@ -77,19 +97,19 @@ class PlanExpiryServiceTest {
                 .thenReturn(List.of(FIRST_USER_ID, SECOND_USER_ID, THIRD_USER_ID));
         // 첫 건·마지막 건이 아니라 가운데 건을 실패시킨다 — 실패 후 루프가 멈추는 결함은
         // 첫/마지막 건 실패로는 잡히지 않고, 세 번째 건까지 호출됐는지를 봐야 드러난다.
-        // 세 건을 모두 명시적으로 스텁한다. 하나만 doThrow로 스텁하면 나머지 인자로 호출될 때
+        // 세 건을 모두 명시적으로 스텁한다. 하나만 thenThrow로 스텁하면 나머지 인자로 호출될 때
         // Mockito가 strict stub 불일치(PotentialStubbingProblem)를 던진다(UserPurgeServiceTest와 같은 이유).
-        doNothing().when(planService).downgradeToFree(FIRST_USER_ID);
-        doThrow(new RuntimeException("boom")).when(planService).downgradeToFree(SECOND_USER_ID);
-        doNothing().when(planService).downgradeToFree(THIRD_USER_ID);
+        when(planService.downgradeIfExpired(FIRST_USER_ID, NOW)).thenReturn(true);
+        when(planService.downgradeIfExpired(SECOND_USER_ID, NOW)).thenThrow(new RuntimeException("boom"));
+        when(planService.downgradeIfExpired(THIRD_USER_ID, NOW)).thenReturn(true);
 
         int downgradedCount = service.downgradeExpiredPlans(NOW);
 
         assertThat(downgradedCount).isEqualTo(2);
         InOrder inOrder = inOrder(planService);
-        inOrder.verify(planService).downgradeToFree(FIRST_USER_ID);
-        inOrder.verify(planService).downgradeToFree(SECOND_USER_ID);
-        inOrder.verify(planService).downgradeToFree(THIRD_USER_ID);
+        inOrder.verify(planService).downgradeIfExpired(FIRST_USER_ID, NOW);
+        inOrder.verify(planService).downgradeIfExpired(SECOND_USER_ID, NOW);
+        inOrder.verify(planService).downgradeIfExpired(THIRD_USER_ID, NOW);
     }
 
     @Test
