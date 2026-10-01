@@ -37,6 +37,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+	implementation 'io.modelcontextprotocol.sdk:mcp-core:2.0.1'
+	implementation 'io.modelcontextprotocol.sdk:mcp-json-jackson3:2.0.1'
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 	annotationProcessor 'org.projectlombok:lombok'
