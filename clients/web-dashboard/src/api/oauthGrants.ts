@@ -7,8 +7,8 @@ export async function listOAuthGrants(): Promise<OAuthGrant[]> {
   return data;
 }
 
-// 연결 끊기 — 그 앱에 발급된 refresh 토큰·인가가 삭제된다. 이미 발급된 access 토큰은
-// 최대 1시간 더 유효하다(backend 한계, 다이얼로그 문구에 반영).
+// 연결 끊기 — 그 앱에 발급된 refresh 토큰·인가가 삭제된다. backend가 `/mcp` 입구에서
+// 요청마다 연결 행을 확인하므로 이미 발급된 access 토큰도 즉시 거부된다.
 export async function revokeOAuthGrant(id: string): Promise<void> {
   await api.delete(`/me/oauth-grants/${id}`);
 }

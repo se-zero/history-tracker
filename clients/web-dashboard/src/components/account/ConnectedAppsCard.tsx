@@ -12,8 +12,8 @@ import type { OAuthGrant } from "@/types/api";
  * MCP 클라이언트(Claude Code·Codex 등)가 `/oauth/consent`에서 승인받아 연결된 목록.
  *
  * 연동 해제(DisconnectIntegration)와 달리 그래프 데이터를 지우지 않는다 — refresh 토큰과
- * 인가만 철회한다. 이미 발급된 access 토큰은 backend 한계로 최대 1시간 더 유효해서, 그
- * 사실을 해제 확인 다이얼로그 문구에 그대로 알린다.
+ * 인가만 철회한다. backend가 `/mcp` 입구에서 요청마다 연결 행을 확인하므로, 이미 발급된
+ * access 토큰도 끊는 즉시 거부된다.
  */
 export function ConnectedAppsCard() {
   const grantsQuery = useOAuthGrants();
@@ -118,8 +118,8 @@ function ConnectedAppRow({ grant }: { grant: OAuthGrant }) {
           >
             <h4 className="confirm-title">{grant.clientName} 연결을 끊을까요?</h4>
             <p className="confirm-copy">
-              이 앱은 더 이상 whycode에 질문할 수 없습니다. 이미 발급된 접속 권한은 최대 1시간
-              동안 유지될 수 있습니다. 다시 쓰려면 앱에서 연결을 다시 시작하면 됩니다.
+              이 앱은 더 이상 whycode에 질문할 수 없습니다. 다시 쓰려면 앱에서 연결을 다시
+              시작하면 됩니다.
             </p>
 
             {revoke.isError && (
