@@ -35,7 +35,9 @@ public class McpBindingService {
         McpWorkspaceBinding binding = bindingRepository.findById(new McpWorkspaceBindingId(userId, path))
                 .orElse(null);
         if (binding != null) {
-            // 저장 뒤 프로젝트가 삭제·이전될 수 있고 getProject가 탈퇴 계정도 막으므로 소유 검증을 매번 다시 한다
+            // getProject가 소유와 탈퇴 여부를 함께 보므로 저장된 연결도 매번 다시 검증한다. 실패하면 예외를 그대로
+            // 올린다 — 프로젝트를 지우면 연결 행도 CASCADE로 사라져 삭제와 조회가 겹치는 순간에만 생기고,
+            // 다시 부르면 연결 행이 없어 미연결 안내로 간다.
             return new Bound(projectService.getProject(userId, binding.getProjectId()));
         }
         // 프로젝트가 하나뿐이어도 자동으로 연결하지 않는다 — 어느 프로젝트에 물을지는 사용자가 정한다
