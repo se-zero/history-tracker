@@ -102,6 +102,26 @@ erDiagram
         string outcome
         UUID user_id
     }
+    mcp_workspace_bindings {
+        UUID user_id PK,FK
+        string workspace_path PK
+        UUID project_id FK
+    }
+    oauth2_registered_client {
+        string id PK
+        string client_id
+        string client_name
+    }
+    oauth2_authorization {
+        string id PK
+        string registered_client_id
+        string principal_name
+    }
+    oauth2_authorization_consent {
+        string registered_client_id PK
+        string principal_name PK
+        string authorities
+    }
 
     users          ||..o{ refresh_tokens        : "1:N"
     users          ||--|| github_user_credentials : "1:1 CASCADE"
@@ -118,9 +138,15 @@ erDiagram
     github_installations |o..o{ integrations   : "0/1:N  (nullable FK)"
     conversations  ||..o{ messages              : "1:N"
     users          ||..o{ billing_subscriptions : "1:N  (CASCADE)"
+    users          ||--o{ mcp_workspace_bindings : "1:N  (식별, CASCADE)"
+    projects       ||..o{ mcp_workspace_bindings : "1:N  (CASCADE)"
+    oauth2_registered_client ||..o{ oauth2_authorization : "1:N  (논리 관계, FK 없음)"
+    oauth2_registered_client ||..o{ oauth2_authorization_consent : "1:N  (논리 관계, FK 없음)"
 ```
 
 `billing_events.user_id`는 FK가 아니다 — 사용자가 파기된 뒤에도 결제 원장은 남아야 해서 관계선을 두지 않는다.
+
+`oauth2_*` 세 테이블은 `users`와 관계선이 없다 — 사용자가 `principal_name`(TEXT)에 UUID 문자열로 들어가 `users.id`(UUID)와 타입이 달라 FK를 걸 수 없다. 위 세 테이블 사이의 선(`registered_client_id`)도 DB 제약이 아니라 논리 관계다.
 
 ---
 
@@ -452,7 +478,7 @@ OAuth 토큰으로, Jira 개인정보 보고 배치가 사용한다. refresh tok
 
 ---
 
-### `billing_subscriptions` (V24, V25 컬럼 추가)
+### `billing_subscriptions` (V24, V26 컬럼 추가)
 
 Paddle 구독 상태의 **캐시**. 진실의 원천은 Paddle이고, 결제 알림(웹훅)을 받을 때마다 최신 상태로
 수렴한다(docs/billing.md §5). 플랜 게이트는 이 테이블이 아니라 `users.plan`을 본다 — 이 테이블은
@@ -475,7 +501,7 @@ Paddle 구독 상태의 **캐시**. 진실의 원천은 Paddle이고, 결제 알
 | `scheduled_change_effective_at` | TIMESTAMPTZ | nullable | 예약 변경 시각 |
 | `canceled_at` | TIMESTAMPTZ | nullable | 해지 확정 시각 |
 | `last_event_occurred_at` | TIMESTAMPTZ | NOT NULL | 마지막으로 반영한 알림의 `occurred_at`. 이보다 오래된 알림은 `STALE`로 무시한다(Paddle은 순서를 보장하지 않는다) |
-| `renewal_notice_period_end` | TIMESTAMPTZ | nullable (V25) | 결제일 7일 전 안내를 보낸 주기의 `current_period_ends_at`. 같은 값이면 다시 보내지 않고, 갱신으로 주기 끝이 바뀌면 다음 주기에 다시 보낸다. 웹훅이 행을 다시 쓸 때도 기존 값을 옮겨 적는다 |
+| `renewal_notice_period_end` | TIMESTAMPTZ | nullable (V26) | 결제일 7일 전 안내를 보낸 주기의 `current_period_ends_at`. 같은 값이면 다시 보내지 않고, 갱신으로 주기 끝이 바뀌면 다음 주기에 다시 보낸다. 웹훅이 행을 다시 쓸 때도 기존 값을 옮겨 적는다 |
 | `created_at` · `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
 **인덱스**
@@ -507,4 +533,95 @@ Paddle 결제 알림 **수신 원장**. 같은 `event_id`의 재전송을 한 �
 
 **인덱스**
 - UNIQUE `(event_id)`
+
+---
+
+### `oauth2_registered_client` (V25)
+
+MCP 클라이언트(Claude Code·Codex 등 코딩 에이전트)의 OAuth 앱 등록 정보. 두 경로로 행이 생긴다.
+
+- **CIMD**(Client ID Metadata Document) — `client_id`가 `https://` URL인 앱. 사전 등록이 없어 인가 요청 때 그 URL의 문서를 읽어 조립한 값을 **그림자 행**으로 upsert한다(`id`는 URL의 SHA-256을 base64url로 인코딩한 값). Spring의 인가 코드·토큰 서비스가 `registered_client_id`로 행을 조회하기 때문에 실제 행이 있어야 해서다.
+- **DCR**(RFC 7591 동적 등록) — CIMD를 못 하는 클라이언트가 `POST /oauth2/register`로 등록한 앱. 공개 클라이언트(`token_endpoint_auth_method=none`)만 받는다.
+
+세 테이블 모두 **Spring Authorization Server가 스키마를 정하고 직접 읽고 쓰므로 JPA 엔티티가 없다**(`ddl-auto: validate` 대상이 아니다). 스키마는 라이브러리 기본 스크립트를 PostgreSQL로 옮긴 것이며, CIMD의 `client_id`(URL)와 설정 JSON이 원본 `varchar(n)` 상한에 비좁아 문자열 컬럼을 전부 `TEXT`로 바꿨다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `id` | TEXT | PK | 내부 식별자. CIMD는 `client_id` URL의 해시, DCR은 Spring이 발급한 값 |
+| `client_id` | TEXT | NOT NULL, UNIQUE | 앱이 인가 요청에 싣는 식별자. CIMD는 문서 URL |
+| `client_id_issued_at` | TIMESTAMPTZ | NOT NULL, DEFAULT `CURRENT_TIMESTAMP` | 등록 시각 |
+| `client_secret` | TEXT | nullable | 공개 클라이언트만 받아 항상 NULL |
+| `client_secret_expires_at` | TIMESTAMPTZ | nullable | 위와 같은 이유로 항상 NULL |
+| `client_name` | TEXT | NOT NULL | 동의 화면·연결된 앱 목록에 보이는 이름 |
+| `client_authentication_methods` · `authorization_grant_types` · `scopes` | TEXT | NOT NULL | 쉼표로 이은 값. 정책이 `none` · `authorization_code`+`refresh_token` · `mcp:query`로 강제한다 |
+| `redirect_uris` · `post_logout_redirect_uris` | TEXT | nullable | 쉼표로 이은 값. 앱이 돌려받을 주소 |
+| `client_settings` · `token_settings` | TEXT | NOT NULL | Spring이 직렬화한 JSON. PKCE 필수, Spring 동의 화면 끔, `client_uri`, access·refresh TTL, refresh 회전 |
+
+**인덱스**
+- PRIMARY KEY `(id)`
+- UNIQUE `(client_id)`
+
+---
+
+### `oauth2_authorization` (V25)
+
+OAuth 인가 한 건의 상태 — 인가 코드, access·refresh 토큰, 그 만료·무효화 메타데이터가 한 행에 모인다. `/mcp` 입구가 요청마다 이 행으로 토큰이 아직 살아 있는지 확인하고, "연결된 앱" 목록도 이 테이블에서 만든다. 연결을 끊거나 탈퇴하면 행이 지워져 옛 access 토큰이 즉시 거부된다.
+
+**`users`와 FK가 없다.** 사용자는 `principal_name`(TEXT)에 UUID 문자열로 들어가 `users.id`(UUID)와 타입이 달라서다. 그래서 `users`가 지워져도 CASCADE로 사라지지 않는다 — 탈퇴(`UserService.deactivateUser`)와 파기(`UserPurgeService`)가 코드로 명시 삭제하고(`OAuthGrantService.revokeAll`), 만료된 행은 `OAuthAuthorizationPurgeScheduler`가 지운다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `id` | TEXT | PK | 인가 레코드 ID |
+| `registered_client_id` | TEXT | NOT NULL | 앱(`oauth2_registered_client.id`) — FK 아님 |
+| `principal_name` | TEXT | NOT NULL | 동의한 사용자(`users.id`의 UUID 문자열) — FK 아님 |
+| `authorization_grant_type` | TEXT | NOT NULL | 인가 방식(`authorization_code`) |
+| `authorized_scopes` | TEXT | nullable | 허용된 scope(쉼표 구분) |
+| `attributes` | TEXT | nullable | 인가 요청 속성(JSON) — principal 등을 직렬화해 담는다 |
+| `state` | TEXT | nullable | 인가 요청의 `state` |
+| `authorization_code_value` · `_issued_at` · `_expires_at` · `_metadata` | TEXT · TIMESTAMPTZ · TIMESTAMPTZ · TEXT | nullable | 인가 코드(1회용)와 발급·만료 시각, 사용 여부 등 메타데이터 |
+| `access_token_value` · `_issued_at` · `_expires_at` · `_metadata` | TEXT · TIMESTAMPTZ · TIMESTAMPTZ · TEXT | nullable | access 토큰(RS256 JWT)과 발급·만료 시각, 무효화 여부 등 메타데이터 |
+| `access_token_type` · `access_token_scopes` | TEXT | nullable | 토큰 종류(`Bearer`)와 scope |
+| `refresh_token_value` · `_issued_at` · `_expires_at` · `_metadata` | TEXT · TIMESTAMPTZ · TIMESTAMPTZ · TEXT | nullable | refresh 토큰(회전)과 발급·만료 시각, 메타데이터 |
+| `oidc_id_token_*` (4개) · `user_code_*` (4개) · `device_code_*` (4개) | TEXT · TIMESTAMPTZ | nullable | 라이브러리 스키마를 그대로 유지한 컬럼. OIDC id token과 device flow는 발급하지 않아 항상 NULL |
+
+**인덱스**
+- PRIMARY KEY `(id)`
+- `(principal_name)` — 사용자별 연결 조회·삭제
+- `(registered_client_id)`
+- `(state)` · `(authorization_code_value)` · `(access_token_value)` · `(refresh_token_value)` — Spring 기본 스키마에는 토큰 값 인덱스가 없어 코드·토큰 조회마다 풀스캔이라서 우리가 쓰는 네 컬럼에만 추가했다
+
+---
+
+### `oauth2_authorization_consent` (V25)
+
+사용자가 앱에 준 권한(동의) 기록. 스키마는 Spring 기본을 따르지만, 우리는 Spring 동의 화면을 끄고(`requireAuthorizationConsent(false)`) 웹 대시보드의 허용 화면이 대신 동의를 받으므로 코드가 이 테이블에 직접 쓰는 곳은 없다. 연결 철회·탈퇴·파기 때는 `oauth2_authorization`과 함께 지운다. `users`와 FK가 없는 이유는 위 `oauth2_authorization`과 같다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `registered_client_id` | TEXT | PK 일부, NOT NULL | 앱(`oauth2_registered_client.id`) — FK 아님 |
+| `principal_name` | TEXT | PK 일부, NOT NULL | 사용자(`users.id`의 UUID 문자열) — FK 아님 |
+| `authorities` | TEXT | NOT NULL | 허용된 권한(쉼표 구분) |
+
+**인덱스**
+- PRIMARY KEY `(registered_client_id, principal_name)`
+
+---
+
+### `mcp_workspace_bindings` (V27)
+
+코딩 에이전트의 **작업 폴더 → whycode 프로젝트** 연결. 에이전트는 질문할 때 "지금 열려 있는 폴더"만 알고 프로젝트는 모르므로, 사용자가 한 번 고른 연결을 저장해 둔다. 키가 (계정, 폴더 절대 경로)인 이유는 같은 폴더 경로라도 계정마다 다른 프로젝트를 가리킬 수 있어서다. 같은 폴더에 다시 연결하면 `project_id`만 바뀐다(자동 연결은 하지 않는다).
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `user_id` | UUID | PK 일부, FK → `users.id` CASCADE | 연결한 계정 |
+| `workspace_path` | TEXT | PK 일부, NOT NULL | 작업 폴더 절대 경로. 끝 구분자만 제거하고 대소문자·구분자 종류는 그대로 둔다. UTF-8 1024바이트 상한(`WorkspacePathNormalizer`) |
+| `project_id` | UUID | NOT NULL, FK → `projects.id` CASCADE | 연결된 프로젝트 |
+| `created_at` | TIMESTAMPTZ | NOT NULL | 최초 연결 시각 |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | 연결 변경 시각 |
+
+**인덱스**
+- PRIMARY KEY `(user_id, workspace_path)`
+- `(project_id)` — 프로젝트 삭제 때 CASCADE 탐색용
+
+경로 상한이 바이트 기준인 이유는 PK 인덱스 항목 크기 한도(Postgres btree 약 2700바이트) 때문이다. 두 FK를 모두 CASCADE로 둔 것은 계정 파기나 프로젝트 삭제 뒤에 존재하지 않는 프로젝트를 가리키는 행이 남지 않게 하려는 것이다. 엔티티(`McpWorkspaceBinding`)는 다른 기능의 엔티티에 결합하지 않으려고 연관관계 없이 id만 갖고, 조회할 때마다 `ProjectService`로 소유를 다시 검증한다.
 
