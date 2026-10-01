@@ -27,6 +27,8 @@ pipeline:
     url: http://localhost:8081
 
 mcp:
+  rate-limit:
+    per-minute: 10
   oauth:
     issuer: http://localhost:5173
     private-key: ""
