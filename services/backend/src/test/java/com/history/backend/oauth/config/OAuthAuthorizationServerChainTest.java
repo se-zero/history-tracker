@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Set;
 import java.util.UUID;
 
 import com.history.backend.oauth.service.OAuthJwkProvider;
@@ -28,6 +29,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -53,6 +61,12 @@ class OAuthAuthorizationServerChainTest {
 
     @Autowired
     private JwtTokenService jwtTokenService;
+
+    @Autowired
+    private RegisteredClientRepository registeredClientRepository;
+
+    @Autowired
+    private OAuth2AuthorizationService authorizationService;
 
     @Test
     @DisplayName("인가 서버 메타데이터 — 필수 필드 노출")
@@ -122,10 +136,10 @@ class OAuthAuthorizationServerChainTest {
     // 이 케이스는 기존 JwtAuthenticationFilter의 서블릿 자동 등록이 해제됐음도 함께 증명한다
     // (해제 전엔 보안 체인 통과 뒤 그 필터가 RS256을 HS256으로 재검사해 401을 냈다).
     @Test
-    @DisplayName("유효한 RS256 토큰은 인증·인가를 통과한다(핸들러는 B4에서 추가돼 지금은 404만 남는다)")
+    @DisplayName("유효한 RS256 토큰은 인증·인가를 통과한다(MockMvc는 /mcp 서블릿에 닿지 않아 통과한 요청은 404로 끝난다)")
     void mcpEndpointAcceptsValidRsaTokenPastAuthenticationAndAuthorization() throws Exception {
         MvcResult result = mockMvc.perform(post("/mcp")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validRsaToken())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + withGrantRow(validRsaToken()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(MCP_INITIALIZE_BODY))
                 .andReturn();
@@ -137,7 +151,8 @@ class OAuthAuthorizationServerChainTest {
     @DisplayName("aud가 리소스와 다른 RS256 토큰 → 401 invalid_token")
     void rejectsRsaTokenWithWrongAudience() throws Exception {
         Instant now = Instant.now();
-        String token = rsaToken(ISSUER + "/other", "mcp:query", now, now.plus(Duration.ofHours(1)));
+        // 연결 행을 심어 둔다 — 행이 없으면 입구 검증기만으로도 401이라 aud 검사가 빠져도 이 테스트가 통과한다.
+        String token = withGrantRow(rsaToken(ISSUER + "/other", "mcp:query", now, now.plus(Duration.ofHours(1))));
 
         mockMvc.perform(post("/mcp")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -151,7 +166,9 @@ class OAuthAuthorizationServerChainTest {
     @DisplayName("만료된 RS256 토큰 → 401 invalid_token")
     void rejectsExpiredRsaToken() throws Exception {
         Instant now = Instant.now();
-        String token = rsaToken(MCP_AUDIENCE, "mcp:query", now.minus(Duration.ofHours(2)), now.minus(Duration.ofHours(1)));
+        // 연결 행을 심어 둔다 — 행이 없으면 만료 검사가 빠져도 입구 검증기 때문에 통과한다.
+        String token = withGrantRow(
+                rsaToken(MCP_AUDIENCE, "mcp:query", now.minus(Duration.ofHours(2)), now.minus(Duration.ofHours(1))));
 
         mockMvc.perform(post("/mcp")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -165,7 +182,7 @@ class OAuthAuthorizationServerChainTest {
     @DisplayName("scope 클레임 없는 RS256 토큰 → 403 insufficient_scope")
     void rejectsRsaTokenWithoutScopeClaim() throws Exception {
         Instant now = Instant.now();
-        String token = rsaToken(MCP_AUDIENCE, null, now, now.plus(Duration.ofHours(1)));
+        String token = withGrantRow(rsaToken(MCP_AUDIENCE, null, now, now.plus(Duration.ofHours(1))));
 
         mockMvc.perform(post("/mcp")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -183,14 +200,17 @@ class OAuthAuthorizationServerChainTest {
                 .andExpect(jsonPath("$.resource").value(MCP_AUDIENCE))
                 .andExpect(jsonPath("$.authorization_servers[0]").value(ISSUER))
                 .andExpect(jsonPath("$.scopes_supported[0]").value("mcp:query"))
-                .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"));
+                .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"))
+                // mTLS 인증서에 묶인 토큰은 지원하지 않는다 — Spring 기본값(true)이 그대로 나가면 틀린 광고다.
+                .andExpect(jsonPath("$.tls_client_certificate_bound_access_tokens").value(false));
 
         mockMvc.perform(get("/.well-known/oauth-protected-resource"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.resource").value(MCP_AUDIENCE))
                 .andExpect(jsonPath("$.authorization_servers[0]").value(ISSUER))
                 .andExpect(jsonPath("$.scopes_supported[0]").value("mcp:query"))
-                .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"));
+                .andExpect(jsonPath("$.bearer_methods_supported[0]").value("header"))
+                .andExpect(jsonPath("$.tls_client_certificate_bound_access_tokens").value(false));
     }
 
     @Test
@@ -215,6 +235,31 @@ class OAuthAuthorizationServerChainTest {
     private String validRsaToken() throws Exception {
         Instant now = Instant.now();
         return rsaToken(MCP_AUDIENCE, "mcp:query", now, now.plus(Duration.ofHours(1)));
+    }
+
+    // 입구 검증기는 토큰 값의 연결 행(oauth2_authorization)이 있어야 통과시키므로, 직접 서명한 토큰에 같은 값의 행을 심는다.
+    private String withGrantRow(String token) throws Exception {
+        JWTClaimsSet claims = SignedJWT.parse(token).getJWTClaimsSet();
+        RegisteredClient client = RegisteredClient.withId(UUID.randomUUID().toString())
+                .clientId("chain-test-client-" + UUID.randomUUID())
+                .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .redirectUri("http://localhost/callback")
+                .scope("mcp:query")
+                .build();
+        registeredClientRepository.save(client);
+        String scope = claims.getStringClaim("scope");
+        OAuth2AccessToken accessToken = new OAuth2AccessToken(
+                OAuth2AccessToken.TokenType.BEARER, token,
+                claims.getIssueTime().toInstant(), claims.getExpirationTime().toInstant(),
+                scope == null ? Set.of() : Set.of(scope));
+        authorizationService.save(OAuth2Authorization.withRegisteredClient(client)
+                .id(UUID.randomUUID().toString())
+                .principalName(claims.getSubject())
+                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .token(accessToken)
+                .build());
+        return token;
     }
 
     private String rsaToken(String audience, String scope, Instant issuedAt, Instant expiresAt) throws Exception {

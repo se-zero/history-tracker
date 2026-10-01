@@ -1,6 +1,8 @@
 package com.history.backend.conversation.service;
 
+import java.net.SocketTimeoutException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -59,8 +61,23 @@ public class AiEngineQueryClient {
             return AiEngineQueryResult.success(answer, response.structured());
         } catch (RestClientException exception) {
             log.error("ai-engine query request failed: {}", exception.getMessage());
+            if (isReadTimeout(exception)) {
+                return AiEngineQueryResult.timeout(FALLBACK_ANSWER);
+            }
             return AiEngineQueryResult.fallback(FALLBACK_ANSWER);
         }
+    }
+
+    // 연결·읽기 시간 초과는 둘 다 SocketTimeoutException이고 메시지만 다르다("Connect timed out" /
+    // "Read timed out"). 연결 단계에서 끊긴 것은 답을 기다리다 끊긴 것이 아니므로 시간 초과로 보지 않는다.
+    private boolean isReadTimeout(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SocketTimeoutException timeout) {
+                String message = timeout.getMessage();
+                return message == null || !message.toLowerCase(Locale.ROOT).contains("connect");
+            }
+        }
+        return false;
     }
 
     //  누적 요약 갱신을 위한 ai-engine 병합 요청 (기존 요약 + 추가 대화 턴)

@@ -15,6 +15,7 @@ import com.history.backend.googlechat.GoogleChatProperties;
 import com.history.backend.jira.AtlassianPersonalDataReportProperties;
 import com.history.backend.jira.AtlassianProperties;
 import com.history.backend.linear.LinearProperties;
+import com.history.backend.mcp.McpRateLimitProperties;
 import com.history.backend.notion.NotionProperties;
 import com.history.backend.oauth.McpOAuthProperties;
 import com.history.backend.security.JwtProperties;
@@ -42,7 +43,8 @@ import org.springframework.context.annotation.Configuration;
         AsanaProperties.class,
         ClickUpProperties.class,
         NotionProperties.class,
-        McpOAuthProperties.class
+        McpOAuthProperties.class,
+        McpRateLimitProperties.class
 })
 public class PropertiesConfig {
 }

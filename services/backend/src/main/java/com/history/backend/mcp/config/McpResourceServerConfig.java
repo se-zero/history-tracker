@@ -3,6 +3,7 @@ package com.history.backend.mcp.config;
 import java.util.List;
 
 import com.history.backend.oauth.McpOAuthProperties;
+import com.history.backend.oauth.security.ActiveAuthorizationTokenValidator;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +21,7 @@ import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -31,13 +33,20 @@ public class McpResourceServerConfig {
 
     // 이 앱의 JwtDecoder 빈은 이것 하나다 — SPA는 자체 HS256 토큰을 쓰고, Boot 자동구성이 만드는
     // JwtDecoder는 이 빈으로 대체된다. aud 검사가 없으면 같은 서명키로 발급된 다른 용도 토큰까지 통과한다.
+    // 연결 행 조회(ActiveAuthorizationTokenValidator)를 더하는 이유: JWT는 서명·만료만으로 통과해서
+    // 연결 해제·탈퇴·refresh 뒤에도 만료 전까지 살아 있기 때문이다. 서명 검증이 검증기보다 먼저라
+    // 서명이 틀린 토큰은 여기까지 오지 않으므로 아무나 DB 조회를 유발할 수 없다.
     @Bean
-    JwtDecoder mcpJwtDecoder(JWKSource<SecurityContext> jwkSource, McpOAuthProperties mcpOAuthProperties) {
+    JwtDecoder mcpJwtDecoder(
+            JWKSource<SecurityContext> jwkSource,
+            McpOAuthProperties mcpOAuthProperties,
+            OAuth2AuthorizationService authorizationService) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSource(jwkSource).build();
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
                 JwtValidators.createDefaultWithIssuer(mcpOAuthProperties.issuer()),
                 new JwtClaimValidator<List<String>>(
-                        JwtClaimNames.AUD, audience -> audience != null && audience.contains(mcpOAuthProperties.resourceUrl()))));
+                        JwtClaimNames.AUD, audience -> audience != null && audience.contains(mcpOAuthProperties.resourceUrl())),
+                new ActiveAuthorizationTokenValidator(authorizationService)));
         return decoder;
     }
 
@@ -68,7 +77,9 @@ public class McpResourceServerConfig {
                                 .bearerMethods(methods -> {
                                     methods.clear();
                                     methods.add("header");
-                                }))));
+                                })
+                                // Spring 기본값은 true인데 mTLS 인증서에 묶인 토큰은 지원하지 않는다 — 틀린 광고를 끈다.
+                                .tlsClientCertificateBoundAccessTokens(false))));
         return http.build();
     }
 

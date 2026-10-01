@@ -111,6 +111,8 @@ cp .env.example .env
 | `INTERNAL_SERVICE_TOKEN` | `openssl rand -hex 32` | backend·pipeline-worker가 같은 값 |
 | `BACKEND_CREDENTIAL_KEY` | `openssl rand -base64 32` | **형식 고정**(32-byte Base64) — hex를 쓰면 안 된다 |
 | `RABBITMQ_USER` · `RABBITMQ_PASSWORD` | `openssl rand -hex 32` | **URL-safe 값만** — 아래 경고 참고 |
+| `MCP_OAUTH_ISSUER` | 배포 도메인 — `https://why-code.com` | 사용자가 브라우저·코딩 에이전트로 접속하는 **프론트 주소와 같아야 한다**(발급되는 토큰의 issuer이자 MCP 리소스 URL의 기준). 비우면 로컬 값(`http://localhost:5173`)으로 뜨므로 prod 오버라이드가 비어 있으면 기동을 거부한다 |
+| `MCP_OAUTH_PRIVATE_KEY` | `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \| awk '{printf "%s\\n", $0}'` | MCP access token(RS256) 서명키, **PKCS#8 PEM**을 한 줄(`\n` 리터럴)로. `openssl genrsa`가 내는 PKCS#1(`BEGIN RSA PRIVATE KEY`)은 읽지 못한다. 비면 backend가 임시 키로 떠서 **재기동마다 발급된 토큰이 전부 무효화**된다 — prod 오버라이드에서 필수라 비어 있으면 기동을 거부한다 |
 | `TUNNEL_TOKEN` | Cloudflare 대시보드 | 2-2에서 발급받는다. 이것이 있어야 바깥에서 접근할 수 있다 |
 | `ALERT_SLACK_WEBHOOK_URL` | Slack 앱 → Incoming Webhooks | 선택. 비우면 알림 없이 로그만. 4-6 참고 |
 | `PADDLE_*` · `RESEND_*` | Paddle·Resend 대시보드 | 선택. 비우면 결제는 "준비 중", 결제일 안내는 안 나간다. 라이브 결제를 열 때 3-2b |
@@ -187,6 +189,14 @@ cp .env.example .env
 
 - 브라우저로 `https://<도메인>` → 로그인 화면
 - GitHub 로그인 → 프로젝트 생성 → 소스 연동 → 수집 시작
+- MCP 서버(코딩 에이전트 연결 통로)가 배포 도메인으로 서는지 — 설계는 `docs/mcp-integration.md`
+
+  ```bash
+  # issuer가 배포 도메인(https://why-code.com)인지 — localhost가 보이면 MCP_OAUTH_ISSUER가 안 먹은 것이다
+  curl https://why-code.com/.well-known/oauth-authorization-server
+  # 토큰 없이 부르면 401 + WWW-Authenticate 헤더에 resource_metadata가 와야 한다
+  curl -i -X POST https://why-code.com/mcp
+  ```
 - 수집·그래프 상태 점검은 `.claude/skills/pipeline-inspect`의 쿼리를 쓰되, 명령의 `./dev.sh`를
   `./prod.sh`로 바꿔 읽는다
 
@@ -217,6 +227,8 @@ cp .env.example .env
 프론트로 302를 보내지만, GitHub은 React 페이지가 먼저 받아 backend에 code를 넘긴다.
 나머지 8종도 backend가 아니라 **프론트 오리진**을 써야 한다 — 콜백의 302가 상대 경로라
 backend(:8080)를 직접 가리키면 연동은 성공해도 마지막 리다이렉트가 401로 끝난다.
+
+**MCP 쪽 OAuth는 이 표와 방향이 반대다.** 위 9종은 우리가 외부 서비스의 *클라이언트*로 붙는 연동이라 각 콘솔에 우리 redirect URI를 등록한다. MCP(코딩 에이전트 연결)는 우리가 *인가 서버(발급자)* 이고 에이전트가 클라이언트라서, **외부 콘솔에 등록할 것이 없다.** 앱의 redirect URI는 에이전트가 인가 요청 때 스스로 밝히고, 서버 쪽 설정은 `.env`의 `MCP_OAUTH_ISSUER`·`MCP_OAUTH_PRIVATE_KEY`(2-1)뿐이다.
 
 > ⚠️ **배포 URL로 바꾸면 로컬 개발이 깨질 수 있다.** provider마다 redirect URI를 여러 개
 > 등록할 수 있는지가 다르다. GitHub App과 Notion은 로컬·배포를 함께 둘 수 있다(각각 공식
@@ -393,6 +405,8 @@ ssh -L 7474:127.0.0.1:7474 -L 7687:127.0.0.1:7687 <user>@<서버>
 |---|---|---|
 | Proxy Read Timeout | **125초** 초과 시 524 | 질의(`/query`)가 평균 12초대다. 타임아웃 체인은 backend `ai.engine.read-timeout-seconds`(기본 120초) → nginx `location /api/` `proxy_read_timeout` 125초 → Cloudflare 125초다. 앱이 먼저 끊고 nginx는 그 응답을 통과시키며, 엣지 524는 그 바깥이다. nginx를 빼면 기본 60초에서 504가 나고 backend fallback도 타지 않는다 |
 | 요청 본문 | 무료 플랜 100MB | webhook·API 페이로드가 근처에도 가지 않는다 |
+
+이 체인(backend 120초 → nginx 125초 → Cloudflare 125초)은 `/api/`뿐 아니라 MCP 엔드포인트 nginx `location = /mcp`에도 같게 걸려 있다 — 에이전트의 질의 한 번도 최대 120초라 앱이 먼저 끊게 하는 이유가 같다. `/mcp`는 **정확 일치**(`=`)라 같은 경로의 SPA 안내 페이지 `/mcp/setup`은 backend로 프록시되지 않고 프론트가 그린다. 끝 슬래시가 붙은 `/mcp/`는 SPA 폴백(200)으로 새지 않도록 nginx가 바른 주소를 알려 주는 JSON 404로 끝낸다.
 
 **125초는 올릴 수 없다 — Enterprise 플랜 전용이다**(최대 6000초). 그리고 **스트리밍도 예외가
 아니다**: Cloudflare 문서는 "요청이 125초를 넘으면(예: 스트리밍) Proxy Read Timeout을 올리라"고

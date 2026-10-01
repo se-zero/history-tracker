@@ -26,6 +26,12 @@ import { PATHS } from "@/routes";
 //   파기 기한  → backend user-lifecycle.purge.grace-period (P30D) +
 //                권한 회수 실패 시 강제 진행 유예 force-purge-after (P7D, UserPurgeService)
 //   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
+//   외부 앱 연결 → backend db/migration/V25__create_oauth2_authorization_server_tables.sql
+//                (이용자별 연결 기록·접속용 토큰. 앱 등록 행은 이용자에 묶이지 않은 앱 자체의
+//                정보이고 연결을 끊어도 남으므로 제1조 항목에 넣지 않았다) +
+//                V27__create_mcp_workspace_bindings.sql(user_id·workspace_path·project_id) +
+//                계정 페이지 ConnectedAppsCard·api/oauthGrants.ts(앱 이름·연결 시각·마지막 사용 시각 표시) +
+//                auth/returnPath.ts(sessionStorage ht.return_path, 경로+저장 시각, 10분 TTL, 로그인 콜백에서 1회 소비)
 //   백업 보존  → infra/scripts/backup.sh의 BACKUP_RETENTION_DAYS(14). 다만 대외 문구는
 //                "약 2주"다 — `find -mtime +14`가 15일차부터 지우고 cron이 하루 1회라
 //                실제 최대는 ~16일이다. 설정값을 그대로 옮겨 적지 않는다(제5조).
@@ -35,7 +41,7 @@ export function PrivacyBodyKo() {
     <>
       <LegalSection index={1} heading="처리하는 개인정보 항목">
         <p>
-          서비스는 크게 네 갈래의 정보를 처리합니다. 이 중 <strong>연동으로 수집되는 기록</strong>은
+          서비스는 크게 다섯 갈래의 정보를 처리합니다. 이 중 <strong>연동으로 수집되는 기록</strong>은
           이용자 본인 외 팀 구성원의 정보를 포함합니다(제7조 참고).
         </p>
         <div className="lp-legal-table-scroll">
@@ -111,9 +117,32 @@ export function PrivacyBodyKo() {
                 </td>
                 <td>서비스 이용 과정에서 생성</td>
               </tr>
+              <tr>
+                <td>외부 앱(코딩 에이전트) 연결</td>
+                <td>
+                  <ul>
+                    <li>
+                      이용자별 연결 기록 — 어느 이용자가 어느 앱(앱 이름·식별자)의 연결을
+                      허용했는지, 앱에 발급한 접속용 토큰과 그 발급·만료 시각
+                    </li>
+                    <li>
+                      작업 폴더 연결 정보 — 이용자 컴퓨터의 작업 폴더 경로와 그 폴더에 연결한
+                      프로젝트. 경로에는 PC 계정 이름 같은 정보가 들어갈 수 있습니다.
+                    </li>
+                  </ul>
+                </td>
+                <td>
+                  이용자가 Claude Code·Codex 같은 코딩 에이전트의 연결을 허용하고 사용하는 과정에서
+                  생성
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
+        <p>
+          외부 앱(코딩 에이전트)이 보낸 질문과 그 답변은 대화로 저장하지 않습니다. 답변을 만드는
+          처리는 기존 질문과 같은 경로(제3·4조)를 따르며, 무료 플랜의 질의 횟수에는 합산됩니다.
+        </p>
         <p className="lp-legal-note">
           서비스는 주민등록번호·결제 정보 등 민감정보나 고유식별정보를 수집하지 않습니다.
         </p>
@@ -509,6 +538,15 @@ export function PrivacyBodyKo() {
             백업에서도 사라집니다.
           </li>
           <li>
+            <strong>외부 앱(코딩 에이전트) 연결</strong> — 이용자가 계정 페이지의 연결된 앱에서
+            앱 연결을 끊으면 그 앱의 연결 기록과 토큰을 즉시 삭제하며, 이미 발급된 토큰도 즉시
+            거부합니다. 회원 탈퇴 시에는 모든 앱의 연결 기록과 토큰을 즉시 삭제합니다. 30일
+            안에 계정을 복구해도 앱 연결은 돌아오지 않으므로 앱에서 다시 허용해야 합니다. 만료된
+            연결 기록은 주기적으로 삭제합니다. 작업 폴더 연결 정보는 계정과 관련 데이터를 삭제할
+            때 함께 삭제하며(탈퇴 후 30일 동안은 남아 있고, 그 안에 복구하면 그대로 쓰입니다),
+            연결한 프로젝트를 삭제하면 그 폴더 연결도 함께 삭제합니다.
+          </li>
+          <li>
             법령이 보존을 요구하는 기록은 해당 법령이 정한 기간 동안 분리 보관한 뒤
             파기합니다.
           </li>
@@ -542,6 +580,11 @@ export function PrivacyBodyKo() {
           기록에 정보가 포함된 구성원은 아래 문의처로 열람·삭제를 요청할 수 있으며, 해당
           프로젝트의 관리자를 통해 연동 해제나 프로젝트 삭제를 요청할 수도 있습니다.
         </p>
+        <p>
+          이용자가 연결을 허용한 외부 앱(코딩 에이전트)에는 답변이 전달되며, 그 답변에는 저장소·이슈·
+          대화에 등장하는 구성원의 정보가 포함될 수 있습니다. 앱 연결은 계정 페이지의 연결된
+          앱에서 언제든 끊을 수 있습니다.
+        </p>
       </LegalSection>
 
       <LegalSection index={8} heading="이용자의 권리와 행사 방법">
@@ -569,6 +612,12 @@ export function PrivacyBodyKo() {
           경우에만 로컬 저장소에 보관합니다. 이 값들은 개인정보가 아닌 기기별 편의 설정으로
           로그아웃과 무관하게 유지되며, 브라우저의 사이트 데이터 삭제로 언제든 지울 수
           있습니다.
+        </p>
+        <p>
+          로그인이 필요한 화면(외부 앱 연결 허용 화면 등)에서 로그인하러 이동할 때는, 로그인 후
+          원래 화면으로 돌아오기 위해 그 화면의 경로와 저장 시각을 탭 단위 임시 저장소(
+          <code>ht.return_path</code>)에 보관합니다. 저장 후 10분이 지나면 쓰지 않으며,
+          로그인 후 돌아올 때 한 번 읽고 지웁니다. 탭을 닫으면 함께 사라집니다.
         </p>
       </LegalSection>
 
