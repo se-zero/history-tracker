@@ -201,7 +201,7 @@ MoR에서는 그게 전부 Paddle 쪽이다. 우리 코드가 하는 일은 하�
 |---|---|
 | `users.plan` | 지금 그대로 쓴다 (`FREE`/`PAID`). 게이트 검사는 전부 여기를 본다 |
 | `users.plan_expires_at` (신규) | 이 시각이 지나면 FREE로 내린다. 스케줄러 안전망(§6-4)의 기준 |
-| `billing_subscriptions` (V24) | 구독 캐시 — PK Paddle subscription id, `user_id`(FK users, CASCADE), `customer_id`, `status`(Paddle 값 그대로), `price_id`, `current_period_ends_at`, 해지 예약(`scheduled_change_action`·`effective_at`), `canceled_at`, `last_event_occurred_at`(순서 역전 판정 기준). V25에서 `renewal_notice_period_end`(결제일 안내를 보낸 주기 끝 — 한 주기에 한 번만, §9-1) |
+| `billing_subscriptions` (V24) | 구독 캐시 — PK Paddle subscription id, `user_id`(FK users, CASCADE), `customer_id`, `status`(Paddle 값 그대로), `price_id`, `current_period_ends_at`, 해지 예약(`scheduled_change_action`·`effective_at`), `canceled_at`, `last_event_occurred_at`(순서 역전 판정 기준). V26에서 `renewal_notice_period_end`(결제일 안내를 보낸 주기 끝 — 한 주기에 한 번만, §9-1) |
 | `billing_events` (V24) | 수신 원장 — Paddle `event_id` **unique**(§6-2), `event_type`, `occurred_at`, `outcome`(`RECEIVED`→`APPLIED`·`STALE`·`UNMATCHED`·`IGNORED`), `subscription_id`, `user_id`(**FK 아님** — 파기 뒤에도 원장은 남긴다). **원본 payload는 저장하지 않는다** — customer 알림에 이메일·이름이 들어 있다 |
 
 `free_query_count`·`integrations.incremental_enabled`는 기존 컬럼을 그대로 쓴다(V19).
@@ -467,7 +467,7 @@ Paddle을 쓰든 무엇을 쓰든 우리가 지켜야 한다.**
    `BILLING_RENEWAL_NOTICE_CRON`)가 `RenewalNoticeService`를 부른다.
    - 대상: `current_period_ends_at`이 **지금부터 6~8일 뒤**인 구독 중 `active`·`trialing`이고 해지 예약이 없는 것.
      창을 이틀로 둔 이유 — 스케줄러가 하루 빠져도 그 주기가 창 안에 남는다.
-   - **한 주기에 한 번만** — 보낸 주기의 끝을 `billing_subscriptions.renewal_notice_period_end`(V25)에 적고, 같은
+   - **한 주기에 한 번만** — 보낸 주기의 끝을 `billing_subscriptions.renewal_notice_period_end`(V26)에 적고, 같은
      값이면 건너뛴다. 갱신으로 주기 끝이 바뀌면 다음 주기에 다시 보낸다. 웹훅이 행을 통째로 다시 써도 이 값은
      옮겨 적는다(안 그러면 알림 한 번에 이미 보낸 표시가 지워진다).
    - 수신 주소는 **그때그때 Paddle 고객에서 조회**한다(`customer.read`) — 우리 DB에 고객 이메일을 저장하지

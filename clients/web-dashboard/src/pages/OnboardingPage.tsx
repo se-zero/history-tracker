@@ -302,7 +302,8 @@ function ConnectGitHubStep({
           <GitHubReauthorizationCta />
         ) : repoRows.length === 0 ? (
           <div className="onb-muted-block">
-            접근 가능한 저장소가 없어요. 아래 'GitHub에서 저장소·조직 추가'에서 whycode가 읽을 저장소를 골라 주세요.
+            접근 가능한 저장소가 없어요. 아래 'GitHub에서 저장소·조직 추가'에서 whycode가 읽을 저장소를
+            고른 뒤 연결 확인을 누르면 목록이 갱신돼요. 조직은 소유자만 바꿀 수 있어요.
           </div>
         ) : (
           <div className="repo-list" style={{ maxHeight: 320, overflowY: "auto" }}>
@@ -370,7 +371,8 @@ function ConnectGitHubStep({
           </InlineError>
         )}
 
-        {showAccessEntry && (
+        {/* 0건이면 위 안내 상자가 같은 내용을 이미 말하므로, 목록이 있을 때만 덧붙인다. */}
+        {showAccessEntry && repoRows.length > 0 && (
           <p className="onb-access-hint">
             찾는 저장소가 없나요? GitHub에서 추가한 뒤 연결 확인을 누르면 목록이 갱신돼요. 조직은
             소유자만 바꿀 수 있어요.
