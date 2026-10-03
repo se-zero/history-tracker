@@ -9,8 +9,9 @@ import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
 import { MonoChip } from "@/components/ui/MonoChip";
 import { createProject } from "@/api/projects";
-import { GITHUB_AUTHORIZE_URL } from "@/api/auth";
 import { GitHubInstallEmptyState } from "@/components/sources/GitHubInstallEmptyState";
+import { GitHubRecheckLink } from "@/components/sources/GitHubRecheckLink";
+import { GitHubRepoAccessLink } from "@/components/sources/GitHubRepoAccessLink";
 import { Topbar } from "@/components/shell/Topbar";
 import { queryKeys } from "@/hooks/queryKeys";
 import { useGithubRepoRows } from "@/hooks/useGithub";
@@ -277,6 +278,9 @@ function ConnectGitHubStep({
     connected &&
     !reposLoading &&
     repoQueries.some((query) => isGitHubReauthorizationRequired(query.error));
+  // 저장소 목록(또는 0건 안내)이 그려질 때만 "저장소·조직 추가" 진입점을 둔다. 설치가 없으면 빈 상태가,
+  // 권한 만료면 재로그인 안내가 각자 다음 행동을 이끌므로 거기에 길을 더 열면 갈래만 늘어난다.
+  const showAccessEntry = connected && !reposLoading && !needsGitHubReauthorization;
 
   return (
     <>
@@ -298,7 +302,9 @@ function ConnectGitHubStep({
           <GitHubReauthorizationCta />
         ) : repoRows.length === 0 ? (
           <div className="onb-muted-block">
-            접근 가능한 저장소가 없어요. GitHub App 설정에서 저장소 권한을 확인해 주세요.
+            접근 가능한 저장소가 없어요. 아래 'GitHub에서 저장소·조직 추가'에서 whycode가 읽을 저장소를
+            고른 뒤 연결 확인을 누르면 목록이 갱신돼요. 설치는 그 계정의 소유자(조직은 조직 소유자)만
+            바꿀 수 있어요.
           </div>
         ) : (
           <div className="repo-list" style={{ maxHeight: 320, overflowY: "auto" }}>
@@ -366,23 +372,32 @@ function ConnectGitHubStep({
           </InlineError>
         )}
 
+        {/* 0건이면 위 안내 상자가 같은 내용을 이미 말하므로, 목록이 있을 때만 덧붙인다. */}
+        {showAccessEntry && repoRows.length > 0 && (
+          <p className="onb-access-hint">
+            찾는 저장소가 없나요? GitHub에서 추가한 뒤 연결 확인을 누르면 목록이 갱신돼요. 설치는 그
+            계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요.
+          </p>
+        )}
+
         {/* "나중에 연결하기"는 제거됐다 — GitHub 연결은 필수이고(위 lead 문구), 저장소 없이
             들어가면 그래프가 빈 채로 첫 화면이 열려 제품이 고장난 것처럼 보인다.
             대신 '이전'으로 STEP 01에 언제든 돌아갈 수 있다 — 실패했든 아직 시도 전이든
             서버에는 아무것도 만들어지지 않았으므로 되돌아가도 남는 게 없다.
-            '연결 확인'은 GitHub App 설치·권한을 바꾸고 돌아와 목록을 다시 받는 용도다. */}
+            '연결 확인'은 GitHub App 설치·권한을 바꾸고 돌아와 목록을 다시 받는 용도다.
+            '저장소·조직 추가'는 그 바꾸는 쪽(GitHub 설정)을 새 탭으로 여는 짝이다. */}
         <div
           style={{
             display: "flex",
+            flexWrap: "wrap",
             alignItems: "center",
             gap: 8,
             marginTop: 20,
           }}
         >
+          {showAccessEntry && <GitHubRepoAccessLink />}
           {connected && (
-            <a className="btn btn-ghost" href={GITHUB_AUTHORIZE_URL}>
-              연결 확인
-            </a>
+            <GitHubRecheckLink className="btn btn-ghost">연결 확인</GitHubRecheckLink>
           )}
           <button
             className="btn btn-ghost"
@@ -413,9 +428,7 @@ function GitHubReauthorizationCta() {
       <span>
         로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소 목록을 볼 수 없어요.
       </span>
-      <a className="btn btn-primary" href={GITHUB_AUTHORIZE_URL}>
-        다시 로그인하고 연결 확인
-      </a>
+      <GitHubRecheckLink className="btn btn-primary">다시 로그인하고 연결 확인</GitHubRecheckLink>
     </div>
   );
 }
@@ -425,9 +438,7 @@ function connectErrorContent(error: unknown) {
     return (
       <>
         로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소를 연결할 수 없어요.{" "}
-        <a className="text-link" href={GITHUB_AUTHORIZE_URL}>
-          다시 로그인하고 연결 확인
-        </a>
+        <GitHubRecheckLink className="text-link">다시 로그인하고 연결 확인</GitHubRecheckLink>
       </>
     );
   }

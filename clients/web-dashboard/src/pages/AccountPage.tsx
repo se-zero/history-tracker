@@ -4,6 +4,7 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
 import { ConnectedAppsCard } from "@/components/account/ConnectedAppsCard";
+import { GitHubAccessCard } from "@/components/account/GitHubAccessCard";
 import { Icons } from "@/components/Icons";
 import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
@@ -61,6 +62,8 @@ export function AccountPage() {
       </p>
 
       <PlanCard />
+
+      <GitHubAccessCard />
 
       <ConnectedAppsCard />
 
