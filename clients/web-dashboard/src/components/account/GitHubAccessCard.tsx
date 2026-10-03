@@ -68,8 +68,8 @@ export function GitHubAccessCard() {
             <GitHubRecheckLink className="btn btn-ghost">연결 확인</GitHubRecheckLink>
           </div>
           <p className="github-access-note">
-            조직은 소유자만 설치하거나 저장소를 바꿀 수 있어요. 바꾼 뒤 연결 확인을 누르면 목록이
-            갱신돼요.
+            설정은 그 계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요. 다른 사람의 계정이면
+            GitHub에서 페이지를 찾을 수 없다고 나와요. 바꾼 뒤 연결 확인을 누르면 목록이 갱신돼요.
           </p>
         </>
       )}
@@ -80,7 +80,9 @@ export function GitHubAccessCard() {
 // 설치별 GitHub 설정 화면 주소 — 조직과 개인 계정의 경로가 다르다.
 //   조직: https://github.com/organizations/{org}/settings/installations/{installationId}
 //   개인: https://github.com/settings/installations/{installationId}
-// 조직 설치는 조직 소유자만 바꿀 수 있어서, 소유자가 아니면 이 링크로 가도 설정을 바꾸지 못한다.
+// 설치는 그 계정의 소유자(조직은 조직 소유자)만 바꿀 수 있다. 목록에는 협업 중인 다른 사람의 개인
+// 설치도 나오는데(멤버십 기준), 그 링크를 누르면 GitHub가 404를 낸다(2026-10-03 실기동 확인). 소유 여부를
+// 프론트가 알 수 없어(사용자 GitHub 로그인명이 응답에 없다) 링크는 그대로 두고 카드 안내로 알린다.
 function installationSettingsUrl({
   accountType,
   accountLogin,

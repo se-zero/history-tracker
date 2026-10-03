@@ -42,7 +42,8 @@ src/
                     GitHubAccessCard("GitHub 저장소 접근" — App이 설치된 개인 계정·조직 목록과 설치별 GitHub 설정
                     링크, 다른 계정·조직에 설치, 연결 확인. 설치는 프로젝트가 아니라 계정 단위라 계정 페이지에 둔다.
                     설정 주소는 조직 `github.com/organizations/{org}/settings/installations/{id}`, 개인
-                    `github.com/settings/installations/{id}`. 조직 설치는 조직 소유자만 바꿀 수 있다)
+                    `github.com/settings/installations/{id}`. 설치는 그 계정의 소유자(조직은 조직 소유자)만
+                    바꿀 수 있다 — 협업 중인 다른 사람의 개인 설치도 목록에 나오며 그 링크는 GitHub에서 404다)
     oauth/          OAuthConsentCard(/oauth/consent 본문 — MCP 클라이언트의 연결 요청 미리보기·허용/거부)
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
