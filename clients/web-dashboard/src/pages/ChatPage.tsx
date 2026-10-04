@@ -300,6 +300,8 @@ export function ChatPage({ project }: { project: Project }) {
         message={m}
         citation={citationFor(m)}
         fresh={m.id === fresh?.messageId}
+        onPick={handleSend}
+        disabled={chatBlock !== null}
       />
     ));
 

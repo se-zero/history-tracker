@@ -42,6 +42,34 @@ _EXPLORATORY_NOTICE = (
     "근거 연결이 약하거나 일부가 추론일 수 있습니다."
 )
 
+# 그래프 밖 말(인사·감사·잡담)은 서버가 문장을 조립한다 — 모델 문장을 그대로 쓰지 않는다.
+_CONVERSATIONAL_TOOL = "respond_conversational"
+_CONVERSATIONAL_KINDS = frozenset({"greeting", "thanks", "smalltalk", "redirect"})
+_TRAILING_CHAT_PUNCT_RE = re.compile(r"[.!?~]+$")
+_GREETING_PHRASES = frozenset({
+    "안녕", "안녕하세요", "하이", "hello", "hi",
+    "너 누구야", "뭐 할 수 있어", "도움말",
+})
+_THANKS_PHRASES = frozenset({
+    "고마워", "고맙습니다", "감사합니다", "감사해요",
+    "thanks", "thank you",
+})
+_GREETING_REPLY = (
+    "안녕하세요. 저는 whycode예요. 이 프로젝트에서 코드가 왜 그렇게 바뀌었는지 같이 찾아볼게요. "
+    "무엇을 도와드릴까요?"
+)
+_THANKS_REPLY = "도움이 됐다니 다행이에요. 또 무엇을 도와드릴까요?"
+_SMALLTALK_FALLBACK = "그렇게요. 무엇을 도와드릴까요?"
+_REDIRECT_REPLY = (
+    "그 내용은 이 프로젝트 기록 밖이에요. 코드가 왜 그렇게 바뀌었는지는 같이 찾아볼게요. "
+    "무엇을 도와드릴까요?"
+)
+_SMALLTALK_OFFER = "무엇을 도와드릴까요?"
+_CONVERSATIONAL_IGNORED = (
+    "respond_conversational은 그래프 탐색 중에는 쓰지 않습니다. "
+    "이미 조회한 그래프 결과로 답하세요."
+)
+
 
 def _model_kwargs() -> dict:
     """chat_completion에 넘길 모델 공통 kwargs — reasoning_effort는 설정된 경우에만 포함."""
@@ -235,6 +263,8 @@ GitHub(커밋, PR, 이슈), Jira/Linear(이슈), Slack(메시지), Notion(설계
   따로 렌더되므로 summary가 같은 문장을 반복할 필요가 없습니다.
 - 풀어 쓴다고 근거 이상을 말해도 된다는 뜻은 아닙니다. 원문에 없는 인과·평가·수치를
   덧붙이지 마세요 — 표현만 바꾸고 내용은 근거 안에 머무릅니다.
+- 해요체로 씁니다. "~임", "~함", "관련 항목을 찾지 못함" 같은 보고서 문장 대신
+  옆에서 짧게 설명하듯 쓰세요.
 
 [내부 용어 노출 금지 — 시스템 용어는 사용자 언어로 옮긴다]
 - 사용자는 이 시스템의 내부 구조를 모릅니다. 도구 결과의 필드명(discussion_count·duration_days·
@@ -316,7 +346,11 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   답변입니다. 금지되는 것은 근거 없는 창작과 근거 이상의 확신입니다.
 
 [모호한 질문 처리 절차]
-질문에 구체적 entity(issue_key / commit hash / PR # / 파일 경로)가 없으면 다음을 순서대로 시도:
+질문이 이 프로젝트의 코드·PR·이슈·사람·문서·일정이 아니면 respond_conversational만 호출하고
+검색하지 마세요. 확신이 없으면 아래 그래프 절차를 쓰세요.
+
+이 프로젝트에 대한 질문인데 구체적 entity(issue_key / commit hash / PR # / 파일 경로)가 없으면
+다음을 순서대로 시도:
   0) 질문이 순서·시점을 묻는다면("언제", "어떤 순서로", "시간순", "과정", "흐름", "초기에")
      entity가 없어도 곧바로 get_timeline을 호출한다 — 스코프 인자를 모두 생략하면
      프로젝트 전체 기간이고, from_time/to_time으로 기간만 좁힐 수도 있다.
@@ -325,7 +359,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   2) search_by_keyword 결과가 약하면(1건 이하 또는 score 낮음) get_recent_activity로 시간 기반 탐색
      - "프로젝트 초기" → 가장 오래된 기간(전체 그래프 첫 30일 등)
      - "최근" / "이번 주" → 현재 기준 최근 7~30일
-  3) 위 두 단계가 모두 비면 unknown_aspects에 "그래프에서 관련 항목을 찾지 못함" 명시.
+  3) 위 두 단계가 모두 비면 unknown_aspects에 "이 기록에서는 그에 해당하는 항목을 찾지 못했어요" 명시.
 즉시 "확인되지 않음"으로 종료 금지 — 최소 한 번은 도구를 호출해 탐색하세요.
 
 [시간순 질문 처리 — get_timeline]
@@ -1278,6 +1312,59 @@ def _build_context_card(running_summary: dict | None, full_history: list[dict]) 
     return {"role": "system", "content": "\n".join(lines)}
 
 
+def _intro_payload(text: str) -> tuple[str, dict]:
+    return text, {
+        "summary": text,
+        "evidence": [],
+        "unknown_aspects": [],
+        "answer_mode": "grounded",
+        "reply_kind": "intro",
+    }
+
+
+def _normalize_chat_utterance(text: str) -> str:
+    stripped = text.strip()
+    stripped = _TRAILING_CHAT_PUNCT_RE.sub("", stripped).strip()
+    return stripped.casefold()
+
+
+def _offtopic_shortcut(question: str, focus_evidence: list | None) -> tuple[str, dict] | None:
+    # 지정 노드가 있으면 그 노드를 먼저 조회해야 하므로 인사 지름길을 타지 않는다.
+    if focus_evidence:
+        return None
+    normalized = _normalize_chat_utterance(question)
+    if normalized in _GREETING_PHRASES:
+        return _intro_payload(_GREETING_REPLY)
+    if normalized in _THANKS_PHRASES:
+        return _intro_payload(_THANKS_REPLY)
+    return None
+
+
+def _assemble_conversational_text(kind: str, ack: str) -> str:
+    if kind == "greeting":
+        return _GREETING_REPLY
+    if kind == "thanks":
+        return _THANKS_REPLY
+    if kind == "redirect":
+        return _REDIRECT_REPLY
+    # smalltalk — 한 줄·짧은 ack만 쓰고, 아니면 고정 문장. greeting·thanks ack는 위에서 버렸다.
+    if not ack.strip() or "\n" in ack or "\r" in ack or len(ack) > 120:
+        return _SMALLTALK_FALLBACK
+    return f"{ack.strip()} {_SMALLTALK_OFFER}"
+
+
+def _intro_from_conversational_call(tool_call) -> tuple[str, dict] | None:
+    try:
+        args = json.loads(tool_call.function.arguments)
+    except json.JSONDecodeError:
+        return None
+    kind = args.get("kind")
+    if kind not in _CONVERSATIONAL_KINDS:
+        return None
+    ack = args.get("ack") or ""
+    return _intro_payload(_assemble_conversational_text(kind, ack))
+
+
 async def run(
     question: str,
     project_id: str = "",
@@ -1307,6 +1394,10 @@ async def run(
         Structured 호출 실패 시 LLM이 마지막 iteration에서 낸 자유 텍스트로 fallback,
         이때 structured는 None.
     """
+    shortcut = _offtopic_shortcut(question, focus_evidence)
+    if shortcut is not None:
+        return shortcut
+
     system_message = {"role": "system", "content": _SYSTEM_PROMPT}
     running_summary_message = None
     if running_summary:
@@ -1380,6 +1471,7 @@ async def run(
 
     seen_calls: set[tuple[str, str]] = set()  # (tool_name, args_json) 중복 호출 가드
     graph_query_calls = 0                     # 범용 조회 호출 수 — answer_mode 판정 근거
+    graph_tools_executed = False              # 이 질의에서 그래프 도구를 실제로 실행했는지
 
     for iteration in range(_MAX_ITERATIONS):
         response = await _call_llm(messages, with_tools=True)
@@ -1397,6 +1489,17 @@ async def run(
                 current_turn_messages(), messages, current_turn_start,
                 message.content or _FALLBACK_ANSWER, graph_query_calls > 0, debug, project_id,
             )
+
+        calls = message.tool_calls
+        # 그래프 도구를 아직 안 탄 질의에서 conversational만 오면 검색·structured 없이 끊는다.
+        if (
+            not graph_tools_executed
+            and len(calls) == 1
+            and calls[0].function.name == _CONVERSATIONAL_TOOL
+        ):
+            intro = _intro_from_conversational_call(calls[0])
+            if intro is not None:
+                return intro
 
         messages.append(message)
 
@@ -1429,6 +1532,20 @@ async def run(
                 continue
             seen_calls.add(call_key)
 
+            if tool_name == _CONVERSATIONAL_TOOL:
+                # 그래프 도구와 섞였거나 이미 검색한 뒤 — intro로 바꾸지 않고 프로토콜만 채운다.
+                logger.info("도구 호출 무시: %s", tool_name)
+                _record_tool_call(debug, tool_name, args, "ignored", None)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(
+                        {"ignored": True, "message": _CONVERSATIONAL_IGNORED},
+                        ensure_ascii=False,
+                    ),
+                })
+                continue
+
             # 범용 조회 상한 — 쿼리를 미세하게 고쳐 쓰며 반복 상한을 소진하는 것을 막는다
             # (중복 가드는 인자 정확 일치라 여기서 못 잡는다).
             if tool_name == "run_graph_query":
@@ -1445,6 +1562,7 @@ async def run(
 
             logger.info("도구 호출: %s", tool_name)
             # 임베딩 재랭킹에는 자립형 질문만 넘긴다 — 병기된 원문 텍스트는 재랭킹에 노이즈다.
+            graph_tools_executed = True
             result_str = await execute(tool_name, args, project_id, question=rewritten or question)
             logger.debug("도구 결과: %s → %d자", tool_name, len(result_str))
             _record_tool_call(debug, tool_name, args, "ok", result_str)

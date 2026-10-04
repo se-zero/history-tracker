@@ -536,4 +536,33 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "respond_conversational",
+            "description": (
+                "이 프로젝트의 코드·PR·이슈·사람·문서·일정에 대한 질문이 아닐 때만 호출한다. "
+                "인사, 감사, 잡담, 프로젝트 기록 밖의 일반 지식 요청에 쓴다. 그래프를 검색하지 않는다. "
+                "확신이 없으면 이 도구 대신 그래프 도구를 쓴다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["greeting", "thanks", "smalltalk", "redirect"],
+                        "description": (
+                            "greeting=인사·정체성, thanks=감사, smalltalk=잡담, "
+                            "redirect=프로젝트 기록 밖의 일반 지식"
+                        ),
+                    },
+                    "ack": {
+                        "type": "string",
+                        "description": "잡담(smalltalk)일 때만 채운다. 한 문장. 사실 설명 금지.",
+                    },
+                },
+                "required": ["kind"],
+            },
+        },
+    },
 ]
