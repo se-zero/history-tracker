@@ -69,6 +69,12 @@ _CONVERSATIONAL_IGNORED = (
     "respond_conversational은 그래프 탐색 중에는 쓰지 않습니다. "
     "이미 조회한 그래프 결과로 답하세요."
 )
+# 문장 전체가 인사·감사면 도구 루프 전에 끝난다. 여기 남은 greeting/thanks는
+# "안녕? 담당자가 누구야"처럼 뒤에 질문이 붙은 오분류다.
+_CONVERSATIONAL_HAS_QUESTION = (
+    "이 메시지는 인사나 감사만 있지 않습니다. greeting과 thanks는 쓰지 마세요. "
+    "사람·코드·PR·이슈·문서를 묻는 부분은 그래프 도구로 답하세요."
+)
 
 
 def _model_kwargs() -> dict:
@@ -347,7 +353,9 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 
 [모호한 질문 처리 절차]
 질문이 이 프로젝트의 코드·PR·이슈·사람·문서·일정이 아니면 respond_conversational만 호출하고
-검색하지 마세요. 확신이 없으면 아래 그래프 절차를 쓰세요.
+검색하지 마세요. 앞에 "안녕?"이 있어도 뒤에 사람·코드·이슈를 물으면 이 도구를 쓰지 말고
+그래프 절차로 답하세요. greeting·thanks는 메시지 전체가 인사·감사일 때만입니다.
+확신이 없으면 아래 그래프 절차를 쓰세요.
 
 이 프로젝트에 대한 질문인데 구체적 entity(issue_key / commit hash / PR # / 파일 경로)가 없으면
 다음을 순서대로 시도:
@@ -1359,7 +1367,7 @@ def _intro_from_conversational_call(tool_call) -> tuple[str, dict] | None:
     except json.JSONDecodeError:
         return None
     kind = args.get("kind")
-    if kind not in _CONVERSATIONAL_KINDS:
+    if kind not in _CONVERSATIONAL_KINDS or kind in ("greeting", "thanks"):
         return None
     ack = args.get("ack") or ""
     return _intro_payload(_assemble_conversational_text(kind, ack))
@@ -1533,14 +1541,19 @@ async def run(
             seen_calls.add(call_key)
 
             if tool_name == _CONVERSATIONAL_TOOL:
-                # 그래프 도구와 섞였거나 이미 검색한 뒤 — intro로 바꾸지 않고 프로토콜만 채운다.
+                # 그래프 도구와 섞였거나, 인사 뒤에 실제 질문이 붙은 오분류.
+                # intro로 바꾸지 않고 그래프 탐색을 이어가게 한다.
                 logger.info("도구 호출 무시: %s", tool_name)
                 _record_tool_call(debug, tool_name, args, "ignored", None)
+                if not graph_tools_executed and args.get("kind") in ("greeting", "thanks"):
+                    notice = _CONVERSATIONAL_HAS_QUESTION
+                else:
+                    notice = _CONVERSATIONAL_IGNORED
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": json.dumps(
-                        {"ignored": True, "message": _CONVERSATIONAL_IGNORED},
+                        {"ignored": True, "message": notice},
                         ensure_ascii=False,
                     ),
                 })

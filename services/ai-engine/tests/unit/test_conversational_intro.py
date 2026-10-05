@@ -143,16 +143,40 @@ class ConversationalToolInterceptTest(unittest.IsolatedAsyncioTestCase):
         execute_mock.assert_not_awaited()
         structured_mock.assert_not_awaited()
 
-    async def test_greeting_kind_discards_model_ack(self):
-        answer, structured, execute_mock, structured_mock = await self._run(
-            [_message([_tool_call("1", "respond_conversational", {
+    async def test_greeting_kind_on_a_real_question_keeps_searching(self):
+        # "안녕?"만 있으면 지름길. 뒤에 질문이 붙으면 greeting으로 끊지 않고 그래프를 찾는다.
+        question = "안녕? 프론트엔드 담당자가 누구인지 알려줘"
+        graph_structured = {"summary": "프론트 담당을 찾았습니다", "evidence": [], "unknown_aspects": []}
+        execute_mock = AsyncMock(return_value="[]")
+        responses = [
+            _message([_tool_call("1", "respond_conversational", {
                 "kind": "greeting",
-                "ack": "안녕이라고 해볼게요.",
-            })])],
-        )
-        _assert_intro(self, answer, structured, _GREETING)
-        execute_mock.assert_not_awaited()
-        structured_mock.assert_not_awaited()
+                "ack": "안녕하세요.",
+            })]),
+            _message([_tool_call("2", "find_expert", {"query": "프론트엔드"})]),
+            _message(),
+        ]
+        pending = list(responses)
+
+        seen: list = []
+
+        async def fake_llm(messages, with_tools=True):
+            seen.append(messages)
+            return pending.pop(0)
+
+        with (
+            patch.object(orchestrator, "_call_llm", side_effect=fake_llm),
+            patch.object(orchestrator, "_call_llm_structured", AsyncMock(return_value=dict(graph_structured))),
+            patch.object(orchestrator, "execute", execute_mock),
+        ):
+            answer, structured = await orchestrator.run(question)
+
+        self.assertEqual(["find_expert"], [c.args[0] for c in execute_mock.await_args_list])
+        self.assertNotEqual("intro", structured.get("reply_kind"))
+        self.assertNotEqual(_GREETING, answer)
+        self.assertIn(graph_structured["summary"], answer)
+        blob = json.dumps(seen, ensure_ascii=False, default=str)
+        self.assertIn("인사나 감사만 있지 않습니다", blob)
 
     async def test_smalltalk_fallback_when_ack_unusable(self):
         cases = [
