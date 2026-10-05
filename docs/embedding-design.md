@@ -83,7 +83,9 @@ Issue 이벤트         → embed_text(title + body)   → Issue.embedding 저�
 - **자동 보정** — 후처리(`postprocess.run_postprocess_sequence`)가 엣지 빌더보다 먼저 누락분을 채운다. 대상은 Communication·Issue·
   ChangeSet 메시지·MODIFIED다. MODIFIED는 저장된 `diffSummary`를 그대로 임베딩하고(요약 LLM을 다시 부르지 않는다), 값이 없는 엣지와
   예전에 빈 목록으로 저장된 엣지를 모두 대상으로 한다.
-- **읽기** — 파일 이력 조회는 임베딩이 없거나 빈 엣지를 "관련도 없음"으로 처리해 점수 있는 커밋 아래에 둔다.
+- **읽기** — 질문과의 관련도를 계산하는 두 조회, 파일 이력 조회(`get_file_history`, MODIFIED 엣지)와 사람별 활동 조회
+  (`get_actor_activity`, Communication)는 임베딩이 없거나 빈 값을 "관련도 없음"으로 처리한다. 조회가 실패하지 않고, 상세로 보여 줄
+  대상을 고를 때 점수 있는 항목보다 뒤로 밀린다. 쓰기 가드가 생기기 전에 저장된 빈 값이 남아 있어도 조회가 죽지 않게 하려는 것이다.
 
 알고 쓰는 한계:
 
