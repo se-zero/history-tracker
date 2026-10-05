@@ -18,6 +18,7 @@ import com.history.backend.linear.LinearProperties;
 import com.history.backend.mcp.McpRateLimitProperties;
 import com.history.backend.notion.NotionProperties;
 import com.history.backend.oauth.McpOAuthProperties;
+import com.history.backend.oauth.OAuthRateLimitProperties;
 import com.history.backend.security.JwtProperties;
 import com.history.backend.slack.SlackProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -44,7 +45,8 @@ import org.springframework.context.annotation.Configuration;
         ClickUpProperties.class,
         NotionProperties.class,
         McpOAuthProperties.class,
-        McpRateLimitProperties.class
+        McpRateLimitProperties.class,
+        OAuthRateLimitProperties.class
 })
 public class PropertiesConfig {
 }
