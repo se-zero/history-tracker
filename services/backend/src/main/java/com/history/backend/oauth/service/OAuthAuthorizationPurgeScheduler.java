@@ -19,8 +19,11 @@ public class OAuthAuthorizationPurgeScheduler {
         try {
             int purgedCount = oAuthGrantService.purgeExpired();
             log.info("Purged expired OAuth authorizations. count={}", purgedCount);
+            // 연결 정리 뒤에 해야 한다 — 뒤집으면 방금 만료된 연결의 앱이 하루 더 남는다
+            int purgedClients = oAuthGrantService.purgeUnusedClients();
+            log.info("Purged unused OAuth clients. count={}", purgedClients);
         } catch (RuntimeException exception) {
-            log.error("Failed to purge expired OAuth authorizations.", exception);
+            log.error("Failed to purge expired OAuth authorizations or unused clients.", exception);
             throw exception;
         }
     }
