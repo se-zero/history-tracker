@@ -10,9 +10,11 @@ MCP(Model Context Protocol)는 Claude Code·Codex 같은 코딩 에이전트가 
 프록시다. ai-engine은 바뀌지 않았다(기존 `/query`를 그대로 쓴다). 컬럼 상세는 [DB.md](DB.md), 배포 절차는
 [deployment.md](deployment.md)가 정본이다.
 
-근거는 두 갈래다 — 코드(2026-10-01, 브랜치 `feat/mcp-server` 기준)와, 같은 날 로컬 도커 스택에서 한
-실기동이다. 실기동으로 확인한 것·자동 테스트로만 확인한 것·확인하지 못한 것을 구분해 적었고(§0, §8, §10),
-문서로만 조사한 클라이언트 사실은 그렇게 표시했다.
+근거는 세 갈래다 — 코드(2026-10-01, 브랜치 `feat/mcp-server` 기준), 같은 날 로컬 도커 스택에서 한
+실기동, 그리고 main 배포 뒤 2026-10-04에 배포 서버(`https://why-code.com`)에서 실제 Claude Code로 한 실기동이다.
+실기동으로 확인한 것·자동 테스트로만 확인한 것·확인하지 못한 것을 구분해 적었고(§0, §8, §10),
+문서로만 조사한 클라이언트 사실은 그렇게 표시했다. 배포 뒤 인가 서버에 더한 보강(IP별 상한·등록 행 정리·
+문서 조회 시간 제한, 2026-10-05)도 반영돼 있다.
 
 ## 0. 요약과 상태
 
@@ -26,10 +28,13 @@ whycode 질의를 `/mcp` 한 곳에서 도구 4개(`list_projects`·`bind_projec
 - **로컬 도커 실기동으로 확인**(터널 주소를 issuer로, 2026-10-01): 메타데이터·401 헤더·연결·폴더 연결·
   질의·갱신·철회 즉시 거부를 직접 요청으로 확인했고, **실제 Claude Code 2.1.286**이 CIMD 경로로 연결해
   폴더 연결과 질의까지 했다.
-- **아직 확인하지 않은 것**: 배포 서버(`https://why-code.com`)에서의 실험, Cloudflare 경유 타임아웃 체인,
-  Codex·MCP Inspector·claude.ai 커넥터·Cursor·VS Code·Gemini CLI 등 Claude Code 외 클라이언트 전부,
-  프롬프트의 슬래시 명령 노출과 서버 안내문의 전달 여부. 목록은 §8·§10에 있다.
-- main 릴리스 전에 닫아야 할 후속(미인증 요청 속도 제한, 미사용 등록 행 정리 등)은 §9에 있다.
+- **배포 서버에서 확인**(`https://why-code.com`, Cloudflare 경유, 실제 Claude Code, 2026-10-04): 연결·질의, 줄 →
+  `git blame` → `explain_commit`, 프롬프트의 슬래시 명령 노출과 서버 안내문 전달, 연결하지 않은 폴더의 안내, 프로젝트가
+  하나뿐인 계정의 확인 질문, 토큰 만료 뒤 병렬 호출의 갱신, 설치 안내·방침 화면. 상세는 §10.
+- **아직 확인하지 않은 것**: Codex·MCP Inspector·claude.ai 커넥터·Cursor·VS Code·Gemini CLI 등 Claude Code 외 클라이언트
+  전부, 계정 페이지에서 끊은 직후의 재연결 요구, 125초에 가까운 긴 질의, FREE 한도·분당 상한 문구의 실제 표시. 목록은 §8·§10에 있다.
+- 배포 전 후속으로 적어 두었던 세 가지(로그인 없는 요청의 IP별 속도 제한, 미사용 등록 행 정리, CIMD 문서 조회의 총 시간
+  제한)는 반영했다(2026-10-05). 남은 한계는 §9에 있다.
 
 ## 1. 무엇을, 왜
 
@@ -247,9 +252,9 @@ RS256 JWT(서명키는 `MCP_OAUTH_PRIVATE_KEY`, `kid`는 공개키 thumbprint).
 
 | 어디 | 무엇 |
 |------|------|
-| backend `oauth/config` | 인가 서버 보안 체인·토큰 생성기·JWK 연결(`OAuthAuthorizationServerConfig`), CIMD 전용 HTTP 클라이언트(3초 제한, 리다이렉트 안 따름) |
-| backend `oauth/security` | 인가 요청 검증(루프백 포트 무시·`resource` 일치), 티켓 쿠키·티켓 필터, SPA로 보내는 진입점, 공개 클라이언트 refresh·DCR 변환, 입구 토큰 검증기(`ActiveAuthorizationTokenValidator`) |
-| backend `oauth/service` | CIMD 문서 fetch·검증·캐시(`CimdDocumentFetcher`)와 SSRF 가드(`SafeUrlValidator`), 등록 앱 저장소(`CimdRegisteredClientRepository`), CIMD·DCR이 공유하는 강제 정책(`McpRegisteredClientPolicy`), 티켓 발급·소비, 허용 화면 preview·decide(`OAuthConsentService`), 연결된 앱 목록·철회·만료 정리, 서명키 로딩 |
+| backend `oauth/config` | 인가 서버 보안 체인·토큰 생성기·JWK 연결(`OAuthAuthorizationServerConfig`), CIMD 전용 HTTP 클라이언트(`CimdHttpConfig` — 연결 3초·요청 전체 5초, 리다이렉트 안 따름) |
+| backend `oauth/security` | 인가 요청 검증(루프백 포트 무시·`resource` 일치), 티켓 쿠키·티켓 필터, SPA로 보내는 진입점, 공개 클라이언트 refresh·DCR 변환, 입구 토큰 검증기(`ActiveAuthorizationTokenValidator`), IP별 분당 상한(`OAuthRateLimiter`·`OAuthRateLimitFilter`) |
+| backend `oauth/service` | CIMD 문서 fetch·검증·캐시(`CimdDocumentFetcher`)와 SSRF 가드(`SafeUrlValidator`), 등록 앱 저장소(`CimdRegisteredClientRepository`), CIMD·DCR이 공유하는 강제 정책(`McpRegisteredClientPolicy`), 티켓 발급·소비, 허용 화면 preview·decide(`OAuthConsentService`), 연결된 앱 목록·철회, 만료 연결·미사용 등록 행 정리(`OAuthGrantService`·`OAuthAuthorizationPurgeScheduler`), 서명키 로딩 |
 | backend `oauth/controller`·`repository` | 허용 화면 API, 연결된 앱 SQL(Spring이 테이블을 소유해 엔티티가 없다) |
 | backend `mcp/config` | `/mcp` 보안 체인(`McpResourceServerConfig`), MCP 서버 배선·서블릿 등록·서버 안내문(`McpServerConfig`) |
 | backend `mcp/service` | 도구 4개의 실제 동작(`McpQueryService`), 도구·프롬프트 선언(`McpToolSpecifications`·`McpPromptSpecifications`), 폴더 연결(`McpBindingService`·`WorkspacePathNormalizer`), 분당 상한(`McpRateLimiter`) |
@@ -263,7 +268,7 @@ RS256 JWT(서명키는 `MCP_OAUTH_PRIVATE_KEY`, `kid`는 공개키 thumbprint).
 
 | 테이블 | 담는 것 | 언제 지워지나 |
 |--------|---------|----------------|
-| `oauth2_registered_client` | 등록된 앱(CIMD 문서에서 읽은 "그림자 행"과 DCR 등록). 이름·돌아갈 주소·`client_uri`·토큰 설정 | **지우는 코드가 없다**(미사용 등록 행 정리는 후속, §9). 앱 자체의 정보라 사용자에 묶이지 않는다 |
+| `oauth2_registered_client` | 등록된 앱(CIMD 문서에서 읽은 "그림자 행"과 DCR 등록). 이름·돌아갈 주소·`client_uri`·토큰 설정 | **연결(`oauth2_authorization`)이 하나도 없고 등록된 지 7일이 지난 행**을 만료 연결 정리와 같은 스케줄러가 매일 지운다(연결 정리 다음 순서). 연결이 남은 앱은 지우지 않는다. 앱 자체의 정보라 사용자에 묶이지 않는다. 지워진 뒤의 동작은 §9 |
 | `oauth2_authorization` | 한 번의 연결(인가 코드·access·refresh 토큰 값과 만료·발급 시각). `principal_name`은 사용자 UUID 문자열 | 끊기 즉시(그 사용자×앱), 탈퇴 즉시(그 사용자 전부), 사용자 파기 때 한 번 더, 만료분은 사용자 파기와 같은 cron·on/off(`user-lifecycle.purge`)의 스케줄러가 주기 삭제(가장 오래 사는 토큰 기준이라 refresh가 살아 있으면 지우지 않는다) |
 | `oauth2_authorization_consent` | 라이브러리가 요구하는 동의 기록 | 끊기·탈퇴 때 앱 연결과 함께 삭제. 동의는 SPA가 받고 인가 서버의 동의 화면은 끄므로(`requireAuthorizationConsent(false)`) 이 테이블에 행이 생기는지는 확인하지 않았다 |
 | `mcp_workspace_bindings` | (계정, 폴더 절대 경로) → 프로젝트 | **계정 파기·프로젝트 삭제 때**(두 FK 모두 `ON DELETE CASCADE`). 연결을 끊거나 탈퇴해도 남는다 |
@@ -286,6 +291,8 @@ RS256 JWT(서명키는 `MCP_OAUTH_PRIVATE_KEY`, `kid`는 공개키 thumbprint).
 | `MCP_OAUTH_ISSUER` | 인가 서버의 주소 = **사용자가 접속하는 프론트 주소**(배포는 `https://why-code.com`, 로컬 기본값 `http://localhost:5173`). 토큰의 `iss`·`aud`(`issuer + /mcp`), 메타데이터, 허용 화면으로 보내는 302 주소가 전부 이 값에서 나온다. 에이전트가 보내는 `resource` 값은 이 주소 + `/mcp`와 끝 슬래시까지 같아야 한다(끝 슬래시가 붙은 issuer는 설정 단계에서 잘라 낸다). 로컬에서 터널로 로그인하면 터널 주소를 넣는다. 배포용 compose 오버라이드(`docker-compose.prod.yml`)는 이 값이 비어 있으면 기동을 거부한다 |
 | `MCP_OAUTH_PRIVATE_KEY` | access 토큰 서명키. PKCS#8 PEM을 한 줄(`\n` 리터럴)로. 생성법은 `infra/docker/.env.example`에 있다(`openssl genrsa`가 내는 PKCS#1은 읽지 못한다). 비우면 임시 키로 뜨고 경고 로그를 남기며, **재기동할 때마다 발급된 토큰이 전부 무효**가 된다. 다중 인스턴스는 같은 키를 공유해야 한다. 배포용 compose 오버라이드에서 필수 |
 | `mcp.rate-limit.per-minute` | 사용자당 분당 질의 상한. `application.yaml`에 `10`이고 환경변수는 없다 |
+| `MCP_OAUTH_RATE_LIMIT_PER_MINUTE` | 인가 서버 주소(`/oauth2/**`·`/.well-known/oauth-authorization-server`)와 허용 화면 API(`/api/v1/oauth/consent/**`)를 합쳐 **IP당** 분당 몇 번까지 받을지. 기본 30. 넘으면 429 + `Retry-After`로 거절하고, 거절된 요청은 앱 문서 조회나 등록 행 생성을 일으키지 않는다. 정상 사용자가 걸리면 이 값을 올리고 backend만 다시 띄운다(재빌드 불필요) |
+| `MCP_OAUTH_CLIENT_IP_HEADER` | 위 상한이 요청자 IP를 읽을 헤더. 기본 `CF-Connecting-IP` — 공개 경로가 Cloudflare 터널뿐이라 Cloudflare가 덮어쓰는 값을 믿는다. 헤더가 없으면 연결 주소를 쓴다. **`X-Forwarded-For`처럼 경유지마다 값이 이어붙는 헤더는 넣지 않는다**(요청자가 앞부분을 써넣을 수 있어 값을 바꿔 가며 상한을 피한다). 공개 경로가 바뀌면(클라우드 이전) 새 경로의 맨 앞단이 통째로 덮어써 주는 헤더로 바꾼다 |
 | `mcp.oauth.access-token-ttl` · `refresh-token-ttl` · `consent-path` | `PT1H` · `P30D` · `/oauth/consent`. DCR 등록은 등록 시점의 값이 앱 행에 저장되므로 나중에 바꿔도 이미 등록된 앱에는 적용되지 않는다 |
 
 **타임아웃 체인이 `/mcp`에도 적용된다.** backend `ai.engine.read-timeout-seconds` 120초(`AI_ENGINE_READ_TIMEOUT_SECONDS`) →
@@ -301,7 +308,7 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 
 | 클라이언트 | 확인 상태 | 비고 |
 |------------|-----------|------|
-| Claude Code 2.1.286 | **로컬 실기동으로 확인**(연결·폴더 연결·질의) | CIMD 경로로 등록(`client_id = https://claude.ai/oauth/claude-code-client-metadata`, 우리 서버의 문서 fetch가 SSRF 가드를 통과). 콜백은 `http://localhost:<임의 포트>/callback`이라 포트 무시 매칭이 필요하다. `resource`는 끝 슬래시 없는 주소, scope `mcp:query`, PKCE S256. 인가 코드는 한 번만 교환하고 재등록은 하지 않았다. `GET /mcp` 405를 한 번 받고 정상 진행 |
+| Claude Code | **로컬(2.1.286, 2026-10-01)과 배포 서버(2026-10-04)에서 확인**(연결·폴더 연결·질의) | CIMD 경로로 등록(`client_id = https://claude.ai/oauth/claude-code-client-metadata`, 우리 서버의 문서 fetch가 SSRF 가드를 통과). 콜백은 `http://localhost:<임의 포트>/callback`이라 포트 무시 매칭이 필요하다. `resource`는 끝 슬래시 없는 주소, scope `mcp:query`, PKCE S256. 인가 코드는 한 번만 교환하고 재등록은 하지 않았다. `GET /mcp` 405를 한 번 받고 정상 진행. 프롬프트는 `/mcp__whycode__connect`·`/mcp__whycode__why`로 보이고 서버 안내문도 전달된다. **`why`의 질문은 따옴표로 감싸야 전체가 전달된다**(감싸지 않으면 첫 단어만 간다). access 토큰이 만료된 뒤 도구를 병렬로 5번 불러도 재로그인 없이 한 번 갱신하고 전부 성공했다. 주소 끝에 `/`를 붙여 등록하면 `MCP endpoint not found … Check the URL in your MCP config`로 표시된다(서버의 JSON 안내는 보이지 않는다) |
 | Codex | 미확인 | 문서 조사: `~/.codex/config.toml`의 `[mcp_servers.<이름>]`에 `url`, `codex mcp login <이름>`. **`tool_timeout_sec` 기본 60초**(설정 가능). MCP `instructions` 필드를 서버 지침으로 쓴다고 공식 문서에 있다. CIMD·DCR 지원은 문서에서 확인하지 못했다. `/mcp/setup`의 Codex 안내는 이 조사 문구라 실제 동작과 대조하지 않았다 |
 | MCP Inspector | 미확인 | 등록 방식(DCR 재사용 여부 등)을 조사하지 않았다 |
 | claude.ai·Claude Desktop 커스텀 커넥터 | 미확인 | 문서 조사: Free(1개)·Pro·Max·Team·Enterprise 모두 가능. OAuth 클라이언트 선택지가 "Claude 공개 신원(CIMD, 권장) / 자동 등록(DCR) / 직접 등록"이라 우리 서버와 맞는다. 콜백이 `https://claude.ai/api/mcp/auth_callback`이고 도구 응답 60초 제한이 걸림돌이다 |
@@ -319,14 +326,29 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 
 - **분당 상한은 인스턴스별이다.** 인스턴스 메모리에만 있어 재시작하면 리셋되고, 인스턴스를 늘리면 인스턴스마다 따로
   적용된다. 호출한 적 있는 사용자마다 항목이 하나씩 남는다(사용자당 시각 최대 상한 개수). 분산 제한은 확장할 때 한다.
+- **인가 서버 주소의 IP별 상한도 인스턴스 메모리다.** 인가 서버 주소 전체와 허용 화면 API가 IP당 예산 하나(기본 분당 30회)를
+  나눠 쓴다. IPv6는 주소가 아니라 앞 64비트(회선 단위)로 센다. 요청자 IP는 `CF-Connecting-IP`에서 읽는데, 이 값을 믿을 수 있는 것은
+  **공개 경로가 Cloudflare 터널뿐**이기 때문이다 — 경로가 바뀌면 설정(§7)을 다시 정해야 한다. IP 기록은 저장하지 않고 1분 주기로
+  메모리에서 지운다(개인정보처리방침 제5조의 "늦어도 약 2분"이 이 주기에 기대고 있다). `/mcp` 자체에는 이 상한이 걸리지 않는다.
+- **등록 앱 행이 정리된 뒤의 동작.** CIMD 방식(Claude Code)은 다음 요청 때 문서를 다시 읽어 행이 되살아나므로 영향이 없다. DCR
+  방식 앱은 기억하고 있는 등록 번호가 무효가 돼 재등록해야 한다 — 표준 SDK는 토큰 요청이 `invalid_client`로 실패하면 스스로 재등록한다고
+  알려져 있지만 **앱마다 실제로 그러는지는 확인하지 않았다.** 등록 시각만 있고 마지막 사용 시각이 없어 "한 번도 안 쓰인 행"과 "쓰이다 끊긴
+  행"을 구분하지 못한다(둘 다 연결 0개 + 7일 경과로 지운다). 정리와 연결 완료가 같은 순간에 겹치면 그 연결은 `/mcp`에서 401을 받고
+  갱신·재등록으로 회복한다.
+- **CIMD 문서 캐시는 최대 1,000건이다.** 가득 차면 새 문서는 캐시하지 않고 요청 때마다 다시 가져온다(동작은 같고 조회만 는다).
+  문서 조회 한 번은 연결부터 본문을 다 읽을 때까지 5초를 넘지 못한다 — 넘으면 일시 장애로 보고, 저장된 그림자 행이 있으면 그것으로 진행한다.
+  조회에 쓴 연결은 재사용을 위해 5초 동안만 보관한다. 이 값은 backend가 시작할 때 JVM 전역으로 한 번 정하는데(`jdk.httpclient.keepalive.timeout`,
+  JDK 기본은 1200초·개수 무제한), 실행 옵션으로 다른 값을 주면 그 값을 따른다. 보관 시간이 줄어든다는 것은 JDK의 문서화된 동작과 일회성
+  실측(설정 시 8초 뒤 새 연결, 미설정 시 같은 연결)으로 확인했고 자동 테스트에는 없다.
 - **허용 티켓의 nonce(1회용 보장)도 인스턴스 메모리다.** 티켓 수명이 60초이고 쿼리 해시에 묶여 있어 재시작·다중
   인스턴스에서 집합이 비어도 노릴 수 있는 창이 그 60초뿐이다. 인스턴스를 늘릴 때 다시 본다.
 - **도구 시간 제한이 60초인 클라이언트가 있다**(§8). 60초를 넘기는 질의 비율을 재 본 뒤 비동기 패턴을 다시 열지 정한다.
 - **답변은 한국어로 고정**이고, **답변 속 시각은 UTC ISO 그대로**다(시각 변환은 프론트가 하는데 에이전트에는 프론트가 없다).
 - **간접 프롬프트 주입은 완화책뿐이다.** "답변은 참고 자료" 문구는 모델이 따라 주기를 기대하는 것이지 방어가 아니다.
 - **같은 폴더가 경로 표기가 달라 별개 연결이 될 수 있다**(`D:\x` / `d:\x`, 역슬래시 / 슬래시). 서버가 정규화하지 않는다.
-- **갱신 순간에 옛 토큰으로 날아가던 병렬 요청은 401을 받는다.** 클라이언트가 새 토큰으로 조용히 재시도하는지, 브라우저
-  재로그인을 요구하는지는 확인하지 않았다. refresh 회전에는 유예가 없어, 갱신 응답이 유실되면 재로그인이 필요할 수 있다.
+- **갱신 순간에 옛 토큰으로 날아가던 병렬 요청은 401을 받는다.** Claude Code는 만료 뒤 병렬 호출 5건을 재로그인 없이 한 번의
+  갱신으로 전부 성공시켰다(배포 서버, 2026-10-04). 다른 클라이언트는 확인하지 않았다. refresh 회전에는 유예가 없어, 갱신 응답이
+  유실되면 재로그인이 필요할 수 있다.
 - **"연결된 앱" 목록에 Spring이 무효화한 연결이 남을 수 있다.** 같은 인가 코드를 두 번 쓰려는 시도가 오면 Spring이 그 연결을
   무효 표시하는데 목록 SQL은 만료 시각만 본다(최대 30일 보이고, 끊기는 정상 동작). 고치려면 라이브러리 내부 JSON 표기에
   기대야 해서 보류했다. 입구는 무효 표시된 연결을 401로 거른다. Claude Code는 코드를 한 번만 교환해 실제로는 생기지 않았다.
@@ -340,15 +362,26 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 - **의존성**: MCP SDK 2.0.1이 요구하는 Jackson 3 databind(3.1.4)보다 낮은 Boot 관리 버전(3.1.0)으로 해석된다(종단 테스트는
   통과). SDK로 reactor-core·json-schema-validator 등이 함께 들어온다.
 
-**main 배포 전 후속(별도 작업)**
+**배포 뒤 반영한 후속(2026-10-05)**
 
-- **미인증 `/oauth2/authorize`·열린 DCR(`POST /oauth2/register`)·로그인 사용자의 preview는 등록 테이블에 행을 남기거나 CIMD 문서 조회를
-  일으킬 수 있다.** 임의의 https `client_id`로 서버가 문서를 가져오게 만들 수 있다는 뜻이다. **IP별 속도 제한**이 필요하다.
-- **미사용 등록 행 정리.** 정리를 만들 때 **연결(`oauth2_authorization`)이 남은 앱은 지우면 안 된다** — 입구 검증이 등록 앱 행을
-  함께 읽으므로 연결은 있는데 앱 행이 없으면 401이 아니라 500이 된다. 지금은 앱 행을 지우는 코드가 없어 문제가 없다.
-- **CIMD fetch 전체 데드라인.** 연결·읽기에 3초 제한은 있지만 천천히 흘리는(slow-read) 응답에 대한 총 시간 제한이 없다.
-  fetcher의 만료된 캐시 항목도 따로 치우지 않는다. SSRF 가드는 DNS 리바인딩(검증 시점과 연결 시점 사이 레코드 변경)의 창이
-  있고, CGNAT 같이 JDK가 사설로 보지 않는 예약 대역은 막지 않는다.
+미인증 `GET /oauth2/authorize`·`POST /oauth2/token`·열린 DCR(`POST /oauth2/register`)·로그인 사용자의 허용 화면 preview는 `client_id`만으로
+등록 테이블에 행을 남기거나 서버가 임의의 https 주소에서 문서를 가져오게 만들 수 있다. 세 가지로 막았다.
+
+- **IP별 속도 제한** — 위 주소들에 IP당 분당 상한을 걸었다. 상한에 걸린 요청은 클라이언트 조회보다 앞에서 429로 끝나 문서 조회나 행
+  생성을 일으키지 않는다.
+- **미사용 등록 행 정리** — 연결이 없고 등록 7일이 지난 행을 매일 지운다. **연결이 남은 앱은 지우지 않는다** — 입구 검증이 등록 앱 행을
+  함께 읽기 때문이다. 그래도 정리와 연결 완료가 겹쳐 "연결은 있는데 앱 행이 없는" 상태가 되면 입구가 500이 아니라 401로 답한다.
+- **CIMD 문서 조회의 총 시간 제한** — 연결·읽기별 3초 제한만으로는 응답을 조금씩 흘리는(slow-read) 서버가 요청 하나로 스레드를 한없이
+  붙잡을 수 있었다(상한이 있어도 붙잡힌 스레드는 분마다 쌓인다). 요청 전체를 5초로 제한하고, 캐시의 만료 항목을 지우며 상한을 뒀다.
+  시간 제한을 위해 HTTP 클라이언트를 JDK `HttpClient`로 바꿨는데, 이 클라이언트가 끝난 연결을 오래 보관해 주소를 바꿔 가며 요청하면 유휴
+  연결이 쌓이는 문제가 따라와 HTTP/1.1 고정과 보관 5초로 함께 막았다.
+
+**남은 후속**
+
+- SSRF 가드는 DNS 리바인딩(검증 시점과 연결 시점 사이 레코드 변경)의 창이 있고, CGNAT 같이 JDK가 사설로 보지 않는 예약 대역은
+  막지 않는다.
+- 목록·연결 도구(`list_projects`·`bind_project`)에는 분당 상한이 없다(질의 도구에만 사용자별 상한이 있다).
+- IP 상한에 걸린 요청은 로그에 남지 않는다(IP가 개인정보라 남기지 않았다). 남용 여부는 Cloudflare 쪽 통계로 본다.
 - ~~개인정보처리방침 제9조(브라우저 저장 항목)의 기존 누락~~ — **릴리스 직전 반영(2026-10-01).** 빠져 있던
   `ht.onboarding.draft`(sessionStorage), `ht.termsNotice.dismissed`·`ht.privacyNotice.dismissed`·`chat:graphPanel`·
   `chat:graphPanelWidth`(localStorage)를 같은 개정에 묶어 넣었고, 방침 시행일은 2026-10-09(배포 2026-10-02 + 7일)로 미뤘다.
@@ -366,14 +399,24 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 - **파일 단위 질문이 `explain_commit`으로 이어지지 않았다.** 실제 Claude Code는 `ask`를 골랐고, 뒤에 `git log`로 그래프에 있는
   커밋을 찾아 놓고도 `explain_commit`을 부르지 않았다. 서버 안내문은 "특정 줄이면 blame → `explain_commit`"만 말한다. "파일·함수가
   대상이면 `git log`로 커밋을 찾아 `explain_commit`"을 안내문·도구 설명에 더하는 안이 있지만, 그때 `ask`의 답이 어긋난 원인이
-  아래 ai-engine 오류였을 수 있어 그것을 먼저 확인한 뒤 판단한다(커밋이 여러 개인 파일이면 `explain_commit`을 여러 번 불러
-  FREE 한도를 빨리 쓸 수도 있다).
+  아래 ai-engine 오류였을 수 있어 그 수정이 배포된 뒤 같은 질문을 다시 던져 보고 판단한다(커밋이 여러 개인 파일이면
+  `explain_commit`을 여러 번 불러 FREE 한도를 빨리 쓸 수도 있다). 배포 서버(2026-10-04)에서도 같은 모양이 재현됐다 — 파일이 왜 생겼는지
+  물으면 `ask`가 다른 파일의 커밋을 답했고, 같은 커밋 해시로 `explain_commit`을 부르면 맞게 답했다.
 - **`/mcp/setup`의 Codex 안내는 실제 연결로 확인하지 않았다.** 페이지는 "지원하는 클라이언트는 Claude Code와 Codex"라고 하고
   Codex 절차(`codex mcp login`, `tool_timeout_sec = 120`)를 싣고 있는데 문서 조사로 쓴 문구다. Codex로 실제 연결해 본 뒤 문구를
   맞춘다.
-- (이 기능과 별개) 같은 질문에서 ai-engine의 `get_file_history`가 Neo4j 벡터 유사도 오류(`Argument a is not a valid vector`)로
-  실패하고 키워드 검색으로 넘어가 관계없는 이슈를 집었다. 대시보드에서도 같은 경로다. 코드 결함인지 로컬 그래프에 임베딩 없는
-  노드가 있어서인지 확인하지 않았고 품질 작업에서 다룬다.
+- (이 기능과 별개, **수정함 2026-10-05**) 같은 질문에서 ai-engine의 `get_file_history`가 Neo4j 벡터 유사도 오류(`Argument a is not a valid
+  vector`)로 실패하고 키워드 검색으로 넘어가 관계없는 이슈를 집었다. 대시보드에서도 같은 경로다. 원인은 코드 결함이었다 — 파일 변경
+  기록(`MODIFIED` 엣지)의 임베딩이 실패하면 "값 없음"이 아니라 **빈 목록**이 저장됐고, 읽는 쿼리는 "값 없음"만 걸렀다. 한 파일의 커밋 중
+  하나만 빈 목록이어도 그 파일의 이력 조회 전체가 실패했다. 읽기·쓰기·자동 보정을 함께 고쳤다([embedding-design.md](embedding-design.md)의
+  「임베딩이 실패했을 때」). 실제 Neo4j에서 오류가 사라졌는지는 배포 뒤 같은 질문으로 확인한다.
+- **`why` 프롬프트는 따옴표 없이 쓰면 질문의 첫 단어만 전달된다.** Claude Code가 슬래시 명령의 인자를 공백으로 나누기 때문이다
+  (`/mcp__whycode__why "질문 전체"`처럼 감싸면 전체가 간다). 설치 안내 페이지에는 아직 적지 않았다.
+- **에이전트가 `explain_commit`의 인자 이름을 틀리게 부른 뒤 스스로 고쳤다**(`commit_hash` → `hash`). 한 번의 헛호출로 끝나 고치지 않았다.
+- **프롬프트 없이 그냥 물으면 whycode를 부르지 않는 경우가 있었다**(새 세션). 로컬 실기동에서는 스스로 불렀다. 부를지는 에이전트 모델의
+  판단이라 서버가 강제할 수 없다.
+- **인가 서버 메타데이터가 mTLS 지원을 광고한다**(`tls_client_certificate_bound_access_tokens: true`, Spring 기본값). 인증 안내 문서
+  (`/.well-known/oauth-protected-resource`) 쪽만 껐고 인가 서버 쪽은 남아 있다. 실제로는 지원하지 않는다.
 
 ## 10. 검증 방법
 
@@ -390,6 +433,10 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 - **철회 종단 테스트**(`AccessTokenRevocationFlowTest`): 실제 발급 경로(티켓 → authorize → token)로 얻은 RS256 토큰이 `/mcp` 입구에서 연결
   철회·refresh 회전·인가 코드 재사용·탈퇴 경로(`revokeAll`)에 **즉시** 반응하는지 본다. `MockMvc`는 `/mcp` 서블릿에 닿지 않으므로 "통과"를
   "401·403이 아님"으로 판정한다.
+- **인가 서버 보강 테스트**: IP별 상한은 체인 테스트(`OAuthRateLimitChainTest`)가 "상한에 걸린 요청은 문서 조회를 일으키지 않는다"로 필터 위치를
+  증명한다. 등록 행 정리는 같은 SQL을 PostgreSQL(`OAuthGrantRepositoryPersistenceTest`)과 H2(`UnusedClientPurgeFlowTest`) 양쪽에서 돌리고, 앱
+  행만 지워진 연결이 `/mcp`에서 401을 받는지 본다. 문서 조회 시간 제한은 실제 소켓으로 응답을 조금씩 흘리는 서버를 띄워 제한 안에 끊기는지
+  본다(`CimdHttpConfigTest`).
 - 그 밖에 CIMD·SSRF 가드·검증기·티켓·폴더 연결·질의 서비스·분당 상한 단위 테스트와 PostgreSQL 퍼시스턴스 테스트가 각 패키지 `src/test`에
   있다. 구현 완료 시점에 전체 `./gradlew test`가 통과했다(Docker가 꺼져 있으면 Testcontainers 테스트가 조용히 건너뛰어지므로 Docker를 켜고
   건너뜀 0을 확인한다).
@@ -421,14 +468,22 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
   이번에는 허용 화면과 끊기 다이얼로그의 새 문구를 다시 봤다. 허용 화면 302의 `Location`이 원본 쿼리와 글자 단위로 같아야 티켓의 쿼리
   해시 결합이 성립하는데, nginx·터널이 쿼리를 건드리지 않음을 확인했다.
 
+**2026-10-04 배포 서버 실기동에서 확인한 것** (`https://why-code.com`, Cloudflare 경유, 실제 Claude Code)
+
+- 연결·질의: 무토큰 `/mcp` 401 + `resource_metadata`, well-known 문서 200, CIMD 경로로 인증, 답변이 Cloudflare를 거쳐 돌아옴.
+- 줄 → `git blame` → `explain_commit`: `nginx.conf`의 한 줄을 blame해 얻은 해시로 물었고 답이 그 커밋의 제목·맥락과 맞았다.
+- 프롬프트가 `/mcp__whycode__connect`·`/mcp__whycode__why`로 보이고 서버 안내문이 에이전트에 전달된다.
+- 연결하지 않은 폴더에서 질문하면 미연결 안내와 프로젝트 목록이 온다. 프로젝트가 하나뿐인 계정에서도 자동으로 잇지 않고 확인을 구한다.
+- access 토큰 만료 직후 도구 5개를 병렬로 불러도 재로그인 없이 새 토큰 한 번으로 전부 성공한다.
+- 주소 끝에 `/`를 붙여 등록하면 Claude Code가 `MCP endpoint not found`로 표시한다(연결 실패, 서버의 JSON 안내는 보이지 않는다).
+- 화면: `/mcp/setup` 한/영, `/privacy` 한/영(외부 앱 조항과 브라우저 저장 항목 반영).
+
 **아직 확인하지 않은 것**
 
-- 배포 서버(`https://why-code.com`)와 Cloudflare 경유(125초 체인 포함)에서의 연결·질의. 배포 서버의 그래프는 로컬보다 최신이라 질의 품질도 거기서
-  봐야 한다.
+- 125초에 가까운 긴 질의가 Cloudflare 경유에서 우리 시간 초과 문구로 끝나는지(관측된 질의는 모두 그보다 짧았다).
 - Codex·MCP Inspector·claude.ai 커넥터·Cursor·VS Code·Gemini CLI·Windsurf(§8 전부).
-- `connect`·`why` 프롬프트가 에이전트의 `/` 메뉴에 어떤 이름으로 보이는지, 서버 안내문이 Claude Code 모델 지침으로 쓰이는지.
-- 줄 → `git blame` → `explain_commit` 경로, 연결하지 않은 폴더에서 처음 질문하는 흐름의 사용자 경험, 프로젝트가 하나뿐인 계정의 확인 질문.
-- 계정 페이지에서 끊은 직후 같은 에이전트에서 다시 질문하면 재연결을 요구하는지, 갱신 순간의 병렬 도구 호출, 끝 슬래시를 붙여 등록했을 때의 오류
-  모양, FREE 한도·분당 상한·시간 초과 문구의 실제 클라이언트 표시.
-- `list_projects`의 빈 `required` 스키마를 다른 클라이언트가 받는지(로컬 Claude Code는 그대로 받았다).
-- 배포 화면(`/mcp/setup` 한/영, `/privacy` 개정, 공지 배너).
+- 계정 페이지에서 끊은 직후 같은 에이전트에서 다시 질문하면 재연결을 요구하는지, FREE 한도·분당 상한·시간 초과 문구의 실제 클라이언트 표시.
+- `list_projects`의 빈 `required` 스키마를 다른 클라이언트가 받는지(Claude Code는 그대로 받았다).
+- 로그인 화면의 방침 개정 공지 배너.
+- 2026-10-05 보강분의 실제 경로: nginx가 `CF-Connecting-IP`를 backend로 넘기고 Cloudflare 터널이 그 헤더를 붙이는지(같은 IP로 31번째 요청이
+  429인지), 바꾼 HTTP 클라이언트로 실제 Claude 문서 주소를 가져오는지, 파일 이력 조회가 실제 Neo4j에서 오류 없이 도는지.

@@ -34,7 +34,7 @@ AUC +0.0026(95% CI [−0.005, +0.010])으로 **측정 해상도 안에서 구분
 | 노드/엣지 | 대상 텍스트 | 저장 위치 | 용도 |
 |-----------|------------|---------|------|
 | `Communication` 노드 | `body` | `Communication.embedding` | REFERENCE 엣지 생성 + 쿼리 시맨틱 검색 (`comm_embedding` 인덱스) |
-| `MODIFIED` 엣지 | LLM이 생성한 `diffSummary` | `MODIFIED.embedding` | REFERENCE 엣지 생성 (벡터 인덱스 없음 — 브루트포스 비교) |
+| `MODIFIED` 엣지 | LLM이 생성한 `diffSummary` | `MODIFIED.embedding` | REFERENCE 엣지 생성 (벡터 인덱스 없음 — 브루트포스 비교) + 파일 이력 조회(`get_file_history`)에서 질문과의 관련도 순위 |
 | `Issue` 노드 | `title + "\n\n" + body` | `Issue.embedding` | 쿼리 시맨틱 검색 (`issue_embedding` 인덱스); refs 없는 시맨틱 엣지 생성은 향후 |
 | `DocumentSection` 노드 | `heading_path + "\n\n" + text` | `DocumentSection.embedding` | REFERENCE(ChangeSet→Document)·DESCRIBED_IN(Issue→Document) 엣지 생성 + 쿼리 시맨틱 검색 (`doc_section_embedding` 인덱스) |
 
@@ -73,6 +73,25 @@ Issue 이벤트         → embed_text(title + body)   → Issue.embedding 저�
 ```
 
 각 이벤트마다 API 1회 호출 (`embed_text` 사용).
+
+### 임베딩이 실패했을 때
+
+임베딩 호출은 실패하거나 텍스트가 비어 있으면 예외 대신 **빈 목록**을 돌려준다(`embed_batch`는 실패한 묶음을 빈 목록으로 채운다).
+빈 목록이 그대로 저장되면 읽는 쪽의 벡터 유사도 함수가 오류를 내므로 세 군데에서 막는다.
+
+- **쓰기** — 빈 목록이면 쓰지 않고 기존 값을 보존한다. Communication·Issue·ChangeSet·DocumentSection·MODIFIED 공통이다(`graph/writes.py`).
+- **자동 보정** — 후처리(`postprocess.run_postprocess_sequence`)가 엣지 빌더보다 먼저 누락분을 채운다. 대상은 Communication·Issue·
+  ChangeSet 메시지·MODIFIED다. MODIFIED는 저장된 `diffSummary`를 그대로 임베딩하고(요약 LLM을 다시 부르지 않는다), 값이 없는 엣지와
+  예전에 빈 목록으로 저장된 엣지를 모두 대상으로 한다.
+- **읽기** — 파일 이력 조회는 임베딩이 없거나 빈 엣지를 "관련도 없음"으로 처리해 점수 있는 커밋 아래에 둔다.
+
+알고 쓰는 한계:
+
+- `diffSummary` 자체가 빈 MODIFIED 엣지는 채울 수 없다(임베딩할 글이 없다).
+- 계속 실패하는 값은 후처리가 돌 때마다 다시 시도한다.
+- 같은 커밋을 다시 수집하면 요약은 새로 쓰이는데, 그때 임베딩이 실패하면 옛 임베딩이 남는다. 요약과 임베딩의 회차가 어긋나지만
+  같은 변경을 요약한 글이라 내용은 가깝다.
+- 커밋 메시지 임베딩과 달리 파일 요약 임베딩에는 "묶음 실패 시 1건씩 재시도"가 없다. 실패분은 자동 보정이 메운다.
 
 ### threshold 선정 근거
 
@@ -135,7 +154,7 @@ Document)는 다른 윈도우를 쓴다 — 문서는 오래 살아 상한을 �
 | 파일 | 역할 |
 |------|------|
 | `graph/embedder.py` | `embed_text()`, `embed_batch()`, `cosine_similarity()` |
-| `graph/reference_builder.py` | REFERENCE(ChangeSet↔Communication) 엣지 배치 생성, Communication 임베딩 보정 |
+| `graph/reference_builder.py` | REFERENCE(ChangeSet↔Communication) 엣지 배치 생성, Communication·ChangeSet 메시지·MODIFIED 임베딩 보정 |
 | `graph/document_chunker.py` | Document 본문을 `DocumentSection` 단위로 청킹(순수 함수, Neo4j·OpenAI 미의존) |
 | `graph/document_linker.py` | REFERENCE(ChangeSet↔Document)·DESCRIBED_IN(Issue↔Document) 엣지 배치 생성 |
 | `graph/event_handler.py` | 이벤트 처리 시 임베딩 호출 |

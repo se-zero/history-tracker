@@ -561,6 +561,8 @@ MCP 클라이언트(Claude Code·Codex 등 코딩 에이전트)의 OAuth 앱 등
 - PRIMARY KEY `(id)`
 - UNIQUE `(client_id)`
 
+**정리** — 연결(`oauth2_authorization`)이 하나도 없고 `client_id_issued_at`이 7일보다 오래된 행을 만료 연결 정리와 같은 스케줄러가 매일 지운다(`OAuthGrantService.purgeUnusedClients`). 마지막 사용 시각 컬럼이 없어 "한 번도 안 쓰인 행"과 "쓰이다 연결이 끊긴 행"을 구분하지 않는다. 연결이 남은 앱 행은 지우지 않는다 — `/mcp` 입구 검증이 연결 행을 읽을 때 앱 행을 함께 읽는다. CIMD 그림자 행은 지워져도 다음 요청 때 다시 만들어지고, DCR 앱은 재등록해야 한다.
+
 ---
 
 ### `oauth2_authorization` (V25)
