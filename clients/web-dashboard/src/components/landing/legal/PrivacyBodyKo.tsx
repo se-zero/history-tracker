@@ -28,10 +28,15 @@ import { PATHS } from "@/routes";
 //   해제 시 삭제 → IntegrationService.disconnect + ai-engine delete_project_source_graph
 //   외부 앱 연결 → backend db/migration/V25__create_oauth2_authorization_server_tables.sql
 //                (이용자별 연결 기록·접속용 토큰. 앱 등록 행은 이용자에 묶이지 않은 앱 자체의
-//                정보이고 연결을 끊어도 남으므로 제1조 항목에 넣지 않았다) +
+//                정보라 제1조 항목에 넣지 않았다 — 연결을 끊어도 바로 지워지지는 않고, 연결이 하나도
+//                없는 채 등록 7일이 지나면 새벽 정리(OAuthGrantService.purgeUnusedClients)가 지운다) +
 //                V27__create_mcp_workspace_bindings.sql(user_id·workspace_path·project_id) +
 //                계정 페이지 ConnectedAppsCard·api/oauthGrants.ts(앱 이름·연결 시각·마지막 사용 시각 표시) +
 //                auth/returnPath.ts(sessionStorage ht.return_path, 경로+저장 시각, 10분 TTL, 로그인 콜백에서 1회 소비)
+//   접속 IP    → backend oauth/security/OAuthRateLimitFilter(인가 서버 주소와 /api/v1/oauth/consent/** 요청의
+//                IP — Cloudflare가 붙이는 헤더 또는 연결 주소) + OAuthRateLimiter(IP별 60초 창 횟수를 인스턴스
+//                메모리에만 둔다. DB·로그 저장 없음. 창이 지난 IP는 1분 주기 정리(@Scheduled)가 지운다 —
+//                제5조의 "늦어도 약 2분"은 창 60초 + 정리 주기 60초다. 둘 중 하나를 바꾸면 문구도 고친다)
 //   브라우저 저장 → 제9조. 위 ht.return_path 외에 OnboardingPage(sessionStorage ht.onboarding.draft —
 //                프로젝트 이름·설명+저장 시각, 30분, 프로젝트 생성·"이전" 시 삭제),
 //                TermsNoticeBanner·PrivacyNoticeBanner(localStorage ht.termsNotice.dismissed·
@@ -46,7 +51,7 @@ export function PrivacyBodyKo() {
     <>
       <LegalSection index={1} heading="처리하는 개인정보 항목">
         <p>
-          서비스는 크게 다섯 갈래의 정보를 처리합니다. 이 중 <strong>연동으로 수집되는 기록</strong>은
+          서비스는 크게 여섯 갈래의 정보를 처리합니다. 이 중 <strong>연동으로 수집되는 기록</strong>은
           이용자 본인 외 팀 구성원의 정보를 포함합니다(제7조 참고).
         </p>
         <div className="lp-legal-table-scroll">
@@ -140,6 +145,15 @@ export function PrivacyBodyKo() {
                   이용자가 Claude Code·Codex 같은 코딩 에이전트의 연결을 허용하고 사용하는 과정에서
                   생성
                 </td>
+              </tr>
+              <tr>
+                <td>접속 IP 주소</td>
+                <td>
+                  외부 앱(코딩 에이전트)을 연결·인증하는 요청과 연결 허용 화면의 요청을 보낸 기기의
+                  IP 주소. 같은 주소에서 짧은 시간에 요청이 지나치게 많을 때 잠시 거절하기 위해 요청
+                  횟수를 세는 데만 쓰며, 저장하지 않습니다(제5조).
+                </td>
+                <td>해당 요청을 받을 때 자동으로 확인</td>
               </tr>
             </tbody>
           </table>
@@ -450,6 +464,7 @@ export function PrivacyBodyKo() {
           <li>연동한 데이터 소스에서 기록을 수집해 지식 그래프를 구축하고 갱신</li>
           <li>이용자의 자연어 질문에 근거를 포함한 답변 생성</li>
           <li>동일 인물 판단 등 그래프 품질 개선, 오류 분석과 서비스 안정성 확보</li>
+          <li>외부 앱(코딩 에이전트) 연결 요청의 남용(지나치게 잦은 반복 요청) 방지</li>
         </ul>
       </LegalSection>
 
@@ -550,6 +565,12 @@ export function PrivacyBodyKo() {
             연결 기록은 주기적으로 삭제합니다. 작업 폴더 연결 정보는 계정과 관련 데이터를 삭제할
             때 함께 삭제하며(탈퇴 후 30일 동안은 남아 있고, 그 안에 복구하면 그대로 쓰입니다),
             연결한 프로젝트를 삭제하면 그 폴더 연결도 함께 삭제합니다.
+          </li>
+          <li>
+            <strong>남용 방지를 위한 IP 주소</strong> — 요청 횟수를 세는 데만 쓰며 서버
+            메모리에서만 처리합니다. 데이터베이스·파일·로그에는 저장하지 않습니다. 요청 후 1분이
+            지나면 횟수 계산에 쓰이지 않고, 마지막 요청으로부터 늦어도 약 2분 안에 메모리에서도
+            지워집니다.
           </li>
           <li>
             법령이 보존을 요구하는 기록은 해당 법령이 정한 기간 동안 분리 보관한 뒤
