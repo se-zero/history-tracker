@@ -70,6 +70,17 @@ class FileHistoryIssueTimesTest(unittest.TestCase):
         self.assertEqual(issue["created_at"], "2026-05-16T10:47:00.000Z")
         self.assertIsNone(issue["closed_at"])
 
+    def test_relevance_skips_empty_modified_embedding(self):
+        # 빈 목록 embedding이 vector.similarity.cosine에 들어가면 쿼리 전체가 실패한다
+        session = _FakeSession(records=[[]])
+        with patch("tools.queries.files.get_driver", return_value=_FakeDriver(session)):
+            asyncio.run(get_file_history("p1", "src/x.py"))
+
+        self.assertIn(
+            "CASE WHEN $q_embedding IS NULL OR m.embedding IS NULL OR size(m.embedding) = 0 THEN null",
+            session.calls[0][0],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

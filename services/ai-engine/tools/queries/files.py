@@ -239,7 +239,7 @@ async def _fetch_file_history(
                m.diffSummary AS diff_summary,
                [x IN issue_links WHERE x IS NOT NULL] AS issues,
                [x IN pr_links WHERE x IS NOT NULL] AS prs,
-               CASE WHEN $q_embedding IS NULL OR m.embedding IS NULL THEN null
+               CASE WHEN $q_embedding IS NULL OR m.embedding IS NULL OR size(m.embedding) = 0 THEN null
                     ELSE vector.similarity.cosine(m.embedding, $q_embedding) END AS relevance
         ORDER BY cs.occurredAt DESC
         LIMIT $fetch_cap
