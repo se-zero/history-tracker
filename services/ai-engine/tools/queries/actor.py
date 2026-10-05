@@ -335,7 +335,7 @@ async def get_actor_activity(
             RETURN c.body AS body, c.channel AS channel,
                    c.conversation_id AS conversation_id,
                    toString(c.occurredAt) AS occurredAt,
-                   CASE WHEN $q_embedding IS NULL OR c.embedding IS NULL THEN null
+                   CASE WHEN $q_embedding IS NULL OR c.embedding IS NULL OR size(c.embedding) = 0 THEN null
                         ELSE vector.similarity.cosine(c.embedding, $q_embedding) END AS relevance
             """,
             project_id=project_id, actor_uuid=actor_uuid, from_time=from_time,
