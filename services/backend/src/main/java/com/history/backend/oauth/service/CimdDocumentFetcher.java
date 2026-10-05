@@ -33,12 +33,14 @@ public class CimdDocumentFetcher {
     private static final int MAX_BODY_BYTES = 65_536;
     private static final Duration DEFAULT_MAX_AGE = Duration.ofMinutes(5);
     private static final Duration MAX_MAX_AGE = Duration.ofHours(24);
+    private static final int DEFAULT_MAX_CACHE_ENTRIES = 1_000;
     private static final Pattern MAX_AGE_PATTERN = Pattern.compile("max-age=(\\d+)");
 
     private final RestClient restClient;
     private final SafeUrlValidator urlValidator;
     private final McpRegisteredClientPolicy policy;
     private final Clock clock;
+    private final int maxCacheEntries;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
 
@@ -49,10 +51,20 @@ public class CimdDocumentFetcher {
     }
 
     CimdDocumentFetcher(RestClient restClient, SafeUrlValidator urlValidator, McpRegisteredClientPolicy policy, Clock clock) {
+        this(restClient, urlValidator, policy, clock, DEFAULT_MAX_CACHE_ENTRIES);
+    }
+
+    CimdDocumentFetcher(
+            RestClient restClient, SafeUrlValidator urlValidator, McpRegisteredClientPolicy policy, Clock clock, int maxCacheEntries) {
         this.restClient = restClient;
         this.urlValidator = urlValidator;
         this.policy = policy;
         this.clock = clock;
+        this.maxCacheEntries = maxCacheEntries;
+    }
+
+    int cacheSize() {
+        return cache.size();
     }
 
     public CimdClientMetadata fetch(String clientIdUrl) {
@@ -175,7 +187,14 @@ public class CimdDocumentFetcher {
                 ttl = requested.compareTo(MAX_MAX_AGE) > 0 ? MAX_MAX_AGE : requested;
             }
         }
-        cache.put(url, new CacheEntry(metadata, clock.instant().plus(ttl)));
+        // 로그인 없이도 임의의 https 주소로 문서 조회를 일으킬 수 있어, 유효한 문서를 내는 주소를
+        // 계속 바꿔 대면 캐시가 끝없이 자란다 — 만료분을 치우고도 가득 차면 새 주소는 캐시하지 않는다.
+        Instant now = clock.instant();
+        cache.values().removeIf(entry -> !now.isBefore(entry.expiresAt()));
+        if (cache.size() >= maxCacheEntries && !cache.containsKey(url)) {
+            return;
+        }
+        cache.put(url, new CacheEntry(metadata, now.plus(ttl)));
     }
 
     private record CacheEntry(CimdClientMetadata metadata, Instant expiresAt) {

@@ -40,6 +40,9 @@ import org.springframework.web.client.RestClient;
 class CimdDocumentFetcherTest {
 
     private static final String CIMD_URL = "https://cimd.example/client";
+    private static final String URL_A = "https://cimd.example/a";
+    private static final String URL_B = "https://cimd.example/b";
+    private static final String URL_C = "https://cimd.example/c";
     private static final Instant BASE_INSTANT = Instant.parse("2026-01-01T00:00:00Z");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -322,10 +325,83 @@ class CimdDocumentFetcherTest {
         fixture.server.verify();
     }
 
+    @Test
+    @DisplayName("다른 주소를 캐시할 때 만료된 항목은 지워진다")
+    void purgesExpiredEntriesWhenCachingAnotherUrl() throws Exception {
+        CimdDocumentFetcherFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(URL_A)).andRespond(withSuccess(json(documentFor(URL_A)), MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo(URL_B)).andRespond(withSuccess(json(documentFor(URL_B)), MediaType.APPLICATION_JSON));
+
+        fixture.fetcher.fetch(URL_A);
+        fixture.clock.advance(Duration.ofSeconds(301));
+        fixture.fetcher.fetch(URL_B);
+
+        assertThat(fixture.fetcher.cacheSize()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("만료되지 않은 항목은 다른 주소를 캐시해도 지워지지 않는다")
+    void keepsUnexpiredEntriesWhenCachingAnotherUrl() throws Exception {
+        CimdDocumentFetcherFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(URL_A)).andRespond(withSuccess(json(documentFor(URL_A)), MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo(URL_B)).andRespond(withSuccess(json(documentFor(URL_B)), MediaType.APPLICATION_JSON));
+
+        fixture.fetcher.fetch(URL_A);
+        fixture.clock.advance(Duration.ofMinutes(1));
+        fixture.fetcher.fetch(URL_B);
+        fixture.fetcher.fetch(URL_A);
+
+        assertThat(fixture.fetcher.cacheSize()).isEqualTo(2);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("캐시가 상한에 닿으면 새 항목은 캐시하지 않는다(결과는 정상 반환, 기존 항목은 계속 캐시 응답)")
+    void doesNotCacheNewEntryWhenCacheIsFull() throws Exception {
+        CimdDocumentFetcherFixture fixture = fixture(2);
+        fixture.server.expect(once(), requestTo(URL_A)).andRespond(withSuccess(json(documentFor(URL_A)), MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo(URL_B)).andRespond(withSuccess(json(documentFor(URL_B)), MediaType.APPLICATION_JSON));
+        fixture.server.expect(times(2), requestTo(URL_C)).andRespond(withSuccess(json(documentFor(URL_C)), MediaType.APPLICATION_JSON));
+
+        fixture.fetcher.fetch(URL_A);
+        fixture.fetcher.fetch(URL_B);
+        CimdClientMetadata first = fixture.fetcher.fetch(URL_C);
+        CimdClientMetadata second = fixture.fetcher.fetch(URL_C);
+        fixture.fetcher.fetch(URL_A);
+        fixture.fetcher.fetch(URL_B);
+
+        assertThat(first.clientId()).isEqualTo(URL_C);
+        assertThat(second.clientId()).isEqualTo(URL_C);
+        assertThat(fixture.fetcher.cacheSize()).isEqualTo(2);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("상한에 닿아 있어도 만료된 항목이 빠지면 새 항목이 캐시된다")
+    void cachesNewEntryWhenExpiredEntriesFreeCapacity() throws Exception {
+        CimdDocumentFetcherFixture fixture = fixture(2);
+        fixture.server.expect(once(), requestTo(URL_A)).andRespond(withSuccess(json(documentFor(URL_A)), MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo(URL_B)).andRespond(withSuccess(json(documentFor(URL_B)), MediaType.APPLICATION_JSON));
+        fixture.server.expect(once(), requestTo(URL_C)).andRespond(withSuccess(json(documentFor(URL_C)), MediaType.APPLICATION_JSON));
+
+        fixture.fetcher.fetch(URL_A);
+        fixture.fetcher.fetch(URL_B);
+        fixture.clock.advance(Duration.ofSeconds(301));
+        fixture.fetcher.fetch(URL_C);
+        fixture.fetcher.fetch(URL_C);
+
+        assertThat(fixture.fetcher.cacheSize()).isEqualTo(1);
+        fixture.server.verify();
+    }
+
     // ── 헬퍼 ──
 
     private CimdDocumentFetcherFixture fixture() {
         return fixture(publicUrlValidator());
+    }
+
+    private CimdDocumentFetcherFixture fixture(int maxCacheEntries) {
+        return fixture(publicUrlValidator(), maxCacheEntries);
     }
 
     private CimdDocumentFetcherFixture fixture(SafeUrlValidator urlValidator) {
@@ -334,6 +410,20 @@ class CimdDocumentFetcherTest {
         MutableClock clock = new MutableClock(BASE_INSTANT);
         CimdDocumentFetcher fetcher = new CimdDocumentFetcher(builder.build(), urlValidator, policy(), clock);
         return new CimdDocumentFetcherFixture(fetcher, server, clock);
+    }
+
+    private CimdDocumentFetcherFixture fixture(SafeUrlValidator urlValidator, int maxCacheEntries) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        MutableClock clock = new MutableClock(BASE_INSTANT);
+        CimdDocumentFetcher fetcher = new CimdDocumentFetcher(builder.build(), urlValidator, policy(), clock, maxCacheEntries);
+        return new CimdDocumentFetcherFixture(fetcher, server, clock);
+    }
+
+    private Map<String, Object> documentFor(String url) {
+        Map<String, Object> doc = baseDocument();
+        doc.put("client_id", url);
+        return doc;
     }
 
     private McpRegisteredClientPolicy policy() {
