@@ -56,7 +56,8 @@ export function PrivacyNoticeBanner() {
         </strong>
         <p className="terms-notice-text">
           개인정보 보호책임자 표시, 탈퇴 후 결제 기록 보관, 결제 안내 메일 발송 위탁(Resend),
-          외부 앱(코딩 에이전트) 연결 정보, 브라우저에 저장되는 항목이 추가됩니다.{" "}
+          외부 앱(코딩 에이전트) 연결 정보, 브라우저에 저장되는 항목, 남용 방지를 위한 접속 IP
+          주소 처리가 추가됩니다.{" "}
           <a href={PATHS.privacy} target="_blank" rel="noopener noreferrer">
             개인정보처리방침
           </a>

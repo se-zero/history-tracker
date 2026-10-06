@@ -79,6 +79,14 @@ mcp:
     access-token-ttl: PT1H
     refresh-token-ttl: P30D
     consent-path: /oauth/consent
+    rate-limit:
+      # 인가 서버 주소·허용 화면 API의 IP당 60초 창 상한. 잘못 걸렸을 때 재빌드 없이 풀 수 있게 환경변수로 받는다.
+      per-minute: ${MCP_OAUTH_RATE_LIMIT_PER_MINUTE:30}
+      # 요청자 IP를 읽을 헤더. 배포 경로가 Cloudflare 터널뿐이라 Cloudflare가 덮어쓰는 값을 믿는다.
+      # 경로가 바뀌면(클라우드 이전) 그 경로가 덮어써 주는 헤더로 바꾼다. 헤더가 없으면 연결 주소를 쓴다.
+      # X-Forwarded-For처럼 경유지마다 값이 이어붙는 헤더는 지정하지 않는다 — 요청자가 앞부분을 써넣을 수 있어
+      # 값을 바꿔 가며 상한을 피한다. 맨 앞단이 값을 통째로 덮어쓰는 헤더만 쓴다.
+      client-ip-header: ${MCP_OAUTH_CLIENT_IP_HEADER:CF-Connecting-IP}
 
 security:
   internal-service:

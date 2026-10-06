@@ -89,7 +89,7 @@
 | [slack-marketplace.md](slack-marketplace.md) | 작업 | 등재 계획 (D) | S1 Events API·S2 자격증명·S3 `/why-code` 코드 | 실기동, S4~S6 앱 설정·제출 |
 | [slack-byo.md](slack-byo.md) | 작업 | BYO 계획 (C) | 연결 API·격리·UI·문서 | **C0 Slack 문의 미회신**(배포 전 게이트). 등재 후 토큰 경로 유지 여부는 미정 |
 | [billing.md](billing.md) | 작업 | 결제 계획 (Paddle MoR 월 정기구독) | B0 — 강등 회수·만료 스케줄러. W — 요금·환불정책·약관 개정·앱 공지 배너(배포 2026-09-24). B1 — Paddle 웹훅 수신(`billing` 패키지, V24)·만료 재확인 잠금. B2 — 서버 거래 생성·포털·코드 강등, 요금제 카드 세 상태, CSP, 탈퇴·파기 시 구독 해지. B3 — 방침 개정(보호책임자·결제 기록·Resend 위탁)·결제일 7일 전 안내 메일(V25). B1·B2 샌드박스 실측 완료 | G1 Paddle 심사 → 라이브 대시보드 준비 → G2 라이브 자동갱신 실측 → 서버 `.env`로 결제 열기. 사업자 정보는 첫 결제자 이후 |
-| [mcp-integration.md](mcp-integration.md) | 정본 | 설계 | 코드 완료(인가 서버·동의 흐름·`/mcp` 서버, backend `oauth/`·`mcp/`, 프론트 3화면, 프록시) + 로컬 도커 실기동(Claude Code 2.1.286 연결·폴더 연결·질의, 철회 즉시 거부) | **배포 서버 확인 전.** Codex·MCP Inspector·claude.ai 등 Claude Code 외 클라이언트 미확인, 미인증 요청 속도 제한·미사용 등록 행 정리·연결 해제 시 서버 연결 잔존(§9) |
+| [mcp-integration.md](mcp-integration.md) | 정본 | 설계 | 코드 완료(인가 서버·동의 흐름·`/mcp` 서버, backend `oauth/`·`mcp/`, 프론트 3화면, 프록시) + 로컬 도커 실기동(Claude Code 2.1.286 연결·폴더 연결·질의, 철회 즉시 거부) + 배포 서버 실기동(2026-10-04, Claude Code) + 인가 서버 보강(IP별 상한·미사용 등록 행 정리·문서 조회 총 시간 제한) | Codex·MCP Inspector·claude.ai 등 Claude Code 외 클라이언트 미확인, 보강분의 실제 경로 확인(§10), 연결 해제 시 서버 연결 잔존·`why` 프롬프트 인자 절단(§9) |
 | [query-quality-issues.md](query-quality-issues.md) | 정본 | 분석 로그 | 케이스별 원인·개선안 | 닫히지 않음 |
 
 ---

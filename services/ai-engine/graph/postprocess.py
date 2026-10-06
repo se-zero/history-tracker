@@ -223,6 +223,7 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
     from graph.reference_builder import (
         backfill_changeset_message_embeddings,
         backfill_communication_embeddings,
+        backfill_modified_embeddings,
     )
     from graph.slack_batch_filter import run_slack_llm_filter
 
@@ -289,11 +290,13 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
 
     # 1) 임베딩 누락 보정 — 이후 비교 대상에 포함되도록 빌더보다 먼저.
     #    backfill은 {"saved", "total"}을 주지만 여기선 saved만 싣는다.
+    #    MODIFIED 엣지는 빈 목록([])으로 남은 것도 대상이다(NULL만 보면 놓친다).
     #    빌드 결과의 backfilled는 backend가 Communication 보정 건수를 int로 역직렬화하는
-    #    기존 계약이라 키를 유지하고, Issue·ChangeSet 보정 건수는 별도 키로 싣는다.
+    #    기존 계약이라 키를 유지하고, Issue·ChangeSet·MODIFIED 보정 건수는 별도 키로 싣는다.
     backfilled = (await backfill_communication_embeddings(ref_store))["saved"]
     backfilled_issues = (await backfill_issue_embeddings(link_store))["saved"]
     backfilled_changesets = (await backfill_changeset_message_embeddings(ref_store))["saved"]
+    backfilled_modified = (await backfill_modified_embeddings(ref_store))["saved"]
 
     results = {
         "slack_kept":        slack["kept"],
@@ -301,6 +304,7 @@ async def run_postprocess_sequence(project_id: str, verify: bool = False) -> dic
         "backfilled":        backfilled,
         "backfilled_issues": backfilled_issues,
         "backfilled_changesets": backfilled_changesets,
+        "backfilled_modified": backfilled_modified,
         "triggered_by":      await build_triggered_by(link_store),
         "discussed_in":      await build_discussed_in(link_store),
         "reference":         await build_reference(ref_store),

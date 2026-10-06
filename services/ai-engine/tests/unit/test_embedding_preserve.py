@@ -12,6 +12,8 @@ from unittest.mock import patch
 from graph.writes import (
     replace_document_sections,
     upsert_communication,
+    upsert_file_with_modified_edge,
+    upsert_files_with_modified_edges,
     upsert_issue,
 )
 
@@ -92,6 +94,36 @@ class EmbeddingPreserveCypherTest(unittest.TestCase):
         self.assertIn(
             "CASE WHEN size(section.embedding) > 0 THEN section.embedding ELSE s.embedding END",
             create_query,
+        )
+
+    def test_upsert_files_with_modified_edges_keeps_existing_embedding_when_empty(self):
+        session = _FakeSession()
+        with patch("graph.writes.get_driver", return_value=_FakeDriver(session)):
+            asyncio.run(upsert_files_with_modified_edges(
+                project_id="p1", changeset_hash="abc",
+                files=[{"file_path": "a.py", "diff_summary": "d", "embedding": []}],
+            ))
+
+        query = session.calls[0][0]
+        self.assertIn(
+            "CASE WHEN size(file.embedding) > 0 THEN file.embedding ELSE r.embedding END",
+            query,
+        )
+        # 가드 없이 빈 목록을 그대로 덮는 형태가 남아 있으면 안 된다
+        self.assertNotIn("= file.embedding", query)
+
+    def test_upsert_file_with_modified_edge_keeps_existing_embedding_when_empty(self):
+        session = _FakeSession()
+        with patch("graph.writes.get_driver", return_value=_FakeDriver(session)):
+            asyncio.run(upsert_file_with_modified_edge(
+                project_id="p1", changeset_hash="abc", file_path="a.py",
+                diff_summary="d", embedding=[],
+            ))
+
+        query = session.calls[0][0]
+        self.assertIn(
+            "CASE WHEN size($embedding) > 0 THEN $embedding ELSE r.embedding END",
+            query,
         )
 
 

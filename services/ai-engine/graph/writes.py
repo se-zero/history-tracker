@@ -73,7 +73,7 @@ async def upsert_file_with_modified_edge(
             MATCH (c:ChangeSet {project_id: $project_id, hash: $changeset_hash})
             MERGE (c)-[r:MODIFIED]->(f)
             SET r.diffSummary = $diff_summary,
-                r.embedding = $embedding
+                r.embedding = CASE WHEN size($embedding) > 0 THEN $embedding ELSE r.embedding END
             """,
             project_id=project_id,
             file_path=file_path,
@@ -109,7 +109,7 @@ async def upsert_files_with_modified_edges(
             MERGE (f:File {project_id: $project_id, path: file.file_path})
             MERGE (c)-[r:MODIFIED]->(f)
             SET r.diffSummary = file.diff_summary,
-                r.embedding   = file.embedding
+                r.embedding   = CASE WHEN size(file.embedding) > 0 THEN file.embedding ELSE r.embedding END
             """,
             project_id=project_id,
             changeset_hash=changeset_hash,

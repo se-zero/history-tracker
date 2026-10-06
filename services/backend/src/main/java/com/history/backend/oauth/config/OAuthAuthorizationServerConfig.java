@@ -5,9 +5,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.history.backend.oauth.McpOAuthProperties;
+import com.history.backend.oauth.OAuthRateLimitProperties;
 import com.history.backend.oauth.security.ConsentTicketAuthenticationFilter;
 import com.history.backend.oauth.security.DefaultScopeAuthorizationRequestConverter;
 import com.history.backend.oauth.security.McpAuthorizationRequestValidator;
+import com.history.backend.oauth.security.OAuthRateLimitFilter;
+import com.history.backend.oauth.security.OAuthRateLimiter;
 import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationConverter;
 import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationProvider;
 import com.history.backend.oauth.security.PublicClientRefreshTokenGenerator;
@@ -55,6 +58,7 @@ import org.springframework.security.web.authentication.DelegatingAuthenticationE
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcherEntry;
 
 // MCP 클라이언트용 OAuth 2.1 인가 서버(/oauth2/**, /.well-known/oauth-authorization-server) 설정
@@ -64,6 +68,8 @@ public class OAuthAuthorizationServerConfig {
 
     private final McpOAuthProperties mcpOAuthProperties;
     private final ConsentTicketService consentTicketService;
+    private final OAuthRateLimiter rateLimiter;
+    private final OAuthRateLimitProperties rateLimitProperties;
 
     @Bean
     AuthorizationServerSettings authorizationServerSettings() {
@@ -167,6 +173,9 @@ public class OAuthAuthorizationServerConfig {
                         // 무관하게 anyRequest().authenticated()에 걸려 401이 난다(실기동에서 확인된 사실).
                         .requestMatchers(HttpMethod.POST, "/oauth2/register").permitAll()
                         .anyRequest().authenticated())
+                // 클라이언트 조회(CIMD 문서 fetch·행 생성)와 티켓 소비보다 앞에서 IP별 상한을 건다.
+                // 체인의 securityMatcher가 이미 인가 서버 주소만 고르므로 경로는 다시 판정하지 않는다.
+                .addFilterBefore(new OAuthRateLimitFilter(rateLimiter, rateLimitProperties, AnyRequestMatcher.INSTANCE), SecurityContextHolderFilter.class)
                 // 티켓 인증은 SecurityContextHolderFilter가 컨텍스트를 비운 뒤에 세팅해야 살아남는다.
                 .addFilterAfter(new ConsentTicketAuthenticationFilter(consentTicketService), SecurityContextHolderFilter.class)
                 // 미인증 GET /oauth2/authorize만 SPA 허용 화면으로 보내고, 나머지 요청은 기존처럼 401이다.

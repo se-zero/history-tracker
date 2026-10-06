@@ -120,6 +120,21 @@ class GetActorActivityMatchTest(unittest.TestCase):
             self.assertEqual(params["actor_uuid"], "u1")
             self.assertIn("uuid: $actor_uuid", query)
 
+    def test_message_relevance_skips_empty_embedding(self):
+        # 빈 목록 embedding이 vector.similarity.cosine에 들어가면 메시지 조회 전체가 실패한다
+        # (파일 이력 조회의 MODIFIED 엣지와 같은 모양 — 가드가 생기기 전에 저장된 값이 남아 있을 수 있다)
+        session = _FakeSession(records=[
+            _ONE_MATCH, _actor_meta_row(), [], [], [], {"issues_created": [], "issues_assigned": []},
+        ])
+        with patch("tools.queries.actor.get_driver", return_value=_FakeDriver(session)):
+            asyncio.run(get_actor_activity("p1", "Junsu Seo"))
+
+        message_query = next(q for q, _ in session.calls if "vector.similarity.cosine" in q)
+        self.assertIn(
+            "CASE WHEN $q_embedding IS NULL OR c.embedding IS NULL OR size(c.embedding) = 0 THEN null",
+            message_query,
+        )
+
     def test_ambiguous_message_offers_alias_as_escape_hatch(self):
         # 동일인 판단 실패로 표시 이름까지 같아지면 "이름으로 재호출"은 같은 모호함으로
         # 돌아온다 — alias는 소스별로 유일하므로 안내에 함께 있어야 한다.

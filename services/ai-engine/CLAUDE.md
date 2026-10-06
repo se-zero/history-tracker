@@ -131,8 +131,9 @@ graph/             Neo4j 그래프 구축 + 수집
                      (POST /graph/build는 202 후 백그라운드 태스크, GET /graph/build/status 폴링).
                      같은 프로젝트는 coalesce, 다른 프로젝트는 _build_semaphore(MAX_CONCURRENCY)로 제한.
                      상태/dirty는 in-process — 수평 확장 시 공유 저장소로 교체 필요.
-                     자동 빌드는 빌더 전에 Communication·Issue·ChangeSet 메시지 임베딩 누락분을
-                     보정한다(`backfilled`는 Communication 건수, Issue·ChangeSet은 별 키).
+                     자동 빌드는 빌더 전에 Communication·Issue·ChangeSet 메시지·MODIFIED(파일 요약)
+                     임베딩 누락분을 보정한다(`backfilled`는 Communication 건수, 나머지는 별 키).
+                     MODIFIED는 값이 없는 엣지와 빈 목록으로 남은 엣지가 모두 대상이다.
   embed_batcher.py    커밋 메시지 임베딩 마이크로배처 — 짧은 대기창 동안 단건 호출을 코얼레싱해 embed_batch 1콜로 묶음
   builder.py         facade — 아래 분해 모듈의 공개 심볼 re-export (하위 호환)
     driver.py            드라이버 수명주기 (get_driver/close_driver)

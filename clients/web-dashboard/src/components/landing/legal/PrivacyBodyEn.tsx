@@ -33,7 +33,7 @@ export function PrivacyBodyEn() {
 
       <LegalSection index={1} heading="Categories of Personal Information Processed">
         <p>
-          The Service processes five broad categories of information. Of these,{" "}
+          The Service processes six broad categories of information. Of these,{" "}
           <strong>records collected through connections</strong> include information
           about team members other than the User (see Article 7).
         </p>
@@ -142,6 +142,17 @@ export function PrivacyBodyEn() {
                   Generated when the User allows a coding agent such as Claude Code or
                   Codex to connect, and in the course of using it
                 </td>
+              </tr>
+              <tr>
+                <td>Connecting IP address</td>
+                <td>
+                  The IP address of the device that sends requests to connect or
+                  authenticate an external app (coding agent), or requests from the
+                  connection approval screen. It is used only to count requests so that
+                  excessive requests from the same address within a short time can be
+                  temporarily refused, and it is not stored (see Article 5).
+                </td>
+                <td>Determined automatically when such a request is received</td>
               </tr>
             </tbody>
           </table>
@@ -528,6 +539,10 @@ export function PrivacyBodyEn() {
             Improving graph quality (such as determining whether people are the
             same individual), error analysis, and maintaining service stability
           </li>
+          <li>
+            Preventing abuse (excessively frequent repeated requests) of external app
+            (coding agent) connection requests
+          </li>
         </ul>
       </LegalSection>
 
@@ -655,6 +670,13 @@ export function PrivacyBodyEn() {
             days after withdrawal and is used as is if the account is recovered
             within that time), and deleting the connected project also deletes that
             folder connection.
+          </li>
+          <li>
+            <strong>IP addresses used for abuse prevention</strong> — Used only to
+            count requests and processed only in server memory. They are not stored
+            in a database, file, or log. One minute after a request, it is no longer
+            used for counting, and the address is removed from memory within about two
+            minutes of the last request at the latest.
           </li>
           <li>
             Records that a law requires to be retained are kept separately for
