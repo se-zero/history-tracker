@@ -86,7 +86,6 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
 | 15 | `describe_graph` | 라벨의 노드 수·속성·실제 값 분포 조회 | `explore.describe_graph` |
 | 16 | `get_document_context` | 문서(Notion) external_id로 본문·작성자·편집자·연결된 이슈/커밋/대화 조회 | `document.get_document_context` |
 | 17 | `search_documents` | 자연어 질의로 DocumentSection 시맨틱 검색 (문서+최고점 섹션 발췌) | `document.search_documents` |
-| 18 | `respond_conversational` | 그래프와 무관한 말(인사·감사·잡담·일반 지식)에 짧은 답을 돌림 | `—` (그래프 미조회) |
 
 ---
 
@@ -459,23 +458,6 @@ Slack 스레드를 conversation_id로 완전히 조회한다.
   주요 속성(Issue는 status·issue_type·priority·assignee·source 등)의 실제 값과 빈도 상위 20건.
 - 라벨·속성·관계 **골격**은 시스템 프롬프트의 정적 스키마 카드(`explore.SCHEMA_CARD`)가 담당하고,
   이 도구는 프로젝트마다 달라지는 **값**만 조회한다 (완료 상태가 `'Done'`인지 `'완료'`인지 등).
-
-### 18. `respond_conversational`
-
-그래프를 읽지 않는 도구다. 이 프로젝트의 코드·PR·이슈·사람·문서·일정이 아닌 말
-(인사, 감사, 잡담, 일반 지식 요청)에만 쓴다. 확신이 없으면 그래프 도구를 쓴다.
-
-| 파라미터 | 타입 | 필수 | 설명 |
-|---------|------|------|------|
-| `kind` | string | ✔ | `greeting` · `thanks` · `smalltalk` · `redirect` |
-| `ack` | string | | 잡담일 때만. 한 문장. 사실 설명 금지 |
-
-- **executor·queries 분기가 없다.** orchestrator가 도구 루프에서 가로채 `kind`별로 문장을
-  조립한다. `reply_kind: "intro"`는 서버가 심으며 LLM 스키마에 없다.
-- 문장 전체가 인사·감사면 이 도구도 LLM도 타지 않고 정규식 지름길로 같은 문장을 돌린다.
-  앞에 인사가 있고 뒤에 사람·코드·이슈 질문이 붙으면 greeting으로 끊지 않고 그래프를 찾는다.
-- 이미 그래프 도구를 실행했거나 같은 메시지에 그래프 도구가 섞이면 intro로 바꾸지 않고
-  도구 응답만 채운 뒤 탐색을 계속한다.
 
 ---
 
