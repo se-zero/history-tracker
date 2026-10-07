@@ -47,12 +47,14 @@ export function ChatPage({ project }: { project: Project }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pendingFirstSend = usePendingFirstSend(project.id);
+  const optimisticConversation =
+    !!conversationId && isOptimisticConversationId(conversationId);
   const viewingPending =
-    !!conversationId && pendingFirstSend?.optimisticId === conversationId;
+    optimisticConversation && pendingFirstSend?.optimisticId === conversationId;
 
   const conversationQuery = useConversation(
     project.id,
-    viewingPending ? undefined : conversationId,
+    optimisticConversation ? undefined : conversationId,
   );
   const detail = conversationQuery.data;
   const messages = detail?.messages ?? [];
@@ -67,7 +69,7 @@ export function ChatPage({ project }: { project: Project }) {
 
   const loadOlder = useLoadOlderMessages(
     project.id,
-    viewingPending ? undefined : conversationId,
+    optimisticConversation ? undefined : conversationId,
   );
 
   // onReachTop을 안정적인 콜백으로 유지(observer 재구독 방지). 최신 값은 ref로 읽는다.
@@ -629,6 +631,10 @@ export function ChatPage({ project }: { project: Project }) {
             onPick={handleSend}
             disabled={chatBlock !== null}
           />
+        ) : optimisticConversation && !viewingPending ? (
+          // 새로고침·뒤로 가기로 대기 상태가 없는 임시 주소에 들어온 경우.
+          // UUID가 아니라 상세 조회는 400이고, 404가 아니라 에러 화면에서 빠져나올 수 없다.
+          <Navigate to={`/projects/${project.id}/chat`} replace />
         ) : conversationQuery.isLoading ? (
           <StatusView tone="loading" description="메시지를 불러오는 중…" />
         ) : conversationGone ? (
