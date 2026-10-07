@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { Icons } from "@/components/Icons";
 import { StatusView } from "@/components/StatusView";
@@ -43,6 +43,7 @@ const NODE_ONLY_QUESTION = "첨부한 항목에 대해 설명해줘.";
 
 export function ChatPage({ project }: { project: Project }) {
   const { conversationId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pendingFirstSend = usePendingFirstSend(project.id);
@@ -110,6 +111,15 @@ export function ChatPage({ project }: { project: Project }) {
     messageId: string;
     ignite: boolean;
   } | null>(null);
+  // 첫 질문 실패로 빈 대화에 돌아온 입력. 라우트가 갈리며 상태가 사라져도 이 화면에서만 되돌린다.
+  useEffect(() => {
+    const restoreDraft = (location.state as { restoreDraft?: string } | null)?.restoreDraft;
+    if (!restoreDraft || conversationId) return;
+    setDraft(restoreDraft);
+    setSendError(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, conversationId, navigate]);
+
   // 다른 대화로 이동하면 fresh는 무효 — 그 대화로 돌아와도 재생하지 않는다(과거 로드 취급).
   useEffect(() => {
     setFresh((f) => (f && f.conversationId !== conversationId ? null : f));
@@ -461,6 +471,8 @@ export function ChatPage({ project }: { project: Project }) {
     const attached = attachedNodes;
     // 텍스트가 비어도 첨부 노드가 있으면 전송한다(노드만으로 질문).
     if ((!trimmed && attached.length === 0) || pending || chatBlock) return;
+    // 임시 대화는 아직 서버 대화가 아니다. 입력을 비우기 전에 끊어야 전송이 조용히 사라지지 않는다.
+    if (conversationId && isOptimisticConversationId(conversationId)) return;
     // node-only면 기본 질문으로 채운다 — 백엔드 content는 @NotBlank.
     const content = trimmed || NODE_ONLY_QUESTION;
     setSendError(false);
@@ -500,6 +512,9 @@ export function ChatPage({ project }: { project: Project }) {
           void queryClient.invalidateQueries({
             queryKey: queryKeys.conversations(project.id),
           });
+          setPendingMessage((current) =>
+            current?.conversationId === optimisticId ? null : current,
+          );
           setPendingFirstSend(project.id, {
             optimisticId,
             text: content,
@@ -522,10 +537,22 @@ export function ChatPage({ project }: { project: Project }) {
         () => {
           dropPendingConversation(queryClient, project.id, optimisticId);
           setPendingFirstSend(project.id, null);
-          if (window.location.pathname.endsWith(`/chat/${optimisticId}`)) {
-            navigate(`/projects/${project.id}/chat`, { replace: true });
+          setPendingMessage((current) =>
+            current?.conversationId === optimisticId ? null : current,
+          );
+          const path = window.location.pathname;
+          if (path.endsWith(`/chat/${optimisticId}`)) {
+            navigate(`/projects/${project.id}/chat`, {
+              replace: true,
+              state: { restoreDraft: content },
+            });
+            return;
           }
-          restoreOnError(undefined, content);
+          // 빈 새 대화에 그대로 있을 때만 입력을 되돌린다.
+          // 다른 대화로 옮긴 뒤에는 그 화면의 입력·에러를 건드리지 않는다.
+          if (!path.endsWith("/chat")) return;
+          setDraft((current) => (current.trim() ? current : content));
+          setSendError(true);
         },
       );
     }
