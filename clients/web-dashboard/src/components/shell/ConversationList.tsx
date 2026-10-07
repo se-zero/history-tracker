@@ -6,6 +6,7 @@ import {
   useConversations,
   useDeleteConversation,
   useRenameConversation,
+  isOptimisticConversationId,
 } from "@/hooks/useConversations";
 import { formatRelative } from "@/lib/format";
 import type { Conversation } from "@/types/api";
@@ -177,6 +178,8 @@ function ConvoItem({
     );
   }
 
+  const optimistic = isOptimisticConversationId(convo.id);
+
   return (
     <div
       className={"convo-item" + (active ? " active" : "")}
@@ -185,6 +188,7 @@ function ConvoItem({
     >
       <span className="convo-title">{convo.title}</span>
       <span className="convo-time">{formatRelative(convo.updatedAt)}</span>
+      {!optimistic && (
       <button
         className="convo-menu-btn"
         title="대화 메뉴"
@@ -195,6 +199,7 @@ function ConvoItem({
       >
         <Icons.More size={14} />
       </button>
+      )}
 
       {menuOpen && (
         <div
