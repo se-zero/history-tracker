@@ -21,6 +21,7 @@ export interface StructuredAnswer {
   evidence: Evidence[];
   unknownAspects: string[];
   answerMode: AnswerMode;
+  intro: boolean;
 }
 
 export function extractStructured(
@@ -33,6 +34,8 @@ export function extractStructured(
         evidence?: Evidence[];
         unknown_aspects?: string[];
         answer_mode?: string;
+        // unknown_aspects·answer_mode와 같은 층 — 와이어는 snake_case 그대로다.
+        reply_kind?: string;
       }
     | undefined;
   if (!structured) return null;
@@ -41,6 +44,7 @@ export function extractStructured(
     evidence: structured.evidence ?? [],
     unknownAspects: structured.unknown_aspects ?? [],
     answerMode: structured.answer_mode === "exploratory" ? "exploratory" : "grounded",
+    intro: structured.reply_kind === "intro",
   };
 }
 

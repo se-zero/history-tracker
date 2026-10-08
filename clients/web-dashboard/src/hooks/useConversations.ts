@@ -1,9 +1,12 @@
 import axios from "axios";
+import { useSyncExternalStore } from "react";
 import {
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type QueryClient,
 } from "@tanstack/react-query";
 
 import {
@@ -13,8 +16,130 @@ import {
   listOlderMessages,
   updateConversationTitle,
 } from "@/api/conversations";
-import type { ConversationDetail } from "@/types/api";
+import type { Conversation, ConversationDetail, ConversationPage } from "@/types/api";
 import { queryKeys } from "./queryKeys";
+
+// 첫 메시지 생성 API는 답변이 끝날 때까지 응답하지 않는다. 그 사이에 목록에 보여줄 임시 id.
+const OPTIMISTIC_PREFIX = "optimistic:";
+
+export function isOptimisticConversationId(id: string): boolean {
+  return id.startsWith(OPTIMISTIC_PREFIX);
+}
+
+// 첫 질문의 본문. ChatPage가 언마운트되어도 임시 대화를 다시 열면 로딩 화면을 복원한다.
+export type PendingFirstSend = {
+  optimisticId: string;
+  text: string;
+  createdId?: string;
+};
+
+const pendingByProject = new Map<string, PendingFirstSend>();
+const pendingListeners = new Set<() => void>();
+
+function emitPending() {
+  pendingListeners.forEach((listener) => listener());
+}
+
+export function setPendingFirstSend(projectId: string, value: PendingFirstSend | null) {
+  if (value) pendingByProject.set(projectId, value);
+  else pendingByProject.delete(projectId);
+  emitPending();
+}
+
+export function usePendingFirstSend(projectId: string): PendingFirstSend | null {
+  return useSyncExternalStore(
+    (listener) => {
+      pendingListeners.add(listener);
+      return () => pendingListeners.delete(listener);
+    },
+    () => pendingByProject.get(projectId) ?? null,
+    () => null,
+  );
+}
+
+// 서버 ConversationTitleGenerator와 같이 공백을 접고 80자(코드 포인트)에서 자른다.
+function titleFromMessage(content: string): string {
+  const title = content.trim().replace(/\s+/g, " ");
+  const points = Array.from(title);
+  return points.length <= 80 ? title : points.slice(0, 80).join("");
+}
+
+function writeConversationPages(
+  queryClient: QueryClient,
+  projectId: string,
+  update: (pages: ConversationPage[]) => ConversationPage[],
+) {
+  queryClient.setQueryData<InfiniteData<ConversationPage>>(
+    queryKeys.conversations(projectId),
+    (prev) => {
+      const pages = prev?.pages.length
+        ? prev.pages
+        : [{ items: [], nextCursor: null }];
+      return {
+        pages: update(pages),
+        pageParams: prev?.pageParams.length ? prev.pageParams : [undefined],
+      };
+    },
+  );
+}
+
+// 질문을 보낸 즉시 왼쪽 목록 맨 위에 제목을 올린다. 반환한 id로 나중에 서버 대화와 바꾼다.
+export function showPendingConversation(
+  queryClient: QueryClient,
+  projectId: string,
+  content: string,
+): string {
+  const now = new Date().toISOString();
+  const item: Conversation = {
+    id: `${OPTIMISTIC_PREFIX}${crypto.randomUUID()}`,
+    projectId,
+    userId: null,
+    title: titleFromMessage(content),
+    createdAt: now,
+    updatedAt: now,
+  };
+  writeConversationPages(queryClient, projectId, (pages) => {
+    const [first, ...rest] = pages;
+    return [{ ...first, items: [item, ...first.items] }, ...rest];
+  });
+  return item.id;
+}
+
+export function dropPendingConversation(
+  queryClient: QueryClient,
+  projectId: string,
+  optimisticId: string,
+) {
+  writeConversationPages(queryClient, projectId, (pages) =>
+    pages.map((page) => ({
+      ...page,
+      items: page.items.filter((item) => item.id !== optimisticId),
+    })),
+  );
+}
+
+// 답변이 도착하면 임시 행을 서버가 준 대화로 바꾼다. 무효화 refetch 전에도 그 행을 누를 수 있다.
+export function adoptPendingConversation(
+  queryClient: QueryClient,
+  projectId: string,
+  optimisticId: string,
+  created: ConversationDetail,
+) {
+  const real: Conversation = {
+    id: created.id,
+    projectId: created.projectId,
+    userId: created.userId,
+    title: created.title,
+    createdAt: created.createdAt,
+    updatedAt: created.updatedAt,
+  };
+  writeConversationPages(queryClient, projectId, (pages) =>
+    pages.map((page) => ({
+      ...page,
+      items: page.items.map((item) => (item.id === optimisticId ? real : item)),
+    })),
+  );
+}
 
 // 프로젝트의 대화 목록(커서 무한 스크롤). select로 펼쳐 컴포넌트는 평면 배열만 본다.
 // projectId가 없으면(라우트 전환 중) 돌지 않는다.
