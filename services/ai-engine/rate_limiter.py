@@ -158,6 +158,28 @@ def _count_tokens(text: str, model: str) -> int:
         return max(1, len(text) // 2)
 
 
+def truncate_to_tokens(text: str, model: str, max_tokens: int) -> str:
+    """text를 max_tokens 토큰 이내로 앞에서부터 자른다. 이미 이내면 원문 그대로 반환."""
+    if not text:
+        return text
+    enc = _encoder(model)
+    if enc is not None:
+        try:
+            # disallowed_special=(): 본문에 "<|endoftext|>" 같은 특수 토큰 문자열이 있어도 보통 글자로 센다 —
+            # OpenAI 서버가 입력을 그렇게 세므로 같은 기준이 된다(기본값이면 encode가 예외를 낸다).
+            tokens = enc.encode(text, disallowed_special=())
+            if len(tokens) <= max_tokens:
+                return text
+            # 토큰 경계가 멀티바이트 글자 한가운데에 걸리면 decode가 깨진 글자(U+FFFD)를 붙인다 —
+            # 바이트로 풀어 끝의 불완전한 글자만 버린다.
+            return enc.decode_bytes(tokens[:max_tokens]).decode("utf-8", errors="ignore")
+        except Exception:
+            pass  # 예기치 않은 encode 실패 — 임베딩 경로의 never-raise 계약을 지키려 글자 컷으로 폴백
+    # tiktoken 미가용(또는 encode 실패): 글자 수로 보수적으로 자른다. 띄어쓰기 없는 한글은 실측 1.43토큰/자라
+    # 1자≈1토큰 가정으로는 상한을 넘기므로 글자 max_tokens//2개만 남긴다.
+    return text[: max_tokens // 2]
+
+
 def estimate_chat_tokens(messages, model: str) -> int:
     """chat 요청의 입력 토큰 추정 + 응답 예약. 비정형 메시지(SDK 객체 등)는 건너뛴다."""
     parts = []

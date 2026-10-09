@@ -95,9 +95,9 @@ def test_batch_failure_resolves_all_waiters_to_empty(monkeypatch):
     assert results == [[], []]  # 예외가 전파되지 않고 빈 벡터로 폴백
 
 
-def test_batch_rejection_retries_each_text_individually(monkeypatch):
-    """배치 콜이 통째로 실패하면(빈 벡터 반환) 각 텍스트를 1건씩 재시도한다 — 문제 입력 1건이
-    같이 탄 정상 텍스트의 임베딩까지 결손시키지 않아야 한다(실패 반경 축소)."""
+def test_empty_vectors_pass_through_without_retry(monkeypatch):
+    """embed_batch가 일부 항목을 빈 벡터로 돌려줘도 batcher는 그대로 전달하고 다시 부르지 않는다.
+    묶음 실패 시 1건 재시도는 embed_batch가 이미 했으므로 여기서 또 하면 중복이다."""
     embed_batcher.reset()
     monkeypatch.setattr(embed_batcher, "COALESCE_MAX", 3)
 
@@ -108,15 +108,12 @@ def test_batch_rejection_retries_each_text_individually(monkeypatch):
             embed_batcher.embed_text_batched("c"),
         )
 
-    # 1번째 호출(배치 3건) → 청크 실패로 전부 [] / 이후 단건 재시도 → a·c는 성공, bad는 여전히 실패
-    fake = mock.AsyncMock(side_effect=[[[], [], []], [[1.0]], [[]], [[3.0]]])
+    fake = mock.AsyncMock(return_value=[[], [1.0], []])
     with mock.patch("graph.embed_batcher.embed_batch", new=fake):
         results = asyncio.run(scenario())
 
-    assert results == [[1.0], [], [3.0]]
-    assert fake.await_count == 4  # 배치 1회 + 단건 재시도 3회
-    assert fake.await_args_list[0].args[0] == ["a", "bad", "c"]
-    assert [c.args[0] for c in fake.await_args_list[1:]] == [["a"], ["bad"], ["c"]]
+    assert results == [[], [1.0], []]
+    assert fake.await_count == 1
 
 
 def test_coalesce_max_one_bypasses_batching(monkeypatch):
