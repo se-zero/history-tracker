@@ -60,6 +60,15 @@ class SummarizeDiffTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, summarizer._size_placeholder("big.json", 3, 0, "msg"))
         gateway.assert_not_awaited()
 
+    async def test_missing_content_falls_back_to_placeholder(self):
+        # 본문 없는 응답(거부 등)은 "의미 있는 변경 없음"(빈 문자열)이 아니라 비정상 응답이다 — 빈 요약은 자동
+        # 보정 대상도 아니라 영구 결손되므로 기존 안전망대로 placeholder를 쓴다
+        none_resp = _response(None, finish_reason="content_filter")
+        with mock.patch("graph.summarizer.chat_completion", mock.AsyncMock(return_value=none_resp)):
+            result = await summarizer.summarize_diff("a.py", _DIFF, additions=2, deletions=1, message="msg")
+
+        self.assertEqual(result, summarizer._size_placeholder("a.py", 2, 1, "msg"))
+
 
 if __name__ == "__main__":
     unittest.main()

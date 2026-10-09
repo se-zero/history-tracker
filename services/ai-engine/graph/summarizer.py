@@ -59,7 +59,14 @@ async def summarize_diff(path: str, diff: str, additions: int = 0, deletions: in
             max_completion_tokens=_MAX_SUMMARY_TOKENS,
         )
         choice = response.choices[0]
-        text = (choice.message.content or "").strip()
+        if choice.message.content is None:
+            # 본문 없는 응답(거부 등)은 "의미 있는 변경 없음"(빈 문자열)이 아니라 비정상 응답이다.
+            # 빈 요약은 자동 보정 대상도 아니라 영구 결손되므로 기존 안전망대로 placeholder를 쓴다.
+            logger.warning(
+                "LLM 요약 응답에 본문 없음(finish_reason=%s), placeholder로 대체: path=%s", choice.finish_reason, path
+            )
+            return _size_placeholder(path, additions, deletions, message)
+        text = choice.message.content.strip()
         if choice.finish_reason == "length":
             # 상한에 걸려 잘린 응답은 마지막 줄이 문장 중간에서 끊겼을 수 있어 그 줄을 버린다
             logger.info("요약 출력 상한 도달, 마지막 줄 제거: path=%s", path)
