@@ -176,7 +176,7 @@ async def _fetch_unembedded_modified_edges(project_id: str | None = None, force:
                f.path AS file_path,
                r.diffSummary AS diff_summary
     """.replace(
-        "__EMBEDDING_FILTER__", "" if force else "AND r.embedding IS NULL"
+        "__EMBEDDING_FILTER__", "" if force else "AND (r.embedding IS NULL OR size(r.embedding) = 0)"
     ).replace("__PROJECT_FILTER__", "AND c.project_id = $project_id" if project_id else "")
     async with get_driver().session() as session:
         result = await session.run(query, project_id=project_id)

@@ -7,6 +7,7 @@ import { PrivacyNoticeBanner } from "./PrivacyNoticeBanner";
 import { TermsNoticeBanner } from "./TermsNoticeBanner";
 import { SearchDialog } from "@/components/search/SearchDialog";
 import { StatusView } from "@/components/StatusView";
+import { isOptimisticConversationId } from "@/hooks/useConversations";
 import { useProjects, useReorderProjects } from "@/hooks/useProjects";
 import type { Project } from "@/types/api";
 
@@ -89,7 +90,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const chatConversationId = chatMatch?.params.conversationId;
   const atChatRoot = chatRootMatch !== null;
   useEffect(() => {
-    if (chatProjectId && chatConversationId) {
+    if (chatProjectId && chatConversationId && !isOptimisticConversationId(chatConversationId)) {
       lastConversationRef.current = {
         projectId: chatProjectId,
         conversationId: chatConversationId,

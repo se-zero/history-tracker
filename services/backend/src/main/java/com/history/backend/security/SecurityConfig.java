@@ -2,6 +2,9 @@ package com.history.backend.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.history.backend.common.error.ErrorResponse;
+import com.history.backend.oauth.OAuthRateLimitProperties;
+import com.history.backend.oauth.security.OAuthRateLimitFilter;
+import com.history.backend.oauth.security.OAuthRateLimiter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -15,6 +18,8 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 @Configuration
 @RequiredArgsConstructor
@@ -23,6 +28,8 @@ public class SecurityConfig {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final InternalServiceAuthenticationFilter internalServiceAuthenticationFilter;
+    private final OAuthRateLimiter oAuthRateLimiter;
+    private final OAuthRateLimitProperties oAuthRateLimitProperties;
 
     // stateless API 보안 필터 체인 및 공개 인증 경로 설정.
     // securityMatcher가 없는 catch-all이라 인가 서버(1)·MCP 리소스 서버(2) 체인 뒤에 와야 한다.
@@ -51,6 +58,9 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
+                // 동의 화면 API도 인가 서버 주소와 같은 IP 예산을 쓴다. 인증 없는 요청도 세려고 인증 필터들보다 앞에 둔다.
+                .addFilterBefore(new OAuthRateLimitFilter(oAuthRateLimiter, oAuthRateLimitProperties,
+                        PathPatternRequestMatcher.withDefaults().matcher("/api/v1/oauth/consent/**")), SecurityContextHolderFilter.class)
                 .addFilterBefore(internalServiceAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();

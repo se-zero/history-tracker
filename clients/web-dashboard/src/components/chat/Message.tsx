@@ -3,11 +3,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { GithubMark } from "@/components/brand/BrandMarks";
+import { Icons } from "@/components/Icons";
 import { markForSource } from "@/components/sources/sourceCatalog";
 import { formatInstant, formatTimestamp } from "@/lib/format";
 import { remarkLocalTime } from "@/lib/remarkLocalTime";
 import type { Message } from "@/types/api";
 import { evidenceTypeLabel, extractStructured } from "./messageStructured";
+import { SUGGESTED } from "./suggestedQuestions";
 
 // 그래프 패널이 열렸을 때 모든 답변 카드에 주어진다.
 // - 카드 hover: onHoverCard로 ChatPage가 그래프를 그 답변으로 전환(비활성)하거나 노드를 강조(활성)한다.
@@ -29,15 +31,27 @@ export function MessageItem({
   message,
   citation,
   fresh,
+  onPick,
+  disabled,
 }: {
   message: Message;
   citation?: CitationLink;
   fresh?: boolean;
+  onPick: (text: string) => void;
+  disabled?: boolean;
 }) {
   if (message.role === "USER") {
     return <UserMessage content={message.content} />;
   }
-  return <AssistantMessage message={message} citation={citation} fresh={fresh} />;
+  return (
+    <AssistantMessage
+      message={message}
+      citation={citation}
+      fresh={fresh}
+      onPick={onPick}
+      disabled={disabled}
+    />
+  );
 }
 
 export function UserMessage({ content }: { content: string }) {
@@ -56,10 +70,14 @@ function AssistantMessage({
   message,
   citation,
   fresh,
+  onPick,
+  disabled,
 }: {
   message: Message;
   citation?: CitationLink;
   fresh?: boolean;
+  onPick: (text: string) => void;
+  disabled?: boolean;
 }) {
   const structured = useMemo(
     () => extractStructured(message.metadata),
@@ -70,6 +88,12 @@ function AssistantMessage({
   const summary = structured?.summary ?? message.content;
   const unknownAspects = structured?.unknownAspects ?? [];
   const evidence = structured?.evidence ?? [];
+  const iconMap = {
+    branch: Icons.Branch,
+    refactor: Icons.Refactor,
+    fire: Icons.Fire,
+    people: Icons.People,
+  } as const;
 
   return (
     <div
@@ -91,6 +115,29 @@ function AssistantMessage({
         <div className="msg-content markdown">
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkLocalTime]}>{summary}</ReactMarkdown>
         </div>
+
+        {/* intro만 빈 화면과 같은 추천 카드를 붙인다. 예전 대화는 reply_kind가 없어 안 그린다.
+            미확인·근거 경로는 끄지 않는다 — intro는 evidence가 비어 카드가 안 보일 뿐이다. */}
+        {structured?.intro && (
+          <div className="suggest-grid">
+            {SUGGESTED.map((s, i) => {
+              const Ic = iconMap[s.icon];
+              return (
+                <button
+                  key={i}
+                  className="suggest-card"
+                  onClick={() => onPick(s.text)}
+                  disabled={disabled}
+                >
+                  <span className="sg-icon">
+                    <Ic size={14} />
+                  </span>
+                  <span>{s.text}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* 미확인 측면도 본문과 같은 파이프라인을 태운다 — 평문으로 렌더하면 여기 실린
             타임스탬프만 UTC ISO로 남고 백틱도 글자 그대로 보인다. 항목이 짧은 한 줄이라

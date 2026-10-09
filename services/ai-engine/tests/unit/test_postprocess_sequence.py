@@ -94,6 +94,11 @@ def _run_sequence(verify: bool) -> tuple[list[str], dict]:
             "backfill_changesets",
             {"saved": 3, "total": 3},
         )
+        step(
+            "graph.reference_builder.backfill_modified_embeddings",
+            "backfill_modified",
+            {"saved": 4, "total": 4},
+        )
 
         # 임베딩 전용(자동 재구축) 빌더
         step("graph.issue_linker.build_issue_changeset_links", "tb_embedding")
@@ -143,7 +148,7 @@ class AutoRebuildSequenceTest(unittest.TestCase):
             "tb_embedding", "di_embedding", "ref_embedding",
             "propagate", "doc_reference", "doc_described_in",
         )
-        for backfill in ("backfill_issues", "backfill_changesets"):
+        for backfill in ("backfill_issues", "backfill_changesets", "backfill_modified"):
             self.assertIn(backfill, self.calls)
             for builder in builders:
                 self.assertLess(
@@ -157,6 +162,7 @@ class AutoRebuildSequenceTest(unittest.TestCase):
         self.assertEqual(self.result["backfilled"], 1)
         self.assertEqual(self.result["backfilled_issues"], 2)
         self.assertEqual(self.result["backfilled_changesets"], 3)
+        self.assertEqual(self.result["backfilled_modified"], 4)
 
 
 class VerifiedRebuildSequenceTest(unittest.TestCase):
@@ -204,7 +210,7 @@ class VerifiedRebuildSequenceTest(unittest.TestCase):
             "tb_verified", "di_filtered", "ref_filtered",
             "propagate", "doc_reference", "doc_described_in",
         )
-        for backfill in ("backfill_issues", "backfill_changesets"):
+        for backfill in ("backfill_issues", "backfill_changesets", "backfill_modified"):
             self.assertIn(backfill, self.calls)
             for builder in builders:
                 self.assertLess(

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { Icons } from "@/components/Icons";
 import { StatusView } from "@/components/StatusView";
@@ -20,6 +20,12 @@ import { queryKeys } from "@/hooks/queryKeys";
 import {
   useConversation,
   useLoadOlderMessages,
+  adoptPendingConversation,
+  dropPendingConversation,
+  isOptimisticConversationId,
+  setPendingFirstSend,
+  showPendingConversation,
+  usePendingFirstSend,
 } from "@/hooks/useConversations";
 import { useGraph, useGraphActivity, useMessageSubgraph } from "@/hooks/useGraph";
 import { useIntegrations } from "@/hooks/useIntegrations";
@@ -37,10 +43,19 @@ const NODE_ONLY_QUESTION = "첨부한 항목에 대해 설명해줘.";
 
 export function ChatPage({ project }: { project: Project }) {
   const { conversationId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const pendingFirstSend = usePendingFirstSend(project.id);
+  const optimisticConversation =
+    !!conversationId && isOptimisticConversationId(conversationId);
+  const viewingPending =
+    optimisticConversation && pendingFirstSend?.optimisticId === conversationId;
 
-  const conversationQuery = useConversation(project.id, conversationId);
+  const conversationQuery = useConversation(
+    project.id,
+    optimisticConversation ? undefined : conversationId,
+  );
   const detail = conversationQuery.data;
   const messages = detail?.messages ?? [];
 
@@ -52,7 +67,10 @@ export function ChatPage({ project }: { project: Project }) {
     axios.isAxiosError(conversationQuery.error) &&
     conversationQuery.error.response?.status === 404;
 
-  const loadOlder = useLoadOlderMessages(project.id, conversationId);
+  const loadOlder = useLoadOlderMessages(
+    project.id,
+    optimisticConversation ? undefined : conversationId,
+  );
 
   // onReachTop을 안정적인 콜백으로 유지(observer 재구독 방지). 최신 값은 ref로 읽는다.
   // loadingRef: isPending은 리렌더 후에야 갱신돼, 첫 mutate 직후 짧은 창에 sentinel이 다시
@@ -77,6 +95,7 @@ export function ChatPage({ project }: { project: Project }) {
     conversationId: string | undefined;
     text: string;
   } | null>(null);
+  // 첫 질문이 답을 기다리는 동안 왼쪽 목록에 올려 둔 임시 대화.
   const [draft, setDraft] = useState("");
   // 관련 그래프에서 첨부한 focus 노드 칩. 전송 시 ref만 focus_evidence로 실어 보낸다.
   const [attachedNodes, setAttachedNodes] = useState<AttachedNode[]>([]);
@@ -94,10 +113,32 @@ export function ChatPage({ project }: { project: Project }) {
     messageId: string;
     ignite: boolean;
   } | null>(null);
+  // 첫 질문 실패로 빈 대화에 돌아온 입력. 라우트가 갈리며 상태가 사라져도 이 화면에서만 되돌린다.
+  useEffect(() => {
+    const restoreDraft = (location.state as { restoreDraft?: string } | null)?.restoreDraft;
+    if (!restoreDraft || conversationId) return;
+    setDraft(restoreDraft);
+    setSendError(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, conversationId, navigate]);
+
   // 다른 대화로 이동하면 fresh는 무효 — 그 대화로 돌아와도 재생하지 않는다(과거 로드 취급).
   useEffect(() => {
     setFresh((f) => (f && f.conversationId !== conversationId ? null : f));
   }, [conversationId]);
+
+  // 임시 대화 주소에 있는데 답이 이미 도착했으면 서버 대화로 바꾼다.
+  // 다른 화면에서 이 항목을 연 경우에도 같은 효과로 들어간다.
+  useEffect(() => {
+    if (!pendingFirstSend?.createdId) return;
+    if (conversationId === pendingFirstSend.optimisticId) {
+      navigate(`/projects/${project.id}/chat/${pendingFirstSend.createdId}`, {
+        replace: true,
+      });
+      return;
+    }
+    setPendingFirstSend(project.id, null);
+  }, [pendingFirstSend, conversationId, navigate, project.id]);
 
   // 관련 그래프 패널 — 열림 여부는 사용자 선호라 localStorage에 영속한다.
   const [panelOpen, setPanelOpen] = useState(
@@ -300,6 +341,8 @@ export function ChatPage({ project }: { project: Project }) {
         message={m}
         citation={citationFor(m)}
         fresh={m.id === fresh?.messageId}
+        onPick={handleSend}
+        disabled={chatBlock !== null}
       />
     ));
 
@@ -324,33 +367,6 @@ export function ChatPage({ project }: { project: Project }) {
   const createMutation = useMutation({
     mutationFn: (firstMessage: string) =>
       createConversation(project.id, firstMessage),
-    onSuccess: (created) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.conversations(project.id),
-      });
-      queryClient.setQueryData(
-        queryKeys.conversation(project.id, created.id),
-        created,
-      );
-      setPendingMessage(null);
-      // 첫 교환의 답변에 도착 연출을 건다 — navigate와 같은 이벤트 배치라(React 18 배칭)
-      // 아래 conversationId 불일치 해제 effect가 이 렌더 사이에 끼어들어 지우지 않는다.
-      const lastAssistant = [...created.messages]
-        .reverse()
-        .find((m) => m.role === "ASSISTANT");
-      if (lastAssistant) {
-        // 신규 대화는 navigate와 함께 패널이 나타나므로 열림 설정값(panelOpen)을 스냅샷한다 —
-        // 첫 답변도 점등 재생 대상이다.
-        setFresh({
-          conversationId: created.id,
-          messageId: lastAssistant.id,
-          ignite: panelOpen,
-        });
-      }
-      navigate(`/projects/${project.id}/chat/${created.id}`, { replace: true });
-    },
-    // 신규 대화 경로의 origin은 대화 없음(undefined) — 그 화면을 벗어났으면 복구하지 않는다.
-    onError: (_error, firstMessage) => restoreOnError(undefined, firstMessage),
   });
 
   const sendMutation = useMutation({
@@ -410,7 +426,7 @@ export function ChatPage({ project }: { project: Project }) {
       restoreOnError(cid, restoreText, attached),
   });
 
-  const pending = createMutation.isPending || sendMutation.isPending;
+  const pending = createMutation.isPending || sendMutation.isPending || viewingPending;
 
   // 채팅 게이팅 — 연동이 없거나(응답 불가·API 낭비) 그래프가 구축 중이면(답변 신뢰도 낮음) 질문을 막는다.
   // 차단 강제는 프론트에서만 한다(백엔드 게이트 없음). 세 신호를 우선순위로 합친다:
@@ -457,17 +473,19 @@ export function ChatPage({ project }: { project: Project }) {
     const attached = attachedNodes;
     // 텍스트가 비어도 첨부 노드가 있으면 전송한다(노드만으로 질문).
     if ((!trimmed && attached.length === 0) || pending || chatBlock) return;
+    // 임시 대화는 아직 서버 대화가 아니다. 입력을 비우기 전에 끊어야 전송이 조용히 사라지지 않는다.
+    if (conversationId && isOptimisticConversationId(conversationId)) return;
     // node-only면 기본 질문으로 채운다 — 백엔드 content는 @NotBlank.
     const content = trimmed || NODE_ONLY_QUESTION;
     setSendError(false);
     // 다음 질문을 보내는 순간 직전 답변의 "도착 연출" 자격은 끝난다 — 남겨 두면 어떤
     // 이유로든 그 요소가 리마운트될 때 is-fresh 애니메이션이 다시 재생된다.
     setFresh(null);
-    setPendingMessage({ conversationId, text: content });
     // 입력·칩은 즉시 비우되, 실패하면 restoreOnError로 되돌린다.
     setDraft("");
     setAttachedNodes([]);
-    if (conversationId) {
+    if (conversationId && !isOptimisticConversationId(conversationId)) {
+      setPendingMessage({ conversationId, text: content });
       sendMutation.mutate({
         cid: conversationId,
         content,
@@ -475,9 +493,70 @@ export function ChatPage({ project }: { project: Project }) {
         attached,
         restoreText: trimmed,
       });
-    } else {
-      // 신규 대화(첫 메시지)는 패널이 없어 첨부 노드가 없다.
-      createMutation.mutate(content);
+    } else if (!isOptimisticConversationId(conversationId ?? "")) {
+      // 생성 요청은 답변까지 끝나야 돌아오므로, 목록·주소는 먼저 임시 대화로 연다.
+      // 대기 표시는 그 임시 주소에만 둔다. 새 대화(+)는 빈 화면이어야 한다.
+      void queryClient.cancelQueries({
+        queryKey: queryKeys.conversations(project.id),
+      });
+      const optimisticId = showPendingConversation(queryClient, project.id, content);
+      setPendingMessage({ conversationId: optimisticId, text: content });
+      setPendingFirstSend(project.id, { optimisticId, text: content });
+      const task = createMutation.mutateAsync(content);
+      navigate(`/projects/${project.id}/chat/${optimisticId}`);
+      void task.then(
+        (created) => {
+          adoptPendingConversation(queryClient, project.id, optimisticId, created);
+          queryClient.setQueryData(
+            queryKeys.conversation(project.id, created.id),
+            created,
+          );
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.conversations(project.id),
+          });
+          setPendingMessage((current) =>
+            current?.conversationId === optimisticId ? null : current,
+          );
+          setPendingFirstSend(project.id, {
+            optimisticId,
+            text: content,
+            createdId: created.id,
+          });
+          if (window.location.pathname.endsWith(`/chat/${optimisticId}`)) {
+            const lastAssistant = [...created.messages]
+              .reverse()
+              .find((m) => m.role === "ASSISTANT");
+            if (lastAssistant) {
+              setFresh({
+                conversationId: created.id,
+                messageId: lastAssistant.id,
+                ignite: panelOpen,
+              });
+            }
+            navigate(`/projects/${project.id}/chat/${created.id}`, { replace: true });
+          }
+        },
+        () => {
+          dropPendingConversation(queryClient, project.id, optimisticId);
+          setPendingFirstSend(project.id, null);
+          setPendingMessage((current) =>
+            current?.conversationId === optimisticId ? null : current,
+          );
+          const path = window.location.pathname;
+          if (path.endsWith(`/chat/${optimisticId}`)) {
+            navigate(`/projects/${project.id}/chat`, {
+              replace: true,
+              state: { restoreDraft: content },
+            });
+            return;
+          }
+          // 빈 새 대화에 그대로 있을 때만 입력을 되돌린다.
+          // 다른 대화로 옮긴 뒤에는 그 화면의 입력·에러를 건드리지 않는다.
+          if (!path.endsWith("/chat")) return;
+          setDraft((current) => (current.trim() ? current : content));
+          setSendError(true);
+        },
+      );
     }
   };
 
@@ -488,8 +567,19 @@ export function ChatPage({ project }: { project: Project }) {
 
   // 낙관적 메시지는 그것이 속한 대화를 보고 있을 때만 렌더한다 — 응답 대기 중 다른 대화로
   // 이동해도 스피너/입력 거품이 그 대화에 새어 보이지 않게 한다.
+  // 임시 대화 주소는 페이지가 다시 열려도 저장해 둔 질문과 대기 표시를 보여 준다.
   const showPending =
-    pendingMessage !== null && pendingMessage.conversationId === conversationId;
+    viewingPending ||
+    (pendingMessage !== null && pendingMessage.conversationId === conversationId);
+  const pendingText = viewingPending
+    ? (pendingFirstSend?.text ?? "")
+    : (pendingMessage?.text ?? "");
+  const hasLoadedConversation =
+    !!conversationId &&
+    !isOptimisticConversationId(conversationId) &&
+    !conversationQuery.isLoading &&
+    !conversationGone &&
+    !conversationQuery.isError;
 
   const streamProps = {
     conversationId,
@@ -529,14 +619,10 @@ export function ChatPage({ project }: { project: Project }) {
             스피너]) 메시지 key의 내부 경로가 달라져 목록 전체가 리마운트되고, 직전 답변의
             is-fresh 애니메이션이 다시 재생된다(전송마다 전체 DOM 재생성이기도 하다).
             자식 슬롯을 [배열, 조건부, 조건부]로 고정해 메시지 요소를 보존한다. */}
-        {showPending ||
-        (conversationId &&
-          !conversationQuery.isLoading &&
-          !conversationGone &&
-          !conversationQuery.isError) ? (
+        {showPending || hasLoadedConversation ? (
           <ChatStream {...streamProps}>
             {renderMessages()}
-            {showPending && <UserMessage content={pendingMessage!.text} />}
+            {showPending && <UserMessage content={pendingText} />}
             {showPending && <ThinkingState />}
           </ChatStream>
         ) : !conversationId ? (
@@ -545,6 +631,10 @@ export function ChatPage({ project }: { project: Project }) {
             onPick={handleSend}
             disabled={chatBlock !== null}
           />
+        ) : optimisticConversation && !viewingPending ? (
+          // 새로고침·뒤로 가기로 대기 상태가 없는 임시 주소에 들어온 경우.
+          // UUID가 아니라 상세 조회는 400이고, 404가 아니라 에러 화면에서 빠져나올 수 없다.
+          <Navigate to={`/projects/${project.id}/chat`} replace />
         ) : conversationQuery.isLoading ? (
           <StatusView tone="loading" description="메시지를 불러오는 중…" />
         ) : conversationGone ? (

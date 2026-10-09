@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataRetrievalFailureException;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
@@ -51,6 +52,21 @@ class ActiveAuthorizationTokenValidatorTest {
 
         assertThat(result.hasErrors()).isTrue();
         assertThat(result.getErrors()).extracting(OAuth2Error::getErrorCode).containsExactly("invalid_token");
+    }
+
+    // 연결 행은 있는데 앱 행이 없으면 Spring의 행 매퍼가 이 예외를 던진다 — 500이 아니라 끊긴 연결로 취급한다
+    @Test
+    void validateFailsLikeMissingRowWhenRegisteredClientRowIsMissing() {
+        when(authorizationService.findByToken(TOKEN_VALUE, OAuth2TokenType.ACCESS_TOKEN)).thenReturn(null);
+        OAuth2TokenValidatorResult missingRow = validator().validate(jwt());
+        when(authorizationService.findByToken(TOKEN_VALUE, OAuth2TokenType.ACCESS_TOKEN))
+                .thenThrow(new DataRetrievalFailureException("The RegisteredClient with id 'x' was not found"));
+
+        OAuth2TokenValidatorResult result = validator().validate(jwt());
+
+        assertThat(result.hasErrors()).isTrue();
+        assertThat(result.getErrors()).extracting(OAuth2Error::getErrorCode).containsExactly("invalid_token");
+        assertThat(result.getErrors()).isEqualTo(missingRow.getErrors());
     }
 
     @Test

@@ -152,6 +152,22 @@ class OAuthGrantServiceTest {
         verifyNoMoreInteractions(oAuthGrantRepository);
     }
 
+    @Test
+    @DisplayName("안 쓰는 앱 정리는 지금 - 7일을 기준 시각으로 위임하고 저장소가 지운 행 수를 그대로 반환")
+    void purgeUnusedClientsDelegatesWithSevenDaysAgoAndReturnsDeletedCount() {
+        when(oAuthGrantRepository.deleteUnusedClients(any())).thenReturn(5);
+        Instant before = Instant.now();
+
+        int purged = oAuthGrantService().purgeUnusedClients();
+
+        Instant after = Instant.now();
+        assertThat(purged).isEqualTo(5);
+        ArgumentCaptor<Instant> issuedBefore = ArgumentCaptor.forClass(Instant.class);
+        verify(oAuthGrantRepository).deleteUnusedClients(issuedBefore.capture());
+        assertThat(issuedBefore.getValue()).isBetween(before.minus(Duration.ofDays(7)), after.minus(Duration.ofDays(7)));
+        verifyNoMoreInteractions(oAuthGrantRepository);
+    }
+
     private OAuthGrantService oAuthGrantService() {
         return new OAuthGrantService(oAuthGrantRepository, registeredClientRepository);
     }

@@ -66,6 +66,18 @@ public class OAuthGrantRepository {
                 """, Timestamp.from(now));
     }
 
+    // 연결이 남은 앱은 지우지 않는다 — /mcp 입구가 연결 행을 읽을 때 앱 행을 함께 읽어서, 앱 행만 사라지면
+    // 조회가 예외로 끝난다. consent는 계약 밖이라 건드리지 않는다.
+    public int deleteUnusedClients(Instant issuedBefore) {
+        return jdbcTemplate.update("""
+                DELETE FROM oauth2_registered_client
+                WHERE client_id_issued_at < ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM oauth2_authorization a
+                      WHERE a.registered_client_id = oauth2_registered_client.id)
+                """, Timestamp.from(issuedBefore));
+    }
+
     private static Instant toInstant(Timestamp timestamp) {
         return timestamp == null ? null : timestamp.toInstant();
     }

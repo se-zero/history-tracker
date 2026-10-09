@@ -35,6 +35,9 @@ mcp:
     access-token-ttl: PT1H
     refresh-token-ttl: P30D
     consent-path: /oauth/consent
+    rate-limit:
+      per-minute: 100000
+      client-ip-header: CF-Connecting-IP
 
 security:
   internal-service:

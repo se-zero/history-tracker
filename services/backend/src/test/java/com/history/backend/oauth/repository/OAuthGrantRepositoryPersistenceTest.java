@@ -414,6 +414,118 @@ class OAuthGrantRepositoryPersistenceTest {
         assertThat(remainingAuthorizationIds()).hasSize(1);
     }
 
+    @Test
+    @DisplayName("기준 시각보다 오래됐고 연결이 없는 앱은 삭제하고 지운 행 수를 반환")
+    void deleteUnusedClientsDeletesOldClientWithoutAuthorizations() {
+        insertRegisteredClient("id-old", "client-old", NOW.minus(Duration.ofDays(1)));
+
+        int deleted = oAuthGrantRepository.deleteUnusedClients(NOW);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(remainingClientIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("기준 시각보다 최근에 등록된 앱은 유지")
+    void deleteUnusedClientsKeepsClientIssuedAfterCutoff() {
+        insertRegisteredClient("id-recent", "client-recent", NOW.plusSeconds(1));
+
+        int deleted = oAuthGrantRepository.deleteUnusedClients(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingClientIds()).containsExactly("id-recent");
+    }
+
+    @Test
+    @DisplayName("등록 시각이 기준 시각과 정확히 같으면 유지(경계)")
+    void deleteUnusedClientsKeepsClientIssuedExactlyAtCutoff() {
+        insertRegisteredClient("id-boundary", "client-boundary", NOW);
+
+        int deleted = oAuthGrantRepository.deleteUnusedClients(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingClientIds()).containsExactly("id-boundary");
+    }
+
+    @Test
+    @DisplayName("오래됐어도 살아 있는 연결이 있는 앱은 유지 — 지우면 입구 검증이 앱 행을 못 읽는다")
+    void deleteUnusedClientsKeepsOldClientWithLiveAuthorization() {
+        insertRegisteredClient("id-live", "client-live", NOW.minus(Duration.ofDays(10)));
+        insertAuthorization(PRINCIPAL, "id-live", NOW.minus(Duration.ofDays(2)), NOW.minus(Duration.ofDays(2)),
+                "refresh-live", NOW.plus(Duration.ofDays(28)));
+
+        int deleted = oAuthGrantRepository.deleteUnusedClients(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingClientIds()).containsExactly("id-live");
+    }
+
+    @Test
+    @DisplayName("만료됐지만 아직 지워지지 않은 연결만 있어도 앱은 유지 — 만료 행 정리는 deleteExpired의 몫")
+    void deleteUnusedClientsKeepsOldClientWithExpiredButUnpurgedAuthorization() {
+        insertRegisteredClient("id-expired", "client-expired", NOW.minus(Duration.ofDays(60)));
+        insertAuthorization(PRINCIPAL, "id-expired", NOW.minus(Duration.ofDays(60)), NOW.minus(Duration.ofDays(60)),
+                "refresh-expired", NOW.minus(Duration.ofDays(30)));
+
+        int deleted = oAuthGrantRepository.deleteUnusedClients(NOW);
+
+        assertThat(deleted).isZero();
+        assertThat(remainingClientIds()).containsExactly("id-expired");
+    }
+
+    @Test
+    @DisplayName("연결이 없는 앱 A와 연결이 있는 앱 B가 섞여 있으면 A만 삭제 — 앱별로 연결 유무를 판정")
+    void deleteUnusedClientsDeletesOnlyClientsWithoutAuthorizations() {
+        insertRegisteredClient("id-unused", "client-unused", NOW.minus(Duration.ofDays(10)));
+        insertRegisteredClient("id-used", "client-used", NOW.minus(Duration.ofDays(10)));
+        insertAuthorization(PRINCIPAL, "id-used", NOW.minus(Duration.ofDays(2)), NOW.minus(Duration.ofDays(2)),
+                "refresh-used", NOW.plus(Duration.ofDays(28)));
+
+        int deleted = oAuthGrantRepository.deleteUnusedClients(NOW);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(remainingClientIds()).containsExactly("id-used");
+    }
+
+    @Test
+    @DisplayName("DCR 모양(UUID id·랜덤 client_id)과 CIMD 모양(https client_id)을 같은 기준으로 삭제")
+    void deleteUnusedClientsDeletesDcrAndCimdShapedClientsAlike() {
+        Instant old = NOW.minus(Duration.ofDays(10));
+        insertRegisteredClient(UUID.randomUUID().toString(), "mcp-" + UUID.randomUUID(), old);
+        insertRegisteredClient(UUID.randomUUID().toString(), "https://client.example.com/oauth/metadata.json", old);
+        insertRegisteredClient("id-recent-cimd", "https://recent.example.com/oauth/metadata.json", NOW.plusSeconds(1));
+
+        int deleted = oAuthGrantRepository.deleteUnusedClients(NOW);
+
+        assertThat(deleted).isEqualTo(2);
+        assertThat(remainingClientIds()).containsExactly("id-recent-cimd");
+    }
+
+    @Test
+    @DisplayName("앱 행을 지워도 oauth2_authorization 행은 건드리지 않는다")
+    void deleteUnusedClientsLeavesAuthorizationRows() {
+        insertRegisteredClient("id-unused", "client-unused", NOW.minus(Duration.ofDays(10)));
+        String otherClientAuthorization = insertAuthorization(PRINCIPAL, CLIENT_A, NOW.minusSeconds(60),
+                NOW.minusSeconds(55), "refresh-other", NOW.plus(Duration.ofDays(29)));
+
+        oAuthGrantRepository.deleteUnusedClients(NOW);
+
+        assertThat(remainingAuthorizationIds()).containsExactly(otherClientAuthorization);
+    }
+
+    private void insertRegisteredClient(String id, String clientId, Instant issuedAt) {
+        jdbcTemplate.update("""
+                INSERT INTO oauth2_registered_client
+                    (id, client_id, client_id_issued_at, client_name, client_authentication_methods,
+                     authorization_grant_types, scopes, client_settings, token_settings)
+                VALUES (?, ?, ?, 'Test Client', 'none', 'authorization_code,refresh_token', 'mcp:query', '{}', '{}')
+                """, id, clientId, ts(issuedAt));
+    }
+
+    private List<String> remainingClientIds() {
+        return jdbcTemplate.queryForList("SELECT id FROM oauth2_registered_client", String.class);
+    }
+
     private String insertAuthorization(
             String principal,
             String registeredClientId,

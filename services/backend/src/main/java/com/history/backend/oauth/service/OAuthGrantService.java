@@ -1,5 +1,6 @@
 package com.history.backend.oauth.service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -18,6 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class OAuthGrantService {
+
+    // 등록만 해 두고 연결을 늦게 마치는 앱을 지키는 유예다. CIMD 그림자 행은 지워져도 다음 요청 때 문서를
+    // 다시 읽어 되살아나지만, DCR 앱은 등록 번호가 무효가 돼 재등록해야 한다.
+    private static final Duration UNUSED_CLIENT_GRACE = Duration.ofDays(7);
 
     private final OAuthGrantRepository oAuthGrantRepository;
     private final RegisteredClientRepository registeredClientRepository;
@@ -56,5 +61,10 @@ public class OAuthGrantService {
     @Transactional
     public int purgeExpired() {
         return oAuthGrantRepository.deleteExpired(Instant.now());
+    }
+
+    @Transactional
+    public int purgeUnusedClients() {
+        return oAuthGrantRepository.deleteUnusedClients(Instant.now().minus(UNUSED_CLIENT_GRACE));
     }
 }

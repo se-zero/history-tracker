@@ -581,3 +581,7 @@
 }
 .suggest-card:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .suggest-card .sg-icon { color: var(--fg-muted); flex-shrink: 0; margin-top: 2px; }
+/* 인트로 답변 아래 추천 카드 — 빈 화면과 같은 클래스를 쓰되 본문과의 간격만 둔다. */
+.msg.assistant .suggest-grid {
+  margin-top: var(--gutter);
+}

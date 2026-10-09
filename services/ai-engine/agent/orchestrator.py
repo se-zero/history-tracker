@@ -42,6 +42,12 @@ _EXPLORATORY_NOTICE = (
     "근거 연결이 약하거나 일부가 추론일 수 있습니다."
 )
 
+# 잡담 판별이 쓴 문장에 이 제안이 없으면 서버가 붙인다. 문장을 쓸 수 없으면 이 문장만 보여 준다.
+_CHAT_OFFER = "무엇을 도와드릴까요?"
+_CHAT_REPLY_MAX_CHARS = 400
+_ROUTE_HISTORY_MESSAGES = 6
+_ROUTE_HISTORY_CHARS = 2000
+
 
 def _model_kwargs() -> dict:
     """chat_completion에 넘길 모델 공통 kwargs — reasoning_effort는 설정된 경우에만 포함."""
@@ -235,6 +241,8 @@ GitHub(커밋, PR, 이슈), Jira/Linear(이슈), Slack(메시지), Notion(설계
   따로 렌더되므로 summary가 같은 문장을 반복할 필요가 없습니다.
 - 풀어 쓴다고 근거 이상을 말해도 된다는 뜻은 아닙니다. 원문에 없는 인과·평가·수치를
   덧붙이지 마세요 — 표현만 바꾸고 내용은 근거 안에 머무릅니다.
+- 해요체로 씁니다. "~임", "~함", "관련 항목을 찾지 못함" 같은 보고서 문장 대신
+  옆에서 짧게 설명하듯 쓰세요.
 
 [내부 용어 노출 금지 — 시스템 용어는 사용자 언어로 옮긴다]
 - 사용자는 이 시스템의 내부 구조를 모릅니다. 도구 결과의 필드명(discussion_count·duration_days·
@@ -325,7 +333,7 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
   2) search_by_keyword 결과가 약하면(1건 이하 또는 score 낮음) get_recent_activity로 시간 기반 탐색
      - "프로젝트 초기" → 가장 오래된 기간(전체 그래프 첫 30일 등)
      - "최근" / "이번 주" → 현재 기준 최근 7~30일
-  3) 위 두 단계가 모두 비면 unknown_aspects에 "그래프에서 관련 항목을 찾지 못함" 명시.
+  3) 위 두 단계가 모두 비면 unknown_aspects에 "이 기록에서는 그에 해당하는 항목을 찾지 못했어요" 명시.
 즉시 "확인되지 않음"으로 종료 금지 — 최소 한 번은 도구를 호출해 탐색하세요.
 
 [시간순 질문 처리 — get_timeline]
@@ -664,6 +672,111 @@ async def _rewrite_question(
     if isinstance(debug, dict):
         debug["question_rewrite"] = {"changed": changed, "rewritten": result}
     return result
+
+
+_UTTERANCE_ROUTE_SCHEMA = {
+    "name": "utterance_route",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "route": {"type": "string", "enum": ["chat", "graph"]},
+            "reply": {"type": "string"},
+        },
+        "required": ["route", "reply"],
+        "additionalProperties": False,
+    },
+}
+
+_UTTERANCE_ROUTE_INSTRUCTION = (
+    "사용자 말이 이 프로젝트의 코드·PR·이슈·사람·문서·일정에 대한 질문인지 고르세요.\n"
+    "route=graph 이면 reply는 빈 문자열입니다. 조금이라도 그런 질문이면 graph입니다. "
+    "앞에 인사가 있어도 뒤에 사람·코드·이슈를 물으면 graph입니다. 애매하면 graph입니다.\n"
+    "route=chat 은 인사, 감사, 날씨·기분 같은 잡담, 프로젝트 기록 밖의 일반 지식·코딩 방법뿐입니다.\n"
+    "chat의 reply는 한국어 한 문단입니다.\n"
+    "- 인사: 맞인사와 짧은 자기소개(whycode, 코드가 왜 바뀌었는지 함께 찾는다) 뒤에 "
+    "\"무엇을 도와드릴까요?\"\n"
+    "- 감사: 도움이 되어 다행이라는 말 뒤에 같은 질문. 자기소개는 반복하지 않습니다.\n"
+    "- 잡담: 상대 말에 맞장구 한 문장 뒤에 같은 질문. 실제 날씨나 사실은 넣지 않습니다.\n"
+    "- 일반 지식·코딩 방법: 프로젝트 기록 밖이라고 안내한 뒤 같은 질문. 방법을 설명하지 않습니다.\n"
+    "최근 대화가 있으면 그 맥락으로 고릅니다. \"그 사람 누구야\"는 graph, \"정말 고마워\"는 chat입니다."
+)
+
+
+def _route_history(history: list[dict] | None) -> list[dict]:
+    """판별에 넘길 최근 대화. 뒤 턴부터 메시지 수·글자 수로 자른다."""
+    selected: list[dict] = []
+    budget = _ROUTE_HISTORY_CHARS
+    for message in reversed(history or []):
+        if len(selected) >= _ROUTE_HISTORY_MESSAGES or budget <= 0:
+            break
+        content = str(message.get("content") or "")
+        if len(content) > budget:
+            content = content[-budget:]
+        budget -= len(content)
+        selected.append({"role": message.get("role", "user"), "content": content})
+    selected.reverse()
+    return selected
+
+
+def _finalize_chat_reply(reply: str) -> str:
+    """잡담 문장을 그대로 쓰되, 제안 문장이 없으면 붙인다. 못 쓰는 문장은 제안만 남긴다."""
+    text = (reply or "").strip()
+    if not text or "\n" in text or "\r" in text or len(text) > _CHAT_REPLY_MAX_CHARS:
+        return _CHAT_OFFER
+    if _CHAT_OFFER in text:
+        return text
+    return f"{text} {_CHAT_OFFER}"
+
+
+async def _route_utterance(
+    question: str,
+    history: list[dict[str, str]] | None,
+    debug: dict | None = None,
+) -> tuple[str, dict] | None:
+    """잡담이면 intro 답을, 그래프 질문이거나 판별이 실패하면 None을 반환한다.
+
+    실패를 그래프 경로로 보는 이유: 판별이 죽어도 코드 질문은 검색이 계속되어야 한다.
+    """
+    messages = [
+        {"role": "system", "content": _UTTERANCE_ROUTE_INSTRUCTION},
+        {
+            "role": "user",
+            "content": json.dumps(
+                {"history": _route_history(history), "current_question": question},
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    try:
+        response = await chat_completion(
+            priority=Priority.INTERACTIVE,
+            model=_REWRITE_MODEL,
+            messages=messages,
+            response_format={"type": "json_schema", "json_schema": _UTTERANCE_ROUTE_SCHEMA},
+        )
+        _record_usage(debug, response)
+        parsed = json.loads(response.choices[0].message.content or "")
+        if not isinstance(parsed, dict):
+            raise ValueError("발화 판별 결과가 객체가 아닙니다")
+        route = parsed.get("route")
+        reply = parsed.get("reply") or ""
+        if not isinstance(reply, str):
+            raise ValueError("발화 판별 reply가 문자열이 아닙니다")
+    except Exception:
+        logger.warning("발화 판별 실패 — 그래프 검색으로 계속 진행", exc_info=True)
+        if isinstance(debug, dict):
+            debug["utterance_route"] = {"route": "graph", "reason": "error"}
+        return None
+
+    if route != "chat":
+        if isinstance(debug, dict):
+            debug["utterance_route"] = {"route": "graph"}
+        return None
+    text = _finalize_chat_reply(reply)
+    if isinstance(debug, dict):
+        debug["utterance_route"] = {"route": "chat", "fallback": text == _CHAT_OFFER and text != reply.strip()}
+    return _intro_payload(text)
 
 
 # _render_structured가 근거 절을 여는 헤더 — _strip_evidence_section이 같은 상수로 그 절을
@@ -1278,6 +1391,16 @@ def _build_context_card(running_summary: dict | None, full_history: list[dict]) 
     return {"role": "system", "content": "\n".join(lines)}
 
 
+def _intro_payload(text: str) -> tuple[str, dict]:
+    return text, {
+        "summary": text,
+        "evidence": [],
+        "unknown_aspects": [],
+        "answer_mode": "grounded",
+        "reply_kind": "intro",
+    }
+
+
 async def run(
     question: str,
     project_id: str = "",
@@ -1307,6 +1430,12 @@ async def run(
         Structured 호출 실패 시 LLM이 마지막 iteration에서 낸 자유 텍스트로 fallback,
         이때 structured는 None.
     """
+    # 지정 노드가 있으면 그 노드를 조회해야 하므로 잡담 판별을 건너뛴다.
+    if not focus_evidence:
+        intro = await _route_utterance(question, history, debug)
+        if intro is not None:
+            return intro
+
     system_message = {"role": "system", "content": _SYSTEM_PROMPT}
     running_summary_message = None
     if running_summary:
@@ -1398,9 +1527,10 @@ async def run(
                 message.content or _FALLBACK_ANSWER, graph_query_calls > 0, debug, project_id,
             )
 
+        calls = message.tool_calls
         messages.append(message)
 
-        for tc in message.tool_calls:
+        for tc in calls:
             tool_name = tc.function.name
 
             # 인자 JSON 파싱 — 실패 시 LLM이 다음 iteration에서 교정할 수 있게 명확히 알림

@@ -113,6 +113,8 @@ cp .env.example .env
 | `RABBITMQ_USER` · `RABBITMQ_PASSWORD` | `openssl rand -hex 32` | **URL-safe 값만** — 아래 경고 참고 |
 | `MCP_OAUTH_ISSUER` | 배포 도메인 — `https://why-code.com` | 사용자가 브라우저·코딩 에이전트로 접속하는 **프론트 주소와 같아야 한다**(발급되는 토큰의 issuer이자 MCP 리소스 URL의 기준). 비우면 로컬 값(`http://localhost:5173`)으로 뜨므로 prod 오버라이드가 비어 있으면 기동을 거부한다 |
 | `MCP_OAUTH_PRIVATE_KEY` | `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \| awk '{printf "%s\\n", $0}'` | MCP access token(RS256) 서명키, **PKCS#8 PEM**을 한 줄(`\n` 리터럴)로. `openssl genrsa`가 내는 PKCS#1(`BEGIN RSA PRIVATE KEY`)은 읽지 못한다. 비면 backend가 임시 키로 떠서 **재기동마다 발급된 토큰이 전부 무효화**된다 — prod 오버라이드에서 필수라 비어 있으면 기동을 거부한다 |
+| `MCP_OAUTH_CLIENT_IP_HEADER` | (선택) 비우면 `CF-Connecting-IP` | MCP 인가 서버의 IP별 분당 상한이 요청자 IP를 읽을 헤더. 지금 공개 경로(Cloudflare 터널)에서는 비워 둔다. **공개 경로를 바꾸면(클라우드 이전) 반드시 다시 정한다** — 새 경로의 맨 앞단이 값을 통째로 덮어써 주는 헤더여야 하고, `X-Forwarded-For`처럼 이어붙는 헤더를 넣으면 요청자가 값을 바꿔 상한을 피한다 |
+| `MCP_OAUTH_RATE_LIMIT_PER_MINUTE` | (선택) 비우면 `30` | 위 상한의 수치(IP당 분당). 정상 사용자가 429를 받으면 올리고 backend만 다시 띄운다 |
 | `TUNNEL_TOKEN` | Cloudflare 대시보드 | 2-2에서 발급받는다. 이것이 있어야 바깥에서 접근할 수 있다 |
 | `ALERT_SLACK_WEBHOOK_URL` | Slack 앱 → Incoming Webhooks | 선택. 비우면 알림 없이 로그만. 4-6 참고 |
 | `PADDLE_*` · `RESEND_*` | Paddle·Resend 대시보드 | 선택. 비우면 결제는 "준비 중", 결제일 안내는 안 나간다. 라이브 결제를 열 때 3-2b |

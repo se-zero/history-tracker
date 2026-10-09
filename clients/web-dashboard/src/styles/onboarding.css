@@ -21,6 +21,8 @@
 .onb-step-dot.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .onb-step-line { width: 40px; height: 1px; background: var(--border); }
 .onb-muted-block { text-align: center; color: var(--fg-muted); font-size: 13px; padding: 24px 0; }
+/* 2단계 저장소 목록 아래 안내 — "GitHub에서 추가 → 연결 확인" 순서를 아래 버튼 행과 이어 읽히게 한다. */
+.onb-access-hint { margin: 12px 0 0; color: var(--fg-muted); font-size: 12px; }
 .onboarding-gh-empty {
   display: flex; flex-direction: column; align-items: center;
   gap: 10px; text-align: center;

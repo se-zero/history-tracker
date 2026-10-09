@@ -39,6 +39,11 @@ src/
 
   components/
     account/        ConnectedAppsCard(MCP OAuth로 연결된 앱 목록·연결 끊기 — 계정 페이지)
+                    GitHubAccessCard("GitHub 저장소 접근" — App이 설치된 개인 계정·조직 목록과 설치별 GitHub 설정
+                    링크, 다른 계정·조직에 설치, 연결 확인. 설치는 프로젝트가 아니라 계정 단위라 계정 페이지에 둔다.
+                    설정 주소는 조직 `github.com/organizations/{org}/settings/installations/{id}`, 개인
+                    `github.com/settings/installations/{id}`. 설치는 그 계정의 소유자(조직은 조직 소유자)만
+                    바꿀 수 있다 — 협업 중인 다른 사람의 개인 설치도 목록에 나오며 그 링크는 GitHub에서 404다)
     oauth/          OAuthConsentCard(/oauth/consent 본문 — MCP 클라이언트의 연결 요청 미리보기·허용/거부)
     ui/             프리미티브 — MonoChip · InlineError · Field
     shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
@@ -74,6 +79,14 @@ src/
                     누르면 GitHub 로그인으로 페이지를 떠나므로, 온보딩(OnboardingPage)은 STEP 02로 넘어갈 때
                     이름·설명을 sessionStorage 초안(`ht.onboarding.draft`, 30분)에 남기고 다시 열리면 STEP 02부터
                     잇는다. 프로젝트를 만들거나 "이전"을 누르면 지운다. 서버 호출 시점(STEP 02의 "연결")은 그대로다
+                    GitHubRecheckLink — "연결 확인"(GitHub 재로그인으로 설치 목록 새로 받기)의 유일한 구현.
+                    누르기 직전 지금 화면을 `auth/returnPath`에 남겨 로그인 뒤 **누른 화면으로** 돌아온다(없으면
+                    콜백이 `/`로 보내 프로젝트가 있는 사용자는 첫 프로젝트 채팅으로 떨어졌다). 앱 화면에서
+                    `GITHUB_AUTHORIZE_URL`로 가는 링크는 이 컴포넌트로만 만든다(className으로 버튼·`text-link` 선택)
+                    GitHubRepoAccessLink — "GitHub에서 저장소·조직 추가". `GITHUB_INSTALL_URL`(GitHub의 계정·조직
+                    선택 화면 — 설치된 곳은 Configure, 아닌 곳은 Install)을 새 탭으로 연다. 온보딩 2단계 하단·
+                    GitHubInstallEmptyState·계정 설정 카드가 같이 쓴다. 바꾼 뒤 갱신은 "연결 확인"이 맡는다
+                    (앱 전역 `refetchOnWindowFocus: false`라 돌아와도 저절로 다시 받지 않는다)
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(요금제 카드 — `GET /me/billing`의
                     planSource로 결제 구독자·코드 사용자·무료 세 상태를 그린다. 결제창·포털 링크·코드 강등.

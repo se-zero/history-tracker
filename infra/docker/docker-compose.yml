@@ -125,6 +125,10 @@ services:
       # 서명키가 비면 backend가 임시 RSA 키를 만들어 뜨지만, 재기동마다 이미 발급된 MCP 토큰이 전부 무효화된다.
       MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER:-http://localhost:5173}
       MCP_OAUTH_PRIVATE_KEY: ${MCP_OAUTH_PRIVATE_KEY:-}
+      # 인가 서버 IP별 상한이 요청자 IP를 읽을 헤더(선택). 배포 경로가 Cloudflare 터널이라 기본은 CF-Connecting-IP.
+      MCP_OAUTH_CLIENT_IP_HEADER: ${MCP_OAUTH_CLIENT_IP_HEADER:-CF-Connecting-IP}
+      # IP당 분당 상한(선택). 잘못 걸렸을 때 재빌드 없이 올려서 푼다.
+      MCP_OAUTH_RATE_LIMIT_PER_MINUTE: ${MCP_OAUTH_RATE_LIMIT_PER_MINUTE:-30}
 
       # 보안 키
       JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-must-be-changed}
