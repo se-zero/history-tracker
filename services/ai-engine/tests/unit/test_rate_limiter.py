@@ -10,11 +10,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import openai_client
+import rate_limiter
 from rate_limiter import (
     Priority,
     _ModelLimiter,
     estimate_chat_tokens,
     estimate_embed_tokens,
+    truncate_to_tokens,
 )
 
 
@@ -113,6 +115,51 @@ class EstimateTest(unittest.TestCase):
     def test_estimate_embed_tokens_accepts_str(self):
         n = estimate_embed_tokens("single string", "text-embedding-3-small")
         self.assertGreater(n, 0)
+
+
+class TruncateTest(unittest.TestCase):
+    _MODEL = "text-embedding-3-large"
+
+    def test_short_text_is_returned_unchanged(self):
+        self.assertEqual(truncate_to_tokens("짧은 글 short", self._MODEL, 100), "짧은 글 short")
+
+    def test_empty_text_is_returned_unchanged(self):
+        self.assertEqual(truncate_to_tokens("", self._MODEL, 100), "")
+
+    def test_long_text_is_cut_to_a_prefix_within_the_token_limit(self):
+        text = "가나다라 " * 5000
+        result = truncate_to_tokens(text, self._MODEL, 100)
+
+        self.assertLess(len(result), len(text))
+        self.assertTrue(text.startswith(result))
+        self.assertLessEqual(rate_limiter._count_tokens(result, self._MODEL), 100)
+
+    def test_cut_never_ends_with_a_broken_character(self):
+        # 토큰 경계가 멀티바이트 글자 한가운데에 걸리는 혼합 문장 — 잘린 끝이 깨진 글자(U+FFFD)면 안 된다
+        text = "한국어 and English mix 변경 사항 `foo_bar` 수정 " * 600
+        for limit in range(50, 120):
+            result = truncate_to_tokens(text, self._MODEL, limit)
+            self.assertTrue(text.startswith(result), f"limit={limit}")
+
+    def test_without_encoder_falls_back_to_character_cut(self):
+        # 띄어쓰기 없는 한글은 실측 1.43토큰/자라 글자 max_tokens개를 남기면 상한을 넘는다 — 절반만 남긴다
+        text = "가나다라 " * 5000
+        with patch.object(rate_limiter, "_encoder", lambda model: None):
+            result = truncate_to_tokens(text, self._MODEL, 100)
+
+        self.assertEqual(len(result), 50)
+        self.assertTrue(text.startswith(result))
+
+    def test_special_token_strings_are_counted_as_plain_text(self):
+        # tiktoken 기본 설정은 본문에 "<|endoftext|>" 같은 특수 토큰 문자열이 있으면 encode가 예외를 낸다.
+        # OpenAI 서버는 그 문자열을 보통 글자로 세므로 우리도 그렇게 세어 토큰 컷을 유지한다(글자 폴백 아님)
+        text = "<|endoftext|> " + "가나다라 " * 5000
+        enc = rate_limiter._encoder(self._MODEL)
+        if enc is None:
+            self.skipTest("tiktoken 미가용 — 토큰 컷 자체를 검증할 수 없다")
+        expected = enc.decode_bytes(enc.encode(text, disallowed_special=())[:100]).decode("utf-8", errors="ignore")
+
+        self.assertEqual(truncate_to_tokens(text, self._MODEL, 100), expected)
 
 
 class GatewayTest(unittest.IsolatedAsyncioTestCase):

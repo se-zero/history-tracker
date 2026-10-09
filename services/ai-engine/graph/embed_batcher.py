@@ -130,34 +130,14 @@ async def _flush() -> None:
         if vector and not fut.done():  # 취소된 waiter 방어
             fut.set_result(vector)
 
-    # 실패 반경 축소: 콜 하나가 통째로 거절되면(예: 8,192토큰 초과 입력 1건 → 400 → 청크 전체 [])
-    # 같이 탄 정상 텍스트까지 전부 결손된다. 빈 벡터로 남은 항목만 1건씩 재시도해
-    # 단건 호출 시절의 격리 수준을 복원한다 — 정상 경로 비용 0, 실패 시에만 추가 콜.
-    # 재시도는 gather로 동시 실행한다 — API 전면 장애 시 직렬 재시도(각각 SDK 백오프 포함)가
-    # 프리페치 슬롯을 오래 붙들어 파티션 워커까지 지연시키는 것을 막는다.
-    retries = [
-        _retry_single(text, fut)
-        for (text, fut), vector in zip(batch, vectors)
-        if not vector and not fut.done()
-    ]
-    if retries:
-        await asyncio.gather(*retries)
+    # 묶음 실패 시 1건 재시도는 embed_batch가 한다(graph/embedder.py) — 여기서 다시 하면
+    # 끝까지 실패하는 글에 재시도가 두 번 나간다.
 
     # embed_batch가 입력보다 짧게 반환하면(계약 파손) zip이 조용히 멈춰 남은 waiter가
     # 영원히 잠든다 — 워커 정지로 이어지므로 빈 벡터로 마저 깨운다.
     for _, fut in batch:
         if not fut.done():
             fut.set_result([])
-
-
-async def _retry_single(text: str, fut: asyncio.Future) -> None:
-    """배치 실패로 빈 벡터가 된 텍스트 1건을 단독 콜로 재시도해 waiter를 깨운다."""
-    try:
-        single = await embed_batch([text])
-    except Exception:
-        single = []
-    if not fut.done():
-        fut.set_result(single[0] if single else [])
 
 
 def _spawn_tracked(coro) -> asyncio.Task:

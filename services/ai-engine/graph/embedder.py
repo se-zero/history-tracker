@@ -1,15 +1,23 @@
+import asyncio
 import logging
 import math
 
 import numpy as np
 
 from openai_client import Priority, embed
+from rate_limiter import truncate_to_tokens
 
 logger = logging.getLogger(__name__)
 
 _MODEL = "text-embedding-3-large"
 _DIMENSIONS = 1536  # 절삭 — Neo4j 벡터 인덱스 차원 유지 (근거는 docs/embedding-design.md)
 _BATCH_CHUNK_SIZE = 200  # OpenAI Embedding API 호출당 입력 수 상한 (요청당 토큰 한도 회피)
+# 입력 1건당 토큰 상한. 모델 상한 8,192에 여유를 둔다 — 배포 실측: 파일 요약 1건이 8,192토큰을 넘어
+# 400으로 거절되며 같이 보낸 묶음 23건이 전부 결손됐다.
+_MAX_INPUT_TOKENS = 8000
+# 청크 실패 시 1건 재시도의 동시 상한. 옛 커밋 메시지 묶음기의 재시도 폭(COALESCE_MAX 기본 8)과 같다 —
+# 200건을 한꺼번에 쏘면 OpenAI 전면 장애 때 to_thread 스레드풀을 오래 점유해 질의 경로까지 줄 세운다.
+_RETRY_CONCURRENCY = 8
 
 
 async def embed_text(text: str, priority: Priority = Priority.BACKGROUND) -> list[float]:
@@ -26,7 +34,8 @@ async def embed_text(text: str, priority: Priority = Priority.BACKGROUND) -> lis
 async def embed_batch(texts: list[str], priority: Priority = Priority.BACKGROUND) -> list[list[float]]:
     """배치 처리용. reference_builder에서 embedding이 없는 노드를 보정하거나
     대량 초기 데이터를 처리할 때 사용. _BATCH_CHUNK_SIZE 단위로 잘라 호출.
-    빈 문자열은 빈 리스트로 치환. 청크 호출 실패 시 해당 청크만 빈 리스트로 채움."""
+    빈 문자열은 빈 리스트로 치환. 청크 호출이 실패하면 그 청크를 1건씩 재시도하고,
+    그래도 실패한 항목만 빈 리스트로 남김."""
     if not texts:
         return []
 
@@ -44,7 +53,24 @@ async def embed_batch(texts: list[str], priority: Priority = Priority.BACKGROUND
         chunk_indices = indices[offset : offset + _BATCH_CHUNK_SIZE]
         vectors = await _call_embed(chunk, _MODEL, priority)
         if not vectors:
-            logger.warning("embed_batch 청크 실패 (offset=%d, size=%d) — 빈 벡터로 채움", offset, len(chunk))
+            if len(chunk) == 1:
+                # 1건 묶음은 다시 보내도 같은 요청이다(일시 오류는 SDK가 이미 재시도) — 빈 벡터로 둔다
+                logger.warning("embed_batch 청크 실패 (offset=%d, size=1) — 빈 벡터로 채움", offset)
+                continue
+            # 입력 1건이 거절되면 묶음 전체가 같이 거절된다 — 1건씩 다시 보내 정상 항목은 살린다
+            logger.warning("embed_batch 청크 실패 (offset=%d, size=%d) — 1건씩 재시도", offset, len(chunk))
+            # gather로 동시 실행하되 _RETRY_CONCURRENCY로 폭을 묶는다 — 직렬이면 SDK 백오프가 겹쳐 오래 붙들고,
+            # 무제한이면 전면 장애 때 스레드풀을 독점한다
+            sem = asyncio.Semaphore(_RETRY_CONCURRENCY)
+
+            async def retry_one(text: str) -> list[list[float]]:
+                async with sem:
+                    return await _call_embed([text], _MODEL, priority)
+
+            singles = await asyncio.gather(*[retry_one(t) for t in chunk])
+            for idx, single in zip(chunk_indices, singles):
+                if single:
+                    results[idx] = single[0]
             continue
         for idx, vec in zip(chunk_indices, vectors):
             results[idx] = vec
@@ -96,7 +122,11 @@ async def _call_embed(texts: list[str], model: str, priority: Priority = Priorit
     실패 시 빈 리스트 반환 — 호출자가 빈 벡터로 처리해 이벤트 처리 흐름이 끊기지 않도록.
     """
     try:
-        response = await embed(model=model, input=texts, priority=priority, dimensions=_DIMENSIONS)
+        truncated = [truncate_to_tokens(t, model, _MAX_INPUT_TOKENS) for t in texts]
+        cut = sum(1 for before, after in zip(texts, truncated) if before != after)
+        if cut:
+            logger.warning("임베딩 입력 절단: %d/%d건 (상한 %d토큰)", cut, len(texts), _MAX_INPUT_TOKENS)
+        response = await embed(model=model, input=truncated, priority=priority, dimensions=_DIMENSIONS)
         return [item.embedding for item in response.data]
     except Exception:
         logger.exception("Embedding API 호출 실패 (input %d개)", len(texts))

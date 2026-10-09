@@ -5,6 +5,9 @@ from openai_client import Priority, chat_completion
 logger = logging.getLogger(__name__)
 
 _MAX_DIFF_CHARS = 20000
+# 요약 출력 토큰 상한. 데이터·문서 파일에서 1만 자 넘는 요약이 나와 임베딩 입력 상한을 넘겼다.
+# 한국어로 25~40줄 분량.
+_MAX_SUMMARY_TOKENS = 1000
 
 SYSTEM_PROMPT = """\
 당신은 코드 변경사항 요약가입니다. 소스 파일의 unified diff를 받아 한국어로 간결하게 요약하세요.
@@ -16,6 +19,7 @@ SYSTEM_PROMPT = """\
 - diff의 `+`/`-` 기호는 줄 추가/제거를 나타내는 것이며 파일명이나 내용의 일부가 아님
 - 공백, 포맷팅, 빈 줄만 바뀐 의미 없는 변경은 무시
 - 한 줄에 하나의 변경사항
+- 변경이 매우 많은 파일(데이터·문서·설정 등)은 항목을 전부 나열하지 말고 성격별로 묶어 15줄 이내로 요약
 - 코드블록(```) 사용 금지, 마크다운 문법 사용 금지
 - 의미 있는 변경사항이 없으면 빈 문자열 출력
 """
@@ -52,8 +56,23 @@ async def summarize_diff(path: str, diff: str, additions: int = 0, deletions: in
                 {"role": "user", "content": f"File: {path}\n\n{diff}"},
             ],
             temperature=0,
+            max_completion_tokens=_MAX_SUMMARY_TOKENS,
         )
-        return response.choices[0].message.content.strip()
+        choice = response.choices[0]
+        if choice.message.content is None:
+            # 본문 없는 응답(거부 등)은 "의미 있는 변경 없음"(빈 문자열)이 아니라 비정상 응답이다.
+            # 빈 요약은 자동 보정 대상도 아니라 영구 결손되므로 기존 안전망대로 placeholder를 쓴다.
+            logger.warning(
+                "LLM 요약 응답에 본문 없음(finish_reason=%s), placeholder로 대체: path=%s", choice.finish_reason, path
+            )
+            return _size_placeholder(path, additions, deletions, message)
+        text = choice.message.content.strip()
+        if choice.finish_reason == "length":
+            # 상한에 걸려 잘린 응답은 마지막 줄이 문장 중간에서 끊겼을 수 있어 그 줄을 버린다
+            logger.info("요약 출력 상한 도달, 마지막 줄 제거: path=%s", path)
+            if "\n" in text:
+                text = text.rsplit("\n", 1)[0].rstrip()
+        return text
     except Exception:
         logger.exception("LLM 요약 실패, placeholder로 대체: path=%s", path)
         return _size_placeholder(path, additions, deletions, message)
