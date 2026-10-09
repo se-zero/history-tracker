@@ -15,6 +15,9 @@ _BATCH_CHUNK_SIZE = 200  # OpenAI Embedding API 호출당 입력 수 상한 (요
 # 입력 1건당 토큰 상한. 모델 상한 8,192에 여유를 둔다 — 배포 실측: 파일 요약 1건이 8,192토큰을 넘어
 # 400으로 거절되며 같이 보낸 묶음 23건이 전부 결손됐다.
 _MAX_INPUT_TOKENS = 8000
+# 청크 실패 시 1건 재시도의 동시 상한. 옛 커밋 메시지 묶음기의 재시도 폭(COALESCE_MAX 기본 8)과 같다 —
+# 200건을 한꺼번에 쏘면 OpenAI 전면 장애 때 to_thread 스레드풀을 오래 점유해 질의 경로까지 줄 세운다.
+_RETRY_CONCURRENCY = 8
 
 
 async def embed_text(text: str, priority: Priority = Priority.BACKGROUND) -> list[float]:
@@ -56,8 +59,15 @@ async def embed_batch(texts: list[str], priority: Priority = Priority.BACKGROUND
                 continue
             # 입력 1건이 거절되면 묶음 전체가 같이 거절된다 — 1건씩 다시 보내 정상 항목은 살린다
             logger.warning("embed_batch 청크 실패 (offset=%d, size=%d) — 1건씩 재시도", offset, len(chunk))
-            # gather로 동시 실행 — API 전면 장애 시 직렬 재시도(각각 SDK 백오프 포함)가 오래 붙들지 않게 한다
-            singles = await asyncio.gather(*[_call_embed([t], _MODEL, priority) for t in chunk])
+            # gather로 동시 실행하되 _RETRY_CONCURRENCY로 폭을 묶는다 — 직렬이면 SDK 백오프가 겹쳐 오래 붙들고,
+            # 무제한이면 전면 장애 때 스레드풀을 독점한다
+            sem = asyncio.Semaphore(_RETRY_CONCURRENCY)
+
+            async def retry_one(text: str) -> list[list[float]]:
+                async with sem:
+                    return await _call_embed([text], _MODEL, priority)
+
+            singles = await asyncio.gather(*[retry_one(t) for t in chunk])
             for idx, single in zip(chunk_indices, singles):
                 if single:
                     results[idx] = single[0]

@@ -4,6 +4,7 @@
 곧 그래프의 계약이다. 그 계약을 코드에 박아둔다.
 """
 
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -114,6 +115,29 @@ class EmbedBatchRetryTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, [[]])
         self.assertEqual(gateway.await_count, 1)
+
+    async def test_retry_concurrency_is_bounded(self):
+        # 200건 청크가 거절되면 200개 단건 호출이 한꺼번에 나간다 — OpenAI 전면 장애 때 to_thread 스레드풀을
+        # 질의 경로까지 막지 않도록 동시 재시도를 옛 묶음기와 같은 폭(8)으로 묶는다
+        in_flight = 0
+        peak = 0
+
+        async def gateway_behavior(*, model, input, priority, dimensions):
+            nonlocal in_flight, peak
+            if len(input) > 1:
+                raise RuntimeError("rejected")
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return _fake_response(1)
+
+        with mock.patch("graph.embedder.embed", new=mock.AsyncMock(side_effect=gateway_behavior)):
+            result = await embedder.embed_batch([f"t{i}" for i in range(20)])
+
+        self.assertEqual(result, [[0.1, 0.2]] * 20)
+        self.assertLessEqual(peak, embedder._RETRY_CONCURRENCY)
+        self.assertEqual(embedder._RETRY_CONCURRENCY, 8)
 
 
 if __name__ == "__main__":
