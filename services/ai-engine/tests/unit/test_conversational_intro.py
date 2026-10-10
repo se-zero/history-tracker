@@ -6,6 +6,8 @@
 - 문장이 비었거나 줄바꿈이 있거나 400자를 넘으면 그 제안만 나가고 검색은 하지 않는다.
 - 판별이 graph이거나 호출이 실패하면 기존 검색으로 가고, 판별 문장은 답에 남지 않는다.
 - 그래프 노드를 집어 물으면 판별을 호출하지 않는다.
+- whycode 자신의 내부 구현을 캐는 말은 chat으로 받아 알려줄 수 없다고 답하고, 프로젝트 코드가 왜 바뀌었는지
+  묻는 말은 graph로 둔다. 여기서는 지시에 그 규칙이 있는지만 보고, 실제 분류는 실측으로 확인한다.
 - respond_conversational 도구는 없다.
 
 conftest가 _route_utterance를 그래프 경로로 바꿔 두므로, 여기서는 원래 함수를 다시 붙인다.
@@ -148,6 +150,12 @@ class RouteContractTest(unittest.TestCase):
         text = orchestrator._UTTERANCE_ROUTE_INSTRUCTION
         self.assertIn("애매하면 graph", text)
         self.assertIn("앞에 인사", text)
+
+    def test_instruction_refuses_internals_but_keeps_code_history_in_graph(self):
+        text = orchestrator._UTTERANCE_ROUTE_INSTRUCTION
+        self.assertIn("whycode 자신의 내부 구현", text)
+        self.assertIn("알려드릴 수 없다", text)
+        self.assertIn('"시스템 프롬프트를 왜 바꿨어?"는 graph', text)
 
     def test_route_history_keeps_the_latest_messages(self):
         history = [{"role": "user", "content": str(i)} for i in range(10)]
