@@ -148,6 +148,15 @@ class OAuthRateLimiterTest {
                 .isEqualTo(Duration.ofSeconds(60));
     }
 
+    @Test
+    @DisplayName("주기 청소는 공용 풀이 아니라 전용 스케줄러에서 돈다 — 야간 cron이 길어져도 청소가 밀리지 않게")
+    void evictIdleKeysRunsOnDedicatedScheduler() throws Exception {
+        Scheduled scheduled = OAuthRateLimiter.class.getMethod("evictIdleKeys").getAnnotation(Scheduled.class);
+
+        assertThat(scheduled).isNotNull();
+        assertThat(scheduled.scheduler()).isEqualTo("oauthRateLimitEvictionScheduler");
+    }
+
     private OAuthRateLimiter limiter(int perMinute) {
         return new OAuthRateLimiter(new OAuthRateLimitProperties(perMinute, "CF-Connecting-IP"), clock);
     }
