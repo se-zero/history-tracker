@@ -26,7 +26,7 @@ whycode 질의를 `/mcp` 한 곳에서 도구 4개(`list_projects`·`bind_projec
 - **상태(2026-10-09)**: 코드 완료, main 배포. 실제 Claude Code로 로컬(2026-10-01)과 배포 서버(2026-10-04·10-09)에서 연결·폴더 연결·
   질의·갱신·철회 뒤 재인증·IP별 상한·분당 상한까지 확인했다. 확인 상태표는 §10.
 - **아직 확인하지 않은 것**: Claude Code 외 클라이언트 전부(§8), 125초에 가까운 긴 질의, FREE 한도 문구의 실제 표시(§10).
-- **열린 후속**은 §9에 표로 모았다(전부 미착수).
+- **열린 후속**은 §9에 표로 모았다(2026-10-10 기준 6건, 전부 미착수).
 
 ## 1. 무엇을, 왜
 
@@ -162,7 +162,7 @@ backend ── 티켓 필터가 사용자 인증 → 인가 코드 → http://lo
 |------|------|------|
 | `POST /mcp` | `Authorization: Bearer <access 토큰>`, scope `mcp:query`, 입구 검증 | MCP JSON-RPC(`initialize`·`tools/list`·`tools/call`·`prompts/list`·`prompts/get`). 토큰이 없거나 틀리면 401 + `WWW-Authenticate: Bearer [error=…, error_description=…, ]resource_metadata="<issuer>/.well-known/oauth-protected-resource/mcp", scope="mcp:query"`. 유효한 토큰의 `GET /mcp`는 405 |
 | `GET /.well-known/oauth-protected-resource` · `…/mcp` | 없음 | 인증 안내 문서(RFC 9728): `resource`(= issuer + `/mcp`), `authorization_servers`(= issuer), `scopes_supported`, `bearer_methods_supported: ["header"]`, `tls_client_certificate_bound_access_tokens: false`(Spring 기본값은 true인데 mTLS 인증서에 묶인 토큰은 지원하지 않아 껐다) |
-| `GET /.well-known/oauth-authorization-server` | 없음 | 인가 서버 메타데이터(RFC 8414). `client_id_metadata_document_supported: true`, `code_challenge_methods_supported: ["S256"]`, `registration_endpoint`, 토큰 엔드포인트 인증 `none` |
+| `GET /.well-known/oauth-authorization-server` | 없음 | 인가 서버 메타데이터(RFC 8414). `client_id_metadata_document_supported: true`, `code_challenge_methods_supported: ["S256"]`, `registration_endpoint`, 토큰 엔드포인트 인증 `none`, `tls_client_certificate_bound_access_tokens: false`(인증 안내 문서와 같은 이유로 껐다) |
 | `GET /oauth2/authorize` | 티켓 쿠키 `wc_oauth_ticket`(없으면 SPA `/oauth/consent`로 302) | 인가 요청. scope가 없으면 `mcp:query`를 기본으로 넣는다 |
 | `POST /oauth2/token` | 공개 클라이언트(secret 없음, PKCE `code_verifier`) | 인가 코드 교환, refresh 갱신(회전) |
 | `POST /oauth2/register` | 열림 | DCR 폴백(공개 클라이언트만) |
@@ -319,7 +319,7 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
   않는다. `GET /mcp` 405를 한 번 받고 정상 진행. 주소 끝에 `/`를 붙여 등록하면 `MCP endpoint not found … Check the URL in your MCP config`로
   표시된다(서버의 JSON 안내는 보이지 않는다).
 - 프롬프트는 `/mcp__whycode__connect`·`/mcp__whycode__why`로 보이고 서버 안내문이 전달된다. **`why`의 질문은 따옴표로 감싸야 전체가
-  전달된다**(Claude Code가 슬래시 명령의 인자를 공백으로 나눈다). 설치 안내 페이지에는 아직 적지 않았다(§9 열린 후속 3).
+  전달된다**(Claude Code가 슬래시 명령의 인자를 공백으로 나눈다). 설치 안내 페이지 「질문하는 법」에 예시와 함께 적었다.
 - 도구 선택: 파일 단위 질문에는 안내문대로 `ask`를 고른다. `explain_commit`의 인자 이름을 틀리게(`commit_hash`) 부른 뒤 스스로 고친 적이
   있다. 프롬프트 없이 그냥 물으면 whycode를 부르지 않는 경우도 있었다(새 세션) — 부를지는 에이전트 모델의 판단이라 서버가 강제할 수 없다.
 - 토큰: access 토큰이 만료된 뒤 도구를 병렬로 5번 불러도 재로그인 없이 한 번 갱신하고 전부 성공한다.
@@ -360,19 +360,19 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 로그인 없는 요청의 IP별 상한, 미사용 등록 행 정리(연결 0개 + 7일), CIMD 문서 조회의 총 시간 제한은 배포 뒤 후속으로 넣었고(#175,
 2026-10-05) 배포 서버에서 동작을 확인했다(2026-10-09). 질의 품질과 얽혀 있던 ai-engine 결함 2건(빈 임베딩 저장, 파일 요약 임베딩 보정의
 영구 실패)도 고쳐 배포했다(#175·#178) — [embedding-design.md](embedding-design.md)의 「임베딩이 실패했을 때」·「길이 상한」.
+그 다음 묶음(2026-10-10)으로 설치 안내의 `why` 따옴표 문구, 인가 서버 메타데이터의 mTLS 광고, SSRF 가드의 예약 대역, IP 기록 청소의 전용
+스케줄러(야간 cron이 길어져도 청소가 밀리지 않게)를 닫았다.
 
-**열린 후속** (2026-10-09 기준, 전부 미착수)
+**열린 후속** (2026-10-10 기준, 전부 미착수)
 
 | # | 항목 | 내용 | 메모 |
 |---|------|------|------|
 | 1 | 에이전트 쪽 연결 해제가 서버에 닿지 않음 | Claude Code는 `/mcp`에서 해제할 때 `POST /oauth2/revoke`를 부르는데, 메타데이터가 `revocation_endpoint`를 광고하면서 `revocation_endpoint_auth_methods_supported`에 `none`이 없어 공개 클라이언트는 401. 해제한 연결이 refresh 30일 동안 서버에 남는다 — **계정 페이지의 "연결된 앱"에서 끊어야 지워진다** | 위험 낮음(앱이 버린 토큰이지 유출이 아님). 고치려면 Claude Code의 요청 형식 확인 + 폐기된 연결을 목록에서 빼는 처리(2번) |
 | 2 | "연결된 앱"에 무효화된 연결이 남을 수 있음 | Spring이 무효 표시한 연결(같은 인가 코드 재사용 시도 등)을 목록 SQL이 만료 시각만 보고 보여 준다(최대 30일). 입구는 401로 거른다 | 라이브러리 내부 JSON 표기에 기대야 해서 보류. Claude Code는 코드를 한 번만 교환해 실제로는 생기지 않았다 |
-| 3 | `why` 프롬프트의 따옴표 안내 | 따옴표 없이 쓰면 첫 단어만 전달된다(§8). 설치 안내 페이지에 없다 | 문구 한 줄 |
-| 4 | 인가 서버 메타데이터의 mTLS 광고 | `tls_client_certificate_bound_access_tokens: true`(Spring 기본값)가 남아 있다. 인증 안내 문서 쪽만 껐고 실제로는 지원하지 않는다 | 설정 한 줄 |
-| 5 | 목록·연결 도구에 분당 상한 없음 | `list_projects`·`bind_project`에는 사용자별 상한이 없다(질의 도구만 있다) | 남용 신호가 보이면 |
-| 6 | SSRF 가드의 빈틈 | DNS 리바인딩(검증과 연결 사이 레코드 변경)의 창, CGNAT 같이 JDK가 사설로 보지 않는 예약 대역 | 조회 대상이 CIMD 문서뿐이라 보류 |
-| 7 | 허용 화면 후속 2건 | 뒤로가기로 복원된 화면의 "취소"가 저장된 복귀 경로를 지우지 않음(10분 TTL이 막아 줌), `isSafeRedirect`에 백슬래시 차단 없음(backend 응답이라 실경로 없음) | 동의 화면을 다시 만질 때 |
-| 8 | `/mcp/setup`의 Codex 안내 미대조 | 페이지는 Codex 절차(`codex mcp login`, `tool_timeout_sec = 120`)를 싣고 있는데 문서 조사로 쓴 문구다 | Codex로 실제 연결해 본 뒤(결제 문제로 보류) |
+| 3 | 목록·연결 도구에 분당 상한 없음 | `list_projects`·`bind_project`에는 사용자별 상한이 없다(질의 도구만 있다) | 남용 신호가 보이면 |
+| 4 | SSRF 가드의 DNS 리바인딩 창 | 검증과 실제 연결 사이에 DNS 레코드가 바뀌면 검증한 주소와 다른 곳에 접속할 수 있다. JDK가 사설로 보지 않는 예약 대역(CGNAT·0/8·NAT64 등)은 거절 목록에 넣어 닫았다 | 조회 대상이 CIMD 문서뿐이고 https 강제라 보류. JDK가 성공한 DNS 조회를 기본 30초 캐시해(`networkaddress.cache.ttl` 미설정) 검증과 접속이 같은 IP를 쓰므로 창은 사실상 닫혀 있다 — 이 값을 0으로 낮추는 설정(클라우드 이전 때 흔함)이 들어오면 다시 연다 |
+| 5 | 허용 화면 후속 2건 | 뒤로가기로 복원된 화면의 "취소"가 저장된 복귀 경로를 지우지 않음(10분 TTL이 막아 줌), `isSafeRedirect`에 백슬래시 차단 없음(backend 응답이라 실경로 없음) | 동의 화면을 다시 만질 때 |
+| 6 | `/mcp/setup`의 Codex 안내 미대조 | 페이지는 Codex 절차(`codex mcp login`, `tool_timeout_sec = 120`)를 싣고 있는데 문서 조사로 쓴 문구다 | Codex로 실제 연결해 본 뒤(결제 문제로 보류) |
 
 ## 10. 검증 방법
 

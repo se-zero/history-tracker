@@ -81,7 +81,8 @@ class OAuthAuthorizationServerChainTest {
                 .andExpect(jsonPath("$.jwks_uri").value(ISSUER + "/oauth2/jwks"))
                 .andExpect(jsonPath("$.scopes_supported", Matchers.hasItem("mcp:query")))
                 .andExpect(jsonPath("$.grant_types_supported", Matchers.hasItems("authorization_code", "refresh_token")))
-                .andExpect(jsonPath("$.token_endpoint_auth_methods_supported", Matchers.hasItem("none")));
+                .andExpect(jsonPath("$.token_endpoint_auth_methods_supported", Matchers.hasItem("none")))
+                .andExpect(jsonPath("$.tls_client_certificate_bound_access_tokens").value(false));
     }
 
     @Test

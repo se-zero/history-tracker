@@ -34,6 +34,8 @@ const COPY: Localized<{
   askExample2: string;
   askExample3: string;
   askTip: string;
+  askPromptIntro: ReactNode;
+  askPromptCommand: string;
   askClaudeMdIntro: ReactNode;
   askClaudeMdLine: string;
   noteHeading: string;
@@ -95,6 +97,13 @@ const COPY: Localized<{
     askExample2: '"이 함수의 재시도 횟수가 3인 이유가 뭐야?"',
     askExample3: '"결제 재시도 로직 왜 바뀌었어?"',
     askTip: '처음에는 "whycode로 찾아봐"처럼 이름을 붙이면 에이전트가 확실히 whycode를 사용합니다.',
+    askPromptIntro: (
+      <>
+        Claude Code에서는 <code>/mcp__whycode__why</code> 프롬프트로도 물을 수 있습니다. 질문은 따옴표로 감싸야
+        전체가 전달됩니다 — 따옴표 없이 쓰면 첫 단어만 전달됩니다.
+      </>
+    ),
+    askPromptCommand: '/mcp__whycode__why "결제 재시도 로직 왜 바뀌었어?"',
     askClaudeMdIntro: (
       <>
         저장소의 <code>CLAUDE.md</code>나 <code>AGENTS.md</code>에 아래 한 줄을 붙여 두면 더 안정적으로 쓰입니다.
@@ -159,6 +168,13 @@ const COPY: Localized<{
     askExample2: '"why does this function retry 3 times?"',
     askExample3: '"why did the payment retry logic change?"',
     askTip: 'The first time, naming it — like "look this up with whycode" — makes the agent reliably reach for whycode.',
+    askPromptIntro: (
+      <>
+        In Claude Code you can also ask through the <code>/mcp__whycode__why</code> prompt. Wrap the question in
+        quotes — without them, only the first word gets through.
+      </>
+    ),
+    askPromptCommand: '/mcp__whycode__why "why did the payment retry logic change?"',
     askClaudeMdIntro: (
       <>
         Adding this line to your repository's <code>CLAUDE.md</code> or <code>AGENTS.md</code> makes this more
@@ -245,6 +261,10 @@ export function McpBody() {
           <li>{t.askExample3}</li>
         </ul>
         <p>{t.askTip}</p>
+        <p>{t.askPromptIntro}</p>
+        <pre className="lp-legal-pre">
+          <code>{t.askPromptCommand}</code>
+        </pre>
         <p>{t.askClaudeMdIntro}</p>
         <pre className="lp-legal-pre">
           <code>{t.askClaudeMdLine}</code>
