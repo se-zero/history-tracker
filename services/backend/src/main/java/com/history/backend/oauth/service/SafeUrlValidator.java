@@ -62,6 +62,9 @@ public class SafeUrlValidator {
             Cidr.of("240.0.0.0", 4),
             // IPv6 Unique Local Address — isSiteLocalAddress()는 IPv4 사설 대역만 판정한다
             Cidr.of("fc00::", 7),
+            // IPv4-compatible IPv6(::a.b.c.d, 폐기됨). JDK는 ::ffff:a.b.c.d(IPv4-mapped)만 Inet4Address로 접어 주고
+            // 이 표기는 Inet6Address로 남겨 loopback·사설 판정이 전부 비켜 간다
+            Cidr.of("::", 96),
             // NAT64 잘 알려진 접두사(IPv4 주소를 품는다)
             Cidr.of("64:ff9b::", 96),
             // 로컬용 NAT64

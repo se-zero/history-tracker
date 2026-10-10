@@ -115,13 +115,14 @@ class SafeUrlValidatorTest {
     }
 
     @ParameterizedTest
-    @DisplayName("JDK가 사설로 보지 않는 예약 대역(0/8·CGNAT·192.0.0/24·벤치마크·240/4·NAT64·6to4·Teredo)으로 해석되면 거부")
+    @DisplayName("JDK가 사설로 보지 않는 예약 대역(0/8·CGNAT·192.0.0/24·벤치마크·240/4·IPv4-compatible·NAT64·6to4·Teredo)으로 해석되면 거부")
     @ValueSource(strings = {
             "0.1.2.3",
             "100.64.0.1", "100.127.255.255",
             "192.0.0.8",
             "198.18.0.1", "198.19.255.255",
             "240.0.0.1", "255.255.255.255",
+            "::a9fe:a9fe", "::7f00:1",
             "64:ff9b::a00:1",
             "64:ff9b:1::1",
             "2002:a00:1::1",
