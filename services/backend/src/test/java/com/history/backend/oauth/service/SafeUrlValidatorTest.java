@@ -8,6 +8,8 @@ import java.util.function.Function;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @DisplayName("SafeUrlValidator: CIMD client_id URL의 SSRF 가드")
 class SafeUrlValidatorTest {
@@ -110,6 +112,35 @@ class SafeUrlValidatorTest {
     @DisplayName("해석된 주소가 IPv6 ULA(fd00::1, fc00::/7)이면 거부")
     void rejectsIpv6UniqueLocal() {
         assertThat(validatorResolving("fd00::1").isSafe("https://internal.example/doc")).isFalse();
+    }
+
+    @ParameterizedTest
+    @DisplayName("JDK가 사설로 보지 않는 예약 대역(0/8·CGNAT·192.0.0/24·벤치마크·240/4·NAT64·6to4·Teredo)으로 해석되면 거부")
+    @ValueSource(strings = {
+            "0.1.2.3",
+            "100.64.0.1", "100.127.255.255",
+            "192.0.0.8",
+            "198.18.0.1", "198.19.255.255",
+            "240.0.0.1", "255.255.255.255",
+            "64:ff9b::a00:1",
+            "64:ff9b:1::1",
+            "2002:a00:1::1",
+            "2001:0:a00:1::1"
+    })
+    void rejectsReservedRanges(String literalIp) {
+        assertThat(validatorResolving(literalIp).isSafe("https://internal.example/doc")).isFalse();
+    }
+
+    @ParameterizedTest
+    @DisplayName("예약 대역 경계 바로 밖의 공인 주소는 통과")
+    @ValueSource(strings = {
+            "100.63.255.255", "100.128.0.0",
+            "198.17.255.255", "198.20.0.1",
+            "64:ff9c::1",
+            "2001:4860::1"
+    })
+    void allowsAddressesJustOutsideReservedRanges(String literalIp) {
+        assertThat(validatorResolving(literalIp).isSafe("https://internal.example/doc")).isTrue();
     }
 
     @Test
