@@ -147,7 +147,9 @@ public class OAuthAuthorizationServerConfig {
                                 .claim("client_id_metadata_document_supported", true)
                                 .scope("mcp:query")
                                 // 공개 클라이언트(PKCE, client_secret 없음)만 지원한다 — 기본 목록엔 none이 빠져 있다.
-                                .tokenEndpointAuthenticationMethod("none")))
+                                .tokenEndpointAuthenticationMethod("none")
+                                // Spring 기본값은 true인데 mTLS 인증서에 묶인 토큰은 지원하지 않는다 — 틀린 광고를 끈다.
+                                .tlsClientCertificateBoundAccessTokens(false)))
                         .authorizationEndpoint(authorization -> authorization
                                 .authorizationRequestConverter(new DefaultScopeAuthorizationRequestConverter())
                                 .authenticationProviders(providers -> providers.stream()
