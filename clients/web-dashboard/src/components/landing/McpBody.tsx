@@ -23,6 +23,10 @@ const COPY: Localized<{
   codexStep1: ReactNode;
   codexToml: string;
   codexStep2: ReactNode;
+  cursorHeading: string;
+  cursorStep1: ReactNode;
+  cursorJson: string;
+  cursorStep2: ReactNode;
   supportedClients: string;
   folderHeading: string;
   folderBody1: string;
@@ -84,7 +88,21 @@ const COPY: Localized<{
         초과가 날 수 있어서입니다.
       </>
     ),
-    supportedClients: "지원하는 클라이언트는 현재 Claude Code와 Codex입니다.",
+    cursorHeading: "Cursor",
+    cursorStep1: (
+      <>
+        <code>~/.cursor/mcp.json</code>(모든 프로젝트에 적용) 또는 저장소 안의 <code>.cursor/mcp.json</code>(그
+        프로젝트에만 적용)에 아래를 추가합니다.
+      </>
+    ),
+    cursorJson: '{\n  "mcpServers": {\n    "whycode": {\n      "url": "https://why-code.com/mcp"\n    }\n  }\n}',
+    cursorStep2: (
+      <>
+        그 다음 Cursor 설정의 MCP 목록에서 whycode에 로그인하면 브라우저가 열립니다. 필요하면 GitHub으로 로그인한 뒤
+        "허용"을 누릅니다.
+      </>
+    ),
+    supportedClients: "지원하는 클라이언트는 현재 Claude Code·Codex·Cursor입니다.",
     folderHeading: "폴더와 프로젝트 연결하기",
     folderBody1:
       '에이전트를 여는 저장소 폴더마다 어느 whycode 프로젝트에 물을지 한 번 정해 둡니다. 그 폴더에서 에이전트에게 "whycode 프로젝트 연결해줘"라고 말하면 프로젝트 목록을 보여주고, 고른 프로젝트를 그 폴더(절대 경로) 기준으로 저장합니다.',
@@ -155,7 +173,21 @@ const COPY: Localized<{
         10-60 seconds, longer when there's more evidence to cite.
       </>
     ),
-    supportedClients: "Claude Code and Codex are supported today.",
+    cursorHeading: "Cursor",
+    cursorStep1: (
+      <>
+        Add this to <code>~/.cursor/mcp.json</code> (all projects) or to <code>.cursor/mcp.json</code> inside the
+        repository (that project only).
+      </>
+    ),
+    cursorJson: '{\n  "mcpServers": {\n    "whycode": {\n      "url": "https://why-code.com/mcp"\n    }\n  }\n}',
+    cursorStep2: (
+      <>
+        Then sign in to whycode from the MCP list in Cursor's settings — a browser window opens. Sign in with
+        GitHub if needed, then press "Allow".
+      </>
+    ),
+    supportedClients: "Claude Code, Codex, and Cursor are supported today.",
     folderHeading: "Connect a folder to a project",
     folderBody1:
       'For each repository folder you open the agent in, you pick which whycode project it should ask once. Tell the agent something like "connect a whycode project" in that folder — it shows your project list and saves the one you pick for that folder (by absolute path).',
@@ -241,6 +273,13 @@ export function McpBody() {
           <code>{t.codexToml}</code>
         </pre>
         <p>{t.codexStep2}</p>
+
+        <h3 className="lp-legal-subheading">{t.cursorHeading}</h3>
+        <p>{t.cursorStep1}</p>
+        <pre className="lp-legal-pre">
+          <code>{t.cursorJson}</code>
+        </pre>
+        <p>{t.cursorStep2}</p>
 
         <p className="lp-legal-note">{t.supportedClients}</p>
       </section>

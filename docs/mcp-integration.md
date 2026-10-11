@@ -25,7 +25,7 @@ whycode 질의를 `/mcp` 한 곳에서 도구 4개(`list_projects`·`bind_projec
 
 - **상태(2026-10-09)**: 코드 완료, main 배포. 실제 Claude Code로 로컬(2026-10-01)과 배포 서버(2026-10-04·10-09)에서 연결·폴더 연결·
   질의·갱신·철회 뒤 재인증·IP별 상한·분당 상한까지 확인했고, 에이전트 쪽 해제(`POST /oauth2/revoke`)는 로컬에서 확인했다(2026-10-11). 확인 상태표는 §10.
-- **아직 확인하지 않은 것**: Claude Code 외 클라이언트 전부(§8), 125초에 가까운 긴 질의, FREE 한도 문구의 실제 표시(§10).
+- **아직 확인하지 않은 것**: Claude Code·Cursor 외 클라이언트(§8), 125초에 가까운 긴 질의, FREE 한도 문구의 실제 표시(§10).
 - **열린 후속**은 §9에 표로 모았다(2026-10-11 기준 5건, 전부 미착수).
 
 ## 1. 무엇을, 왜
@@ -309,7 +309,7 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 | Codex | 미확인(결제 문제로 보류) | 문서 조사: `~/.codex/config.toml`의 `[mcp_servers.<이름>]`에 `url`, `codex mcp login <이름>`. **`tool_timeout_sec` 기본 60초**(설정 가능). 서버 `instructions`를 지침으로 쓴다. CIMD·DCR 지원은 미확인. `/mcp/setup`의 Codex 절차는 이 조사 문구라 실제와 대조하지 않았다 |
 | MCP Inspector | 미확인 | 등록 방식(DCR 재사용 여부 등) 미조사 |
 | claude.ai·Claude Desktop 커스텀 커넥터 | 미확인 | 문서 조사: 전 플랜 가능, OAuth 선택지(CIMD 권장 / DCR / 직접 등록)가 우리 서버와 맞음. 콜백 `https://claude.ai/api/mcp/auth_callback`, 도구 응답 60초 제한 |
-| Cursor | 미확인 | 문서 조사: Streamable HTTP, `mcp.json`에 정적 `CLIENT_ID` 가능. DCR 자동·CIMD 미출시(서드파티 글, 2026-01). 콜백 `https://www.cursor.com/agents/mcp/oauth/callback`·`http://localhost:8787/callback`. 도구 60초 고정 |
+| Cursor | **확인** — 팀원 실기동(2026-10-11, 연결) | `mcp.json`의 `mcpServers.whycode.url`만으로 연결됨(절차는 `/mcp/setup`). 등록 방식(DCR/CIMD)·도구 시간 제한은 실측하지 않았다. 문서 조사: Streamable HTTP, 정적 `CLIENT_ID` 가능, DCR 자동·CIMD 미출시(서드파티 글, 2026-01). 콜백 `https://www.cursor.com/agents/mcp/oauth/callback`·`http://localhost:8787/callback`. 도구 60초 고정 |
 | VS Code + GitHub Copilot | 미확인 | 문서 조사: `"type": "http"`, OAuth 자동(브라우저), DCR 우선·`oauth.clientId` 지정 가능, CIMD 진행 중 |
 | Gemini CLI | 미확인 | 문서 조사: `httpUrl`, 401이면 OAuth 자동 발견 + DCR, `/mcp auth`, 도구 timeout 기본 600초 |
 | Windsurf | 미확인 | "각 전송에 OAuth 지원"이라고만 있어 DCR·CIMD 여부 모름 |
@@ -426,7 +426,7 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 - 125초에 가까운 긴 질의가 Cloudflare 경유에서 우리 시간 초과 문구로 끝나는지(관측된 질의는 모두 그보다 짧았다). 일부러 만들지 않기로
   했다(2026-10-09) — Cloudflare의 125초는 공식 문서로 재확인했고, backend 로그에 `MCP query fell back … reason=TIMEOUT`이 보이면 그때
   클라이언트 표시를 확인한다.
-- Claude Code 외 클라이언트 전부(§8). Codex는 결제 문제로 보류 중.
+- Claude Code·Cursor 외 클라이언트(§8). Codex는 결제 문제로 보류 중.
 - FREE 한도 문구의 실제 클라이언트 표시(무료 플랜 계정으로 월 한도까지 써야 보인다).
 - `list_projects`의 빈 `required` 스키마를 다른 클라이언트가 받는지(Claude Code는 그대로 받았다).
 - 로그인 화면의 방침 개정 공지 배너.
