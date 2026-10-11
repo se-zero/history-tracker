@@ -82,7 +82,7 @@ export function ConsentScreen() {
             href={PATHS.terms}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: "var(--accent-ink)", textDecoration: "underline" }}
+            className="text-link"
           >
             이용약관
           </a>
@@ -91,7 +91,7 @@ export function ConsentScreen() {
             href={PATHS.privacy}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: "var(--accent-ink)", textDecoration: "underline" }}
+            className="text-link"
           >
             개인정보처리방침
           </a>

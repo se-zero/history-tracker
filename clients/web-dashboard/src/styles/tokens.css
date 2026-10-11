@@ -47,10 +47,6 @@
   --node-code:     oklch(0.57 0.025 257);  /* cool grey  #6F7987 — 가장 수가 많아 가장 조용하게 */
   --node-doc:      oklch(0.46 0.153 328);  /* orchid     #823082 — node-communication(301)과 node-actor(351) 사이 빈 hue */
 
-  /* workunit.css(.cd-item.active)가 아직 --primary-soft를 참조해 완전 제거가 보류됐다 —
-     상세 사유는 tokens.css 하단 --primary-soft 선언부 주석 참고. */
-  --primary-hue: 250;
-
   /* ── Landing (docs/DESIGN.md) ──────────────────────────────
      랜딩 전용 토큰. --lp- 프리픽스로 기존 앱 토큰과 격리한다.
      앱이 DESIGN.md로 마이그레이션할 때 프리픽스를 떼서 그대로 승격한다.
@@ -245,11 +241,6 @@ body:has(.lp[data-theme="dark"]) {
   --fg-subtle:     oklch(0.564 0.022 260);  /* #6E7683 */
   --fg-inverse:    oklch(0.985 0.001 286);  /* 새 --bg와 동치 유지 */
 
-  /* workunit.css(.cd-item.active)가 참조하는 유일한 잔존 토큰 — 다른 --primary* 토큰은
-     전량 앰버(accent)로 치환·삭제됐다. workunit.css는 이번 작업 범위 밖(수정 금지)이라
-     완전 삭제를 보류한다. */
-  --primary-soft: oklch(0.95 0.04 var(--primary-hue));
-
   --success:      oklch(0.530 0.101 157);  /* #2F7D54 */
   --danger:       oklch(0.58 0.20  25);
 
@@ -300,9 +291,6 @@ body:has(.lp[data-theme="dark"]) {
   --fg-muted:      oklch(0.713 0.018 256);  /* #9BA3AE — text-secondary */
   --fg-subtle:     oklch(0.506 0.023 253);  /* #5C6672 — text-muted */
   --fg-inverse:    oklch(0.158 0.007 258);  /* 새 --bg와 동치 유지 */
-
-  /* workunit.css(.cd-item.active)가 참조하는 유일한 잔존 토큰 — 라이트 블록과 동일 사유. */
-  --primary-soft: oklch(0.30 0.08 var(--primary-hue));
 
   --success:      oklch(0.715 0.095 156);  /* #6FB58A — node-commit과 같은 hex(네임스페이스 분리) */
   --danger:       oklch(0.652 0.143 28);   /* #D9695C */

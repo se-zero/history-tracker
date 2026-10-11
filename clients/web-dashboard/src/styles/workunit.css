@@ -356,7 +356,7 @@
 }
 
 .cd-item.active {
-  background: var(--primary-soft);
+  background: var(--accent-soft);
   color: var(--fg);
 }
 
