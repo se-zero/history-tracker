@@ -15,6 +15,9 @@ import com.history.backend.oauth.security.PublicClientRefreshTokenAuthentication
 import com.history.backend.oauth.security.PublicClientRefreshTokenAuthenticationProvider;
 import com.history.backend.oauth.security.PublicClientRefreshTokenGenerator;
 import com.history.backend.oauth.security.PublicClientRegistrationConverter;
+import com.history.backend.oauth.security.PublicClientRevocationAuthenticationConverter;
+import com.history.backend.oauth.security.PublicClientRevocationAuthenticationProvider;
+import com.history.backend.oauth.security.RevokedAuthorizationRemovingHandler;
 import com.history.backend.oauth.security.SpaConsentRedirectEntryPoint;
 import com.history.backend.oauth.service.CimdDocumentFetcher;
 import com.history.backend.oauth.service.CimdRegisteredClientRepository;
@@ -137,7 +140,11 @@ public class OAuthAuthorizationServerConfig {
     @Bean
     @Order(1)
     SecurityFilterChain oauthAuthorizationServerChain(
-            HttpSecurity http, RegisteredClientRepository registeredClientRepository, McpRegisteredClientPolicy policy)
+            HttpSecurity http,
+            RegisteredClientRepository registeredClientRepository,
+            McpRegisteredClientPolicy policy,
+            OAuth2AuthorizationService authorizationService,
+            AuthorizationServerSettings authorizationServerSettings)
             throws Exception {
         OAuth2AuthorizationServerConfigurer configurer = new OAuth2AuthorizationServerConfigurer();
         http.securityMatcher(configurer.getEndpointsMatcher())
@@ -149,7 +156,9 @@ public class OAuthAuthorizationServerConfig {
                                 // 공개 클라이언트(PKCE, client_secret 없음)만 지원한다 — 기본 목록엔 none이 빠져 있다.
                                 .tokenEndpointAuthenticationMethod("none")
                                 // Spring 기본값은 true인데 mTLS 인증서에 묶인 토큰은 지원하지 않는다 — 틀린 광고를 끈다.
-                                .tlsClientCertificateBoundAccessTokens(false)))
+                                .tlsClientCertificateBoundAccessTokens(false)
+                                // 폐기 엔드포인트도 공개 클라이언트가 쓰는데 기본 목록엔 none이 빠져 있어 못 쓴다고 광고된다.
+                                .tokenRevocationEndpointAuthenticationMethod("none")))
                         .authorizationEndpoint(authorization -> authorization
                                 .authorizationRequestConverter(new DefaultScopeAuthorizationRequestConverter())
                                 .authenticationProviders(providers -> providers.stream()
@@ -157,10 +166,20 @@ public class OAuthAuthorizationServerConfig {
                                         .map(OAuth2AuthorizationCodeRequestAuthenticationProvider.class::cast)
                                         .forEach(provider -> provider.setAuthenticationValidator(
                                                 new McpAuthorizationRequestValidator(mcpOAuthProperties.resourceUrl())))))
-                        // refresh 교환 요청에는 code_verifier가 없어 기본 공개 클라이언트 컨버터가 받지 않는다 — 그보다 먼저 보도록 index 0에 넣는다.
+                        // refresh 교환·폐기 요청에는 code_verifier가 없어 기본 공개 클라이언트 컨버터가 받지 않는다 — 그보다 먼저 보도록 index 0에 넣는다.
                         .clientAuthentication(client -> client
-                                .authenticationConverters(converters -> converters.add(0, new PublicClientRefreshTokenAuthenticationConverter()))
-                                .authenticationProviders(providers -> providers.add(0, new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository))))
+                                .authenticationConverters(converters -> {
+                                    converters.add(0, new PublicClientRefreshTokenAuthenticationConverter());
+                                    converters.add(0, new PublicClientRevocationAuthenticationConverter(
+                                            authorizationServerSettings.getTokenRevocationEndpoint()));
+                                })
+                                .authenticationProviders(providers -> {
+                                    providers.add(0, new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository));
+                                    providers.add(0, new PublicClientRevocationAuthenticationProvider(registeredClientRepository));
+                                }))
+                        // Spring 폐기는 토큰만 무효 표시하고 행을 남긴다 — 성공 뒤 연결 행을 지워 연결을 끊는다.
+                        .tokenRevocationEndpoint(revocation -> revocation
+                                .revocationResponseHandler(new RevokedAuthorizationRemovingHandler(authorizationService)))
                         // RFC 7591 DCR 폴백 — CIMD를 못 하는 클라이언트용. 공개 클라이언트(none)만 받는다.
                         .clientRegistrationEndpoint(registration -> registration
                                 .openRegistrationAllowed(true)

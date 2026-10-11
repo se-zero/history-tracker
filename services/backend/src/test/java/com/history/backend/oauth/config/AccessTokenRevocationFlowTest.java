@@ -31,6 +31,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
@@ -69,6 +70,9 @@ class AccessTokenRevocationFlowTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private OAuth2AuthorizationService authorizationService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -147,7 +151,112 @@ class AccessTokenRevocationFlowTest {
         expectInvalidToken(tokens.accessToken());
     }
 
+    @Test
+    @DisplayName("공개 클라이언트가 client_id만으로 refresh 토큰을 폐기하면 200, 연결 행이 지워져 access 401·refresh 교환 invalid_grant")
+    void revokingRefreshTokenRemovesConnection() throws Exception {
+        UUID userId = saveActiveUser();
+        RegisteredClient client = registerPublicClient();
+        Tokens tokens = connect(userId, client);
+        assertThat(mcpStatus(tokens.accessToken())).isNotIn(401, 403);
+
+        mockMvc.perform(revokeRequest(tokens.refreshToken(), "refresh_token", client))
+                .andExpect(status().isOk());
+
+        expectInvalidToken(tokens.accessToken());
+        mockMvc.perform(post("/oauth2/token")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("grant_type", "refresh_token")
+                        .param("refresh_token", tokens.refreshToken())
+                        .param("client_id", client.getClientId()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_grant"));
+        assertThat(authorizationService.findByToken(tokens.refreshToken(), null)).isNull();
+    }
+
+    @Test
+    @DisplayName("access 토큰을 폐기해도 200, 연결 행 전체(access·refresh)가 지워진다")
+    void revokingAccessTokenRemovesWholeConnection() throws Exception {
+        UUID userId = saveActiveUser();
+        RegisteredClient client = registerPublicClient();
+        Tokens tokens = connect(userId, client);
+
+        mockMvc.perform(revokeRequest(tokens.accessToken(), "access_token", client))
+                .andExpect(status().isOk());
+
+        assertThat(authorizationService.findByToken(tokens.accessToken(), null)).isNull();
+        assertThat(authorizationService.findByToken(tokens.refreshToken(), null)).isNull();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 토큰을 폐기하면 200, 기존 연결은 그대로")
+    void revokingUnknownTokenKeepsExistingConnection() throws Exception {
+        UUID userId = saveActiveUser();
+        RegisteredClient client = registerPublicClient();
+        Tokens tokens = connect(userId, client);
+
+        mockMvc.perform(revokeRequest("unknown-" + UUID.randomUUID(), "refresh_token", client))
+                .andExpect(status().isOk());
+
+        assertThat(mcpStatus(tokens.accessToken())).isNotIn(401, 403);
+        assertThat(authorizationService.findByToken(tokens.refreshToken(), null)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("다른 공개 클라이언트의 client_id로 폐기하면 400 invalid_client(폐기 엔드포인트 실패 핸들러는 항상 400), 연결 행은 그대로")
+    void revokingWithOtherClientIdIsRejected() throws Exception {
+        UUID userId = saveActiveUser();
+        RegisteredClient owner = registerPublicClient();
+        RegisteredClient other = registerPublicClient();
+        Tokens tokens = connect(userId, owner);
+
+        mockMvc.perform(revokeRequest(tokens.refreshToken(), "refresh_token", other))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_client"));
+
+        assertThat(mcpStatus(tokens.accessToken())).isNotIn(401, 403);
+        assertThat(authorizationService.findByToken(tokens.refreshToken(), null)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("client_secret을 함께 보내면 401 invalid_client(현행 유지), 연결 행은 그대로")
+    void revokingWithClientSecretIsRejected() throws Exception {
+        UUID userId = saveActiveUser();
+        RegisteredClient client = registerPublicClient();
+        Tokens tokens = connect(userId, client);
+
+        mockMvc.perform(revokeRequest(tokens.refreshToken(), "refresh_token", client)
+                        .param("client_secret", "should-not-happen"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("invalid_client"));
+
+        assertThat(mcpStatus(tokens.accessToken())).isNotIn(401, 403);
+        assertThat(authorizationService.findByToken(tokens.refreshToken(), null)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("같은 사용자·클라이언트의 연결이 둘일 때 하나를 폐기해도 다른 연결의 access 토큰은 통과")
+    void revokingOneConnectionKeepsTheOtherOfSameUserAndClient() throws Exception {
+        UUID userId = saveActiveUser();
+        RegisteredClient client = registerPublicClient();
+        Tokens first = connect(userId, client);
+        Tokens second = connect(userId, client);
+
+        mockMvc.perform(revokeRequest(first.refreshToken(), "refresh_token", client))
+                .andExpect(status().isOk());
+
+        expectInvalidToken(first.accessToken());
+        assertThat(mcpStatus(second.accessToken())).isNotIn(401, 403);
+    }
+
     // ── 헬퍼 ──
+
+    private MockHttpServletRequestBuilder revokeRequest(String token, String tokenTypeHint, RegisteredClient client) {
+        return post("/oauth2/revoke")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("token", token)
+                .param("token_type_hint", tokenTypeHint)
+                .param("client_id", client.getClientId());
+    }
 
     private int mcpStatus(String accessToken) throws Exception {
         return postMcp(accessToken).andReturn().getResponse().getStatus();
