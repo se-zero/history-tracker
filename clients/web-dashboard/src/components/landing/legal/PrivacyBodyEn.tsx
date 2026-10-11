@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 
 import {
   LEGAL_CONTACT_EMAIL,
-  LEGAL_CONTACT_URL,
   LEGAL_OPERATOR,
   LegalNotice,
   LegalSection,
@@ -804,12 +803,6 @@ export function PrivacyBodyEn() {
           <li>
             Email —{" "}
             <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>
-          </li>
-          <li>
-            Issue tracker —{" "}
-            <a href={LEGAL_CONTACT_URL} target="_blank" rel="noreferrer">
-              {LEGAL_CONTACT_URL}
-            </a>
           </li>
         </ul>
         <p className="lp-legal-note">
