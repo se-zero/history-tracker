@@ -24,9 +24,9 @@ whycode 질의를 `/mcp` 한 곳에서 도구 4개(`list_projects`·`bind_projec
 저장한다.
 
 - **상태(2026-10-09)**: 코드 완료, main 배포. 실제 Claude Code로 로컬(2026-10-01)과 배포 서버(2026-10-04·10-09)에서 연결·폴더 연결·
-  질의·갱신·철회 뒤 재인증·IP별 상한·분당 상한까지 확인했다. 확인 상태표는 §10.
+  질의·갱신·철회 뒤 재인증·IP별 상한·분당 상한까지 확인했고, 에이전트 쪽 해제(`POST /oauth2/revoke`)는 로컬에서 확인했다(2026-10-11). 확인 상태표는 §10.
 - **아직 확인하지 않은 것**: Claude Code 외 클라이언트 전부(§8), 125초에 가까운 긴 질의, FREE 한도 문구의 실제 표시(§10).
-- **열린 후속**은 §9에 표로 모았다(2026-10-10 기준 6건, 전부 미착수).
+- **열린 후속**은 §9에 표로 모았다(2026-10-11 기준 5건, 전부 미착수).
 
 ## 1. 무엇을, 왜
 
@@ -115,6 +115,10 @@ project_id=…)`를 부른다.
 죽었음을 알고 재연결 흐름으로 간다. 같은 이유로 탈퇴하면 그 계정의 토큰도 끊기고, refresh 토큰으로 갱신하면 옛 access
 토큰도 곧바로 거부된다(행에는 최신 access 토큰 값 하나만 있다).
 
+에이전트 쪽에서 해제해도 같다. Claude Code가 `/mcp` 메뉴의 Clear authentication에서 `POST /oauth2/revoke`를 refresh·access 토큰 한 번씩
+보내면(공개 클라이언트라 폼 `client_id`만으로 인증, RFC 7009), 서버가 토큰을 무효 표시한 뒤 **그 연결 행 하나**를 지운다 — 같은 사용자×앱의
+다른 연결(다른 PC)은 남는다. access 토큰만 폐기해도 해제로 본다. 모르는 토큰은 200으로 답한다.
+
 ### 한눈에
 
 ```
@@ -128,6 +132,7 @@ backend ── 티켓 필터가 사용자 인증 → 인가 코드 → http://lo
         ── POST /mcp tools/call ask|explain_commit(workspace, …)
               입구(서명·aud·연결 행) → 폴더 연결 → FREE 한도 → 분당 상한 → 질의 수 기록 → ai-engine /query
 계정 페이지 ── 연결된 앱 목록 / 끊기 (연결 행 삭제 → 다음 요청부터 401)
+에이전트 ── POST /oauth2/revoke (token, client_id) ──▶ 토큰 무효 + 그 연결 행 삭제 (/mcp의 Clear authentication)
 ```
 
 ## 3. 결정 사항과 이유
@@ -162,9 +167,10 @@ backend ── 티켓 필터가 사용자 인증 → 인가 코드 → http://lo
 |------|------|------|
 | `POST /mcp` | `Authorization: Bearer <access 토큰>`, scope `mcp:query`, 입구 검증 | MCP JSON-RPC(`initialize`·`tools/list`·`tools/call`·`prompts/list`·`prompts/get`). 토큰이 없거나 틀리면 401 + `WWW-Authenticate: Bearer [error=…, error_description=…, ]resource_metadata="<issuer>/.well-known/oauth-protected-resource/mcp", scope="mcp:query"`. 유효한 토큰의 `GET /mcp`는 405 |
 | `GET /.well-known/oauth-protected-resource` · `…/mcp` | 없음 | 인증 안내 문서(RFC 9728): `resource`(= issuer + `/mcp`), `authorization_servers`(= issuer), `scopes_supported`, `bearer_methods_supported: ["header"]`, `tls_client_certificate_bound_access_tokens: false`(Spring 기본값은 true인데 mTLS 인증서에 묶인 토큰은 지원하지 않아 껐다) |
-| `GET /.well-known/oauth-authorization-server` | 없음 | 인가 서버 메타데이터(RFC 8414). `client_id_metadata_document_supported: true`, `code_challenge_methods_supported: ["S256"]`, `registration_endpoint`, 토큰 엔드포인트 인증 `none`, `tls_client_certificate_bound_access_tokens: false`(인증 안내 문서와 같은 이유로 껐다) |
+| `GET /.well-known/oauth-authorization-server` | 없음 | 인가 서버 메타데이터(RFC 8414). `client_id_metadata_document_supported: true`, `code_challenge_methods_supported: ["S256"]`, `registration_endpoint`, 토큰·폐기 엔드포인트 인증 `none`(`token_endpoint_auth_methods_supported`·`revocation_endpoint_auth_methods_supported`), `tls_client_certificate_bound_access_tokens: false`(인증 안내 문서와 같은 이유로 껐다) |
 | `GET /oauth2/authorize` | 티켓 쿠키 `wc_oauth_ticket`(없으면 SPA `/oauth/consent`로 302) | 인가 요청. scope가 없으면 `mcp:query`를 기본으로 넣는다 |
 | `POST /oauth2/token` | 공개 클라이언트(secret 없음, PKCE `code_verifier`) | 인가 코드 교환, refresh 갱신(회전) |
+| `POST /oauth2/revoke` | 공개 클라이언트(폼 `client_id`, secret 없음) | 토큰 폐기(RFC 7009). access든 refresh든 그 토큰이 속한 **연결 행 하나**를 지운다(= 해제). 남의 토큰이면 400 `invalid_client`, 모르는 토큰이면 200. `Authorization: Bearer`만 보내는 폴백은 받지 않는다 |
 | `POST /oauth2/register` | 열림 | DCR 폴백(공개 클라이언트만) |
 | `GET /oauth2/jwks` | 없음 | 공개 서명키 |
 | `GET /api/v1/oauth/consent/preview?<authorize 원본 쿼리>` | 로그인 JWT | 허용 화면 미리보기. 응답 `{clientName, clientUri, redirectUri, redirectHost, loopback, scopes}`. 화면에는 `redirectHost`만 보이고 `redirectUri`는 응답에만 있다 |
@@ -174,8 +180,7 @@ backend ── 티켓 필터가 사용자 인증 → 인가 코드 → http://lo
 SPA 페이지(백엔드 엔드포인트가 아님): `/oauth/consent`(허용 화면, 로그인·약관 동의 상태에 따라 스스로 분기), `/mcp/setup`(공개
 설치 안내).
 
-`/oauth2/revoke`·`/oauth2/introspect`는 Spring 인가 서버 기본값으로 함께 열려 있지만 계약으로 삼지 않는다 —
-공개 클라이언트는 `/oauth2/revoke`를 쓸 수 없다(§9).
+`/oauth2/introspect`는 Spring 인가 서버 기본값으로 열려 있지만 계약으로 삼지 않는다 — 공개 클라이언트는 쓸 수 없고, 쓰는 클라이언트도 없다.
 
 ### (b) access 토큰의 모양
 
@@ -245,7 +250,7 @@ RS256 JWT(서명키는 `MCP_OAUTH_PRIVATE_KEY`, `kid`는 공개키 thumbprint).
 | 어디 | 무엇 |
 |------|------|
 | backend `oauth/config` | 인가 서버 보안 체인·토큰 생성기·JWK 연결(`OAuthAuthorizationServerConfig`), CIMD 전용 HTTP 클라이언트(`CimdHttpConfig` — 연결 3초·요청 전체 5초, 리다이렉트 안 따름) |
-| backend `oauth/security` | 인가 요청 검증(루프백 포트 무시·`resource` 일치), 티켓 쿠키·티켓 필터, SPA로 보내는 진입점, 공개 클라이언트 refresh·DCR 변환, 입구 토큰 검증기(`ActiveAuthorizationTokenValidator`), IP별 분당 상한(`OAuthRateLimiter`·`OAuthRateLimitFilter`) |
+| backend `oauth/security` | 인가 요청 검증(루프백 포트 무시·`resource` 일치), 티켓 쿠키·티켓 필터, SPA로 보내는 진입점, 공개 클라이언트 refresh·폐기·DCR 변환(`PublicClientRevocationAuthenticationConverter`·`Provider`), 폐기 뒤 연결 행 삭제(`RevokedAuthorizationRemovingHandler`), 입구 토큰 검증기(`ActiveAuthorizationTokenValidator`), IP별 분당 상한(`OAuthRateLimiter`·`OAuthRateLimitFilter`) |
 | backend `oauth/service` | CIMD 문서 fetch·검증·캐시(`CimdDocumentFetcher`)와 SSRF 가드(`SafeUrlValidator`), 등록 앱 저장소(`CimdRegisteredClientRepository`), CIMD·DCR이 공유하는 강제 정책(`McpRegisteredClientPolicy`), 티켓 발급·소비, 허용 화면 preview·decide(`OAuthConsentService`), 연결된 앱 목록·철회, 만료 연결·미사용 등록 행 정리(`OAuthGrantService`·`OAuthAuthorizationPurgeScheduler`), 서명키 로딩 |
 | backend `oauth/controller`·`repository` | 허용 화면 API, 연결된 앱 SQL(Spring이 테이블을 소유해 엔티티가 없다) |
 | backend `mcp/config` | `/mcp` 보안 체인(`McpResourceServerConfig`), MCP 서버 배선·서블릿 등록·서버 안내문(`McpServerConfig`) |
@@ -261,7 +266,7 @@ RS256 JWT(서명키는 `MCP_OAUTH_PRIVATE_KEY`, `kid`는 공개키 thumbprint).
 | 테이블 | 담는 것 | 언제 지워지나 |
 |--------|---------|----------------|
 | `oauth2_registered_client` | 등록된 앱(CIMD 문서에서 읽은 "그림자 행"과 DCR 등록). 이름·돌아갈 주소·`client_uri`·토큰 설정 | **연결(`oauth2_authorization`)이 하나도 없고 등록된 지 7일이 지난 행**을 만료 연결 정리와 같은 스케줄러가 매일 지운다(연결 정리 다음 순서). 연결이 남은 앱은 지우지 않는다. 앱 자체의 정보라 사용자에 묶이지 않는다. 지워진 뒤의 동작은 §9 |
-| `oauth2_authorization` | 한 번의 연결(인가 코드·access·refresh 토큰 값과 만료·발급 시각). `principal_name`은 사용자 UUID 문자열 | 끊기 즉시(그 사용자×앱), 탈퇴 즉시(그 사용자 전부), 사용자 파기 때 한 번 더, 만료분은 사용자 파기와 같은 cron·on/off(`user-lifecycle.purge`)의 스케줄러가 주기 삭제(가장 오래 사는 토큰 기준이라 refresh가 살아 있으면 지우지 않는다) |
+| `oauth2_authorization` | 한 번의 연결(인가 코드·access·refresh 토큰 값과 만료·발급 시각). `principal_name`은 사용자 UUID 문자열 | 끊기 즉시(그 사용자×앱), 에이전트의 폐기 요청 즉시(그 연결 하나), 탈퇴 즉시(그 사용자 전부), 사용자 파기 때 한 번 더, 만료분은 사용자 파기와 같은 cron·on/off(`user-lifecycle.purge`)의 스케줄러가 주기 삭제(가장 오래 사는 토큰 기준이라 refresh가 살아 있으면 지우지 않는다) |
 | `oauth2_authorization_consent` | 라이브러리가 요구하는 동의 기록 | 끊기·탈퇴 때 앱 연결과 함께 삭제. 동의는 SPA가 받고 인가 서버의 동의 화면은 끄므로(`requireAuthorizationConsent(false)`) 이 테이블에 행이 생기는지는 확인하지 않았다 |
 | `mcp_workspace_bindings` | (계정, 폴더 절대 경로) → 프로젝트 | **계정 파기·프로젝트 삭제 때**(두 FK 모두 `ON DELETE CASCADE`). 연결을 끊거나 탈퇴해도 남는다 |
 
@@ -325,7 +330,10 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 - 토큰: access 토큰이 만료된 뒤 도구를 병렬로 5번 불러도 재로그인 없이 한 번 갱신하고 전부 성공한다.
 - 철회: 계정 페이지에서 연결을 끊은 직후 다음 호출이 `MCP server "whycode" needs you to sign in again (run /mcp to re-authenticate)`로
   실패하고 서버가 끊김으로 표시된다. 브라우저는 자동으로 뜨지 않고 사용자가 `/mcp`에서 재인증한다. 폴더 연결은 그대로 남아 다시 묻지 않는다.
-  반대로 에이전트의 `/mcp`에서 연결을 해제하면 서버에는 연결이 남는다(§9 열린 후속 1).
+  에이전트 쪽 해제(`/mcp` → Clear authentication)는 `POST /oauth2/revoke`를 refresh·access 순으로 한 번씩 보낸다(폼 `token`·`token_type_hint`·
+  `client_id`, 응답 200) — 서버가 그 연결 행을 지워 계정 페이지의 연결된 앱에서 즉시 사라진다(로컬 2026-10-11, 배포 서버는 미확인). 401을 받으면
+  `Authorization: Bearer`로 재시도하는 폴백이 있는데 서버는 받지 않는다(고치기 전 관측, 400 `invalid_client`). 그 뒤 메뉴의 Authenticate로 다시
+  허용하면 새 연결로 정상 질의된다. `claude mcp remove`는 아무 요청도 보내지 않는다(서버 연결은 Clear authentication이 지운다).
 - 상한: 분당 상한(10회/분)에 걸린 호출은 `질문이 너무 잦습니다. N초 뒤에 다시 시도해 주세요.`가 도구 오류로 표시된다.
 
 ## 9. 한계와 후속
@@ -361,18 +369,18 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 2026-10-05) 배포 서버에서 동작을 확인했다(2026-10-09). 질의 품질과 얽혀 있던 ai-engine 결함 2건(빈 임베딩 저장, 파일 요약 임베딩 보정의
 영구 실패)도 고쳐 배포했다(#175·#178) — [embedding-design.md](embedding-design.md)의 「임베딩이 실패했을 때」·「길이 상한」.
 그 다음 묶음(2026-10-10)으로 설치 안내의 `why` 따옴표 문구, 인가 서버 메타데이터의 mTLS 광고, SSRF 가드의 예약 대역, IP 기록 청소의 전용
-스케줄러(야간 cron이 길어져도 청소가 밀리지 않게)를 닫았다.
+스케줄러(야간 cron이 길어져도 청소가 밀리지 않게)를 닫았다. 에이전트 쪽 연결 해제(`POST /oauth2/revoke`의 공개 클라이언트 수용 + 폐기 시
+연결 행 삭제)는 그 다음(2026-10-11)에 닫았다 — 로컬 실기동으로 Claude Code의 Clear authentication 뒤 행이 지워지는 것까지 확인.
 
-**열린 후속** (2026-10-10 기준, 전부 미착수)
+**열린 후속** (2026-10-11 기준, 전부 미착수)
 
 | # | 항목 | 내용 | 메모 |
 |---|------|------|------|
-| 1 | 에이전트 쪽 연결 해제가 서버에 닿지 않음 | Claude Code는 `/mcp`에서 해제할 때 `POST /oauth2/revoke`를 부르는데, 메타데이터가 `revocation_endpoint`를 광고하면서 `revocation_endpoint_auth_methods_supported`에 `none`이 없어 공개 클라이언트는 401. 해제한 연결이 refresh 30일 동안 서버에 남는다 — **계정 페이지의 "연결된 앱"에서 끊어야 지워진다** | 위험 낮음(앱이 버린 토큰이지 유출이 아님). 고치려면 Claude Code의 요청 형식 확인 + 폐기된 연결을 목록에서 빼는 처리(2번) |
-| 2 | "연결된 앱"에 무효화된 연결이 남을 수 있음 | Spring이 무효 표시한 연결(같은 인가 코드 재사용 시도 등)을 목록 SQL이 만료 시각만 보고 보여 준다(최대 30일). 입구는 401로 거른다 | 라이브러리 내부 JSON 표기에 기대야 해서 보류. Claude Code는 코드를 한 번만 교환해 실제로는 생기지 않았다 |
-| 3 | 목록·연결 도구에 분당 상한 없음 | `list_projects`·`bind_project`에는 사용자별 상한이 없다(질의 도구만 있다) | 남용 신호가 보이면 |
-| 4 | SSRF 가드의 DNS 리바인딩 창 | 검증과 실제 연결 사이에 DNS 레코드가 바뀌면 검증한 주소와 다른 곳에 접속할 수 있다. JDK가 사설로 보지 않는 예약 대역(CGNAT·0/8·NAT64 등)은 거절 목록에 넣어 닫았다 | 조회 대상이 CIMD 문서뿐이고 https 강제라 보류. JDK가 성공한 DNS 조회를 기본 30초 캐시해(`networkaddress.cache.ttl` 미설정) 검증과 접속이 같은 IP를 쓰므로 창은 사실상 닫혀 있다 — 이 값을 0으로 낮추는 설정(클라우드 이전 때 흔함)이 들어오면 다시 연다 |
-| 5 | 허용 화면 후속 2건 | 뒤로가기로 복원된 화면의 "취소"가 저장된 복귀 경로를 지우지 않음(10분 TTL이 막아 줌), `isSafeRedirect`에 백슬래시 차단 없음(backend 응답이라 실경로 없음) | 동의 화면을 다시 만질 때 |
-| 6 | `/mcp/setup`의 Codex 안내 미대조 | 페이지는 Codex 절차(`codex mcp login`, `tool_timeout_sec = 120`)를 싣고 있는데 문서 조사로 쓴 문구다 | Codex로 실제 연결해 본 뒤(결제 문제로 보류) |
+| 1 | "연결된 앱"에 무효화된 연결이 남을 수 있음 | 같은 인가 코드를 재사용하면 Spring이 그 연결을 무효 표시만 하는데, 목록 SQL이 만료 시각만 보고 보여 준다(최대 30일). 입구는 401로 거른다. 에이전트의 폐기 요청은 행을 지우므로 이 경우는 안 생긴다 | 라이브러리 내부 JSON 표기에 기대야 해서 보류. Claude Code는 코드를 한 번만 교환해 실제로는 생기지 않았다 |
+| 2 | 목록·연결 도구에 분당 상한 없음 | `list_projects`·`bind_project`에는 사용자별 상한이 없다(질의 도구만 있다) | 남용 신호가 보이면 |
+| 3 | SSRF 가드의 DNS 리바인딩 창 | 검증과 실제 연결 사이에 DNS 레코드가 바뀌면 검증한 주소와 다른 곳에 접속할 수 있다. JDK가 사설로 보지 않는 예약 대역(CGNAT·0/8·NAT64 등)은 거절 목록에 넣어 닫았다 | 조회 대상이 CIMD 문서뿐이고 https 강제라 보류. JDK가 성공한 DNS 조회를 기본 30초 캐시해(`networkaddress.cache.ttl` 미설정) 검증과 접속이 같은 IP를 쓰므로 창은 사실상 닫혀 있다 — 이 값을 0으로 낮추는 설정(클라우드 이전 때 흔함)이 들어오면 다시 연다 |
+| 4 | 허용 화면 후속 2건 | 뒤로가기로 복원된 화면의 "취소"가 저장된 복귀 경로를 지우지 않음(10분 TTL이 막아 줌), `isSafeRedirect`에 백슬래시 차단 없음(backend 응답이라 실경로 없음) | 동의 화면을 다시 만질 때 |
+| 5 | `/mcp/setup`의 Codex 안내 미대조 | 페이지는 Codex 절차(`codex mcp login`, `tool_timeout_sec = 120`)를 싣고 있는데 문서 조사로 쓴 문구다 | Codex로 실제 연결해 본 뒤(결제 문제로 보류) |
 
 ## 10. 검증 방법
 
@@ -381,10 +389,10 @@ nginx `location = /mcp`의 `proxy_read_timeout` 125초 → Cloudflare 125초(524
 - `McpServerEndToEndTest` — 실제 포트(`RANDOM_PORT`) 종단. MCP 서버는 Spring MVC가 아닌 **두 번째 서블릿**이라 `MockMvc`로는 닿지 않는다.
   무토큰 401, `initialize`, 도구 4·프롬프트 2 목록, 폴더 연결 전후의 `ask`, `explain_commit`의 커밋 근거 전달, 남의 프로젝트 거부, ai-engine
   예외의 `isError` 변환(예외 메시지 비노출), 철회 토큰 401, `GET /mcp` 405, 서블릿이 `/mcp` 한 곳에만 매핑됨.
-- `AccessTokenRevocationFlowTest` — 실제 발급 경로로 얻은 토큰이 연결 철회·refresh 회전·인가 코드 재사용·탈퇴에 **즉시** 401·403이 되는지.
+- `AccessTokenRevocationFlowTest` — 실제 발급 경로로 얻은 토큰이 연결 철회·refresh 회전·인가 코드 재사용·탈퇴에 **즉시** 401·403이 되는지, 그리고 공개 클라이언트의 `POST /oauth2/revoke`(refresh·access·모르는 토큰·남의 `client_id`·`client_secret` 동봉·같은 사용자×앱의 다른 연결 유지).
 - `OAuthRateLimitChainTest`(상한에 걸린 요청은 문서 조회를 일으키지 않음), `OAuthGrantRepositoryPersistenceTest`·`UnusedClientPurgeFlowTest`
   (등록 행 정리 SQL을 PostgreSQL·H2 양쪽에서, 앱 행만 지워진 연결의 401), `CimdHttpConfigTest`(실제 소켓으로 slow-read 서버를 띄워 5초 안에 끊김).
-- 그 밖에 CIMD·SSRF 가드·검증기·티켓·폴더 연결·질의 서비스·분당 상한의 단위 테스트와 PostgreSQL 퍼시스턴스 테스트가 각 패키지에 있다.
+- 그 밖에 CIMD·SSRF 가드·검증기·티켓·폐기 컨버터/프로바이더/핸들러·폴더 연결·질의 서비스·분당 상한의 단위 테스트와 PostgreSQL 퍼시스턴스 테스트가 각 패키지에 있다.
 - 자동 테스트로만 확인한 것: 프로젝트가 하나뿐일 때 자동 연결하지 않음, FREE 한도·시간 초과 문구의 모양.
 
 **로컬에서 실제 클라이언트를 붙여 보는 절차**
