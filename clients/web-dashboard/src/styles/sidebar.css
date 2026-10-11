@@ -195,7 +195,7 @@
 .convo-item:hover { background: var(--surface-3); color: var(--fg); }
 .convo-item.active { background: var(--surface-3); color: var(--fg); }
 .convo-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.convo-time { font-size: 11px; color: var(--fg-subtle); font-family: var(--font-mono); }
+.convo-time { font-size: 11px; color: var(--fg-subtle); }
 
 /* ⋯ 메뉴 버튼: 평소엔 숨기고 hover 시 노출, 노출 시 time을 가린다 */
 .convo-menu-btn {

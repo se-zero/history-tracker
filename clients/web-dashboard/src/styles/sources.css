@@ -110,7 +110,6 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: var(--r-full);
-  font-family: var(--font-mono);
   font-size: 11.5px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -225,7 +224,6 @@
   font-size: 13px;
   color: var(--fg);
   outline: none;
-  font-family: var(--font-mono);
 }
 .field input:focus { border-color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-ink) 15%, transparent); }
 .field .hint { font-size: 11px; color: var(--fg-subtle); }
@@ -242,7 +240,7 @@
 .source-card .src-head { display: flex; align-items: center; gap: 12px; }
 .source-card .src-head-main { flex: 1; min-width: 0; }
 .source-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; }
-.source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; font-family: var(--font-mono); }
+.source-card .src-sub { color: var(--fg-subtle); font-size: 11.5px; margin-top: 1px; }
 
 /* 액터 관리 카드(좌, 넓게) + 병합 결정 이력 카드(우, 고정폭) 2열 배치 */
 .actors-layout {

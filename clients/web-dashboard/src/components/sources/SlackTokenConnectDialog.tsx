@@ -99,6 +99,7 @@ export function SlackTokenConnectDialog({
             }
           >
             <input
+              className="mono"
               type="password"
               placeholder="xoxp-..."
               value={form.token}
