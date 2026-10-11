@@ -79,18 +79,5 @@ export function StatusView({
 }
 
 function Spinner() {
-  return (
-    <div
-      style={{
-        width: 18,
-        height: 18,
-        border: "2px solid var(--border)",
-        borderTopColor: "var(--accent-ink)",
-        borderRadius: "50%",
-        animation: "ht-spin 0.8s linear infinite",
-      }}
-    >
-      <style>{`@keyframes ht-spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  );
+  return <div className="status-spinner" aria-hidden="true" />;
 }
