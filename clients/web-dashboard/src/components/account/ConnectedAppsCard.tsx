@@ -46,11 +46,21 @@ export function ConnectedAppsCard() {
       )}
 
       {grants.length > 0 && (
-        <div className="connected-apps-list">
-          {grants.map((grant) => (
-            <ConnectedAppRow grant={grant} key={grant.id} />
-          ))}
-        </div>
+        <>
+          <div className="connected-apps-list">
+            {grants.map((grant) => (
+              <ConnectedAppRow grant={grant} key={grant.id} />
+            ))}
+          </div>
+          {/* 다른 에이전트를 더 붙일 때 안내를 다시 찾을 수 있게 — 빈 상태에만 두면 첫 연결 뒤 링크가 사라진다 */}
+          <p className="connected-apps-note">
+            다른 코딩 에이전트를 연결하는 방법은{" "}
+            <Link className="connected-app-link" to={PATHS.mcpSetup}>
+              코딩 에이전트에서 쓰는 방법
+            </Link>
+            에 있습니다.
+          </p>
+        </>
       )}
     </section>
   );

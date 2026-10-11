@@ -1,16 +1,12 @@
 import { Link } from "react-router-dom";
 
-import {
-  LEGAL_CONTACT_EMAIL,
-  LEGAL_CONTACT_URL,
-} from "@/components/landing/LegalLayout";
+import { LEGAL_CONTACT_EMAIL } from "@/components/landing/LegalLayout";
 import { useLandingLanguage, type Localized } from "@/components/landing/LandingLanguageProvider";
 import { PATHS } from "@/routes";
 
 const COPY: Localized<{
   contactHeading: string;
   contactBody: string;
-  issuesLabel: string;
   helpHeading: string;
   helpItem1: string;
   helpItem2: string;
@@ -25,7 +21,6 @@ const COPY: Localized<{
     contactHeading: "문의",
     contactBody:
       "이메일이 기본 창구입니다. 어떤 프로젝트·연동인지, 무엇을 하려다 막혔는지를 적어 주시면 더 빨리 짚을 수 있습니다.",
-    issuesLabel: "이슈 트래커",
     helpHeading: "이런 걸 도와드릴 수 있습니다",
     helpItem1: "연결·수집이 멈추거나 실패할 때",
     helpItem2: "연동 해제, 데이터 삭제, 회원 탈퇴 요청",
@@ -40,7 +35,6 @@ const COPY: Localized<{
     contactHeading: "Contact",
     contactBody:
       "Email is the primary channel. Naming the project and connection, and what you were trying to do, helps us get there faster.",
-    issuesLabel: "Issue tracker",
     helpHeading: "What we can help with",
     helpItem1: "A connection or collection that has stalled or failed",
     helpItem2: "Disconnecting a source, deleting data, or closing an account",
@@ -67,12 +61,6 @@ export function SupportBody() {
           <li>
             {lang === "en" ? "Email" : "이메일"} —{" "}
             <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>
-          </li>
-          <li>
-            {t.issuesLabel} —{" "}
-            <a href={LEGAL_CONTACT_URL} target="_blank" rel="noreferrer">
-              {LEGAL_CONTACT_URL}
-            </a>
           </li>
         </ul>
       </section>

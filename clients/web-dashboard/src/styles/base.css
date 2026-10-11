@@ -41,9 +41,19 @@ a { color: inherit; text-decoration: none; }
 }
 .text-link:hover { text-decoration-thickness: 2px; }
 
+/* 키보드 포커스 링 — DESIGN.md 품질 하한선("보이는 키보드 포커스, 앰버 focus-visible 링").
+   랜딩 `.lp :focus-visible`(landing.css)과 같은 값이고, 링은 "선"이라 accent-ink(라이트는 코퍼).
+   색은 즉시 나타나야 하므로 트랜지션하지 않는다. 자체 포커스 링(box-shadow)을 가진 입력들은
+   각자 `outline: none`을 유지하므로 이중 링이 생기지 않는다. */
+:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
 ::selection { background: var(--accent-soft); color: var(--fg); }
 
 /* utility */
 .mono { font-family: var(--font-mono); font-feature-settings: "ss01", "ss02"; }
 .muted { color: var(--fg-muted); }
 .subtle { color: var(--fg-subtle); }
+.text-danger { color: var(--danger); }

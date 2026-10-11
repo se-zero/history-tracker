@@ -12,7 +12,6 @@ import { useLandingTheme } from "@/components/landing/useLandingTheme";
 //    추가로 필요하다(docs/public-readiness.md §4-3).
 export const LEGAL_OPERATOR: Localized<string> = { ko: "JUNSU SEO", en: "JUNSU SEO" };
 export const LEGAL_CONTACT_EMAIL = "contact@why-code.com";
-export const LEGAL_CONTACT_URL = "https://github.com/se-zero/history-tracker/issues";
 
 // 약관 개정 시행일 — 임시값이다. 배포일+7일 이상으로 배포 직전에 확정하고, backend
 // application.yaml의 `app.legal.terms-version`과 같은 문자열이어야 한다(서버는 이 값을 새로

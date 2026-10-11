@@ -10,13 +10,13 @@ export function McpPage() {
       summary={{
         ko: (
           <>
-            Claude Code·Codex에 whycode를 한 번 연결하면, 코드를 보고 있는 그 자리에서 "이 코드 왜 이렇게
+            Claude Code·Codex·Cursor에 whycode를 한 번 연결하면, 코드를 보고 있는 그 자리에서 "이 코드 왜 이렇게
             바뀌었어?"를 물을 수 있습니다. 연결된 프로젝트의 이슈·PR·대화 기록에서 근거를 찾아 답합니다.
           </>
         ),
         en: (
           <>
-            Connect whycode to Claude Code or Codex once, and you can ask "why did this code change?" right
+            Connect whycode to Claude Code, Codex, or Cursor once, and you can ask "why did this code change?" right
             where you're reading it. whycode finds the answer in the connected project's issues, PRs, and
             conversation history.
           </>

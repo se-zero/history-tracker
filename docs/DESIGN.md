@@ -120,7 +120,8 @@ colors-light:
                            # 패턴(node-commit 등)을 따른다.
 
   success: "#2F7D54"   # node-commit(라이트)과 같은 hex — 네임스페이스 분리는 테마 무관
-  # danger 라이트 값은 미정 — 라이트에 danger 사용처가 등장할 때 확정한다.
+  danger:  "#D73337"   # 잠정 — tokens.css의 oklch(0.58 0.20 25)를 sRGB로 변환한 코드 선행값
+                       # (계정·설정의 삭제 카드가 라이트에서 이미 쓴다). 디자인 확정은 별도.
 
   shadow-sm: "0 1px 2px rgba(13,16,20,0.05), 0 2px 8px rgba(13,16,20,0.04)"    # 카드·행 기본
   shadow-md: "0 2px 4px rgba(13,16,20,0.04), 0 12px 32px -8px rgba(13,16,20,0.10)"  # 들린 미디어·슬롯

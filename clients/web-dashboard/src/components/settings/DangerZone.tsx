@@ -34,13 +34,10 @@ export function DangerZone({ project }: { project: Project }) {
   return (
     <>
       {/* ─── 프로젝트 삭제 ─── */}
-      <section
-        className="source-card"
-        style={{ borderColor: "var(--danger)", marginBottom: 16 }}
-      >
+      <section className="source-card source-card--danger">
         <div className="src-head">
           <div style={{ flex: 1 }}>
-            <h4 style={{ color: "var(--danger)" }}>프로젝트 삭제</h4>
+            <h4>프로젝트 삭제</h4>
             <div className="src-sub">
               모든 대화·연동 정보가 영구 삭제됩니다. 되돌릴 수 없어요.
             </div>
@@ -52,7 +49,7 @@ export function DangerZone({ project }: { project: Project }) {
             label={
               <>
                 확인을 위해 프로젝트 이름{" "}
-                <span className="mono" style={{ color: "var(--danger)" }}>
+                <span className="mono text-danger">
                   {project.name}
                 </span>
                 을 입력하세요
@@ -72,12 +69,7 @@ export function DangerZone({ project }: { project: Project }) {
 
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button
-            className="btn"
-            style={{
-              background: canDelete ? "var(--danger)" : undefined,
-              color: canDelete ? "white" : undefined,
-              borderColor: canDelete ? "var(--danger)" : undefined,
-            }}
+            className="btn btn-danger-solid"
             disabled={!canDelete}
             onClick={() => deleteMutation.mutate()}
           >
