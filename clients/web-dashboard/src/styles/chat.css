@@ -259,7 +259,7 @@
 .msg-content.markdown ol { margin: 0 0 10px; padding-left: 22px; }
 .msg-content.markdown li { margin: 3px 0; }
 .msg-content.markdown li > p { margin: 0; }
-.msg-content.markdown a { color: var(--accent-ink); text-decoration: underline; }
+.msg-content.markdown a { text-decoration: underline; }
 .msg-content.markdown strong { font-weight: 650; }
 .msg-content.markdown code {
   font-family: var(--font-mono);

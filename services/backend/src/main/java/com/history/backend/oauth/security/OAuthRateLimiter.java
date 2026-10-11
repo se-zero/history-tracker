@@ -57,8 +57,9 @@ public class OAuthRateLimiter {
 
     // 개인정보처리방침 제5조가 "마지막 요청으로부터 늦어도 약 2분 안에 메모리에서 지운다"고 적고 있다(창 60초 + 이 주기 60초).
     // 요청이 올 때만 청소하면 한가한 시간대에는 IP가 메모리에 남으므로 요청과 무관하게 돈다. 주기를 바꾸면 방침 문구도 고친다.
+    // 공용 예약 풀이 아니라 전용 스케줄러(TaskExecutorConfig)에서 돈다 — 야간 cron이 길어져도 청소가 밀리지 않게.
     // 덱은 키별 computeIfPresent 안에서만 만진다 — 밖에서 순회하면 acquire와 경합한다.
-    @Scheduled(fixedDelay = 60, timeUnit = TimeUnit.SECONDS)
+    @Scheduled(fixedDelay = 60, timeUnit = TimeUnit.SECONDS, scheduler = "oauthRateLimitEvictionScheduler")
     public void evictIdleKeys() {
         Instant now = clock.instant();
         for (String key : windows.keySet()) {

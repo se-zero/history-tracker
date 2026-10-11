@@ -18,7 +18,7 @@ class HistoryMessage(BaseModel):
 
 
 class PriorEvidence(BaseModel):
-    type: Literal["commit", "pull_request", "issue", "message"]
+    type: Literal["commit", "pull_request", "issue", "message", "document"]
     id: str
     quote: str
 

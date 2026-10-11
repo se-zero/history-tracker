@@ -15,6 +15,7 @@ sys.modules.setdefault("tools.executor", executor_module)
 from agent import orchestrator
 from openai_client import get_openai_client
 from query_models import QueryRequest, SummaryRequest
+from routers.query import query as query_endpoint
 
 
 class QueryRequestHistoryTest(unittest.TestCase):
@@ -62,6 +63,17 @@ class QueryRequestHistoryTest(unittest.TestCase):
         )
 
         self.assertEqual("#18", request.prior_evidence[0].id)
+
+    def test_prior_evidence_accepts_every_answer_evidence_type(self):
+        # 직전 답이 인용한 근거는 종류 그대로 다음 질문의 prior_evidence로 돌아온다 — 하나라도 거절하면 이어 질문이 422로 끊긴다
+        for evidence_type in orchestrator._EVIDENCE_TYPES:
+            with self.subTest(evidence_type=evidence_type):
+                request = QueryRequest(
+                    question="current question",
+                    prior_evidence=[{"type": evidence_type, "id": "ref-1", "quote": "cited text"}],
+                )
+
+                self.assertEqual(evidence_type, request.prior_evidence[0].type)
 
     def test_summary_request_accepts_existing_summary_and_history(self):
         request = SummaryRequest(
@@ -207,6 +219,50 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("system", captured_exploration_messages[1]["role"])
         self.assertIn('"id": "#18"', captured_exploration_messages[1]["content"])
         self.assertNotIn("OAuth callback update", str(captured_structured_messages))
+
+    async def test_follow_up_after_document_evidence_reaches_tool_exploration(self):
+        payload = {
+            "question": "who wrote that document?",
+            "project_id": "p",
+            "history": [
+                {"role": "user", "content": "where is the deploy procedure written?"},
+                {"role": "assistant", "content": "It is in the deployment guide document."},
+            ],
+            "prior_evidence": [
+                {
+                    "type": "document",
+                    "id": "2b7f3c1e-5d4a-4c8b-9e6f-0a1b2c3d4e5f",
+                    "quote": "deployment guide",
+                }
+            ],
+        }
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=None, content="fallback"))]
+        )
+        captured_exploration_messages = []
+
+        async def capture_exploration(messages, with_tools=True):
+            captured_exploration_messages.extend(messages)
+            return response
+
+        with (
+            patch.object(orchestrator, "_call_llm", side_effect=capture_exploration),
+            patch.object(
+                orchestrator,
+                "_call_llm_structured",
+                AsyncMock(return_value={"summary": "done", "evidence": [], "unknown_aspects": []}),
+            ),
+            patch.object(orchestrator, "_rewrite_question", AsyncMock(return_value=None)),
+        ):
+            body = await query_endpoint(QueryRequest.model_validate(payload))
+
+        self.assertEqual("done", body["structured"]["summary"])
+        self.assertTrue(any(
+            message["role"] == "system"
+            and '"type": "document"' in message["content"]
+            and '"id": "2b7f3c1e-5d4a-4c8b-9e6f-0a1b2c3d4e5f"' in message["content"]
+            for message in captured_exploration_messages
+        ))
 
     async def test_run_uses_running_summary_only_for_tool_exploration(self):
         response = SimpleNamespace(

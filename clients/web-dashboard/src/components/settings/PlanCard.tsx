@@ -318,6 +318,7 @@ export function PlanCard() {
             <Field label="전환 코드">
               <div className="plan-upgrade-row">
                 <input
+                  className="mono"
                   value={code}
                   onChange={(event) => {
                     setCode(event.target.value);

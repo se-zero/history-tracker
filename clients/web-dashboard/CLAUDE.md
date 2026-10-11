@@ -101,7 +101,7 @@ src/
                     (방침 시행일)도 여기 있다 — 서버에 대응값이 없고, 약관 시행일과 섞지 않는다
                     SlackBody — `/slack` 본문(Slack 마켓플레이스 Installation landing page. 랜딩 절에서 분리)
                     SupportBody — `/support` 본문
-                    McpBody — `/mcp/setup` 본문(Claude Code·Codex 연결 안내. 랜딩과 같은 ko/en COPY)
+                    McpBody — `/mcp/setup` 본문(Claude Code·Codex·Cursor 연결 안내. 랜딩과 같은 ko/en COPY)
                     PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts). 결제 스위치가
                     켜졌을 때만(`GET /billing/availability`) "계정 설정에서 구독하기"를, 아니면 "준비 중"을 보인다
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)

@@ -1,10 +1,13 @@
 package com.history.backend.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.task.ThreadPoolTaskSchedulerBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @Configuration
 public class TaskExecutorConfig {
@@ -68,5 +71,25 @@ public class TaskExecutorConfig {
         executor.setAwaitTerminationSeconds(awaitTerminationSeconds);
         executor.initialize();
         return executor;
+    }
+
+    // 공용 예약 작업 스케줄러(@Scheduled 기본). Boot는 TaskScheduler 빈이 하나라도 있으면 기본 taskScheduler 자동 구성을
+    // 끄므로, 아래 전용 스케줄러를 두는 순간 이것도 직접 만들어야 한다 — 빼면 모든 @Scheduled가 전용 빈 하나로 몰린다.
+    // 빌더가 spring.task.scheduling.* 설정을 그대로 적용해 Boot 기본과 같다. 이름 taskScheduler와 @Primary가 둘 다 필요하다 —
+    // @Scheduled의 기본 스케줄러 해석은 이름으로, 타입 주입은 @Primary로 유일해진다.
+    @Primary
+    @Bean("taskScheduler")
+    public ThreadPoolTaskScheduler taskScheduler(ThreadPoolTaskSchedulerBuilder builder) {
+        return builder.build();
+    }
+
+    // OAuthRateLimiter의 60초 IP 기록 청소 전용 스케줄러. 공용 풀(기본 1스레드)에 두면 야간 cron(Jira 개인정보 보고 등)이
+    // 길어질 때 청소가 그 뒤로 밀려 개인정보처리방침 제5조의 "늦어도 약 2분"이 깨진다.
+    @Bean("oauthRateLimitEvictionScheduler")
+    public ThreadPoolTaskScheduler oauthRateLimitEvictionScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix("oauth-ip-evict-");
+        scheduler.setPoolSize(1);
+        return scheduler;
     }
 }

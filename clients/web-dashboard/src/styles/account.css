@@ -152,7 +152,9 @@
   margin-bottom: 16px;
 }
 
-.connected-apps-empty {
+/* 빈 상태 문구와 목록 아래 안내 한 줄(설치 안내 페이지 링크) — 같은 톤. */
+.connected-apps-empty,
+.connected-apps-note {
   margin: 0;
   color: var(--fg-muted);
   font-size: 13px;

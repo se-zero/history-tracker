@@ -23,6 +23,10 @@ const COPY: Localized<{
   codexStep1: ReactNode;
   codexToml: string;
   codexStep2: ReactNode;
+  cursorHeading: string;
+  cursorStep1: ReactNode;
+  cursorJson: string;
+  cursorStep2: ReactNode;
   supportedClients: string;
   folderHeading: string;
   folderBody1: string;
@@ -34,6 +38,8 @@ const COPY: Localized<{
   askExample2: string;
   askExample3: string;
   askTip: string;
+  askPromptIntro: ReactNode;
+  askPromptCommand: string;
   askClaudeMdIntro: ReactNode;
   askClaudeMdLine: string;
   noteHeading: string;
@@ -82,7 +88,21 @@ const COPY: Localized<{
         초과가 날 수 있어서입니다.
       </>
     ),
-    supportedClients: "지원하는 클라이언트는 현재 Claude Code와 Codex입니다.",
+    cursorHeading: "Cursor",
+    cursorStep1: (
+      <>
+        <code>~/.cursor/mcp.json</code>(모든 프로젝트에 적용) 또는 저장소 안의 <code>.cursor/mcp.json</code>(그
+        프로젝트에만 적용)에 아래를 추가합니다.
+      </>
+    ),
+    cursorJson: '{\n  "mcpServers": {\n    "whycode": {\n      "url": "https://why-code.com/mcp"\n    }\n  }\n}',
+    cursorStep2: (
+      <>
+        그 다음 Cursor 설정의 MCP 목록에서 whycode에 로그인하면 브라우저가 열립니다. 필요하면 GitHub으로 로그인한 뒤
+        "허용"을 누릅니다.
+      </>
+    ),
+    supportedClients: "지원하는 클라이언트는 현재 Claude Code·Codex·Cursor입니다.",
     folderHeading: "폴더와 프로젝트 연결하기",
     folderBody1:
       '에이전트를 여는 저장소 폴더마다 어느 whycode 프로젝트에 물을지 한 번 정해 둡니다. 그 폴더에서 에이전트에게 "whycode 프로젝트 연결해줘"라고 말하면 프로젝트 목록을 보여주고, 고른 프로젝트를 그 폴더(절대 경로) 기준으로 저장합니다.',
@@ -95,6 +115,13 @@ const COPY: Localized<{
     askExample2: '"이 함수의 재시도 횟수가 3인 이유가 뭐야?"',
     askExample3: '"결제 재시도 로직 왜 바뀌었어?"',
     askTip: '처음에는 "whycode로 찾아봐"처럼 이름을 붙이면 에이전트가 확실히 whycode를 사용합니다.',
+    askPromptIntro: (
+      <>
+        Claude Code에서는 <code>/mcp__whycode__why</code> 프롬프트로도 물을 수 있습니다. 질문은 따옴표로 감싸야
+        전체가 전달됩니다 — 따옴표 없이 쓰면 첫 단어만 전달됩니다.
+      </>
+    ),
+    askPromptCommand: '/mcp__whycode__why "결제 재시도 로직 왜 바뀌었어?"',
     askClaudeMdIntro: (
       <>
         저장소의 <code>CLAUDE.md</code>나 <code>AGENTS.md</code>에 아래 한 줄을 붙여 두면 더 안정적으로 쓰입니다.
@@ -107,7 +134,7 @@ const COPY: Localized<{
     noteItem3: "FREE 플랜의 질의 10회 한도에 에이전트에서 한 질문도 합산됩니다(대시보드·Slack과 같은 카운트).",
     noteItem4: "대화 내용은 저장되지 않습니다.",
     noteItem5: "아직 수집되지 않은 커밋에 대해 물으면, 답변이 그렇게 알려줍니다.",
-    noteItem6: "연결을 끊으려면 whycode 계정 페이지에서 해제합니다.",
+    noteItem6: "연결은 Claude Code의 /mcp 메뉴(Clear authentication)에서 해제하거나 whycode 계정 페이지에서 끊을 수 있습니다. 어느 쪽이든 서버의 연결 기록이 바로 지워집니다.",
     relatedHeading: "관련 문서",
     privacy: "개인정보처리방침",
     support: "지원",
@@ -146,7 +173,21 @@ const COPY: Localized<{
         10-60 seconds, longer when there's more evidence to cite.
       </>
     ),
-    supportedClients: "Claude Code and Codex are supported today.",
+    cursorHeading: "Cursor",
+    cursorStep1: (
+      <>
+        Add this to <code>~/.cursor/mcp.json</code> (all projects) or to <code>.cursor/mcp.json</code> inside the
+        repository (that project only).
+      </>
+    ),
+    cursorJson: '{\n  "mcpServers": {\n    "whycode": {\n      "url": "https://why-code.com/mcp"\n    }\n  }\n}',
+    cursorStep2: (
+      <>
+        Then sign in to whycode from the MCP list in Cursor's settings — a browser window opens. Sign in with
+        GitHub if needed, then press "Allow".
+      </>
+    ),
+    supportedClients: "Claude Code, Codex, and Cursor are supported today.",
     folderHeading: "Connect a folder to a project",
     folderBody1:
       'For each repository folder you open the agent in, you pick which whycode project it should ask once. Tell the agent something like "connect a whycode project" in that folder — it shows your project list and saves the one you pick for that folder (by absolute path).',
@@ -159,6 +200,13 @@ const COPY: Localized<{
     askExample2: '"why does this function retry 3 times?"',
     askExample3: '"why did the payment retry logic change?"',
     askTip: 'The first time, naming it — like "look this up with whycode" — makes the agent reliably reach for whycode.',
+    askPromptIntro: (
+      <>
+        In Claude Code you can also ask through the <code>/mcp__whycode__why</code> prompt. Wrap the question in
+        quotes — without them, only the first word gets through.
+      </>
+    ),
+    askPromptCommand: '/mcp__whycode__why "why did the payment retry logic change?"',
     askClaudeMdIntro: (
       <>
         Adding this line to your repository's <code>CLAUDE.md</code> or <code>AGENTS.md</code> makes this more
@@ -172,7 +220,7 @@ const COPY: Localized<{
     noteItem3: "Questions asked from the agent count toward the FREE plan's 10-query limit — the same count as the dashboard and Slack.",
     noteItem4: "Conversations aren't stored.",
     noteItem5: "Ask about a commit that hasn't been collected yet, and the answer will say so.",
-    noteItem6: "Disconnect from your whycode account page.",
+    noteItem6: "Disconnect from Claude Code's /mcp menu (Clear authentication) or from your whycode account page. Either way, the connection record on the server is removed right away.",
     relatedHeading: "Related",
     privacy: "Privacy Policy",
     support: "Support",
@@ -226,6 +274,13 @@ export function McpBody() {
         </pre>
         <p>{t.codexStep2}</p>
 
+        <h3 className="lp-legal-subheading">{t.cursorHeading}</h3>
+        <p>{t.cursorStep1}</p>
+        <pre className="lp-legal-pre">
+          <code>{t.cursorJson}</code>
+        </pre>
+        <p>{t.cursorStep2}</p>
+
         <p className="lp-legal-note">{t.supportedClients}</p>
       </section>
 
@@ -245,6 +300,10 @@ export function McpBody() {
           <li>{t.askExample3}</li>
         </ul>
         <p>{t.askTip}</p>
+        <p>{t.askPromptIntro}</p>
+        <pre className="lp-legal-pre">
+          <code>{t.askPromptCommand}</code>
+        </pre>
         <p>{t.askClaudeMdIntro}</p>
         <pre className="lp-legal-pre">
           <code>{t.askClaudeMdLine}</code>
