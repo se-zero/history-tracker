@@ -243,6 +243,7 @@ body:has(.lp[data-theme="dark"]) {
 
   --success:      oklch(0.530 0.101 157);  /* #2F7D54 */
   --danger:       oklch(0.58 0.20  25);
+  --danger-fg:    oklch(1 0 0);             /* #FFFFFF — danger 채움 위 글자(--accent-fg와 같은 역할). 두 테마 공통 */
 
   /* GitHub·Notion 마크는 :root의 다크 배경용 흰색 변형이 기본값이라, 이 앱 라이트 블록에
      오버라이드가 없으면 흰 카드 위에서 보이지 않는다(랜딩은 .lp[data-theme="light"] 스코프에
@@ -294,6 +295,7 @@ body:has(.lp[data-theme="dark"]) {
 
   --success:      oklch(0.715 0.095 156);  /* #6FB58A — node-commit과 같은 hex(네임스페이스 분리) */
   --danger:       oklch(0.652 0.143 28);   /* #D9695C */
+  --danger-fg:    oklch(1 0 0);             /* #FFFFFF — danger 채움 위 글자. 라이트 블록과 같은 사유 */
 
   /* 그림자 사다리는 라이트 전용 — 다크의 깊이는 surface 사다리 + edge-highlight가 담당한다(DESIGN.md).
      literal "none" 대신 투명 no-op을 쓰는 이유: box-shadow는 쉼표로 결합될 때 "none"을 리스트 항목으로

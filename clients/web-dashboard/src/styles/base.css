@@ -56,3 +56,4 @@ a { color: inherit; text-decoration: none; }
 .mono { font-family: var(--font-mono); font-feature-settings: "ss01", "ss02"; }
 .muted { color: var(--fg-muted); }
 .subtle { color: var(--fg-subtle); }
+.text-danger { color: var(--danger); }

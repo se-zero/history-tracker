@@ -68,13 +68,10 @@ export function AccountPage() {
       <ConnectedAppsCard />
 
       {/* ─── 회원 탈퇴 (계정 전체) ─── */}
-      <section
-        className="source-card"
-        style={{ borderColor: "var(--danger)", marginBottom: 16 }}
-      >
+      <section className="source-card source-card--danger">
         <div className="src-head">
           <div style={{ flex: 1 }}>
-            <h4 style={{ color: "var(--danger)" }}>회원 탈퇴</h4>
+            <h4>회원 탈퇴</h4>
             <div className="src-sub">
               계정과 모든 프로젝트·대화·연동이 삭제됩니다. 일정 기간 후 영구 삭제되며,
               그 전까지는 다시 로그인하면 복구할 수 있어요.
@@ -88,7 +85,7 @@ export function AccountPage() {
             label={
               <>
                 확인을 위해 계정 이메일{" "}
-                <span className="mono" style={{ color: "var(--danger)" }}>
+                <span className="mono text-danger">
                   {user?.email ?? "(이메일 없음)"}
                 </span>
                 을 입력하세요
@@ -109,12 +106,7 @@ export function AccountPage() {
 
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button
-            className="btn"
-            style={{
-              background: canWithdraw ? "var(--danger)" : undefined,
-              color: canWithdraw ? "white" : undefined,
-              borderColor: canWithdraw ? "var(--danger)" : undefined,
-            }}
+            className="btn btn-danger-solid"
             disabled={!canWithdraw}
             onClick={() => withdrawMutation.mutate()}
           >

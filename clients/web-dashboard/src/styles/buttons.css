@@ -29,6 +29,10 @@
 .btn-secondary:hover { background: var(--surface-3); border-color: var(--border-strong); }
 .btn-danger { color: var(--danger); border-color: var(--border); }
 .btn-danger:hover { background: color-mix(in oklab, var(--danger) 10%, transparent); border-color: var(--danger); }
+/* 채움형 위험 버튼 — 확인 입력을 마친 뒤의 최종 파괴 동작(프로젝트 삭제·회원 탈퇴) 전용. 외곽선형(.btn-danger)보다
+   무겁게 보여야 해서 채운다. hover에서 .btn:hover의 무채 배경이 덮지 않게 같은 값을 다시 쓴다. */
+.btn-danger-solid { background: var(--danger); border-color: var(--danger); color: var(--danger-fg); }
+.btn-danger-solid:hover { background: var(--danger); border-color: var(--danger); }
 .btn-lg { padding: 10px 16px; font-size: 14px; }
 /* disabled는 variant(primary/ghost/secondary)와 무관하게 항상 무채 배경·muted 텍스트로 눌러앉힌다 —
    :disabled 두 클래스 결합 특이도가 .btn-primary/.btn-ghost/.btn-secondary보다 높아 항상 이긴다. */
