@@ -27,7 +27,7 @@ public class PublicClientRevocationAuthenticationConverter implements Authentica
 
     @Override
     public Authentication convert(HttpServletRequest request) {
-        if (!revocationEndpointPath.equals(request.getRequestURI())) {
+        if (!revocationEndpointPath.equals(pathWithinApplication(request))) {
             return null;
         }
         String[] clientIds = request.getParameterValues(OAuth2ParameterNames.CLIENT_ID);
@@ -59,5 +59,15 @@ public class PublicClientRevocationAuthenticationConverter implements Authentica
         });
 
         return new OAuth2ClientAuthenticationToken(clientIds[0], ClientAuthenticationMethod.NONE, null, additionalParameters);
+    }
+
+    // 앱에 context-path가 생기면 getRequestURI()는 그 접두사를 포함한다 — Spring 폐기 필터의 매처처럼 앱 안의 경로로 비교한다.
+    private static String pathWithinApplication(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)) {
+            return uri.substring(contextPath.length());
+        }
+        return uri;
     }
 }

@@ -121,6 +121,16 @@ class PublicClientRevocationAuthenticationConverterTest {
 
     // ── 헬퍼 ──
 
+    @Test
+    @DisplayName("앱에 context-path가 있어도(URI가 /api/oauth2/revoke) 폐기 요청으로 판정한다")
+    void convertsWhenContextPathPrefixesTheUri() {
+        MockHttpServletRequest request = revokeRequest("token", "abc", "client_id", "mcp-client");
+        request.setContextPath("/api");
+        request.setRequestURI("/api/oauth2/revoke");
+
+        assertThat(converter.convert(request)).isInstanceOf(OAuth2ClientAuthenticationToken.class);
+    }
+
     private MockHttpServletRequest revokeRequest(String... keyValuePairs) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/oauth2/revoke");
         for (int i = 0; i < keyValuePairs.length; i += 2) {

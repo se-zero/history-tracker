@@ -5,7 +5,6 @@ import java.io.IOException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
@@ -36,8 +35,9 @@ public class RevokedAuthorizationRemovingHandler implements AuthenticationSucces
                 if (authorization != null) {
                     authorizationService.remove(authorization);
                 }
-            } catch (DataAccessException e) {
-                // 토큰은 이미 무효 표시됐고 RFC 7009상 응답은 200이어야 한다. 토큰 값은 남기지 않는다.
+            } catch (RuntimeException e) {
+                // 토큰은 이미 무효 표시됐고 RFC 7009상 응답은 항상 200이어야 한다 — DB 예외만이 아니라 어떤 런타임 예외도
+                // 500으로 바꾸지 않는다. 토큰 값은 남기지 않는다.
                 log.warn("폐기된 연결 행 삭제 실패: {}", e.getClass().getSimpleName());
             }
         }

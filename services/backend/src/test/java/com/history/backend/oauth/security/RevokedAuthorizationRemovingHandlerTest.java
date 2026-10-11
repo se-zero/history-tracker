@@ -116,6 +116,19 @@ class RevokedAuthorizationRemovingHandlerTest {
 
     // ── 헬퍼 ──
 
+    @Test
+    @DisplayName("remove가 DataAccessException이 아닌 런타임 예외를 던져도 삼키고 200(RFC 7009 — 응답은 항상 200)")
+    void swallowsOtherRuntimeExceptionFromRemove() throws Exception {
+        OAuth2Authorization authorization = mock(OAuth2Authorization.class);
+        when(authorizationService.findByToken(TOKEN_VALUE, null)).thenReturn(authorization);
+        doThrow(new IllegalStateException("x")).when(authorizationService).remove(authorization);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler().onAuthenticationSuccess(new MockHttpServletRequest(), response, authenticatedRevocation());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
     private RevokedAuthorizationRemovingHandler handler() {
         return new RevokedAuthorizationRemovingHandler(authorizationService);
     }
