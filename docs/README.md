@@ -100,6 +100,7 @@
 |------|------|------|---------|
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
 | [evidence-retrieval-fixes.md](evidence-retrieval-fixes.md) | 작업 | 수정 계획 | 근거 회수 결함 12건을 묶음 A~F로 수정. 후속 10건(임계값·시간 창·검색 확장)은 §7 |
+| [answer-language.md](answer-language.md) | 작업 | 기능 계획 | 질문한 언어(ko·en)로 답하기 — 착수 전(브랜치 `feat/answer-language`). 0단계 영어 지시 실험 → 언어 판정·답변 경로(ai-engine)·MCP 영어화·영어 짝 측정. 완료 후 계약 정본은 [i18n.md](i18n.md) §5 |
 
 ---
 
@@ -108,6 +109,8 @@
 새 커넥터: [integration-abstraction.md](integration-abstraction.md) → [normalized-event.md](normalized-event.md) → 해당 `*-integration.md` → [data-collection.md](data-collection.md).
 
 질의·도구: [tools.md](tools.md). 품질은 [query-quality-issues.md](query-quality-issues.md)·[measurement.md](measurement.md).
+
+답변 언어(질문한 언어로 답하기): [answer-language.md](answer-language.md). 화면 글자 다국어는 [i18n.md](i18n.md).
 
 배포·공개: [deployment.md](deployment.md) → [deployment-followups.md](deployment-followups.md) → [public-readiness.md](public-readiness.md).
 
