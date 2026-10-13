@@ -127,6 +127,8 @@ cp .env.example .env
   확인한다(`app.plan.beta-ends-at must be ISO-8601 with offset` 오류면 값을 고친다).
 - 연장은 값을 바꾸고 backend를 재시작한다. 조기 종료는 값을 **지우지 말고 과거 시각으로** 바꾼다(언제 끝냈는지
   기록이 남는다).
+- 베타용 OpenAI 크레딧 소진 알림이 운영자 Slack으로 오면 날짜와 관계없이 위 방법으로 조기 종료한다 — 종료
+  조건은 [billing.md](billing.md) §12-1 운영 메모.
 - 배포 직후 backend의 정리 작업이 기존 무료 연동의 증분 수집을 **켠다**(베타 중이고 미탈퇴인 FREE 소유자 연동).
   V19 이전에 만든 연동이 켜진 채 남아 있던 것도 이때 베타 여부에 맞춰진다 — 베타가 아니면 꺼진다.
   주기는 `BETA_RECONCILE_INTERVAL`(기본 `PT1H`)이고, 베타가 끝나면 최대 한 주기 안에 꺼진다.
