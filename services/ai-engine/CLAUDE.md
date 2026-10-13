@@ -120,10 +120,10 @@ agent/
   language.py        답변 언어(ko/en) 대비책 판정 — 판별 LLM이 정하지 못할 때만 쓰는 결정적 규칙
                      (docs/answer-language.md §4-1). 식별자 형식 목록을 두지 않는다 — 규칙을 바꾸면
                      tests/unit/test_answer_language.py의 판정 표를 함께 고친다
-  prompt_en.py       본 지시(시스템 프롬프트) 전체 영어판 — 영어로 답할 때 첫 시스템 메시지로 쓴다
-                     (docs/answer-language.md §4-2). orchestrator의 한국어 프롬프트 템플릿이나
-                     SCHEMA_CARD를 고치면 같은 PR에서 이 영어판도 같은 뜻으로 고치고 TRANSLATED_FROM을
-                     갱신한다 — tests/unit/test_system_prompt_en.py가 어긋남을 잡는다
+  prompt_en.py       본 지시(시스템 프롬프트)와 최종 지시의 전체 영어판 — 영어로 답할 때 한국어판 자리에 쓴다
+                     (docs/answer-language.md §4-2). orchestrator의 한국어 프롬프트 템플릿·SCHEMA_CARD·
+                     최종 지시(_STRUCTURED_FINAL_INSTRUCTION)를 고치면 같은 PR에서 이 영어판도 같은 뜻으로
+                     고치고 TRANSLATED_FROM을 갱신한다 — tests/unit/test_system_prompt_en.py가 어긋남을 잡는다
 
 tools/             LLM tool-calling
   definitions.py     도구 스키마 (OpenAI function 정의)

@@ -4,9 +4,10 @@
 - 영어 답의 첫 시스템 메시지는 본 지시 전체 영어판(orchestrator._SYSTEM_PROMPT_EN)이다. 영어판 원문은
   agent/prompt_en.py의 SYSTEM_PROMPT_EN_TEMPLATE이고, 한국어판(_SYSTEM_PROMPT_TEMPLATE)과 같은 자리표시자로 수치·용어집을
   채운다. 스키마 카드는 영어판이 번역해 품고 있어 자리표시자가 없다.
-- 영어판은 번역 기준이 된 한국어 본 지시의 지문(prompt_en.TRANSLATED_FROM)을 갖는다. 지문은 한국어 템플릿(수치·용어집은
-  자리표시자 그대로)과 SCHEMA_CARD로 만든다. 한국어 쪽이 바뀌면 이 테스트가 실패한다 — 영어판도 같은 뜻으로 고치고 지문을
-  갱신해야 통과한다. 용어집은 glossary.py가 언어별로 만들어 붙이므로 지문에서 빠진다(용어 수정이 가드를 깨지 않게).
+- 영어판은 번역 기준이 된 한국어 지시의 지문(prompt_en.TRANSLATED_FROM)을 갖는다. 지문은 한국어 템플릿(수치·용어집은
+  자리표시자 그대로), SCHEMA_CARD, 최종 지시(_STRUCTURED_FINAL_INSTRUCTION)로 만든다 — 최종 지시도 영어 답은 prompt_en의
+  영어판을 쓰기 때문이다. 한국어 쪽이 바뀌면 이 테스트가 실패한다 — 영어판도 같은 뜻으로 고치고 지문을 갱신해야 통과한다.
+  용어집은 glossary.py가 언어별로 만들어 붙이므로 지문에서 빠진다(용어 수정이 가드를 깨지 않게).
 - 두 판은 단원 수가 같고, 단원마다 한국어판이 이름을 든 도구를 영어판도 든다. 단원 단위로는 영어판이 더 들 수 있다 —
   영어판 [Answer rules]에만 있는 "영어 검색이 약하면 한국어로 한 번 더" 줄이 검색 도구 둘을 더 든다. 프롬프트 전체가 이름을
   드는 도구 집합은 두 판이 같다(그 검색 도구들은 한국어판 다른 단원에도 나온다). 영어 전용 줄이 한국어판 어디에도 없는 도구를
@@ -34,8 +35,8 @@ _ALLOWED_HANGUL = {"그래프 생성", "완료"}
 
 
 def _korean_fingerprint() -> str:
-    """번역 기준 지문 — 한국어 본 지시 템플릿과 스키마 카드. 용어집은 자리표시자로만 들어간다."""
-    body = orchestrator._SYSTEM_PROMPT_TEMPLATE + "\n" + SCHEMA_CARD
+    """번역 기준 지문 — 한국어 본 지시 템플릿, 스키마 카드, 최종 지시. 용어집은 자리표시자로만 들어간다."""
+    body = orchestrator._SYSTEM_PROMPT_TEMPLATE + "\n" + SCHEMA_CARD + "\n" + orchestrator._STRUCTURED_FINAL_INSTRUCTION
     return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
 
 
@@ -56,7 +57,8 @@ class TranslationSyncGuardTest(unittest.TestCase):
         self.assertEqual(
             current,
             prompt_en.TRANSLATED_FROM,
-            "한국어 본 지시(_SYSTEM_PROMPT_TEMPLATE) 또는 SCHEMA_CARD가 바뀌었다. agent/prompt_en.py의 영어판을 같은 뜻으로 "
+            "한국어 본 지시(_SYSTEM_PROMPT_TEMPLATE)·SCHEMA_CARD·최종 지시(_STRUCTURED_FINAL_INSTRUCTION) 중 하나가 바뀌었다. "
+            "agent/prompt_en.py의 영어판을 같은 뜻으로 "
             f'고친 뒤 TRANSLATED_FROM을 "{current}"로 갱신한다 (docs/answer-language.md §4-2).',
         )
 

@@ -50,7 +50,7 @@ class OrchestratorFocusEvidenceTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages.extend(messages)
             return response
 
-        async def capture_structured(messages, debug=None):
+        async def capture_structured(messages, debug=None, language="ko"):
             captured_structured_messages.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
@@ -93,7 +93,7 @@ class OrchestratorFocusEvidenceTest(unittest.IsolatedAsyncioTestCase):
         async def capture_exploration(messages, with_tools=True):
             return response
 
-        async def capture_structured(messages, debug=None):
+        async def capture_structured(messages, debug=None, language="ko"):
             captured_structured_messages.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
@@ -127,7 +127,7 @@ class OrchestratorFocusEvidenceTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration.extend(messages)
             return response
 
-        async def capture_structured(messages, debug=None):
+        async def capture_structured(messages, debug=None, language="ko"):
             captured_structured.extend(messages)
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 

@@ -1,4 +1,4 @@
-"""본 지시(시스템 프롬프트) 전체 영어판 — 영어로 답할 때 첫 시스템 메시지로 쓴다 (docs/answer-language.md §3-4, §4-2).
+"""본 지시(시스템 프롬프트)와 최종 지시의 전체 영어판 — 영어로 답할 때 한국어판 자리에 쓴다 (docs/answer-language.md §3-4, §4-2).
 
 규칙 설명이 한국어로 남아 있으면 영어 질문의 사실 정답률이 떨어진다. 골든 10케이스의 영어 번역 질문을 3회씩 돌려 같은
 케이스의 한국어 질문 결과(0.91)와 견주면, 한국어 본 지시에 영어 규칙 한 줄을 덧붙인 방식은 -0.16, 출력 언어와 닿는 곳만 영어로
@@ -6,9 +6,9 @@
 다시 재 보니 규칙 설명이 한국어로 남은 판은 상세 도구로 본문을 덜 조회했고 순위 질문에는 1위 하나만 요청하기도 했다. 영어
 질문에서 절차를 충실히 따르게 하려면 규칙 설명 자체가 영어여야 한다고 보고, 일부만 바꿔 끼우지 않고 전체를 번역해 둔다.
 
-**동기화 규칙**: orchestrator의 한국어 템플릿(_SYSTEM_PROMPT_TEMPLATE)이나 SCHEMA_CARD를 고치면 같은 PR에서 이 영어 원문도
-같은 뜻으로 고치고 TRANSLATED_FROM을 갱신한다. TRANSLATED_FROM은 번역의 기준이 된 한국어 템플릿과 SCHEMA_CARD를 줄바꿈 하나로
-이은 글의 sha256 앞 16자다. 한쪽만 고치면 영어 사용자만 다른 규칙으로 답을 받는데 겉으로는 드러나지 않는다 —
+**동기화 규칙**: orchestrator의 한국어 템플릿(_SYSTEM_PROMPT_TEMPLATE)·SCHEMA_CARD·최종 지시(_STRUCTURED_FINAL_INSTRUCTION)를
+고치면 같은 PR에서 이 영어 원문도 같은 뜻으로 고치고 TRANSLATED_FROM을 갱신한다. TRANSLATED_FROM은 번역의 기준이 된 셋을 그 순서로
+줄바꿈 하나씩 끼워 이은 글의 sha256 앞 16자다. 한쪽만 고치면 영어 사용자만 다른 규칙으로 답을 받는데 겉으로는 드러나지 않는다 —
 tests/unit/test_system_prompt_en.py가 지문이 어긋나면 실패하고 새 값을 출력해 준다. 용어집은 glossary.py가 언어별로 만들어
 붙이므로 지문에서 빠진다(용어 수정이 이 가드를 깨지 않는다).
 
@@ -21,9 +21,18 @@ tests/unit/test_system_prompt_en.py가 지문이 어긋나면 실패하고 새 �
 - 수치와 용어집은 한국어 템플릿과 같은 자리표시자(__MIN_CONF__·__MAX_GQ__·__GLOSSARY__)로 채운다. 값을 이 원문에 적지 않는다.
 """
 
-# 번역 기준이 된 한국어 본 지시의 지문. 아래 영어 원문을 한국어판에 맞춰 고친 뒤에만 갱신한다 — 값만 바꿔
+# 번역 기준이 된 한국어 지시의 지문. 아래 영어 원문을 한국어판에 맞춰 고친 뒤에만 갱신한다 — 값만 바꿔
 # 테스트를 통과시키면 가드가 막으려던 어긋남이 그대로 남는다.
-TRANSLATED_FROM = "0728d1945916436b"
+TRANSLATED_FROM = "6505d281c57261c2"
+
+# 최종 답변 호출 끝에 붙는 지시의 영어판(orchestrator._STRUCTURED_FINAL_INSTRUCTION의 번역 + 답 언어 한 문장).
+# 0단계 실험에서 전체 영어판과 함께 잰 문구 그대로다 — 다듬으면 측정 결과와 달라진다.
+STRUCTURED_FINAL_INSTRUCTION_EN = (
+    "Using only the tool results gathered for the current question, write the final answer following the grounded_answer schema. "
+    "Do not put any fact in summary that you cannot list in evidence[]. "
+    "If some aspects could not be confirmed in the graph, state them in unknown_aspects. "
+    "Write summary and unknown_aspects in English; copy evidence[*].quote verbatim in its original language."
+)
 
 # orchestrator._SYSTEM_PROMPT_TEMPLATE과 같은 단원 순서·자리표시자다. orchestrator가 같은 함수로 수치·용어집을 채운다.
 SYSTEM_PROMPT_EN_TEMPLATE = """\

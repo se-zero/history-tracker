@@ -3,9 +3,11 @@ import logging
 import os
 import re
 from collections import Counter
+from dataclasses import dataclass
 
 from agent.glossary import DETECT_ONLY, REPLACEMENTS, prompt_glossary, replacements
-from agent.prompt_en import SYSTEM_PROMPT_EN_TEMPLATE
+from agent.language import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, decide_answer_language
+from agent.prompt_en import STRUCTURED_FINAL_INSTRUCTION_EN, SYSTEM_PROMPT_EN_TEMPLATE
 from alerts import UNRECOVERABLE_STATUS as _UNRECOVERABLE_STATUS
 from graph.overview import resolve_evidence_sources
 from openai_client import Priority, chat_completion
@@ -522,6 +524,8 @@ async def _call_llm(messages: list, with_tools: bool = True):
         return None
 
 
+# agent/prompt_en.py의 STRUCTURED_FINAL_INSTRUCTION_EN이 이 지시를 번역한 것이라, 고치면 영어판도 함께 고친다
+# (tests/unit/test_system_prompt_en.py가 지문으로 잡는다).
 _STRUCTURED_FINAL_INSTRUCTION = (
     "현재 질문에서 수집한 도구 결과만 근거로, grounded_answer 스키마를 따라 최종 답변을 작성하세요. "
     "evidence[]에 등재할 수 없는 사실은 summary에 적지 마세요. "
@@ -554,13 +558,17 @@ def _record_tool_call(debug: dict | None, name: str, arguments, status: str, res
     )
 
 
-async def _call_llm_structured(messages: list, debug: dict | None = None) -> dict | None:
+async def _call_llm_structured(
+    messages: list, debug: dict | None = None, language: str = "ko",
+) -> dict | None:
     """tool calling이 끝난 뒤 최종 답변을 grounded_answer 스키마로 강제 생성.
 
     response_format=json_schema(strict=True)이라 LLM이 스키마 밖 자유 텍스트를 만들 수 없다.
     실패(JSON 파싱 실패 / API 오류) 시 None 반환 — 호출자가 fallback 처리.
+    language가 "en"이면 마지막 지시가 영어 판이다 — 답을 쓰는 언어가 이 지시에서 정해진다.
     """
-    final_messages = messages + [{"role": "user", "content": _STRUCTURED_FINAL_INSTRUCTION}]
+    final_instruction = _fixed_text(language).final_instruction
+    final_messages = messages + [{"role": "user", "content": final_instruction}]
     try:
         response = await chat_completion(
             priority=Priority.INTERACTIVE,
@@ -646,18 +654,21 @@ async def _rewrite_question(
     history: list[dict[str, str]],
     running_summary: dict | None,
     debug: dict | None = None,
+    language: str = "ko",
 ) -> str | None:
     """지시대명사·생략이 있는 후속 질문을 tool 루프 진입 전에 자립형으로 재작성한다.
 
     history가 비어 있으면(단일턴) 재작성할 맥락이 없으므로 호출하지 않는다.
     실패는 전부 삼킨다(4xx 포함) — 재작성은 검색 품질을 돕는 보조 경로일 뿐이라, 질의 경로의
     _is_unrecoverable처럼 예외를 올리면 재작성 실패가 질의 전체를 막아버린다.
+    language가 "en"이면 지시에 "영어 질문이니 영어로 다시 쓰라"는 줄이 더해진다. 재작성문이 tool 루프의 현재 질문이
+    되는데 지시 본문은 한국어라, 줄이 없으면 영어 질문이 한국어로 바뀔 수 있다.
     """
     if not history:
         return None
 
     messages = [
-        {"role": "system", "content": _REWRITE_INSTRUCTION},
+        {"role": "system", "content": _fixed_text(language).rewrite_instruction},
         {
             "role": "user",
             "content": json.dumps(
@@ -698,8 +709,10 @@ _UTTERANCE_ROUTE_SCHEMA = {
         "properties": {
             "route": {"type": "string", "enum": ["chat", "graph"]},
             "reply": {"type": "string"},
+            # none = 판별이 언어를 정하지 못함. strict 스키마라 칸 자체는 항상 채우게 하고, none이면 호출부가 코드 판정으로 넘어간다.
+            "language": {"type": "string", "enum": ["ko", "en", "none"]},
         },
-        "required": ["route", "reply"],
+        "required": ["route", "reply", "language"],
         "additionalProperties": False,
     },
 }
@@ -714,7 +727,12 @@ _UTTERANCE_ROUTE_INSTRUCTION = (
     "검색에 쓰는 도구·쿼리·그래프 구조, 서버 주소·API 키·비밀번호·환경변수, "
     "whycode에 가입한 다른 계정이나 다른 프로젝트의 데이터입니다. "
     "이 프로젝트 코드의 프롬프트·모델·키·쿼리가 언제·누가·왜 바뀌었는지 묻는 말은 graph입니다.\n"
-    "chat의 reply는 한국어 한 문단입니다.\n"
+    "language는 지금 사용자 말이 쓰인 언어로, ko 또는 en입니다. 문장의 문법·기능어로 판단하고, "
+    "식별자·코드·경로·URL·제품명·따옴표 안 제목·사람 이름은 보지 않습니다. 지금 말에 언어 신호가 없으면"
+    "(\"HT-12?\"처럼 식별자뿐인 말) history의 앞선 user 말로 판단하고 assistant 말은 보지 않습니다. "
+    "그래도 없으면 none입니다. route와 상관없이 매번 고릅니다.\n"
+    "chat의 reply는 language가 en이면 영어로, 그 밖에는 한국어로 쓴 한 문단입니다. 영어로 쓸 때 아래의 같은 질문은 "
+    "\"How can I help?\"이고, 내부 구현에는 \"I can't share that information.\"이라고 답합니다.\n"
     "- 인사: 맞인사와 짧은 자기소개(whycode, 코드가 왜 바뀌었는지 함께 찾는다) 뒤에 "
     "\"무엇을 도와드릴까요?\"\n"
     "- 감사: 도움이 되어 다행이라는 말 뒤에 같은 질문. 자기소개는 반복하지 않습니다.\n"
@@ -743,22 +761,28 @@ def _route_history(history: list[dict] | None) -> list[dict]:
     return selected
 
 
-def _finalize_chat_reply(reply: str) -> str:
+def _finalize_chat_reply(reply: str, language: str = "ko") -> str:
     """잡담 문장을 그대로 쓰되, 제안 문장이 없으면 붙인다. 못 쓰는 문장은 제안만 남긴다."""
+    offer = _fixed_text(language).chat_offer
     text = (reply or "").strip()
     if not text or "\n" in text or "\r" in text or len(text) > _CHAT_REPLY_MAX_CHARS:
-        return _CHAT_OFFER
-    if _CHAT_OFFER in text:
+        return offer
+    # 대소문자를 무시한다 — 모델이 영어 제안을 소문자로 시작해 쓰면("how can I help?") 제안이 두 번 붙는다.
+    if offer.casefold() in text.casefold():
         return text
-    return f"{text} {_CHAT_OFFER}"
+    return f"{text} {offer}"
 
 
 async def _route_utterance(
     question: str,
     history: list[dict[str, str]] | None,
     debug: dict | None = None,
-) -> tuple[str, dict] | None:
-    """잡담이면 intro 답을, 그래프 질문이거나 판별이 실패하면 None을 반환한다.
+) -> tuple[tuple[str, dict] | None, str | None]:
+    """(intro, language)를 반환한다.
+
+    intro: 잡담이면 (답, structured), 그래프 질문이거나 판별이 실패하면 None.
+    language: 판별이 정한 "ko" | "en". 정하지 못했으면(none·이상한 값·판별 실패) None이고, 호출부(run)가
+    대비책 코드 판정으로 정한다.
 
     실패를 그래프 경로로 보는 이유: 판별이 죽어도 코드 질문은 검색이 계속되어야 한다.
     """
@@ -791,16 +815,26 @@ async def _route_utterance(
         logger.warning("발화 판별 실패 — 그래프 검색으로 계속 진행", exc_info=True)
         if isinstance(debug, dict):
             debug["utterance_route"] = {"route": "graph", "reason": "error"}
-        return None
+        return None, None
+
+    # none이거나 enum 밖의 값이면 판별이 언어를 못 정한 것이다 — 아무 언어로 억지로 좁히지 않고 비워 둔다.
+    raw_language = parsed.get("language")
+    language = raw_language if raw_language in SUPPORTED_LANGUAGES else None
 
     if route != "chat":
         if isinstance(debug, dict):
-            debug["utterance_route"] = {"route": "graph"}
-        return None
-    text = _finalize_chat_reply(reply)
+            debug["utterance_route"] = {"route": "graph", "language": language}
+        return None, language
+    # 언어를 못 정한 잡담은 지시가 한국어로 쓰게 했으므로 한국어로 본다.
+    chat_language = language or DEFAULT_LANGUAGE
+    text = _finalize_chat_reply(reply, chat_language)
     if isinstance(debug, dict):
-        debug["utterance_route"] = {"route": "chat", "fallback": text == _CHAT_OFFER and text != reply.strip()}
-    return _intro_payload(text)
+        debug["utterance_route"] = {
+            "route": "chat",
+            "fallback": text == _fixed_text(chat_language).chat_offer and text != reply.strip(),
+            "language": language,
+        }
+    return _intro_payload(text, chat_language), chat_language
 
 
 # _render_structured가 근거 절을 여는 헤더 — _strip_evidence_section이 같은 상수로 그 절을
@@ -812,16 +846,76 @@ _EVIDENCE_HEADER_EN = "\n## Evidence"
 _EVIDENCE_HEADERS = (_EVIDENCE_HEADER, _EVIDENCE_HEADER_EN)
 
 
-def _render_structured(structured: dict) -> str:
+@dataclass(frozen=True)
+class _FixedText:
+    """서버가 직접 쓰는 문구의 한 언어분 — 사용자에게 보이는 문장과, 그 언어로 쓰게 하는 모델 지시를 함께 둔다.
+
+    필드를 한 곳에 모아 두는 이유: 영어판을 빠뜨린 문구가 생기면 아래 인스턴스를 만드는 순간 TypeError가 나서,
+    영어 답에 한국어 문장이 섞여 나가는 일이 조용히 생기지 않는다.
+    """
+
+    exploratory_notice: str
+    chat_offer: str
+    fallback_answer: str
+    llm_failure_answer: str
+    evidence_header: str
+    unknown_aspects_header: str
+    original_question: str  # {question} 자리를 str.format으로 채운다
+    final_instruction: str
+    rewrite_instruction: str
+
+
+# 한국어 한 벌은 위의 기존 상수 그대로다 — 한국어 경로는 글자 그대로 유지한다(docs/answer-language.md §2).
+_FIXED_TEXT_KO = _FixedText(
+    exploratory_notice=_EXPLORATORY_NOTICE,
+    chat_offer=_CHAT_OFFER,
+    fallback_answer=_FALLBACK_ANSWER,
+    llm_failure_answer=_LLM_FAILURE_ANSWER,
+    evidence_header=_EVIDENCE_HEADER,
+    unknown_aspects_header="\n## 확인되지 않은 측면",
+    original_question="(원문 질문: {question})",
+    final_instruction=_STRUCTURED_FINAL_INSTRUCTION,
+    rewrite_instruction=_REWRITE_INSTRUCTION,
+)
+_FIXED_TEXT_EN = _FixedText(
+    exploratory_notice=(
+        "> ⚠️ No dedicated lookup fits this question, so I explored the graph directly. "
+        "Some evidence links may be weak, and parts of this answer may be inferred."
+    ),
+    chat_offer="How can I help?",
+    fallback_answer="I couldn't generate an answer.",
+    llm_failure_answer="Failed to generate an AI response. Please try again shortly.",
+    evidence_header=_EVIDENCE_HEADER_EN,
+    unknown_aspects_header="\n## Unverified aspects",
+    original_question="(original question: {question})",
+    # 본 지시 영어판과 같은 동기화 가드를 받도록 prompt_en에 둔다.
+    final_instruction=STRUCTURED_FINAL_INSTRUCTION_EN,
+    # 재작성 모델이 받는 지시는 한국어 그대로 두고(모델만 보는 문자열), 영어 질문이면 영어로 다시 쓰라는 줄만 더한다.
+    rewrite_instruction=(
+        _REWRITE_INSTRUCTION
+        + "\n4) 현재 질문은 영어입니다. rewritten_question도 영어로 쓰고, 식별자(PR 번호·이슈 키·커밋 해시·사람 이름)는 원문 표기 그대로 두세요."
+    ),
+)
+
+
+def _fixed_text(language: str) -> _FixedText:
+    """언어에 맞는 고정 문구 한 벌. "en"이 아니면 한국어다 — glossary.replacements와 같은 규칙이라 모르는 값도 지금 동작으로 간다."""
+    return _FIXED_TEXT_EN if language == "en" else _FIXED_TEXT_KO
+
+
+def _render_structured(structured: dict, language: str = "ko") -> str:
     """grounded_answer 구조를 사용자에게 보여줄 markdown으로 렌더한다.
 
     summary → '## 근거' → '## 확인되지 않은 측면' 순. 빈 섹션은 생략.
+    language가 "en"이면 경고문·절 제목·빈 답 문구가 영어다('## Evidence' → '## Unverified aspects').
+    summary 등 본문은 모델이 쓴 그대로이고 여기서 번역하지 않는다.
     """
+    texts = _fixed_text(language)
     parts: list[str] = []
 
     # 범용 조회가 답에 기여했으면 맨 앞에 경고를 세운다 (서버 판정 — LLM이 못 지운다).
     if structured.get("answer_mode") == "exploratory":
-        parts.append(_EXPLORATORY_NOTICE)
+        parts.append(texts.exploratory_notice)
 
     summary = (structured.get("summary") or "").strip()
     if summary:
@@ -829,7 +923,7 @@ def _render_structured(structured: dict) -> str:
 
     evidence = structured.get("evidence") or []
     if evidence:
-        parts.append(_EVIDENCE_HEADER)
+        parts.append(texts.evidence_header)
         for e in evidence:
             etype  = e.get("type", "?")
             eid    = e.get("id", "?")
@@ -849,19 +943,22 @@ def _render_structured(structured: dict) -> str:
 
     unknown = structured.get("unknown_aspects") or []
     if unknown:
-        parts.append("\n## 확인되지 않은 측면")
+        parts.append(texts.unknown_aspects_header)
         for u in unknown:
             parts.append(f"- {u}")
 
-    return "\n".join(parts) if parts else _FALLBACK_ANSWER
+    return "\n".join(parts) if parts else texts.fallback_answer
 
 
-def _finalize(structured: dict | None, fallback_text: str, exploratory: bool) -> tuple[str, dict | None]:
-    """최종 답변을 만든다 — answer_mode는 **서버가** 결정해 구조에 실어 준다.
+def _finalize(
+    structured: dict | None, fallback_text: str, exploratory: bool, language: str = "ko",
+) -> tuple[str, dict | None]:
+    """최종 답변을 만든다 — answer_mode와 language는 **서버가** 결정해 구조에 실어 준다.
 
     LLM 자기신고를 쓰지 않는 이유: unknown_aspects가 이미 양방향으로 틀린 전례가 있다
     (docs/query-quality-issues.md 케이스 3은 있는 근거를 '확인 안 됨'으로, 케이스 4는 없는
     근거인데 비워 뒀다). 어떤 도구를 탔는지는 기계적으로 아는 사실이므로 추론시키지 않는다.
+    language도 같다 — 판별 호출이나 코드 규칙이 정한 값이라 모델이 되돌려줄 이유가 없다.
 
     grounded_answer 스키마는 strict(additionalProperties: false)라 LLM에게 이 필드를 만들게
     할 수 없다 — 파싱이 끝난 dict에 서버가 덧붙인다.
@@ -869,10 +966,12 @@ def _finalize(structured: dict | None, fallback_text: str, exploratory: bool) ->
     mode = "exploratory" if exploratory else "grounded"
     if structured is None:
         # structured 실패 fallback — 자유 텍스트에라도 경고는 남긴다.
-        text = f"{_EXPLORATORY_NOTICE}\n\n{fallback_text}" if exploratory else fallback_text
+        notice = _fixed_text(language).exploratory_notice
+        text = f"{notice}\n\n{fallback_text}" if exploratory else fallback_text
         return text, None
     structured["answer_mode"] = mode
-    return _render_structured(structured), structured
+    structured["language"] = language
+    return _render_structured(structured, language), structured
 
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -1303,20 +1402,22 @@ async def _final_structured_answer(
     exploratory: bool,
     debug: dict | None,
     project_id: str,
+    language: str = "ko",
 ) -> tuple[str, dict | None]:
     """structured 답변 생성 → evidence quote 검증 → 근거 source 라벨링 → 렌더까지의 공통 흐름.
 
     정상 종료(tool_calls 없음)와 최대 반복 도달, 두 지점에서 '받기 → 검증 → 렌더'가 동일해
-    묶었다. fallback_text만 호출부마다 달라 인자로 받는다.
+    묶었다. fallback_text만 호출부마다 달라 인자로 받는다. language는 최종 지시·내부 용어 치환·
+    렌더가 같은 언어를 쓰도록 세 곳에 그대로 넘긴다.
     """
-    structured = await _call_llm_structured(structured_call_messages, debug=debug)
+    structured = await _call_llm_structured(structured_call_messages, debug=debug, language=language)
     if isinstance(structured, dict):
         structured = _drop_unverified_quotes(structured, messages, current_turn_start, debug)
         # 관측 전용 — structured를 변형하지 않으므로 아래 source 라벨링과 순서 무관하지만,
         # 같은 haystack을 보는 검증끼리 붙여 둔다.
         _count_direct_quotes(structured, messages, current_turn_start, debug)
         # 관측이 끝난 뒤에 변형한다 — 직접 인용 검출은 모델이 실제로 낸 문장을 봐야 한다.
-        _sanitize_internal_terms(structured, messages, current_turn_start, debug)
+        _sanitize_internal_terms(structured, messages, current_turn_start, debug, language=language)
         evidence = structured.get("evidence") or []
         if evidence:
             # source는 프론트 근거 카드의 브랜드 로고 표시용 장식이다 — 조회 실패가 답변
@@ -1330,9 +1431,9 @@ async def _final_structured_answer(
     else:
         # structured 실패 시의 자유 텍스트도 사용자에게 그대로 보이는 문장이라 같은 가드를 건다.
         holder = {"summary": fallback_text}
-        _sanitize_internal_terms(holder, messages, current_turn_start, debug)
+        _sanitize_internal_terms(holder, messages, current_turn_start, debug, language=language)
         fallback_text = holder["summary"]
-    return _finalize(structured, fallback_text, exploratory)
+    return _finalize(structured, fallback_text, exploratory, language=language)
 
 
 def _tool_error(tool_call_id: str, message: str) -> dict:
@@ -1433,13 +1534,14 @@ def _build_context_card(running_summary: dict | None, full_history: list[dict]) 
     return {"role": "system", "content": "\n".join(lines)}
 
 
-def _intro_payload(text: str) -> tuple[str, dict]:
+def _intro_payload(text: str, language: str = "ko") -> tuple[str, dict]:
     return text, {
         "summary": text,
         "evidence": [],
         "unknown_aspects": [],
         "answer_mode": "grounded",
         "reply_kind": "intro",
+        "language": language,
     }
 
 
@@ -1451,6 +1553,8 @@ async def run(
     running_summary: dict | None = None,
     focus_evidence: list[dict] | None = None,
     debug: dict | None = None,
+    *,
+    ui_language: str | None = None,
 ) -> tuple[str, dict | None]:
     """자연어 질문을 받아 tool calling 루프로 답변을 생성해 반환.
 
@@ -1464,21 +1568,35 @@ async def run(
     focus_evidence: 사용자가 관련 그래프에서 지정한 노드({type, id}). prior_evidence와 반대로
                     현재 턴에 두어 최종 근거까지 살리고, 유형별 도구로 먼저 조회하도록 지시한다.
     debug: eval 러너용 수집 dict. 주어지면 LLM usage 합산, 도구 호출 트랜스크립트, 질문 재작성
-           결과(question_rewrite)를 여기에 누적한다 (반환 계약은 불변 — 관측 전용, 답변 생성에 영향 없음).
+           결과(question_rewrite), 답변 언어 판정(answer_language = {language, source})을 여기에
+           누적한다 (반환 계약은 불변 — 관측 전용, 답변 생성에 영향 없음).
+    ui_language: 화면 언어 힌트(선택). 답변 언어는 발화 판별 호출이 정하고, 판별이 정하지 못했거나 건너뛴
+                 경우에만 대비책 코드 판정(질문 → 대화의 사용자 말 → 이 힌트 → 한국어)이 정한다.
+                 ko/en 밖의 값은 무시된다.
 
     Returns:
         (markdown_answer, structured_dict)
-        structured_dict는 schema 기반 dict (summary/evidence/unknown_aspects).
+        structured_dict는 schema 기반 dict (summary/evidence/unknown_aspects)에 서버가 answer_mode와
+        language(답변 언어 "ko" | "en")를 덧붙인 것이다.
         Structured 호출 실패 시 LLM이 마지막 iteration에서 낸 자유 텍스트로 fallback,
-        이때 structured는 None.
+        이때 structured는 None이라 language 필드도 없다.
     """
-    # 지정 노드가 있으면 그 노드를 조회해야 하므로 잡담 판별을 건너뛴다.
-    if not focus_evidence:
-        intro = await _route_utterance(question, history, debug)
-        if intro is not None:
-            return intro
+    # 지정 노드가 있으면 그 노드를 조회해야 하므로 잡담 판별을 건너뛴다. 판별이 언어도 함께 정하는
+    # 호출이라, 건너뛰면 아래 대비책 코드 판정이 정한다.
+    intro, language = (None, None) if focus_evidence else await _route_utterance(question, history, debug)
+    if language:
+        language_source = "router"
+    else:
+        decision = decide_answer_language(question, history, ui_language)
+        language, language_source = decision.language, decision.source
+    # 잡담 intro로 끝나는 경우에도 어느 언어로 답했는지 남도록 반환 전에 기록한다.
+    if isinstance(debug, dict):
+        debug["answer_language"] = {"language": language, "source": language_source}
+    if intro is not None:
+        return intro
 
-    system_message = {"role": "system", "content": _SYSTEM_PROMPT}
+    texts = _fixed_text(language)
+    system_message = {"role": "system", "content": _SYSTEM_PROMPT_EN if language == "en" else _SYSTEM_PROMPT}
     running_summary_message = None
     if running_summary:
         running_summary_message = {
@@ -1526,9 +1644,12 @@ async def run(
 
     # 지시대명사·생략이 있는 후속 질문을 tool 루프 진입 전에 자립형으로 재작성한다. 실패하면
     # rewritten이 None이라 원본 질문 그대로 진행한다 — 재작성은 보조 경로일 뿐 질의를 막지 않는다.
-    rewritten = await _rewrite_question(question, full_history, running_summary, debug)
+    rewritten = await _rewrite_question(question, full_history, running_summary, debug, language=language)
     # 병기(併記) 이유: 재작성이 오작동해도 원문 질문이 함께 실려 있어 피해가 제한된다.
-    effective_question = question if rewritten is None else f"{rewritten}\n\n(원문 질문: {question})"
+    effective_question = (
+        question if rewritten is None
+        else f"{rewritten}\n\n{texts.original_question.format(question=question)}"
+    )
     current_question = {"role": "user", "content": effective_question}
 
     messages: list = [
@@ -1555,7 +1676,7 @@ async def run(
     for iteration in range(_MAX_ITERATIONS):
         response = await _call_llm(messages, with_tools=True)
         if response is None:
-            return _LLM_FAILURE_ANSWER, None
+            return texts.llm_failure_answer, None
         _record_usage(debug, response)
 
         message = response.choices[0].message
@@ -1566,7 +1687,8 @@ async def run(
             # (할루시네이션 가드는 잃지만 응답은 제공)
             return await _final_structured_answer(
                 current_turn_messages(), messages, current_turn_start,
-                message.content or _FALLBACK_ANSWER, graph_query_calls > 0, debug, project_id,
+                message.content or texts.fallback_answer, graph_query_calls > 0, debug, project_id,
+                language=language,
             )
 
         calls = message.tool_calls
@@ -1632,5 +1754,6 @@ async def run(
     logger.warning("최대 반복 횟수(%d) 도달 — structured 강제 응답", _MAX_ITERATIONS)
     return await _final_structured_answer(
         current_turn_messages(), messages, current_turn_start,
-        _FALLBACK_ANSWER, graph_query_calls > 0, debug, project_id,
+        texts.fallback_answer, graph_query_calls > 0, debug, project_id,
+        language=language,
     )
