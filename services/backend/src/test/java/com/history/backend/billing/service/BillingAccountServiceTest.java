@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.BetaPeriod;
 import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
 import com.history.backend.billing.PaddleProperties;
@@ -26,6 +27,7 @@ import com.history.backend.billing.domain.BillingSubscription;
 import com.history.backend.billing.dto.BillingPortalResponse;
 import com.history.backend.billing.dto.BillingSummaryResponse;
 import com.history.backend.billing.dto.BillingSummaryResponse.PlanSource;
+import com.history.backend.billing.dto.CheckoutAvailabilityResponse;
 import com.history.backend.billing.dto.CheckoutSessionResponse;
 import com.history.backend.billing.repository.BillingSubscriptionRepository;
 import com.history.backend.common.error.BadRequestException;
@@ -47,6 +49,9 @@ class BillingAccountServiceTest {
     private static final Instant EARLY = Instant.parse("2026-09-01T00:00:00Z");
     private static final Instant LATE = Instant.parse("2026-10-01T00:00:00Z");
     private static final Instant CANCELED_AT = Instant.parse("2026-08-15T00:00:00Z");
+    // BetaPeriod의 Clock 생성자는 auth.service 패키지 전용이라 시스템 시계를 쓴다 — 항상 미래인 종료 시각
+    private static final String BETA_ENDS_AT = "2099-01-12T23:59:59+09:00";
+    private static final Instant BETA_ENDS_AT_INSTANT = Instant.parse("2099-01-12T14:59:59Z");
 
     @Mock
     private UserService userService;
@@ -152,6 +157,36 @@ class BillingAccountServiceTest {
 
         assertThat(unconfigured.summary(USER_ID).checkoutAvailable()).isFalse();
         assertThat(unconfigured.checkoutAvailable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("결제가 설정되고 베타 중이면 availability는 (true, 베타 종료 시각)")
+    void availabilityReportsCheckoutAndBetaEndsAt() {
+        BillingAccountService withBeta = service(configuredProperties(), betaActive());
+
+        CheckoutAvailabilityResponse response = withBeta.availability();
+
+        assertThat(response.checkoutAvailable()).isTrue();
+        assertThat(response.betaEndsAt()).isEqualTo(BETA_ENDS_AT_INSTANT);
+    }
+
+    @Test
+    @DisplayName("결제 미설정이고 베타가 없으면 availability는 (false, null)")
+    void availabilityReportsUnavailableWithoutBeta() {
+        BillingAccountService unconfigured = service(unconfiguredProperties());
+
+        CheckoutAvailabilityResponse response = unconfigured.availability();
+
+        assertThat(response.checkoutAvailable()).isFalse();
+        assertThat(response.betaEndsAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("availability는 공개 엔드포인트용이라 사용자·구독·Paddle을 건드리지 않는다")
+    void availabilityDoesNotTouchUserOrSubscriptionState() {
+        service(configuredProperties(), betaActive()).availability();
+
+        verifyNoInteractions(userService, subscriptionRepository, paddleApiClient, planService);
     }
 
     @Test
@@ -289,8 +324,20 @@ class BillingAccountServiceTest {
     }
 
     private BillingAccountService service(PaddleProperties properties) {
+        return service(properties, noBeta());
+    }
+
+    private BillingAccountService service(PaddleProperties properties, BetaPeriod betaPeriod) {
         return new BillingAccountService(
-                userService, planService, subscriptionRepository, paddleApiClient, properties);
+                userService, planService, subscriptionRepository, paddleApiClient, properties, betaPeriod);
+    }
+
+    private BetaPeriod noBeta() {
+        return new BetaPeriod("");
+    }
+
+    private BetaPeriod betaActive() {
+        return new BetaPeriod(BETA_ENDS_AT);
     }
 
     private boolean isLiveStatuses(Collection<String> statuses) {

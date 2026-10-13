@@ -184,12 +184,12 @@ public class Integration {
         this.encryptedCredential = Arrays.copyOf(encryptedCredential, encryptedCredential.length);
     }
 
-    // 무료 티어 연동에 증분 수집을 다시 허용하지 않는다 — 유료 전환 시에만 호출된다
+    // 증분 수집 허용 — 유료 전환, 베타 기간 중 연동 저장, 베타 중 FREE 강등(수집 유지)에서 호출된다
     public void enableIncremental() {
         this.incrementalEnabled = true;
     }
 
-    // 무료 티어 provider 연동 저장 시 호출 — 기본값(true)이라 PAID/무관 케이스는 건드릴 필요가 없다
+    // 유료·베타가 아닌 FREE 연동 저장 시와 베타 밖 강등 시 호출 — 기본값(true)이라 PAID/무관 케이스는 건드릴 필요가 없다
     public void disableIncremental() {
         this.incrementalEnabled = false;
     }

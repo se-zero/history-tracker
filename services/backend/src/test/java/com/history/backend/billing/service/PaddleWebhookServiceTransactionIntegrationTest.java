@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.UUID;
 
+import com.history.backend.auth.service.BetaPeriod;
 import com.history.backend.auth.service.PlanService;
 import com.history.backend.billing.BillingProperties;
 import com.history.backend.billing.PaddleProperties;
@@ -36,7 +37,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
 @EnableConfigurationProperties({PaddleProperties.class, BillingProperties.class})
-@Import({PaddleWebhookService.class, PlanService.class})
+@Import({PaddleWebhookService.class, PlanService.class, BetaPeriod.class})
 // @DataJpaTest는 테스트 메서드를 트랜잭션으로 감싸고 끝나면 롤백한다. handle()의 @Transactional이
 // 그 감싸기에 합류하면 결함이 있어도 최종 커밋 자체가 일어나지 않아 조용히 통과해버린다 — 그래서
 // 클래스 레벨에서 감싸기를 꺼(NOT_SUPPORTED) handle()이 자기 트랜잭션을 직접 커밋하게 한다.

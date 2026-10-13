@@ -21,8 +21,8 @@ import type { GraphEdge, GraphNode } from "@/types/graph";
  */
 export function GraphPage({ project }: { project: Project }) {
   const { user } = useAuth();
-  // 무료 티어는 정밀 재구축(LLM 검증) 불가 — docs/public-readiness.md 1층 참고.
-  const preciseRebuildLocked = user?.plan === "FREE";
+  // 무료 티어는 정밀 재구축(LLM 검증) 불가(베타 기간 제외) — docs/public-readiness.md 1층 참고.
+  const preciseRebuildLocked = user?.plan === "FREE" && !user?.betaEndsAt;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const graphQuery = useWorkUnits(project.id);
   const base = graphQuery.data;

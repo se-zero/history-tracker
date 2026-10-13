@@ -6,6 +6,7 @@ import { useAuth } from "@/auth/AuthProvider";
 import { saveReturnPath } from "@/auth/returnPath";
 import { useLandingLanguage, type Localized } from "@/components/landing/LandingLanguageProvider";
 import { useCheckoutAvailability } from "@/hooks/useBilling";
+import { formatInstant } from "@/lib/format";
 import { PLAN_FEATURE_ROWS, PRO_MONTHLY_PRICE_KRW } from "@/lib/plans";
 import { PATHS } from "@/routes";
 
@@ -19,6 +20,7 @@ const COPY: Localized<{
   notIncluded: string;
   startHeading: string;
   proPreparing: string;
+  betaNotice: (date: string) => string;
   subscribe: string;
   ctaStart: string;
   openApp: string;
@@ -38,7 +40,9 @@ const COPY: Localized<{
     notIncluded: "—",
     startHeading: "시작하기",
     proPreparing: "Pro 구독은 준비 중입니다. 결제가 열리면 계정 설정에서 바로 전환할 수 있습니다.",
-  subscribe: "계정 설정에서 구독하기",
+    betaNotice: (date) =>
+      `베타 기간(최대 ${date}까지)에는 무료 플랜에서도 Pro 기능을 쓸 수 있습니다(프로젝트 최대 3개). 운영 사정에 따라 일찍 끝날 수 있으며, 베타가 끝나면 자동 결제 없이 무료 플랜 한도로 돌아갑니다.`,
+    subscribe: "계정 설정에서 구독하기",
     ctaStart: "무료로 시작하기",
     openApp: "whycode 열기",
     paymentNotice: (
@@ -64,6 +68,8 @@ const COPY: Localized<{
     startHeading: "Get started",
     proPreparing:
       "Pro subscriptions are coming soon. Once billing opens, you'll be able to switch right from account settings.",
+    betaNotice: (date) =>
+      `During the beta (ending no later than ${date}), the Free plan includes Pro features (up to 3 projects). The beta may end earlier for operational reasons. When it ends, you return to the Free plan limits with no automatic charge.`,
     subscribe: "Subscribe from account settings",
     ctaStart: "Start for free",
     openApp: "Open whycode",
@@ -91,9 +97,16 @@ export function PricingBody() {
   const t = COPY[lang];
   const checkoutAvailable = availability.data?.checkoutAvailable === true;
 
+  const betaEndsAt = availability.data?.betaEndsAt;
+
   return (
     <>
       <section className="lp-legal-section">
+        {betaEndsAt && (
+          <p className="lp-legal-notice">
+            {t.betaNotice(formatInstant(betaEndsAt, lang === "en" ? { locale: "en-US" } : {}))}
+          </p>
+        )}
         <h2 className="lp-legal-heading">{t.compareHeading}</h2>
         <div className="lp-legal-table-scroll">
           <table className="lp-legal-table">

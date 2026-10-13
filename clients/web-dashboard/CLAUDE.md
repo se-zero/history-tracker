@@ -90,7 +90,9 @@ src/
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(요금제 카드 — `GET /me/billing`의
                     planSource로 결제 구독자·코드 사용자·무료 세 상태를 그린다. 결제창·포털 링크·코드 강등.
-                    포털 링크는 1회용이라 누를 때마다 받아 이동한다. docs/billing.md §8-2)
+                    포털 링크는 1회용이라 누를 때마다 받아 이동한다. docs/billing.md §8-2.
+                    FREE이면서 `/me`의 `betaEndsAt`이 있으면 이 판정보다 먼저 베타 모드를 그린다 — 종료일·
+                    프로젝트 3개 안내만 두고 질의 사용량·구독 버튼·전환 코드 입력란은 숨긴다. docs/billing.md §12-1)
     graph/          WorkUnitCanvas(작업 단위 뷰 Canvas 렌더러) · ClusterDetail(열린 작업 단위 묶음 패널) · NodeDetail
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
@@ -103,7 +105,8 @@ src/
                     SupportBody — `/support` 본문
                     McpBody — `/mcp/setup` 본문(Claude Code·Codex·Cursor 연결 안내. 랜딩과 같은 ko/en COPY)
                     PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts). 결제 스위치가
-                    켜졌을 때만(`GET /billing/availability`) "계정 설정에서 구독하기"를, 아니면 "준비 중"을 보인다
+                    켜졌을 때만(`GET /billing/availability`) "계정 설정에서 구독하기"를, 아니면 "준비 중"을 보인다.
+                    같은 응답의 `betaEndsAt`이 있으면 비교표 위에 베타 안내(종료일)를 띄운다
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
                     LandingLanguageProvider — 랜딩 계열 ko/en 상태(`ht.lang` + 브라우저 언어 감지).
                     문서 헤드(`<html lang>`·`meta description`)도 여기서 언어에 맞춰 바꾸고 이탈 시

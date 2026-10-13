@@ -100,7 +100,11 @@ export function PlanCard() {
 
   const summary = billing.data;
   const isPaid = user.plan === "PAID";
-  const mode = billing.isLoading
+  const betaEndsAt = !isPaid ? user.betaEndsAt : null;
+  // 베타는 결제 상태 조회 결과와 무관하게 FREE + betaEndsAt만으로 정해진다.
+  const mode = betaEndsAt
+    ? "beta"
+    : billing.isLoading
     ? isPaid
       ? "loading"
       : "free"
@@ -164,7 +168,9 @@ export function PlanCard() {
   };
 
   const subCopy =
-    mode === "subscription" && subscription
+    mode === "beta" && betaEndsAt
+      ? `베타 기간 — 최대 ${formatInstant(betaEndsAt)}까지 Pro 기능 무료`
+      : mode === "subscription" && subscription
       ? subscriptionCopy(subscription)
       : mode === "subscription"
         ? "구독 상태가 곧 반영됩니다."
@@ -185,11 +191,18 @@ export function PlanCard() {
           <h4>플랜</h4>
           <div className="src-sub">{subCopy}</div>
         </div>
-        <span className={`badge ${isPaid ? "accent" : ""}`}>
+        <span className={`badge ${isPaid || mode === "beta" ? "accent" : ""}`}>
           {isPaid && <Icons.Sparkle size={11} />}
-          {planLabel(user.plan)}
+          {mode === "beta" ? "베타" : planLabel(user.plan)}
         </span>
       </div>
+
+      {mode === "beta" && (
+        <p className="plan-note">
+          프로젝트는 최대 3개까지 만들 수 있고, 그 외 기능은 Pro와 같습니다. 베타는 운영 사정에 따라
+          일찍 끝날 수 있으며, 끝나면 무료 플랜으로 돌아가고 자동 결제는 없습니다.
+        </p>
+      )}
 
       {mode === "free" && remaining != null && queryLimit != null && (
         <div className="plan-usage">
@@ -215,7 +228,7 @@ export function PlanCard() {
         </div>
       )}
 
-      {mode !== "loading" && mode !== "error" && (
+      {mode !== "loading" && mode !== "error" && mode !== "beta" && (
         <ul className="plan-features">
           {features.map((feature) => (
             <li

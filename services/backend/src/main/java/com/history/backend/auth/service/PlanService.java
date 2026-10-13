@@ -24,11 +24,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 // 무료 티어(FREE) 사용량 제한 검증·기록과 PAID 업그레이드를 담당한다. PAID는 전부 무제한이라
 // 매 검사가 plan부터 확인해 FREE 전용 조회(연동 이력·질의 카운트 등)를 건너뛴다.
+// 베타 기간(BetaPeriod)에는 FREE도 Pro 기능을 쓴다(plan은 FREE 그대로). 단 프로젝트는 3개까지다.
 @Service
 @Transactional
 public class PlanService {
 
     public static final int FREE_QUERY_LIMIT = 10;
+    private static final int BETA_PROJECT_LIMIT = 3;
 
     // 무료 티어에서 연동 이력이 재연동을 막는 provider — GitHub·Slack·Jira만 각 1회
     private static final Set<IntegrationProvider> FREE_PROVIDER_WHITELIST =
@@ -38,6 +40,7 @@ public class PlanService {
     private final ProjectRepository projectRepository;
     private final IntegrationRepository integrationRepository;
     private final UserProviderConnectionRepository userProviderConnectionRepository;
+    private final BetaPeriod betaPeriod;
     private final String upgradeCode;
 
     // @Value는 필드가 아니라 생성자 파라미터에 붙여야 한다 — UserService와 같은 이유로
@@ -47,16 +50,18 @@ public class PlanService {
             ProjectRepository projectRepository,
             IntegrationRepository integrationRepository,
             UserProviderConnectionRepository userProviderConnectionRepository,
+            BetaPeriod betaPeriod,
             @Value("${app.plan.upgrade-code:}") String upgradeCode
     ) {
         this.userRepository = userRepository;
         this.projectRepository = projectRepository;
         this.integrationRepository = integrationRepository;
         this.userProviderConnectionRepository = userProviderConnectionRepository;
+        this.betaPeriod = betaPeriod;
         this.upgradeCode = upgradeCode;
     }
 
-    // 무료 티어 프로젝트 생성 한도(계정당 1개) 검증. 호출자(ProjectService.createProject) 트랜잭션에
+    // 무료 티어 프로젝트 생성 한도(계정당 1개, 베타 중에는 3개) 검증. 호출자(ProjectService.createProject) 트랜잭션에
     // 참여해 사용자 행을 잠근 채로 count→insert가 끝나게 한다. 안 그러면 동시 생성이 둘 다 0개를 본다.
     public void ensureProjectCreatable(UUID ownerId) {
         User user = userRepository.findByIdForUpdate(ownerId)
@@ -64,16 +69,23 @@ public class PlanService {
         if (user.getPlan() == Plan.PAID) {
             return;
         }
-        if (projectRepository.countByOwner_Id(ownerId) >= 1) {
+        long count = projectRepository.countByOwner_Id(ownerId);
+        if (betaPeriod.isActive()) {
+            if (count >= BETA_PROJECT_LIMIT) {
+                throw new PlanLimitExceededException("Beta allows up to 3 projects.");
+            }
+            return;
+        }
+        if (count >= 1) {
             throw new PlanLimitExceededException("Free plan allows only one project.");
         }
     }
 
     // 무료 티어 provider 연동 한도 검증 — 화이트리스트(GitHub·Slack·Jira) 밖이거나 이미 연동 이력이
-    // 있으면(해제 후 재연동 포함) 거부. PAID·화이트리스트 밖은 이력 조회 자체를 하지 않는다.
+    // 있으면(해제 후 재연동 포함) 거부. PAID·베타 중·화이트리스트 밖은 이력 조회 자체를 하지 않는다.
     public void ensureProviderConnectable(UUID ownerId, IntegrationProvider provider) {
         User user = getUser(ownerId);
-        if (user.getPlan() == Plan.PAID) {
+        if (hasPaidAccess(user)) {
             return;
         }
         if (!FREE_PROVIDER_WHITELIST.contains(provider)) {
@@ -92,10 +104,10 @@ public class PlanService {
         userProviderConnectionRepository.insertIfAbsent(ownerId, provider.value());
     }
 
-    // 무료 티어 질의 총량(10회) 검증
+    // 무료 티어 질의 총량(10회) 검증 — 베타 중에는 무제한
     public void ensureQueryAllowed(UUID ownerId) {
         User user = getUser(ownerId);
-        if (user.getPlan() == Plan.PAID) {
+        if (hasPaidAccess(user)) {
             return;
         }
         if (user.getFreeQueryCount() >= FREE_QUERY_LIMIT) {
@@ -105,7 +117,11 @@ public class PlanService {
 
     // 무료 티어 질의 사용량 1 증가. 한도 검사와 증가를 한 SQL로 묶어 동시 질의의 lost update를 막는다.
     // PAID는 WHERE plan='FREE'에 안 걸려 0건이 되고, 그때는 예외 없이 끝낸다.
+    // 베타 중에는 카운트를 올리지 않는다 — 베타 동안 쓴 질의가 종료 후 무료 10회를 미리 깎으면 안 된다.
     public void recordQuery(UUID ownerId) {
+        if (betaPeriod.isActive()) {
+            return;
+        }
         int updated = userRepository.incrementFreeQueryCountIfBelowLimit(ownerId, FREE_QUERY_LIMIT);
         if (updated == 1) {
             return;
@@ -117,17 +133,18 @@ public class PlanService {
         throw new PlanLimitExceededException("Free plan query limit exceeded.");
     }
 
-    // 정밀 재구축(verify=true)은 PAID 전용
+    // 정밀 재구축(verify=true)은 PAID 전용(베타 중에는 FREE도 허용)
     public void ensurePreciseRebuildAllowed(UUID ownerId) {
         User user = getUser(ownerId);
-        if (user.getPlan() != Plan.PAID) {
+        if (!hasPaidAccess(user)) {
             throw new PlanLimitExceededException("Precise rebuild requires a paid plan.");
         }
     }
 
-    // 증분 수집 허용 여부 — FREE는 최초 수집 이후 재수집을 허용하지 않는다
+    // 증분 수집 허용 여부 — FREE는 최초 수집 이후 재수집을 허용하지 않는다(베타 중에는 허용:
+    // 이때 저장된 연동은 베타가 끝나도 플래그가 켜진 채라 정리는 별도 작업이 맡는다)
     public boolean isIncrementalEnabled(UUID ownerId) {
-        return getUser(ownerId).getPlan() == Plan.PAID;
+        return hasPaidAccess(getUser(ownerId));
     }
 
     // 공유 업그레이드 코드로 FREE -> PAID 전환. 코드 검증을 가장 먼저 해 불일치 시 어떤 조회·변경도
@@ -140,14 +157,15 @@ public class PlanService {
                         upgradeCode.getBytes(StandardCharsets.UTF_8), code.getBytes(StandardCharsets.UTF_8))) {
             throw new PlanLimitExceededException("Invalid upgrade code.");
         }
-        User user = getUser(userId);
+        // 베타 정리 작업(reconcileFreeIncremental)과 같은 행을 다투므로 잠그고 읽는다
+        User user = getUserForUpdate(userId);
         user.upgradeToPaid();
         userRepository.save(user);
-        enableIncrementalForOwnedIntegrations(userId);
+        setIncrementalForOwnedIntegrations(userId, true);
     }
 
     // 결제 웹훅이 쓸 "만료 시각 있는 PAID 전환". 스케줄러(downgradeIfExpired)의 재확인 잠금과
-    // 같은 행을 두고 경합하므로 findByIdForUpdate로 잠근다(upgradeToPaid의 findById와 다르다).
+    // 같은 행을 두고 경합하므로 findByIdForUpdate로 잠근다.
     // noRollbackFor: 호출자인 PaddleWebhookService.handle()도 @Transactional이라 이 메서드가
     // REQUIRED로 그 트랜잭션에 합류한다. 사용자가 파기된 뒤에도 알림은 올 수 있어 여기서
     // NotFoundException을 던지는데, 이 설정이 없으면 handle()이 그 예외를 잡아 UNMATCHED로
@@ -159,7 +177,7 @@ public class PlanService {
         User user = getUserForUpdate(userId);
         user.activatePaidUntil(expiresAt);
         userRepository.save(user);
-        enableIncrementalForOwnedIntegrations(userId);
+        setIncrementalForOwnedIntegrations(userId, true);
     }
 
     // 만료 스케줄러 전용 진입점. 조회(findExpiredPaidUserIds)와 강등 사이에 갱신 알림이 끼어들
@@ -175,6 +193,23 @@ public class PlanService {
         }
         applyDowngradeToFree(user);
         return true;
+    }
+
+    // 베타 정리 후보 조회 — FREE 소유자 중 연동 플래그가 목표값과 다른 사용자
+    @Transactional(readOnly = true)
+    public List<UUID> findIncrementalReconcileCandidates() {
+        return integrationRepository.findFreeOwnerIdsWithIncrementalDrift(betaPeriod.isActive());
+    }
+
+    // 베타 정리 전용 진입점. 후보 조회와 잠금 사이에 PAID 전환이 끼어들 수 있어(PAID 연동은 항상
+    // 켜져 있어야 한다) 잠근 상태에서 FREE인지 재확인하고, 아니면 연동 저장소를 건드리지 않는다.
+    // 반환값: 실제로 바뀐 연동이 있으면 true.
+    public boolean reconcileFreeIncremental(UUID userId) {
+        User user = getUserForUpdate(userId);
+        if (user.getPlan() != Plan.FREE) {
+            return false;
+        }
+        return setIncrementalForOwnedIntegrations(userId, freeIncrementalTarget(user)) > 0;
     }
 
     // PAID -> FREE 강제 강등 (결제 웹훅 해지 경로 등에서 호출). activatePaid/downgradeIfExpired와
@@ -208,24 +243,42 @@ public class PlanService {
         applyDowngradeToFree(user);
     }
 
-    // downgradeIfExpired·downgradeToFree 공용 강등 본체
+    // downgradeIfExpired·downgradeToFree 공용 강등 본체. 연동 증분 수집은 무조건 끄지 않고 베타 중이면
+    // 유지한다 — 수집 서버(pipeline-worker)는 users를 조인하지 않고 이 플래그만 보므로, 끄면 베타 중
+    // 강등된 사용자의 수집이 끊긴다. 탈퇴(soft delete) 사용자는 베타여도 켜지 않는다.
     private void applyDowngradeToFree(User user) {
         user.downgradeToFree();
         userRepository.save(user);
-        List<Integration> integrations = integrationRepository.findAllByProject_Owner_Id(user.getId());
-        for (Integration integration : integrations) {
-            integration.disableIncremental();
-        }
-        integrationRepository.saveAll(integrations);
+        setIncrementalForOwnedIntegrations(user.getId(), freeIncrementalTarget(user));
     }
 
-    // upgradeToPaid·activatePaid 공용 — 소유 연동 전체 증분 수집 켜기
-    private void enableIncrementalForOwnedIntegrations(UUID userId) {
+    // FREE 사용자 연동의 증분 수집 플래그 목표값 — 강등과 베타 정리가 같은 식을 쓴다
+    private boolean freeIncrementalTarget(User user) {
+        return betaPeriod.isActive() && user.getDeletedAt() == null;
+    }
+
+    // 승격·강등 공용 — 소유 연동의 증분 수집 플래그를 맞추고 값이 바뀐 개수를 돌려준다.
+    // saveAll은 바뀐 행이 없어도 전체 목록으로 호출한다.
+    private int setIncrementalForOwnedIntegrations(UUID userId, boolean enabled) {
         List<Integration> integrations = integrationRepository.findAllByProject_Owner_Id(userId);
+        int changed = 0;
         for (Integration integration : integrations) {
-            integration.enableIncremental();
+            if (integration.isIncrementalEnabled() == enabled) {
+                continue;
+            }
+            if (enabled) {
+                integration.enableIncremental();
+            } else {
+                integration.disableIncremental();
+            }
+            changed++;
         }
         integrationRepository.saveAll(integrations);
+        return changed;
+    }
+
+    private boolean hasPaidAccess(User user) {
+        return user.getPlan() == Plan.PAID || betaPeriod.isActive();
     }
 
     private User getUser(UUID userId) {

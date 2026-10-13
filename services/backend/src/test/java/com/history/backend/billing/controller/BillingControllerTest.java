@@ -1,5 +1,6 @@
 package com.history.backend.billing.controller;
 
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -13,6 +14,7 @@ import java.util.UUID;
 
 import com.history.backend.billing.dto.BillingSummaryResponse;
 import com.history.backend.billing.dto.BillingSummaryResponse.PlanSource;
+import com.history.backend.billing.dto.CheckoutAvailabilityResponse;
 import com.history.backend.billing.service.BillingAccountService;
 import com.history.backend.security.AuthenticatedUser;
 import com.history.backend.security.JwtTokenService;
@@ -50,11 +52,25 @@ class BillingControllerTest {
     @Test
     @DisplayName("결제 가능 여부는 JWT 없이 200이고 비밀값을 싣지 않는다")
     void availabilityIsPublic() throws Exception {
-        when(billingAccountService.checkoutAvailable()).thenReturn(true);
+        when(billingAccountService.availability())
+                .thenReturn(new CheckoutAvailabilityResponse(true, Instant.parse("2027-01-12T14:59:59Z")));
 
         mockMvc.perform(get("/api/v1/billing/availability"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.checkoutAvailable").value(true));
+                .andExpect(jsonPath("$.checkoutAvailable").value(true))
+                .andExpect(jsonPath("$.betaEndsAt").value("2027-01-12T14:59:59Z"));
+    }
+
+    @Test
+    @DisplayName("베타가 없으면 betaEndsAt 키는 존재하고 JSON null로 내려간다")
+    void availabilitySerializesNullBetaEndsAtAsJsonNull() throws Exception {
+        when(billingAccountService.availability()).thenReturn(new CheckoutAvailabilityResponse(false, null));
+
+        mockMvc.perform(get("/api/v1/billing/availability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasKey("betaEndsAt")))
+                .andExpect(jsonPath("$.betaEndsAt").value(nullValue()))
+                .andExpect(jsonPath("$.checkoutAvailable").value(false));
     }
 
     @Test

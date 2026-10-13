@@ -1,5 +1,6 @@
 package com.history.backend.auth.controller;
 
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -74,7 +75,7 @@ class MeControllerTest {
     @DisplayName("현재 사용자 정보 반환")
     void meReturnsCurrentUser() throws Exception {
         UserResponse response = new UserResponse(
-                USER_ID, "github", "12345", "octocat@example.com", "Octocat", null, false, Plan.PAID, null, null
+                USER_ID, "github", "12345", "octocat@example.com", "Octocat", null, false, Plan.PAID, null, null, null
         );
         when(userService.getCurrentUser(USER_ID)).thenReturn(response);
 
@@ -84,6 +85,32 @@ class MeControllerTest {
                 .andExpect(jsonPath("$.id").value(USER_ID.toString()))
                 .andExpect(jsonPath("$.email").value("octocat@example.com"))
                 .andExpect(jsonPath("$.requiresConsent").value(false));
+    }
+
+    @Test
+    @DisplayName("betaEndsAt이 있으면 UTC ISO 문자열로 내려간다")
+    void meSerializesBetaEndsAtAsIsoString() throws Exception {
+        when(userService.getCurrentUser(USER_ID)).thenReturn(new UserResponse(
+                USER_ID, "github", "12345", "octocat@example.com", "Octocat", null, false, Plan.FREE, null, null,
+                Instant.parse("2027-01-12T14:59:59Z")));
+
+        mockMvc.perform(get("/api/v1/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.betaEndsAt").value("2027-01-12T14:59:59Z"));
+    }
+
+    @Test
+    @DisplayName("betaEndsAt이 null이어도 키는 존재하고 JSON null로 내려간다")
+    void meSerializesNullBetaEndsAtAsJsonNull() throws Exception {
+        when(userService.getCurrentUser(USER_ID)).thenReturn(new UserResponse(
+                USER_ID, "github", "12345", "octocat@example.com", "Octocat", null, false, Plan.FREE, 7, 10, null));
+
+        mockMvc.perform(get("/api/v1/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasKey("betaEndsAt")))
+                .andExpect(jsonPath("$.betaEndsAt").value(nullValue()));
     }
 
     @Test

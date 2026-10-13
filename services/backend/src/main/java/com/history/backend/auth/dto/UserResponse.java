@@ -1,5 +1,6 @@
 package com.history.backend.auth.dto;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.Plan;
@@ -16,20 +17,23 @@ public record UserResponse(
         boolean requiresConsent,
         Plan plan,
         Integer freeQueryRemaining,
-        Integer freeQueryLimit
+        Integer freeQueryLimit,
+        Instant betaEndsAt
 ) {
 
     // 버전이 전부 YYYY-MM-DD(시행일)라 사전순 비교가 곧 날짜순 비교다. 재동의 기준 이상의
     // 버전에 이미 동의한 사용자는 재동의를 요구하지 않는다 — 약관 개정은 공지 후 계속 이용하면
     // 동의로 보는 것이 기본이고(약관 변경 조항), 전원 재동의가 필요한 개정일 때만 기준을 올린다.
-    public static UserResponse from(User user, String consentRequiredSinceVersion) {
+    public static UserResponse from(User user, String consentRequiredSinceVersion, Instant betaEndsAt) {
         boolean requiresConsent = user.getConsentTermsVersion() == null
                 || user.getConsentTermsVersion().compareTo(consentRequiredSinceVersion) < 0;
         boolean paid = user.getPlan() == Plan.PAID;
-        Integer freeQueryRemaining = paid
+        // 베타 중에는 질의를 차감하지 않으므로 카운트를 내보내지 않는다.
+        boolean hideQueryCount = paid || betaEndsAt != null;
+        Integer freeQueryRemaining = hideQueryCount
                 ? null
                 : Math.max(0, PlanService.FREE_QUERY_LIMIT - user.getFreeQueryCount());
-        Integer freeQueryLimit = paid ? null : PlanService.FREE_QUERY_LIMIT;
+        Integer freeQueryLimit = hideQueryCount ? null : PlanService.FREE_QUERY_LIMIT;
         return new UserResponse(
                 user.getId(),
                 user.getProvider(),
@@ -40,7 +44,8 @@ public record UserResponse(
                 requiresConsent,
                 user.getPlan(),
                 freeQueryRemaining,
-                freeQueryLimit
+                freeQueryLimit,
+                betaEndsAt
         );
     }
 }

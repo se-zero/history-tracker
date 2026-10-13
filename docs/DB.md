@@ -339,7 +339,7 @@ V19 배포 시 그 시점까지 존재하던 `integrations` 행을 근거로 백
 | `external_ref` | JSONB | NOT NULL | provider별 식별자 묶음 |
 | `installation_id` | UUID | FK → `github_installations.id` CASCADE, nullable | GitHub 연동 시 installation 참조 |
 | `encrypted_credential` | BYTEA | nullable | provider별 자격증명 암호화 보관 (AES-GCM). 평문 포맷은 아래 참고 |
-| `incremental_enabled` | BOOLEAN | NOT NULL, DEFAULT TRUE | FALSE면 webhook 증분 수집을 막는다 (V19). FREE 플랜 연동 저장 시 false로 시작, PAID 전환 시 소유 연동 전체 true로 갱신 |
+| `incremental_enabled` | BOOLEAN | NOT NULL, DEFAULT TRUE | FALSE면 webhook 증분 수집을 막는다 (V19). FREE 플랜 연동 저장 시 false로 시작(베타 중 FREE 연동은 true로 저장), PAID 전환 시 소유 연동 전체 true로 갱신. backend 정리 작업이 FREE 소유자 연동의 이 값을 "베타 중 && 미탈퇴"로 맞춘다([billing.md](billing.md) §12-1). V19 이전 행은 DEFAULT TRUE 그대로 남아 있었다 |
 | `created_at` | TIMESTAMPTZ | NOT NULL | 연동 등록 시각 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | 메타데이터 변경 시각 |
 
