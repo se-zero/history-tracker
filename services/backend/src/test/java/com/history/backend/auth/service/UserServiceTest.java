@@ -7,8 +7,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("UserService: 사용자 생성·조회·탈퇴·약관 동의")
@@ -36,6 +39,9 @@ class UserServiceTest {
     // 재동의 판정 기준(consent-required-since)과 기록 버전(terms-version) 분리 검증용
     private static final String RECORDED_TERMS_VERSION = "2026-10-01";
     private static final String CONSENT_REQUIRED_SINCE = "2026-08-01";
+    private static final Instant NOW = Instant.parse("2026-10-12T00:00:00Z");
+    private static final String BETA_ENDS_AT = "2027-01-12T23:59:59+09:00";
+    private static final Instant BETA_ENDS_AT_INSTANT = Instant.parse("2027-01-12T14:59:59Z");
 
     @Mock
     private UserRepository userRepository;
@@ -358,12 +364,95 @@ class UserServiceTest {
         verifyNoInteractions(oAuthGrantService);
     }
 
+    @Test
+    @DisplayName("베타 중 FREE 사용자는 betaEndsAt을 받고 무료 질의 카운트는 null")
+    void getCurrentUserOfFreeUserDuringBetaCarriesBetaEndsAtAndNoCounts() {
+        UserService userService = userService(betaActive());
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.plan()).isEqualTo(Plan.FREE);
+        assertThat(response.betaEndsAt()).isEqualTo(BETA_ENDS_AT_INSTANT);
+        assertThat(response.freeQueryRemaining()).isNull();
+        assertThat(response.freeQueryLimit()).isNull();
+    }
+
+    @Test
+    @DisplayName("베타가 없으면 betaEndsAt은 null이고 무료 질의 카운트는 기존 값")
+    void getCurrentUserOfFreeUserWithoutBetaKeepsCounts() {
+        UserService userService = userService();
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        ReflectionTestUtils.setField(user, "freeQueryCount", 3);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.betaEndsAt()).isNull();
+        assertThat(response.freeQueryRemaining()).isEqualTo(PlanService.FREE_QUERY_LIMIT - 3);
+        assertThat(response.freeQueryLimit()).isEqualTo(PlanService.FREE_QUERY_LIMIT);
+    }
+
+    @Test
+    @DisplayName("베타 종료 정각이면 betaEndsAt은 null이고 남은 무료 질의 횟수가 이어진다")
+    void getCurrentUserOfFreeUserAtBetaEndRestoresCounts() {
+        UserService userService = userService(betaEndedExactlyNow());
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        ReflectionTestUtils.setField(user, "freeQueryCount", 3);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.betaEndsAt()).isNull();
+        assertThat(response.freeQueryRemaining()).isEqualTo(PlanService.FREE_QUERY_LIMIT - 3);
+        assertThat(response.freeQueryLimit()).isEqualTo(PlanService.FREE_QUERY_LIMIT);
+    }
+
+    @Test
+    @DisplayName("베타 중 PAID 사용자도 betaEndsAt을 받고 카운트는 null")
+    void getCurrentUserOfPaidUserDuringBetaCarriesBetaEndsAt() {
+        UserService userService = userService(betaActive());
+        User user = new User("github", "12345", "octocat@example.com", "Octocat", null);
+        ReflectionTestUtils.setField(user, "plan", Plan.PAID);
+        when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+
+        UserResponse response = userService.getCurrentUser(USER_ID);
+
+        assertThat(response.plan()).isEqualTo(Plan.PAID);
+        assertThat(response.betaEndsAt()).isEqualTo(BETA_ENDS_AT_INSTANT);
+        assertThat(response.freeQueryRemaining()).isNull();
+        assertThat(response.freeQueryLimit()).isNull();
+    }
+
     private UserService userService() {
         return userService(CURRENT_TERMS_VERSION, "");
     }
 
+    private UserService userService(BetaPeriod betaPeriod) {
+        return userService(betaPeriod, CURRENT_TERMS_VERSION, "");
+    }
+
     // consentRequiredSince를 직접 지정하는 헬퍼 — 기록 버전(terms-version)과 재동의 기준을 분리 검증
     private UserService userService(String termsVersion, String consentRequiredSince) {
-        return new UserService(userRepository, refreshTokenService, oAuthGrantService, termsVersion, consentRequiredSince);
+        return userService(noBeta(), termsVersion, consentRequiredSince);
+    }
+
+    private UserService userService(BetaPeriod betaPeriod, String termsVersion, String consentRequiredSince) {
+        return new UserService(
+                userRepository, refreshTokenService, oAuthGrantService, betaPeriod, termsVersion, consentRequiredSince);
+    }
+
+    private BetaPeriod noBeta() {
+        return new BetaPeriod("", Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private BetaPeriod betaActive() {
+        return new BetaPeriod(BETA_ENDS_AT, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    // clock == endsAt — isBefore가 거짓이라 베타는 이미 끝난 상태
+    private BetaPeriod betaEndedExactlyNow() {
+        return new BetaPeriod(BETA_ENDS_AT, Clock.fixed(BETA_ENDS_AT_INSTANT, ZoneOffset.UTC));
     }
 }

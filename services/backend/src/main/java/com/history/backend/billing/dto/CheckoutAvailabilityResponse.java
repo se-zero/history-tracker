@@ -1,4 +1,6 @@
 package com.history.backend.billing.dto;
 
-public record CheckoutAvailabilityResponse(boolean checkoutAvailable) {
+import java.time.Instant;
+
+public record CheckoutAvailabilityResponse(boolean checkoutAvailable, Instant betaEndsAt) {
 }

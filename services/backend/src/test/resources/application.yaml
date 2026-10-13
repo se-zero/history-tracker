@@ -61,6 +61,8 @@ app:
   legal:
     terms-version: "2026-08-01"
   plan:
+    beta-reconcile:
+      enabled: false
     expiry:
       enabled: false
       cron: "0 15 * * * *"

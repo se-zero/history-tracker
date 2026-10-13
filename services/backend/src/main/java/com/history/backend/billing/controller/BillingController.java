@@ -25,7 +25,7 @@ public class BillingController {
 
     @GetMapping("/billing/availability")
     public CheckoutAvailabilityResponse availability() {
-        return new CheckoutAvailabilityResponse(billingAccountService.checkoutAvailable());
+        return billingAccountService.availability();
     }
 
     @GetMapping("/me/billing")
