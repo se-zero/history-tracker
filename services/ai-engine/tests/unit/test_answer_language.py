@@ -10,6 +10,7 @@
 - 판정 순서: 질문 → 대화의 사용자 질문(최근부터, 저장된 답은 보지 않음) → 화면 언어 힌트 → 한국어.
 """
 
+import unicodedata
 import unittest
 
 from agent.language import LanguageDecision, decide_answer_language, detect_language, normalize_ui_language
@@ -124,6 +125,23 @@ class DetectLanguageTest(unittest.TestCase):
 
     def test_jamo_only_is_korean(self):
         self.assertEqual("ko", detect_language("ㅋㅋㅋ"))
+
+    def test_decomposed_hangul_is_korean(self):
+        # macOS 파일 이름이나 Finder에서 복사한 글은 한글이 자모로 분해된(NFD) 형태일 수 있다 — 완성형만 보면
+        # 한글 토큰을 하나도 못 세서 영어 용어가 섞인 한국어 질문이 영어로 뒤집힌다
+        for text in ["커밋 왜 바꿨어?", "OAuth callback 수정 이유"]:
+            with self.subTest(text=text):
+                self.assertEqual("ko", detect_language(unicodedata.normalize("NFD", text)))
+
+    def test_dashes_attached_to_words_separate_them(self):
+        for text in ["Why—what changed?", "Why–what changed?"]:
+            with self.subTest(text=text):
+                self.assertEqual("en", detect_language(text))
+
+    def test_full_width_punctuation_is_stripped(self):
+        for text in ["why？", "Okay！ sure。"]:
+            with self.subTest(text=text):
+                self.assertEqual("en", detect_language(text))
 
 
 class NormalizeUiLanguageTest(unittest.TestCase):

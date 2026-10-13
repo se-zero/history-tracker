@@ -16,6 +16,7 @@
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 DEFAULT_LANGUAGE = "ko"
@@ -44,9 +45,12 @@ _QUOTED_SPAN_RE = re.compile(
     r"|(?<![A-Za-z])'[^']*'(?![A-Za-z])"
 )
 
-# 토큰 가장자리의 문장부호. 짝이 안 맞아 남은 따옴표도 여기서 벗긴다. - _ / # @ 같은 식별자 문자는 넣지
-# 않는다 — 넣으면 `--force`·`@alice`의 접두 기호가 벗겨져 식별자 조각이 영단어로 둔갑한다.
-_EDGE_PUNCTUATION = ".,!?;:()[]\"'“”‘’「」『』…"
+# 토큰 가장자리의 문장부호(전각 포함). 짝이 안 맞아 남은 따옴표도 여기서 벗긴다. - _ / # @ 같은 식별자 문자는
+# 넣지 않는다 — 넣으면 `--force`·`@alice`의 접두 기호가 벗겨져 식별자 조각이 영단어로 둔갑한다.
+_EDGE_PUNCTUATION = ".,!?;:()[]\"'“”‘’「」『』…？！。，、：；（）"
+# 줄표는 단어 사이를 가르는 문장부호라 공백으로 바꾼다("Why—what"). 하이픈(-)은 식별자(HT-12,
+# text-embedding-3-large)를 한 토큰으로 지켜야 하므로 건드리지 않는다.
+_DASHES_TO_SPACE = str.maketrans({"—": " ", "–": " "})
 
 # 한글 음절과 자모. 자음/모음만 쓴 "ㅋㅋ"도 한국어 신호다.
 _HANGUL_RE = re.compile(r"[가-힣ㄱ-ㅎㅏ-ㅣ]")
@@ -82,6 +86,9 @@ def detect_language(text: str | None) -> str | None:
     """
     if not text:
         return None
+    # macOS 파일 이름·Finder에서 복사한 글은 한글이 자모로 분해된(NFD) 형태일 수 있다. 완성형으로 모으지 않으면
+    # 한글 토큰을 못 세서 영어 용어가 섞인 한국어 질문이 영어로 뒤집힌다.
+    text = unicodedata.normalize("NFC", text).translate(_DASHES_TO_SPACE)
 
     hangul_tokens = 0
     english_words: list[str] = []
