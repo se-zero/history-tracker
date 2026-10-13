@@ -100,7 +100,7 @@
 |------|------|------|---------|
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
 | [evidence-retrieval-fixes.md](evidence-retrieval-fixes.md) | 작업 | 수정 계획 | 근거 회수 결함 12건을 묶음 A~F로 수정. 후속 10건(임계값·시간 창·검색 확장)은 §7 |
-| [answer-language.md](answer-language.md) | 작업 | 기능 계획 | 질문한 언어(ko·en)로 답하기 — 착수 전(브랜치 `feat/answer-language`). 0단계 영어 지시 실험 → 언어 판정·답변 경로(ai-engine)·MCP 영어화·영어 짝 측정. 완료 후 계약 정본은 [i18n.md](i18n.md) §5 |
+| [answer-language.md](answer-language.md) | 작업 | 기능 계획 | 질문한 언어(ko·en)로 답하기 — 브랜치 `feat/answer-language`. 0단계 완료(영어 답은 본 지시 전체 영어판, 언어는 판별 LLM + 대비책 코드 규칙). 남은 것: 언어 판정·답변 경로(ai-engine)·MCP 영어화·영어 짝 측정. 완료 후 계약 정본은 [i18n.md](i18n.md) §5 |
 
 ---
 
