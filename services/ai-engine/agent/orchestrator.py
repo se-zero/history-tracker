@@ -4,7 +4,7 @@ import os
 import re
 from collections import Counter
 
-from agent.glossary import DETECT_ONLY, REPLACEMENTS, prompt_glossary
+from agent.glossary import DETECT_ONLY, REPLACEMENTS, prompt_glossary, replacements
 from alerts import UNRECOVERABLE_STATUS as _UNRECOVERABLE_STATUS
 from graph.overview import resolve_evidence_sources
 from openai_client import Priority, chat_completion
@@ -790,6 +790,10 @@ async def _route_utterance(
 # _render_structured가 근거 절을 여는 헤더 — _strip_evidence_section이 같은 상수로 그 절을
 # 잘라내므로, 렌더 구조가 바뀌면 strip도 함께 깨지도록 결합을 명시화한다.
 _EVIDENCE_HEADER = "\n## 근거"
+# 영어 답의 근거 헤더. 대화 기록 정리는 두 언어 헤더를 모두 알아야 한다 — 이미 저장된 지난 답은
+# 한국어이고, 한 대화 안에서 답 언어가 섞일 수 있어 기록에 두 헤더가 함께 들어 있을 수 있다.
+_EVIDENCE_HEADER_EN = "\n## Evidence"
+_EVIDENCE_HEADERS = (_EVIDENCE_HEADER, _EVIDENCE_HEADER_EN)
 
 
 def _render_structured(structured: dict) -> str:
@@ -1004,6 +1008,9 @@ def _build_token_re(tokens) -> re.Pattern:
 
 
 _REPLACE_TERM_RE = _build_token_re(REPLACEMENTS)
+# 영어 답은 일반 영어 단어를 뺀 영어 치환표로 따로 만든다 — 한국어 정규식을 그대로 쓰면 영어 문장의
+# "confidence"까지 걸린다.
+_REPLACE_TERM_RE_EN = _build_token_re(replacements("en"))
 _DETECT_TERM_RE = _build_token_re(DETECT_ONLY)
 
 # 내부 식별자 '값' — 이름이 아니라 값이라 용어집 치환 대상이 아니다(무엇으로 바꿀지가 아니라
@@ -1070,7 +1077,8 @@ def _correct_particle(label: str, following: str) -> tuple[str, int]:
 
 
 def _sanitize_internal_terms(
-    structured: dict, messages: list, current_turn_start: int, debug: dict | None
+    structured: dict, messages: list, current_turn_start: int, debug: dict | None,
+    language: str = "ko",
 ) -> dict:
     """summary·unknown_aspects에 실린 내부 용어를 사용자 표현으로 치환한다.
 
@@ -1095,10 +1103,16 @@ def _sanitize_internal_terms(
     (_drop_unverified_quotes도 같은 성질을 갖는다). 지표 정의를 되묻는 질문처럼 도구 없이 답할 수
     있는 턴이 여기 해당하며, 그때는 프롬프트가 유일한 방어선이다. 설계와 일관된 동작이다 —
     우리 필드임이 도구 결과로 증명될 때만 치환한다는 것이 이 가드의 전제이기 때문이다.
+
+    language가 "en"이면 영어 치환표·영어 라벨을 쓰고 조사 교정은 건너뛴다(영어에는 조사가 없다).
+    영어 답에서는 일반 영어 단어(confidence 등)를 치환 대상에서 뺀다 — glossary.PLAIN_ENGLISH_TOKENS.
     """
     haystack = _tool_haystack(messages, current_turn_start)
     replaced: Counter = Counter()
     detected: Counter = Counter()
+    english = language == "en"
+    labels = replacements(language)
+    replace_term_re = _REPLACE_TERM_RE_EN if english else _REPLACE_TERM_RE
 
     def is_our_field(token: str) -> bool:
         """토큰이 이번 턴 도구 결과에 **키로만** 등장하는가.
@@ -1119,7 +1133,7 @@ def _sanitize_internal_terms(
         # re.sub 대신 직접 이어 붙인다 — 치환 뒤의 조사까지 소비해 고쳐야 하기 때문이다.
         parts: list[str] = []
         pos = 0
-        for match in _REPLACE_TERM_RE.finditer(text):
+        for match in replace_term_re.finditer(text):
             token = match.group(0).strip("`")
             parts.append(text[pos:match.start()])
             pos = match.end()
@@ -1127,12 +1141,13 @@ def _sanitize_internal_terms(
                 detected[token] += 1
                 parts.append(match.group(0))
                 continue
-            label = REPLACEMENTS[token]
+            label = labels[token]
             replaced[token] += 1
             parts.append(label)
-            particle, consumed = _correct_particle(label, text[pos:])
-            parts.append(particle)
-            pos += consumed
+            if not english:
+                particle, consumed = _correct_particle(label, text[pos:])
+                parts.append(particle)
+                pos += consumed
         parts.append(text[pos:])
         return "".join(parts)
 
@@ -1161,7 +1176,7 @@ def _sanitize_internal_terms(
     if (replaced or detected) and isinstance(debug, dict):
         debug["internal_terms"] = {
             "replaced": [
-                {"token": token, "label": REPLACEMENTS[token], "count": count}
+                {"token": token, "label": labels[token], "count": count}
                 for token, count in replaced.items()
             ],
             "detected": [{"token": token, "count": count} for token, count in detected.items()],
@@ -1348,14 +1363,17 @@ def _recent_turns_within_budget(turns: list[list[dict]], budget: int) -> list[li
 
 
 def _strip_evidence_section(content: str) -> str:
-    """assistant 답변 본문에서 '## 근거' 절 이후를 제거한다 (없으면 원문 그대로).
+    """assistant 답변 본문에서 '## 근거'(영어 답은 '## Evidence') 절 이후를 제거한다 (없으면 원문 그대로).
 
     대화 맥락 카드에 과거 답변을 그대로 실으면 그 안의 인용문(quote)이 이번 턴 근거인 것처럼
     재생될 위험이 있다 — 본문만 남기고 인용문·미해결 측면 절은 함께 잘라낸다(미해결 측면
     맥락은 running_summary의 unresolved_aspects가 대신 담당하므로 유실이 아니다).
+
+    두 헤더가 다 있으면 먼저 나오는 쪽에서 자른다 — 뒤쪽 헤더에서 자르면 앞쪽 근거 절의 인용문이
+    카드에 남는다.
     """
-    idx = content.find(_EVIDENCE_HEADER)
-    return content if idx == -1 else content[:idx]
+    cuts = [idx for idx in map(content.find, _EVIDENCE_HEADERS) if idx != -1]
+    return content[:min(cuts)] if cuts else content
 
 
 # 대화 맥락 카드 상단에 붙는 지시문 — 카드 내용이 최종 근거로 인용되지 않도록 명시적으로 금지한다.

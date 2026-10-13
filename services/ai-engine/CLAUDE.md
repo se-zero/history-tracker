@@ -114,7 +114,9 @@ agent/
   orchestrator.py    GraphRAG tool-calling 에이전트 루프 + 답변 Structured Output
   glossary.py        내부 용어 → 사용자 표현 용어집 (프롬프트 용어집·서버 치환 가드의 단일 출처).
                      새 지표를 도구 결과에 추가하면 여기에 표기를 등록한다 — 이름을 주지 않으면
-                     모델이 필드명을 그대로 답변에 쓴다 (docs/query-quality-issues.md 케이스 13)
+                     모델이 필드명을 그대로 답변에 쓴다 (docs/query-quality-issues.md 케이스 13).
+                     한국어판·영어판(METRIC_TERMS·METRIC_TERMS_EN 등) 두 벌이라 함께 등록한다 —
+                     키가 어긋나면 tests/unit/test_answer_language_guards.py가 실패한다
   language.py        답변 언어(ko/en) 대비책 판정 — 판별 LLM이 정하지 못할 때만 쓰는 결정적 규칙
                      (docs/answer-language.md §4-1). 식별자 형식 목록을 두지 않는다 — 규칙을 바꾸면
                      tests/unit/test_answer_language.py의 판정 표를 함께 고친다

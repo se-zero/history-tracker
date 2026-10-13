@@ -277,9 +277,11 @@ whycode 내부 구현은 "I can't share that information."(모델 이름·지시
   duration_days → duration (days), occurredAt → event time, external_id → document ID.
   `confidence·relevance·weight·excerpt·candidates·truncated`는 일반 영어 단어라 **영어 답에서는 서버 치환하지 않는다**(프롬프트로만).
   받침 조사 교정은 ko에서만 돈다.
-- **응답 계약**: 요청 `ui_language`(선택, 관대 — 이상한 값은 무시), 응답 최상위 `language`(실패 경로 포함 항상),
-  `structured.language`(`answer_mode`처럼 서버가 붙임), `debug.answer_language = {language, source}`. 라우트는 그대로다.
-  backend `AiEngineQueryResponse`는 모르는 필드를 무시하므로 영향이 없다.
+- **응답 계약**: 요청 `ui_language`(선택, 관대 — 이상한 값은 무시), `structured.language`(`answer_mode`처럼 서버가 붙임),
+  `debug.answer_language = {language, source}`. 라우트는 그대로다. backend `AiEngineQueryResponse`는 모르는 필드를 무시하므로 영향이 없다.
+  응답 최상위 `language`는 두지 않는다(2026-10-13 변경) — 언어를 `run()` 안의 판별 호출이 정하게 되어 라우트가 미리 알 수 없고,
+  꺼내려면 `run()`의 반환 모양(답 글, structured)을 바꿔야 해 테스트 mock이 함께 흔들린다. 그래서 structured가 없는 LLM 실패
+  답에는 언어 필드가 없다 — 지금 이 값을 읽는 소비자가 없고, 실패 문구 자체는 정한 언어로 나간다.
 
 ### 4-3. MCP — `services/backend/.../mcp/`
 
@@ -345,7 +347,7 @@ whycode 내부 구현은 "I can't share that information."(모델 이름·지시
 |---|---|---|---|---|
 | **0** ✅ | 영어 지시 구성 실험 — 전체 번역·언어 블록 분리·확인 실험(§3-4), LLM 언어 판정(§3-5) | 오케스트레이터(컨테이너 실험, 코드 변경 없음) | 완료(2026-10-13) — 전체 영어판 + 판별 LLM 언어 판정, 코드 규칙은 대비책 | — |
 | **A1** | §4-1 대비책 코드 판정 모듈(`agent/language.py`)과 판정 테스트 | 테스트는 오케스트레이터, 구현은 implementer | 판정·import 테스트 → ai-engine 전체 `python -m pytest` | ai-engine 첫 묶음 |
-| **A2** | §4-2 답변 경로 — 판별 출력 `language`, 전체 영어판 + 동기화 가드 테스트, 고정 문구·용어집·응답 계약 | implementer | 전체 pytest + 새 테스트(한국어 글자 그대로 가드, 영어판이 최종 호출에 있음, 동기화 가드, 제목·제안 문구·기록 정리·`language` 필드) + 판별 실측 재확인 | A1 뒤. 커밋 ① 테스트 mock 시그니처 ② **공용 가드**(용어집·치환·기록 정리) ③ 나머지 |
+| **A2** | §4-2 답변 경로 — 판별 출력 `language`, 전체 영어판 + 동기화 가드 테스트, 고정 문구·용어집·응답 계약 | implementer | 전체 pytest + 새 테스트(한국어 글자 그대로 가드, 영어판이 최종 호출에 있음, 동기화 가드, 제목·제안 문구·기록 정리·`language` 필드) + 판별 실측 재확인 | A1 뒤. 커밋 ① **공용 가드**(용어집·치환·기록 정리) ② 전체 영어판 지시 + 동기화 가드 ③ 배선(판별 `language`·`run`·고정 문구·응답 계약, 테스트 mock 시그니처 포함) |
 | **B** | §4-3 MCP 영어화 + `language` 인자 | spring-test-writer → implementer | `./gradlew test --tests "com.history.backend.mcp.*"` 빨강 → 초록, backend 전체 `./gradlew test` | A·C1과 병렬. 커밋 ① 메시지 ② 인자 |
 | **C1** | §4-4 영어 짝 골든 + 채점기 + validate_golden | implementer | `python -m pytest eval/tests`, validate 0건, 최근 결과 재채점에서 한국어 런이 전부 ko | A·B와 병렬, E 전에 |
 | **D** | 문서(§7) + `/mcp/setup` 두 줄 | implementer, 리뷰는 오케스트레이터 | 남은 "답변은 한국어"·"Answers are in Korean" 없음, 프론트 `npm run typecheck && npm run build` | A2·B 뒤 |
@@ -395,6 +397,9 @@ D 묶음에서 [i18n.md](i18n.md)에 "앱 UI 언어 분리 인벤토리"로 옮�
 - [x] 0 — 영어 지시 구성 확정: 전체 영어판 + 판별 LLM 언어 판정, 코드 규칙은 대비책 (§3-4·§3-5, 2026-10-13)
 - [x] A1 — 대비책 코드 판정 모듈 (2026-10-13, 리뷰 반영: 분해형 한글 NFC 정규화·줄표·전각 문장부호)
 - [ ] A2 — 답변 경로·고정 문구·용어집·응답 계약
+  - [x] ① 공용 가드 — 용어집 영어판, 언어별 내부 용어 치환(영어 답은 일반 영어 단어 6개 제외·조사 교정 없음), 기록 정리가 두 근거 제목을 앎 (2026-10-13)
+  - [ ] ② 전체 영어판 지시 + 동기화 가드
+  - [ ] ③ 배선 — 판별 `language`·`run`·고정 문구·응답 계약
 - [ ] B — MCP 영어화 + `explain_commit` language
 - [ ] C1 — 영어 짝 골든 + 채점기
 - [ ] D — 문서 + `/mcp/setup` 두 줄
