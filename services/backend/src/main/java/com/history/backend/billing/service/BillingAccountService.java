@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
+import com.history.backend.auth.service.BetaPeriod;
 import com.history.backend.auth.service.PlanService;
 import com.history.backend.auth.service.UserService;
 import com.history.backend.billing.PaddleProperties;
@@ -16,6 +17,7 @@ import com.history.backend.billing.dto.BillingPortalResponse;
 import com.history.backend.billing.dto.BillingSummaryResponse;
 import com.history.backend.billing.dto.BillingSummaryResponse.PlanSource;
 import com.history.backend.billing.dto.BillingSummaryResponse.SubscriptionView;
+import com.history.backend.billing.dto.CheckoutAvailabilityResponse;
 import com.history.backend.billing.dto.CheckoutSessionResponse;
 import com.history.backend.billing.repository.BillingSubscriptionRepository;
 import com.history.backend.common.error.BadRequestException;
@@ -35,23 +37,30 @@ public class BillingAccountService {
     private final BillingSubscriptionRepository subscriptionRepository;
     private final PaddleApiClient paddleApiClient;
     private final PaddleProperties paddleProperties;
+    private final BetaPeriod betaPeriod;
 
     public BillingAccountService(
             UserService userService,
             PlanService planService,
             BillingSubscriptionRepository subscriptionRepository,
             PaddleApiClient paddleApiClient,
-            PaddleProperties paddleProperties
+            PaddleProperties paddleProperties,
+            BetaPeriod betaPeriod
     ) {
         this.userService = userService;
         this.planService = planService;
         this.subscriptionRepository = subscriptionRepository;
         this.paddleApiClient = paddleApiClient;
         this.paddleProperties = paddleProperties;
+        this.betaPeriod = betaPeriod;
     }
 
     public boolean checkoutAvailable() {
         return paddleProperties.isCheckoutConfigured();
+    }
+
+    public CheckoutAvailabilityResponse availability() {
+        return new CheckoutAvailabilityResponse(checkoutAvailable(), betaPeriod.activeEndsAt());
     }
 
     public BillingSummaryResponse summary(UUID userId) {
