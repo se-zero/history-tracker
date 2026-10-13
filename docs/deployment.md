@@ -119,6 +119,19 @@ cp .env.example .env
 | `ALERT_SLACK_WEBHOOK_URL` | Slack 앱 → Incoming Webhooks | 선택. 비우면 알림 없이 로그만. 4-6 참고 |
 | `PADDLE_*` · `RESEND_*` | Paddle·Resend 대시보드 | 선택. 비우면 결제는 "준비 중", 결제일 안내는 안 나간다. 라이브 결제를 열 때 3-2b |
 
+**베타 기간(무료 Pro)을 여는 경우** `.env`에 `BETA_ENDS_AT`도 넣는다. 설계·동작은 [billing.md](billing.md) §12-1.
+
+- 형식: ISO-8601 + **오프셋 필수** — 예: `BETA_ENDS_AT=2027-01-12T23:59:59+09:00`. 이 시각 전까지 모든 무료 사용자가
+  Pro 기능을 쓴다(프로젝트 3개까지). 비우면 베타가 없다.
+- ⚠️ **오타·오프셋 누락이면 backend가 기동에 실패한다.** 배포 직후 `./prod.sh logs backend`로 정상 기동을
+  확인한다(`app.plan.beta-ends-at must be ISO-8601 with offset` 오류면 값을 고친다).
+- 연장은 값을 바꾸고 backend를 재시작한다. 조기 종료는 값을 **지우지 말고 과거 시각으로** 바꾼다(언제 끝냈는지
+  기록이 남는다).
+- 배포 직후 backend의 정리 작업이 기존 무료 연동의 증분 수집을 **켠다**(베타 중이고 미탈퇴인 FREE 소유자 연동).
+  V19 이전에 만든 연동이 켜진 채 남아 있던 것도 이때 베타 여부에 맞춰진다 — 베타가 아니면 꺼진다.
+  주기는 `BETA_RECONCILE_INTERVAL`(기본 `PT1H`)이고, 베타가 끝나면 최대 한 주기 안에 꺼진다.
+- 베타 중에는 Paddle 결제를 열지 않는다(`PADDLE_*`를 비워 둔다).
+
 > ⚠️ **RabbitMQ 비밀번호에 `/`·`@`·`#`·`?`를 쓰지 않는다.** ai-engine이 이 값을 AMQP URL
 > (`amqp://user:password@rabbitmq:5672/`) 안에 끼워 넣기 때문에, 특수문자가 있으면 파서가 vhost나
 > host로 오인해 연결이 조용히 깨진다. `openssl rand -base64`는 `+`·`/`를 만들므로 **쓰지 않는다.**
