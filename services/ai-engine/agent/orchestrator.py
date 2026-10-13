@@ -5,6 +5,7 @@ import re
 from collections import Counter
 
 from agent.glossary import DETECT_ONLY, REPLACEMENTS, prompt_glossary, replacements
+from agent.prompt_en import SYSTEM_PROMPT_EN_TEMPLATE
 from alerts import UNRECOVERABLE_STATUS as _UNRECOVERABLE_STATUS
 from graph.overview import resolve_evidence_sources
 from openai_client import Priority, chat_completion
@@ -198,7 +199,10 @@ _GROUNDED_ANSWER_SCHEMA = {
     },
 }
 
-_SYSTEM_PROMPT = """\
+# 한국어 본 지시의 템플릿. agent/prompt_en.py의 영어판이 이 글(과 SCHEMA_CARD)을 번역한 것이라, 여기를 고치면
+# 영어판도 같은 PR에서 함께 고친다 — 한쪽만 고치면 영어 사용자만 다른 규칙으로 답을 받는다
+# (tests/unit/test_system_prompt_en.py가 어긋남을 잡는다).
+_SYSTEM_PROMPT_TEMPLATE = """\
 당신은 코드 변경 맥락 분석 AI입니다.
 GitHub(커밋, PR, 이슈), Jira/Linear(이슈), Slack(메시지), Notion(설계 문서) 데이터가 Neo4j 지식
 그래프로 연결되어 있습니다. 제공된 도구를 사용해 그래프를 탐색하고 사용자의 질문에 답하세요.
@@ -472,10 +476,22 @@ get_timeline 결과의 각 이벤트는 event_meaning 필드를 직접 제공하
 - 질의당 최대 __MAX_GQ__회까지만 호출할 수 있다.
 
 __SCHEMA_CARD__
-""".replace("__MIN_CONF__", f"{_MIN_CONFIDENCE:g}") \
-   .replace("__MAX_GQ__", str(_MAX_GRAPH_QUERY_CALLS)) \
-   .replace("__GLOSSARY__", prompt_glossary()) \
-   .replace("__SCHEMA_CARD__", SCHEMA_CARD)
+"""
+
+
+def _render_system_prompt(template: str, glossary: str) -> str:
+    """두 언어 템플릿을 같은 수치로 채운다. 영어 템플릿은 스키마 카드를 번역해 품고 있어 마지막 치환이 바꾸는 것이 없다."""
+    return (
+        template.replace("__MIN_CONF__", f"{_MIN_CONFIDENCE:g}")
+        .replace("__MAX_GQ__", str(_MAX_GRAPH_QUERY_CALLS))
+        .replace("__GLOSSARY__", glossary)
+        .replace("__SCHEMA_CARD__", SCHEMA_CARD)
+    )
+
+
+_SYSTEM_PROMPT = _render_system_prompt(_SYSTEM_PROMPT_TEMPLATE, prompt_glossary("ko"))
+# 영어로 답할 때 첫 시스템 메시지가 되는 전체 영어판. 용어집도 영어판으로 채운다.
+_SYSTEM_PROMPT_EN = _render_system_prompt(SYSTEM_PROMPT_EN_TEMPLATE, prompt_glossary("en"))
 
 _FALLBACK_ANSWER = "답변을 생성하지 못했습니다."
 _LLM_FAILURE_ANSWER = "AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해주세요."

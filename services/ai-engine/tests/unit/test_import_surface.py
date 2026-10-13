@@ -29,6 +29,7 @@ MODULES = [
     "agent.glossary",
     "agent.language",
     "agent.orchestrator",
+    "agent.prompt_en",
     "graph.actor_admin",
     "graph.actor_llm",
     "graph.actor_resolver",
