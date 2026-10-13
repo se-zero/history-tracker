@@ -3,11 +3,15 @@ package com.history.backend.integration.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import jakarta.persistence.EntityManager;
 
+import com.history.backend.auth.domain.Plan;
 import com.history.backend.auth.domain.User;
 import com.history.backend.auth.repository.UserRepository;
 import com.history.backend.github.domain.GitHubInstallation;
@@ -313,6 +317,99 @@ class IntegrationPersistenceTest {
         ));
 
         assertThat(integration.externalRefValue("project_key")).isNull();
+    }
+
+    // ── findFreeOwnerIdsWithIncrementalDrift ──
+    // 목표값 = betaActive && owner.deletedAt IS NULL. FREE 소유자 중 목표와 다른 행이 하나라도 있는 사람만 후보다.
+
+    @Test
+    @DisplayName("베타 중: FREE 소유자의 꺼진 행과 탈퇴 FREE 소유자의 켜진 행이 후보에 들어간다")
+    void findFreeOwnerIdsWithIncrementalDriftDuringBetaIncludesDisabledFreeAndEnabledDeletedFree() {
+        User freeOwner = createOwner(Plan.FREE, false);
+        User deletedFreeOwner = createOwner(Plan.FREE, true);
+        createIntegration(freeOwner, IntegrationProvider.SLACK, false);
+        createIntegration(deletedFreeOwner, IntegrationProvider.SLACK, true);
+
+        List<UUID> result = integrationRepository.findFreeOwnerIdsWithIncrementalDrift(true);
+
+        assertThat(result).containsExactlyInAnyOrder(freeOwner.getId(), deletedFreeOwner.getId());
+    }
+
+    @Test
+    @DisplayName("베타 중: 이미 켜진 FREE 행, PAID 소유자(꺼진 행이 있어도), 이미 꺼진 탈퇴 FREE 행은 후보에서 빠진다")
+    void findFreeOwnerIdsWithIncrementalDriftDuringBetaExcludesRowsAtTargetAndPaidOwners() {
+        User enabledFreeOwner = createOwner(Plan.FREE, false);
+        User paidOwner = createOwner(Plan.PAID, false);
+        User disabledDeletedFreeOwner = createOwner(Plan.FREE, true);
+        createIntegration(enabledFreeOwner, IntegrationProvider.SLACK, true);
+        createIntegration(paidOwner, IntegrationProvider.SLACK, false);
+        createIntegration(disabledDeletedFreeOwner, IntegrationProvider.SLACK, false);
+
+        List<UUID> result = integrationRepository.findFreeOwnerIdsWithIncrementalDrift(true);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("베타 종료 후: true 행이 있는 FREE 소유자만 후보다 — 이미 false뿐인 FREE와 PAID는 빠진다")
+    void findFreeOwnerIdsWithIncrementalDriftAfterBetaIncludesOnlyFreeOwnersWithEnabledRows() {
+        User enabledFreeOwner = createOwner(Plan.FREE, false);
+        User disabledFreeOwner = createOwner(Plan.FREE, false);
+        User paidOwner = createOwner(Plan.PAID, false);
+        createIntegration(enabledFreeOwner, IntegrationProvider.SLACK, true);
+        createIntegration(disabledFreeOwner, IntegrationProvider.SLACK, false);
+        createIntegration(paidOwner, IntegrationProvider.SLACK, true);
+
+        List<UUID> result = integrationRepository.findFreeOwnerIdsWithIncrementalDrift(false);
+
+        assertThat(result).containsExactly(enabledFreeOwner.getId());
+    }
+
+    @Test
+    @DisplayName("한 소유자가 목표와 다른 행을 여러 개 가져도 id는 한 번만 나온다")
+    void findFreeOwnerIdsWithIncrementalDriftReturnsOwnerOnlyOnce() {
+        User owner = createOwner(Plan.FREE, false);
+        createIntegration(owner, IntegrationProvider.SLACK, false);
+        createIntegration(owner, IntegrationProvider.DISCORD, false);
+        createIntegration(owner, IntegrationProvider.NOTION, false);
+
+        List<UUID> result = integrationRepository.findFreeOwnerIdsWithIncrementalDrift(true);
+
+        assertThat(result).containsExactly(owner.getId());
+    }
+
+    @Test
+    @DisplayName("같은 소유자의 한 프로젝트에 여러 provider 행이 목표와 달라도 id는 한 번만 나온다")
+    void findFreeOwnerIdsWithIncrementalDriftReturnsOwnerOnlyOnceForRowsInOneProject() {
+        User owner = createOwner(Plan.FREE, false);
+        Project project = projectRepository.save(new Project(owner, "Shared Project", null));
+        integrationRepository.save(Integration.oauth(
+                project, IntegrationProvider.SLACK, Map.of("workspace_id", "T1"), new byte[] {1}));
+        integrationRepository.save(Integration.oauth(
+                project, IntegrationProvider.DISCORD, Map.of("guild_id", "G1"), new byte[] {1}));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<UUID> result = integrationRepository.findFreeOwnerIdsWithIncrementalDrift(false);
+
+        assertThat(result).containsExactly(owner.getId());
+    }
+
+    private User createOwner(Plan plan, boolean deleted) {
+        User owner = new User("github", "user-" + System.nanoTime(), "owner@example.com", "Owner", null);
+        ReflectionTestUtils.setField(owner, "plan", plan);
+        if (deleted) {
+            owner.softDelete(Instant.parse("2026-06-04T00:00:00Z"));
+        }
+        return userRepository.saveAndFlush(owner);
+    }
+
+    // 행마다 새 프로젝트에 붙인다 — 한 소유자가 여러 프로젝트에 연동을 가진 경우를 그대로 만든다.
+    private Integration createIntegration(User owner, IntegrationProvider provider, boolean incrementalEnabled) {
+        Project project = projectRepository.save(new Project(owner, "Project " + System.nanoTime(), null));
+        Integration integration = Integration.oauth(project, provider, Map.of("ref", "x"), new byte[] {1});
+        ReflectionTestUtils.setField(integration, "incrementalEnabled", incrementalEnabled);
+        return integrationRepository.saveAndFlush(integration);
     }
 
     private ProjectFixture createProjectFixture() {

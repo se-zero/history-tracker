@@ -40,6 +40,12 @@ app:
     consent-required-since: "2026-08-01"
   plan:
     upgrade-code: ${PLAN_UPGRADE_CODE:}
+    beta-ends-at: ${BETA_ENDS_AT:}
+    beta-reconcile:
+      # BETA_ENDS_AT이 비어 있으면 시작 직후 정리가 V19 이전에 켜져 있던 FREE 연동도 끈다.
+      # 로컬에서 무료 계정으로 증분 수집을 시험하려면 enabled를 false로 둔다.
+      enabled: ${BETA_RECONCILE_ENABLED:true}
+      interval: ${BETA_RECONCILE_INTERVAL:PT1H}
     expiry:
       # 기본 켜짐 — B1 전까지는 plan_expires_at이 전부 NULL이라 대상 0건이지만, 켜 둬야
       # 결제를 붙이는 순간 별도 조작 없이 안전망이 동작한다.
