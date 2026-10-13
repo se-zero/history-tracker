@@ -16,10 +16,12 @@ export interface User {
   // true면 아직 현재 버전 약관에 동의하지 않은 사용자 — AuthGate가 ConsentScreen으로 막아선다.
   requiresConsent: boolean;
   plan: Plan;
-  // FREE의 남은 질의 횟수. PAID는 무제한이라 항상 null.
+  // FREE의 남은 질의 횟수. PAID와 베타 기간의 FREE는 무제한이라 항상 null.
   freeQueryRemaining: number | null;
-  // FREE 질의 총량(사용량 바 분모). PAID는 항상 null.
+  // FREE 질의 총량(사용량 바 분모). PAID와 베타 기간의 FREE는 항상 null.
   freeQueryLimit: number | null;
+  // 베타 종료 시각(UTC ISO). 베타가 아니면 null. FREE이면서 값이 있으면 베타 기간 무료 Pro다.
+  betaEndsAt: string | null;
 }
 
 export interface Project {
