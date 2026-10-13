@@ -135,6 +135,11 @@ services:
       BACKEND_CREDENTIAL_KEY: ${BACKEND_CREDENTIAL_KEY:?BACKEND_CREDENTIAL_KEY must be configured}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN must be configured}
       PLAN_UPGRADE_CODE: ${PLAN_UPGRADE_CODE:-}
+      # 베타 기간 무료 Pro — 비우면 베타 없음. 형식이 틀리면 backend가 기동에 실패한다.
+      BETA_ENDS_AT: ${BETA_ENDS_AT:-}
+      # FREE 연동 증분 수집 정리 작업 (기본 true, 1시간 주기)
+      BETA_RECONCILE_ENABLED: ${BETA_RECONCILE_ENABLED:-true}
+      BETA_RECONCILE_INTERVAL: ${BETA_RECONCILE_INTERVAL:-PT1H}
       # 플랜 만료 강등 배치 — 결제 웹훅 유실 안전망 (기본 true, 매시 15분)
       PLAN_EXPIRY_ENABLED: ${PLAN_EXPIRY_ENABLED:-true}
       PLAN_EXPIRY_CRON: ${PLAN_EXPIRY_CRON:-0 15 * * * *}
