@@ -41,7 +41,7 @@ const COPY: Localized<{
     startHeading: "시작하기",
     proPreparing: "Pro 구독은 준비 중입니다. 결제가 열리면 계정 설정에서 바로 전환할 수 있습니다.",
     betaNotice: (date) =>
-      `베타 기간(${date}까지)에는 무료 플랜에서도 Pro 기능을 쓸 수 있습니다(프로젝트 최대 3개). 베타가 끝나면 자동 결제 없이 무료 플랜 한도로 돌아갑니다.`,
+      `베타 기간(최대 ${date}까지)에는 무료 플랜에서도 Pro 기능을 쓸 수 있습니다(프로젝트 최대 3개). 운영 사정에 따라 일찍 끝날 수 있으며, 베타가 끝나면 자동 결제 없이 무료 플랜 한도로 돌아갑니다.`,
     subscribe: "계정 설정에서 구독하기",
     ctaStart: "무료로 시작하기",
     openApp: "whycode 열기",
@@ -69,7 +69,7 @@ const COPY: Localized<{
     proPreparing:
       "Pro subscriptions are coming soon. Once billing opens, you'll be able to switch right from account settings.",
     betaNotice: (date) =>
-      `During the beta (until ${date}), the Free plan includes Pro features (up to 3 projects). When the beta ends, you return to the Free plan limits with no automatic charge.`,
+      `During the beta (ending no later than ${date}), the Free plan includes Pro features (up to 3 projects). The beta may end earlier for operational reasons. When it ends, you return to the Free plan limits with no automatic charge.`,
     subscribe: "Subscribe from account settings",
     ctaStart: "Start for free",
     openApp: "Open whycode",

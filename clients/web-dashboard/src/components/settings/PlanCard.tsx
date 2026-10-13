@@ -169,7 +169,7 @@ export function PlanCard() {
 
   const subCopy =
     mode === "beta" && betaEndsAt
-      ? `베타 기간 — ${formatInstant(betaEndsAt)}까지 Pro 기능 무료`
+      ? `베타 기간 — 최대 ${formatInstant(betaEndsAt)}까지 Pro 기능 무료`
       : mode === "subscription" && subscription
       ? subscriptionCopy(subscription)
       : mode === "subscription"
@@ -199,8 +199,8 @@ export function PlanCard() {
 
       {mode === "beta" && (
         <p className="plan-note">
-          프로젝트는 최대 3개까지 만들 수 있고, 그 외 기능은 Pro와 같습니다. 베타가 끝나면 무료
-          플랜으로 돌아가며 자동 결제는 없습니다.
+          프로젝트는 최대 3개까지 만들 수 있고, 그 외 기능은 Pro와 같습니다. 베타는 운영 사정에 따라
+          일찍 끝날 수 있으며, 끝나면 무료 플랜으로 돌아가고 자동 결제는 없습니다.
         </p>
       )}
 
