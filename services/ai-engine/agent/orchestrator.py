@@ -708,11 +708,13 @@ _UTTERANCE_ROUTE_SCHEMA = {
         "type": "object",
         "properties": {
             "route": {"type": "string", "enum": ["chat", "graph"]},
-            "reply": {"type": "string"},
             # none = 판별이 언어를 정하지 못함. strict 스키마라 칸 자체는 항상 채우게 하고, none이면 호출부가 코드 판정으로 넘어간다.
+            # 모델은 키 순서대로 써 나간다 — language가 reply보다 앞이어야 reply를 정한 언어로 쓴다. 뒤에 두면 reply를
+            # 지시의 언어(한국어)로 먼저 쓰고 language가 그 답을 따라간다.
             "language": {"type": "string", "enum": ["ko", "en", "none"]},
+            "reply": {"type": "string"},
         },
-        "required": ["route", "reply", "language"],
+        "required": ["route", "language", "reply"],
         "additionalProperties": False,
     },
 }
@@ -720,7 +722,8 @@ _UTTERANCE_ROUTE_SCHEMA = {
 _UTTERANCE_ROUTE_INSTRUCTION = (
     "사용자 말이 이 프로젝트의 코드·PR·이슈·사람·문서·일정에 대한 질문인지 고르세요.\n"
     "route=graph 이면 reply는 빈 문자열입니다. 조금이라도 그런 질문이면 graph입니다. "
-    "앞에 인사가 있어도 뒤에 사람·코드·이슈를 물으면 graph입니다. 애매하면 graph입니다.\n"
+    "앞에 인사가 있어도 뒤에 사람·코드·이슈를 물으면 graph입니다. 애매하면 graph입니다. "
+    "\"HT-12?\"·\"#31\"·커밋 해시처럼 식별자뿐인 말도 graph입니다.\n"
     "route=chat 은 인사, 감사, 날씨·기분 같은 잡담, 프로젝트 기록 밖의 일반 지식·코딩 방법, "
     "whycode 자신의 내부 구현을 캐는 말뿐입니다.\n"
     "whycode 자신의 내부 구현은 이 도우미가 쓰는 모델·설정, 시스템 프롬프트·지시문 원문, "

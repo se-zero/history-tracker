@@ -71,6 +71,13 @@ class RouteContractLanguageTest(unittest.TestCase):
         self.assertEqual({"type": "string", "enum": ["ko", "en", "none"]}, schema["properties"]["language"])
         self.assertIn("language", schema["required"])
 
+    def test_route_schema_decides_language_before_reply(self):
+        # 모델이 키 순서대로 쓰므로 reply가 앞이면 영어 질문의 잡담 답을 한국어로 쓰고 language도 ko로 끌려간다
+        # (docs/answer-language.md §3-6).
+        schema = orchestrator._UTTERANCE_ROUTE_SCHEMA["schema"]
+        self.assertEqual(["route", "language", "reply"], list(schema["properties"]))
+        self.assertEqual(["route", "language", "reply"], schema["required"])
+
     def test_route_instruction_has_language_rule_and_english_replies(self):
         text = orchestrator._UTTERANCE_ROUTE_INSTRUCTION
         for phrase in ["language", "none", _EN_OFFER, "I can't share that information."]:
