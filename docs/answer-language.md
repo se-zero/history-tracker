@@ -10,7 +10,7 @@ whycode의 답은 지금 한국어로 고정돼 있다. 영어로 물어도 한�
 
 **진행 상황(2026-10-14)**: 브랜치 `feat/answer-language`(develop `932e443`에서 분기). **0단계·A1 완료** — 영어 답에는 본 지시
 전체 영어판을 쓰고(§3-4), 언어는 판별 LLM이 정하고 코드 규칙이 대비책이다(§3-5). **A2는 판별 재측정만 남았다** — 1차 실측에서
-영어 잡담 답이 한국어로 나오는 결함을 찾아 고쳤고, 재측정은 OpenAI 쿼터 소진으로 멈췄다(§3-6). **B(MCP 영어화) 완료.**
+영어 잡담 답이 한국어로 나오는 결함을 찾아 고쳤고, 재측정은 OpenAI 쿼터 소진으로 멈췄다(§3-6). **B(MCP 영어화)·C1(영어 짝 골든·채점기) 완료.**
 §3-1~3-5의 실험은 코드를 바꾸지 않고 로컬 ai-engine 컨테이너 안에서만 했다. §3-6은 로컬 `.venv`에서 했다.
 
 ---
@@ -387,6 +387,18 @@ whycode 내부 구현은 "I can't share that information."(모델 이름·지시
   `runs_answer_language_mismatch`·`runs_language_decision_mismatch`·짝별 recall·사실 정답률 차이를 낸다.
   `validate_golden`이 `paired_with`·`answer_language`를 검사한다. `judge_prompt.md`(동결)는 건드리지 않는다.
   골든 파일이 늘면 `golden_version`이 바뀌어 compare.py가 경고한다(정상).
+- **구현에서 정한 것(C1, 2026-10-14)**:
+  - §3 실험의 번역 질문은 실험 프로세스 안에만 있어 남지 않았다. 10개 질문은 새로 옮겼다 — 06번은 "which issues", 45번은
+    "Which issue has…", 한국어 이슈 제목(03번 `'그래프 생성'`)과 사람 이름(42번 서준수)은 원문 그대로 둔다.
+  - 한글 비율은 따옴표 안의 글(이슈 제목·원문 인용)을 빼고 센다. 작은따옴표는 앞에 공백이 있을 때만 인용 시작으로 본다
+    (`HT-26's '그래프 생성'`의 소유격에 걸리지 않게). 숫자가 섞인 영문 토큰(이슈 키·해시·날짜)은 세지 않는다.
+  - 서버가 정한 언어(`debug.answer_language`)가 없는 응답(이 작업 이전 엔진, B0)은 불일치가 아니라
+    `runs_language_decision_unknown`으로 따로 센다. 짝 차이는 scores.json의 `pairs`와 `aggregate.pair_recall_delta_mean`·
+    `pair_fact_accuracy_delta_mean`에 나온다(짝 − 원본, 이번 런에 원본이 없으면 뺀다).
+  - `validate_golden`은 짝 원본이 있는지, 원본을 가리키는지(짝의 짝 금지), 답변 언어가 다른지, 기대 필드 6개가 원본과 같은지,
+    그리고 모든 케이스의 id가 파일 이름과 같은지(복사하다 id가 겹치면 grader가 한쪽을 덮어쓴다) 그래프 없이 먼저 본다.
+  - E에서 짝 20개만 돌리는 러너 인자: `--cases case-03,case-03-en,case-04,case-04-en,case-06,case-06-en,case-11,case-11-en,
+    case-13,case-13-en,case-20,case-20-en,case-39,case-39-en,case-41,case-41-en,case-42,case-42-en,case-45,case-45-en`.
 - **규모**: 짝 20개(한국어 10·영어 10) × 3회, B0(변경 전 이미지)·C(새 코드) 두 바퀴.
 - **기준**(제안): S1 영어 런 100% 영어·한국어 런 100% 한국어 / S2 한국어 짝 지표 하락 없음(compare.py 허용선) /
   S3 짝별 recall 차이 평균 ≥ −0.07 / **S4 짝별 사실 정답률 차이 평균 ≥ −0.10** / S5 영어 런 structured_null 0.
@@ -457,6 +469,7 @@ D 묶음에서 [i18n.md](i18n.md)에 "앱 UI 언어 분리 인벤토리"로 옮�
         영어 잡담 답이 한국어로 나오는 결함 → 판별 키 순서·식별자 규칙 수정, 재측정 남음 — §3-6)
 - [x] B — MCP 영어화 + `explain_commit` language (2026-10-14 — 결과·오류 문구 15개·프롬프트 2개 영어, `language` 선택 인자,
       도구 설명·서버 안내문의 언어 문장. MCP 테스트 135개 빨강 43 → 초록, backend 전체 1868개 통과)
-- [ ] C1 — 영어 짝 골든 + 채점기
+- [x] C1 — 영어 짝 골든 + 채점기 (2026-10-14 — 짝 10개, 답변 언어·판정 카운터와 짝 차이, validate 짝 검사.
+      `eval/tests` 42 → 66개 통과, validate 55케이스 ERROR 0·WARN 0, 기준선 20260821T060820Z 재채점에서 한국어 135런 전부 ko)
 - [ ] D — 문서 + `/mcp/setup` 두 줄
 - [ ] E — 측정(S1~S5) + 수동 확인

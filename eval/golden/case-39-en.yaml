@@ -1,0 +1,30 @@
+# 영어 짝 케이스 — case-39의 질문만 영어로 옮겼다(docs/answer-language.md §4-4).
+# 기대 근거·사실·규칙은 원본 그대로이고 validate_golden.py가 같은지 검사한다 — 바꾸려면 case-39.yaml을 고친 뒤
+# 이 파일에 똑같이 옮긴다. 기대값의 근거·설명 주석은 원본 파일을 본다.
+id: "case-39-en"
+question: "What was the background for introducing global search?"
+paired_with: "case-39"
+answer_language: "en"
+focus_evidence: []
+expected_evidence_ids:
+- "issue:HT-102"
+acceptable_evidence_ids:
+- "pull_request:#56"
+- "commit:6440f9e"
+- "commit:3537c75"
+- "commit:5d3491b"
+- "commit:a480b4a"
+expected_facts:
+- "글로벌(통합) 검색은 대화와 그래프 노드를 ChatGPT처럼 하나의 검색으로 통합하려고 도입한 기능이다 (HT-102 본문)"
+expected_absent:
+  evidence_ids:
+  - "message:1783072186.688439"
+  - "message:1782286987.165039"
+  - "message:1781533811.868749"
+  facts:
+  - "글로벌 검색 도입 배경을 슬랙에서 논의·결정했다고 서술 — 실제론 회의에서 결정, 슬랙엔 'pr 날렸어' 공지뿐(지어내면 감점)"
+  - "HT-102 본문(대화+그래프 노드 통합 검색) 범위를 넘는 구체적 도입 배경·문제를 지어내 단정"
+rule_checks:
+- "evidence에 issue:HT-102 존재 (배경/목표 근거)"
+- "evidence에 type: message(슬랙) 근거가 없음 (배경은 회의 → 슬랙 논의 없음)"
+- "summary가 HT-102 본문 범위(대화+그래프 노드 통합 검색)를 넘는 도입 배경을 사실로 지어내지 않음 (근거 없으면 미기록 인정)"

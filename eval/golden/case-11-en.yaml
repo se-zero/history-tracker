@@ -1,0 +1,50 @@
+# 영어 짝 케이스 — case-11의 질문만 영어로 옮겼다(docs/answer-language.md §4-4).
+# 기대 근거·사실·규칙은 원본 그대로이고 validate_golden.py가 같은지 검사한다 — 바꾸려면 case-11.yaml을 고친 뒤
+# 이 파일에 똑같이 옮긴다. 기대값의 근거·설명 주석은 원본 파일을 본다.
+id: "case-11-en"
+question: "Summarize the change history of services/ai-engine/graph/event_handler.py in chronological order."
+paired_with: "case-11"
+answer_language: "en"
+focus_evidence: []
+expected_evidence_ids:
+- "commit:73a40f7"
+- "commit:610ef4c"
+- "commit:e9e717a"
+- "commit:c9338b0"
+- "commit:fe5ba81"
+- "commit:ea334e9"
+- "commit:e6eeb98"
+- "commit:56a5492"
+- "commit:b5ad923"
+- "commit:d9978e2"
+- "commit:16879e4"
+- "commit:5a6643e"
+- "issue:HT-23"
+- "issue:HT-24"
+- "issue:HT-26"
+- "issue:HT-40"
+- "issue:HT-41"
+- "issue:HT-47"
+- "issue:HT-65"
+acceptable_evidence_ids:
+- "commit:84b83f9"
+- "commit:d58e361"
+- "commit:7f55999"
+- "issue:HT-95"
+- "issue:HT-94"
+- "issue:HT-33"
+- "issue:HT-35"
+- "issue:HT-68"
+expected_facts:
+- "RabbitMQ consumer의 이벤트 핸들러 뼈대로 처음 생겼다 (73a40f7, HT-23)"
+- "임베딩·diff 요약 통합(610ef4c) 후 Neo4j 그래프 빌더에 연결(e9e717a)돼 수집 이벤트를 그래프로 구축하는 핵심 경로가 됐다"
+- "이후 컨슈머 안정성·정규화 정합성·Actor 파이프라인 연결 등 수집 파이프라인 연동 수정이 이어졌다 (fe5ba81, ea334e9, e6eeb98)"
+- "그래프 데이터를 project_id 단위로 격리하도록 바뀌었다 (5a6643e, HT-65)"
+expected_absent:
+  evidence_ids: []
+  facts:
+  - "event_handler.py를 실제로 바꾸지 않고 단순 언급만 한 이슈·대화를 변경 이력으로 제시한다"
+  - "rate limiter·수집 동시성 로직 자체를 event_handler.py에 구현했다고 단정한다 (실제로는 OpenAI 호출부·수집 경로 변경이 파일에 스친 것)"
+rule_checks:
+- "summary가 event_handler.py를 실제 변경한 커밋과 그 연결 이슈를 근거로 제시하며, 파일을 단순 언급만 한 이슈로 대체하지 않는다"
+- "evidence에 event_handler.py를 MODIFIED한 커밋(commit:73a40f7·610ef4c·e9e717a 등)이 1건 이상 존재한다"
