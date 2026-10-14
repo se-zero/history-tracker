@@ -10,7 +10,7 @@ whycode의 답은 지금 한국어로 고정돼 있다. 영어로 물어도 한�
 
 **진행 상황(2026-10-14)**: 브랜치 `feat/answer-language`(develop `932e443`에서 분기). **0단계·A1 완료** — 영어 답에는 본 지시
 전체 영어판을 쓰고(§3-4), 언어는 판별 LLM이 정하고 코드 규칙이 대비책이다(§3-5). **A2는 판별 재측정만 남았다** — 1차 실측에서
-영어 잡담 답이 한국어로 나오는 결함을 찾아 고쳤고, 재측정은 OpenAI 쿼터 소진으로 멈췄다(§3-6).
+영어 잡담 답이 한국어로 나오는 결함을 찾아 고쳤고, 재측정은 OpenAI 쿼터 소진으로 멈췄다(§3-6). **B(MCP 영어화) 완료.**
 §3-1~3-5의 실험은 코드를 바꾸지 않고 로컬 ai-engine 컨테이너 안에서만 했다. §3-6은 로컬 `.venv`에서 했다.
 
 ---
@@ -358,7 +358,8 @@ whycode 내부 구현은 "I can't share that information."(모델 이름·지시
 
 - **`explain_commit(workspace, hash, language?)`**: 스키마에 `language`(`{"type":"string","enum":["ko","en"]}`, required 아님 —
   required는 workspace·hash 그대로). 해시를 먼저 검사하고, language는 비면 ko, 앞뒤 공백·대소문자 정리 후 ko/en만 받는다.
-  그 밖의 값은 INVALID_LANGUAGE이고 ai-engine을 부르지 않는다. 질문 템플릿:
+  그 밖의 값은 INVALID_LANGUAGE이고 ai-engine을 부르지 않는다. 문자열이 아닌 값(숫자 등)도 생략으로 보지 않고 거부한다 —
+  생략으로 보면 잘못된 값이 기본값 ko로 조용히 통과한다. 질문 템플릿:
   - ko(지금 그대로): `커밋 %s가 왜 이렇게 바뀌었는지 근거와 함께 설명해줘`
   - en: `Explain, with evidence, why commit %s changed the way it did.`
 
@@ -367,6 +368,8 @@ whycode 내부 구현은 "I can't share that information."(모델 이름·지시
   "답변은 질문한 언어(한국어·영어)를 따릅니다. ask는 사용자 언어로 질문을 쓰고, explain_commit의 language를 사용자 언어로 채우세요."
   / "Answers follow the language of the question (Korean or English): write ask questions in the user's language and set
   explain_commit's language to the user's language." `language` 인자 설명도 같은 병기 형식.
+  서버 안내문에는 이 문장을 그대로 쓰고, 도구 설명에는 그 도구 몫만 쓴다 — ask는 "질문은 사용자 언어로", explain_commit은
+  "language를 사용자 언어로"(2026-10-14 구현).
 - **프롬프트**(`McpPromptSpecifications`) 영어화:
   - connect: 지금 문구와 같은 뜻 — list_projects로 목록을 받아 사용자에게 고르게 하고(하나뿐이어도 확인), 작업 폴더 절대 경로로 bind_project.
   - why: `Answer the following question with the whycode tools. For a specific line or snippet, get the commit hash with git blame and call explain_commit with language set to the question's language ("ko" or "en"); otherwise call ask with the question in the user's language. workspace is the absolute path of the current working folder. Reply to the user in the language of the question.\n\nQuestion: `
@@ -452,7 +455,8 @@ D 묶음에서 [i18n.md](i18n.md)에 "앱 UI 언어 분리 인벤토리"로 옮�
   - [x] ② 전체 영어판 지시 + 동기화 가드 — `agent/prompt_en.py`(0단계 번역 그대로, 지문 `TRANSLATED_FROM`), 두 언어를 같은 함수로 채움 (2026-10-13)
   - [ ] ③ 배선 — 판별 `language`·`run`·고정 문구·응답 계약 (코드·단위 테스트 완료 2026-10-13. 판별 실측 1차 2026-10-14에서
         영어 잡담 답이 한국어로 나오는 결함 → 판별 키 순서·식별자 규칙 수정, 재측정 남음 — §3-6)
-- [ ] B — MCP 영어화 + `explain_commit` language
+- [x] B — MCP 영어화 + `explain_commit` language (2026-10-14 — 결과·오류 문구 15개·프롬프트 2개 영어, `language` 선택 인자,
+      도구 설명·서버 안내문의 언어 문장. MCP 테스트 135개 빨강 43 → 초록, backend 전체 1868개 통과)
 - [ ] C1 — 영어 짝 골든 + 채점기
 - [ ] D — 문서 + `/mcp/setup` 두 줄
 - [ ] E — 측정(S1~S5) + 수동 확인

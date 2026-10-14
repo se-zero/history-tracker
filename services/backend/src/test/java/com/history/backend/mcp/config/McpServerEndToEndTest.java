@@ -114,7 +114,9 @@ class McpServerEndToEndTest {
         assertThat(reply.status()).isEqualTo(200);
         JsonNode result = resultOf(reply);
         assertThat(result.path("serverInfo").path("name").asText()).isEqualTo("whycode");
-        assertThat(result.path("instructions").asText()).isNotBlank().contains("whycode");
+        assertThat(result.path("instructions").asText()).isNotBlank().contains("whycode")
+                .contains("Korean or English").contains("explain_commit's language")
+                .doesNotContain("답변은 한국어입니다").doesNotContain("Answers are in Korean");
         assertThat(result.path("capabilities").path("tools").isMissingNode()).isFalse();
         assertThat(result.path("capabilities").path("prompts").isMissingNode()).isFalse();
     }
@@ -201,6 +203,26 @@ class McpServerEndToEndTest {
     }
 
     @Test
+    @DisplayName("explain_commit에 language=en을 주면 영어 질문 템플릿으로 ai-engine을 부른다")
+    void explainCommitWithEnglishLanguageAsksInEnglish() throws Exception {
+        User user = saveUser();
+        Project project = saveProject(user, "English Commit Project");
+        Grant grant = grantFor(user);
+        String workspace = newWorkspace();
+        when(aiEngineQueryClient.ask(any(), eq(project.getId()), any(), any(), any(), any()))
+                .thenReturn(AiEngineQueryResult.success("Commit explanation", null));
+        postMcp(grant.token(), toolCall("bind_project", Map.of(
+                "workspace", workspace, "project_id", project.getId().toString())));
+
+        JsonNode result = resultOf(postMcp(grant.token(), toolCall("explain_commit", Map.of(
+                "workspace", workspace, "hash", "abc1234", "language", "en"))));
+
+        assertThat(result.path("isError").asBoolean()).isFalse();
+        verify(aiEngineQueryClient).ask(eq("Explain, with evidence, why commit abc1234 changed the way it did."),
+                eq(project.getId()), any(), any(), any(), eq(List.of(new EvidenceRef("commit", "abc1234"))));
+    }
+
+    @Test
     @DisplayName("남의 프로젝트 id로 bind_project하면 거부되고 이후 ask도 연결되지 않은 채로 남는다")
     void bindingOtherUsersProjectIsRejected() throws Exception {
         User userA = saveUser();
@@ -215,7 +237,7 @@ class McpServerEndToEndTest {
                 "workspace", workspace, "question", "왜 바뀌었어?"))));
 
         assertThat(bind.path("isError").asBoolean()).isTrue();
-        assertThat(textOf(bind)).contains("찾을 수 없습니다");
+        assertThat(textOf(bind)).contains("Project not found");
         assertThat(ask.path("isError").asBoolean()).isTrue();
         assertThat(textOf(ask)).contains(projectA.getName()).contains("bind_project");
         verify(aiEngineQueryClient, never()).ask(any(), any(), any(), any(), any(), any());

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -32,6 +33,8 @@ import com.history.backend.project.service.ProjectService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -47,6 +50,13 @@ class McpQueryServiceTest {
     private static final String WORKSPACE = "/home/me/repo";
     private static final String QUESTION = "왜 인증 방식이 바뀌었어?";
     private static final int READ_TIMEOUT_SECONDS = 90;
+    private static final String ISSUER = "http://localhost:5173";
+    // 에이전트에게 나가는 결과·오류 문구는 영어 한 벌이다 — 한글이 섞이면 실패한다
+    private static final String HANGUL = "[가-힣]";
+    private static final String HASH = "abc1234def";
+    // ai-engine 판정 테스트(test_answer_language.py)가 각각 ko·en으로 고정한 문장과 같아야 한다
+    private static final String KO_EXPLAIN_QUESTION = "커밋 abc1234def가 왜 이렇게 바뀌었는지 근거와 함께 설명해줘";
+    private static final String EN_EXPLAIN_QUESTION = "Explain, with evidence, why commit abc1234def changed the way it did.";
 
     @Mock
     private McpBindingService bindingService;
@@ -73,7 +83,8 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().listProjects(USER_ID);
 
         assertThat(outcome.isError()).isFalse();
-        assertThat(outcome.text()).contains("프로젝트").contains("만들");
+        assertThat(outcome.text()).contains("no whycode projects").contains("Create one at " + ISSUER)
+                .doesNotContainPattern(HANGUL);
     }
 
     @Test
@@ -86,8 +97,10 @@ class McpQueryServiceTest {
 
         assertThat(outcome.isError()).isFalse();
         assertThat(outcome.text())
+                .startsWith("whycode projects:")
                 .contains("Alpha").contains(PROJECT_ID.toString())
-                .contains("Beta").contains(OTHER_PROJECT_ID.toString());
+                .contains("Beta").contains(OTHER_PROJECT_ID.toString())
+                .doesNotContainPattern(HANGUL);
     }
 
     // ── bindProject ──
@@ -100,7 +113,7 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().bindProject(USER_ID, WORKSPACE, PROJECT_ID.toString());
 
         assertThat(outcome.isError()).isFalse();
-        assertThat(outcome.text()).contains("Alpha");
+        assertThat(outcome.text()).contains("Connected this folder").contains("\"Alpha\"").doesNotContainPattern(HANGUL);
     }
 
     @Test
@@ -109,6 +122,7 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().bindProject(USER_ID, WORKSPACE, "not-a-uuid");
 
         assertThat(outcome.isError()).isTrue();
+        assertThat(outcome.text()).contains("list_projects").doesNotContainPattern(HANGUL);
         verifyNoInteractions(bindingService);
     }
 
@@ -121,7 +135,7 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().bindProject(USER_ID, "relative/path", PROJECT_ID.toString());
 
         assertThat(outcome.isError()).isTrue();
-        assertThat(outcome.text()).contains("절대 경로");
+        assertThat(outcome.text()).contains("absolute path").doesNotContainPattern(HANGUL);
     }
 
     @Test
@@ -138,6 +152,7 @@ class McpQueryServiceTest {
         assertThat(notFound.isError()).isTrue();
         assertThat(forbidden.isError()).isTrue();
         assertThat(notFound.text()).isEqualTo(forbidden.text());
+        assertThat(notFound.text()).contains("list_projects").doesNotContainPattern(HANGUL);
     }
 
     // ── ask: 입력 검증 ──
@@ -147,9 +162,12 @@ class McpQueryServiceTest {
     void askRejectsBlankQuestion() {
         McpQueryService service = service();
 
-        assertThat(service.ask(USER_ID, WORKSPACE, null).isError()).isTrue();
-        assertThat(service.ask(USER_ID, WORKSPACE, "   ").isError()).isTrue();
+        McpToolOutcome missing = service.ask(USER_ID, WORKSPACE, null);
+        McpToolOutcome blank = service.ask(USER_ID, WORKSPACE, "   ");
 
+        assertThat(missing.isError()).isTrue();
+        assertThat(blank.isError()).isTrue();
+        assertThat(missing.text()).contains("question").doesNotContainPattern(HANGUL);
         verifyNoCollaborators();
     }
 
@@ -184,7 +202,7 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().ask(USER_ID, "relative/path", QUESTION);
 
         assertThat(outcome.isError()).isTrue();
-        assertThat(outcome.text()).contains("절대 경로");
+        assertThat(outcome.text()).contains("absolute path").doesNotContainPattern(HANGUL);
         verifyNoInteractions(planService, rateLimiter, aiEngineQueryClient);
     }
 
@@ -196,7 +214,8 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().ask(USER_ID, WORKSPACE, QUESTION);
 
         assertThat(outcome.isError()).isTrue();
-        assertThat(outcome.text()).contains("프로젝트").contains("만들");
+        assertThat(outcome.text()).contains("no whycode projects").contains("Create one at " + ISSUER)
+                .doesNotContainPattern(HANGUL);
         verifyNoInteractions(planService, rateLimiter, aiEngineQueryClient);
     }
 
@@ -213,7 +232,8 @@ class McpQueryServiceTest {
                 .contains("Alpha").contains(PROJECT_ID.toString())
                 .contains("Beta").contains(OTHER_PROJECT_ID.toString())
                 .contains("bind_project")
-                .contains("사용자");
+                .contains("Confirm with the user")
+                .doesNotContainPattern(HANGUL);
         verifyNoInteractions(planService, rateLimiter, aiEngineQueryClient);
     }
 
@@ -228,7 +248,8 @@ class McpQueryServiceTest {
         assertThat(outcome.isError()).isTrue();
         assertThat(outcome.text())
                 .contains("Alpha").contains(PROJECT_ID.toString())
-                .contains("bind_project");
+                .contains("bind_project")
+                .doesNotContainPattern(HANGUL);
         verifyNoInteractions(planService, rateLimiter, aiEngineQueryClient);
     }
 
@@ -241,7 +262,7 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().ask(USER_ID, WORKSPACE, QUESTION);
 
         assertThat(outcome.isError()).isTrue();
-        assertThat(outcome.text()).contains("한도");
+        assertThat(outcome.text()).contains("question limit").contains(ISSUER + "/pricing").doesNotContainPattern(HANGUL);
         verifyNoInteractions(rateLimiter, aiEngineQueryClient);
         verify(planService, never()).recordQuery(USER_ID);
     }
@@ -255,7 +276,7 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().ask(USER_ID, WORKSPACE, QUESTION);
 
         assertThat(outcome.isError()).isTrue();
-        assertThat(outcome.text()).contains("42");
+        assertThat(outcome.text()).contains("42 seconds").doesNotContainPattern(HANGUL);
         verify(planService).ensureQueryAllowed(USER_ID);
         verify(planService, never()).recordQuery(USER_ID);
         verifyNoInteractions(aiEngineQueryClient);
@@ -271,7 +292,7 @@ class McpQueryServiceTest {
         McpToolOutcome outcome = service().ask(USER_ID, WORKSPACE, QUESTION);
 
         assertThat(outcome.isError()).isTrue();
-        assertThat(outcome.text()).contains("한도");
+        assertThat(outcome.text()).contains("question limit").doesNotContainPattern(HANGUL);
         verifyNoInteractions(aiEngineQueryClient);
     }
 
@@ -289,26 +310,24 @@ class McpQueryServiceTest {
         McpToolOutcome error = service.ask(USER_ID, WORKSPACE, QUESTION);
 
         assertThat(timeout.isError()).isTrue();
-        assertThat(timeout.text()).contains(String.valueOf(READ_TIMEOUT_SECONDS));
+        assertThat(timeout.text()).contains(READ_TIMEOUT_SECONDS + " seconds").doesNotContainPattern(HANGUL);
         assertThat(error.isError()).isTrue();
-        assertThat(error.text()).doesNotContain(String.valueOf(READ_TIMEOUT_SECONDS));
+        assertThat(error.text()).doesNotContain(String.valueOf(READ_TIMEOUT_SECONDS)).doesNotContainPattern(HANGUL);
         assertThat(timeout.text()).isNotEqualTo(error.text());
     }
 
     // ── explainCommit ──
 
     @Test
-    @DisplayName("explainCommit: 질문 템플릿과 commit focus로 같은 흐름을 탄다")
-    void explainCommitAsksWithTemplateAndCommitFocus() {
+    @DisplayName("explainCommit: language를 생략하면 한국어 질문 템플릿과 commit focus로 같은 흐름을 탄다")
+    void explainCommitWithoutLanguageAsksKoreanTemplateWithCommitFocus() {
         stubBound();
         stubAllowed();
-        String hash = "abc1234def";
-        List<EvidenceRef> focus = List.of(new EvidenceRef("commit", hash));
-        when(aiEngineQueryClient.ask("커밋 abc1234def가 왜 이렇게 바뀌었는지 근거와 함께 설명해줘",
-                PROJECT_ID, List.of(), List.of(), null, focus))
+        List<EvidenceRef> focus = List.of(new EvidenceRef("commit", HASH));
+        when(aiEngineQueryClient.ask(KO_EXPLAIN_QUESTION, PROJECT_ID, List.of(), List.of(), null, focus))
                 .thenReturn(AiEngineQueryResult.success("로그인 개편 때문입니다.", null));
 
-        McpToolOutcome outcome = service().explainCommit(USER_ID, WORKSPACE, hash);
+        McpToolOutcome outcome = service().explainCommit(USER_ID, WORKSPACE, HASH, null);
 
         assertThat(outcome.isError()).isFalse();
         assertThat(outcome.text()).isEqualTo("로그인 개편 때문입니다.");
@@ -317,9 +336,62 @@ class McpQueryServiceTest {
         order.verify(planService).ensureQueryAllowed(USER_ID);
         order.verify(rateLimiter).acquire(USER_ID);
         order.verify(planService).recordQuery(USER_ID);
-        order.verify(aiEngineQueryClient).ask(
-                "커밋 abc1234def가 왜 이렇게 바뀌었는지 근거와 함께 설명해줘",
-                PROJECT_ID, List.of(), List.of(), null, focus);
+        order.verify(aiEngineQueryClient).ask(KO_EXPLAIN_QUESTION, PROJECT_ID, List.of(), List.of(), null, focus);
+    }
+
+    @Test
+    @DisplayName("explainCommit: language=en이면 영어 질문 템플릿으로 묻는다 — ai-engine은 이 문장으로 답변 언어를 정한다")
+    void explainCommitWithEnglishAsksEnglishTemplate() {
+        stubBound();
+        stubAllowed();
+        List<EvidenceRef> focus = List.of(new EvidenceRef("commit", HASH));
+        when(aiEngineQueryClient.ask(EN_EXPLAIN_QUESTION, PROJECT_ID, List.of(), List.of(), null, focus))
+                .thenReturn(AiEngineQueryResult.success("Because of the login rework.", null));
+
+        McpToolOutcome outcome = service().explainCommit(USER_ID, WORKSPACE, HASH, "en");
+
+        assertThat(outcome.isError()).isFalse();
+        assertThat(outcome.text()).isEqualTo("Because of the login rework.");
+    }
+
+    @Test
+    @DisplayName("explainCommit: language는 앞뒤 공백·대소문자를 정리하고, 공백뿐이면 생략과 같다")
+    void explainCommitNormalizesLanguage() {
+        stubBound();
+        stubAllowed();
+        List<EvidenceRef> focus = List.of(new EvidenceRef("commit", HASH));
+        when(aiEngineQueryClient.ask(anyString(), any(UUID.class), anyList(), anyList(), any(), anyList()))
+                .thenReturn(AiEngineQueryResult.success("답", null));
+        McpQueryService service = service();
+
+        service.explainCommit(USER_ID, WORKSPACE, HASH, " EN ");
+        service.explainCommit(USER_ID, WORKSPACE, HASH, "Ko");
+        service.explainCommit(USER_ID, WORKSPACE, HASH, "   ");
+
+        verify(aiEngineQueryClient).ask(EN_EXPLAIN_QUESTION, PROJECT_ID, List.of(), List.of(), null, focus);
+        verify(aiEngineQueryClient, times(2)).ask(KO_EXPLAIN_QUESTION, PROJECT_ID, List.of(), List.of(), null, focus);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"fr", "en-US", "english", "1"})
+    @DisplayName("explainCommit: ko·en 밖의 language는 받을 수 있는 값을 알려 주는 오류 — 협력자를 부르지 않는다")
+    void explainCommitRejectsUnsupportedLanguage(String language) {
+        McpToolOutcome outcome = service().explainCommit(USER_ID, WORKSPACE, HASH, language);
+
+        assertThat(outcome.isError()).isTrue();
+        assertThat(outcome.text()).contains("language").contains("\"ko\"").contains("\"en\"")
+                .doesNotContainPattern(HANGUL);
+        verifyNoCollaborators();
+    }
+
+    @Test
+    @DisplayName("explainCommit: 해시와 language가 둘 다 틀리면 해시 오류를 돌려준다")
+    void explainCommitChecksHashBeforeLanguage() {
+        McpToolOutcome outcome = service().explainCommit(USER_ID, WORKSPACE, "zzz", "fr");
+
+        assertThat(outcome.isError()).isTrue();
+        assertThat(outcome.text()).contains("git blame").doesNotContain("\"ko\"");
+        verifyNoCollaborators();
     }
 
     @Test
@@ -327,11 +399,13 @@ class McpQueryServiceTest {
     void explainCommitRejectsInvalidHash() {
         McpQueryService service = service();
 
-        assertThat(service.explainCommit(USER_ID, WORKSPACE, "abc123").isError()).isTrue();      // 6자
-        assertThat(service.explainCommit(USER_ID, WORKSPACE, "abcdefg").isError()).isTrue();     // 비16진수
-        assertThat(service.explainCommit(USER_ID, WORKSPACE, "a".repeat(41)).isError()).isTrue(); // 41자
-        assertThat(service.explainCommit(USER_ID, WORKSPACE, null).isError()).isTrue();
+        assertThat(service.explainCommit(USER_ID, WORKSPACE, "abc123", null).isError()).isTrue();      // 6자
+        assertThat(service.explainCommit(USER_ID, WORKSPACE, "abcdefg", null).isError()).isTrue();     // 비16진수
+        assertThat(service.explainCommit(USER_ID, WORKSPACE, "a".repeat(41), null).isError()).isTrue(); // 41자
+        McpToolOutcome missing = service.explainCommit(USER_ID, WORKSPACE, null, null);
 
+        assertThat(missing.isError()).isTrue();
+        assertThat(missing.text()).contains("git blame").doesNotContainPattern(HANGUL);
         verifyNoCollaborators();
     }
 
@@ -344,8 +418,8 @@ class McpQueryServiceTest {
                 .thenReturn(AiEngineQueryResult.success("답", null));
         McpQueryService service = service();
 
-        assertThat(service.explainCommit(USER_ID, WORKSPACE, "abc1234").isError()).isFalse();
-        assertThat(service.explainCommit(USER_ID, WORKSPACE, "0123456789abcdef0123456789abcdef01234567").isError())
+        assertThat(service.explainCommit(USER_ID, WORKSPACE, "abc1234", null).isError()).isFalse();
+        assertThat(service.explainCommit(USER_ID, WORKSPACE, "0123456789abcdef0123456789abcdef01234567", null).isError())
                 .isFalse();
     }
 
@@ -374,7 +448,7 @@ class McpQueryServiceTest {
     private McpQueryService service() {
         return new McpQueryService(bindingService, projectService, planService, rateLimiter,
                 aiEngineQueryClient,
-                new McpOAuthProperties("http://localhost:5173", null, null, null, "/mcp/consent"),
+                new McpOAuthProperties(ISSUER, null, null, null, "/mcp/consent"),
                 READ_TIMEOUT_SECONDS);
     }
 }

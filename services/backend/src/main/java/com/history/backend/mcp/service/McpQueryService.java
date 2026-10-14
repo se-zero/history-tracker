@@ -2,6 +2,8 @@ package com.history.backend.mcp.service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -33,21 +35,30 @@ public class McpQueryService {
 
     private static final Pattern COMMIT_HASH = Pattern.compile("^[0-9a-fA-F]{7,40}$");
 
-    private static final String INVALID_WORKSPACE = "workspace는 현재 작업 폴더의 절대 경로여야 합니다.";
-    private static final String NO_PROJECTS = "whycode에 프로젝트가 없습니다. %s 에서 프로젝트를 먼저 만들어 주세요.";
-    private static final String UNBOUND = "이 폴더는 아직 whycode 프로젝트에 연결되지 않았습니다. "
-            + "아래 목록을 사용자에게 보여 주고 어느 프로젝트인지 물어본 뒤 bind_project(workspace, project_id)를 호출하세요. "
-            + "프로젝트가 하나뿐이어도 사용자에게 확인하세요.\n%s";
-    private static final String PROJECT_LIST_HEADER = "whycode 프로젝트 목록:\n%s";
-    private static final String BOUND = "이 폴더를 whycode 프로젝트 \"%s\"에 연결했습니다.";
-    private static final String INVALID_PROJECT_ID = "project_id 형식이 올바르지 않습니다. list_projects로 프로젝트 id를 확인하세요.";
-    private static final String PROJECT_NOT_FOUND = "프로젝트를 찾을 수 없습니다. list_projects로 프로젝트 id를 확인하세요.";
-    private static final String EMPTY_QUESTION = "question이 비어 있습니다.";
-    private static final String INVALID_HASH = "hash는 7~40자의 16진수 커밋 해시여야 합니다. git blame이나 git log로 해시를 확인하세요.";
-    private static final String PLAN_LIMIT = "무료 플랜의 질문 한도에 도달했습니다. %s/pricing 에서 플랜을 확인해 주세요.";
-    private static final String RATE_LIMITED = "질문이 너무 잦습니다. %d초 뒤에 다시 시도해 주세요.";
-    private static final String TIMEOUT = "whycode가 %d초 안에 답을 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요.";
-    private static final String GENERIC_ERROR = "whycode 답변 생성 중 오류가 났습니다. 잠시 뒤 다시 시도해 주세요.";
+    // 결과·오류 문구는 영어 한 벌이다. 1차로 읽는 것은 코딩 에이전트이고, 사용자에게는 에이전트가 사용자 언어로 옮겨 전한다.
+    private static final String INVALID_WORKSPACE = "workspace must be the absolute path of the current working folder.";
+    private static final String NO_PROJECTS = "You have no whycode projects yet. Create one at %s first.";
+    private static final String UNBOUND = "This folder is not connected to a whycode project yet. "
+            + "Show the list below to the user, ask which project it is, then call bind_project(workspace, project_id). "
+            + "Confirm with the user even if there is only one project.\n%s";
+    private static final String PROJECT_LIST_HEADER = "whycode projects:\n%s";
+    private static final String BOUND = "Connected this folder to the whycode project \"%s\".";
+    private static final String INVALID_PROJECT_ID = "project_id is not a valid id. Check it with list_projects.";
+    private static final String PROJECT_NOT_FOUND = "Project not found. Check the project id with list_projects.";
+    private static final String EMPTY_QUESTION = "question is empty.";
+    private static final String INVALID_HASH = "hash must be a commit hash of 7-40 hex characters. Get it with git blame or git log.";
+    private static final String INVALID_LANGUAGE = "language must be \"ko\" or \"en\".";
+    private static final String PLAN_LIMIT = "You have reached the free plan's question limit. See plans at %s/pricing.";
+    private static final String RATE_LIMITED = "Too many questions. Try again in %d seconds.";
+    private static final String TIMEOUT = "whycode couldn't produce an answer within %d seconds. Please try again shortly.";
+    private static final String GENERIC_ERROR = "whycode failed to generate an answer. Please try again shortly.";
+
+    // ai-engine은 지정 노드가 있는 질문의 발화 판별을 건너뛰고 질문 글로 답변 언어를 정하므로, 언어는 이 문장이 싣는다.
+    // 두 문장은 ai-engine 판정 테스트(tests/unit/test_answer_language.py)가 각각 ko·en으로 고정한다 — 바꾸면 함께 고친다.
+    private static final Map<String, String> EXPLAIN_COMMIT_QUESTIONS = Map.of(
+            "ko", "커밋 %s가 왜 이렇게 바뀌었는지 근거와 함께 설명해줘",
+            "en", "Explain, with evidence, why commit %s changed the way it did.");
+    private static final String DEFAULT_LANGUAGE = "ko";
 
     private final McpBindingService bindingService;
     private final ProjectService projectService;
@@ -108,12 +119,18 @@ public class McpQueryService {
         return query(userId, workspace, question, List.of());
     }
 
-    public McpToolOutcome explainCommit(UUID userId, String workspace, String hash) {
+    public McpToolOutcome explainCommit(UUID userId, String workspace, String hash, String language) {
         if (hash == null || !COMMIT_HASH.matcher(hash).matches()) {
             return error(INVALID_HASH);
         }
-        return query(userId, workspace, "커밋 " + hash + "가 왜 이렇게 바뀌었는지 근거와 함께 설명해줘",
-                List.of(new EvidenceRef("commit", hash)));
+        String normalized = language == null || language.isBlank()
+                ? DEFAULT_LANGUAGE
+                : language.strip().toLowerCase(Locale.ROOT);
+        String question = EXPLAIN_COMMIT_QUESTIONS.get(normalized);
+        if (question == null) {
+            return error(INVALID_LANGUAGE);
+        }
+        return query(userId, workspace, question.formatted(hash), List.of(new EvidenceRef("commit", hash)));
     }
 
     // 분당 상한을 질의 수 기록보다 앞에 둬, 상한에 걸린 호출이 월 한도를 깎지 않게 한다
