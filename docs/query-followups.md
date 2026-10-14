@@ -175,6 +175,10 @@ get_file_history·get_actor_activity 2계층 전환(78f79b9, fd1534d)의 액터 
 - [ ] **위 변경 시 용어집 정의도 함께 고친다** (`services/ai-engine/agent/glossary.py`의
       `discussion_count` — 한국어판 `METRIC_TERMS`와 영어판 `METRIC_TERMS_EN` 둘 다). 정의는 사용자가
       되물었을 때 그대로 답하는 문장이라 계산과 어긋나면 그대로 오답이 된다.
+- [ ] **`rank_issues`가 limit 경계의 동률을 함께 돌려주게 한다.** 단수형 질문("가장 많이 연결된 이슈",
+      "Which issue has…")에 모델이 `limit=1`만 요청하면 공동 1위 한쪽이 잘린다. 언어와 무관한 도구
+      문제라 답변 언어 작업([answer-language.md](answer-language.md) §3-4)과 별개로 둔다. 위의
+      "메시지 수 → 스레드 수" 검토와는 다른 변경이다.
 
 **현재 상태**: 지표는 그대로 두고, 골든 `case-45`의 질문을 "관련 대화가 가장 많이 연결된 이슈가
 뭐야?"로 좁혀 지표가 실제로 답할 수 있는 범위만 재도록 했다. 용어집 정의에도 "긴 대화 한 번이
