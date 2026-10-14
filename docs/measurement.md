@@ -81,12 +81,24 @@ LLM 응답은 실행마다 문장이 달라 정확 일치가 불가능하다. **
 | 직접 인용 조각 수 (`direct_quote_spans`) | summary가 도구 결과 원문을 따옴표째 옮긴 조각 수 | 답변이 원문을 복사하지 않고 풀어 설명했는가 (간접 인용 규칙 준수) |
 | 내부 용어 치환 수 (`internal_terms_replaced`) | 모델이 쓴 내부 필드명 중 서버가 사용자 표현으로 고친 건수 | 프롬프트 용어집을 얼마나 지키는가 (모델 신호) |
 | 내부 용어 잔존 수 (`internal_terms_detected`) | 치환되지 않고 답변에 남은 내부 어휘 건수 | 절대값이 아니라 **급증**을 신호로 읽는다 — 자기참조 오탐이 섞여 구조적으로 0이 되지 않는다(아래 참고) |
+| 답변 언어 (`answer_language`) | summary + unknown_aspects의 한글 토큰 비율. 0.4 이상이면 ko, 0.15 이하면 en, 그 사이는 mixed | 답이 케이스의 `answer_language`(없으면 ko)로 쓰였는가. 근거 인용과 따옴표 안 제목은 세지 않는다 |
+| 언어 판정 (`answer_language_decided`) | 서버가 응답 `debug.answer_language`에 남긴 언어 | 서버가 기대한 언어를 골랐는가. 기록이 없는 옛 응답은 불일치가 아니라 unknown |
 
 id 비교는 **정규화 후** 수행한다 (PR의 `#` 유무 무시, 커밋 해시 prefix 매치, 메시지는 골든셋 `aliases`로 매치). "근거는 맞는데 포맷만 틀린" 응답이 recall 실패로 잡히지 않게 하기 위해서다.
 포맷 위반은 별도 지표로 집계한다.
 
 `direct_quote_spans`는 집계 시 `runs_with_direct_quotes`(위반이 1건 이상인 런 수)로 낸다. 검출기는
 **따옴표로 감싼** 복사만 잡으므로, 따옴표 없이 원문을 그대로 옮기는 위반은 잡지 못한다는 한계가 있다.
+영어 소유격(`HT-26's '그래프 생성'`)도 잡지 못한다 — 단어 안의 아포스트로피를 인용 시작으로 보면
+`don't` 같은 축약형이 오탐이 되어, 그 예외를 두었다. 관측 지표만 조금 흔들리고 채점 점수에는
+들어가지 않는다.
+
+답변 언어는 집계 시 세 카운터로 낸다. `runs_answer_language_mismatch`(답이 기대 언어가 아닌 런),
+`runs_language_decision_mismatch`(서버가 기대와 다른 언어를 고른 런),
+`runs_language_decision_unknown`(판정 기록이 없는 런 — 이 작업 이전 엔진). structured가 없는 런은
+언어를 볼 수 없어 `runs_structured_null`에만 센다. 영어 짝 케이스(`paired_with`)는 scores.json의
+`pairs`에 짝별 차이(짝 − 원본)를 남기고, `pair_recall_delta_mean`·`pair_fact_accuracy_delta_mean`으로
+평균을 낸다. 이번 런에 원본이 없으면 그 짝은 뺀다.
 
 내부 용어 지표도 같은 방식으로 `runs_with_internal_term_replacements` / `runs_with_internal_terms_left`
 카운터를 낸다. 두 지표를 나누는 이유는 **고쳐진 것과 남은 것이 서로 다른 신호**이기 때문이다 — 전자가
@@ -114,7 +126,9 @@ quote만 주면 "quote를 충실히 옮겼는가"만 재게 되어, 잘린 인�
 ### 3.2 테스트 케이스 = 골든셋
 
 `eval/golden/case-NN.yaml` — 케이스 하나가 파일 하나다. 정답을 아는 질문 모음이며, 사람이 직접 그래프와 원천 데이터를 뒤져서 기대 근거와 핵심 사실을 정의한다.
-러너는 전체 케이스 파일 내용의 해시를 **골든셋 버전**으로 기록한다.
+러너는 전체 케이스 파일 내용의 해시를 **골든셋 버전**으로 기록한다. 영어 짝은 `case-NN-en.yaml`이다
+(`paired_with: case-NN`, `answer_language: en`). 질문만 영어이고 기대 근거·사실·규칙은 원본과 같아야 한다.
+파일이 늘면 골든셋 버전이 바뀌어 compare.py가 경고한다.
 
 **골든셋 양식**
 
@@ -157,7 +171,7 @@ rule_checks:
 
 | 파일 | 역할 |
 |---|---|
-| `eval/validate_golden.py` | 골든셋의 모든 evidence id가 스냅샷 그래프의 실제 노드로 해석되는지 사전 검증 |
+| `eval/validate_golden.py` | 골든셋의 모든 evidence id가 스냅샷 그래프의 실제 노드로 해석되는지 사전 검증. 그래프를 보기 전에 id가 파일 이름과 같은지, 영어 짝의 기대값이 원본과 같은지도 본다 |
 | `eval/runner.py` | 골든셋 질문을 `/query`에 케이스당 N회 던지고 응답을 저장 (채점 안 함) |
 | `eval/grader.py` | 저장된 응답을 채점 — 기계 채점 + LLM judge → `scores.json` |
 | `eval/compare.py` | 두 `scores.json`의 paired 비교 — 집계·케이스별 델타를 노이즈 플로어로 판정, 측정 장치 차이 경고 |

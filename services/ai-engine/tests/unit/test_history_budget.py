@@ -89,7 +89,7 @@ class OrchestratorHistoryBudgetTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages.extend(messages)
             return response
 
-        async def capture_structured(messages, debug=None):
+        async def capture_structured(messages, debug=None, language="ko"):
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
         with (
@@ -120,7 +120,7 @@ class OrchestratorHistoryBudgetTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages.extend(messages)
             return response
 
-        async def capture_structured(messages, debug=None):
+        async def capture_structured(messages, debug=None, language="ko"):
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
         with (

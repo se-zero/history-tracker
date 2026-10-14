@@ -1,0 +1,39 @@
+# 영어 짝 케이스 — case-04의 질문만 영어로 옮겼다(docs/answer-language.md §4-4).
+# 기대 근거·사실·규칙은 원본 그대로이고 validate_golden.py가 같은지 검사한다 — 바꾸려면 case-04.yaml을 고친 뒤
+# 이 파일에 똑같이 옮긴다. 기대값의 근거·설명 주석은 원본 파일을 본다.
+id: "case-04-en"
+question: "Why did HT-69 switch the question-answering flow to multi-turn, and what changed?"
+paired_with: "case-04"
+answer_language: "en"
+focus_evidence: []
+expected_evidence_ids:
+- "issue:HT-69"
+- "message:1781224211.716939"
+- "commit:3e1d00e"
+- "commit:c4d98c7"
+- "commit:5a5100e"
+- "commit:5add145"
+- "commit:5715fca"
+- "commit:7ee48b6"
+- "commit:8cdb0cc"
+acceptable_evidence_ids:
+- "issue:HT-72"
+- "issue:HT-73"
+- "issue:HT-74"
+- "pull_request:#34"
+- "commit:139e917"
+- "commit:d0d9093"
+- "commit:577b0c9"
+expected_facts:
+- "기존 단일 질의-응답이라 이전 대화 맥락을 기억 못 해, '그 PR 더 설명해줘' 같은 후속 질문을 직전 맥락 없이 처리했다(변경 이유)"
+- "대화 이력을 질의 맥락으로 활용하되, 답변의 사실 근거는 현재 질의에서 수집한 도구 결과로만 한정해 할루시네이션을 방지한다"
+- "긴 대화는 누적 요약을 저장·전달해 대응한다"
+expected_absent:
+  evidence_ids:
+  - "message:1782191866.823469"
+  - "message:1782286987.165039"
+  - "message:1782194759.806139"
+  facts:
+  - "mem0 같은 세션 간 영구/장기기억을 도입했다 — 실제론 한 대화 세션 내로 한정(슬랙에서 mem0 보류 결정)"
+rule_checks:
+- "summary가 슬랙 논의를 언급하면 type: message evidence가 1건 이상 존재"

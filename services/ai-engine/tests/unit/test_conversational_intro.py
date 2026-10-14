@@ -151,6 +151,10 @@ class RouteContractTest(unittest.TestCase):
         self.assertIn("애매하면 graph", text)
         self.assertIn("앞에 인사", text)
 
+    def test_instruction_sends_identifier_only_messages_to_graph(self):
+        text = orchestrator._UTTERANCE_ROUTE_INSTRUCTION
+        self.assertIn("식별자뿐인 말도 graph", text)
+
     def test_instruction_refuses_internals_but_keeps_code_history_in_graph(self):
         text = orchestrator._UTTERANCE_ROUTE_INSTRUCTION
         self.assertIn("whycode 자신의 내부 구현", text)

@@ -244,6 +244,7 @@ executor / queries 레벨에서 일괄 적용되므로 도구별 설명에서는
   `duration_days` → "진행 기간(일)". 표기·정의의 단일 출처는 `services/ai-engine/agent/glossary.py`이고,
   서버가 `_sanitize_internal_terms`로 새는 것을 치환한다(경위는 docs/query-quality-issues.md 케이스 13).
   **새 지표를 추가하면 용어집에 표기를 함께 등록한다** — 이름을 주지 않으면 모델이 필드명을 그대로 쓴다.
+  용어집은 한국어판(`METRIC_TERMS`)과 영어 답용 영어판(`METRIC_TERMS_EN`) 두 벌이라 둘 다에 등록한다.
 - `discussion_count`는 연결된 **메시지 수**다(스레드 수가 아니다). `DISCUSSED_IN`은 텍스트 참조·유사도
   추정에 더해 **같은 스레드로 전파**(`propagated`)되므로, 긴 스레드 하나가 수치를 지배할 수 있다
   (실측: HT-102의 13건 중 12건이 스레드 하나). "논의 횟수"로 서술하면 오해를 만든다.

@@ -1,0 +1,27 @@
+# 영어 짝 케이스 — case-20의 질문만 영어로 옮겼다(docs/answer-language.md §4-4).
+# 기대 근거·사실·규칙은 원본 그대로이고 validate_golden.py가 같은지 검사한다 — 바꾸려면 case-20.yaml을 고친 뒤
+# 이 파일에 똑같이 옮긴다. 기대값의 근거·설명 주석은 원본 파일을 본다.
+id: "case-20-en"
+question: "What problem was the RabbitMQ DLQ work (HT-100) introduced to solve?"
+paired_with: "case-20"
+answer_language: "en"
+focus_evidence: []
+expected_evidence_ids:
+- "issue:HT-100"
+- "commit:caa50b3"
+acceptable_evidence_ids:
+- "commit:0d17156"
+- "pull_request:#52"
+- "message:1782984155.354279"
+expected_facts:
+- "ai-engine consumer가 이벤트 처리(handle)에 실패하면 메시지를 재시도 없이 버려, 소비 단계 실패가 조용한 유실로 이어졌다(도입 이유)"
+- "발행 측은 이미 checkpoint를 넘겨서 재수집으로 복구가 불가능해 이 유실이 치명적이었다"
+- "그래서 처리 실패 시 지연 재시도 후 소진되면 DLQ에 보관하는 안전망을 추가하고, malformed 메시지는 inspect 큐로 분리했다"
+expected_absent:
+  evidence_ids:
+  - "message:1782286987.165039"
+  facts:
+  - "DLQ 도입 이유가 슬랙에서 논의됐다 — 실제론 회의에서 결정, 관련 슬랙 논의는 없음(PR 알림 한 건뿐)"
+rule_checks:
+- "summary가 DLQ 도입 이유(소비 실패의 조용한 유실·재수집 복구 불가)를 HT-100 본문 근거로 제시"
+- "summary가 슬랙 논의를 언급하면 type: message evidence가 1건 이상 존재"

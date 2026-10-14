@@ -31,6 +31,8 @@ class McpToolSpecificationsTest {
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
     private static final String WORKSPACE = "/home/me/repo";
     private static final String SECRET = "secret detail";
+    // 에이전트에게 나가는 오류 문구는 영어 한 벌이다
+    private static final String HANGUL = "[가-힣]";
     private static final McpTransportContext CONTEXT = McpTransportContext.create(Map.of("userId", USER_ID.toString()));
 
     @Mock
@@ -55,10 +57,12 @@ class McpToolSpecificationsTest {
     }
 
     @Test
-    @DisplayName("ask·explain_commit 설명은 답변 언어(한국어)를 안내한다")
-    void askAndExplainCommitDescriptionsMentionKorean() {
-        assertThat(tool("ask").description()).contains("한국어");
-        assertThat(tool("explain_commit").description()).contains("한국어");
+    @DisplayName("ask·explain_commit 설명은 답변이 사용자 언어를 따른다고 한·영으로 안내하고, 한국어로만 답한다는 문장이 없다")
+    void askAndExplainCommitDescriptionsSayAnswersFollowTheUsersLanguage() {
+        assertThat(List.of(tool("ask").description(), tool("explain_commit").description())).allSatisfy(description ->
+                assertThat(description).contains("사용자 언어").contains("user's language")
+                        .doesNotContain("답변은 한국어").doesNotContain("Answers are in Korean"));
+        assertThat(tool("explain_commit").description()).contains("\"ko\" or \"en\"");
     }
 
     @Test
@@ -83,10 +87,19 @@ class McpToolSpecificationsTest {
     }
 
     @Test
-    @DisplayName("explain_commit은 workspace·hash가 필수다")
-    void explainCommitRequiresWorkspaceAndHash() {
+    @DisplayName("explain_commit은 workspace·hash가 필수이고 language는 선택이다")
+    void explainCommitRequiresWorkspaceAndHashOnly() {
         assertThat(requiredOf("explain_commit")).containsExactlyInAnyOrder("workspace", "hash");
-        assertThat(propertiesOf("explain_commit").keySet()).containsExactlyInAnyOrder("workspace", "hash");
+        assertThat(propertiesOf("explain_commit").keySet()).containsExactlyInAnyOrder("workspace", "hash", "language");
+    }
+
+    @Test
+    @DisplayName("explain_commit의 language는 ko·en 중 하나이고, 사용자 언어로 채우라고 한·영으로 안내한다")
+    void explainCommitLanguageIsKoOrEn() {
+        Map<?, ?> language = (Map<?, ?>) propertiesOf("explain_commit").get("language");
+
+        assertThat(language.get("enum")).isEqualTo(List.of("ko", "en"));
+        assertThat((String) language.get("description")).contains("사용자 언어").contains("user's language");
     }
 
     @Test
@@ -164,9 +177,9 @@ class McpToolSpecificationsTest {
     }
 
     @Test
-    @DisplayName("explain_commit: userId·workspace·hash를 그대로 넘기고 성공 결과를 돌려준다")
+    @DisplayName("explain_commit: userId·workspace·hash를 그대로 넘기고, language가 없으면 null로 넘긴다")
     void explainCommitDelegatesAndMapsSuccess() {
-        when(queryService.explainCommit(USER_ID, WORKSPACE, "abc1234")).thenReturn(new McpToolOutcome("설명", false));
+        when(queryService.explainCommit(USER_ID, WORKSPACE, "abc1234", null)).thenReturn(new McpToolOutcome("설명", false));
 
         McpSchema.CallToolResult result = call("explain_commit", CONTEXT, Map.of("workspace", WORKSPACE, "hash", "abc1234"));
 
@@ -175,9 +188,22 @@ class McpToolSpecificationsTest {
     }
 
     @Test
+    @DisplayName("explain_commit: language를 그대로 서비스에 넘긴다")
+    void explainCommitPassesLanguage() {
+        when(queryService.explainCommit(USER_ID, WORKSPACE, "abc1234", "en"))
+                .thenReturn(new McpToolOutcome("explanation", false));
+
+        McpSchema.CallToolResult result = call("explain_commit", CONTEXT,
+                Map.of("workspace", WORKSPACE, "hash", "abc1234", "language", "en"));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(textOf(result)).isEqualTo("explanation");
+    }
+
+    @Test
     @DisplayName("explain_commit: 서비스의 오류 결과는 isError=true로 그대로 나온다")
     void explainCommitMapsErrorOutcome() {
-        when(queryService.explainCommit(USER_ID, WORKSPACE, "zzz"))
+        when(queryService.explainCommit(USER_ID, WORKSPACE, "zzz", null))
                 .thenReturn(new McpToolOutcome("hash 형식 오류", true));
 
         McpSchema.CallToolResult result = call("explain_commit", CONTEXT, Map.of("workspace", WORKSPACE, "hash", "zzz"));
@@ -195,7 +221,7 @@ class McpToolSpecificationsTest {
         McpSchema.CallToolResult result = call(toolName, McpTransportContext.EMPTY, fullArguments());
 
         assertThat(result.isError()).isTrue();
-        assertThat(textOf(result)).isNotBlank();
+        assertThat(textOf(result)).contains("credentials").doesNotContainPattern(HANGUL);
         verifyNoInteractions(queryService);
     }
 
@@ -208,7 +234,7 @@ class McpToolSpecificationsTest {
         McpSchema.CallToolResult result = call(toolName, context, fullArguments());
 
         assertThat(result.isError()).isTrue();
-        assertThat(textOf(result)).isNotBlank();
+        assertThat(textOf(result)).contains("credentials").doesNotContainPattern(HANGUL);
         verifyNoInteractions(queryService);
     }
 
@@ -240,12 +266,25 @@ class McpToolSpecificationsTest {
     @Test
     @DisplayName("String이 아닌 인자(숫자)는 null로 서비스에 넘긴다")
     void nonStringArgumentIsPassedAsNull() {
-        when(queryService.explainCommit(USER_ID, WORKSPACE, null)).thenReturn(new McpToolOutcome("hash 형식 오류", true));
+        when(queryService.explainCommit(USER_ID, WORKSPACE, null, null)).thenReturn(new McpToolOutcome("hash 형식 오류", true));
 
         McpSchema.CallToolResult result = call("explain_commit", CONTEXT, Map.of("workspace", WORKSPACE, "hash", 1234567));
 
         assertThat(result.isError()).isTrue();
-        verify(queryService).explainCommit(USER_ID, WORKSPACE, null);
+        verify(queryService).explainCommit(USER_ID, WORKSPACE, null, null);
+    }
+
+    @Test
+    @DisplayName("String이 아닌 language는 생략으로 보지 않고 문자열로 넘겨 서비스가 거부하게 한다 — 기본값(ko)으로 새지 않는다")
+    void nonStringLanguageIsPassedForValidation() {
+        when(queryService.explainCommit(USER_ID, WORKSPACE, "abc1234", "1"))
+                .thenReturn(new McpToolOutcome("language must be \"ko\" or \"en\".", true));
+
+        McpSchema.CallToolResult result = call("explain_commit", CONTEXT,
+                Map.of("workspace", WORKSPACE, "hash", "abc1234", "language", 1));
+
+        assertThat(result.isError()).isTrue();
+        verify(queryService).explainCommit(USER_ID, WORKSPACE, "abc1234", "1");
     }
 
     @Test
@@ -274,7 +313,7 @@ class McpToolSpecificationsTest {
         McpSchema.CallToolResult result = spec.callHandler().apply(CONTEXT, request(toolName, fullArguments()));
 
         assertThat(result.isError()).isTrue();
-        assertThat(textOf(result)).isNotBlank().doesNotContain(SECRET);
+        assertThat(textOf(result)).isNotBlank().doesNotContain(SECRET).doesNotContainPattern(HANGUL);
     }
 
     // ── 헬퍼 ──
@@ -317,6 +356,7 @@ class McpToolSpecificationsTest {
         arguments.put("project_id", PROJECT_ID.toString());
         arguments.put("question", "왜 바뀌었어?");
         arguments.put("hash", "abc1234");
+        arguments.put("language", "en");
         return arguments;
     }
 
