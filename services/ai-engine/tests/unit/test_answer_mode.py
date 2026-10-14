@@ -47,7 +47,7 @@ class AnswerModeTest(unittest.IsolatedAsyncioTestCase):
         async def fake_llm(messages, with_tools=True):
             return pending.pop(0)
 
-        async def fake_structured(messages, debug=None):
+        async def fake_structured(messages, debug=None, language="ko"):
             return None if structured is None else dict(structured)
 
         execute_mock = AsyncMock(return_value=execute_result)

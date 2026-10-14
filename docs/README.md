@@ -83,7 +83,7 @@
 | [graph-query-tool.md](graph-query-tool.md) | 근거 | 설계 | 코드 + 라우팅 확인 런 | 품질 측정 미실시. 계약의 정본은 [tools.md](tools.md) |
 | [timeline-scope.md](timeline-scope.md) | 근거 | 설계 | 스코프 일반화, eval 채택 | `get_recent_activity` 통합, 시간 인덱스. 계약의 정본은 [tools.md](tools.md) |
 | [query-followups.md](query-followups.md) | 작업 | TODO | LLM 빈 답 위장 수정, 문서 prior_evidence 422, 내부 구현 질문 거절(한계는 §10) | Responses API, README→Document, 랭킹·인용 |
-| [i18n.md](i18n.md) | 정본 | 계약 | 시각 표시 계약, 랜딩 ko/en, 문서 헤드(검색 메타) 교체 지점 | 앱 UI 언어 분리 착수 전 |
+| [i18n.md](i18n.md) | 정본 | 계약 | 시각 표시 계약, 답변 언어 ko/en(§5), 랜딩 ko/en, 문서 헤드(검색 메타) 교체 지점 | 앱 UI 언어 분리(§8 인벤토리) 착수 전 |
 | [deployment-followups.md](deployment-followups.md) | 작업 | TODO | 인바운드 인증 | RabbitMQ URL 분리, 터널 실기동, GitHub 설치 404 |
 | [public-readiness.md](public-readiness.md) | 정본 | 점검표 | 0~2층·4층 다수, Slack D S1~S3 코드, Slack C 연결·격리·문서, 0-1b 사용자 GitHub 토큰 | 4-5 내보내기, Slack C0 문의 미회신, Slack 실기동·S4~S6, 3층 심사, 5층 운영, 2-4 |
 | [slack-marketplace.md](slack-marketplace.md) | 작업 | 등재 계획 (D) | S1 Events API·S2 자격증명·S3 `/why-code` 코드 | 실기동, S4~S6 앱 설정·제출 |
@@ -91,6 +91,7 @@
 | [billing.md](billing.md) | 작업 | 결제 계획 (Paddle MoR 월 정기구독) | B0 — 강등 회수·만료 스케줄러. W — 요금·환불정책·약관 개정·앱 공지 배너(배포 2026-09-24). B1 — Paddle 웹훅 수신(`billing` 패키지, V24)·만료 재확인 잠금. B2 — 서버 거래 생성·포털·코드 강등, 요금제 카드 세 상태, CSP, 탈퇴·파기 시 구독 해지. B3 — 방침 개정(보호책임자·결제 기록·Resend 위탁)·결제일 7일 전 안내 메일(V26). B1·B2 샌드박스 실측 완료 | G1 Paddle 심사 → 라이브 대시보드 준비 → G2 라이브 자동갱신 실측 → 서버 `.env`로 결제 열기. 사업자 정보는 첫 결제자 이후 |
 | [mcp-integration.md](mcp-integration.md) | 정본 | 설계 | 코드 완료·main 배포(인가 서버·동의 흐름·`/mcp` 서버, backend `oauth/`·`mcp/`, 프론트 3화면, 프록시) + 인가 서버 보강(IP별 상한·미사용 등록 행 정리·문서 조회 총 시간 제한) + 실제 Claude Code로 로컬(2026-10-01)·배포 서버(2026-10-04·10-09) 확인(연결·폴더 연결·질의·갱신·철회 뒤 재인증·IP별 상한·분당 상한) + 에이전트 쪽 해제(공개 클라이언트 폐기 수용·연결 행 삭제, 로컬 2026-10-11) | Codex·MCP Inspector·claude.ai 등 Claude Code 외 클라이언트 미확인(§8), 125초 긴 질의·FREE 한도 문구 미관측(§10), 열린 후속 5건 — 무효 표시된 연결의 목록 잔존·목록 도구 상한·SSRF DNS 리바인딩 창 등(§9 표) |
 | [query-quality-issues.md](query-quality-issues.md) | 정본 | 분석 로그 | 케이스별 원인·개선안 | 닫히지 않음 |
+| [answer-language.md](answer-language.md) | 작업 | 기능 계획 | 질문한 언어(ko·en)로 답하기 — A1·A2 코드·B·C1·D 완료. 계약 정본은 [i18n.md](i18n.md) §5 | A2 판별 재측정, E 측정(S1~S5) |
 
 ---
 
@@ -108,6 +109,8 @@
 새 커넥터: [integration-abstraction.md](integration-abstraction.md) → [normalized-event.md](normalized-event.md) → 해당 `*-integration.md` → [data-collection.md](data-collection.md).
 
 질의·도구: [tools.md](tools.md). 품질은 [query-quality-issues.md](query-quality-issues.md)·[measurement.md](measurement.md).
+
+답변 언어 계약: [i18n.md](i18n.md) §5. 실험·설계 기록은 [answer-language.md](answer-language.md). 화면 글자 다국어는 [i18n.md](i18n.md) §8.
 
 배포·공개: [deployment.md](deployment.md) → [deployment-followups.md](deployment-followups.md) → [public-readiness.md](public-readiness.md).
 

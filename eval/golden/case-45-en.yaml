@@ -1,0 +1,27 @@
+# 영어 짝 케이스 — case-45의 질문만 영어로 옮겼다(docs/answer-language.md §4-4).
+# 기대 근거·사실·규칙은 원본 그대로이고 validate_golden.py가 같은지 검사한다 — 바꾸려면 case-45.yaml을 고친 뒤
+# 이 파일에 똑같이 옮긴다. 기대값의 근거·설명 주석은 원본 파일을 본다.
+id: "case-45-en"
+question: "Which issue has the most related conversations linked to it?"
+paired_with: "case-45"
+answer_language: "en"
+focus_evidence: []
+expected_evidence_ids:
+- "issue:HT-102"
+- "issue:HT-94"
+acceptable_evidence_ids:
+- "issue:HT-38"
+- "issue:HT-97"
+- "message:1782650084.848469"
+- "message:1783072186.688439"
+- "message:1782459001.061119"
+expected_facts:
+- "관련 대화가 가장 많이 연결된 이슈는 HT-102 '글로벌 검색 추가'와 HT-94 'ai-engine 최적화'이며, 둘 다 13건으로 공동 1위다"
+expected_absent:
+  facts:
+  - "HT-102 또는 HT-94 중 하나만 단독 1위라는 서술 — 둘 다 13건으로 동률이다"
+  - "논의 수치를 '댓글 수'나 '논의 횟수'로 서술 — 연결된 메시지 수이며 한 스레드가 여러 건으로 세어진다"
+rule_checks:
+- "summary·unknown_aspects에 도구 결과 필드명(discussion_count·duration_days 등)이 등장하지 않는다"
+- "summary·unknown_aspects에 그래프 관계 타입(DISCUSSED_IN)·노드 라벨(Communication)·도구 이름(rank_issues)이 등장하지 않는다"
+- "논의량 수치를 제시한다면 그 값이 13이다"

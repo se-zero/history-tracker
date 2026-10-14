@@ -23,9 +23,15 @@ async def query(req: QueryRequest):
     응답:
       - answer: markdown 형식 답변 (Structured Output → render).
       - structured: grounded_answer 스키마 dict (summary/evidence/unknown_aspects).
-        Structured 호출 실패 시 null — 이때 answer는 LLM의 자유 텍스트 fallback.
+        서버가 answer_mode와 language(답변 언어, ko|en)를 덧붙인다.
+        Structured 호출 실패 시 null — 이때 answer는 LLM의 자유 텍스트 fallback이고 language 필드도 없다.
+        응답 최상위에는 language를 두지 않는다.
       - debug: include_debug=true일 때만 — 토큰 usage 합산 + 도구 호출 트랜스크립트
+        + answer_language({language, source}: 답변 언어를 누가 정했는지)
         (eval 러너용 관측 데이터, 답변 생성에는 영향 없음).
+
+    요청의 ui_language는 화면 언어 힌트다. 답변 언어는 요청마다 한 번 정해 끝까지 쓰며, 힌트는
+    질문·대화로 정하지 못할 때만 쓰인다.
     """
     if not req.project_id:
         logger.warning("/query에 project_id 없음 — 그래프 조회가 비어 있게 됩니다.")
@@ -43,6 +49,7 @@ async def query(req: QueryRequest):
             running_summary=req.running_summary,
             focus_evidence=focus_evidence,
             debug=debug,
+            ui_language=req.ui_language,
         )
     except APIStatusError as exc:
         # orchestrator가 전파한 회복 불가 클라이언트 오류(4xx) — 200+빈 답변으로 위장하지

@@ -19,6 +19,11 @@
 커밋 해시)은 원래 그대로 말해야 하므로 대상이 아니고, NEVER_REPLACE의 '일상어 한 단어'도
 넣지 않는다 — message·source·title 같은 토큰은 사용자 문장에도 정상적으로 등장해서 치환하면
 멀쩡한 문장이 깨진다. 그건 프롬프트 규칙으로만 다룬다.
+
+**영어 짝**: 영어로 답하는 경로(docs/answer-language.md §4-2)는 Tier 1·2의 영어판(METRIC_TERMS_EN·
+FIELD_TERMS_EN)을 쓴다. 키는 한국어판과 같아야 하므로 지표를 추가하면 두 판에 함께 등록한다(테스트가
+어긋남을 잡는다). Tier 3은 언어와 무관해 그대로다. 치환 대상은 언어마다 다르다 — 영어 답에서는
+confidence·relevance 같은 일반 영어 단어를 서버가 바꾸지 않는다(PLAIN_ENGLISH_TOKENS).
 """
 
 from tools.definitions import TOOLS
@@ -109,6 +114,107 @@ REPLACEMENTS: dict[str, str] = {
     **FIELD_TERMS,
 }
 
+# ─── 영어판 — Tier 1·2의 영어 짝 ───────────────────────────────────────────────
+# 영어 답이 쓰는 표기·정의다. 키는 한국어판과 같고 라벨·정의에 한글을 넣지 않는다 — 영어 답의 지시는
+# 전체 영어판이라 용어집만 한국어로 남으면 안 된다. 정의는 한국어 정의와 같은 뜻이어야 하므로, 쿼리를
+# 바꿔 한국어 정의를 고치면 이쪽도 함께 고친다.
+METRIC_TERMS_EN: dict[str, tuple[str, str]] = {
+    "discussion_count": (
+        "linked message count",
+        "The number of Slack/GitHub messages linked to this issue. It includes explicit links "
+        "where the issue key is written in the body, links inferred by content similarity, and "
+        "links carried over from other messages in the same thread. Each message in a thread is "
+        "counted separately, so one long conversation can make this number large — it does not "
+        "mean the topic was discussed that many separate times.",
+    ),
+    "duration_days": (
+        "duration (days)",
+        "The number of days from when the issue was created to when it was closed. "
+        "Only closed issues have it.",
+    ),
+    "confidence": (
+        "link confidence",
+        "How strongly two items were judged to be related. A reference stated in the body is "
+        "1.0; links inferred by content similarity are lower.",
+    ),
+    "link_source": (
+        "link basis",
+        "Whether the link comes from a reference stated in the body, was inferred by content "
+        "similarity, or was carried over from another message in the same thread.",
+    ),
+    "status_category": (
+        "progress status",
+        "Issue status grouped into three: not started, in progress, done. "
+        "Used to compare different trackers' status names on the same scale.",
+    ),
+    "event_meaning": (
+        "event type",
+        "What event the timestamp is for — issue created/updated/closed, commit authored, "
+        "PR opened/merged, message posted, document created/updated.",
+    ),
+    "relevance": (
+        "relevance score",
+        "A score for how similar the content is to the question.",
+    ),
+    "weighted_score": (
+        "relevance score",
+        "A score for how similar the content is to the question.",
+    ),
+    "weight": ("relevance score", "A score for how similar the content is to the question."),
+    "commit_count": ("commit count", "The number of commits counted in that range."),
+    "total_commits": ("total commit count", "The number of commits counted in that range."),
+    "message_count": (
+        "message count",
+        "The number of conversation messages counted in that range.",
+    ),
+    "pr_count": ("PR count", "The number of PRs counted in that range."),
+    "issue_created_count": ("created issue count", "The number of issues that person created."),
+    "issues_created": ("created issues", "The issues that person created."),
+    "issues_assigned": ("assigned issues", "The issues assigned to that person."),
+}
+
+FIELD_TERMS_EN: dict[str, str] = {
+    "occurredAt": "event time",
+    "createdAt": "creation time",
+    "created_at": "creation time",
+    "closedAt": "close time",
+    "closed_at": "close time",
+    "merged_at": "merge time",
+    "diffSummary": "change summary",
+    "diff_summary": "change summary",
+    "conversation_id": "conversation thread ID",
+    "external_id": "document ID",
+    "issue_key": "issue key",
+    "pr_number": "PR number",
+    "node_type": "item type",
+    "ranked_by": "ranking criterion",
+    "total_issues": "total issue count",
+    "total_events": "total event count",
+    "covered_from": "first retrieved event time",
+    "covered_to": "last retrieved event time",
+    "_resolved_path": "actual path",
+    "_resolved_via": "how the path was resolved",
+    "excerpt": "excerpt",
+    "candidates": "candidates",
+    "truncated": "partially omitted",
+}
+
+# 일반 영어 단어이기도 한 토큰. 영어 답에서는 서버가 치환하지 않고 프롬프트 용어집으로만 다룬다 —
+# 영어 문장에 정상적으로 등장하는 낱말이라 바꾸면 멀쩡한 문장이 깨진다("with high confidence" →
+# "with high link confidence"). 한국어 문장 속의 영어 낱말은 샌 필드명이라 한국어 답은 지금처럼 치환한다.
+PLAIN_ENGLISH_TOKENS: frozenset[str] = frozenset(
+    {"confidence", "relevance", "weight", "excerpt", "candidates", "truncated"}
+)
+
+# 영어 치환표 — 한국어 REPLACEMENTS와 같은 방식으로 합친 뒤 PLAIN_ENGLISH_TOKENS를 뺀다.
+_ENGLISH_LABELS: dict[str, str] = {
+    **{token: label for token, (label, _) in METRIC_TERMS_EN.items()},
+    **FIELD_TERMS_EN,
+}
+_REPLACEMENTS_EN: dict[str, str] = {
+    token: label for token, label in _ENGLISH_LABELS.items() if token not in PLAIN_ENGLISH_TOKENS
+}
+
 # ─── Tier 3 — 검출 전용 (코드에서 파생) ───────────────────────────────────────
 # 라벨 중 Issue·Actor·File·Document처럼 일상적인 영어 단어는 뺀다 — 관측 지표(eval의
 # internal_term_leaks)에 오탐이 섞이면 신호가 죽는다. 대소문자를 구분해 매칭하므로 전부 대문자인
@@ -131,16 +237,38 @@ NEVER_REPLACE: frozenset[str] = frozenset({
 })
 
 
-def prompt_glossary() -> str:
+def replacements(language: str = "ko") -> dict[str, str]:
+    """답변 언어별 서버 치환표 (orchestrator._sanitize_internal_terms가 쓴다).
+
+    "en"이 아니면 한국어 REPLACEMENTS다 — 한국어가 기본 동작이다.
+    """
+    return _REPLACEMENTS_EN if language == "en" else REPLACEMENTS
+
+
+def prompt_glossary(language: str = "ko") -> str:
     """시스템 프롬프트에 실을 용어집 블록을 렌더한다.
 
     프롬프트가 이 함수에서 파생되므로 용어집을 늘려도 지시문이 자동으로 따라온다. Tier 1은
     정의까지 싣는다 — 사용자가 지표의 뜻을 되물었을 때 모델이 답할 문장이 여기밖에 없다.
+
+    "en"이면 영어판 표를 영어 머리말로 낸다(한글 없음). 그 밖에는 한국어 블록이다. 두 언어가 같은
+    렌더 구조를 쓰므로 블록의 모양이 어긋나지 않는다.
     """
-    lines = ["[지표·필드 용어집 — 왼쪽(내부 이름)은 오른쪽(사용자 표현)으로 옮겨 쓴다]"]
-    for token, (label, definition) in METRIC_TERMS.items():
+    if language == "en":
+        header = (
+            "[Metric and field glossary — write the left (internal name) "
+            "as the right (user wording)]"
+        )
+        meaning = "Meaning"
+        metric_terms, field_terms = METRIC_TERMS_EN, FIELD_TERMS_EN
+    else:
+        header = "[지표·필드 용어집 — 왼쪽(내부 이름)은 오른쪽(사용자 표현)으로 옮겨 쓴다]"
+        meaning = "뜻"
+        metric_terms, field_terms = METRIC_TERMS, FIELD_TERMS
+    lines = [header]
+    for token, (label, definition) in metric_terms.items():
         lines.append(f"- {token} → {label}")
-        lines.append(f"    뜻: {definition}")
-    for token, label in FIELD_TERMS.items():
+        lines.append(f"    {meaning}: {definition}")
+    for token, label in field_terms.items():
         lines.append(f"- {token} → {label}")
     return "\n".join(lines)

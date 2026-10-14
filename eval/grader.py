@@ -9,6 +9,9 @@ runner.py가 저장한 결과 디렉터리를 입력으로 채점한다 (러너�
 - LLM judge (gpt-4.1-2025-04-14, temperature 0, Structured Outputs):
   환각률·사실 정답률·금지 사실·rule_checks. 판정 근거로 그래프에서 조회한
   evidence 원문 전체를 제공하며, 조회 원문은 grading/에 저장한다(재채점 재현성).
+- 답변 언어 (비용 0, docs/answer-language.md §4-4): 답이 케이스의 answer_language(기본 ko)로 쓰였는지와
+  서버가 정한 언어(debug.answer_language)를 런마다 센다. 영어 짝 케이스(paired_with)는 원본과의
+  metric 차이(짝 − 원본)를 낸다.
 
 실행 (ai-engine venv 사용, judge는 OPENAI_API_KEY 환경변수 필요):
     services/ai-engine/.venv/Scripts/python.exe eval/grader.py eval/results/<run-id>
@@ -19,7 +22,9 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
+import unicodedata
 from glob import glob
 from statistics import mean
 
@@ -207,6 +212,62 @@ def grade_mechanical(case: dict, structured: dict | None) -> dict:
     }
 
 
+# ─── 답변 언어 ────────────────────────────────────────────────────────────────
+
+# 한국어 답은 영어 식별자·용어를 섞어도 한글 토큰이 대부분이고(기준선 20260821T060820Z 135런 최소 0.82),
+# 영어 답은 사람 이름 정도만 한글로 남는다. 그 사이는 한 답에 두 언어가 섞인 것이라 실패(mixed)로 본다.
+_KO_MIN_HANGUL_RATIO = 0.4
+_EN_MAX_HANGUL_RATIO = 0.15
+# 따옴표 안의 글(이슈 제목·원문 인용)은 질문자가 아니라 원문의 언어라 뺀다. 작은따옴표는 앞에 공백이 있을 때만
+# 인용 시작으로 본다 — 소유격(HT-26's '그래프 생성')·축약형(don't)의 아포스트로피를 인용으로 읽으면 제목이 남는다.
+# 짝 없는 따옴표가 뒤쪽 문단까지 지우지 않도록 줄을 넘지 않는다.
+_QUOTED_SPAN_RE = re.compile(
+    r"`[^`\n]*`|\"[^\"\n]*\"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』|(?:(?<=\s)|^)'[^'\n]*'"
+)
+_HANGUL_RE = re.compile(r"[가-힣ㄱ-ㅎㅏ-ㅣ]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+_DIGIT_RE = re.compile(r"[0-9]")
+
+
+def answer_language(structured: dict | None) -> tuple[str | None, float | None]:
+    """답의 언어 "ko" | "en" | "mixed"와 한글 토큰 비율. summary·unknown_aspects만 본다.
+
+    근거 인용(evidence[*].quote)은 원문 그대로라 보지 않는다. 숫자가 섞인 영문 토큰(이슈 키·해시·날짜)은
+    어느 언어의 단어도 아니라 세지 않는다. 셀 토큰이 없으면 (None, None).
+    """
+    if structured is None:
+        return None, None
+    parts = [structured.get("summary") or ""] + [str(a) for a in structured.get("unknown_aspects") or []]
+    text = _QUOTED_SPAN_RE.sub(" ", unicodedata.normalize("NFC", "\n".join(parts)))
+    hangul = other = 0
+    for token in text.split():
+        if _HANGUL_RE.search(token):
+            hangul += 1
+        elif _LATIN_RE.search(token) and not _DIGIT_RE.search(token):
+            other += 1
+    if hangul + other == 0:
+        return None, None
+    ratio = round(hangul / (hangul + other), 4)
+    if ratio >= _KO_MIN_HANGUL_RATIO:
+        return "ko", ratio
+    if ratio <= _EN_MAX_HANGUL_RATIO:
+        return "en", ratio
+    return "mixed", ratio
+
+
+def decided_language(response: dict | None) -> tuple[str | None, str | None]:
+    """서버가 정한 답변 언어와 그 근거(router | question | history | ui | default).
+
+    이 작업 이전 엔진의 응답에는 기록이 없어 (None, None)이다 — 불일치가 아니라 '모름'으로 따로 센다.
+    """
+    if not response:
+        return None, None
+    record = (response.get("debug") or {}).get("answer_language") or {}
+    if record.get("language"):
+        return record["language"], record.get("source")
+    return (response.get("structured") or {}).get("language"), None
+
+
 # ─── LLM judge ────────────────────────────────────────────────────────────────
 
 
@@ -289,6 +350,23 @@ def _mean_ignoring_none(values: list) -> float | None:
     return round(mean(present), 4) if present else None
 
 
+def pair_deltas(case_scores: list[dict]) -> list[dict]:
+    """짝 케이스(paired_with)의 metric별 차이(짝 − 원본). 이번 런에 원본이 없는 짝은 뺀다."""
+    means = {c["case_id"]: c["mean"] for c in case_scores}
+    pairs = []
+    for c in case_scores:
+        base_id = c.get("paired_with")
+        if base_id not in means:
+            continue
+        base = means[base_id]
+        deltas = {
+            m: round(c["mean"][m] - base[m], 4) if c["mean"].get(m) is not None and base.get(m) is not None else None
+            for m in _MEAN_METRICS
+        }
+        pairs.append({"case_id": c["case_id"], "paired_with": base_id, "deltas": deltas})
+    return pairs
+
+
 def aggregate(case_scores: list[dict]) -> dict:
     agg = {m: _mean_ignoring_none([c["mean"].get(m) for c in case_scores]) for m in _MEAN_METRICS}
     agg["cases_with_contamination"] = sum(
@@ -315,6 +393,25 @@ def aggregate(case_scores: list[dict]) -> dict:
     agg["runs_with_internal_terms_left"] = sum(
         1 for c in case_scores for r in c["runs"] if r.get("internal_terms_detected")
     )
+    # 답이 기대 언어로 쓰였는가(모델 출력)와 서버가 기대 언어를 골랐는가(판정)를 나눠 센다 — 앞만 틀리면
+    # 정한 언어를 모델이 따르지 않은 것이고, 둘 다 틀리면 판정이 틀린 것이다. structured=null 런은 답이 없어
+    # 언어를 볼 수 없으므로 runs_structured_null에만 센다.
+    agg["runs_answer_language_mismatch"] = sum(
+        1 for c in case_scores for r in c["runs"]
+        if not r["structured_null"] and r.get("answer_language") != c.get("answer_language", "ko")
+    )
+    agg["runs_language_decision_mismatch"] = sum(
+        1 for c in case_scores for r in c["runs"]
+        if r.get("answer_language_decided") is not None
+        and r["answer_language_decided"] != c.get("answer_language", "ko")
+    )
+    agg["runs_language_decision_unknown"] = sum(
+        1 for c in case_scores for r in c["runs"] if r.get("answer_language_decided") is None
+    )
+    pairs = pair_deltas(case_scores)
+    agg["pairs"] = len(pairs)
+    agg["pair_recall_delta_mean"] = _mean_ignoring_none([p["deltas"]["recall"] for p in pairs])
+    agg["pair_fact_accuracy_delta_mean"] = _mean_ignoring_none([p["deltas"]["fact_accuracy"] for p in pairs])
     return agg
 
 
@@ -375,6 +472,12 @@ def main():
                 run_score = {"run": run_no, **grade_mechanical(case, structured)}
                 if "error" in record:
                     run_score["runner_error"] = record["error"]
+                language, hangul_ratio = answer_language(structured)
+                decided, decided_source = decided_language(record.get("response"))
+                run_score.update({
+                    "answer_language": language, "hangul_ratio": hangul_ratio,
+                    "answer_language_decided": decided, "answer_language_source": decided_source,
+                })
 
                 debug = (record.get("response") or {}).get("debug") or {}
                 usage = debug.get("usage") or {}
@@ -410,22 +513,27 @@ def main():
                 print(f"{case_id} run-{run_no}: " + json.dumps(
                     {k: run_score.get(k) for k in _MEAN_METRICS if run_score.get(k) is not None},
                     ensure_ascii=False,
-                ))
+                ) + f"  lang={language}({hangul_ratio}) decided={decided}")
 
-    case_scores = [
-        {
+    case_scores = []
+    for case_id, runs in sorted(per_case.items()):
+        case = golden[case_id]
+        entry = {
             "case_id": case_id,
+            "answer_language": case.get("answer_language", "ko"),
             "runs": runs,
             "mean": {m: _mean_ignoring_none([r.get(m) for r in runs]) for m in _MEAN_METRICS},
         }
-        for case_id, runs in sorted(per_case.items())
-    ]
+        if case.get("paired_with"):
+            entry["paired_with"] = case["paired_with"]
+        case_scores.append(entry)
     agg = aggregate(case_scores)
 
     scores = {
         "meta": meta,
         "judge": {"model": JUDGE_MODEL, "prompt_sha": prompt_sha, "skipped": args.skip_judge},
         "cases": case_scores,
+        "pairs": pair_deltas(case_scores),
         "aggregate": agg,
         "cost": {
             "answer_tokens_mean_per_query": round(mean(answer_tokens)) if answer_tokens else None,

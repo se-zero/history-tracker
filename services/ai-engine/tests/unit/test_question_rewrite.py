@@ -34,7 +34,7 @@ class OrchestratorQuestionRewriteRunTest(unittest.IsolatedAsyncioTestCase):
             captured_exploration_messages.extend(messages)
             return response
 
-        async def capture_structured(messages, debug=None):
+        async def capture_structured(messages, debug=None, language="ko"):
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
         with (
@@ -70,7 +70,7 @@ class OrchestratorQuestionRewriteRunTest(unittest.IsolatedAsyncioTestCase):
         completed_message = SimpleNamespace(role="assistant", tool_calls=None, content="fallback")
         execute_mock = AsyncMock(return_value='{"id":"#33"}')
 
-        async def capture_structured(messages, debug=None):
+        async def capture_structured(messages, debug=None, language="ko"):
             return {"summary": "done", "evidence": [], "unknown_aspects": []}
 
         with (

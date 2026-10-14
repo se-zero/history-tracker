@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from agent.language import normalize_ui_language
+
 
 class HistoryMessage(BaseModel):
     role: Literal["user", "assistant"]
@@ -51,3 +53,11 @@ class QueryRequest(BaseModel):
     running_summary: dict[str, Any] | None = None
     # eval 러너용 — true면 응답에 debug(토큰 usage 합산·도구 호출 트랜스크립트)를 붙인다.
     include_debug: bool = False
+    # 화면 언어 힌트(ko/en). 질문과 대화로 답변 언어를 정하지 못할 때만 쓰인다.
+    ui_language: str | None = None
+
+    @field_validator("ui_language", mode="before")
+    @classmethod
+    def lenient_ui_language(cls, value: object) -> str | None:
+        # 참고용 힌트라 형식이 틀렸다고 질의 전체를 422로 막지 않는다 — en-US는 en으로 줄이고 못 쓰는 값은 버린다.
+        return normalize_ui_language(value)

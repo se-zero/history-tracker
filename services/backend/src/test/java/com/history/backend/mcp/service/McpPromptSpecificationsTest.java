@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Test;
 class McpPromptSpecificationsTest {
 
     private static final String QUESTION = "왜 인증 방식이 바뀌었어?";
+    // 프롬프트가 에이전트에게 주는 지시는 영어 한 벌이다(질문 원문은 사용자 언어 그대로 붙는다)
+    private static final String HANGUL = "[가-힣]";
 
     @Test
     @DisplayName("프롬프트 2개를 connect, why 순서로 돌려준다")
@@ -50,7 +52,7 @@ class McpPromptSpecificationsTest {
 
         assertThat(result.messages()).hasSize(1);
         assertThat(result.messages().get(0).role()).isEqualTo(McpSchema.Role.USER);
-        assertThat(textOf(result)).contains("list_projects").contains("bind_project");
+        assertThat(textOf(result)).contains("list_projects").contains("bind_project").doesNotContainPattern(HANGUL);
     }
 
     @Test
@@ -60,7 +62,18 @@ class McpPromptSpecificationsTest {
 
         assertThat(result.messages()).hasSize(1);
         assertThat(result.messages().get(0).role()).isEqualTo(McpSchema.Role.USER);
-        assertThat(textOf(result)).contains(QUESTION).contains("explain_commit").contains("ask");
+        assertThat(textOf(result)).endsWith(QUESTION).contains("explain_commit").contains("ask");
+    }
+
+    @Test
+    @DisplayName("why 지시는 영어이고, explain_commit의 language를 질문 언어로 채우고 질문 언어로 답하라고 안내한다")
+    void whyGuidanceIsEnglishAndCarriesLanguage() {
+        String guidance = textOf(get("why", Map.of("question", QUESTION))).replace(QUESTION, "");
+
+        assertThat(guidance).doesNotContainPattern(HANGUL)
+                .contains("language")
+                .contains("\"ko\" or \"en\"")
+                .contains("in the language of the question");
     }
 
     @Test

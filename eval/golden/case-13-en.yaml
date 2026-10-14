@@ -1,0 +1,29 @@
+# 영어 짝 케이스 — case-13의 질문만 영어로 옮겼다(docs/answer-language.md §4-4).
+# 기대 근거·사실·규칙은 원본 그대로이고 validate_golden.py가 같은지 검사한다 — 바꾸려면 case-13.yaml을 고친 뒤
+# 이 파일에 똑같이 옮긴다. 기대값의 근거·설명 주석은 원본 파일을 본다.
+id: "case-13-en"
+question: "What was the conclusion of the Slack discussion about switching the embedding model to text-embedding-3-large?"
+paired_with: "case-13"
+answer_language: "en"
+focus_evidence: []
+expected_evidence_ids:
+- "message:1779974653.606249"
+- "issue:HT-62"
+acceptable_evidence_ids:
+- "message:1780748058.074899"
+expected_facts:
+- "text-embedding-3-large가 검색 성능이 더 좋다는 실험결과가 있다는 얘기를 접해, 모델을 large로 바꿔 테스트해보기로 했다"
+- "large가 벡터 크기가 더 커서 성능이 더 좋을 것이라는 판단이 근거로 오갔다"
+- "결론은 즉시 확정 반영이 아니라, 프론트 기능을 구현하고 도커로 DB까지 전부 올린 뒤 large로 직접 테스트해 검증해보기로 한 것이다"
+expected_absent:
+  evidence_ids:
+  - "message:1782191866.823469"
+  - "message:1781832528.978749"
+  - "message:1778159186.077959"
+  - "message:1778165629.413239"
+  facts:
+  - "large로 바꿔 검색 성능이 N% 향상됐다 등 정량 실험 수치 — 스레드엔 '실험결과가 있대'라는 전언뿐, 수치 없음"
+  - "large를 최종 확정해 프로덕션에 반영했다 — 스레드는 '테스트해보기로'까지만이고 확정 결정은 없음"
+rule_checks:
+- "summary가 논의 결론을 제시하면 type: message evidence가 1건 이상 존재"
+- "summary가 large 채택/성능 향상을 스레드 근거 없이 단정하지 않음 (테스트해보기로 한 결정임을 유지)"

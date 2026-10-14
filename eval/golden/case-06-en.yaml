@@ -1,0 +1,36 @@
+# 영어 짝 케이스 — case-06의 질문만 영어로 옮겼다(docs/answer-language.md §4-4).
+# 기대 근거·사실·규칙은 원본 그대로이고 validate_golden.py가 같은지 검사한다 — 바꾸려면 case-06.yaml을 고친 뒤
+# 이 파일에 똑같이 옮긴다. 기대값의 근거·설명 주석은 원본 파일을 본다.
+id: "case-06-en"
+question: "What does PR #19 do, and which issues is it linked to?"
+paired_with: "case-06"
+answer_language: "en"
+focus_evidence: []
+expected_evidence_ids:
+- "pull_request:#19"
+- "issue:HT-33"
+- "issue:HT-34"
+- "issue:HT-35"
+- "issue:HT-36"
+- "commit:9ef0504"
+- "commit:c407972"
+- "commit:f2cbe44"
+acceptable_evidence_ids:
+- "commit:8b5d72d"
+- "commit:56a5492"
+expected_facts:
+- "PR #19는 GraphRAG tool calling 기반 자연어 질문 처리를 구현한다 — OpenAI Function schema 도구 정의, 도구별 Neo4j Cypher 실행, LLM tool calling 오케스트레이터 루프, POST /query 엔드포인트"
+- "backend QueryService가 ai-engine의 POST /query를 호출하도록 연동했다"
+- "서버 시작 시 Neo4j 벡터 인덱스를 자동 생성한다"
+- "연결된 이슈는 HT-33(Tool 생성, 부모)과 하위 HT-34(도구 목록 정의)·HT-35(도구 생성·파이프라인 연결)·HT-36(전체 테스트)"
+expected_absent:
+  evidence_ids:
+  - "message:1776180884.595899"
+  - "message:1777615886.638969"
+  - "message:1779974653.606249"
+  - "message:1780206867.542399"
+  facts:
+  - "PR #19 도구 설계·확정이 슬랙 논의를 통해 이뤄졌다 — 실제 슬랙엔 'tool pr 날렸어' 공지·타 주제(액터/임베딩/인프라)뿐, 도구 설계 논의 없음"
+rule_checks:
+- "summary가 연결 이슈로 HT-33·34·35·36을 열거하고 '연결된 이슈 없음'류 결론이 없음"
+- "summary가 PR#19를 GraphRAG tool calling / 자연어 질문 처리 작업으로 설명"

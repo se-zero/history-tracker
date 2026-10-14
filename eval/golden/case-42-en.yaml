@@ -1,0 +1,33 @@
+# 영어 짝 케이스 — case-42의 질문만 영어로 옮겼다(docs/answer-language.md §4-4).
+# 기대 근거·사실·규칙은 원본 그대로이고 validate_golden.py가 같은지 검사한다 — 바꾸려면 case-42.yaml을 고친 뒤
+# 이 파일에 똑같이 옮긴다. 기대값의 근거·설명 주석은 원본 파일을 본다.
+id: "case-42-en"
+question: "Which issues and discussions did 서준수 work on in April 2026? List them in chronological order."
+paired_with: "case-42"
+answer_language: "en"
+focus_evidence: []
+expected_evidence_ids:
+- "issue:HT-19"
+- "issue:HT-22"
+- "message:1776405432.933819"
+- "message:1777430711.997189"
+acceptable_evidence_ids:
+- "issue:HT-20"
+- "issue:HT-26"
+- "issue:HT-6"
+- "message:1776952023.070729"
+- "message:1777026036.599589"
+- "message:1775978966.443389"
+expected_facts:
+- "4월 1일 LLM 요약 테스트(HT-19)를 생성해 4월 9일에 완료했다"
+- "4월 10일 Slack 데이터 전처리(HT-22)를 생성하고, 4월 17일 '슬랙 메시지 필터링 PR을 날렸다'고 공유한 뒤 4월 29일에 완료했다"
+- "4월 29일 프롬프트에 프로젝트 설명을 추가한 PR을 슬랙에 공유했다"
+expected_absent:
+  facts:
+  - "서준수가 4월에 특정 커밋 해시나 PR 번호로 코드를 직접 작성했다고 구체적으로 명시 — 이 스코프에는 커밋/PR이 없다"
+  evidence_ids:
+  - "message:1780206867.542399"
+rule_checks:
+- "summary가 HT-19(4/9 완료) → HT-22 생성(4/10)·필터링 PR 공유(4/17)·HT-22 완료(4/29) 순서를 시간 역전 없이 서술"
+- "summary가 2026년 4월 범위 밖의 활동을 서준수의 4월 활동으로 서술하지 않음"
+- "evidence에 issue와 message가 모두 존재"

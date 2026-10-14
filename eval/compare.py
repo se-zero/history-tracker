@@ -60,6 +60,9 @@ COUNTER_KEYS = [
     "runs_with_direct_quotes",
     "runs_with_internal_term_replacements",
     "runs_with_internal_terms_left",
+    "runs_answer_language_mismatch",
+    "runs_language_decision_mismatch",
+    "runs_language_decision_unknown",
 ]
 
 
