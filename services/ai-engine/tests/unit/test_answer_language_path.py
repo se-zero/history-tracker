@@ -1,8 +1,10 @@
 """답변 언어 — 정한 언어를 답변 경로 끝까지 들고 가는지 (docs/answer-language.md §4-1·§4-2).
 
 계약:
-- 언어는 발화 판별 LLM이 정한다(language: ko | en | none). none·이상한 값·판별 실패·판별을 건너뜀(그래프 노드 지정)이면
+- 언어는 발화 판별 LLM이 정한다(language: ko | en | none). none·이상한 값·판별 실패면
   대비책 코드 판정(agent.language.decide_answer_language — 질문 → 대화의 사용자 질문 → 화면 언어 힌트 → 한국어)이 정한다.
+- 그래프 노드를 지정한 질문도 판별을 부른다. 그 노드를 조회해야 하므로 잡담 판정은 버리고 언어만 쓴다 — 노드를 첨부할 때
+  흔한 짧은 한국어 명사구(`retry logic 설명`)를 코드 판정은 영어로 판정한다.
   정한 언어와 근거는 debug.answer_language = {language, source}에 남고(source: router | question | history | ui | default),
   structured.language에 실린다. 응답 최상위에는 language를 두지 않는다.
 - 판별은 (잡담이면 바로 돌려줄 답 | None, 판별이 정한 언어 | None)을 돌려준다. 잡담 문장에는 그 언어의 제안 문장
@@ -180,11 +182,31 @@ class AnswerLanguageDecisionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("ko", structured["language"])
         self.assertEqual("ko", structured_llm.call_args.kwargs["language"])
 
-    async def test_focus_evidence_skips_the_router_and_falls_back(self):
-        _, _, debug, route, _ = await self._run(
-            "Explain the attached item.", (None, "ko"), focus_evidence=[{"type": "issue", "id": "HT-12"}],
+    async def test_focus_question_uses_the_router_language(self):
+        # 노드를 첨부한 짧은 한국어 명사구 — 코드 판정은 en으로 판정하지만 판별이 정한 ko를 쓴다
+        _, structured, debug, route, _ = await self._run(
+            "retry logic 설명", (None, "ko"), focus_evidence=[{"type": "issue", "id": "HT-12"}],
         )
-        route.assert_not_awaited()
+        route.assert_awaited()
+        self.assertEqual({"language": "ko", "source": "router"}, debug["answer_language"])
+        self.assertEqual("ko", structured["language"])
+
+    async def test_focus_question_ignores_a_chat_route_and_searches(self):
+        text = f"Hi. {_EN_OFFER}"
+        intro = (text, {**_PLAIN_ANSWER, "summary": text, "answer_mode": "grounded", "reply_kind": "intro", "language": "en"})
+        answer, structured, debug, _, structured_llm = await self._run(
+            "Explain the attached item.", (intro, "en"), focus_evidence=[{"type": "issue", "id": "HT-12"}],
+        )
+        structured_llm.assert_awaited()
+        self.assertNotEqual(text, answer)
+        self.assertNotEqual("intro", structured.get("reply_kind"))
+        self.assertEqual({"language": "en", "source": "router"}, debug["answer_language"])
+
+    async def test_focus_question_falls_back_when_the_router_has_no_language(self):
+        _, _, debug, route, _ = await self._run(
+            "Explain the attached item.", (None, None), focus_evidence=[{"type": "issue", "id": "HT-12"}],
+        )
+        route.assert_awaited()
         self.assertEqual({"language": "en", "source": "question"}, debug["answer_language"])
 
     async def test_chat_intro_records_its_language(self):

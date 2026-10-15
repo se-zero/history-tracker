@@ -1573,8 +1573,8 @@ async def run(
     debug: eval 러너용 수집 dict. 주어지면 LLM usage 합산, 도구 호출 트랜스크립트, 질문 재작성
            결과(question_rewrite), 답변 언어 판정(answer_language = {language, source})을 여기에
            누적한다 (반환 계약은 불변 — 관측 전용, 답변 생성에 영향 없음).
-    ui_language: 화면 언어 힌트(선택). 답변 언어는 발화 판별 호출이 정하고, 판별이 정하지 못했거나 건너뛴
-                 경우에만 대비책 코드 판정(질문 → 대화의 사용자 말 → 이 힌트 → 한국어)이 정한다.
+    ui_language: 화면 언어 힌트(선택). 답변 언어는 발화 판별 호출이 정하고, 판별이 정하지 못한 경우(none·
+                 호출 실패)에만 대비책 코드 판정(질문 → 대화의 사용자 말 → 이 힌트 → 한국어)이 정한다.
                  ko/en 밖의 값은 무시된다.
 
     Returns:
@@ -1584,9 +1584,12 @@ async def run(
         Structured 호출 실패 시 LLM이 마지막 iteration에서 낸 자유 텍스트로 fallback,
         이때 structured는 None이라 language 필드도 없다.
     """
-    # 지정 노드가 있으면 그 노드를 조회해야 하므로 잡담 판별을 건너뛴다. 판별이 언어도 함께 정하는
-    # 호출이라, 건너뛰면 아래 대비책 코드 판정이 정한다.
-    intro, language = (None, None) if focus_evidence else await _route_utterance(question, history, debug)
+    intro, language = await _route_utterance(question, history, debug)
+    # 지정 노드가 있으면 잡담으로 골라도 그 노드를 조회해야 하므로 잡담 답은 버리고 판별의 언어만 쓴다.
+    # 판별을 건너뛰면 언어를 코드 판정이 정하는데, 노드를 첨부할 때 흔한 짧은 한국어 명사구("retry logic 설명")를
+    # 영어로 판정한다(docs/answer-language.md §4-1).
+    if focus_evidence:
+        intro = None
     if language:
         language_source = "router"
     else:
