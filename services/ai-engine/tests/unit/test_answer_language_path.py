@@ -7,8 +7,10 @@
   흔한 짧은 한국어 명사구(`retry logic 설명`)를 코드 판정은 영어로 판정한다.
   정한 언어와 근거는 debug.answer_language = {language, source}에 남고(source: router | question | history | ui | default),
   structured.language에 실린다. 응답 최상위에는 language를 두지 않는다.
-- 판별은 (잡담이면 바로 돌려줄 답 | None, 판별이 정한 언어 | None)을 돌려준다. 잡담 문장에는 그 언어의 제안 문장
-  ("무엇을 도와드릴까요?" / "How can I help?")을 붙인다. 판별이 언어를 정하지 못한 잡담은 한국어다 — 판별 지시가 그렇게 쓰게 한다.
+- 판별은 (잡담이면 바로 돌려줄 답 | None, 판별이 실제로 낸 언어 | None)을 돌려준다. 잡담 문장에는 그 언어의 제안 문장
+  ("무엇을 도와드릴까요?" / "How can I help?")을 붙인다. 판별이 언어를 정하지 못한 잡담 답은 한국어로 쓴다(판별 지시가
+  그렇게 쓰게 한다) — 이 한국어는 잡담 답 안에만 실리고, 판별이 낸 언어로 돌려주지 않는다. 잡담 답을 버리는 노드 질문이
+  이 기본값에 끌려가지 않고 대비책 코드 판정으로 가게 하려는 것이다.
 - 영어면 첫 시스템 메시지가 본 지시 전체 영어판(_SYSTEM_PROMPT_EN)이고, 최종 지시·재작성 지시·원문 병기·고정 문구·근거 제목·
   내부 용어 치환이 영어판을 쓴다. 한국어 경로는 지금 그대로다.
 - 요청의 ui_language는 관대하게 받는다 — 형식이 틀려도 422 없이 버리고, en-US 같은 값은 en으로 줄인다.
@@ -112,9 +114,9 @@ class RouteLanguageTest(unittest.IsolatedAsyncioTestCase):
                 intro, _ = await self._route({"route": "chat", "reply": reply, "language": "en"})
                 self.assertEqual(_EN_OFFER, intro[0])
 
-    async def test_chat_without_a_language_is_korean(self):
+    async def test_chat_without_a_language_is_written_in_korean_but_reports_no_language(self):
         intro, language = await self._route({"route": "chat", "reply": "반가워요.", "language": "none"})
-        self.assertEqual("ko", language)
+        self.assertIsNone(language)
         self.assertEqual(f"반가워요. {_KO_OFFER}", intro[0])
         self.assertEqual("ko", intro[1]["language"])
 
@@ -216,6 +218,54 @@ class AnswerLanguageDecisionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, answer)
         self.assertEqual({"language": "en", "source": "router"}, debug["answer_language"])
         structured_llm.assert_not_awaited()
+
+
+class RouterAndRunTogetherTest(unittest.IsolatedAsyncioTestCase):
+    """판별 함수를 대역으로 바꾸지 않고 run()과 함께 돌린다 — 판별이 돌려주는 값과 run()의 해석이 맞물리는지 본다."""
+
+    async def _run(self, question, payload, **run_kwargs):
+        structured_llm = AsyncMock(return_value=dict(_PLAIN_ANSWER))
+        debug: dict = {}
+        with (
+            patch.object(orchestrator, "_route_utterance", _REAL_ROUTE),
+            patch.object(orchestrator, "chat_completion", AsyncMock(return_value=_completion(payload))),
+            patch.object(orchestrator, "_call_llm", AsyncMock(return_value=_done())),
+            patch.object(orchestrator, "_call_llm_structured", structured_llm),
+            patch.object(orchestrator, "_rewrite_question", AsyncMock(return_value=None)),
+        ):
+            answer, structured = await orchestrator.run(question, debug=debug, **run_kwargs)
+        return answer, structured, debug, structured_llm
+
+    async def test_focus_question_ignores_the_korean_default_of_a_chat_without_language(self):
+        # 언어를 못 정한 잡담 답은 한국어로 쓰지만, 노드 질문은 그 답을 버리므로 한국어 기본값도 따르지 않고 코드 판정으로 간다
+        _, structured, debug, structured_llm = await self._run(
+            "Explain the attached item.",
+            {"route": "chat", "language": "none", "reply": "반가워요."},
+            focus_evidence=[{"type": "issue", "id": "HT-12"}],
+        )
+        structured_llm.assert_awaited()
+        self.assertEqual({"language": "en", "source": "question"}, debug["answer_language"])
+        self.assertEqual("en", structured["language"])
+
+    async def test_focus_question_marks_the_discarded_chat_route(self):
+        # 관측 기록에서 "잡담으로 끝난 질문"과 구분되게 한다 — 실제로는 노드를 조회했다
+        _, _, debug, _ = await self._run(
+            "Explain the attached item.",
+            {"route": "chat", "language": "en", "reply": "Hi."},
+            focus_evidence=[{"type": "issue", "id": "HT-12"}],
+        )
+        self.assertEqual("chat", debug["utterance_route"]["route"])
+        self.assertIs(True, debug["utterance_route"]["ignored_for_focus"])
+
+    async def test_chat_without_a_language_still_answers_in_korean(self):
+        answer, structured, debug, structured_llm = await self._run(
+            "ok", {"route": "chat", "language": "none", "reply": "반가워요."},
+        )
+        structured_llm.assert_not_awaited()
+        self.assertEqual(f"반가워요. {_KO_OFFER}", answer)
+        self.assertEqual("ko", structured["language"])
+        self.assertEqual({"language": "ko", "source": "router"}, debug["answer_language"])
+        self.assertNotIn("ignored_for_focus", debug["utterance_route"])
 
 
 class EnglishAnswerPathTest(unittest.IsolatedAsyncioTestCase):
