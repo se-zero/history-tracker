@@ -132,4 +132,4 @@ cd infra/docker
 - `docs/measurement.md` - GraphRAG 정량 측정(eval) 가이드 — 그래프·응답 품질 개선을 숫자로 검증하는 방법
 - `docs/DESIGN.md` - 디자인 시스템(팔레트·타이포·모션·랜딩). **UI 작업 전에 읽고 모든 시각 결정을 여기서 파생시킨다**
 - `docs/i18n.md` - 시각 표시 계약과 **답변 언어(ko/en) 정본**(§5). 로캘(UI 언어)과 타임존(기기 설정)은 독립 축이며, 언어 기본값을 위치로 정하더라도 시각 표시에 위치를 끌어들이지 않는다. 서버는 UTC ISO만 내보내고 표시 변환은 프론트가 전담. 앱 UI 언어 분리는 §8 인벤토리, 착수 전
-- `docs/answer-language.md` - 답변 언어 ko/en의 실험·설계 기록(브랜치 `feat/answer-language`. 계약 정본은 `docs/i18n.md` §5). 구현은 A1·A2 코드·B·C1·D와 E 측정(120런)까지 됐다. E는 S2(한국어 하락 없음)가 미달이라, main 배포 전에 판별 재측정·S2 원인 확인(교차 재측정)·수동 확인이 남았다. 영어 답에는 본 지시 전체 영어판, 한국어 경로는 글자 그대로. MCP 고정 메시지는 영어, `explain_commit`에 `language` 인자. 앱 UI 다국어는 별도 사이클
+- `docs/answer-language.md` - 답변 언어 ko/en의 실험·설계 기록(브랜치 `feat/answer-language`. 계약 정본은 `docs/i18n.md` §5). 구현은 A1·A2 코드·B·C1·D와 E 측정(120런)까지 됐다. E는 S2(한국어 하락 없음)가 미달인 채 main에 머지됐고(#189), 판별 재측정·S2 원인 확인(교차 재측정)·수동 확인이 남았다. 영어 답에는 본 지시 전체 영어판, 한국어 경로는 글자 그대로. MCP 고정 메시지는 영어, `explain_commit`에 `language` 인자. 앱 UI 다국어는 별도 사이클
