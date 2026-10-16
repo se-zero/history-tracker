@@ -7,9 +7,11 @@
 웹 채팅에서 영어로 물면 **답 본문**은 영어로 나온다(버튼·라벨은 한국어 그대로).
 언어 계약의 정본은 [i18n.md](i18n.md) §5다(2026-10-14에 옮김). 이 문서는 실험·설계 기록으로 남긴다.
 
-**진행 상황(2026-10-14)**: 브랜치 `feat/answer-language`(develop `932e443`에서 분기). **0단계·A1 완료** — 영어 답에는 본 지시
+**진행 상황(2026-10-16)**: 브랜치 `feat/answer-language`(develop `932e443`에서 분기, #188로 develop에 머지). **0단계·A1 완료** — 영어 답에는 본 지시
 전체 영어판을 쓰고(§3-4), 언어는 판별 LLM이 정하고 코드 규칙이 대비책이다(§3-5). **A2는 판별 재측정만 남았다** — 1차 실측에서
-영어 잡담 답이 한국어로 나오는 결함을 찾아 고쳤고, 재측정은 OpenAI 쿼터 소진으로 멈췄다(§3-6). **B·C1·D 완료. E 측정 완료, 수동 확인은 남음.**
+영어 잡담 답이 한국어로 나오는 결함을 찾아 고쳤고, 재측정은 OpenAI 쿼터 소진으로 멈췄다(§3-6). **B·C1·D 완료. E 측정 완료 — S1·S3·S4·S5 통과,
+S2(한국어 하락 없음) 미달.** main 배포 전에 남은 것은 판별 재측정, S2 원인 확인(옛 코드·새 코드를 번갈아 돌리는 재측정), 수동 확인이다.
+후속 브랜치 `fix/answer-language-followups`에서 노드를 지정한 질문도 판별이 언어를 정하게 고쳤다(§4-1).
 계약 정본은 [i18n.md](i18n.md) §5, 앱 UI 인벤토리는 같은 문서 §8이다.
 §3-1~3-5의 실험은 코드를 바꾸지 않고 로컬 ai-engine 컨테이너 안에서만 했다. §3-6은 로컬 `.venv`에서 했다.
 
@@ -388,7 +390,8 @@ whycode 내부 구현은 "I can't share that information."(모델 이름·지시
   기대 근거·사실·규칙은 한국어판 그대로. 파일명이 `case-*.yaml`이어야 러너가 읽는다. 06번은 정답이 이슈 4개라 "which issues"로
   옮겼고, 45번은 실제 영어 사용자가 쓸 단수형("Which issue has…")을 그대로 둬 공동 1위를 잡는지 본다.
 - **채점기**: summary+unknown_aspects의 한글 토큰 비율 ≥0.4 → ko, ≤0.15 → en, 사이는 mixed(실패).
-  `runs_answer_language_mismatch`·`runs_language_decision_mismatch`·짝별 recall·사실 정답률 차이를 낸다.
+  `runs_answer_language_mismatch`·`runs_language_decision_mismatch`·짝별 recall·사실 정답률 차이를 낸다
+  (셀 단어가 없는 답은 불일치가 아니라 `runs_answer_language_unknown`으로 따로 센다 — 2026-10-16 리뷰 반영).
   `validate_golden`이 `paired_with`·`answer_language`를 검사한다. `judge_prompt.md`(동결)는 건드리지 않는다.
   골든 파일이 늘면 `golden_version`이 바뀌어 compare.py가 경고한다(정상).
 - **구현에서 정한 것(C1, 2026-10-14)**:

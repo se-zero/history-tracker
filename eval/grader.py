@@ -395,10 +395,16 @@ def aggregate(case_scores: list[dict]) -> dict:
     )
     # 답이 기대 언어로 쓰였는가(모델 출력)와 서버가 기대 언어를 골랐는가(판정)를 나눠 센다 — 앞만 틀리면
     # 정한 언어를 모델이 따르지 않은 것이고, 둘 다 틀리면 판정이 틀린 것이다. structured=null 런은 답이 없어
-    # 언어를 볼 수 없으므로 runs_structured_null에만 센다.
+    # 언어를 볼 수 없으므로 runs_structured_null에만 센다. 셀 단어가 없는 답(식별자뿐인 답)도 언어를 볼 수 없어
+    # 불일치가 아니라 unknown으로 따로 센다 — 불일치에 섞으면 모델이 다른 언어로 썼다는 신호가 흐려진다.
     agg["runs_answer_language_mismatch"] = sum(
         1 for c in case_scores for r in c["runs"]
-        if not r["structured_null"] and r.get("answer_language") != c.get("answer_language", "ko")
+        if not r["structured_null"] and r.get("answer_language") is not None
+        and r["answer_language"] != c.get("answer_language", "ko")
+    )
+    agg["runs_answer_language_unknown"] = sum(
+        1 for c in case_scores for r in c["runs"]
+        if not r["structured_null"] and r.get("answer_language") is None
     )
     agg["runs_language_decision_mismatch"] = sum(
         1 for c in case_scores for r in c["runs"]
