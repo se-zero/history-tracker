@@ -251,6 +251,12 @@ A2 ③(`dde0dda`)의 판별을 실제 모델(`gpt-5.4-mini`)로 부르고, 같�
   충분하다고 봤다. 그런데 노드를 첨부하면 짧은 명사구로 묻기 쉽고, 코드 규칙은 이런 한국어 질문을 영어로 판정한다(`retry logic 설명`·
   `rate limit 로직`·`error handling 이유`·`cache invalidation 설명해줘` → en). 그래서 노드를 지정해도 판별을 부르고, 잡담 판정은
   버린 채(그 노드를 조회해야 한다) 언어만 쓴다. 비용은 노드 질문마다 작은 모델 호출 1회다. MCP `explain_commit`도 같은 경로다.
+  - 실측(2026-10-16, 판별 지시 그대로 질문마다 10회): 노드 첨부형 질문 11개(위 한국어 명사구 4개, `이 커밋 왜 했어?`,
+    `이 commit message 의미`, 노드만 보낼 때의 "첨부한 항목에 대해 설명해줘.", `explain_commit` 질문 문장 ko·en,
+    `Explain this commit`, `Why did this change?`)의 language가 110/110 기대대로였다. 코드 규칙은 한국어 명사구 4개를 en으로 판정한다.
+  - 같은 실측에서 판별의 route는 노드를 모른 채 글만 보므로 짧은 질문을 잡담으로 자주 골랐다(`retry logic 설명`·`error handling 이유`·
+    `cache invalidation 설명해줘` chat 10/10, `Explain this commit` 8/10, `Why did this change?` 5/10). 노드 질문에서 잡담 판정을
+    버려야 하는 이유이고, 처음에 판별을 건너뛴 이유이기도 하다.
 - **코드 판정(대비책)**:
 
 ```python
@@ -476,5 +482,6 @@ Claude Code에서 영어 `ask` → 영어 답, `explain_commit` language=en → 
 - [ ] E — 측정(S1~S5) + 수동 확인
   - [x] 측정 (2026-10-14, 120런) — S1·S3·S4·S5 통과, S2 미달. B0 `eval/results/20261014T091846Z`, C `eval/results/20261014T093907Z`. 기록은 `eval/improvement-log.md`
   - [ ] 수동 확인 (대시보드·Claude Code)
-- [ ] 후속(`fix/answer-language-followups`) — 노드를 지정한 질문도 판별 LLM이 언어를 정함(§4-1). 코드·단위 테스트 완료(2026-10-15).
-      실측은 ③ 재측정에 노드 첨부형 질문(위 한국어 명사구 4개와 영어 질문)을 더해 함께 한다
+- [x] 후속(`fix/answer-language-followups`) — 노드를 지정한 질문도 판별 LLM이 언어를 정함(§4-1). 코드·단위 테스트 완료(2026-10-15),
+      실측 노드 첨부형 질문 11개 × 10회 language 110/110(2026-10-16). 같은 브랜치에서 리뷰 후속 3건(채점기 unknown 카운터·골든 짝
+      오프라인 검사·진행 상황 문구)도 반영
