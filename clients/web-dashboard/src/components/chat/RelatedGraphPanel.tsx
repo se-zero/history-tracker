@@ -1,4 +1,5 @@
 import { Icons } from "@/components/Icons";
+import { useUiLanguage } from "@/i18n/language";
 import { InlineError } from "@/components/ui/InlineError";
 import { GraphVis } from "@/components/graph/GraphVis";
 import { NodeDetail } from "@/components/graph/NodeDetail";
@@ -45,6 +46,25 @@ export function RelatedGraphPanel({
   onIgniteConsumed,
   activeMessageId,
 }: Props) {
+  const { lang } = useUiLanguage();
+  const copy =
+    lang === "en"
+      ? {
+          resize: "Resize width",
+          title: "Related graph",
+          close: "Close panel",
+          loadFailed: "Couldn't load the related graph.",
+          retry: "Try again",
+          empty: "This answer isn't connected to a graph.",
+        }
+      : {
+          resize: "너비 조절",
+          title: "관련 그래프",
+          close: "패널 닫기",
+          loadFailed: "관련 그래프를 불러오지 못했어요.",
+          retry: "다시 시도",
+          empty: "이 답변과 연결된 그래프가 없어요.",
+        };
   // seeds(evidence가 해석된 노드)는 강조, 1홉 이웃은 흐리게. 해석된 시드가 없으면 강조하지 않는다.
   const seedIds = (data?.seeds ?? []).filter((s): s is string => s != null);
   const hasGraph = !!data && data.nodes.length > 0;
@@ -59,11 +79,11 @@ export function RelatedGraphPanel({
         onPointerDown={onResizeStart}
         role="separator"
         aria-orientation="vertical"
-        title="너비 조절"
+        title={copy.resize}
       />
       <div className="side-panel-head">
-        <span>관련 그래프</span>
-        <button className="icon-btn" onClick={onClose} title="패널 닫기">
+        <span>{copy.title}</span>
+        <button className="icon-btn" onClick={onClose} title={copy.close}>
           <Icons.X />
         </button>
       </div>
@@ -75,10 +95,10 @@ export function RelatedGraphPanel({
         ) : isError ? (
           <div className="side-panel-empty">
             <InlineError style={{ marginBottom: 10 }}>
-              관련 그래프를 불러오지 못했어요.
+              {copy.loadFailed}
             </InlineError>
             <button className="btn" onClick={onRetry}>
-              다시 시도
+              {copy.retry}
             </button>
           </div>
         ) : hasGraph ? (
@@ -109,7 +129,7 @@ export function RelatedGraphPanel({
           </>
         ) : (
           <div className="side-panel-empty">
-            이 답변과 연결된 그래프가 없어요.
+            {copy.empty}
           </div>
         )}
       </div>
