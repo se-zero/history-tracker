@@ -783,9 +783,11 @@ async def _route_utterance(
 ) -> tuple[tuple[str, dict] | None, str | None]:
     """(intro, language)를 반환한다.
 
-    intro: 잡담이면 (답, structured), 그래프 질문이거나 판별이 실패하면 None.
-    language: 판별이 정한 "ko" | "en". 정하지 못했으면(none·이상한 값·판별 실패) None이고, 호출부(run)가
-    대비책 코드 판정으로 정한다.
+    intro: 잡담이면 (답, structured), 그래프 질문이거나 판별이 실패하면 None. 잡담 답의 언어는 structured의
+           language에 있다 — 판별이 언어를 못 정했으면 지시대로 한국어로 쓴 답이라 ko다.
+    language: 판별이 실제로 낸 "ko" | "en". 정하지 못했으면(none·이상한 값·판별 실패) 잡담이어도 None이고,
+              호출부(run)가 대비책 코드 판정으로 정한다. 잡담 답의 한국어 기본값을 여기 싣지 않는 이유는, 잡담
+              답을 버리는 노드 질문이 그 기본값에 끌려가지 않게 하려는 것이다.
 
     실패를 그래프 경로로 보는 이유: 판별이 죽어도 코드 질문은 검색이 계속되어야 한다.
     """
@@ -837,7 +839,7 @@ async def _route_utterance(
             "fallback": text == _fixed_text(chat_language).chat_offer and text != reply.strip(),
             "language": language,
         }
-    return _intro_payload(text, chat_language), chat_language
+    return _intro_payload(text, chat_language), language
 
 
 # _render_structured가 근거 절을 여는 헤더 — _strip_evidence_section이 같은 상수로 그 절을
@@ -1573,8 +1575,8 @@ async def run(
     debug: eval 러너용 수집 dict. 주어지면 LLM usage 합산, 도구 호출 트랜스크립트, 질문 재작성
            결과(question_rewrite), 답변 언어 판정(answer_language = {language, source})을 여기에
            누적한다 (반환 계약은 불변 — 관측 전용, 답변 생성에 영향 없음).
-    ui_language: 화면 언어 힌트(선택). 답변 언어는 발화 판별 호출이 정하고, 판별이 정하지 못했거나 건너뛴
-                 경우에만 대비책 코드 판정(질문 → 대화의 사용자 말 → 이 힌트 → 한국어)이 정한다.
+    ui_language: 화면 언어 힌트(선택). 답변 언어는 발화 판별 호출이 정하고, 판별이 정하지 못한 경우(none·
+                 호출 실패)에만 대비책 코드 판정(질문 → 대화의 사용자 말 → 이 힌트 → 한국어)이 정한다.
                  ko/en 밖의 값은 무시된다.
 
     Returns:
@@ -1584,10 +1586,19 @@ async def run(
         Structured 호출 실패 시 LLM이 마지막 iteration에서 낸 자유 텍스트로 fallback,
         이때 structured는 None이라 language 필드도 없다.
     """
-    # 지정 노드가 있으면 그 노드를 조회해야 하므로 잡담 판별을 건너뛴다. 판별이 언어도 함께 정하는
-    # 호출이라, 건너뛰면 아래 대비책 코드 판정이 정한다.
-    intro, language = (None, None) if focus_evidence else await _route_utterance(question, history, debug)
-    if language:
+    intro, language = await _route_utterance(question, history, debug)
+    # 지정 노드가 있으면 잡담으로 골라도 그 노드를 조회해야 하므로 잡담 답은 버리고 판별의 언어만 쓴다.
+    # 판별을 건너뛰면 언어를 코드 판정이 정하는데, 노드를 첨부할 때 흔한 짧은 한국어 명사구("retry logic 설명")를
+    # 영어로 판정한다(docs/answer-language.md §4-1).
+    if focus_evidence and intro is not None:
+        intro = None
+        # 관측 기록에서 "잡담으로 끝난 질문"과 구분한다 — 판정은 chat이었지만 실제로는 노드를 조회한다
+        if isinstance(debug, dict):
+            debug.setdefault("utterance_route", {})["ignored_for_focus"] = True
+    if intro is not None:
+        # 잡담 답은 그 답을 쓴 언어로 기록한다(판별이 언어를 못 정했으면 한국어로 쓴 답이다)
+        language, language_source = intro[1]["language"], "router"
+    elif language:
         language_source = "router"
     else:
         decision = decide_answer_language(question, history, ui_language)

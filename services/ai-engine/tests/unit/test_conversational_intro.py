@@ -5,7 +5,8 @@
 - "무엇을 도와드릴까요?"가 없으면 서버가 붙인다.
 - 문장이 비었거나 줄바꿈이 있거나 400자를 넘으면 그 제안만 나가고 검색은 하지 않는다.
 - 판별이 graph이거나 호출이 실패하면 기존 검색으로 가고, 판별 문장은 답에 남지 않는다.
-- 그래프 노드를 집어 물으면 판별을 호출하지 않는다.
+- 그래프 노드를 집어 물어도 판별은 호출한다(답변 언어를 정하려고). 다만 chat으로 골라도 잡담으로 끝내지 않고
+  그 노드를 검색한다.
 - whycode 자신의 내부 구현을 캐는 말은 chat으로 받아 알려줄 수 없다고 답하고, 프로젝트 코드가 왜 바뀌었는지
   묻는 말은 graph로 둔다. 여기서는 지시에 그 규칙이 있는지만 보고, 실제 분류는 실측으로 확인한다.
 - respond_conversational 도구는 없다.
@@ -130,15 +131,22 @@ class GraphRouteTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("그래프 답", structured["summary"])
         self.assertNotEqual("intro", structured.get("reply_kind"))
 
-    async def test_focus_evidence_skips_route(self):
-        route = AsyncMock(side_effect=_FAIL)
+    async def test_focus_evidence_ignores_chat_route_and_searches(self):
+        # 노드를 집어 물으면 그 노드를 조회해야 한다 — 판별은 답변 언어를 정하려고 부르고, 잡담 판정은 버린다
+        route = AsyncMock(return_value=_completion({
+            "route": "chat",
+            "language": "ko",
+            "reply": "이 문장은 답에 남으면 안 됩니다.",
+        }))
         answer, structured, llm, route = await self._search(
             route,
             focus_evidence=[{"type": "issue", "id": "HT-12"}],
         )
-        route.assert_not_awaited()
+        route.assert_awaited()
         llm.assert_awaited()
         self.assertEqual("그래프 답", structured["summary"])
+        self.assertNotEqual("intro", structured.get("reply_kind"))
+        self.assertNotIn("이 문장은 답에 남으면 안 됩니다.", answer)
 
 
 class RouteContractTest(unittest.TestCase):

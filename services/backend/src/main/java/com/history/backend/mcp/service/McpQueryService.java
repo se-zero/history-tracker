@@ -53,7 +53,7 @@ public class McpQueryService {
     private static final String TIMEOUT = "whycode couldn't produce an answer within %d seconds. Please try again shortly.";
     private static final String GENERIC_ERROR = "whycode failed to generate an answer. Please try again shortly.";
 
-    // ai-engine은 지정 노드가 있는 질문의 발화 판별을 건너뛰고 질문 글로 답변 언어를 정하므로, 언어는 이 문장이 싣는다.
+    // ai-engine은 질문 글로 답변 언어를 정하므로(발화 판별 LLM, 판별이 정하지 못하면 코드 판정) 언어는 이 문장이 싣는다.
     // 두 문장은 ai-engine 판정 테스트(tests/unit/test_answer_language.py)가 각각 ko·en으로 고정한다 — 바꾸면 함께 고친다.
     private static final Map<String, String> EXPLAIN_COMMIT_QUESTIONS = Map.of(
             "ko", "커밋 %s가 왜 이렇게 바뀌었는지 근거와 함께 설명해줘",

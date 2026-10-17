@@ -8,12 +8,15 @@ id를 복사하다 겹치면 grader가 한쪽 케이스를 조용히 덮어쓴�
 """
 
 import copy
+import glob
 import os
 import sys
 
+import yaml
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from validate_golden import check_pairs
+from validate_golden import GOLDEN_DIR, check_pairs
 
 KO = {
     "id": "case-03",
@@ -87,3 +90,13 @@ def test_id_must_match_file_name():
     # 짝 파일을 복사하다 id를 안 바꾸면 grader가 원본 케이스를 덮어쓴다
     errors = _errors(("case-03", KO), ("case-03-en", _english(id="case-03")))
     assert ("case-03-en", "id") in [(e[0], e[1]) for e in errors]
+
+
+def test_real_golden_files_pass_pair_checks():
+    # validate_golden.py는 Neo4j에 붙어야 결과를 낸다 — 원본 케이스를 고치고 영어 짝을 안 고친 것을 그래프 없이 여기서 잡는다
+    cases = {}
+    for path in sorted(glob.glob(os.path.join(GOLDEN_DIR, "case-*.yaml"))):
+        with open(path, encoding="utf-8") as f:
+            cases[os.path.splitext(os.path.basename(path))[0]] = yaml.safe_load(f)
+    assert any(case.get("paired_with") for case in cases.values()), "영어 짝 케이스를 하나도 읽지 못했다"
+    assert check_pairs(cases) == []
