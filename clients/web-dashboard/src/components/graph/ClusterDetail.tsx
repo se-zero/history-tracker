@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import { Icons } from "@/components/Icons";
+import { uiText } from "@/i18n/language";
 import { useExitPresence } from "@/hooks/useExitPresence";
 import type { WorkUnit } from "@/lib/workUnitLayout";
 import {
@@ -85,14 +86,17 @@ export function ClusterDetail({
             {shown.authors.length > 0 ? shown.authors.join(", ") : shown.node.meta}
           </div>
         </div>
-        <button className="icon-btn" title="닫기" onClick={onClose}>
+        <button className="icon-btn" title={uiText("닫기", "Close")} onClick={onClose}>
           <Icons.X />
         </button>
       </div>
 
       {/* 전체 보기 범례(wu-legend-counts)와 의미가 다르다 — 저건 전역, 이건 이 묶음 내부 기준. */}
       <div className="cd-counts">
-        이 작업 단위 안: 실선 {clusterCounts.confirmed} · 점선 {clusterCounts.inferred}
+        {uiText(
+          `이 작업 단위 안: 실선 ${clusterCounts.confirmed} · 점선 ${clusterCounts.inferred}`,
+          `In this work unit: ${clusterCounts.confirmed} solid · ${clusterCounts.inferred} dashed`,
+        )}
       </div>
 
       <div className="cd-chips">
@@ -112,7 +116,11 @@ export function ClusterDetail({
         {loading && (
           <div className="cd-loading">
             <span className="spinner" />
-            <span>{groups.length === 0 ? "구성을 불러오는 중…" : "더 불러오는 중…"}</span>
+            <span>
+              {groups.length === 0
+                ? uiText("구성을 불러오는 중…", "Loading members…")
+                : uiText("더 불러오는 중…", "Loading more…")}
+            </span>
           </div>
         )}
         {groups.map((g) => (
