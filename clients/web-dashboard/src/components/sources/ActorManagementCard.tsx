@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 
 import { InlineError } from "@/components/ui/InlineError";
+import { uiText } from "@/i18n/language";
 import {
   useActorDetail,
   useActors,
@@ -53,21 +54,25 @@ function ActorCompareColumn({
   if (detailQuery.isError) {
     return (
       <div className="actor-compare-col">
-        <span className="actor-meta">{label} 정보를 불러오지 못했어요.</span>
+        <span className="actor-meta">
+          {uiText(`${label} 정보를 불러오지 못했어요.`, `Couldn't load ${label}.`)}
+        </span>
       </div>
     );
   }
   if (detailQuery.isLoading) {
     return (
       <div className="actor-compare-col">
-        <span className="actor-meta">{label} 불러오는 중…</span>
+        <span className="actor-meta">{uiText(`${label} 불러오는 중…`, `Loading ${label}…`)}</span>
       </div>
     );
   }
   if (!detailQuery.data) {
     return (
       <div className="actor-compare-col">
-        <span className="actor-meta">{label} 선택하면 상세가 표시됩니다.</span>
+        <span className="actor-meta">
+          {uiText(`${label} 선택하면 상세가 표시됩니다.`, `Choose ${label} to see the details.`)}
+        </span>
       </div>
     );
   }
@@ -164,20 +169,32 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
     <section className="actor-card">
       <div className="actor-head">
         <div>
-          <h2>액터 관리</h2>
-          <p>여러 소스에서 수집된 동일인을 병합하고, 잘못된 자동 통합은 분리할 수 있습니다.</p>
+          <h2>{uiText("액터 관리", "Manage actors")}</h2>
+          <p>
+            {uiText(
+              "여러 소스에서 수집된 동일인을 병합하고, 잘못된 자동 통합은 분리할 수 있습니다.",
+              "Merge the same person collected from several sources, or split a merge that was wrong.",
+            )}
+          </p>
         </div>
         <button className="btn btn-primary" onClick={openMerge} disabled={actors.length < 2}>
-          액터 합치기
+          {uiText("액터 합치기", "Merge actors")}
         </button>
       </div>
 
-      {actorsQuery.isLoading && <p className="actor-empty">액터 정보를 불러오는 중…</p>}
+      {actorsQuery.isLoading && (
+        <p className="actor-empty">{uiText("액터 정보를 불러오는 중…", "Loading actors…")}</p>
+      )}
       {actorsQuery.isError && (
-        <InlineError>액터 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</InlineError>
+        <InlineError>
+          {uiText(
+            "액터 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.",
+            "Couldn't load actors. Try again in a moment.",
+          )}
+        </InlineError>
       )}
       {!actorsQuery.isLoading && !actorsQuery.isError && actors.length === 0 && (
-        <p className="actor-empty">아직 수집된 액터가 없습니다.</p>
+        <p className="actor-empty">{uiText("아직 수집된 액터가 없습니다.", "No actors collected yet.")}</p>
       )}
 
       {actors.length > 0 && (
@@ -191,7 +208,9 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
               <div className="actor-row" key={actor.uuid}>
                 <div className="actor-info">
                   <strong>{actor.name}</strong>
-                  <span className="actor-meta">활동 {actor.activityCount}건</span>
+                  <span className="actor-meta">
+                    {uiText(`활동 ${actor.activityCount}건`, `${actor.activityCount} activities`)}
+                  </span>
                   <div className="actor-source-names">
                     {/* 같은 소스의 계정이 2개 병합된 액터는 항목이 소스명으로 겹친다 — index로 키 유일성 보장 */}
                     {actor.sourceNames.map((sourceName, index) => {
@@ -208,18 +227,18 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
                 <div className="actor-row-actions">
                   {actor.sourceNames.length >= 2 && (
                     <button className="btn btn-ghost" onClick={() => openSplit(actor)}>
-                      분리
+                      {uiText("분리", "Split")}
                     </button>
                   )}
                   <button className="btn btn-ghost" onClick={() => openRename(actor)}>
-                    이름 변경
+                    {uiText("이름 변경", "Rename")}
                   </button>
                 </div>
               </div>
             ))}
           </div>
           <button className="repo-toggle" type="button" onClick={() => setListExpanded((value) => !value)}>
-            {listExpanded ? "닫기" : "펼치기"}
+            {listExpanded ? uiText("닫기", "Collapse") : uiText("펼치기", "Expand")}
           </button>
         </div>
       )}
@@ -229,16 +248,16 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
           className="actor-form actor-rename-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!canRename || !window.confirm("액터 이름을 변경할까요?")) return;
+            if (!canRename || !window.confirm(uiText("액터 이름을 변경할까요?", "Rename this actor?"))) return;
             renameMutation.mutate(
               { actorUuid: renameActor.uuid, name: renameName.trim() },
               { onSuccess: () => setRenameActorUuid(null) },
             );
           }}
         >
-          <h3>{renameActor.name} 이름 변경</h3>
+          <h3>{uiText(`${renameActor.name} 이름 변경`, `Rename ${renameActor.name}`)}</h3>
           <label>
-            새 이름
+            {uiText("새 이름", "New name")}
             <input
               value={renameName}
               onChange={(event) => setRenameName(event.target.value)}
@@ -246,11 +265,15 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
               autoFocus
             />
           </label>
-          {renameMutation.isError && <InlineError>{errorMessage(renameMutation.error, "이름 변경에 실패했어요.")}</InlineError>}
+          {renameMutation.isError && (
+            <InlineError>
+              {errorMessage(renameMutation.error, uiText("이름 변경에 실패했어요.", "Couldn't rename."))}
+            </InlineError>
+          )}
           <div className="actor-form-actions">
-            <button className="btn btn-ghost" type="button" onClick={() => { renameMutation.reset(); setRenameActorUuid(null); }}>취소</button>
+            <button className="btn btn-ghost" type="button" onClick={() => { renameMutation.reset(); setRenameActorUuid(null); }}>{uiText("취소", "Cancel")}</button>
             <button className="btn btn-primary" type="submit" disabled={!canRename || renameMutation.isPending}>
-              {renameMutation.isPending ? "변경 중…" : "변경"}
+              {renameMutation.isPending ? uiText("변경 중…", "Saving…") : uiText("변경", "Save")}
             </button>
           </div>
         </form>
@@ -261,42 +284,47 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
           className="actor-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!canMerge || !window.confirm("두 액터를 같은 사람으로 합칠까요? 잘못 합쳤다면 분리로 되돌릴 수 있습니다.")) return;
+            if (!canMerge || !window.confirm(uiText("두 액터를 같은 사람으로 합칠까요? 잘못 합쳤다면 분리로 되돌릴 수 있습니다.", "Merge these two actors as the same person? You can split them again if the merge is wrong."))) return;
             mergeMutation.mutate(
               { uuidA, uuidB },
               { onSuccess: () => setPanel(null) },
             );
           }}
         >
-          <h3>액터 합치기</h3>
+          <h3>{uiText("액터 합치기", "Merge actors")}</h3>
           <p>
-            같은 사람의 두 노드를 하나로 합칩니다. 활동량이 많은 쪽이 남고, 표시 이름은
-            GitHub 프로필 이름이 있으면 그것을, 없으면 활동량이 가장 많은 소스의 이름을
-            사용합니다. 이름을 직접 정하려면 병합 후 이름 변경을 쓰세요.
+            {uiText(
+              "같은 사람의 두 노드를 하나로 합칩니다. 활동량이 많은 쪽이 남고, 표시 이름은 GitHub 프로필 이름이 있으면 그것을, 없으면 활동량이 가장 많은 소스의 이름을 사용합니다. 이름을 직접 정하려면 병합 후 이름 변경을 쓰세요.",
+              "Merges two nodes for the same person. The one with more activity stays. The display name uses the GitHub profile name when there is one, otherwise the name from the most active source. Rename after merging if you want a specific name.",
+            )}
           </p>
           <label>
-            합칠 액터 ①
+            {uiText("합칠 액터 ①", "Actor to merge 1")}
             <select value={uuidA} onChange={(event) => setUuidA(event.target.value)}>
-              <option value="">선택하세요</option>
+              <option value="">{uiText("선택하세요", "Choose")}</option>
               {actors.map((actor) => <option value={actor.uuid} key={actor.uuid}>{actorLabel(actor)}</option>)}
             </select>
           </label>
           <label>
-            합칠 액터 ②
+            {uiText("합칠 액터 ②", "Actor to merge 2")}
             <select value={uuidB} onChange={(event) => setUuidB(event.target.value)}>
-              <option value="">선택하세요</option>
+              <option value="">{uiText("선택하세요", "Choose")}</option>
               {actors.map((actor) => <option value={actor.uuid} key={actor.uuid}>{actorLabel(actor)}</option>)}
             </select>
           </label>
           <div className="actor-compare">
-            <ActorCompareColumn label="액터 ①" detailQuery={detailAQuery} />
-            <ActorCompareColumn label="액터 ②" detailQuery={detailBQuery} />
+            <ActorCompareColumn label={uiText("액터 ①", "Actor 1")} detailQuery={detailAQuery} />
+            <ActorCompareColumn label={uiText("액터 ②", "Actor 2")} detailQuery={detailBQuery} />
           </div>
-          {mergeMutation.isError && <InlineError>{errorMessage(mergeMutation.error, "합치기에 실패했어요.")}</InlineError>}
+          {mergeMutation.isError && (
+            <InlineError>
+              {errorMessage(mergeMutation.error, uiText("합치기에 실패했어요.", "Couldn't merge."))}
+            </InlineError>
+          )}
           <div className="actor-form-actions">
-            <button className="btn btn-ghost" type="button" onClick={() => { mergeMutation.reset(); setPanel(null); }}>취소</button>
+            <button className="btn btn-ghost" type="button" onClick={() => { mergeMutation.reset(); setPanel(null); }}>{uiText("취소", "Cancel")}</button>
             <button className="btn btn-primary" type="submit" disabled={!canMerge || mergeMutation.isPending}>
-              {mergeMutation.isPending ? "합치는 중…" : "합치기"}
+              {mergeMutation.isPending ? uiText("합치는 중…", "Merging…") : uiText("합치기", "Merge")}
             </button>
           </div>
         </form>
@@ -307,19 +335,23 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
           className="actor-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!canSplit || !window.confirm("선택한 alias를 새 액터로 분리할까요?")) return;
+            if (!canSplit || !window.confirm(uiText("선택한 alias를 새 액터로 분리할까요?", "Split the selected aliases into a new actor?"))) return;
             splitMutation.mutate(
               { actorUuid: splitTarget.uuid, sourceIds: splitSelectedAliases.map((alias) => alias.sourceId) },
               { onSuccess: () => setPanel(null) },
             );
           }}
         >
-          <h3>{splitTarget.name}에서 alias 분리</h3>
+          <h3>{uiText(`${splitTarget.name}에서 alias 분리`, `Split aliases from ${splitTarget.name}`)}</h3>
           <p>
-            분리한 소스 신원은 자동으로 다시 병합되지 않도록 보호됩니다. 새 액터의 이름은
-            계정 이름에서 자동으로 정해집니다 — 바꾸려면 분리 후 이름 변경을 쓰세요.
+            {uiText(
+              "분리한 소스 신원은 자동으로 다시 병합되지 않도록 보호됩니다. 새 액터의 이름은 계정 이름에서 자동으로 정해집니다 — 바꾸려면 분리 후 이름 변경을 쓰세요.",
+              "Split identities are protected from being merged again automatically. The new actor's name comes from the account name — rename after the split if you want a different one.",
+            )}
           </p>
-          {splitDetailQuery.isLoading && <p className="actor-empty">alias 정보를 불러오는 중…</p>}
+          {splitDetailQuery.isLoading && (
+            <p className="actor-empty">{uiText("alias 정보를 불러오는 중…", "Loading aliases…")}</p>
+          )}
           <div className="actor-alias-picker">
             {splitAliasDetails.map((alias) => {
               const { label, name } = sourceNameSummary(alias);
@@ -341,25 +373,33 @@ export function ActorManagementCard({ projectId }: { projectId: string }) {
           </div>
           <div className="actor-compare">
             <div className="actor-compare-col">
-              <strong>남는 계정</strong>
+              <strong>{uiText("남는 계정", "Stays")}</strong>
               {splitRemainingAliases.map((alias) => (
                 <AliasDetailRow alias={alias} key={alias.sourceId} />
               ))}
-              {splitRemainingAliases.length === 0 && <span className="actor-meta">모든 alias가 분리됩니다.</span>}
+              {splitRemainingAliases.length === 0 && (
+                <span className="actor-meta">{uiText("모든 alias가 분리됩니다.", "Every alias will be split off.")}</span>
+              )}
             </div>
             <div className="actor-compare-col">
-              <strong>새 액터로 분리</strong>
+              <strong>{uiText("새 액터로 분리", "Split into a new actor")}</strong>
               {splitSelectedAliases.map((alias) => (
                 <AliasDetailRow alias={alias} key={alias.sourceId} />
               ))}
-              {splitSelectedAliases.length === 0 && <span className="actor-meta">분리할 alias를 선택하세요.</span>}
+              {splitSelectedAliases.length === 0 && (
+                <span className="actor-meta">{uiText("분리할 alias를 선택하세요.", "Choose aliases to split.")}</span>
+              )}
             </div>
           </div>
-          {splitMutation.isError && <InlineError>{errorMessage(splitMutation.error, "분리에 실패했어요.")}</InlineError>}
+          {splitMutation.isError && (
+            <InlineError>
+              {errorMessage(splitMutation.error, uiText("분리에 실패했어요.", "Couldn't split."))}
+            </InlineError>
+          )}
           <div className="actor-form-actions">
-            <button className="btn btn-ghost" type="button" onClick={() => { splitMutation.reset(); setPanel(null); }}>취소</button>
+            <button className="btn btn-ghost" type="button" onClick={() => { splitMutation.reset(); setPanel(null); }}>{uiText("취소", "Cancel")}</button>
             <button className="btn btn-primary" type="submit" disabled={!canSplit || splitMutation.isPending}>
-              {splitMutation.isPending ? "분리 중…" : "분리"}
+              {splitMutation.isPending ? uiText("분리 중…", "Splitting…") : uiText("분리", "Split")}
             </button>
           </div>
         </form>
