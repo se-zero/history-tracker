@@ -2,6 +2,8 @@ import { useState } from "react";
 
 import { Icons } from "@/components/Icons";
 import { LEGAL_CONTACT_EMAIL, TERMS_EFFECTIVE_DATE } from "@/components/landing/LegalLayout";
+import { useUiLanguage } from "@/i18n/language";
+import { formatCalendarMonthDay } from "@/lib/format";
 import { PATHS } from "@/routes";
 
 // 닫은 상태를 기억하는 localStorage 키 — 값은 시행일 문자열이다. 약관이 다시 개정돼
@@ -16,13 +18,6 @@ function todayLocalDateString(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
-// "YYYY-MM-DD" → "10월 1일". 위와 같은 이유로 Date로 다시 파싱하지 않고 문자열을 직접 쪼갠다.
-function formatMonthDay(isoDate: string): string {
-  const match = isoDate.match(/^\d{4}-(\d{2})-(\d{2})$/);
-  if (!match) return isoDate;
-  return `${Number(match[1])}월 ${Number(match[2])}일`;
 }
 
 function readDismissed(): string | null {
@@ -52,6 +47,7 @@ function writeDismissed(value: string) {
 // 색은 DESIGN.md "warning이 없는 이유"를 따른다 — 결과 신뢰도 고지와 같은 급의 정보 안내라
 // 앰버 없이 무채색 헤어라인 상자로 둔다(.composer-notice와 같은 계열).
 export function TermsNoticeBanner() {
+  const { lang } = useUiLanguage();
   const [dismissed, setDismissed] = useState<string | null>(readDismissed);
 
   const isBeforeEffective = todayLocalDateString() < TERMS_EFFECTIVE_DATE;
@@ -66,29 +62,50 @@ export function TermsNoticeBanner() {
     <div className="terms-notice" role="note">
       <div className="terms-notice-body">
         <strong className="terms-notice-title">
-          이용약관이 개정됩니다 · {formatMonthDay(TERMS_EFFECTIVE_DATE)} 시행
+          {lang === "en"
+            ? `Terms of Service update · Effective ${formatCalendarMonthDay(TERMS_EFFECTIVE_DATE)}`
+            : `이용약관이 개정됩니다 · ${formatCalendarMonthDay(TERMS_EFFECTIVE_DATE)} 시행`}
         </strong>
         <p className="terms-notice-text">
-          유료 구독(Pro)·환불 조항이 새로 생기고, 판매 대행자(Paddle) 고지가 추가됩니다.
-          시행일 이후에도 계속 이용하면 개정 약관에 동의한 것으로 봅니다. 동의하지
-          않으시면 시행일 전에 계정 설정에서 회원 탈퇴하거나{" "}
-          {/* 제12조 ②의 동의 간주는 "거부 의사를 밝히지 않으면"이 전제라, 거부 방법을 함께 알린다. */}
-          <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>으로 알려 주세요.{" "}
-          {/* 배너를 닫아 화면을 옮기지 않도록 새 탭에서 연다(ConsentScreen과 같은 이유). */}
-          <a href={PATHS.terms} target="_blank" rel="noopener noreferrer">
-            이용약관
-          </a>{" "}
-          ·{" "}
-          <a href={PATHS.refund} target="_blank" rel="noopener noreferrer">
-            환불정책
-          </a>
+          {lang === "en" ? (
+            <>
+              A paid Pro subscription and refund terms are added, along with a notice about the
+              reseller (Paddle). If you keep using whycode after the effective date, that counts as
+              agreeing to the updated terms. If you don't agree, delete your account in account
+              settings before that date, or email{" "}
+              <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>.{" "}
+              <a href={PATHS.terms} target="_blank" rel="noopener noreferrer">
+                Terms of Service
+              </a>{" "}
+              ·{" "}
+              <a href={PATHS.refund} target="_blank" rel="noopener noreferrer">
+                Refund policy
+              </a>
+            </>
+          ) : (
+            <>
+              유료 구독(Pro)·환불 조항이 새로 생기고, 판매 대행자(Paddle) 고지가 추가됩니다.
+              시행일 이후에도 계속 이용하면 개정 약관에 동의한 것으로 봅니다. 동의하지
+              않으시면 시행일 전에 계정 설정에서 회원 탈퇴하거나{" "}
+              {/* 제12조 ②의 동의 간주는 "거부 의사를 밝히지 않으면"이 전제라, 거부 방법을 함께 알린다. */}
+              <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>으로 알려 주세요.{" "}
+              {/* 배너를 닫아 화면을 옮기지 않도록 새 탭에서 연다(ConsentScreen과 같은 이유). */}
+              <a href={PATHS.terms} target="_blank" rel="noopener noreferrer">
+                이용약관
+              </a>{" "}
+              ·{" "}
+              <a href={PATHS.refund} target="_blank" rel="noopener noreferrer">
+                환불정책
+              </a>
+            </>
+          )}
         </p>
       </div>
       <button
         type="button"
         className="icon-btn terms-notice-dismiss"
         onClick={handleDismiss}
-        aria-label="공지 닫기"
+        aria-label={lang === "en" ? "Dismiss notice" : "공지 닫기"}
       >
         <Icons.X size={14} />
       </button>

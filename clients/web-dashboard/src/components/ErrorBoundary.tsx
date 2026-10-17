@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { uiText } from "@/i18n/language";
 import { StatusView } from "./StatusView";
 
 interface Props {
@@ -30,10 +31,10 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <StatusView
           tone="error"
-          title="화면을 표시할 수 없습니다"
+          title={uiText("화면을 표시할 수 없습니다", "This screen can't be shown")}
           description={
             <>
-              예기치 못한 오류가 발생했어요.
+              {uiText("예기치 못한 오류가 발생했어요.", "Something unexpected went wrong.")}
               <br />
               <span
                 className="mono"
@@ -46,13 +47,13 @@ export class ErrorBoundary extends Component<Props, State> {
           action={
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn" onClick={this.reset}>
-                다시 시도
+                {uiText("다시 시도", "Try again")}
               </button>
               <button
                 className="btn btn-primary"
                 onClick={() => (window.location.href = "/")}
               >
-                홈으로
+                {uiText("홈으로", "Home")}
               </button>
             </div>
           }

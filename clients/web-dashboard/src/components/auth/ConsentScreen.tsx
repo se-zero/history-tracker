@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { InlineError } from "@/components/ui/InlineError";
+import { useUiLanguage } from "@/i18n/language";
 import { postConsent } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
 import { PATHS } from "@/routes";
@@ -9,6 +10,8 @@ import { PATHS } from "@/routes";
 // 동의를 받는 지점이 없었다. 로그인 후 서버가 requiresConsent로 실제 동의 여부를 판단하고,
 // true인 동안 AuthGate가 children 대신 이 화면을 렌더해 막아선다(전용 라우트 없음).
 export function ConsentScreen() {
+  const { lang } = useUiLanguage();
+  const en = lang === "en";
   const { refresh, logout } = useAuth();
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -23,7 +26,11 @@ export function ConsentScreen() {
       // AuthGate가 그 값을 보고 자동으로 다음 화면으로 넘어간다.
       await refresh();
     } catch {
-      setError("동의 처리에 실패했어요. 잠시 후 다시 시도해 주세요.");
+      setError(
+        en
+          ? "Couldn't save your agreement. Try again in a moment."
+          : "동의 처리에 실패했어요. 잠시 후 다시 시도해 주세요.",
+      );
       setSubmitting(false);
     }
   };
@@ -34,7 +41,11 @@ export function ConsentScreen() {
       await logout();
       // AuthProvider가 상태를 unauthenticated로 바꾸면 AuthGate가 랜딩으로 보낸다.
     } catch {
-      setError("로그아웃에 실패했어요. 잠시 후 다시 시도해 주세요.");
+      setError(
+        en
+          ? "Couldn't log out. Try again in a moment."
+          : "로그아웃에 실패했어요. 잠시 후 다시 시도해 주세요.",
+      );
     }
   };
 
@@ -66,7 +77,7 @@ export function ConsentScreen() {
             margin: "0 0 8px",
           }}
         >
-          약관 동의가 필요해요
+          {en ? "Agreement required" : "약관 동의가 필요해요"}
         </h1>
         <p
           style={{
@@ -76,26 +87,32 @@ export function ConsentScreen() {
             margin: "0 0 24px",
           }}
         >
-          whycode를 계속 이용하시려면{" "}
-          {/* 동의 화면 상태(체크박스)를 잃지 않도록 새 탭에서 연다 */}
-          <a
-            href={PATHS.terms}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-link"
-          >
-            이용약관
-          </a>
-          과{" "}
-          <a
-            href={PATHS.privacy}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-link"
-          >
-            개인정보처리방침
-          </a>
-          에 동의해야 합니다.
+          {en ? (
+            <>
+              To keep using whycode, agree to the{" "}
+              <a href={PATHS.terms} target="_blank" rel="noopener noreferrer" className="text-link">
+                Terms of Service
+              </a>{" "}
+              and the{" "}
+              <a href={PATHS.privacy} target="_blank" rel="noopener noreferrer" className="text-link">
+                Privacy policy
+              </a>
+              .
+            </>
+          ) : (
+            <>
+              whycode를 계속 이용하시려면{" "}
+              {/* 동의 화면 상태(체크박스)를 잃지 않도록 새 탭에서 연다 */}
+              <a href={PATHS.terms} target="_blank" rel="noopener noreferrer" className="text-link">
+                이용약관
+              </a>
+              과{" "}
+              <a href={PATHS.privacy} target="_blank" rel="noopener noreferrer" className="text-link">
+                개인정보처리방침
+              </a>
+              에 동의해야 합니다.
+            </>
+          )}
         </p>
 
         <label
@@ -114,7 +131,11 @@ export function ConsentScreen() {
             onChange={(e) => setAgreed(e.target.checked)}
             style={{ marginTop: 2 }}
           />
-          <span>이용약관과 개인정보처리방침을 읽었으며 동의합니다.</span>
+          <span>
+            {en
+              ? "I have read and agree to the Terms of Service and the Privacy policy."
+              : "이용약관과 개인정보처리방침을 읽었으며 동의합니다."}
+          </span>
         </label>
 
         {error && <InlineError style={{ marginBottom: 12 }}>{error}</InlineError>}
@@ -126,7 +147,7 @@ export function ConsentScreen() {
           disabled={!agreed || submitting}
           onClick={handleAgree}
         >
-          {submitting ? "처리 중…" : "동의하고 계속하기"}
+          {submitting ? (en ? "Working…" : "처리 중…") : en ? "Agree and continue" : "동의하고 계속하기"}
         </button>
 
         <div style={{ textAlign: "center", marginTop: 16 }}>
@@ -136,7 +157,7 @@ export function ConsentScreen() {
             style={{ fontSize: 12 }}
             onClick={handleLogout}
           >
-            동의하지 않고 로그아웃
+            {en ? "Log out without agreeing" : "동의하지 않고 로그아웃"}
           </button>
         </div>
       </div>

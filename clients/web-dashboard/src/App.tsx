@@ -24,6 +24,7 @@ import { SlackPage } from "@/pages/SlackPage";
 import { SourcesPage } from "@/pages/SourcesPage";
 import { SupportPage } from "@/pages/SupportPage";
 import { TermsPage } from "@/pages/TermsPage";
+import { uiText } from "@/i18n/language";
 import { PATHS } from "@/routes";
 import type { Project } from "@/types/api";
 
@@ -38,7 +39,13 @@ function useProject() {
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
   if (status === "loading") {
-    return <StatusView tone="loading" description="세션 확인 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={uiText("세션 확인 중…", "Checking your session…")}
+        fullPage
+      />
+    );
   }
   if (status === "unauthenticated") {
     return <Navigate to={PATHS.landing} replace />;
@@ -129,24 +136,39 @@ function RootRedirect() {
   const projectsQuery = useProjects({ enabled: status === "authenticated" });
 
   if (status === "loading") {
-    return <StatusView tone="loading" description="세션 확인 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={uiText("세션 확인 중…", "Checking your session…")}
+        fullPage
+      />
+    );
   }
   if (status === "unauthenticated") return <Navigate to={PATHS.landing} replace />;
   if (projectsQuery.isLoading) {
-    return <StatusView tone="loading" description="프로젝트를 불러오는 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={uiText("프로젝트를 불러오는 중…", "Loading projects…")}
+        fullPage
+      />
+    );
   }
   if (projectsQuery.isError) {
     return (
       <StatusView
         tone="error"
-        title="프로젝트를 불러오지 못했어요"
-        description="네트워크나 서버 상태를 확인한 뒤 새로고침해 주세요."
+        title={uiText("프로젝트를 불러오지 못했어요", "Couldn't load projects")}
+        description={uiText(
+          "네트워크나 서버 상태를 확인한 뒤 새로고침해 주세요.",
+          "Check your network or the server, then refresh.",
+        )}
         action={
           <button
             className="btn btn-primary"
             onClick={() => window.location.reload()}
           >
-            새로고침
+            {uiText("새로고침", "Refresh")}
           </button>
         }
         fullPage
@@ -164,21 +186,36 @@ function AccountRedirect() {
   const projectsQuery = useProjects({ enabled: status === "authenticated" });
 
   if (status === "loading") {
-    return <StatusView tone="loading" description="세션 확인 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={uiText("세션 확인 중…", "Checking your session…")}
+        fullPage
+      />
+    );
   }
   if (status === "unauthenticated") return <Navigate to={PATHS.landing} replace />;
   if (projectsQuery.isLoading) {
-    return <StatusView tone="loading" description="프로젝트를 불러오는 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={uiText("프로젝트를 불러오는 중…", "Loading projects…")}
+        fullPage
+      />
+    );
   }
   if (projectsQuery.isError) {
     return (
       <StatusView
         tone="error"
-        title="프로젝트를 불러오지 못했어요"
-        description="네트워크나 서버 상태를 확인한 뒤 새로고침해 주세요."
+        title={uiText("프로젝트를 불러오지 못했어요", "Couldn't load projects")}
+        description={uiText(
+          "네트워크나 서버 상태를 확인한 뒤 새로고침해 주세요.",
+          "Check your network or the server, then refresh.",
+        )}
         action={
           <button className="btn btn-primary" onClick={() => window.location.reload()}>
-            새로고침
+            {uiText("새로고침", "Refresh")}
           </button>
         }
         fullPage
