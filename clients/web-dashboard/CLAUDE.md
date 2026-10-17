@@ -24,7 +24,7 @@ npm run preview    # 빌드 결과 미리보기
 
 ```
 src/
-  main.tsx          부트스트랩 — QueryClient · BrowserRouter · ThemeProvider · ErrorBoundary
+  main.tsx          부트스트랩 — QueryClient · BrowserRouter · ThemeProvider · UiLanguageProvider · ErrorBoundary
   App.tsx           라우트 정의 + AuthGate(인증 가드) + 루트 리다이렉트
 
   api/              backend 엔드포인트별 axios 클라이언트 (리소스 단위로 얇게)
@@ -108,9 +108,11 @@ src/
                     켜졌을 때만(`GET /billing/availability`) "계정 설정에서 구독하기"를, 아니면 "준비 중"을 보인다.
                     같은 응답의 `betaEndsAt`이 있으면 비교표 위에 베타 안내(종료일)를 띄운다
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
-                    LandingLanguageProvider — 랜딩 계열 ko/en 상태(`ht.lang` + 브라우저 언어 감지).
-                    문서 헤드(`<html lang>`·`meta description`)도 여기서 언어에 맞춰 바꾸고 이탈 시
-                    되돌린다 — **검색 노출에 직결되므로 index.html의 정적 메타와 짝으로 본다**
+                    LandingLanguageProvider — 공개 페이지의 `meta description`만 언어에 맞춘다.
+                    언어 상태와 `<html lang>`은 `src/i18n/language.tsx`의 `UiLanguageProvider`가
+                    소유한다(`ht.lang` + 브라우저 언어 감지, 앱 상단 `AppLanguageMenu`와 공유).
+                    공개 페이지를 떠나면 설명문만 한국어로 되돌리고 lang은 되돌리지 않는다 —
+                    **검색 노출에 직결되므로 index.html의 정적 메타와 짝으로 본다**
                     (영어 문구는 이 파일, 한국어 문구는 index.html. docs/i18n.md §3-1)
     BranchSelect · Icons · StatusView · ErrorBoundary
 
@@ -152,9 +154,9 @@ src/
                     remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
                     **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
                     (서버가 타임존을 굳히면 저장된 답변이 그 타임존에 영구히 묶인다, docs/tools.md).
-                    로캘은 format.ts의 `UI_LOCALE` 한 곳에서만 정한다 — 언어 분리(i18n) 도입 시
-                    이 상수만 설정 훅으로 교체하면 포맷터가 함께 따라온다. 타임존은 로캘과 별개로
-                    기기 설정이 자동 적용되므로 어디에도 하드코딩하지 않는다.
+                    로캘은 `src/i18n/language.tsx`의 `uiLocale()`이 정하고 format.ts가 읽는다
+                    (`ko` → `ko-KR`, `en` → `en-US`). 호출부에 로캘 문자열을 흩뿌리지 않는다.
+                    타임존은 로캘과 별개로 기기 설정이 자동 적용되므로 어디에도 하드코딩하지 않는다.
                     **언어 분리 작업 전에 docs/i18n.md를 읽는다** — 로캘·타임존을 묶으면 안 되는
                     이유와 시각 표시 계약(날짜 단독·코드블록 미변환 등)이 거기 있다
   auth/             AuthProvider(세션 상태) · tokenStorage(access는 메모리만. 레거시 localStorage 키는 기동 시 삭제) · returnPath(로그인 후 복귀 경로 — sessionStorage, 같은 출처 상대 경로만)
