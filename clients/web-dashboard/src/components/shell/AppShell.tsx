@@ -9,6 +9,7 @@ import { SearchDialog } from "@/components/search/SearchDialog";
 import { StatusView } from "@/components/StatusView";
 import { isOptimisticConversationId } from "@/hooks/useConversations";
 import { useProjects, useReorderProjects } from "@/hooks/useProjects";
+import { useUiLanguage } from "@/i18n/language";
 import type { Project } from "@/types/api";
 
 type Route =
@@ -28,22 +29,40 @@ function routeFromPath(pathname: string): Route {
   return "chat";
 }
 
-function crumbsFor(project: Project, route: Route): string[] {
+function crumbsFor(project: Project, route: Route, lang: "ko" | "en"): string[] {
+  const label =
+    lang === "en"
+      ? {
+          sources: "Sources",
+          actors: "Actors",
+          graph: "Review graph",
+          settings: "Settings",
+          account: "Account",
+          chat: "Chat",
+        }
+      : {
+          sources: "데이터 소스",
+          actors: "액터",
+          graph: "그래프 확인",
+          settings: "설정",
+          account: "계정 설정",
+          chat: "대화",
+        };
   switch (route) {
     case "sources":
-      return [project.name, "데이터 소스"];
+      return [project.name, label.sources];
     case "actors":
-      return [project.name, "액터"];
+      return [project.name, label.actors];
     case "graph":
-      return [project.name, "그래프 확인"];
+      return [project.name, label.graph];
     case "settings":
-      return [project.name, "설정"];
+      return [project.name, label.settings];
     case "account":
       // 계정 설정은 프로젝트 단위가 아니라 계정 단위라 프로젝트명을 붙이지 않는다.
-      return ["계정 설정"];
+      return [label.account];
     case "chat":
     default:
-      return [project.name, "대화"];
+      return [project.name, label.chat];
   }
 }
 
@@ -52,6 +71,7 @@ interface ShellContext {
 }
 
 export function AppShell({ children }: { children?: ReactNode }) {
+  const { lang } = useUiLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -102,21 +122,31 @@ export function AppShell({ children }: { children?: ReactNode }) {
   }, [chatProjectId, chatConversationId, atChatRoot]);
 
   if (projectsQuery.isLoading) {
-    return <StatusView tone="loading" description="프로젝트 불러오는 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={lang === "en" ? "Loading projects…" : "프로젝트 불러오는 중…"}
+        fullPage
+      />
+    );
   }
 
   if (projectsQuery.isError) {
     return (
       <StatusView
         tone="error"
-        title="프로젝트를 불러오지 못했어요"
-        description="네트워크나 서버 상태를 확인한 뒤 새로고침해 주세요."
+        title={lang === "en" ? "Couldn't load projects" : "프로젝트를 불러오지 못했어요"}
+        description={
+          lang === "en"
+            ? "Check your network or the server, then refresh."
+            : "네트워크나 서버 상태를 확인한 뒤 새로고침해 주세요."
+        }
         action={
           <button
             className="btn btn-primary"
             onClick={() => window.location.reload()}
           >
-            새로고침
+            {lang === "en" ? "Refresh" : "새로고침"}
           </button>
         }
         fullPage
@@ -128,7 +158,13 @@ export function AppShell({ children }: { children?: ReactNode }) {
     // 빈 목록이지만 아직 refetch 중이면(예: 생성 직후 stale [] 캐시) 결과를 기다린다.
     // 곧바로 /onboarding으로 보내면 방금 만든 프로젝트로의 이동이 되튕긴다.
     if (projectsQuery.isFetching) {
-      return <StatusView tone="loading" description="프로젝트 불러오는 중…" fullPage />;
+      return (
+        <StatusView
+          tone="loading"
+          description={lang === "en" ? "Loading projects…" : "프로젝트 불러오는 중…"}
+          fullPage
+        />
+      );
     }
     return <Navigate to="/onboarding" replace />;
   }
@@ -173,7 +209,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
         <PrivacyNoticeBanner />
         {/* 그래프 확인 페이지는 우측 액션이 있어 Topbar를 직접 렌더한다. */}
         {route !== "graph" && (
-          <Topbar crumbs={crumbsFor(project, route)} />
+          <Topbar crumbs={crumbsFor(project, route, lang)} />
         )}
         {children ?? <Outlet context={{ project } satisfies ShellContext} />}
       </div>

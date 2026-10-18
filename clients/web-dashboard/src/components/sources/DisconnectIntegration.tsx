@@ -4,6 +4,7 @@ import { InlineError } from "@/components/ui/InlineError";
 import { byoKeptNoteOf, deletedDataOf, oauthKeptNoteOf, sourceName } from "@/components/sources/sourceCatalog";
 import { useDisconnectIntegration } from "@/hooks/useIntegrations";
 import type { IntegrationProvider } from "@/api/integrations";
+import { uiText } from "@/i18n/language";
 
 /**
  * 연동 해제 버튼 + 사전 경고 다이얼로그.
@@ -53,7 +54,7 @@ export function DisconnectIntegration({
         className="btn btn-ghost src-disconnect"
         onClick={() => setConfirming(true)}
       >
-        연동 해제
+        {uiText("연동 해제", "Disconnect")}
       </button>
 
       {confirming && (
@@ -62,25 +63,36 @@ export function DisconnectIntegration({
             className="confirm-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label={`${label} 연동 해제`}
+            aria-label={uiText(`${label} 연동 해제`, `Disconnect ${label}`)}
             onMouseDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === "Escape") close();
             }}
           >
-            <h4 className="confirm-title">{label} 연동을 해제할까요?</h4>
+            <h4 className="confirm-title">
+              {uiText(`${label} 연동을 해제할까요?`, `Disconnect ${label}?`)}
+            </h4>
             <ul className="confirm-points">
               <li>
                 <span className="confirm-mark danger" aria-hidden />
-                저장된 접근 권한과 {deletedData}가 삭제됩니다.
+                {uiText(
+                  `저장된 접근 권한과 ${deletedData}가 삭제됩니다.`,
+                  `Saved access and ${deletedData} will be deleted.`,
+                )}
               </li>
               <li>
                 <span className="confirm-mark" aria-hidden />
-                다른 연동과 대화 기록은 그대로 유지됩니다.
+                {uiText(
+                  "다른 연동과 대화 기록은 그대로 유지됩니다.",
+                  "Other connections and conversation history stay as they are.",
+                )}
               </li>
               <li>
                 <span className="confirm-mark" aria-hidden />
-                다시 연결하면 처음부터 새로 수집합니다 — 삭제된 데이터는 복구되지 않습니다.
+                {uiText(
+                  "다시 연결하면 처음부터 새로 수집합니다 — 삭제된 데이터는 복구되지 않습니다.",
+                  "Connecting again collects from the start — deleted data is not restored.",
+                )}
               </li>
               {byoKeptNote && (
                 <li>
@@ -98,7 +110,10 @@ export function DisconnectIntegration({
 
             {disconnect.isError && (
               <InlineError style={{ marginTop: 12 }}>
-                해제하지 못했어요. 잠시 후 다시 시도해 주세요.
+                {uiText(
+                  "해제하지 못했어요. 잠시 후 다시 시도해 주세요.",
+                  "Couldn't disconnect. Try again in a moment.",
+                )}
               </InlineError>
             )}
 
@@ -109,7 +124,7 @@ export function DisconnectIntegration({
                 onClick={close}
                 disabled={disconnect.isPending}
               >
-                취소
+                {uiText("취소", "Cancel")}
               </button>
               <button
                 type="button"
@@ -120,7 +135,9 @@ export function DisconnectIntegration({
                 }
                 disabled={disconnect.isPending}
               >
-                {disconnect.isPending ? "해제하는 중…" : "해제하고 삭제"}
+                {disconnect.isPending
+                  ? uiText("해제하는 중…", "Disconnecting…")
+                  : uiText("해제하고 삭제", "Disconnect and delete")}
               </button>
             </div>
           </div>

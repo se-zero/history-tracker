@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icons } from "@/components/Icons";
+import { uiText } from "@/i18n/language";
 import { ClusterDetail } from "@/components/graph/ClusterDetail";
 import { sourceNameForNode } from "@/components/sources/sourceCatalog";
 import { rgba, resolveVarRgb, shade, varName, type Rgb } from "@/lib/canvasColor";
@@ -851,12 +852,18 @@ export function WorkUnitCanvas({
           {/* 전체 보기에서는 추측 엣지가 점선으로 잘 안 보인다(drawSharedLinks·drawMemberLinks는
               배치가 만든 파생선이라 메타가 없다) — 이 카운트가 유일한 전역 감각이다. */}
           <div className="wu-legend-counts">
-            실선 {certaintyCounts.confirmed} · 점선 {certaintyCounts.inferred}
+            {uiText(
+              `실선 ${certaintyCounts.confirmed} · 점선 ${certaintyCounts.inferred}`,
+              `${certaintyCounts.confirmed} solid · ${certaintyCounts.inferred} dashed`,
+            )}
           </div>
           {lensActors.length > 0 && (
             <div className="wu-lens">
               <div className="wu-legend-hint">
-                사람별로 보기{lensActorIds.length > 0 ? ` · ${lensActorIds.length}명` : ""}
+                {uiText("사람별로 보기", "By person")}
+                {lensActorIds.length > 0
+                  ? uiText(` · ${lensActorIds.length}명`, ` · ${lensActorIds.length}`)
+                  : ""}
               </div>
               {/* 사람은 프로젝트가 커질수록 늘어난다 — 목록만 스크롤하고 제목은 남긴다. */}
               <div className="wu-lens-list scrollable">
@@ -874,7 +881,10 @@ export function WorkUnitCanvas({
                           : [...cur, node.id],
                       )
                     }
-                    title={`${node.title} — 관여한 노드 ${count}개 (여러 명 함께 선택 가능)`}
+                    title={uiText(
+                      `${node.title} — 관여한 노드 ${count}개 (여러 명 함께 선택 가능)`,
+                      `${node.title} — ${count} related nodes (select more than one)`,
+                    )}
                   >
                     <span className="wu-lens-name">{node.title}</span>
                     <span className="wu-lens-count">{count}</span>
@@ -885,7 +895,7 @@ export function WorkUnitCanvas({
           )}
           {nodeLensGroups.length > 0 && (
             <div className="wu-lens">
-              <div className="wu-legend-hint">노드별로 보기</div>
+              <div className="wu-legend-hint">{uiText("노드별로 보기", "By node type")}</div>
               <div className="wu-lens-list">
                 {nodeLensGroups.map((group) => (
                   <button
@@ -901,7 +911,10 @@ export function WorkUnitCanvas({
                           : [...cur, group.key],
                       )
                     }
-                    title={`${group.label} 노드만 보기 (여러 개 함께 선택 가능)`}
+                    title={uiText(
+                      `${group.label} 노드만 보기 (여러 개 함께 선택 가능)`,
+                      `Show only ${group.label} nodes (select more than one)`,
+                    )}
                   >
                     <span
                       className="wu-legend-dot"
@@ -923,7 +936,9 @@ export function WorkUnitCanvas({
           <svg className="wu-line-legend-swatch" viewBox="0 0 24 8" aria-hidden="true">
             <line x1="1" y1="4" x2="23" y2="4" className="wu-line-legend-line" />
           </svg>
-          <span>실선: 명시된 참조·소스가 준 사실</span>
+          <span>
+            {uiText("실선: 명시된 참조·소스가 준 사실", "Solid: an explicit reference or a fact from the source")}
+          </span>
         </div>
         <div className="wu-line-legend-row">
           <svg className="wu-line-legend-swatch" viewBox="0 0 24 8" aria-hidden="true">
@@ -935,18 +950,20 @@ export function WorkUnitCanvas({
               className="wu-line-legend-line wu-line-legend-line--dashed"
             />
           </svg>
-          <span>점선: 내용 유사도·스레드 전파로 연결</span>
+          <span>
+            {uiText("점선: 내용 유사도·스레드 전파로 연결", "Dashed: linked by similarity or thread spread")}
+          </span>
         </div>
       </div>
 
       <div className="graph-controls">
-        <button className="icon-btn" title="확대" onClick={() => zoom(1.25)}>
+        <button className="icon-btn" title={uiText("확대", "Zoom in")} onClick={() => zoom(1.25)}>
           <Icons.ZoomIn />
         </button>
-        <button className="icon-btn" title="축소" onClick={() => zoom(0.8)}>
+        <button className="icon-btn" title={uiText("축소", "Zoom out")} onClick={() => zoom(0.8)}>
           <Icons.ZoomOut />
         </button>
-        <button className="icon-btn" title="전체 보기" onClick={resetView}>
+        <button className="icon-btn" title={uiText("전체 보기", "Fit")} onClick={resetView}>
           <Icons.Fit />
         </button>
       </div>

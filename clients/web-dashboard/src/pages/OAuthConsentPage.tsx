@@ -7,6 +7,7 @@ import { OAuthConsentCard } from "@/components/oauth/OAuthConsentCard";
 import { StatusView } from "@/components/StatusView";
 import { useAuth } from "@/auth/AuthProvider";
 import { saveReturnPath } from "@/auth/returnPath";
+import { uiText } from "@/i18n/language";
 import { PATHS } from "@/routes";
 
 // MCP 클라이언트(Claude Code·Codex)가 /oauth2/authorize를 열면 backend는 로그인 세션이
@@ -44,15 +45,24 @@ export function OAuthConsentPage() {
   }, [status]);
 
   if (status === "loading") {
-    return <StatusView tone="loading" description="세션 확인 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={uiText("세션 확인 중…", "Checking your session…")}
+        fullPage
+      />
+    );
   }
   if (status === "unauthenticated") {
     if (restoredFromLogin) {
       return (
         <StatusView
           tone="info"
-          title="로그인이 필요해요"
-          description="앱 연결을 계속하려면 GitHub으로 로그인해 주세요."
+          title={uiText("로그인이 필요해요", "Sign-in required")}
+          description={uiText(
+            "앱 연결을 계속하려면 GitHub으로 로그인해 주세요.",
+            "Sign in with GitHub to continue connecting the app.",
+          )}
           action={
             <>
               <a
@@ -60,10 +70,10 @@ export function OAuthConsentPage() {
                 href={GITHUB_AUTHORIZE_URL}
                 onClick={() => saveReturnPath(location.pathname + location.search)}
               >
-                GitHub으로 계속
+                {uiText("GitHub으로 계속", "Continue with GitHub")}
               </a>
               <Link className="btn btn-ghost" to={PATHS.landing}>
-                취소
+                {uiText("취소", "Cancel")}
               </Link>
             </>
           }
@@ -71,7 +81,13 @@ export function OAuthConsentPage() {
         />
       );
     }
-    return <StatusView tone="loading" description="로그인 화면으로 이동하는 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={uiText("로그인 화면으로 이동하는 중…", "Opening the sign-in screen…")}
+        fullPage
+      />
+    );
   }
   // 현재 버전 약관에 동의하지 않은 사용자는 동의 화면을 먼저 통과해야 한다.
   // 동의하면 AuthProvider.refresh()가 requiresConsent를 바꾸고 이 페이지가 다음 단계로 넘어간다.

@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { WorkUnitCanvas } from "@/components/graph/WorkUnitCanvas";
 import { NodeDetail } from "@/components/graph/NodeDetail";
 import { StatusView } from "@/components/StatusView";
+import { uiText } from "@/i18n/language";
 import { Topbar } from "@/components/shell/Topbar";
 import { useAuth } from "@/auth/AuthProvider";
 import {
@@ -103,22 +104,25 @@ export function GraphPage({ project }: { project: Project }) {
   return (
     <div className="wu-page">
       <Topbar
-        crumbs={[project.name, "그래프 확인"]}
+        crumbs={[project.name, uiText("그래프 확인", "Review graph")]}
         right={
           <>
             {data && (
               <span className="muted" style={{ fontSize: 12 }}>
-                노드 {data.nodes.length} · 연결 {data.edges.length}
+                {uiText(
+                  `노드 ${data.nodes.length} · 연결 ${data.edges.length}`,
+                  `${data.nodes.length} nodes · ${data.edges.length} links`,
+                )}
               </span>
             )}
             {succeeded && (
               <span className="muted" style={{ fontSize: 12 }}>
-                ✓ 연결 {builtEdges}개 생성
+                {uiText(`✓ 연결 ${builtEdges}개 생성`, `✓ ${builtEdges} links created`)}
               </span>
             )}
             {failed && (
               <span style={{ fontSize: 12, color: "var(--danger)" }}>
-                재구축 실패
+                {uiText("재구축 실패", "Rebuild failed")}
               </span>
             )}
             <button
@@ -126,11 +130,14 @@ export function GraphPage({ project }: { project: Project }) {
               style={{ marginLeft: 12 }}
               onClick={() => rebuild.mutate(false)}
               disabled={building}
-              title="수집된 데이터로 소스 간 연결을 임베딩 유사도로 다시 계산합니다 (빠름)"
+              title={uiText(
+                "수집된 데이터로 소스 간 연결을 임베딩 유사도로 다시 계산합니다 (빠름)",
+                "Recompute links between sources from collected data using embedding similarity (fast)",
+              )}
             >
               {building && buildingVerify === false
-                ? "재구축 중…"
-                : "그래프 재구축"}
+                ? uiText("재구축 중…", "Rebuilding…")
+                : uiText("그래프 재구축", "Rebuild graph")}
             </button>
             <button
               className="btn"
@@ -138,7 +145,10 @@ export function GraphPage({ project }: { project: Project }) {
               onClick={() => {
                 if (
                   window.confirm(
-                    "LLM 검증으로 정밀 재구축할까요?\n기존 시맨틱 연결을 비우고 LLM이 후보를 검증해 다시 만듭니다. 시간과 비용이 더 듭니다.",
+                    uiText(
+                      "LLM 검증으로 정밀 재구축할까요?\n기존 시맨틱 연결을 비우고 LLM이 후보를 검증해 다시 만듭니다. 시간과 비용이 더 듭니다.",
+                      "Rebuild precisely with LLM verification?\nExisting semantic links are cleared and the LLM checks candidates again. This takes longer and costs more.",
+                    ),
                   )
                 ) {
                   rebuild.mutate(true);
@@ -147,36 +157,45 @@ export function GraphPage({ project }: { project: Project }) {
               disabled={building || preciseRebuildLocked}
               title={
                 preciseRebuildLocked
-                  ? "무료 플랜에서는 사용할 수 없습니다 (유료 전환 필요)"
-                  : "LLM이 후보를 검증해 잘못된 연결을 거릅니다 (느림·LLM 비용)"
+                  ? uiText(
+                      "무료 플랜에서는 사용할 수 없습니다 (유료 전환 필요)",
+                      "Not available on the free plan (a paid plan is required)",
+                    )
+                  : uiText(
+                      "LLM이 후보를 검증해 잘못된 연결을 거릅니다 (느림·LLM 비용)",
+                      "The LLM checks candidates and drops bad links (slower, LLM cost)",
+                    )
               }
             >
               {building && buildingVerify === true
-                ? "정밀 재구축 중…"
-                : "정밀 재구축 (LLM)"}
+                ? uiText("정밀 재구축 중…", "Precise rebuild…")
+                : uiText("정밀 재구축 (LLM)", "Precise rebuild (LLM)")}
             </button>
           </>
         }
       />
       <div className="wu-stage">
         {graphQuery.isLoading ? (
-          <StatusView tone="loading" description="그래프를 그리는 중…" />
+          <StatusView tone="loading" description={uiText("그래프를 그리는 중…", "Drawing the graph…")} />
         ) : graphQuery.isError ? (
           <StatusView
             tone="error"
-            title="그래프를 불러오지 못했어요"
-            description="다시 시도해 주세요."
+            title={uiText("그래프를 불러오지 못했어요", "Couldn't load the graph")}
+            description={uiText("다시 시도해 주세요.", "Try again.")}
             action={
               <button className="btn" onClick={() => graphQuery.refetch()}>
-                다시 시도
+                {uiText("다시 시도", "Try again")}
               </button>
             }
           />
         ) : !data || data.nodes.length === 0 ? (
           <StatusView
             tone="empty"
-            title="아직 그래프 데이터가 없어요"
-            description="연동된 소스에서 데이터를 수집하면 그래프가 만들어집니다."
+            title={uiText("아직 그래프 데이터가 없어요", "No graph data yet")}
+            description={uiText(
+              "연동된 소스에서 데이터를 수집하면 그래프가 만들어집니다.",
+              "The graph appears after data is collected from connected sources.",
+            )}
           />
         ) : (
           <>

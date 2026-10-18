@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Icons } from "@/components/Icons";
+import { useUiLanguage } from "@/i18n/language";
 import {
   SEARCH_MIN_QUERY_LENGTH,
   useDebouncedValue,
@@ -18,6 +19,23 @@ interface Props {
 // 대화 검색(⌘K) 다이얼로그 — 사용자와 AI가 주고받은 대화(제목·메시지 본문)를 검색한다.
 // 열릴 때마다 마운트돼 입력·포커스 상태가 초기화된다 (AppShell에서 조건부 렌더).
 export function SearchDialog({ project, onClose }: Props) {
+  const { lang } = useUiLanguage();
+  const copy =
+    lang === "en"
+      ? {
+          label: "Search conversations",
+          placeholder: "Search conversations…",
+          min: (n: number) => `Enter at least ${n} characters`,
+          searching: "Searching…",
+          empty: "No results",
+        }
+      : {
+          label: "대화 검색",
+          placeholder: "대화 검색…",
+          min: (n: number) => `${n}글자 이상 입력하세요`,
+          searching: "검색 중…",
+          empty: "검색 결과가 없습니다",
+        };
   const navigate = useNavigate();
   const [input, setInput] = useState("");
   const q = useDebouncedValue(input.trim());
@@ -68,7 +86,7 @@ export function SearchDialog({ project, onClose }: Props) {
       <div
         className="search-dialog"
         role="dialog"
-        aria-label="대화 검색"
+        aria-label={copy.label}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="search-input-row">
@@ -77,7 +95,7 @@ export function SearchDialog({ project, onClose }: Props) {
             className="search-input"
             autoFocus
             value={input}
-            placeholder="대화 검색…"
+            placeholder={copy.placeholder}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
           />
@@ -87,11 +105,11 @@ export function SearchDialog({ project, onClose }: Props) {
         <div className="search-results" ref={listRef}>
           {!ready ? (
             <div className="search-empty">
-              {SEARCH_MIN_QUERY_LENGTH}글자 이상 입력하세요
+              {copy.min(SEARCH_MIN_QUERY_LENGTH)}
             </div>
           ) : conversations.length === 0 ? (
             <div className="search-empty">
-              {searching ? "검색 중…" : "검색 결과가 없습니다"}
+              {searching ? copy.searching : copy.empty}
             </div>
           ) : (
             conversations.map((conversation, index) => (

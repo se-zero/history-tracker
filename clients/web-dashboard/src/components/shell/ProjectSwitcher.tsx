@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Icons } from "@/components/Icons";
+import { useUiLanguage } from "@/i18n/language";
 import { projectMark } from "@/lib/projectMark";
 import type { Project } from "@/types/api";
 
@@ -19,6 +20,23 @@ export function ProjectSwitcher({
   onNewProject,
   onReorder,
 }: Props) {
+  const { lang } = useUiLanguage();
+  const copy =
+    lang === "en"
+      ? {
+          first: "Create your first project",
+          start: "Get started",
+          fallback: "Project",
+          switchLabel: "Switch project",
+          create: "New project",
+        }
+      : {
+          first: "첫 프로젝트 만들기",
+          start: "시작하기",
+          fallback: "프로젝트",
+          switchLabel: "프로젝트 전환",
+          create: "새 프로젝트 만들기",
+        };
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -62,8 +80,8 @@ export function ProjectSwitcher({
         <button className="project-switcher" onClick={onNewProject}>
           <div className="project-mark">+</div>
           <div className="project-name">
-            첫 프로젝트 만들기
-            <span className="role">시작하기</span>
+            {copy.first}
+            <span className="role">{copy.start}</span>
           </div>
         </button>
       </div>
@@ -79,7 +97,7 @@ export function ProjectSwitcher({
         <div className="project-mark">{projectMark(project.name)}</div>
         <div className="project-name">
           {project.name}
-          <span className="role">{project.description ?? "프로젝트"}</span>
+          <span className="role">{project.description ?? copy.fallback}</span>
         </div>
         <Icons.ChevronDown
           size={14}
@@ -91,7 +109,7 @@ export function ProjectSwitcher({
       </button>
       {open && (
         <div className="project-dropdown" role="menu">
-          <div className="dropdown-label">프로젝트 전환</div>
+          <div className="dropdown-label">{copy.switchLabel}</div>
           <div className="project-dropdown-list">
             {projects.map((p) => (
               <button
@@ -132,7 +150,7 @@ export function ProjectSwitcher({
                 <div className="project-mark sm">{projectMark(p.name)}</div>
                 <div className="project-name">
                   {p.name}
-                  <span className="role">{p.description ?? "프로젝트"}</span>
+                  <span className="role">{p.description ?? copy.fallback}</span>
                 </div>
                 {p.id === project.id && (
                   <Icons.Check size={13} className="check" />
@@ -151,7 +169,7 @@ export function ProjectSwitcher({
             <span className="dropdown-icon">
               <Icons.Plus size={13} />
             </span>
-            <span>새 프로젝트 만들기</span>
+            <span>{copy.create}</span>
           </button>
         </div>
       )}

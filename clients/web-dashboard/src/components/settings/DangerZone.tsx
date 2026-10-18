@@ -7,6 +7,7 @@ import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
 import { deleteProject } from "@/api/projects";
 import { queryKeys } from "@/hooks/queryKeys";
+import { uiText } from "@/i18n/language";
 import type { Project } from "@/types/api";
 
 // 프로젝트 삭제 — 되돌릴 수 없는 작업. 회원 탈퇴(계정 단위)는 계정 설정으로 분리됐다.
@@ -37,9 +38,12 @@ export function DangerZone({ project }: { project: Project }) {
       <section className="source-card source-card--danger">
         <div className="src-head">
           <div style={{ flex: 1 }}>
-            <h4>프로젝트 삭제</h4>
+            <h4>{uiText("프로젝트 삭제", "Delete project")}</h4>
             <div className="src-sub">
-              모든 대화·연동 정보가 영구 삭제됩니다. 되돌릴 수 없어요.
+              {uiText(
+                "모든 대화·연동 정보가 영구 삭제됩니다. 되돌릴 수 없어요.",
+                "All conversations and connections are deleted permanently. This can't be undone.",
+              )}
             </div>
           </div>
         </div>
@@ -48,11 +52,9 @@ export function DangerZone({ project }: { project: Project }) {
           <Field
             label={
               <>
-                확인을 위해 프로젝트 이름{" "}
-                <span className="mono text-danger">
-                  {project.name}
-                </span>
-                을 입력하세요
+                {uiText("확인을 위해 프로젝트 이름 ", "Type the project name ")}
+                <span className="mono text-danger">{project.name}</span>
+                {uiText("을 입력하세요", " to confirm")}
               </>
             }
           >
@@ -63,7 +65,9 @@ export function DangerZone({ project }: { project: Project }) {
             />
           </Field>
           {deleteMutation.isError && (
-            <InlineError>삭제에 실패했어요. 다시 시도해 주세요.</InlineError>
+            <InlineError>
+              {uiText("삭제에 실패했어요. 다시 시도해 주세요.", "Couldn't delete. Try again.")}
+            </InlineError>
           )}
         </div>
 
@@ -74,7 +78,9 @@ export function DangerZone({ project }: { project: Project }) {
             onClick={() => deleteMutation.mutate()}
           >
             <Icons.Trash size={13} />
-            {deleteMutation.isPending ? "삭제 중…" : "프로젝트 영구 삭제"}
+            {deleteMutation.isPending
+              ? uiText("삭제 중…", "Deleting…")
+              : uiText("프로젝트 영구 삭제", "Delete project permanently")}
           </button>
         </div>
       </section>

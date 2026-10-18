@@ -1,4 +1,5 @@
 import { useGithubBranches } from "@/hooks/useGithub";
+import { useUiLanguage } from "@/i18n/language";
 
 // 저장소 브랜치 선택 드롭다운. 연결 시점에만 마운트되어 해당 저장소의 브랜치를 lazy 로드한다.
 export function BranchSelect({
@@ -16,6 +17,7 @@ export function BranchSelect({
   onChange: (branch: string) => void;
   disabled?: boolean;
 }) {
+  const { lang } = useUiLanguage();
   const branchesQuery = useGithubBranches(installationId, owner, repo);
   const branches = branchesQuery.data ?? [];
   // 기본 브랜치(value)가 목록에 없거나 로딩 중일 때도 선택값이 비지 않도록 포함
@@ -28,10 +30,12 @@ export function BranchSelect({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled || branchesQuery.isLoading}
-      title="수집할 브랜치"
+      title={lang === "en" ? "Branch to collect" : "수집할 브랜치"}
     >
       {branchesQuery.isLoading ? (
-        <option value={value}>{value || "브랜치 불러오는 중…"}</option>
+        <option value={value}>
+          {value || (lang === "en" ? "Loading branches…" : "브랜치 불러오는 중…")}
+        </option>
       ) : (
         options.map((branch) => (
           <option key={branch} value={branch}>

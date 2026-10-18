@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
+import { useUiLanguage } from "@/i18n/language";
 import type { Message } from "@/types/api";
 
 interface ChatStreamProps {
@@ -24,6 +25,9 @@ export function ChatStream({
   onReachTop,
   onActiveMessageChange,
 }: ChatStreamProps) {
+  const { lang } = useUiLanguage();
+  const olderLoading = lang === "en" ? "Loading earlier messages…" : "이전 메시지 불러오는 중…";
+  const olderFailed = lang === "en" ? "Couldn't load earlier messages" : "이전 메시지 불러오기 실패";
   const scrollRef = useRef<HTMLDivElement>(null);
   const topSentinel = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string | null>(null);
@@ -124,9 +128,9 @@ export function ChatStream({
   return (
     <div className="chat-stream-wrap">
       {isLoadingOlder ? (
-        <div className="chat-older-spinner">이전 메시지 불러오는 중…</div>
+        <div className="chat-older-spinner">{olderLoading}</div>
       ) : olderError ? (
-        <div className="chat-older-error">이전 메시지 불러오기 실패</div>
+        <div className="chat-older-error">{olderFailed}</div>
       ) : null}
       <div className="chat-stream" ref={scrollRef}>
         <div ref={topSentinel} aria-hidden className="chat-top-sentinel" />

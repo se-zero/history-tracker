@@ -13,6 +13,7 @@ import { PlanCard } from "@/components/settings/PlanCard";
 import { deleteAccount } from "@/api/auth";
 import { useAuth } from "@/auth/AuthProvider";
 import { useBillingSummary } from "@/hooks/useBilling";
+import { uiText } from "@/i18n/language";
 import { formatInstant } from "@/lib/format";
 import { PATHS } from "@/routes";
 
@@ -44,21 +45,34 @@ export function AccountPage() {
     billing.data?.planSource === "SUBSCRIPTION" ? billing.data.subscription : null;
   const withdrawNotice = subscription
     ? subscription.status === "past_due"
-      ? "연체된 구독은 탈퇴하면 즉시 해지되고, 더 이상 결제되지 않습니다."
+      ? uiText(
+          "연체된 구독은 탈퇴하면 즉시 해지되고, 더 이상 결제되지 않습니다.",
+          "An overdue subscription is cancelled immediately when you delete the account, and you won't be charged again.",
+        )
       : subscription.currentPeriodEndsAt
-        ? `진행 중인 구독은 ${formatInstant(subscription.currentPeriodEndsAt)}에 해지되고 더 이상 결제되지 않습니다. 남은 기간 환불은 contact@why-code.com으로 요청해 주세요.`
-        : "진행 중인 구독은 이번 결제 기간이 끝날 때 해지되고 더 이상 결제되지 않습니다. 남은 기간 환불은 contact@why-code.com으로 요청해 주세요."
+        ? uiText(
+            `진행 중인 구독은 ${formatInstant(subscription.currentPeriodEndsAt)}에 해지되고 더 이상 결제되지 않습니다. 남은 기간 환불은 contact@why-code.com으로 요청해 주세요.`,
+            `The current subscription cancels on ${formatInstant(subscription.currentPeriodEndsAt)} and won't renew. For a refund of the remaining period, email contact@why-code.com.`,
+          )
+        : uiText(
+            "진행 중인 구독은 이번 결제 기간이 끝날 때 해지되고 더 이상 결제되지 않습니다. 남은 기간 환불은 contact@why-code.com으로 요청해 주세요.",
+            "The current subscription cancels at the end of this billing period and won't renew. For a refund of the remaining period, email contact@why-code.com.",
+          )
     : null;
   const withdrawError =
     axios.isAxiosError(withdrawMutation.error) && withdrawMutation.error.response?.status === 502
-      ? "구독 해지 처리에 실패해 탈퇴하지 못했어요. 잠시 후 다시 시도해 주세요."
-      : "탈퇴 처리에 실패했어요. 다시 시도해 주세요.";
+      ? uiText(
+          "구독 해지 처리에 실패해 탈퇴하지 못했어요. 잠시 후 다시 시도해 주세요.",
+          "Couldn't cancel the subscription, so the account wasn't deleted. Try again in a moment.",
+        )
+      : uiText("탈퇴 처리에 실패했어요. 다시 시도해 주세요.", "Couldn't delete the account. Try again.");
 
   return (
     <div className="sources-page">
-      <h1 className="page-title">계정 설정</h1>
+      <h1 className="page-title">{uiText("계정 설정", "Account")}</h1>
       <p className="page-sub">
-        <MonoChip>{user?.email ?? "계정"}</MonoChip> · 플랜과 계정 관리.
+        <MonoChip>{user?.email ?? uiText("계정", "Account")}</MonoChip>{" "}
+        {uiText("· 플랜과 계정 관리.", "· Plan and account.")}
       </p>
 
       <PlanCard />
@@ -71,10 +85,12 @@ export function AccountPage() {
       <section className="source-card source-card--danger">
         <div className="src-head">
           <div style={{ flex: 1 }}>
-            <h4>회원 탈퇴</h4>
+            <h4>{uiText("회원 탈퇴", "Delete account")}</h4>
             <div className="src-sub">
-              계정과 모든 프로젝트·대화·연동이 삭제됩니다. 일정 기간 후 영구 삭제되며,
-              그 전까지는 다시 로그인하면 복구할 수 있어요.
+              {uiText(
+                "계정과 모든 프로젝트·대화·연동이 삭제됩니다. 일정 기간 후 영구 삭제되며, 그 전까지는 다시 로그인하면 복구할 수 있어요.",
+                "Your account and every project, conversation, and connection are deleted. They are removed permanently after a grace period. Until then, signing in again restores them.",
+              )}
               {withdrawNotice ? ` ${withdrawNotice}` : ""}
             </div>
           </div>
@@ -84,11 +100,11 @@ export function AccountPage() {
           <Field
             label={
               <>
-                확인을 위해 계정 이메일{" "}
+                {uiText("확인을 위해 계정 이메일 ", "Type the account email ")}
                 <span className="mono text-danger">
-                  {user?.email ?? "(이메일 없음)"}
+                  {user?.email ?? uiText("(이메일 없음)", "(no email)")}
                 </span>
-                을 입력하세요
+                {uiText("을 입력하세요", " to confirm")}
               </>
             }
           >
@@ -111,7 +127,9 @@ export function AccountPage() {
             onClick={() => withdrawMutation.mutate()}
           >
             <Icons.Trash size={13} />
-            {withdrawMutation.isPending ? "탈퇴 처리 중…" : "회원 탈퇴"}
+            {withdrawMutation.isPending
+              ? uiText("탈퇴 처리 중…", "Deleting…")
+              : uiText("회원 탈퇴", "Delete account")}
           </button>
         </div>
       </section>

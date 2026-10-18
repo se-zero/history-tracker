@@ -3,6 +3,7 @@ import { OAuthSourceCard } from "@/components/sources/OAuthSourceCard";
 import { SourceTileGrid } from "@/components/sources/SourceTileGrid";
 import { useOAuthCallbackError } from "@/components/sources/useOAuthCallbackError";
 import { useIntegrations } from "@/hooks/useIntegrations";
+import { uiText } from "@/i18n/language";
 import type { Project } from "@/types/api";
 
 export function SourcesPage({ project }: { project: Project }) {
@@ -27,10 +28,15 @@ export function SourcesPage({ project }: { project: Project }) {
 
   return (
     <div className="sources-page">
-      <h1 className="page-title">데이터 소스</h1>
-      <p className="page-sub">코드와 의사결정의 원본을 하나의 그래프로 모읍니다.</p>
+      <h1 className="page-title">{uiText("데이터 소스", "Sources")}</h1>
+      <p className="page-sub">
+        {uiText(
+          "코드와 의사결정의 원본을 하나의 그래프로 모읍니다.",
+          "Bring the sources of code and decisions into one graph.",
+        )}
+      </p>
 
-      <div className="sources-section-label">연동 중</div>
+      <div className="sources-section-label">{uiText("연동 중", "Connected")}</div>
       <div className="source-rows">
         <GitHubCard projectId={project.id} />
         {rowProviders.map((provider) => (
@@ -43,7 +49,7 @@ export function SourcesPage({ project }: { project: Project }) {
         ))}
       </div>
 
-      <div className="sources-section-label">추가 가능</div>
+      <div className="sources-section-label">{uiText("추가 가능", "Available")}</div>
       <SourceTileGrid
         projectId={project.id}
         linkedProviders={rowProviders}

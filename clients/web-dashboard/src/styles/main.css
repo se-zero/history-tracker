@@ -20,6 +20,48 @@
 .crumbs .current { color: var(--fg); font-weight: 550; }
 .topbar-spacer { flex: 1; }
 
+/* 앱 언어 메뉴 — 랜딩 .lp-lang과 동작은 같고, 색·모서리는 앱 토큰만 쓴다. */
+.app-lang-wrap { position: relative; flex-shrink: 0; }
+.app-lang-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 13px;
+  font-weight: 550;
+}
+.app-lang-trigger:hover,
+.app-lang-trigger.open {
+  background: var(--surface-2);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.app-lang-chevron { transition: transform var(--dur-fast) var(--ease-standard); }
+.app-lang-trigger.open .app-lang-chevron { transform: rotate(180deg); }
+.app-lang-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 148px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 0 var(--edge-highlight), var(--shadow-lg);
+  animation: dd-in var(--dur-fast) var(--ease-standard);
+}
+.app-lang-check { margin-left: auto; color: var(--fg-muted); flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .app-lang-menu { animation-name: dd-fade; }
+  .app-lang-chevron { transition: none; }
+}
+
 .icon-btn {
   background: transparent;
   border: 1px solid transparent;

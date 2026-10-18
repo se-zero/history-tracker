@@ -1,4 +1,5 @@
 import { Icons } from "@/components/Icons";
+import { uiText } from "@/i18n/language";
 import { markForSource } from "@/components/sources/sourceCatalog";
 import { useExitPresence } from "@/hooks/useExitPresence";
 import { NODE_TYPE_INFO, type GraphNode } from "@/types/graph";
@@ -55,7 +56,7 @@ export function NodeDetail({ node, onClose, onAddToChat }: Props) {
       {onAddToChat && (
         <div className="nd-actions">
           <button className="btn" onClick={() => onAddToChat(shown)}>
-            <Icons.Plus size={13} /> 채팅에 추가
+            <Icons.Plus size={13} /> {uiText("채팅에 추가", "Add to chat")}
           </button>
         </div>
       )}

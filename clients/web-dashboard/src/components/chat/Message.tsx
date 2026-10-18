@@ -5,11 +5,12 @@ import remarkGfm from "remark-gfm";
 import { GithubMark } from "@/components/brand/BrandMarks";
 import { Icons } from "@/components/Icons";
 import { markForSource } from "@/components/sources/sourceCatalog";
+import { useUiLanguage } from "@/i18n/language";
 import { formatInstant, formatTimestamp } from "@/lib/format";
 import { remarkLocalTime } from "@/lib/remarkLocalTime";
 import type { Message } from "@/types/api";
 import { evidenceTypeLabel, extractStructured } from "./messageStructured";
-import { SUGGESTED } from "./suggestedQuestions";
+import { suggestedQuestions } from "./suggestedQuestions";
 
 // 그래프 패널이 열렸을 때 모든 답변 카드에 주어진다.
 // - 카드 hover: onHoverCard로 ChatPage가 그래프를 그 답변으로 전환(비활성)하거나 노드를 강조(활성)한다.
@@ -79,13 +80,23 @@ function AssistantMessage({
   onPick: (text: string) => void;
   disabled?: boolean;
 }) {
+  const { lang } = useUiLanguage();
   const structured = useMemo(
     () => extractStructured(message.metadata),
     [message.metadata],
   );
   // structured 응답은 summary/evidence/unknown_aspects를 카드·목록으로 분리 렌더한다.
   // message.content는 이 구조를 풀어 쓴 markdown 텍스트라 structured가 있으면 사용하지 않는다.
-  const summary = structured?.summary ?? message.content;
+  // 질의 실패는 서버가 한국어 문장으로 저장한다. 화면만 언어에 맞추고 저장본은 그대로 둔다.
+  // 한국어 문장은 backend AiEngineQueryClient.FALLBACK_ANSWER와 글자가 같아야 한다.
+  // 저장본을 그리지 않으므로 서버 문구가 바뀌면 여기도 같이 고친다.
+  const fallback =
+    message.metadata?.fallback === true || message.metadata?.error_type === "AI_ENGINE_ERROR";
+  const summary = fallback
+    ? lang === "en"
+      ? "Something went wrong while answering."
+      : "질문을 처리하는 중 오류가 발생했습니다."
+    : (structured?.summary ?? message.content);
   const unknownAspects = structured?.unknownAspects ?? [];
   const evidence = structured?.evidence ?? [];
   const iconMap = {
@@ -106,8 +117,9 @@ function AssistantMessage({
             판정은 ai-engine이 실제 호출된 도구로 한다(LLM 자기신고 아님). */}
         {structured?.answerMode === "exploratory" && (
           <div className="msg-exploratory" role="note">
-            전용 조회 경로가 없어 그래프를 직접 탐색해 답했습니다. 근거 연결이 약하거나 일부가
-            추론일 수 있습니다.
+            {lang === "en"
+              ? "This answer explored the graph directly because no dedicated lookup applied. The evidence links may be weak, and some of it may be inference."
+              : "전용 조회 경로가 없어 그래프를 직접 탐색해 답했습니다. 근거 연결이 약하거나 일부가 추론일 수 있습니다."}
           </div>
         )}
         {/* assistant 응답은 markdown으로 렌더링한다(유저 메시지는 원문 그대로 pre-wrap 유지). */}
@@ -120,7 +132,7 @@ function AssistantMessage({
             미확인·근거 경로는 끄지 않는다 — intro는 evidence가 비어 카드가 안 보일 뿐이다. */}
         {structured?.intro && (
           <div className="suggest-grid">
-            {SUGGESTED.map((s, i) => {
+            {suggestedQuestions(lang).map((s, i) => {
               const Ic = iconMap[s.icon];
               return (
                 <button

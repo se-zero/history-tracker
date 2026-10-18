@@ -1,5 +1,6 @@
 import { BusyLabel } from "@/components/ui/BusyLabel";
 import type { SourceCatalogItem } from "@/components/sources/sourceCatalog";
+import { getUiLang, uiText } from "@/i18n/language";
 
 // "추가 가능" 구역의 균일 타일. 미지원 소스는 onConnect가 없어 버튼이 아무 동작도 하지 않는다
 // (no-op) — OAuth가 아직 없는 소스에 실제 호출을 붙이지 않기 위함이다.
@@ -30,7 +31,7 @@ export function SourceTile({
       </div>
       <div className="source-tile-main">
         <div className="source-tile-name">{source.name}</div>
-        <div className="source-tile-sub">{source.description}</div>
+        <div className="source-tile-sub">{source.description[getUiLang()]}</div>
       </div>
       <div className="source-tile-actions">
         <button
@@ -40,7 +41,11 @@ export function SourceTile({
           disabled={pending || unavailable}
           aria-busy={Boolean(pending)}
         >
-          <BusyLabel busy={Boolean(pending)} label="연결" busyLabel="이동 중…" />
+          <BusyLabel
+            busy={Boolean(pending)}
+            label={uiText("연결", "Connect")}
+            busyLabel={uiText("이동 중…", "Opening…")}
+          />
         </button>
       </div>
     </div>

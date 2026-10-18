@@ -8,12 +8,18 @@ import {
   useRenameConversation,
   isOptimisticConversationId,
 } from "@/hooks/useConversations";
+import { useUiLanguage } from "@/i18n/language";
 import { formatRelative } from "@/lib/format";
 import type { Conversation } from "@/types/api";
 
 // 사이드바의 대화 목록 — 데이터·이름변경·삭제·내비게이션을 자체적으로 처리한다.
 // (이전엔 AppShell이 들고 Sidebar로 prop drilling 하던 부분)
 export function ConversationList({ projectId }: { projectId: string }) {
+  const { lang } = useUiLanguage();
+  const copy =
+    lang === "en"
+      ? { heading: "Conversations", newChat: "New conversation", empty: "No conversations yet." }
+      : { heading: "대화", newChat: "새 대화", empty: "아직 대화가 없습니다." };
   const navigate = useNavigate();
   const { conversationId: activeConvoId } = useParams();
 
@@ -68,8 +74,8 @@ export function ConversationList({ projectId }: { projectId: string }) {
   return (
     <>
       <div className="sidebar-label">
-        <span>대화</span>
-        <button className="add-btn" title="새 대화" onClick={handleNew}>
+        <span>{copy.heading}</span>
+        <button className="add-btn" title={copy.newChat} onClick={handleNew}>
           <Icons.Plus size={13} />
         </button>
       </div>
@@ -93,7 +99,7 @@ export function ConversationList({ projectId }: { projectId: string }) {
               textAlign: "center",
             }}
           >
-            아직 대화가 없습니다.
+            {copy.empty}
           </div>
         )}
         <div ref={sentinelRef} aria-hidden className="convo-sentinel" />
@@ -115,6 +121,21 @@ function ConvoItem({
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
 }) {
+  const { lang } = useUiLanguage();
+  const copy =
+    lang === "en"
+      ? {
+          menu: "Conversation menu",
+          rename: "Rename",
+          delete: "Delete",
+          confirm: (title: string) => `Delete "${title}"? This can't be undone.`,
+        }
+      : {
+          menu: "대화 메뉴",
+          rename: "이름 변경",
+          delete: "삭제",
+          confirm: (title: string) => `"${title}" 대화를 삭제할까요? 되돌릴 수 없어요.`,
+        };
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(convo.title);
@@ -149,7 +170,7 @@ function ConvoItem({
 
   const handleDelete = () => {
     setMenuOpen(false);
-    if (window.confirm(`"${convo.title}" 대화를 삭제할까요? 되돌릴 수 없어요.`)) {
+    if (window.confirm(copy.confirm(convo.title))) {
       onDelete(convo.id);
     }
   };
@@ -191,7 +212,7 @@ function ConvoItem({
       {!optimistic && (
       <button
         className="convo-menu-btn"
-        title="대화 메뉴"
+        title={copy.menu}
         onClick={(e) => {
           e.stopPropagation();
           setMenuOpen((o) => !o);
@@ -211,13 +232,13 @@ function ConvoItem({
             <span className="dropdown-icon">
               <Icons.Pencil size={13} />
             </span>
-            <span>이름 변경</span>
+            <span>{copy.rename}</span>
           </button>
           <button className="dropdown-item convo-delete" onClick={handleDelete}>
             <span className="dropdown-icon">
               <Icons.Trash size={13} />
             </span>
-            <span>삭제</span>
+            <span>{copy.delete}</span>
           </button>
         </div>
       )}

@@ -13,6 +13,7 @@ import { GitHubInstallEmptyState } from "@/components/sources/GitHubInstallEmpty
 import { GitHubRecheckLink } from "@/components/sources/GitHubRecheckLink";
 import { GitHubRepoAccessLink } from "@/components/sources/GitHubRepoAccessLink";
 import { Topbar } from "@/components/shell/Topbar";
+import { useUiLanguage, type UiLang } from "@/i18n/language";
 import { queryKeys } from "@/hooks/queryKeys";
 import { useGithubRepoRows } from "@/hooks/useGithub";
 import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api";
@@ -29,6 +30,7 @@ import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api"
 // 넘어갈 때 입력값을 탭 저장소(sessionStorage)에 초안으로 남기고, 다시 열리면 STEP 02부터 이어 간다.
 // 서버는 여전히 "연결"에서만 부르므로 초안이 남아도 반쪽 프로젝트는 생기지 않는다.
 export function OnboardingPage() {
+  const { lang } = useUiLanguage();
   const navigate = useNavigate();
   const [draft] = useState(readOnboardingDraft);
   const [name, setName] = useState(draft?.name ?? "");
@@ -45,7 +47,7 @@ export function OnboardingPage() {
   return (
     <div className="app no-sidebar">
       <div className="main">
-        <Topbar crumbs={["whycode", "시작하기"]} />
+        <Topbar crumbs={["whycode", lang === "en" ? "Get started" : "시작하기"]} />
         <div className="onboarding">
           {step === 2 ? (
             <ConnectGitHubStep
@@ -141,31 +143,46 @@ function CreateProjectStep({
   onDescription: (v: string) => void;
   onSubmit: (e: React.FormEvent) => void;
 }) {
+  const { lang } = useUiLanguage();
+  const en = lang === "en";
   return (
     <>
       <StepIndicator step={1} />
-      <h1>프로젝트를 만들어 보세요</h1>
+      <h1>{en ? "Create a project" : "프로젝트를 만들어 보세요"}</h1>
       <p className="lead">
-        분석할 단위(서비스 또는 팀)를 만들면, 연동된 소스들로부터 자동으로 그래프가
-        만들어집니다.
+        {en
+          ? "Create the unit you want to analyze (a service or a team). Connected sources then build the graph automatically."
+          : "분석할 단위(서비스 또는 팀)를 만들면, 연동된 소스들로부터 자동으로 그래프가 만들어집니다."}
       </p>
       <div className="step-grid">
         <StepCard
           num="STEP 01"
-          title="프로젝트 생성"
-          body={`예: "Payments Platform", "Auth Team" — 하나의 컨텍스트 경계를 정합니다.`}
+          title={en ? "Create a project" : "프로젝트 생성"}
+          body={
+            en
+              ? `Example: "Payments Platform", "Auth Team" — set one context boundary.`
+              : `예: "Payments Platform", "Auth Team" — 하나의 컨텍스트 경계를 정합니다.`
+          }
           icon={<Icons.Layers size={22} />}
         />
         <StepCard
           num="STEP 02"
-          title="GitHub 연결"
-          body="분석할 저장소를 선택합니다. 권한이 있는 워크스페이스만 보입니다."
+          title={en ? "Connect GitHub" : "GitHub 연결"}
+          body={
+            en
+              ? "Choose the repository to analyze. Only workspaces you can access are shown."
+              : "분석할 저장소를 선택합니다. 권한이 있는 워크스페이스만 보입니다."
+          }
           icon={<Icons.Plug size={22} />}
         />
         <StepCard
           num="STEP 03"
-          title="질문하기"
-          body={`"왜 이렇게 짰지?"를 자연어로 던지면, 출처와 함께 맥락을 돌려드립니다.`}
+          title={en ? "Ask" : "질문하기"}
+          body={
+            en
+              ? `Ask "why was this written this way?" in plain language, and get the context with its sources.`
+              : `"왜 이렇게 짰지?"를 자연어로 던지면, 출처와 함께 맥락을 돌려드립니다.`
+          }
           icon={<Icons.Sparkle size={22} />}
         />
       </div>
@@ -180,19 +197,23 @@ function CreateProjectStep({
           margin: "32px auto 0",
         }}
       >
-        <Field label="프로젝트 이름">
+        <Field label={en ? "Project name" : "프로젝트 이름"}>
           <input
             autoFocus
             value={name}
             onChange={(e) => onName(e.target.value)}
-            placeholder="예: Payments Platform"
+            placeholder={en ? "Example: Payments Platform" : "예: Payments Platform"}
           />
         </Field>
-        <Field label="설명 (선택)">
+        <Field label={en ? "Description (optional)" : "설명 (선택)"}>
           <input
             value={description}
             onChange={(e) => onDescription(e.target.value)}
-            placeholder="예: 결제 도메인 전반(주문, 정산, 환불)"
+            placeholder={
+              en
+                ? "Example: the payments domain (orders, settlement, refunds)"
+                : "예: 결제 도메인 전반(주문, 정산, 환불)"
+            }
           />
         </Field>
         <button
@@ -200,7 +221,7 @@ function CreateProjectStep({
           className="btn btn-primary btn-lg"
           disabled={!name.trim()}
         >
-          <Icons.Plus size={14} /> 다음: GitHub 연결
+          <Icons.Plus size={14} /> {en ? "Next: connect GitHub" : "다음: GitHub 연결"}
         </button>
       </form>
     </>
@@ -222,6 +243,8 @@ function ConnectGitHubStep({
   onDone: (projectId: string) => void;
   onBack: () => void;
 }) {
+  const { lang } = useUiLanguage();
+  const en = lang === "en";
   const queryClient = useQueryClient();
 
   const {
@@ -285,26 +308,32 @@ function ConnectGitHubStep({
   return (
     <>
       <StepIndicator step={2} />
-      <h1>GitHub 저장소 연결</h1>
+      <h1>{en ? "Connect a GitHub repository" : "GitHub 저장소 연결"}</h1>
       <p className="lead">
         <MonoChip>{name}</MonoChip>{" "}
-        · 분석할 저장소를 선택하세요. 저장소를 연결하면 프로젝트가 만들어집니다.
+        {en
+          ? "· Choose the repository to analyze. Connecting a repository creates the project."
+          : "· 분석할 저장소를 선택하세요. 저장소를 연결하면 프로젝트가 만들어집니다."}
       </p>
 
       <div style={{ maxWidth: 560, margin: "0 auto", width: "100%" }}>
         {installationsQuery.isLoading ? (
-          <div className="onb-muted-block">GitHub 워크스페이스를 불러오는 중…</div>
+          <div className="onb-muted-block">
+            {en ? "Loading GitHub workspaces…" : "GitHub 워크스페이스를 불러오는 중…"}
+          </div>
         ) : !connected ? (
           <GitHubInstallEmptyState style={{ padding: "20px 0" }} />
         ) : reposLoading ? (
-          <div className="onb-muted-block">저장소 목록을 불러오는 중…</div>
+          <div className="onb-muted-block">
+            {en ? "Loading repositories…" : "저장소 목록을 불러오는 중…"}
+          </div>
         ) : needsGitHubReauthorization ? (
           <GitHubReauthorizationCta />
         ) : repoRows.length === 0 ? (
           <div className="onb-muted-block">
-            접근 가능한 저장소가 없어요. 아래 'GitHub에서 저장소·조직 추가'에서 whycode가 읽을 저장소를
-            고른 뒤 연결 확인을 누르면 목록이 갱신돼요. 설치는 그 계정의 소유자(조직은 조직 소유자)만
-            바꿀 수 있어요.
+            {en
+              ? "No repositories you can access. Add the ones whycode should read under “Add repositories or organizations on GitHub”, then press Check connection to refresh the list. Only the owner of that account (an organization owner, for an org) can change the installation."
+              : "접근 가능한 저장소가 없어요. 아래 'GitHub에서 저장소·조직 추가'에서 whycode가 읽을 저장소를 고른 뒤 연결 확인을 누르면 목록이 갱신돼요. 설치는 그 계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요."}
           </div>
         ) : (
           <div className="repo-list" style={{ maxHeight: 320, overflowY: "auto" }}>
@@ -336,7 +365,7 @@ function ConnectGitHubStep({
                       >
                         {/* 이 버튼 하나가 프로젝트 생성 + 연결을 다 한다 — "만드는 중"까지
                             분리해 보여주면 단계가 둘로 읽혀 되돌릴 수 있다고 오해된다. */}
-                        {isPending ? "연결 중…" : "연결"}
+                        {isPending ? (en ? "Connecting…" : "연결 중…") : en ? "Connect" : "연결"}
                       </button>
                       <button
                         className="btn btn-ghost"
@@ -344,7 +373,7 @@ function ConnectGitHubStep({
                         onClick={() => setSelectedRepoId(null)}
                         disabled={isPending}
                       >
-                        취소
+                        {en ? "Cancel" : "취소"}
                       </button>
                     </>
                   ) : (
@@ -356,7 +385,7 @@ function ConnectGitHubStep({
                         onClick={() => startBranchSelect(repo)}
                         disabled={connectMutation.isPending}
                       >
-                        이 저장소 연결
+                        {en ? "Connect this repository" : "이 저장소 연결"}
                       </button>
                     </>
                   )}
@@ -368,15 +397,16 @@ function ConnectGitHubStep({
 
         {connectMutation.isError && (
           <InlineError style={{ marginTop: 10 }}>
-            {connectErrorContent(connectMutation.error)}
+            {connectErrorContent(connectMutation.error, lang)}
           </InlineError>
         )}
 
         {/* 0건이면 위 안내 상자가 같은 내용을 이미 말하므로, 목록이 있을 때만 덧붙인다. */}
         {showAccessEntry && repoRows.length > 0 && (
           <p className="onb-access-hint">
-            찾는 저장소가 없나요? GitHub에서 추가한 뒤 연결 확인을 누르면 목록이 갱신돼요. 설치는 그
-            계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요.
+            {en
+              ? "Don't see the repository? Add it on GitHub, then press Check connection to refresh the list. Only the owner of that account (an organization owner, for an org) can change the installation."
+              : "찾는 저장소가 없나요? GitHub에서 추가한 뒤 연결 확인을 누르면 목록이 갱신돼요. 설치는 그 계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요."}
           </p>
         )}
 
@@ -397,7 +427,9 @@ function ConnectGitHubStep({
         >
           {showAccessEntry && <GitHubRepoAccessLink />}
           {connected && (
-            <GitHubRecheckLink className="btn btn-ghost">연결 확인</GitHubRecheckLink>
+            <GitHubRecheckLink className="btn btn-ghost">
+              {en ? "Check connection" : "연결 확인"}
+            </GitHubRecheckLink>
           )}
           <button
             className="btn btn-ghost"
@@ -405,7 +437,7 @@ function ConnectGitHubStep({
             onClick={onBack}
             disabled={connectMutation.isPending}
           >
-            이전
+            {en ? "Back" : "이전"}
           </button>
         </div>
       </div>
@@ -423,30 +455,43 @@ function isGitHubReauthorizationRequired(error: unknown): boolean {
 }
 
 function GitHubReauthorizationCta() {
+  const { lang } = useUiLanguage();
+  const en = lang === "en";
   return (
     <div className="onboarding-gh-empty">
       <span>
-        로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소 목록을 볼 수 없어요.
+        {en
+          ? "The GitHub permission from sign-in is missing or expired, so the repository list can't be loaded."
+          : "로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소 목록을 볼 수 없어요."}
       </span>
-      <GitHubRecheckLink className="btn btn-primary">다시 로그인하고 연결 확인</GitHubRecheckLink>
+      <GitHubRecheckLink className="btn btn-primary">
+        {en ? "Sign in again and check the connection" : "다시 로그인하고 연결 확인"}
+      </GitHubRecheckLink>
     </div>
   );
 }
 
-function connectErrorContent(error: unknown) {
+function connectErrorContent(error: unknown, lang: UiLang) {
+  const en = lang === "en";
   if (isGitHubReauthorizationRequired(error)) {
     return (
       <>
-        로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소를 연결할 수 없어요.{" "}
-        <GitHubRecheckLink className="text-link">다시 로그인하고 연결 확인</GitHubRecheckLink>
+        {en
+          ? "The GitHub permission from sign-in is missing or expired, so the repository can't be connected. "
+          : "로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소를 연결할 수 없어요. "}
+        <GitHubRecheckLink className="text-link">
+          {en ? "Sign in again and check the connection" : "다시 로그인하고 연결 확인"}
+        </GitHubRecheckLink>
       </>
     );
   }
   // 연동 한도 403은 재로그인으로 풀리지 않는다.
   if (axios.isAxiosError(error) && error.response?.status === 403) {
-    return "플랜 한도에 도달했어요.";
+    return en ? "You've reached your plan limit." : "플랜 한도에 도달했어요.";
   }
-  return "프로젝트를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
+  return en
+    ? "Couldn't create the project. Try again in a moment."
+    : "프로젝트를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
 }
 
 function StepIndicator({ step }: { step: 1 | 2 }) {
