@@ -24,7 +24,7 @@ import { SlackPage } from "@/pages/SlackPage";
 import { SourcesPage } from "@/pages/SourcesPage";
 import { SupportPage } from "@/pages/SupportPage";
 import { TermsPage } from "@/pages/TermsPage";
-import { uiText } from "@/i18n/language";
+import { uiText, useUiLanguage } from "@/i18n/language";
 import { PATHS } from "@/routes";
 import type { Project } from "@/types/api";
 
@@ -73,7 +73,10 @@ function SettingsRoute() {
   return <SettingsPage project={useProject()} />;
 }
 // 계정 설정은 프로젝트 컨텍스트를 쓰지 않는다(계정 단위).
+// uiText()는 언어 context를 구독하지 않는다. 다른 라우트는 useOutletContext로 다시 그려지지만
+// 여기는 그 구독이 없어, 언어를 바꿔도 본문이 그대로 남는다. 그래서 여기서 한 번 구독한다.
 function AccountRoute() {
+  useUiLanguage();
   return <AccountPage />;
 }
 

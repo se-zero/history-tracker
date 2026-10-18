@@ -88,6 +88,8 @@ function AssistantMessage({
   // structured 응답은 summary/evidence/unknown_aspects를 카드·목록으로 분리 렌더한다.
   // message.content는 이 구조를 풀어 쓴 markdown 텍스트라 structured가 있으면 사용하지 않는다.
   // 질의 실패는 서버가 한국어 문장으로 저장한다. 화면만 언어에 맞추고 저장본은 그대로 둔다.
+  // 한국어 문장은 backend AiEngineQueryClient.FALLBACK_ANSWER와 글자가 같아야 한다.
+  // 저장본을 그리지 않으므로 서버 문구가 바뀌면 여기도 같이 고친다.
   const fallback =
     message.metadata?.fallback === true || message.metadata?.error_type === "AI_ENGINE_ERROR";
   const summary = fallback

@@ -27,6 +27,9 @@ src/
   main.tsx          부트스트랩 — QueryClient · BrowserRouter · ThemeProvider · UiLanguageProvider · ErrorBoundary
   App.tsx           라우트 정의 + AuthGate(인증 가드) + 루트 리다이렉트
 
+  i18n/             language.tsx — 화면 언어(ko/en)의 단일 출처. `ht.lang` 명시 선택,
+                    없으면 브라우저 언어. `UiLanguageProvider`·`useUiLanguage`·`uiText`·`uiLocale`
+
   api/              backend 엔드포인트별 axios 클라이언트 (리소스 단위로 얇게)
     client.ts         axios 인스턴스 + 인터셉터 (access 토큰 부착, 401 시 쿠키 refresh·rotation 재시도)
     그 외는 리소스당 모듈 1개 (auth · projects · conversations · integrations · github · graph · actors · billing)
@@ -46,7 +49,7 @@ src/
                     바꿀 수 있다 — 협업 중인 다른 사람의 개인 설치도 목록에 나오며 그 링크는 GitHub에서 404다)
     oauth/          OAuthConsentCard(/oauth/consent 본문 — MCP 클라이언트의 연결 요청 미리보기·허용/거부)
     ui/             프리미티브 — MonoChip · InlineError · Field
-    shell/          AppShell(라우팅·가드) · Sidebar · Topbar · ProjectSwitcher · ConversationList
+    shell/          AppShell(라우팅·가드) · Sidebar · Topbar · AppLanguageMenu · ProjectSwitcher · ConversationList
                     TermsNoticeBanner — 약관 개정 공지(`.main` 맨 위). 기기 로컬 날짜가 `TERMS_EFFECTIVE_DATE`
                     이전일 때만 보이고 닫기는 localStorage(`ht.termsNotice.dismissed`)에 시행일로 기억한다.
                     기존 이용자 재동의를 받지 않는 대신 이 배너가 약관 제12조의 "서비스 내 공지"다
