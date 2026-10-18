@@ -3,6 +3,7 @@ import { DisconnectIntegration } from "@/components/sources/DisconnectIntegratio
 import { GitHubInstallEmptyState } from "@/components/sources/GitHubInstallEmptyState";
 import { useGithubInstallations } from "@/hooks/useGithub";
 import { useIntegrations } from "@/hooks/useIntegrations";
+import { uiText } from "@/i18n/language";
 import { formatTimestamp } from "@/lib/format";
 
 // GitHub는 항상 "연동 중" 행 최상단에 고정된다(미설치 상태에도 행 안에서 설치 플로우를 안내한다).
@@ -38,11 +39,11 @@ export function GitHubCard({ projectId }: { projectId: string }) {
           <div className="source-row-name">GitHub</div>
           <div className="source-row-sub">
             {!connected ? (
-              "GitHub App을 설치해 시작하세요"
+              uiText("GitHub App을 설치해 시작하세요", "Install the GitHub App to start")
             ) : repoConnected ? (
               <span className="mono">{repoLabel}</span>
             ) : (
-              "연결된 저장소가 없습니다"
+              uiText("연결된 저장소가 없습니다", "No repository connected")
             )}
           </div>
         </div>
@@ -51,11 +52,15 @@ export function GitHubCard({ projectId }: { projectId: string }) {
               설치만 되고 repo가 없으면 서브라인(연결된 저장소가 없습니다)과 함께 미연결. */}
           <span className={"src-pill " + (connected && repoConnected ? "connected" : "disconnected")}>
             <span className="dot" />
-            {installationsQuery.isLoading ? "확인 중" : connected && repoConnected ? "연결됨" : "미연결"}
+            {installationsQuery.isLoading
+              ? uiText("확인 중", "Checking")
+              : connected && repoConnected
+                ? uiText("연결됨", "Connected")
+                : uiText("미연결", "Not connected")}
           </span>
           {lastSyncedAt && (
             <div className="source-row-synced">
-              마지막 수집 <span className="mono">{lastSyncedAt}</span>
+              {uiText("마지막 수집", "Last sync")} <span className="mono">{lastSyncedAt}</span>
             </div>
           )}
         </div>
@@ -68,7 +73,7 @@ export function GitHubCard({ projectId }: { projectId: string }) {
 
       {installationsQuery.isLoading && (
         <div style={{ padding: "16px 0 0", color: "var(--fg-muted)", fontSize: 13 }}>
-          GitHub installations 불러오는 중…
+          {uiText("GitHub installations 불러오는 중…", "Loading GitHub installations…")}
         </div>
       )}
 

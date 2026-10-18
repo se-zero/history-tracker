@@ -131,5 +131,5 @@ cd infra/docker
 - `docs/evidence-retrieval-fixes.md` - 근거 회수 품질 개선 계획(**착수 전**) — 코드 분석으로 찾은 22개 결함 중 측정 없이 방향이 분명한 12건을 묶음 A~F로 수정. 임계값·시간 창·필터 정책·검색 확장 10건은 후속으로 분리
 - `docs/measurement.md` - GraphRAG 정량 측정(eval) 가이드 — 그래프·응답 품질 개선을 숫자로 검증하는 방법
 - `docs/DESIGN.md` - 디자인 시스템(팔레트·타이포·모션·랜딩). **UI 작업 전에 읽고 모든 시각 결정을 여기서 파생시킨다**
-- `docs/i18n.md` - 시각 표시 계약과 **답변 언어(ko/en) 정본**(§5). 로캘(UI 언어)과 타임존(기기 설정)은 독립 축이며, 언어 기본값을 위치로 정하더라도 시각 표시에 위치를 끌어들이지 않는다. 서버는 UTC ISO만 내보내고 표시 변환은 프론트가 전담. 앱 UI 언어 분리는 §8 인벤토리, 착수 전
-- `docs/answer-language.md` - 답변 언어 ko/en의 실험·설계 기록(브랜치 `feat/answer-language`. 계약 정본은 `docs/i18n.md` §5). 구현은 A1·A2 코드·B·C1·D까지 됐고, 남은 것은 A2 판별 재측정(OpenAI 쿼터)과 E 측정. 영어 답에는 본 지시 전체 영어판, 한국어 경로는 글자 그대로. MCP 고정 메시지는 영어, `explain_commit`에 `language` 인자. 앱 UI 다국어는 별도 사이클
+- `docs/i18n.md` - 시각 표시 계약과 **답변 언어(ko/en) 정본**(§5). 로캘(UI 언어)과 타임존(기기 설정)은 독립 축이며, 언어 기본값을 위치로 정하더라도 시각 표시에 위치를 끌어들이지 않는다. 서버는 UTC ISO만 내보내고 표시 변환은 프론트가 전담. 앱 UI도 `ht.lang`으로 ko/en이다(§8). 질의에 `ui_language`는 실어 보내지 않는다
+- `docs/answer-language.md` - 답변 언어 ko/en의 실험·설계 기록(브랜치 `feat/answer-language`. 계약 정본은 `docs/i18n.md` §5). 구현은 A1·A2 코드·B·C1·D와 E 측정(120런)까지 됐다. E는 S2(한국어 하락 없음)가 미달인 채 main에 머지됐고(#189). 판별 재측정과 S2 원인 확인은 하지 않기로 했고, 수동 확인은 끝났다. 영어 답에는 본 지시 전체 영어판, 한국어 경로는 글자 그대로. MCP 고정 메시지는 영어, `explain_commit`에 `language` 인자. 앱 화면 글자는 `docs/i18n.md` §8

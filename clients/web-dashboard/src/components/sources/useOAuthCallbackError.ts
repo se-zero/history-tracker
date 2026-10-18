@@ -2,26 +2,38 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { consentSideEffectOf, sourceName } from "@/components/sources/sourceCatalog";
-
-const ERROR_MESSAGES: Record<string, string> = {
-  invalid_state: "연결 요청이 만료되었거나 올바르지 않아요. 다시 시도해 주세요.",
-  already_connected: "이미 연결된 프로젝트예요.",
-  connect_failed: "연결에 실패했어요. 잠시 후 다시 시도해 주세요.",
-};
+import { uiText } from "@/i18n/language";
 
 function errorMessage(errorCode: string, provider: string | null): string {
   if (errorCode === "access_denied") {
-    return `${sourceName(provider)} 연결 요청을 취소했어요.`;
+    return uiText(
+      `${sourceName(provider)} 연결 요청을 취소했어요.`,
+      `Cancelled the ${sourceName(provider)} connection request.`,
+    );
   }
+  const alreadyConnected = uiText("이미 연결된 프로젝트예요.", "This project is already connected.");
   // 확정 연동은 code 교환 전에 409로 막으므로 서버가 동의 부수효과를 되돌릴 수단이 없다
   // (어느 서버에 봇이 들어갔는지조차 모른다) — 치울 수 없으면 숨기지 말고 알린다.
   if (errorCode === "already_connected") {
     const sideEffect = consentSideEffectOf(provider);
     if (sideEffect) {
-      return `${ERROR_MESSAGES.already_connected} ${sideEffect}`;
+      return `${alreadyConnected} ${sideEffect}`;
     }
+    return alreadyConnected;
   }
-  return ERROR_MESSAGES[errorCode] ?? "연결 중 문제가 발생했어요.";
+  if (errorCode === "invalid_state") {
+    return uiText(
+      "연결 요청이 만료되었거나 올바르지 않아요. 다시 시도해 주세요.",
+      "The connection request expired or was invalid. Try again.",
+    );
+  }
+  if (errorCode === "connect_failed") {
+    return uiText(
+      "연결에 실패했어요. 잠시 후 다시 시도해 주세요.",
+      "Couldn't connect. Try again in a moment.",
+    );
+  }
+  return uiText("연결 중 문제가 발생했어요.", "Something went wrong while connecting.");
 }
 
 export interface OAuthCallbackError {

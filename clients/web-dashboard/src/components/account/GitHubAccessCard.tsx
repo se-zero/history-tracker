@@ -2,6 +2,7 @@ import { GitHubRecheckLink } from "@/components/sources/GitHubRecheckLink";
 import { GitHubRepoAccessLink } from "@/components/sources/GitHubRepoAccessLink";
 import { InlineError } from "@/components/ui/InlineError";
 import { useGithubInstallations } from "@/hooks/useGithub";
+import { uiText } from "@/i18n/language";
 import type { GitHubInstallation } from "@/types/api";
 
 /**
@@ -19,20 +20,28 @@ export function GitHubAccessCard() {
     <section className="source-card github-access-card">
       <div className="src-head">
         <div className="src-head-main">
-          <h4>GitHub 저장소 접근</h4>
+          <h4>{uiText("GitHub 저장소 접근", "GitHub repository access")}</h4>
           <div className="src-sub">
-            whycode가 읽을 수 있는 GitHub 계정·조직입니다. 저장소를 추가하거나 빼려면 GitHub에서
-            설정하세요.
+            {uiText(
+              "whycode가 읽을 수 있는 GitHub 계정·조직입니다. 저장소를 추가하거나 빼려면 GitHub에서 설정하세요.",
+              "GitHub accounts and organizations whycode can read. Add or remove repositories in GitHub.",
+            )}
           </div>
         </div>
       </div>
 
-      {installationsQuery.isLoading && <p className="github-access-empty">불러오는 중…</p>}
+      {installationsQuery.isLoading && (
+        <p className="github-access-empty">{uiText("불러오는 중…", "Loading…")}</p>
+      )}
       {installationsQuery.isError && (
-        <InlineError>GitHub 계정 목록을 불러오지 못했어요.</InlineError>
+        <InlineError>
+          {uiText("GitHub 계정 목록을 불러오지 못했어요.", "Couldn't load GitHub accounts.")}
+        </InlineError>
       )}
       {ready && installations.length === 0 && (
-        <p className="github-access-empty">아직 연결된 GitHub 계정이 없어요.</p>
+        <p className="github-access-empty">
+          {uiText("아직 연결된 GitHub 계정이 없어요.", "No GitHub account connected yet.")}
+        </p>
       )}
 
       {installations.length > 0 && (
@@ -42,7 +51,9 @@ export function GitHubAccessCard() {
               <div className="github-access-main">
                 <span className="github-access-name mono">{installation.accountLogin}</span>
                 <span className="github-access-kind">
-                  {installation.accountType === "Organization" ? "조직" : "개인"}
+                  {installation.accountType === "Organization"
+                    ? uiText("조직", "Organization")
+                    : uiText("개인", "Personal")}
                 </span>
               </div>
               <a
@@ -51,7 +62,7 @@ export function GitHubAccessCard() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                GitHub에서 설정
+                {uiText("GitHub에서 설정", "Settings on GitHub")}
               </a>
             </li>
           ))}
@@ -63,13 +74,19 @@ export function GitHubAccessCard() {
           <div className="github-access-actions">
             {/* 설치가 하나도 없으면 "다른"이 가리킬 대상이 없어, 목록이 빈 상태에선 라벨을 바꿔 하나만 둔다. */}
             <GitHubRepoAccessLink>
-              {installations.length === 0 ? "GitHub App 설치하기" : "다른 계정·조직에 설치"}
+              {installations.length === 0
+                ? uiText("GitHub App 설치하기", "Install the GitHub App")
+                : uiText("다른 계정·조직에 설치", "Install on another account or organization")}
             </GitHubRepoAccessLink>
-            <GitHubRecheckLink className="btn btn-ghost">연결 확인</GitHubRecheckLink>
+            <GitHubRecheckLink className="btn btn-ghost">
+              {uiText("연결 확인", "Check connection")}
+            </GitHubRecheckLink>
           </div>
           <p className="github-access-note">
-            설정은 그 계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요. 다른 사람의 계정이면
-            GitHub에서 페이지를 찾을 수 없다고 나와요. 바꾼 뒤 연결 확인을 누르면 목록이 갱신돼요.
+            {uiText(
+              "설정은 그 계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요. 다른 사람의 계정이면 GitHub에서 페이지를 찾을 수 없다고 나와요. 바꾼 뒤 연결 확인을 누르면 목록이 갱신돼요.",
+              "Only the owner of that account (an organization owner, for an org) can change the settings. Someone else's account shows a missing page on GitHub. After a change, press Check connection to refresh the list.",
+            )}
           </p>
         </>
       )}

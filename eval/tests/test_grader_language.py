@@ -136,6 +136,15 @@ def test_language_mismatch_counts_runs_against_expected_language():
     assert agg["runs_language_decision_unknown"] == 0
 
 
+def test_answer_without_countable_words_is_unknown_not_mismatch():
+    # 식별자뿐인 답(셀 단어가 없음)은 어느 언어로 썼는지 알 수 없다 — 불일치가 아니라 unknown으로 따로 센다.
+    # structured=null 런은 답이 없어 여기에도 넣지 않는다(runs_structured_null로 센다)
+    cases = [_case("case-03", [_run(None, "ko"), _run("ko", "ko"), _run(None, "ko", structured_null=True)])]
+    agg = aggregate(cases)
+    assert agg["runs_answer_language_mismatch"] == 0
+    assert agg["runs_answer_language_unknown"] == 1
+
+
 def test_old_engine_decisions_are_unknown_not_mismatch():
     cases = [_case("case-03", [_run("ko", None), _run("ko", None)])]
     agg = aggregate(cases)

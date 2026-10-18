@@ -2,6 +2,7 @@ import { Icons } from "@/components/Icons";
 import { BusyLabel } from "@/components/ui/BusyLabel";
 import { InlineError } from "@/components/ui/InlineError";
 import type { SourceCatalogItem } from "@/components/sources/sourceCatalog";
+import { getUiLang, uiText } from "@/i18n/language";
 
 // secondaryConnect를 가진 wired 소스만 이 다이얼로그를 열 수 있다 — 호출부(SourceTileGrid)가
 // hasTokenConnect로 걸러 준 뒤 넘기므로, 여기서는 그 보장을 타입으로 좁혀 문구 필드를 옵셔널
@@ -54,7 +55,7 @@ export function ConnectMethodDialog({
         }}
       >
         <h4 id={titleId} className="confirm-title">
-          {source.name} 연결
+          {uiText(`${source.name} 연결`, `Connect ${source.name}`)}
         </h4>
 
         {/* 포커스를 다이얼로그 안으로 옮겨야 위 onKeyDown이 Escape를 받는다 — DisconnectIntegration의
@@ -65,9 +66,13 @@ export function ConnectMethodDialog({
           </span>
           <span className="connect-choice-body">
             <span className="connect-choice-title">
-              <BusyLabel busy={oauthPending} label={`${source.name} 앱으로 연결`} busyLabel="이동 중…" />
+              <BusyLabel
+                busy={oauthPending}
+                label={uiText(`${source.name} 앱으로 연결`, `Connect with the ${source.name} app`)}
+                busyLabel={uiText("이동 중…", "Opening…")}
+              />
             </span>
-            <span className="connect-choice-desc">{source.secondaryConnect.oauthHint}</span>
+            <span className="connect-choice-desc">{source.secondaryConnect.oauthHint[getUiLang()]}</span>
           </span>
         </button>
 
@@ -76,21 +81,21 @@ export function ConnectMethodDialog({
             <Icons.Plug size={18} />
           </span>
           <span className="connect-choice-body">
-            <span className="connect-choice-title">토큰으로 연결</span>
-            <span className="connect-choice-desc">{source.secondaryConnect.tokenHint}</span>
+            <span className="connect-choice-title">{uiText("토큰으로 연결", "Connect with a token")}</span>
+            <span className="connect-choice-desc">{source.secondaryConnect.tokenHint[getUiLang()]}</span>
           </span>
         </button>
 
         {/* authorize 실패는 그리드의 InlineError가 오버레이 뒤에 가려지므로 다이얼로그 안에서도 알린다 */}
         {oauthError && (
           <InlineError style={{ marginTop: 12 }}>
-            연결에 실패했어요. 잠시 후 다시 시도해 주세요.
+            {uiText("연결에 실패했어요. 잠시 후 다시 시도해 주세요.", "Couldn't connect. Try again in a moment.")}
           </InlineError>
         )}
 
         <div className="confirm-actions">
           <button type="button" className="btn btn-ghost" onClick={close} disabled={oauthPending}>
-            취소
+            {uiText("취소", "Cancel")}
           </button>
         </div>
       </div>

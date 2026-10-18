@@ -1,5 +1,7 @@
 import type { ComponentType } from "react";
 
+import { getUiLang, uiText, type Localized } from "@/i18n/language";
+
 import {
   AsanaMark,
   ClickUpMark,
@@ -15,7 +17,7 @@ import {
 interface SourceBase {
   id: string;
   name: string;
-  description: string;
+  description: Localized<string>;
   Mark: ComponentType<{ size?: number; className?: string }>;
 }
 
@@ -36,25 +38,25 @@ export type SourceCatalogItem = SourceBase &
         connect: "oauth" | "github-app";
         // 연동 해제 다이얼로그에서 "무엇이 지워지는지" 구체적으로 알려줄 문구 — "데이터가 삭제됩니다"
         // 같은 뭉뚱그린 문구는 사용자가 무엇을 잃는지 판단할 수 없어 파괴적 동작의 고지로 부족하다.
-        deletedData: string;
+        deletedData: Localized<string>;
         // 동의 승인만으로 provider 쪽에 생기는 부수효과 — 우리 응답과 무관하게 일어나므로 연결이
         // 실패로 끝나도 남을 수 있다(Discord: 동의 순간 봇이 서버에 들어간다). 그중 서버가 정리할
         // 수단이 없는 경우를 사용자에게 알리는 문구다. 부수효과가 없는 소스는 비워 둔다.
-        consentSideEffect?: string;
+        consentSideEffect?: Localized<string>;
         // 연결 클릭 시 방식 선택 다이얼로그에 둘째 선택지를 띄울 소스만 채운다. 공용 코드는
         // hasTokenConnect로 조회하고 provider id를 비교하지 않는다 — 다이얼로그 선택지 문구·능력은
         // 전부 이 필드가 소유한다.
         secondaryConnect?: {
           kind: "token";
-          oauthHint: string; // 방식 선택 다이얼로그의 OAuth 선택지 설명
-          tokenHint: string; // 토큰 붙여넣기 선택지 설명
+          oauthHint: Localized<string>; // 방식 선택 다이얼로그의 OAuth 선택지 설명
+          tokenHint: Localized<string>; // 토큰 붙여넣기 선택지 설명
         };
         // BYO(고객 앱 토큰) 해제 때 붙는 추가 고지 — 그래프·저장 자격증명은 지우지만 고객 앱
         // 토큰은 우리가 provider에 폐기 요청하지 않는다는 뜻. OAuth/레거시(키 없음)는 비운다.
-        byoKeptNote?: string;
+        byoKeptNote?: Localized<string>;
         // OAuth(우리 앱) 해제 때 붙는 추가 고지 — 우리 쪽 연동·그래프는 지워도 provider 쪽에
         // 앱 설치가 남는 비대칭. BYO와 문구가 갈리므로 필드를 나눈다. 해당 없는 소스는 비운다.
-        oauthKeptNote?: string;
+        oauthKeptNote?: Localized<string>;
       }
     // backend 연동이 아직 없는 소스 — 타일 자리만 잡는다.
     | { status: "planned" }
@@ -68,94 +70,121 @@ export const sourceCatalog: SourceCatalogItem[] = [
   {
     id: "github",
     name: "GitHub",
-    description: "코드 맥락",
+    description: { ko: "코드 맥락", en: "Code context" },
     Mark: GithubMark,
     status: "wired",
     connect: "github-app",
-    deletedData: "수집한 커밋·Pull Request·이슈와 그 그래프",
+    deletedData: {
+      ko: "수집한 커밋·Pull Request·이슈와 그 그래프",
+      en: "collected commits, pull requests, issues, and their graph",
+    },
   },
   {
     id: "jira",
     name: "Jira",
-    description: "이슈 맥락",
+    description: { ko: "이슈 맥락", en: "Issue context" },
     Mark: JiraMark,
     status: "wired",
     connect: "oauth",
-    deletedData: "수집한 이슈와 그 그래프",
+    deletedData: { ko: "수집한 이슈와 그 그래프", en: "collected issues and their graph" },
   },
   {
     id: "slack",
     name: "Slack",
-    description: "대화 맥락",
+    description: { ko: "대화 맥락", en: "Conversation context" },
     Mark: SlackMark,
     status: "wired",
     connect: "oauth",
-    deletedData: "수집한 채널 메시지·스레드와 그 그래프",
+    deletedData: {
+      ko: "수집한 채널 메시지·스레드와 그 그래프",
+      en: "collected channel messages, threads, and their graph",
+    },
     secondaryConnect: {
       kind: "token",
-      oauthHint: "Slack 워크스페이스에 whycode 앱을 설치해 연결합니다.",
-      tokenHint: "워크스페이스에 직접 만든 Internal 앱의 User OAuth Token을 붙여넣습니다. 수집이 더 빨라요.",
+      oauthHint: {
+        ko: "Slack 워크스페이스에 whycode 앱을 설치해 연결합니다.",
+        en: "Install the whycode app in your Slack workspace.",
+      },
+      tokenHint: {
+        ko: "워크스페이스에 직접 만든 Internal 앱의 User OAuth Token을 붙여넣습니다. 수집이 더 빨라요.",
+        en: "Paste the User OAuth Token from an Internal app you created in the workspace. Collection is faster.",
+      },
     },
-    byoKeptNote:
-      "우리가 저장한 자격증명은 지우지만, 고객 앱의 토큰은 Slack에 폐기 요청하지 않습니다. 앱 자체는 Slack 설정에서 제거해 주세요.",
-    oauthKeptNote:
-      "whycode 연동을 해제해도 Slack 워크스페이스의 앱은 남습니다. 앱 자체는 Slack 관리 화면에서 제거해 주세요.",
+    byoKeptNote: {
+      ko: "우리가 저장한 자격증명은 지우지만, 고객 앱의 토큰은 Slack에 폐기 요청하지 않습니다. 앱 자체는 Slack 설정에서 제거해 주세요.",
+      en: "We delete the credentials we stored, but we do not ask Slack to revoke your app's token. Remove the app itself in Slack settings.",
+    },
+    oauthKeptNote: {
+      ko: "whycode 연동을 해제해도 Slack 워크스페이스의 앱은 남습니다. 앱 자체는 Slack 관리 화면에서 제거해 주세요.",
+      en: "Disconnecting whycode leaves the app in the Slack workspace. Remove the app itself in Slack's admin screen.",
+    },
   },
   {
     id: "google-chat",
     name: "Google Chat",
-    description: "대화 맥락",
+    description: { ko: "대화 맥락", en: "Conversation context" },
     Mark: GoogleChatMark,
     status: "wired",
     connect: "oauth",
-    deletedData: "수집한 스페이스 메시지·스레드와 그 그래프 연결",
+    deletedData: {
+      ko: "수집한 스페이스 메시지·스레드와 그 그래프 연결",
+      en: "collected space messages, threads, and their graph links",
+    },
   },
   {
     id: "discord",
     name: "Discord",
-    description: "대화 맥락",
+    description: { ko: "대화 맥락", en: "Conversation context" },
     Mark: DiscordMark,
     status: "wired",
     connect: "oauth",
-    deletedData: "수집한 채널 메시지·스레드와 그 그래프, 그리고 서버에 추가된 봇",
-    consentSideEffect:
-      "방금 동의로 봇이 서버에 추가되었을 수 있어요. 사용하지 않으신다면 Discord 서버 설정에서 제거해 주세요.",
+    deletedData: {
+      ko: "수집한 채널 메시지·스레드와 그 그래프, 그리고 서버에 추가된 봇",
+      en: "collected channel messages, threads, their graph, and the bot added to the server",
+    },
+    consentSideEffect: {
+      ko: "방금 동의로 봇이 서버에 추가되었을 수 있어요. 사용하지 않으신다면 Discord 서버 설정에서 제거해 주세요.",
+      en: "The bot may have been added to the server when you agreed. Remove it in the Discord server settings if you don't want it.",
+    },
   },
   {
     id: "notion",
     name: "Notion",
-    description: "문서 맥락",
+    description: { ko: "문서 맥락", en: "Document context" },
     Mark: NotionMark,
     status: "wired",
     connect: "oauth",
-    deletedData: "수집한 Notion 페이지 본문·섹션과 그 그래프 연결",
+    deletedData: {
+      ko: "수집한 Notion 페이지 본문·섹션과 그 그래프 연결",
+      en: "collected Notion page bodies, sections, and their graph links",
+    },
   },
   {
     id: "linear",
     name: "Linear",
-    description: "이슈 맥락",
+    description: { ko: "이슈 맥락", en: "Issue context" },
     Mark: LinearMark,
     status: "wired",
     connect: "oauth",
-    deletedData: "수집한 이슈와 그 그래프",
+    deletedData: { ko: "수집한 이슈와 그 그래프", en: "collected issues and their graph" },
   },
   {
     id: "asana",
     name: "Asana",
-    description: "작업 맥락",
+    description: { ko: "작업 맥락", en: "Task context" },
     Mark: AsanaMark,
     status: "wired",
     connect: "oauth",
-    deletedData: "수집한 작업(태스크)과 그 그래프",
+    deletedData: { ko: "수집한 작업(태스크)과 그 그래프", en: "collected tasks and their graph" },
   },
   {
     id: "clickup",
     name: "ClickUp",
-    description: "작업 맥락",
+    description: { ko: "작업 맥락", en: "Task context" },
     Mark: ClickUpMark,
     status: "wired",
     connect: "oauth",
-    deletedData: "수집한 태스크와 그 그래프",
+    deletedData: { ko: "수집한 태스크와 그 그래프", en: "collected tasks and their graph" },
   },
 ];
 
@@ -181,7 +210,7 @@ export function markForSource(
 
 // provider id를 사람이 읽는 이름으로 — 카탈로그에 없으면 id를 그대로 보여준다
 export function sourceName(id: string | null | undefined): string {
-  return findSource(id)?.name ?? id ?? "연동";
+  return findSource(id)?.name ?? id ?? uiText("연동", "Integration");
 }
 
 // 그래프 노드의 source 값(소문자+언더스코어)을 표시명으로 — 정규화 후 조회하고,
@@ -211,23 +240,25 @@ export function hasTokenConnect(source: SourceCatalogItem): boolean {
  */
 export function deletedDataOf(id: string | null | undefined): string {
   const source = findSource(id);
-  return source?.status === "wired" ? source.deletedData : "수집한 데이터와 그 그래프";
+  return source?.status === "wired"
+    ? source.deletedData[getUiLang()]
+    : uiText("수집한 데이터와 그 그래프", "collected data and its graph");
 }
 
 // 동의만으로 생겨 서버가 정리하지 못하는 부수효과 안내 문구 (없으면 null)
 export function consentSideEffectOf(id: string | null | undefined): string | null {
   const source = findSource(id);
-  return source?.status === "wired" ? (source.consentSideEffect ?? null) : null;
+  return source?.status === "wired" ? (source.consentSideEffect?.[getUiLang()] ?? null) : null;
 }
 
 // BYO 해제 때 붙는 추가 고지 (없으면 null). 호출부가 provider id를 비교하지 않게 카탈로그가 소유한다.
 export function byoKeptNoteOf(id: string | null | undefined): string | null {
   const source = findSource(id);
-  return source?.status === "wired" ? (source.byoKeptNote ?? null) : null;
+  return source?.status === "wired" ? (source.byoKeptNote?.[getUiLang()] ?? null) : null;
 }
 
 // OAuth 해제 때 붙는 추가 고지 (없으면 null). 호출부가 provider id를 비교하지 않게 카탈로그가 소유한다.
 export function oauthKeptNoteOf(id: string | null | undefined): string | null {
   const source = findSource(id);
-  return source?.status === "wired" ? (source.oauthKeptNote ?? null) : null;
+  return source?.status === "wired" ? (source.oauthKeptNote?.[getUiLang()] ?? null) : null;
 }

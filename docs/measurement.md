@@ -93,7 +93,8 @@ id 비교는 **정규화 후** 수행한다 (PR의 `#` 유무 무시, 커밋 해
 `don't` 같은 축약형이 오탐이 되어, 그 예외를 두었다. 관측 지표만 조금 흔들리고 채점 점수에는
 들어가지 않는다.
 
-답변 언어는 집계 시 세 카운터로 낸다. `runs_answer_language_mismatch`(답이 기대 언어가 아닌 런),
+답변 언어는 집계 시 네 카운터로 낸다. `runs_answer_language_mismatch`(답이 기대 언어가 아닌 런),
+`runs_answer_language_unknown`(셀 단어가 없어 답의 언어를 볼 수 없는 런 — 식별자뿐인 답. 불일치에 섞지 않는다),
 `runs_language_decision_mismatch`(서버가 기대와 다른 언어를 고른 런),
 `runs_language_decision_unknown`(판정 기록이 없는 런 — 이 작업 이전 엔진). structured가 없는 런은
 언어를 볼 수 없어 `runs_structured_null`에만 센다. 영어 짝 케이스(`paired_with`)는 scores.json의

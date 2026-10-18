@@ -4,12 +4,15 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { exchangeGitHubCode } from "@/api/auth";
 import { StatusView } from "@/components/StatusView";
 import { useAuth } from "@/auth/AuthProvider";
+import { useUiLanguage } from "@/i18n/language";
 import { consumeReturnPath } from "@/auth/returnPath";
 import { PATHS } from "@/routes";
 
 export function AuthCallbackPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { lang } = useUiLanguage();
+  const en = lang === "en";
   const { refresh } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const ran = useRef(false);
@@ -40,7 +43,11 @@ export function AuthCallbackPage() {
         console.error("auth callback failed", err);
         // 실패하면 저장된 복귀 경로는 버린다 — 다음 로그인이 오래된 동의 URL로 튀지 않게.
         consumeReturnPath();
-        setError("로그인 처리에 실패했습니다. 다시 시도해 주세요.");
+        setError(
+          en
+            ? "Sign-in didn't finish. Try again."
+            : "로그인 처리에 실패했습니다. 다시 시도해 주세요.",
+        );
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -50,14 +57,14 @@ export function AuthCallbackPage() {
     return (
       <StatusView
         tone="error"
-        title="로그인에 실패했어요"
+        title={en ? "Sign-in failed" : "로그인에 실패했어요"}
         description={error}
         action={
           <button
             className="btn btn-primary"
             onClick={() => navigate(PATHS.landing, { replace: true })}
           >
-            랜딩으로 돌아가기
+            {en ? "Back to the landing page" : "랜딩으로 돌아가기"}
           </button>
         }
         fullPage
@@ -65,5 +72,11 @@ export function AuthCallbackPage() {
     );
   }
 
-  return <StatusView tone="loading" description="GitHub 인증 처리 중…" fullPage />;
+  return (
+    <StatusView
+      tone="loading"
+      description={en ? "Finishing GitHub sign-in…" : "GitHub 인증 처리 중…"}
+      fullPage
+    />
+  );
 }

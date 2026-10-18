@@ -8,15 +8,21 @@ import { InlineError } from "@/components/ui/InlineError";
 import { StatusView } from "@/components/StatusView";
 import { useOAuthConsentDecision, useOAuthConsentPreview } from "@/hooks/useOAuthConsent";
 import { isHttpUrl } from "@/lib/url";
+import { uiText } from "@/i18n/language";
 import { PATHS } from "@/routes";
 
 // scope 식별자 → 사용자에게 보여줄 설명. 모르는 scope는 원문을 보여주지 않는다 — scope는
 // 요청자가 정하는 문자열이라 그대로 그리면 동의 화면 문구를 요청자가 쓰게 된다. 고정 문구로
 // 대신하므로 새 scope가 backend에 먼저 생겨도 화면은 깨지지 않는다.
-const SCOPE_DESCRIPTIONS: Record<string, string> = {
-  "mcp:query": "내 whycode 프로젝트에 질문하고 답을 받습니다(코드 변경 이유·의사결정 맥락).",
-};
-const UNKNOWN_SCOPE_DESCRIPTION = "확인되지 않은 권한 요청";
+function scopeDescription(scope: string): string {
+  if (scope === "mcp:query") {
+    return uiText(
+      "내 whycode 프로젝트에 질문하고 답을 받습니다(코드 변경 이유·의사결정 맥락).",
+      "Ask my whycode projects and receive answers (why code changed, and the decision context).",
+    );
+  }
+  return uiText("확인되지 않은 권한 요청", "An unrecognized permission request");
+}
 
 // 미리보기·허용/거부가 같은 기준으로 원인을 나눈다 — 4xx(잘못된 요청·티켓 만료·query 불일치)는
 // 재시도해도 같으니 앱에서 다시 시작하라고, 서버 쪽 문제는 잠시 후 다시 시도하라고 안내한다.
@@ -24,20 +30,29 @@ function consentErrorMessage(error: unknown): string {
   // 401은 api/client.ts 인터셉터가 refresh까지 실패한 뒤 UnauthorizedError로 바꿔 던진다(AxiosError 아님).
   // 새로 고치면 부트 시 미인증으로 판정돼 이 페이지가 GitHub 로그인 → 같은 URL 복귀를 다시 밟는다.
   if (error instanceof UnauthorizedError) {
-    return "로그인이 만료됐어요. 페이지를 새로 고치면 다시 로그인합니다.";
+    return uiText(
+      "로그인이 만료됐어요. 페이지를 새로 고치면 다시 로그인합니다.",
+      "Your session expired. Refresh the page to sign in again.",
+    );
   }
   if (axios.isAxiosError(error)) {
     // 응답이 없거나(네트워크 단절) 5xx면 요청이 아니라 서버 쪽 문제다 — "앱에서 다시 시작하라"고
     // 안내하면 사용자가 엉뚱한 곳을 고치게 된다.
     const status = error.response?.status;
     if (!error.response || (status !== undefined && status >= 500)) {
-      return "서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.";
+      return uiText(
+        "서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+        "Couldn't reach the server. Try again in a moment.",
+      );
     }
     const data = error.response.data as { message?: unknown } | undefined;
     if (typeof data?.message === "string") return data.message;
-    return "요청이 올바르지 않습니다. 앱에서 연결을 다시 시작해 주세요.";
+    return uiText(
+      "요청이 올바르지 않습니다. 앱에서 연결을 다시 시작해 주세요.",
+      "The request isn't valid. Start the connection again from the app.",
+    );
   }
-  return "처리에 실패했어요. 잠시 후 다시 시도해 주세요.";
+  return uiText("처리에 실패했어요. 잠시 후 다시 시도해 주세요.", "Something went wrong. Try again in a moment.");
 }
 
 // client_uri는 MCP 클라이언트가 등록한 값이라 형식이 보장되지 않는다 — 파싱에 실패하면
@@ -58,7 +73,13 @@ export function OAuthConsentCard({ query }: { query: string }) {
   const decision = useOAuthConsentDecision();
 
   if (previewQuery.isLoading) {
-    return <StatusView tone="loading" description="요청 정보를 불러오는 중…" fullPage />;
+    return (
+      <StatusView
+        tone="loading"
+        description={uiText("요청 정보를 불러오는 중…", "Loading the request…")}
+        fullPage
+      />
+    );
   }
 
   if (previewQuery.isError) {
@@ -67,11 +88,11 @@ export function OAuthConsentCard({ query }: { query: string }) {
     return (
       <StatusView
         tone="error"
-        title="연결 요청을 처리할 수 없어요"
+        title={uiText("연결 요청을 처리할 수 없어요", "Can't handle this connection request")}
         description={consentErrorMessage(previewQuery.error)}
         action={
           <Link className="btn btn-primary" to={PATHS.root}>
-            앱 열기
+            {uiText("앱 열기", "Open the app")}
           </Link>
         }
         fullPage
@@ -88,7 +109,10 @@ export function OAuthConsentCard({ query }: { query: string }) {
     <div className="oauth-consent">
       <div className="oauth-consent-card">
         <h1 className="oauth-consent-title">
-          {preview.clientName}이(가) whycode 연결을 요청합니다
+          {uiText(
+            `${preview.clientName}이(가) whycode 연결을 요청합니다`,
+            `${preview.clientName} wants to connect to whycode`,
+          )}
         </h1>
         {preview.clientUri && isHttpUrl(preview.clientUri) && (
           <a
@@ -102,29 +126,38 @@ export function OAuthConsentCard({ query }: { query: string }) {
         )}
 
         <div className="oauth-consent-section">
-          <h2 className="oauth-consent-section-title">허용하면 이 앱이 할 수 있는 것</h2>
+          <h2 className="oauth-consent-section-title">
+            {uiText("허용하면 이 앱이 할 수 있는 것", "What this app can do if you allow it")}
+          </h2>
           {preview.scopes.length === 0 ? (
             // scope 없이 온 요청 — backend가 기본 scope를 채우지 않으면 빈 목록이 된다. 허용해도
             // 아무 권한이 없다는 사실을 숨기지 않는다.
             <p className="oauth-consent-scopes-empty">
-              요청된 권한이 없습니다. 허용해도 이 앱은 아무 것도 할 수 없습니다.
+              {uiText(
+                "요청된 권한이 없습니다. 허용해도 이 앱은 아무 것도 할 수 없습니다.",
+                "No permissions were requested. Allowing this does not let the app do anything.",
+              )}
             </p>
           ) : (
             <ul className="oauth-consent-scopes">
               {/* scope는 요청자가 정하는 값이라 같은 것이 두 번 올 수 있다 — 표시 전에 중복을 뺀다 */}
               {Array.from(new Set(preview.scopes)).map((scope) => (
-                <li key={scope}>{SCOPE_DESCRIPTIONS[scope] ?? UNKNOWN_SCOPE_DESCRIPTION}</li>
+                <li key={scope}>{scopeDescription(scope)}</li>
               ))}
             </ul>
           )}
         </div>
 
         <div className="oauth-consent-section">
-          <p className="oauth-consent-redirect">돌아갈 주소: {preview.redirectHost}</p>
+          <p className="oauth-consent-redirect">
+            {uiText(`돌아갈 주소: ${preview.redirectHost}`, `Returns to: ${preview.redirectHost}`)}
+          </p>
           {preview.loopback && (
             <p className="oauth-consent-loopback-warning">
-              이 컴퓨터에서 실행 중인 프로그램(localhost)으로 돌아갑니다. 지금 이 연결을
-              시작한 앱이 아니라면 거부하세요.
+              {uiText(
+                "이 컴퓨터에서 실행 중인 프로그램(localhost)으로 돌아갑니다. 지금 이 연결을 시작한 앱이 아니라면 거부하세요.",
+                "This returns to a program running on this computer (localhost). Deny it if you didn't start this connection.",
+              )}
             </p>
           )}
         </div>
@@ -140,7 +173,11 @@ export function OAuthConsentCard({ query }: { query: string }) {
             disabled={decision.isPending}
             onClick={() => decision.mutate({ query, approved: false })}
           >
-            <BusyLabel busy={decision.isPending} label="거부" busyLabel="이동 중…" />
+            <BusyLabel
+              busy={decision.isPending}
+              label={uiText("거부", "Deny")}
+              busyLabel={uiText("이동 중…", "Opening…")}
+            />
           </button>
           <button
             type="button"
@@ -148,12 +185,19 @@ export function OAuthConsentCard({ query }: { query: string }) {
             disabled={decision.isPending}
             onClick={() => decision.mutate({ query, approved: true })}
           >
-            <BusyLabel busy={decision.isPending} label="허용" busyLabel="이동 중…" />
+            <BusyLabel
+              busy={decision.isPending}
+              label={uiText("허용", "Allow")}
+              busyLabel={uiText("이동 중…", "Opening…")}
+            />
           </button>
         </div>
 
         <p className="oauth-consent-footnote">
-          연결은 언제든 계정 페이지의 연결된 앱에서 끊을 수 있습니다.
+          {uiText(
+            "연결은 언제든 계정 페이지의 연결된 앱에서 끊을 수 있습니다.",
+            "You can disconnect this anytime from Connected apps on the account page.",
+          )}
         </p>
       </div>
     </div>

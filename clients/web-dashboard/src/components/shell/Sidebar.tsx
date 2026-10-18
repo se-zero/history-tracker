@@ -7,6 +7,7 @@ import { useTheme } from "@/theme/ThemeProvider";
 import { PATHS } from "@/routes";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { ConversationList } from "./ConversationList";
+import { useUiLanguage } from "@/i18n/language";
 import { userInitials } from "@/lib/format";
 import type { Project, User } from "@/types/api";
 
@@ -53,6 +54,25 @@ export function Sidebar({
   onReorderProjects,
   onOpenSearch,
 }: Props) {
+  const { lang } = useUiLanguage();
+  const nav =
+    lang === "en"
+      ? {
+          search: "Search",
+          chat: "Chat",
+          sources: "Sources",
+          actors: "Actors",
+          graph: "Review graph",
+          settings: "Project settings",
+        }
+      : {
+          search: "검색",
+          chat: "대화",
+          sources: "데이터 소스",
+          actors: "액터",
+          graph: "그래프 확인",
+          settings: "현재 프로젝트 설정",
+        };
   return (
     <aside className="sidebar">
       <div className="sidebar-section">
@@ -73,36 +93,36 @@ export function Sidebar({
           <span className="nav-icon">
             <Icons.Search />
           </span>
-          검색
+          {nav.search}
           <span className="nav-shortcut mono">{SEARCH_SHORTCUT_LABEL}</span>
         </div>
         <NavItem
           icon={<Icons.Chat />}
-          label="대화"
+          label={nav.chat}
           active={route === "chat"}
           onClick={() => onRouteChange("chat")}
         />
         <NavItem
           icon={<Icons.Plug />}
-          label="데이터 소스"
+          label={nav.sources}
           active={route === "sources"}
           onClick={() => onRouteChange("sources")}
         />
         <NavItem
           icon={<Icons.People />}
-          label="액터"
+          label={nav.actors}
           active={route === "actors"}
           onClick={() => onRouteChange("actors")}
         />
         <NavItem
           icon={<Icons.Sparkle />}
-          label="그래프 확인"
+          label={nav.graph}
           active={route === "graph"}
           onClick={() => onRouteChange("graph")}
         />
         <NavItem
           icon={<Icons.Settings />}
-          label="현재 프로젝트 설정"
+          label={nav.settings}
           active={route === "settings"}
           onClick={() => onRouteChange("settings")}
         />
@@ -118,7 +138,26 @@ function UserMenu({ onOpenAccount }: { onOpenAccount: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { lang } = useUiLanguage();
   const { user, logout } = useAuth();
+  const copy =
+    lang === "en"
+      ? {
+          fallbackName: "User",
+          menu: "Menu",
+          toLight: "Switch to light",
+          toDark: "Switch to dark",
+          account: "Account",
+          logout: "Log out",
+        }
+      : {
+          fallbackName: "사용자",
+          menu: "메뉴",
+          toLight: "Light 모드로",
+          toDark: "Dark 모드로",
+          account: "계정 설정",
+          logout: "로그아웃",
+        };
   const { theme, toggle } = useTheme();
 
   useEffect(() => {
@@ -140,12 +179,12 @@ function UserMenu({ onOpenAccount }: { onOpenAccount: () => void }) {
     <div className="user-card" style={{ position: "relative" }} ref={ref}>
       <div className="avatar">{userInitials(user)}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="user-name">{user?.displayName ?? "사용자"}</div>
+        <div className="user-name">{user?.displayName ?? copy.fallbackName}</div>
         <div className="user-handle mono">{userHandle(user)}</div>
       </div>
       <button
         className="icon-btn"
-        title="메뉴"
+        title={copy.menu}
         onClick={() => setOpen((o) => !o)}
       >
         <Icons.More />
@@ -174,7 +213,7 @@ function UserMenu({ onOpenAccount }: { onOpenAccount: () => void }) {
                 <Icons.Moon size={13} />
               )}
             </span>
-            <span>{theme === "dark" ? "Light 모드로" : "Dark 모드로"}</span>
+            <span>{theme === "dark" ? copy.toLight : copy.toDark}</span>
           </button>
           <div className="dropdown-divider" />
           <button
@@ -187,13 +226,13 @@ function UserMenu({ onOpenAccount }: { onOpenAccount: () => void }) {
             <span className="dropdown-icon">
               <Icons.People size={13} />
             </span>
-            <span>계정 설정</span>
+            <span>{copy.account}</span>
           </button>
           <button className="dropdown-item" onClick={handleLogout}>
             <span className="dropdown-icon">
               <Icons.ArrowRight size={13} />
             </span>
-            <span>로그아웃</span>
+            <span>{copy.logout}</span>
           </button>
         </div>
       )}

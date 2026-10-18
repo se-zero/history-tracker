@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { DisconnectIntegration } from "@/components/sources/DisconnectIntegration";
 import { findSource, sourceName } from "@/components/sources/sourceCatalog";
+import { getUiLang, uiText } from "@/i18n/language";
 import { BusyLabel } from "@/components/ui/BusyLabel";
 import { Field } from "@/components/ui/Field";
 import { InlineError } from "@/components/ui/InlineError";
@@ -97,7 +98,11 @@ export function OAuthSourceCard({
     steps.length > 0 && steps.every((step) => step.optional || Boolean(selections[step.key]));
 
   const badgeClass = connected ? "connected" : "warn";
-  const badgeLabel = connected ? "연결됨" : reconnectNeeded ? "재연결 필요" : "선택 필요";
+  const badgeLabel = connected
+    ? uiText("연결됨", "Connected")
+    : reconnectNeeded
+      ? uiText("재연결 필요", "Reconnect needed")
+      : uiText("선택 필요", "Selection needed");
 
   const lastSyncedAt = integration?.lastSyncedAt
     ? formatTimestamp(integration.lastSyncedAt)
@@ -115,8 +120,8 @@ export function OAuthSourceCard({
           <div className="source-row-name">{sourceName(provider)}</div>
           <div className="source-row-sub">
             {connected
-              ? integration?.displayName ?? source?.description ?? provider
-              : "연동할 대상을 선택하세요"}
+              ? integration?.displayName ?? source?.description?.[getUiLang()] ?? provider
+              : uiText("연동할 대상을 선택하세요", "Choose what to connect")}
           </div>
 
           {oauthError && <InlineError style={{ marginTop: 10 }}>{oauthError}</InlineError>}
@@ -125,17 +130,27 @@ export function OAuthSourceCard({
             <>
               {authorizeMutation.isError && (
                 <InlineError style={{ marginTop: 10 }}>
-                  연결에 실패했어요. 잠시 후 다시 시도해 주세요.
+                  {uiText(
+                    "연결에 실패했어요. 잠시 후 다시 시도해 주세요.",
+                    "Couldn't connect. Try again in a moment.",
+                  )}
                 </InlineError>
               )}
               <div className="connect-form" style={{ marginTop: 12 }}>
                 {stepsQuery.isError && (
-                  <InlineError>선택 단계를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</InlineError>
+                  <InlineError>
+                    {uiText(
+                      "선택 단계를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.",
+                      "Couldn't load the selection steps. Try again in a moment.",
+                    )}
+                  </InlineError>
                 )}
                 {/* OAuth 콜백 직후에는 integrations가 먼저 도착하고 단계 선언(steps)이 한 왕복 뒤에
                     온다 — 그 사이를 비워 두면 빈 점선 상자가 깜빡인다. 자리 표시로 채워 둔다. */}
                 {stepsQuery.isLoading && (
-                  <div className="selection-loading">선택 단계를 불러오는 중…</div>
+                  <div className="selection-loading">
+                    {uiText("선택 단계를 불러오는 중…", "Loading selection steps…")}
+                  </div>
                 )}
                 {steps.map((step, index) => {
                   if (!isStepReachable(steps, index, selectedValues)) return null;
@@ -146,14 +161,25 @@ export function OAuthSourceCard({
                   // 돌아오는 상황이 되면 개수 분기로 자연히 select로 복귀한다.
                   const single = !step.optional && options.length === 1;
                   return (
-                    <Field key={step.key} label={step.title + (step.optional ? " (선택)" : "")}>
+                    <Field
+                      key={step.key}
+                      label={step.title + (step.optional ? uiText(" (선택)", " (optional)") : "")}
+                    >
                       {query?.isError ? (
                         index === 0 ? (
                           <InlineError>
-                            {step.title} 목록을 불러오지 못했어요. 토큰이 만료됐거나 권한이 부족할 수 있어요.
+                            {uiText(
+                              `${step.title} 목록을 불러오지 못했어요. 토큰이 만료됐거나 권한이 부족할 수 있어요.`,
+                              `Couldn't load the ${step.title} list. The token may have expired, or permission may be missing.`,
+                            )}
                           </InlineError>
                         ) : (
-                          <InlineError>{step.title} 목록을 불러오지 못했어요.</InlineError>
+                          <InlineError>
+                            {uiText(
+                              `${step.title} 목록을 불러오지 못했어요.`,
+                              `Couldn't load the ${step.title} list.`,
+                            )}
+                          </InlineError>
                         )
                       ) : single ? (
                         <div className="selection-value">{options[0].label}</div>
@@ -169,10 +195,10 @@ export function OAuthSourceCard({
                         >
                           <option value="" disabled={!step.optional}>
                             {query?.isLoading
-                              ? "불러오는 중…"
+                              ? uiText("불러오는 중…", "Loading…")
                               : step.optional
-                                ? "(건너뛰기)"
-                                : "선택하세요"}
+                                ? uiText("(건너뛰기)", "(skip)")
+                                : uiText("선택하세요", "Choose")}
                           </option>
                           {options.map((option) => (
                             <option key={option.value} value={option.value}>
@@ -185,7 +211,9 @@ export function OAuthSourceCard({
                   );
                 })}
                 {completeMutation.isError && (
-                  <InlineError>연결을 완료하지 못했어요. 다시 시도해 주세요.</InlineError>
+                  <InlineError>
+                    {uiText("연결을 완료하지 못했어요. 다시 시도해 주세요.", "Couldn't finish connecting. Try again.")}
+                  </InlineError>
                 )}
               </div>
             </>
@@ -198,7 +226,7 @@ export function OAuthSourceCard({
           </span>
           {lastSyncedAt && (
             <div className="source-row-synced">
-              마지막 수집 <span className="mono">{lastSyncedAt}</span>
+              {uiText("마지막 수집", "Last sync")} <span className="mono">{lastSyncedAt}</span>
             </div>
           )}
         </div>
@@ -221,8 +249,12 @@ export function OAuthSourceCard({
           >
             <BusyLabel
               busy={authorizeMutation.isPending || authorizeMutation.isSuccess}
-              label={reconnectNeeded ? "다시 연결" : "다시 인증하기"}
-              busyLabel="이동 중…"
+              label={
+                reconnectNeeded
+                  ? uiText("다시 연결", "Connect again")
+                  : uiText("다시 인증하기", "Authorize again")
+              }
+              busyLabel={uiText("이동 중…", "Opening…")}
             />
           </button>
           <button
@@ -231,7 +263,11 @@ export function OAuthSourceCard({
             disabled={!requiredDone || completeMutation.isPending}
             aria-busy={completeMutation.isPending}
           >
-            <BusyLabel busy={completeMutation.isPending} label="연결 완료" busyLabel="연결 중…" />
+            <BusyLabel
+              busy={completeMutation.isPending}
+              label={uiText("연결 완료", "Finish connecting")}
+              busyLabel={uiText("연결 중…", "Connecting…")}
+            />
           </button>
         </div>
       )}

@@ -12,6 +12,7 @@ import {
   type SourceCatalogItem,
 } from "@/components/sources/sourceCatalog";
 import { useIntegrationAuthorize } from "@/hooks/useIntegrationOAuth";
+import { uiText } from "@/i18n/language";
 
 // hasTokenConnect의 boolean 판정을 타입 좁히기로도 쓰기 위한 얇은 래퍼 — sourceCatalog는
 // ConnectMethodDialog를 모르므로(카탈로그가 UI 타입을 알 필요가 없다) 좁히기는 여기서만 한다.
@@ -75,7 +76,10 @@ export function SourceTileGrid({
 
       {authorize.isError && (
         <InlineError style={{ marginTop: 12 }}>
-          {sourceName(authorize.variables)} 연결에 실패했어요. 잠시 후 다시 시도해 주세요.
+          {uiText(
+            `${sourceName(authorize.variables)} 연결에 실패했어요. 잠시 후 다시 시도해 주세요.`,
+            `Couldn't connect ${sourceName(authorize.variables)}. Try again in a moment.`,
+          )}
         </InlineError>
       )}
       {oauthError && <InlineError style={{ marginTop: 12 }}>{oauthError.message}</InlineError>}

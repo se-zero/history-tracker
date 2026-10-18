@@ -1,5 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 
+import { AppLanguageMenu } from "@/components/shell/AppLanguageMenu";
+
 interface Props {
   crumbs: string[];
   right?: ReactNode;
@@ -18,6 +20,7 @@ export function Topbar({ crumbs, right }: Props) {
       </div>
       <div className="topbar-spacer" />
       {right}
+      <AppLanguageMenu />
     </div>
   );
 }

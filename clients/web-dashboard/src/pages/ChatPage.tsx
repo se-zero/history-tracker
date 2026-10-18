@@ -27,8 +27,10 @@ import {
   showPendingConversation,
   usePendingFirstSend,
 } from "@/hooks/useConversations";
+import { nodeOnlyQuestion } from "@/components/chat/suggestedQuestions";
 import { useGraph, useGraphActivity, useMessageSubgraph } from "@/hooks/useGraph";
 import { useIntegrations } from "@/hooks/useIntegrations";
+import { useUiLanguage } from "@/i18n/language";
 import type { ConversationDetail, Message, Project } from "@/types/api";
 import type { AttachedNode, GraphNode, NodeRef } from "@/types/graph";
 
@@ -38,10 +40,32 @@ const MAX_PANEL_W = 680;
 const clampPanelWidth = (w: number) =>
   Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, w));
 
-// node-only 전송(칩만 있고 텍스트 없음) 시 채울 기본 질문 — 백엔드 content가 @NotBlank라 빈 값 불가.
-const NODE_ONLY_QUESTION = "첨부한 항목에 대해 설명해줘.";
-
 export function ChatPage({ project }: { project: Project }) {
+  const { lang } = useUiLanguage();
+  const copy =
+    lang === "en"
+      ? {
+          noIntegration: "No sources connected yet. Connect a source before asking.",
+          building: "The graph is still being built. You can ask once it's ready.",
+          showGraph: "Show related graph",
+          relatedGraph: "Related graph",
+          loadingMessages: "Loading messages…",
+          loadFailedTitle: "Couldn't load this conversation",
+          loadFailedBody: "Try again, or open another conversation.",
+          retry: "Try again",
+          sendFailed: "Couldn't send. Your draft is still here — try again.",
+        }
+      : {
+          noIntegration: "소스가 아직 연결되지 않았어요. 먼저 소스를 연결하면 질문할 수 있어요.",
+          building: "그래프를 만드는 중이에요. 준비되면 자동으로 질문할 수 있어요.",
+          showGraph: "관련 그래프 보기",
+          relatedGraph: "관련 그래프",
+          loadingMessages: "메시지를 불러오는 중…",
+          loadFailedTitle: "대화를 불러오지 못했어요",
+          loadFailedBody: "다시 시도하거나 다른 대화를 선택해 보세요.",
+          retry: "다시 시도",
+          sendFailed: "전송에 실패했어요. 입력을 그대로 두었으니 다시 시도해 주세요.",
+        };
   const { conversationId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -463,9 +487,9 @@ export function ChatPage({ project }: { project: Project }) {
   ]);
   const blockNotice =
     chatBlock === "no-integration"
-      ? "소스가 아직 연결되지 않았어요. 먼저 소스를 연결하면 질문할 수 있어요."
+      ? copy.noIntegration
       : chatBlock === "building"
-        ? "그래프를 만드는 중이에요. 준비되면 자동으로 질문할 수 있어요."
+        ? copy.building
         : null;
 
   const handleSend = (text: string) => {
@@ -476,7 +500,7 @@ export function ChatPage({ project }: { project: Project }) {
     // 임시 대화는 아직 서버 대화가 아니다. 입력을 비우기 전에 끊어야 전송이 조용히 사라지지 않는다.
     if (conversationId && isOptimisticConversationId(conversationId)) return;
     // node-only면 기본 질문으로 채운다 — 백엔드 content는 @NotBlank.
-    const content = trimmed || NODE_ONLY_QUESTION;
+    const content = trimmed || nodeOnlyQuestion(lang);
     setSendError(false);
     // 다음 질문을 보내는 순간 직전 답변의 "도착 연출" 자격은 끝난다 — 남겨 두면 어떤
     // 이유로든 그 요소가 리마운트될 때 is-fresh 애니메이션이 다시 재생된다.
@@ -608,9 +632,9 @@ export function ChatPage({ project }: { project: Project }) {
         <button
           className="graph-toggle"
           onClick={() => setPanelOpen(true)}
-          title="관련 그래프 보기"
+          title={copy.showGraph}
         >
-          <Icons.Graph size={15} /> 관련 그래프
+          <Icons.Graph size={15} /> {copy.relatedGraph}
         </button>
       )}
       <div className="chat">
@@ -636,7 +660,7 @@ export function ChatPage({ project }: { project: Project }) {
           // UUID가 아니라 상세 조회는 400이고, 404가 아니라 에러 화면에서 빠져나올 수 없다.
           <Navigate to={`/projects/${project.id}/chat`} replace />
         ) : conversationQuery.isLoading ? (
-          <StatusView tone="loading" description="메시지를 불러오는 중…" />
+          <StatusView tone="loading" description={copy.loadingMessages} />
         ) : conversationGone ? (
           // 새 대화 화면으로 되돌린다 — 프로젝트를 옮겼다 돌아왔을 때와 같은 화면이라 사용자가
           // 따로 복구 동작을 할 필요가 없다. AppShell이 기억한 대화 id도 이 이동으로 함께 비워진다.
@@ -645,14 +669,14 @@ export function ChatPage({ project }: { project: Project }) {
           // 남는 경우는 조회 실패뿐 — 위 통합 분기 조건이 (로딩·삭제·에러 아님)을 소거한다.
           <StatusView
             tone="error"
-            title="대화를 불러오지 못했어요"
-            description="다시 시도하거나 다른 대화를 선택해 보세요."
+            title={copy.loadFailedTitle}
+            description={copy.loadFailedBody}
             action={
               <button
                 className="btn"
                 onClick={() => conversationQuery.refetch()}
               >
-                다시 시도
+                {copy.retry}
               </button>
             }
           />
@@ -666,7 +690,7 @@ export function ChatPage({ project }: { project: Project }) {
           error={
             chatBlock || !sendError
               ? null
-              : "전송에 실패했어요. 입력을 그대로 두었으니 다시 시도해 주세요."
+              : copy.sendFailed
           }
           notice={blockNotice}
           attachedNodes={attachedNodes}

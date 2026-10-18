@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { InlineError } from "@/components/ui/InlineError";
+import { uiText } from "@/i18n/language";
 import { useActorDecisions } from "@/hooks/useActors";
 import type { ActorSourceName } from "@/types/api";
 import { sourceNameSummary } from "./actorFormat";
@@ -34,14 +35,20 @@ export function ActorDecisionsCard({ projectId }: { projectId: string }) {
     <section className="actor-card">
       <div className="actor-head">
         <div>
-          <h2>병합·분리 결정 이력</h2>
+          <h2>{uiText("병합·분리 결정 이력", "Merge and split history")}</h2>
         </div>
       </div>
 
-      {decisionsQuery.isLoading && <p className="actor-empty">결정 이력을 불러오는 중…</p>}
-      {decisionsQuery.isError && <InlineError>결정 이력을 불러오지 못했어요.</InlineError>}
+      {decisionsQuery.isLoading && (
+        <p className="actor-empty">{uiText("결정 이력을 불러오는 중…", "Loading decision history…")}</p>
+      )}
+      {decisionsQuery.isError && (
+        <InlineError>{uiText("결정 이력을 불러오지 못했어요.", "Couldn't load the decision history.")}</InlineError>
+      )}
       {!decisionsQuery.isLoading && !decisionsQuery.isError && decisions.length === 0 && (
-        <p className="actor-empty">아직 병합·분리 결정 이력이 없습니다.</p>
+        <p className="actor-empty">
+          {uiText("아직 병합·분리 결정 이력이 없습니다.", "No merge or split decisions yet.")}
+        </p>
       )}
 
       {decisions.length > 0 && (
@@ -54,7 +61,9 @@ export function ActorDecisionsCard({ projectId }: { projectId: string }) {
             {decisions.map((decision) => (
               <div className="actor-decision" key={decision.decisionId}>
                 <div>
-                  <strong>{decision.kind === "same" ? "수동 병합" : "분리"}</strong>
+                  <strong>
+                    {decision.kind === "same" ? uiText("수동 병합", "Manual merge") : uiText("분리", "Split")}
+                  </strong>
                   {/* 병합은 양방향(↔), 분리는 "남은 계정들 → 떨어져 나간 계정"의 방향(→)으로 읽는다 */}
                   <p>
                     <AliasSummaryList aliases={decision.aliasesA} />{" "}
@@ -62,7 +71,12 @@ export function ActorDecisionsCard({ projectId }: { projectId: string }) {
                     <AliasSummaryList aliases={decision.aliasesB} />
                   </p>
                   {decision.kind === "distinct" && (
-                    <span className="actor-decision-hint">분리된 계정은 자동으로 다시 합쳐지지 않습니다</span>
+                    <span className="actor-decision-hint">
+                      {uiText(
+                        "분리된 계정은 자동으로 다시 합쳐지지 않습니다",
+                        "Split accounts are not merged again automatically",
+                      )}
+                    </span>
                   )}
                   {decision.note && <p className="actor-meta">{decision.note}</p>}
                 </div>
@@ -70,7 +84,7 @@ export function ActorDecisionsCard({ projectId }: { projectId: string }) {
             ))}
           </div>
           <button className="repo-toggle" type="button" onClick={() => setListExpanded((value) => !value)}>
-            {listExpanded ? "닫기" : "펼치기"}
+            {listExpanded ? uiText("닫기", "Collapse") : uiText("펼치기", "Expand")}
           </button>
         </div>
       )}
