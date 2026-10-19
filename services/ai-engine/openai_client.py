@@ -93,6 +93,8 @@ async def chat_completion(*, priority: Priority, **kwargs):
     """
     est = estimate_chat_tokens(kwargs.get("messages"), kwargs.get("model", ""))
     # 게이트를 먼저 통과해야 한다 — 토큰을 먼저 예약하고 게이트에서 놀면 버킷이 그 밑에서 충전돼 나중에 몰린다.
+    # 대신 limiter 예산을 기다리는 동안에도 게이트 슬롯을 쥔다. 한 모델 버킷이 마르면 예산이 남은 다른 모델의
+    # BACKGROUND 호출(embed 포함)도 슬롯이 없어 같이 기다린다 — 한도 압박 시 수집 전체가 함께 느려지는 의도된 trade-off.
     async with _gate_for(priority):
         limiter = get_chat_limiter(kwargs.get("model") or "")
         reserved = await limiter.acquire(priority, est)

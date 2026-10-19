@@ -250,19 +250,22 @@ async def _handle_changeset(event: dict, prepared: ChangesetPrepared | None = No
 
     # Layer 3 저장: UNWIND로 세션 1번 (단건 N세션·락 경합 제거). 파일별 diff 요약·임베딩이 없으면
     # 건너뛴다 — 노드·Layer 2는 이미 기록됨. 저장 실패는 이벤트 전체를 실패시키지 않는다.
+    rows_written = 0
     if prepared.file_rows:
         try:
             await builder.upsert_files_with_modified_edges(
                 project_id=project_id, changeset_hash=hash_, files=prepared.file_rows,
             )
-            logger.debug("ChangeSet 파일 %d개 배치 처리 완료: hash=%s", len(prepared.file_rows), hash_)
+            rows_written = len(prepared.file_rows)
+            logger.debug("ChangeSet 파일 %d개 배치 처리 완료: hash=%s", rows_written, hash_)
         except Exception:
             logger.exception("ChangeSet 파일 배치 저장 실패 (건너뜀): hash=%s", hash_)
 
     # 커밋당 처리 시간 — 측정 기준선. 성공 경로만 찍는다(실패는 consumer 재시도 경로가 이미 로그).
+    # rows는 실제로 저장된 행 수다 — 파일 배치 저장이 건너뛰어지면 0.
     logger.info(
         "ChangeSet 처리 완료: project=%s hash=%s files=%d rows=%d prepare_ms=%d write_ms=%d",
-        project_id, hash_, prepared.file_count, len(prepared.file_rows), prepared.prepare_ms,
+        project_id, hash_, prepared.file_count, rows_written, prepared.prepare_ms,
         int((time.perf_counter() - write_started) * 1000),
     )
 

@@ -182,8 +182,12 @@ def _env_cap(name: str) -> int | None:
     try:
         value = int(raw)
     except ValueError:
+        value = None
+    if value is None or value < 1:
+        # 폴백이 "상한 없음"이라 낮추려던 의도와 반대가 된다 — 조용히 넘기지 않고 경고한다.
+        logger.warning("%s=%r 는 1 이상의 정수가 아니라 무시한다 (상한 없음, 헤더 학습값 그대로)", name, raw)
         return None
-    return value if value >= 1 else None
+    return value
 
 
 _DEFAULTS = {"chat": (500, 200_000), "embed": (3000, 1_000_000)}

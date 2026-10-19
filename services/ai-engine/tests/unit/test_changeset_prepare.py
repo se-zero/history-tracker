@@ -183,9 +183,9 @@ class HandleChangesetPreparedTest(unittest.TestCase):
             {"file_path": "a.py", "diff_summary": "summary-a", "embedding": [1.0]},
         ])
 
-    def _run_handle_with_logs(self, prepared):
+    def _run_handle_with_logs(self, prepared, upsert_files_mock=None):
         event = _changeset_event(files=[{"path": "a.py", "diff": "diff-a"}])
-        upsert_files_mock = AsyncMock()
+        upsert_files_mock = upsert_files_mock or AsyncMock()
         with patch("graph.event_handler.builder.upsert_changeset", AsyncMock()), \
              patch("graph.event_handler.builder.upsert_files_with_modified_edges", upsert_files_mock), \
              patch("graph.event_handler.resolve_actor", AsyncMock(return_value={"uuid": "author-uuid"})), \
@@ -212,6 +212,19 @@ class HandleChangesetPreparedTest(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertIn("rows=0", lines[0])
         upsert_files_mock.assert_not_awaited()
+
+    def test_handle_logs_rows_zero_when_file_batch_write_fails(self):
+        prepared = ChangesetPrepared(
+            message_embedding=[0.9],
+            file_rows=[{"file_path": "a.py", "diff_summary": "s", "embedding": [1.0]}],
+            file_count=1, prepare_ms=5,
+        )
+        failing = AsyncMock(side_effect=RuntimeError("neo4j down"))
+        lines, _ = self._run_handle_with_logs(prepared, upsert_files_mock=failing)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("files=1", lines[0])
+        self.assertIn("rows=0", lines[0])
+        failing.assert_awaited_once()
 
 
 # --- is_prefetchable_changeset -------------------------------------------------

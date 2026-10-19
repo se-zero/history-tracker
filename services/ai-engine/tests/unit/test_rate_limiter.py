@@ -106,6 +106,22 @@ class ObserveHeadersTest(unittest.TestCase):
         os.environ["X_CAP"] = "250"
         self.assertEqual(_env_cap("X_CAP"), 250)
 
+    def test_env_cap_warns_when_set_but_invalid_and_stays_silent_otherwise(self):
+        for raw in ("abc", "0", "-3"):
+            os.environ["X_CAP"] = raw
+            with self.assertLogs("rate_limiter", level="WARNING") as logs:
+                self.assertIsNone(_env_cap("X_CAP"))
+            self.assertEqual(len(logs.output), 1, raw)
+            self.assertIn("X_CAP=", logs.output[0])
+            self.assertIn(raw, logs.output[0])
+        for raw in ("", "250"):
+            os.environ["X_CAP"] = raw
+            with self.assertNoLogs("rate_limiter", level="WARNING"):
+                _env_cap("X_CAP")
+        os.environ.pop("X_CAP", None)
+        with self.assertNoLogs("rate_limiter", level="WARNING"):
+            self.assertIsNone(_env_cap("X_CAP"))
+
     def test_observe_headers_learns_limits_up_and_down(self):
         limiter = _ModelLimiter(rpm=500, tpm=200_000, clock=_FakeClock())
         limiter.observe_headers({
