@@ -34,7 +34,8 @@ def mask_amqp_url(url: str) -> str:
 # 수집 동시성. project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호),
 # project 간은 이 값까지 동시 처리한다. 기본 4 — 선결조건(rate_limiter의 OpenAI 페이싱,
 # Actor 멱등화 ActorAlias, 이벤트당 fan-out 축소 #2/#6)이 모두 충족돼 활성화됐다.
-# OpenAI 호출은 rate_limiter가 RPM·TPM으로 페이싱하므로 올려도 Tier 한도를 넘지 않는다.
+# OpenAI 호출은 rate_limiter가 응답 헤더로 학습한 모델별 한도로 페이싱하고, BACKGROUND 게이트
+# (OPENAI_BACKGROUND_CONCURRENCY)가 동시 요청 수를 묶으므로 올려도 한도를 넘지 않는다.
 INGEST_MAX_CONCURRENCY = max(1, int(os.environ.get("INGEST_MAX_CONCURRENCY", "4")))
 # ChangeSet look-ahead 깊이. 같은 파티션(project) 안에서 도착 순서대로 최대 이 개수만큼
 # 뒤 이벤트의 LLM 준비 단계(파일 diff 요약 + 임베딩)를 앞 이벤트의 Neo4j 쓰기와 동시에 미리 실행한다.

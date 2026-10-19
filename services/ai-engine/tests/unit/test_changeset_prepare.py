@@ -89,6 +89,48 @@ class PrepareChangesetTest(unittest.TestCase):
             {"file_path": "a.py", "diff_summary": "summary-a", "embedding": []},
         ])
 
+    def test_file_summary_fan_out_is_bounded_by_concurrency_knob(self):
+        paths = [f"f{i}.py" for i in range(6)]
+        event = _changeset_event(files=[{"path": p, "diff": "d"} for p in paths])
+        state = {"in_flight": 0, "peak": 0}
+
+        async def summarize_side_effect(path, diff, additions, deletions, message):
+            state["in_flight"] += 1
+            state["peak"] = max(state["peak"], state["in_flight"])
+            await asyncio.sleep(0.01)
+            state["in_flight"] -= 1
+            return f"s-{path}"
+
+        with patch("graph.event_handler.INGEST_FILE_SUMMARY_CONCURRENCY", 2), \
+             patch("graph.event_handler.embed_text_batched", AsyncMock(return_value=[])), \
+             patch("graph.event_handler.summarize_diff", AsyncMock(side_effect=summarize_side_effect)), \
+             patch("graph.event_handler.embed_batch", AsyncMock(return_value=[[1.0]] * 6)):
+            result = asyncio.run(prepare_changeset(event))
+
+        self.assertEqual(state["peak"], 2)  # 상한이자 병렬이 살아 있음
+        self.assertEqual([r["file_path"] for r in result.file_rows], paths)
+
+    def test_prepare_reports_file_count_and_duration(self):
+        event = _changeset_event(files=[{"path": "a.py", "diff": "d"}, {"path": "b.py", "diff": "d"}])
+        with patch("graph.event_handler.embed_text_batched", AsyncMock(return_value=[])), \
+             patch("graph.event_handler.summarize_diff", AsyncMock(return_value="s")), \
+             patch("graph.event_handler.embed_batch", AsyncMock(return_value=[[1.0], [2.0]])):
+            result = asyncio.run(prepare_changeset(event))
+        self.assertEqual(result.file_count, 2)
+        self.assertGreaterEqual(result.prepare_ms, 0)
+
+        with patch("graph.event_handler.embed_text_batched", AsyncMock(return_value=[])):
+            empty = asyncio.run(prepare_changeset(_changeset_event(files=[])))
+        self.assertEqual(empty.file_count, 0)
+
+    def test_file_count_is_reported_even_when_all_summaries_fail(self):
+        event = _changeset_event(files=[{"path": "a.py", "diff": "d"}, {"path": "b.py", "diff": "d"}])
+        with patch("graph.event_handler.embed_text_batched", AsyncMock(return_value=[])), \
+             patch("graph.event_handler.summarize_diff", AsyncMock(side_effect=RuntimeError("down"))):
+            result = asyncio.run(prepare_changeset(event))
+        self.assertEqual(result.file_rows, [])
+        self.assertEqual(result.file_count, 2)
+
 
 # --- handle(prepared=...) 배선 ------------------------------------------------
 
@@ -140,6 +182,49 @@ class HandleChangesetPreparedTest(unittest.TestCase):
         self.assertEqual(upsert_files_mock.await_args.kwargs["files"], [
             {"file_path": "a.py", "diff_summary": "summary-a", "embedding": [1.0]},
         ])
+
+    def _run_handle_with_logs(self, prepared, upsert_files_mock=None):
+        event = _changeset_event(files=[{"path": "a.py", "diff": "diff-a"}])
+        upsert_files_mock = upsert_files_mock or AsyncMock()
+        with patch("graph.event_handler.builder.upsert_changeset", AsyncMock()), \
+             patch("graph.event_handler.builder.upsert_files_with_modified_edges", upsert_files_mock), \
+             patch("graph.event_handler.resolve_actor", AsyncMock(return_value={"uuid": "author-uuid"})), \
+             patch("graph.event_handler.make_neo4j_actor_store", return_value="STORE"):
+            with self.assertLogs("graph.event_handler", level="INFO") as logs:
+                asyncio.run(handle(event, prepared=prepared))
+        lines = [m for m in logs.output if "ChangeSet 처리 완료" in m]
+        return lines, upsert_files_mock
+
+    def test_handle_logs_one_summary_line_per_changeset(self):
+        prepared = ChangesetPrepared(
+            message_embedding=[0.9],
+            file_rows=[{"file_path": "a.py", "diff_summary": "s", "embedding": [1.0]}],
+            file_count=1, prepare_ms=5,
+        )
+        lines, _ = self._run_handle_with_logs(prepared)
+        self.assertEqual(len(lines), 1)
+        for token in ("project=p1", "hash=abc123", "files=1", "rows=1", "prepare_ms=5", "write_ms="):
+            self.assertIn(token, lines[0])
+
+    def test_handle_logs_summary_line_even_without_file_rows(self):
+        prepared = ChangesetPrepared(message_embedding=[0.9], file_rows=[], file_count=1)
+        lines, upsert_files_mock = self._run_handle_with_logs(prepared)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("rows=0", lines[0])
+        upsert_files_mock.assert_not_awaited()
+
+    def test_handle_logs_rows_zero_when_file_batch_write_fails(self):
+        prepared = ChangesetPrepared(
+            message_embedding=[0.9],
+            file_rows=[{"file_path": "a.py", "diff_summary": "s", "embedding": [1.0]}],
+            file_count=1, prepare_ms=5,
+        )
+        failing = AsyncMock(side_effect=RuntimeError("neo4j down"))
+        lines, _ = self._run_handle_with_logs(prepared, upsert_files_mock=failing)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("files=1", lines[0])
+        self.assertIn("rows=0", lines[0])
+        failing.assert_awaited_once()
 
 
 # --- is_prefetchable_changeset -------------------------------------------------

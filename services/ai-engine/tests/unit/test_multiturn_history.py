@@ -304,7 +304,12 @@ class OrchestratorHistoryTest(unittest.IsolatedAsyncioTestCase):
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"summary":"merged","entities":[],"unresolved_aspects":[]}'))]
         )
 
-        with patch.object(get_openai_client().chat.completions, "create", return_value=response) as create:
+        with patch.object(
+            get_openai_client().chat.completions.with_raw_response,
+            "create",
+            new_callable=AsyncMock,
+            return_value=SimpleNamespace(headers={}, parse=lambda: response),
+        ) as create:
             result = await orchestrator.summarize_history(
                 {"summary": "existing", "entities": [], "unresolved_aspects": []},
                 [{"role": "user", "content": "old question"}],

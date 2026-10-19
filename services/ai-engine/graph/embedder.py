@@ -16,7 +16,7 @@ _BATCH_CHUNK_SIZE = 200  # OpenAI Embedding API 호출당 입력 수 상한 (요
 # 400으로 거절되며 같이 보낸 묶음 23건이 전부 결손됐다.
 _MAX_INPUT_TOKENS = 8000
 # 청크 실패 시 1건 재시도의 동시 상한. 옛 커밋 메시지 묶음기의 재시도 폭(COALESCE_MAX 기본 8)과 같다 —
-# 200건을 한꺼번에 쏘면 OpenAI 전면 장애 때 to_thread 스레드풀을 오래 점유해 질의 경로까지 줄 세운다.
+# 200건을 한꺼번에 쏘지 않는다 — BACKGROUND 게이트(OPENAI_BACKGROUND_CONCURRENCY)가 동시 요청을 묶지만 재시도 폭도 따로 제한한다.
 _RETRY_CONCURRENCY = 8
 
 
