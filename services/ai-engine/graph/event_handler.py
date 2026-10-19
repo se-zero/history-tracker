@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -22,6 +23,11 @@ logger = logging.getLogger(__name__)
 # 5를 기본값으로 둔다. text 엣지는 confidence=1.0 고정이라 읽기 필터(0.5)를 무조건 통과해
 # 진짜 설계 문서를 밀어내므로, 이 상한이 없으면 색인성 문서가 그래프 품질을 갉아먹는다.
 DOCUMENT_ISSUE_REF_LIMIT = int(os.environ.get("DOCUMENT_ISSUE_REF_LIMIT", "5"))
+
+# 커밋 하나의 파일 diff 요약을 동시에 보내는 수 상한. 커밋 하나가 BACKGROUND 게이트를 독점해
+# look-ahead 중인 다른 커밋(다른 프로젝트일 수 있음)을 막지 않게 한다.
+# 쓰기 순서와는 무관(프로젝트별 워커가 도착 순서 유지).
+INGEST_FILE_SUMMARY_CONCURRENCY = max(1, int(os.environ.get("INGEST_FILE_SUMMARY_CONCURRENCY", "8")))
 
 
 def _is_bot_actor(actor_id: str) -> bool:
@@ -107,10 +113,12 @@ class ChangesetPrepared:
 
     prepare_changeset()이 Neo4j 무관하게 미리 계산해두면 _handle_changeset()의 쓰기 단계가
     그대로 소비한다. 준비 단계의 실패는 이미 폴백 값으로 흡수돼 있어 쓰기 단계는
-    별도 방어 없이 그대로 사용한다.
+    별도 방어 없이 그대로 사용한다. file_count·prepare_ms는 커밋당 처리 시간 로그용 계측값이다.
     """
     message_embedding: list[float]   # 실패 시 [] (upsert의 CASE가 기존 값 보존)
     file_rows: list[dict]            # [{"file_path","diff_summary","embedding"}] — 요약 성공분만
+    file_count: int = 0              # should_skip 뒤 남은 파일 수(요약 실패분 포함)
+    prepare_ms: int = 0              # 준비 단계(LLM) 소요 시간
 
 
 def is_prefetchable_changeset(event: dict) -> bool:
@@ -135,6 +143,7 @@ async def prepare_changeset(event: dict) -> ChangesetPrepared:
     Neo4j 무관한 순수 함수 — 디스패처가 쓰기 순서와 무관하게 look-ahead로 미리 실행할 수 있다.
     어떤 실패도 폴백 값으로 흡수해 절대 raise하지 않는다(쓰기 단계가 실패를 방어할 필요가 없게).
     """
+    started = time.perf_counter()
     props   = event.get("properties") or {}
     hash_   = props.get("hash", "")
     message = props.get("message", "")
@@ -145,24 +154,31 @@ async def prepare_changeset(event: dict) -> ChangesetPrepared:
     message_embedding = await embed_text_batched(message)
 
     # Layer 3: 파일별 diff 요약 → 배치 임베딩 (#2/#6)
-    #   1) 요약: 입력만의 함수라 파일별 동시(gather) — LLM N콜은 불가피(파일별 요약 필수)
+    #   1) 요약: 입력만의 함수라 세마포어로 폭을 묶은 gather — LLM N콜은 불가피(파일별 요약 필수)
     #   2) 임베딩: 요약 N개를 embed_batch로 1콜 (단건 N콜 대비 요청·rate-limit 절감)
     files = [f for f in (props.get("files") or []) if not should_skip(f.get("path", ""))]
 
+    # 호출마다 만들므로 이벤트 루프 바인딩 문제가 없다.
+    sem = asyncio.Semaphore(INGEST_FILE_SUMMARY_CONCURRENCY)
+
     async def summarize_file(file: dict) -> tuple[str, str] | None:
         path = file.get("path", "")
-        try:
-            summary = await summarize_diff(
-                path, file.get("diff", ""), file.get("additions", 0), file.get("deletions", 0), message,
-            )
-            return (path, summary)
-        except Exception:
-            logger.exception("ChangeSet 파일 요약 실패 (건너뜀): hash=%s path=%s", hash_, path)
-            return None
+        async with sem:
+            try:
+                summary = await summarize_diff(
+                    path, file.get("diff", ""), file.get("additions", 0), file.get("deletions", 0), message,
+                )
+                return (path, summary)
+            except Exception:
+                logger.exception("ChangeSet 파일 요약 실패 (건너뜀): hash=%s path=%s", hash_, path)
+                return None
 
     summarized = [r for r in await asyncio.gather(*[summarize_file(f) for f in files]) if r is not None]
     if not summarized:
-        return ChangesetPrepared(message_embedding=message_embedding, file_rows=[])
+        return ChangesetPrepared(
+            message_embedding=message_embedding, file_rows=[],
+            file_count=len(files), prepare_ms=int((time.perf_counter() - started) * 1000),
+        )
 
     # embed_batch는 원래 실패해도 안 던지지만(빈 벡터로 채워 반환), 방어적으로 감싼다.
     try:
@@ -175,12 +191,16 @@ async def prepare_changeset(event: dict) -> ChangesetPrepared:
         {"file_path": path, "diff_summary": summary, "embedding": embedding}
         for (path, summary), embedding in zip(summarized, embeddings)
     ]
-    return ChangesetPrepared(message_embedding=message_embedding, file_rows=file_rows)
+    return ChangesetPrepared(
+        message_embedding=message_embedding, file_rows=file_rows,
+        file_count=len(files), prepare_ms=int((time.perf_counter() - started) * 1000),
+    )
 
 
 async def _handle_changeset(event: dict, prepared: ChangesetPrepared | None = None) -> None:
     if prepared is None:
         prepared = await prepare_changeset(event)
+    write_started = time.perf_counter()
 
     props       = event.get("properties") or {}
     refs        = event.get("refs") or {}
@@ -228,19 +248,26 @@ async def _handle_changeset(event: dict, prepared: ChangesetPrepared | None = No
         await builder.link_changeset_to_pr_issue_externals(project_id, pr_num, hash_)
         await builder.link_changeset_to_pr_documents(project_id, pr_num, hash_)
 
-    # 파일별 diff 요약·임베딩(prepared.file_rows)이 없으면 여기서 끝 — 노드·Layer 2는 이미 기록됨.
-    if not prepared.file_rows:
-        return
+    # Layer 3 저장: UNWIND로 세션 1번 (단건 N세션·락 경합 제거). 파일별 diff 요약·임베딩이 없으면
+    # 건너뛴다 — 노드·Layer 2는 이미 기록됨. 저장 실패는 이벤트 전체를 실패시키지 않는다.
+    rows_written = 0
+    if prepared.file_rows:
+        try:
+            await builder.upsert_files_with_modified_edges(
+                project_id=project_id, changeset_hash=hash_, files=prepared.file_rows,
+            )
+            rows_written = len(prepared.file_rows)
+            logger.debug("ChangeSet 파일 %d개 배치 처리 완료: hash=%s", rows_written, hash_)
+        except Exception:
+            logger.exception("ChangeSet 파일 배치 저장 실패 (건너뜀): hash=%s", hash_)
 
-    # Layer 3 저장: UNWIND로 세션 1번 (단건 N세션·락 경합 제거). 저장 실패는 이벤트 전체를
-    # 실패시키지 않는다(노드·Layer 2는 이미 기록됨).
-    try:
-        await builder.upsert_files_with_modified_edges(
-            project_id=project_id, changeset_hash=hash_, files=prepared.file_rows,
-        )
-        logger.debug("ChangeSet 파일 %d개 배치 처리 완료: hash=%s", len(prepared.file_rows), hash_)
-    except Exception:
-        logger.exception("ChangeSet 파일 배치 저장 실패 (건너뜀): hash=%s", hash_)
+    # 커밋당 처리 시간 — 측정 기준선. 성공 경로만 찍는다(실패는 consumer 재시도 경로가 이미 로그).
+    # rows는 실제로 저장된 행 수다 — 파일 배치 저장이 건너뛰어지면 0.
+    logger.info(
+        "ChangeSet 처리 완료: project=%s hash=%s files=%d rows=%d prepare_ms=%d write_ms=%d",
+        project_id, hash_, prepared.file_count, rows_written, prepared.prepare_ms,
+        int((time.perf_counter() - write_started) * 1000),
+    )
 
 
 async def _handle_pull_request(event: dict) -> None:
