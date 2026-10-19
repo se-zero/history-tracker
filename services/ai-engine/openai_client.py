@@ -63,7 +63,7 @@ def _background_gate() -> asyncio.Semaphore:
     global _gate, _gate_loop
     loop = asyncio.get_running_loop()
     if _gate is None or _gate_loop is not loop:
-        _gate = asyncio.Semaphore(max(1, _env_int("OPENAI_BACKGROUND_CONCURRENCY", 16)))
+        _gate = asyncio.Semaphore(max(1, _env_int("OPENAI_BACKGROUND_CONCURRENCY", 32)))
         _gate_loop = loop
     return _gate
 
