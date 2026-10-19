@@ -37,8 +37,9 @@ look-ahead 합 = `12`, 빈 값은 미설정 취급 — compose가 빈 값을 넘
 킬스위치: `INGEST_CHANGESET_LOOKAHEAD=0`으로 프리페치가 꺼지고, **완전한 기존 동작 복원**에는
 `INGEST_EMBED_COALESCE_MAX=1`을 병행한다(아니면 커밋당 코얼레싱 대기창 50ms가 남는다).
 consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호), project 간은
-`INGEST_MAX_CONCURRENCY`까지 동시 처리한다. OpenAI 호출은 rate_limiter가 페이싱하므로
-동시성을 올려도 Tier 한도를 넘지 않는다(429·품질 저하 없음). 부하·환경에 따라 env로 조절한다.
+`INGEST_MAX_CONCURRENCY`까지 동시 처리한다. rate_limiter가 응답 헤더로 모델별 한도를 학습해 페이싱하고,
+BACKGROUND 호출은 `OPENAI_BACKGROUND_CONCURRENCY` 게이트로 동시 요청 수가 묶이며, 커밋당 파일 요약은
+`INGEST_FILE_SUMMARY_CONCURRENCY`로 묶인다. 부하·환경에 따라 env로 조절한다.
 같은 project의 ChangeSet은 LLM 준비 단계(파일 diff 요약 + 임베딩)만 도착 순서보다 앞서(look-ahead)
 미리 실행하고, Neo4j 쓰기는 여전히 도착 순서 직렬을 유지한다. look-ahead 깊이만큼 미ack 메시지가
 늘어난다 — 재시작 시 최대 `INGEST_PREFETCH`건이 재배달될 수 있지만, 쓰기가 전부 MERGE 멱등이라
@@ -170,12 +171,13 @@ graph/             Neo4j 그래프 구축 + 수집
 - **facade 패턴**: `graph/builder.py`와 `tools/queries/__init__.py`는 분해된 모듈의 공개 심볼을 re-export하는
   facade다. 호출부는 facade로 import해 하위 호환을 유지하되, **분해 모듈끼리는 정규 위치**(`graph.driver` 등)에서
   import한다 — facade를 경유하면 순환 import가 생긴다.
-- **OpenAI 클라이언트는 `openai_client.get_openai_client()`만 사용**한다. 모듈 레벨에서 `OpenAI(...)`를 직접
-  생성하지 않는다 (중복·import 시점 키 강제 방지).
+- **OpenAI 클라이언트는 `openai_client.get_openai_client()`(비동기 `AsyncOpenAI`)만 사용**한다. 모듈 레벨에서
+  `OpenAI(...)`/`AsyncOpenAI(...)`를 직접 생성하지 않는다 (중복·import 시점 키 강제 방지).
 - **chat/embedding 호출은 게이트웨이(`openai_client.chat_completion` / `openai_client.embed`)로** 한다.
   `client.chat.completions.create()`를 직접 호출하지 않는다 — 게이트웨이가 `rate_limiter`로 RPM·TPM을
   페이싱하고 우선순위(`Priority.INTERACTIVE` 질의 / `Priority.BACKGROUND` 수집·빌드)를 적용한다.
-  한도는 env(`OPENAI_RPM_CHAT`/`OPENAI_TPM_CHAT`/`OPENAI_RPM_EMBED`/`OPENAI_TPM_EMBED`)로 외부화돼 있다.
+  한도는 env(`OPENAI_RPM_CHAT`/`OPENAI_TPM_CHAT`/`OPENAI_RPM_EMBED`/`OPENAI_TPM_EMBED`)로 외부화돼 있으며,
+  비우면 응답 헤더로 모델별 실제 한도를 학습하고 값을 주면 그 값이 상한(cap)이 된다.
   OpenAI 실패 감지·알림도 관문(`openai_client.chat_completion`/`embed` → `alerts.record_openai_failure`)에서만
   한다 — 호출부(summarizer·embedder 등)에 `alerts`를 넣지 않는다.
 - **import 시점 부작용 금지**: 모듈 최상단에서 네트워크 호출, 클라이언트 생성, `os.environ["X"]` 하드 subscript를
