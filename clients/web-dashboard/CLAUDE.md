@@ -56,7 +56,8 @@ src/
                     PrivacyNoticeBanner — 같은 방식의 개인정보처리방침 개정 공지(`PRIVACY_POLICY_EFFECTIVE_DATE`,
                     닫기 키 `ht.privacyNotice.dismissed`). 방침 제11조의 "시행 7일 전 서비스 내 공지"라
                     **시행일은 배포일 + 7일 이상**이어야 한다. 두 배너의 닫기 키를 섞지 않는다
-    sources/        GitHubCard(설치 기반 전용) · OAuthSourceCard(OAuth 소스 공용 행 — backend가
+    sources/        GitHubCard(설치 기반 전용. 이 프로젝트에 저장소가 없으면 GitHubRepoPicker를 띄워 바로 연결한다 —
+                    연동 해제 뒤 GitHub을 다시 붙이는 곳은 여기뿐이다) · OAuthSourceCard(OAuth 소스 공용 행 — backend가
                     선언한 선택 단계를 그대로 렌더, provider별 카드를 만들지 않는다) ·
                     sourceCatalog(소스 메타 단일 출처 — 9종의 마크·설명이 등재돼 있고, 항목은
                     status로 갈리는 판별 유니온이다. Slack만 연결 방식이 둘이다
@@ -77,8 +78,13 @@ src/
                     useOAuthCallbackError — 동의 후 돌아온 리다이렉트의 실패 안내(URL 쿼리 캡처)
                     DisconnectIntegration — 해제 버튼 + 사전 경고 다이얼로그(연동 행 공용).
                     해제는 수집된 그래프까지 지우는 파괴적 동작이라 무엇이 삭제·유지되는지 먼저 보여준다
-                    GitHubInstallEmptyState — GitHub App 미설치 빈 상태(설치 + "연결 확인" 버튼). 온보딩
-                    2단계와 GitHubCard가 같이 쓴다. "연결 확인"이 설치 뒤 유일한 진행 수단이라 버튼이다(#162).
+                    GitHubRepoPicker — GitHub 저장소 선택 화면(설치 확인 → 저장소 목록 → 브랜치 → 연결, 권한 만료·0건
+                    안내, 아래에 "저장소·조직 추가"·"연결 확인"). 온보딩 2단계(프로젝트 생성 + 연결)와 GitHubCard(이미 있는
+                    프로젝트에 연결 — `useConnectGitHubRepository`)가 같이 쓴다. 선택 상태와 오류 표시까지만 하고 "연결"의
+                    서버 호출은 쓰는 쪽이 맡는다. 카드는 행의 "이 저장소 연결"을 ghost로 낮춰 앰버를 최종 "연결" 하나에만 쓴다
+                    GitHubInstallEmptyState — GitHub App 미설치 빈 상태(설치 + "연결 확인" 버튼). GitHubRepoPicker가 설치가
+                    없을 때 그리고, GitHubCard는 저장소가 연결됐는데 이 계정에 보이는 설치가 없을 때 직접 그린다.
+                    "연결 확인"이 설치 뒤 유일한 진행 수단이라 버튼이다(#162).
                     누르면 GitHub 로그인으로 페이지를 떠나므로, 온보딩(OnboardingPage)은 STEP 02로 넘어갈 때
                     이름·설명을 sessionStorage 초안(`ht.onboarding.draft`, 30분)에 남기고 다시 열리면 STEP 02부터
                     잇는다. 프로젝트를 만들거나 "이전"을 누르면 지운다. 서버 호출 시점(STEP 02의 "연결")은 그대로다
@@ -87,7 +93,7 @@ src/
                     콜백이 `/`로 보내 프로젝트가 있는 사용자는 첫 프로젝트 채팅으로 떨어졌다). 앱 화면에서
                     `GITHUB_AUTHORIZE_URL`로 가는 링크는 이 컴포넌트로만 만든다(className으로 버튼·`text-link` 선택)
                     GitHubRepoAccessLink — "GitHub에서 저장소·조직 추가". `GITHUB_INSTALL_URL`(GitHub의 계정·조직
-                    선택 화면 — 설치된 곳은 Configure, 아닌 곳은 Install)을 새 탭으로 연다. 온보딩 2단계 하단·
+                    선택 화면 — 설치된 곳은 Configure, 아닌 곳은 Install)을 새 탭으로 연다. GitHubRepoPicker 하단·
                     GitHubInstallEmptyState·계정 설정 카드가 같이 쓴다. 바꾼 뒤 갱신은 "연결 확인"이 맡는다
                     (앱 전역 `refetchOnWindowFocus: false`라 돌아와도 저절로 다시 받지 않는다)
     chat/           ChatStream · Message · Composer · ChatEmpty · ThinkingState · RelatedGraphPanel(답변 근거 서브그래프 패널) · messageStructured
