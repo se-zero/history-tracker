@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  connectGitHubRepository,
   connectSlackWorkspace,
   disconnectIntegration,
   listIntegrations,
+  type ConnectGitHubPayload,
   type IntegrationProvider,
 } from "@/api/integrations";
 import { queryKeys } from "./queryKeys";
@@ -17,6 +19,19 @@ export function useIntegrations(
     queryKey: queryKeys.integrations(projectId),
     queryFn: () => listIntegrations(projectId),
     refetchInterval: options?.refetchInterval,
+  });
+}
+
+// GitHub 저장소 연결(데이터 소스 카드에서 이 프로젝트에 직접 붙인다). 성공하면 integrations를 무효화하는데,
+// invalidateQueries의 promise를 onSuccess에서 반환하는 게 핵심이다 — 뮤테이션이 그 promise를 기다리므로
+// 연동 목록을 다시 받을 때까지 isPending이 유지된다. 반환하지 않으면 요청이 끝나는 즉시 버튼이 풀리는데
+// 카드는 아직 "저장소 없음"이라, 그 사이 "연결"을 한 번 더 눌러 409가 난다.
+export function useConnectGitHubRepository(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: ConnectGitHubPayload) => connectGitHubRepository(projectId, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.integrations(projectId) }),
   });
 }
 
