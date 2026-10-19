@@ -1,26 +1,36 @@
 """OpenAI 호출 token-bucket rate limiter.
 
-전역 OpenAI org 한도(RPM·TPM)를 넘지 않도록 모든 호출을 페이싱한다.
-호출 종류별로 버킷을 둔다 — chat.completions는 CHAT 버킷, embeddings는 EMBED 버킷.
+OpenAI 한도(RPM·TPM)를 넘지 않도록 모든 호출을 페이싱한다. 한도는 모델별·조직 단위라
+버킷도 (호출 종류, 모델)별로 둔다 — chat.completions·embeddings 각각 모델마다 버킷이 따로 생긴다.
 호출 전 입력 토큰을 추정해 예약하고, 응답 usage로 실제 소비량을 보정(reconcile)한다.
+응답 헤더(x-ratelimit-*)는 observe_headers로 반영한다 — limit 헤더로 그 모델의 실제 한도를 학습하고,
+remaining 헤더로 잔량을 낮춰 맞춘다(올리지는 않는다).
 
 우선순위 2단계: INTERACTIVE(라이브 질의) > BACKGROUND(수집·빌드).
 예산이 부족할 때 INTERACTIVE 대기자가 있으면 BACKGROUND 호출은 양보한다.
+양보는 같은 버킷 안에서만 작동한다 — 모델이 갈리는 chat(INTERACTIVE는 질의 모델,
+BACKGROUND는 요약·필터 모델)에서는 서로 영향이 없고, 공유 임베딩 버킷에서만 살아 있다.
 
-한도는 env로 외부화한다 (Tier 변경 = env 값만 수정, 코드 불변):
-  OPENAI_RPM_CHAT  (기본 500)    OPENAI_TPM_CHAT  (기본 200000)
-  OPENAI_RPM_EMBED (기본 3000)   OPENAI_TPM_EMBED (기본 1000000)
+한도 env (종류 단위, 해당 종류의 모든 모델 버킷에 적용):
+  OPENAI_RPM_CHAT  OPENAI_TPM_CHAT  OPENAI_RPM_EMBED  OPENAI_TPM_EMBED
+  - 비어 있으면: 코드 기본값(chat 500/200000, embed 3000/1000000)이 부팅 초기값일 뿐이고,
+    첫 응답 헤더부터 실제 한도를 학습해 교체한다.
+  - 값이 있으면: 부팅값이자 상한(cap)이다. 헤더가 더 큰 한도를 알려도 cap을 넘기지 않는다.
 
 한계: 버킷이 in-process라 ai-engine을 다중 인스턴스로 띄우면 인스턴스별 버킷의 합이
-org 한도를 넘을 수 있다. 수평 확장 시 공유 저장소 기반 limiter로 교체해야 한다.
+org 한도를 넘을 수 있다. remaining 헤더 동기화가 겹침을 어느 정도 완화하지만,
+수평 확장 시 공유 저장소 기반 limiter로 교체해야 한다.
 (per-project 빌드 상태·디바운스·빌드 락도 같은 전환 대상.)
 """
 
 import asyncio
 import enum
+import logging
 import os
 import time
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 
 class Priority(enum.IntEnum):
@@ -43,7 +53,16 @@ class _ModelLimiter:
     코루틴 간 read-modify-write가 원자적이므로 별도 락이 필요 없다.
     """
 
-    def __init__(self, rpm: int, tpm: int, *, clock=time.monotonic):
+    def __init__(
+        self,
+        rpm: int,
+        tpm: int,
+        *,
+        clock=time.monotonic,
+        rpm_cap: int | None = None,
+        tpm_cap: int | None = None,
+        name: str = "",
+    ):
         self._rpm = max(1, int(rpm))
         self._tpm = max(1, int(tpm))
         self._req = float(self._rpm)   # 남은 요청 슬롯
@@ -51,6 +70,10 @@ class _ModelLimiter:
         self._clock = clock
         self._updated = clock()
         self._interactive_waiters = 0
+        self._rpm_cap = rpm_cap
+        self._tpm_cap = tpm_cap
+        self._name = name
+        self._learned = False
 
     def _refill(self) -> None:
         now = self._clock()
@@ -105,27 +128,104 @@ class _ModelLimiter:
         actual = min(max(0, int(actual_tokens)), self._tpm)
         self._tok = max(float(-self._tpm), min(float(self._tpm), self._tok - (actual - reserved)))
 
+    def observe_headers(self, headers) -> None:
+        """OpenAI 응답 헤더로 버킷 용량(limit)과 잔량(remaining)을 맞춘다."""
+        # 동기화 전에 지금 시점까지 충전을 반영해야, 이후 refill이 과거 구간을 다시 충전하지 않는다.
+        self._refill()
 
-def _env_int(name: str, default: int) -> int:
+        limit_rpm = _header_int(headers, "x-ratelimit-limit-requests", minimum=1)
+        limit_tpm = _header_int(headers, "x-ratelimit-limit-tokens", minimum=1)
+        if limit_rpm is not None and self._rpm_cap is not None:
+            limit_rpm = min(limit_rpm, self._rpm_cap)
+        if limit_tpm is not None and self._tpm_cap is not None:
+            limit_tpm = min(limit_tpm, self._tpm_cap)
+        new_rpm = self._rpm if limit_rpm is None else limit_rpm
+        new_tpm = self._tpm if limit_tpm is None else limit_tpm
+        if (new_rpm, new_tpm) != (self._rpm, self._tpm) or (
+            not self._learned and (limit_rpm is not None or limit_tpm is not None)
+        ):
+            self._rpm = new_rpm
+            self._tpm = new_tpm
+            self._req = min(self._req, float(self._rpm))
+            self._tok = min(self._tok, float(self._tpm))
+            self._learned = True
+            logger.info(
+                "OpenAI 한도 학습: %s rpm=%d tpm=%d (cap rpm=%s tpm=%s)",
+                self._name, self._rpm, self._tpm, self._rpm_cap, self._tpm_cap,
+            )
+
+        # remaining은 조직 전체 잔량이라 다른 프로세스 소비까지 반영한다. 0은 429 직전 신호라 유효.
+        # 낮추기만 한다 — 올리면 아직 응답 안 온 in-flight 예약분을 되돌려 과다 발사하게 된다.
+        rem_req = _header_int(headers, "x-ratelimit-remaining-requests", minimum=0)
+        rem_tok = _header_int(headers, "x-ratelimit-remaining-tokens", minimum=0)
+        if rem_req is not None:
+            self._req = min(self._req, float(rem_req))
+        if rem_tok is not None:
+            self._tok = min(self._tok, float(rem_tok))
+
+
+def _header_int(headers, name: str, *, minimum: int) -> int | None:
+    raw = headers.get(name)
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= minimum else None
+
+
+def _env_cap(name: str) -> int | None:
     raw = os.environ.get(name)
     if not raw:
-        return default
+        return None
     try:
-        return max(1, int(raw))
+        value = int(raw)
     except ValueError:
-        return default
+        return None
+    return value if value >= 1 else None
 
 
-@lru_cache(maxsize=1)
-def get_chat_limiter() -> _ModelLimiter:
-    """chat.completions 공용 버킷 (gpt-4o-mini 등 chat 모델 공유)."""
-    return _ModelLimiter(_env_int("OPENAI_RPM_CHAT", 500), _env_int("OPENAI_TPM_CHAT", 200_000))
+_DEFAULTS = {"chat": (500, 200_000), "embed": (3000, 1_000_000)}
+_ENV = {
+    "chat": ("OPENAI_RPM_CHAT", "OPENAI_TPM_CHAT"),
+    "embed": ("OPENAI_RPM_EMBED", "OPENAI_TPM_EMBED"),
+}
+_limiters: dict[tuple[str, str], _ModelLimiter] = {}
 
 
-@lru_cache(maxsize=1)
-def get_embed_limiter() -> _ModelLimiter:
-    """embeddings 공용 버킷."""
-    return _ModelLimiter(_env_int("OPENAI_RPM_EMBED", 3000), _env_int("OPENAI_TPM_EMBED", 1_000_000))
+def _get_limiter(kind: str, model: str) -> _ModelLimiter:
+    key = (kind, model)
+    limiter = _limiters.get(key)
+    if limiter is None:
+        # env는 생성 시점에 읽는다 — 값이 있으면 부팅값이자 상한, 없으면 기본값(상한 없음, 헤더로 학습).
+        rpm_cap = _env_cap(_ENV[kind][0])
+        tpm_cap = _env_cap(_ENV[kind][1])
+        default_rpm, default_tpm = _DEFAULTS[kind]
+        limiter = _ModelLimiter(
+            rpm_cap or default_rpm,
+            tpm_cap or default_tpm,
+            rpm_cap=rpm_cap,
+            tpm_cap=tpm_cap,
+            name=f"{kind}/{model}",
+        )
+        _limiters[key] = limiter
+    return limiter
+
+
+def get_chat_limiter(model: str | None = None) -> _ModelLimiter:
+    """chat.completions 모델별 버킷. model 생략 시 이름 없는 공용 버킷."""
+    return _get_limiter("chat", model or "")
+
+
+def get_embed_limiter(model: str | None = None) -> _ModelLimiter:
+    """embeddings 모델별 버킷. model 생략 시 이름 없는 공용 버킷."""
+    return _get_limiter("embed", model or "")
+
+
+def reset() -> None:
+    """버킷 레지스트리를 비운다(테스트용)."""
+    _limiters.clear()
 
 
 @lru_cache(maxsize=8)

@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 import unittest
 
 import httpx
@@ -669,6 +669,7 @@ class _FakeLimiter:
         self.reserved = reserved
         self.acquire_calls = []
         self.reconcile_calls = []
+        self.observed = []
 
     async def acquire(self, priority, est):
         self.acquire_calls.append((priority, est))
@@ -677,6 +678,9 @@ class _FakeLimiter:
     def reconcile(self, reserved, actual):
         self.reconcile_calls.append((reserved, actual))
 
+    def observe_headers(self, headers):
+        self.observed.append(headers)
+
 
 class GatewayAlertHookTest(unittest.IsolatedAsyncioTestCase):
     async def test_chat_failure_records_unrecoverable_alert(self):
@@ -684,7 +688,8 @@ class GatewayAlertHookTest(unittest.IsolatedAsyncioTestCase):
         client = openai_client.get_openai_client()
         limiter = _FakeLimiter()
         with patch.object(openai_client, "get_chat_limiter", return_value=limiter), \
-             patch.object(client.chat.completions, "create",
+             patch.object(client.chat.completions.with_raw_response, "create",
+                          new_callable=AsyncMock,
                           side_effect=_StubAPIError(401, code="invalid_api_key")):
             with self.assertRaises(_StubAPIError):
                 await openai_client.chat_completion(
@@ -701,7 +706,8 @@ class GatewayAlertHookTest(unittest.IsolatedAsyncioTestCase):
         limiter = _FakeLimiter()
         with patch.object(openai_client, "get_embed_limiter", return_value=limiter), \
              patch.object(alerts, "_dispatch", lambda kind, text: calls.append((kind, text))), \
-             patch.object(client.embeddings, "create",
+             patch.object(client.embeddings.with_raw_response, "create",
+                          new_callable=AsyncMock,
                           side_effect=_StubAPIError(401, code="invalid_api_key")):
             with self.assertRaises(_StubAPIError):
                 await openai_client.embed(
@@ -717,7 +723,9 @@ class GatewayAlertHookTest(unittest.IsolatedAsyncioTestCase):
         limiter = _FakeLimiter()
         fake_resp = SimpleNamespace(usage=SimpleNamespace(total_tokens=5), choices=[])
         with patch.object(openai_client, "get_chat_limiter", return_value=limiter), \
-             patch.object(client.chat.completions, "create", return_value=fake_resp):
+             patch.object(client.chat.completions.with_raw_response, "create",
+                          new_callable=AsyncMock,
+                          return_value=SimpleNamespace(headers={}, parse=lambda: fake_resp)):
             await openai_client.chat_completion(
                 priority=Priority.BACKGROUND, model="gpt-5.4-mini", messages=[]
             )
