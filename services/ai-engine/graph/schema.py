@@ -98,6 +98,12 @@ _UNIQUE_CONSTRAINTS: list[tuple[str, str, list[str]]] = [
     ("actor_alias_project_source",  "ActorAlias",    ["project_id", "source_id"]),
     # ActorDecision: 수동 병합·분리 결정 (docs/actor-manual-merge.md)
     ("actor_decision_id",           "ActorDecision", ["decision_id"]),
+    # IngestTombstone: 끊긴 연동·지운 프로젝트의 수집 차단 기록 (graph/ingest_tombstones.py).
+    # 노드 하나는 둘 중 한 속성만 가진다 — 단일 속성 유니크는 속성이 없는 노드를 무시하므로
+    # 제약을 속성별로 나눠도 서로 충돌하지 않는다. project_id 스코프 규칙의 의도된 예외다
+    # (프로젝트 삭제가 project_id로 노드를 지우기 때문에 그 이름을 일부러 피했다).
+    ("ingest_tombstone_integration", "IngestTombstone", ["integration_id"]),
+    ("ingest_tombstone_project",     "IngestTombstone", ["target_project_id"]),
 ]
 
 # ActorAlias의 개인정보 조회 키 — 유니크는 아니지만(같은 이름/이메일을 쓰는 alias가 여럿일

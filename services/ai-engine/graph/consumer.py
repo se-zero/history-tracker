@@ -7,7 +7,7 @@ from typing import Awaitable, Callable
 import aio_pika
 
 import alerts
-from graph.event_handler import handle, is_prefetchable_changeset, prepare_changeset
+from graph.event_handler import handle, is_prefetchable_changeset, prepare_changeset, should_drop_tombstoned
 from graph.postprocess import mark_dirty
 
 logger = logging.getLogger(__name__)
@@ -293,10 +293,16 @@ async def _process_event(item: object, prepared: object, publish_channel: aio_pi
     재배달된 메시지는 재소비 시 새로 프리페치되므로 재계산은 의도된 동작이다.
 
     성공: 후처리 디바운스 타이머 갱신 후 ack.
+    tombstone: 끊긴 연결·지운 프로젝트의 이벤트는 처리하지 않고 ack만 한다 — 재시도·DLQ로 보내면
+          소용없이 맴돌고, 디바운스 타이머도 건드리지 않는다(지운 프로젝트에 후처리 빌드가 돌거나
+          최초 수집중 상태가 되살아나지 않게).
     실패: _handle_failure가 retry/dlq로 재발행하고 원본을 ack 한다.
           재발행까지 실패하면 예외를 raise → 원본 unacked로 남아 브로커가 재배달한다(유실 방지).
     """
     message, event = item  # type: ignore[misc]
+    if should_drop_tombstoned(event):
+        await message.ack()
+        return
     try:
         await handle(event, prepared=prepared)
         # 처리 성공 — 해당 프로젝트의 후처리(시맨틱 링크) 디바운스 타이머 갱신.
