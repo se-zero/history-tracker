@@ -22,6 +22,7 @@ import com.history.backend.graph.dto.GraphEdgeResponse;
 import com.history.backend.graph.dto.GraphResponse;
 import com.history.backend.graph.dto.GraphSubgraphResponse;
 import com.history.backend.graph.dto.GraphWorkUnitsResponse;
+import com.history.backend.integration.domain.IntegrationProvider;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ import org.springframework.web.client.RestClient;
 class AiEngineGraphClientTest {
 
     private static final UUID PROJECT_ID = UUID.fromString("f4dfc513-bb7b-41f4-aaf9-46bcc18380f8");
+    private static final UUID INTEGRATION_ID = UUID.fromString("2f0f1c2e-9a4e-4f0e-9d1a-6b0f8c3d7a55");
 
     @Test
     @DisplayName("쿼리 파라미터로 스코프된 그래프 개요 조회")
@@ -413,6 +415,36 @@ class AiEngineGraphClientTest {
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> fixture.client.fetchWorkUnitNeighbors(PROJECT_ID, "4:abc:1"))
+                .isInstanceOf(BadGatewayException.class);
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("소스 그래프 삭제 — 경로는 프로젝트·소스, 지우는 연동 id는 integration_id 쿼리로 실어 DELETE")
+    void deletesSourceGraphWithIntegrationIdQuery() {
+        AiEngineGraphClientFixture fixture = fixture();
+        // 연동 id는 ai-engine이 tombstone으로 남겨, 해제 뒤 뒤늦게 도착하는 이벤트를 거르는 데 쓴다
+        fixture.server.expect(once(), requestTo("https://ai-engine.test/graph/projects/" + PROJECT_ID
+                        + "/sources/github?integration_id=" + INTEGRATION_ID))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withSuccess());
+
+        fixture.client.deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB, INTEGRATION_ID);
+
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("소스 그래프 삭제 실패 시 BadGatewayException 발생")
+    void throwsBadGatewayWhenSourceGraphDeleteFails() {
+        AiEngineGraphClientFixture fixture = fixture();
+        fixture.server.expect(once(), requestTo(Matchers.startsWith(
+                        "https://ai-engine.test/graph/projects/" + PROJECT_ID + "/sources/slack")))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> fixture.client.deleteProjectSourceGraph(
+                PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID))
                 .isInstanceOf(BadGatewayException.class);
         fixture.server.verify();
     }

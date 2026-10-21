@@ -643,7 +643,9 @@ public class IntegrationService {
         // 그래프를 먼저 지우는 순서·이유는 프로젝트 삭제와 같다(ProjectService.deleteProject 주석):
         // 외부 HTTP를 트랜잭션 밖에 둬 커넥션 점유를 피하고, 그래프 삭제가 멱등이라 RDB 삭제가
         // 뒤에서 실패해도 재시도 시 no-op으로 통과해 수렴한다(원자적 보장은 아님).
-        aiEngineGraphClient.deleteProjectSourceGraph(projectId, provider);
+        // 지우는 연동의 id를 함께 넘기는 이유: ai-engine이 이 id를 tombstone으로 남겨, 해제 직전에
+        // 큐에 있던 옛 수집 이벤트가 그래프 삭제 뒤에 도착해 노드를 되살리는 것을 막는다.
+        aiEngineGraphClient.deleteProjectSourceGraph(projectId, provider, integration.getId());
         transactionTemplate.executeWithoutResult(status -> {
             // checkpoint를 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이 데이터가 누락된다
             checkpointRepository.deleteByProject_IdAndId_Provider(projectId, provider);
