@@ -42,6 +42,10 @@ class ProjectIntegrationServiceTest {
     private static final UUID PROJECT_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     // PROJECT_ID보다 큰 값으로 두어 "project_id 순" 팬아웃 정렬을 명확히 검증한다.
     private static final UUID PROJECT_ID_2 = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    // integrations.id — 행마다 달라야 "어느 행의 id가 붙었는지"를 가를 수 있다
+    private static final UUID GITHUB_INTEGRATION_ID = UUID.fromString("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1");
+    private static final UUID JIRA_INTEGRATION_ID = UUID.fromString("b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2");
+    private static final UUID SLACK_INTEGRATION_ID = UUID.fromString("c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3");
     private static final byte[] GITHUB_TOKEN = new byte[] {1};
     private static final byte[] JIRA_TOKEN = new byte[] {2};
     private static final byte[] SLACK_TOKEN = new byte[] {3};
@@ -414,6 +418,61 @@ class ProjectIntegrationServiceTest {
         verify(repository, never()).findAllByProjectId(any());
     }
 
+    // 초기 수집 경로: 수집이 시작될 때의 연동 행 id를 요청에 실어, 해제 뒤 재연결로 생긴 새 행과 옛 실행을 구분한다.
+    @Test
+    void resolveFetchRequest_attachesMatchingRowIdAsIntegrationId() {
+        ProjectIntegrationRepository.IntegrationRow github =
+                withId(GITHUB_INTEGRATION_ID, githubRow(FRESH_TOKEN_EXPIRY, GITHUB_TOKEN));
+        ProjectIntegrationRepository.IntegrationRow jira = withId(JIRA_INTEGRATION_ID, jiraRow());
+        ProjectIntegrationRepository.IntegrationRow slack = withId(SLACK_INTEGRATION_ID, slackRow());
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(jira, github, slack));
+        when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
+        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn(JIRA_CREDENTIAL_JSON);
+        when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("xoxb-slack-token");
+
+        assertThat(service.resolveFetchRequest(PROJECT_ID, CollectionProvider.GITHUB)).hasValueSatisfying(request -> {
+            assertThat(request.integrationId()).isEqualTo(GITHUB_INTEGRATION_ID.toString());
+            assertThat(request.credentials()).isEqualTo("Bearer gh-token");
+            assertThat(request.projectKey()).isEqualTo("owner/repo");
+        });
+        assertThat(service.resolveFetchRequest(PROJECT_ID, CollectionProvider.JIRA)).hasValueSatisfying(request -> {
+            assertThat(request.integrationId()).isEqualTo(JIRA_INTEGRATION_ID.toString());
+            assertThat(request.options()).containsEntry("baseUrl", GATEWAY_BASE_URL + "/CLOUD123");
+        });
+        assertThat(service.resolveFetchRequest(PROJECT_ID, CollectionProvider.SLACK)).hasValueSatisfying(request ->
+                assertThat(request.integrationId()).isEqualTo(SLACK_INTEGRATION_ID.toString()));
+    }
+
+    // webhook 경로: provider마다 자기 행의 id를 갖는다 — GitHub 앵커 행의 id를 전부에 붙이면 Jira·Slack 수집이 엉뚱한 연동을 확인한다.
+    @Test
+    void resolveGitHubPullRequestWebhook_attachesEachRowIdToItsProviderRequest() {
+        ProjectIntegrationRepository.IntegrationRow github =
+                withId(GITHUB_INTEGRATION_ID, githubRow(FRESH_TOKEN_EXPIRY, GITHUB_TOKEN));
+        ProjectIntegrationRepository.IntegrationRow jira = withId(JIRA_INTEGRATION_ID, jiraRow());
+        ProjectIntegrationRepository.IntegrationRow slack = withId(SLACK_INTEGRATION_ID, slackRow());
+        when(repository.findGitHubWebhookIntegrations(456L, 123L, "owner/repo"))
+                .thenReturn(List.of(github));
+        when(repository.findAllByProjectId(PROJECT_ID)).thenReturn(List.of(github, jira, slack));
+        when(credentialCryptoService.decrypt(GITHUB_TOKEN)).thenReturn("gh-token");
+        when(credentialCryptoService.decrypt(JIRA_TOKEN)).thenReturn(JIRA_CREDENTIAL_JSON);
+        when(credentialCryptoService.decrypt(SLACK_TOKEN)).thenReturn("xoxb-slack-token");
+
+        GitHubWebhookIntegrationResolution result = service.resolveGitHubPullRequestWebhook(payload());
+
+        assertThat(result.status()).isEqualTo(GitHubWebhookIntegrationResolution.Status.READY);
+        ProjectCollectionContext context = result.contexts().get(0);
+        assertThat(context.request(CollectionProvider.GITHUB)).hasValueSatisfying(request -> {
+            assertThat(request.integrationId()).isEqualTo(GITHUB_INTEGRATION_ID.toString());
+            assertThat(request.credentials()).isEqualTo("Bearer gh-token");
+        });
+        assertThat(context.request(CollectionProvider.JIRA)).hasValueSatisfying(request -> {
+            assertThat(request.integrationId()).isEqualTo(JIRA_INTEGRATION_ID.toString());
+            assertThat(request.options()).containsEntry("baseUrl", GATEWAY_BASE_URL + "/CLOUD123");
+        });
+        assertThat(context.request(CollectionProvider.SLACK)).hasValueSatisfying(request ->
+                assertThat(request.integrationId()).isEqualTo(SLACK_INTEGRATION_ID.toString()));
+    }
+
     private GitHubCollector gitHubCollector() {
         return new GitHubCollector(
                 mock(GitHubRawService.class),
@@ -493,6 +552,22 @@ class ProjectIntegrationServiceTest {
                 SLACK_TOKEN,
                 null,
                 null
+        );
+    }
+
+    // 기존 fixture 헬퍼(githubRow·jiraRow·slackRow)는 id 없는 형태라, 같은 행에 id만 입힌다.
+    private ProjectIntegrationRepository.IntegrationRow withId(
+            UUID id, ProjectIntegrationRepository.IntegrationRow row
+    ) {
+        return new ProjectIntegrationRepository.IntegrationRow(
+                id,
+                row.projectId(),
+                row.provider(),
+                row.externalRef(),
+                row.encryptedCredential(),
+                row.encryptedInstallationToken(),
+                row.installationTokenExpiresAt(),
+                row.incrementalEnabled()
         );
     }
 }

@@ -77,4 +77,24 @@ class RabbitMqConfigTest {
 
         assertThat(body).contains("\"bot\":null");
     }
+
+    // ai-engine 소비자(ingest_tombstones)가 event["integrationId"]로 읽는다 — 해제된 연결의 이벤트를 큐에서 버리는 키라 이름이 바뀌면 조용히 무력해진다.
+    @Test
+    void messageConverter_serializesIntegrationIdField_whenPresent() {
+        MessageConverter converter = new RabbitMqConfig().messageConverter();
+        NormalizedEvent event = new NormalizedEvent(
+                "11111111-1111-1111-1111-111111111111",
+                "ChangeSet",
+                "GITHUB",
+                Instant.parse("2026-06-21T03:04:05Z"),
+                new ActorDto("octocat", "The Octocat", null),
+                Map.of("hash", "abc123"),
+                Map.of()
+        ).withIntegrationId("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1");
+
+        Message message = converter.toMessage(event, new MessageProperties());
+        String body = new String(message.getBody(), StandardCharsets.UTF_8);
+
+        assertThat(body).contains("\"integrationId\":\"a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1\"");
+    }
 }
