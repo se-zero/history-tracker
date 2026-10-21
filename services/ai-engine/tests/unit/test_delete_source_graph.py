@@ -222,5 +222,30 @@ class DeleteProjectSourceGraph(unittest.TestCase):
         mock_recompute.assert_not_called()
 
 
+class KebabSourceNormalization(unittest.TestCase):
+    """backend는 provider를 소문자 kebab(`google-chat`)으로 넘기지만 노드·이벤트의 source와 alias
+    접두는 대문자 snake(`GOOGLE_CHAT`)다(docs/normalized-event.md 표기 규칙). 하이픈을 밑줄로 바꾸지
+    않으면 Google Chat 해제 때 아무 노드도 매치되지 않아 아무것도 안 지워진다."""
+
+    def test_kebab_provider_is_normalized_to_upper_snake_for_nodes_and_aliases(self):
+        _, session, _mock_recompute = _run("p1", "google-chat")
+
+        self.assertEqual(session.calls[0][1]["source"], "GOOGLE_CHAT")
+        self.assertEqual(
+            [p["alias_prefix"] for _q, p in session.calls if "alias_prefix" in p],
+            ["GOOGLE_CHAT:", "GOOGLE_CHAT:", "GOOGLE_CHAT:", "GOOGLE_CHAT:"],
+        )
+
+    def test_already_upper_snake_source_is_unchanged(self):
+        _, session, _mock_recompute = _run("p1", "GOOGLE_CHAT")
+
+        self.assertEqual(session.calls[0][1]["source"], "GOOGLE_CHAT")
+
+    def test_single_word_providers_are_unaffected(self):
+        for provider, expected in (("github", "GITHUB"), ("notion", "NOTION"), ("clickup", "CLICKUP")):
+            _, session, _mock_recompute = _run("p1", provider)
+            self.assertEqual(session.calls[0][1]["source"], expected)
+
+
 if __name__ == "__main__":
     unittest.main()

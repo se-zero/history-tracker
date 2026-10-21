@@ -466,7 +466,7 @@ async def clear_semantic_described_in(project_id: str | None = None) -> int:
 async def delete_project_source_graph(
     project_id: str, source: str, batch_size: int = 10_000
 ) -> dict:
-    """한 소스(GITHUB|SLACK|JIRA)에서 수집한 노드만 삭제한다. 연동 해제 cascade.
+    """한 소스(GITHUB, SLACK, JIRA, GOOGLE_CHAT 등)에서 수집한 노드만 삭제한다. 연동 해제 cascade.
 
     delete_project_graph와 달리 프로젝트는 남기고 그 소스의 흔적만 지운다. 소스가 겹치는
     구조 때문에 단순히 `source` 속성으로 한 번 지우고 끝낼 수 없어 다섯 단계로 나눈다.
@@ -502,7 +502,9 @@ async def delete_project_source_graph(
     if not project_id or not source:
         return {"nodes": 0, "files": 0, "actors": 0, "decisions": 0, "stubs": 0}
 
-    normalized_source = source.upper()
+    # backend는 provider를 소문자 kebab(`google-chat`)으로 넘기지만 노드·이벤트의 source와 alias
+    # 접두는 대문자 snake(`GOOGLE_CHAT`)다 — 하이픈을 밑줄로 바꾸지 않으면 아무것도 매치되지 않는다.
+    normalized_source = source.upper().replace("-", "_")
     alias_prefix = f"{normalized_source}:"
 
     async with get_driver().session() as session:
