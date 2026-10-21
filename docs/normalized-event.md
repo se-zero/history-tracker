@@ -20,7 +20,8 @@ pipeline-worker가 발행하고 ai-engine이 소비하는 **유일한 수집 계
   "occurredAt": "ISO-8601 Instant",
   "actor":  { "id": "", "name": "", "email": null, "bot": null },
   "properties": { },
-  "refs": { }
+  "refs": { },
+  "integrationId": "UUID | null"
 }
 ```
 
@@ -35,6 +36,7 @@ pipeline-worker가 발행하고 ai-engine이 소비하는 **유일한 수집 계
 | `actor` | ✅ | 작성자. 소스별 ID 형식이 다르며 동일인 통합은 ai-engine이 한다. |
 | `properties` | ✅ | `nodeType`별 스키마. 아래 참조. |
 | `refs` | ✅ | 다른 시스템 참조. 없으면 빈 맵(`null` 금지). |
+| `integrationId` | — | 이 이벤트를 수집한 연동(`integrations.id`). **normalizer가 아니라 `EventPublisher`가 발행 직전에 채운다** — 수집 실행 범위(`CollectionRunContext`)가 없으면 null. ai-engine은 해제·삭제된 연동의 id가 실린 이벤트를 쓰기 전에 버린다(`docs/graph-schema.md` 「삭제」). 새 커넥터는 신경 쓸 필요 없다. |
 
 ### actor
 

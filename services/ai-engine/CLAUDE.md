@@ -53,6 +53,14 @@ BACKGROUND 호출은 `OPENAI_BACKGROUND_CONCURRENCY` 게이트로 동시 요청 
 JSON 파싱 실패(malformed)는 재시도·replay가 무의미하므로 DLQ가 아닌 별도 inspect 큐
 `history.events.parking`으로 보낸다(운영자 수동 확인용). 재발행은 소비 채널과 분리된 별도 채널에서 한다.
 
+해제·삭제 뒤 이벤트 차단: 연동 해제(`DELETE …/sources/{source}?integration_id=`)와 프로젝트 삭제는 노드를 지우기
+**전에** tombstone을 남긴다(`graph/ingest_tombstones.py`). consumer(`_process_event` 맨 앞)·`handle()`·
+`is_prefetchable_changeset`이 이벤트의 `integrationId`나 `projectId`가 tombstone이면 LLM·쓰기 전에 버린다 — consumer는
+ack만 하고 `mark_dirty`를 부르지 않는다(지운 프로젝트에 후처리 빌드가 돌지 않게). 재시도·DLQ로 보내지 않는다.
+tombstone 기록이 실패하면 삭제도 중단돼 backend가 재시도하고, 이번에 올린 메모리 표식은 되돌린다(연동이 연결된 채
+남으므로 그 이벤트를 버리면 안 된다). 노드 속성에 `project_id`·`source`를 쓰지 않는
+이유와 30일 TTL은 `docs/graph-schema.md` 「삭제」.
+
 운영자 알림(선택): `ALERT_SLACK_WEBHOOK_URL`(기본 빈 값 = 로그만)을 설정하면 `alerts.py`가 다섯 종류의
 사건 — OpenAI 잔액·쿼터 소진(`openai_quota`), 회복 불가 4xx(`openai_unrecoverable`), 일시 오류 10분 창
 5건 이상(`openai_transient`), DLQ 파킹(`dlq_parked`), malformed parking(`parking`) — 을 감지해 Slack
@@ -137,6 +145,8 @@ tools/             LLM tool-calling
 graph/             Neo4j 그래프 구축 + 수집
   consumer.py        RabbitMQ consumer
   event_handler.py   NormalizedEvent → 그래프 쓰기 (수집 진입점)
+  ingest_tombstones.py  수집 차단 tombstone — 해제된 연동(integrationId)·지운 프로젝트의 이벤트를 버린다.
+                     메모리 판정 + Neo4j `IngestTombstone` 영속, 기동 때 consumer보다 먼저 로드
   postprocess.py     per-project 후처리(Layer 4) 빌드 + 디바운스. 빌드는 프로젝트 단위 비동기
                      (POST /graph/build는 202 후 백그라운드 태스크, GET /graph/build/status 폴링).
                      같은 프로젝트는 coalesce, 다른 프로젝트는 _build_semaphore(MAX_CONCURRENCY)로 제한.

@@ -13,6 +13,7 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 - **DB checkpoint 저장**: checkpoint는 DB `checkpoints` 테이블에 `(project_id, provider, cursor_key)` 단위로 저장한다. cursor 갱신 시 기존 값과 새 값 중 더 최신 시각을 저장해 checkpoint가 과거로 되돌아가지 않게 한다.
 - **webhook/초기수집 동일 checkpoint 사용**: webhook 수집과 초기 수집 트리거(`POST /api/v1/collect/{provider}`)는 모두 `ProjectCollectionContext.projectId`로 같은 DB checkpoint를 조회하고 갱신한다. (수동 normalize endpoint는 제거됨)
 - **raw endpoint는 샘플 전용**: `/api/v1/raw/*` endpoint는 필드 확인용 1페이지 샘플이며 DB checkpoint를 조회하거나 갱신하지 않는다.
+- **해제된 연동의 수집은 멈춘다**: 수집 실행은 시작 때의 `integrations.id`를 들고 다니며(`CollectionRunContext`), 발행 배치와 checkpoint 쓰기 직전에 그 행이 아직 있는지 확인한다. 없으면 `IntegrationDisconnectedException`으로 그 자리에서 멈춘다 — 진행 중이던 페이지까지만 돌고, 해제 때 지운 checkpoint를 되살리지 않는다. 해제 전에 큐에 쌓였거나 확인 직후 해제돼 이미 나간 이벤트는 ai-engine이 이벤트의 `integrationId`로 버린다([graph-schema.md](graph-schema.md) 「삭제」). 재연결하면 새 id라 새 수집은 막히지 않는다.
 
 ---
 
@@ -438,7 +439,8 @@ Slack Events API(`POST /api/v1/slack/events`, JWT 없이 허용)를 통해 backe
 - **`tokens_revoked`**: `tokens.oauth` 배열의 사용자 ID와 `connected_user_id`가 일치하는 **OAuth** 행만
   해제한다. bot 배열은 무시. `connected_user_id` 키가 없는 레거시 행은 건너뛴다.
 
-수집 경로 자체는 이 이벤트에 영향받지 않는다 — 연동 해제 후에는 해당 워크스페이스 수집이 더 이상 트리거되지 않는다.
+수집 경로 자체는 이 이벤트에 영향받지 않는다 — 연동 해제 후에는 해당 워크스페이스 수집이 더 이상 트리거되지 않고,
+진행 중이던 수집은 다음 발행·커서 쓰기 직전에 멈춘다(「공통 원칙」).
 수집 HTTP는 BYO·OAuth 모두 **`user_token` Bearer**다(워커는 `connect_method`를 읽지 않는다). 상세는
 [slack-byo.md](slack-byo.md).
 
