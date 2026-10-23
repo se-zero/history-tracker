@@ -57,8 +57,9 @@ JSON 파싱 실패(malformed)는 재시도·replay가 무의미하므로 DLQ가 
 **전에** tombstone을 남긴다(`graph/ingest_tombstones.py`). consumer(`_process_event` 맨 앞)·`handle()`·
 `is_prefetchable_changeset`이 이벤트의 `integrationId`나 `projectId`가 tombstone이면 LLM·쓰기 전에 버린다 — consumer는
 ack만 하고 `mark_dirty`를 부르지 않는다(지운 프로젝트에 후처리 빌드가 돌지 않게). 재시도·DLQ로 보내지 않는다.
-tombstone 기록이 실패하면 삭제도 중단돼 backend가 재시도하고, 이번에 올린 메모리 표식은 되돌린다(연동이 연결된 채
-남으므로 그 이벤트를 버리면 안 된다). 노드 속성에 `project_id`·`source`를 쓰지 않는
+tombstone은 Neo4j에 먼저 쓰고 성공한 뒤에 메모리에 올린다 — 기록이 실패하면 삭제도 중단돼 backend가 재시도하고,
+연동이 연결된 채 남으므로 그 이벤트를 버리면 안 되기 때문이다(쓰는 동안 들어온 이벤트는 이어지는 노드 삭제가 지운다).
+노드 속성에 `project_id`·`source`를 쓰지 않는
 이유와 30일 TTL은 `docs/graph-schema.md` 「삭제」.
 
 운영자 알림(선택): `ALERT_SLACK_WEBHOOK_URL`(기본 빈 값 = 로그만)을 설정하면 `alerts.py`가 다섯 종류의
@@ -96,6 +97,8 @@ python -m pytest        # = tests/unit 만 실행 (pytest.ini의 testpaths)
 
 라이브 Neo4j 및/또는 실제 OpenAI 키가 있어야 한다. `pytest.ini`의 `testpaths`가 `tests/unit`이라
 기본 `pytest`에는 수집되지 않는다. 현재는 스크립트 형태로, 서비스 루트를 import 경로에 올려 직접 실행한다.
+정리로 `delete_project_graph(pid)`를 부르면 그 pid의 `IngestTombstone`이 30일 남는다 — 같은 pid로 다시 `handle()`을
+태우면 이벤트가 조용히 버려지므로, 테스트마다 새 pid를 쓴다.
 
 ```bash
 export OPENAI_API_KEY=sk-...

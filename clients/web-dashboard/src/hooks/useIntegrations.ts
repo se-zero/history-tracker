@@ -8,6 +8,7 @@ import {
   type ConnectGitHubPayload,
   type IntegrationProvider,
 } from "@/api/integrations";
+import type { Integration } from "@/types/api";
 import { queryKeys } from "./queryKeys";
 
 // 프로젝트 연동 목록. 수집 진행상황 카드처럼 주기적 갱신이 필요하면 refetchInterval을 넘긴다.
@@ -22,16 +23,21 @@ export function useIntegrations(
   });
 }
 
-// GitHub 저장소 연결(데이터 소스 카드에서 이 프로젝트에 직접 붙인다). 성공하면 integrations를 무효화하는데,
-// invalidateQueries의 promise를 onSuccess에서 반환하는 게 핵심이다 — 뮤테이션이 그 promise를 기다리므로
-// 연동 목록을 다시 받을 때까지 isPending이 유지된다. 반환하지 않으면 요청이 끝나는 즉시 버튼이 풀리는데
-// 카드는 아직 "저장소 없음"이라, 그 사이 "연결"을 한 번 더 눌러 409가 난다.
+// GitHub 저장소 연결(데이터 소스 카드에서 이 프로젝트에 직접 붙인다). 성공하면 응답으로 받은 연동 행을 목록 캐시에
+// 바로 넣고 integrations를 무효화한다 — 다시 받기가 실패해도 카드가 "저장소 없음"으로 되돌아가 "연결"을 또 누르게
+// 되지 않게 하려는 것이다(그러면 409가 난다). 무효화 promise를 onSuccess에서 반환해, 다시 받을 때까지 isPending을 유지한다.
 export function useConnectGitHubRepository(projectId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (payload: ConnectGitHubPayload) => connectGitHubRepository(projectId, payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.integrations(projectId) }),
+    onSuccess: (integration) => {
+      queryClient.setQueryData<Integration[]>(queryKeys.integrations(projectId), (prev) => [
+        ...(prev ?? []).filter((existing) => existing.provider !== integration.provider),
+        integration,
+      ]);
+      return queryClient.invalidateQueries({ queryKey: queryKeys.integrations(projectId) });
+    },
   });
 }
 

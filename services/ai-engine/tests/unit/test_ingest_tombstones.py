@@ -209,8 +209,9 @@ def test_blank_ids_are_not_recorded():
     assert ingest_tombstones._project_ids == set()
 
 
-def test_event_is_blocked_while_neo4j_write_is_still_in_flight():
-    # 삭제 도중 도착한 이벤트도 걸러야 하므로 메모리가 DB 쓰기보다 먼저 올라가 있어야 한다
+def test_memory_blocks_only_after_neo4j_write_completes():
+    # 쓰기가 멈췄다 실패하면 삭제가 중단돼 연동이 살아 있으므로, 쓰는 동안 미리 막으면 살아 있는 연결의
+    # 이벤트를 버리게 된다 -> 쓰기가 끝난 뒤에만 막는다(쓰는 동안 들어온 것은 호출부의 노드 삭제가 지운다)
     seen = {}
     session = _FakeTombstoneSession(
         on_run=lambda query, params: seen.setdefault("blocked", is_blocked(_event(integration_id="int-1")))
@@ -218,17 +219,18 @@ def test_event_is_blocked_while_neo4j_write_is_still_in_flight():
     with _with_session(session):
         asyncio.run(record_integration_tombstone("int-1"))
 
-    assert seen["blocked"] is True
+    assert seen["blocked"] is False
+    assert is_blocked(_event(integration_id="int-1")) is True
 
 
 def _boom(query, params):
     raise RuntimeError("neo4j down")
 
 
-def test_record_failure_propagates_and_releases_memory():
+def test_record_failure_propagates_and_leaves_memory_untouched():
     # 기록이 안 된 채 삭제가 진행되면 재기동 후 옛 이벤트가 샌다 -> 예외를 올려 삭제를 중단시킨다.
-    # 삭제가 중단되면 연동·프로젝트는 그대로 남으므로, 메모리에 남기면 아직 살아 있는 쪽의 이벤트를
-    # 재기동 때까지 버리게 된다 -> 메모리에서도 되돌린다.
+    # 삭제가 중단되면 연동·프로젝트는 그대로 남으므로, 메모리에 올리면 아직 살아 있는 쪽의 이벤트를
+    # 재기동 때까지 버리게 된다 -> 메모리에는 올리지 않는다.
     with _with_session(_FakeTombstoneSession(on_run=_boom)):
         with pytest.raises(RuntimeError):
             asyncio.run(record_integration_tombstone("int-1"))

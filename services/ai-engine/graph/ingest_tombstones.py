@@ -54,12 +54,13 @@ SET t.kind = 'project', t.created_at = datetime()
 
 
 async def record_integration_tombstone(integration_id: str) -> None:
-    """끊긴 연결을 기록한다. 메모리에 먼저 올려 Neo4j 쓰기 도중 도착한 이벤트도 막는다.
+    """끊긴 연결을 기록한다. Neo4j에 먼저 쓰고, 성공한 뒤에 메모리에 올린다.
 
     Neo4j 쓰기가 실패하면 예외를 그대로 올린다 — 호출부(그래프 삭제)가 중단돼 backend가 실패를
     보고 재시도하고, 재시도는 MERGE라 안전하다. 기록 없이 지우면 재기동 후 옛 이벤트가 샌다.
-    이때 이번에 올린 메모리 표식은 되돌린다 — 삭제가 중단돼 연동은 연결된 채로 남으므로, 남겨 두면
-    아직 살아 있는 연결의 이벤트를 재기동 때까지 버리게 된다(이미 있던 표식은 그대로 둔다).
+    메모리를 나중에 올리는 이유: 쓰기가 멈췄다 실패하면 삭제가 중단돼 연동은 연결된 채로 남는데, 그동안
+    메모리로 막고 있었다면 아직 살아 있는 연결의 이벤트를 버리고 ack해 되살릴 길이 없다. 쓰는 동안 막지
+    못한 이벤트는 그래프에 들어가지만, 호출부가 바로 다음에 그 소스(프로젝트)의 노드를 지우므로 남지 않는다.
     """
     if not integration_id:
         return
@@ -76,17 +77,11 @@ async def record_project_tombstone(project_id: str) -> None:
 
 
 async def _record(memory: set[str], key: str, query: str) -> None:
-    """메모리에 먼저 올리고 Neo4j에 남긴다. 쓰기가 실패하면 이번에 올린 표식만 되돌리고 예외를 올린다."""
-    newly_added = key not in memory
+    """Neo4j에 남긴 뒤 메모리에 올린다. 쓰기가 실패하면 메모리는 건드리지 않고 예외를 올린다."""
+    async with get_driver().session() as session:
+        result = await session.run(query, key=key)
+        await result.consume()   # 커밋 완료를 확인한 뒤에야 메모리에 올리고 호출부가 노드를 지운다
     memory.add(key)
-    try:
-        async with get_driver().session() as session:
-            result = await session.run(query, key=key)
-            await result.consume()   # 커밋 완료를 확인한 뒤에야 호출부가 노드를 지운다
-    except Exception:
-        if newly_added:
-            memory.discard(key)
-        raise
 
 
 _PURGE_EXPIRED = """
