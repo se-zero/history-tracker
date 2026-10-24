@@ -164,6 +164,8 @@ Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 
 
 발행은 publisher confirm으로 검증한다. `EventPublisher`가 메시지를 일괄 전송한 뒤 `CorrelationData`별 broker ack/return을 모아 대기하고, 한 건이라도 nack·라우팅 실패(unroutable)·타임아웃이면 `EventPublishException`을 던진다. 그러면 해당 `SourceCollector`가 checkpoint를 전진시키지 않아(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)을 막고 다음 수집에서 재발행한다. 이를 위해 연결은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿은 `mandatory=true`로 설정한다. confirm 대기 한도는 `app.rabbitmq.publish-confirm-timeout-ms`.
 
+**수집 실행 범위(`collection/CollectionRunContext`)** — `ProjectIntegrationService`가 수집 요청에 그 연동 행의 id(`RawFetchRequest.integrationId`)를 붙이고, `PipelineService.collect`가 collector를 부르는 동안 그 id로 범위를 연다(ThreadLocal, try-with-resources). 범위가 열려 있으면 `EventPublisher.publishAll`은 보내기 전에 연동 행이 아직 있는지 확인하고(없으면 `IntegrationDisconnectedException`, 한 건도 안 보냄) 각 이벤트에 `integrationId`를 싣는다 — ai-engine이 해제된 연동의 이벤트를 이 값으로 버린다. **발행과 checkpoint 쓰기는 collect를 부른 스레드에서만 한다** — 보조 스레드(예: `githubCommitDetailExecutor`)에서 부르면 범위가 안 보여 가드를 우회한다. 초기 수집(`CollectionTriggerService`)은 이 예외를 오류가 아니라 INFO로 남기고, 증분 수집(`PipelineService.collectIncremental`)은 그 provider만 결과에서 빼고 다음 provider를 계속 돈다.
+
 ## Rate Limiting
 
 - **GitHub**: 3단 적응형. `X-RateLimit-Remaining`이 500(`pacing-remaining-threshold`) 초과면 무대기, 10(`low-remaining-threshold`) 초과 500 이하면 `X-RateLimit-Reset`까지 남은 시간을 remaining으로 나눈 페이스((reset−now)/remaining)로 대기, 10 이하면 `X-RateLimit-Reset`까지 대기. 헤더가 없거나 remaining/reset을 숫자로 파싱할 수 없으면 300ms(`default-delay-ms`)로 폴백. 429와 rate limit 신호가 있는 403(`Retry-After` 존재 또는 `X-RateLimit-Remaining: 0`)은 `Retry-After` → `X-RateLimit-Reset` → 60초 순으로 정한 시간(상한 1시간)만큼 대기 후 최대 3회 재시도하고, 권한성 403 등 그 외 non-2xx는 즉시 실패시킨다(조용한 결손 방지). **예외는 커밋 상세(`/commits/{sha}`)의 404 하나뿐이다** — force-push·history rewrite로 사라진 커밋은 재시도해도 영원히 404라, 던지면 페이지 전체가 실패하고 commit checkpoint가 전진하지 않아 매 수집이 같은 지점에서 막힌다(자가 복구 불가). 이 경우만 경고 로그를 남기고 `files` 없이 넘긴다. 커밋 상세 조회는 전용 풀(`githubCommitDetailExecutor`, 동시 3)에서 병렬 실행하며 목록 병합은 입력 순서를 보존한다.
@@ -238,6 +240,10 @@ GitHub `/users/{login}`(커밋·PR·이슈 작성자 프로필 보강)도 같은
 - Jira는 `updated` 기준으로 수집하고, 페이지 단위 publish 후 checkpoint를 갱신한다.
 - checkpoint는 project 단위로 저장한다.
 - cursor 갱신은 기존 값보다 과거 시각으로 되돌아가지 않게 저장한다.
+- **해제된 연동의 커서는 쓰지 않는다** — `updateCursor`·`deleteCursor`는 수집 실행 범위의 연동 행이 없으면
+  `IntegrationDisconnectedException`을 던진다. checkpoints FK가 projects에만 걸려 있어, 이게 없으면 해제 뒤 끝난
+  옛 수집이 backend가 지운 커서를 다시 써 넣고 재연결한 새 수집이 그 커서부터 이어받는다. 확인과 쓰기 사이의
+  아주 짧은 틈에 해제되는 경우까지는 막지 못한다.
 
 ## 설정 파일
 

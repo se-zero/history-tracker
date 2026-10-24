@@ -45,6 +45,7 @@ MODULES = [
     "graph.embed_batcher",
     "graph.embedder",
     "graph.event_handler",
+    "graph.ingest_tombstones",
     "graph.issue_link_store",
     "graph.issue_linker",
     "graph.issue_verifier",

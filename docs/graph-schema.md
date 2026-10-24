@@ -38,7 +38,25 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 | 트리거 | 엔드포인트 | 범위 |
 |--------|-----------|------|
 | 프로젝트 삭제 · 회원 탈퇴 | `DELETE /graph/projects/{project_id}` | 그 프로젝트의 모든 노드(Actor 포함) |
-| 연동 해제 | `DELETE /graph/projects/{project_id}/sources/{source}` | 그 소스에서 수집한 노드만 |
+| 연동 해제 | `DELETE /graph/projects/{project_id}/sources/{source}?integration_id={id}` | 그 소스에서 수집한 노드만 |
+
+`source`는 backend provider 표기(`github`, `google-chat`)를 받아 노드의 대문자 snake 표기(`GITHUB`,
+`GOOGLE_CHAT`)로 맞춘다(2026-10-20 전에는 하이픈을 그대로 둬 Google Chat 해제 때 아무것도 지워지지 않았다).
+
+**삭제 뒤에 도착하는 이벤트 — 수집 차단 tombstone.** 그래프를 지워도 이벤트는 계속 들어온다(메인 큐에
+쌓인 것, 미ack 프리페치분, 재시도 큐 약 1시간, DLQ replay, 수집 서버에서 아직 돌던 수집). 그래서 두 삭제
+경로 모두 **노드를 지우기 전에** `IngestTombstone`을 남기고(`graph/ingest_tombstones.py`), consumer는
+LLM 요약·Actor 판정·쓰기 전에 그 이벤트를 버린다(ack만 하고 디바운스 타이머도 건드리지 않는다).
+
+- 연동 해제 — `integration_id`(backend가 지우는 연동의 id를 넘긴다)로 막는다. 재연결하면 새 id가 생겨
+  새 연결의 이벤트는 막히지 않는다. 이벤트의 `integrationId`가 없으면(옛 형식) 이 검사로는 못 막는다.
+- 프로젝트 삭제 — `project_id`로 막는다(프로젝트 id는 재사용되지 않는다).
+- 노드 속성은 `kind`·`integration_id` 또는 `target_project_id`·`created_at`이다. **`project_id`·`source`
+  이름을 쓰지 않는다** — 쓰면 위 삭제 쿼리에 같이 지워지고 프로젝트 단위 조회에 섞인다. 판정은 메모리
+  집합만 보고, 기동 때 consumer보다 먼저 Neo4j에서 읽어 오며, 30일이 지난 것은 그때 지운다.
+- 한계: 관문을 이미 통과해 쓰는 중이던 이벤트(파티션당 최대 1건)는 삭제가 끝난 뒤 쓰기를 마칠 수 있다.
+  30일이 지난 DLQ 메시지를 수동 replay하면 거르지 못한다. ai-engine 인스턴스가 여럿이면 다른
+  인스턴스는 재기동 때에야 새 tombstone을 안다(지금은 단일 인스턴스).
 
 **소스 단위 삭제(`delete_project_source_graph`)는 다섯 단계다.** `source` 속성 하나로 지우고
 끝낼 수 없는 이유가 각 단계에 있다.

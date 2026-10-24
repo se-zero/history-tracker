@@ -106,20 +106,29 @@ async def delete_project_graph_endpoint(project_id: str):
 
     backend의 프로젝트 삭제에서 호출하는 cascade. 인가는 backend가 담당 — ai-engine은
     backend가 넘긴 project_id를 신뢰하는 내부 서비스다. 멱등 — 없는 project_id면 deleted=0.
+    삭제 전에 프로젝트 수집 차단 tombstone을 남겨 큐에 남은 이벤트가 그래프를 다시 채우지 못하게 한다.
     """
     deleted = await delete_project_graph(project_id)
     return {"deleted": deleted}
 
 
 @router.delete("/graph/projects/{project_id}/sources/{source}")
-async def delete_project_source_graph_endpoint(project_id: str, source: str):
-    """한 소스에서 수집한 노드만 삭제한다 (GITHUB|SLACK|JIRA).
+async def delete_project_source_graph_endpoint(
+    project_id: str, source: str, integration_id: str | None = None,
+):
+    """한 소스에서 수집한 노드만 삭제한다.
+
+    source: github|slack|jira|discord|google-chat|linear|asana|clickup|notion — backend provider
+    표기(소문자 kebab)를 그대로 받고, 대문자 snake(GITHUB, GOOGLE_CHAT)도 같은 소스로 취급한다.
 
     backend의 연동 해제에서 호출하는 cascade. 프로젝트와 다른 소스의 노드는 남는다.
     인가는 backend가 담당 — 프로젝트 삭제와 같은 내부 서비스 신뢰 모델이다.
     멱등 — 이미 지워진 소스를 다시 호출하면 전부 0이다.
+
+    integration_id: 끊는 연결의 id(선택). 주면 삭제 전에 그 연결의 수집 차단 tombstone을 남겨,
+    큐에 남은 이벤트가 삭제 뒤에 그래프를 다시 채우지 못하게 한다. 없으면 삭제만 한다.
     """
-    return await delete_project_source_graph(project_id, source)
+    return await delete_project_source_graph(project_id, source, integration_id=integration_id)
 
 
 @router.post("/graph/build", status_code=202)

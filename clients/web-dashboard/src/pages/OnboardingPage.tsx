@@ -1,21 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 
-import { BranchSelect } from "@/components/BranchSelect";
 import { Icons } from "@/components/Icons";
 import { Field } from "@/components/ui/Field";
-import { InlineError } from "@/components/ui/InlineError";
 import { MonoChip } from "@/components/ui/MonoChip";
 import { createProject } from "@/api/projects";
-import { GitHubInstallEmptyState } from "@/components/sources/GitHubInstallEmptyState";
-import { GitHubRecheckLink } from "@/components/sources/GitHubRecheckLink";
-import { GitHubRepoAccessLink } from "@/components/sources/GitHubRepoAccessLink";
+import { GitHubRepoPicker } from "@/components/sources/GitHubRepoPicker";
 import { Topbar } from "@/components/shell/Topbar";
-import { useUiLanguage, type UiLang } from "@/i18n/language";
+import { useUiLanguage } from "@/i18n/language";
 import { queryKeys } from "@/hooks/queryKeys";
-import { useGithubRepoRows } from "@/hooks/useGithub";
 import type { GitHubInstallation, GitHubRepository, Project } from "@/types/api";
 
 // 프로젝트는 STEP 01이 아니라 STEP 02의 "연결"에서, GitHub 연동과 함께 한 번에 만들어진다.
@@ -247,18 +241,6 @@ function ConnectGitHubStep({
   const en = lang === "en";
   const queryClient = useQueryClient();
 
-  const {
-    installationsQuery,
-    installations,
-    rows: repoRows,
-    reposLoading,
-    repoQueries,
-  } = useGithubRepoRows();
-
-  // 연결하려고 선택한 저장소(브랜치 선택 단계)
-  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(null);
-  const [branch, setBranch] = useState("");
-
   // 프로젝트 생성과 저장소 연결은 backend가 한 트랜잭션으로 처리한다(요청 한 번) —
   // 둘 중 하나만 남는 상태가 없어서, 실패하면 서버에는 아무것도 만들어지지 않고 재시도가
   // 깨끗하다. 저장소 목록은 프로젝트가 아니라 사용자 단위(installations) 조회라
@@ -290,21 +272,6 @@ function ConnectGitHubStep({
     },
   });
 
-  const startBranchSelect = (repo: GitHubRepository) => {
-    setSelectedRepoId(repo.id);
-    setBranch(repo.default_branch);
-  };
-
-  const connected = installations.length > 0;
-  // 빈 목록과 같은 화면이 되지만 원인은 권한 만료라, 저장소 권한 안내로 보내면 빠져나올 수 없다.
-  const needsGitHubReauthorization =
-    connected &&
-    !reposLoading &&
-    repoQueries.some((query) => isGitHubReauthorizationRequired(query.error));
-  // 저장소 목록(또는 0건 안내)이 그려질 때만 "저장소·조직 추가" 진입점을 둔다. 설치가 없으면 빈 상태가,
-  // 권한 만료면 재로그인 안내가 각자 다음 행동을 이끌므로 거기에 길을 더 열면 갈래만 늘어난다.
-  const showAccessEntry = connected && !reposLoading && !needsGitHubReauthorization;
-
   return (
     <>
       <StepIndicator step={2} />
@@ -317,181 +284,36 @@ function ConnectGitHubStep({
       </p>
 
       <div style={{ maxWidth: 560, margin: "0 auto", width: "100%" }}>
-        {installationsQuery.isLoading ? (
-          <div className="onb-muted-block">
-            {en ? "Loading GitHub workspaces…" : "GitHub 워크스페이스를 불러오는 중…"}
-          </div>
-        ) : !connected ? (
-          <GitHubInstallEmptyState style={{ padding: "20px 0" }} />
-        ) : reposLoading ? (
-          <div className="onb-muted-block">
-            {en ? "Loading repositories…" : "저장소 목록을 불러오는 중…"}
-          </div>
-        ) : needsGitHubReauthorization ? (
-          <GitHubReauthorizationCta />
-        ) : repoRows.length === 0 ? (
-          <div className="onb-muted-block">
-            {en
-              ? "No repositories you can access. Add the ones whycode should read under “Add repositories or organizations on GitHub”, then press Check connection to refresh the list. Only the owner of that account (an organization owner, for an org) can change the installation."
-              : "접근 가능한 저장소가 없어요. 아래 'GitHub에서 저장소·조직 추가'에서 whycode가 읽을 저장소를 고른 뒤 연결 확인을 누르면 목록이 갱신돼요. 설치는 그 계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요."}
-          </div>
-        ) : (
-          <div className="repo-list" style={{ maxHeight: 320, overflowY: "auto" }}>
-            {repoRows.map(({ installation, repo }) => {
-              const isSelected = selectedRepoId === repo.id;
-              const isPending =
-                connectMutation.isPending &&
-                connectMutation.variables?.repo.id === repo.id;
-              return (
-                <div key={`${installation.id}-${repo.id}`} className="repo-row">
-                  <span className="repo-name">{repo.full_name}</span>
-                  {isSelected ? (
-                    <>
-                      <BranchSelect
-                        installationId={installation.id}
-                        owner={repo.owner}
-                        repo={repo.name}
-                        value={branch}
-                        onChange={setBranch}
-                        disabled={isPending}
-                      />
-                      <button
-                        className="btn btn-primary"
-                        style={{ padding: "3px 10px", marginLeft: 8 }}
-                        onClick={() =>
-                          connectMutation.mutate({ installation, repo, branch })
-                        }
-                        disabled={isPending || !branch}
-                      >
-                        {/* 이 버튼 하나가 프로젝트 생성 + 연결을 다 한다 — "만드는 중"까지
-                            분리해 보여주면 단계가 둘로 읽혀 되돌릴 수 있다고 오해된다. */}
-                        {isPending ? (en ? "Connecting…" : "연결 중…") : en ? "Connect" : "연결"}
-                      </button>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ padding: "3px 10px", marginLeft: 4 }}
-                        onClick={() => setSelectedRepoId(null)}
-                        disabled={isPending}
-                      >
-                        {en ? "Cancel" : "취소"}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="repo-meta">{repo.visibility}</span>
-                      <button
-                        className="btn btn-primary"
-                        style={{ padding: "3px 10px", marginLeft: 8 }}
-                        onClick={() => startBranchSelect(repo)}
-                        disabled={connectMutation.isPending}
-                      >
-                        {en ? "Connect this repository" : "이 저장소 연결"}
-                      </button>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {connectMutation.isError && (
-          <InlineError style={{ marginTop: 10 }}>
-            {connectErrorContent(connectMutation.error, lang)}
-          </InlineError>
-        )}
-
-        {/* 0건이면 위 안내 상자가 같은 내용을 이미 말하므로, 목록이 있을 때만 덧붙인다. */}
-        {showAccessEntry && repoRows.length > 0 && (
-          <p className="onb-access-hint">
-            {en
-              ? "Don't see the repository? Add it on GitHub, then press Check connection to refresh the list. Only the owner of that account (an organization owner, for an org) can change the installation."
-              : "찾는 저장소가 없나요? GitHub에서 추가한 뒤 연결 확인을 누르면 목록이 갱신돼요. 설치는 그 계정의 소유자(조직은 조직 소유자)만 바꿀 수 있어요."}
-          </p>
-        )}
-
-        {/* "나중에 연결하기"는 제거됐다 — GitHub 연결은 필수이고(위 lead 문구), 저장소 없이
-            들어가면 그래프가 빈 채로 첫 화면이 열려 제품이 고장난 것처럼 보인다.
-            대신 '이전'으로 STEP 01에 언제든 돌아갈 수 있다 — 실패했든 아직 시도 전이든
-            서버에는 아무것도 만들어지지 않았으므로 되돌아가도 남는 게 없다.
-            '연결 확인'은 GitHub App 설치·권한을 바꾸고 돌아와 목록을 다시 받는 용도다.
-            '저장소·조직 추가'는 그 바꾸는 쪽(GitHub 설정)을 새 탭으로 여는 짝이다. */}
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 8,
-            marginTop: 20,
-          }}
-        >
-          {showAccessEntry && <GitHubRepoAccessLink />}
-          {connected && (
-            <GitHubRecheckLink className="btn btn-ghost">
-              {en ? "Check connection" : "연결 확인"}
-            </GitHubRecheckLink>
-          )}
-          <button
-            className="btn btn-ghost"
-            style={{ marginLeft: "auto" }}
-            onClick={onBack}
-            disabled={connectMutation.isPending}
-          >
-            {en ? "Back" : "이전"}
-          </button>
-        </div>
+        <GitHubRepoPicker
+          onConnect={(selection) => connectMutation.mutate(selection)}
+          connectingRepoId={
+            connectMutation.isPending ? (connectMutation.variables?.repo.id ?? null) : null
+          }
+          connectError={connectMutation.error}
+          fallbackErrorMessage={
+            en
+              ? "Couldn't create the project. Try again in a moment."
+              : "프로젝트를 만들지 못했어요. 잠시 후 다시 시도해 주세요."
+          }
+          emptyStateStyle={{ padding: "20px 0" }}
+          footerTail={
+            // "나중에 연결하기"는 제거됐다 — GitHub 연결은 필수이고(위 lead 문구), 저장소 없이
+            // 들어가면 그래프가 빈 채로 첫 화면이 열려 제품이 고장난 것처럼 보인다.
+            // 대신 '이전'으로 STEP 01에 언제든 돌아갈 수 있다 — 실패했든 아직 시도 전이든
+            // 서버에는 아무것도 만들어지지 않았으므로 되돌아가도 남는 게 없다.
+            <button
+              className="btn btn-ghost"
+              style={{ marginLeft: "auto" }}
+              onClick={onBack}
+              disabled={connectMutation.isPending}
+            >
+              {en ? "Back" : "이전"}
+            </button>
+          }
+        />
       </div>
     </>
   );
-}
-
-const GITHUB_REAUTHORIZATION_MESSAGE = "GitHub reauthorization required.";
-
-function isGitHubReauthorizationRequired(error: unknown): boolean {
-  if (!axios.isAxiosError(error)) return false;
-  if (error.response?.status !== 403) return false;
-  const data = error.response.data as { message?: unknown } | undefined;
-  return data?.message === GITHUB_REAUTHORIZATION_MESSAGE;
-}
-
-function GitHubReauthorizationCta() {
-  const { lang } = useUiLanguage();
-  const en = lang === "en";
-  return (
-    <div className="onboarding-gh-empty">
-      <span>
-        {en
-          ? "The GitHub permission from sign-in is missing or expired, so the repository list can't be loaded."
-          : "로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소 목록을 볼 수 없어요."}
-      </span>
-      <GitHubRecheckLink className="btn btn-primary">
-        {en ? "Sign in again and check the connection" : "다시 로그인하고 연결 확인"}
-      </GitHubRecheckLink>
-    </div>
-  );
-}
-
-function connectErrorContent(error: unknown, lang: UiLang) {
-  const en = lang === "en";
-  if (isGitHubReauthorizationRequired(error)) {
-    return (
-      <>
-        {en
-          ? "The GitHub permission from sign-in is missing or expired, so the repository can't be connected. "
-          : "로그인 때 받은 GitHub 권한이 없거나 만료돼 저장소를 연결할 수 없어요. "}
-        <GitHubRecheckLink className="text-link">
-          {en ? "Sign in again and check the connection" : "다시 로그인하고 연결 확인"}
-        </GitHubRecheckLink>
-      </>
-    );
-  }
-  // 연동 한도 403은 재로그인으로 풀리지 않는다.
-  if (axios.isAxiosError(error) && error.response?.status === 403) {
-    return en ? "You've reached your plan limit." : "플랜 한도에 도달했어요.";
-  }
-  return en
-    ? "Couldn't create the project. Try again in a moment."
-    : "프로젝트를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
 }
 
 function StepIndicator({ step }: { step: 1 | 2 }) {

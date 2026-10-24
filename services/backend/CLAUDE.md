@@ -189,6 +189,10 @@ Jira·Asana는 2단, ClickUp은 workspace → space → *folder(선택)* → lis
   refresh_token이 아니라 access_token으로 호출하는 계약이다).
   **그래프가 RDB보다 먼저** — 프로젝트 삭제와 같은 이유다(외부 HTTP를 트랜잭션 밖에 두고,
   그래프 삭제가 멱등이라 재시도로 수렴).
+  그래프 삭제 호출에는 **지우는 연동의 id를 `integration_id`로 함께 넘긴다** — ai-engine이 tombstone으로 남겨,
+  해제 직전에 큐에 있던 옛 수집 이벤트가 삭제 뒤에 도착해 노드를 되살리는 것을 막는다. 진행 중이던 수집은
+  pipeline-worker가 연동 행이 사라진 것을 보고 다음 발행·커서 쓰기 직전에 멈춘다(그래서 행 삭제는 지금처럼
+  마지막이어도 된다). 프로젝트 삭제는 ai-engine이 project_id로 tombstone을 남기므로 인자를 추가하지 않는다.
   checkpoint를 반드시 함께 지운다 — 남기면 재연결이 옛 커서부터 증분 수집을 재개해 그 사이
   데이터가 영구 누락된다. GitHub App 설치(`github_installations`)는 계정 단위라 건드리지 않는다.
 - **GitHub App 설치의 접근권은 `github_installation_users`(멤버십)가 갖는다.** 인가 게이트는

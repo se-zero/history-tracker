@@ -1,11 +1,15 @@
 package com.history.pipeline_worker.messaging;
 
+import com.history.pipeline_worker.collection.CollectionRunContext;
+import com.history.pipeline_worker.collection.IntegrationDisconnectedException;
+import com.history.pipeline_worker.collection.ProjectIntegrationRepository;
 import com.history.pipeline_worker.dto.ActorDto;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.core.MessageBuilder;
@@ -16,6 +20,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -24,6 +29,8 @@ import static org.mockito.Mockito.*;
 /**
  * EventPublisher: NormalizedEvent → RabbitMQ 발행 + 소스별 라우팅 키 결정 + publisher confirm 검증.
  * RabbitTemplate은 Mock으로 대체하고, convertAndSend 스텁이 CorrelationData future를 완료시켜 broker confirm을 흉내낸다.
+ * CollectionRunContext는 실제 객체 사용 — ThreadLocal 범위와 ensureActive가 "해제된 연동의 발행 차단"의 본질이라서.
+ * 연동 행의 존재 여부만 ProjectIntegrationRepository Mock으로 바꾼다.
  */
 @ExtendWith(MockitoExtension.class)
 class EventPublisherTest {
@@ -31,6 +38,10 @@ class EventPublisherTest {
     @Mock
     private RabbitTemplate rabbitTemplate;
 
+    @Mock
+    private ProjectIntegrationRepository integrationRepository;
+
+    private CollectionRunContext runContext;
     private EventPublisher publisher;
 
     // 생성자 주입 방식이므로 테스트에서 직접 값 주입
@@ -41,10 +52,12 @@ class EventPublisherTest {
     private static final String SLACK_KEY  = "event.slack";
     // 타임아웃 테스트가 빨리 끝나도록 짧게 설정
     private static final long CONFIRM_TIMEOUT_MS = 200;
+    private static final UUID INTEGRATION_ID = UUID.fromString("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1");
 
     @BeforeEach
     void setUp() {
-        publisher = new EventPublisher(rabbitTemplate, EXCHANGE, PREFIX, CONFIRM_TIMEOUT_MS);
+        runContext = new CollectionRunContext(integrationRepository);
+        publisher = new EventPublisher(rabbitTemplate, runContext, EXCHANGE, PREFIX, CONFIRM_TIMEOUT_MS);
     }
 
     // convertAndSend 호출 시 CorrelationData future를 주어진 결과로 완료시키는 스텁
@@ -212,6 +225,64 @@ class EventPublisherTest {
         assertThatThrownBy(() -> publisher.publishAll(List.of(buildEvent("GITHUB"))))
                 .isInstanceOf(EventPublishException.class)
                 .hasMessageContaining("타임아웃");
+    }
+
+    // ─── 연동 해제 → 발행 차단 / 연동 id 태깅 ──────────────────────────────────────
+
+    // 연동을 해제해도 이미 도는 수집이 이벤트를 끝까지 쏟아내던 결함 — 보내기 전에 막아야 한 건도 안 나간다.
+    @Test
+    @DisplayName("범위가 열린 연동 행이 없으면 예외를 던지고 한 건도 발행하지 않는다")
+    void publishAll_integrationDisconnected_throwsAndSendsNothing() {
+        when(integrationRepository.existsById(INTEGRATION_ID)).thenReturn(false);
+        List<NormalizedEvent> events = List.of(buildEvent("GITHUB"), buildEvent("JIRA"));
+
+        try (CollectionRunContext.Scope scope = runContext.open(INTEGRATION_ID.toString())) {
+            assertThatThrownBy(() -> publisher.publishAll(events))
+                    .isInstanceOf(IntegrationDisconnectedException.class);
+        }
+
+        verifyNoInteractions(rabbitTemplate);
+    }
+
+    @Test
+    @DisplayName("범위가 열려 있으면 발행하는 모든 이벤트에 그 integrationId를 붙인다")
+    void publishAll_scopeOpen_tagsEveryEventWithIntegrationId() {
+        stubConfirm(true, false);
+        when(integrationRepository.existsById(INTEGRATION_ID)).thenReturn(true);
+        List<NormalizedEvent> events = List.of(buildEvent("GITHUB"), buildEvent("JIRA"));
+
+        int count;
+        try (CollectionRunContext.Scope scope = runContext.open(INTEGRATION_ID.toString())) {
+            count = publisher.publishAll(events);
+        }
+
+        assertThat(count).isEqualTo(2);
+        ArgumentCaptor<NormalizedEvent> sent = ArgumentCaptor.forClass(NormalizedEvent.class);
+        verify(rabbitTemplate, times(2))
+                .convertAndSend(eq(EXCHANGE), anyString(), sent.capture(), any(CorrelationData.class));
+        assertThat(sent.getAllValues())
+                .extracting(NormalizedEvent::integrationId)
+                .containsOnly(INTEGRATION_ID.toString());
+        // integrationId 외의 내용은 그대로 — 태깅이 이벤트를 바꿔치기하면 안 된다
+        assertThat(sent.getAllValues())
+                .usingRecursiveComparison()
+                .ignoringFields("integrationId")
+                .isEqualTo(events);
+    }
+
+    @Test
+    @DisplayName("범위가 없으면 DB를 확인하지 않고 integrationId 없이 지금처럼 발행한다")
+    void publishAll_withoutScope_publishesEventsUntagged() {
+        stubConfirm(true, false);
+        NormalizedEvent event = buildEvent("GITHUB");
+
+        publisher.publishAll(List.of(event));
+
+        ArgumentCaptor<NormalizedEvent> sent = ArgumentCaptor.forClass(NormalizedEvent.class);
+        verify(rabbitTemplate)
+                .convertAndSend(eq(EXCHANGE), eq(GITHUB_KEY), sent.capture(), any(CorrelationData.class));
+        assertThat(sent.getValue().integrationId()).isNull();
+        verifyNoInteractions(integrationRepository);
     }
 
     // ─── 헬퍼 메서드 ─────────────────────────────────────────────────────────────

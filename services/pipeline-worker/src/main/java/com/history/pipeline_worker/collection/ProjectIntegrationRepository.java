@@ -40,7 +40,8 @@ public class ProjectIntegrationRepository {
         }
 
         String sql = """
-                SELECT i.project_id,
+                SELECT i.id,
+                       i.project_id,
                        i.provider,
                        i.external_ref,
                        i.encrypted_credential,
@@ -66,7 +67,8 @@ public class ProjectIntegrationRepository {
 
     public List<IntegrationRow> findAllByProjectId(UUID projectId) {
         String sql = """
-                SELECT i.project_id,
+                SELECT i.id,
+                       i.project_id,
                        i.provider,
                        i.external_ref,
                        i.encrypted_credential,
@@ -86,7 +88,19 @@ public class ProjectIntegrationRepository {
         );
     }
 
+    // 수집이 시작 때 들고 있던 연동이 아직 남아 있는지 확인한다. 해제 뒤 재연결하면 같은
+    // (project_id, provider)라도 새 행·새 id가 생기므로, project_id가 아니라 id로 가려야 옛 실행이 걸러진다.
+    public boolean existsById(UUID id) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM integrations WHERE id = :id)",
+                new MapSqlParameterSource("id", id),
+                Boolean.class
+        ));
+    }
+
     public record IntegrationRow(
+            // 호환 생성자로 만든 행(테스트 fixture)은 null — DB에서 읽은 행은 항상 채워진다.
+            UUID id,
             UUID projectId,
             String provider,
             Map<String, Object> externalRef,
@@ -95,6 +109,21 @@ public class ProjectIntegrationRepository {
             Instant installationTokenExpiresAt,
             boolean incrementalEnabled
     ) {
+        // id 도입 이전 호출부 호환용 — 여러 SourceCollector 테스트가 이 7-인자 형태로 IntegrationRow를
+        // 직접 만든다. id 없는 행은 수집 범위(CollectionRunContext)를 열지 않는다.
+        public IntegrationRow(
+                UUID projectId,
+                String provider,
+                Map<String, Object> externalRef,
+                byte[] encryptedCredential,
+                byte[] encryptedInstallationToken,
+                Instant installationTokenExpiresAt,
+                boolean incrementalEnabled
+        ) {
+            this(null, projectId, provider, externalRef, encryptedCredential, encryptedInstallationToken,
+                    installationTokenExpiresAt, incrementalEnabled);
+        }
+
         // incrementalEnabled 도입 이전 호출부 호환용 — 여러 SourceCollector 테스트가 이 6-인자 형태로
         // IntegrationRow를 직접 만든다. DB 기본값(TRUE)과 같은 뜻으로 위임한다.
         public IntegrationRow(
@@ -121,6 +150,7 @@ public class ProjectIntegrationRepository {
         @Override
         public IntegrationRow mapRow(ResultSet rs, int rowNum) throws SQLException {
             return new IntegrationRow(
+                    rs.getObject("id", UUID.class),
                     rs.getObject("project_id", UUID.class),
                     rs.getString("provider"),
                     readExternalRef(rs.getObject("external_ref")),

@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.messaging;
 
+import com.history.pipeline_worker.collection.CollectionRunContext;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -20,16 +22,19 @@ import java.util.concurrent.TimeoutException;
 public class EventPublisher {
 
     private final RabbitTemplate rabbitTemplate;
+    private final CollectionRunContext runContext;
     private final String exchange;
     private final String routingKeyPrefix;
     private final long confirmTimeoutMs;
 
     public EventPublisher(
             RabbitTemplate rabbitTemplate,
+            CollectionRunContext runContext,
             @Value("${app.rabbitmq.exchange}") String exchange,
             @Value("${app.rabbitmq.routing-key-prefix:event}") String routingKeyPrefix,
             @Value("${app.rabbitmq.publish-confirm-timeout-ms:10000}") long confirmTimeoutMs) {
         this.rabbitTemplate = rabbitTemplate;
+        this.runContext = runContext;
         this.exchange = exchange;
         this.routingKeyPrefix = routingKeyPrefix;
         this.confirmTimeoutMs = confirmTimeoutMs;
@@ -41,12 +46,20 @@ public class EventPublisher {
      * 호출부가 checkpoint를 전진시키지 못하게 해 유실(영구 빈칸)을 막고 다음 수집에서 재발행되게 한다.
      * 먼저 일괄 전송한 뒤 confirm을 모아 대기하므로, 건건 동기 대기로 인한 지연이 없다.
      * 전부 confirm되면 발행 건수를 반환한다.
+     *
+     * <p>수집 범위({@link CollectionRunContext})가 열려 있으면 보내기 전에 연동이 아직 있는지 확인해
+     * (해제됐으면 {@link com.history.pipeline_worker.collection.IntegrationDisconnectedException}, 한 건도 보내지 않음)
+     * 모든 이벤트에 그 연동 id를 싣는다 — 확인 이후에 해제돼 이미 나간 이벤트는 ai-engine이 id로 버린다.</p>
      */
     public int publishAll(List<NormalizedEvent> events) {
         if (events == null || events.isEmpty()) return 0;
 
+        runContext.ensureActive();
+        Optional<String> integrationId = runContext.currentIntegrationId();
+
         List<Pending> pending = new ArrayList<>(events.size());
-        for (NormalizedEvent event : events) {
+        for (NormalizedEvent original : events) {
+            NormalizedEvent event = integrationId.map(original::withIntegrationId).orElse(original);
             CorrelationData correlation = new CorrelationData(UUID.randomUUID().toString());
             rabbitTemplate.convertAndSend(exchange, resolveRoutingKey(event.source()), event, correlation);
             pending.add(new Pending(event, correlation));
