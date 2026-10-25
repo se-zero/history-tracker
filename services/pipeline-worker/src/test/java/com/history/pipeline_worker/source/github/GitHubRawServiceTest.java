@@ -4,6 +4,8 @@ import com.history.pipeline_worker.dto.RawFetchRequest;
 import org.junit.jupiter.api.DisplayName;
 import io.netty.handler.timeout.ReadTimeoutException;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.codec.CodecException;
+import org.springframework.core.codec.DecodingException;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -1380,9 +1382,23 @@ class GitHubRawServiceTest {
     }
 
     @Test
-    @DisplayName("프로필 조회가 503이면 1초 대기 후 재시도해 작성자 email을 보강한다")
+    @DisplayName("프로필 조회가 503이면 일시 오류 재시도 없이 1회만 호출하고, 프로필만 비운 채 커밋 수집은 정상 진행한다")
+    void fetchCommitPage_userProfile503_doesNotRetryAndLeavesProfileEmpty() {
+        assertUserProfileFailureIsNotRetried(request -> Mono.just(errorResponse(HttpStatus.SERVICE_UNAVAILABLE)));
+    }
+
+    @Test
+    @DisplayName("프로필 조회가 전송 오류(ReadTimeout)여도 일시 오류 재시도 없이 1회만 호출하고 커밋 수집은 정상 진행한다")
+    void fetchCommitPage_userProfileTransportError_doesNotRetryAndLeavesProfileEmpty() {
+        assertUserProfileFailureIsNotRetried(request -> Mono.error(new WebClientRequestException(
+                ReadTimeoutException.INSTANCE, request.method(), request.url(), request.headers())));
+    }
+
+    // 프로필은 실패를 기억하지 않아(다음 항목에서 재조회) 재시도를 붙이면 항목마다 비용이 반복된다 —
+    // 그래서 일시 오류 재시도 대상에서 제외한 것을 고정한다.
     @SuppressWarnings("unchecked")
-    void fetchCommitPage_userProfile503_retriesAndEnrichesAuthor() {
+    private void assertUserProfileFailureIsNotRetried(
+            java.util.function.Function<ClientRequest, Mono<ClientResponse>> profileResponse) {
         AtomicInteger profileCallCount = new AtomicInteger();
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .exchangeFunction(request -> {
@@ -1394,12 +1410,8 @@ class GitHubRawServiceTest {
                         return Mono.just(jsonResponse("{}"));
                     }
                     if (path.equals("/users/dev")) {
-                        if (profileCallCount.incrementAndGet() == 1) {
-                            return Mono.just(errorResponse(HttpStatus.SERVICE_UNAVAILABLE));
-                        }
-                        return Mono.just(jsonResponse("""
-                                {"email": "dev@example.com", "name": "Dev"}
-                                """));
+                        profileCallCount.incrementAndGet();
+                        return profileResponse.apply(request);
                     }
                     throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
                 });
@@ -1413,11 +1425,40 @@ class GitHubRawServiceTest {
 
         GitHubRawService.GitHubPage page = service.fetchCommitPage(fetchContext(), 1, Map.of());
 
+        assertThat(page.items()).hasSize(1);
         Map<String, Object> author = (Map<String, Object>) ((Map<String, Object>) page.items().get(0)).get("author");
-        assertThat(author).containsEntry("email", "dev@example.com");
-        assertThat(profileCallCount.get()).isEqualTo(2);
-        verify(rateLimiter).awaitRetry(1L);
-        verify(rateLimiter, times(1)).awaitRetry(anyLong());
+        assertThat(author).doesNotContainKey("email");
+        assertThat(profileCallCount.get()).isEqualTo(1);
+        verify(rateLimiter, times(0)).awaitRetry(anyLong());
+    }
+
+    @Test
+    @DisplayName("목록 페이지가 200인데 본문 모양이 어긋나면(디코딩 실패) 일시 오류로 보지 않고 재시도 없이 전파한다")
+    void fetchCommitPage_listBodyDecodingFails_propagatesWithoutRetry() {
+        AtomicInteger listCallCount = new AtomicInteger();
+        WebClient.Builder webClientBuilder = WebClient.builder()
+                .exchangeFunction(request -> {
+                    String path = request.url().getPath();
+                    if (path.equals("/repos/owner/repo/commits")) {
+                        listCallCount.incrementAndGet();
+                        return Mono.just(jsonResponse("{}")); // 배열이 와야 할 자리에 객체
+                    }
+                    throw new IllegalArgumentException("Unexpected GitHub API path: " + path);
+                });
+        GitHubRateLimiter rateLimiter = mock(GitHubRateLimiter.class);
+        GitHubRawService service = new GitHubRawService(
+                webClientBuilder,
+                "https://api.github.example",
+                rateLimiter,
+                detailExecutor()
+        );
+        GitHubRawService.GitHubFetchContext context = fetchContext();
+
+        assertThatThrownBy(() -> service.fetchCommitPage(context, 1, Map.of()))
+                .isInstanceOf(CodecException.class);
+
+        assertThat(listCallCount.get()).isEqualTo(1);
+        verify(rateLimiter, times(0)).awaitRetry(anyLong());
     }
 
     @Test
@@ -1502,7 +1543,7 @@ class GitHubRawServiceTest {
     }
 
     @Test
-    @DisplayName("isTransientTransportError: 4xx 응답 예외·InterruptedException·일반 예외는 false")
+    @DisplayName("isTransientTransportError: 4xx 응답 예외·InterruptedException·일반 예외·본문 디코딩 예외(cause가 IOException이어도)는 false")
     void isTransientTransportError_nonTransientCauses_false() {
         assertThat(GitHubRawService.isTransientTransportError(
                 new IllegalStateException("GitHub API error: status=404"))).isFalse();
@@ -1510,6 +1551,9 @@ class GitHubRawServiceTest {
                 Exceptions.propagate(new InterruptedException()))).isFalse();
         assertThat(GitHubRawService.isTransientTransportError(
                 new RuntimeException("GitHubRateLimiter sleep 중단"))).isFalse();
+        // Jackson 2 계열의 파싱 예외는 IOException 하위라 cause 체인만 보면 전송 오류로 오인된다
+        assertThat(GitHubRawService.isTransientTransportError(
+                new DecodingException("JSON decoding error", new IOException("Unexpected token")))).isFalse();
     }
 
     @Test

@@ -5,6 +5,7 @@ import io.netty.handler.timeout.ReadTimeoutException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.codec.CodecException;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
@@ -359,10 +360,11 @@ public class GitHubRawService {
         // 일시 장애가 그 계정의 신원 보강을 이 실행 내내 영구히 결손시키지 않도록 한다.
         AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
         try {
-            // 프로필은 부가 데이터라 rate limit 재시도 대상을 429(명백한 rate limit)로만 좁힌다 — 403 등
-            // 나머지 4xx는 즉시 실패시켜 아래 catch가 흡수하고(미기록으로 다음 호출에서 재조회), 계정당
-            // 최대 3×Retry-After초를 태우지 않는다. 일시 오류 재시도는 백오프 최대 7초로 유계라 적용한다.
-            Map<String, Object> result = executeWithRetry(() -> webClient.get()
+            // 프로필은 부가 데이터라 재시도 대상을 429(명백한 rate limit)로만 좁힌다 — 403 등 나머지
+            // non-2xx는 즉시 실패시켜 아래 catch가 흡수하고(미기록으로 다음 호출에서 재조회), 계정당
+            // 최대 3×Retry-After초를 태우지 않는다. 일시 오류(지연·연결 오류·5xx)도 같은 이유로 재시도하지
+            // 않는다 — 실패를 기억하지 않으므로 재시도를 붙이면 같은 login의 항목마다 4회 호출·7초 대기가 반복된다.
+            Map<String, Object> result = executeWithRateLimitRetryOnly(() -> webClient.get()
                     .uri("/users/{login}", login)
                     .header("Authorization", context.auth())
                     .exchangeToMono(resp -> {
@@ -373,10 +375,6 @@ public class GitHubRawService {
                         if (resp.statusCode().value() == 429) {
                             return Mono.error(new GitHubRateLimitedException(
                                     resolveRetryWaitSeconds(resp.headers().asHttpHeaders())));
-                        }
-                        if (resp.statusCode().is5xxServerError()) {
-                            return Mono.error(new GitHubServerErrorException(
-                                    resp.statusCode().value(), "/users/" + login));
                         }
                         return Mono.error(new IllegalStateException(
                                 "GitHub API error: status=" + resp.statusCode().value() + ", path=/users/" + login));
@@ -522,6 +520,15 @@ public class GitHubRawService {
     // 재시도한다. 두 횟수는 따로 센다 — 한쪽이 소진돼도 다른 쪽 예산을 깎지 않게 한다.
     // 소진 시 원 예외를 그대로 재던진다.
     private <T> T executeWithRetry(Supplier<T> request) {
+        return executeWithRetry(request, true);
+    }
+
+    // 프로필 조회용 — rate limit만 재시도하고 일시 오류는 즉시 던진다(이유는 fetchUserProfile 주석).
+    private <T> T executeWithRateLimitRetryOnly(Supplier<T> request) {
+        return executeWithRetry(request, false);
+    }
+
+    private <T> T executeWithRetry(Supplier<T> request, boolean retryTransientErrors) {
         int rateLimitAttempts = 0;
         int transientAttempts = 0;
         while (true) {
@@ -536,7 +543,8 @@ public class GitHubRawService {
                         e.retryAfterSeconds, rateLimitAttempts, MAX_RETRY_ON_RATE_LIMIT);
                 rateLimiter.awaitRetry(e.retryAfterSeconds);
             } catch (RuntimeException e) {
-                if (!(e instanceof GitHubServerErrorException) && !isTransientTransportError(e)) {
+                if (!retryTransientErrors
+                        || (!(e instanceof GitHubServerErrorException) && !isTransientTransportError(e))) {
                     throw e;
                 }
                 // 커밋 상세 풀은 첫 실패 시 나머지를 cancel(true)로 인터럽트한다 — 취소된 작업이 대기하며 버티지 않게 한다.
@@ -565,11 +573,13 @@ public class GitHubRawService {
     }
 
     // 응답 지연·연결 오류만 일시 오류로 본다. 인터럽트는 재시도 대상이 아니라 즉시 false —
-    // 취소 신호를 재시도로 삼키면 안 된다. 순환 cause에 갇히지 않도록 깊이를 제한한다.
+    // 취소 신호를 재시도로 삼키면 안 된다. 본문 디코딩 실패(CodecException)도 즉시 false — 응답을 받은 뒤의
+    // 결정적 오류인데 Jackson 2 계열 파싱 예외가 IOException 하위라 cause만 보면 전송 오류로 오인된다.
+    // 순환 cause에 갇히지 않도록 깊이를 제한한다.
     static boolean isTransientTransportError(Throwable e) {
         Throwable t = e;
         for (int depth = 0; t != null && depth < 10; depth++) {
-            if (t instanceof InterruptedException) return false;
+            if (t instanceof InterruptedException || t instanceof CodecException) return false;
             if (t instanceof WebClientRequestException
                     || t instanceof ReadTimeoutException
                     || t instanceof IOException
