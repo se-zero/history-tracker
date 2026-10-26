@@ -10,6 +10,8 @@ cd services/pipeline-worker
 ./gradlew build
 ```
 
+`test`가 끝나면 JaCoCo가 `build/reports/jacoco/test/html/index.html`을 만든다. `--tests`로 일부만 돌리면 그 실행 분량만 리포트에 남는다.
+
 전체 스택(postgres·rabbitmq 등 의존 포함)은 `infra/docker`의 docker-compose로 기동한다. 자세한 절차는 루트 `CLAUDE.md`를 참고한다.
 
 ## 패키지 구조

@@ -50,6 +50,13 @@ jobs:
           cache: gradle
       # Testcontainers가 러너의 Docker로 postgres:16-alpine을 띄운다(러너에 기본 탑재).
       - run: ./gradlew test --no-daemon
+      - name: 커버리지 리포트 업로드
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: services/backend/build/reports/jacoco/test/
+          retention-days: 7
       - name: 실패 시 테스트 리포트 업로드
         if: failure()
         uses: actions/upload-artifact@v4
@@ -72,6 +79,13 @@ jobs:
           java-version: "17"
           cache: gradle
       - run: ./gradlew test --no-daemon
+      - name: 커버리지 리포트 업로드
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-worker-coverage
+          path: services/pipeline-worker/build/reports/jacoco/test/
+          retention-days: 7
       - name: 실패 시 테스트 리포트 업로드
         if: failure()
         uses: actions/upload-artifact@v4
@@ -99,6 +113,15 @@ jobs:
       # pytest.ini의 testpaths가 tests/unit만 수집한다 — 살아 있는 Neo4j·OpenAI가 필요한
       # integration 테스트는 기본 수집에서 빠져 있어 별도 조치가 필요 없다.
       - run: pytest
+      - name: 커버리지 리포트 업로드
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-engine-coverage
+          path: |
+            services/ai-engine/htmlcov
+            services/ai-engine/coverage.xml
+          retention-days: 7
 
   web-dashboard:
     runs-on: ubuntu-latest
