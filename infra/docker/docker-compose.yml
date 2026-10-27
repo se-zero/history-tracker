@@ -34,10 +34,13 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     healthcheck:
-      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/7687' && echo 0 || echo 1"]
+      # 검사 명령의 종료 코드가 그대로 나가야 한다. `&& echo … || echo …` 꼬리를 붙이면 항상 0이 돼 Neo4j가 준비되기 전에 healthy로 찍힌다.
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/7687'"]
       interval: 10s
       timeout: 5s
       retries: 5
+      # 찬 기동 동안의 실패는 retries에 세지 않는다.
+      start_period: 60s
 
   rabbitmq:
     image: rabbitmq:3-management
