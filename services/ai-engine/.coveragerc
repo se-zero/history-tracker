@@ -5,8 +5,6 @@ omit =
     */.venv/*
     tests/*
     */tests/*
-    eval/*
-    */eval/*
     conftest.py
 
 [report]
