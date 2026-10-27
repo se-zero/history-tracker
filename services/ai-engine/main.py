@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     ensure_token_configured()
 
-    async def _init_neo4j_with_retry(max_retries: int = 10, retry_interval: float = 1.0) -> None:
+    async def _init_neo4j_with_retry(max_retries: int = 30, retry_interval: float = 2.0) -> None:
         """Neo4j 초기화를 재시도하며 수행 (health check보다 견고함)."""
         for attempt in range(1, max_retries + 1):
             try:
