@@ -8,7 +8,7 @@ cd services/backend
 ./gradlew build
 ```
 
-`test`가 끝나면 JaCoCo가 `build/reports/jacoco/test/html/index.html`을 만든다. `--tests`로 일부만 돌리면 그 실행 분량만 리포트에 남는다.
+`test`가 끝나면 JaCoCo가 `build/reports/jacoco/test/html/index.html`을 만든다. `--tests`로 일부만 돌린 실행은 측정도 리포트도 하지 않으므로, 리포트는 항상 마지막 전체 실행의 것이다.
 
 ## 패키지 구조
 

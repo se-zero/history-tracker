@@ -60,9 +60,18 @@ jacoco {
 	toolVersion = '0.8.13'
 }
 
+// --tests로 일부만 돌린 실행(편집 훅·TDD 확인)은 측정도 리포트도 하지 않는다 — 일부만 반영된 숫자라
+// 의미가 없고, 마지막 전체 실행의 리포트를 덮어쓴다. 시간은 리포트보다 측정기(에이전트)가 더 쓴다.
+def partialTestRun = gradle.startParameter.taskRequests.any { request ->
+	request.args.any { it == '--tests' || it.startsWith('--tests=') }
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
-	finalizedBy tasks.named('jacocoTestReport')
+	jacoco.enabled = !partialTestRun
+	if (!partialTestRun) {
+		finalizedBy tasks.named('jacocoTestReport')
+	}
 }
 
 tasks.named('jacocoTestReport') {
