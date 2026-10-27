@@ -79,10 +79,11 @@ Neo4j·OpenAI 없이 동작한다. `conftest.py`가 더미 `OPENAI_API_KEY`를 �
 CI·리팩토링 안전망.
 
 ```bash
-python -m pytest        # = tests/unit 만 실행 (pytest.ini의 testpaths) + 라인 커버리지
+python -m pytest        # = tests/unit 만 실행 (pytest.ini의 testpaths)
+python -m pytest --cov  # 위와 같고 라인 커버리지 리포트까지 (CI가 이렇게 돈다)
 ```
 
-커버리지는 pytest-cov다. 요약은 터미널에, HTML은 `htmlcov/index.html`, XML은 `coverage.xml`이다. 100%인 파일은 요약에서 빠진다. 라이브 Neo4j·OpenAI가 필요한 `tests/integration`은 기본 수집에 없으므로 그 경로의 커버리지에는 들어가지 않는다.
+커버리지는 pytest-cov이고 `--cov`를 붙인 실행에서만 잰다. 파일 하나·`-k`·`--lf`처럼 일부만 돌린 실행은 돈 부분만 재서 숫자가 의미 없기 때문이다. 요약은 터미널에, HTML은 `htmlcov/index.html`, XML은 `coverage.xml`이다. 100%인 파일은 요약에서 빠진다. 라이브 Neo4j·OpenAI가 필요한 `tests/integration`은 기본 수집에 없으므로 그 경로의 커버리지에는 들어가지 않는다.
 
 갱신 의무가 붙은 안전망 2개만 여기서 설명한다.
 

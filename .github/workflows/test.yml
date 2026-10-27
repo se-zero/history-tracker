@@ -112,7 +112,8 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       # pytest.ini의 testpaths가 tests/unit만 수집한다 — 살아 있는 Neo4j·OpenAI가 필요한
       # integration 테스트는 기본 수집에서 빠져 있어 별도 조치가 필요 없다.
-      - run: pytest
+      # 커버리지는 --cov를 붙인 실행에서만 잰다(리포트 형식은 pytest.ini의 addopts).
+      - run: pytest --cov
       - name: 커버리지 리포트 업로드
         if: success()
         uses: actions/upload-artifact@v4
