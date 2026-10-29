@@ -142,3 +142,41 @@ jobs:
       # (clients/web-dashboard/CLAUDE.md의 검증 명령과 같다).
       - run: npm run typecheck
       - run: npm run build
+
+  # PR에 서비스별 라인 커버리지를 댓글 하나로 남기고, 푸시할 때마다 같은 댓글을 갱신한다
+  # (.github/scripts/coverage_comment.py). 병합 화면에서 아티팩트를 받지 않고도 숫자를 보려는 것이다.
+  # develop 대비 증감은 넣지 않았다 — 필요해지면 develop 마지막 실행의 아티팩트와 비교한다.
+  #
+  # 쓰기 권한은 이 잡에만 준다. 위 테스트 잡들은 PR 코드를 실행하므로 읽기 전용으로 두고, 이 잡은
+  # 아티팩트의 숫자만 읽는다. 잡마다 러너가 달라 앞 잡의 파일을 직접 볼 수 없어서, 위에서 올린
+  # 커버리지 아티팩트를 내려받아 읽는다.
+  coverage-comment:
+    needs: [backend, pipeline-worker, ai-engine]
+    # !cancelled(): 테스트가 실패한 커밋에서도 돌아 "측정하지 못함"으로 갱신한다 — 안 그러면 이전 커밋의
+    #   숫자가 남아 현재 커밋의 것처럼 읽힌다. 새 푸시로 이 실행이 취소되면 건너뛴다.
+    # 포크 PR은 GITHUB_TOKEN이 읽기 전용이라 댓글을 못 쓰므로 건너뛴다(이 저장소는 같은 저장소 브랜치로 PR을 연다).
+    # develop·main push에는 PR이 없어 건너뛴다.
+    # `!`로 시작하는 식은 YAML 태그로 읽히므로 ${{ }}로 감싼다.
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      # 같은 실행 안의 아티팩트는 러너가 주입하는 토큰으로 받으므로 권한을 더 열지 않는다(upload와 같은 방침).
+      # 혹시 첫 실행에서 막히면 그때 actions: read를 추가한다.
+      # 셋 다 실패해 일치하는 아티팩트가 하나도 없는 경우에도 "측정하지 못함"을 적어야 하므로 실패를 무시한다.
+      - name: 커버리지 리포트 내려받기
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-coverage"
+          path: coverage
+      - name: 커버리지 댓글 작성·갱신
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 .github/scripts/coverage_comment.py --artifacts-dir coverage

@@ -83,7 +83,7 @@ python -m pytest        # = tests/unit 만 실행 (pytest.ini의 testpaths)
 python -m pytest --cov  # 위와 같고 라인 커버리지 리포트까지 (CI가 이렇게 돈다)
 ```
 
-커버리지는 pytest-cov이고 `--cov`를 붙인 실행에서만 잰다. 파일 하나·`-k`·`--lf`처럼 일부만 돌린 실행은 돈 부분만 재서 숫자가 의미 없기 때문이다. 요약은 터미널에, HTML은 `htmlcov/index.html`, XML은 `coverage.xml`이다. 100%인 파일은 요약에서 빠진다. 라이브 Neo4j·OpenAI가 필요한 `tests/integration`은 기본 수집에 없으므로 그 경로의 커버리지에는 들어가지 않는다. 리포트 형식 옵션이 `pytest.ini`에 있어서, pytest-cov가 없는 예전 venv에서는 `--cov` 없이 돌려도 `unrecognized arguments`로 바로 실패한다 — `requirements-dev.txt`를 다시 설치한다.
+커버리지는 pytest-cov이고 `--cov`를 붙인 실행에서만 잰다. 파일 하나·`-k`·`--lf`처럼 일부만 돌린 실행은 돈 부분만 재서 숫자가 의미 없기 때문이다. 요약은 터미널에, HTML은 `htmlcov/index.html`, XML은 `coverage.xml`이다. 100%인 파일은 요약에서 빠진다. 라이브 Neo4j·OpenAI가 필요한 `tests/integration`은 기본 수집에 없으므로 그 경로의 커버리지에는 들어가지 않는다. 리포트 형식 옵션이 `pytest.ini`에 있어서, pytest-cov가 없는 예전 venv에서는 `--cov` 없이 돌려도 `unrecognized arguments`로 바로 실패한다 — `requirements-dev.txt`를 다시 설치한다. PR에서는 CI(`.github/workflows/test.yml`의 `coverage-comment` 잡)가 세 서비스의 라인 커버리지를 댓글 하나로 달고 푸시마다 같은 댓글을 갱신한다. 이 잡이 `coverage.xml` 루트의 `lines-covered`·`lines-valid`를 읽으므로 XML 리포트 이름·형식을 바꾸면 `.github/scripts/coverage_comment.py`도 고친다.
 
 갱신 의무가 붙은 안전망 2개만 여기서 설명한다.
 

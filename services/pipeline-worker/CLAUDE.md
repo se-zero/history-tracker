@@ -10,7 +10,7 @@ cd services/pipeline-worker
 ./gradlew build
 ```
 
-`test`가 끝나면 JaCoCo가 `build/reports/jacoco/test/html/index.html`을 만든다. `--tests`로 일부만 돌린 실행은 측정도 리포트도 하지 않으므로, 리포트는 항상 마지막 전체 실행의 것이다.
+`test`가 끝나면 JaCoCo가 `build/reports/jacoco/test/html/index.html`을 만든다. `--tests`로 일부만 돌린 실행은 측정도 리포트도 하지 않으므로, 리포트는 항상 마지막 전체 실행의 것이다. PR에서는 CI(`.github/workflows/test.yml`의 `coverage-comment` 잡)가 세 서비스의 라인 커버리지를 댓글 하나로 달고 푸시마다 같은 댓글을 갱신한다. 이 잡이 `jacocoTestReport.xml`의 합계를 읽으므로 XML 리포트(`xml.required`)를 끄면 안 된다.
 
 전체 스택(postgres·rabbitmq 등 의존 포함)은 `infra/docker`의 docker-compose로 기동한다. 자세한 절차는 루트 `CLAUDE.md`를 참고한다.
 
