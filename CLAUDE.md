@@ -29,13 +29,13 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
   web-dashboard       ← React/Vite 웹 프론트엔드 (:5173)
 
   PostgreSQL          ← backend(사용자·프로젝트·대화)와
-                         pipeline-worker(checkpoints, webhook_deliveries)가 공유하는 RDB
+                         pipeline-worker(checkpoints, webhook_deliveries, ingest_outbox)가 공유하는 RDB
 ```
 
 데이터 흐름은 두 갈래다.
 
 1. **수집(쓰기)**: pipeline-worker가 외부 API/웹훅으로 수집·정규화한 `NormalizedEvent`를
-   RabbitMQ에 발행하고, ai-engine consumer가 이를 받아 Neo4j 그래프로 구축한다.
+   아웃박스(`ingest_outbox`)에 쓰고 worker의 릴레이가 RabbitMQ로 옮기며, ai-engine consumer가 이를 받아 Neo4j 그래프로 구축한다.
    수집 큐가 잠잠해지면(유휴 디바운스) ai-engine이 소스 간 시맨틱 엣지(Layer 4)를 자동 빌드하며,
    웹 대시보드의 '그래프 재구축' 버튼으로 수동 트리거도 가능하다.
 2. **질의(읽기)**: 프론트엔드 → backend → ai-engine(`/query`, `/graph/*`) → Neo4j 순으로
