@@ -34,9 +34,10 @@ cd services/pipeline-worker
 | `source.notion` | Notion 수집·정규화·rate limit (`NotionCollector`, **문서 아키타입 1호** — `Document` nodeType 발행). ClickUp과 같은 모양 — DB의 JSON credential(`access_token`)을 복호화해 Bearer로 쓰고 만료 판정을 하지 않는다(갱신 응답에 만료 정보가 없어 비만료 취급). `POST /v1/search`(최신 API 버전은 `Notion-Version` 헤더로 고정)를 `last_edited_time` 내림차순으로 훑고, 페이지마다 `GET /v1/blocks/{id}/children`을 재귀 조회해 `NotionBlockFlattener`로 평문화한다(깊이 5·블록 2,000·본문 100,000자 상한). `created_by`/`last_edited_by`는 partial user(id만)라, 처리할 페이지가 실제로 나온 뒤 실행당 한 번 지연 조회하는 `GET /v1/users` 전량 결과로 이름·이메일·bot 여부를 보강한다 — capability 미설정으로 인한 403은 삼키고 빈 맵으로 계속한다. |
 | `normalizer` | 여러 source가 공유하는 정규화 보조 유틸. 현재 `RefsExtractor` 유지 — URL 기반 참조 레지스트리(`issueExternalRefs`/`documentExternalRefs`)로 Asana·ClickUp·Notion을 함께 다룬다. |
 | `checkpoint` | DB `checkpoints` 테이블 기반 커서 조회/갱신 경계 + 배치의 커서 전진 값 계산(`CursorProgress`). |
-| `messaging` | RabbitMQ publish. |
+| `messaging` | 아웃박스 적재(`EventPublisher.publishAll` — 이벤트를 `ingest_outbox`에 한 페이지 = 한 트랜잭션으로 INSERT). 브로커 발행은 `outbox`가 맡는다. |
+| `outbox` | `OutboxRepository`(표 SQL 경계), `OutboxRelay`(1초마다 미발행 행을 id 순 200건씩 RabbitMQ로 발행·접두사 표시), `OutboxCleanup`(발행 완료 1일 경과 행 시간마다 삭제). 플래그 `app.outbox.relay.enabled`. |
 | `common` | 전역 공유 코드. 현재 `common.crypto`(integration credential 복호화)만 있다. |
-| `config` | Spring/RabbitMQ/WebClient/webhook executor 설정. |
+| `config` | Spring/RabbitMQ/WebClient/webhook executor 설정, 스케줄링(`SchedulingConfig`). |
 | `dto` | 요청/응답/event DTO. |
 | `util` | 일반 유틸. |
 
@@ -65,11 +66,11 @@ webhook context 조립에서 **GitHub만 전파**한다(앵커라 조용히 넘�
 1. `CollectionProvider`에 상수 추가
 2. `source/{provider}` 패키지에 `SourceCollector` 구현 `@Service` 추가
 
-routing key는 설정하지 않는다 — `EventPublisher`가 `source`에서 유도한다
+routing key는 설정하지 않는다 — `OutboxRelay`가 `source`에서 유도한다
 (`{app.rabbitmq.routing-key-prefix}` + `.` + 소문자 source, 예: `GOOGLE_CHAT` → `event.google_chat`).
 큐 바인딩이 `event.#`라 브로커 설정도 불변이다.
 
-`EventPublisher`·`PipelineService`·`CollectionTriggerService`·`ProjectIntegrationService`·`CheckpointService`는
+`EventPublisher`·`OutboxRelay`·`PipelineService`·`CollectionTriggerService`·`ProjectIntegrationService`·`CheckpointService`는
 건드리지 않는다.
 발행 계약(nodeType별 properties·refs·source 표기)은 `docs/normalized-event.md`가 단일 출처이며,
 backend·프론트까지 포함한 커넥터 전체 순서는 `docs/integration-abstraction.md`의
@@ -103,7 +104,7 @@ backend integration connect commit
      (해당 provider의 SourceCollector가 credential 복호화·external_ref 해석)
   -> collectionTaskExecutor에서 비동기 실행 (webhook 풀과 분리된 초기 수집 전용 풀)
   -> PipelineService.collect(projectId, provider, request) -> SourceCollector.collect(...)
-  -> RabbitMQ publish
+  -> 아웃박스 적재 (OutboxRelay가 RabbitMQ로 발행)
   -> DB checkpoint 갱신
 ```
 
@@ -129,7 +130,7 @@ GitHub PR merge webhook
         -> FAILED(404 연동 행 없음 · 그 밖의 오류): 그 provider만 context에서 제외
      -> webhookTaskExecutor에서 비동기 실행
      -> PipelineService.collectIncremental(context)
-     -> RabbitMQ publish
+     -> 아웃박스 적재 (OutboxRelay가 RabbitMQ로 발행)
      -> CheckpointService로 DB checkpoint 갱신
      -> WebhookDeliveryService.markProcessed/markFailed
 ```
@@ -164,9 +165,9 @@ GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 cr
 
 Exchange: `history.exchange` / Queue: `history.events` (바인딩 `event.#` — 새 routing key는 브로커 설정 변경 없이 소비된다)
 
-발행은 publisher confirm으로 검증한다. `EventPublisher`가 메시지를 일괄 전송한 뒤 `CorrelationData`별 broker ack/return을 모아 대기하고, 한 건이라도 nack·라우팅 실패(unroutable)·타임아웃이면 `EventPublishException`을 던진다. 그러면 해당 `SourceCollector`가 checkpoint를 전진시키지 않아(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)을 막고 다음 수집에서 재발행한다. 이를 위해 연결은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿은 `mandatory=true`로 설정한다. confirm 대기 한도는 `app.rabbitmq.publish-confirm-timeout-ms`.
+발행은 트랜잭셔널 아웃박스를 거친다. `EventPublisher.publishAll`은 이벤트를 `ingest_outbox`에 **한 페이지 = 한 트랜잭션**으로 INSERT만 하고 브로커와 대화하지 않는다. DB 예외(`DataAccessException`)는 전파돼 해당 `SourceCollector`가 checkpoint를 전진시키지 않으므로(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)이 없고 다음 수집에서 다시 적재한다. 커서는 아웃박스 트랜잭션에 넣지 않는다 — 커서 시점은 커넥터가 소유한다. `OutboxRelay`는 1초마다(`@Scheduled fixedDelay`) 미발행 행을 id 순 200건씩 `history.exchange`에 발행하고(배치가 가득 차면 즉시 다음 배치) confirm을 id 순으로 확인해 **첫 실패 직전까지의 접두사만** `published_at`을 채운다. 실패분은 다음 틱에 재전송하므로 at-least-once이고, 중복은 ai-engine의 MERGE가 흡수한다. `OutboxCleanup`이 발행 완료 1일 지난 행을 시간마다 지운다. 릴레이는 **단일 인스턴스 전제**다(`SKIP LOCKED` 없음). 릴레이가 쓰는 연결 설정은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿 `mandatory=true`이고, confirm 대기 한도 `app.rabbitmq.publish-confirm-timeout-ms`는 릴레이의 배치 대기 한도라 초과해도 수집은 실패하지 않는다.
 
-**수집 실행 범위(`collection/CollectionRunContext`)** — `ProjectIntegrationService`가 수집 요청에 그 연동 행의 id(`RawFetchRequest.integrationId`)를 붙이고, `PipelineService.collect`가 collector를 부르는 동안 그 id로 범위를 연다(ThreadLocal, try-with-resources). 범위가 열려 있으면 `EventPublisher.publishAll`은 보내기 전에 연동 행이 아직 있는지 확인하고(없으면 `IntegrationDisconnectedException`, 한 건도 안 보냄) 각 이벤트에 `integrationId`를 싣는다 — ai-engine이 해제된 연동의 이벤트를 이 값으로 버린다. **발행과 checkpoint 쓰기는 collect를 부른 스레드에서만 한다** — 보조 스레드(예: `githubCommitDetailExecutor`)에서 부르면 범위가 안 보여 가드를 우회한다. 초기 수집(`CollectionTriggerService`)은 이 예외를 오류가 아니라 INFO로 남기고, 증분 수집(`PipelineService.collectIncremental`)은 그 provider만 결과에서 빼고 다음 provider를 계속 돈다.
+**수집 실행 범위(`collection/CollectionRunContext`)** — `ProjectIntegrationService`가 수집 요청에 그 연동 행의 id(`RawFetchRequest.integrationId`)를 붙이고, `PipelineService.collect`가 collector를 부르는 동안 그 id로 범위를 연다(ThreadLocal, try-with-resources). 범위가 열려 있으면 `EventPublisher.publishAll`은 적재하기 전에 연동 행이 아직 있는지 확인하고(없으면 `IntegrationDisconnectedException`, 한 건도 적재 안 함) 각 이벤트에 `integrationId`를 싣는다 — ai-engine이 해제된 연동의 이벤트를 이 값으로 버린다. **적재와 checkpoint 쓰기는 collect를 부른 스레드에서만 한다** — 보조 스레드(예: `githubCommitDetailExecutor`)에서 부르면 범위가 안 보여 가드를 우회한다. 초기 수집(`CollectionTriggerService`)은 이 예외를 오류가 아니라 INFO로 남기고, 증분 수집(`PipelineService.collectIncremental`)은 그 provider만 결과에서 빼고 다음 provider를 계속 돈다.
 
 ## Rate Limiting
 
@@ -240,7 +241,7 @@ GitHub `/users/{login}`(커밋·PR·이슈 작성자 프로필 보강)도 같은
   `CheckpointService.deleteCursor`로 정리한다. history 요청에는 `oldest = 채널커서 − 14일`
   (`THREAD_LOOKBACK`)을 붙인다 — 상세와 알려진 한계는 `docs/data-collection.md` Slack 절 참고.
   부수 효과: backend "마지막 수집 시간"(checkpoints의 최신 `updated_at` 파생)이 채널 완주마다 전진한다.
-- Jira는 `updated` 기준으로 수집하고, 페이지 단위 publish 후 checkpoint를 갱신한다.
+- Jira는 `updated` 기준으로 수집하고, 페이지 단위 아웃박스 적재 후 checkpoint를 갱신한다.
 - checkpoint는 project 단위로 저장한다.
 - cursor 갱신은 기존 값보다 과거 시각으로 되돌아가지 않게 저장한다.
 - **해제된 연동의 커서는 쓰지 않는다** — `updateCursor`·`deleteCursor`는 수집 실행 범위의 연동 행이 없으면
@@ -256,6 +257,8 @@ GitHub `/users/{login}`(커밋·PR·이슈 작성자 프로필 보강)도 같은
 - PostgreSQL datasource
 - credential 복호화 키 (`security.credentials.key`)
 - backend 내부 API URL (`backend.url`)
+- 아웃박스 릴레이·청소 플래그 `app.outbox.relay.enabled` (공용, 테스트 컨텍스트만 false)
+- `spring.task.scheduling.pool.size` (2 — 릴레이 drain이 청소를 미루지 않게)
 - 내부 서비스 인증 token (`security.internal-service.token`)
 - GitHub/Jira/Slack/Discord/Google Chat/Notion base URL (Jira는 `app.jira.gateway-base-url`도 포함 — OAuth
   cloudId 게이트웨이 주소, Google Chat·Notion은 각각 `app.google-chat.api-base-url`·
@@ -303,8 +306,8 @@ GitHub App private key는 pipeline-worker에 설정하지 않는다. token 발�
 - **오케스트레이션 계층에 provider 분기(switch·if)를 만들지 않는다.** provider별 동작은 `SourceCollector`
   구현으로 표현한다 — 분기를 한 번 허용하면 소스가 늘 때마다 같은 자리를 계속 고쳐야 한다.
 - provider별 API 호출/정규화/rate limit/자격증명 해석은 `source.{provider}` 패키지 안에서 처리한다.
-- `SourceCollector.collect`는 발행 예외를 삼키지 않는다 — 예외가 나야 checkpoint가 전진하지 않아
-  다음 수집에서 재발행된다. 삼키면 그 구간이 영구 누락된다.
+- `SourceCollector.collect`는 아웃박스 적재 예외(`DataAccessException`)를 삼키지 않는다 — 예외가 나야 checkpoint가 전진하지 않아
+  다음 수집에서 다시 적재된다. 삼키면 그 구간이 영구 누락된다.
 - GitHub merge commit은 `GitHubRawService`가 목록 응답의 parents 개수로 상세 조회 전에 사전 스킵하고, `GitHubNormalizer`가 이중 방어로 필터링한다.
 - GitHub PR 수집은 `/pulls?state=closed` + 클라이언트 `merged_at != null` 필터 방식이다.
 - GitHub 수집은 integration의 선택 브랜치(연동 시 필수 — backend가 빈 값을 거부한다)로 스코프한다: PR은 `base={branch}`(타겟 브랜치 기준), commit은 `sha={branch}` 파라미터로 제한한다. 웹훅은 이 스코프와 별개로 `base.ref`가 선택 브랜치와 정확히 같은 프로젝트만 고른다 — 브랜치 값이 없는 행은 어떤 머지와도 매칭되지 않으며, "미지정 = 전체 브랜치" 분기는 두지 않는다(그런 행은 생성 경로상 만들어지지 않는다).

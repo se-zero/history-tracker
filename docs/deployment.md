@@ -404,7 +404,13 @@ Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 �
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost      # 웹 (루프백)
 docker exec -it history-graph-neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD"
 docker exec -it history-tracker-postgres psql -U history_tracker -d history_tracker
+# 수집 아웃박스 점검 — pending이 줄지 않으면 worker 로그의 OutboxRelay WARN(브로커 confirm 실패·연결)을 본다
+docker exec history-tracker-postgres psql -U history_tracker -d history_tracker -c   "SELECT count(*) FILTER (WHERE published_at IS NULL) AS pending, count(*) AS total FROM ingest_outbox;"
 ```
+
+아웃박스 첫 배포 메모: `ingest_outbox` 표(V28)는 backend 기동 시 Flyway가 만들고, compose의
+`pipeline-worker depends_on backend`가 worker가 표보다 먼저 뜨는 첫 배포 창을 닫는다.
+롤백하기 전에는 pending=0인지 확인한다 — 미발행 행은 구 코드가 보내지 않는다.
 
 Neo4j Browser처럼 **웹 UI가 꼭 필요하면** 포트를 인터넷에 여는 대신 루프백에만 묶고 SSH 터널로
 접근한 뒤 되돌린다.

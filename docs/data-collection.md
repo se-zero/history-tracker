@@ -9,11 +9,11 @@ pipeline-worker가 각 플랫폼에서 데이터를 수집하는 방법과 API �
 - **projectId 전파**: 모든 `NormalizedEvent`는 최상위에 `projectId`(프로젝트 UUID)를 갖고 발행된다.
   ai-engine은 이 값을 Neo4j 노드의 `project_id`로 저장해 프로젝트 단위 그래프 격리의 기준으로 쓴다 — `projectId` 없는 이벤트는 그래프에 반영되지 않는다 (docs/graph-schema.md 「프로젝트 격리」참고).
 - **증분 수집**: checkpoint에 기록된 마지막 수집 시각 이후 데이터만 가져온다. 재시작해도 누락을 방지하고 중복 발행을 최소화한다.
-- **occurredAt 기준 checkpoint 갱신**: 수집 시각(`Instant.now()`)이 아닌 이벤트 실제 발생 시각을 기준으로 갱신한다. 발행하지 못한 이벤트가 있어도 checkpoint가 앞으로 이동하지 않아 누락이 없다.
+- **occurredAt 기준 checkpoint 갱신**: 수집 시각(`Instant.now()`)이 아닌 이벤트 실제 발생 시각을 기준으로 갱신한다. 아웃박스에 적재하지 못한 이벤트가 있어도 checkpoint가 앞으로 이동하지 않아 누락이 없다.
 - **DB checkpoint 저장**: checkpoint는 DB `checkpoints` 테이블에 `(project_id, provider, cursor_key)` 단위로 저장한다. cursor 갱신 시 기존 값과 새 값 중 더 최신 시각을 저장해 checkpoint가 과거로 되돌아가지 않게 한다.
 - **webhook/초기수집 동일 checkpoint 사용**: webhook 수집과 초기 수집 트리거(`POST /api/v1/collect/{provider}`)는 모두 `ProjectCollectionContext.projectId`로 같은 DB checkpoint를 조회하고 갱신한다. (수동 normalize endpoint는 제거됨)
 - **raw endpoint는 샘플 전용**: `/api/v1/raw/*` endpoint는 필드 확인용 1페이지 샘플이며 DB checkpoint를 조회하거나 갱신하지 않는다.
-- **해제된 연동의 수집은 멈춘다**: 수집 실행은 시작 때의 `integrations.id`를 들고 다니며(`CollectionRunContext`), 발행 배치와 checkpoint 쓰기 직전에 그 행이 아직 있는지 확인한다. 없으면 `IntegrationDisconnectedException`으로 그 자리에서 멈춘다 — 진행 중이던 페이지까지만 돌고, 해제 때 지운 checkpoint를 되살리지 않는다. 해제 전에 큐에 쌓였거나 확인 직후 해제돼 이미 나간 이벤트는 ai-engine이 이벤트의 `integrationId`로 버린다([graph-schema.md](graph-schema.md) 「삭제」). 재연결하면 새 id라 새 수집은 막히지 않는다.
+- **해제된 연동의 수집은 멈춘다**: 수집 실행은 시작 때의 `integrations.id`를 들고 다니며(`CollectionRunContext`), 아웃박스 적재 배치와 checkpoint 쓰기 직전에 그 행이 아직 있는지 확인한다. 없으면 `IntegrationDisconnectedException`으로 그 자리에서 멈춘다 — 진행 중이던 페이지까지만 돌고, 해제 때 지운 checkpoint를 되살리지 않는다. 해제 전에 아웃박스·큐에 들어갔거나 확인 직후 해제돼 이미 나간 이벤트는 ai-engine이 이벤트의 `integrationId`로 버린다([graph-schema.md](graph-schema.md) 「삭제」). 재연결하면 새 id라 새 수집은 막히지 않는다.
 
 ---
 
@@ -478,8 +478,8 @@ Discord 메시지 ID(snowflake)는 생성 시각을 품고 있어, checkpoint의
 클라이언트 쪽 경계 필터링은 없다. 커서는 노이즈 필터 이전 원본에서 뽑는다 — 한 페이지가 전부
 봇/시스템 메시지여도 전진해야 한다.
 
-Slack과 마찬가지로 **채널 전체를 모으지 않고 페이지마다 발행한다**. 발행 배치가 채널 크기에 비례하면
-`EventPublisher`의 단일 confirm 타임아웃(10초)에 걸려 재시도해도 계속 실패하기 때문이다.
+Slack과 마찬가지로 **채널 전체를 모으지 않고 페이지마다 발행한다**. 한 페이지 = 한 아웃박스 트랜잭션이라
+페이지 단위는 트랜잭션·메모리 크기를 묶는 의미로 유지한다.
 
 > 초기 설계는 정렬 방향을 선택 구간으로 오해해 "최신 100개만 온다"고 보고 `before` 역방향 보정을
 > 넣었다. 채널당 100건에서 수집이 끊기는데 checkpoint는 채널을 가로지르는 단일 커서라, 다른 채널의
@@ -504,8 +504,8 @@ Slack과 마찬가지로 **채널 전체를 모으지 않고 페이지마다 발
 - **문제**: 서버 관리자가 일부 채널을 봇에게 안 보이게 설정할 수 있다. 이걸 전체 수집 실패로 처리하면
   권한 있는 나머지 채널의 맥락까지 놓친다.
 - **방법 선택 이유**: 채널 단위 실패를 삼키고 다음 채널로 넘어간다 — 한 채널의 권한 누락이 전체 수집을
-  막으면 안 된다. 단 RabbitMQ 발행 예외는 삼키지 않는다(계약대로 checkpoint를 전진시키지 않아야
-  재발행된다).
+  막으면 안 된다. 단 아웃박스 적재 예외는 삼키지 않는다(계약대로 checkpoint를 전진시키지 않아야
+  다시 적재된다).
 
 #### 자격증명이 프로젝트별이 아니라 앱 전역
 
@@ -551,11 +551,11 @@ Slack과 마찬가지로 **채널 전체를 모으지 않고 페이지마다 발
 checkpoint 이후로 필터링된 결과라 클라이언트 쪽 경계 필터링이 불필요하다.
 
 Slack·Discord와 마찬가지로 **스페이스 전체를 모으지 않고 페이지마다 발행한다**. 발행 배치가 스페이스
-크기에 비례하면 수년치 스페이스의 초기 수집이 `EventPublisher`의 단일 confirm 타임아웃(10초)에 걸려
-재시도해도 계속 실패한다 — 페이지 크기(1000)가 곧 발행 배치 상한이 된다. People API 보강은 페이지마다
+크기에 비례하면 수년치 스페이스의 초기 수집이 한 트랜잭션·한 메모리 덩어리로 커진다 — 한 페이지 = 한
+아웃박스 트랜잭션이라 페이지 크기(1000)가 곧 적재 배치 상한이 된다. People API 보강은 페이지마다
 호출해도 실행 단위 재사용이 흡수해 호출 수가 페이지 수에 비례하지 않는다.
 
-**checkpoint는 전체 성공 후 한 번만 전진한다**(전 페이지의 최대 `occurredAt`). 중간 페이지 발행이
+**checkpoint는 전체 성공 후 한 번만 전진한다**(전 페이지의 최대 `occurredAt`). 중간 페이지 적재가
 실패하면 예외가 전파돼 갱신에 도달하지 못하므로, 전량 축적하던 때와 같은 보증("전체 성공 후 전진")이
 그대로 유지된다.
 

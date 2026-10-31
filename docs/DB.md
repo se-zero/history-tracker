@@ -107,6 +107,14 @@ erDiagram
         string workspace_path PK
         UUID project_id FK
     }
+    ingest_outbox {
+        BIGSERIAL id PK
+        UUID project_id FK
+        UUID integration_id FK
+        string source
+        string payload
+        timestamptz published_at
+    }
     oauth2_registered_client {
         string id PK
         string client_id
@@ -140,6 +148,8 @@ erDiagram
     users          ||..o{ billing_subscriptions : "1:N  (CASCADE)"
     users          ||--o{ mcp_workspace_bindings : "1:N  (식별, CASCADE)"
     projects       ||..o{ mcp_workspace_bindings : "1:N  (CASCADE)"
+    projects       ||..o{ ingest_outbox         : "1:N  (CASCADE)"
+    integrations   |o..o{ ingest_outbox         : "0/1:N  (nullable FK, CASCADE)"
     oauth2_registered_client ||..o{ oauth2_authorization : "1:N  (논리 관계, FK 없음)"
     oauth2_registered_client ||..o{ oauth2_authorization_consent : "1:N  (논리 관계, FK 없음)"
 ```
@@ -627,3 +637,30 @@ OAuth 인가 한 건의 상태 — 인가 코드, access·refresh 토큰, 그 �
 
 경로 상한이 바이트 기준인 이유는 PK 인덱스 항목 크기 한도(Postgres btree 약 2700바이트) 때문이다. 두 FK를 모두 CASCADE로 둔 것은 계정 파기나 프로젝트 삭제 뒤에 존재하지 않는 프로젝트를 가리키는 행이 남지 않게 하려는 것이다. 엔티티(`McpWorkspaceBinding`)는 다른 기능의 엔티티에 결합하지 않으려고 연관관계 없이 id만 갖고, 조회할 때마다 `ProjectService`로 소유를 다시 검증한다.
 
+---
+
+### `ingest_outbox` (V28)
+
+pipeline-worker **수집 발행 아웃박스**. 수집기는 이벤트를 브로커(RabbitMQ)로 직접 보내지 않고 이 표에 INSERT하며, worker 안의 릴레이가 `id` 순으로 읽어 RabbitMQ로 옮긴 뒤 `published_at`을 채운다. 수집이 브로커 지연·장애에 깨지지 않게 하려는 것이다. 엔티티는 없다(pipeline-worker가 JDBC로만 다룬다).
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| `id` | BIGSERIAL | PK | 릴레이가 이 순서대로 발행한다 |
+| `project_id` | UUID | NOT NULL, FK → `projects.id` CASCADE | 이벤트가 속한 프로젝트 |
+| `integration_id` | UUID | FK → `integrations.id` CASCADE, nullable | 이벤트를 수집한 연동. 연동 범위 밖 수집이면 NULL |
+| `source` | TEXT | NOT NULL | 이벤트 출처(라우팅 키 `event.<source>`의 source) |
+| `payload` | TEXT | NOT NULL | 직렬화한 NormalizedEvent JSON 전문 |
+| `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | 적재 시각 |
+| `published_at` | TIMESTAMPTZ | nullable | 브로커로 옮긴 시각. NULL이면 미발행 |
+
+**인덱스**
+- `idx_ingest_outbox_unpublished (id) WHERE published_at IS NULL` — 릴레이가 미발행 행을 id 순으로 가져오는 fetch용 부분 인덱스
+- `idx_ingest_outbox_published_at (published_at) WHERE published_at IS NOT NULL` — 발행 완료 행 청소 삭제용 부분 인덱스
+
+설계 이유는 네 가지다.
+1. 수집 트랜잭션이 브로커 상태와 무관하게 성공하도록, 발행 지점을 브로커 대신 이 표로 옮겼다.
+2. 커서(`checkpoints`)는 이 트랜잭션에 넣지 않고 지금 시점대로 따로 쓴다. 커서를 쓰는 시점이 커넥터마다 달라서다. 유실은 "INSERT가 성공한 뒤에만 커서를 쓴다"는 순서로 막는다.
+3. 두 FK를 모두 CASCADE로 둔 것은 프로젝트 삭제·연동 해제 때 아직 보내지 않은 행이 함께 사라져야 지운 그래프를 되살리지 않기 때문이다.
+4. `payload`가 jsonb가 아니라 TEXT인 이유는 Jackson이 diff 전문의 NUL을 `\u0000` 리터럴로 쓰는데 jsonb가 이를 거부하기 때문이다.
+
+릴레이는 단일 인스턴스를 전제하므로 `SKIP LOCKED`를 쓰지 않는다. 발행 완료 행은 1일 뒤 시간마다 삭제한다.

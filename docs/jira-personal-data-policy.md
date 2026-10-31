@@ -24,6 +24,11 @@ alias는 "어느 툴의 어느 계정에서 받았는지"를 아는 단위라, J
 `Actor.name`(표시 이름)은 alias들에서 파생·저장되는 유일한 값이고, 삭제와 재계산은
 항상 한 트랜잭션으로 묶인다(나뉘면 "alias는 지웠는데 이름이 남는" 조용한 결함이 생긴다).
 
+그래프 밖에도 임시 사본이 하나 있다. pipeline-worker가 수집한 이벤트는 브로커로 가기 전에
+PostgreSQL `ingest_outbox` 표에 적재되므로, 이슈의 작성자·담당자 이름·이메일이 그 payload 안에
+미발행 동안 + 발행 뒤 최대 1일 머문다(시간마다 청소). 연동을 해제하면 그 연동의 행은 CASCADE로
+즉시 지워진다. 보고 사이클의 삭제 대상은 아니다 — 1일 안에 스스로 사라지는 경로상 사본이라서다.
+
 노드 구조 상세는 [graph-schema.md](graph-schema.md)·[actor-node-design.md](actor-node-design.md) 참고.
 
 ## 보고 사이클 (전자동)

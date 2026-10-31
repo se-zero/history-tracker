@@ -36,7 +36,7 @@ pipeline-worker가 발행하고 ai-engine이 소비하는 **유일한 수집 계
 | `actor` | ✅ | 작성자. 소스별 ID 형식이 다르며 동일인 통합은 ai-engine이 한다. |
 | `properties` | ✅ | `nodeType`별 스키마. 아래 참조. |
 | `refs` | ✅ | 다른 시스템 참조. 없으면 빈 맵(`null` 금지). |
-| `integrationId` | — | 이 이벤트를 수집한 연동(`integrations.id`). **normalizer가 아니라 `EventPublisher`가 발행 직전에 채운다** — 수집 실행 범위(`CollectionRunContext`)가 없으면 null. ai-engine은 해제·삭제된 연동의 id가 실린 이벤트를 쓰기 전에 버린다(`docs/graph-schema.md` 「삭제」). 새 커넥터는 신경 쓸 필요 없다. |
+| `integrationId` | — | 이 이벤트를 수집한 연동(`integrations.id`). **normalizer가 아니라 `EventPublisher`가 아웃박스 적재 직전에 채운다** — 수집 실행 범위(`CollectionRunContext`)가 없으면 null. ai-engine은 해제·삭제된 연동의 id가 실린 이벤트를 쓰기 전에 버린다(`docs/graph-schema.md` 「삭제」). 새 커넥터는 신경 쓸 필요 없다. |
 
 ### actor
 
@@ -304,9 +304,13 @@ Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 �
 ## 발행·소비 규약
 
 **발행 (pipeline-worker)**
-- 이벤트 1건 = 메시지 1건. publisher confirm으로 브로커 수신을 검증한다.
-- 한 건이라도 nack·unroutable·타임아웃이면 예외를 던져 **checkpoint를 전진시키지 않는다** —
-  다음 수집에서 재발행된다. 커넥터는 이 규약을 깨면 안 된다(발행 예외를 삼키면 영구 누락).
+- 이벤트 1건 = 아웃박스 행 1개 = 메시지 1건.
+- 커넥터의 `publishAll`은 `ingest_outbox`에 한 페이지 = 한 트랜잭션으로 INSERT한다. 실패하면 예외 →
+  **checkpoint를 전진시키지 않는다** → 다음 수집에서 다시 적재된다. 커넥터는 이 예외를 삼키면 안 된다
+  (삼키면 영구 누락).
+- 브로커 발행은 worker의 릴레이가 1초마다 id 순으로 한다. confirm 실패분은 다음 틱에 재시도하고,
+  중복은 멱등 MERGE가 흡수한다.
+- 와이어 포맷(exchange·라우팅 키·JSON)은 이전과 동일하다.
 - checkpoint 전진 기준은 그 배치의 **최대 `occurredAt`**이며, cursor는 과거로 되돌아가지 않는다.
 
 **소비 (ai-engine)**

@@ -63,6 +63,13 @@ docker exec history-graph-rabbitmq rabbitmqctl list_queues name messages message
 
 - `history.events`의 `messages_ready`가 계속 줄지 않으면 ai-engine consumer가 멈췄거나 직렬 처리 적체.
 - consumer는 `prefetch_count=1` 직렬 소비라, 초기 대량 수집 중에는 자연히 쌓였다 줄어든다.
+- 큐에 오르기 전 단계인 아웃박스(worker가 DB에 적재 → 릴레이가 큐로 발행)도 본다:
+
+```bash
+docker exec history-tracker-postgres psql -U history_tracker -d history_tracker -c   "SELECT count(*) FILTER (WHERE published_at IS NULL) AS pending, count(*) AS total FROM ingest_outbox;"
+```
+
+  pending > 0이 계속이면 worker 로그의 `OutboxRelay` WARN을 확인한다.
 
 ### C. Checkpoint — 증분 수집 커서
 
@@ -134,6 +141,7 @@ cd infra/docker
 |------|-----------|--------|
 | "특정 노드가 일부만 수집됨" | A(노드 카운트) | F(pipeline-worker 로그) → C(checkpoint) |
 | "수집을 눌렀는데 그래프에 안 보임" | B(큐 적체) | F(ai-engine 로그) → A |
+| 수집 로그는 "아웃박스 적재: N건"인데 큐에 안 올라옴 | B(아웃박스 쿼리) | F(pipeline-worker 로그) |
 | "같은 데이터가 두 번 수집됨" | C(checkpoint) | F(pipeline-worker 로그) |
 | "REFERENCE/TRIGGERED_BY 엣지 0개" | E(임베딩 보유 수) | F(ai-engine 빌드 로그) |
 | "슬랙/지라 키 저장 여부" | D(integrations) | — |
