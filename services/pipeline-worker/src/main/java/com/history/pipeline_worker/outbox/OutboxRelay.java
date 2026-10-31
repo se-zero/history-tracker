@@ -90,9 +90,10 @@ public class OutboxRelay {
 
         int prefix = confirmedPrefix(pending);
 
-        // 접두사만 표시하는 이유: 프로젝트 안 이벤트 순서를 지키면서(실패 지점 이후는 다음 틱에 같은 순서로 재전송)
-        // 중복 발행을 첫 실패 이후분으로 한정하기 위해서다. "보낸 뒤 표시"라 at-least-once이고,
-        // 중복은 ai-engine의 MERGE가 흡수한다.
+        // 접두사만 표시하는 이유: 같은 수집 흐름(한 provider의 한 번의 수집) 안 이벤트 순서를 지키면서(실패 지점 이후는 다음 틱에 같은 순서로 재전송)
+        // 중복 발행을 첫 실패 이후분으로 한정하기 위해서다. id는 INSERT 시점의 번호라 커밋 순서와 다를 수 있어, 한 프로젝트에서
+        // provider가 병렬로 수집될 때 provider 사이의 순서는 보장하지 않는다(순서가 필요한 관계는 전부 같은 provider 안에 있다).
+        // "보낸 뒤 표시"라 at-least-once이고, 중복은 ai-engine의 MERGE가 흡수한다.
         if (prefix > 0) {
             List<Long> ids = new ArrayList<>(prefix);
             for (int i = 0; i < prefix; i++) ids.add(pending.get(i).row().id());
