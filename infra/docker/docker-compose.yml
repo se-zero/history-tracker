@@ -278,6 +278,10 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      # 아웃박스 표(V28)는 backend Flyway가 만든다. 첫 배포 때 worker가 먼저 뜨면 첫 publishAll이
+      # "relation ingest_outbox does not exist"로 실패한다. backend healthcheck는 Flyway 뒤에야 통과한다.
+      backend:
+        condition: service_healthy
     profiles: [app]
 
   web-dashboard:
