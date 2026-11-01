@@ -13,7 +13,6 @@ from graph.consumer import (
     DLQ_QUEUE,
     PARKING_QUEUE,
     RETRY_MAX,
-    RETRY_QUEUE,
     _handle_failure,
     _process_event,
     _retry_count,
@@ -70,37 +69,45 @@ def test_retry_count_reads_header():
 
 # --- _handle_failure --------------------------------------------------------
 
-def test_handle_failure_below_max_republishes_to_retry_and_acks():
+PROJECT_QUEUE = "history.project.p1"
+
+
+@pytest.mark.parametrize("origin", [PROJECT_QUEUE, "history.events"])
+def test_handle_failure_below_max_republishes_to_retry_exchange_with_origin_key_and_acks(origin):
     ch = _FakeChannel()
+    retry_ex = _FakeExchange()
     msg = _FakeMessage(body=b'{"projectId":"p1"}', headers={"x-retry-count": 0})
 
-    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch))
+    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch, retry_ex, origin))
 
-    assert len(ch.default_exchange.published) == 1
-    published_msg, routing_key = ch.default_exchange.published[0]
-    assert routing_key == RETRY_QUEUE
+    assert len(retry_ex.published) == 1
+    published_msg, routing_key = retry_ex.published[0]
+    assert routing_key == origin  # TTL 만료 후 DLX가 이 키로 원래 큐에 되돌린다
     assert published_msg.headers["x-retry-count"] == 1
     assert published_msg.body == msg.body
+    assert ch.default_exchange.published == []  # 기본 익스체인지로는 안 간다
     assert msg.acked is True
 
 
 def test_handle_failure_at_max_parks_to_dlq_and_acks():
     ch = _FakeChannel()
+    retry_ex = _FakeExchange()
     msg = _FakeMessage(headers={"x-retry-count": RETRY_MAX})
 
-    asyncio.run(_handle_failure(msg, {}, ch))
+    asyncio.run(_handle_failure(msg, {}, ch, retry_ex, PROJECT_QUEUE))
 
     published_msg, routing_key = ch.default_exchange.published[0]
     assert routing_key == DLQ_QUEUE
+    assert retry_ex.published == []
     assert msg.acked is True
 
 
 def test_handle_failure_publish_error_does_not_ack():
-    ch = _FakeChannel(exchange=_BoomExchange())
+    ch = _FakeChannel()
     msg = _FakeMessage(headers={"x-retry-count": 0})
 
     with pytest.raises(RuntimeError):
-        asyncio.run(_handle_failure(msg, {}, ch))
+        asyncio.run(_handle_failure(msg, {}, ch, _BoomExchange(), PROJECT_QUEUE))
     assert msg.acked is False  # 재발행 실패 → ack 안 함 → 브로커 재배달
 
 
@@ -110,7 +117,7 @@ def test_handle_failure_at_max_records_dlq_alert(monkeypatch):
     ch = _FakeChannel()
     msg = _FakeMessage(headers={"x-retry-count": RETRY_MAX})
 
-    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch))
+    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch, _FakeExchange(), PROJECT_QUEUE))
 
     assert calls == ["p1"]
 
@@ -121,19 +128,19 @@ def test_handle_failure_below_max_does_not_record_dlq_alert(monkeypatch):
     ch = _FakeChannel()
     msg = _FakeMessage(headers={"x-retry-count": 0})
 
-    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch))
+    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch, _FakeExchange(), PROJECT_QUEUE))
 
     assert calls == []
 
 
-def test_handle_failure_publish_error_does_not_record_dlq_alert(monkeypatch):
+def test_handle_failure_dlq_publish_error_does_not_record_dlq_alert(monkeypatch):
     calls = []
     monkeypatch.setattr(consumer.alerts, "record_dlq_parked", lambda project_id: calls.append(project_id))
     ch = _FakeChannel(exchange=_BoomExchange())
     msg = _FakeMessage(headers={"x-retry-count": RETRY_MAX})
 
     with pytest.raises(RuntimeError):
-        asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch))
+        asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch, _FakeExchange(), PROJECT_QUEUE))
 
     assert calls == []  # 재발행 실패 → DLQ 파킹으로 못 봄(재배달 대상) → 알림 없음
 
@@ -145,7 +152,7 @@ def test_route_message_malformed_goes_to_parking_and_acks():
     dispatcher = _FakeDispatcher()
     msg = _FakeMessage(body=b"{not json", headers=None)
 
-    asyncio.run(_route_message(msg, dispatcher, ch))
+    asyncio.run(_route_message(msg, dispatcher, ch, PROJECT_QUEUE))
 
     assert dispatcher.submitted == []  # 워커로 안 감
     published_msg, routing_key = ch.default_exchange.published[0]
@@ -158,13 +165,14 @@ def test_route_message_valid_submits_to_partition():
     dispatcher = _FakeDispatcher()
     msg = _FakeMessage(body=b'{"projectId":"p9"}')
 
-    asyncio.run(_route_message(msg, dispatcher, ch))
+    asyncio.run(_route_message(msg, dispatcher, ch, PROJECT_QUEUE))
 
     assert ch.default_exchange.published == []  # parking 안 감
     assert len(dispatcher.submitted) == 1
-    key, (submitted_msg, event) = dispatcher.submitted[0]
+    key, (submitted_msg, event, origin) = dispatcher.submitted[0]
     assert key == "p9"
     assert event == {"projectId": "p9"}
+    assert origin == PROJECT_QUEUE
     assert msg.acked is False  # ack은 워커(_process_event)가 처리 후
 
 
@@ -175,7 +183,7 @@ def test_route_message_malformed_records_parking_alert(monkeypatch):
     dispatcher = _FakeDispatcher()
     msg = _FakeMessage(body=b"{not json", headers=None, routing_key="event.github")
 
-    asyncio.run(_route_message(msg, dispatcher, ch))
+    asyncio.run(_route_message(msg, dispatcher, ch, PROJECT_QUEUE))
 
     assert calls == ["event.github"]
 
@@ -187,7 +195,7 @@ def test_route_message_valid_does_not_record_parking_alert(monkeypatch):
     dispatcher = _FakeDispatcher()
     msg = _FakeMessage(body=b'{"projectId":"p9"}')
 
-    asyncio.run(_route_message(msg, dispatcher, ch))
+    asyncio.run(_route_message(msg, dispatcher, ch, PROJECT_QUEUE))
 
     assert calls == []
 
@@ -205,7 +213,7 @@ def test_process_event_success_acks(monkeypatch):
     monkeypatch.setattr(consumer, "handle", fake_handle)
     monkeypatch.setattr(consumer, "mark_dirty", lambda pid: calls.__setitem__("dirty", pid))
 
-    asyncio.run(_process_event((msg, {"projectId": "p1"}), None, ch))
+    asyncio.run(_process_event((msg, {"projectId": "p1"}, PROJECT_QUEUE), None, ch, _FakeExchange()))
 
     assert calls["handled"] == {"projectId": "p1"}
     assert calls["dirty"] == "p1"
@@ -213,8 +221,9 @@ def test_process_event_success_acks(monkeypatch):
     assert ch.default_exchange.published == []  # 성공 시 재발행 없음
 
 
-def test_process_event_failure_routes_to_retry(monkeypatch):
+def test_process_event_failure_routes_to_retry_exchange_with_origin_key(monkeypatch):
     ch = _FakeChannel()
+    retry_ex = _FakeExchange()
     msg = _FakeMessage(headers={"x-retry-count": 0})
 
     async def boom_handle(event, prepared=None):
@@ -222,8 +231,9 @@ def test_process_event_failure_routes_to_retry(monkeypatch):
 
     monkeypatch.setattr(consumer, "handle", boom_handle)
 
-    asyncio.run(_process_event((msg, {"projectId": "p1"}), None, ch))
+    asyncio.run(_process_event((msg, {"projectId": "p1"}, PROJECT_QUEUE), None, ch, retry_ex))
 
-    published_msg, routing_key = ch.default_exchange.published[0]
-    assert routing_key == RETRY_QUEUE
+    published_msg, routing_key = retry_ex.published[0]
+    assert routing_key == PROJECT_QUEUE
+    assert ch.default_exchange.published == []
     assert msg.acked is True

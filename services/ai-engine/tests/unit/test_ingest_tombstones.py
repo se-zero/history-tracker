@@ -528,7 +528,7 @@ def test_process_event_acks_tombstoned_event_without_handling_retrying_or_markin
     ingest_tombstones._integration_ids.add("int-1")
     channel, message = _FakeChannel(), _FakeMessage()
 
-    asyncio.run(_process_event((message, _event(integration_id="int-1")), None, channel))
+    asyncio.run(_process_event((message, _event(integration_id="int-1"), "history.project.p1"), None, channel, _FakeExchange()))
 
     assert handled == []                 # 핸들러 미호출
     assert dirty == []                   # 지운 프로젝트에 후처리 빌드·최초 수집중 상태가 되살아나지 않는다
@@ -548,7 +548,7 @@ def test_process_event_still_handles_events_that_are_not_tombstoned(monkeypatch)
     ingest_tombstones._integration_ids.add("int-1")
     channel, message = _FakeChannel(), _FakeMessage()
 
-    asyncio.run(_process_event((message, _event(integration_id="int-2")), None, channel))
+    asyncio.run(_process_event((message, _event(integration_id="int-2"), "history.project.p1"), None, channel, _FakeExchange()))
 
     assert len(handled) == 1
     assert dirty == ["p1"]
@@ -563,12 +563,13 @@ def test_tombstoned_event_with_retry_header_is_dropped_not_requeued(monkeypatch)
 
     monkeypatch.setattr(consumer, "handle", fake_handle)
     ingest_tombstones._project_ids.add("p-gone")
-    channel, message = _FakeChannel(), _FakeMessage()
+    channel, message, retry_exchange = _FakeChannel(), _FakeMessage(), _FakeExchange()
     message.headers = {"x-retry-count": 5}
 
-    asyncio.run(_process_event((message, _event(project_id="p-gone")), None, channel))
+    asyncio.run(_process_event((message, _event(project_id="p-gone"), "history.project.p1"), None, channel, retry_exchange))
 
     assert message.acked is True
+    assert retry_exchange.published == []  # 재시도 익스체인지로 되돌리지 않는다
     assert [rk for _, rk in channel.default_exchange.published if rk in (RETRY_QUEUE, DLQ_QUEUE)] == []
 
 

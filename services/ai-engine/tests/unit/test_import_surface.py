@@ -38,6 +38,8 @@ MODULES = [
     "graph.builder",
     "graph.communication_store",
     "graph.consumer",
+    "graph.ingest_backlog",
+    "graph.queue_discovery",
     "graph.document_chunker",
     "graph.document_linker",
     "graph.document_link_store",

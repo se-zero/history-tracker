@@ -41,6 +41,11 @@ def is_blocked(event: dict) -> bool:
     return bool(project_id) and project_id in _project_ids
 
 
+def is_project_blocked(project_id: str) -> bool:
+    """지운 프로젝트면 True. 큐 발견 틱이 고아 큐를 판별하는 데 쓴다."""
+    return project_id in _project_ids
+
+
 # MERGE라 같은 해제가 재시도돼도 노드가 늘지 않는다. created_at은 매번 갱신해 TTL을 마지막 해제
 # 시도 기준으로 잡는다. 속성 이름이 다르므로 쿼리를 둘로 나눈다(Cypher는 속성 키를 파라미터로 못 받는다).
 _MERGE_INTEGRATION = """
