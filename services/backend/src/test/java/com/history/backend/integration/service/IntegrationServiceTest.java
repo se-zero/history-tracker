@@ -1402,7 +1402,7 @@ class IntegrationServiceTest {
             // 그래프 삭제는 외부 HTTP다 — 트랜잭션이 열린 채로 호출하면 커넥션을 점유한다
             assertThat(transactionManager.transactionActive).isFalse();
             return null;
-        }).when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB);
+        }).when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB, INTEGRATION_ID);
         doAnswer(invocation -> {
             assertThat(transactionManager.transactionActive).isTrue();
             return 1;
@@ -1415,8 +1415,10 @@ class IntegrationServiceTest {
         service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.GITHUB);
 
         // 그래프 먼저, RDB 나중 — 재시도로 수렴하는 순서(ProjectService.deleteProject와 동일)
+        // 그래프 삭제에는 지우는 연동의 id가 함께 간다 — ai-engine이 그 id를 tombstone으로 남긴다
         InOrder inOrder = inOrder(aiEngineGraphClient, checkpointRepository, integrationRepository);
-        inOrder.verify(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB);
+        inOrder.verify(aiEngineGraphClient)
+                .deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB, INTEGRATION_ID);
         inOrder.verify(checkpointRepository).deleteByProject_IdAndId_Provider(PROJECT_ID, IntegrationProvider.GITHUB);
         inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
         assertThat(transactionManager.rollbackCount).isZero();
@@ -1550,6 +1552,27 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @DisplayName("연동 해제 — 권한 폐기 → 그래프 삭제(지우는 연동 id 동봉) → checkpoint·연동 행 삭제 순서")
+    void disconnectRevokesThenDeletesGraphWithIntegrationIdThenDeletesRows() {
+        IntegrationService service = serviceWithRevocationService(revocationService);
+        Integration integration = Integration.pendingSelection(project(), IntegrationProvider.JIRA, new byte[] {9});
+        ReflectionTestUtils.setField(integration, "id", INTEGRATION_ID);
+        when(projectService.getProject(OWNER_ID, PROJECT_ID)).thenReturn(project());
+        when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.JIRA))
+                .thenReturn(Optional.of(integration));
+
+        service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.JIRA);
+
+        // 넘기는 값은 프로젝트 id가 아니라 지우는 연동 행의 id다
+        InOrder inOrder = inOrder(revocationService, aiEngineGraphClient, checkpointRepository, integrationRepository);
+        inOrder.verify(revocationService).revoke(integration);
+        inOrder.verify(aiEngineGraphClient)
+                .deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.JIRA, INTEGRATION_ID);
+        inOrder.verify(checkpointRepository).deleteByProject_IdAndId_Provider(PROJECT_ID, IntegrationProvider.JIRA);
+        inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
+    }
+
+    @Test
     @DisplayName("연동이 없으면 404 — 그래프 삭제도 호출하지 않음")
     void disconnectRejectsMissingIntegration() {
         IntegrationService service = service();
@@ -1561,7 +1584,7 @@ class IntegrationServiceTest {
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("Slack integration not found.");
 
-        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any(), any());
         assertThat(transactionManager.beginCount).isZero();
     }
 
@@ -1575,7 +1598,7 @@ class IntegrationServiceTest {
         when(integrationRepository.findByProject_IdAndProvider(PROJECT_ID, IntegrationProvider.GITHUB))
                 .thenReturn(Optional.of(integration));
         doThrow(new BadGatewayException("Failed to delete integration graph."))
-                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB);
+                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.GITHUB, INTEGRATION_ID);
 
         assertThatThrownBy(() -> service.disconnect(OWNER_ID, PROJECT_ID, IntegrationProvider.GITHUB))
                 .isInstanceOf(BadGatewayException.class);
@@ -1704,7 +1727,8 @@ class IntegrationServiceTest {
 
         InOrder inOrder = inOrder(revocationService, aiEngineGraphClient, checkpointRepository, integrationRepository);
         inOrder.verify(revocationService).revoke(matching);
-        inOrder.verify(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK);
+        inOrder.verify(aiEngineGraphClient)
+                .deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID);
         inOrder.verify(checkpointRepository).deleteByProject_IdAndId_Provider(PROJECT_ID, IntegrationProvider.SLACK);
         inOrder.verify(integrationRepository).deleteById(INTEGRATION_ID);
     }
@@ -1720,7 +1744,7 @@ class IntegrationServiceTest {
         service.disconnectSlackWorkspace("T_NOT_EXIST");
 
         verify(revocationService, never()).revoke(any());
-        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any(), any());
         verify(integrationRepository, never()).deleteById(any());
     }
 
@@ -1738,6 +1762,9 @@ class IntegrationServiceTest {
         // 매칭 행만 처리된다
         verify(revocationService).revoke(matching);
         verify(revocationService, never()).revoke(other);
+        verify(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID);
+        verify(aiEngineGraphClient, never())
+                .deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID_2);
         verify(integrationRepository).deleteById(INTEGRATION_ID);
         verify(integrationRepository, never()).deleteById(INTEGRATION_ID_2);
     }
@@ -1750,7 +1777,7 @@ class IntegrationServiceTest {
         service.disconnectSlackWorkspace("  ");
 
         verify(revocationService, never()).revoke(any());
-        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any(), any());
         verify(integrationRepository, never()).deleteById(any());
     }
 
@@ -1762,7 +1789,7 @@ class IntegrationServiceTest {
         service.disconnectSlackWorkspace(null);
 
         verify(revocationService, never()).revoke(any());
-        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any(), any());
         verify(integrationRepository, never()).deleteById(any());
     }
 
@@ -1774,7 +1801,7 @@ class IntegrationServiceTest {
         when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
                 .thenReturn(List.of(matching));
         doThrow(new BadGatewayException("Failed to delete slack graph."))
-                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK);
+                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID);
 
         service.disconnectSlackWorkspace("T_MATCH");
 
@@ -1792,12 +1819,15 @@ class IntegrationServiceTest {
         when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
                 .thenReturn(List.of(failing, surviving));
         doThrow(new BadGatewayException("Failed to delete slack graph."))
-                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK);
+                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID);
 
         service.disconnectSlackWorkspace("T_MATCH");
 
         verify(revocationService).revoke(failing);
         verify(revocationService).revoke(surviving);
+        // 행마다 자기 id를 넘긴다 — 같은 워크스페이스의 다른 행 id가 섞이면 안 된다
+        verify(aiEngineGraphClient)
+                .deleteProjectSourceGraph(PROJECT_ID_2, IntegrationProvider.SLACK, INTEGRATION_ID_2);
         verify(integrationRepository, never()).deleteById(INTEGRATION_ID);
         verify(integrationRepository).deleteById(INTEGRATION_ID_2);
         verify(checkpointRepository, never())
@@ -1838,6 +1868,9 @@ class IntegrationServiceTest {
 
         verify(revocationService).revoke(u111);
         verify(revocationService).revoke(u222);
+        // tokens_revoked 경로도 같은 해제 경로라, 사용자 행마다 자기 연동 id가 그래프 삭제에 실린다
+        verify(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID);
+        verify(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID_2);
         verify(integrationRepository).deleteById(INTEGRATION_ID);
         verify(integrationRepository).deleteById(INTEGRATION_ID_2);
     }
@@ -1896,7 +1929,7 @@ class IntegrationServiceTest {
         service.disconnectSlackUsers("T123", List.of());
 
         verify(revocationService, never()).revoke(any());
-        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any());
+        verify(aiEngineGraphClient, never()).deleteProjectSourceGraph(any(), any(), any());
     }
 
     @Test
@@ -1908,7 +1941,7 @@ class IntegrationServiceTest {
         when(integrationRepository.findAllByProvider(IntegrationProvider.SLACK))
                 .thenReturn(List.of(failing, surviving));
         doThrow(new BadGatewayException("Failed to delete slack graph."))
-                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK);
+                .when(aiEngineGraphClient).deleteProjectSourceGraph(PROJECT_ID, IntegrationProvider.SLACK, INTEGRATION_ID);
 
         service.disconnectSlackUsers("T123", List.of("U111", "U222"));
 

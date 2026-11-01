@@ -6,7 +6,7 @@ import com.history.pipeline_worker.collection.ProjectIntegrationRepository;
 import com.history.pipeline_worker.common.crypto.CredentialCryptoService;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import com.history.pipeline_worker.dto.RawFetchRequest;
-import com.history.pipeline_worker.messaging.EventPublishException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import com.history.pipeline_worker.messaging.EventPublisher;
 import com.history.pipeline_worker.normalizer.RefsExtractor;
 import org.junit.jupiter.api.BeforeEach;
@@ -213,10 +213,10 @@ class SlackCollectorTest {
                 .thenReturn(new SlackRawService.SlackHistoryPage(secondChannelData, null));
         when(eventPublisher.publishAll(anyList()))
                 .thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size())
-                .thenThrow(new EventPublishException("브로커가 메시지를 ack하지 않음"));
+                .thenThrow(new DataAccessResourceFailureException("outbox insert failed"));
 
         assertThatThrownBy(() -> collector.collect(PROJECT_ID, request))
-                .isInstanceOf(EventPublishException.class);
+                .isInstanceOf(DataAccessResourceFailureException.class);
 
         verify(checkpointService).updateCursor(PROJECT_ID, CollectionProvider.SLACK,
                 SlackCollector.MESSAGES_CURSOR + ":C001", Instant.ofEpochSecond(1714000000L));
@@ -293,10 +293,10 @@ class SlackCollectorTest {
                 .thenReturn(new SlackRawService.SlackHistoryPage(secondChannelData, null));
         when(eventPublisher.publishAll(anyList()))
                 .thenAnswer(invocation -> invocation.<List<NormalizedEvent>>getArgument(0).size())
-                .thenThrow(new EventPublishException("브로커가 메시지를 ack하지 않음"));
+                .thenThrow(new DataAccessResourceFailureException("outbox insert failed"));
 
         assertThatThrownBy(() -> collector.collect(PROJECT_ID, request))
-                .isInstanceOf(EventPublishException.class);
+                .isInstanceOf(DataAccessResourceFailureException.class);
 
         verify(checkpointService, never()).deleteCursor(PROJECT_ID, CollectionProvider.SLACK, SlackCollector.MESSAGES_CURSOR);
     }

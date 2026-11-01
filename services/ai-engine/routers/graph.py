@@ -1,10 +1,13 @@
 """그래프 API — 개요·관련 서브그래프 조회, 프로젝트 그래프 삭제, 후처리(Layer 4) 수동 트리거."""
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from graph.actor_admin import get_actor_detail, list_actors
 from graph.builder import delete_project_graph, delete_project_source_graph
+from graph.consumer import delete_project_queue
 from graph.overview import (
     WORK_UNITS_DEFAULT_LIMIT,
     get_evidence_subgraph,
@@ -13,6 +16,8 @@ from graph.overview import (
     get_work_units_view,
 )
 from graph.postprocess import get_build_status, get_graph_activity, trigger_build
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -106,20 +111,35 @@ async def delete_project_graph_endpoint(project_id: str):
 
     backend의 프로젝트 삭제에서 호출하는 cascade. 인가는 backend가 담당 — ai-engine은
     backend가 넘긴 project_id를 신뢰하는 내부 서비스다. 멱등 — 없는 project_id면 deleted=0.
+    삭제 전에 프로젝트 수집 차단 tombstone을 남겨 큐에 남은 이벤트가 그래프를 다시 채우지 못하게 한다.
+    그래프 삭제 뒤 수집 큐 `history.project.<id>`도 지운다(연동 해제는 안 지움). 큐 삭제 실패는 WARN 후 정상 응답.
     """
     deleted = await delete_project_graph(project_id)
+    try:
+        await delete_project_queue(project_id)
+    except Exception:
+        # tombstone이 먼저 기록돼 그래프는 안전하고, 발견 틱이 tombstone 프로젝트의 고아 큐를 다음 기회에 지운다 — 응답은 정상
+        logger.warning("프로젝트 큐 삭제 실패 — 발견 틱의 자가 정리에 맡김 (project=%s)", project_id, exc_info=True)
     return {"deleted": deleted}
 
 
 @router.delete("/graph/projects/{project_id}/sources/{source}")
-async def delete_project_source_graph_endpoint(project_id: str, source: str):
-    """한 소스에서 수집한 노드만 삭제한다 (GITHUB|SLACK|JIRA).
+async def delete_project_source_graph_endpoint(
+    project_id: str, source: str, integration_id: str | None = None,
+):
+    """한 소스에서 수집한 노드만 삭제한다.
+
+    source: github|slack|jira|discord|google-chat|linear|asana|clickup|notion — backend provider
+    표기(소문자 kebab)를 그대로 받고, 대문자 snake(GITHUB, GOOGLE_CHAT)도 같은 소스로 취급한다.
 
     backend의 연동 해제에서 호출하는 cascade. 프로젝트와 다른 소스의 노드는 남는다.
     인가는 backend가 담당 — 프로젝트 삭제와 같은 내부 서비스 신뢰 모델이다.
     멱등 — 이미 지워진 소스를 다시 호출하면 전부 0이다.
+
+    integration_id: 끊는 연결의 id(선택). 주면 삭제 전에 그 연결의 수집 차단 tombstone을 남겨,
+    큐에 남은 이벤트가 삭제 뒤에 그래프를 다시 채우지 못하게 한다. 없으면 삭제만 한다.
     """
-    return await delete_project_source_graph(project_id, source)
+    return await delete_project_source_graph(project_id, source, integration_id=integration_id)
 
 
 @router.post("/graph/build", status_code=202)

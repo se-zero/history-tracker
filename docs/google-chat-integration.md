@@ -39,7 +39,7 @@ PR 머지 웹훅 증분과 1시간 뒤 토큰 갱신 경로는 **실기동하지
 
 | 항목 | 결정 | 근거 |
 |------|------|------|
-| provider 표기 | RDB/경로 `google-chat` · source `GOOGLE_CHAT` · alias `GOOGLE_CHAT:{userId}` · routing `event.google_chat`(자동 유도) | `docs/normalized-event.md`「source·표기 규칙」의 두 단어 예시가 이미 이 형태다. `integration-abstraction.md` §5-2의 미결 항목을 이것으로 확정한다(§10) |
+| provider 표기 | RDB/경로 `google-chat` · source `GOOGLE_CHAT` · alias `GOOGLE_CHAT:{userId}` · 큐는 프로젝트별이라 소스 라우팅 없음 | `docs/normalized-event.md`「source·표기 규칙」의 두 단어 예시가 이미 이 형태다. `integration-abstraction.md` §5-2의 미결 항목을 이것으로 확정한다(§10) |
 | API | Google Chat REST **v1** (`https://chat.googleapis.com/v1`) | |
 | 인증 모델 | **사용자 OAuth(3LO)** — 앱 인증(서비스 계정) 아님 | 앱 인증으로 메시지를 읽으려면 `chat.app.messages.readonly` + **Workspace 관리자 승인**이 필요하고 공개 메시지만 반환된다. 사용자 인증은 그 사용자가 볼 수 있는 것을 그대로 읽는다 |
 | 연결 플로우 | OAuth → **1단 선택(space)** → 확정 | `spaces.list`(`spaceType = "SPACE"`)로 후보 조회. A4 메커니즘 재사용 |
@@ -314,7 +314,7 @@ People API 호출(`resolveSenders`)도 새 rate limiter를 만들지 않고 같�
 
 표시 라벨도 **등록이 필요 없다** — `graph/overview.py`의 `_source_label`이 대문자 snake에서
 `GOOGLE_CHAT` → `Google Chat`으로 유도하며, 이 케이스가 주석의 예시로 이미 적혀 있다.
-routing key도 `EventPublisher`가 `event.google_chat`으로 유도한다(같은 예시가 주석에 있다).
+큐는 프로젝트별(`history.project.<projectId>`)이라 소스별 라우팅 설정도 없다.
 확인은 스모크 테스트 하나면 된다.
 
 ## 7. 개인정보 — People API 보강 (계획을 뒤집은 실측 발견)
@@ -429,7 +429,7 @@ API 변경에 대한 방어적 처리 — People API 호출 없이 끝나면 더
 | RDB `integrations.provider`, HTTP 경로 | `google-chat` |
 | `NormalizedEvent.source`, Neo4j `source` | `GOOGLE_CHAT` |
 | Actor alias 접두 | `GOOGLE_CHAT:` |
-| RabbitMQ routing key | `event.google_chat` |
+| RabbitMQ 큐 | 프로젝트별 `history.project.<projectId>`(소스와 무관) |
 | Java 패키지 | `googlechat` (구분자 없음 — 패키지명 규칙) |
 
 경로만 kebab, 나머지는 snake인 것이 헷갈릴 수 있으나 **계층별 관례를 그대로 따른 결과**이며,

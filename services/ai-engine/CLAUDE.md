@@ -4,7 +4,7 @@
 
 Python/FastAPI(:8000) GraphRAG 서비스. 두 가지 일을 한다.
 
-1. **수집 consumer**: RabbitMQ(`history.events`)에서 `NormalizedEvent`를 받아 Neo4j 지식 그래프로 구축하고,
+1. **수집 consumer**: RabbitMQ 프로젝트별 큐(`history.project.<projectId>`, 이번 릴리스 동안 호환 큐 `history.events`도)에서 `NormalizedEvent`를 받아 Neo4j 지식 그래프로 구축하고,
    수집이 유휴해지면 소스 간 시맨틱 엣지(Layer 4)를 빌드한다.
 2. **질의 API**: `/query`·`/graph/*` HTTP로 자연어 질문에 tool-calling 에이전트(OpenAI)가 답한다.
 
@@ -32,8 +32,11 @@ uvicorn main:app --reload --port 8000
 
 수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_CHANGESET_LOOKAHEAD`(기본 `8`, `0`=비활성),
 `INGEST_EMBED_COALESCE_MAX`/`INGEST_EMBED_COALESCE_WINDOW_MS`(커밋 메시지 임베딩 코얼레싱, 기본 `8`/`50ms` —
-`MAX` 기본은 look-ahead와 정렬, `MAX=1`이면 대기창 없이 단건 호출), `INGEST_PREFETCH`(기본 = 동시성 +
-look-ahead 합 = `12`, 빈 값은 미설정 취급 — compose가 빈 값을 넘겨 파생 규칙을 유지한다).
+`MAX` 기본은 look-ahead와 정렬, `MAX=1`이면 대기창 없이 단건 호출), prefetch는 두 겹이다 —
+`INGEST_PREFETCH_PER_QUEUE`(큐=소비자당, 기본 `1 + INGEST_CHANGESET_LOOKAHEAD` = `9`)와
+`INGEST_PREFETCH`(채널 전체 상한, 기본 `INGEST_MAX_CONCURRENCY × 큐당` = `36`). 두 값 모두 빈 값은 미설정
+취급이라 compose가 빈 값을 넘겨 파생 규칙을 유지한다. `INGEST_PREFETCH`는 예전에 "소비자 하나의 prefetch(12)"였으나
+지금은 채널 전체 상한이라, 서버 `.env`에 옛 값이 남아 있으면 비운다(남으면 채널이 그 값으로 묶인다).
 킬스위치: `INGEST_CHANGESET_LOOKAHEAD=0`으로 프리페치가 꺼지고, **완전한 기존 동작 복원**에는
 `INGEST_EMBED_COALESCE_MAX=1`을 병행한다(아니면 커밋당 코얼레싱 대기창 50ms가 남는다).
 consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호), project 간은
@@ -45,13 +48,41 @@ BACKGROUND 호출은 `OPENAI_BACKGROUND_CONCURRENCY` 게이트로 동시 요청 
 늘어난다 — 재시작 시 최대 `INGEST_PREFETCH`건이 재배달될 수 있지만, 쓰기가 전부 MERGE 멱등이라
 그래프는 안전하고 LLM 준비 비용만 재발생한다.
 
+큐 발견: 프로젝트마다 큐(`history.project.<projectId>`)가 하나씩 있고, 큐마다 `x-single-active-consumer`라
+활성 소비자는 1이다. `graph/queue_discovery.py`가 5초마다 RabbitMQ 관리 HTTP API(`GET /api/queues/<vhost>`)를
+읽어 새 큐는 구독하고 사라진 큐는 구독 해제하며, 큐별 `messages`를 `graph/ingest_backlog.py` 스냅샷에 저장한다.
+관리 URL(`http://<host>:15672`)과 인증은 `RABBITMQ_URL`에서 파생해 새 env가 없다. 관리 API가 죽으면 새 큐
+발견만 늦어질 뿐 이벤트는 내구 큐에 남아 있어 유실이 없다. 연결은 비-robust(`aio_pika.connect`)라 끊기면
+예외로 올라오고, `start_consumer`가 5초 뒤 연결·QoS·토폴로지·구독을 통째로 다시 만든다(부분 복구는 없다).
+구 큐 호환: 이번 릴리스 동안은 `history.exchange`(topic)·`history.events`(`event.#`)와 구 재시도 큐
+`history.events.retry`도 계속 선언·소비한다(배포 시 잔량 소진용). 다음 릴리스에 별도 PR로 제거한다.
+
 수집 실패 안전망(재시도 → DLQ): consumer의 `handle()`이 실패한 이벤트를 조용히 버리지 않는다.
 발행 측(pipeline-worker)은 이미 checkpoint를 넘긴 상태라 소비 실패는 재수집으로 복구되지 않기 때문이다.
-실패하면 지연 재시도 큐 `history.events.retry`로 보내 `INGEST_RETRY_DELAY_MS`(기본 `180000`, 3분) 뒤 다시
-소비하고, 최대 `INGEST_RETRY_MAX`(기본 `20`)회 재시도한다(총 재시도 창 ≈ 1시간). 소진되면 `history.events.dlq`에 보관(파킹)했다가,
-장애 해소 후 admin `POST /dlq/replay`로 정상 파이프라인에 재투입한다(개수 조회는 `GET /dlq/stats`).
+실패하면 fanout 익스체인지 `history.retry`에 **원래 큐 이름을 routing key로** 재발행한다. 지연 재시도 큐
+`history.retry`(`x-message-ttl` = `INGEST_RETRY_DELAY_MS`, 기본 `180000`, 3분)가 TTL 뒤 dead-letter 익스체인지
+`""`(기본 익스체인지)로 내보내면 메시지 자신의 키로 **원래 큐로 복귀**해(`history.project.<id>` 또는 호환 큐
+`history.events`) 다시 소비되고, 최대 `INGEST_RETRY_MAX`(기본 `20`)회 재시도한다(총 재시도 창 ≈ 1시간).
+구 재시도 큐 `history.events.retry`는 호환 기간 동안만 남는다. 소진되면 `history.events.dlq`에 보관(파킹)했다가,
+장애 해소 후 admin `POST /dlq/replay`로 재투입한다(개수 조회는 `GET /dlq/stats`). replay는 메시지 본문의
+`projectId`로 큐 이름을 계산해 기본 익스체인지로 넣고, `projectId`가 없는 메시지는 건너뛰어 DLQ에 남긴다 —
+응답은 `{"replayed": n, "skipped": m}`. 큐가 없는(지운 프로젝트) 메시지는 조용히 버려진다.
+`INGEST_RETRY_DELAY_MS`를 바꾸면 기존 두 재시도 큐와 인자가 달라 406으로 채널이 닫히고 5초 재시작이 반복되므로,
+바꾸기 전에 `history.retry`·`history.events.retry`를 먼저 지운다(`docs/deployment.md`).
 JSON 파싱 실패(malformed)는 재시도·replay가 무의미하므로 DLQ가 아닌 별도 inspect 큐
 `history.events.parking`으로 보낸다(운영자 수동 확인용). 재발행은 소비 채널과 분리된 별도 채널에서 한다.
+
+해제·삭제 뒤 이벤트 차단: 연동 해제(`DELETE …/sources/{source}?integration_id=`)와 프로젝트 삭제는 노드를 지우기
+**전에** tombstone을 남긴다(`graph/ingest_tombstones.py`). consumer(`_process_event` 맨 앞)·`handle()`·
+`is_prefetchable_changeset`이 이벤트의 `integrationId`나 `projectId`가 tombstone이면 LLM·쓰기 전에 버린다 — consumer는
+ack만 하고 `mark_dirty`를 부르지 않는다(지운 프로젝트에 후처리 빌드가 돌지 않게). 재시도·DLQ로 보내지 않는다.
+tombstone은 Neo4j에 먼저 쓰고 성공한 뒤에 메모리에 올린다 — 기록이 실패하면 삭제도 중단돼 backend가 재시도하고,
+연동이 연결된 채 남으므로 그 이벤트를 버리면 안 되기 때문이다(쓰는 동안 들어온 이벤트는 이어지는 노드 삭제가 지운다).
+프로젝트 삭제(`DELETE /graph/projects/{id}`)는 tombstone → 그래프 삭제 뒤에 그 프로젝트의 **수집 큐도 지운다**
+(구독 취소 → 파티션 비움 대기 → 별도 연결에서 삭제). 큐 삭제가 실패하면 WARN만 남기고 정상 응답하며, 발견 틱이
+tombstone 프로젝트의 고아 큐를 스스로 지운다. **연동 해제는 큐를 지우지 않는다**(프로젝트의 다른 연동이 같은 큐를 쓴다).
+노드 속성에 `project_id`·`source`를 쓰지 않는
+이유와 30일 TTL은 `docs/graph-schema.md` 「삭제」.
 
 운영자 알림(선택): `ALERT_SLACK_WEBHOOK_URL`(기본 빈 값 = 로그만)을 설정하면 `alerts.py`가 다섯 종류의
 사건 — OpenAI 잔액·쿼터 소진(`openai_quota`), 회복 불가 4xx(`openai_unrecoverable`), 일시 오류 10분 창
@@ -71,7 +102,10 @@ CI·리팩토링 안전망.
 
 ```bash
 python -m pytest        # = tests/unit 만 실행 (pytest.ini의 testpaths)
+python -m pytest --cov  # 위와 같고 라인 커버리지 리포트까지 (CI가 이렇게 돈다)
 ```
+
+커버리지는 pytest-cov이고 `--cov`를 붙인 실행에서만 잰다. 파일 하나·`-k`·`--lf`처럼 일부만 돌린 실행은 돈 부분만 재서 숫자가 의미 없기 때문이다. 요약은 터미널에, HTML은 `htmlcov/index.html`, XML은 `coverage.xml`이다. 100%인 파일은 요약에서 빠진다. 라이브 Neo4j·OpenAI가 필요한 `tests/integration`은 기본 수집에 없으므로 그 경로의 커버리지에는 들어가지 않는다. 리포트 형식 옵션이 `pytest.ini`에 있어서, pytest-cov가 없는 예전 venv에서는 `--cov` 없이 돌려도 `unrecognized arguments`로 바로 실패한다 — `requirements-dev.txt`를 다시 설치한다. PR에서는 CI(`.github/workflows/test.yml`의 `coverage-comment` 잡)가 세 서비스의 라인 커버리지를 댓글 하나로 달고 푸시마다 같은 댓글을 갱신한다. 이 잡이 `coverage.xml` 루트의 `lines-covered`·`lines-valid`를 읽으므로 XML 리포트 이름·형식을 바꾸면 `.github/scripts/coverage_comment.py`도 고친다.
 
 갱신 의무가 붙은 안전망 2개만 여기서 설명한다.
 
@@ -88,6 +122,8 @@ python -m pytest        # = tests/unit 만 실행 (pytest.ini의 testpaths)
 
 라이브 Neo4j 및/또는 실제 OpenAI 키가 있어야 한다. `pytest.ini`의 `testpaths`가 `tests/unit`이라
 기본 `pytest`에는 수집되지 않는다. 현재는 스크립트 형태로, 서비스 루트를 import 경로에 올려 직접 실행한다.
+정리로 `delete_project_graph(pid)`를 부르면 그 pid의 `IngestTombstone`이 30일 남는다 — 같은 pid로 다시 `handle()`을
+태우면 이벤트가 조용히 버려지므로, 테스트마다 새 pid를 쓴다.
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -136,8 +172,15 @@ tools/             LLM tool-calling
 
 graph/             Neo4j 그래프 구축 + 수집
   consumer.py        RabbitMQ consumer
+  queue_discovery.py 프로젝트 큐 발견 — 관리 HTTP API 5초 폴링으로 구독 대상을 맞추고 큐별 messages를 기록.
+                     큐 이름 규칙의 단일 출처(`PROJECT_QUEUE_PREFIX`)
+  ingest_backlog.py  프로젝트 큐별 messages 스냅샷 — 디바운스의 "큐가 비었다" 판정이 읽는다
   event_handler.py   NormalizedEvent → 그래프 쓰기 (수집 진입점)
-  postprocess.py     per-project 후처리(Layer 4) 빌드 + 디바운스. 빌드는 프로젝트 단위 비동기
+  ingest_tombstones.py  수집 차단 tombstone — 해제된 연동(integrationId)·지운 프로젝트의 이벤트를 버린다.
+                     메모리 판정 + Neo4j `IngestTombstone` 영속, 기동 때 consumer보다 먼저 로드
+  postprocess.py     per-project 후처리(Layer 4) 빌드 + 디바운스(유휴 = 마지막 이벤트 후
+                     `GRAPH_BUILD_DEBOUNCE_SECONDS` 경과 + 그 프로젝트 큐 messages 0 + 디스패처 대기·처리 중 0.
+                     구 큐 잔량은 프로젝트별 귀속이 안 돼 조건에 없다). 빌드는 프로젝트 단위 비동기
                      (POST /graph/build는 202 후 백그라운드 태스크, GET /graph/build/status 폴링).
                      같은 프로젝트는 coalesce, 다른 프로젝트는 _build_semaphore(MAX_CONCURRENCY)로 제한.
                      상태/dirty는 in-process — 수평 확장 시 공유 저장소로 교체 필요.
@@ -196,4 +239,9 @@ graph/             Neo4j 그래프 구축 + 수집
   `include_router`에 같은 `dependencies=`를 붙인다.
   호출부는 헤더를 실어야 한다 — backend는 `AiEngineConfig`의 `defaultHeader`(클라이언트 4개가 이 빈을
   공유), `eval/runner.py`는 `--token`/`INTERNAL_SERVICE_TOKEN`, 운영자 수동 호출은 `docs/measurement.md`의 런북.
+- **프로젝트 큐는 passive로만 선언**한다(능동 선언 금지 — 선언은 pipeline-worker 릴레이 몫이고, 인자가 다르면
+  406으로 충돌한다). 큐 이름 규칙의 단일 출처는 `queue_discovery.PROJECT_QUEUE_PREFIX`(consumer가 re-export)다.
+- 알려진 제약: 운영자가 프로젝트 큐를 수동 삭제하고 릴레이가 5초 안에 같은 이름으로 되살리면, 발견이 이름
+  기준 diff라 못 잡아 그 큐의 소비가 ai-engine 재시작 전까지 조용히 멈춘다 — 큐를 지웠으면 ai-engine을 재시작한다
+  (정상 삭제 경로에서는 생기지 않는다).
 - 주석·docstring은 한국어로 작성한다 (코드베이스 관행).

@@ -11,6 +11,7 @@ from graph.builder import make_neo4j_actor_store
 from graph.document_chunker import chunk_document
 from graph.embed_batcher import embed_text_batched
 from graph.embedder import embed_batch, embed_text
+from graph.ingest_tombstones import is_blocked
 from graph.path_filter import should_skip
 from graph.slack_filter import should_skip_slack
 from graph.summarizer import summarize_diff
@@ -67,6 +68,21 @@ async def _link_external_refs(
             await link(ref_source, ref_external_id)
 
 
+def should_drop_tombstoned(event: dict) -> bool:
+    """끊긴 연결·지운 프로젝트의 이벤트면 INFO 로그를 남기고 True를 돌려준다.
+
+    consumer(_process_event)와 handle()이 같은 판정·같은 로그를 쓰도록 모았다. 로그에는 식별자만
+    남긴다(본문·자격증명 없음). integrationId가 없는 이벤트는 연결 단위로는 막을 수 없다.
+    """
+    if not is_blocked(event):
+        return False
+    logger.info(
+        "tombstone으로 이벤트 버림: project=%s source=%s nodeType=%s integrationId=%s",
+        event.get("projectId"), event.get("source"), event.get("nodeType"), event.get("integrationId"),
+    )
+    return True
+
+
 async def handle(event: dict, *, prepared: "ChangesetPrepared | None" = None) -> None:
     """NormalizedEvent를 nodeType에 따라 분기 처리한다.
 
@@ -84,6 +100,11 @@ async def handle(event: dict, *, prepared: "ChangesetPrepared | None" = None) ->
     project_id = event.get("projectId") or ""
     if not project_id:
         logger.warning("projectId 없는 이벤트 — 건너뜀 (source=%s nodeType=%s)", source, node_type)
+        return
+
+    # 연동 해제·프로젝트 삭제 뒤에 큐에서 늦게 소비되는 이벤트가 지운 그래프를 다시 채우지 못하게
+    # LLM 요약·Actor 판정·임베딩·쓰기보다 앞서 끊는다.
+    if should_drop_tombstoned(event):
         return
 
     logger.info("[%s/%s] actor=%s 수신", source, node_type, actor_id)
@@ -124,12 +145,15 @@ class ChangesetPrepared:
 def is_prefetchable_changeset(event: dict) -> bool:
     """ChangeSet 프리페치(LLM 준비 단계 look-ahead) 대상인지 판별.
 
-    handle()의 가드(projectId 필수, GitHub 봇 제외)를 미러링한다 — 어차피 건너뛸 이벤트를
+    handle()의 가드(projectId 필수, tombstone, GitHub 봇 제외)를 미러링한다 — 어차피 건너뛸 이벤트를
     미리 준비해 LLM 호출을 낭비하지 않기 위해서다. handle() 자체의 가드는 이중 안전으로 남긴다.
+    버림 로그는 여기서 남기지 않는다 — 실제로 버려지는 자리(consumer·handle)에서 한 번만 찍는다.
     """
     if event.get("nodeType") != "ChangeSet":
         return False
     if not (event.get("projectId") or ""):
+        return False
+    if is_blocked(event):
         return False
     actor = event.get("actor") or {}
     if event.get("source") == "GITHUB" and _is_bot_actor(actor.get("id", "unknown")):

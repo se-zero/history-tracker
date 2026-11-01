@@ -7,7 +7,7 @@ import com.history.pipeline_worker.collection.ProjectIntegrationRepository;
 import com.history.pipeline_worker.common.crypto.CredentialCryptoService;
 import com.history.pipeline_worker.dto.NormalizedEvent;
 import com.history.pipeline_worker.dto.RawFetchRequest;
-import com.history.pipeline_worker.messaging.EventPublishException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import com.history.pipeline_worker.messaging.EventPublisher;
 import com.history.pipeline_worker.normalizer.RefsExtractor;
 import org.junit.jupiter.api.BeforeEach;
@@ -139,7 +139,7 @@ class AsanaCollectorTest {
     }
 
     @Test
-    @DisplayName("발행 실패(EventPublishException) 시 예외를 전파하고 커서를 전진시키지 않는다")
+    @DisplayName("아웃박스 적재 실패(DataAccessException) 시 예외를 전파하고 커서를 전진시키지 않는다")
     void collect_publishFailure_throwsAndDoesNotAdvanceCursor() {
         RawFetchRequest request = new RawFetchRequest("Bearer token", PROJECT_GID, Map.of());
         AsanaRawService.AsanaFetchContext context = fetchContext();
@@ -147,11 +147,11 @@ class AsanaCollectorTest {
         when(rawService.prepareFetchContext(request, Instant.EPOCH)).thenReturn(context);
         when(rawService.fetchTaskPage(context, null, 1)).thenReturn(new AsanaRawService.AsanaTaskPage(
                 buildTaskPageBody("task-1", "2024-05-10T00:00:00.000Z"), false, null, false));
-        when(eventPublisher.publishAll(anyList())).thenThrow(new EventPublishException("publish failed"));
+        when(eventPublisher.publishAll(anyList())).thenThrow(new DataAccessResourceFailureException("outbox insert failed"));
 
         assertThatThrownBy(() -> collector.collect(PROJECT_ID, request))
-                .isInstanceOf(EventPublishException.class)
-                .hasMessage("publish failed");
+                .isInstanceOf(DataAccessResourceFailureException.class)
+                .hasMessage("outbox insert failed");
         verify(checkpointService, never()).updateCursor(anyString(), any(), anyString(), any());
     }
 

@@ -1,14 +1,19 @@
 import asyncio
+import functools
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 import aio_pika
 
 import alerts
-from graph.event_handler import handle, is_prefetchable_changeset, prepare_changeset
+from graph import ingest_backlog, queue_discovery
+from graph.event_handler import handle, is_prefetchable_changeset, prepare_changeset, should_drop_tombstoned
 from graph.postprocess import mark_dirty
+# 큐 이름 규칙의 단일 출처는 queue_discovery — 여기서는 re-export한다(라우터·테스트가 consumer에서 import).
+from graph.queue_discovery import PROJECT_QUEUE_PREFIX, project_queue_name  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -41,20 +46,25 @@ INGEST_MAX_CONCURRENCY = max(1, int(os.environ.get("INGEST_MAX_CONCURRENCY", "4"
 # 뒤 이벤트의 LLM 준비 단계(파일 diff 요약 + 임베딩)를 앞 이벤트의 Neo4j 쓰기와 동시에 미리 실행한다.
 # 쓰기(_process) 자체는 여전히 도착 순서 직렬 — 준비만 앞당긴다. 0 = 프리페치 비활성(킬스위치).
 INGEST_CHANGESET_LOOKAHEAD = max(0, int(os.environ.get("INGEST_CHANGESET_LOOKAHEAD", "8")))
-# RabbitMQ prefetch(미ack 상한) = 백프레셔. 동시성(쓰기 슬롯) + look-ahead(준비 중인 미ack 메시지)를
-# 합친 만큼은 받아둬야 워커가 놀지 않는다 — 브로커 미ack 한도가 look-ahead 깊이의 물리적 상한이다.
-# 트레이드오프: 재시작 시 최대 INGEST_PREFETCH건이 재배달될 수 있다. 쓰기가 전부 MERGE라 멱등이라
-# 그래프는 안전하고, LLM 준비 비용만 재발생한다(재계산일 뿐 데이터 손상 없음).
-# 미설정 시 동시성+look-ahead 합으로 파생한다. 빈 문자열도 미설정 취급(or 폴백) —
-# compose가 `${INGEST_PREFETCH:-}`로 빈 값을 넘겨 파생 규칙을 살릴 수 있게 한다.
-INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH") or (INGEST_MAX_CONCURRENCY + INGEST_CHANGESET_LOOKAHEAD)))
+# RabbitMQ prefetch(미ack 상한) = 백프레셔. 큐당 9 = 쓰기 1 + look-ahead 8, 채널 전체 36 = 동시성 4 × 큐당.
+# 큐당 상한(global_=False)이 한 프로젝트 큐의 독점을 막고, 채널 상한(global_=True)이 전체 미ack를 묶는다.
+# 트레이드오프: 재시작 시 최대 채널 상한(INGEST_PREFETCH)만큼 재배달될 수 있다. 쓰기가 전부 MERGE라 멱등이라
+# 그래프는 안전하고 LLM 준비 비용만 재발생한다(재계산일 뿐 데이터 손상 없음).
+# 미설정 시 파생한다. 빈 문자열도 미설정 취급(or 폴백) — compose가 빈 값을 넘겨 파생 규칙을 살릴 수 있게 한다.
+INGEST_PREFETCH_PER_QUEUE = max(1, int(os.environ.get("INGEST_PREFETCH_PER_QUEUE") or (1 + INGEST_CHANGESET_LOOKAHEAD)))
+INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH") or (INGEST_MAX_CONCURRENCY * INGEST_PREFETCH_PER_QUEUE)))
 
 # 처리 실패 재시도/보관 큐. handle() 실패 시 consumer가 재시도 횟수를 헤더로 관리하며 직접 재발행한다
-# (imperative). 메인 큐(history.events)는 변경하지 않는다 — 신규 큐만 추가하며 consumer만 선언·사용한다.
-RETRY_QUEUE   = "history.events.retry"      # x-message-ttl 만료 후 메인으로 되돌아가는 지연 재시도 큐
+# (imperative). 재시도는 "원래 큐로" 돌아가야 하므로 fanout 익스체인지 + TTL 큐 + DLX(기본 익스체인지)를 쓴다:
+# 재발행 때 라우팅 키에 원래 큐 이름을 적으면 fanout은 키를 무시하고 RETRY_QUEUE에 넣고,
+# TTL 만료 후 DLX가 메시지 자신의 키(원래 큐 이름)로 원래 큐에 꽂는다.
+RETRY_EXCHANGE = "history.retry"            # fanout
+RETRY_QUEUE   = "history.retry"             # x-message-ttl + x-dead-letter-exchange "" → 원래 큐로 복귀
+# 구 재시도 큐 — 배포 시 잔량 소진을 위해 이번 릴리스까지만 선언·유지한다(다음 릴리스에서 제거).
+LEGACY_RETRY_QUEUE = "history.events.retry"
 DLQ_QUEUE     = "history.events.dlq"         # 재시도 소진분 파킹 (replay 대상)
 PARKING_QUEUE = "history.events.parking"     # malformed(JSON 파싱 실패) 전용 inspect 큐 (replay 미대상)
-RETRY_ROUTING_KEY = "event.retry"            # retry 만료 시 메인 exchange로 되돌리는 라우팅 키(event.# 매칭)
+RETRY_ROUTING_KEY = "event.retry"            # 구 재시도 큐 만료 시 메인 exchange로 되돌리는 라우팅 키(event.# 매칭)
 # 고정 간격 재시도. 기본 3분 × 20회 ≈ 1시간 창 — Neo4j 재기동·짧은 배포·OpenAI 일시 장애를
 # 무인 복구하고, 그보다 긴 장애만 DLQ로 넘겨 사람이 보게 한다. 수집은 배경 작업이라 분 단위 지연은 무해.
 RETRY_MAX      = max(0, int(os.environ.get("INGEST_RETRY_MAX", "20")))
@@ -90,6 +100,7 @@ class _PartitionedDispatcher:
         self._prefetch_sem = asyncio.Semaphore(max(1, lookahead))
         self._lookahead = lookahead
         self._prefetch_tasks: set[asyncio.Task] = set()
+        self._active: set[str] = set()  # 지금 처리 중인 파티션(워커당 최대 1건)
 
     def submit(self, key: str, item: object) -> None:
         """파티션 키의 큐에 작업을 넣는다. 해당 워커가 없으면 생성한다.
@@ -126,6 +137,7 @@ class _PartitionedDispatcher:
         """한 파티션의 큐를 순서대로 비운다(직렬). 처리 실패는 격리하고 워커는 유지한다."""
         while True:
             item, prefetch_task = await queue.get()
+            self._active.add(key)
             try:
                 # 프리페치 결과 수거는 _sem(쓰기 동시성) 밖에서 한다 — LLM 준비 대기가
                 # 쓰기 슬롯을 잠식하면 look-ahead의 이득(쓰기와 준비의 동시 진행)이 사라진다.
@@ -147,7 +159,12 @@ class _PartitionedDispatcher:
                 # 삼켜서 한 메시지 실패가 워커(파티션) 전체를 죽이지 않게 한다.
                 logger.exception("이벤트 처리/재발행 실패 — 메시지 건너뜀, 재배달 대기 (partition=%s)", key)
             finally:
+                self._active.discard(key)
                 queue.task_done()
+
+    def pending(self, key: str) -> int:
+        """해당 프로젝트의 대기 + 처리 중(0/1) 수. 디바운스 유휴 판정용."""
+        return (q.qsize() if (q := self._queues.get(key)) else 0) + (1 if key in self._active else 0)
 
     async def close(self) -> None:
         """모든 워커·프리페치 태스크를 취소한다. 큐에 남아 미ack된 메시지는 RabbitMQ가 재배달한다(유실 없음)."""
@@ -175,13 +192,88 @@ class _PartitionedDispatcher:
         self._prefetch_tasks.clear()
 
 
-async def start_consumer() -> None:
-    """RabbitMQ에 연결하고 history.events 큐를 소비한다.
+@dataclass
+class _ConsumerState:
+    """한 번의 연결 수명 동안의 소비 상태. 끊기면 통째로 버리고 _run_consumer가 다시 만든다."""
 
-    예외 발생 시 5초 후 자동 재시작.
+    connection: aio_pika.abc.AbstractConnection
+    channel: aio_pika.abc.AbstractChannel
+    publish_channel: aio_pika.abc.AbstractChannel
+    retry_exchange: aio_pika.abc.AbstractExchange
+    dispatcher: _PartitionedDispatcher
+    queues: dict[str, aio_pika.abc.AbstractQueue] = field(default_factory=dict)
+    consumers: dict[str, str] = field(default_factory=dict)  # 큐 이름 → consumer tag
+
+    async def subscribe(self, name: str, queue: aio_pika.abc.AbstractQueue) -> None:
+        tag = await queue.consume(functools.partial(_on_message, state=self, origin_queue=name))
+        self.queues[name] = queue
+        self.consumers[name] = tag
+
+    async def unsubscribe(self, name: str) -> None:
+        queue = self.queues.pop(name, None)
+        tag = self.consumers.pop(name, None)
+        if queue is None or tag is None:
+            return
+        try:
+            await queue.cancel(tag)
+        except Exception:
+            # 서버가 지운 큐는 이미 소비자가 취소돼 있어 cancel이 실패한다 — 정상 경로다.
+            logger.debug("consumer 취소 실패 (queue=%s)", name, exc_info=True)
+
+    def is_alive(self) -> bool:
+        # 발행 채널도 본다 — 비-robust 연결이라 한 번 닫히면 되살아나지 않고, 그 상태로는 재시도·DLQ·parking
+        # 발행이 전부 실패해 미ack 재배달만 반복되다 prefetch가 차서 조용히 멈춘다. 통째 재구성 대상이다.
+        return not (
+            self.connection.is_closed or self.channel.is_closed or self.publish_channel.is_closed
+        )
+
+
+# 현재 연결의 상태. 큐 삭제·발견 코드가 consumer를 import하지 않고도 구독을 바꾸도록 노출한다.
+_state: _ConsumerState | None = None
+
+
+async def _wait_partition_drained(dispatcher, project_id: str, timeout: float = 10.0) -> bool:
+    """파티션의 대기·처리 중이 0이 될 때까지 0.1초 간격으로 기다린다. 시간 안에 비면 True."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while dispatcher.pending(project_id) > 0:
+        if asyncio.get_running_loop().time() >= deadline:
+            return False
+        await asyncio.sleep(0.1)
+    return True
+
+
+async def delete_project_queue(project_id: str) -> bool:
+    """프로젝트 큐를 지운다. 구독 취소 → 파티션 비움 대기 → 별도 연결에서 queue_delete.
+
+    지웠으면 True, 이미 없었으면 False. 소비 채널에서 지우지 않는 이유: 이미 받아 둔 미ack
+    메시지의 ack가 "unknown delivery tag"로, 큐가 없을 때의 404가 각각 소비 채널을 닫기 때문이다.
+    """
+    name = project_queue_name(project_id)
+    state = _state
+    if state is not None:
+        await state.unsubscribe(name)  # 구독 중이 아니면 no-op
+        # tombstone이 먼저 기록돼 남은 메시지가 즉시 ack되므로 보통 바로 빈다.
+        if not await _wait_partition_drained(state.dispatcher, project_id):
+            # 그래도 삭제는 진행한다 — 남은 메시지는 tombstone이라 ack만 하고 버려지는데, 큐가 먼저
+            # 사라지면 그 ack가 소비 채널을 닫아 재시작 한 번이 일어날 뿐 데이터는 안전하다.
+            logger.warning("파티션이 비기 전에 큐 삭제 진행 (project=%s)", project_id)
+    connection = await aio_pika.connect_robust(RABBITMQ_URL)  # /dlq/stats와 같은 일회성 연결
+    async with connection:
+        channel = await connection.channel()
+        try:
+            await channel.queue_delete(name)
+            return True
+        except aio_pika.exceptions.ChannelNotFoundEntity:
+            return False
+
+
+async def start_consumer() -> None:
+    """RabbitMQ에 연결하고 프로젝트별 큐(history.project.<id>)와 호환 큐(history.events)를 소비한다.
+
+    예외 발생 시 5초 후 자동 재시작 — 연결·QoS·토폴로지·구독을 통째로 다시 만든다.
     실패 유형을 구분해 처리:
     - JSON 파싱 오류(영구 실패): ack 후 버림 — 재시도해도 동일한 오류
-    - 처리 오류(일시 실패): 예외를 raise → aio-pika가 nack(requeue=False) 처리
+    - 처리 오류(일시 실패): retry 큐로 재발행 후 ack, 소진되면 DLQ
     """
     while True:
         try:
@@ -194,74 +286,124 @@ async def start_consumer() -> None:
             await asyncio.sleep(5)
 
 
+async def _apply_qos(channel: aio_pika.abc.AbstractChannel) -> None:
+    # RabbitMQ에서 global_=False는 소비자(큐)별 상한, global_=True는 채널 전체 상한이다.
+    # 순서가 중요하다 — 소비자별 qos(global=false)를 받으면 브로커가 채널 상한을 해제하므로
+    # (RabbitMQ 3.13.7 실측: 채널 36 → 소비자별 9 순서로 걸면 채널 값이 0이 된다),
+    # 공식 문서 예시대로 소비자별을 먼저, 채널 전체를 나중에 건다. 채널 전체 qos(global_qos)는
+    # 2021년부터 deprecated(경고 로그 1줄)이지만 제거 버전은 없다.
+    await channel.set_qos(prefetch_count=INGEST_PREFETCH_PER_QUEUE, global_=False)
+    await channel.set_qos(prefetch_count=INGEST_PREFETCH, global_=True)
+
+
 async def _run_consumer() -> None:
+    global _state
     logger.info("RabbitMQ 연결 시도: %s", mask_amqp_url(RABBITMQ_URL))
-    connection = await aio_pika.connect_robust(RABBITMQ_URL)
+    # connect_robust가 아니다 — robust 채널은 재연결 때 마지막 set_qos만 global_ 없이 재적용하고
+    # 서버가 지운 큐를 재선언하며 서버발 소비자 취소를 알리지 않는다. 끊기면 예외를 던져
+    # start_consumer 재시작 루프가 통째로 재구성하게 한다.
+    connection = await aio_pika.connect(RABBITMQ_URL)
 
     async with connection:
         channel = await connection.channel()
-        await channel.set_qos(prefetch_count=INGEST_PREFETCH)
+        await _apply_qos(channel)
 
         # 재발행(retry/dlq/parking) 전용 채널 — 소비 채널과 분리한다.
         # AMQP는 채널 오류 시 그 채널 전체가 닫히므로, 발행 오류가 소비 루프를 중단시키지 않게 격리한다.
         publish_channel = await connection.channel()
 
-        # pipeline-worker의 RabbitMqConfig와 동일한 설정으로 선언 (멱등)
-        # consumer가 먼저 뜨는 경우에도 안전하게 동작하기 위해 선언 유지
+        # 구 큐 호환: 이번 릴리스 동안 그대로 선언·소비해 배포 시 잔량을 소진한다.
         exchange = await channel.declare_exchange(
             EXCHANGE_NAME, aio_pika.ExchangeType.TOPIC, durable=True
         )
-        queue = await channel.declare_queue(QUEUE_NAME, durable=True)
-        # 바인딩은 pipeline-worker가 이미 event.# 로 선언 — 별도 추가 불필요
-        # 단, consumer 선행 기동 시에도 메시지를 받을 수 있도록 동일 패턴 유지
-        await queue.bind(exchange, routing_key="event.#")
-
-        # 재시도/DLQ/parking 큐 선언 (consumer만 사용, 멱등). 메인 큐는 건드리지 않는다.
-        # retry 큐: TTL 만료 시 메인 exchange로 event.retry(⊂ event.#) 라우팅해 되돌린다.
-        await channel.declare_queue(RETRY_QUEUE, durable=True, arguments={
+        legacy_queue = await channel.declare_queue(QUEUE_NAME, durable=True)
+        await legacy_queue.bind(exchange, routing_key="event.#")
+        await channel.declare_queue(LEGACY_RETRY_QUEUE, durable=True, arguments={
             "x-message-ttl": RETRY_DELAY_MS,
             "x-dead-letter-exchange": EXCHANGE_NAME,
             "x-dead-letter-routing-key": RETRY_ROUTING_KEY,
         })
+
+        # 신규 재시도 경로: 원래 큐 이름을 라우팅 키로 실어 TTL 뒤 원래 큐로 복귀시킨다.
+        retry_exchange = await publish_channel.declare_exchange(
+            RETRY_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
+        )
+        retry_queue = await channel.declare_queue(RETRY_QUEUE, durable=True, arguments={
+            "x-message-ttl": RETRY_DELAY_MS,
+            "x-dead-letter-exchange": "",
+        })
+        await retry_queue.bind(retry_exchange)
+
         await channel.declare_queue(DLQ_QUEUE, durable=True)
         await channel.declare_queue(PARKING_QUEUE, durable=True)
 
-        logger.info(
-            "RabbitMQ consumer 준비 완료 (queue=%s, concurrency=%d, prefetch=%d, retry_max=%d, retry_delay_ms=%d)",
-            QUEUE_NAME, INGEST_MAX_CONCURRENCY, INGEST_PREFETCH, RETRY_MAX, RETRY_DELAY_MS,
-        )
-
         dispatcher = _PartitionedDispatcher(
-            lambda item, prepared: _process_event(item, prepared, publish_channel),
+            lambda item, prepared: _process_event(item, prepared, publish_channel, retry_exchange),
             INGEST_MAX_CONCURRENCY,
             prefetch=_changeset_prefetch,
             lookahead=INGEST_CHANGESET_LOOKAHEAD,
         )
+        ingest_backlog.set_pending_provider(dispatcher.pending)
+        state = _ConsumerState(
+            connection=connection,
+            channel=channel,
+            publish_channel=publish_channel,
+            retry_exchange=retry_exchange,
+            dispatcher=dispatcher,
+        )
+        _state = state
         try:
-            async with queue.iterator() as q:
-                async for message in q:
-                    await _route_message(message, dispatcher, publish_channel)
+            await state.subscribe(QUEUE_NAME, legacy_queue)
+            logger.info(
+                "RabbitMQ consumer 준비 완료 (legacy_queue=%s, concurrency=%d, prefetch_per_queue=%d, "
+                "prefetch_channel=%d, retry_max=%d, retry_delay_ms=%d)",
+                QUEUE_NAME, INGEST_MAX_CONCURRENCY, INGEST_PREFETCH_PER_QUEUE, INGEST_PREFETCH,
+                RETRY_MAX, RETRY_DELAY_MS,
+            )
+            await queue_discovery.run_forever(state)
         finally:
+            # 구독을 먼저 끊는다 — 디스패처를 닫은 뒤에도 메시지가 들어오면 빈 디스패처에 새 워커가 생겨
+            # 연결이 닫힌 뒤 영원히 대기하는 유령 태스크가 남는다. unsubscribe는 cancel 실패(연결이 이미
+            # 죽은 경우)를 삼키므로 어떤 종료 경로에서도 안전하다.
+            for name in list(state.consumers):
+                await state.unsubscribe(name)
+            ingest_backlog.set_pending_provider(None)
+            _state = None
             await dispatcher.close()
+
+
+async def _on_message(
+    message: aio_pika.abc.AbstractIncomingMessage,
+    *,
+    state: _ConsumerState,
+    origin_queue: str,
+) -> None:
+    try:
+        await _route_message(message, state.dispatcher, state.publish_channel, origin_queue)
+    except Exception:
+        # consume 콜백의 예외는 aio-pika가 로그만 남기고 삼킨다. 미ack로 두면 재배달되므로 기록만 한다.
+        logger.exception("메시지 라우팅 실패 — 미ack, 재배달 대기 (queue=%s)", origin_queue)
 
 
 async def _route_message(
     message: aio_pika.abc.AbstractIncomingMessage,
     dispatcher: _PartitionedDispatcher,
     publish_channel: aio_pika.abc.AbstractChannel,
+    origin_queue: str,
 ) -> None:
     """메시지를 파싱해 project 파티션으로 라우팅한다.
 
     JSON 파싱 실패(malformed·영구 오류)는 워커로 보내지 않고 parking 큐로 보낸 뒤 ack 한다 —
     재시도·replay가 무의미하므로 DLQ가 아닌 inspect 전용 parking 큐에 원본을 보존한다.
-    정상 메시지는 (message, event)를 project_id 파티션 큐에 넣는다(순서 보존, 논블로킹).
+    정상 메시지는 (message, event, origin_queue)를 project_id 파티션 큐에 넣는다(순서 보존, 논블로킹).
+    origin_queue는 실패 재시도 때 원래 큐로 돌려보내기 위해 들고 간다.
     """
     try:
         event = json.loads(message.body.decode())
     except (json.JSONDecodeError, UnicodeDecodeError):
         logger.error(
-            "JSON 파싱 실패 — parking 큐로 이동 (routing_key=%s, body=%r)",
-            message.routing_key, message.body[:200],
+            "JSON 파싱 실패 — parking 큐로 이동 (queue=%s, routing_key=%s, body=%r)",
+            origin_queue, message.routing_key, message.body[:200],
         )
         await _publish(publish_channel, PARKING_QUEUE, message.body, {"x-parse-error": "1"})
         alerts.record_parking(message.routing_key)
@@ -271,7 +413,7 @@ async def _route_message(
     # project_id가 파티션 키 — 같은 프로젝트는 한 워커에서 도착 순서대로 직렬 처리.
     # projectId 없는 이벤트는 handle()이 어차피 건너뛴다(빈 키 파티션으로 라우팅).
     project_id = event.get("projectId") or ""
-    dispatcher.submit(project_id, (message, event))
+    dispatcher.submit(project_id, (message, event, origin_queue))
 
 
 def _changeset_prefetch(item: object):
@@ -279,13 +421,18 @@ def _changeset_prefetch(item: object):
 
     코루틴 객체만 반환하고 await하지 않는다 — _PartitionedDispatcher가 태스크로 감싸 실행한다.
     """
-    _, event = item  # type: ignore[misc]
+    event = item[1]  # type: ignore[index]
     if is_prefetchable_changeset(event):
         return prepare_changeset(event)
     return None
 
 
-async def _process_event(item: object, prepared: object, publish_channel: aio_pika.abc.AbstractChannel) -> None:
+async def _process_event(
+    item: object,
+    prepared: object,
+    publish_channel: aio_pika.abc.AbstractChannel,
+    retry_exchange: aio_pika.abc.AbstractExchange,
+) -> None:
     """워커가 호출 — 메시지 하나를 그래프에 반영한다.
 
     prepared: 같은 파티션에서 look-ahead로 미리 계산된 ChangeSet 준비 결과(없으면 None →
@@ -293,10 +440,16 @@ async def _process_event(item: object, prepared: object, publish_channel: aio_pi
     재배달된 메시지는 재소비 시 새로 프리페치되므로 재계산은 의도된 동작이다.
 
     성공: 후처리 디바운스 타이머 갱신 후 ack.
+    tombstone: 끊긴 연결·지운 프로젝트의 이벤트는 처리하지 않고 ack만 한다 — 재시도·DLQ로 보내면
+          소용없이 맴돌고, 디바운스 타이머도 건드리지 않는다(지운 프로젝트에 후처리 빌드가 돌거나
+          최초 수집중 상태가 되살아나지 않게).
     실패: _handle_failure가 retry/dlq로 재발행하고 원본을 ack 한다.
           재발행까지 실패하면 예외를 raise → 원본 unacked로 남아 브로커가 재배달한다(유실 방지).
     """
-    message, event = item  # type: ignore[misc]
+    message, event, origin_queue = item  # type: ignore[misc]
+    if should_drop_tombstoned(event):
+        await message.ack()
+        return
     try:
         await handle(event, prepared=prepared)
         # 처리 성공 — 해당 프로젝트의 후처리(시맨틱 링크) 디바운스 타이머 갱신.
@@ -305,7 +458,7 @@ async def _process_event(item: object, prepared: object, publish_channel: aio_pi
         mark_dirty(event.get("projectId") or "")
         await message.ack()
     except Exception:
-        await _handle_failure(message, event, publish_channel)
+        await _handle_failure(message, event, publish_channel, retry_exchange, origin_queue)
 
 
 def _retry_count(message: aio_pika.abc.AbstractIncomingMessage) -> int:
@@ -317,22 +470,29 @@ async def _handle_failure(
     message: aio_pika.abc.AbstractIncomingMessage,
     event: dict,
     publish_channel: aio_pika.abc.AbstractChannel,
+    retry_exchange: aio_pika.abc.AbstractExchange,
+    origin_queue: str,
 ) -> None:
     """처리 실패 메시지를 재시도 또는 DLQ로 라우팅하고 원본을 ack 한다.
 
-    n < RETRY_MAX  → RETRY_QUEUE로 재발행(x-retry-count=n+1). TTL 만료 후 메인으로 돌아와 재소비.
+    n < RETRY_MAX  → retry 익스체인지로 재발행(x-retry-count=n+1, 라우팅 키=원래 큐). TTL 만료 후 원래 큐로 돌아와 재소비.
     n >= RETRY_MAX → DLQ_QUEUE로 파킹.
     재발행(_publish)이 실패하면 ack하지 않고 예외를 전파 → 원본 unacked → 브로커 재배달(유실 방지).
     """
     n = _retry_count(message)
     project_id = event.get("projectId") or ""
     if n < RETRY_MAX:
-        await _publish(publish_channel, RETRY_QUEUE, message.body, {"x-retry-count": n + 1})
-        logger.warning("처리 실패 — 재시도 %d/%d 예약 (delay=%dms, project=%s)",
-                       n + 1, RETRY_MAX, RETRY_DELAY_MS, project_id)
+        # fanout은 라우팅 키를 무시하고 RETRY_QUEUE에 넣고, 키는 메시지에 남아 DLX가 원래 큐로 되돌린다.
+        await retry_exchange.publish(
+            aio_pika.Message(body=message.body, headers={"x-retry-count": n + 1},
+                             delivery_mode=aio_pika.DeliveryMode.PERSISTENT),
+            routing_key=origin_queue,
+        )
+        logger.warning("처리 실패 — 재시도 %d/%d 예약 (delay=%dms, project=%s, queue=%s)",
+                       n + 1, RETRY_MAX, RETRY_DELAY_MS, project_id, origin_queue)
     else:
         await _publish(publish_channel, DLQ_QUEUE, message.body, {"x-retry-count": n})
-        logger.error("처리 실패 — 재시도 %d회 초과, DLQ 파킹 (project=%s)", RETRY_MAX, project_id)
+        logger.error("처리 실패 — 재시도 %d회 초과, DLQ 파킹 (project=%s, queue=%s)", RETRY_MAX, project_id, origin_queue)
         alerts.record_dlq_parked(project_id)
     await message.ack()
 

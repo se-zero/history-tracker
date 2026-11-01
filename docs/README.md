@@ -78,6 +78,7 @@
 | [google-chat-integration.md](google-chat-integration.md) | 근거 | 커넥터 계획 | 코드 + 연결·스페이스 선택·초기 수집 | **PR 머지 웹훅 증분·1시간 토큰 갱신은 안 함.** 스레드 `conversation_id`, §12 |
 | [notion-integration.md](notion-integration.md) | 근거 | 커넥터 계획 | N0~N3 코드 | §13 실기동, Phase 2 삭제·아카이브 |
 | [integration-abstraction.md](integration-abstraction.md) | 정본 | 추상화 계획 | Part A, Linear·Asana·ClickUp·Discord·Google Chat·Notion | monday.com 미착수, Teams 보류 |
+| [ingestion-queue-architecture.md](ingestion-queue-architecture.md) | 근거 | 결정 기록 | 수집 큐 구조 A(트랜잭셔널 아웃박스 + 펌프 릴레이 + 프로젝트별 큐 + 단일 활성 소비자) 확정(2026-10-27), 후보 A·B·C2 비교 근거. 아웃박스·릴레이 코드(`ingest_outbox` V28, worker `outbox`) | 프로젝트별 큐·큐 발견·SAC, 구 큐 제거(다음 릴리스). 커서를 아웃박스 트랜잭션에 넣는 것은 별도 조사(§5-4) |
 | [actor-manual-merge.md](actor-manual-merge.md) | 정본 | 스펙 | 병합·unmerge·split·프론트 | 봇 플래그 미승계 |
 | [embedding-design.md](embedding-design.md) | 정본 | 스펙 | 임베딩·벡터 인덱스·Layer 4 | refs 없는 시맨틱 엣지, REFERENCE vector index는 미채택 |
 | [graph-query-tool.md](graph-query-tool.md) | 근거 | 설계 | 코드 + 라우팅 확인 런 | 품질 측정 미실시. 계약의 정본은 [tools.md](tools.md) |

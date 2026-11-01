@@ -1,15 +1,19 @@
 package com.history.pipeline_worker.source.github;
 
 import com.history.pipeline_worker.dto.RawFetchRequest;
+import io.netty.handler.timeout.ReadTimeoutException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.codec.CodecException;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Mono;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -17,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -28,6 +33,9 @@ public class GitHubRawService {
 
     // 403/429 재시도 최대 횟수 (Slack/Discord와 동일 기준)
     private static final int MAX_RETRY_ON_RATE_LIMIT = 3;
+
+    // 일시 오류(응답 지연·연결 오류·5xx) 재시도 최대 횟수 — 1·2·4초 백오프, rate limit 재시도와 따로 센다
+    private static final int MAX_RETRY_ON_TRANSIENT = 3;
 
     // resolvedProfiles는 가변 맵이다 — 이 실행(fetchContext)에서 보강한 login별 프로필을 페이지를
     // 넘나들며 누적하는 자리라서다. record 성분이라고 불변을 가정하면 안 된다. 실행이 끝나면
@@ -44,6 +52,15 @@ public class GitHubRawService {
         GitHubRateLimitedException(long retryAfterSeconds) {
             super("GitHub rate limited, Retry-After=" + retryAfterSeconds + "s");
             this.retryAfterSeconds = retryAfterSeconds;
+        }
+    }
+
+    static class GitHubServerErrorException extends RuntimeException {
+        final int status;
+
+        GitHubServerErrorException(int status, String path) {
+            super("GitHub API error: status=" + status + ", path=" + path);
+            this.status = status;
         }
     }
 
@@ -345,8 +362,9 @@ public class GitHubRawService {
         try {
             // 프로필은 부가 데이터라 재시도 대상을 429(명백한 rate limit)로만 좁힌다 — 403 등 나머지
             // non-2xx는 즉시 실패시켜 아래 catch가 흡수하고(미기록으로 다음 호출에서 재조회), 계정당
-            // 최대 3×Retry-After초를 태우지 않는다.
-            Map<String, Object> result = executeWithRateLimitRetry(() -> webClient.get()
+            // 최대 3×Retry-After초를 태우지 않는다. 일시 오류(지연·연결 오류·5xx)도 같은 이유로 재시도하지
+            // 않는다 — 실패를 기억하지 않으므로 재시도를 붙이면 같은 login의 항목마다 4회 호출·7초 대기가 반복된다.
+            Map<String, Object> result = executeWithRateLimitRetryOnly(() -> webClient.get()
                     .uri("/users/{login}", login)
                     .header("Authorization", context.auth())
                     .exchangeToMono(resp -> {
@@ -385,10 +403,10 @@ public class GitHubRawService {
 
     // 재시도 소진 시 예외가 그대로 전파돼 이 커밋의 collect가 실패한다 — checkpoint가 전진하지 않아
     // 다음 수집에서 재시도된다("발행 예외를 삼키지 않는다"와 같은 원리, 조용한 데이터 결손보다 낫다).
-    // commitDetailExecutor의 worker 스레드에서 호출된다 — rateLimiter.acquire(무상태)·403/429 재시도는 스레드별로 그대로 동작한다.
+    // commitDetailExecutor의 worker 스레드에서 호출된다 — rateLimiter.acquire(무상태)·403/429·일시 오류 재시도는 스레드별로 그대로 동작한다.
     @SuppressWarnings("unchecked")
     private Map<String, Object> fetchCommitDetail(String auth, String owner, String repo, String sha) {
-        return executeWithRateLimitRetry(() -> {
+        return executeWithRetry(() -> {
             AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
             Map<String, Object> result = webClient.get()
                     .uri("/repos/{owner}/{repo}/commits/{sha}", owner, repo, sha)
@@ -409,6 +427,10 @@ public class GitHubRawService {
                         if (resp.statusCode().value() == 404) {
                             log.warn("GitHub commit 상세 없음, files 없이 진행 (sha={})", sha);
                             return Mono.empty();
+                        }
+                        if (resp.statusCode().is5xxServerError()) {
+                            return Mono.error(new GitHubServerErrorException(resp.statusCode().value(),
+                                    "/repos/" + owner + "/" + repo + "/commits/" + sha));
                         }
                         return Mono.error(new IllegalStateException(
                                 "GitHub API error: status=" + resp.statusCode().value()
@@ -459,7 +481,7 @@ public class GitHubRawService {
     // 재발행된다("발행 예외를 삼키지 않는다"와 같은 원리).
     @SuppressWarnings("unchecked")
     private List<Object> fetchPage(String auth, String path, String owner, String repo) {
-        return executeWithRateLimitRetry(() -> {
+        return executeWithRetry(() -> {
             AtomicReference<HttpHeaders> headersRef = new AtomicReference<>();
             List<Object> result = webClient.get()
                     .uri(path, owner, repo)
@@ -472,6 +494,9 @@ public class GitHubRawService {
                         }
                         if (isRateLimitResponse(resp.statusCode().value(), respHeaders)) {
                             return Mono.error(new GitHubRateLimitedException(resolveRetryWaitSeconds(respHeaders)));
+                        }
+                        if (resp.statusCode().is5xxServerError()) {
+                            return Mono.error(new GitHubServerErrorException(resp.statusCode().value(), path));
                         }
                         return Mono.error(new IllegalStateException(
                                 "GitHub API error: status=" + resp.statusCode().value() + ", path=" + path));
@@ -491,22 +516,79 @@ public class GitHubRawService {
         return val instanceof Map ? extractNestedStr((Map<String, Object>) val, parts[1]) : null;
     }
 
-    // 403/429면 Retry-After 헤더만큼 대기 후 재시도. 소진 시 원 예외를 그대로 재던진다.
-    private <T> T executeWithRateLimitRetry(Supplier<T> request) {
-        int attempts = 0;
+    // 403/429면 Retry-After 헤더만큼, 일시 오류(응답 지연·연결 오류·5xx)면 1·2·4초 백오프로 대기 후
+    // 재시도한다. 두 횟수는 따로 센다 — 한쪽이 소진돼도 다른 쪽 예산을 깎지 않게 한다.
+    // 소진 시 원 예외를 그대로 재던진다.
+    private <T> T executeWithRetry(Supplier<T> request) {
+        return executeWithRetry(request, true);
+    }
+
+    // 프로필 조회용 — rate limit만 재시도하고 일시 오류는 즉시 던진다(이유는 fetchUserProfile 주석).
+    private <T> T executeWithRateLimitRetryOnly(Supplier<T> request) {
+        return executeWithRetry(request, false);
+    }
+
+    private <T> T executeWithRetry(Supplier<T> request, boolean retryTransientErrors) {
+        int rateLimitAttempts = 0;
+        int transientAttempts = 0;
         while (true) {
             try {
                 return request.get();
             } catch (GitHubRateLimitedException e) {
-                attempts++;
-                if (attempts > MAX_RETRY_ON_RATE_LIMIT) {
+                rateLimitAttempts++;
+                if (rateLimitAttempts > MAX_RETRY_ON_RATE_LIMIT) {
                     throw e;
                 }
                 log.warn("GitHub rate limit(403/429) — {}초 대기 후 재시도 ({}/{})",
-                        e.retryAfterSeconds, attempts, MAX_RETRY_ON_RATE_LIMIT);
+                        e.retryAfterSeconds, rateLimitAttempts, MAX_RETRY_ON_RATE_LIMIT);
                 rateLimiter.awaitRetry(e.retryAfterSeconds);
+            } catch (RuntimeException e) {
+                if (!retryTransientErrors
+                        || (!(e instanceof GitHubServerErrorException) && !isTransientTransportError(e))) {
+                    throw e;
+                }
+                // 커밋 상세 풀은 첫 실패 시 나머지를 cancel(true)로 인터럽트한다 — 취소된 작업이 대기하며 버티지 않게 한다.
+                if (Thread.currentThread().isInterrupted()) {
+                    throw e;
+                }
+                transientAttempts++;
+                if (transientAttempts > MAX_RETRY_ON_TRANSIENT) {
+                    throw e;
+                }
+                long waitSeconds = 1L << (transientAttempts - 1);
+                log.warn("GitHub 일시 오류({}) — {}초 대기 후 재시도 ({}/{})",
+                        describeTransient(e), waitSeconds, transientAttempts, MAX_RETRY_ON_TRANSIENT);
+                rateLimiter.awaitRetry(waitSeconds);
             }
         }
+    }
+
+    private static String describeTransient(RuntimeException e) {
+        if (e instanceof GitHubServerErrorException se) {
+            return "status=" + se.status;
+        }
+        String name = e.getClass().getSimpleName();
+        Throwable cause = e.getCause();
+        return cause != null ? name + "/" + cause.getClass().getSimpleName() : name;
+    }
+
+    // 응답 지연·연결 오류만 일시 오류로 본다. 인터럽트는 재시도 대상이 아니라 즉시 false —
+    // 취소 신호를 재시도로 삼키면 안 된다. 본문 디코딩 실패(CodecException)도 즉시 false — 응답을 받은 뒤의
+    // 결정적 오류인데 Jackson 2 계열 파싱 예외가 IOException 하위라 cause만 보면 전송 오류로 오인된다.
+    // 순환 cause에 갇히지 않도록 깊이를 제한한다.
+    static boolean isTransientTransportError(Throwable e) {
+        Throwable t = e;
+        for (int depth = 0; t != null && depth < 10; depth++) {
+            if (t instanceof InterruptedException || t instanceof CodecException) return false;
+            if (t instanceof WebClientRequestException
+                    || t instanceof ReadTimeoutException
+                    || t instanceof IOException
+                    || t instanceof TimeoutException) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
     // 403을 재시도 대상으로 삼는 판별자: rate limit 신호(Retry-After 존재 또는 remaining 소진)가

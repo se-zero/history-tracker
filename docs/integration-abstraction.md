@@ -21,7 +21,7 @@ backend의 연동 관리 계층이다.
 |------|------|
 | ai-engine `graph/event_handler.py` | ✅ 이미 중립 — `nodeType`(ChangeSet·PullRequest·Issue·Communication)으로 분기, source는 속성일 뿐 |
 | ai-engine 소스별 삭제·Actor alias | ✅ 이미 중립 — `source.upper()` 문자열 기반, 새 소스 추가 시 무변경 |
-| RabbitMQ 라우팅 | ✅ `event.#` 바인딩이라 새 routing key 무변경 |
+| RabbitMQ 라우팅 | ✅ 큐가 프로젝트별(`history.project.<projectId>`)이라 소스와 무관 — 새 소스 추가 시 무변경 |
 | pipeline-worker `source.{provider}` 패키지 | ✅ 이미 provider별 모듈 (RawService·Normalizer·RateLimiter) |
 | pipeline-worker `pipeline/PipelineService` | ❌ `normalizeGitHub/Jira/Slack` 하드코딩, provider별 수집 루프가 한 클래스에 |
 | pipeline-worker `collection/ProjectCollectionContext` | ❌ `github / Optional<jira> / Optional<slack>` 고정 필드 |
@@ -375,8 +375,8 @@ Google Chat 몫으로 남는다. Discord가 실제로 검증하는 것은 ① �
 **2. pipeline-worker — 수집 (`services/pipeline-worker/CLAUDE.md` 「SourceCollector SPI」)**
 
 - [ ] `CollectionProvider` enum에 상수 추가.
-- [ ] routing key는 **설정하지 않는다** — `EventPublisher`가 `source`에서 유도한다
-      (`GOOGLE_CHAT` → `event.google_chat`). 큐 바인딩이 `event.#`라 브로커 설정도 불변이다.
+- [ ] 라우팅 설정은 **없다** — 큐가 프로젝트별(`history.project.<projectId>`)이라 소스와 무관하고,
+      브로커 설정도 불변이다.
 - [ ] `source/{provider}` 패키지에 `SourceCollector` 구현(`@Service`) — fetch·normalize·publish·checkpoint.
       `resolveFetchRequest`의 실패 신호 2종(`Optional.empty()` vs 예외)을 구분해 반환한다.
 - [ ] 발행 계약 준수 — **`docs/normalized-event.md`의 「새 커넥터 체크리스트」 9항목이 여기 해당한다.**
@@ -439,6 +439,6 @@ ai-engine의 소스 표시 라벨(`graph/overview.py`)도 대문자 snake에서 
 1. ~~**`jira_key` → `issue_key` 개명 여부**~~ — "개명"으로 결정, A6에서 실행 완료. (§3-3 참고)
 2. ~~**provider ID 표기 통일**~~ — 확정. 계층별 관례를 그대로 따른다: RDB/HTTP 경로는 소문자 kebab
    (`linear`·`google-chat`), 그래프 source·alias 접두는 대문자 snake(`LINEAR`·`GOOGLE_CHAT`),
-   routing key는 소문자 snake(`event.google_chat`), Java 패키지는 구분자 없음(`googlechat`).
+   Java 패키지는 구분자 없음(`googlechat`). RabbitMQ 큐는 프로젝트별이라 소스 표기가 들어가지 않는다.
    단일 출처는 `docs/normalized-event.md`의 「source · 표기 규칙」이며,
    두 단어 케이스의 근거·전 계층 대조표는 `docs/google-chat-integration.md` §10에 있다.

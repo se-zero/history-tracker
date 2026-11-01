@@ -9,6 +9,7 @@ import re
 
 from graph.actor_store import _compute_display_name, recompute_display_name
 from graph.driver import get_driver
+from graph.ingest_tombstones import record_integration_tombstone, record_project_tombstone
 from graph.writes import link_pr_changesets_to_issues
 
 logger = logging.getLogger(__name__)
@@ -464,9 +465,9 @@ async def clear_semantic_described_in(project_id: str | None = None) -> int:
 
 
 async def delete_project_source_graph(
-    project_id: str, source: str, batch_size: int = 10_000
+    project_id: str, source: str, integration_id: str | None = None, batch_size: int = 10_000
 ) -> dict:
-    """한 소스(GITHUB|SLACK|JIRA)에서 수집한 노드만 삭제한다. 연동 해제 cascade.
+    """한 소스(GITHUB, SLACK, JIRA, GOOGLE_CHAT 등)에서 수집한 노드만 삭제한다. 연동 해제 cascade.
 
     delete_project_graph와 달리 프로젝트는 남기고 그 소스의 흔적만 지운다. 소스가 겹치는
     구조 때문에 단순히 `source` 속성으로 한 번 지우고 끝낼 수 없어 다섯 단계로 나눈다.
@@ -496,13 +497,23 @@ async def delete_project_source_graph(
     대형 프로젝트의 tx timeout을 피하려고 delete_project_graph와 같은 배치 커밋을 쓴다.
     멱등 — 이미 지워진 소스를 다시 호출하면 전부 0이다.
 
+    integration_id를 주면 노드를 지우기 **전에** 그 연결의 수집 차단 tombstone을 남긴다. 큐에 남은
+    이벤트·수집 서버에서 아직 돌던 수집이 이 삭제 뒤에 소비돼 그래프를 다시 채우는 걸 막기 위해서다
+    (graph.ingest_tombstones 참고). 삭제 도중 도착한 이벤트도 걸러지도록 순서가 중요하다.
+    재연결하면 새 integration id가 생기므로 새 연결은 막히지 않는다. 안 주면 지금처럼 삭제만 한다.
+
     Returns:
         단계별 삭제 수 {"nodes", "files", "actors", "decisions", "stubs"}.
     """
     if not project_id or not source:
         return {"nodes": 0, "files": 0, "actors": 0, "decisions": 0, "stubs": 0}
 
-    normalized_source = source.upper()
+    if integration_id:
+        await record_integration_tombstone(integration_id)
+
+    # backend는 provider를 소문자 kebab(`google-chat`)으로 넘기지만 노드·이벤트의 source와 alias
+    # 접두는 대문자 snake(`GOOGLE_CHAT`)다 — 하이픈을 밑줄로 바꾸지 않으면 아무것도 매치되지 않는다.
+    normalized_source = source.upper().replace("-", "_")
     alias_prefix = f"{normalized_source}:"
 
     async with get_driver().session() as session:
@@ -640,11 +651,16 @@ async def delete_project_graph(project_id: str, batch_size: int = 10_000) -> int
     DETACH DELETE하면 tx timeout 또는 힙 부족이 발생한다. CALL { } IN TRANSACTIONS로
     배치 커밋해 메모리 상한을 피한다 — 중간 실패해도 멱등 재시도로 나머지를 마저 지운다.
 
+    노드를 지우기 **전에** 프로젝트 수집 차단 tombstone을 남긴다. 큐에 남은 이벤트·수집 서버에서
+    아직 돌던 수집이 삭제 뒤에 소비돼 그래프를 다시 채우는 걸 막기 위해서다
+    (graph.ingest_tombstones 참고). 프로젝트 id는 재사용되지 않으므로 영구 차단해도 된다.
+
     Returns:
         삭제된 노드 수.
     """
     if not project_id:
         return 0
+    await record_project_tombstone(project_id)
     async with get_driver().session() as session:
         result = await session.run(
             """

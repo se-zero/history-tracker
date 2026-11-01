@@ -101,7 +101,8 @@ public class ProjectIntegrationService {
     public Optional<RawFetchRequest> resolveFetchRequest(UUID projectId, CollectionProvider provider) {
         return findIntegration(projectId, provider)
                 .flatMap(integration -> collectors.find(provider)
-                        .flatMap(collector -> resolveSafely(collector, integration)));
+                        .flatMap(collector -> resolveSafely(collector, integration))
+                        .map(request -> withIntegrationId(request, integration)));
     }
 
     private Optional<ProjectCollectionContext> buildContext(ProjectIntegrationRepository.IntegrationRow githubMatch) {
@@ -129,7 +130,7 @@ public class ProjectIntegrationService {
             Optional<RawFetchRequest> request = provider == CollectionProvider.GITHUB
                     ? collector.resolveFetchRequest(integration)
                     : resolveSafely(collector, integration);
-            request.ifPresent(value -> requests.put(provider, value));
+            request.ifPresent(value -> requests.put(provider, withIntegrationId(value, integration)));
         }
 
         if (!requests.containsKey(CollectionProvider.GITHUB)) {
@@ -149,6 +150,15 @@ public class ProjectIntegrationService {
                     integration.projectId(), collector.provider().value(), exception);
             return Optional.empty();
         }
+    }
+
+    // 수집 요청에 그 행의 id를 싣는다 — 수집이 도는 동안 해제·재연결돼도 시작 때의 연동을 기준으로 멈출 수 있게 한다.
+    // webhook 컨텍스트는 provider마다 자기 행의 id를 갖는다(GitHub 앵커의 id를 전부에 쓰면 안 된다).
+    private RawFetchRequest withIntegrationId(
+            RawFetchRequest request,
+            ProjectIntegrationRepository.IntegrationRow integration
+    ) {
+        return integration.id() == null ? request : request.withIntegrationId(integration.id().toString());
     }
 
     private Optional<ProjectIntegrationRepository.IntegrationRow> findIntegration(

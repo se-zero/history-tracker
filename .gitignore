@@ -6,6 +6,10 @@ __pycache__/
 venv/
 *.egg-info/
 .pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
 
 # ── Java / Gradle ──────────────────────────────────────────────
 .gradle/

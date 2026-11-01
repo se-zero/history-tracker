@@ -9,7 +9,7 @@ __stub__)가 모두 실행되는지, 그리고 살아남은 Actor의 alias 제�
 
 import asyncio
 import unittest
-from unittest.mock import call, patch
+from unittest.mock import AsyncMock, call, patch
 
 from graph.maintenance import delete_project_source_graph
 
@@ -220,6 +220,94 @@ class DeleteProjectSourceGraph(unittest.TestCase):
         _, _session, mock_recompute = _run("p1", "GITHUB", survivor_uuids=())
 
         mock_recompute.assert_not_called()
+
+
+class KebabSourceNormalization(unittest.TestCase):
+    """backend는 provider를 소문자 kebab(`google-chat`)으로 넘기지만 노드·이벤트의 source와 alias
+    접두는 대문자 snake(`GOOGLE_CHAT`)다(docs/normalized-event.md 표기 규칙). 하이픈을 밑줄로 바꾸지
+    않으면 Google Chat 해제 때 아무 노드도 매치되지 않아 아무것도 안 지워진다."""
+
+    def test_kebab_provider_is_normalized_to_upper_snake_for_nodes_and_aliases(self):
+        _, session, _mock_recompute = _run("p1", "google-chat")
+
+        self.assertEqual(session.calls[0][1]["source"], "GOOGLE_CHAT")
+        self.assertEqual(
+            [p["alias_prefix"] for _q, p in session.calls if "alias_prefix" in p],
+            ["GOOGLE_CHAT:", "GOOGLE_CHAT:", "GOOGLE_CHAT:", "GOOGLE_CHAT:"],
+        )
+
+    def test_already_upper_snake_source_is_unchanged(self):
+        _, session, _mock_recompute = _run("p1", "GOOGLE_CHAT")
+
+        self.assertEqual(session.calls[0][1]["source"], "GOOGLE_CHAT")
+
+    def test_single_word_providers_are_unaffected(self):
+        for provider, expected in (("github", "GITHUB"), ("notion", "NOTION"), ("clickup", "CLICKUP")):
+            _, session, _mock_recompute = _run("p1", provider)
+            self.assertEqual(session.calls[0][1]["source"], expected)
+
+
+class _OrderedSession(_FakeSession):
+    """첫 쿼리가 실행될 때 공유 로그에 남겨, tombstone 기록과의 선후를 비교한다."""
+
+    def __init__(self, events):
+        super().__init__([])
+        self._events = events
+
+    async def run(self, query, **params):
+        self._events.append("query")
+        return await super().run(query, **params)
+
+
+def _run_with_tombstone_log(integration_id):
+    events = []
+    session = _OrderedSession(events)
+    record = AsyncMock(side_effect=lambda iid: events.append(f"tombstone:{iid}"))
+    with patch("graph.maintenance.get_driver", return_value=_FakeDriver(session)), \
+         patch("graph.maintenance.recompute_display_name"), \
+         patch("graph.maintenance.record_integration_tombstone", record):
+        asyncio.run(delete_project_source_graph("p1", "github", integration_id))
+    return events, record
+
+
+class IntegrationTombstoneOrdering(unittest.TestCase):
+    def test_tombstone_is_recorded_before_any_node_is_deleted(self):
+        # 삭제 도중 도착한 이벤트도 걸러지려면 tombstone이 첫 삭제 쿼리보다 먼저여야 한다
+        events, record = _run_with_tombstone_log("int-1")
+
+        record.assert_awaited_once_with("int-1")
+        self.assertEqual(events[0], "tombstone:int-1")
+        self.assertIn("query", events[1:])
+
+    def test_no_tombstone_without_integration_id(self):
+        events, record = _run_with_tombstone_log(None)
+
+        record.assert_not_awaited()
+        self.assertNotIn("tombstone:None", events)
+        self.assertIn("query", events)
+
+    def test_blank_input_records_no_tombstone(self):
+        # project_id/source가 비면 아무것도 지우지 않으므로 tombstone도 남기지 않는다
+        record = AsyncMock()
+        session = _FakeSession([])
+        with patch("graph.maintenance.get_driver", return_value=_FakeDriver(session)), \
+             patch("graph.maintenance.record_integration_tombstone", record):
+            asyncio.run(delete_project_source_graph("", "github", "int-1"))
+            asyncio.run(delete_project_source_graph("p1", "", "int-1"))
+
+        record.assert_not_awaited()
+        self.assertEqual(session.calls, [])
+
+    def test_tombstone_failure_stops_the_delete(self):
+        # 기록 없이 지우면 재기동 후 옛 이벤트가 그래프를 다시 채운다 — 삭제를 시작하지 않는다
+        session = _FakeSession([])
+        record = AsyncMock(side_effect=RuntimeError("neo4j down"))
+        with patch("graph.maintenance.get_driver", return_value=_FakeDriver(session)), \
+             patch("graph.maintenance.record_integration_tombstone", record):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(delete_project_source_graph("p1", "github", "int-1"))
+
+        self.assertEqual(session.calls, [])
 
 
 if __name__ == "__main__":

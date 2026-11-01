@@ -24,6 +24,7 @@ from graph.builder import (
     get_driver,
 )
 from graph.consumer import start_consumer
+from graph.ingest_tombstones import load_tombstones
 from graph.postprocess import start_debounce_loop
 from routers.admin import router as admin_router
 from routers.graph import router as graph_router
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     ensure_token_configured()
 
-    async def _init_neo4j_with_retry(max_retries: int = 10, retry_interval: float = 1.0) -> None:
+    async def _init_neo4j_with_retry(max_retries: int = 30, retry_interval: float = 2.0) -> None:
         """Neo4j 초기화를 재시도하며 수행 (health check보다 견고함)."""
         for attempt in range(1, max_retries + 1):
             try:
@@ -53,6 +54,10 @@ async def lifespan(app: FastAPI):
                 # 컨슈머 가동 전에 끝내야 기존 actor의 이벤트가 Step 0에서 잡혀 중복 생성을 막는다.
                 # Idempotent라 매 기동마다 안전(이미 연결된 alias는 no-op).
                 await backfill_actor_aliases()
+                # 연동 해제·프로젝트 삭제 tombstone을 메모리로 올린다. consumer 가동 전에 끝내야 한다 —
+                # 올리기 전에 소비가 시작되면 재기동 직후 큐에 남은 옛 이벤트가 지운 그래프를 다시 채운다.
+                # 실패하면 위 단계들과 같이 재시도하고, 끝내 못 올리면 기동을 막는다.
+                await load_tombstones()
                 logger.info("Neo4j 초기화 완료 (시도 %d/%d)", attempt, max_retries)
                 return
             except Exception as e:

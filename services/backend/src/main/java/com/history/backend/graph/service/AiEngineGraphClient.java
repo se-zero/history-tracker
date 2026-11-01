@@ -174,10 +174,12 @@ public class AiEngineGraphClient {
     }
 
     // 연동 해제 cascade — 한 소스에서 수집한 노드만 삭제한다(프로젝트·다른 소스는 유지)
-    public void deleteProjectSourceGraph(UUID projectId, IntegrationProvider provider) {
+    // integrationId는 ai-engine이 tombstone으로 남겨, 해제 뒤 뒤늦게 도착한 옛 수집 이벤트를 버리는 데 쓴다
+    public void deleteProjectSourceGraph(UUID projectId, IntegrationProvider provider, UUID integrationId) {
         try {
             aiEngineRestClient.delete()
-                    .uri("/graph/projects/{projectId}/sources/{source}", projectId, provider.value())
+                    .uri("/graph/projects/{projectId}/sources/{source}?integration_id={integrationId}",
+                            projectId, provider.value(), integrationId)
                     .retrieve()
                     .toBodilessEntity();
         } catch (RestClientException exception) {

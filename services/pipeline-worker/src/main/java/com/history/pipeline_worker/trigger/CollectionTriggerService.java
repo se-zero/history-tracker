@@ -1,6 +1,7 @@
 package com.history.pipeline_worker.trigger;
 
 import com.history.pipeline_worker.collection.CollectionProvider;
+import com.history.pipeline_worker.collection.IntegrationDisconnectedException;
 import com.history.pipeline_worker.collection.ProjectIntegrationService;
 import com.history.pipeline_worker.dto.RawFetchRequest;
 import com.history.pipeline_worker.pipeline.PipelineService;
@@ -46,6 +47,9 @@ public class CollectionTriggerService {
         try {
             pipelineService.collect(projectId.toString(), provider, request);
             log.info("Initial collection completed: projectId={}, provider={}", projectId, provider);
+        } catch (IntegrationDisconnectedException exception) {
+            // 수집 도중 사용자가 연동을 해제한 정상 경로 — ERROR로 남기면 해제할 때마다 오류 알람이 울린다.
+            log.info("연동이 해제돼 초기 수집을 멈춤: projectId={}, provider={}", projectId, provider);
         } catch (Exception exception) {
             log.error("Initial collection failed: projectId={}, provider={}", projectId, provider, exception);
         }
