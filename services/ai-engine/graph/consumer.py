@@ -287,9 +287,13 @@ async def start_consumer() -> None:
 
 
 async def _apply_qos(channel: aio_pika.abc.AbstractChannel) -> None:
-    # RabbitMQ에서 global_=True는 채널 전체 상한, global_=False는 소비자(큐)별 상한이다.
-    await channel.set_qos(prefetch_count=INGEST_PREFETCH, global_=True)
+    # RabbitMQ에서 global_=False는 소비자(큐)별 상한, global_=True는 채널 전체 상한이다.
+    # 순서가 중요하다 — 소비자별 qos(global=false)를 받으면 브로커가 채널 상한을 해제하므로
+    # (RabbitMQ 3.13.7 실측: 채널 36 → 소비자별 9 순서로 걸면 채널 값이 0이 된다),
+    # 공식 문서 예시대로 소비자별을 먼저, 채널 전체를 나중에 건다. 채널 전체 qos(global_qos)는
+    # 2021년부터 deprecated(경고 로그 1줄)이지만 제거 버전은 없다.
     await channel.set_qos(prefetch_count=INGEST_PREFETCH_PER_QUEUE, global_=False)
+    await channel.set_qos(prefetch_count=INGEST_PREFETCH, global_=True)
 
 
 async def _run_consumer() -> None:

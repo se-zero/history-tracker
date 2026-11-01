@@ -21,14 +21,15 @@ class _FakeChannel:
         self.qos_calls.append((prefetch_count, global_))
 
 
-def test_apply_qos_sets_channel_limit_then_per_consumer_limit():
+def test_apply_qos_sets_per_consumer_limit_then_channel_limit():
+    # 순서 고정 — 소비자별(global=false) qos를 나중에 걸면 브로커가 채널 상한을 지운다(3.13.7 실측)
     ch = _FakeChannel()
 
     asyncio.run(consumer._apply_qos(ch))
 
     assert ch.qos_calls == [
-        (consumer.INGEST_PREFETCH, True),
         (consumer.INGEST_PREFETCH_PER_QUEUE, False),
+        (consumer.INGEST_PREFETCH, True),
     ]
 
 
