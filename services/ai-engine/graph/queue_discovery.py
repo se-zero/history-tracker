@@ -81,6 +81,9 @@ async def tick(state, client: httpx.AsyncClient, base: str, vhost: str) -> None:
         # 관리 API 일시 장애로 구독을 건드리지 않는다 — 스냅샷도 갱신하지 않고 직전 값을 유지한다.
         logger.warning("관리 API 큐 목록 조회 실패 — 이번 틱 건너뜀", exc_info=True)
         return
+    # 관리 API의 name/use_regex 필터는 page 파라미터가 있을 때만 적용된다(3.13.7 실측). 필터가 빠지면
+    # DLQ·parking·재시도 큐까지 "새 큐"로 보고 구독해 버리므로, 응답을 접두사로 한 번 더 거른다.
+    found = {name: n for name, n in found.items() if name.startswith(PROJECT_QUEUE_PREFIX)}
 
     ingest_backlog.update_snapshot({name[len(PROJECT_QUEUE_PREFIX):]: n for name, n in found.items()})
 
