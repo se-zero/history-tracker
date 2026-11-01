@@ -37,7 +37,7 @@ Neo4j는 모든 프로젝트가 공유하는 단일 저장소다. 테넌트 격�
 
 | 트리거 | 엔드포인트 | 범위 |
 |--------|-----------|------|
-| 프로젝트 삭제 · 회원 탈퇴 | `DELETE /graph/projects/{project_id}` | 그 프로젝트의 모든 노드(Actor 포함) |
+| 프로젝트 삭제 · 회원 탈퇴 | `DELETE /graph/projects/{project_id}` | 그 프로젝트의 모든 노드(Actor 포함). 그래프 삭제 뒤 수집 큐 `history.project.<id>`도 삭제(연동 해제는 큐를 지우지 않는다) |
 | 연동 해제 | `DELETE /graph/projects/{project_id}/sources/{source}?integration_id={id}` | 그 소스에서 수집한 노드만 |
 
 `source`는 backend provider 표기(`github`, `google-chat`)를 받아 노드의 대문자 snake 표기(`GITHUB`,

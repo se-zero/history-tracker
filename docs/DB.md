@@ -648,7 +648,7 @@ pipeline-worker **수집 발행 아웃박스**. 수집기는 이벤트를 브로
 | `id` | BIGSERIAL | PK | 릴레이가 이 순서대로 발행한다 |
 | `project_id` | UUID | NOT NULL, FK → `projects.id` CASCADE | 이벤트가 속한 프로젝트 |
 | `integration_id` | UUID | FK → `integrations.id` CASCADE, nullable | 이벤트를 수집한 연동. 연동 범위 밖 수집이면 NULL |
-| `source` | TEXT | NOT NULL | 이벤트 출처(라우팅 키 `event.<source>`의 source) |
+| `source` | TEXT | NOT NULL | 이벤트 출처(`NormalizedEvent.source`, 대문자 snake). 큐는 프로젝트별이라 라우팅에는 쓰지 않는다 |
 | `payload` | TEXT | NOT NULL | 직렬화한 NormalizedEvent JSON 전문 |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | 적재 시각 |
 | `published_at` | TIMESTAMPTZ | nullable | 브로커로 옮긴 시각. NULL이면 미발행 |
