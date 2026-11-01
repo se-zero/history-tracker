@@ -6,19 +6,22 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.AmqpConnectException;
 import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.core.MessageDeliveryMode;
+import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.DataAccessResourceFailureException;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -52,11 +56,13 @@ class OutboxRelayTest {
     @Mock
     private RabbitTemplate rabbitTemplate;
 
-    private static final String EXCHANGE = "history.exchange";
-    private static final String PREFIX = "event";
+    @Mock
+    private AmqpAdmin amqpAdmin;
+
     // 타임아웃 케이스가 빨리 끝나도록 짧게 설정 (기본값 10초면 그 테스트가 10초씩 걸린다)
     private static final long CONFIRM_TIMEOUT_MS = 200;
     private static final UUID PROJECT_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID OTHER_PROJECT_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
     private enum Outcome { ACK, NACK, UNROUTABLE, PENDING, SEND_FAILS }
 
@@ -71,7 +77,7 @@ class OutboxRelayTest {
                 case PENDING -> { /* future를 완료하지 않아 타임아웃 */ }
                 case UNROUTABLE -> {
                     correlation.setReturned(new ReturnedMessage(
-                            MessageBuilder.withBody(new byte[0]).build(), 312, "NO_ROUTE", EXCHANGE, "event.github"));
+                            MessageBuilder.withBody(new byte[0]).build(), 312, "NO_ROUTE", "", "history.project." + PROJECT_ID));
                     correlation.getFuture().complete(new CorrelationData.Confirm(true, null));
                 }
                 case NACK -> correlation.getFuture().complete(new CorrelationData.Confirm(false, "nacked"));
@@ -102,22 +108,68 @@ class OutboxRelayTest {
     // ─── 라우팅 키 / 메시지 ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("source별 routing key 결정 — 소문자 변환, 공백은 unknown")
-    void publishBatch_sources_resolveRoutingKeys() {
+    @DisplayName("프로젝트 큐를 durable·single-active-consumer 인자만으로 선언한 뒤 전송한다")
+    void publishBatch_declaresProjectQueue_thenSends() {
         stubConfirms(Map.of());
-        List<String> sources = List.of("GITHUB", "JIRA", "SLACK", "LINEAR", "GOOGLE_CHAT", "", "github");
 
-        relay().publishBatch(rowsWithSources(sources));
+        relay().publishBatch(rows(1, 1));
 
-        ArgumentCaptor<String> routingKeys = ArgumentCaptor.forClass(String.class);
-        verify(rabbitTemplate, times(7)).send(anyString(), routingKeys.capture(), any(Message.class), any(CorrelationData.class));
-        assertThat(routingKeys.getAllValues()).containsExactly(
-                "event.github", "event.jira", "event.slack", "event.linear",
-                "event.google_chat", "event.unknown", "event.github");
+        InOrder order = inOrder(amqpAdmin, rabbitTemplate);
+        ArgumentCaptor<Queue> queue = ArgumentCaptor.forClass(Queue.class);
+        order.verify(amqpAdmin).declareQueue(queue.capture());
+        order.verify(rabbitTemplate).send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
+        assertThat(queue.getValue().getName()).isEqualTo("history.project." + PROJECT_ID);
+        assertThat(queue.getValue().isDurable()).isTrue();
+        assertThat(queue.getValue().isExclusive()).isFalse();
+        assertThat(queue.getValue().isAutoDelete()).isFalse();
+        // ai-engine이 같은 큐를 passive로 확인하므로 인자가 하나라도 다르면 브로커가 406으로 채널을 닫는다 — 정확히 일치해야 한다
+        assertThat(queue.getValue().getArguments()).isEqualTo(Map.of("x-single-active-consumer", true));
     }
 
     @Test
-    @DisplayName("메시지 — body는 payload UTF-8 바이트, JSON·UTF-8·PERSISTENT, exchange와 correlation id가 맞다")
+    @DisplayName("같은 프로젝트 2행 + 다른 프로젝트 1행 → 큐 선언은 프로젝트당 1회(첫 등장 순서), 전송 3회는 각 행의 큐 이름으로")
+    void publishBatch_sameProjectTwice_declaresOnce() {
+        stubConfirms(Map.of());
+        List<OutboxRow> rows = List.of(
+                new OutboxRow(1, PROJECT_ID, "GITHUB", "{}"),
+                new OutboxRow(2, OTHER_PROJECT_ID, "JIRA", "{}"),
+                new OutboxRow(3, PROJECT_ID, "SLACK", "{}"));
+
+        relay().publishBatch(rows);
+
+        ArgumentCaptor<Queue> queues = ArgumentCaptor.forClass(Queue.class);
+        verify(amqpAdmin, times(2)).declareQueue(queues.capture());
+        assertThat(queues.getAllValues()).extracting(Queue::getName).containsExactly(
+                "history.project." + PROJECT_ID, "history.project." + OTHER_PROJECT_ID);
+        ArgumentCaptor<String> routingKeys = ArgumentCaptor.forClass(String.class);
+        verify(rabbitTemplate, times(3)).send(eq(""), routingKeys.capture(), any(Message.class), any(CorrelationData.class));
+        assertThat(routingKeys.getAllValues()).containsExactly(
+                "history.project." + PROJECT_ID, "history.project." + OTHER_PROJECT_ID, "history.project." + PROJECT_ID);
+    }
+
+    @Test
+    @Timeout(10)
+    @DisplayName("큐 선언이 AmqpException → send·markPublished 미호출, 0 반환, 예외 비전파, drain도 0·fetch 1회로 종료")
+    void publishBatch_declareThrows_sendsNothingAndReturnsZero() {
+        when(amqpAdmin.declareQueue(any(Queue.class)))
+                .thenThrow(new AmqpConnectException(new java.net.ConnectException("x")));
+        when(outbox.fetchUnpublished(OutboxRelay.BATCH_SIZE)).thenReturn(rows(1, 3));
+        OutboxRelay relay = relay();
+
+        AtomicInteger published = new AtomicInteger(-1);
+        assertThatCode(() -> published.set(relay.publishBatch(rows(1, 3)))).doesNotThrowAnyException();
+
+        assertThat(published.get()).isZero();
+        verifyNoInteractions(rabbitTemplate);
+        verify(outbox, never()).markPublished(any());
+
+        assertThat(relay.drain()).isZero();
+        verify(outbox, times(1)).fetchUnpublished(OutboxRelay.BATCH_SIZE);
+        verify(outbox, never()).markPublished(any());
+    }
+
+    @Test
+    @DisplayName("메시지 — body는 payload UTF-8 바이트, JSON·UTF-8·PERSISTENT, 빈 exchange·큐 이름 routing key·correlation id가 맞다")
     void publishBatch_message_hasWireFormat() {
         stubConfirms(Map.of());
         String payload = "{\"title\":\"한글 payload\"}";
@@ -126,7 +178,7 @@ class OutboxRelayTest {
 
         ArgumentCaptor<Message> message = ArgumentCaptor.forClass(Message.class);
         ArgumentCaptor<CorrelationData> correlation = ArgumentCaptor.forClass(CorrelationData.class);
-        verify(rabbitTemplate).send(eq(EXCHANGE), anyString(), message.capture(), correlation.capture());
+        verify(rabbitTemplate).send(eq(""), eq("history.project." + PROJECT_ID), message.capture(), correlation.capture());
         assertThat(message.getValue().getBody()).isEqualTo(payload.getBytes(StandardCharsets.UTF_8));
         assertThat(message.getValue().getMessageProperties().getContentType()).isEqualTo("application/json");
         assertThat(message.getValue().getMessageProperties().getContentEncoding()).isEqualTo("UTF-8");
@@ -246,7 +298,7 @@ class OutboxRelayTest {
     // ─── 헬퍼 ────────────────────────────────────────────────────────────────────
 
     private OutboxRelay relay() {
-        return new OutboxRelay(outbox, rabbitTemplate, EXCHANGE, PREFIX, CONFIRM_TIMEOUT_MS);
+        return new OutboxRelay(outbox, rabbitTemplate, amqpAdmin, CONFIRM_TIMEOUT_MS);
     }
 
     // id = firstId..firstId+count-1, source GITHUB
@@ -254,14 +306,5 @@ class OutboxRelayTest {
         return IntStream.range(0, count)
                 .mapToObj(i -> new OutboxRow(firstId + i, PROJECT_ID, "GITHUB", "{\"n\":" + (firstId + i) + "}"))
                 .collect(Collectors.toList());
-    }
-
-    // id = 1..n, source는 목록 순서대로
-    private List<OutboxRow> rowsWithSources(List<String> sources) {
-        List<OutboxRow> rows = new ArrayList<>();
-        for (int i = 0; i < sources.size(); i++) {
-            rows.add(new OutboxRow(i + 1, PROJECT_ID, sources.get(i), "{}"));
-        }
-        return rows;
     }
 }

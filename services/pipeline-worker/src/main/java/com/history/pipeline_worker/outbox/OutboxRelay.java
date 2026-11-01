@@ -3,9 +3,11 @@ package com.history.pipeline_worker.outbox;
 import com.history.pipeline_worker.outbox.OutboxRepository.OutboxRow;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,13 +18,18 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
  * 아웃박스의 미발행 행을 RabbitMQ로 내보내는 릴레이. 행별 publisher confirm을 확인한 뒤에야 발행 완료로 표시한다.
+ *
+ * <p>발행 대상은 프로젝트별 큐 {@code history.project.<projectId>}이고, 기본 익스체인지(이름 {@code ""})에
+ * 큐 이름을 routing key로 바로 보낸다(기본 익스체인지는 모든 큐가 자기 이름으로 묶여 있어 바인딩 선언이 필요 없다).
+ * 큐는 배치마다 선언한다(멱등) — 캐시하면 ai-engine이 프로젝트 삭제 때 큐를 지운 뒤 stale 캐시로 유실이 난다.
+ * 큐에는 {@code x-single-active-consumer}를 걸어 한 프로젝트의 메시지가 한 소비자에게만 순서대로 가게 한다.</p>
  */
 @Slf4j
 @Component
@@ -30,23 +37,25 @@ import java.util.concurrent.TimeoutException;
 public class OutboxRelay {
 
     static final int BATCH_SIZE = 200;
+    static final String QUEUE_PREFIX = "history.project.";
+
+    static String queueName(UUID projectId) {
+        return QUEUE_PREFIX + projectId;
+    }
 
     private final OutboxRepository outbox;
     private final RabbitTemplate rabbitTemplate;
-    private final String exchange;
-    private final String routingKeyPrefix;
+    private final AmqpAdmin amqpAdmin;
     private final long confirmTimeoutMs;
 
     public OutboxRelay(
             OutboxRepository outbox,
             RabbitTemplate rabbitTemplate,
-            @Value("${app.rabbitmq.exchange}") String exchange,
-            @Value("${app.rabbitmq.routing-key-prefix:event}") String routingKeyPrefix,
+            AmqpAdmin amqpAdmin,
             @Value("${app.rabbitmq.publish-confirm-timeout-ms:10000}") long confirmTimeoutMs) {
         this.outbox = outbox;
         this.rabbitTemplate = rabbitTemplate;
-        this.exchange = exchange;
-        this.routingKeyPrefix = routingKeyPrefix;
+        this.amqpAdmin = amqpAdmin;
         this.confirmTimeoutMs = confirmTimeoutMs;
     }
 
@@ -76,11 +85,21 @@ public class OutboxRelay {
     }
 
     int publishBatch(List<OutboxRow> rows) {
+        // 선언이 하나라도 실패하면 전송 자체를 하지 않는다 — 큐 없이 보내면 unroutable로 버려진다.
+        for (UUID projectId : rows.stream().map(OutboxRow::projectId).distinct().toList()) {
+            try {
+                amqpAdmin.declareQueue(QueueBuilder.durable(queueName(projectId)).singleActiveConsumer().build());
+            } catch (AmqpException e) {
+                log.warn("프로젝트 큐 선언 실패 — 이 배치는 다음 주기에 재시도: queue={}, 원인={}", queueName(projectId), e.toString());
+                return 0;
+            }
+        }
+
         List<Pending> pending = new ArrayList<>(rows.size());
         for (OutboxRow row : rows) {
             CorrelationData correlation = new CorrelationData(String.valueOf(row.id()));
             try {
-                rabbitTemplate.send(exchange, resolveRoutingKey(row.source()), toMessage(row), correlation);
+                rabbitTemplate.send("", queueName(row.projectId()), toMessage(row), correlation);
             } catch (AmqpException e) {
                 log.warn("아웃박스 행 전송 실패 — 이 지점에서 전송 중단: id={}, 원인={}", row.id(), e.toString());
                 break;
@@ -136,6 +155,7 @@ public class OutboxRelay {
         }
         // mandatory 발행이라 라우팅 실패 시 ack=true와 함께 returned가 채워진다 — 별도 확인 필요
         if (p.correlation().getReturned() != null) {
+            // routingKey가 곧 큐 이름이다 — 선언과 발행 사이에 ai-engine이 큐를 지운 희귀 경우이며, 다음 틱에 재선언·재전송한다.
             return "라우팅 실패(unroutable): routingKey=" + p.correlation().getReturned().getRoutingKey();
         }
         return null;
@@ -152,23 +172,6 @@ public class OutboxRelay {
         props.setContentEncoding("UTF-8");
         props.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
         return new Message(row.payload().getBytes(StandardCharsets.UTF_8), props);
-    }
-
-    /**
-     * routing key를 source에서 유도한다 — {@code {prefix}.{소문자 source}}
-     * (예: {@code GITHUB} → {@code event.github}, {@code GOOGLE_CHAT} → {@code event.google_chat}).
-     *
-     * <p>표기 규칙의 단일 출처는 `docs/normalized-event.md`의 「source · 표기 규칙」이다.
-     * 큐 바인딩이 {@code event.#}라 <b>새 소스는 브로커 설정도 이 클래스도 고치지 않고</b> 라우팅된다 —
-     * provider별 분기를 두면 커넥터마다 이 공용 파일을 고쳐야 한다.</p>
-     */
-    private String resolveRoutingKey(String source) {
-        if (source == null || source.isBlank()) {
-            log.warn("source 없는 이벤트 — '{}.unknown'으로 발행", routingKeyPrefix);
-            return routingKeyPrefix + ".unknown";
-        }
-        // Locale.ROOT — 터키어 로케일에서 'I'가 점 없는 'ı'로 내려가 라우팅 키가 어긋나는 것을 막는다
-        return routingKeyPrefix + "." + source.trim().toLowerCase(Locale.ROOT);
     }
 
     private record Pending(OutboxRow row, CorrelationData correlation) {}
