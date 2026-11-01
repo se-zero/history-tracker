@@ -60,9 +60,7 @@ record ActorDto(String id, String name, String email, Boolean bot)
 | RDB `integrations.provider`, HTTP 경로 | 소문자 kebab | `github`, `google-chat` |
 | `NormalizedEvent.source`, Neo4j `source` 속성 | 대문자 snake | `GITHUB`, `GOOGLE_CHAT` |
 | Actor alias 접두 | 대문자 snake + `:` | `GITHUB:se-zero` |
-| RabbitMQ routing key | `event.` + 소문자 snake | `event.github`, `event.google_chat` |
-
-큐 바인딩이 `event.#`라 **새 routing key는 브로커 설정 변경 없이 소비된다.**
+| RabbitMQ 큐 이름 | `history.project.` + projectId (소스와 무관) | `history.project.<projectId>` |
 
 ---
 
@@ -310,11 +308,14 @@ Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 �
   (삼키면 영구 누락).
 - 브로커 발행은 worker의 릴레이가 1초마다 id 순으로 한다. confirm 실패분은 다음 틱에 재시도하고,
   중복은 멱등 MERGE가 흡수한다.
-- 와이어 포맷(exchange·라우팅 키·JSON)은 이전과 동일하다.
+- 큐는 프로젝트별(`history.project.<projectId>`)이고 릴레이가 배치마다 선언해 기본 익스체인지로 발행한다.
+  소스는 큐 이름에 들어가지 않으므로 새 소스를 추가해도 브로커 설정이 불변이다. JSON 포맷은 이전과 동일하다.
 - checkpoint 전진 기준은 그 배치의 **최대 `occurredAt`**이며, cursor는 과거로 되돌아가지 않는다.
 
 **소비 (ai-engine)**
-- 실패한 이벤트는 지연 재시도 큐 → 소진 시 DLQ로 보관한다(조용히 버리지 않는다).
+- 프로젝트 큐마다 단일 활성 소비자(`x-single-active-consumer`)라 한 프로젝트의 이벤트는 한 소비자가 순서대로 받는다.
+  이번 릴리스 동안은 호환 큐 `history.events`(`event.#`)도 함께 소비한다.
+- 실패한 이벤트는 지연 재시도 큐를 거쳐 **원래 큐로 복귀**해 다시 소비되고, 소진 시 DLQ로 보관한다(조용히 버리지 않는다).
 - 같은 프로젝트의 이벤트는 직렬 처리(노드 경합·Actor race 방지), 프로젝트 간은 병렬이다.
 - 모든 쓰기는 `(project_id, 자연키)` 복합키 MERGE라(Issue는 `(project_id, source, external_id)`)
   **재발행은 멱등**이다. 커넥터는 중복 발행을 두려워하지 말고 누락을 두려워해야 한다.
@@ -333,7 +334,7 @@ Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 �
    기존 아키타입이면 ai-engine 무변경이다. `Document`는 Notion이 첫 사례이자 유일한 예외로,
    ai-engine 그래프 소비 경로(청킹·벡터 인덱스·Layer 2 text 엣지)가 이미 갖춰져 있다
    (`docs/notion-integration.md`) — 다음 문서 소스는 정말로 ai-engine 무변경일 수 있다.
-2. `CollectionProvider`에 provider 추가, routing key 설정 추가 (§표기 규칙).
+2. `CollectionProvider`에 provider 추가 (§표기 규칙). 큐는 프로젝트별이라 라우팅 설정은 없다.
 3. `source/{provider}` 패키지에 `SourceCollector` 구현 — fetch·normalize·publish·checkpoint.
 4. 자연키가 **프로젝트 안에서 고유하고 불변**인지 확인. Issue는 `(project_id, source,
    external_id)` 키라 소스 간 충돌이 없지만, Communication(`url`)처럼 source가 키에 없는

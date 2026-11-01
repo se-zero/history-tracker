@@ -26,7 +26,7 @@ description: 로컬 Docker 스택의 데이터 파이프라인 상태를 진단�
 
 - **Neo4j 비밀번호**: 기본값 `password1234`로 시도한다. `.env` 파일은 읽지 않는다 — 인증 실패가 나면 비밀번호를 바꾼 것이므로 사용자에게 직접 물어본다.
 - Neo4j 브라우저 빈 화면이면 `http://localhost:7474` (7687은 드라이버 전용이라 브라우저로 열면 빈 화면이 정상).
-- 큐/익스체인지: 큐 `history.events`, 익스체인지 `history.exchange`, 라우팅 `event.#`.
+- 큐: 프로젝트별 `history.project.<projectId>`(기본 익스체인지로 발행). 이번 릴리스 동안은 호환 큐 `history.events`(익스체인지 `history.exchange`, 라우팅 `event.#`)도 남아 있다. 재시도는 `history.retry`.
 
 ## 0단계: 프로젝트 UUID 확보
 
@@ -61,8 +61,9 @@ docker exec history-graph-neo4j cypher-shell -u neo4j -p password1234 \
 docker exec history-graph-rabbitmq rabbitmqctl list_queues name messages messages_ready messages_unacknowledged
 ```
 
-- `history.events`의 `messages_ready`가 계속 줄지 않으면 ai-engine consumer가 멈췄거나 직렬 처리 적체.
-- consumer는 `prefetch_count=1` 직렬 소비라, 초기 대량 수집 중에는 자연히 쌓였다 줄어든다.
+- `history.project.*` 큐의 `messages_ready`가 계속 줄지 않으면 ai-engine consumer가 멈췄거나 처리 적체. 호환 기간에는 `history.events`도 본다.
+- prefetch는 큐당 9·채널 전체 36이고 큐마다 소비자는 1(단일 활성 소비자)이라, 초기 대량 수집 중에는 자연히 쌓였다 줄어든다.
+- 프로젝트 큐만 보려면 관리 API: `curl -u guest:guest 'localhost:15672/api/queues/%2F?name=^history\.project\.&use_regex=true&columns=name,messages,consumers'` (`consumers`가 1이어야 한다).
 - 큐에 오르기 전 단계인 아웃박스(worker가 DB에 적재 → 릴레이가 큐로 발행)도 본다:
 
 ```bash

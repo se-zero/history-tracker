@@ -6,7 +6,8 @@
 이벤트마다 돌릴 수 없다. 대신:
 
   - 이벤트가 처리될 때마다 mark_dirty(project_id)로 "후처리 필요한 새 데이터 있음"을 표시
-  - 백그라운드 루프가 어떤 프로젝트의 큐가 DEBOUNCE_SECONDS 이상 잠잠해지면 그 프로젝트만 1회 빌드
+  - 백그라운드 루프가 어떤 프로젝트의 큐가 DEBOUNCE_SECONDS 이상 잠잠해지고
+    (큐 메시지 0 + 파티션 대기·처리 중 0) 그 프로젝트만 1회 빌드
 
 빌드는 **프로젝트 단위**다. 빌더 엣지 로직은 이미 project_id로 격리돼 있고
 (_group_by_project), store fetch가 project_id로 스코프된 데이터만 넘긴다.
@@ -25,6 +26,8 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+
+from graph import ingest_backlog
 
 logger = logging.getLogger(__name__)
 
@@ -382,8 +385,33 @@ def trigger_build(project_id: str, verify: bool) -> dict:
     return get_build_status(project_id)
 
 
+def _debounce_tick(now: float) -> None:
+    """dirty 프로젝트를 훑어 유휴인 것만 빌드를 띄운다. 조건: 디바운스 경과 → 백로그 비움 → 쿨다운 → 빌드 중 아님."""
+    for project_id in list(_dirty):
+        # 해당 프로젝트의 큐가 아직 잠잠하지 않으면 대기
+        if now - _last_event_at.get(project_id, 0.0) < DEBOUNCE_SECONDS:
+            continue
+        # 큐에 남은 메시지나 처리 중인 이벤트가 있으면 아직 유휴가 아니다 — 느린 처리 중 빌드가 끼어드는 것을 막는다.
+        # 구 큐 잔량은 프로젝트별 귀속이 안 돼 조건에 없다(디스패처 대기분은 잡힌다).
+        if not ingest_backlog.is_drained(project_id):
+            continue
+        # 쿨다운: 마지막 빌드 후 MIN_BUILD_INTERVAL이 안 지났으면 대기 (dirty 유지)
+        if _cooldown_active(project_id, now):
+            continue
+        # 같은 프로젝트가 (수동 등으로) 이미 빌드 중이면 dirty를 유지한 채 다음 주기로 미룬다
+        if not _try_start_build(project_id, verify=False):
+            continue
+
+        # 빌드 시작 전에 dirty에서 내려, 빌드 도중 도착한 이벤트가 다음 주기 빌드를
+        # 다시 예약하도록 한다 (새 데이터 유실 방지). 실패 시 _execute_build가 다시 올린다.
+        _dirty.discard(project_id)
+        logger.info("큐 유휴 감지 — 그래프 후처리 시작: project=%s", project_id)
+        _spawn_tracked(_execute_build(project_id, verify=False, requeue_on_failure=True))
+
+
 async def start_debounce_loop() -> None:
     """큐 유휴 감지 → 디바운스 후 dirty 프로젝트별 후처리 실행. 무한 루프 (lifespan 태스크).
+    유휴 = 마지막 이벤트 후 디바운스 경과 + 그 프로젝트 큐 메시지 0 + 파티션 대기·처리 중 0.
 
     자동 빌드도 _build_status를 갱신한다(수동/자동 동일 상태 머신) — 같은 프로젝트의
     수동 트리거와 coalesce되고, 폴링하는 프론트가 자동 빌드도 관찰할 수 있다.
@@ -400,23 +428,7 @@ async def start_debounce_loop() -> None:
         try:
             await asyncio.sleep(CHECK_INTERVAL_SECONDS)
 
-            for project_id in list(_dirty):
-                now = time.monotonic()
-                # 해당 프로젝트의 큐가 아직 잠잠하지 않으면 대기
-                if now - _last_event_at.get(project_id, 0.0) < DEBOUNCE_SECONDS:
-                    continue
-                # 쿨다운: 마지막 빌드 후 MIN_BUILD_INTERVAL이 안 지났으면 대기 (dirty 유지)
-                if _cooldown_active(project_id, now):
-                    continue
-                # 같은 프로젝트가 (수동 등으로) 이미 빌드 중이면 dirty를 유지한 채 다음 주기로 미룬다
-                if not _try_start_build(project_id, verify=False):
-                    continue
-
-                # 빌드 시작 전에 dirty에서 내려, 빌드 도중 도착한 이벤트가 다음 주기 빌드를
-                # 다시 예약하도록 한다 (새 데이터 유실 방지). 실패 시 _execute_build가 다시 올린다.
-                _dirty.discard(project_id)
-                logger.info("큐 유휴 감지 — 그래프 후처리 시작: project=%s", project_id)
-                _spawn_tracked(_execute_build(project_id, verify=False, requeue_on_failure=True))
+            _debounce_tick(time.monotonic())
 
         except asyncio.CancelledError:
             logger.info("그래프 후처리 디바운스 루프 종료")

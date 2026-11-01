@@ -196,3 +196,29 @@ def test_zero_lookahead_disables_prefetch():
     asyncio.run(scenario())
     assert calls == [("x", None)]
     assert prefetch_called == []
+
+
+def test_pending_counts_queued_and_in_flight_per_key():
+    """게이트에 막혀 처리 못 하는 동안 대기+처리 중이 합산되고, 끝나면 0, 모르는 키는 0."""
+    entered = asyncio.Event()
+    gate = asyncio.Event()
+
+    async def process(item, prepared):
+        entered.set()
+        await gate.wait()
+
+    async def scenario():
+        dispatcher = _PartitionedDispatcher(process, max_concurrency=4)
+        for i in range(3):
+            dispatcher.submit("p1", i)
+        await entered.wait()
+        during = (dispatcher.pending("p1"), dispatcher.pending("unknown"))
+        gate.set()
+        await dispatcher._queues["p1"].join()
+        after = dispatcher.pending("p1")
+        await dispatcher.close()
+        return during, after
+
+    during, after = asyncio.run(scenario())
+    assert during == (3, 0)
+    assert after == 0

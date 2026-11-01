@@ -4,6 +4,8 @@ REFERENCE 엣지 빌드, 일회성 마이그레이션, Slack 배치 필터, 이�
 모두 운영자가 명시적으로 호출하는 비공개 경로 (정기 read 트래픽 아님).
 """
 
+import json
+
 import aio_pika
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -30,13 +32,7 @@ from graph.builder import (
     propagate_thread_discussed_in,
     verify_actor_name_consistency,
 )
-from graph.consumer import (
-    DLQ_QUEUE,
-    EXCHANGE_NAME,
-    PARKING_QUEUE,
-    RABBITMQ_URL,
-    RETRY_ROUTING_KEY,
-)
+from graph.consumer import DLQ_QUEUE, PARKING_QUEUE, RABBITMQ_URL, project_queue_name
 from graph.document_linker import (
     DESCRIBED_IN_THRESHOLD as DESCRIBED_IN_DEFAULT_THRESHOLD,
     DOCUMENT_PRE_BUFFER_DAYS as DOCUMENT_DEFAULT_PRE_DAYS,
@@ -446,35 +442,54 @@ async def dlq_stats():
         }
 
 
+def _project_id_of(body: bytes) -> str | None:
+    try:
+        data = json.loads(body.decode())
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return str(data.get("projectId") or "") or None
+
+
 @router.post("/dlq/replay", tags=["dlq"])
 async def dlq_replay(options: DlqReplayOptions = DlqReplayOptions()):
     """DLQ에 파킹된 메시지를 최대 max_messages건 꺼내 정상 파이프라인으로 재투입한다.
 
-    장애(예: Neo4j 다운) 해소 후 호출. history.exchange에 event.retry(⊂ event.#)로 재발행하며
-    x-retry-count를 리셋(미설정)해 재시도 예산을 새로 준다.
+    장애(예: Neo4j 다운) 해소 후 호출. 본문 projectId로 계산한 프로젝트 큐(history.project.<id>)에
+    기본 익스체인지로 재발행하며 x-retry-count를 리셋(미설정)해 재시도 예산을 새로 준다.
+    projectId가 없거나 JSON이 아닌 메시지는 보낼 곳이 없어 skipped로 세고 DLQ에 남긴다(nack requeue).
+    즉시 nack하면 큐 머리로 돌아와 get 루프가 같은 메시지를 다시 집으므로 루프가 끝난 뒤 한꺼번에 nack하고,
+    건너뛴 것도 max_messages 상한에 센다.
+    프로젝트 큐가 없으면(프로젝트가 지워진 뒤) 기본 익스체인지가 조용히 버린다 — tombstone 프로젝트라
+    어차피 버려질 메시지다.
     parking 큐(malformed)는 재투입해도 다시 실패하므로 **건드리지 않는다**.
     각 메시지는 재발행 성공 시에만 ack(=DLQ에서 제거)하고, 실패하면 requeue돼 DLQ에 남는다.
     """
     connection = await aio_pika.connect_robust(RABBITMQ_URL)
     async with connection:
         channel = await connection.channel()
-        exchange = await channel.declare_exchange(
-            EXCHANGE_NAME, aio_pika.ExchangeType.TOPIC, durable=True
-        )
         dlq = await channel.declare_queue(DLQ_QUEUE, durable=True, passive=True)
 
         replayed = 0
-        while replayed < options.max_messages:
+        skipped = []
+        while replayed + len(skipped) < options.max_messages:
             message = await dlq.get(fail=False)
             if message is None:
                 break
+            project_id = _project_id_of(message.body)
+            if not project_id:
+                skipped.append(message)
+                continue
             async with message.process(requeue=True):
-                await exchange.publish(
+                await channel.default_exchange.publish(
                     aio_pika.Message(
                         body=message.body,
                         delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                     ),
-                    routing_key=RETRY_ROUTING_KEY,
+                    routing_key=project_queue_name(project_id),
                 )
             replayed += 1
-    return {"replayed": replayed}
+        for message in skipped:
+            await message.nack(requeue=True)
+    return {"replayed": replayed, "skipped": len(skipped)}

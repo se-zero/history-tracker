@@ -646,6 +646,15 @@ docker exec history-graph-ai-engine python -c "import urllib.request;print(urlli
 
    → Slack에 `[ai-engine] malformed 이벤트 parking …`.
 
+   위 명령은 구 큐 호환 기간(이번 릴리스) 동안 그대로 동작한다. 프로젝트 큐로 직접 넣는 차기 명령은 기본
+   익스체인지에 큐 이름을 routing key로 준다(큐가 이미 있어야 한다 — 없으면 메시지가 버려진다).
+
+   ```bash
+   curl -u guest:guest -X POST localhost:15672/api/exchanges/%2F/amq.default/publish \
+     -H 'content-type: application/json' \
+     -d '{"properties":{},"routing_key":"history.project.<PID>","payload":"{not json","payload_encoding":"string"}'
+   ```
+
 2. **DLQ 1건 강제 적재** — 같은 API로 재시도 헤더를 상한값으로 붙인 이벤트를 발행한다. `properties`를
    문자열로 주면 Issue 핸들러가 `props.get(...)`에서 예외를 내므로 Neo4j를 멈추지 않아도 확실히 실패한다.
    `properties`가 빈 객체면 "external_id 없음 — 건너뜀"으로 조용히 무시돼 DLQ에 가지 **않는다**.
@@ -659,6 +668,8 @@ docker exec history-graph-ai-engine python -c "import urllib.request;print(urlli
    `x-retry-count`=20은 `RETRY_MAX` 기본값이다. 처리 실패 → 재시도 없이 DLQ → Slack `[ai-engine] DLQ 파킹 …`.
    RabbitMQ 관리 API `GET /api/queues/%2F/history.events.dlq`의 `messages`가 1인지 확인하고, 테스트 메시지는
    `DELETE /api/queues/%2F/history.events.dlq/contents`로 비운다(parking 큐도 같은 방식).
+   위 발행 명령도 호환 기간 동안 유효하며, 차기에는 1번처럼 `amq.default`에 `routing_key`를
+   `history.project.<PID>`로 주면 된다.
 
 3. **잘못된 키** — `.env`의 `OPENAI_API_KEY`를 `sk-bad`로 바꾸고 `./dev.sh up -d ai-engine`(클라이언트가
    `lru_cache`라 재기동이 필요하다). 가장 쉬운 재현은 **대시보드에서 아무 프로젝트에 질문 하나를 던지는
@@ -688,6 +699,48 @@ docker exec history-graph-ai-engine python -c "import urllib.request;print(urlli
 
 카운터·억제 상태는 in-process라 재기동하면 0으로 리셋된다. 큐 적체·수집 정지·디스크 사용량은
 감지하지 않는다.
+
+#### RabbitMQ 프로젝트 큐 운영
+
+수집 이벤트는 프로젝트마다 큐 `history.project.<projectId>`로 간다(pipeline-worker 릴레이가 배치마다 선언하고
+ai-engine이 5초마다 발견해 구독). 아래는 그 큐를 점검·정리할 때의 절차다.
+
+**큐 점검** — 관리 API로 프로젝트 큐만 본다.
+
+```bash
+curl -u guest:guest 'localhost:15672/api/queues/%2F?name=^history\.project\.&use_regex=true&columns=name,messages,consumers,arguments'
+```
+
+- `arguments`가 정확히 `x-single-active-consumer=true` **뿐**인지 본다. 누군가 같은 이름의 큐를 다른 인자로 미리 만들어
+  두면 릴레이 선언이 매 틱 406 WARN으로 실패해 그 프로젝트의 발행이 멈춘다.
+- `consumers`가 1인지 본다(큐마다 단일 활성 소비자). 0이면 ai-engine이 아직 발견하지 못했거나 멈춘 것이다.
+- 프로젝트 큐를 수동으로 지웠다면 **ai-engine을 재시작**한다. 릴레이가 5초 안에 같은 이름으로 되살리면 ai-engine의
+  발견이 이름 기준이라 변화를 못 잡아, 그 큐의 소비가 재시작 전까지 조용히 멈춘다. 프로젝트 삭제 경로에서는
+  ai-engine이 직접 큐를 지우므로 이런 일이 없다.
+
+**재시도 TTL 변경 절차** — `INGEST_RETRY_DELAY_MS`를 바꾸면 기존 재시도 큐(`history.retry`, 호환 기간에는
+`history.events.retry`도)와 인자가 달라 406으로 채널이 닫히고 5초 재시작이 반복된다. 값을 바꾸기 **전에** 두 큐를 먼저 지운다.
+
+```bash
+docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.retry
+docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.events.retry
+```
+
+**구 큐 제거(다음 릴리스)** — 호환 기간이 끝나면 ai-engine에서 구 큐 선언·소비와 구 재시도 큐 상수를 제거한 뒤,
+`history.events`·`history.events.retry`의 `messages`가 0인지 확인하고 지운다. 비어 있지 않으면 지우지 않는다.
+
+```bash
+docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.events
+docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.events.retry
+docker exec history-graph-rabbitmq rabbitmqctl delete_exchange history.exchange
+```
+
+**배포 메모**
+- ai-engine을 먼저 배포하는 것을 권한다(새 재시도 토폴로지가 먼저 깔린다). 순서가 바뀌어도 안전하다.
+- 서버 `.env`에 `INGEST_PREFETCH`가 명시돼 있으면 비운다. 이 값의 뜻이 "소비자 하나의 prefetch(12)"에서
+  "채널 전체 상한(기본 36)"으로 바뀌어, 옛 값이 남으면 채널 전체가 12로 묶인다.
+- 큐 발견은 관리 포트 15672를 쓴다. prod 오버라이드는 이 포트를 열지 않으므로 컨테이너 네트워크 안에서만 닿는다.
+  `RABBITMQ_URL`에서 관리 URL·인증을 파생하므로 새 env는 없다.
 
 ---
 

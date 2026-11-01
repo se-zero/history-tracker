@@ -528,7 +528,7 @@ def test_process_event_acks_tombstoned_event_without_handling_retrying_or_markin
     ingest_tombstones._integration_ids.add("int-1")
     channel, message = _FakeChannel(), _FakeMessage()
 
-    asyncio.run(_process_event((message, _event(integration_id="int-1")), None, channel))
+    asyncio.run(_process_event((message, _event(integration_id="int-1"), "history.project.p1"), None, channel, _FakeExchange()))
 
     assert handled == []                 # 핸들러 미호출
     assert dirty == []                   # 지운 프로젝트에 후처리 빌드·최초 수집중 상태가 되살아나지 않는다
@@ -548,7 +548,7 @@ def test_process_event_still_handles_events_that_are_not_tombstoned(monkeypatch)
     ingest_tombstones._integration_ids.add("int-1")
     channel, message = _FakeChannel(), _FakeMessage()
 
-    asyncio.run(_process_event((message, _event(integration_id="int-2")), None, channel))
+    asyncio.run(_process_event((message, _event(integration_id="int-2"), "history.project.p1"), None, channel, _FakeExchange()))
 
     assert len(handled) == 1
     assert dirty == ["p1"]
@@ -563,12 +563,13 @@ def test_tombstoned_event_with_retry_header_is_dropped_not_requeued(monkeypatch)
 
     monkeypatch.setattr(consumer, "handle", fake_handle)
     ingest_tombstones._project_ids.add("p-gone")
-    channel, message = _FakeChannel(), _FakeMessage()
+    channel, message, retry_exchange = _FakeChannel(), _FakeMessage(), _FakeExchange()
     message.headers = {"x-retry-count": 5}
 
-    asyncio.run(_process_event((message, _event(project_id="p-gone")), None, channel))
+    asyncio.run(_process_event((message, _event(project_id="p-gone"), "history.project.p1"), None, channel, retry_exchange))
 
     assert message.acked is True
+    assert retry_exchange.published == []  # 재시도 익스체인지로 되돌리지 않는다
     assert [rk for _, rk in channel.default_exchange.published if rk in (RETRY_QUEUE, DLQ_QUEUE)] == []
 
 
@@ -597,6 +598,44 @@ def test_source_delete_endpoint_without_integration_id_passes_none():
 
     assert response.status_code == 200
     delete.assert_awaited_once_with("p1", "slack", integration_id=None)
+
+
+def test_project_delete_endpoint_deletes_queue_after_graph():
+    calls = []
+
+    async def fake_graph(project_id):
+        calls.append(("graph", project_id))
+        return 3
+
+    async def fake_queue(project_id):
+        calls.append(("queue", project_id))
+        return True
+
+    with patch("routers.graph.delete_project_graph", fake_graph),             patch("routers.graph.delete_project_queue", fake_queue):
+        response = _graph_client().delete("/graph/projects/p1")
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": 3}
+    assert calls == [("graph", "p1"), ("queue", "p1")]
+
+
+def test_project_delete_endpoint_ignores_queue_delete_failure():
+    queue = AsyncMock(side_effect=RuntimeError("broker down"))
+    with patch("routers.graph.delete_project_graph", AsyncMock(return_value=5)),             patch("routers.graph.delete_project_queue", queue):
+        response = _graph_client().delete("/graph/projects/p1")
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": 5}
+    queue.assert_awaited_once_with("p1")
+
+
+def test_source_delete_endpoint_does_not_delete_queue():
+    queue = AsyncMock()
+    with patch("routers.graph.delete_project_source_graph", AsyncMock(return_value={"nodes": 0})),             patch("routers.graph.delete_project_queue", queue):
+        response = _graph_client().delete("/graph/projects/p1/sources/slack")
+
+    assert response.status_code == 200
+    queue.assert_not_awaited()
 
 
 # --- 기동: consumer보다 먼저 로드 -------------------------------------------------
