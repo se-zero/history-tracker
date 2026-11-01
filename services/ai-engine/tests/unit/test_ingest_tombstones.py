@@ -600,6 +600,44 @@ def test_source_delete_endpoint_without_integration_id_passes_none():
     delete.assert_awaited_once_with("p1", "slack", integration_id=None)
 
 
+def test_project_delete_endpoint_deletes_queue_after_graph():
+    calls = []
+
+    async def fake_graph(project_id):
+        calls.append(("graph", project_id))
+        return 3
+
+    async def fake_queue(project_id):
+        calls.append(("queue", project_id))
+        return True
+
+    with patch("routers.graph.delete_project_graph", fake_graph),             patch("routers.graph.delete_project_queue", fake_queue):
+        response = _graph_client().delete("/graph/projects/p1")
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": 3}
+    assert calls == [("graph", "p1"), ("queue", "p1")]
+
+
+def test_project_delete_endpoint_ignores_queue_delete_failure():
+    queue = AsyncMock(side_effect=RuntimeError("broker down"))
+    with patch("routers.graph.delete_project_graph", AsyncMock(return_value=5)),             patch("routers.graph.delete_project_queue", queue):
+        response = _graph_client().delete("/graph/projects/p1")
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": 5}
+    queue.assert_awaited_once_with("p1")
+
+
+def test_source_delete_endpoint_does_not_delete_queue():
+    queue = AsyncMock()
+    with patch("routers.graph.delete_project_source_graph", AsyncMock(return_value={"nodes": 0})),             patch("routers.graph.delete_project_queue", queue):
+        response = _graph_client().delete("/graph/projects/p1/sources/slack")
+
+    assert response.status_code == 200
+    queue.assert_not_awaited()
+
+
 # --- 기동: consumer보다 먼저 로드 -------------------------------------------------
 
 def test_lifespan_loads_tombstones_before_starting_consumer(monkeypatch):
