@@ -72,11 +72,7 @@ app:
     version: "2026-03-11"
 
   rabbitmq:
-    exchange: history.exchange
-    queue: history.events
-    # routing key는 source에서 유도한다 — {prefix}.{소문자 source} (GOOGLE_CHAT → event.google_chat).
-    # 큐 바인딩이 event.# 라 새 소스는 여기도 브로커 설정도 고치지 않는다. 점(.)은 붙이지 않는다.
-    routing-key-prefix: event
+    # 발행 대상은 프로젝트별 큐 history.project.<projectId>(기본 익스체인지, 릴레이가 배치마다 선언)
     publish-confirm-timeout-ms: 10000   # OutboxRelay의 한 배치 confirm 대기 한도. 초과하면 그 배치는 발행 완료로 표시하지 않고 다음 틱에 재전송(수집은 영향 없음)
 
   webhook:
