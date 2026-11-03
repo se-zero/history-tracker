@@ -731,13 +731,15 @@ docker exec history-graph-rabbitmq rabbitmqctl list_queues name messages consume
 - `history.events`·`history.events.retry`가 0이 아니면 기존 ai-engine이 소진할 때까지 기다렸다가 배포한다(worker는 더 이상 여기에
   발행하지 않으므로 줄어들기만 한다).
 - `history.events.dlq`가 0이 아니면 **배포 전에** 기존 ai-engine의 `POST /dlq/replay`로 비운다(내부 토큰 헤더는 `docs/measurement.md`).
+  응답의 `skipped`가 0이 아니면 — `projectId`가 없는 메시지는 replay가 건너뛰어 DLQ에 남는다 — 내용을 확인한 뒤
+  `DELETE /api/queues/%2F/history.events.dlq/contents`로 비운다. 남겨 두면 배포 뒤 `/dlq/stats`에도 안 보이고 `--if-empty` 삭제도 거부된다.
 - `history.events.parking`이 0이 아니면 내용을 확인한 뒤 `DELETE /api/queues/%2F/history.events.parking/contents`로 비운다.
 
 배포 **후**:
 
 ```bash
 for q in history.events history.events.retry history.events.dlq history.events.parking; do
-  docker exec history-graph-rabbitmq rabbitmqctl delete_queue "$q" --if-empty
+  docker exec history-graph-rabbitmq rabbitmqctl delete_queue "$q" --if-empty || break   # 첫 거부에서 멈춘다
 done
 # 익스체인지는 rabbitmqctl에 명령이 없어 관리 HTTP API로 지운다. 15672는 컨테이너 네트워크 안에서만 열리므로
 # curl이 있는 pipeline-worker 컨테이너에서 보낸다(인증은 그 컨테이너의 env). 204면 성공, 400이면 바인딩이 남은 것이다.
