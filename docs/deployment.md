@@ -638,16 +638,7 @@ docker exec history-graph-ai-engine python -c "import urllib.request;print(urlli
 1. **parking** — RabbitMQ 관리 API(dev는 15672 노출)로 깨진 JSON을 발행한다. 계정은 로컬 dev 스택이면
    `guest:guest`, 배포 서버면 `.env`의 `RABBITMQ_USER`:`RABBITMQ_PASSWORD`다(시나리오 2도 같다).
 
-   ```bash
-   curl -u guest:guest -X POST localhost:15672/api/exchanges/%2F/history.exchange/publish \
-     -H 'content-type: application/json' \
-     -d '{"properties":{},"routing_key":"event.test","payload":"{not json","payload_encoding":"string"}'
-   ```
-
-   → Slack에 `[ai-engine] malformed 이벤트 parking …`.
-
-   위 명령은 구 큐 호환 기간(이번 릴리스) 동안 그대로 동작한다. 프로젝트 큐로 직접 넣는 차기 명령은 기본
-   익스체인지에 큐 이름을 routing key로 준다(큐가 이미 있어야 한다 — 없으면 메시지가 버려진다).
+   기본 익스체인지(`amq.default`)에 큐 이름을 routing key로 준다. 큐가 이미 있어야 한다 — 없으면 메시지가 버려진다.
 
    ```bash
    curl -u guest:guest -X POST localhost:15672/api/exchanges/%2F/amq.default/publish \
@@ -655,21 +646,21 @@ docker exec history-graph-ai-engine python -c "import urllib.request;print(urlli
      -d '{"properties":{},"routing_key":"history.project.<PID>","payload":"{not json","payload_encoding":"string"}'
    ```
 
+   → Slack에 `[ai-engine] malformed 이벤트 parking …`.
+
 2. **DLQ 1건 강제 적재** — 같은 API로 재시도 헤더를 상한값으로 붙인 이벤트를 발행한다. `properties`를
    문자열로 주면 Issue 핸들러가 `props.get(...)`에서 예외를 내므로 Neo4j를 멈추지 않아도 확실히 실패한다.
    `properties`가 빈 객체면 "external_id 없음 — 건너뜀"으로 조용히 무시돼 DLQ에 가지 **않는다**.
 
    ```bash
-   curl -u guest:guest -X POST localhost:15672/api/exchanges/%2F/history.exchange/publish \
+   curl -u guest:guest -X POST localhost:15672/api/exchanges/%2F/amq.default/publish \
      -H 'content-type: application/json' \
-     -d '{"properties":{"headers":{"x-retry-count":20}},"routing_key":"event.test","payload_encoding":"string","payload":"{\"projectId\":\"alert-test\",\"source\":\"JIRA\",\"nodeType\":\"Issue\",\"properties\":\"bad\",\"actor\":{\"id\":\"alert-test\"}}"}'
+     -d '{"properties":{"headers":{"x-retry-count":20}},"routing_key":"history.project.<PID>","payload_encoding":"string","payload":"{\"projectId\":\"alert-test\",\"source\":\"JIRA\",\"nodeType\":\"Issue\",\"properties\":\"bad\",\"actor\":{\"id\":\"alert-test\"}}"}'
    ```
 
    `x-retry-count`=20은 `RETRY_MAX` 기본값이다. 처리 실패 → 재시도 없이 DLQ → Slack `[ai-engine] DLQ 파킹 …`.
-   RabbitMQ 관리 API `GET /api/queues/%2F/history.events.dlq`의 `messages`가 1인지 확인하고, 테스트 메시지는
-   `DELETE /api/queues/%2F/history.events.dlq/contents`로 비운다(parking 큐도 같은 방식).
-   위 발행 명령도 호환 기간 동안 유효하며, 차기에는 1번처럼 `amq.default`에 `routing_key`를
-   `history.project.<PID>`로 주면 된다.
+   RabbitMQ 관리 API `GET /api/queues/%2F/history.dlq`의 `messages`가 1인지 확인하고, 테스트 메시지는
+   `DELETE /api/queues/%2F/history.dlq/contents`로 비운다(parking 큐도 같은 방식).
 
 3. **잘못된 키** — `.env`의 `OPENAI_API_KEY`를 `sk-bad`로 바꾸고 `./dev.sh up -d ai-engine`(클라이언트가
    `lru_cache`라 재기동이 필요하다). 가장 쉬운 재현은 **대시보드에서 아무 프로젝트에 질문 하나를 던지는
@@ -718,25 +709,54 @@ curl -u guest:guest 'localhost:15672/api/queues/%2F?name=^history\.project\.&use
   발견이 이름 기준이라 변화를 못 잡아, 그 큐의 소비가 재시작 전까지 조용히 멈춘다. 프로젝트 삭제 경로에서는
   ai-engine이 직접 큐를 지우므로 이런 일이 없다.
 
-**재시도 TTL 변경 절차** — `INGEST_RETRY_DELAY_MS`를 바꾸면 기존 재시도 큐(`history.retry`, 호환 기간에는
-`history.events.retry`도)와 인자가 달라 406으로 채널이 닫히고 5초 재시작이 반복된다. 값을 바꾸기 **전에** 두 큐를 먼저 지운다.
+**재시도 TTL 변경 절차** — `INGEST_RETRY_DELAY_MS`를 바꾸면 기존 재시도 큐(`history.retry`)와
+인자가 달라 406으로 채널이 닫히고 5초 재시작이 반복된다. 값을 바꾸기 **전에** 이 큐를 먼저 지운다.
 
 ```bash
 docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.retry
-docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.events.retry
 ```
 
-**구 큐 제거(다음 릴리스)** — 호환 기간이 끝나면 ai-engine에서 구 큐 선언·소비와 구 재시도 큐 상수를 제거한 뒤,
-`history.events`·`history.events.retry`의 `messages`가 0인지 확인하고 지운다. 비어 있지 않으면 지우지 않는다.
+**옛 큐·익스체인지 제거(이번 릴리스 배포 후 1회)** — 이번 릴리스부터 ai-engine이 옛 토폴로지(`history.exchange`·
+`history.events`·`history.events.retry`)를 선언·소비하지 않고, DLQ·parking 큐 이름이 `history.dlq`·`history.parking`으로
+바뀐다. 브로커에 남은 옛 객체 다섯 개는 아래 절차로 지운다. 큐는 비어 있을 때만 지워지고(`--if-empty`), 하나라도 거부되면
+멈추고 잔량을 본다.
+
+배포 **전**에 옛 큐 네 개의 잔량을 본다. 배포 뒤에는 옛 큐를 읽는 소비자가 없어 남은 메시지가 그대로 갇히고, 옛 DLQ·parking에
+남은 메시지는 새 코드가 새 이름의 큐만 보므로 `/dlq/stats`·`/dlq/replay`에서 보이지 않게 된다.
 
 ```bash
-docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.events
-docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.events.retry
-docker exec history-graph-rabbitmq rabbitmqctl delete_exchange history.exchange
+docker exec history-graph-rabbitmq rabbitmqctl list_queues name messages consumers | grep '^history\.events'
 ```
 
+- `history.events`·`history.events.retry`가 0이 아니면 기존 ai-engine이 소진할 때까지 기다렸다가 배포한다(worker는 더 이상 여기에
+  발행하지 않으므로 줄어들기만 한다).
+- `history.events.dlq`가 0이 아니면 **배포 전에** 기존 ai-engine의 `POST /dlq/replay`로 비운다(내부 토큰 헤더는 `docs/measurement.md`).
+- `history.events.parking`이 0이 아니면 내용을 확인한 뒤 `DELETE /api/queues/%2F/history.events.parking/contents`로 비운다.
+
+배포 **후**:
+
+```bash
+for q in history.events history.events.retry history.events.dlq history.events.parking; do
+  docker exec history-graph-rabbitmq rabbitmqctl delete_queue "$q" --if-empty
+done
+# 익스체인지는 rabbitmqctl에 명령이 없어 관리 HTTP API로 지운다. 15672는 컨테이너 네트워크 안에서만 열리므로
+# curl이 있는 pipeline-worker 컨테이너에서 보낸다(인증은 그 컨테이너의 env). 204면 성공, 400이면 바인딩이 남은 것이다.
+docker exec history-tracker-pipeline-worker sh -c \
+  'curl -s -o /dev/null -w "%{http_code}\n" -u "$SPRING_RABBITMQ_USERNAME:$SPRING_RABBITMQ_PASSWORD" \
+   -X DELETE "http://rabbitmq:15672/api/exchanges/%2F/history.exchange?if-unused=true"'
+# 확인 — 아래 두 명령이 아무것도 출력하지 않아야 한다
+docker exec history-graph-rabbitmq rabbitmqctl list_queues name | grep '^history\.events'
+docker exec history-graph-rabbitmq rabbitmqctl list_exchanges name | grep '^history\.exchange'
+```
+
+**큐 발견 폴링 로그** — ai-engine이 5초마다 관리 API에 큐 목록을 묻는데, 그 httpx 요청 줄
+(`HTTP Request: GET http://rabbitmq:15672/api/queues/...`)은 `graph/queue_discovery.py`의 로깅 필터가 떨어뜨린다.
+OpenAI 호출의 httpx 줄은 남아 `HTTP/1.1 429` 확인에 쓴다. `logs -f ai-engine`에 `GET http://rabbitmq:15672/...` 줄이
+보이면 필터가 붙지 않은 것이다.
+
 **배포 메모**
-- ai-engine을 먼저 배포하는 것을 권한다(새 재시도 토폴로지가 먼저 깔린다). 순서가 바뀌어도 안전하다.
+- 배포 순서는 무관하다(옛 토폴로지를 아무도 만들지 않는다). 배포 전 옛 DLQ·parking 잔량 확인 → 배포 →
+  「옛 큐·익스체인지 제거」 1회 순으로 한다.
 - 서버 `.env`에 `INGEST_PREFETCH`가 명시돼 있으면 비운다. 이 값의 뜻이 "소비자 하나의 prefetch(12)"에서
   "채널 전체 상한(기본 36)"으로 바뀌어, 옛 값이 남으면 채널 전체가 12로 묶인다.
 - 큐 발견은 관리 포트 15672를 쓴다. prod 오버라이드는 이 포트를 열지 않으므로 컨테이너 네트워크 안에서만 닿는다.
