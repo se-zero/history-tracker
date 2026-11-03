@@ -44,6 +44,10 @@ eval/results/
 .neo4j-backup/
 infra/docker/graph-swap.sh
 
+# ── 임베딩 대체 실험: 수집한 학습 데이터·파인튜닝 모델은 커밋하지 않는다 ────
+eval/embedding_finetune/data/
+eval/embedding_finetune/models/
+
 .ua
 
 # ── Claude Code ────────────────────────────────────────────────

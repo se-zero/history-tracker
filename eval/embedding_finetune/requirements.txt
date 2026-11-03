@@ -1,0 +1,9 @@
+# 임베딩 서버(serve.py) 의존성 — 2026-11-03에 Mac(Apple M4)의 Python 3.11.15 venv에 실제로 설치돼 동작을
+# 확인한 버전으로 고정했다. 직접 쓰는 6개만 고정하고 나머지(huggingface-hub, tokenizers 등)는 pip가 푼다.
+# transformers 5.x는 Python 3.11 이상·PyTorch 2.6 이상을 요구한다 (기본 python3가 3.14여도 3.11 venv를 쓴다).
+torch==2.15.0
+sentence-transformers==6.2.0
+transformers==5.22.1
+fastapi==0.162.0
+uvicorn==0.54.0
+numpy==2.4.6
