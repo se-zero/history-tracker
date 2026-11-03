@@ -87,8 +87,7 @@ async def tick(state, client: httpx.AsyncClient, base: str, vhost: str) -> None:
 
     ingest_backlog.update_snapshot({name[len(PROJECT_QUEUE_PREFIX):]: n for name, n in found.items()})
 
-    # 구 큐(history.events)도 state.consumers에 있으므로 프로젝트 큐 접두사만 본다.
-    known = {n for n in state.consumers if n.startswith(PROJECT_QUEUE_PREFIX)}
+    known = set(state.consumers)
     added, removed = diff(known, set(found))
 
     for name in removed:

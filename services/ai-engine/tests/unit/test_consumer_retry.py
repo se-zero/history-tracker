@@ -72,17 +72,16 @@ def test_retry_count_reads_header():
 PROJECT_QUEUE = "history.project.p1"
 
 
-@pytest.mark.parametrize("origin", [PROJECT_QUEUE, "history.events"])
-def test_handle_failure_below_max_republishes_to_retry_exchange_with_origin_key_and_acks(origin):
+def test_handle_failure_below_max_republishes_to_retry_exchange_with_origin_key_and_acks():
     ch = _FakeChannel()
     retry_ex = _FakeExchange()
     msg = _FakeMessage(body=b'{"projectId":"p1"}', headers={"x-retry-count": 0})
 
-    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch, retry_ex, origin))
+    asyncio.run(_handle_failure(msg, {"projectId": "p1"}, ch, retry_ex, PROJECT_QUEUE))
 
     assert len(retry_ex.published) == 1
     published_msg, routing_key = retry_ex.published[0]
-    assert routing_key == origin  # TTL 만료 후 DLX가 이 키로 원래 큐에 되돌린다
+    assert routing_key == PROJECT_QUEUE  # TTL 만료 후 DLX가 이 키로 원래 큐에 되돌린다
     assert published_msg.headers["x-retry-count"] == 1
     assert published_msg.body == msg.body
     assert ch.default_exchange.published == []  # 기본 익스체인지로는 안 간다
