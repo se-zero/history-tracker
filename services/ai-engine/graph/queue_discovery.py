@@ -23,6 +23,33 @@ def project_queue_name(project_id: str) -> str:
     return PROJECT_QUEUE_PREFIX + project_id
 
 
+class _ManagementRequestLogFilter(logging.Filter):
+    """httpx가 요청마다 INFO로 남기는 'HTTP Request: …' 줄 가운데 RabbitMQ 관리 API로 간 것만 떨어뜨린다.
+
+    5초 폴링이라 하루 약 17,000줄이 쌓여 운영 로그를 덮는다. OpenAI 호출 줄(같은 httpx 로거)은
+    429 확인에 쓰므로 남긴다. record.args 위치 대신 포맷된 메시지를 보는 것은 httpx 버전이
+    바뀌어도 깨지지 않게 하기 위함이다.
+    """
+
+    def __init__(self, management_base: str) -> None:
+        super().__init__()
+        self.management_base = management_base
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return (self.management_base + "/") not in record.getMessage()
+
+
+def install_httpx_filter(management_base: str) -> None:
+    """httpx 로거에 관리 API 필터를 한 번만 붙인다 — consumer 재시작마다 run_forever가 다시 돌아도 중복으로 쌓이지 않는다."""
+    httpx_logger = logging.getLogger("httpx")
+    if any(
+        isinstance(f, _ManagementRequestLogFilter) and f.management_base == management_base
+        for f in httpx_logger.filters
+    ):
+        return
+    httpx_logger.addFilter(_ManagementRequestLogFilter(management_base))
+
+
 def management_target(amqp_url: str) -> tuple[str, tuple[str, str], str]:
     """AMQP URL에서 관리 API의 (base URL, (user, password), vhost)를 파생한다. 새 env를 두지 않기 위함."""
     parts = urlsplit(amqp_url)
@@ -119,6 +146,7 @@ async def run_forever(state) -> None:
     from graph import consumer
 
     base, auth, vhost = management_target(consumer.RABBITMQ_URL)
+    install_httpx_filter(base)
     logger.info("프로젝트 큐 발견 시작 (management=%s, vhost=%s)", base, vhost)
     async with httpx.AsyncClient(auth=auth, timeout=5.0) as client:
         while True:

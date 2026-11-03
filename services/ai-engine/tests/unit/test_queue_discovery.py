@@ -1,6 +1,7 @@
 """queue_discovery(관리 API 폴링 기반 프로젝트 큐 발견) 단위 테스트 (오프라인)."""
 
 import asyncio
+import logging
 from urllib.parse import parse_qs
 
 import httpx
@@ -220,3 +221,47 @@ def test_tick_returns_when_queue_vanishes_between_list_and_declare():
     _run_tick(state, _ok({P + "p1": 1}))
     assert state.subscribed == []
 
+
+# --- httpx 관리 API 요청 로그 필터 -------------------------------------------
+
+BASE = "http://rabbitmq:15672"
+
+
+@pytest.fixture
+def _httpx_filter_cleanup():
+    yield
+    httpx_logger = logging.getLogger("httpx")
+    for f in list(httpx_logger.filters):
+        if isinstance(f, queue_discovery._ManagementRequestLogFilter):
+            httpx_logger.removeFilter(f)
+
+
+def _record(msg):
+    return logging.makeLogRecord({"msg": msg, "args": ()})
+
+
+def test_log_filter_drops_management_lines_and_keeps_openai_lines():
+    f = queue_discovery._ManagementRequestLogFilter(BASE)
+    mgmt = _record('HTTP Request: GET http://rabbitmq:15672/api/queues/%2F?page=1 "HTTP/1.1 200 OK"')
+    openai = _record('HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"')
+    assert f.filter(mgmt) is False
+    assert f.filter(openai) is True
+
+
+def test_install_httpx_filter_is_idempotent(_httpx_filter_cleanup):
+    queue_discovery.install_httpx_filter(BASE)
+    queue_discovery.install_httpx_filter(BASE)
+    installed = [f for f in logging.getLogger("httpx").filters
+                 if isinstance(f, queue_discovery._ManagementRequestLogFilter)]
+    assert len(installed) == 1
+
+
+def test_polling_leaves_no_httpx_request_log_with_filter_installed(caplog, _httpx_filter_cleanup):
+    async def run():
+        async with _client(_ok({P + "p1": 1})) as c:
+            await queue_discovery.fetch_project_queues(c, BASE, "/")
+
+    with caplog.at_level(logging.INFO, logger="httpx"):
+        queue_discovery.install_httpx_filter(BASE)
+        asyncio.run(run())
+    assert [r for r in caplog.records if "HTTP Request" in r.getMessage()] == []
