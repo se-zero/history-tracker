@@ -10,10 +10,16 @@
   - 동일-recall 운영점 precision: 골든을 전부 살리는 임계값에서의 precision
 
 쌍별 점수는 결과 JSON의 pair_scores에 남는다 — 재임베딩 없이 부트스트랩(모델 간 차이의
-신뢰구간)이나 임계값 스윕을 다시 돌릴 수 있다.
+신뢰구간)이나 임계값 스윕을 다시 돌릴 수 있다. 부트스트랩은 precheck_compare.py가 한다.
 
-비교할 모델은 아래 CONFIGS에서 바꾼다. 실행:
+비교할 모델은 아래 CONFIGS에서 바꾼다. base_url이 있는 설정은 OpenAI 호환 임베딩 서버
+(eval/embedding_finetune/serve.py, Mac)로 부른다. 서버는 프로세스당 모델 하나만 서빙하므로
+로컬 후보는 서버를 그 모델로 띄운 뒤 한 번에 하나씩 돈다. --only를 주지 않으면 서버 없이
+도는 OpenAI 설정만 돈다. 실행:
   services/ai-engine/.venv/Scripts/python.exe eval/precheck_embedding_model.py
+  services/ai-engine/.venv/Scripts/python.exe eval/precheck_embedding_model.py --only bge-m3
+--only를 주고 --out을 생략하면 결과는 results/precheck-<라벨>.json — 후보별로 따로 돌려도
+서로 덮어쓰지 않는다.
 """
 
 import argparse
@@ -29,18 +35,62 @@ import yaml
 EVAL_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, EVAL_DIR)
 
+from edge_eval import edge_exists  # noqa: E402
 from graph_lookup import detect_project_id, open_driver  # noqa: E402
 
-# 비교할 임베딩 설정 — (라벨, 모델, dimensions). dimensions=None이면 모델 기본 차원.
-# 현행 모델을 반드시 하나 넣는다 — 저장된 confidence와 대조해 이 스크립트가 빌더의 점수를
-# 재현하는지 확인하는 기준선이 된다(실행 결과의 "재현 검증" 줄).
+# Mac에서 띄우는 임베딩 서버(eval/embedding_finetune/serve.py). 인증은 EMBED_SERVER_TOKEN을 걸었을 때만 쓴다.
+LOCAL_BASE_URL = "http://127.0.0.1:8100/v1"
+
+# 비교할 임베딩 설정. label은 결과 JSON의 키이자 --only 인자다.
+#   dimensions=None → 모델 기본 차원 (요청에 dimensions를 싣지 않는다)
+#   base_url=None   → OpenAI. 값이 있으면 그 주소의 OpenAI 호환 서버
 CONFIGS = [
-    ("3-small", "text-embedding-3-small", None),       # 교체 전 모델
-    ("3-large@1536", "text-embedding-3-large", 1536),  # 현행 — 절삭해 벡터 인덱스(1536) 유지
-    ("3-large@3072", "text-embedding-3-large", None),  # 전체 차원
+    {"label": "3-small", "model": "text-embedding-3-small", "dimensions": None, "base_url": None},       # 교체 전 모델
+    {"label": "3-large@1536", "model": "text-embedding-3-large", "dimensions": 1536, "base_url": None},  # 현행 — 절삭해 벡터 인덱스(1536) 유지
+    {"label": "3-large@3072", "model": "text-embedding-3-large", "dimensions": None, "base_url": None},  # 전체 차원
+    {"label": "bge-m3", "model": "BAAI/bge-m3", "dimensions": None, "base_url": LOCAL_BASE_URL},
+    {"label": "kure-v1", "model": "nlpai-lab/KURE-v1", "dimensions": None, "base_url": LOCAL_BASE_URL},
+    {"label": "qwen3-0.6b", "model": "Qwen/Qwen3-Embedding-0.6B", "dimensions": None, "base_url": LOCAL_BASE_URL},
+    {"label": "kanana-1.3b", "model": "kakaocorp/kanana-2-1.3b-embedding", "dimensions": None, "base_url": LOCAL_BASE_URL},
 ]
 
+# 재현 검증의 기준 설정 — 현재 그래프는 이 설정으로 만들어졌으므로, 이 설정의 쌍 점수가 그래프에 저장된
+# 시맨틱 엣지 confidence와 맞으면 이 스크립트가 빌더의 점수를 재현한다는 뜻이다(실행 결과의 "재현 검증" 줄).
+# 운영 설정(graph/embedder.py의 모델·차원)과 같아야 한다.
+CURRENT_LABEL = "3-large@1536"
+
 BATCH = 200
+
+
+# --------------------------------------------------------------------------- 설정 선택
+
+def select_configs(only: str | None) -> list[dict]:
+    """--only 라벨 목록을 설정으로 해석한다. 생략하면 서버 없이 도는 OpenAI 설정만(기존 동작)."""
+    if only is None:
+        return [c for c in CONFIGS if c["base_url"] is None]
+
+    by_label = {c["label"]: c for c in CONFIGS}
+    wanted = list(dict.fromkeys(s.strip() for s in only.split(",") if s.strip()))
+    unknown = [label for label in wanted if label not in by_label]
+    if unknown or not wanted:
+        backends: dict[str, list[str]] = {}
+        for c in CONFIGS:
+            backends.setdefault(c["base_url"] or "OpenAI", []).append(c["label"])
+        listing = "\n".join(f"  {backend}: {', '.join(labels)}" for backend, labels in backends.items())
+        sys.exit(f"--only에 알 수 없는 라벨: {', '.join(unknown) or '(비어 있음)'}\n쓸 수 있는 라벨:\n{listing}")
+
+    # 서버는 프로세스당 모델 하나라, 같은 주소의 다른 모델은 400이 난다 — 앞 후보를 다 돌린 뒤에야
+    # 터지고 그때까지의 결과는 저장되지 않으므로 시작 전에 막는다.
+    local = [label for label in wanted if by_label[label]["base_url"]]
+    if len(local) > 1:
+        sys.exit(f"로컬 서버 후보는 한 번에 하나만 고를 수 있다 (서버가 프로세스당 모델 하나를 서빙): {', '.join(local)}")
+    return [by_label[label] for label in wanted]
+
+
+def default_out_path(selected: list[dict], only_given: bool) -> str:
+    """기본 결과 경로. --only를 줬으면 라벨을 넣어 후보별로 따로 돌려도 덮어쓰지 않게 한다."""
+    name = "precheck-" + "+".join(c["label"] for c in selected) if only_given else "precheck-embedding-model"
+    return os.path.join(EVAL_DIR, "results", f"{name}.json")
 
 
 # --------------------------------------------------------------------------- 그래프 조회
@@ -90,7 +140,45 @@ def fetch_texts(session, pid: str, commits: set[str], issues: set[str], threads:
     return out
 
 
+def fetch_stored_confidences(session, pid: str, labels: list[dict]) -> dict[tuple[str, str, str], float]:
+    """라벨 쌍마다 현재 그래프의 시맨틱 엣지 confidence를 모은다 — 엣지가 있는 쌍만 담긴다.
+
+    재현 검증의 기준이다. 라벨 YAML에 박힌 confidence는 라벨을 뽑던 때의 그래프(구 모델) 값이라
+    현행 설정의 점수와 대조할 수 없다. 지금 그래프를 직접 읽는다.
+    """
+    stored: dict[tuple[str, str, str], float] = {}
+    for e in labels:
+        key = (e["edge_type"], str(e["src"]["id"]), str(e["dst"]["id"]))
+        confidence = edge_exists(session, pid, *key)
+        if confidence is not None:
+            stored[key] = float(confidence)
+    return stored
+
+
 # --------------------------------------------------------------------------- 임베딩
+
+def ensure_openai_key() -> None:
+    """OPENAI_API_KEY를 환경변수 → infra/docker/.env 순으로 찾는다. 없으면 종료."""
+    if not os.environ.get("OPENAI_API_KEY"):
+        # grader.py와 같은 방식 — 전체 로드는 NEO4J_* 등 컨테이너용 값이 로컬 설정을 덮는다
+        from dotenv import dotenv_values
+        key = dotenv_values(os.path.join(EVAL_DIR, "..", "infra", "docker", ".env")).get("OPENAI_API_KEY")
+        if key:
+            os.environ["OPENAI_API_KEY"] = key
+    if not os.environ.get("OPENAI_API_KEY"):
+        sys.exit("OPENAI_API_KEY가 필요합니다 — infra/docker/.env 또는 환경변수로 설정")
+
+
+def make_client(cfg: dict):
+    """설정에 맞는 임베딩 클라이언트 — base_url이 있으면 로컬 서버, 없으면 OpenAI."""
+    from openai import OpenAI
+    if cfg["base_url"]:
+        # 로컬 서버는 기본적으로 인증이 없다. SDK가 키를 요구해서 자리표시자를 넣고, 서버에 토큰을
+        # 걸었을 때만 EMBED_SERVER_TOKEN을 쓴다.
+        return OpenAI(base_url=cfg["base_url"], api_key=os.environ.get("EMBED_SERVER_TOKEN") or "unused")
+    ensure_openai_key()
+    return OpenAI()
+
 
 def embed_all(client, texts: list[str], model: str, dimensions: int | None) -> list[list[float]]:
     vectors: list[list[float]] = []
@@ -155,6 +243,26 @@ def precision_at_full_recall(pos: list[float], neg: list[float], golden: list[fl
     return (tp / (tp + fp) if (tp + fp) else None), t, (tp, fp)
 
 
+def replication_check(stored: dict[tuple[str, str, str], float], pair_scores: list[dict]) -> dict | None:
+    """현행 설정의 라벨 쌍 점수를 그래프에 저장된 confidence와 대조한다. 엣지가 있는 쌍만 비교한다."""
+    pairs = []
+    for p in pair_scores:
+        if p["kind"] != "label":
+            continue
+        confidence = stored.get((p["edge_type"], p["src"], p["dst"]))
+        if confidence is not None:
+            pairs.append((confidence, p["score"]))
+    if not pairs:
+        return None
+    a = np.array([x for x, _ in pairs])
+    b = np.array([y for _, y in pairs])
+    return {
+        "n": len(pairs),
+        "mean_abs_diff": float(np.abs(a - b).mean()),
+        "corr": float(np.corrcoef(a, b)[0, 1]),
+    }
+
+
 # --------------------------------------------------------------------------- main
 
 def main() -> None:
@@ -162,9 +270,15 @@ def main() -> None:
     ap.add_argument("--project-id")
     ap.add_argument("--precision", default=os.path.join(EVAL_DIR, "edge_labels", "precision-2026-07-05.yaml"))
     ap.add_argument("--recall", default=os.path.join(EVAL_DIR, "edge_labels", "recall-2026-07-05.yaml"))
-    ap.add_argument("--out", default=os.path.join(EVAL_DIR, "results", "precheck-embedding-model.json"))
+    ap.add_argument("--only", help="쉼표로 구분한 라벨만 실행 (예: bge-m3). 생략하면 OpenAI 설정만 돈다. "
+                                   f"쓸 수 있는 라벨: {', '.join(c['label'] for c in CONFIGS)}")
+    ap.add_argument("--out", help="결과 JSON 경로 (생략 시 results/precheck-embedding-model.json, "
+                                  "--only를 주면 results/precheck-<라벨>.json)")
     ap.add_argument("--dry-run", action="store_true", help="임베딩 호출 없이 대상 텍스트 수만 보고")
     args = ap.parse_args()
+
+    selected = select_configs(args.only)
+    out_path = args.out or default_out_path(selected, only_given=args.only is not None)
 
     labels = yaml.safe_load(open(args.precision, encoding="utf-8"))["edges"]
     golden_pairs = yaml.safe_load(open(args.recall, encoding="utf-8"))["pairs"]
@@ -180,6 +294,9 @@ def main() -> None:
         pid = args.project_id or detect_project_id(session)
         print(f"project_id = {pid}")
         texts = fetch_texts(session, pid, commits, issues, threads)
+        # 재현 검증용 — 현행 설정을 돌릴 때만 쓰므로 그때만 모은다
+        stored = (fetch_stored_confidences(session, pid, labels)
+                  if any(c["label"] == CURRENT_LABEL for c in selected) else {})
     driver.close()
 
     # 노드 종류별 텍스트를 하나의 평탄한 리스트로 모아 한 번에 임베딩한다 (중복 호출 방지)
@@ -192,21 +309,13 @@ def main() -> None:
 
     print(f"노드 해석: commit {len(texts['commit'])}/{len(commits)} · "
           f"issue {len(texts['issue'])}/{len(issues)} · thread {len(texts['thread'])}/{len(threads)}")
-    print(f"임베딩 대상 텍스트 {len(flat)}개 × 설정 {len(CONFIGS)}개")
+    print(f"임베딩 대상 텍스트 {len(flat)}개 × 설정 {len(selected)}개")
     if args.dry_run:
         return
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        # grader.py와 같은 방식 — 전체 로드는 NEO4J_* 등 컨테이너용 값이 로컬 설정을 덮는다
-        from dotenv import dotenv_values
-        key = dotenv_values(os.path.join(EVAL_DIR, "..", "infra", "docker", ".env")).get("OPENAI_API_KEY")
-        if key:
-            os.environ["OPENAI_API_KEY"] = key
-    if not os.environ.get("OPENAI_API_KEY"):
-        sys.exit("OPENAI_API_KEY가 필요합니다 — infra/docker/.env 또는 환경변수로 설정")
-
-    from openai import OpenAI
-    client = OpenAI()
+    # OpenAI 설정이 하나라도 있을 때만 키를 요구한다 — 앞 후보를 다 돌린 뒤에 터지지 않게 미리 확인
+    if any(c["base_url"] is None for c in selected):
+        ensure_openai_key()
 
     report: dict = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -216,16 +325,16 @@ def main() -> None:
         "configs": {},
     }
 
-    for label, model, dims in CONFIGS:
+    for cfg in selected:
+        label, model, dims = cfg["label"], cfg["model"], cfg["dimensions"]
         print(f"\n=== {label} ({model}, dims={dims or 'default'}) ===")
-        vectors = embed_all(client, flat, model, dims)
+        vectors = embed_all(make_client(cfg), flat, model, dims)
         vecs = {"commit": {}, "issue": {}, "thread": {}}
         for (kind, node_id), (lo, hi) in index.items():
             vecs[kind][node_id] = vectors[lo:hi]
 
         by_type: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
         pair_scores: list[dict] = []
-        stored_vs_new: list[tuple[float, float]] = []
         unresolved = 0
 
         for e in labels:
@@ -237,8 +346,6 @@ def main() -> None:
             pair_scores.append({"kind": "label", "edge_type": e["edge_type"],
                                 "src": str(e["src"]["id"]), "dst": str(e["dst"]["id"]),
                                 "label": e.get("label"), "score": s})
-            if label == "3-small" and e.get("confidence"):
-                stored_vs_new.append((float(e["confidence"]), s))
 
         for g in golden_pairs:
             s = pair_score(vecs, g["edge_type"], str(g["src"]["id"]), str(g["dst"]["id"]))
@@ -280,23 +387,19 @@ def main() -> None:
         entry["overall_auc"] = roc_auc(all_pos, all_neg)
         print(f"  {'ALL':13s} AUC {entry['overall_auc']:.3f}")
 
-        if stored_vs_new:
-            a = np.array([x for x, _ in stored_vs_new])
-            b = np.array([y for _, y in stored_vs_new])
-            entry["replication_check"] = {
-                "n": len(stored_vs_new),
-                "mean_abs_diff": float(np.abs(a - b).mean()),
-                "corr": float(np.corrcoef(a, b)[0, 1]),
-            }
-            print(f"  [재현 검증] 저장된 confidence 대비 평균절대차 {np.abs(a - b).mean():.4f} · "
-                  f"상관 {np.corrcoef(a, b)[0, 1]:.4f} (n={len(stored_vs_new)})")
+        if label == CURRENT_LABEL:
+            rep = replication_check(stored, pair_scores)
+            if rep:
+                entry["replication_check"] = rep
+                print(f"  [재현 검증] 저장된 confidence 대비 평균절대차 {rep['mean_abs_diff']:.4f} · "
+                      f"상관 {rep['corr']:.4f} (n={rep['n']})")
 
         report["configs"][label] = entry
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    with open(args.out, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
-    print(f"\n저장: {args.out}")
+    print(f"\n저장: {out_path}")
 
 
 if __name__ == "__main__":

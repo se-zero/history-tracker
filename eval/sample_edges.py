@@ -15,6 +15,16 @@
     services/ai-engine/.venv/Scripts/python.exe eval/sample_edges.py --count-only
     services/ai-engine/.venv/Scripts/python.exe eval/sample_edges.py --per-type 25 --out eval/edge_labels/precision-2026-07-05.yaml
 접속: NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD 환경변수로 덮어쓸 수 있다(기본 localhost / neo4j / password1234).
+
+임베딩 모델을 교체한 그래프의 precision을 재는 표본용 플래그 (docs/measurement.md §4.5) — 켜지 않으면 위 동작 그대로다:
+    --uniform        버킷 없이 타입별 --per-type개를 시드 고정 단순 무작위로 뽑는다. 버킷 경계는 하드코딩이라
+                     새 모델의 점수가 범위를 벗어나면 그 엣지가 조용히 표본에서 빠진다.
+    --reuse-labels P 기존 precision YAML에서 (edge_type, src.id, dst.id)가 같은 쌍의 label·note를 채워 온다.
+                     id는 문자열로 비교한다. 라벨이 비어 있는 쌍이 사람이 새로 라벨링할 대상이다.
+    --blind          항목에서 confidence·bucket을 뺀다 — 모델과 점수를 모른 채 라벨링하기 위해서다.
+    --graph-snapshot N
+                     파일의 graph_snapshot에 적을 그래프 이름(생략하면 예전처럼 graph-2026-07-05.dump). edge_eval이
+                     결과 JSON의 meta로 옮겨 적으므로, 표본을 뽑은 그래프 이름을 줘야 수치가 어느 그래프의 것인지 남는다.
 """
 
 import argparse
@@ -130,6 +140,13 @@ def stratified_sample(edges, buckets, target, rng):
     return picked
 
 
+def uniform_sample(edges, target, rng):
+    """버킷 없이 target개를 단순 무작위로 추출. 모자라면 있는 만큼 전부."""
+    # 재현성: 조회 순서가 달라져도 같은 표본이 나오도록 샘플 전에 정렬한다 (stratified_sample과 같은 이유)
+    pool = sorted(edges, key=lambda e: (e["src_id"], e["dst_id"]))
+    return pool if len(pool) <= target else rng.sample(pool, target)
+
+
 def _simplify_body(body):
     """라벨 파일 가독성을 위해 커밋 body의 파일별 diff_summary는 버리고 경로 목록만 남긴다."""
     if body and isinstance(body.get("files"), list):
@@ -152,6 +169,39 @@ def build_entry(session, pid, edge_type, spec, edge):
     }
 
 
+def entry_key(entry):
+    """라벨 항목을 같은 쌍으로 묶는 키. id는 문자열로 비교한다 — 따옴표 없이 적힌 conversation_id 같은
+    숫자형 문자열은 YAML이 float로 읽어, 그대로 비교하면 같은 쌍이 어긋난다."""
+    return (entry["edge_type"], str(entry["src"]["id"]), str(entry["dst"]["id"]))
+
+
+def load_reusable_labels(path):
+    """기존 precision YAML에서 라벨이 채워진 항목만 {entry_key: {label, note}}로 읽는다."""
+    with open(path, encoding="utf-8") as f:
+        doc = yaml.safe_load(f)
+    return {
+        entry_key(e): {"label": e["label"], "note": e.get("note")}
+        for e in (doc.get("edges") or [])
+        if str(e.get("label") or "").strip()
+    }
+
+
+def apply_reused_labels(entries, reusable):
+    """같은 쌍의 기존 label·note를 항목에 채운다. 채운 항목 수를 돌려준다."""
+    reused = 0
+    for entry in entries:
+        found = reusable.get(entry_key(entry))
+        if found:
+            entry["label"], entry["note"] = found["label"], found["note"]
+            reused += 1
+    return reused
+
+
+def blind_entry(entry):
+    """모델과 점수를 모른 채 라벨링하도록 confidence·bucket을 뺀 사본."""
+    return {k: v for k, v in entry.items() if k not in ("confidence", "bucket")}
+
+
 HEADER = """\
 # 엣지 레벨 eval — precision 라벨셋 (docs/measurement-plan.md B)
 # 각 항목의 src/dst 원문을 읽고 "이 둘이 실제로 의미적으로 관련 있나?"를 판단해
@@ -171,7 +221,20 @@ def main():
     parser.add_argument("--out", default=os.path.join(EVAL_DIR, "edge_labels", "precision.yaml"),
                         help="라벨 파일 출력 경로")
     parser.add_argument("--project-id", help="생략 시 자동 감지")
+    parser.add_argument("--uniform", action="store_true",
+                        help="버킷 없이 타입별 --per-type개를 시드 고정 단순 무작위로 추출 "
+                             "(새 모델의 점수가 하드코딩 버킷 범위를 벗어나도 빠지지 않는다)")
+    parser.add_argument("--reuse-labels", metavar="PATH",
+                        help="기존 precision YAML — (edge_type, src.id, dst.id)가 같은 쌍의 label·note를 채워 온다")
+    parser.add_argument("--blind", action="store_true",
+                        help="항목에서 confidence·bucket을 뺀다 (모델과 점수를 모른 채 라벨링하기 위함)")
+    parser.add_argument("--graph-snapshot", metavar="NAME", default="graph-2026-07-05.dump",
+                        help="파일의 graph_snapshot에 적을 그래프 이름 — edge_eval이 결과 JSON의 meta로 옮겨 적는다 "
+                             "(기본 graph-2026-07-05.dump)")
     args = parser.parse_args()
+
+    # 오타난 경로는 그래프를 훑기 전에 드러내려고 먼저 읽는다
+    reusable = load_reusable_labels(args.reuse_labels) if args.reuse_labels else None
 
     rng = random.Random(SEED)
     with open_driver() as driver, driver.session() as session:
@@ -193,13 +256,20 @@ def main():
         entries = []
         for edge_type, spec in EDGE_SPECS.items():
             edges = fetch_edges(session, pid, spec)
-            sample = stratified_sample(edges, spec["buckets"], args.per_type, rng)
+            sample = (uniform_sample(edges, args.per_type, rng) if args.uniform
+                      else stratified_sample(edges, spec["buckets"], args.per_type, rng))
             print(f"{edge_type}: 고유쌍 {len(edges)} 중 {len(sample)}개 샘플")
             for e in sample:
                 entries.append(build_entry(session, pid, edge_type, spec, e))
 
+    if reusable is not None:
+        reused = apply_reused_labels(entries, reusable)
+        print(f"기존 라벨 재사용 {reused}개 · 라벨 없는 새 쌍 {len(entries) - reused}개")
+    if args.blind:
+        entries = [blind_entry(e) for e in entries]
+
     doc = {
-        "graph_snapshot": "graph-2026-07-05.dump",
+        "graph_snapshot": args.graph_snapshot,
         "project_id": pid,
         "seed": SEED,
         "edges": entries,

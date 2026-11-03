@@ -328,11 +328,15 @@ pairs:
 
 | 파일 | 역할 |
 |---|---|
-| `eval/sample_edges.py` | 시맨틱 엣지를 층화 샘플링 → 빈 라벨 칸이 있는 precision YAML 생성. `--count-only`로 분포만 볼 수도 있다 |
+| `eval/sample_edges.py` | 시맨틱 엣지를 층화 샘플링 → 빈 라벨 칸이 있는 precision YAML 생성. `--count-only`로 분포만 볼 수도 있다. 임베딩 모델 교체용 표본에는 `--uniform`(버킷 없이 균등 추출)·`--reuse-labels`(기존 라벨 채워 오기)·`--blind`(confidence·bucket 제거)를 쓰고, `--graph-snapshot`에 표본을 뽑은 그래프 이름을 적는다 |
 | `eval/edge_eval.py` | 두 정답지를 현재 그래프에 대조해 precision/recall 계산 → 콘솔 출력 + JSON 저장 |
-| `eval/precheck_embedding_model.py` | 임베딩 모델 후보를 **그래프 재구축 없이** 비교 — 정답지 쌍의 원문만 후보 모델로 임베딩해 분리도(AUC)와 동일-recall precision을 낸다. 재임베딩·재스윕에 들어가기 전 모델 선택용 |
+| `eval/precheck_embedding_model.py` | 임베딩 모델 후보를 **그래프 재구축 없이** 비교 — 정답지 쌍의 원문만 후보 모델로 임베딩해 분리도(AUC)와 동일-recall precision을 낸다. 재임베딩·재스윕에 들어가기 전 모델 선택용. `--only 라벨`로 후보를 고른다(생략하면 OpenAI 3개, 로컬 후보는 Mac의 OpenAI 호환 임베딩 서버로 부른다). 현행 설정(`3-large@1536`)은 쌍 점수를 현재 그래프의 엣지 confidence와 대조해 재현 검증을 한다 |
+| `eval/precheck_compare.py` | precheck 결과 JSON 여러 개를 라벨 기준으로 합쳐 후보와 기준(`3-large@1536`)의 AUC 차이와 95% 신뢰구간을 낸다. 라벨 쌍들이 같은 스레드·이슈를 공유하므로 도착 노드 단위로 복원 추출하는 부트스트랩이다 |
+| `eval/precheck_retrieval.py` | 골든 질문으로 검색했을 때 정답 이슈·스레드가 상위 k개에 드는 비율(Recall@k)과 MRR을 후보별로 잰다. LLM 없이 원 질문과 정확한 코사인을 쓰므로 실제 `search_by_keyword`의 근사치다 |
+| `eval/label_queue.py` | 기준선·후보 두 그래프의 균등 표본에서 라벨 없는 새 쌍만 모아 섞어 출처를 숨긴 라벨 큐를 만들고(`make`), 라벨링한 결과를 표본 파일에 되돌려 채운다(`fill`) |
 | `eval/graph_lookup.py` | 공용 헬퍼 — Neo4j 접속, project_id 자동 감지, 노드 원문 조회 |
 | `eval/tests/test_edge_recall.py` | recall 채점 로직 단위 테스트 (Neo4j 없이 실행) |
+| `eval/tests/test_precheck_*.py` · `test_sample_edges_flags.py` · `test_label_queue.py` | 위 임베딩 교체용 도구들의 순수 로직·플래그 배선 단위 테스트 (Neo4j·OpenAI·임베딩 서버 없이 실행) |
 
 **`edge_eval.py`가 하는 일**: 라벨된 각 쌍이 *지금* 그래프에 엣지로 존재하는지 질의해서,
 
@@ -459,6 +463,9 @@ pairs:
 
    반대로 **임계값을 올리는 변경은 엣지가 줄기만 하므로 라벨 추가가 필요 없다.**
 
+   > 임베딩 모델을 통째로 바꾼 경우는 위 방법 대신 이 절 끝의 「임베딩 모델 교체 실험」에 있는
+   > 균등 표본 절차를 쓴다 — 두 그래프를 같은 크기로 뽑고 새 쌍만 출처를 숨긴 채 라벨링한다.
+
 6. **채택 또는 롤백한다.** 노이즈 플로어(6장)를 넘는 개선이면 유지하고, 아니면 되돌리고
    다음 조치로 간다. 무엇을 바꿔 어느 지표가 몇 %p 움직였는지 기록한다.
 
@@ -471,6 +478,61 @@ pairs:
     - e2e 측정에서 "필요한 근거를 못 찾은" 케이스를 발견했을 때, 그 근거로
    이어졌어야 할 노드 쌍을 골든 쌍에 추가한다. 
     - 원천 데이터를 읽다가 명백한 연결을 발견했을 때, **기존 쌍은 고치지 않고 추가만 한다.**
+
+#### 임베딩 모델 교체 실험 — 후보 비교와 균등 표본 라벨링
+
+모델이 바뀌면 점수 분포가 통째로 이동하고(위 2번 (b)), 새 모델이 새로 긋는 엣지는 기존 라벨에 없다(위 5번).
+두 문제를 위한 도구가 아래 둘이다. `PY`는 위 절차와 같은 ai-engine venv의 파이썬이다
+(macOS·Linux는 `services/ai-engine/.venv/bin/python`).
+
+**A. 그래프를 건드리지 않고 후보를 고른다.** 정답지 쌍의 원문만 후보 모델로 다시 임베딩하고 그래프에는 쓰지 않는다.
+
+```bash
+PY=services/ai-engine/.venv/Scripts/python.exe
+
+# 기준선 — OpenAI 3개 설정(--only 생략). 현행 3-large@1536은 현재 그래프의 confidence와 대조하는 재현 검증도 한다
+$PY eval/precheck_embedding_model.py
+# 로컬 후보 — 임베딩 서버(Mac, 127.0.0.1:8100)를 그 모델로 띄운 뒤 후보마다 따로 돈다
+# (기동 방법과 측정용 옵션은 eval/embedding_finetune/README.md).
+# 서버는 프로세스당 모델 하나이고 요청의 model이 다르면 400이라 --only에 로컬 후보는 하나만 줄 수 있다.
+# 서버에 토큰을 걸었다면 환경변수 EMBED_SERVER_TOKEN. 결과는 results/precheck-<라벨>.json이라 서로 덮어쓰지 않는다
+$PY eval/precheck_embedding_model.py --only bge-m3
+# 기준 대비 AUC 차이와 95% 신뢰구간 — 구간이 0을 지나면 두 모델을 구분할 수 없다 (TRIGGERED_BY는 라벨이 적어 참고)
+$PY eval/precheck_compare.py eval/results/precheck-embedding-model.json eval/results/precheck-bge-m3.json
+# 질문 검색 Recall@5·20과 MRR — 한 번에 기준 하나와 로컬 후보 하나를 나란히 본다
+$PY eval/precheck_retrieval.py --only 3-large@1536,bge-m3
+```
+
+`precheck_retrieval.py`는 LLM이 고른 키워드와 HNSW 대신 원 질문과 정확한 코사인을 쓰는 근사치다
+(차이 목록은 스크립트 docstring). 그래프에 없는 골든 근거가 있으면 건수를 경고로 찍으니 스냅샷을 확인한다.
+
+**B. 모델을 실제로 바꾼 그래프의 precision.** 새 엣지는 기존 라벨에 없으므로 균등 표본을 뽑아 새 쌍만 라벨링한다.
+5번의 층화 25개 방식은 새 모델의 점수가 하드코딩된 버킷 밖이면 그 엣지를 조용히 빠뜨리고,
+두 그래프를 따로 라벨링하면 라벨러가 출처를 짐작할 수 있어 아래를 쓴다.
+
+```bash
+# 그래프마다 한 번씩(기준선 그래프, 임베딩을 교체해 엣지를 다시 그은 그래프) 균등 표본을 뽑는다.
+# 기존 라벨은 채워 오고(--reuse-labels) 점수 필드는 뺀다(--blind). --per-type은 세 타입 공통이고 엣지가 모자라면 있는 만큼만 나온다.
+# --graph-snapshot은 표본 파일에 남길 그래프 이름이다(생략하면 graph-2026-07-05.dump). 후보 그래프는 따로 덤프가 없으면
+# "기준 덤프+모델 라벨"처럼 적는다
+$PY eval/sample_edges.py --uniform --per-type 40 --blind --graph-snapshot exp-base.dump \
+    --reuse-labels eval/edge_labels/precision-2026-07-05.yaml --out eval/edge_labels/_tmp-base.yaml
+$PY eval/sample_edges.py --uniform --per-type 40 --blind --graph-snapshot exp-base.dump+bge-m3 \
+    --reuse-labels eval/edge_labels/precision-2026-07-05.yaml --out eval/edge_labels/_tmp-cand.yaml
+
+# 두 표본의 라벨 없는 새 쌍만 모아 섞은 큐를 만든다 (confidence·bucket 없음, 이미 있는 큐 파일은 덮어쓰지 않는다)
+$PY eval/label_queue.py make eval/edge_labels/_tmp-base.yaml eval/edge_labels/_tmp-cand.yaml \
+    --out eval/edge_labels/_tmp-queue.yaml
+# 큐의 label 칸을 채운 뒤 표본에 되돌려 채운다 → _tmp-base.labeled.yaml · _tmp-cand.labeled.yaml (원본 표본은 그대로,
+# 표본에 이미 있는 라벨은 덮어쓰지 않는다)
+$PY eval/label_queue.py fill --queue eval/edge_labels/_tmp-queue.yaml \
+    eval/edge_labels/_tmp-base.yaml eval/edge_labels/_tmp-cand.yaml
+```
+
+채점은 `edge_eval.py --precision eval/edge_labels/_tmp-base.labeled.yaml`처럼 표본마다 한다. 엣지가 있는지
+그래프에 질의하므로 각 표본은 그 표본을 뽑은 그래프가 떠 있을 때 채점한다. 결과 JSON의 `meta.graph_snapshot`에는
+`--graph-snapshot`으로 준 이름이 들어간다. 이 이름이 recall 파일(기본 `recall-2026-07-05.yaml`)의 `graph_snapshot`과 다르면
+불일치 경고가 나오는데, 실험 그래프가 그 덤프에서 출발했다면 예상된 경고다. 쓰고 난 `_tmp-*` 파일은 5번과 같이 지운다.
 
 ### 4.6 문서 엣지 — 라벨 없는 측정
 
