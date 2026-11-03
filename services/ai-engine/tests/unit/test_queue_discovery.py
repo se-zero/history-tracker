@@ -164,7 +164,7 @@ def test_tick_subscribes_new_queue_after_passive_declare_and_updates_snapshot():
 def test_tick_ignores_non_project_queues_even_if_api_returns_them():
     # 관리 API 필터는 page가 있을 때만 적용된다 — 필터가 빠져 DLQ·재시도 큐가 섞여 와도 구독하면 안 된다
     state = _State({})
-    _run_tick(state, _ok({"history.events.dlq": 3, "history.retry": 1, P + "p1": 2}))
+    _run_tick(state, _ok({"history.dlq": 3, "history.retry": 1, P + "p1": 2}))
     assert state.subscribed == [P + "p1"]
     assert state.channel.declared == [(P + "p1", True)]
     assert ingest_backlog.queue_backlog("p1") == 2
