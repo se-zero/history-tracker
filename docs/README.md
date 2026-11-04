@@ -93,6 +93,7 @@
 | [mcp-integration.md](mcp-integration.md) | 정본 | 설계 | 코드 완료·main 배포(인가 서버·동의 흐름·`/mcp` 서버, backend `oauth/`·`mcp/`, 프론트 3화면, 프록시) + 인가 서버 보강(IP별 상한·미사용 등록 행 정리·문서 조회 총 시간 제한) + 실제 Claude Code로 로컬(2026-10-01)·배포 서버(2026-10-04·10-09) 확인(연결·폴더 연결·질의·갱신·철회 뒤 재인증·IP별 상한·분당 상한) + 에이전트 쪽 해제(공개 클라이언트 폐기 수용·연결 행 삭제, 로컬 2026-10-11) | Codex·MCP Inspector·claude.ai 등 Claude Code 외 클라이언트 미확인(§8), 125초 긴 질의·FREE 한도 문구 미관측(§10), 열린 후속 5건 — 무효 표시된 연결의 목록 잔존·목록 도구 상한·SSRF DNS 리바인딩 창 등(§9 표) |
 | [query-quality-issues.md](query-quality-issues.md) | 정본 | 분석 로그 | 케이스별 원인·개선안 | 닫히지 않음 |
 | [answer-language.md](answer-language.md) | 작업 | 기능 계획 | 질문한 언어(ko·en)로 답하기 — A1·A2 코드·B·C1·D 완료, E 측정 완료(S2 미달). 계약 정본은 [i18n.md](i18n.md) §5 | 판별 재측정·S2 원인 확인은 하지 않음. 수동 확인은 끝남. 화면 글자는 [i18n.md](i18n.md) §8 |
+| [embedding-finetune.md](embedding-finetune.md) | 작업 | 실험 계획 | 측정 도구·임베딩 서버(묶음 B·C), 0단계 기준선 재현, 1단계 후보 비교 → 관문 1(Qwen3-Embedding-0.6B), 2단계 학습 데이터(묶음 D, train 24,996·val 1,762쌍, 표본 같은 사안 82%) | 묶음 E(학습 스크립트·GPU 실행) → 관문 2, 3단계 ai-engine 스위치, 4단계 풀스택 측정(관문 3·4), 5단계 기록. 브랜치 `feat/embedding-finetune` |
 
 ---
 
@@ -102,7 +103,6 @@
 |------|------|------|---------|
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
 | [evidence-retrieval-fixes.md](evidence-retrieval-fixes.md) | 작업 | 수정 계획 | 근거 회수 결함 12건을 묶음 A~F로 수정. 후속 10건(임계값·시간 창·검색 확장)은 §7 |
-| [embedding-finetune.md](embedding-finetune.md) | 작업 | 실험 계획 | 0~5단계 전부. 브랜치 `feat/embedding-finetune`에서 측정 도구·임베딩 서버부터 진행 중 |
 
 ---
 
