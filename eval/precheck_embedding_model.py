@@ -52,6 +52,8 @@ CONFIGS = [
     {"label": "kure-v1", "model": "nlpai-lab/KURE-v1", "dimensions": None, "base_url": LOCAL_BASE_URL},
     {"label": "qwen3-0.6b", "model": "Qwen/Qwen3-Embedding-0.6B", "dimensions": None, "base_url": LOCAL_BASE_URL},
     {"label": "kanana-1.3b", "model": "kakaocorp/kanana-2-1.3b-embedding", "dimensions": None, "base_url": LOCAL_BASE_URL},
+    # 묶음 E로 학습한 모델 — `serve.py --model <푼 경로> --name qwen3-0.6b-ft --dtype fp32`로 띄운다 (embedding_finetune/README.md)
+    {"label": "qwen3-0.6b-ft", "model": "qwen3-0.6b-ft", "dimensions": None, "base_url": LOCAL_BASE_URL},
 ]
 
 # 재현 검증의 기준 설정 — 현재 그래프는 이 설정으로 만들어졌으므로, 이 설정의 쌍 점수가 그래프에 저장된

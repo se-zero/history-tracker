@@ -1,0 +1,14 @@
+# 학습(train.py) 의존성 — 2026-11-04에 Mac(Python 3.11.15) venv에 이 버전으로 설치해 시험 실행했다.
+# 직접 쓰는 5개만 고정하고 나머지(huggingface-hub, tokenizers, scikit-learn 등)는 설치 도구가 푼다.
+#
+# torch는 일부러 넣지 않는다 — 장치마다 빌드가 달라서다.
+#   GPU 잡: gpu_run.sh가 CUDA 12.6 색인(download.pytorch.org/whl/cu126)에서 torch==2.14.1을 먼저 설치한다.
+#           PyPI의 torch 2.15.0 Linux 빌드는 CUDA 13이라 드라이버 580 이상이 필요한데 노드 드라이버 버전을 모른다.
+#   Mac:    requirements.txt의 torch==2.15.0(MPS 포함 PyPI 빌드)을 쓴다. Mac venv에는 이 파일만 더 설치하면 된다.
+# sentence-transformers·accelerate가 요구하는 torch는 2.2·2.0 이상이라 어느 쪽 빌드도 이 파일 설치 때 바뀌지 않는다.
+# transformers 5.x는 Python 3.11 이상·PyTorch 2.6 이상을 요구한다.
+sentence-transformers==6.2.0
+transformers==5.22.1
+datasets==5.1.0
+accelerate==1.15.0
+numpy==2.4.6

@@ -132,4 +132,137 @@ caffeinate -i eval/embedding_finetune/.venv/bin/python eval/embedding_finetune/c
 
 수집 로직 테스트도 같은 명령으로 돈다(가짜 `gh`를 주입하므로 네트워크를 쓰지 않는다): `services/ai-engine/.venv/bin/python -m pytest eval/tests -q`
 
-GPU 학습 안내는 묶음 E에서 추가한다.
+## 학습 (묶음 E)
+
+위에서 만든 `data/pairs-*.jsonl`로 `Qwen/Qwen3-Embedding-0.6B`를 대조학습한다(Sentence Transformers의
+`CachedMultipleNegativesRankingLoss`). 학교 GPU는 웹 터미널로만 닿아서 실패할 때마다 사용자가 오가야 한다.
+그래서 **Mac에서 같은 스크립트를 작은 모델로 먼저 돌려 오류를 잡고**, GPU에서는 설치·학습·포장을 한 번에 끝낸다.
+
+| 파일 | 역할 |
+|---|---|
+| `train.py` | `train`은 변형 하나를 학습하고, `summarize`는 변형 결과를 모아 1위를 고른다 |
+| `train_core.py` | 순수 로직(쌍 거르기, 검증 입력, 점수 평균, 1위 고르기). torch를 import하지 않아 `eval/tests`에서 검증한다 |
+| `gpu_run.sh` | GPU 잡에서 `start`·`status`. 환경 설치 → 모델 받기 → 변형 3개 학습 → 비교 → 결과 묶기 |
+| `make_gpu_bundle.py` | 올릴 묶음(tgz) 하나와 그 안의 `SHA256SUMS`를 만든다 |
+| `requirements-train.txt` | 학습 의존성. torch는 일부러 뺐다(Mac은 `requirements.txt`의 2.15.0, GPU는 `gpu_run.sh`가 CUDA 12.6 빌드 2.14.1) |
+
+**학습 구성:**
+- 변형은 셋이다. `all`(전체), `ko`(`has_korean`이 참인 쌍), `pre2025`(`created_at`이 2025-01-01 이전). **변형은 train만 거르고
+  val은 변형과 관계없이 전체를 쓴다.** 그래야 변형끼리 점수를 비교할 수 있다.
+- 쌍 유형(변경↔대화·변경↔이슈·이슈↔대화)마다 Dataset을 따로 두고, 한 배치는 한 유형에서만 뽑는다. 같은 유형끼리 서로의
+  오답이 되어 구분이 더 어려워진다. 열은 `anchor`·`positive` 두 개뿐이다(다른 열이 있으면 `NO_DUPLICATES` 샘플러가 그 값까지 비교한다).
+- 배치 128(미니배치 32), lr 2e-5, warmup 10%, 입력 512토큰, 3에폭, seed 42. CUDA에서는 bf16, 저장은 fp16이다. 에폭마다 val을 재어
+  가장 좋은 에폭을 남긴다.
+- **지시문(prompt)은 학습에도 평가에도 쓰지 않는다.** 평가기가 질의를 `encode_query`로 인코딩하는데, 이 함수는 prompt가 `None`이면 모델의
+  `prompts["query"]`(Qwen3는 "Instruct: ..." 지시문)를 자동으로 붙인다. 그래서 평가기에는 `query_prompt=""`를 준다
+  (`train_core.EVALUATOR_OPTIONS`).
+- **고르는 점수는 val의 유형별 NDCG@10의 산술 평균이다**(세 유형 같은 가중). 유형마다 앵커를 질의, 같은 유형의 짝을 후보로 놓는다.
+  같은 앵커의 짝이 여럿이면 모두 정답이다. 이슈↔대화 val은 96쌍이라 흔들림이 크다. 유형별 점수와 학습 전(base) 점수도 모두 `metrics.json`에 남는다.
+
+### Mac 시험 실행
+
+GPU에 올리기 전에 작은 모델(`all-MiniLM-L6-v2`, CPU)로 흐름 전체를 돌려 본다. 몇 분이면 끝난다. 저장소 루트에서:
+
+```bash
+# 최초 1회: datasets·accelerate를 더한다 (torch 등은 이미 설치돼 있다)
+eval/embedding_finetune/.venv/bin/python -m pip install -r eval/embedding_finetune/requirements-train.txt
+
+# 1) train.py 단독 — 변형 하나 (약 1분)
+HF_HUB_OFFLINE=1 eval/embedding_finetune/.venv/bin/python eval/embedding_finetune/train.py train \
+  --variant all --model sentence-transformers/all-MiniLM-L6-v2 --out /tmp/ef-smoke/train-all \
+  --device cpu --limit-train 64 --limit-val 32 --epochs 1 --batch-size 8 --mini-batch-size 4
+# → /tmp/ef-smoke/train-all/{model/, metrics.json, manifest.json}. 실패하면 FAILED가 생기고 종료 코드가 1이다
+
+# 2) 묶음 + gpu_run.sh 전체 흐름 (약 2분)
+eval/embedding_finetune/.venv/bin/python eval/embedding_finetune/make_gpu_bundle.py --out /tmp/ef-smoke/bundle.tgz
+mkdir -p /tmp/ef-smoke/gpu-sim && tar xzf /tmp/ef-smoke/bundle.tgz -C /tmp/ef-smoke/gpu-sim && cd /tmp/ef-smoke/gpu-sim
+# (이 터미널에서만 쓰는 시험용 값이다. 터미널을 닫으면 사라진다)
+export ROOT=/tmp/ef-smoke/gpu-root HF_HOME="$HOME/.cache/huggingface" ALLOW_CPU=1 MIN_FREE_GB=1 HF_HUB_OFFLINE=1 \
+  PYTHON=<저장소 절대경로>/eval/embedding_finetune/.venv/bin/python MODEL=sentence-transformers/all-MiniLM-L6-v2 REVISION= \
+  TRAIN_EXTRA_ARGS="--device cpu --limit-train 32 --limit-val 16 --epochs 1 --batch-size 8 --mini-batch-size 4"
+bash ef-bundle/gpu_run.sh start
+bash ef-bundle/gpu_run.sh status      # 끝나면 result-*.tgz 경로와 sha256이 나온다
+```
+
+`HF_HOME`을 직접 주는 이유: 비어 있으면 `gpu_run.sh`가 `$ROOT/hf`를 쓰는데, Mac에서는 그 폴더가 비어 있어 받아 둔 모델을 못 찾는다.
+
+`gpu_run.sh`는 환경변수로 바꾼다(괄호는 기본값):
+
+| 변수 | 뜻 |
+|---|---|
+| `ROOT`(`/mnt/models`), `RUN_ROOT`(`$ROOT/runs`), `VENV`(`$ROOT/venv-ef`), `HF_HOME`(`$ROOT/hf`) | 저장 위치. `HF_HOME`은 이미 있으면 그대로 쓴다 |
+| `MODEL`(Qwen3-Embedding-0.6B), `REVISION` | 기본 모델이면 고정 해시(`97b0c614…`). 빈 문자열이면 리비전 없이 받는다 |
+| `VARIANTS`(`all ko pre2025`) | 돌릴 변형. 순서대로 돌고, 하나가 실패해도 다음으로 넘어간다 |
+| `TRAIN_EXTRA_ARGS` | `train.py`에 덧붙일 인자 (`--mini-batch-size 16`, `--epochs 2` 등) |
+| `MIN_FREE_GB`(20) | `$ROOT` 빈 공간이 이보다 작으면 시작 전에 멈춘다 |
+| `PYTHON` / `SKIP_INSTALL=1` | 환경 설치를 건너뛴다(`PYTHON`은 그 파이썬을, `SKIP_INSTALL`은 `$VENV`를 그대로 쓴다) |
+| `ALLOW_CPU=1`, `HF_HUB_OFFLINE=1` | nvidia-smi·CUDA 확인을 건너뛴다 / 모델 내려받기를 건너뛴다 (시험 실행용). 주지 않아도 모델을 받은 뒤에는 스크립트가 스스로 `HF_HUB_OFFLINE=1`로 바꿔, 학습 중 네트워크가 끊겨도 받아 둔 파일로 돈다 |
+
+### 올릴 묶음 만들기
+
+```bash
+eval/embedding_finetune/.venv/bin/python eval/embedding_finetune/make_gpu_bundle.py
+```
+
+`data/gpu-bundle-<날짜>.tgz`(약 6MB, `data/`는 gitignore)를 만들고, 경로·크기·sha256과 GPU에서 칠 한 줄을 출력한다. 안에는
+`gpu_run.sh`·`train.py`·`train_core.py`·`requirements-train.txt`·`pairs-train/val.jsonl`·`pairs-manifest.json`·`SHA256SUMS`가 들어
+있다. 같은 입력이면 같은 파일(같은 sha256)이 나온다. 만든 뒤 파일을 다시 열어 `SHA256SUMS`와 대조한다.
+
+### GPU에서 할 일 (사용자)
+
+1. **잡을 켠다.** AstraGo에서 이전과 같은 이미지, MIG 3g.40gb 1개, `whycode`를 `/mnt/models`에 붙인다.
+2. **묶음 파일을 올린다.** 웹 터미널의 파일 올리기로 `gpu-bundle-<날짜>.tgz` 하나를 올린다.
+3. **한 줄을 붙여 넣는다.** 올린 폴더에서 (`make_gpu_bundle.py`가 출력한 줄 그대로):
+   ```bash
+   sha256sum gpu-bundle-<날짜>.tgz | cut -c1-8 && tar xzf gpu-bundle-<날짜>.tgz && bash ef-bundle/gpu_run.sh start
+   ```
+   앞 8자가 Mac에서 출력된 값과 같은지 본다. 이어서 압축을 풀고 시작한다. `start`는 먼저 묶음 안 `SHA256SUMS`를 검사해서, 파일이
+   잘렸거나 바뀌었으면 "다시 올려 주세요"로 멈춘다. 통과하면 스스로 백그라운드로 다시 떠서 **브라우저를 닫아도 계속 돈다.**
+4. **기다린다.** 계획 문서의 추정은 설치 10~20분(최초 1회), 학습 최대 1시간 30분이다. 실제 시간은 아직 재 본 적이 없다. 끝난 뒤 `metrics-<변형>.json`의
+   `train_seconds`·`peak_gpu_gib`로 확인한다. 진행은 언제든 `bash ef-bundle/gpu_run.sh status`로 본다(단계·로그 끝 20줄).
+   같은 명령을 다시 쳐도 이미 도는 중이면 거절하므로 안전하다.
+5. **결과 파일 하나를 내려받는다.** 끝나면 `status`가 `/mnt/models/runs/<실행 id>/result-<실행 id>.tgz`와 sha256을 알려 준다.
+6. **잡을 끈다.** 공용 GPU를 반납한다. `/mnt/models`는 잡과 별개로 남는다.
+
+실패하면 `status`가 "실패: [단계] — 로그 끝 30줄을 보내 주세요"와 함께 로그 끝 30줄을 보여 준다. 그대로 복사해 전달한다.
+
+**자주 막힐 곳:**
+- `CUDA out of memory`: 미니배치만 줄이면 된다. 캐시형 손실이라 배치 128의 학습은 그대로이고 메모리만 준다.
+  `TRAIN_EXTRA_ARGS="--mini-batch-size 16" bash ef-bundle/gpu_run.sh start`. 쓰고 있던 메모리는 `metrics-<변형>.json`의 `peak_gpu_gib`에 남는다.
+- 환경 설치 단계의 실패: 같은 명령을 다시 치면 환경을 처음부터 다시 만든다(내려받은 휠은 uv 캐시에 남아 있어 빨라진다). 설치는 끝났는데 CUDA 확인에서
+  실패했다면 완료 표시가 붙어 있어 같은 환경을 다시 쓰므로, `rm -rf /mnt/models/venv-ef`로 지운 뒤 다시 친다.
+- "CUDA를 쓸 수 없습니다": 드라이버 버전이 함께 찍힌다(`env.txt`). cu126 빌드는 드라이버 525 이상이 필요하다.
+- 한 변형만 실패: 나머지 변형은 계속 돌고, 실패한 변형은 `summary.json`에 `failed`와 사유로 남는다.
+
+### 결과 tgz
+
+`result-<실행 id>/` 안에 다음이 들어 있다. 변형 3개 중 **검증 점수 1위 변형**의 모델만 담는다.
+
+| 파일 | 내용 |
+|---|---|
+| `model/` | 1위 변형의 모델(fp16, 약 1.2GB). `SentenceTransformer`로 바로 읽힌다 |
+| `summary.json` | 학습 전(base) 점수, 변형별 상태·유형별 NDCG@10·평균, `chosen` |
+| `metrics-<변형>.json` | 변형별 학습 전·후의 모든 지표, 에폭별 점수·loss, 학습 시간, 저장 확인 결과 |
+| `manifest-<변형>.json` | 변형별 쌍 건수, 입력 파일 sha256, 인자, 라이브러리 버전·GPU |
+| `env.txt` · `run.log` | nvidia-smi·torch/CUDA 확인 결과 / 실행 로그 사본 |
+
+다른 변형의 모델과 기록은 지우지 않는다. `/mnt/models/runs/<실행 id>/<변형>/model`에 남으므로 필요하면 그 폴더에서 받는다.
+체크포인트는 학습이 끝나면 지운다.
+
+### 받은 뒤 Mac에서 할 일
+
+```bash
+shasum -a 256 result-<실행 id>.tgz          # status가 알려 준 sha256과 같은지
+mkdir -p eval/embedding_finetune/models/<실행 id>      # models/는 gitignore
+tar xzf result-<실행 id>.tgz -C eval/embedding_finetune/models/<실행 id>
+```
+
+학습한 모델을 `serve.py`로 띄우고 1단계와 같은 자로 잰다. 서빙 이름은 `precheck_embedding_model.py`의 `qwen3-0.6b-ft`와 같아야 한다.
+
+```bash
+eval/embedding_finetune/.venv/bin/python eval/embedding_finetune/serve.py --dtype fp32 --name qwen3-0.6b-ft \
+  --model eval/embedding_finetune/models/<실행 id>/result-<실행 id>/model
+services/ai-engine/.venv/bin/python eval/precheck_embedding_model.py --only qwen3-0.6b-ft   # 다른 터미널에서
+```
+
+학습 로직 테스트는 모델·GPU 없이 돈다: `services/ai-engine/.venv/bin/python -m pytest eval/tests -q`

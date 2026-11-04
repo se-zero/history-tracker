@@ -46,6 +46,13 @@ def test_registry_keeps_existing_labels_and_adds_four_local_candidates():
     assert len(by) == len(pre.CONFIGS)                    # 라벨은 결과 JSON의 키라 중복되면 덮어쓴다
 
 
+def test_fine_tuned_model_is_registered_under_the_name_serve_py_is_started_with():
+    # 서빙 이름(`serve.py --name qwen3-0.6b-ft`)과 model이 다르면 서버가 400(model_mismatch)으로 거절한다
+    config = next(c for c in pre.CONFIGS if c["label"] == "qwen3-0.6b-ft")
+
+    assert config == {"label": "qwen3-0.6b-ft", "model": "qwen3-0.6b-ft", "dimensions": None, "base_url": LOCAL_URL}
+
+
 def test_current_label_is_the_production_setting():
     # 재현 검증이 대조하는 설정 — 운영(embedder.py)과 같은 3-large@1536이어야 의미가 있다
     current = next(c for c in pre.CONFIGS if c["label"] == pre.CURRENT_LABEL)
