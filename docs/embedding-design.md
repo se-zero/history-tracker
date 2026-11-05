@@ -27,6 +27,28 @@
 3072이 아니라 1536으로 절삭해 쓰는 이유는 사전 조회에서 1536과 3072의 관련/무관 쌍 분리도 차이가
 AUC +0.0026(95% CI [−0.005, +0.010])으로 **측정 해상도 안에서 구분되지 않았다** — 차원을 늘릴 실익이 없다.
 
+### 모델·차원은 환경변수로 바꿀 수 있다 (실험용 스위치)
+
+기본값은 위 표 그대로이고, 배포 설정은 바뀌지 않는다(비우면 현행). 아래 값을 넣으면 **임베딩만** 다른 서버(OpenAI 호환 `/v1/embeddings`)로 보내고, 답변·요약 LLM은 계속 OpenAI를 쓴다(`docs/embedding-finetune.md`).
+
+| 변수 | 뜻 |
+|---|---|
+| `EMBEDDING_BASE_URL` | 임베딩 서버 주소. 비우면 OpenAI. 예: `http://host.docker.internal:8100/v1` |
+| `EMBEDDING_API_KEY` | 그 서버의 인증값. 비우면 자리표시자(`unused`) |
+| `EMBEDDING_MODEL` | 요청에 싣는 모델 이름. 기본 `text-embedding-3-large` |
+| `EMBEDDING_DIMENSIONS` | 벡터 차원. 기본 `1536`. 정수가 아니거나 1 미만이면 기동이 실패한다. 모델의 원래 차원보다 크게 줄 수 없다 |
+| `EMBEDDING_TIMEOUT_SECONDS` | 임베딩 호출 제한 시간(초). 기본 `60` |
+
+모델명과 차원은 그래프의 계약이다. 코드가 같은 차원으로 벡터 인덱스를 만들고, 기동할 때 실제 인덱스 차원과 대조해 어긋나면 `DROP INDEX` 명령을 안내하며 기동을 막는다(`graph/schema.py`의 `ensure_vector_index_dimensions`). 지금 적용 중인 모델·차원은 `GET /query/config`의 `embedding_model`·`embedding_dimensions`로 보이고, eval 러너가 이 값을 meta에 기록한다.
+
+**차원이 바뀌는 모델 교체 절차:**
+1. ai-engine을 멈추고 벡터 인덱스 3개(`comm_embedding`·`issue_embedding`·`doc_section_embedding`)를 `DROP INDEX`로 지운다. 벡터 인덱스는 `IF NOT EXISTS`라 옛 인덱스가 남기 때문이다.
+2. 환경변수를 바꿔 기동한다. 인덱스가 새 차원으로 다시 만들어진다.
+3. `force=true` 재임베딩 4종(Communication·ChangeSet·Issue 노드, MODIFIED 엣지)을 돌리고 모두 `saved == total`을 확인한다. 이벤트 재주입은 쓰지 않는다. 요약 LLM이 다시 돌아 변수가 둘이 된다(`docs/measurement.md` §4.5).
+4. 시맨틱 엣지 임계값을 다시 스윕한다(아래 「threshold 선정 근거」).
+
+`DocumentSection`은 재임베딩 라우트가 없다. 코드에 문서 섹션만 다시 임베딩하는 경로가 없어, Notion 문서가 있는 프로젝트는 문서를 다시 수집해야 한다.
+
 ---
 
 ## 임베딩 대상
@@ -166,7 +188,9 @@ Document)는 다른 윈도우를 쓴다 — 문서는 오래 살아 상한을 �
 
 | 파일 | 역할 |
 |------|------|
-| `graph/embedder.py` | `embed_text()`, `embed_batch()`, `cosine_similarity()` |
+| `graph/embedder.py` | `embed_text()`, `embed_batch()`, `cosine_similarity()`, 모델·차원 설정(`EMBEDDING_MODEL`·`EMBEDDING_DIMENSIONS`) |
+| `openai_client.py` | 임베딩 게이트웨이 `embed()`와 클라이언트 선택 `get_embedding_client()`(`EMBEDDING_BASE_URL`이 비면 OpenAI 클라이언트 그대로) |
+| `graph/schema.py` | 벡터 인덱스 3개 생성(차원은 `EMBEDDING_DIMENSIONS`)과 기동 때 인덱스 차원 대조 `ensure_vector_index_dimensions()` |
 | `graph/reference_builder.py` | REFERENCE(ChangeSet↔Communication) 엣지 배치 생성, Communication·ChangeSet 메시지·MODIFIED 임베딩 보정 |
 | `graph/document_chunker.py` | Document 본문을 `DocumentSection` 단위로 청킹(순수 함수, Neo4j·OpenAI 미의존) |
 | `graph/document_linker.py` | REFERENCE(ChangeSet↔Document)·DESCRIBED_IN(Issue↔Document) 엣지 배치 생성 |

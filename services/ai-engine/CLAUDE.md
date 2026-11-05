@@ -30,6 +30,13 @@ uvicorn main:app --reload --port 8000
 `CONTEXT_CARD_BUDGET_CHARS`(최종 답변 맥락 카드 글자 예산, 기본 `6000`).
 질의 도구 노브(선택): `ACTOR_ACTIVITY_CONTEXT_CAP_PER_KIND`(사람 활동 개요 stub 종류별 상한, 기본 `10`).
 
+임베딩 서버 교체(선택, 실험용 — `docs/embedding-finetune.md`): `EMBEDDING_BASE_URL`(OpenAI 호환 `/v1/embeddings` 주소, 비우면
+OpenAI)·`EMBEDDING_API_KEY`(비우면 자리표시자)·`EMBEDDING_MODEL`(기본 `text-embedding-3-large`)·`EMBEDDING_DIMENSIONS`(기본 `1536`,
+벡터 인덱스 차원과 같아야 한다)·`EMBEDDING_TIMEOUT_SECONDS`(기본 `60`). 전부 비우면 현행 동작이고, 적용 중인 모델·차원은
+`/query/config`의 `embedding_model`·`embedding_dimensions`로 노출된다. 기동 때 `schema.ensure_vector_index_dimensions()`가
+인덱스 3개의 실제 차원을 설정과 대조해 어긋나면 `DROP INDEX` 안내와 함께 기동을 막는다(초기화가 30번 재시도하므로 약 60초 뒤).
+차원을 바꾸는 절차는 `docs/embedding-design.md`의 「모델·차원은 환경변수로 바꿀 수 있다」.
+
 수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_CHANGESET_LOOKAHEAD`(기본 `8`, `0`=비활성),
 `INGEST_EMBED_COALESCE_MAX`/`INGEST_EMBED_COALESCE_WINDOW_MS`(커밋 메시지 임베딩 코얼레싱, 기본 `8`/`50ms` —
 `MAX` 기본은 look-ahead와 정렬, `MAX=1`이면 대기창 없이 단건 호출), prefetch는 두 겹이다 —
@@ -134,7 +141,8 @@ PYTHONPATH=. python tests/integration/test_phase1_regression.py
 
 ```
 main.py            FastAPI 앱 부트스트랩 — lifespan(Neo4j 초기화·consumer 기동) + /health + 라우터 include
-openai_client.py   공유 OpenAI 클라이언트 (lazy lru_cache 팩토리)
+openai_client.py   공유 OpenAI 클라이언트 (lazy lru_cache 팩토리) + 임베딩 클라이언트 선택(`get_embedding_client` —
+                   `EMBEDDING_BASE_URL`이 비면 같은 공유 클라이언트, 있으면 임베딩 전용 별도 클라이언트)
 alerts.py          운영자 알림 — Slack 웹훅 감지·억제·발송·카운터 (openai_client.py·consumer.py 훅)
 query_models.py    요청/응답 Pydantic 모델 (QueryRequest, SummaryRequest)
 conftest.py        pytest 부트스트랩 (OPENAI_API_KEY shim)
@@ -190,7 +198,7 @@ graph/             Neo4j 그래프 구축 + 수집
   embed_batcher.py    커밋 메시지 임베딩 마이크로배처 — 짧은 대기창 동안 단건 호출을 코얼레싱해 embed_batch 1콜로 묶음
   builder.py         facade — 아래 분해 모듈의 공개 심볼 re-export (하위 호환)
     driver.py            드라이버 수명주기 (get_driver/close_driver)
-    schema.py            벡터 인덱스·유니크 제약 부트스트랩 (+ 옛 node_search 인덱스 제거)
+    schema.py            벡터 인덱스·유니크 제약 부트스트랩 (+ 옛 node_search 인덱스 제거, 벡터 인덱스 차원 가드)
     writes.py            NormalizedEvent 단위 upsert/link (수집 쓰기 경로)
     maintenance.py       백필·마이그레이션·정리·프로젝트 삭제
     reference_store.py   REFERENCE 엣지용 ReferenceStore 어댑터
@@ -216,6 +224,7 @@ graph/             Neo4j 그래프 구축 + 수집
   import한다 — facade를 경유하면 순환 import가 생긴다.
 - **OpenAI 클라이언트는 `openai_client.get_openai_client()`(비동기 `AsyncOpenAI`)만 사용**한다. 모듈 레벨에서
   `OpenAI(...)`/`AsyncOpenAI(...)`를 직접 생성하지 않는다 (중복·import 시점 키 강제 방지).
+  임베딩은 게이트웨이 `embed()`가 `get_embedding_client()`로 클라이언트를 고른다 — 호출부는 신경 쓰지 않는다.
 - **chat/embedding 호출은 게이트웨이(`openai_client.chat_completion` / `openai_client.embed`)로** 한다.
   `client.chat.completions.create()`를 직접 호출하지 않는다 — 게이트웨이가 `rate_limiter`로 RPM·TPM을
   페이싱하고 우선순위(`Priority.INTERACTIVE` 질의 / `Priority.BACKGROUND` 수집·빌드)를 적용한다.
