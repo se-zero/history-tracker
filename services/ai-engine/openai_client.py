@@ -3,6 +3,7 @@
 여러 모듈이 각자 import 시점에 OpenAI()를 만들던 것을 단일 lazy 싱글턴으로 합친다.
 - lazy: 최초 호출 시점에 생성 → 모듈 import만으로는 OPENAI_API_KEY가 필요 없다 (오프라인 import/테스트 가능).
 - 단일 설정점: base_url·timeout·재시도 등을 이 한 곳에서만 조정한다.
+- 예외: 임베딩만 EMBEDDING_BASE_URL의 OpenAI 호환 서버로 보낼 수 있다(get_embedding_client). 비우면 공용 클라이언트다.
 
 모든 chat/embedding 호출은 이 모듈의 게이트웨이(chat_completion·embed)를 통한다.
 클라이언트는 비동기(AsyncOpenAI)라 스레드풀을 거치지 않는다 — 동시 호출 수가 스레드풀 크기 상한에
@@ -47,6 +48,31 @@ def get_openai_client() -> AsyncOpenAI:
     """
     max_retries = _env_int("OPENAI_MAX_RETRIES", 3)
     return AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=_DEFAULT_TIMEOUT, max_retries=max_retries)
+
+
+def get_embedding_client() -> AsyncOpenAI:
+    """embeddings 호출에 쓰는 클라이언트. env EMBEDDING_BASE_URL이 비면 공용 클라이언트를 그대로 돌려준다.
+
+    값이 있으면 그 OpenAI 호환 서버로 임베딩만 보낸다 — chat은 계속 공용 클라이언트라 답변 LLM은 옮겨 가지 않는다
+    (OPENAI_BASE_URL은 클라이언트 하나를 통째로 바꾸므로 이 용도로 쓸 수 없다).
+    비었을 때 새 객체가 아니라 공용 클라이언트를 돌려주는 이유: 기본 동작을 지금과 똑같이 유지하고,
+    공용 클라이언트의 embeddings를 패치하는 기존 테스트가 그대로 맞물리게 하려는 것이다.
+
+    env를 호출마다 읽고 인자를 키로 캐시하므로 같은 설정이면 같은 객체, 설정이 바뀌면 새 객체가 나온다.
+    """
+    base_url = os.environ.get("EMBEDDING_BASE_URL", "").strip()
+    if not base_url:
+        return get_openai_client()
+    # 자체 서버는 키를 검증하지 않지만 SDK는 빈 키를 거부한다. 공용 OPENAI_API_KEY를 다른 서버로 보내지 않는다.
+    api_key = os.environ.get("EMBEDDING_API_KEY", "").strip() or "unused"
+    # 0 이하·정수 아님은 기본값 — _env_int가 음수를 0으로 깎으므로 `or`로 함께 받는다
+    timeout = _env_int("EMBEDDING_TIMEOUT_SECONDS", int(_DEFAULT_TIMEOUT)) or int(_DEFAULT_TIMEOUT)
+    return _embedding_client_for(base_url, api_key, timeout, _env_int("OPENAI_MAX_RETRIES", 3))
+
+
+@lru_cache(maxsize=None)
+def _embedding_client_for(base_url: str, api_key: str, timeout: int, max_retries: int) -> AsyncOpenAI:
+    return AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout, max_retries=max_retries)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -131,7 +157,7 @@ async def embed(*, model: str, input, priority: Priority, dimensions: int | None
         reserved = await limiter.acquire(priority, est)
         raw = resp = headers = None
         try:
-            raw = await get_openai_client().embeddings.with_raw_response.create(**kwargs)
+            raw = await get_embedding_client().embeddings.with_raw_response.create(**kwargs)
             headers = raw.headers
             resp = raw.parse()  # 동기 — await 금지. base64→float 변환까지 여기서 한다
             alerts.record_openai_success()
