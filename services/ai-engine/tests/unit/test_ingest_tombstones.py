@@ -661,7 +661,7 @@ def test_lifespan_loads_tombstones_before_starting_consumer(monkeypatch):
     monkeypatch.setattr(main, "get_driver", lambda: None)
     for name in (
         "drop_legacy_issue_constraint", "ensure_constraints", "ensure_vector_indexes",
-        "drop_node_search_index", "backfill_actor_aliases", "close_driver",
+        "ensure_vector_index_dimensions", "drop_node_search_index", "backfill_actor_aliases", "close_driver",
     ):
         monkeypatch.setattr(main, name, noop)
     monkeypatch.setattr(main, "load_tombstones", fake_load)

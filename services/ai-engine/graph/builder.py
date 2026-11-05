@@ -45,6 +45,7 @@ from graph.schema import (
     drop_legacy_issue_constraint,
     drop_node_search_index,
     ensure_constraints,
+    ensure_vector_index_dimensions,
     ensure_vector_indexes,
 )
 from graph.writes import (
@@ -83,6 +84,7 @@ __all__ = [
     "get_driver",
     "close_driver",
     "ensure_vector_indexes",
+    "ensure_vector_index_dimensions",
     "drop_node_search_index",
     "drop_legacy_issue_constraint",
     "ensure_constraints",

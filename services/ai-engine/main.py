@@ -20,6 +20,7 @@ from graph.builder import (
     drop_legacy_issue_constraint,
     drop_node_search_index,
     ensure_constraints,
+    ensure_vector_index_dimensions,
     ensure_vector_indexes,
     get_driver,
 )
@@ -48,6 +49,8 @@ async def lifespan(app: FastAPI):
                 await drop_legacy_issue_constraint()
                 await ensure_constraints()
                 await ensure_vector_indexes()
+                # 모델·차원을 env로 바꿔 띄웠는데 옛 차원 인덱스가 남아 있으면 여기서 막는다.
+                await ensure_vector_index_dimensions()
                 # 옛 통합 검색이 쓰던 full-text 인덱스 제거 (읽는 코드가 없어 색인 비용만 남는다).
                 await drop_node_search_index()
                 # A: 구버전 Actor의 aliases 배열을 ActorAlias 인덱스 노드로 백필한다.

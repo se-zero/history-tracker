@@ -83,11 +83,15 @@ async def query_config():
         _REWRITE_MODEL,
         _SUMMARY_MODEL,
     )
+    from graph.embedder import EMBEDDING_DIMENSIONS, EMBEDDING_MODEL
     from tools.queries._common import _MIN_CONFIDENCE
     from tools.queries.files import _CONTEXT_CAP, _DETAIL_BUDGET, _DETAIL_K_MAX, _MAX_COMMITS
 
     return {
         "query_model": _MODEL,
+        # 임베딩 서버 주소는 싣지 않는다 — 어느 모델·차원으로 만든 그래프인지만 기록하면 런 비교에 충분하다
+        "embedding_model": EMBEDDING_MODEL,
+        "embedding_dimensions": EMBEDDING_DIMENSIONS,
         "summary_model": _SUMMARY_MODEL,
         "rewrite_model": _REWRITE_MODEL,
         "reasoning_effort": _REASONING_EFFORT,  # 빈 문자열 = 파라미터 미전송(API 기본값)

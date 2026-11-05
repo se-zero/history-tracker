@@ -96,6 +96,7 @@ BUILDER_PUBLIC = [
     "get_driver",
     "close_driver",
     "ensure_vector_indexes",
+    "ensure_vector_index_dimensions",
     "drop_node_search_index",
     "drop_legacy_issue_constraint",
     "ensure_constraints",

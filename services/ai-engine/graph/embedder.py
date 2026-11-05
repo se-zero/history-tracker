@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+import os
 
 import numpy as np
 
@@ -9,8 +10,32 @@ from rate_limiter import truncate_to_tokens
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "text-embedding-3-large"
-_DIMENSIONS = 1536  # 절삭 — Neo4j 벡터 인덱스 차원 유지 (근거는 docs/embedding-design.md)
+
+def _dimensions_from_env() -> int:
+    """EMBEDDING_DIMENSIONS를 읽는다. 비면 1536, 정수가 아니거나 1 미만이면 기동을 막는다.
+
+    기본값으로 조용히 돌아가면 이 값으로 만드는 벡터 인덱스 차원과 실제 임베딩 차원이 어긋난 채 도는데,
+    그 상태는 쓰기 실패나 신·구 벡터 혼용으로 한참 뒤에야 드러난다.
+    """
+    raw = os.environ.get("EMBEDDING_DIMENSIONS", "").strip()
+    if not raw:
+        return 1536
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ValueError(f"EMBEDDING_DIMENSIONS는 1 이상의 정수여야 합니다: {raw!r}")
+    return value
+
+
+# env로 모델·차원을 바꿀 수 있다 — 비우면 현행(text-embedding-3-large, 1536). schema.py의 벡터 인덱스 DDL과
+# /query/config가 같은 값을 읽도록 공개 이름을 두고, 기존 코드·테스트가 쓰는 _MODEL·_DIMENSIONS는 그 값으로 채운다.
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "").strip() or "text-embedding-3-large"
+# 3-large는 1536으로 절삭 — Neo4j 벡터 인덱스 차원 유지 (근거는 docs/embedding-design.md)
+EMBEDDING_DIMENSIONS = _dimensions_from_env()
+_MODEL = EMBEDDING_MODEL
+_DIMENSIONS = EMBEDDING_DIMENSIONS
 _BATCH_CHUNK_SIZE = 200  # OpenAI Embedding API 호출당 입력 수 상한 (요청당 토큰 한도 회피)
 # 입력 1건당 토큰 상한. 모델 상한 8,192에 여유를 둔다 — 배포 실측: 파일 요약 1건이 8,192토큰을 넘어
 # 400으로 거절되며 같이 보낸 묶음 23건이 전부 결손됐다.

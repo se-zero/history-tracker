@@ -3,44 +3,89 @@
 import logging
 
 from graph.driver import get_driver
+from graph.embedder import EMBEDDING_DIMENSIONS
 
 logger = logging.getLogger(__name__)
+
+# 차원 가드가 대조하는 벡터 인덱스 — ensure_vector_indexes가 만드는 세 개와 같다
+_VECTOR_INDEX_NAMES = ("comm_embedding", "issue_embedding", "doc_section_embedding")
 
 
 async def ensure_vector_indexes() -> None:
     """comm_embedding, issue_embedding, doc_section_embedding 벡터 인덱스를 생성한다."""
     async with get_driver().session() as session:
         await session.run(
-            """
+            f"""
             CREATE VECTOR INDEX comm_embedding IF NOT EXISTS
             FOR (c:Communication) ON (c.embedding)
-            OPTIONS { indexConfig: {
-                `vector.dimensions`: 1536,
+            OPTIONS {{ indexConfig: {{
+                `vector.dimensions`: {EMBEDDING_DIMENSIONS},
                 `vector.similarity_function`: 'cosine'
-            }}
+            }}}}
             """
         )
         await session.run(
-            """
+            f"""
             CREATE VECTOR INDEX issue_embedding IF NOT EXISTS
             FOR (i:Issue) ON (i.embedding)
-            OPTIONS { indexConfig: {
-                `vector.dimensions`: 1536,
+            OPTIONS {{ indexConfig: {{
+                `vector.dimensions`: {EMBEDDING_DIMENSIONS},
                 `vector.similarity_function`: 'cosine'
-            }}
+            }}}}
             """
         )
         await session.run(
-            """
+            f"""
             CREATE VECTOR INDEX doc_section_embedding IF NOT EXISTS
             FOR (s:DocumentSection) ON (s.embedding)
-            OPTIONS { indexConfig: {
-                `vector.dimensions`: 1536,
+            OPTIONS {{ indexConfig: {{
+                `vector.dimensions`: {EMBEDDING_DIMENSIONS},
                 `vector.similarity_function`: 'cosine'
-            }}
+            }}}}
             """
         )
     logger.info("벡터 인덱스 확인 완료 (comm_embedding, issue_embedding, doc_section_embedding)")
+
+
+async def ensure_vector_index_dimensions() -> None:
+    """벡터 인덱스 3개의 실제 차원이 EMBEDDING_DIMENSIONS와 같은지 확인하고, 다르면 기동을 막는다.
+
+    ensure_vector_indexes의 CREATE ... IF NOT EXISTS는 이미 있는 인덱스의 차원을 검사하지 않는다 —
+    모델·차원을 env로 바꿔 띄우면 DDL은 조용히 통과하고 옛 차원 인덱스가 그대로 남는다. 그 상태로
+    수집하면 새 벡터가 인덱스에서 빠지거나 신·구 벡터가 섞여 유사도가 의미를 잃으므로 기동 때 잡는다.
+    인덱스는 만든 뒤 차원을 바꿀 수 없어 자동으로 고치지 않는다 — 지우는 건 운영자의 결정이다.
+
+    ensure_vector_indexes와 합치지 않은 이유: 그 함수는 결과를 읽지 않는 쓰기 전용이라 기존 테스트의
+    가짜 세션(run이 None 반환)이 이 조회를 견디지 못한다.
+    아직 만들어지지 않은 인덱스는 비교 대상이 아니다(바로 앞 단계에서 설정 차원으로 만들어진다).
+    """
+    async with get_driver().session() as session:
+        result = await session.run(
+            "SHOW VECTOR INDEXES YIELD name, options "
+            'RETURN name, options.indexConfig["vector.dimensions"] AS dimensions'
+        )
+        rows = await result.data()
+
+    current = {row["name"]: row["dimensions"] for row in rows}
+    mismatched = [
+        (name, current[name])
+        for name in _VECTOR_INDEX_NAMES
+        if name in current and current[name] != EMBEDDING_DIMENSIONS
+    ]
+    if not mismatched:
+        return
+
+    detail = ", ".join(f"{name}(현재 {dim}, 설정 {EMBEDDING_DIMENSIONS})" for name, dim in mismatched)
+    drops = "\n".join(f"DROP INDEX {name};" for name, _ in mismatched)
+    raise RuntimeError(
+        f"벡터 인덱스 차원이 EMBEDDING_DIMENSIONS와 다르다: {detail}.\n"
+        "인덱스는 만든 뒤 차원을 바꿀 수 없다. Neo4j에서 아래 명령으로 지우고 ai-engine을 다시 띄우면 "
+        "설정 차원으로 다시 만들어진다:\n"
+        f"{drops}\n"
+        "그 뒤 구 모델 벡터는 새 인덱스와 비교할 수 없으므로 force=true 재임베딩 4종을 돌려야 한다: "
+        "POST /reference/backfill, /migrations/changeset-embeddings, /migrations/issue-embeddings, "
+        "/migrations/modified-embeddings."
+    )
 
 
 async def drop_node_search_index() -> None:
