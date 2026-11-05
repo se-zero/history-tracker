@@ -87,6 +87,13 @@ services:
       OPENAI_RPM_EMBED: ${OPENAI_RPM_EMBED:-}
       OPENAI_TPM_EMBED: ${OPENAI_TPM_EMBED:-}
       OPENAI_MAX_RETRIES: ${OPENAI_MAX_RETRIES:-3}
+      # 임베딩만 OpenAI 호환 서버(/v1/embeddings)로 보낼 때 쓴다 — 답변 LLM(chat)은 계속 OpenAI다. 전부 비우면 OpenAI
+      # (text-embedding-3-large, 1536). 서버 예: http://host.docker.internal:8100/v1. 모델·차원을 바꾸면 벡터 인덱스를 새로 만들어야 한다.
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-}
+      EMBEDDING_TIMEOUT_SECONDS: ${EMBEDDING_TIMEOUT_SECONDS:-}
       # 수집(BACKGROUND) OpenAI 동시 요청 상한. 질의(INTERACTIVE)는 이 게이트를 거치지 않는다.
       OPENAI_BACKGROUND_CONCURRENCY: ${OPENAI_BACKGROUND_CONCURRENCY:-32}
       # 수집 동시성·프리페치 — .env 에서 forward. 기본값 = 코드 기본값과 동일.
