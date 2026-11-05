@@ -46,7 +46,7 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
 | 서비스 | 기술 | 역할 |
 |--------|------|------|
 | `pipeline-worker` | Spring Boot :8081 | 외부 API/웹훅 수집, NormalizedEvent 변환, RabbitMQ 발행. checkpoint 기반 증분 수집 |
-| `RabbitMQ` | Message Broker | NormalizedEvent 큐잉 (프로젝트별 큐 `history.project.<projectId>`, 기본 익스체인지로 발행. 이번 릴리스 동안 호환 큐 `history.events`도 소비) |
+| `RabbitMQ` | Message Broker | NormalizedEvent 큐잉 (프로젝트별 큐 `history.project.<projectId>`, 기본 익스체인지로 발행) |
 | `ai-engine` | Python/FastAPI :8000 | GraphRAG tool-calling 에이전트(OpenAI), 임베딩, Neo4j 그래프 구축. RabbitMQ consumer 겸 HTTP 질의 API |
 | `Neo4j` | Graph DB | 지식 그래프 저장소 (vector index 포함) |
 | `backend` | Spring Boot :8080 | 사용자·프로젝트·연동·대화 관리, RDB, 프론트엔드 API. ai-engine/pipeline-worker 연동 |

@@ -314,7 +314,6 @@ Notion이 첫 사례다(`docs/notion-integration.md`). 한 페이지가 수만 �
 
 **소비 (ai-engine)**
 - 프로젝트 큐마다 단일 활성 소비자(`x-single-active-consumer`)라 한 프로젝트의 이벤트는 한 소비자가 순서대로 받는다.
-  이번 릴리스 동안은 호환 큐 `history.events`(`event.#`)도 함께 소비한다.
 - 실패한 이벤트는 지연 재시도 큐를 거쳐 **원래 큐로 복귀**해 다시 소비되고, 소진 시 DLQ로 보관한다(조용히 버리지 않는다).
 - 같은 프로젝트의 이벤트는 직렬 처리(노드 경합·Actor race 방지), 프로젝트 간은 병렬이다.
 - 모든 쓰기는 `(project_id, 자연키)` 복합키 MERGE라(Issue는 `(project_id, source, external_id)`)

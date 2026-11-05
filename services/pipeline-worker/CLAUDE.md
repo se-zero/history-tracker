@@ -154,8 +154,7 @@ GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 cr
 `x-single-active-consumer: true` **뿐**이다 — 다른 인자를 붙이면 ai-engine의 passive 확인과 406으로 충돌한다.
 발행은 기본 익스체인지(이름 `""`)에 큐 이름을 routing key로 바로 넣는다(기본 익스체인지는 모든 큐가 자기 이름으로
 묶여 있어 바인딩 선언이 없다). `mandatory`라 큐가 없으면 반환(unroutable)돼 다음 틱에 재선언·재전송한다.
-worker는 `history.exchange`·`history.events`·바인딩 `event.#`를 더 이상 선언하지 않는다(ai-engine이 이번 릴리스 동안
-호환 큐로 선언·소비한다).
+옛 토폴로지(`history.exchange`·`history.events`·바인딩 `event.#`)는 제거됐다.
 
 발행은 트랜잭셔널 아웃박스를 거친다. `EventPublisher.publishAll`은 이벤트를 `ingest_outbox`에 **한 페이지 = 한 트랜잭션**으로 INSERT만 하고 브로커와 대화하지 않는다. DB 예외(`DataAccessException`)는 전파돼 해당 `SourceCollector`가 checkpoint를 전진시키지 않으므로(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)이 없고 다음 수집에서 다시 적재한다. 커서는 아웃박스 트랜잭션에 넣지 않는다 — 커서 시점은 커넥터가 소유한다. `OutboxRelay`는 1초마다(`@Scheduled fixedDelay`) 미발행 행을 id 순 200건씩 프로젝트 큐에 발행하고(배치가 가득 차면 즉시 다음 배치) confirm을 id 순으로 확인해 **첫 실패 직전까지의 접두사만** `published_at`을 채운다. 실패분은 다음 틱에 재전송하므로 at-least-once이고, 중복은 ai-engine의 MERGE가 흡수한다. `OutboxCleanup`이 발행 완료 1일 지난 행을 시간마다 지운다. 릴레이는 **단일 인스턴스 전제**다(`SKIP LOCKED` 없음). 릴레이가 쓰는 연결 설정은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿 `mandatory=true`이고, confirm 대기 한도 `app.rabbitmq.publish-confirm-timeout-ms`는 릴레이의 배치 대기 한도라 초과해도 수집은 실패하지 않는다.
 

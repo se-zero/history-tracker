@@ -2,8 +2,6 @@
 
 postprocess→consumer 순환을 피하려고 여기 둔다(consumer가 postprocess.mark_dirty를 import한다).
 그래서 graph 패키지의 어떤 모듈도 import하지 않는다.
-
-구 큐 `history.events` 잔량은 프로젝트별 귀속이 안 돼 스냅샷에 없다(디스패처 대기분은 잡힌다).
 """
 
 from typing import Callable
