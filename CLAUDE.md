@@ -121,7 +121,8 @@ cd infra/docker
 - `docs/actor-manual-merge.md` - Actor 수동 병합·분리 설계 (ActorDecision 영속화, resolver veto, unmerge/split)
 - `docs/jira-personal-data-policy.md` - Jira 개인정보 보고 정책 — 보고 사이클, closed/access_lost 삭제 규칙, 배포 시 봇 계정 등록 절차
 - `docs/embedding-design.md` - 임베딩 모델 선택, 대상 노드/엣지, REFERENCE 엣지 생성 흐름, Neo4j Vector Index 도입 계획
-- `docs/embedding-finetune.md` - 임베딩 대체 실험(**진행 중**, 브랜치 `feat/embedding-finetune`) — 공개 데이터로 파인튜닝한 오픈 모델이 text-embedding-3-large를 대체할 수 있는지 관문 4개로 측정한다. 학습은 학교 GPU(웹 터미널·파일 주고받기), 후보 비교·서빙은 Mac. 팀·고객 데이터와 OpenAI 출력은 학습에 쓰지 않는다
+- `docs/embedding-finetune.md` - 임베딩 대체 실험(**관문 4까지 측정 완료, 정리 중**, 브랜치 `feat/embedding-finetune`) — 공개 데이터로 파인튜닝한 오픈 모델이 text-embedding-3-large를 대체할 수 있는지 관문 4개로 측정한다. 학습은 학교 GPU(웹 터미널·파일 주고받기), 후보 비교·서빙은 Mac. 팀·고객 데이터와 OpenAI 출력은 학습에 쓰지 않는다
+- `docs/embedding-finetune-report.md` - 위 실험의 **데이터 중심 총정리** — 사전 준비(학습 데이터·기준 그래프·판정 기준)·환경·결과(관문 1–4)·해석. 결론은 사전 기준으로 '대체 불가'이나 그래프 구조에 정답이 묶인 케이스 1개를 빼면 '구분 불가, 환각률 개선'이고 파인튜닝의 기여는 확인하지 못했다. 실험 결과를 인용할 때 먼저 읽는다
 - `docs/DB.md` - backend PostgreSQL 테이블 정의 및 관계도 (Flyway V1~)
 - `docs/deployment.md` - 실사용 배포 가이드 — 호스트 사양(Proxmox VM), `./prod.sh` 절차, OAuth 콜백 9종·GitHub webhook·Search Console 등록 체크리스트, 자원 상한의 근거. **배포 관련 작업 전에 읽는다**
 - `docs/deployment-followups.md` - 배포 경로 후속 작업 — RabbitMQ 자격증명 URL 분리, 터널 실기동 검증(도메인 대기), pipeline-worker 인바운드 인증 검토

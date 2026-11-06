@@ -1,6 +1,6 @@
 # 임베딩 대체 실험 — text-embedding-3-large → 파인튜닝한 오픈 모델
 
-> **상태: 진행 중** (브랜치 `feat/embedding-finetune`, 2026-11-03 착수). 2단계 학습과 관문 2를 마쳤고(2026-11-05) 3단계 코드 작업 중이다. 목적은 **실험**이다.
+> **상태: 진행 중** (브랜치 `feat/embedding-finetune`, 2026-11-03 착수). 관문 4까지 측정을 마쳤다(2026-11-06). **데이터 중심 총정리는 [embedding-finetune-report.md](embedding-finetune-report.md)에 있다.** 목적은 **실험**이다.
 > 프로덕션 설정은 바꾸지 않고, 대체가 안 된다는 결과도 그대로 기록한다.
 > 측정 방법의 정본은 [measurement.md](measurement.md), 임베딩 구조의 정본은 [embedding-design.md](embedding-design.md)다.
 
@@ -229,8 +229,8 @@
 | 2 학습 데이터 | 2026-11-04 | 155개 저장소를 실패 없이 받았다(저장소별 시간 합 2.8시간). 첫 build(train 30,859·val 3,534)는 표본 50쌍의 같은 사안 비율이 66%(층 가중 75%)라 기준 80%에 못 미쳤다. 사람 계정으로 올라온 기계 글을 거르고 커밋 제목 앵커를 끈 뒤 train 24,996·val 1,762쌍이 됐다. 새 표본(시드 43)은 82%(층 가중 83.5%)로 기준을 넘었다. 상세는 아래 「2단계 데이터 결과」 | `eval/embedding_finetune/data/`(로컬, git 미포함): `raw/`(288MB), `pairs-train.jsonl`·`pairs-val.jsonl`·`pairs-manifest.json`, 표본 `pairs-sample50.jsonl`(시드 43)·`pairs-sample50-seed42-before-fix.jsonl`(첫 build), 수집 로그 `fetch-2026-11-04.log` |
 | 2 학습(GPU) | 2026-11-04–05 | 학교 GPU(MIG 3g.40gb)에서 변형 all·ko·pre2025를 학습했다. 학습 시간은 5,284·4,112·4,431초로 합 약 3시간 50분, 최대 GPU 메모리는 19.1GiB다. 첫 실행은 미니배치 32에서 세 변형 모두 CUDA 메모리 부족으로 죽었고(37.3GiB 할당, 39.25GiB 중), 미니배치 8로 다시 돌렸다. 공개 검증 NDCG@10 평균은 학습 전 0.5690에서 all 0.6536·ko 0.6550·pre2025 0.6460으로 올랐고 ko가 뽑혔다(all과 0.0014 차이라 사실상 동률). 상세는 아래 「2단계 학습 결과」 | GPU `/mnt/models/runs/ef-20261104-225032/`(세 변형 모델·기록). Mac `eval/embedding_finetune/models/ef-20261104-225032/result-ef-20261104-225032/`(ko 모델, 변형별 `metrics-*.json`·`summary.json`·`run.log`, 로컬 git 미포함). 결과 tgz sha256 `2a701609bca585927c02786d6dd5a583f90050b10e492835b936370a27978785` |
 | 관문 2 | 2026-11-05 | ko 모델(`qwen3-0.6b-ft`)을 우리 팀 라벨로 쟀다. 3-large 대비 REFERENCE +0.056 [−0.012, +0.125], DISCUSSED_IN −0.014 [−0.073, +0.044]로 구분 불가이고, 학습 전 Qwen3 대비도 −0.018, +0.035로 구분 불가다. 종료 조건(둘 다 3-large보다 확실히 낮음)에 걸리지 않아 3단계로 간다. 공개 검증에서 크게 오른 REFERENCE가 우리 라벨에서는 오르지 않았다. 사용자가 학습한 모델로 3·4단계를 진행하기로 했다. 상세는 아래 「관문 2 결과」 | `eval/results/precheck-2026-11-05-qwen3-0.6b-ft.json`, `precheck-retrieval-2026-11-05-qwen3-0.6b-ft.json`, `precheck-compare-2026-11-05.json`(3-large 기준), `precheck-compare-2026-11-05-ft-vs-base.json`(학습 전 Qwen3 기준)(로컬, git 미포함) |
-| 관문 3 | | | |
-| 관문 4 | | | |
+| 관문 3 | 2026-11-06 | 균등 표본을 모델과 점수를 숨긴 채 라벨링했다(108쌍: relevant 42·irrelevant 49·unsure 17). 판단 불가를 뺀 연결 precision은 REFERENCE 0.389 대 0.355, DISCUSSED_IN 0.632 대 0.921(+0.289), TRIGGERED_BY 0.500 대 0.571이고, 모집단으로 가중한 전체는 3-large 0.425 대 Qwen 0.422(−0.003, 부트스트랩 95% [−0.203, +0.190])다. 0.12 안쪽이라 "구분 불가"로 통과한다. 골든 recall은 21/23으로 같고 엣지 수는 REFERENCE 685→540·DISCUSSED_IN 시맨틱 102→66·TRIGGERED_BY 시맨틱 10→7이다. DISCUSSED_IN의 상승은 임계값을 올려 연결을 덜 만든 영향일 수 있다. 상세는 [embedding-finetune-report.md](embedding-finetune-report.md) §3.6 | `eval/edge_labels/exp-2026-11-05-*`(표본·라벨 큐·`.labeled.yaml`), `eval/results/edge-2026-11-05-qwen3-ft-try1.json`, `exp-2026-11-05-baseline-confidence.txt`(로컬) |
+| 관문 4 | 2026-11-06 | 골든 55케이스×3회(165질의)를 두 그래프에서 답하게 해 채점했다. 사전 기준(55케이스)으로는 recall 0.725→0.683(−0.041▼)·precision 0.797→0.751(−0.046▼)이 노이즈 플로어를 넘어 악화, 환각률 0.160→0.113(−0.047▲)은 개선이라 "대체 불가"다. 악화는 case-45와 영문 짝(정답이 3-large 그래프의 연결 수에 묶인 케이스)에서만 나왔고, 두 케이스를 뺀 사후 분석(53케이스)은 recall −0.003·precision −0.016 노이즈, 환각률 0.128→0.079 개선이다. 사후 제외라 두 판정을 함께 적는다. 상세는 [embedding-finetune-report.md](embedding-finetune-report.md) §3.7 | 기준선 `eval/results/20261106T054245Z`, 후보 `eval/results/20261106T043111Z`(로컬, git 미포함) |
 
 ### 1단계 결과 (2026-11-03)
 

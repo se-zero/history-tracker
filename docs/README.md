@@ -93,7 +93,8 @@
 | [mcp-integration.md](mcp-integration.md) | 정본 | 설계 | 코드 완료·main 배포(인가 서버·동의 흐름·`/mcp` 서버, backend `oauth/`·`mcp/`, 프론트 3화면, 프록시) + 인가 서버 보강(IP별 상한·미사용 등록 행 정리·문서 조회 총 시간 제한) + 실제 Claude Code로 로컬(2026-10-01)·배포 서버(2026-10-04·10-09) 확인(연결·폴더 연결·질의·갱신·철회 뒤 재인증·IP별 상한·분당 상한) + 에이전트 쪽 해제(공개 클라이언트 폐기 수용·연결 행 삭제, 로컬 2026-10-11) | Codex·MCP Inspector·claude.ai 등 Claude Code 외 클라이언트 미확인(§8), 125초 긴 질의·FREE 한도 문구 미관측(§10), 열린 후속 5건 — 무효 표시된 연결의 목록 잔존·목록 도구 상한·SSRF DNS 리바인딩 창 등(§9 표) |
 | [query-quality-issues.md](query-quality-issues.md) | 정본 | 분석 로그 | 케이스별 원인·개선안 | 닫히지 않음 |
 | [answer-language.md](answer-language.md) | 작업 | 기능 계획 | 질문한 언어(ko·en)로 답하기 — A1·A2 코드·B·C1·D 완료, E 측정 완료(S2 미달). 계약 정본은 [i18n.md](i18n.md) §5 | 판별 재측정·S2 원인 확인은 하지 않음. 수동 확인은 끝남. 화면 글자는 [i18n.md](i18n.md) §8 |
-| [embedding-finetune.md](embedding-finetune.md) | 작업 | 실험 계획 | 측정 도구·임베딩 서버(묶음 B·C), 0단계 기준선 재현, 1단계 후보 비교 → 관문 1(Qwen3-Embedding-0.6B), 2단계 학습 데이터(묶음 D, train 24,996·val 1,762쌍, 표본 같은 사안 82%) | 묶음 E(학습 스크립트·GPU 실행) → 관문 2, 3단계 ai-engine 스위치, 4단계 풀스택 측정(관문 3·4), 5단계 기록. 브랜치 `feat/embedding-finetune` |
+| [embedding-finetune.md](embedding-finetune.md) | 작업 | 실험 계획·진행 기록 | 측정 도구·임베딩 서버, 0단계 기준선, 1단계 후보 비교 → 관문 1(Qwen3-Embedding-0.6B), 2단계 학습 데이터·GPU 학습 → 관문 2, 3단계 ai-engine 스위치, 4단계 풀스택 측정(관문 3·4 완료) | 결과 기록 정리(README의 옛 추정 문구 등 후속 3건), 사용자의 그래프 복원·정리. 브랜치 `feat/embedding-finetune` |
+| [embedding-finetune-report.md](embedding-finetune-report.md) | 작업 | 실험 총정리 | 사전 준비(데이터)·환경·결과(관문 1–4)·해석을 한 문서로. 사전 기준으로는 '대체 불가'(case-45 때문)이고 그 케이스를 빼면 '구분 불가+환각률 개선', 파인튜닝의 기여는 미확인 | 학습 전 Qwen3의 4단계 평가 등 후속 실험은 선택(§4.7) |
 
 ---
 
