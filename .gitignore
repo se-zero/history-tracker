@@ -48,6 +48,9 @@ infra/docker/graph-swap.sh
 eval/embedding_finetune/data/
 eval/embedding_finetune/models/
 
+# 라벨링 도구(eval/label_cli.py)가 처음 저장할 때 만드는 큐 원본 백업
+eval/edge_labels/*.orig
+
 .ua
 
 # ── Claude Code ────────────────────────────────────────────────

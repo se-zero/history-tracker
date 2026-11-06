@@ -334,9 +334,10 @@ pairs:
 | `eval/precheck_compare.py` | precheck 결과 JSON 여러 개를 라벨 기준으로 합쳐 후보와 기준(`3-large@1536`)의 AUC 차이와 95% 신뢰구간을 낸다. 라벨 쌍들이 같은 스레드·이슈를 공유하므로 도착 노드 단위로 복원 추출하는 부트스트랩이다 |
 | `eval/precheck_retrieval.py` | 골든 질문으로 검색했을 때 정답 이슈·스레드가 상위 k개에 드는 비율(Recall@k)과 MRR을 후보별로 잰다. LLM 없이 원 질문과 정확한 코사인을 쓰므로 실제 `search_by_keyword`의 근사치다 |
 | `eval/label_queue.py` | 기준선·후보 두 그래프의 균등 표본에서 라벨 없는 새 쌍만 모아 섞어 출처를 숨긴 라벨 큐를 만들고(`make`), 라벨링한 결과를 표본 파일에 되돌려 채운다(`fill`) |
+| `eval/label_cli.py` | 라벨 큐의 `label: null` 칸을 한 쌍씩 보여 주고 키 하나(`r` 관련·`i` 무관·`u` 판단불가·`s` 건너뛰기·`b` 이전)로 채우는 터미널 도구. 키를 누를 때마다 그 항목의 `label:` 한 줄만 바로 저장하고(다시 덤프하지 않는다) 원본은 `<경로>.orig`로 한 번 백업한다. 같은 파일을 편집기에서 열어 두지 않는다. 한글 입력 상태에서는 키가 먹지 않는다. 이미 라벨한 항목까지 다시 보려면 `--review` |
 | `eval/graph_lookup.py` | 공용 헬퍼 — Neo4j 접속, project_id 자동 감지, 노드 원문 조회 |
 | `eval/tests/test_edge_recall.py` | recall 채점 로직 단위 테스트 (Neo4j 없이 실행) |
-| `eval/tests/test_precheck_*.py` · `test_sample_edges_flags.py` · `test_label_queue.py` | 위 임베딩 교체용 도구들의 순수 로직·플래그 배선 단위 테스트 (Neo4j·OpenAI·임베딩 서버 없이 실행) |
+| `eval/tests/test_precheck_*.py` · `test_sample_edges_flags.py` · `test_label_queue.py` · `test_label_cli.py` | 위 임베딩 교체용 도구들의 순수 로직·플래그 배선 단위 테스트 (Neo4j·OpenAI·임베딩 서버 없이 실행) |
 
 **`edge_eval.py`가 하는 일**: 라벨된 각 쌍이 *지금* 그래프에 엣지로 존재하는지 질의해서,
 
@@ -532,7 +533,10 @@ $PY eval/sample_edges.py --uniform --per-type 40 --blind --graph-snapshot exp-ba
 # 두 표본의 라벨 없는 새 쌍만 모아 섞은 큐를 만든다 (confidence·bucket 없음, 이미 있는 큐 파일은 덮어쓰지 않는다)
 $PY eval/label_queue.py make eval/edge_labels/_tmp-base.yaml eval/edge_labels/_tmp-cand.yaml \
     --out eval/edge_labels/_tmp-queue.yaml
-# 큐의 label 칸을 채운 뒤 표본에 되돌려 채운다 → _tmp-base.labeled.yaml · _tmp-cand.labeled.yaml (원본 표본은 그대로,
+# 큐의 label 칸을 채운다. YAML을 손으로 고쳐도 되고, 터미널 도구로 한 쌍씩 보며 키 하나로 채워도 된다
+# (r 관련·i 무관·u 판단불가. 영문 입력 상태에서. 같은 파일을 편집기에서 열어 두지 않는다)
+$PY eval/label_cli.py eval/edge_labels/_tmp-queue.yaml
+# 다 채웠으면 표본에 되돌려 채운다 → _tmp-base.labeled.yaml · _tmp-cand.labeled.yaml (원본 표본은 그대로,
 # 표본에 이미 있는 라벨은 덮어쓰지 않는다)
 $PY eval/label_queue.py fill --queue eval/edge_labels/_tmp-queue.yaml \
     eval/edge_labels/_tmp-base.yaml eval/edge_labels/_tmp-cand.yaml
