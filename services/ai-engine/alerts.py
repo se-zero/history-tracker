@@ -160,7 +160,7 @@ def record_parking(routing_key: str) -> None:
         _counters[KIND_PARKING] = _counters.get(KIND_PARKING, 0) + 1
         text = (
             f"malformed 이벤트 parking — JSON 파싱 실패 (routing_key={routing_key}). "
-            f"history.events.parking 큐를 수동 확인하세요"
+            f"history.parking 큐를 수동 확인하세요"
         )
         _maybe_alert(KIND_PARKING, time.monotonic(), text)
     except Exception:

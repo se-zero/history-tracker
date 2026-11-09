@@ -392,7 +392,6 @@ def _debounce_tick(now: float) -> None:
         if now - _last_event_at.get(project_id, 0.0) < DEBOUNCE_SECONDS:
             continue
         # 큐에 남은 메시지나 처리 중인 이벤트가 있으면 아직 유휴가 아니다 — 느린 처리 중 빌드가 끼어드는 것을 막는다.
-        # 구 큐 잔량은 프로젝트별 귀속이 안 돼 조건에 없다(디스패처 대기분은 잡힌다).
         if not ingest_backlog.is_drained(project_id):
             continue
         # 쿨다운: 마지막 빌드 후 MIN_BUILD_INTERVAL이 안 지났으면 대기 (dirty 유지)

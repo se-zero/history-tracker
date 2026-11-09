@@ -18,8 +18,6 @@ from graph.queue_discovery import PROJECT_QUEUE_PREFIX, project_queue_name  # no
 logger = logging.getLogger(__name__)
 
 RABBITMQ_URL  = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@localhost/")
-EXCHANGE_NAME = "history.exchange"
-QUEUE_NAME    = "history.events"
 
 
 def mask_amqp_url(url: str) -> str:
@@ -60,11 +58,8 @@ INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH") or (INGEST_MAX_CO
 # TTL 만료 후 DLX가 메시지 자신의 키(원래 큐 이름)로 원래 큐에 꽂는다.
 RETRY_EXCHANGE = "history.retry"            # fanout
 RETRY_QUEUE   = "history.retry"             # x-message-ttl + x-dead-letter-exchange "" → 원래 큐로 복귀
-# 구 재시도 큐 — 배포 시 잔량 소진을 위해 이번 릴리스까지만 선언·유지한다(다음 릴리스에서 제거).
-LEGACY_RETRY_QUEUE = "history.events.retry"
-DLQ_QUEUE     = "history.events.dlq"         # 재시도 소진분 파킹 (replay 대상)
-PARKING_QUEUE = "history.events.parking"     # malformed(JSON 파싱 실패) 전용 inspect 큐 (replay 미대상)
-RETRY_ROUTING_KEY = "event.retry"            # 구 재시도 큐 만료 시 메인 exchange로 되돌리는 라우팅 키(event.# 매칭)
+DLQ_QUEUE     = "history.dlq"               # 재시도 소진분 파킹 (replay 대상)
+PARKING_QUEUE = "history.parking"           # malformed(JSON 파싱 실패) 전용 inspect 큐 (replay 미대상)
 # 고정 간격 재시도. 기본 3분 × 20회 ≈ 1시간 창 — Neo4j 재기동·짧은 배포·OpenAI 일시 장애를
 # 무인 복구하고, 그보다 긴 장애만 DLQ로 넘겨 사람이 보게 한다. 수집은 배경 작업이라 분 단위 지연은 무해.
 RETRY_MAX      = max(0, int(os.environ.get("INGEST_RETRY_MAX", "20")))
@@ -268,7 +263,7 @@ async def delete_project_queue(project_id: str) -> bool:
 
 
 async def start_consumer() -> None:
-    """RabbitMQ에 연결하고 프로젝트별 큐(history.project.<id>)와 호환 큐(history.events)를 소비한다.
+    """RabbitMQ에 연결하고 프로젝트별 큐(history.project.<id>)를 소비한다.
 
     예외 발생 시 5초 후 자동 재시작 — 연결·QoS·토폴로지·구독을 통째로 다시 만든다.
     실패 유형을 구분해 처리:
@@ -312,18 +307,6 @@ async def _run_consumer() -> None:
         # AMQP는 채널 오류 시 그 채널 전체가 닫히므로, 발행 오류가 소비 루프를 중단시키지 않게 격리한다.
         publish_channel = await connection.channel()
 
-        # 구 큐 호환: 이번 릴리스 동안 그대로 선언·소비해 배포 시 잔량을 소진한다.
-        exchange = await channel.declare_exchange(
-            EXCHANGE_NAME, aio_pika.ExchangeType.TOPIC, durable=True
-        )
-        legacy_queue = await channel.declare_queue(QUEUE_NAME, durable=True)
-        await legacy_queue.bind(exchange, routing_key="event.#")
-        await channel.declare_queue(LEGACY_RETRY_QUEUE, durable=True, arguments={
-            "x-message-ttl": RETRY_DELAY_MS,
-            "x-dead-letter-exchange": EXCHANGE_NAME,
-            "x-dead-letter-routing-key": RETRY_ROUTING_KEY,
-        })
-
         # 신규 재시도 경로: 원래 큐 이름을 라우팅 키로 실어 TTL 뒤 원래 큐로 복귀시킨다.
         retry_exchange = await publish_channel.declare_exchange(
             RETRY_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
@@ -353,11 +336,10 @@ async def _run_consumer() -> None:
         )
         _state = state
         try:
-            await state.subscribe(QUEUE_NAME, legacy_queue)
             logger.info(
-                "RabbitMQ consumer 준비 완료 (legacy_queue=%s, concurrency=%d, prefetch_per_queue=%d, "
+                "RabbitMQ consumer 준비 완료 (concurrency=%d, prefetch_per_queue=%d, "
                 "prefetch_channel=%d, retry_max=%d, retry_delay_ms=%d)",
-                QUEUE_NAME, INGEST_MAX_CONCURRENCY, INGEST_PREFETCH_PER_QUEUE, INGEST_PREFETCH,
+                INGEST_MAX_CONCURRENCY, INGEST_PREFETCH_PER_QUEUE, INGEST_PREFETCH,
                 RETRY_MAX, RETRY_DELAY_MS,
             )
             await queue_discovery.run_forever(state)
