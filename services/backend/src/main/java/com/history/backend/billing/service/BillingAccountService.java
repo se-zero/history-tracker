@@ -59,8 +59,16 @@ public class BillingAccountService {
         return paddleProperties.isCheckoutConfigured();
     }
 
+    // 로그인 전에도 읽히는 응답. clientToken·environment는 브라우저용 공개 값이라 실어도 되고(서버용 API 키 아님),
+    // 결제 스위치와 독립이다 — 신규 결제를 닫아도 기존 구독자의 결제 실패 복구 링크(/checkout)는 Paddle.js로 열려야 한다.
     public CheckoutAvailabilityResponse availability() {
-        return new CheckoutAvailabilityResponse(checkoutAvailable(), betaPeriod.activeEndsAt());
+        String clientToken = paddleProperties.clientToken();
+        return new CheckoutAvailabilityResponse(
+                checkoutAvailable(),
+                betaPeriod.activeEndsAt(),
+                clientToken == null || clientToken.isBlank() ? null : clientToken,
+                environment()
+        );
     }
 
     public BillingSummaryResponse summary(UUID userId) {
