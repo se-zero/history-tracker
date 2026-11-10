@@ -6,5 +6,7 @@ Disallow: /onboarding
 Disallow: /auth/
 Disallow: /api/
 Disallow: /oauth/
+# 결제 링크(?_ptxn=)가 도착하는 곳이라 색인 대상이 아니다.
+Disallow: /checkout
 
 Sitemap: https://why-code.com/sitemap.xml
