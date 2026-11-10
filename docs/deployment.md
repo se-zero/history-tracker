@@ -303,12 +303,14 @@ pipeline-worker로 프록시하지 않는다 — 연동 행·그래프 삭제와
 **결제 버튼은 `PADDLE_API_KEY`·`PADDLE_CLIENT_TOKEN`·`PADDLE_PRO_PRICE_ID` 셋이 다 채워지는 순간 열린다**
 (결제 스위치 — docs/billing.md §0). 하나라도 비어 있으면 요금 페이지·요금제 카드가 "준비 중"이라, 코드는
 G1 전에 배포돼 있어도 된다. 거꾸로 셋을 채우면 **모든 사용자에게** 버튼이 보이므로, 대시보드 준비를 다
-마치고 G2(라이브 소액 실측)를 시작할 때 처음 채운다.
+마치고 G2(라이브 소액 실측)를 시작할 때 처음 채운다. 결제 링크 페이지(`/checkout`)는 이 스위치와 무관하게
+`PADDLE_CLIENT_TOKEN`만 있으면 열린다 — 신규 결제를 닫아도 기존 구독자의 결제 실패 복구 링크는 열려야 하기
+때문이다(docs/billing.md §8-3).
 
 | Paddle 설정 | 값 |
 |---|---|
 | **Catalog → Products** | Pro 상품과 월 가격 **14,900원, 통화 KRW, 세금 포함(`tax_mode: internal`)** — 요금 페이지 금액과 같아야 한다(billing.md §8-1). 샌드박스 상품과 이름·설명을 맞춘다 |
-| **Checkout → Checkout settings** | 한국 결제 수단(로컬 카드·카카오페이·네이버페이 등) 켜기, Default payment link를 샌드박스와 같은 경로로(도메인만 라이브). G2에서 무인 갱신이 안 된 수단은 여기서 끈다 |
+| **Checkout → Checkout settings** | 한국 결제 수단(로컬 카드·카카오페이·네이버페이 등) 켜기. **Default payment link = `https://<도메인>/checkout`**(결제 링크 페이지, billing.md §8-3) — 비우면 대시보드가 저장을 막고 API로 거래를 만들 수 없다. 도메인이 Website approval에서 승인돼 있어야 한다. G2에서 무인 갱신이 안 된 수단은 여기서 끈다 |
 | **Checkout → Website approval** | `why-code.com`이 승인 상태인지 확인 |
 | **Developer tools → Notifications → New destination** | URL `https://<도메인>/api/v1/billing/webhook/paddle`, Usage type **Platform**, 이벤트 **`subscription.*`만**. 코드는 구독 알림만 처리하고 나머지는 무시한다 — 특히 `customer.*`에는 이메일·이름이 실려 오므로 받지 않는다(최소 수집) |
 | **Developer tools → Authentication → API keys** | 서버용 키. 권한 `transaction.write`·`subscription.write`·`customer_portal_session.write`·`customer.read`(write가 read를 포함한다). ⚠️ **만료가 있다 — 기본 90일, 최장 1년.** 1년으로 발급하고 만료일을 달력에 적는다. 로컬(샌드박스) 키와 따로 발급한다 |
@@ -319,7 +321,7 @@ G1 전에 배포돼 있어도 된다. 거꾸로 셋을 채우면 **모든 사용
 |---|---|
 | `PADDLE_ENVIRONMENT` | `production`. 비우거나 다른 값이면 샌드박스 API를 부른다(설정 누락이 실결제가 되지 않게 기본을 샌드박스로 뒀다) |
 | `PADDLE_API_KEY` | 위 서버용 키(`pdl_live_apikey_…`). 프론트에 내려가지 않는다 |
-| `PADDLE_CLIENT_TOKEN` | 위 클라이언트 토큰(`live_…`) |
+| `PADDLE_CLIENT_TOKEN` | 위 클라이언트 토큰(`live_…`). 공개 요금 정보 API(`GET /api/v1/billing/availability`)로도 내려가며, 이 값만 있으면 `/checkout`이 열린다 |
 | `PADDLE_WEBHOOK_SECRET` | 알림 대상을 저장할 때 나오는 서명 키(`pdl_ntfset_…`). **다시 조회할 수 없으니 바로 옮긴다** |
 | `PADDLE_PRO_PRICE_ID` | 라이브 Pro 가격 id(`pri_…`). 비면 웹훅은 모든 가격을 받아들이고 결제 버튼은 열리지 않는다 |
 | `PADDLE_SIGNATURE_TOLERANCE`·`BILLING_EXPIRY_GRACE` | 비우면 기본값(5초·3일) |
