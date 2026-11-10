@@ -127,7 +127,7 @@ export default function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Route>
           <Route path={PATHS.root} element={<RootRedirect />} />
-          {/* 공개 라우트가 아니다. 요금 페이지의 "계정 설정에서 구독하기"가 여기로 온다. */}
+          {/* 공개 라우트가 아니다. 결제 링크 페이지(/checkout) 완료 안내의 "계정 설정" 링크가 여기로 온다. */}
           <Route path={PATHS.account} element={<AccountRedirect />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
