@@ -100,8 +100,10 @@ src/
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(요금제 카드 — `GET /me/billing`의
                     planSource로 결제 구독자·코드 사용자·무료 세 상태를 그린다. 결제창·포털 링크·코드 강등.
                     포털 링크는 1회용이라 누를 때마다 받아 이동한다. docs/billing.md §8-2.
-                    FREE이면서 `/me`의 `betaEndsAt`이 있으면 이 판정보다 먼저 베타 모드를 그린다 — 종료일·
-                    프로젝트 3개 안내만 두고 질의 사용량·구독 버튼·전환 코드 입력란은 숨긴다. docs/billing.md §12-1)
+                    FREE이면서 `/me`의 `betaEndsAt`이 있으면 이 판정보다 먼저 베타 모드를 그린다 — 화면에는
+                    "베타"라고 쓰지 않고 무료 플랜의 한시 확대로 보인다(배지는 무료와 같은 "Free", 종료일·프로젝트
+                    3개 안내, 구독 영역은 무료와 같게). 질의 사용량·무료 기능 목록·전환 코드 입력란은 숨긴다.
+                    `mode === "beta"`·`betaEndsAt`은 내부 이름이라 그대로 둔다. docs/billing.md §12-1)
     graph/          WorkUnitCanvas(작업 단위 뷰 Canvas 렌더러) · ClusterDetail(열린 작업 단위 묶음 패널) · NodeDetail
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
@@ -113,9 +115,11 @@ src/
                     SlackBody — `/slack` 본문(Slack 마켓플레이스 Installation landing page. 랜딩 절에서 분리)
                     SupportBody — `/support` 본문
                     McpBody — `/mcp/setup` 본문(Claude Code·Codex·Cursor 연결 안내. 랜딩과 같은 ko/en COPY)
-                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts). 결제 스위치가
-                    켜졌을 때만(`GET /billing/availability`) "계정 설정에서 구독하기"를, 아니면 "준비 중"을 보인다.
-                    같은 응답의 `betaEndsAt`이 있으면 비교표 위에 베타 안내(종료일)를 띄운다
+                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts). 결제 스위치는 보지 않는다 —
+                    "시작하기"는 앱 진입 앰버 버튼 하나와 "Pro 구독은 로그인한 뒤 계정 설정에서" 안내 문단뿐이고,
+                    구독 진입점은 PlanCard 하나다(결제가 열리면 앰버가 둘이 되던 것을 없앰, docs/billing.md §8-2).
+                    `GET /billing/availability`의 `betaEndsAt`이 있으면 비교표 위에 무료 플랜 한시 확대 안내(종료일)를 띄운다
+                    ("베타"라고 쓰지 않는다 — docs/billing.md §12-1)
                     CheckoutBody — `/checkout` 본문(Paddle 기본 결제 링크 — `?_ptxn=<거래 ID>` 결제 링크가 도착하는 곳).
                     거래 ID를 형식 검사한 뒤 `openPaddleCheckout`으로 직접 연다(명시적 open이 쿼리의 자동 열기보다 우선).
                     토큰·환경은 같은 `GET /billing/availability`의 `clientToken`·`environment`이고 결제 스위치는 보지
@@ -152,7 +156,8 @@ src/
       보내며, `AuthCallbackPage`가 그 경로로 돌려보낸다. `/mcp/setup`은 `/slack`과 같은 공개 설치 안내 페이지다
       (`/mcp`가 아닌 이유: `/mcp`는 에이전트가 접속하는 backend MCP 엔드포인트).
     ※ `/account`는 공개 라우트가 아니다 — 첫 프로젝트의 계정 설정(`/projects/:id/account`, 없으면 온보딩)으로
-      넘기는 리다이렉트다. 요금 페이지가 로그인 전이면 이 경로를 `auth/returnPath`에 저장하고 GitHub 로그인으로 보낸다.
+      넘기는 리다이렉트다. 결제 링크 페이지(`/checkout`)의 완료 안내가 로그인 전이면 이 경로를 `auth/returnPath`에
+      저장하고 GitHub 로그인으로 보낸다.
       사이트맵에 넣지 않는다.
     ※ `/checkout`은 AuthGate 밖 공개 라우트지만 Paddle이 보내는 결제 링크(`?_ptxn=`)가 도착하는 페이지라 사이트맵에
       넣지 않고 robots.txt에서 막는다. Paddle 라이브 대시보드의 Default payment link가 이 주소다 — 경로를 바꾸면
