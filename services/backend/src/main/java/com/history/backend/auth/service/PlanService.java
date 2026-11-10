@@ -164,6 +164,16 @@ public class PlanService {
         setIncrementalForOwnedIntegrations(userId, true);
     }
 
+    // 구독 상태 반영(PaddleSubscriptionApplier) 전용 사용자 행 잠금 — 같은 사용자의 반영을 직렬화한다.
+    // 구독 캐시는 반드시 이 잠금을 잡은 뒤에 읽어야 한다. 잠그기 전에 엔티티로 읽으면 그 사본이
+    // 영속성 컨텍스트에 남아, 잠근 뒤 다시 읽어도 DB가 아니라 옛 사본이 돌아온다.
+    // noRollbackFor: activatePaid와 같은 이유 — 파기된 사용자의 NotFoundException을 호출자가
+    // UNMATCHED로 커밋해야 하는데, 이 설정이 없으면 공유 트랜잭션이 rollback-only가 된다.
+    @Transactional(noRollbackFor = NotFoundException.class)
+    public void lockForBillingUpdate(UUID userId) {
+        getUserForUpdate(userId);
+    }
+
     // 결제 웹훅이 쓸 "만료 시각 있는 PAID 전환". 스케줄러(downgradeIfExpired)의 재확인 잠금과
     // 같은 행을 두고 경합하므로 findByIdForUpdate로 잠근다.
     // noRollbackFor: 호출자인 PaddleWebhookService.handle()도 @Transactional이라 이 메서드가

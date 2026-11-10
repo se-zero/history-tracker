@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,13 +30,19 @@ import com.history.backend.billing.PaddleProperties;
 import com.history.backend.billing.domain.BillingEventOutcome;
 import com.history.backend.billing.domain.BillingSubscription;
 import com.history.backend.billing.repository.BillingEventRepository;
+import com.history.backend.billing.repository.BillingSubscriptionOwner;
 import com.history.backend.billing.repository.BillingSubscriptionRepository;
+import com.history.backend.billing.service.PaddleSubscriptionApplier.ApplyOutcome;
+import com.history.backend.billing.service.PaddleSubscriptionApplier.ApplyResult;
+import com.history.backend.billing.service.PaddleSubscriptionApplier.ApplySource;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.NotFoundException;
 import com.history.backend.common.error.UnauthorizedException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -186,7 +193,10 @@ class PaddleWebhookServiceTest {
         data.put("status", "canceled");
         String body = envelope("subscription.canceled", data);
         stubValidRequest(body, "subscription.canceled", 1);
-        // existingSubscription()은 PRICE_ID(=proPriceId)를 캐시 priceId로 갖는다
+        // existingSubscription()은 PRICE_ID(=proPriceId)를 캐시 priceId로 갖는다 — items가 없을 때 가격은
+        // 엔티티가 아니라 스칼라 projection으로 읽는다(잠금 전에 엔티티를 영속성 컨텍스트에 올리지 않기 위해)
+        lenient().when(billingSubscriptionRepository.findOwnerBySubscriptionId(SUBSCRIPTION_ID))
+                .thenReturn(Optional.of(owner(USER_ID, PRICE_ID)));
         lenient().when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID))
                 .thenReturn(Optional.of(existingSubscription(OCCURRED_AT.minusSeconds(3600))));
         lenient().when(billingSubscriptionRepository.existsByUserIdAndStatusInAndSubscriptionIdNot(
@@ -208,7 +218,9 @@ class PaddleWebhookServiceTest {
         data.remove("items");
         String body = envelope("subscription.created", data);
         stubValidRequest(body, "subscription.created", 1);
-        lenient().when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
+        // items가 없으면 가격은 스칼라 projection으로 읽는다 — 캐시가 없으면 가격을 알 수 없어 IGNORED
+        lenient().when(billingSubscriptionRepository.findOwnerBySubscriptionId(SUBSCRIPTION_ID))
+                .thenReturn(Optional.empty());
 
         service.handle(SIGNATURE_HEADER, body);
 
@@ -269,7 +281,8 @@ class PaddleWebhookServiceTest {
         data.put("custom_data", null);
         String body = envelope("subscription.created", data);
         stubValidRequest(body, "subscription.created", 1);
-        when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
+        // custom_data가 없으면 스칼라 projection으로 사용자를 찾는다 — 그것도 없으면 잠그지 않고 UNMATCHED
+        when(billingSubscriptionRepository.findOwnerBySubscriptionId(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
 
         assertThatCode(() -> service.handle(SIGNATURE_HEADER, body)).doesNotThrowAnyException();
 
@@ -287,6 +300,9 @@ class PaddleWebhookServiceTest {
         data.put("custom_data", null);
         String body = envelope("subscription.updated", data);
         stubValidRequest(body, "subscription.updated", 1);
+        // 사용자는 스칼라 projection으로 찾고, 순서 비교용 엔티티는 잠금 뒤 findById로 읽는다
+        when(billingSubscriptionRepository.findOwnerBySubscriptionId(SUBSCRIPTION_ID))
+                .thenReturn(Optional.of(owner(USER_ID, PRICE_ID)));
         when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID))
                 .thenReturn(Optional.of(existingSubscription(OCCURRED_AT.minusSeconds(3600))));
 
@@ -344,7 +360,9 @@ class PaddleWebhookServiceTest {
 
         verify(billingEventRepository)
                 .updateOutcome(EVENT_ID, BillingEventOutcome.IGNORED.name(), SUBSCRIPTION_ID, USER_ID);
-        verifyNoInteractions(planService);
+        // 잠근 뒤에 만료를 판정하므로 잠금 호출은 허용된다 — 플랜 변경만 없어야 한다
+        verify(planService, never()).activatePaid(any(), any());
+        verify(planService, never()).downgradeToFree(any());
     }
 
     @Test
@@ -376,7 +394,9 @@ class PaddleWebhookServiceTest {
 
         verify(billingEventRepository)
                 .updateOutcome(EVENT_ID, BillingEventOutcome.STALE.name(), SUBSCRIPTION_ID, USER_ID);
-        verifyNoInteractions(planService);
+        // 잠근 뒤에 비교하므로 잠금 호출은 허용된다 — 플랜 변경만 없어야 한다
+        verify(planService, never()).activatePaid(any(), any());
+        verify(planService, never()).downgradeToFree(any());
         verify(billingSubscriptionRepository, never()).save(any());
     }
 
@@ -471,7 +491,9 @@ class PaddleWebhookServiceTest {
 
         verify(billingEventRepository)
                 .updateOutcome(eq(EVENT_ID), eq(BillingEventOutcome.IGNORED.name()), any(), any());
-        verifyNoInteractions(planService);
+        // 잠근 뒤에 상태를 판정하므로 잠금 호출은 허용된다 — 플랜 변경만 없어야 한다
+        verify(planService, never()).activatePaid(any(), any());
+        verify(planService, never()).downgradeToFree(any());
         verify(billingSubscriptionRepository, never()).save(any());
     }
 
@@ -543,15 +565,141 @@ class PaddleWebhookServiceTest {
         return service("");
     }
 
+    // ── 파서·applier 위임 (반영 로직은 PaddleSubscriptionApplierTest가 다룬다) ──
+
+    @Test
+    @DisplayName("파싱한 상태를 applier에 넘긴다 — 출처는 WEBHOOK, 순서 대체 기준은 봉투 occurred_at,"
+            + " 기록할 subscriptionId·userId는 applier 결과를 따른다")
+    void handleDelegatesParsedStateToApplierAsWebhookSource() {
+        PaddleSubscriptionApplier applier = mock(PaddleSubscriptionApplier.class);
+        PaddleWebhookService service = new PaddleWebhookService(
+                verifier, billingEventRepository, new PaddleSubscriptionParser(), applier, JSON);
+        String body = envelope("subscription.updated", baseSubscriptionData());
+        stubValidRequest(body, "subscription.updated", 1);
+        when(applier.apply(any(PaddleSubscriptionState.class), eq(OCCURRED_AT), eq(ApplySource.WEBHOOK)))
+                .thenReturn(new ApplyResult(ApplyOutcome.APPLIED, SUBSCRIPTION_ID, USER_ID));
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        ArgumentCaptor<PaddleSubscriptionState> state = ArgumentCaptor.forClass(PaddleSubscriptionState.class);
+        verify(applier).apply(state.capture(), eq(OCCURRED_AT), eq(ApplySource.WEBHOOK));
+        assertThat(state.getValue().subscriptionId()).isEqualTo(SUBSCRIPTION_ID);
+        assertThat(state.getValue().status()).isEqualTo("active");
+        assertThat(state.getValue().customDataUserId()).isEqualTo(USER_ID.toString());
+        assertThat(state.getValue().priceIds()).containsExactly(PRICE_ID);
+        verify(billingEventRepository)
+                .updateOutcome(EVENT_ID, BillingEventOutcome.APPLIED.name(), SUBSCRIPTION_ID, USER_ID);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "APPLIED,APPLIED",
+            "STALE,STALE",
+            "UNCHANGED,STALE",
+            "IGNORED,IGNORED",
+            "UNMATCHED,UNMATCHED"
+    })
+    @DisplayName("applier의 결과를 billing_events outcome으로 옮긴다 (웹훅에서 나올 수 없는 UNCHANGED는 STALE로 둔다)")
+    void handleRecordsApplierOutcomeAsBillingEventOutcome(ApplyOutcome applied, BillingEventOutcome recorded) {
+        PaddleSubscriptionApplier applier = mock(PaddleSubscriptionApplier.class);
+        PaddleWebhookService service = new PaddleWebhookService(
+                verifier, billingEventRepository, new PaddleSubscriptionParser(), applier, JSON);
+        String body = envelope("subscription.updated", baseSubscriptionData());
+        stubValidRequest(body, "subscription.updated", 1);
+        when(applier.apply(any(PaddleSubscriptionState.class), any(Instant.class), any(ApplySource.class)))
+                .thenReturn(new ApplyResult(applied, SUBSCRIPTION_ID, USER_ID));
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        verify(billingEventRepository).updateOutcome(EVENT_ID, recorded.name(), SUBSCRIPTION_ID, USER_ID);
+    }
+
+    @Test
+    @DisplayName("data 안의 시각 형식이 틀리면 BadRequestException으로 바뀌어 나오고, 플랜·구독 캐시는 건드리지 않는다")
+    void handleThrowsBadRequestWhenSubscriptionDataTimestampIsInvalid() {
+        PaddleWebhookService service = service();
+        Map<String, Object> data = baseSubscriptionData();
+        data.put("updated_at", "not-a-timestamp");
+        String body = envelope("subscription.updated", data);
+        when(verifier.verify(SIGNATURE_HEADER, body)).thenReturn(true);
+        // 파싱이 claim 앞에 오든 뒤에 오든 같은 계약이라 claim 스텁은 lenient
+        lenient().when(billingEventRepository.tryClaim(
+                eq(EVENT_ID), eq("subscription.updated"), eq(OCCURRED_AT), anyString(), any(Instant.class)))
+                .thenReturn(1);
+
+        assertThatThrownBy(() -> service.handle(SIGNATURE_HEADER, body))
+                .isInstanceOf(BadRequestException.class);
+
+        verifyNoInteractions(planService);
+        verify(billingSubscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("웹훅 출처는 저장된 시각과 기준 시각(봉투 occurred_at)이 같은 알림도 반영한다 (API 출처처럼 UNCHANGED로 버리지 않는다)")
+    void handleAppliesEventWhoseOrderingTimeEqualsStoredTime() {
+        PaddleWebhookService service = service();
+        String body = envelope("subscription.updated", baseSubscriptionData());
+        stubValidRequest(body, "subscription.updated", 1);
+        when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID))
+                .thenReturn(Optional.of(existingSubscription(OCCURRED_AT)));
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        verify(planService).activatePaid(USER_ID, PERIOD_ENDS_AT.plus(GRACE));
+        verify(billingEventRepository)
+                .updateOutcome(EVENT_ID, BillingEventOutcome.APPLIED.name(), SUBSCRIPTION_ID, USER_ID);
+    }
+
+    @Test
+    @DisplayName("data.updated_at이 있으면 봉투 occurred_at보다 우선해 순서를 판정하고, 그 값을 last_event_occurred_at에 저장한다")
+    void handleOrdersByDataUpdatedAtInsteadOfEnvelopeOccurredAt() {
+        PaddleWebhookService service = service();
+        Instant updatedAt = OCCURRED_AT.plusSeconds(120);
+        Map<String, Object> data = baseSubscriptionData();
+        data.put("updated_at", updatedAt.toString());
+        String body = envelope("subscription.updated", data);
+        stubValidRequest(body, "subscription.updated", 1);
+        // 저장된 시각은 봉투 occurred_at보다 나중이지만 data.updated_at보다는 이전 → 봉투만 보면 STALE
+        when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID))
+                .thenReturn(Optional.of(existingSubscription(OCCURRED_AT.plusSeconds(60))));
+
+        service.handle(SIGNATURE_HEADER, body);
+
+        verify(billingEventRepository)
+                .updateOutcome(EVENT_ID, BillingEventOutcome.APPLIED.name(), SUBSCRIPTION_ID, USER_ID);
+        ArgumentCaptor<BillingSubscription> saved = ArgumentCaptor.forClass(BillingSubscription.class);
+        verify(billingSubscriptionRepository).save(saved.capture());
+        assertThat(saved.getValue().getLastEventOccurredAt()).isEqualTo(updatedAt);
+    }
+
+    // 실제 parser + 실제 applier를 조립한다 — 리포지토리·PlanService만 mock이라 반영 동작 단언이 그대로 의미를 갖는다
     private PaddleWebhookService service(String proPriceId) {
-        return new PaddleWebhookService(
-                verifier,
-                billingEventRepository,
+        PaddleSubscriptionApplier applier = new PaddleSubscriptionApplier(
                 billingSubscriptionRepository,
                 planService,
                 new PaddleProperties("test-secret", Duration.ofSeconds(5), proPriceId, null, "sandbox", null),
-                new BillingProperties(GRACE),
+                new BillingProperties(GRACE));
+        return new PaddleWebhookService(
+                verifier,
+                billingEventRepository,
+                new PaddleSubscriptionParser(),
+                applier,
                 JSON);
+    }
+
+    // 캐시 소유자·가격만 담은 스칼라 projection (items가 없거나 custom_data가 없는 알림에서 쓰인다)
+    private BillingSubscriptionOwner owner(UUID userId, String priceId) {
+        return new BillingSubscriptionOwner() {
+            @Override
+            public UUID getUserId() {
+                return userId;
+            }
+
+            @Override
+            public String getPriceId() {
+                return priceId;
+            }
+        };
     }
 
     private BillingSubscription existingSubscription(Instant lastEventOccurredAt) {
