@@ -110,6 +110,8 @@ export function PlanCard() {
   const isPaid = user.plan === "PAID";
   const betaEndsAt = !isPaid ? user.betaEndsAt : null;
   // 베타는 결제 상태 조회 결과와 무관하게 FREE + betaEndsAt만으로 정해진다.
+  // 이 모드는 화면에서 '베타'라고 부르지 않고 무료 플랜의 한시 확대로 보인다
+  // (구독 영역도 무료 모드처럼 보여 준다 — docs/billing.md §12-1).
   const mode = betaEndsAt
     ? "beta"
     : billing.isLoading
@@ -134,6 +136,9 @@ export function PlanCard() {
       : Math.min(queryLimit, queryLimit - remaining);
   const usageRatio = remaining == null || queryLimit == null ? 0 : used / queryLimit;
   const features = mode === "free" ? featureList("free") : featureList("pro");
+  // 한시 확대 기간에도 구독은 받는다. 전환 코드 폼은 무료 모드에서만 보인다.
+  const showUpgrade = mode === "free" || mode === "beta";
+  const showCodeForm = mode === "free";
   const canSubmit = code.trim().length > 0 && !upgrade.isPending;
   const checkoutAvailable = summary?.checkoutAvailable === true;
   const subscription = summary?.subscription ?? null;
@@ -178,8 +183,8 @@ export function PlanCard() {
   const subCopy =
     mode === "beta" && betaEndsAt
       ? uiText(
-          `베타 기간 — 최대 ${formatInstant(betaEndsAt)}까지 Pro 기능 무료`,
-          `Beta — Pro features free until ${formatInstant(betaEndsAt)}`,
+          `최대 ${formatInstant(betaEndsAt)}까지 Pro 기능 무료`,
+          `Pro features free until ${formatInstant(betaEndsAt)}`,
         )
       : mode === "subscription" && subscription
       ? subscriptionCopy(subscription)
@@ -202,17 +207,17 @@ export function PlanCard() {
           <h4>{uiText("플랜", "Plan")}</h4>
           <div className="src-sub">{subCopy}</div>
         </div>
-        <span className={`badge ${isPaid || mode === "beta" ? "accent" : ""}`}>
+        <span className={`badge ${isPaid ? "accent" : ""}`}>
           {isPaid && <Icons.Sparkle size={11} />}
-          {mode === "beta" ? uiText("베타", "Beta") : planLabel(user.plan)}
+          {planLabel(user.plan)}
         </span>
       </div>
 
       {mode === "beta" && (
         <p className="plan-note">
           {uiText(
-            "프로젝트는 최대 3개까지 만들 수 있고, 그 외 기능은 Pro와 같습니다. 베타는 운영 사정에 따라 일찍 끝날 수 있으며, 끝나면 무료 플랜으로 돌아가고 자동 결제는 없습니다.",
-            "You can create up to 3 projects. Everything else matches Pro. The beta can end early, and when it does you return to the free plan with no automatic charge.",
+            "기간 중에는 프로젝트를 최대 3개까지 만들 수 있고, 그 외 기능은 Pro와 같습니다. 운영 사정에 따라 일찍 끝날 수 있으며, 끝나면 무료 플랜 한도로 돌아가고 자동 결제는 없습니다.",
+            "During this period you can create up to 3 projects, and everything else matches Pro. It may end early for operational reasons. When it ends, you return to the Free plan limits with no automatic charge.",
           )}
         </p>
       )}
@@ -293,13 +298,21 @@ export function PlanCard() {
         </div>
       )}
 
-      {mode === "free" && (
+      {showUpgrade && (
         <div className="plan-upgrade">
           {checkoutAvailable ? (
             <>
               <div className="plan-upgrade-copy">
                 <div className="plan-upgrade-title">{uiText("Pro 구독", "Subscribe to Pro")}</div>
                 <p>{uiText(`${priceLabel()} (부가세 포함)`, `${priceLabel()} (VAT included)`)}</p>
+                {mode === "beta" && (
+                  <p>
+                    {uiText(
+                      "구독하면 프로젝트 수 제한이 없고, 이 기간이 끝나도 Pro가 그대로 이어집니다.",
+                      "Subscribing removes the project limit, and Pro continues after this period ends.",
+                    )}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -360,41 +373,43 @@ export function PlanCard() {
               )}
             </p>
           )}
-          <form onSubmit={onSubmit}>
-            <div className="plan-upgrade-copy">
-              <div className="plan-upgrade-title">{uiText("전환 코드", "Upgrade code")}</div>
-              <p>
-                {uiText(
-                  "코드를 입력하면 한도가 바로 풀립니다.",
-                  "Enter a code and the limit lifts right away.",
-                )}
-              </p>
-            </div>
-            <Field label={uiText("전환 코드", "Upgrade code")}>
-              <div className="plan-upgrade-row">
-                <input
-                  className="mono"
-                  value={code}
-                  onChange={(event) => {
-                    setCode(event.target.value);
-                    upgrade.reset();
-                  }}
-                  placeholder={uiText("코드를 입력하세요", "Enter a code")}
-                  autoComplete="off"
-                  spellCheck={false}
-                  disabled={upgrade.isPending}
-                />
-                <button className="btn btn-primary" type="submit" disabled={!canSubmit}>
-                  <BusyLabel
-                    busy={upgrade.isPending}
-                    label={uiText("전환", "Apply")}
-                    busyLabel={uiText("전환 중…", "Applying…")}
-                  />
-                </button>
+          {showCodeForm && (
+            <form onSubmit={onSubmit}>
+              <div className="plan-upgrade-copy">
+                <div className="plan-upgrade-title">{uiText("전환 코드", "Upgrade code")}</div>
+                <p>
+                  {uiText(
+                    "코드를 입력하면 한도가 바로 풀립니다.",
+                    "Enter a code and the limit lifts right away.",
+                  )}
+                </p>
               </div>
-            </Field>
-            {upgrade.isError && <InlineError>{upgradeErrorMessage(upgrade.error)}</InlineError>}
-          </form>
+              <Field label={uiText("전환 코드", "Upgrade code")}>
+                <div className="plan-upgrade-row">
+                  <input
+                    className="mono"
+                    value={code}
+                    onChange={(event) => {
+                      setCode(event.target.value);
+                      upgrade.reset();
+                    }}
+                    placeholder={uiText("코드를 입력하세요", "Enter a code")}
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={upgrade.isPending}
+                  />
+                  <button className="btn btn-primary" type="submit" disabled={!canSubmit}>
+                    <BusyLabel
+                      busy={upgrade.isPending}
+                      label={uiText("전환", "Apply")}
+                      busyLabel={uiText("전환 중…", "Applying…")}
+                    />
+                  </button>
+                </div>
+              </Field>
+              {upgrade.isError && <InlineError>{upgradeErrorMessage(upgrade.error)}</InlineError>}
+            </form>
+          )}
         </div>
       )}
 
