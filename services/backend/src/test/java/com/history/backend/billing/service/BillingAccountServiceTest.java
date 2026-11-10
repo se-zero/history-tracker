@@ -190,6 +190,73 @@ class BillingAccountServiceTest {
     }
 
     @Test
+    @DisplayName("결제가 설정되면 availability는 Paddle.js 클라이언트 토큰과 환경(sandbox)을 싣는다")
+    void availabilityIncludesClientTokenAndEnvironment() {
+        CheckoutAvailabilityResponse response = service(configuredProperties()).availability();
+
+        assertThat(response.clientToken()).isEqualTo("test_token");
+        assertThat(response.environment()).isEqualTo("sandbox");
+    }
+
+    @Test
+    @DisplayName("클라이언트 토큰은 결제 스위치와 독립이다 — 토큰만 있어도 checkoutAvailable은 false이고 토큰은 내려간다")
+    void availabilityExposesClientTokenEvenWhenCheckoutIsNotConfigured() {
+        // 신규 결제를 닫아도(가격 ID를 비워도) 기존 구독자의 결제 실패 복구 링크는 열려야 한다
+        PaddleProperties tokenOnly = new PaddleProperties(
+                "whsec", Duration.ofSeconds(5), "", null, "sandbox", "test_token");
+        PaddleProperties priceIdBlank = new PaddleProperties(
+                "whsec", Duration.ofSeconds(5), "", "key", "sandbox", "test_token");
+
+        CheckoutAvailabilityResponse withTokenOnly = service(tokenOnly).availability();
+        CheckoutAvailabilityResponse withPriceIdBlank = service(priceIdBlank).availability();
+
+        assertThat(withTokenOnly.checkoutAvailable()).isFalse();
+        assertThat(withTokenOnly.clientToken()).isEqualTo("test_token");
+        assertThat(withPriceIdBlank.checkoutAvailable()).isFalse();
+        assertThat(withPriceIdBlank.clientToken()).isEqualTo("test_token");
+    }
+
+    @Test
+    @DisplayName("클라이언트 토큰이 null이면 availability의 토큰도 null이다")
+    void availabilityReportsNullClientTokenWhenTokenIsNull() {
+        assertThat(service(properties("sandbox", null)).availability().clientToken()).isNull();
+    }
+
+    @Test
+    @DisplayName("클라이언트 토큰이 빈 문자열이거나 공백뿐이면 빈 문자열이 아니라 null을 내린다")
+    void availabilityReportsNullClientTokenWhenTokenIsEmptyOrBlank() {
+        assertThat(service(properties("sandbox", "")).availability().clientToken()).isNull();
+        assertThat(service(properties("sandbox", "  ")).availability().clientToken()).isNull();
+    }
+
+    @Test
+    @DisplayName("environment가 null이거나 공백뿐이면 availability의 환경은 sandbox다")
+    void availabilityDefaultsNullOrBlankEnvironmentToSandbox() {
+        assertThat(service(properties(null, "test_token")).availability().environment()).isEqualTo("sandbox");
+        assertThat(service(properties("  ", "test_token")).availability().environment()).isEqualTo("sandbox");
+    }
+
+    @Test
+    @DisplayName("environment가 production이면 availability도 production을 그대로 내린다")
+    void availabilityReportsProductionEnvironmentAsIs() {
+        assertThat(service(properties("production", "live_token")).availability().environment())
+                .isEqualTo("production");
+    }
+
+    @Test
+    @DisplayName("결제 스위치가 닫혀 있어도 availability의 환경은 설정값 그대로다")
+    void availabilityReportsEnvironmentEvenWhenCheckoutIsNotConfigured() {
+        // 복구 링크가 라이브 구독자를 샌드박스 결제창으로 보내지 않도록, 환경도 스위치와 독립이어야 한다
+        PaddleProperties tokenOnly = new PaddleProperties(
+                "whsec", Duration.ofSeconds(5), "", null, "production", "live_token");
+
+        CheckoutAvailabilityResponse response = service(tokenOnly).availability();
+
+        assertThat(response.checkoutAvailable()).isFalse();
+        assertThat(response.environment()).isEqualTo("production");
+    }
+
+    @Test
     @DisplayName("탈퇴한 사용자 요약은 404이고 Paddle을 부르지 않는다")
     void summaryRejectsInactiveUser() {
         when(userService.getActiveUser(USER_ID)).thenThrow(new NotFoundException("User not found."));
@@ -348,6 +415,11 @@ class BillingAccountServiceTest {
 
     private PaddleProperties configuredProperties() {
         return new PaddleProperties("whsec", Duration.ofSeconds(5), "pri_pro", "key", "sandbox", "test_token");
+    }
+
+    // 결제 설정은 전부 채우고 environment·clientToken만 바꾼 설정
+    private PaddleProperties properties(String environment, String clientToken) {
+        return new PaddleProperties("whsec", Duration.ofSeconds(5), "pri_pro", "key", environment, clientToken);
     }
 
     private PaddleProperties unconfiguredProperties() {
