@@ -314,7 +314,7 @@ G1 전에 배포돼 있어도 된다. 거꾸로 셋을 채우면 **모든 사용
 | **Catalog → Products** | Pro 상품과 월 가격 **14,900원, 통화 KRW, 세금 포함(`tax_mode: internal`)** — 요금 페이지 금액과 같아야 한다(billing.md §8-1). 샌드박스 상품과 이름·설명을 맞춘다 |
 | **Checkout → Checkout settings** | 한국 결제 수단(로컬 카드·카카오페이·네이버페이 등) 켜기. **Default payment link = `https://<도메인>/checkout`**(결제 링크 페이지, billing.md §8-3) — 비우면 대시보드가 저장을 막고 API로 거래를 만들 수 없다. 도메인이 Website approval에서 승인돼 있어야 한다. G2에서 무인 갱신이 안 된 수단은 여기서 끈다 |
 | **Checkout → Website approval** | `why-code.com`이 승인 상태인지 확인 |
-| **Developer tools → Notifications → New destination** | URL `https://<도메인>/api/v1/billing/webhook/paddle`, Usage type **Platform**, 이벤트 **`subscription.*`만**. 코드는 구독 알림만 처리하고 나머지는 무시한다 — 특히 `customer.*`에는 이메일·이름이 실려 오므로 받지 않는다(최소 수집) |
+| **Developer tools → Notifications → New destination** | URL `https://<도메인>/api/v1/billing/webhook/paddle`, Usage type **Platform**, 이벤트는 **`subscription.*`와 `adjustment.created`·`adjustment.updated`만**. 코드는 구독 알림과 승인된 환불(→ 구독 즉시 해지, docs/billing.md §6-7)만 처리하고 나머지는 무시한다 — 특히 `customer.*`에는 이메일·이름이 실려 오므로 받지 않는다(최소 수집). ⚠️ adjustment 두 유형은 **환불 처리 코드(PR #209)가 배포된 뒤에** 추가한다 — 먼저 추가하면 옛 코드가 IGNORED로 기록해 그 환불은 다시 처리되지 않고, 추가하지 않으면 환불해도 해지되지 않는다. 기존 대상에 이벤트만 추가하면 서명 키는 바뀌지 않는다. 로컬 테스트용 샌드박스 대상에도 같은 두 유형을 넣는다 |
 | **Developer tools → Authentication → API keys** | 서버용 키. 권한 `transaction.write`·`subscription.write`·`customer_portal_session.write`·`customer.read`(write가 read를 포함한다). ⚠️ **만료가 있다 — 기본 90일, 최장 1년.** 1년으로 발급하고 만료일을 달력에 적는다. 로컬(샌드박스) 키와 따로 발급한다 |
 | **Notifications → 이메일 알림 대상** | `api_key.expiring`(만료 7일 전)·`api_key.expired`를 운영자 메일로 받는다. 키가 만료되면 결제 시작·포털·탈퇴 해지·결제일 안내가 전부 502로 실패한다(탈퇴가 막힌다) |
 | **Developer tools → Authentication → Client-side tokens** | Paddle.js용 `live_…` 토큰. 브라우저로 내려가도 되는 값이라 API 키와 다르다 |

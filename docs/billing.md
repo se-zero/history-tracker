@@ -204,7 +204,7 @@ MoR에서는 그게 전부 Paddle 쪽이다. 우리 코드가 하는 일은 하�
 |---|---|
 | `users.plan` | 지금 그대로 쓴다 (`FREE`/`PAID`). 게이트 검사는 전부 여기를 본다 |
 | `users.plan_expires_at` (신규) | 이 시각이 지나면 FREE로 내린다. 스케줄러 안전망(§6-4)의 기준 |
-| `billing_subscriptions` (V24) | 구독 캐시 — PK Paddle subscription id, `user_id`(FK users, CASCADE), `customer_id`, `status`(Paddle 값 그대로), `price_id`, `current_period_ends_at`, 해지 예약(`scheduled_change_action`·`effective_at`), `canceled_at`, `last_event_occurred_at`(순서 역전 판정 기준). V26에서 `renewal_notice_period_end`(결제일 안내를 보낸 주기 끝 — 한 주기에 한 번만, §9-1) |
+| `billing_subscriptions` (V24) | 구독 캐시 — PK Paddle subscription id, `user_id`(FK users, CASCADE), `customer_id`, `status`(Paddle 값 그대로), `price_id`, `current_period_ends_at`, 해지 예약(`scheduled_change_action`·`effective_at`), `canceled_at`, `last_event_occurred_at`(순서 역전 판정 기준 — 2026-11-11부터 구독 엔티티의 `updated_at`, §6-6). V26에서 `renewal_notice_period_end`(결제일 안내를 보낸 주기 끝 — 한 주기에 한 번만, §9-1) |
 | `billing_events` (V24) | 수신 원장 — Paddle `event_id` **unique**(§6-2), `event_type`, `occurred_at`, `outcome`(`RECEIVED`→`APPLIED`·`STALE`·`UNMATCHED`·`IGNORED`), `subscription_id`, `user_id`(**FK 아님** — 파기 뒤에도 원장은 남긴다). **원본 payload는 저장하지 않는다** — customer 알림에 이메일·이름이 들어 있다 |
 
 `free_query_count`·`integrations.incremental_enabled`는 기존 컬럼을 그대로 쓴다(V19).
@@ -285,6 +285,58 @@ B0 리뷰에서 나온 항목이다. 갱신 웹훅과 만료 스케줄러가 같
 웹훅이 예외를 잡아 `UNMATCHED`로 커밋하려 해도 커밋이 실패한다(500 → Paddle 무한 재시도).
 `activatePaid`·`downgradeToFree`에 `noRollbackFor = NotFoundException.class`를 단 이유다(`AuthService.refresh`와
 같은 선례). 리플렉션 가드 테스트와 실제 트랜잭션 통합 테스트로 고정했다.
+
+### 6-6. 반영 순서와 잠금 — 한 곳에서 반영한다 (2026-11-11, PR #209)
+
+**무엇**: 구독 상태를 우리 DB에 반영하는 코드를 `PaddleSubscriptionParser`(구독 엔티티 JSON → 값)와
+`PaddleSubscriptionApplier`(반영)로 모았다. 웹훅은 서명·봉투·원장 선점·결과 기록만 하고, 반영은 applier에
+맡긴다. 환불 즉시 해지(§6-7)와 이후의 주기 동기화도 같은 applier를 쓴다. 판단이 둘로 갈라지면 같은 구독을
+서로 덮어쓰기 때문이다.
+
+**잠금 순서**: 사용자를 정한 뒤 사용자 행을 먼저 잠그고(`PlanService.lockForBillingUpdate`), 그다음에야
+구독 캐시를 **처음** 읽어 순서를 비교한다.
+- 예전에는 잠금 없이 읽은 사본으로 비교해서, 거의 동시에 온 두 알림 중 나중 것이 옛 사본으로 덮어쓸 수 있었다.
+- 잠그기 전 사용자·가격 조회는 엔티티가 아닌 스칼라 projection(`findOwnerBySubscriptionId`)이다. 엔티티로 읽으면
+  1차 캐시에 옛 사본이 남아, 잠근 뒤 다시 읽어도 DB가 아니라 그 사본이 돌아온다.
+- 같은 트랜잭션에서 applier보다 먼저 구독 캐시 엔티티를 읽으면 이 보장이 깨진다. 환불 처리는 그래서 캐시를 읽지 않는다.
+
+**순서 기준**: 구독 엔티티의 `updated_at`이다(없을 때만 봉투의 `occurred_at`). `last_event_occurred_at` 칸은 이제
+"마지막으로 반영한 구독의 updated_at"이다. 웹훅은 시각이 같으면 반영하고, Paddle API로 다시 읽은 결과는 더
+새로울 때만 반영한다(같으면 바뀐 것이 없다 — `UNCHANGED`). 변경 전에 쓴 행을 보정하지 않은 위험은 §15-4의 5번.
+
+### 6-7. 환불 → 즉시 해지 (2026-11-11, PR #209)
+
+**왜**: 환불(adjustment)은 거래만 되돌리고 구독 상태를 바꾸지 않는다. 그래서 2026-11-10 라이브 테스트에서
+환불받은 계정이 기간 말까지 Pro로 남았다. §9-1의 "환불은 즉시 해지와 짝" 원칙을 운영자 손이 아니라 서버가 지킨다.
+
+**흐름**: `adjustment.created`·`adjustment.updated` 중 `action=refund`, `status=approved`, `subscription_id`가 있는
+알림을 받으면 `SubscriptionRefundService`가 처리한다.
+- 자동 승인 환불은 처음부터 approved로 생성돼 `created`만 온다. 검토를 거친 환불은 `updated`로 approved가 온다.
+- **부분 환불도 해지한다.** 자동 결제 구독에는 해지 없이 돈만 돌려줄 수단이 없다(크레딧은 수동 청구 거래 전용).
+- 순서
+  1. 구독을 Paddle에서 새로 조회한다. 우리 Pro 가격이 아니거나 조정의 고객이 다르면 무시한다.
+     `pro-price-id`가 비어 있어도 무시한다(빈 값은 "모든 가격"이라 다른 구독까지 해지할 수 있다).
+  2. 이미 해지됐으면 반영만 한다.
+  3. 예약 변경이 있으면 먼저 지운다(`PATCH {"scheduled_change": null}`). 해지가 예약된 구독은 바로 즉시 해지하면
+     `400 subscription_locked_pending_changes`가 난다(제3자 보고, 문서에는 없음). 포털 해지 → 환불이 가장 흔한
+     순서라 이 경로가 기본이다.
+  4. 즉시 해지(`effective_from: immediately`)하고, **응답을 applier로 바로 반영해 FREE로 내린다.** 뒤따르는
+     `subscription.canceled` 알림을 기다리지 않는다.
+- 보호 장치
+  - 해지 예약이 1시간 안에 끝나면 Paddle을 건드리지 않는다. 예약을 지우면 다음 결제일이 살아나는데, 결제일 30분
+    이내에는 즉시 해지가 거절돼 갱신 결제가 될 수 있다. 1시간 안에 저절로 끝나고 해지 알림이 내린다.
+  - 예약을 지운 뒤 즉시 해지가 실패하면 기간 말 해지를 다시 걸어 둔다. 원래 예약이 일시정지였어도 해지로 둔다 —
+    이미 환불한 구독이라 기간 말에 끝나는 것이 맞고, 우리 서비스는 일시정지를 쓰지 않는다.
+  - 실패는 예외로 올린다. 원장 선점까지 롤백돼 Paddle이 같은 알림을 다시 보낸다(라이브 약 이틀, 최대 60회).
+- Paddle 호출(최대 3번)은 웹훅 트랜잭션 안에서 일어난다. 사용자 잠금은 호출을 모두 끝낸 뒤 applier에서만 잡는다.
+  응답이 5초를 넘기면 Paddle이 다시 보내지만, 원장 선점이 중복을 막는다. 환불 알림은 드물어 연결을 잠시 잡는
+  비용을 감수했다.
+- **HTTP 클라이언트**: Paddle 호출은 JDK `HttpClient`(`PaddleClientConfig`)로 한다. 예전의
+  `SimpleClientHttpRequestFactory`(HttpURLConnection)는 PATCH를 거절한다(JDK 17
+  `ProtocolException: Invalid HTTP method: PATCH`).
+- **배포 단계**: Paddle 알림 대상에 `adjustment.created`·`adjustment.updated`를 **이 코드가 배포된 뒤에** 추가한다
+  ([deployment.md](deployment.md) §3-2b). 먼저 추가하면 옛 코드가 IGNORED로 기록해 그 환불은 다시 처리되지 않는다.
+  추가하지 않으면 이 기능은 조용히 동작하지 않는다.
 
 ---
 
@@ -535,10 +587,10 @@ Paddle 정책을 따른다"로 두었지만, Paddle 환불정책은 한국의 7�
 - **수단**: Paddle 부분 환불(adjustment `refund` + `partial`)이 결제 건의 일부 금액을 환불한다(API
   확인). 라이브 환불은 대부분 Paddle 검토(`pending_approval`)를 거쳐 승인된다.
 - **계산**: 결제 금액 × 남은 일수 / 결제 주기 일수. 7일 이내·미사용이면 전액(법정 철회).
-- ⚠️ **즉시 해지와 짝이다.** 고객 포털의 해지는 기간 말 해지(scheduled change)로 동작한다고
-  보고 있다(미확인 — §15-3-4). 그 상태에서 환불까지 하면 **환불받고 기간 끝까지 쓰는** 상태가
-  된다. 환불 요청이 오면 구독을 **즉시 해지**(`effective_from: immediately`)하고 환불한다. 즉시
-  해지는 `subscription.canceled` 웹훅으로 오므로 B1이 받아 바로 강등한다.
+- ⚠️ **즉시 해지와 짝이다.** 고객 포털의 해지는 기간 말 해지(scheduled change)다(2026-11-10 라이브에서
+  확인 — §15-3-4). 그 상태에서 환불만 하면 **환불받고 기간 끝까지 쓰는** 상태가 된다. 2026-11-11부터는
+  **서버가 자동으로 즉시 해지한다**(§6-7) — 운영자는 대시보드에서 환불만 하면 되고, 승인되면 몇 초 안에 FREE가
+  된다. 부분 환불도 해지되므로, 해지 없이 돈만 돌려주는 호의 환불은 할 수 없다.
 - **처리 요청 창구**: 환불정책 페이지에 `contact@why-code.com`을 적는다. 해지 자체는 Paddle
   포털로 보내는 §0 결정 그대로다.
 - **세무** — Paddle이 VAT를 처리해도 **정산금은 본인 소득**이다. 계속·반복적 수입이면 세법상
@@ -816,6 +868,10 @@ backend가 **시작 단계에서 멈춘다** — 오타로 베타가 조용히 �
    `subscription.canceled`가 온다. B1은 해지 예약을 기록만 하고 플랜은 `canceled` 알림에서 내린다.
    **샌드박스 실측(2026-09-28, B2)**: 포털 해지 딥링크로 해지하면 해지 예약으로 기록되고 요금제 카드에
    "해지 예정"이 뜬다. 라이브에서 기간 끝의 `canceled`까지는 G2의 1일 주기 구독으로 본다.
+   **라이브 확인(2026-11-10)**: 첫 결제 테스트에서 포털로 해지하자 Paddle 화면에 "한 달 후 취소"가 떴고,
+   `subscription.updated`(active + `scheduled_change.action=cancel`, `effective_at` = 기간 끝)가 200으로 반영돼 요금제
+   카드에 "해지 예정 — 그때까지 Pro"가 보였다. 같은 테스트에서 환불까지 했는데 Pro로 남아, 환불 시 서버가 즉시
+   해지하도록 바꿨다(§6-7). 테스트 결제 14,900원, 수수료 1,414원(환불 때 Paddle이 보유), 환불은 검토 없이 자동 승인.
 5. **결제 실패(연체) 중 결제 기간이 넘어가는지** — 갱신 결제가 실패해 `past_due`가 되면
    `current_billing_period`가 새 기간으로 넘어가는지에 따라 연체 중 만료 시각이 달라진다(연체 동안 Pro
    유지 결정, §0 D1). 샌드박스의 "첫 결제 성공·갱신 실패" 테스트 카드(`4000 0027 6000 3184`)로 확인한다 — **B2 실측에는 넣지

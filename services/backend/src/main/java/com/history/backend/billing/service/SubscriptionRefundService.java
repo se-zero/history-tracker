@@ -115,6 +115,8 @@ public class SubscriptionRefundService {
         return endsAt != null && !endsAt.isAfter(clock.instant().plus(PROTECTION_WINDOW));
     }
 
+    // 지운 예약이 일시정지(pause)였어도 기간 말 해지로 되돌린다 — 이미 환불한 구독이라 기간 말에 끝나는 것이
+    // 맞는 결과이고, 우리 서비스는 일시정지를 쓰지 않는다. 원래 예약을 그대로 복원하는 것이 목적이 아니다.
     private void restoreScheduledCancel(String subscriptionId) {
         try {
             paddleApiClient.cancelSubscription(subscriptionId, EffectiveFrom.NEXT_BILLING_PERIOD);
