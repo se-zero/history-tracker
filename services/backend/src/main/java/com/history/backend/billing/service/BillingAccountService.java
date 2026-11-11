@@ -28,7 +28,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class BillingAccountService {
 
-    // PaddleWebhookService.ACTIVE_LIKE_STATUSES와 같은 집합. paused는 여기 넣지 않는다 —
+    // PaddleSubscriptionApplier.ACTIVE_LIKE_STATUSES와 같은 집합. paused는 여기 넣지 않는다 —
     // 일시정지는 이미 강등 대상이고, 체크아웃을 막을 "살아 있는 구독"이 아니다.
     static final List<String> LIVE_STATUSES = List.of("active", "trialing", "past_due");
 
