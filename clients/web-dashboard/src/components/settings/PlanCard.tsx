@@ -36,7 +36,7 @@ function priceLabel() {
     : `월 ${PRO_MONTHLY_PRICE_KRW.toLocaleString("ko-KR")}원`;
 }
 
-type CheckoutPhase = "idle" | "opening" | "reflecting" | "done" | "timeout" | "error";
+type CheckoutPhase = "idle" | "opening" | "reflecting" | "done" | "timeout" | "error" | "conflict";
 
 function planLabel(plan: Plan | undefined) {
   return plan === "PAID" ? "Pro" : "Free";
@@ -165,8 +165,15 @@ export function PlanCard() {
           }
         },
       });
-    } catch {
-      setCheckoutPhase("error");
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        // 서버는 409 직전에 Paddle 상태로 DB를 고쳤다. 화면의 플랜이 옛 값이면 같은 버튼을 계속 누르게 되므로 다시 읽는다.
+        // 결제 요약 무효화는 useStartCheckout이 맡는다.
+        void refreshRef.current();
+        setCheckoutPhase("conflict");
+      } else {
+        setCheckoutPhase("error");
+      }
     }
   };
 
@@ -319,6 +326,7 @@ export function PlanCard() {
                 className="btn btn-primary"
                 // 결제를 마친 뒤(done·timeout)에도 막는다. 웹훅이 늦으면 서버는 아직 FREE·구독 없음으로
                 // 보고 두 번째 거래를 만들어 주므로, 다시 누르면 실제로 두 번 결제된다.
+                // conflict도 막는다 — 같은 409만 반복된다.
                 disabled={checkoutPhase !== "idle" && checkoutPhase !== "error"}
                 onClick={() => void onSubscribe()}
               >
@@ -347,6 +355,24 @@ export function PlanCard() {
                     <>
                       결제는 완료됐어요. 반영까지 몇 분 걸릴 수 있어요. 다시 결제하지 마시고, 반영이
                       계속 안 되면{" "}
+                      <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>으로 알려
+                      주세요.
+                    </>
+                  )}
+                </p>
+              )}
+              {checkoutPhase === "conflict" && (
+                <p className="plan-note">
+                  {getUiLang() === "en" ? (
+                    <>
+                      You already have an active subscription, so we didn't open checkout. We
+                      reloaded your latest status. If you keep seeing this, email{" "}
+                      <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>.
+                    </>
+                  ) : (
+                    <>
+                      이미 진행 중인 구독이 있어 결제창을 열지 않았어요. 최신 상태로 다시 불러왔어요.
+                      계속 이 화면이 보이면{" "}
                       <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>으로 알려
                       주세요.
                     </>
