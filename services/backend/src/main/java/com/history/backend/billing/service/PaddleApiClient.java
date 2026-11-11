@@ -102,6 +102,8 @@ public class PaddleApiClient {
     // 다음 쪽은 meta의 next URL을 따라가지 않고 마지막 구독 id를 after로 넘겨 직접 요청한다 — 응답에 든
     // URL을 따라가면 API 키를 그 주소로 보내게 된다. 중간 쪽이 실패하면 앞 쪽 결과만 돌려주지 않고 던진다:
     // 일부만 받은 채 성공으로 끝내면 빠진 구독이 이번 실행에서 조용히 건너뛰어진다.
+    // 끝까지 받지 못하고 멈추는 두 경우(같은 쪽 반복·쪽 상한)는 던지지 않고 받은 만큼 돌려주되 경고를 남긴다 —
+    // 던지면 그 상태가 풀릴 때까지 매시간 동기화가 통째로 실패한다.
     public List<PaddleSubscriptionState> listLiveSubscriptions(String priceId) {
         requireApiKey();
         List<PaddleSubscriptionState> subscriptions = new ArrayList<>();
@@ -121,11 +123,21 @@ public class PaddleApiClient {
             if (result.subscriptions().isEmpty()) {
                 break;
             }
-            subscriptions.addAll(result.subscriptions());
             String lastId = result.subscriptions().get(result.subscriptions().size() - 1).subscriptionId();
-            // 서버가 after를 무시하고 같은 쪽을 되돌려주면 따라가도 끝나지 않는다
-            if (!result.hasMore() || lastId == null || lastId.equals(after)) {
+            // 서버가 after를 무시하고 같은 쪽을 되돌려주면 따라가도 끝나지 않는다. 그 쪽은 앞에서 이미 담았다
+            if (after != null && after.equals(lastId)) {
+                log.warn("Paddle subscription list returned the same page again; stopped paging. after={}, received={}",
+                        after, subscriptions.size());
                 break;
+            }
+            subscriptions.addAll(result.subscriptions());
+            if (!result.hasMore() || lastId == null) {
+                break;
+            }
+            // 50쪽 × 200 = 1만 건. 여기까지 와서 뒤쪽이 남았다면 이번 실행에서는 받지 못한다 — 닿으면 상한을 올린다
+            if (page == MAX_LIST_PAGES - 1) {
+                log.warn("Paddle subscription list reached the page limit; later pages were not fetched. pages={}, received={}",
+                        MAX_LIST_PAGES, subscriptions.size());
             }
             after = lastId;
         }

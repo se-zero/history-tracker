@@ -671,8 +671,9 @@ class PaddleApiClientTest {
     }
 
     @Test
-    @DisplayName("멈춤 조건 2: 같은 커서가 반복되면(after로 받은 페이지의 마지막 id가 그 after와 같음) has_more=true여도 더 부르지 않는다")
-    void listLiveSubscriptionsStopsWhenCursorRepeats() {
+    @DisplayName("멈춤 조건 2: 같은 커서가 반복되면(after로 받은 페이지의 마지막 id가 그 after와 같음) has_more=true여도 더 부르지 않고, "
+            + "되돌아온 페이지는 다시 담지 않으며 경고를 남긴다")
+    void listLiveSubscriptionsStopsWhenCursorRepeats(CapturedOutput output) {
         Fixture fixture = fixture(configured("sandbox"));
         expectLivePage(fixture.server, null,
                 page(true, null, subscriptionJson("sub_a"), subscriptionJson("sub_b")));
@@ -682,13 +683,16 @@ class PaddleApiClientTest {
 
         List<PaddleSubscriptionState> result = fixture.client.listLiveSubscriptions("pri_pro");
 
-        assertThat(result).extracting(PaddleSubscriptionState::subscriptionId).contains("sub_a", "sub_b");
+        // 되돌아온 페이지까지 담으면 sub_a·sub_b가 두 번씩 나온다
+        assertThat(result).extracting(PaddleSubscriptionState::subscriptionId).containsExactly("sub_a", "sub_b");
+        // 뒤쪽을 받지 못한 채 끝났으므로 조용히 넘어가지 않는다
+        assertThat(output.getAll()).contains("returned the same page again");
         fixture.server.verify();
     }
 
     @Test
-    @DisplayName("멈춤 조건 3: 페이지 상한(50)에 닿으면 has_more=true여도 51번째 요청은 하지 않는다")
-    void listLiveSubscriptionsStopsAtPageLimit() {
+    @DisplayName("멈춤 조건 3: 페이지 상한(50)에 닿으면 has_more=true여도 51번째 요청은 하지 않고, 뒤쪽을 받지 못했다는 경고를 남긴다")
+    void listLiveSubscriptionsStopsAtPageLimit(CapturedOutput output) {
         Fixture fixture = fixture(configured("sandbox"));
         for (int page = 1; page <= 50; page++) {
             String after = page == 1 ? null : String.format("sub_%02d", page - 1);
@@ -700,6 +704,24 @@ class PaddleApiClientTest {
 
         assertThat(result).hasSize(50);
         assertThat(result.get(49).subscriptionId()).isEqualTo("sub_50");
+        assertThat(output.getAll()).contains("reached the page limit");
+        fixture.server.verify();
+    }
+
+    @Test
+    @DisplayName("상한과 같은 50번째 페이지가 마지막(has_more=false)이면 다 받은 것이므로 상한 경고를 남기지 않는다")
+    void listLiveSubscriptionsDoesNotWarnWhenLastPageIsExactlyAtLimit(CapturedOutput output) {
+        Fixture fixture = fixture(configured("sandbox"));
+        for (int page = 1; page <= 50; page++) {
+            String after = page == 1 ? null : String.format("sub_%02d", page - 1);
+            expectLivePage(fixture.server, after,
+                    page(page < 50, null, subscriptionJson(String.format("sub_%02d", page))));
+        }
+
+        List<PaddleSubscriptionState> result = fixture.client.listLiveSubscriptions("pri_pro");
+
+        assertThat(result).hasSize(50);
+        assertThat(output.getAll()).doesNotContain("reached the page limit");
         fixture.server.verify();
     }
 
