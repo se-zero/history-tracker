@@ -133,6 +133,9 @@ public class PaddleSubscriptionApplier {
             return new ApplyResult(ApplyOutcome.UNMATCHED, subscriptionId, userId);
         }
         Optional<BillingSubscription> existing = billingSubscriptionRepository.findById(subscriptionId);
+        // items가 없으면 가격 검사는 잠금 전 projection 값으로 했지만, 저장은 잠근 뒤 읽은 캐시 값을 쓴다 —
+        // 잠금을 기다리는 사이 다른 트랜잭션이 바꿔 커밋한 가격을 옛 값으로 되돌리지 않기 위해서다.
+        String priceIdToSave = hasItems ? priceId : existing.map(BillingSubscription::getPriceId).orElse(priceId);
 
         // 웹훅은 같은 시각이면 반영한다. API는 같은 시각이면 바뀐 게 없는 것이라 UNCHANGED로 끝낸다 —
         // 주기적 동기화가 매번 모든 구독 행을 다시 쓰지 않게 하기 위해서다.
@@ -171,7 +174,7 @@ public class PaddleSubscriptionApplier {
                 return new ApplyResult(ApplyOutcome.IGNORED, subscriptionId, userId);
             }
             BillingSubscription subscription = new BillingSubscription(
-                    subscriptionId, userId, state.customerId(), status, priceId,
+                    subscriptionId, userId, state.customerId(), status, priceIdToSave,
                     state.currentPeriodEndsAt(), state.scheduledChangeAction(), state.scheduledChangeEffectiveAt(),
                     state.canceledAt(), orderingTime
             );

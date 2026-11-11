@@ -151,7 +151,8 @@ public class PaddleWebhookService {
         try {
             return Instant.parse(raw);
         } catch (DateTimeParseException e) {
-            throw new BadRequestException("Invalid Paddle webhook timestamp: " + raw);
+            // 원문은 응답에 싣지 않는다 — 파서(PaddleSubscriptionParser)의 시각 오류와 같은 규칙
+            throw new BadRequestException("Invalid Paddle webhook timestamp.");
         }
     }
 

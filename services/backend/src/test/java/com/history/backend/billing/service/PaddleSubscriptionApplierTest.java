@@ -497,6 +497,22 @@ class PaddleSubscriptionApplierTest {
         verify(planService).lockForBillingUpdate(USER_ID);
     }
 
+    @Test
+    @DisplayName("items가 없으면 저장할 가격은 잠근 뒤 읽은 캐시의 가격이다 — 잠금 전 projection 값으로 되돌리지 않는다")
+    void applyStoresPriceReadAfterLockWhenItemsMissing() {
+        // pro-price-id가 비어 있어 가격 검사는 통과하고, 잠금을 기다리는 사이 다른 트랜잭션이 가격을 바꿔 커밋한 상황
+        PaddleSubscriptionApplier applier = applier("");
+        when(billingSubscriptionRepository.findOwnerBySubscriptionId(SUBSCRIPTION_ID))
+                .thenReturn(Optional.of(owner(USER_ID, OTHER_PRICE_ID)));
+        when(billingSubscriptionRepository.findById(SUBSCRIPTION_ID))
+                .thenReturn(Optional.of(cachedSubscription(EARLY)));
+
+        ApplyResult result = applier.apply(state().priceIds(null).build(), FALLBACK_AT, ApplySource.WEBHOOK);
+
+        assertThat(result.outcome()).isEqualTo(ApplyOutcome.APPLIED);
+        assertThat(savedSubscription().getPriceId()).isEqualTo(PRICE_ID);
+    }
+
     // ── 상태별 플랜 반영 ──
 
     @ParameterizedTest
