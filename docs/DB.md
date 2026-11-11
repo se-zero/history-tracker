@@ -511,7 +511,7 @@ Paddle 구독 상태의 **캐시**. 진실의 원천은 Paddle이고, 결제 알
 | `scheduled_change_effective_at` | TIMESTAMPTZ | nullable | 예약 변경 시각 |
 | `canceled_at` | TIMESTAMPTZ | nullable | 해지 확정 시각 |
 | `last_event_occurred_at` | TIMESTAMPTZ | NOT NULL | 마지막으로 반영한 구독 상태의 순서 기준. 2026-11-11부터 구독 엔티티의 `updated_at`이다(없을 때만 알림의 `occurred_at` — 그 전에 쓴 행은 `occurred_at` 그대로, [billing.md](billing.md) §6-6·§15-4). 이보다 오래된 알림은 `STALE`로 무시한다(Paddle은 순서를 보장하지 않는다). 사용자 행을 잠근 뒤에 읽어 비교한다 |
-| `renewal_notice_period_end` | TIMESTAMPTZ | nullable (V26) | 결제일 7일 전 안내를 보낸 주기의 `current_period_ends_at`. 같은 값이면 다시 보내지 않고, 갱신으로 주기 끝이 바뀌면 다음 주기에 다시 보낸다. 웹훅이 행을 다시 쓸 때도 기존 값을 옮겨 적는다 |
+| `renewal_notice_period_end` | TIMESTAMPTZ | nullable (V26) | 결제일 7일 전 안내를 보낸 주기의 `current_period_ends_at`. 같은 값이면 다시 보내지 않고, 갱신으로 주기 끝이 바뀌면 다음 주기에 다시 보낸다. 이 칸은 `RenewalNoticeService`가 단독 UPDATE(`markRenewalNoticeSent`)로만 쓰고, 엔티티에서는 `updatable = false`라 웹훅·동기화가 행을 통째로 다시 써도 지워지지 않는다(2026-11-11, [billing.md](billing.md) §6-8) |
 | `created_at` · `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
 **인덱스**

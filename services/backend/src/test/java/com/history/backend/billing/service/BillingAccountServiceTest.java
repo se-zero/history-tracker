@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -15,6 +18,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import com.history.backend.auth.domain.Plan;
@@ -30,6 +34,7 @@ import com.history.backend.billing.dto.BillingSummaryResponse.PlanSource;
 import com.history.backend.billing.dto.CheckoutAvailabilityResponse;
 import com.history.backend.billing.dto.CheckoutSessionResponse;
 import com.history.backend.billing.repository.BillingSubscriptionRepository;
+import com.history.backend.common.error.BadGatewayException;
 import com.history.backend.common.error.BadRequestException;
 import com.history.backend.common.error.ConflictException;
 import com.history.backend.common.error.NotFoundException;
@@ -37,6 +42,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -64,6 +70,9 @@ class BillingAccountServiceTest {
 
     @Mock
     private PaddleApiClient paddleApiClient;
+
+    @Mock
+    private PaddleSubscriptionSyncService syncService;
 
     private BillingAccountService service;
 
@@ -319,6 +328,110 @@ class BillingAccountServiceTest {
         verify(paddleApiClient, never()).createCheckoutTransaction(any(), any());
     }
 
+    // ── 결제 직전 재확인(D6): 살아 있는 캐시 구독이 있으면 Paddle과 맞춘 뒤 사용자·캐시를 다시 읽어 판단한다 ──
+
+    @Test
+    @DisplayName("해지 알림을 놓친 낡은 캐시는 refresh 뒤 사용자를 다시 읽고, 구독이 사라졌으면 거래를 1회 만든다")
+    void startCheckoutRefreshesStaleCacheThenCreatesTransactionOnce() {
+        when(userService.getActiveUser(USER_ID)).thenReturn(user(Plan.FREE, null));
+        // 첫 조회는 낡은 캐시(active), refresh가 캐시를 canceled로 바로잡은 뒤의 조회는 비어 있다
+        when(subscriptionRepository.findByUserIdAndStatusIn(eq(USER_ID), argThat(this::isLiveStatuses)))
+                .thenReturn(List.of(
+                        subscription("sub_stale_1", "ctm_1", "active", EARLY, null, null, null),
+                        subscription("sub_stale_2", "ctm_1", "past_due", LATE, null, null, null)))
+                .thenReturn(List.of());
+        when(paddleApiClient.createCheckoutTransaction("pri_pro", USER_ID)).thenReturn("txn_1");
+
+        CheckoutSessionResponse response = service.startCheckout(USER_ID);
+
+        assertThat(response.transactionId()).isEqualTo("txn_1");
+        // 순서: 사용자 확인 → refresh → 사용자 다시 읽기 → 거래 생성
+        InOrder inOrder = inOrder(userService, syncService, paddleApiClient);
+        inOrder.verify(userService).getActiveUser(USER_ID);
+        inOrder.verify(syncService).refresh(
+                argThat(ids -> ids != null && Set.copyOf(ids).equals(Set.of("sub_stale_1", "sub_stale_2"))));
+        inOrder.verify(userService).getActiveUser(USER_ID);
+        inOrder.verify(paddleApiClient).createCheckoutTransaction("pri_pro", USER_ID);
+        verify(paddleApiClient, times(1)).createCheckoutTransaction("pri_pro", USER_ID);
+    }
+
+    @Test
+    @DisplayName("refresh 뒤에도 살아 있는 구독이 남아 있으면 409이고 거래를 만들지 않는다")
+    void startCheckoutRejectsWhenSubscriptionIsStillLiveAfterRefresh() {
+        when(userService.getActiveUser(USER_ID)).thenReturn(user(Plan.FREE, null));
+        when(subscriptionRepository.findByUserIdAndStatusIn(eq(USER_ID), argThat(this::isLiveStatuses)))
+                .thenReturn(List.of(subscription("sub_1", "ctm_1", "active", LATE, null, null, null)));
+
+        assertThatThrownBy(() -> service.startCheckout(USER_ID))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("An active subscription already exists.");
+
+        verify(syncService).refresh(argThat(ids -> ids != null && Set.copyOf(ids).equals(Set.of("sub_1"))));
+        verify(paddleApiClient, never()).createCheckoutTransaction(any(), any());
+    }
+
+    @Test
+    @DisplayName("갱신 알림을 놓쳐 FREE였던 사용자가 refresh로 PAID가 되면 사용자를 다시 읽어 free plan 409를 던지고 거래를 만들지 않는다")
+    void startCheckoutRejectsUserWhoBecomesPaidByRefresh() {
+        // 첫 번째 읽기는 FREE, refresh 뒤의 읽기는 PAID — 사용자를 다시 읽지 않으면 이 전환을 놓친다
+        when(userService.getActiveUser(USER_ID))
+                .thenReturn(user(Plan.FREE, null))
+                .thenReturn(user(Plan.PAID, LATE));
+        when(subscriptionRepository.findByUserIdAndStatusIn(eq(USER_ID), argThat(this::isLiveStatuses)))
+                .thenReturn(List.of(subscription("sub_1", "ctm_1", "active", LATE, null, null, null)));
+
+        assertThatThrownBy(() -> service.startCheckout(USER_ID))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Checkout is only available on the free plan.");
+
+        verify(syncService).refresh(any());
+        verify(userService, times(2)).getActiveUser(USER_ID);
+        verify(paddleApiClient, never()).createCheckoutTransaction(any(), any());
+    }
+
+    @Test
+    @DisplayName("refresh가 Paddle 실패(BadGatewayException)를 던지면 그대로 전파하고 거래를 만들지 않는다")
+    void startCheckoutPropagatesRefreshFailure() {
+        when(userService.getActiveUser(USER_ID)).thenReturn(user(Plan.FREE, null));
+        when(subscriptionRepository.findByUserIdAndStatusIn(eq(USER_ID), argThat(this::isLiveStatuses)))
+                .thenReturn(List.of(subscription("sub_1", "ctm_1", "active", LATE, null, null, null)));
+        doThrow(new BadGatewayException("Paddle subscription list request failed."))
+                .when(syncService).refresh(any());
+
+        assertThatThrownBy(() -> service.startCheckout(USER_ID))
+                .isInstanceOf(BadGatewayException.class)
+                .hasMessage("Paddle subscription list request failed.");
+
+        verify(paddleApiClient, never()).createCheckoutTransaction(any(), any());
+    }
+
+    @Test
+    @DisplayName("캐시에 살아 있는 구독이 없으면 refresh하지 않고, 사용자도 다시 읽지 않는다")
+    void startCheckoutSkipsRefreshWhenNoLiveSubscriptionIsCached() {
+        when(userService.getActiveUser(USER_ID)).thenReturn(user(Plan.FREE, null));
+        when(subscriptionRepository.findByUserIdAndStatusIn(eq(USER_ID), argThat(this::isLiveStatuses)))
+                .thenReturn(List.of());
+        when(paddleApiClient.createCheckoutTransaction("pri_pro", USER_ID)).thenReturn("txn_1");
+
+        service.startCheckout(USER_ID);
+
+        verifyNoInteractions(syncService);
+        verify(userService, times(1)).getActiveUser(USER_ID);
+    }
+
+    @Test
+    @DisplayName("결제가 설정되지 않았거나 FREE가 아니면 살아 있는 구독이 있어도 Paddle을 다시 확인하지 않는다")
+    void startCheckoutDoesNotRefreshWhenUnconfiguredOrNotFree() {
+        BillingAccountService unconfigured = service(unconfiguredProperties());
+        when(userService.getActiveUser(USER_ID)).thenReturn(user(Plan.FREE, null));
+        assertThatThrownBy(() -> unconfigured.startCheckout(USER_ID)).isInstanceOf(ConflictException.class);
+
+        when(userService.getActiveUser(USER_ID)).thenReturn(user(Plan.PAID, LATE));
+        assertThatThrownBy(() -> service.startCheckout(USER_ID)).isInstanceOf(ConflictException.class);
+
+        verifyNoInteractions(syncService);
+    }
+
     @Test
     @DisplayName("포털은 요청값이 아니라 캐시의 customer id로 열고, target에 맞는 링크를 고른다")
     void openPortalUsesCachedCustomerAndSelectedTarget() {
@@ -387,7 +500,7 @@ class BillingAccountServiceTest {
 
         assertThatThrownBy(() -> service.startCheckout(USER_ID)).isInstanceOf(NotFoundException.class);
         assertThatThrownBy(() -> service.downgradeCodePlan(USER_ID)).isInstanceOf(NotFoundException.class);
-        verifyNoInteractions(paddleApiClient, planService, subscriptionRepository);
+        verifyNoInteractions(paddleApiClient, planService, subscriptionRepository, syncService);
     }
 
     private BillingAccountService service(PaddleProperties properties) {
@@ -396,7 +509,7 @@ class BillingAccountServiceTest {
 
     private BillingAccountService service(PaddleProperties properties, BetaPeriod betaPeriod) {
         return new BillingAccountService(
-                userService, planService, subscriptionRepository, paddleApiClient, properties, betaPeriod);
+                userService, planService, subscriptionRepository, paddleApiClient, syncService, properties, betaPeriod);
     }
 
     private BetaPeriod noBeta() {

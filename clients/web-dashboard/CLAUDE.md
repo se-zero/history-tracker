@@ -100,6 +100,9 @@ src/
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(요금제 카드 — `GET /me/billing`의
                     planSource로 결제 구독자·코드 사용자·무료 세 상태를 그린다. 결제창·포털 링크·코드 강등.
                     포털 링크는 1회용이라 누를 때마다 받아 이동한다. docs/billing.md §8-2.
+                    결제 시작이 409면 서버가 막기 직전에 Paddle 상태로 DB를 바로잡은 것이라, `useAuth().refresh`와
+                    `useStartCheckout`의 결제 요약 무효화로 다시 읽고 phase `"conflict"`(안내 + 문의 메일, 버튼 잠금)를
+                    보인다. 다시 읽은 결과가 PAID면 카드가 구독 화면으로 바뀐다. docs/billing.md §6-8.
                     FREE이면서 `/me`의 `betaEndsAt`이 있으면 이 판정보다 먼저 베타 모드를 그린다 — 화면에는
                     "베타"라고 쓰지 않고 무료 플랜의 한시 확대로 보인다(배지는 무료와 같은 "Free", 종료일·프로젝트
                     3개 안내, 구독 영역은 무료와 같게). 질의 사용량·무료 기능 목록·전환 코드 입력란은 숨긴다.

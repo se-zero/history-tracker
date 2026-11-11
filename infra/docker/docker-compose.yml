@@ -170,6 +170,9 @@ services:
       RESEND_REPLY_TO: ${RESEND_REPLY_TO:-contact@why-code.com}
       BILLING_RENEWAL_NOTICE_ENABLED: ${BILLING_RENEWAL_NOTICE_ENABLED:-true}
       BILLING_RENEWAL_NOTICE_CRON: ${BILLING_RENEWAL_NOTICE_CRON:-0 0 4 * * *}
+      # Paddle 구독 1시간 동기화 — 웹훅 유실 복구 (기본 true, 매시 45분). API 키·pro-price-id가 비면 건너뛴다.
+      BILLING_SUBSCRIPTION_SYNC_ENABLED: ${BILLING_SUBSCRIPTION_SYNC_ENABLED:-true}
+      BILLING_SUBSCRIPTION_SYNC_CRON: ${BILLING_SUBSCRIPTION_SYNC_CRON:-0 45 * * * *}
       # 결제 갱신 알림 지연·재시도에 대비한 만료 유예. 기본 3일(라이브 재시도 창과 동일).
       BILLING_EXPIRY_GRACE: ${BILLING_EXPIRY_GRACE:-P3D}
 
