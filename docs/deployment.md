@@ -330,6 +330,7 @@ G1 전에 배포돼 있어도 된다. 거꾸로 셋을 채우면 **모든 사용
 | `RESEND_API_KEY` | 결제일 7일 전 안내 메일. Resend에서 **서버용 키를 따로** 발급한다(권한 Sending access, 도메인 `mail.why-code.com` 제한). 비면 안내만 안 나가고 결제·해지는 그대로 동작한다 |
 | `RESEND_FROM`·`RESEND_REPLY_TO` | 비우면 `whycode <billing@mail.why-code.com>`·`contact@why-code.com` |
 | `BILLING_RENEWAL_NOTICE_ENABLED`·`BILLING_RENEWAL_NOTICE_CRON` | 비우면 켜짐·매일 04:00(서버 시각) |
+| `BILLING_SUBSCRIPTION_SYNC_ENABLED`·`BILLING_SUBSCRIPTION_SYNC_CRON` | 비우면 켜짐·매시 45분. 웹훅이 사라져도 Paddle 구독 상태로 DB를 다시 맞춘다(docs/billing.md §6-8). `PADDLE_API_KEY`·`PADDLE_PRO_PRICE_ID`가 비면 켜져 있어도 건너뛴다. 실행마다 backend 로그에 `Paddle 구독 동기화 완료. applied=… notFound=…` 한 줄이 남는다 |
 
 **G2 진행** — 1일 주기 가격을 따로 만들어 `PADDLE_PRO_PRICE_ID`에 잠시 넣고 결제 수단마다 구독해 다음 날
 갱신이 사람 손 없이 청구되는지 본다(billing.md §15-3-1). 이 동안 버튼이 모든 사용자에게 열리므로 짧게 끝내고,

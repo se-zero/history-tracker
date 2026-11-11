@@ -48,6 +48,9 @@
 | 전환 코드(`PLAN_UPGRADE_CODE`) | **유지** — §15-1-1 | 사용자 결정(2026-09-26). 운영자·베타 수단으로 남긴다. 코드 입력 폼과 코드 사용자의 자발적 강등 둘 다 B2에 둔다 |
 | 베타 기간 무료 Pro | **`BETA_ENDS_AT` 전까지 모든 FREE 사용자에게 Pro 기능을 연다**(프로젝트 3개까지). `users.plan`은 FREE 그대로, 자동 결제 없음 | 사용자 결정(2026-10-12). Slack 마켓플레이스 심사 기간 내내 활성 워크스페이스 10곳을 유지해야 하는데 무료 플랜은 증분 수집이 없고 질의가 평생 10회라 금방 비활성이 된다. Paddle 승인 전이라 결제·체험판은 쓸 수 없다 — §12-1 |
 | 베타 중 결제·화면 표기 | **기간 중에도 결제를 연다.** 화면에는 "베타"라고 쓰지 않고 **무료 플랜의 한시 확대**로 보인다. 내부 이름(`BETA_ENDS_AT`·`BetaPeriod`·`betaEndsAt`)은 그대로 | 사용자 결정(2026-11-10). 이전 방침은 "베타 중에는 결제를 열지 않는다"였다. 하지만 "베타라서 Pro 기능 무료" 옆에 "Pro 구독" 버튼이 있으면 왜 돈을 내야 하는지 헷갈린다. 무료 플랜의 한시 확대 + Pro 구독은 흔한 출시 혜택 구조라 결제와 같이 둘 수 있다. 서버는 원래 베타를 별도 플랜이 아니라 "FREE의 한도를 넓히는 기간"으로 다뤄 바꿀 코드가 없다 — §12-1 |
+| 환불 → 구독 즉시 해지 | **승인된 환불(부분 환불 포함)이 오면 서버가 Paddle 구독을 즉시 해지하고 바로 FREE로 내린다** | 사용자 결정(2026-11-10). 라이브 첫 결제 테스트에서 환불 뒤에도 Pro가 남았다. 환불은 구독 상태를 바꾸지 않고, 포털 해지는 기간 말 해지라 손으로 "즉시 해지와 짝"을 지키기 어렵다. 차지백은 미룬다 — §6-7 |
+| 구독 상태 동기화 | **매시 45분 Paddle과 맞춘다**(우리 가격의 살아 있는 구독 전체 + 캐시에만 살아 있는 구독) | 사용자 결정(2026-11-10). 웹훅이 이틀 재전송 뒤에도 사라지면 해지 유실(재구독 409)·갱신 유실(잘못된 강등)·생성 유실(결제하고 FREE)이 영영 남는다 — §6-8 |
+| 결제 직전 재확인 | **캐시에 살아 있는 구독이 있으면 409 전에 Paddle에서 다시 받아 반영한다**. 화면은 409를 받으면 다시 읽어 그린다 | 사용자 결정(2026-11-10·11). 해지 알림이 사라진 사용자의 재구독이 409로 영구히 막히던 문제 — §6-8 |
 
 ---
 
@@ -247,8 +250,8 @@ PAID 사용자를 주기적으로 쓸어 FREE로 내린다. `@EnableScheduling`�
 
 **B0-b에서 구현 완료.** `PlanExpiryProperties`·`PlanExpiryService`·`PlanExpiryScheduler`가
 매 실행마다 `UserRepository.findExpiredPaidUserIds`로 batchSize건을 조회해
-`PlanService.downgradeToFree`로 건별 강등한다(각 호출이 `PlanService`의 클래스 레벨
-`@Transactional`로 독립 트랜잭션이라, 한 건 실패가 나머지 성공 건을 롤백시키지 않는다).
+`PlanService.downgradeIfExpired`로 건별 강등한다(잠근 뒤 만료 조건을 재확인 — §6-5. 각 호출이 `PlanService`의
+클래스 레벨 `@Transactional`로 독립 트랜잭션이라, 한 건 실패가 나머지 성공 건을 롤백시키지 않는다).
 한 번 실행에 batchSize건만 처리하고 루프를 돌지 않는다 — 성공한 건은 FREE로 빠지므로
 나머지는 다음 실행이 가져간다.
 
@@ -338,6 +341,45 @@ B0 리뷰에서 나온 항목이다. 갱신 웹훅과 만료 스케줄러가 같
   ([deployment.md](deployment.md) §3-2b). 먼저 추가하면 옛 코드가 IGNORED로 기록해 그 환불은 다시 처리되지 않는다.
   추가하지 않으면 이 기능은 조용히 동작하지 않는다.
 
+### 6-8. 1시간 동기화 — 웹훅이 사라져도 Paddle과 다시 같아진다 (2026-11-11)
+
+**왜**: Paddle은 실패한 알림을 약 이틀 동안 최대 60회 다시 보내지만, 그 뒤에도 실패하면 알림은 사라진다. 웹훅에만
+기대면 그 구독은 영영 어긋난다.
+- 해지 알림 유실: 만료 안전망(§6-4)이 기간 끝 + 3일에 FREE로 내리지만 캐시는 `active`로 남아, 다시 구독하면
+  결제 시작이 409로 **영구히** 막힌다(로컬에서 재현).
+- 갱신 알림 유실: 만료 시각이 늘지 않아, 돈을 낸 사용자가 3일 뒤 FREE로 **잘못** 내려간다.
+- 생성 알림 유실: 결제했는데 FREE로 남는다.
+- 해지 예약 알림 유실: 해지한 사람에게 결제일 안내 메일이 나간다.
+
+**무엇**: `PaddleSubscriptionSyncScheduler`가 매시 45분(`BILLING_SUBSCRIPTION_SYNC_CRON`, 매시 15분 만료 작업과 겹치지
+않게)에 `PaddleSubscriptionSyncService.syncAll()`을 부른다.
+1. 우리 Pro 가격(`price_id`)의 아직 끝나지 않은 구독(active·trialing·past_due·paused)을 페이지로 전부 받아 반영한다.
+   캐시에 없던 구독(생성 알림 유실)도 여기서 들어온다.
+2. 캐시에는 살아 있는데 1에 없는 구독(대개 해지된 것)만 ID 묶음(100개씩)으로 받아 반영한다.
+   Paddle이 돌려주지 않은 ID는 `notFound`로 세고 캐시를 그대로 둔다 — 응답에 없다는 것만으로 해지됐다고 단정할 수 없다.
+- 반영은 웹훅과 같은 `PaddleSubscriptionApplier`다(§6-6). Paddle API 결과는 캐시보다 **엄격히 새로울 때만** 반영해,
+  바뀐 것이 없으면 쓰지 않는다(`UNCHANGED`). 매시간 모든 행을 다시 쓰지 않는다.
+- 구독마다 따로 처리해 한 건이 실패해도 계속한다(실패는 그 구독 id로 WARN). 목록 조회 자체가 실패하면 이번 실행은
+  끝내고 다음 시간에 다시 한다.
+- 로그는 실행마다 요약 한 줄이다(`applied·unchanged·stale·ignored·unmatched·failed·notFound`). 사용자를 못 찾는
+  구독은 매시간 같은 결과라 행마다 경고하지 않는다(API 출처의 UNMATCHED는 DEBUG, 웹훅은 그대로 WARN).
+- API 키나 `pro-price-id`가 비면 건너뛴다(로컬 기본). 끄려면 `BILLING_SUBSCRIPTION_SYNC_ENABLED=false`.
+- 다음 쪽은 응답의 `next` URL을 따라가지 않고 마지막 구독 id를 `after`로 넘겨 직접 요청한다 — 응답에 든 URL을 따라가면
+  API 키를 그 주소로 보낸다. 같은 커서가 되풀이되거나 50쪽(1만 건)을 넘으면 멈춘다.
+- 상태 목록은 `PaddleSubscriptionStatuses` 한 곳에 둔다(`ACTIVE_LIKE`·`INACTIVE_LIKE`·`NON_TERMINAL`). 반영·결제 차단·
+  탈퇴 해지·동기화가 각자 목록을 들고 있으면 한 곳만 고쳐 어긋난다.
+
+**결제 직전 재확인(409 해결)**: `BillingAccountService.startCheckout`은 FREE 사용자의 캐시에 살아 있는 구독이 있으면,
+막기 전에 그 구독들을 Paddle에서 다시 받아 반영한다(`syncService.refresh`). 그다음 **사용자를 다시 읽어** PAID가 됐으면
+"free plan" 409, 캐시가 여전히 살아 있으면 "active subscription" 409, 둘 다 아니면 결제를 연다. Paddle이 응답하지 않으면
+502다. 화면은 409를 받으면 사용자·결제 정보를 다시 읽고 "이미 진행 중인 구독이 있어 결제창을 열지 않았어요"와 문의
+메일을 보이며 버튼을 잠근다. 다시 읽은 결과가 PAID면 카드가 구독 화면으로 바뀐다.
+
+**결제일 안내 단독 갱신**: `RenewalNoticeService`는 메일을 보낸 뒤 `renewal_notice_period_end` 한 칸만
+`markRenewalNoticeSent`(native UPDATE, 자체 `@Transactional`)로 고친다. 예전에는 후보로 읽은 분리 엔티티를 통째로
+`save`해, 그 사이 웹훅·동기화가 쓴 다른 칸을 옛 값으로 되돌릴 수 있었다. 반대 방향도 막는다 — 이 칸은 엔티티에서
+`updatable = false`라 웹훅·동기화의 통째 저장이 안내 표시를 지우지 못한다(JPQL로는 이 칸을 고칠 수 없어 native다).
+
 ---
 
 ## 7. ⚠️ 다운그레이드 — `upgradeToPaid`의 역연산이 없다
@@ -404,7 +446,7 @@ B2부터 **우리 서버가 Paddle API를 부른다**(거래 생성·포털 세�
 | 엔드포인트 | 동작 |
 |---|---|
 | `GET /api/v1/me/billing` | 요금제 카드가 그릴 상태 — `planSource`(`SUBSCRIPTION`·`CODE`·`NONE`), 살아 있는 구독의 `status`·`currentPeriodEndsAt`·`cancelScheduledAt`, FREE일 때 지난 구독의 종료 시각(`lastSubscriptionEndedAt`), `checkoutAvailable` |
-| `POST /api/v1/me/billing/checkout` | FREE이고 살아 있는 구독(`active`·`trialing`·`past_due`)이 없고 결제 스위치가 켜졌을 때만 Paddle 거래를 만들어 `{transactionId, clientToken, environment}`를 준다. 거래의 `custom_data.user_id`는 서버가 넣는다. 그 외(코드 사용자 포함 PAID·구독 중·미설정)는 409 |
+| `POST /api/v1/me/billing/checkout` | FREE이고 살아 있는 구독(`active`·`trialing`·`past_due`)이 없고 결제 스위치가 켜졌을 때만 Paddle 거래를 만들어 `{transactionId, clientToken, environment}`를 준다. 거래의 `custom_data.user_id`는 서버가 넣는다. 그 외(코드 사용자 포함 PAID·구독 중·미설정)는 409. 캐시에 살아 있는 구독이 있으면 막기 전에 Paddle에서 다시 받아 반영하고 사용자를 다시 읽는다(§6-8 — 해지 알림 유실로 영구히 막히던 것을 푼다) |
 | `POST /api/v1/me/billing/portal` `{target}` | `overview`(결제 수단·영수증) 또는 `cancel`(해지 딥링크). 고객 id는 요청이 아니라 **우리 구독 캐시에서** 찾는다 — 남의 포털을 못 연다. 링크는 1회용이라 누를 때마다 새로 만든다 |
 | `POST /api/v1/me/plan/downgrade` | 전환 코드 사용자의 자발적 강등. 살아 있는 구독이 있으면 409, 만료 시각이 있는(=구독) PAID도 409. 동작은 기존 강등(증분 수집 끄기·무료 질의 10회 새로) |
 | `GET /api/v1/billing/availability` | JWT 없이 열림 — 요금 페이지가 한시 안내(`betaEndsAt`)를 띄우고, 결제 링크 페이지(`/checkout`)가 Paddle.js를 여는 데 쓴다. `checkoutAvailable`은 2026-11-10부터 화면이 읽지 않는다. 그래도 로그인 없이 `curl` 한 번으로 운영 서버의 결제 스위치 상태를 볼 수 있는 곳이라 남긴다(릴리스 PR #206의 배포 확인이 이렇게 썼다). 지우려면 backend 응답과 테스트를 함께 고쳐야 한다. 공개 값만 싣는다 — `checkoutAvailable`·`betaEndsAt`과 Paddle.js 클라이언트 토큰(`clientToken`, 비면 null)·환경(`environment`). 토큰·환경은 결제 스위치와 독립이다(§8-3) |
@@ -909,6 +951,13 @@ backend가 **시작 단계에서 멈춘다** — 오타로 베타가 조용히 �
    - 그래서 배포 직후 그 차이(밀리초~초 단위) 안에서 일어난 다음 변경은 옛 알림으로 판정돼 버려질 수 있다. 1시간
      동기화도 같은 비교를 쓰므로, 그 행은 다음 변경이 올 때까지 바로잡히지 않는다.
    - 배포 시점의 라이브 구독은 테스트 1건뿐이고 창이 매우 좁아, 보정 migration 없이 사용자 결정으로 그대로 둔다.
+   - 그래서 그 무렵 쓴 행은 동기화 요약에 `unchanged`가 아니라 `stale`로 셀 수 있다. 바뀐 것이 없다는 점은 같다.
+6. **동기화로도 남는 틈**(2026-11-11, §6-8).
+   - 주기가 1시간이라 알림이 사라진 뒤 최대 1시간은 어긋날 수 있다. 결제 시작은 직전 재확인이 따로 막는다.
+   - 생성 알림을 잃은 FREE 사용자는 캐시에 구독 행이 없어 결제 직전 재확인이 일어나지 않는다. 다음 동기화 전에 다시
+     결제하면 두 번째 구독이 생길 수 있다. 이중 결제는 운영자가 한쪽을 즉시 해지·전액 환불한다(§15-4의 3번과 같은 처리).
+   - Paddle이 돌려주지 않은 구독 ID(`notFound`)는 캐시를 그대로 둔다. 그 사용자가 결제를 시작하면 409가 계속될 수 있다.
+     로그의 `notFound` 건수를 보고 운영자가 확인한다.
 
 ## 참고 (2026-09-19~21 조사)
 
