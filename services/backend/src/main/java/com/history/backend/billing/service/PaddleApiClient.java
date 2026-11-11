@@ -1,11 +1,15 @@
 package com.history.backend.billing.service;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import com.history.backend.billing.PaddleProperties;
 import com.history.backend.common.error.BadGatewayException;
 import lombok.extern.slf4j.Slf4j;
@@ -24,15 +28,20 @@ import org.springframework.web.client.RestClientResponseException;
 @Component
 public class PaddleApiClient {
 
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
     private final PaddleProperties properties;
     private final RestClient restClient;
+    private final PaddleSubscriptionParser subscriptionParser;
 
     public PaddleApiClient(
             PaddleProperties properties,
-            @Qualifier("paddleRestClient") RestClient restClient
+            @Qualifier("paddleRestClient") RestClient restClient,
+            PaddleSubscriptionParser subscriptionParser
     ) {
         this.properties = properties;
         this.restClient = restClient;
+        this.subscriptionParser = subscriptionParser;
     }
 
     // 체크아웃에 넘길 거래(txn_) 생성. 키 custom_data.user_id는 웹훅 매칭이 그대로 읽으므로 이름을 바꾸면 안 된다.
@@ -67,10 +76,38 @@ public class PaddleApiClient {
         );
     }
 
-    public void cancelSubscription(String subscriptionId, EffectiveFrom effectiveFrom) {
-        post("/subscriptions/" + subscriptionId + "/cancel", Map.of(
-                "effective_from", effectiveFrom.apiValue()
-        ), "Paddle subscription cancel request failed.");
+    // 구독 엔티티 전체. 웹훅 data와 같은 모양이라 PaddleSubscriptionApplier에 그대로 넘길 수 있다.
+    public PaddleSubscriptionState fetchSubscription(String subscriptionId) {
+        requireApiKey();
+        return subscriptionCall(() -> restClient.get()
+                .uri("/subscriptions/" + subscriptionId)
+                .header(HttpHeaders.AUTHORIZATION, bearer())
+                .retrieve()
+                .body(String.class), "Paddle subscription request failed.");
+    }
+
+    // 해지 예약 삭제. 예약이 걸린 구독은 바로 즉시 해지되지 않아(400 subscription_locked_pending_changes)
+    // 먼저 예약을 지워야 한다. 본문은 값이 null인 키여야 해서 Map.of(null 불가) 대신 singletonMap을 쓴다.
+    public PaddleSubscriptionState removeScheduledChange(String subscriptionId) {
+        requireApiKey();
+        return subscriptionCall(() -> restClient.patch()
+                .uri("/subscriptions/" + subscriptionId)
+                .header(HttpHeaders.AUTHORIZATION, bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Collections.singletonMap("scheduled_change", null))
+                .retrieve()
+                .body(String.class), "Paddle subscription update request failed.");
+    }
+
+    public PaddleSubscriptionState cancelSubscription(String subscriptionId, EffectiveFrom effectiveFrom) {
+        requireApiKey();
+        return subscriptionCall(() -> restClient.post()
+                .uri("/subscriptions/" + subscriptionId + "/cancel")
+                .header(HttpHeaders.AUTHORIZATION, bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("effective_from", effectiveFrom.apiValue()))
+                .retrieve()
+                .body(String.class), "Paddle subscription cancel request failed.");
     }
 
     // 포털 링크는 1회용이라 호출할 때마다 새로 만든다. customer id는 캐시에서 넘긴다.
@@ -139,6 +176,50 @@ public class PaddleApiClient {
         } catch (RestClientException exception) {
             log.warn("{}. errorType={}", failureMessage, exception.getClass().getSimpleName());
             throw new BadGatewayException(failureMessage);
+        }
+    }
+
+    // 구독 엔티티를 돌려주는 호출의 공통 처리. 응답은 문자열로 받아 data만 꺼내 파서에 넘긴다.
+    // 오류 로그에는 상태 코드와 Paddle error.code만 남긴다 — 본문과 error.detail에는 이메일이 들어갈 수 있다.
+    private PaddleSubscriptionState subscriptionCall(Supplier<String> call, String failureMessage) {
+        try {
+            String response = call.get();
+            if (response == null) {
+                throw new BadGatewayException(failureMessage);
+            }
+            JsonNode data = JSON.readTree(response).path("data");
+            if (!data.isObject()) {
+                throw new BadGatewayException(failureMessage);
+            }
+            return subscriptionParser.parse(JSON.writeValueAsString(data));
+        } catch (BadGatewayException exception) {
+            throw exception;
+        } catch (PaddlePayloadException | JacksonException exception) {
+            // Jackson 예외 메시지에는 본문 조각이 들어가므로 클래스 이름만 남긴다
+            log.warn("{}. errorType={}", failureMessage, exception.getClass().getSimpleName());
+            throw new BadGatewayException(failureMessage);
+        } catch (RestClientResponseException exception) {
+            String errorCode = errorCode(exception);
+            if (errorCode == null) {
+                log.warn("{}. status={}", failureMessage, exception.getStatusCode().value());
+            } else {
+                log.warn("{}. status={}, paddleErrorCode={}",
+                        failureMessage, exception.getStatusCode().value(), errorCode);
+            }
+            throw new BadGatewayException(failureMessage);
+        } catch (RestClientException exception) {
+            log.warn("{}. errorType={}", failureMessage, exception.getClass().getSimpleName());
+            throw new BadGatewayException(failureMessage);
+        }
+    }
+
+    // 오류 본문이 JSON이 아니거나(HTML 등) error.code가 문자열이 아니면 null
+    private static String errorCode(RestClientResponseException exception) {
+        try {
+            JsonNode code = JSON.readTree(exception.getResponseBodyAsString()).path("error").path("code");
+            return code.isString() ? code.asString() : null;
+        } catch (RuntimeException e) {
+            return null;
         }
     }
 
