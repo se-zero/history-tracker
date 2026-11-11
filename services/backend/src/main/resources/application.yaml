@@ -62,6 +62,11 @@ app:
     renewal-notice:
       enabled: ${BILLING_RENEWAL_NOTICE_ENABLED:true}
       cron: "${BILLING_RENEWAL_NOTICE_CRON:0 0 4 * * *}"
+    # 웹훅이 사라져도 DB가 Paddle과 다시 같아지게 하는 1시간 동기화. 해지 알림 유실은 재구독을 409로
+    # 영구히 막고, 갱신 알림 유실은 돈을 낸 사용자를 FREE로 내린다. 매시 15분(만료 작업)과 겹치지 않게 45분.
+    subscription-sync:
+      enabled: ${BILLING_SUBSCRIPTION_SYNC_ENABLED:true}
+      cron: "${BILLING_SUBSCRIPTION_SYNC_CRON:0 45 * * * *}"
 
 conversation:
   memory:

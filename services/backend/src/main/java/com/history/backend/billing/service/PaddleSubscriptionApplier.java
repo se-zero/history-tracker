@@ -3,7 +3,6 @@ package com.history.backend.billing.service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import com.history.backend.auth.service.PlanService;
@@ -25,10 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional
 public class PaddleSubscriptionApplier {
-
-    // D1: 연체(past_due) 동안 Pro 유지 — Paddle 권장. 재시도가 끝내 실패하면 Paddle이 canceled를 보낸다.
-    private static final Set<String> ACTIVE_LIKE_STATUSES = Set.of("active", "trialing", "past_due");
-    private static final Set<String> INACTIVE_LIKE_STATUSES = Set.of("canceled", "paused");
 
     public enum ApplySource {
         WEBHOOK,
@@ -120,7 +115,13 @@ public class PaddleSubscriptionApplier {
 
         UUID userId = resolveUserId(subscriptionId, state.customDataUserId(), owner);
         if (userId == null) {
-            log.warn("Paddle 구독 반영: user_id를 찾을 수 없음. subscriptionId={}, source={}", subscriptionId, source);
+            // 동기화는 사용자를 못 찾는 구독을 매시간 다시 만나므로 경고하지 않는다(건수는 동기화 서비스의
+            // 요약 한 줄에 남는다). 웹훅은 UNMATCHED로 커밋되면 재전송이 없어 로그가 유일한 단서다.
+            if (source == ApplySource.WEBHOOK) {
+                log.warn("Paddle 구독 반영: user_id를 찾을 수 없음. subscriptionId={}, source={}", subscriptionId, source);
+            } else {
+                log.debug("Paddle 구독 반영: user_id를 찾을 수 없음. subscriptionId={}, source={}", subscriptionId, source);
+            }
             return new ApplyResult(ApplyOutcome.UNMATCHED, subscriptionId, null);
         }
 
@@ -151,17 +152,17 @@ public class PaddleSubscriptionApplier {
 
         String status = state.status();
         try {
-            if (status != null && ACTIVE_LIKE_STATUSES.contains(status)) {
+            if (status != null && PaddleSubscriptionStatuses.ACTIVE_LIKE.contains(status)) {
                 Instant expiresAt = resolveExpiry(state);
                 if (expiresAt == null) {
                     log.warn("Paddle 구독 반영: 만료 시각을 계산할 수 없어 무시. subscriptionId={}", subscriptionId);
                     return new ApplyResult(ApplyOutcome.IGNORED, subscriptionId, userId);
                 }
                 planService.activatePaid(userId, expiresAt);
-            } else if (status != null && INACTIVE_LIKE_STATUSES.contains(status)) {
+            } else if (status != null && PaddleSubscriptionStatuses.INACTIVE_LIKE.contains(status)) {
                 boolean hasOtherLiveSubscription = billingSubscriptionRepository
                         .existsByUserIdAndStatusInAndSubscriptionIdNot(
-                                userId, List.copyOf(ACTIVE_LIKE_STATUSES), subscriptionId);
+                                userId, PaddleSubscriptionStatuses.ACTIVE_LIKE, subscriptionId);
                 if (!hasOtherLiveSubscription) {
                     planService.downgradeToFree(userId);
                 }

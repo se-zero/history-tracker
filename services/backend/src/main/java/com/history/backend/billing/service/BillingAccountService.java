@@ -28,14 +28,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class BillingAccountService {
 
-    // PaddleSubscriptionApplier.ACTIVE_LIKE_STATUSES와 같은 집합. paused는 여기 넣지 않는다 —
-    // 일시정지는 이미 강등 대상이고, 체크아웃을 막을 "살아 있는 구독"이 아니다.
-    static final List<String> LIVE_STATUSES = List.of("active", "trialing", "past_due");
-
     private final UserService userService;
     private final PlanService planService;
     private final BillingSubscriptionRepository subscriptionRepository;
     private final PaddleApiClient paddleApiClient;
+    private final PaddleSubscriptionSyncService syncService;
     private final PaddleProperties paddleProperties;
     private final BetaPeriod betaPeriod;
 
@@ -44,6 +41,7 @@ public class BillingAccountService {
             PlanService planService,
             BillingSubscriptionRepository subscriptionRepository,
             PaddleApiClient paddleApiClient,
+            PaddleSubscriptionSyncService syncService,
             PaddleProperties paddleProperties,
             BetaPeriod betaPeriod
     ) {
@@ -51,6 +49,7 @@ public class BillingAccountService {
         this.planService = planService;
         this.subscriptionRepository = subscriptionRepository;
         this.paddleApiClient = paddleApiClient;
+        this.syncService = syncService;
         this.paddleProperties = paddleProperties;
         this.betaPeriod = betaPeriod;
     }
@@ -102,8 +101,18 @@ public class BillingAccountService {
         if (user.getPlan() != Plan.FREE) {
             throw new ConflictException("Checkout is only available on the free plan.");
         }
-        if (!liveSubscriptions(userId).isEmpty()) {
-            throw new ConflictException("An active subscription already exists.");
+        // 캐시에 살아 있다고 남은 구독이 실제로는 해지됐을 수 있다(해지 알림 유실). 그대로 409를 던지면
+        // 재구독이 영구히 막히므로, 결제를 막기 전에 Paddle과 맞춘다. 반대로 갱신 알림 유실로 FREE가
+        // 된 사용자는 맞추고 나면 PAID가 되어 있을 수 있어, 사용자를 다시 읽어 결제 가능 여부를 다시 본다.
+        List<BillingSubscription> cachedLive = liveSubscriptions(userId);
+        if (!cachedLive.isEmpty()) {
+            syncService.refresh(cachedLive.stream().map(BillingSubscription::getSubscriptionId).toList());
+            if (userService.getActiveUser(userId).getPlan() != Plan.FREE) {
+                throw new ConflictException("Checkout is only available on the free plan.");
+            }
+            if (!liveSubscriptions(userId).isEmpty()) {
+                throw new ConflictException("An active subscription already exists.");
+            }
         }
         String transactionId = paddleApiClient.createCheckoutTransaction(paddleProperties.proPriceId(), userId);
         return new CheckoutSessionResponse(transactionId, paddleProperties.clientToken(), environment());
@@ -142,7 +151,7 @@ public class BillingAccountService {
     }
 
     private List<BillingSubscription> liveSubscriptions(UUID userId) {
-        return subscriptionRepository.findByUserIdAndStatusIn(userId, LIVE_STATUSES);
+        return subscriptionRepository.findByUserIdAndStatusIn(userId, PaddleSubscriptionStatuses.ACTIVE_LIKE);
     }
 
     private Optional<BillingSubscription> primary(List<BillingSubscription> subscriptions) {

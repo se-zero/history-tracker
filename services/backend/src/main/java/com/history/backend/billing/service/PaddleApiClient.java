@@ -1,10 +1,14 @@
 package com.history.backend.billing.service;
 
+import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import tools.jackson.core.JacksonException;
@@ -20,6 +24,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.UriBuilder;
 
 // 서버가 Paddle Billing API를 부르는 클라이언트. 결제 거래의 custom_data.user_id는 여기서만 넣는다 —
 // 프론트가 넣으면 다른 사용자 id로 바꿀 수 있다. API 키와 응답 원문은 로그에 남기지 않는다.
@@ -29,6 +34,13 @@ import org.springframework.web.client.RestClientResponseException;
 public class PaddleApiClient {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    private static final String LIST_FAILURE_MESSAGE = "Paddle subscription list request failed.";
+    private static final int LIST_PAGE_SIZE = 200;
+    // 커서가 끝나지 않는 이상 상황에서도 한 번의 동기화가 요청 한도(IP당 분당 240회)를 넘기지 않게 하는 상한
+    private static final int MAX_LIST_PAGES = 50;
+    // id=… 쉼표 목록이 한 URL에 들어가므로 길이를 제한한다
+    private static final int ID_CHUNK_SIZE = 100;
 
     private final PaddleProperties properties;
     private final RestClient restClient;
@@ -84,6 +96,67 @@ public class PaddleApiClient {
                 .header(HttpHeaders.AUTHORIZATION, bearer())
                 .retrieve()
                 .body(String.class), "Paddle subscription request failed.");
+    }
+
+    // 우리 가격의 아직 끝나지 않은 구독 전체. 동기화가 생성 알림을 잃은 구독까지 찾는 용도다.
+    // 다음 쪽은 meta의 next URL을 따라가지 않고 마지막 구독 id를 after로 넘겨 직접 요청한다 — 응답에 든
+    // URL을 따라가면 API 키를 그 주소로 보내게 된다. 중간 쪽이 실패하면 앞 쪽 결과만 돌려주지 않고 던진다:
+    // 일부만 받은 채 성공으로 끝내면 빠진 구독이 이번 실행에서 조용히 건너뛰어진다.
+    // 끝까지 받지 못하고 멈추는 두 경우(같은 쪽 반복·쪽 상한)는 던지지 않고 받은 만큼 돌려주되 경고를 남긴다 —
+    // 던지면 그 상태가 풀릴 때까지 매시간 동기화가 통째로 실패한다.
+    public List<PaddleSubscriptionState> listLiveSubscriptions(String priceId) {
+        requireApiKey();
+        List<PaddleSubscriptionState> subscriptions = new ArrayList<>();
+        String after = null;
+        for (int page = 0; page < MAX_LIST_PAGES; page++) {
+            String cursor = after;
+            SubscriptionPage result = listPage(uriBuilder -> {
+                UriBuilder builder = uriBuilder.path("/subscriptions")
+                        .queryParam("price_id", priceId)
+                        .queryParam("status", String.join(",", PaddleSubscriptionStatuses.NON_TERMINAL))
+                        .queryParam("per_page", LIST_PAGE_SIZE);
+                if (cursor != null) {
+                    builder.queryParam("after", cursor);
+                }
+                return builder.build();
+            });
+            if (result.subscriptions().isEmpty()) {
+                break;
+            }
+            String lastId = result.subscriptions().get(result.subscriptions().size() - 1).subscriptionId();
+            // 서버가 after를 무시하고 같은 쪽을 되돌려주면 따라가도 끝나지 않는다. 그 쪽은 앞에서 이미 담았다
+            if (after != null && after.equals(lastId)) {
+                log.warn("Paddle subscription list returned the same page again; stopped paging. after={}, received={}",
+                        after, subscriptions.size());
+                break;
+            }
+            subscriptions.addAll(result.subscriptions());
+            if (!result.hasMore() || lastId == null) {
+                break;
+            }
+            // 50쪽 × 200 = 1만 건. 여기까지 와서 뒤쪽이 남았다면 이번 실행에서는 받지 못한다 — 닿으면 상한을 올린다
+            if (page == MAX_LIST_PAGES - 1) {
+                log.warn("Paddle subscription list reached the page limit; later pages were not fetched. pages={}, received={}",
+                        MAX_LIST_PAGES, subscriptions.size());
+            }
+            after = lastId;
+        }
+        return subscriptions;
+    }
+
+    // 주어진 id의 구독을 상태와 무관하게 받는다. 해지된 구독도 돌려받아야 해서 status·price_id 필터를 싣지 않는다.
+    public List<PaddleSubscriptionState> listSubscriptionsByIds(Collection<String> ids) {
+        requireApiKey();
+        List<String> all = List.copyOf(ids);
+        List<PaddleSubscriptionState> subscriptions = new ArrayList<>();
+        for (int from = 0; from < all.size(); from += ID_CHUNK_SIZE) {
+            String idList = String.join(",", all.subList(from, Math.min(from + ID_CHUNK_SIZE, all.size())));
+            subscriptions.addAll(listPage(uriBuilder -> uriBuilder.path("/subscriptions")
+                    .queryParam("id", idList)
+                    .queryParam("per_page", LIST_PAGE_SIZE)
+                    .build()).subscriptions());
+        }
+        return subscriptions;
     }
 
     // 해지 예약 삭제. 예약이 걸린 구독은 바로 즉시 해지되지 않아(400 subscription_locked_pending_changes)
@@ -180,9 +253,8 @@ public class PaddleApiClient {
     }
 
     // 구독 엔티티를 돌려주는 호출의 공통 처리. 응답은 문자열로 받아 data만 꺼내 파서에 넘긴다.
-    // 오류 로그에는 상태 코드와 Paddle error.code만 남긴다 — 본문과 error.detail에는 이메일이 들어갈 수 있다.
     private PaddleSubscriptionState subscriptionCall(Supplier<String> call, String failureMessage) {
-        try {
+        return guarded(() -> {
             String response = call.get();
             if (response == null) {
                 throw new BadGatewayException(failureMessage);
@@ -192,6 +264,39 @@ public class PaddleApiClient {
                 throw new BadGatewayException(failureMessage);
             }
             return subscriptionParser.parse(JSON.writeValueAsString(data));
+        }, failureMessage);
+    }
+
+    // 구독 목록 한 쪽. data 배열의 원소를 하나씩 단건 조회와 같은 파서로 해석한다.
+    private SubscriptionPage listPage(Function<UriBuilder, URI> uri) {
+        return guarded(() -> {
+            String response = restClient.get()
+                    .uri(uri)
+                    .header(HttpHeaders.AUTHORIZATION, bearer())
+                    .retrieve()
+                    .body(String.class);
+            if (response == null) {
+                throw new BadGatewayException(LIST_FAILURE_MESSAGE);
+            }
+            JsonNode root = JSON.readTree(response);
+            JsonNode data = root.path("data");
+            if (!data.isArray()) {
+                throw new BadGatewayException(LIST_FAILURE_MESSAGE);
+            }
+            List<PaddleSubscriptionState> subscriptions = new ArrayList<>();
+            for (JsonNode element : data) {
+                subscriptions.add(subscriptionParser.parse(JSON.writeValueAsString(element)));
+            }
+            boolean hasMore = root.path("meta").path("pagination").path("has_more").asBoolean(false);
+            return new SubscriptionPage(subscriptions, hasMore);
+        }, LIST_FAILURE_MESSAGE);
+    }
+
+    // 오류를 BadGatewayException 하나로 모은다. 로그에는 상태 코드와 Paddle error.code만 남긴다 —
+    // 본문과 error.detail에는 이메일이 들어갈 수 있다.
+    private <T> T guarded(Supplier<T> call, String failureMessage) {
+        try {
+            return call.get();
         } catch (BadGatewayException exception) {
             throw exception;
         } catch (PaddlePayloadException | JacksonException exception) {
@@ -280,5 +385,8 @@ public class PaddleApiClient {
     }
 
     public record PortalUrls(String overview, String cancel) {
+    }
+
+    private record SubscriptionPage(List<PaddleSubscriptionState> subscriptions, boolean hasMore) {
     }
 }

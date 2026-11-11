@@ -39,13 +39,15 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 /**
  * PaddleSubscriptionApplier: 구독 상태(웹훅·API 공용) → 캐시(billing_subscriptions)·플랜 반영.
  * 핵심 계약은 "사용자 잠금 → 캐시 읽기(1회) → 순서 비교 → 반영" 순서와 순서 기준(updated_at)이다.
  * PlanService·리포지토리는 mock이라 잠금 순서는 InOrder로, 실제 경합은 별도 통합 테스트가 확인한다.
  */
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 @DisplayName("PaddleSubscriptionApplier: 구독 상태 반영 (잠금 순서·순서 기준·출처별 비교)")
 class PaddleSubscriptionApplierTest {
 
@@ -199,6 +201,31 @@ class PaddleSubscriptionApplierTest {
         verifyNoInteractions(planService);
         verify(billingSubscriptionRepository, never()).findById(any());
         verify(billingSubscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("WEBHOOK: 사용자를 정할 수 없어 UNMATCHED이면 경고(WARN)를 남긴다")
+    void applyLogsUnmatchedAsWarningForWebhook(CapturedOutput output) {
+        PaddleSubscriptionApplier applier = applier();
+        when(billingSubscriptionRepository.findOwnerBySubscriptionId(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
+
+        ApplyResult result = applier.apply(state().customDataUserId(null).build(), FALLBACK_AT, ApplySource.WEBHOOK);
+
+        assertThat(result.outcome()).isEqualTo(ApplyOutcome.UNMATCHED);
+        assertThat(output.getAll()).contains("WARN").contains(SUBSCRIPTION_ID);
+    }
+
+    // 동기화는 매시간 모든 구독을 다시 보므로, 사용자를 못 찾는 구독이 있으면 그 경고가 매시간 행마다 쌓인다
+    @Test
+    @DisplayName("API: 사용자를 정할 수 없어 UNMATCHED여도 경고(WARN)는 남기지 않는다 (요약은 동기화 서비스가 한 줄로 남긴다)")
+    void applyDoesNotLogUnmatchedAsWarningForApi(CapturedOutput output) {
+        PaddleSubscriptionApplier applier = applier();
+        when(billingSubscriptionRepository.findOwnerBySubscriptionId(SUBSCRIPTION_ID)).thenReturn(Optional.empty());
+
+        ApplyResult result = applier.apply(state().customDataUserId(null).build(), null, ApplySource.API);
+
+        assertThat(result.outcome()).isEqualTo(ApplyOutcome.UNMATCHED);
+        assertThat(output.getAll()).doesNotContain("WARN");
     }
 
     @Test
