@@ -50,7 +50,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
 @EnableConfigurationProperties({PaddleProperties.class, BillingProperties.class})
 @Import({PaddleWebhookService.class, PaddleSubscriptionParser.class, PaddleSubscriptionApplier.class,
-        PlanService.class, BetaPeriod.class})
+        SubscriptionRefundService.class, PlanService.class, BetaPeriod.class})
 // @DataJpaTest의 테스트 트랜잭션 감싸기를 꺼(NOT_SUPPORTED) handle()이 자기 트랜잭션을 직접 커밋하게 한다 —
 // 감싸기에 합류하면 다른 스레드(JdbcTemplate)가 커밋한 행을 같은 트랜잭션이 보는 것부터 달라진다.
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -90,6 +90,10 @@ class PaddleWebhookServiceLockOrderIntegrationTest {
 
     @MockitoBean
     private PaddleSignatureVerifier verifier;
+
+    // 웹훅 서비스가 환불 처리(SubscriptionRefundService → PaddleApiClient)에 의존해 빈만 채운다 — 이 테스트에서는 호출되지 않는다
+    @MockitoBean
+    private PaddleApiClient paddleApiClient;
 
     // 실제 PlanService를 그대로 쓰되 lockForBillingUpdate 직전에 멈출 수 있게 spy로 감싼다
     @MockitoSpyBean

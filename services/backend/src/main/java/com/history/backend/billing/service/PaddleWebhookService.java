@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 // Paddle 결제 알림(웹훅) 수신 — 서명 검증 → 봉투 파싱 → 멱등 claim → 구독 상태 반영(PaddleSubscriptionApplier).
+// 승인된 환불(adjustment)은 구독 상태를 바꾸지 않으므로, 구독 알림과 달리 구독을 직접 해지해(SubscriptionRefundService) 반영한다.
 // Paddle이 진실의 원천이고 우리 DB는 캐시라, 알림이 중복·역순으로 와도 최신 상태로 수렴하도록 짠다.
 // 클래스 단위 트랜잭션이라 claim·반영·outcome 기록이 한 번에 커밋되고, 예외가 나면 claim까지 롤백돼 Paddle이 재시도한다.
 @Slf4j
@@ -30,6 +31,7 @@ public class PaddleWebhookService {
     private final BillingEventRepository billingEventRepository;
     private final PaddleSubscriptionParser subscriptionParser;
     private final PaddleSubscriptionApplier subscriptionApplier;
+    private final SubscriptionRefundService refundService;
     private final ObjectMapper objectMapper;
 
     // Spring 빈 등록 생성자 — 이 프로젝트는 ObjectMapper를 Spring 빈으로 등록하지 않아 직접 생성한다
@@ -38,9 +40,11 @@ public class PaddleWebhookService {
             PaddleSignatureVerifier verifier,
             BillingEventRepository billingEventRepository,
             PaddleSubscriptionParser subscriptionParser,
-            PaddleSubscriptionApplier subscriptionApplier
+            PaddleSubscriptionApplier subscriptionApplier,
+            SubscriptionRefundService refundService
     ) {
-        this(verifier, billingEventRepository, subscriptionParser, subscriptionApplier, new ObjectMapper());
+        this(verifier, billingEventRepository, subscriptionParser, subscriptionApplier, refundService,
+                new ObjectMapper());
     }
 
     // 테스트 전용 생성자 — 실제 ObjectMapper 주입으로 JSON 파싱 동작을 검증한다
@@ -49,12 +53,14 @@ public class PaddleWebhookService {
             BillingEventRepository billingEventRepository,
             PaddleSubscriptionParser subscriptionParser,
             PaddleSubscriptionApplier subscriptionApplier,
+            SubscriptionRefundService refundService,
             ObjectMapper objectMapper
     ) {
         this.verifier = verifier;
         this.billingEventRepository = billingEventRepository;
         this.subscriptionParser = subscriptionParser;
         this.subscriptionApplier = subscriptionApplier;
+        this.refundService = refundService;
         this.objectMapper = objectMapper;
     }
 
@@ -80,6 +86,11 @@ public class PaddleWebhookService {
             return;
         }
 
+        if (eventType.equals("adjustment.created") || eventType.equals("adjustment.updated")) {
+            handleAdjustment(eventId, eventType, envelope.path("data"));
+            return;
+        }
+
         if (!eventType.startsWith("subscription.")) {
             recordOutcome(eventId, eventType, BillingEventOutcome.IGNORED, null, null);
             return;
@@ -96,6 +107,26 @@ public class PaddleWebhookService {
         ApplyResult result = subscriptionApplier.apply(state, occurredAt, ApplySource.WEBHOOK);
         recordOutcome(eventId, eventType, toBillingEventOutcome(result.outcome()),
                 result.subscriptionId(), result.userId());
+    }
+
+    // 자동 승인 환불은 created로 승인 상태가 오고, 검토를 거치는 환불은 created(pending_approval) 뒤 updated(approved)가 온다.
+    // 환불 type(full·partial)은 보지 않는다 — 자동 결제 구독에는 해지 없이 돈만 돌려줄 수단이 없어 부분 환불도 해지한다.
+    // 해지 실패는 삼키지 않는다: 예외가 나면 claim까지 롤백돼 Paddle이 같은 알림을 다시 보낸다.
+    private void handleAdjustment(String eventId, String eventType, JsonNode data) {
+        String subscriptionId = textOrNull(data, "subscription_id");
+        if (!"refund".equals(textOrNull(data, "action"))
+                || !"approved".equals(textOrNull(data, "status"))
+                || subscriptionId == null) {
+            recordOutcome(eventId, eventType, BillingEventOutcome.IGNORED, null, null);
+            return;
+        }
+
+        ApplyResult result = refundService.cancelForApprovedRefund(subscriptionId, textOrNull(data, "customer_id"));
+        // UNCHANGED는 해지 상태가 이미 반영돼 있다는 뜻이라 처리가 끝난 것이다
+        BillingEventOutcome outcome = result.outcome() == ApplyOutcome.UNCHANGED
+                ? BillingEventOutcome.APPLIED
+                : toBillingEventOutcome(result.outcome());
+        recordOutcome(eventId, eventType, outcome, result.subscriptionId(), result.userId());
     }
 
     // UNCHANGED는 API 출처에서만 나온다(웹훅은 같은 시각도 반영) — 만에 하나 오면 반영하지 않은 것이므로 STALE로 둔다

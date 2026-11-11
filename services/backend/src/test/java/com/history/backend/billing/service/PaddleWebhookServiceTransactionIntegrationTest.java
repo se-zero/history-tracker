@@ -38,7 +38,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @TestPropertySource(properties = "spring.flyway.locations=classpath:db/migration")
 @EnableConfigurationProperties({PaddleProperties.class, BillingProperties.class})
 @Import({PaddleWebhookService.class, PaddleSubscriptionParser.class, PaddleSubscriptionApplier.class,
-        PlanService.class, BetaPeriod.class})
+        SubscriptionRefundService.class, PlanService.class, BetaPeriod.class})
 // @DataJpaTest는 테스트 메서드를 트랜잭션으로 감싸고 끝나면 롤백한다. handle()의 @Transactional이
 // 그 감싸기에 합류하면 결함이 있어도 최종 커밋 자체가 일어나지 않아 조용히 통과해버린다 — 그래서
 // 클래스 레벨에서 감싸기를 꺼(NOT_SUPPORTED) handle()이 자기 트랜잭션을 직접 커밋하게 한다.
@@ -70,6 +70,10 @@ class PaddleWebhookServiceTransactionIntegrationTest {
 
     @MockitoBean
     private PaddleSignatureVerifier verifier;
+
+    // 웹훅 서비스가 환불 처리(SubscriptionRefundService → PaddleApiClient)에 의존해 빈만 채운다 — 이 테스트에서는 호출되지 않는다
+    @MockitoBean
+    private PaddleApiClient paddleApiClient;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
