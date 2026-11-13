@@ -35,7 +35,7 @@ PR, 이슈, Slack 대화, Jira 티켓이 각각 따로 존재해서 코드 변�
 데이터 흐름은 두 갈래다.
 
 1. **수집(쓰기)**: pipeline-worker가 외부 API/웹훅으로 수집·정규화한 `NormalizedEvent`를
-   아웃박스(`ingest_outbox`)에 쓰고 worker의 릴레이가 RabbitMQ로 옮기며, ai-engine consumer가 이를 받아 Neo4j 그래프로 구축한다.
+   아웃박스(`ingest_outbox`)에 쓰고 worker의 릴레이가 RabbitMQ로 옮기며(브로커가 거부한 행은 그 행만 빼서 재시도하고 Slack으로 알린다), ai-engine consumer가 이를 받아 Neo4j 그래프로 구축한다.
    수집 큐가 잠잠해지면(유휴 디바운스) ai-engine이 소스 간 시맨틱 엣지(Layer 4)를 자동 빌드하며,
    웹 대시보드의 '그래프 재구축' 버튼으로 수동 트리거도 가능하다.
 2. **질의(읽기)**: 프론트엔드 → backend → ai-engine(`/query`, `/graph/*`) → Neo4j 순으로

@@ -409,8 +409,9 @@ Atlassian은 개인정보 보고 의무가 앱 전체에 걸리므로, 특정 �
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost      # 웹 (루프백)
 docker exec -it history-graph-neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD"
 docker exec -it history-tracker-postgres psql -U history_tracker -d history_tracker
-# 수집 아웃박스 점검 — pending이 줄지 않으면 worker 로그의 OutboxRelay WARN(브로커 confirm 실패·연결)을 본다
-docker exec history-tracker-postgres psql -U history_tracker -d history_tracker -c   "SELECT count(*) FILTER (WHERE published_at IS NULL) AS pending, count(*) AS total FROM ingest_outbox;"
+# 수집 아웃박스 점검 — pending이 줄지 않으면 worker 로그의 OutboxRelay WARN(큐 선언 실패·확인 응답 없음)을 본다.
+# retrying은 발행에 실패해 혼자 재시도 중인 행 수다(0이 정상. 4-6 「아웃박스 발행 실패 대응」)
+docker exec history-tracker-postgres psql -U history_tracker -d history_tracker -c   "SELECT count(*) FILTER (WHERE published_at IS NULL) AS pending, count(*) FILTER (WHERE published_at IS NULL AND attempts > 0) AS retrying, count(*) AS total FROM ingest_outbox;"
 ```
 
 아웃박스 첫 배포 메모: `ingest_outbox` 표(V28)는 backend 기동 시 Flyway가 만들고, compose의
@@ -557,10 +558,10 @@ docker run --rm -i neo4j:5.26-community \
 
 ### 4-6. 모니터링·알림
 
-정식 지표 스택(actuator·prometheus·grafana)은 두지 않는다. 얇게 간다 — ai-engine이 사건을 직접 Slack
+정식 지표 스택(actuator·prometheus·grafana)은 두지 않는다. 얇게 간다 — ai-engine과 pipeline-worker가 사건을 직접 Slack
 Incoming Webhook으로 push하고, 컨테이너 재시작만 호스트 cron 스크립트가 5분마다 확인한다. 약 한 달 뒤
 예정된 클라우드(AWS/Azure, 형태 미정) 이전이 재시작·자원 지표를 플랫폼 기능으로 제공하므로, 호스트에
-묶인 `restart-check.sh`는 그때 폐기하고 앱 안의 감지(ai-engine `alerts.py`)는 그대로 가져간다.
+묶인 `restart-check.sh`는 그때 폐기하고 앱 안의 감지(ai-engine `alerts.py`, pipeline-worker `alert/OperatorAlert`)는 그대로 가져간다.
 
 | 종류 | 감지 위치 | 조건 | 억제 |
 |---|---|---|---|
@@ -569,16 +570,20 @@ Incoming Webhook으로 push하고, 컨테이너 재시작만 호스트 cron 스�
 | `openai_transient` | 〃 | 일시 오류(429 일반·5xx·연결·타임아웃) 10분 창에 5건 이상 | 1시간 1회 |
 | `dlq_parked` | ai-engine `graph/consumer.py`(`_handle_failure`) | 재시도 소진 이벤트가 DLQ로 파킹, 즉시 | 1시간 1회 |
 | `parking` | ai-engine `graph/consumer.py`(`_route_message`) | malformed(JSON 파싱 실패) 이벤트가 parking 큐로, 즉시 | 1시간 1회 |
+| `outbox_row_stuck` | pipeline-worker `outbox/OutboxRelay` | 아웃박스 행 하나가 발행에 5회 이상 실패(첫 실패부터 약 50초), 이후 실패할 때마다 | 1시간 1회 |
+| `outbox_backlog` | pipeline-worker `outbox/OutboxBacklogMonitor`(1분 주기) | 보낼 수 있어야 할 미발행 행 중 가장 오래된 것이 10분 초과 | 1시간 1회 |
 | 컨테이너 재시작 | `infra/scripts/restart-check.sh`(호스트 cron, 5분 주기) | `RestartCount` 증가 | 증가할 때마다(상태 파일 기준선을 매번 갱신) |
 
-같은 종류가 억제 중일 때 발생한 건수는 사라지지 않고 다음 알림 본문에 "N건 추가 발생"으로 붙는다
-(`openai_transient`는 10분 창이 다시 찬 뒤의 발생 수).
+ai-engine의 알림은 같은 종류가 억제 중일 때 발생한 건수가 사라지지 않고 다음 알림 본문에 "N건 추가 발생"으로 붙는다
+(`openai_transient`는 10분 창이 다시 찬 뒤의 발생 수). pipeline-worker의 두 알림은 건수를 누적하지 않는다 —
+억제가 종류 단위라 한 행의 알림이 나간 뒤 1시간 안에 다른 행이 실패해도 Slack에는 오지 않으므로, `outbox_row_stuck`을
+받으면 아래 「아웃박스 발행 실패 대응」의 SQL로 실패 중인 행 전체를 본다. 억제 상태는 두 서비스가 따로 가진다.
 
 #### Slack 웹훅 준비
 
 고객용 OAuth/마켓플레이스 앱과 **별도의 내부 앱**을 같은 워크스페이스에 만들고 Incoming Webhooks를
 켠 뒤 알림을 받을 채널을 선택해 웹훅 URL을 복사한다. 같은 URL을 **두 곳**에 넣는다 — `infra/docker/.env`
-(ai-engine의 `ALERT_SLACK_WEBHOOK_URL`)와, `restart-check.sh`가 읽는 `~/.history-tracker-alert.env`
+(`ALERT_SLACK_WEBHOOK_URL` — compose가 ai-engine과 pipeline-worker 두 컨테이너에 전달한다)와, `restart-check.sh`가 읽는 `~/.history-tracker-alert.env`
 (cron을 등록하는 사용자의 홈, 권한 `600`, 내용은 `ALERT_SLACK_WEBHOOK_URL=https://...` 한 줄).
 
 URL은 시크릿이다. **cron 명령줄에 `ALERT_SLACK_WEBHOOK_URL=... script.sh`처럼 직접 쓰지 않는다** —
@@ -693,8 +698,47 @@ docker exec history-graph-ai-engine python -c "import urllib.request;print(urlli
 
 #### 한계
 
-카운터·억제 상태는 in-process라 재기동하면 0으로 리셋된다. 큐 적체·수집 정지·디스크 사용량은
-감지하지 않는다.
+카운터·억제 상태는 in-process라 재기동하면 0으로 리셋된다. 아웃박스 적체(worker가 브로커로 못 보내는 상태)는
+`outbox_backlog`가 잡지만, 브로커 큐의 적체(ai-engine이 소비하지 못하는 상태)·수집 정지·디스크 사용량은
+감지하지 않는다. pipeline-worker가 죽으면 아웃박스 알림도 멈추므로 그 경우는 컨테이너 재시작 알림에 기댄다.
+
+#### 아웃박스 발행 실패 대응
+
+릴레이는 브로커가 거부한 행만 정상 흐름에서 빼서 혼자 재시도한다(바로 → 5·15·30·60초 → 이후 10분마다, 멈추지 않는다).
+나머지 행은 계속 나간다. 설계와 이유는 `docs/ingestion-queue-architecture.md` 3장.
+
+**`outbox_row_stuck`을 받았을 때** — 실패 중인 행 전체를 본다.
+
+```bash
+docker exec history-tracker-postgres psql -U history_tracker -d history_tracker -c   "SELECT id, project_id, source, attempts, next_attempt_at, created_at, length(payload) AS bytes FROM ingest_outbox WHERE published_at IS NULL AND attempts > 0 ORDER BY id;"
+docker logs --since 1h history-tracker-pipeline-worker 2>&1 | grep '재시도 행 발행 실패' | tail -20   # 사유
+```
+
+| 로그의 사유 | 뜻 | 조치 |
+|---|---|---|
+| `message size … is larger than configured max size` | 행의 본문이 브로커 크기 제한(기본 128MiB)을 넘는다 | 그 행은 보낼 수 없다. 내용을 확인하고 지운다 |
+| `브로커가 메시지를 ack하지 않음`(사유 없음) | 그 프로젝트 큐가 발행을 거부한다(큐 정책·길이 제한) | `rabbitmqctl list_policies`로 정책을 확인해 고친다 |
+| `라우팅 실패(unroutable)` | 선언과 발행 사이에 큐가 지워졌다 | 대개 다음 재시도에서 스스로 풀린다 |
+| `발행 confirm 타임아웃` | 혼자 보냈는데 10초 안에 답이 없다 | 브로커 상태(메모리·디스크 경보)를 먼저 본다 |
+
+원인을 고치면 다음 재시도에서 스스로 재개된다. 10분을 기다리기 싫으면 다음 시도 시각을 당긴다.
+보낼 수 없는 행은 지운다(그 이벤트는 그래프에 들어가지 않으므로, 필요하면 해당 연동을 다시 수집한다).
+
+```bash
+docker exec history-tracker-postgres psql -U history_tracker -d history_tracker -c "UPDATE ingest_outbox SET next_attempt_at = now() WHERE published_at IS NULL AND attempts > 0;"
+docker exec history-tracker-postgres psql -U history_tracker -d history_tracker -c "DELETE FROM ingest_outbox WHERE id = <행 id> AND published_at IS NULL;"
+```
+
+**`outbox_backlog`를 받았을 때** — 행이 아니라 전달 경로의 문제다. 순서대로 본다.
+
+1. worker 로그의 `OutboxRelay` WARN. `프로젝트 큐 선언 실패`가 이어지면 브로커에 닿지 못하는 것이다(브로커 정지·연결 불가,
+   또는 같은 이름의 큐가 다른 인자로 만들어진 경우 — 아래 「RabbitMQ 프로젝트 큐 운영」의 큐 점검).
+2. 브로커의 자원 경보. 메모리·디스크가 부족하면 RabbitMQ가 보내는 쪽 연결을 막는다(`rabbitmqctl list_connections name state`에
+   `blocking`/`blocked`). 릴레이는 채널 열기·큐 선언 응답을 10초(`spring.rabbitmq.channel-rpc-timeout`)만 기다리고 간격을
+   늘려(최대 30초) 다시 시도한다. 경보가 풀리면 30초 안에 스스로 재개된다.
+3. WARN이 전혀 없으면 릴레이가 돌지 않는 것이다 — worker 컨테이너 상태를 본다.
+
+브로커 문제 동안에는 행의 `attempts`가 오르지 않는다(원래 실패 중이던 행은 예외 — 자기 차례에 혼자 나갔다가 답을 못 받으면 오른다).
 
 #### RabbitMQ 프로젝트 큐 운영
 
@@ -721,49 +765,15 @@ curl -u guest:guest 'localhost:15672/api/queues/%2F?name=^history\.project\.&use
 docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.retry
 ```
 
-**옛 큐·익스체인지 제거(이번 릴리스 배포 후 1회)** — 이번 릴리스부터 ai-engine이 옛 토폴로지(`history.exchange`·
-`history.events`·`history.events.retry`)를 선언·소비하지 않고, DLQ·parking 큐 이름이 `history.dlq`·`history.parking`으로
-바뀐다. 브로커에 남은 옛 객체 다섯 개는 아래 절차로 지운다. 큐는 비어 있을 때만 지워지고(`--if-empty`), 하나라도 거부되면
-멈추고 잔량을 본다.
-
-배포 **전**에 옛 큐 네 개의 잔량을 본다. 배포 뒤에는 옛 큐를 읽는 소비자가 없어 남은 메시지가 그대로 갇히고, 옛 DLQ·parking에
-남은 메시지는 새 코드가 새 이름의 큐만 보므로 `/dlq/stats`·`/dlq/replay`에서 보이지 않게 된다.
-
-```bash
-docker exec history-graph-rabbitmq rabbitmqctl list_queues name messages consumers | grep '^history\.events'
-```
-
-- `history.events`·`history.events.retry`가 0이 아니면 기존 ai-engine이 소진할 때까지 기다렸다가 배포한다(worker는 더 이상 여기에
-  발행하지 않으므로 줄어들기만 한다).
-- `history.events.dlq`가 0이 아니면 **배포 전에** 기존 ai-engine의 `POST /dlq/replay`로 비운다(내부 토큰 헤더는 `docs/measurement.md`).
-  응답의 `skipped`가 0이 아니면 — `projectId`가 없는 메시지는 replay가 건너뛰어 DLQ에 남는다 — 내용을 확인한 뒤
-  `DELETE /api/queues/%2F/history.events.dlq/contents`로 비운다. 남겨 두면 배포 뒤 `/dlq/stats`에도 안 보이고 `--if-empty` 삭제도 거부된다.
-- `history.events.parking`이 0이 아니면 내용을 확인한 뒤 `DELETE /api/queues/%2F/history.events.parking/contents`로 비운다.
-
-배포 **후**:
-
-```bash
-for q in history.events history.events.retry history.events.dlq history.events.parking; do
-  docker exec history-graph-rabbitmq rabbitmqctl delete_queue "$q" --if-empty || break   # 첫 거부에서 멈춘다
-done
-# 익스체인지는 rabbitmqctl에 명령이 없어 관리 HTTP API로 지운다. 15672는 컨테이너 네트워크 안에서만 열리므로
-# curl이 있는 pipeline-worker 컨테이너에서 보낸다(인증은 그 컨테이너의 env). 204면 성공, 400이면 바인딩이 남은 것이다.
-docker exec history-tracker-pipeline-worker sh -c \
-  'curl -s -o /dev/null -w "%{http_code}\n" -u "$SPRING_RABBITMQ_USERNAME:$SPRING_RABBITMQ_PASSWORD" \
-   -X DELETE "http://rabbitmq:15672/api/exchanges/%2F/history.exchange?if-unused=true"'
-# 확인 — 아래 두 명령이 아무것도 출력하지 않아야 한다
-docker exec history-graph-rabbitmq rabbitmqctl list_queues name | grep '^history\.events'
-docker exec history-graph-rabbitmq rabbitmqctl list_exchanges name | grep '^history\.exchange'
-```
-
 **큐 발견 폴링 로그** — ai-engine이 5초마다 관리 API에 큐 목록을 묻는데, 그 httpx 요청 줄
 (`HTTP Request: GET http://rabbitmq:15672/api/queues/...`)은 `graph/queue_discovery.py`의 로깅 필터가 떨어뜨린다.
 OpenAI 호출의 httpx 줄은 남아 `HTTP/1.1 429` 확인에 쓴다. `logs -f ai-engine`에 `GET http://rabbitmq:15672/...` 줄이
 보이면 필터가 붙지 않은 것이다.
 
 **배포 메모**
-- 배포 순서는 무관하다(옛 토폴로지를 아무도 만들지 않는다). 배포 전 옛 DLQ·parking 잔량 확인 → 배포 →
-  「옛 큐·익스체인지 제거」 1회 순으로 한다.
+- 아웃박스 재시도 열(`attempts`·`next_attempt_at`, V29)은 backend가 기동하며 Flyway로 추가한다. compose의
+  `pipeline-worker depends_on backend`가 순서를 지키므로 따로 할 일은 없다. 열에 기본값이 있어 worker만 이전 버전으로
+  되돌려도 동작한다. pipeline-worker의 알림은 ai-engine과 같은 `ALERT_SLACK_WEBHOOK_URL`을 쓴다(새 env 없음).
 - 서버 `.env`에 `INGEST_PREFETCH`가 명시돼 있으면 비운다. 이 값의 뜻이 "소비자 하나의 prefetch(12)"에서
   "채널 전체 상한(기본 36)"으로 바뀌어, 옛 값이 남으면 채널 전체가 12로 묶인다.
 - 큐 발견은 관리 포트 15672를 쓴다. prod 오버라이드는 이 포트를 열지 않으므로 컨테이너 네트워크 안에서만 닿는다.
@@ -776,5 +786,5 @@ OpenAI 호출의 httpx 줄은 남아 `HTTP/1.1 429` 확인에 쓴다. `logs -f a
 | 항목 | 상태 |
 |---|---|
 | 오프사이트 백업 | 하지 않는다 — 4-5의 전제 참고 |
-| 모니터링·알림 | 4-6 — Slack 웹훅(DLQ·LLM 실패·잔액 소진·컨테이너 재시작). 큐 적체·수집 정지·디스크는 아직 없음 |
+| 모니터링·알림 | 4-6 — Slack 웹훅(DLQ·LLM 실패·잔액 소진·아웃박스 발행 실패·아웃박스 적체·컨테이너 재시작). 브로커 큐 적체·수집 정지·디스크는 아직 없음 |
 | Cloudflare Access(접근 제한) | 아직 없음. 지금은 도메인을 아는 누구나 로그인 화면까지 닿는다 |
