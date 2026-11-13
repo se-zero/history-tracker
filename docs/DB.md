@@ -114,6 +114,8 @@ erDiagram
         string source
         string payload
         timestamptz published_at
+        int attempts
+        timestamptz next_attempt_at
     }
     oauth2_registered_client {
         string id PK
@@ -639,9 +641,9 @@ OAuth 인가 한 건의 상태 — 인가 코드, access·refresh 토큰, 그 �
 
 ---
 
-### `ingest_outbox` (V28)
+### `ingest_outbox` (V28~V29)
 
-pipeline-worker **수집 발행 아웃박스**. 수집기는 이벤트를 브로커(RabbitMQ)로 직접 보내지 않고 이 표에 INSERT하며, worker 안의 릴레이가 `id` 순으로 읽어 RabbitMQ로 옮긴 뒤 `published_at`을 채운다. 수집이 브로커 지연·장애에 깨지지 않게 하려는 것이다. 엔티티는 없다(pipeline-worker가 JDBC로만 다룬다).
+pipeline-worker **수집 발행 아웃박스**. 수집기는 이벤트를 브로커(RabbitMQ)로 직접 보내지 않고 이 표에 INSERT하며, worker 안의 릴레이가 `id` 순으로 읽어 RabbitMQ로 옮긴 뒤 `published_at`을 채운다. 브로커가 거부한 행은 `attempts`를 올려 정상 흐름에서 빼고 간격을 늘려 가며 혼자 재시도한다(`docs/ingestion-queue-architecture.md` 3장). 수집이 브로커 지연·장애에 깨지지 않게 하려는 것이다. 엔티티는 없다(pipeline-worker가 JDBC로만 다룬다).
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |------|------|------|------|
@@ -652,6 +654,8 @@ pipeline-worker **수집 발행 아웃박스**. 수집기는 이벤트를 브로
 | `payload` | TEXT | NOT NULL | 직렬화한 NormalizedEvent JSON 전문 |
 | `created_at` | TIMESTAMPTZ | NOT NULL, DEFAULT now() | 적재 시각 |
 | `published_at` | TIMESTAMPTZ | nullable | 브로커로 옮긴 시각. NULL이면 미발행 |
+| `attempts` | INT | NOT NULL, DEFAULT 0 | (V29) 릴레이가 이 행의 발행에 실패한 횟수. 0이면 묶음으로 나가고, 1 이상이면 `next_attempt_at`이 지난 뒤 한 건씩 따로 재시도된다. 5 이상이면 운영자 알림 대상 |
+| `next_attempt_at` | TIMESTAMPTZ | nullable | (V29) 실패한 행을 다시 보낼 수 있는 시각. 실패한 적 없으면 NULL |
 
 **인덱스**
 - `idx_ingest_outbox_unpublished (id) WHERE published_at IS NULL` — 릴레이가 미발행 행을 id 순으로 가져오는 fetch용 부분 인덱스
