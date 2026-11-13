@@ -8,6 +8,7 @@ spring:
     password: guest
     publisher-confirm-type: correlated  # CorrelationData별 broker ack/nack 수신 (OutboxRelay가 행별 confirm으로 발행 완료 판정)
     publisher-returns: true             # mandatory 발행 + 라우팅 실패 시 메시지 반환
+    channel-rpc-timeout: 10s            # 채널 열기·큐 선언 응답 대기 한도(기본 10분). 브로커가 보내는 쪽을 막으면 응답이 오지 않아 릴레이 스레드가 이 시간만큼 멈춘다
   datasource:
     url: ${PIPELINE_WORKER_DATASOURCE_URL:jdbc:postgresql://localhost:5432/history_tracker}
     username: ${PIPELINE_WORKER_DATASOURCE_USERNAME:history}
