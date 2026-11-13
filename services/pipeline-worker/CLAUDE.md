@@ -35,9 +35,10 @@ cd services/pipeline-worker
 | `normalizer` | 여러 source가 공유하는 정규화 보조 유틸. 현재 `RefsExtractor` 유지 — URL 기반 참조 레지스트리(`issueExternalRefs`/`documentExternalRefs`)로 Asana·ClickUp·Notion을 함께 다룬다. |
 | `checkpoint` | DB `checkpoints` 테이블 기반 커서 조회/갱신 경계 + 배치의 커서 전진 값 계산(`CursorProgress`). |
 | `messaging` | 아웃박스 적재(`EventPublisher.publishAll` — 이벤트를 `ingest_outbox`에 한 페이지 = 한 트랜잭션으로 INSERT). 브로커 발행은 `outbox`가 맡는다. |
-| `outbox` | `OutboxRepository`(표 SQL 경계), `OutboxRelay`(1초마다 미발행 행을 id 순 200건씩 RabbitMQ로 발행·접두사 표시), `OutboxCleanup`(발행 완료 1일 경과 행 시간마다 삭제). 플래그 `app.outbox.relay.enabled`. |
+| `outbox` | `OutboxRepository`(표 SQL 경계), `OutboxRelay`(1초마다 ① 실패한 적 있는 행을 한 건씩 재시도 ② 새 행을 id 순 200건씩 RabbitMQ로 발행), `OutboxBacklogMonitor`(1분마다 미발행 행의 나이를 보고 10분 초과 시 알림), `OutboxCleanup`(발행 완료 1일 경과 행 시간마다 삭제). 플래그 `app.outbox.relay.enabled`(셋 공용). |
+| `alert` | `OperatorAlert` — 운영자 알림을 Slack Incoming Webhook으로 보낸다(종류별 1시간 억제, URL이 비면 로그만). 호출부는 `outbox`의 릴레이와 적체 점검 둘이다. |
 | `common` | 전역 공유 코드. 현재 `common.crypto`(integration credential 복호화)만 있다. |
-| `config` | Spring/RabbitMQ/WebClient/webhook executor 설정, 스케줄링(`SchedulingConfig`). |
+| `config` | Spring/RabbitMQ/WebClient/webhook executor 설정, 스케줄링(`SchedulingConfig`), 알림용 `RestClient`와 `Clock` 빈(`AlertConfig`). |
 | `dto` | 요청/응답/event DTO. |
 | `util` | 일반 유틸. |
 
@@ -156,7 +157,7 @@ GitHub(앵커) 외 나머지 provider 연동은 전부 선택 항목이므로 cr
 묶여 있어 바인딩 선언이 없다). `mandatory`라 큐가 없으면 반환(unroutable)돼 다음 틱에 재선언·재전송한다.
 옛 토폴로지(`history.exchange`·`history.events`·바인딩 `event.#`)는 제거됐다.
 
-발행은 트랜잭셔널 아웃박스를 거친다. `EventPublisher.publishAll`은 이벤트를 `ingest_outbox`에 **한 페이지 = 한 트랜잭션**으로 INSERT만 하고 브로커와 대화하지 않는다. DB 예외(`DataAccessException`)는 전파돼 해당 `SourceCollector`가 checkpoint를 전진시키지 않으므로(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)이 없고 다음 수집에서 다시 적재한다. 커서는 아웃박스 트랜잭션에 넣지 않는다 — 커서 시점은 커넥터가 소유한다. `OutboxRelay`는 1초마다(`@Scheduled fixedDelay`) 미발행 행을 id 순 200건씩 프로젝트 큐에 발행하고(배치가 가득 차면 즉시 다음 배치) confirm을 id 순으로 확인해 **첫 실패 직전까지의 접두사만** `published_at`을 채운다. 실패분은 다음 틱에 재전송하므로 at-least-once이고, 중복은 ai-engine의 MERGE가 흡수한다. `OutboxCleanup`이 발행 완료 1일 지난 행을 시간마다 지운다. 릴레이는 **단일 인스턴스 전제**다(`SKIP LOCKED` 없음). 릴레이가 쓰는 연결 설정은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿 `mandatory=true`이고, confirm 대기 한도 `app.rabbitmq.publish-confirm-timeout-ms`는 릴레이의 배치 대기 한도라 초과해도 수집은 실패하지 않는다.
+발행은 트랜잭셔널 아웃박스를 거친다. `EventPublisher.publishAll`은 이벤트를 `ingest_outbox`에 **한 페이지 = 한 트랜잭션**으로 INSERT만 하고 브로커와 대화하지 않는다. DB 예외(`DataAccessException`)는 전파돼 해당 `SourceCollector`가 checkpoint를 전진시키지 않으므로(예외로 갱신 호출이 스킵됨) 유실(영구 빈칸)이 없고 다음 수집에서 다시 적재한다. 커서는 아웃박스 트랜잭션에 넣지 않는다 — 커서 시점은 커넥터가 소유한다. `OutboxRelay`는 1초마다(`@Scheduled fixedDelay`) 한 틱을 돈다. 한 틱은 두 단계다 — ① **재시도 단계**: 발행에 실패한 적 있는 행(`attempts > 0`) 중 `next_attempt_at`이 지난 것을 id 순으로 **한 건씩** 보낸다. ② **정상 단계**: 실패한 적 없는 행(`attempts = 0`)을 id 순 200건씩 묶어 보낸다(묶음이 가득 차고 전부 ack면 즉시 다음 묶음). ack 받은 행은 위치와 무관하게 `published_at`을 채우고, 브로커가 **명시적으로 거부**한 행(nack·unroutable)만 `attempts`를 올려 정상 흐름에서 뺀다 — 거부된 행 하나가 다른 프로젝트의 전달을 세우지 않게 하려는 것이다. 재시도 간격은 바로 → 5·15·30·60초 → 이후 10분이고 멈추지 않으며, 5회째부터 `OperatorAlert`(`outbox_row_stuck`)를 부른다. **확인 응답이 없는 것(시간 초과)은 단계별로 달리 센다** — 묶음에서는 어느 행 탓인지 가릴 수 없고 대개 브로커 쪽 문제라 기록하지 않고(다음 틱에 다시 읽는다), 혼자 보냈을 때는 센다(안 세면 그 행이 매 틱 대기 시간을 차지한다). 큐 선언 실패·전송 예외·묶음의 시간 초과로 끝난 틱은 "브로커 문제 틱"이라 다음 시도를 1·2·4·8·16·30초씩 늦춘다(행에는 기록하지 않는다). 확인 대기 중 스레드가 중단되면(종료·재배포) 기록 없이 틱을 끝낸다. "보낸 뒤 표시"라 at-least-once이고, 중복은 ai-engine의 MERGE가 흡수한다. `OutboxBacklogMonitor`는 1분마다 `attempts < 5`인 미발행 행 중 가장 오래된 것의 나이를 보고 10분을 넘으면 `outbox_backlog`를 부른다(브로커 장애처럼 행에 실패가 기록되지 않는 상황용 — `attempts < 5`는 릴레이의 알림 기준과 같은 값이어야 한다). 설계 이유와 실기동 관찰은 `docs/ingestion-queue-architecture.md` 3장, 운영 절차는 `docs/deployment.md` 4-6. `OutboxCleanup`이 발행 완료 1일 지난 행을 시간마다 지운다. 릴레이는 **단일 인스턴스 전제**다(`SKIP LOCKED` 없음). 릴레이가 쓰는 연결 설정은 `publisher-confirm-type: correlated` + `publisher-returns: true`, 템플릿 `mandatory=true`이고, confirm 대기 한도 `app.rabbitmq.publish-confirm-timeout-ms`는 릴레이의 대기 한도(묶음은 묶음 하나에 한 번, 재시도는 행마다)라 초과해도 수집은 실패하지 않는다. `spring.rabbitmq.channel-rpc-timeout`(10초)은 채널 열기·큐 선언 응답의 대기 한도다 — 기본값(10분)으로 두면 브로커가 자원 부족으로 보내는 쪽 연결을 막았을 때 릴레이 스레드가 그 시간만큼 멈춘다(실기동 확인).
 
 **수집 실행 범위(`collection/CollectionRunContext`)** — `ProjectIntegrationService`가 수집 요청에 그 연동 행의 id(`RawFetchRequest.integrationId`)를 붙이고, `PipelineService.collect`가 collector를 부르는 동안 그 id로 범위를 연다(ThreadLocal, try-with-resources). 범위가 열려 있으면 `EventPublisher.publishAll`은 적재하기 전에 연동 행이 아직 있는지 확인하고(없으면 `IntegrationDisconnectedException`, 한 건도 적재 안 함) 각 이벤트에 `integrationId`를 싣는다 — ai-engine이 해제된 연동의 이벤트를 이 값으로 버린다. **적재와 checkpoint 쓰기는 collect를 부른 스레드에서만 한다** — 보조 스레드(예: `githubCommitDetailExecutor`)에서 부르면 범위가 안 보여 가드를 우회한다. 초기 수집(`CollectionTriggerService`)은 이 예외를 오류가 아니라 INFO로 남기고, 증분 수집(`PipelineService.collectIncremental`)은 그 provider만 결과에서 빼고 다음 provider를 계속 돈다.
 
@@ -248,8 +249,10 @@ GitHub `/users/{login}`(커밋·PR·이슈 작성자 프로필 보강)도 같은
 - PostgreSQL datasource
 - credential 복호화 키 (`security.credentials.key`)
 - backend 내부 API URL (`backend.url`)
-- 아웃박스 릴레이·청소 플래그 `app.outbox.relay.enabled` (공용, 테스트 컨텍스트만 false)
-- `spring.task.scheduling.pool.size` (2 — 릴레이 drain이 청소를 미루지 않게)
+- 아웃박스 릴레이·적체 점검·청소 플래그 `app.outbox.relay.enabled` (공용, 테스트 컨텍스트만 false)
+- `spring.task.scheduling.pool.size` (3 — 릴레이·적체 점검·청소가 서로 미루지 않게)
+- `spring.rabbitmq.channel-rpc-timeout` (10초 — 위 「RabbitMQ 라우팅」 참고)
+- 운영자 알림 웹훅 `app.alert.slack-webhook-url` (환경변수 `ALERT_SLACK_WEBHOOK_URL`, ai-engine과 같은 값. 비우면 로그만)
 - 내부 서비스 인증 token (`security.internal-service.token`)
 - GitHub/Jira/Slack/Discord/Google Chat/Notion base URL (Jira는 `app.jira.gateway-base-url`도 포함 — OAuth
   cloudId 게이트웨이 주소, Google Chat·Notion은 각각 `app.google-chat.api-base-url`·
