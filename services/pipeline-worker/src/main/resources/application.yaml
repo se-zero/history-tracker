@@ -75,7 +75,7 @@ app:
 
   rabbitmq:
     # 발행 대상은 프로젝트별 큐 history.project.<projectId>(기본 익스체인지, 릴레이가 배치마다 선언)
-    publish-confirm-timeout-ms: 10000   # OutboxRelay의 한 배치 confirm 대기 한도. 초과하면 그 배치는 발행 완료로 표시하지 않고 다음 틱에 재전송(수집은 영향 없음)
+    publish-confirm-timeout-ms: 10000   # OutboxRelay confirm 대기 한도. 묶음은 묶음 하나에 한 번, 재시도는 행마다 쓴다. 초과 시 묶음은 기록 없이 다음 틱에 재전송, 재시도는 실패로 기록(수집은 영향 없음)
 
   webhook:
     github:

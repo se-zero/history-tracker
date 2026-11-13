@@ -18,7 +18,8 @@ import java.util.UUID;
  *
  * <p>릴레이가 단일 인스턴스라는 전제라 {@code FOR UPDATE SKIP LOCKED}를 쓰지 않는다 —
  * 인스턴스를 늘리면 같은 행을 둘이 집어 중복 발행하므로 그때 다시 설계해야 한다.
- * 행의 수명(발행 완료 1일 뒤 청소)은 {@code OutboxCleanup}이 맡고 이 클래스는 삭제 수단만 제공한다.</p>
+ * 행의 수명(발행 완료 1일 뒤 청소)은 {@code OutboxCleanup}이 맡고 이 클래스는 삭제 수단만 제공한다.
+ * {@code attempts}는 발행에 실패해 기록된 횟수이고 {@code next_attempt_at}은 그 행을 다시 보낼 수 있는 시각이다.</p>
  */
 @Repository
 public class OutboxRepository {
@@ -50,16 +51,46 @@ public class OutboxRepository {
         return rows.size();
     }
 
-    public List<OutboxRow> fetchUnpublished(int limit) {
+    // 한 번도 시도하지 않은 행 — 릴레이의 정상 단계가 묶음으로 보낸다
+    public List<OutboxRow> fetchFresh(int limit) {
         String sql = """
-                SELECT id, project_id, source, payload
+                SELECT id, project_id, source, payload, attempts
                 FROM ingest_outbox
                 WHERE published_at IS NULL
+                  AND attempts = 0
                 ORDER BY id
                 LIMIT :limit
                 """;
 
         return jdbcTemplate.query(sql, new MapSqlParameterSource("limit", limit), outboxRowMapper());
+    }
+
+    // 실패가 기록됐고 다음 시도 시각이 지난 행 — 릴레이의 재시도 단계가 한 건씩 보낸다
+    public List<OutboxRow> fetchDueRetries(int limit) {
+        String sql = """
+                SELECT id, project_id, source, payload, attempts
+                FROM ingest_outbox
+                WHERE published_at IS NULL
+                  AND attempts > 0
+                  AND next_attempt_at <= now()
+                ORDER BY id
+                LIMIT :limit
+                """;
+
+        return jdbcTemplate.query(sql, new MapSqlParameterSource("limit", limit), outboxRowMapper());
+    }
+
+    public int recordFailure(List<Long> ids, int delaySeconds) {
+        // IN () 은 SQL 문법 오류라 빈 목록은 DB를 부르지 않는다
+        if (ids.isEmpty()) return 0;
+
+        String sql = """
+                UPDATE ingest_outbox
+                SET attempts = attempts + 1,
+                    next_attempt_at = now() + make_interval(secs => :delay)
+                WHERE id IN (:ids)
+                """;
+        return jdbcTemplate.update(sql, new MapSqlParameterSource("ids", ids).addValue("delay", delaySeconds));
     }
 
     public int markPublished(List<Long> ids) {
@@ -87,13 +118,14 @@ public class OutboxRepository {
                 rs.getLong("id"),
                 rs.getObject("project_id", UUID.class),
                 rs.getString("source"),
-                rs.getString("payload")
+                rs.getString("payload"),
+                rs.getInt("attempts")
         );
     }
 
     public record OutboxInsert(UUID projectId, UUID integrationId, String source, String payload) {
     }
 
-    public record OutboxRow(long id, UUID projectId, String source, String payload) {
+    public record OutboxRow(long id, UUID projectId, String source, String payload, int attempts) {
     }
 }
