@@ -33,6 +33,8 @@ server:
 # 각 외부 API의 base URL 설정
 # Jira는 테넌트마다 URL이 다르므로 요청 시 options.baseUrl로 덮어씀
 app:
+  alert:
+    slack-webhook-url: ${ALERT_SLACK_WEBHOOK_URL:}  # 비우면 로그만 남긴다
   outbox:
     relay:
       enabled: true  # 릴레이·청소 잡 공용. 브로커·DB 없는 테스트 컨텍스트에서만 false로 끈다
