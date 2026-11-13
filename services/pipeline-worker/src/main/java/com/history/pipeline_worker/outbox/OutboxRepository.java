@@ -80,6 +80,21 @@ public class OutboxRepository {
         return jdbcTemplate.query(sql, new MapSqlParameterSource("limit", limit), outboxRowMapper());
     }
 
+    // attempts < 5인 이유: 5 이상은 이미 행 실패 알림(outbox_row_stuck)이 간 행이라, 어떤 미발행 행이든 두 알림 중 하나에 걸린다.
+    // 이 5는 OutboxRelay의 알림 기준(ALERT_ATTEMPTS)과 같은 값이어야 한다.
+    public Backlog backlog() {
+        String sql = """
+                SELECT min(created_at) AS oldest, count(*) AS pending
+                FROM ingest_outbox
+                WHERE published_at IS NULL AND attempts < 5
+                """;
+
+        return jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), (rs, rowNum) -> {
+            OffsetDateTime oldest = rs.getObject("oldest", OffsetDateTime.class);
+            return new Backlog(oldest == null ? null : oldest.toInstant(), rs.getLong("pending"));
+        });
+    }
+
     public int recordFailure(List<Long> ids, int delaySeconds) {
         // IN () 은 SQL 문법 오류라 빈 목록은 DB를 부르지 않는다
         if (ids.isEmpty()) return 0;
@@ -124,6 +139,9 @@ public class OutboxRepository {
     }
 
     public record OutboxInsert(UUID projectId, UUID integrationId, String source, String payload) {
+    }
+
+    public record Backlog(Instant oldest, long pending) {
     }
 
     public record OutboxRow(long id, UUID projectId, String source, String payload, int attempts) {

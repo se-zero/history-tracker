@@ -276,6 +276,9 @@ services:
 
       # backend와 동일한 값이어야 함 — 수집(이 worker)과 연동 해제 시 길드 퇴장(backend) 양쪽이 같은 봇이어야 한다.
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+
+      # 운영자 알림 — Slack Incoming Webhook. 비우면 로그만 남긴다 (docs/deployment.md 4-6).
+      ALERT_SLACK_WEBHOOK_URL: ${ALERT_SLACK_WEBHOOK_URL:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -16,7 +16,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 2  # 릴레이 drain이 길어도 시간당 청소를 뒤로 밀지 않게
+        size: 3  # 릴레이·청소·적체 점검이 서로 미루지 않게(릴레이 틱은 확인 응답 대기로 최대 20초쯤 걸릴 수 있다)
 
 security:
   internal-service:

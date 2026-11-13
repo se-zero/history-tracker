@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.outbox;
 
+import com.history.pipeline_worker.outbox.OutboxRepository.Backlog;
 import com.history.pipeline_worker.outbox.OutboxRepository.OutboxInsert;
 import com.history.pipeline_worker.outbox.OutboxRepository.OutboxRow;
 import org.junit.jupiter.api.Test;
@@ -185,6 +186,68 @@ class OutboxRepositoryTest {
         OutboxRow row = mapperCaptor.getValue().mapRow(rs, 0);
 
         assertThat(row).isEqualTo(new OutboxRow(5L, PROJECT_ID, "SLACK", "{}", 4));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void backlog_selectsOldestAndCountOfUnpublishedRowsBelowAlertAttempts() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        Backlog expected = new Backlog(Instant.parse("2026-11-13T00:00:00Z"), 3);
+        when(jdbcTemplate.queryForObject(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
+                .thenReturn(expected);
+        OutboxRepository repository = new OutboxRepository(jdbcTemplate);
+
+        Backlog backlog = repository.backlog();
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).queryForObject(sqlCaptor.capture(), any(SqlParameterSource.class), any(RowMapper.class));
+
+        String sql = sqlCaptor.getValue();
+        assertThat(sql).contains("min(created_at) AS oldest");
+        assertThat(sql).contains("count(*) AS pending");
+        assertThat(sql).contains("FROM ingest_outbox");
+        assertThat(sql).contains("published_at IS NULL");
+        // 5 이상인 행은 이미 행 실패 알림이 갔으므로 적체 점검 대상이 아니다
+        assertThat(sql).contains("attempts < 5");
+        assertThat(backlog).isEqualTo(expected);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void backlog_rowMapperMapsOldestAndPending() throws SQLException {
+        RowMapper<Backlog> mapper = captureBacklogRowMapper();
+        ResultSet rs = mock(ResultSet.class);
+        OffsetDateTime oldest = OffsetDateTime.parse("2026-11-13T00:00:00+09:00");
+        when(rs.getObject("oldest", OffsetDateTime.class)).thenReturn(oldest);
+        when(rs.getLong("pending")).thenReturn(1234L);
+
+        Backlog backlog = mapper.mapRow(rs, 0);
+
+        assertThat(backlog).isEqualTo(new Backlog(oldest.toInstant(), 1234L));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void backlog_rowMapperMapsNullOldestWhenNoRows() throws SQLException {
+        RowMapper<Backlog> mapper = captureBacklogRowMapper();
+        ResultSet rs = mock(ResultSet.class);
+        when(rs.getObject("oldest", OffsetDateTime.class)).thenReturn(null);
+        when(rs.getLong("pending")).thenReturn(0L);
+
+        Backlog backlog = mapper.mapRow(rs, 0);
+
+        assertThat(backlog).isEqualTo(new Backlog(null, 0L));
+    }
+
+    @SuppressWarnings("unchecked")
+    private RowMapper<Backlog> captureBacklogRowMapper() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        OutboxRepository repository = new OutboxRepository(jdbcTemplate);
+        repository.backlog();
+
+        ArgumentCaptor<RowMapper<Backlog>> mapperCaptor = ArgumentCaptor.forClass(RowMapper.class);
+        verify(jdbcTemplate).queryForObject(anyString(), any(SqlParameterSource.class), mapperCaptor.capture());
+        return mapperCaptor.getValue();
     }
 
     @Test
