@@ -54,8 +54,10 @@ public class BillingSubscription {
     private Instant lastEventOccurredAt;
 
     // 이 구독의 어느 결제 주기 끝에 대해 7일 전 안내를 보냈는지. 웹훅이 행을 덮어쓸 때
-    // 이 값을 지우면 같은 주기에 메일이 다시 나간다.
-    @Column(name = "renewal_notice_period_end")
+    // 이 값을 지우면 같은 주기에 메일이 다시 나간다. 안내 표시는 단독 UPDATE
+    // (BillingSubscriptionRepository.markRenewalNoticeSent)로만 쓰고, 통째 저장(웹훅·동기화)은
+    // 이 칸을 UPDATE 대상에서 뺀다 — 필드를 모르는 새 객체가 표시를 null로 되돌리지 못하게 하려는 것이다.
+    @Column(name = "renewal_notice_period_end", updatable = false)
     private Instant renewalNoticePeriodEnd;
 
     @Column(name = "created_at", nullable = false, updatable = false)

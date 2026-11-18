@@ -8,6 +8,7 @@ spring:
     password: guest
     publisher-confirm-type: correlated  # CorrelationData별 broker ack/nack 수신 (OutboxRelay가 행별 confirm으로 발행 완료 판정)
     publisher-returns: true             # mandatory 발행 + 라우팅 실패 시 메시지 반환
+    channel-rpc-timeout: 10s            # 채널 열기·큐 선언 응답 대기 한도(기본 10분). 브로커가 보내는 쪽을 막으면 응답이 오지 않아 릴레이 스레드가 이 시간만큼 멈춘다
   datasource:
     url: ${PIPELINE_WORKER_DATASOURCE_URL:jdbc:postgresql://localhost:5432/history_tracker}
     username: ${PIPELINE_WORKER_DATASOURCE_USERNAME:history}
@@ -16,7 +17,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 2  # 릴레이 drain이 길어도 시간당 청소를 뒤로 밀지 않게
+        size: 3  # 릴레이·청소·적체 점검이 서로 미루지 않게(릴레이 틱은 확인 응답 대기로 최대 20초쯤 걸릴 수 있다)
 
 security:
   internal-service:
@@ -33,6 +34,8 @@ server:
 # 각 외부 API의 base URL 설정
 # Jira는 테넌트마다 URL이 다르므로 요청 시 options.baseUrl로 덮어씀
 app:
+  alert:
+    slack-webhook-url: ${ALERT_SLACK_WEBHOOK_URL:}  # 비우면 로그만 남긴다
   outbox:
     relay:
       enabled: true  # 릴레이·청소 잡 공용. 브로커·DB 없는 테스트 컨텍스트에서만 false로 끈다
@@ -73,7 +76,7 @@ app:
 
   rabbitmq:
     # 발행 대상은 프로젝트별 큐 history.project.<projectId>(기본 익스체인지, 릴레이가 배치마다 선언)
-    publish-confirm-timeout-ms: 10000   # OutboxRelay의 한 배치 confirm 대기 한도. 초과하면 그 배치는 발행 완료로 표시하지 않고 다음 틱에 재전송(수집은 영향 없음)
+    publish-confirm-timeout-ms: 10000   # OutboxRelay confirm 대기 한도. 묶음은 묶음 하나에 한 번, 재시도는 행마다 쓴다. 초과 시 묶음은 기록 없이 다음 틱에 재전송, 재시도는 실패로 기록(수집은 영향 없음)
 
   webhook:
     github:

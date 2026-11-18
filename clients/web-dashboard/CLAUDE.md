@@ -100,22 +100,33 @@ src/
     settings/       DangerZone(프로젝트 삭제·회원 탈퇴) · PlanCard(요금제 카드 — `GET /me/billing`의
                     planSource로 결제 구독자·코드 사용자·무료 세 상태를 그린다. 결제창·포털 링크·코드 강등.
                     포털 링크는 1회용이라 누를 때마다 받아 이동한다. docs/billing.md §8-2.
-                    FREE이면서 `/me`의 `betaEndsAt`이 있으면 이 판정보다 먼저 베타 모드를 그린다 — 종료일·
-                    프로젝트 3개 안내만 두고 질의 사용량·구독 버튼·전환 코드 입력란은 숨긴다. docs/billing.md §12-1)
+                    결제 시작이 409면 서버가 막기 직전에 Paddle 상태로 DB를 바로잡은 것이라, `useAuth().refresh`와
+                    `useStartCheckout`의 결제 요약 무효화로 다시 읽고 phase `"conflict"`(안내 + 문의 메일, 버튼 잠금)를
+                    보인다. 다시 읽은 결과가 PAID면 카드가 구독 화면으로 바뀐다. docs/billing.md §6-8.
+                    FREE이면서 `/me`의 `betaEndsAt`이 있으면 이 판정보다 먼저 베타 모드를 그린다 — 화면에는
+                    "베타"라고 쓰지 않고 무료 플랜의 한시 확대로 보인다(배지는 무료와 같은 "Free", 종료일·프로젝트
+                    3개 안내, 구독 영역은 무료와 같게). 질의 사용량·무료 기능 목록·전환 코드 입력란은 숨긴다.
+                    `mode === "beta"`·`betaEndsAt`은 내부 이름이라 그대로 둔다. docs/billing.md §12-1)
     graph/          WorkUnitCanvas(작업 단위 뷰 Canvas 렌더러) · ClusterDetail(열린 작업 단위 묶음 패널) · NodeDetail
                     GraphVis(d3-force SVG) — 채팅 RelatedGraphPanel 전용(그래프 탐색 페이지는 작업 단위 뷰로 대체됨)
     search/         SearchDialog — ⌘K 대화 검색(제목·메시지 본문, AppShell에서 마운트)
     landing/        공개 페이지 전용(랜딩 섹션들 · LandingHeader · LandingFooter)
-                    LegalLayout — 약관·개인정보·환불정책·지원·요금 공통 셸(헤더/푸터 재사용 + 산문 컬럼).
+                    LegalLayout — 약관·개인정보·환불정책·지원·요금·결제 공통 셸(헤더/푸터 재사용 + 산문 컬럼).
                     `TERMS_EFFECTIVE_DATE`(약관·환불정책 시행일)도 여기 있다 — backend
                     `app.legal.terms-version`과 같은 문자열이어야 한다. `PRIVACY_POLICY_EFFECTIVE_DATE`
                     (방침 시행일)도 여기 있다 — 서버에 대응값이 없고, 약관 시행일과 섞지 않는다
                     SlackBody — `/slack` 본문(Slack 마켓플레이스 Installation landing page. 랜딩 절에서 분리)
                     SupportBody — `/support` 본문
                     McpBody — `/mcp/setup` 본문(Claude Code·Codex·Cursor 연결 안내. 랜딩과 같은 ko/en COPY)
-                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts). 결제 스위치가
-                    켜졌을 때만(`GET /billing/availability`) "계정 설정에서 구독하기"를, 아니면 "준비 중"을 보인다.
-                    같은 응답의 `betaEndsAt`이 있으면 비교표 위에 베타 안내(종료일)를 띄운다
+                    PricingBody — `/pricing` 본문(Free/Pro 비교표. 값은 lib/plans.ts). 결제 스위치는 보지 않는다 —
+                    "시작하기"는 앱 진입 앰버 버튼 하나와 "Pro 구독은 로그인한 뒤 계정 설정에서" 안내 문단뿐이고,
+                    구독 진입점은 PlanCard 하나다(결제가 열리면 앰버가 둘이 되던 것을 없앰, docs/billing.md §8-2).
+                    `GET /billing/availability`의 `betaEndsAt`이 있으면 비교표 위에 무료 플랜 한시 확대 안내(종료일)를 띄운다
+                    ("베타"라고 쓰지 않는다 — docs/billing.md §12-1)
+                    CheckoutBody — `/checkout` 본문(Paddle 기본 결제 링크 — `?_ptxn=<거래 ID>` 결제 링크가 도착하는 곳).
+                    거래 ID를 형식 검사한 뒤 `openPaddleCheckout`으로 직접 연다(명시적 open이 쿼리의 자동 열기보다 우선).
+                    토큰·환경은 같은 `GET /billing/availability`의 `clientToken`·`environment`이고 결제 스위치는 보지
+                    않는다 — 신규 결제를 닫아도 기존 구독자의 복구 링크는 열려야 한다. docs/billing.md §8-3
                     useLandingTheme — 랜딩 계열 다크/라이트 토글(앱 ThemeProvider와 독립)
                     LandingLanguageProvider — 공개 페이지의 `meta description`만 언어에 맞춘다.
                     언어 상태와 `<html lang>`은 `src/i18n/language.tsx`의 `UiLanguageProvider`가
@@ -127,7 +138,7 @@ src/
 
   pages/            라우트 진입점 — 얇게. 데이터 오케스트레이션만, 마크업은 components/<feature>/로
     Onboarding · Chat · Sources · Settings · Account · GraphPage(작업 단위 뷰, 내비 라벨은 "그래프 확인" — 그래프 재구축 트리거 포함) ·
-    Actors · Landing · Terms · Privacy · Refund · Support · Slack · Pricing · Mcp · OAuthConsent · AuthCallback · NotFound
+    Actors · Landing · Terms · Privacy · Refund · Support · Slack · Pricing · Checkout · Mcp · OAuthConsent · AuthCallback · NotFound
     ※ Landing은 비로그인 공개 소개 페이지(`/landing`) — AuthGate 밖이고 DESIGN.md를 기준으로 만든다.
     ※ Terms(`/terms`)·Privacy(`/privacy`)·Refund(`/refund`)·Support(`/support`)·Slack(`/slack`)·Pricing(`/pricing`)·Mcp(`/mcp/setup`)도
       AuthGate 밖 공개 라우트다. 요금·환불정책은 Paddle 심사(도메인 리뷰)가 요구하는 페이지다(docs/billing.md §8-1). 랜딩과
@@ -148,8 +159,12 @@ src/
       보내며, `AuthCallbackPage`가 그 경로로 돌려보낸다. `/mcp/setup`은 `/slack`과 같은 공개 설치 안내 페이지다
       (`/mcp`가 아닌 이유: `/mcp`는 에이전트가 접속하는 backend MCP 엔드포인트).
     ※ `/account`는 공개 라우트가 아니다 — 첫 프로젝트의 계정 설정(`/projects/:id/account`, 없으면 온보딩)으로
-      넘기는 리다이렉트다. 요금 페이지가 로그인 전이면 이 경로를 `auth/returnPath`에 저장하고 GitHub 로그인으로 보낸다.
+      넘기는 리다이렉트다. 결제 링크 페이지(`/checkout`)의 완료 안내가 로그인 전이면 이 경로를 `auth/returnPath`에
+      저장하고 GitHub 로그인으로 보낸다.
       사이트맵에 넣지 않는다.
+    ※ `/checkout`은 AuthGate 밖 공개 라우트지만 Paddle이 보내는 결제 링크(`?_ptxn=`)가 도착하는 페이지라 사이트맵에
+      넣지 않고 robots.txt에서 막는다. Paddle 라이브 대시보드의 Default payment link가 이 주소다 — 경로를 바꾸면
+      대시보드 값도 함께 바꾼다(안 바꾸면 고객이 받은 결제 링크가 열리지 않는다).
 
   lib/              순수 유틸 — format(날짜·이니셜) · graphLayout(d3 시뮬레이션) · projectMark · url(외부 URL을 href에 넣기 전 http(s) 가드)
                     workUnitLayout(작업 단위 배치: 작업 단위 force + 구성 노드 반경) · canvasColor(CSS 토큰 → Canvas RGB)
@@ -158,7 +173,8 @@ src/
                     한도의 원본은 backend PlanService라 거기가 바뀌면 여기도 고친다
                     paddle — Paddle.js 결제창(`@paddle/paddle-js`, 공식 래퍼가 cdn.paddle.com 스크립트를 주입).
                     **앱에서 유일한 외부 스크립트**라 nginx.conf CSP에 `script-src`·`frame-src`·`connect-src`
-                    예외가 있다. 누를 때 한 번만 초기화하고 토큰·환경은 checkout 응답에서 받는다 —
+                    예외가 있다. 결제창은 두 곳에서 연다 — 계정 설정의 PlanCard(누를 때 한 번만 초기화, 토큰·환경은
+                    checkout 응답)와 `/checkout` 결제 링크 페이지(토큰·환경은 공개 availability 응답). 어느 쪽도
                     빌드 시점 환경변수를 만들지 않는다. API 키는 절대 프론트에 두지 않는다
                     remarkLocalTime — 답변 본문의 UTC ISO를 뷰어 현지 시간으로 바꿔 그리는 remark 플러그인.
                     **시각 표시는 전적으로 프론트 책임이다** — ai-engine은 UTC ISO 정준값만 보낸다
@@ -179,7 +195,8 @@ index.html          문서 셸. 검색·공유 메타(title · description · og
                     (/terms·/privacy까지 랜딩의 중복으로 선언돼 색인에서 빠진다). 상세는 파일 주석.
 public/             빌드 시 dist/ 루트로 그대로 복사된다(Vite 기본 publicDir).
                     sitemap.xml · robots.txt — Google Search Console 제출용. 공개 라우트 8개만
-                    싣고 도메인이 절대 URL로 박혀 있다. **App.tsx에 공개 라우트를 추가하면
+                    싣고 도메인이 절대 URL로 박혀 있다(`/checkout`은 결제 링크가 도착하는 페이지라 빼고 robots.txt에서
+                    막는다). **App.tsx에 공개 라우트를 추가하면
                     사이트맵도 함께 고친다** (등록 절차는 docs/deployment.md §3-4)
                     favicon.svg · hero-demo-{ko,en}-{dark,light}.mp4 + 같은 이름의 poster.jpg
                     (포스터는 og:image로도 쓰인다 — 2400x1266이라 OG 권장비와 맞는다)

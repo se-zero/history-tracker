@@ -75,8 +75,11 @@ public class RenewalNoticeService {
                         "whycode Pro 결제가 7일 뒤 있습니다",
                         body(subscription)
                 ));
-                subscription.recordRenewalNoticePeriodEnd(subscription.getCurrentPeriodEndsAt());
-                subscriptionRepository.save(subscription);
+                // 발송 뒤에 표시한다 — 먼저 표시하면 발송이 실패해도 그 주기 안내가 영영 나가지 않는다.
+                // 분리된 엔티티를 통째로 save하지 않고 그 칸만 고친다: 후보 조회 뒤 웹훅·동기화가 쓴
+                // 다른 칸(상태·기간 끝)을 옛 값으로 되돌리지 않기 위해서다.
+                subscriptionRepository.markRenewalNoticeSent(
+                        subscription.getSubscriptionId(), subscription.getCurrentPeriodEndsAt());
                 sent++;
             } catch (RuntimeException exception) {
                 log.warn("Billing renewal notice failed. subscriptionId={} errorType={}",

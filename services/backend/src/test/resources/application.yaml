@@ -72,6 +72,9 @@ app:
     renewal-notice:
       enabled: false
       cron: "0 0 4 * * *"
+    subscription-sync:
+      enabled: false
+      cron: "0 45 * * * *"
 
 resend:
   api-key: ""

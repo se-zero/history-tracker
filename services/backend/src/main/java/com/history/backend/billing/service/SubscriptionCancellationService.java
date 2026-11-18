@@ -1,6 +1,5 @@
 package com.history.backend.billing.service;
 
-import java.util.List;
 import java.util.UUID;
 
 import com.history.backend.billing.domain.BillingSubscription;
@@ -15,9 +14,6 @@ import org.springframework.stereotype.Service;
 @Service
 public class SubscriptionCancellationService {
 
-    // paused는 결제 화면의 "살아 있는 구독"에는 넣지 않지만, 재개되면 다시 결제되므로 해지 대상에는 넣는다.
-    static final List<String> CANCELLABLE_STATUSES = List.of("active", "trialing", "past_due", "paused");
-
     private final BillingSubscriptionRepository subscriptionRepository;
     private final PaddleApiClient paddleApiClient;
 
@@ -31,7 +27,7 @@ public class SubscriptionCancellationService {
 
     public void cancelLiveSubscriptions(UUID userId) {
         for (BillingSubscription subscription : subscriptionRepository.findByUserIdAndStatusIn(
-                userId, CANCELLABLE_STATUSES)) {
+                userId, PaddleSubscriptionStatuses.NON_TERMINAL)) {
             PaddleSubscriptionSnapshot snapshot = paddleApiClient.getSubscription(subscription.getSubscriptionId());
             if ("canceled".equals(snapshot.status()) || "cancel".equals(snapshot.scheduledChangeAction())) {
                 continue;

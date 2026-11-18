@@ -167,6 +167,30 @@ class BillingEventPersistenceTest {
         assertThat(exists).isFalse();
     }
 
+    @Test
+    @DisplayName("findSubscriptionIdsByStatusIn: 주어진 상태의 구독 ID만 돌려준다 (동기화가 엔티티 없이 후보를 고르는 조회)")
+    void findSubscriptionIdsByStatusInReturnsOnlyIdsOfMatchingStatuses() {
+        User user = createUser();
+        User other = createUser();
+        Instant lastEventOccurredAt = Instant.parse("2026-09-24T03:00:00Z");
+        for (String status : List.of("active", "trialing", "past_due", "paused", "canceled")) {
+            billingSubscriptionRepository.saveAndFlush(new BillingSubscription(
+                    "sub_ids_" + status, user.getId(), "ctm_ids", status, "pri_1",
+                    null, null, null, null, lastEventOccurredAt));
+        }
+        // 다른 사용자의 구독도 사용자와 무관하게 조회 대상이다
+        billingSubscriptionRepository.saveAndFlush(new BillingSubscription(
+                "sub_ids_other_active", other.getId(), "ctm_other", "active", "pri_1",
+                null, null, null, null, lastEventOccurredAt));
+
+        List<String> ids = billingSubscriptionRepository.findSubscriptionIdsByStatusIn(
+                List.of("active", "trialing", "past_due", "paused"));
+
+        assertThat(ids).containsExactlyInAnyOrder(
+                "sub_ids_active", "sub_ids_trialing", "sub_ids_past_due", "sub_ids_paused",
+                "sub_ids_other_active");
+    }
+
     private User createUser() {
         return userRepository.save(new User(
                 "github",

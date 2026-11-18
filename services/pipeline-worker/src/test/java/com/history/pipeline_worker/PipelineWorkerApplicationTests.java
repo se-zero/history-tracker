@@ -1,5 +1,6 @@
 package com.history.pipeline_worker;
 
+import com.history.pipeline_worker.outbox.OutboxBacklogMonitor;
 import com.history.pipeline_worker.outbox.OutboxCleanup;
 import com.history.pipeline_worker.outbox.OutboxRelay;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ class PipelineWorkerApplicationTests {
 	void outboxJobs_notRegistered_whenRelayDisabled() {
 		assertThat(context.getBeanNamesForType(OutboxRelay.class)).isEmpty();
 		assertThat(context.getBeanNamesForType(OutboxCleanup.class)).isEmpty();
+		assertThat(context.getBeanNamesForType(OutboxBacklogMonitor.class)).isEmpty();
 	}
 
 }

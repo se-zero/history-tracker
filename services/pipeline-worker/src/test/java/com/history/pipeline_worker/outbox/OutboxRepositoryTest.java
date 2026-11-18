@@ -1,5 +1,6 @@
 package com.history.pipeline_worker.outbox;
 
+import com.history.pipeline_worker.outbox.OutboxRepository.Backlog;
 import com.history.pipeline_worker.outbox.OutboxRepository.OutboxInsert;
 import com.history.pipeline_worker.outbox.OutboxRepository.OutboxRow;
 import org.junit.jupiter.api.Test;
@@ -90,22 +91,24 @@ class OutboxRepositoryTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void fetchUnpublished_selectsUnpublishedInIdOrderWithLimit() {
+    void fetchFresh_selectsUnpublishedNeverAttemptedInIdOrderWithLimit() {
         NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
-        OutboxRow expected = new OutboxRow(7L, PROJECT_ID, "GITHUB", "{}");
+        OutboxRow expected = new OutboxRow(7L, PROJECT_ID, "GITHUB", "{}", 0);
         when(jdbcTemplate.query(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
                 .thenReturn(List.of(expected));
         OutboxRepository repository = new OutboxRepository(jdbcTemplate);
 
-        List<OutboxRow> rows = repository.fetchUnpublished(200);
+        List<OutboxRow> rows = repository.fetchFresh(200);
 
         ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<SqlParameterSource> paramsCaptor = ArgumentCaptor.forClass(SqlParameterSource.class);
         verify(jdbcTemplate).query(sqlCaptor.capture(), paramsCaptor.capture(), any(RowMapper.class));
 
         String sql = sqlCaptor.getValue();
+        assertThat(sql).contains("id, project_id, source, payload, attempts");
         assertThat(sql).contains("FROM ingest_outbox");
         assertThat(sql).contains("published_at IS NULL");
+        assertThat(sql).contains("attempts = 0");
         assertThat(sql).contains("ORDER BY id");
         assertThat(sql).contains("LIMIT :limit");
         assertThat(paramsCaptor.getValue().getValue("limit")).isEqualTo(200);
@@ -114,12 +117,39 @@ class OutboxRepositoryTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void fetchUnpublished_rowMapperMapsColumnsToOutboxRow() throws SQLException {
+    void fetchDueRetries_selectsFailedRowsWhoseRetryTimeHasComeInIdOrderWithLimit() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        OutboxRow expected = new OutboxRow(7L, PROJECT_ID, "GITHUB", "{}", 2);
+        when(jdbcTemplate.query(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
+                .thenReturn(List.of(expected));
+        OutboxRepository repository = new OutboxRepository(jdbcTemplate);
+
+        List<OutboxRow> rows = repository.fetchDueRetries(50);
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<SqlParameterSource> paramsCaptor = ArgumentCaptor.forClass(SqlParameterSource.class);
+        verify(jdbcTemplate).query(sqlCaptor.capture(), paramsCaptor.capture(), any(RowMapper.class));
+
+        String sql = sqlCaptor.getValue();
+        assertThat(sql).contains("id, project_id, source, payload, attempts");
+        assertThat(sql).contains("FROM ingest_outbox");
+        assertThat(sql).contains("published_at IS NULL");
+        assertThat(sql).contains("attempts > 0");
+        assertThat(sql).contains("next_attempt_at <= now()");
+        assertThat(sql).contains("ORDER BY id");
+        assertThat(sql).contains("LIMIT :limit");
+        assertThat(paramsCaptor.getValue().getValue("limit")).isEqualTo(50);
+        assertThat(rows).containsExactly(expected);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fetchFresh_rowMapperMapsColumnsToOutboxRow() throws SQLException {
         NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
         when(jdbcTemplate.query(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
                 .thenReturn(List.of());
         OutboxRepository repository = new OutboxRepository(jdbcTemplate);
-        repository.fetchUnpublished(10);
+        repository.fetchFresh(10);
 
         ArgumentCaptor<RowMapper<OutboxRow>> mapperCaptor = ArgumentCaptor.forClass(RowMapper.class);
         verify(jdbcTemplate).query(anyString(), any(SqlParameterSource.class), mapperCaptor.capture());
@@ -128,10 +158,131 @@ class OutboxRepositoryTest {
         when(rs.getObject("project_id", UUID.class)).thenReturn(PROJECT_ID);
         when(rs.getString("source")).thenReturn("JIRA");
         when(rs.getString("payload")).thenReturn("{\"k\":\"v\"}");
+        when(rs.getInt("attempts")).thenReturn(3);
 
         OutboxRow row = mapperCaptor.getValue().mapRow(rs, 0);
 
-        assertThat(row).isEqualTo(new OutboxRow(42L, PROJECT_ID, "JIRA", "{\"k\":\"v\"}"));
+        assertThat(row).isEqualTo(new OutboxRow(42L, PROJECT_ID, "JIRA", "{\"k\":\"v\"}", 3));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fetchDueRetries_rowMapperMapsAttempts() throws SQLException {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        when(jdbcTemplate.query(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
+                .thenReturn(List.of());
+        OutboxRepository repository = new OutboxRepository(jdbcTemplate);
+        repository.fetchDueRetries(10);
+
+        ArgumentCaptor<RowMapper<OutboxRow>> mapperCaptor = ArgumentCaptor.forClass(RowMapper.class);
+        verify(jdbcTemplate).query(anyString(), any(SqlParameterSource.class), mapperCaptor.capture());
+        ResultSet rs = mock(ResultSet.class);
+        when(rs.getLong("id")).thenReturn(5L);
+        when(rs.getObject("project_id", UUID.class)).thenReturn(PROJECT_ID);
+        when(rs.getString("source")).thenReturn("SLACK");
+        when(rs.getString("payload")).thenReturn("{}");
+        when(rs.getInt("attempts")).thenReturn(4);
+
+        OutboxRow row = mapperCaptor.getValue().mapRow(rs, 0);
+
+        assertThat(row).isEqualTo(new OutboxRow(5L, PROJECT_ID, "SLACK", "{}", 4));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void backlog_selectsOldestAndCountOfUnpublishedRowsBelowAlertAttempts() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        Backlog expected = new Backlog(Instant.parse("2026-11-13T00:00:00Z"), 3);
+        when(jdbcTemplate.queryForObject(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
+                .thenReturn(expected);
+        OutboxRepository repository = new OutboxRepository(jdbcTemplate);
+
+        Backlog backlog = repository.backlog();
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).queryForObject(sqlCaptor.capture(), any(SqlParameterSource.class), any(RowMapper.class));
+
+        String sql = sqlCaptor.getValue();
+        assertThat(sql).contains("min(created_at) AS oldest");
+        assertThat(sql).contains("count(*) AS pending");
+        assertThat(sql).contains("FROM ingest_outbox");
+        assertThat(sql).contains("published_at IS NULL");
+        // 5 이상인 행은 이미 행 실패 알림이 갔으므로 적체 점검 대상이 아니다
+        assertThat(sql).contains("attempts < 5");
+        assertThat(backlog).isEqualTo(expected);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void backlog_rowMapperMapsOldestAndPending() throws SQLException {
+        RowMapper<Backlog> mapper = captureBacklogRowMapper();
+        ResultSet rs = mock(ResultSet.class);
+        OffsetDateTime oldest = OffsetDateTime.parse("2026-11-13T00:00:00+09:00");
+        when(rs.getObject("oldest", OffsetDateTime.class)).thenReturn(oldest);
+        when(rs.getLong("pending")).thenReturn(1234L);
+
+        Backlog backlog = mapper.mapRow(rs, 0);
+
+        assertThat(backlog).isEqualTo(new Backlog(oldest.toInstant(), 1234L));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void backlog_rowMapperMapsNullOldestWhenNoRows() throws SQLException {
+        RowMapper<Backlog> mapper = captureBacklogRowMapper();
+        ResultSet rs = mock(ResultSet.class);
+        when(rs.getObject("oldest", OffsetDateTime.class)).thenReturn(null);
+        when(rs.getLong("pending")).thenReturn(0L);
+
+        Backlog backlog = mapper.mapRow(rs, 0);
+
+        assertThat(backlog).isEqualTo(new Backlog(null, 0L));
+    }
+
+    @SuppressWarnings("unchecked")
+    private RowMapper<Backlog> captureBacklogRowMapper() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        OutboxRepository repository = new OutboxRepository(jdbcTemplate);
+        repository.backlog();
+
+        ArgumentCaptor<RowMapper<Backlog>> mapperCaptor = ArgumentCaptor.forClass(RowMapper.class);
+        verify(jdbcTemplate).queryForObject(anyString(), any(SqlParameterSource.class), mapperCaptor.capture());
+        return mapperCaptor.getValue();
+    }
+
+    @Test
+    void recordFailure_incrementsAttemptsAndSchedulesNextAttemptForGivenIds() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        when(jdbcTemplate.update(anyString(), any(SqlParameterSource.class))).thenReturn(2);
+        OutboxRepository repository = new OutboxRepository(jdbcTemplate);
+        List<Long> ids = List.of(4L, 9L);
+
+        int recorded = repository.recordFailure(ids, 15);
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<SqlParameterSource> paramsCaptor = ArgumentCaptor.forClass(SqlParameterSource.class);
+        verify(jdbcTemplate).update(sqlCaptor.capture(), paramsCaptor.capture());
+
+        String sql = sqlCaptor.getValue();
+        assertThat(sql).contains("UPDATE ingest_outbox");
+        assertThat(sql).contains("attempts = attempts + 1");
+        assertThat(sql).contains("next_attempt_at = now() + make_interval(secs => :delay)");
+        assertThat(sql).contains("id IN (:ids)");
+        assertThat(paramsCaptor.getValue().getValue("ids")).isEqualTo(ids);
+        assertThat(paramsCaptor.getValue().getValue("delay")).isEqualTo(15);
+        assertThat(recorded).isEqualTo(2);
+    }
+
+    @Test
+    void recordFailure_emptyIds_returnsZeroWithoutDbCall() {
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        OutboxRepository repository = new OutboxRepository(jdbcTemplate);
+
+        int recorded = repository.recordFailure(List.of(), 5);
+
+        // IN () 은 SQL 문법 오류라 빈 목록은 DB를 부르지 않는다
+        assertThat(recorded).isZero();
+        verifyNoInteractions(jdbcTemplate);
     }
 
     @Test

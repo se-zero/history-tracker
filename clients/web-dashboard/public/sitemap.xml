@@ -3,6 +3,7 @@
   Google Search Console 제출용 사이트맵.
   공개 라우트(인증 가드 없는 것)만 담는다 — src/App.tsx의 라우트 표와 대조해 갱신한다.
   /projects/*, /onboarding, /auth/callback 은 로그인 뒤 개인 데이터 화면이라 넣지 않는다.
+  /checkout 은 Paddle 결제 링크(?_ptxn=)가 도착하는 페이지라 넣지 않는다.
   언어(ko/en)는 URL이 아니라 클라이언트 상태라서 hreflang 대체 URL이 없다.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

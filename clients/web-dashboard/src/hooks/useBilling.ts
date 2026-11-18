@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 
 import {
   downgradePlan,
@@ -29,8 +30,15 @@ export function useCheckoutAvailability() {
 }
 
 export function useStartCheckout() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: startCheckout,
+    // 409는 서버가 Paddle 실제 상태로 DB를 바로잡은 직후에 나온다. 캐시된 결제 요약은 옛 상태라 버린다.
+    onError: (error) => {
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.billing() });
+      }
+    },
   });
 }
 

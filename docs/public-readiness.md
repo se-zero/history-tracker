@@ -955,7 +955,8 @@ DLQ로 빠져도 알림이 오지 않는다. (과거 서술 — 이제 DLQ·park
 알림이 붙었다. `docs/deployment.md` 4-6 참고.)
 
 - [x] 최소한 DLQ 적재·수집 실패·컨테이너 재시작에 알림을 붙인다 — ai-engine Slack 웹훅(DLQ·parking·LLM
-      실패·잔액 소진) + infra/scripts/restart-check.sh (2026-09-06). 큐 적체·수집 정지는 아직
+      실패·잔액 소진) + infra/scripts/restart-check.sh (2026-09-06). 아웃박스 발행 실패·아웃박스 적체는
+      pipeline-worker Slack 알림으로 추가(2026-11-13). 브로커 큐 적체·수집 정지는 아직
 
 ### 5-2. 백업이 호스트 로컬에만 있다
 

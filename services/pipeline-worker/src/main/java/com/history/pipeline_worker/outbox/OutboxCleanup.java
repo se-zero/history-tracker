@@ -19,7 +19,7 @@ import java.time.Instant;
 @ConditionalOnProperty(name = "app.outbox.relay.enabled", havingValue = "true", matchIfMissing = true)
 public class OutboxCleanup {
 
-    // 발행 뒤 사본이 필요한 경우는 "접두사 표시 직전에 죽은 배치의 재전송"뿐이라 짧아도 된다.
+    // 발행 뒤 사본이 필요한 경우는 "표시 직전에 죽은 틱의 재전송"뿐이라 짧아도 된다.
     // 개인정보(payload)가 DB에 머무는 시간도 줄인다.
     static final Duration RETENTION = Duration.ofDays(1);
 

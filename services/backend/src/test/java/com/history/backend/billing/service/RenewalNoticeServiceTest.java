@@ -2,6 +2,10 @@ package com.history.backend.billing.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -22,6 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -56,7 +61,7 @@ class RenewalNoticeServiceTest {
     }
 
     @Test
-    @DisplayName("6일 이상 8일 미만인 active 구독에만 메일을 보내고, 그 주기 끝을 기록한다")
+    @DisplayName("6일 이상 8일 미만인 active 구독에만 메일을 보내고, 그 주기 끝을 단독 UPDATE로 기록한다 (통째 save가 아니다)")
     void sendsOnceForSubscriptionInsideTheWindow() {
         BillingSubscription due = subscription("sub_due", "active", IN_WINDOW, null, null);
         when(subscriptionRepository.findByCurrentPeriodEndsAtGreaterThanEqualAndCurrentPeriodEndsAtLessThan(
@@ -78,8 +83,13 @@ class RenewalNoticeServiceTest {
         assertThat(mail.getValue().subject()).contains("7일");
         assertThat(mail.getValue().text()).contains("14,900");
         assertThat(mail.getValue().text()).doesNotContain("법령");
-        assertThat(due.getRenewalNoticePeriodEnd()).isEqualTo(IN_WINDOW);
-        verify(subscriptionRepository).save(due);
+        // 표시는 분리된 엔티티를 통째로 save하지 않고 그 칸만 고친다 — 통째 save는 같은 시각 다른 쓰기를 되돌린다
+        verify(subscriptionRepository).markRenewalNoticeSent("sub_due", IN_WINDOW);
+        verify(subscriptionRepository, never()).save(any());
+        // 메일이 나간 뒤에 표시한다 — 먼저 표시하면 발송이 실패해도 다음 날 다시 보내지 않는다
+        InOrder inOrder = inOrder(resendClient, subscriptionRepository);
+        inOrder.verify(resendClient).send(any());
+        inOrder.verify(subscriptionRepository).markRenewalNoticeSent("sub_due", IN_WINDOW);
     }
 
     @Test
@@ -97,6 +107,7 @@ class RenewalNoticeServiceTest {
         assertThat(sent).isZero();
         verifyNoInteractions(paddleApiClient, resendClient);
         verify(subscriptionRepository, never()).save(any());
+        verify(subscriptionRepository, never()).markRenewalNoticeSent(any(), any());
     }
 
     @Test
@@ -108,7 +119,7 @@ class RenewalNoticeServiceTest {
         when(paddleApiClient.getCustomerEmail("ctm_sub_renewed")).thenReturn("payer@example.com");
 
         assertThat(service.sendDueNotices(NOW)).isEqualTo(1);
-        verify(subscriptionRepository).save(renewed);
+        verify(subscriptionRepository).markRenewalNoticeSent("sub_renewed", IN_WINDOW);
     }
 
     @Test
@@ -127,10 +138,30 @@ class RenewalNoticeServiceTest {
         int sent = service.sendDueNotices(NOW);
 
         assertThat(sent).isEqualTo(1);
-        verify(subscriptionRepository).save(ok);
-        verify(subscriptionRepository, never()).save(missingEmail);
-        verify(subscriptionRepository, never()).save(failed);
+        verify(subscriptionRepository).markRenewalNoticeSent("sub_ok", IN_WINDOW);
+        verify(subscriptionRepository, never()).markRenewalNoticeSent(eq("sub_missing"), any());
+        verify(subscriptionRepository, never()).markRenewalNoticeSent(eq("sub_fail"), any());
+        verify(subscriptionRepository, never()).save(any());
         assertThat(failed.getRenewalNoticePeriodEnd()).isNull();
+    }
+
+    @Test
+    @DisplayName("메일 발송이 실패하면 보낸 것으로 표시하지 않고 나머지 구독은 계속 처리한다")
+    void doesNotMarkSubscriptionWhenSendingFails() {
+        BillingSubscription unsent = subscription("sub_unsent", "active", IN_WINDOW, null, null);
+        BillingSubscription ok = subscription("sub_ok", "active", IN_WINDOW, null, null);
+        when(subscriptionRepository.findByCurrentPeriodEndsAtGreaterThanEqualAndCurrentPeriodEndsAtLessThan(
+                any(), any())).thenReturn(List.of(unsent, ok));
+        when(paddleApiClient.getCustomerEmail("ctm_sub_unsent")).thenReturn("unsent@example.com");
+        when(paddleApiClient.getCustomerEmail("ctm_sub_ok")).thenReturn("ok@example.com");
+        doThrow(new BadGatewayException("Resend request failed."))
+                .when(resendClient).send(argThat(mail -> "unsent@example.com".equals(mail.to())));
+
+        int sent = service.sendDueNotices(NOW);
+
+        assertThat(sent).isEqualTo(1);
+        verify(subscriptionRepository, never()).markRenewalNoticeSent(eq("sub_unsent"), any());
+        verify(subscriptionRepository).markRenewalNoticeSent("sub_ok", IN_WINDOW);
     }
 
     @Test

@@ -1071,6 +1071,53 @@ class PlanServiceTest {
         assertThat(transactional.noRollbackFor()).contains(NotFoundException.class);
     }
 
+    // ── lockForBillingUpdate (구독 상태 반영 전 사용자 행 잠금) ──
+    // PaddleSubscriptionApplier가 구독 캐시를 읽기 전에 사용자 행을 잠가 같은 사용자의 동시 반영을 직렬화한다.
+    // 잠금만 하고 플랜·연동은 건드리지 않는다.
+
+    @Test
+    @DisplayName("lockForBillingUpdate는 findByIdForUpdate로 사용자 행을 잠그기만 한다 — 플랜·저장·연동 변경 없음")
+    void lockForBillingUpdateLocksUserRowWithoutChangingAnything() {
+        PlanService service = service(UPGRADE_CODE);
+        User user = user(Plan.PAID, 3, PLAN_EXPIRES_AT);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.of(user));
+
+        service.lockForBillingUpdate(OWNER_ID);
+
+        verify(userRepository).findByIdForUpdate(OWNER_ID);
+        verify(userRepository, never()).findById(any());
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(integrationRepository);
+        assertThat(user.getPlan()).isEqualTo(Plan.PAID);
+        assertThat(user.getFreeQueryCount()).isEqualTo(3);
+        assertThat(user.getPlanExpiresAt()).isEqualTo(PLAN_EXPIRES_AT);
+    }
+
+    @Test
+    @DisplayName("lockForBillingUpdate: 사용자를 못 찾으면 NotFoundException, 연동 조회도 하지 않는다")
+    void lockForBillingUpdateThrowsWhenUserNotFound() {
+        PlanService service = service(UPGRADE_CODE);
+        when(userRepository.findByIdForUpdate(OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.lockForBillingUpdate(OWNER_ID))
+                .isInstanceOf(NotFoundException.class);
+
+        verifyNoInteractions(integrationRepository);
+    }
+
+    @Test
+    @DisplayName("lockForBillingUpdate는 void이고 @Transactional(noRollbackFor = NotFoundException.class)여야 한다"
+            + " (파기된 사용자 알림을 호출자가 UNMATCHED로 커밋하려면 공유 트랜잭션이 rollback-only가 되면 안 된다)")
+    void lockForBillingUpdateDeclaresNoRollbackForNotFoundException() throws NoSuchMethodException {
+        Method method = PlanService.class.getMethod("lockForBillingUpdate", UUID.class);
+
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(method.getReturnType()).isEqualTo(void.class);
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.noRollbackFor()).contains(NotFoundException.class);
+    }
+
     private PlanService service(String upgradeCode) {
         return service(upgradeCode, new BetaPeriod("", Clock.fixed(NOW, ZoneOffset.UTC)));
     }

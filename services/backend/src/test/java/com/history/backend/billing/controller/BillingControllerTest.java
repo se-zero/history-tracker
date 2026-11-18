@@ -53,7 +53,8 @@ class BillingControllerTest {
     @DisplayName("결제 가능 여부는 JWT 없이 200이고 비밀값을 싣지 않는다")
     void availabilityIsPublic() throws Exception {
         when(billingAccountService.availability())
-                .thenReturn(new CheckoutAvailabilityResponse(true, Instant.parse("2027-01-12T14:59:59Z")));
+                .thenReturn(new CheckoutAvailabilityResponse(
+                        true, Instant.parse("2027-01-12T14:59:59Z"), "test_token", "sandbox"));
 
         mockMvc.perform(get("/api/v1/billing/availability"))
                 .andExpect(status().isOk())
@@ -62,15 +63,41 @@ class BillingControllerTest {
     }
 
     @Test
+    @DisplayName("Paddle.js 클라이언트 토큰과 환경은 JWT 없이 내려간다")
+    void availabilityExposesClientTokenAndEnvironmentWithoutAuthentication() throws Exception {
+        when(billingAccountService.availability())
+                .thenReturn(new CheckoutAvailabilityResponse(true, null, "live_token", "production"));
+
+        mockMvc.perform(get("/api/v1/billing/availability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.clientToken").value("live_token"))
+                .andExpect(jsonPath("$.environment").value("production"));
+    }
+
+    @Test
     @DisplayName("베타가 없으면 betaEndsAt 키는 존재하고 JSON null로 내려간다")
     void availabilitySerializesNullBetaEndsAtAsJsonNull() throws Exception {
-        when(billingAccountService.availability()).thenReturn(new CheckoutAvailabilityResponse(false, null));
+        when(billingAccountService.availability())
+                .thenReturn(new CheckoutAvailabilityResponse(false, null, "test_token", "sandbox"));
 
         mockMvc.perform(get("/api/v1/billing/availability"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasKey("betaEndsAt")))
                 .andExpect(jsonPath("$.betaEndsAt").value(nullValue()))
                 .andExpect(jsonPath("$.checkoutAvailable").value(false));
+    }
+
+    @Test
+    @DisplayName("클라이언트 토큰이 없으면 clientToken 키는 존재하고 JSON null로 내려간다")
+    void availabilitySerializesNullClientTokenAsJsonNull() throws Exception {
+        when(billingAccountService.availability())
+                .thenReturn(new CheckoutAvailabilityResponse(false, null, null, "sandbox"));
+
+        mockMvc.perform(get("/api/v1/billing/availability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasKey("clientToken")))
+                .andExpect(jsonPath("$.clientToken").value(nullValue()))
+                .andExpect(jsonPath("$.environment").value("sandbox"));
     }
 
     @Test

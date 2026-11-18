@@ -26,6 +26,8 @@ export interface BillingPortal {
 export interface CheckoutAvailability {
   checkoutAvailable: boolean;
   betaEndsAt: string | null;
+  clientToken: string | null;
+  environment: string;
 }
 
 export async function fetchBillingSummary(): Promise<BillingSummary> {

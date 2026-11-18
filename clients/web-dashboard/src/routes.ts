@@ -12,6 +12,8 @@ export const PATHS = {
   slack: "/slack",
   pricing: "/pricing",
   refund: "/refund",
+  // Paddle 기본 결제 링크 — `?_ptxn=<거래 ID>` 결제 링크가 도착하는 곳. 공개 라우트지만 사이트맵에 넣지 않는다.
+  checkout: "/checkout",
   mcpSetup: "/mcp/setup",
   oauthConsent: "/oauth/consent",
 } as const;
