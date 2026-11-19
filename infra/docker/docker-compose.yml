@@ -74,6 +74,9 @@ services:
       # 연결이 깨진다. `openssl rand -base64`는 `+`·`/`를 만들므로 쓰지 말고 `openssl rand -hex 32`처럼
       # URL-safe한 값만 넣는다(.env.example·docs/deployment.md에 같은 안내가 있다).
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      # 선택 — 비우면 위 AMQP URL에서 파생한다(amqp는 http://호스트:15672). 관리 API 주소가
+      # AMQP 호스트와 다를 때만 쓴다. 사용자 정보는 넣지 않는다(인증은 AMQP URL에서 가져온다).
+      RABBITMQ_MANAGEMENT_URL: ${RABBITMQ_MANAGEMENT_URL:-}
       # .env 에서 forward (필수: OPENAI_API_KEY)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       QUERY_MODEL: ${QUERY_MODEL:-gpt-5.4-mini}
@@ -93,10 +96,8 @@ services:
       # 킬스위치: INGEST_CHANGESET_LOOKAHEAD=0 (완전 복원은 INGEST_EMBED_COALESCE_MAX=1 병행)
       INGEST_MAX_CONCURRENCY: ${INGEST_MAX_CONCURRENCY:-4}
       INGEST_CHANGESET_LOOKAHEAD: ${INGEST_CHANGESET_LOOKAHEAD:-8}
-      # prefetch는 두 겹이다. 큐(소비자)당 = 1 + look-ahead(기본 9), 채널 전체 상한 = 동시성 × 큐당(기본 36).
-      # 둘 다 미설정(빈 값)이면 코드가 파생 — 값을 박으면 파생 규칙이 죽는다
-      # INGEST_PREFETCH는 채널 전체 상한이다(옛 값 12가 남아 있으면 비운다)
-      INGEST_PREFETCH: ${INGEST_PREFETCH:-}
+      # prefetch는 큐(소비자)당 상한 하나다 = 1 + look-ahead(기본 9). 채널 전체 상한은 없다(Amazon MQ 4.3이 거부).
+      # 미설정(빈 값)이면 코드가 파생 — 값을 박으면 파생 규칙이 죽는다
       INGEST_PREFETCH_PER_QUEUE: ${INGEST_PREFETCH_PER_QUEUE:-}
       INGEST_EMBED_COALESCE_MAX: ${INGEST_EMBED_COALESCE_MAX:-8}
       INGEST_EMBED_COALESCE_WINDOW_MS: ${INGEST_EMBED_COALESCE_WINDOW_MS:-50}
@@ -246,7 +247,8 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      # Spring Boot가 8080을 열어 요청을 받을 수 있는지 확인 (curl/actuator 없이 bash /dev/tcp)
+      # Spring Boot가 8080을 열어 요청을 받을 수 있는지 확인 (이미지에 curl이 없어도 되게 bash /dev/tcp.
+      # /actuator/health/readiness는 AWS ALB 건강 검사용이고 여기서는 쓰지 않는다)
       test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080'"]
       interval: 5s
       timeout: 3s

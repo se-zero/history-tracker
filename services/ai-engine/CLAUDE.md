@@ -32,11 +32,12 @@ uvicorn main:app --reload --port 8000
 
 수집 동시성(선택): `INGEST_MAX_CONCURRENCY`(기본 `4`), `INGEST_CHANGESET_LOOKAHEAD`(기본 `8`, `0`=비활성),
 `INGEST_EMBED_COALESCE_MAX`/`INGEST_EMBED_COALESCE_WINDOW_MS`(커밋 메시지 임베딩 코얼레싱, 기본 `8`/`50ms` —
-`MAX` 기본은 look-ahead와 정렬, `MAX=1`이면 대기창 없이 단건 호출), prefetch는 두 겹이다 —
-`INGEST_PREFETCH_PER_QUEUE`(큐=소비자당, 기본 `1 + INGEST_CHANGESET_LOOKAHEAD` = `9`)와
-`INGEST_PREFETCH`(채널 전체 상한, 기본 `INGEST_MAX_CONCURRENCY × 큐당` = `36`). 두 값 모두 빈 값은 미설정
-취급이라 compose가 빈 값을 넘겨 파생 규칙을 유지한다. `INGEST_PREFETCH`는 예전에 "소비자 하나의 prefetch(12)"였으나
-지금은 채널 전체 상한이라, 서버 `.env`에 옛 값이 남아 있으면 비운다(남으면 채널이 그 값으로 묶인다).
+`MAX` 기본은 look-ahead와 정렬, `MAX=1`이면 대기창 없이 단건 호출), prefetch는 큐(소비자)당 상한 하나다 —
+`INGEST_PREFETCH_PER_QUEUE`(기본 `1 + INGEST_CHANGESET_LOOKAHEAD` = `9`). 빈 값은 미설정 취급이라 compose가
+빈 값을 넘겨 파생 규칙을 유지한다. 채널 전체 상한(옛 `INGEST_PREFETCH`, `global_=True`)은 없다 — Amazon MQ
+4.3이 채널 오류로 거부하고, 같은 코드가 3.x에서도 돌아야 해서 버전 분기 없이 뺐다. 그래서 받아 두는 미확인
+메시지 총량은 "밀린 프로젝트 큐 수 × 큐당 상한"이다(동시에 밀린 프로젝트가 `INGEST_MAX_CONCURRENCY`개 이하면 예전
+채널 상한 36과 같다). 서버 `.env`에 옛 `INGEST_PREFETCH`가 남아 있어도 읽지 않는다.
 킬스위치: `INGEST_CHANGESET_LOOKAHEAD=0`으로 프리페치가 꺼지고, **완전한 기존 동작 복원**에는
 `INGEST_EMBED_COALESCE_MAX=1`을 병행한다(아니면 커밋당 코얼레싱 대기창 50ms가 남는다).
 consumer는 project 단위로 파티셔닝해 project 내부는 직렬(순서·노드 경합·Actor race 보호), project 간은
@@ -45,15 +46,20 @@ BACKGROUND 호출은 `OPENAI_BACKGROUND_CONCURRENCY` 게이트로 동시 요청 
 `INGEST_FILE_SUMMARY_CONCURRENCY`로 묶인다. 부하·환경에 따라 env로 조절한다.
 같은 project의 ChangeSet은 LLM 준비 단계(파일 diff 요약 + 임베딩)만 도착 순서보다 앞서(look-ahead)
 미리 실행하고, Neo4j 쓰기는 여전히 도착 순서 직렬을 유지한다. look-ahead 깊이만큼 미ack 메시지가
-늘어난다 — 재시작 시 최대 `INGEST_PREFETCH`건이 재배달될 수 있지만, 쓰기가 전부 MERGE 멱등이라
-그래프는 안전하고 LLM 준비 비용만 재발생한다.
+늘어난다 — 재시작 시 밀린 프로젝트 수 × `INGEST_PREFETCH_PER_QUEUE`건까지 재배달될 수 있지만, 쓰기가 전부
+MERGE 멱등이라 그래프는 안전하고 LLM 준비 비용만 재발생한다.
 
 큐 발견: 프로젝트마다 큐(`history.project.<projectId>`)가 하나씩 있고, 큐마다 `x-single-active-consumer`라
 활성 소비자는 1이다. `graph/queue_discovery.py`가 5초마다 RabbitMQ 관리 HTTP API(`GET /api/queues/<vhost>`)를
 읽어 새 큐는 구독하고 사라진 큐는 구독 해제하며, 큐별 `messages`를 `graph/ingest_backlog.py` 스냅샷에 저장한다.
-관리 URL(`http://<host>:15672`)과 인증은 `RABBITMQ_URL`에서 파생해 새 env가 없다. 관리 API가 죽으면 새 큐
-발견만 늦어질 뿐 이벤트는 내구 큐에 남아 있어 유실이 없다. 연결은 비-robust(`aio_pika.connect`)라 끊기면
-예외로 올라오고, `start_consumer`가 5초 뒤 연결·QoS·토폴로지·구독을 통째로 다시 만든다(부분 복구는 없다).
+관리 URL은 `RABBITMQ_URL`의 스킴으로 파생한다 — `amqp` → `http://<host>:15672`, `amqps` → `https://<host>:15671`
+(관리 포트는 AMQP 포트와 무관하게 고정). 관리 API 주소가 AMQP 호스트와 다를 때만 선택 env
+`RABBITMQ_MANAGEMENT_URL`로 덮어쓴다(빈 값 = 미설정, 호출 시점에 읽는다). 인증·vhost는 항상 `RABBITMQ_URL`에서
+오고, 덮어쓰기 값에 사용자 정보가 있거나 http(s) 주소가 아니면 ERROR 로그(원문은 남기지 않는다) 후 파생 주소를 쓴다.
+프로젝트 큐 구독은 큐 발견(`queue_discovery.tick`)을 통해서만 일어난다 — 그래서 관리 API에 못 붙으면 기동·재연결
+직후에는 수집이 시작되지 않는다(이미 걸린 구독은 유지되고, 이벤트는 내구 큐에 남아 있어 유실은 없다). 연결은
+비-robust(`aio_pika.connect`)라 끊기면 예외로 올라오고, `start_consumer`가 5초 뒤 연결·QoS·토폴로지·구독을 통째로
+다시 만든다(부분 복구는 없다).
 
 수집 실패 안전망(재시도 → DLQ): consumer의 `handle()`이 실패한 이벤트를 조용히 버리지 않는다.
 발행 측(pipeline-worker)은 이미 checkpoint를 넘긴 상태라 소비 실패는 재수집으로 복구되지 않기 때문이다.
@@ -172,7 +178,9 @@ graph/             Neo4j 그래프 구축 + 수집
   queue_discovery.py 프로젝트 큐 발견 — 관리 HTTP API 5초 폴링으로 구독 대상을 맞추고 큐별 messages를 기록.
                      큐 이름 규칙의 단일 출처(`PROJECT_QUEUE_PREFIX`). 폴링의 httpx 요청 줄
                      (`HTTP Request: GET http://<host>:15672/...`)은 여기서 `httpx` 로거에 붙이는 필터가
-                     떨어뜨린다 — OpenAI 호출의 httpx 줄은 남는다(429 확인용)
+                     떨어뜨린다 — OpenAI 호출의 httpx 줄은 남는다(429 확인용). 필터가 `base + "/"` 문자열
+                     일치라서, 덮어쓴 관리 주소는 httpx가 줄에 찍는 모양(기본 포트 제거·호스트 소문자·끝 `/`
+                     제거)으로 정규화해 base로 쓴다 — 어긋나면 하루 약 17,000줄이 로그로 돌아온다
   ingest_backlog.py  프로젝트 큐별 messages 스냅샷 — 디바운스의 "큐가 비었다" 판정이 읽는다
   event_handler.py   NormalizedEvent → 그래프 쓰기 (수집 진입점)
   ingest_tombstones.py  수집 차단 tombstone — 해제된 연동(integrationId)·지운 프로젝트의 이벤트를 버린다.

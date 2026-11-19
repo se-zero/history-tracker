@@ -44,13 +44,15 @@ INGEST_MAX_CONCURRENCY = max(1, int(os.environ.get("INGEST_MAX_CONCURRENCY", "4"
 # 뒤 이벤트의 LLM 준비 단계(파일 diff 요약 + 임베딩)를 앞 이벤트의 Neo4j 쓰기와 동시에 미리 실행한다.
 # 쓰기(_process) 자체는 여전히 도착 순서 직렬 — 준비만 앞당긴다. 0 = 프리페치 비활성(킬스위치).
 INGEST_CHANGESET_LOOKAHEAD = max(0, int(os.environ.get("INGEST_CHANGESET_LOOKAHEAD", "8")))
-# RabbitMQ prefetch(미ack 상한) = 백프레셔. 큐당 9 = 쓰기 1 + look-ahead 8, 채널 전체 36 = 동시성 4 × 큐당.
-# 큐당 상한(global_=False)이 한 프로젝트 큐의 독점을 막고, 채널 상한(global_=True)이 전체 미ack를 묶는다.
-# 트레이드오프: 재시작 시 최대 채널 상한(INGEST_PREFETCH)만큼 재배달될 수 있다. 쓰기가 전부 MERGE라 멱등이라
+# RabbitMQ prefetch(미ack 상한) = 백프레셔. 큐당 9 = 쓰기 1 + look-ahead 8.
+# 큐(소비자)별 상한(global_=False)만 건다 — 한 프로젝트 큐의 독점을 막는다. 채널 전체 상한(global_=True)은
+# 걸지 않는다(Amazon MQ 4.3이 채널 오류로 거부하고, 같은 코드가 3.x에서도 돌아야 해서 버전 분기 없이 뺐다).
+# 그래서 받아 두는 미ack 총량은 "밀린 프로젝트 큐 수 × 큐당 상한"이다. 동시에 밀린 프로젝트가
+# INGEST_MAX_CONCURRENCY개 이하면 예전 채널 상한(4 × 9 = 36)과 같다.
+# 트레이드오프: 재시작 시 그 총량만큼 재배달될 수 있다. 쓰기가 전부 MERGE라 멱등이라
 # 그래프는 안전하고 LLM 준비 비용만 재발생한다(재계산일 뿐 데이터 손상 없음).
 # 미설정 시 파생한다. 빈 문자열도 미설정 취급(or 폴백) — compose가 빈 값을 넘겨 파생 규칙을 살릴 수 있게 한다.
 INGEST_PREFETCH_PER_QUEUE = max(1, int(os.environ.get("INGEST_PREFETCH_PER_QUEUE") or (1 + INGEST_CHANGESET_LOOKAHEAD)))
-INGEST_PREFETCH = max(1, int(os.environ.get("INGEST_PREFETCH") or (INGEST_MAX_CONCURRENCY * INGEST_PREFETCH_PER_QUEUE)))
 
 # 처리 실패 재시도/보관 큐. handle() 실패 시 consumer가 재시도 횟수를 헤더로 관리하며 직접 재발행한다
 # (imperative). 재시도는 "원래 큐로" 돌아가야 하므로 fanout 익스체인지 + TTL 큐 + DLX(기본 익스체인지)를 쓴다:
@@ -282,20 +284,16 @@ async def start_consumer() -> None:
 
 
 async def _apply_qos(channel: aio_pika.abc.AbstractChannel) -> None:
-    # RabbitMQ에서 global_=False는 소비자(큐)별 상한, global_=True는 채널 전체 상한이다.
-    # 순서가 중요하다 — 소비자별 qos(global=false)를 받으면 브로커가 채널 상한을 해제하므로
-    # (RabbitMQ 3.13.7 실측: 채널 36 → 소비자별 9 순서로 걸면 채널 값이 0이 된다),
-    # 공식 문서 예시대로 소비자별을 먼저, 채널 전체를 나중에 건다. 채널 전체 qos(global_qos)는
-    # 2021년부터 deprecated(경고 로그 1줄)이지만 제거 버전은 없다.
+    # 소비자(큐)별 상한(global_=False)만 건다. 채널 전체 상한(global_=True)을 걸면 Amazon MQ 4.3이
+    # 채널 오류로 거부해 consumer가 기동 직후 재시작만 반복한다. 3.x에서도 같은 호출이 그대로 동작한다.
     await channel.set_qos(prefetch_count=INGEST_PREFETCH_PER_QUEUE, global_=False)
-    await channel.set_qos(prefetch_count=INGEST_PREFETCH, global_=True)
 
 
 async def _run_consumer() -> None:
     global _state
     logger.info("RabbitMQ 연결 시도: %s", mask_amqp_url(RABBITMQ_URL))
-    # connect_robust가 아니다 — robust 채널은 재연결 때 마지막 set_qos만 global_ 없이 재적용하고
-    # 서버가 지운 큐를 재선언하며 서버발 소비자 취소를 알리지 않는다. 끊기면 예외를 던져
+    # connect_robust가 아니다 — robust 채널은 재연결 때 서버가 지운 큐를 재선언하고
+    # 서버발 소비자 취소를 알리지 않는다. 끊기면 예외를 던져
     # start_consumer 재시작 루프가 통째로 재구성하게 한다.
     connection = await aio_pika.connect(RABBITMQ_URL)
 
@@ -338,8 +336,8 @@ async def _run_consumer() -> None:
         try:
             logger.info(
                 "RabbitMQ consumer 준비 완료 (concurrency=%d, prefetch_per_queue=%d, "
-                "prefetch_channel=%d, retry_max=%d, retry_delay_ms=%d)",
-                INGEST_MAX_CONCURRENCY, INGEST_PREFETCH_PER_QUEUE, INGEST_PREFETCH,
+                "retry_max=%d, retry_delay_ms=%d)",
+                INGEST_MAX_CONCURRENCY, INGEST_PREFETCH_PER_QUEUE,
                 RETRY_MAX, RETRY_DELAY_MS,
             )
             await queue_discovery.run_forever(state)

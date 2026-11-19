@@ -32,6 +32,82 @@ def test_management_target_encoded_default_vhost_and_no_userinfo():
     assert queue_discovery.management_target("amqp://h")[1] == ("guest", "guest")
 
 
+# Amazon MQ for RabbitMQ — AMQPS 5671, 관리 API는 HTTPS 443·15671만 연다(평문 15672 없음)
+AMQPS_URL = "amqps://u:p@b-x-1.mq.ap-northeast-2.amazonaws.com:5671/"
+AMQPS_BASE = "https://b-x-1.mq.ap-northeast-2.amazonaws.com:15671"
+
+
+@pytest.mark.parametrize("amqp_url", [
+    AMQPS_URL,
+    "amqps://u:p@b-x-1.mq.ap-northeast-2.amazonaws.com/",  # 포트 생략 — 관리 포트는 AMQP 포트에서 계산하지 않는다
+])
+def test_management_target_amqps_derives_https_management_port(amqp_url):
+    assert queue_discovery.management_target(amqp_url) == (AMQPS_BASE, ("u", "p"), "/")
+
+
+@pytest.mark.parametrize("override, expected_base", [
+    ("https://Host:443/", "https://host"),      # 기본 포트 제거 + 호스트 소문자 + 끝 / 제거
+    ("https://h:15671/", "https://h:15671"),    # 기본이 아닌 포트는 남긴다
+    ("https://h/prefix/", "https://h/prefix"),  # 경로는 유지한다
+    ("http://H:80/", "http://h"),               # http의 기본 포트는 80
+    ("http://h:443/", "http://h:443"),          # 기본 포트는 스킴별이다 — http의 443은 남긴다
+])
+def test_management_target_override_is_normalized_like_httpx_log(override, expected_base):
+    # httpx는 요청 줄에 기본 포트를 지우고 호스트를 소문자로 찍는다 — base가 그 모양이어야 로그 필터가 맞는다.
+    # 인증·vhost는 덮어쓰기와 상관없이 AMQP URL에서 온다(덮어쓰기의 경로를 vhost로 읽지 않는다).
+    assert queue_discovery.management_target("amqp://u:p%40ss@rabbitmq:5672/prod", override) == (
+        expected_base, ("u", "p@ss"), "prod")
+
+
+@pytest.mark.parametrize("override", [
+    "b-x.mq.amazonaws.com",                                # 스킴 없음
+    "ftp://h",                                             # http(s)가 아닌 스킴
+    "amqps://b-x-1.mq.ap-northeast-2.amazonaws.com:5671",  # AMQP 주소를 잘못 넣음
+    "https://",                                            # 호스트 없음
+    "https://h:notaport",                                  # 숫자가 아닌 포트 — 그대로 쓰면 폴링 때 httpx.InvalidURL
+    "https://h?x=1",                                       # 쿼리 — base 뒤에 경로를 붙이면 주소가 깨져 매 틱 실패한다
+    "https://h#frag",                                      # 프래그먼트 — 위와 같다
+])
+def test_management_target_invalid_override_falls_back_to_derived_with_error(caplog, override):
+    # httpx.InvalidURL은 tick이 잡지 않아 consumer가 5초마다 재시작한다 — 파생 주소로 계속 돌고 ERROR로 알린다
+    with caplog.at_level(logging.DEBUG):
+        result = queue_discovery.management_target(AMQPS_URL, override)
+
+    assert result == (AMQPS_BASE, ("u", "p"), "/")
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+@pytest.mark.parametrize("override", ["https://u:s3cret@h", "https://:s3cret@h"])
+def test_management_target_override_with_password_falls_back_without_logging_it(caplog, override):
+    # 인증은 항상 AMQP URL에서 온다. httpx는 요청 줄에 사용자 정보를 비밀번호까지 그대로 찍으므로
+    # 덮어쓰기에 든 사용자 정보는 받지 않는다. 알리는 로그(트레이스백 포함)에도 비밀번호를 남기지 않는다.
+    with caplog.at_level(logging.DEBUG):
+        result = queue_discovery.management_target(AMQPS_URL, override)
+
+    assert result == (AMQPS_BASE, ("u", "p"), "/")
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert "s3cret" not in caplog.text
+
+
+def test_management_target_override_with_username_only_falls_back(caplog):
+    # 비밀번호가 없어도 사용자 정보는 받지 않는다 — 인증의 출처는 AMQP URL 하나다
+    with caplog.at_level(logging.DEBUG):
+        result = queue_discovery.management_target(AMQPS_URL, "https://admin@h")
+
+    assert result == (AMQPS_BASE, ("u", "p"), "/")
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+@pytest.mark.parametrize("override", [None, "", "   ", "\t\n"])
+def test_management_target_blank_override_uses_derived_without_log(caplog, override):
+    # 빈 값(예: compose의 ${VAR:-})은 미설정과 같다 — 기동마다 경고·ERROR가 찍히면 안 된다
+    with caplog.at_level(logging.DEBUG):
+        result = queue_discovery.management_target(AMQPS_URL, override)
+
+    assert result == (AMQPS_BASE, ("u", "p"), "/")
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
 # --- fetch_project_queues ----------------------------------------------------
 
 def _client(handler):
@@ -265,3 +341,97 @@ def test_polling_leaves_no_httpx_request_log_with_filter_installed(caplog, _http
         queue_discovery.install_httpx_filter(BASE)
         asyncio.run(run())
     assert [r for r in caplog.records if "HTTP Request" in r.getMessage()] == []
+
+
+def _management_and_openai(seen):
+    """관리 API 요청은 주소를 기록하고 큐 목록을, OpenAI 요청은 빈 성공 응답을 돌려준다.
+
+    httpx는 응답을 받은 뒤에만 요청 줄을 찍으므로 두 경우 모두 응답을 만든다.
+    """
+    def handler(request):
+        if request.url.host == "api.openai.com":
+            return httpx.Response(200, json={})
+        seen.append(str(request.url))
+        return httpx.Response(200, json=[{"name": P + "p1", "messages": 1}])
+    return handler
+
+
+@pytest.mark.parametrize("override, expected_base", [
+    (None, AMQPS_BASE),                    # amqps에서 파생한 https 관리 주소(기본이 아닌 포트 15671)
+    ("https://Host:443", "https://host"),  # 덮어쓰기 — httpx는 :443을 지우고 호스트를 소문자로 찍는다
+], ids=["derived-amqps", "override-default-port"])
+def test_https_management_polling_lines_are_dropped_and_other_hosts_kept(
+        caplog, _httpx_filter_cleanup, override, expected_base):
+    # 운영과 같은 배선 — management_target의 base로 필터를 붙이고 같은 base로 폴링한다
+    base, _, vhost = queue_discovery.management_target(AMQPS_URL, override)
+    seen = []
+
+    async def run():
+        async with _client(_management_and_openai(seen)) as c:
+            await queue_discovery.fetch_project_queues(c, base, vhost)
+            await c.post("https://api.openai.com/v1/chat/completions")
+
+    with caplog.at_level(logging.INFO, logger="httpx"):
+        queue_discovery.install_httpx_filter(base)
+        asyncio.run(run())
+
+    # 폴링이 실제로 그 https 관리 주소로 갔다 — 필터와 요청이 같은 엉뚱한 주소를 써서 우연히 맞는 경우를 배제한다
+    assert seen and all(url.startswith(expected_base + "/api/queues/") for url in seen)
+    lines = [r.getMessage() for r in caplog.records if r.name == "httpx" and "HTTP Request" in r.getMessage()]
+    # 관리 API 줄은 떨어지고 OpenAI 줄은 남는다 — 필터가 httpx 줄을 전부 삼켜도 이 단언이 깨진다
+    assert len(lines) == 1 and "https://api.openai.com/" in lines[0]
+
+
+# --- run_forever -------------------------------------------------------------
+
+class _StopDiscovery(Exception):
+    """run_forever의 무한 루프를 첫 틱에서 끊기 위한 테스트 전용 예외."""
+
+
+def _run_forever_once(monkeypatch, amqp_url):
+    """run_forever를 첫 틱까지만 돌린다. (install_httpx_filter에 넘긴 base 목록, tick에 넘긴 (base, vhost) 목록)을 돌려준다."""
+    monkeypatch.setattr(consumer, "RABBITMQ_URL", amqp_url)
+    installed, ticked = [], []
+
+    def fake_install(management_base):
+        installed.append(management_base)
+
+    async def fake_tick(state, client, base, vhost):
+        ticked.append((base, vhost))
+        raise _StopDiscovery
+
+    monkeypatch.setattr(queue_discovery, "install_httpx_filter", fake_install)
+    monkeypatch.setattr(queue_discovery, "tick", fake_tick)
+    with pytest.raises(_StopDiscovery):
+        asyncio.run(queue_discovery.run_forever(_State({})))
+    return installed, ticked
+
+
+@pytest.mark.parametrize("env_value, expected_base", [
+    ("https://Mgmt.Example.com:443/", "https://mgmt.example.com"),  # 덮어쓰기 — 정규화한 값
+    (None, AMQPS_BASE),                                              # 미설정 — amqps에서 파생
+    ("", AMQPS_BASE),                                                # 빈 값 — 미설정과 같다
+    ("b-x.mq.amazonaws.com", AMQPS_BASE),                            # 무효 — 파생값으로 계속 돈다
+], ids=["override", "unset", "empty", "invalid"])
+def test_run_forever_reads_management_override_at_call_time(monkeypatch, env_value, expected_base):
+    # env는 import 시점이 아니라 run_forever 호출 시점에 읽는다 — 여기서 바꾼 env가 반영돼야 한다
+    if env_value is None:
+        monkeypatch.delenv("RABBITMQ_MANAGEMENT_URL", raising=False)
+    else:
+        monkeypatch.setenv("RABBITMQ_MANAGEMENT_URL", env_value)
+
+    installed, ticked = _run_forever_once(monkeypatch, "amqps://u:p@b-x-1.mq.ap-northeast-2.amazonaws.com:5671/prod")
+
+    # 필터와 폴링이 같은 base를 써야 관리 API 줄이 떨어진다. vhost는 덮어쓰기가 아니라 AMQP URL에서 온다.
+    assert ticked == [(expected_base, "prod")]
+    assert installed == [expected_base]
+
+
+def test_run_forever_without_override_keeps_plain_amqp_derivation(monkeypatch):
+    # 로컬·홈서버(amqp://, 관리 http://:15672)는 아무 설정 없이 지금과 같다
+    monkeypatch.delenv("RABBITMQ_MANAGEMENT_URL", raising=False)
+
+    installed, ticked = _run_forever_once(monkeypatch, "amqp://guest:guest@rabbitmq:5672/")
+
+    assert ticked == [("http://rabbitmq:15672", "/")]
+    assert installed == ["http://rabbitmq:15672"]

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 from urllib.parse import quote, unquote, urlsplit
 
@@ -11,7 +12,8 @@ from graph import ingest_backlog, ingest_tombstones
 logger = logging.getLogger(__name__)
 
 DISCOVERY_INTERVAL_SECONDS = 5
-MANAGEMENT_PORT = 15672
+MANAGEMENT_PORT = 15672      # 평문 관리 API(amqp:// — 로컬·홈서버)
+MANAGEMENT_TLS_PORT = 15671  # TLS 관리 API(amqps:// — Amazon MQ는 443·15671만 연다)
 PAGE_SIZE = 500
 
 # 프로젝트 큐 이름 규칙의 단일 출처. consumer가 이 모듈을 상단에서 import해 re-export한다
@@ -50,13 +52,53 @@ def install_httpx_filter(management_base: str) -> None:
     httpx_logger.addFilter(_ManagementRequestLogFilter(management_base))
 
 
-def management_target(amqp_url: str) -> tuple[str, tuple[str, str], str]:
-    """AMQP URL에서 관리 API의 (base URL, (user, password), vhost)를 파생한다. 새 env를 두지 않기 위함."""
+def _normalize_management_override(raw: str) -> str:
+    """덮어쓰기 주소를 httpx가 요청 줄에 찍는 모양의 base로 정규화한다. 무효면 ValueError(고정 문구)를 던진다.
+
+    로그 필터가 base + "/" 문자열 일치로 동작하므로 httpx 자신의 URL 정규화(기본 포트·호스트 대소문자)를
+    그대로 쓴다. 예외 문구에는 입력 값을 넣지 않는다 — 사용자 정보에 든 비밀번호가 로그로 새면 안 된다.
+    """
+    try:
+        url = httpx.URL(raw)
+    except httpx.InvalidURL:
+        # httpx의 예외 문구는 입력 조각(포트 문자열 등)을 담는다 — 연쇄하지 않는다
+        raise ValueError("주소 형식 오류(포트 등)") from None
+    if url.scheme not in ("http", "https"):
+        raise ValueError("스킴이 http/https가 아님")
+    if not url.host:
+        raise ValueError("호스트 없음")
+    if url.userinfo:
+        # 인증은 AMQP URL에서만 가져온다. httpx는 요청 줄에 사용자 정보를 비밀번호까지 그대로 찍는다.
+        raise ValueError("사용자 정보 포함")
+    if url.query or url.fragment:
+        # base 뒤에 /api/queues/...를 이어 붙이므로 쿼리·프래그먼트가 끼면 주소가 깨져 매 틱 실패한다
+        raise ValueError("쿼리·프래그먼트 포함")
+    return str(url).rstrip("/")
+
+
+def management_target(amqp_url: str, override: str | None = None) -> tuple[str, tuple[str, str], str]:
+    """관리 API의 (base URL, (user, password), vhost)를 정한다. 인증·vhost는 항상 AMQP URL에서 가져온다.
+
+    base는 override(RABBITMQ_MANAGEMENT_URL)가 유효하면 그것을, 비었으면 AMQP 스킴으로 파생한다
+    (amqp → http://host:15672, amqps → https://host:15671). 관리 포트는 AMQP 포트와 무관하게 고정이다.
+    무효한 override는 예외 대신 ERROR 로그 후 파생 주소를 쓴다 — httpx.InvalidURL은 tick이 잡지 않아
+    그대로 두면 consumer가 5초마다 재시작한다.
+    """
     parts = urlsplit(amqp_url)
     user = unquote(parts.username) if parts.username else "guest"
     password = unquote(parts.password) if parts.password else "guest"
     vhost = "/" if parts.path in ("", "/") else unquote(parts.path[1:])
-    return f"http://{parts.hostname}:{MANAGEMENT_PORT}", (user, password), vhost
+    if parts.scheme == "amqps":
+        base = f"https://{parts.hostname}:{MANAGEMENT_TLS_PORT}"
+    else:
+        base = f"http://{parts.hostname}:{MANAGEMENT_PORT}"
+    override = (override or "").strip()  # 빈 값(compose의 ${VAR:-})은 미설정과 같다
+    if override:
+        try:
+            base = _normalize_management_override(override)
+        except ValueError as exc:
+            logger.error("RABBITMQ_MANAGEMENT_URL이 무효하다(%s) — AMQP URL에서 파생한 주소를 쓴다: %s", exc, base)
+    return base, (user, password), vhost
 
 
 async def fetch_project_queues(client: httpx.AsyncClient, base: str, vhost: str) -> dict[str, int]:
@@ -145,7 +187,7 @@ async def run_forever(state) -> None:
     """발견 틱을 5초마다 돈다. 연결이 끊기면 tick이 예외를 던져 consumer가 통째로 재구성된다."""
     from graph import consumer
 
-    base, auth, vhost = management_target(consumer.RABBITMQ_URL)
+    base, auth, vhost = management_target(consumer.RABBITMQ_URL, os.environ.get("RABBITMQ_MANAGEMENT_URL"))
     install_httpx_filter(base)
     logger.info("프로젝트 큐 발견 시작 (management=%s, vhost=%s)", base, vhost)
     async with httpx.AsyncClient(auth=auth, timeout=5.0) as client:
