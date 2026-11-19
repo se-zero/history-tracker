@@ -111,6 +111,7 @@ cp .env.example .env
 | `INTERNAL_SERVICE_TOKEN` | `openssl rand -hex 32` | backend·pipeline-worker가 같은 값 |
 | `BACKEND_CREDENTIAL_KEY` | `openssl rand -base64 32` | **형식 고정**(32-byte Base64) — hex를 쓰면 안 된다 |
 | `RABBITMQ_USER` · `RABBITMQ_PASSWORD` | `openssl rand -hex 32` | **URL-safe 값만** — 아래 경고 참고 |
+| `RABBITMQ_MANAGEMENT_URL` | (선택) 비우면 파생 | ai-engine 큐 발견이 쓰는 RabbitMQ 관리 API 주소. 비우면 `RABBITMQ_URL`의 스킴으로 정한다(`amqp` → `http://호스트:15672`, `amqps` → `https://호스트:15671`). 관리 API가 AMQP 호스트와 다를 때만 넣고, 사용자 정보(`user:pass@`)는 넣지 않는다 — 인증은 AMQP URL에서 오고, 넣으면 무효로 보고 파생 주소를 쓴다 |
 | `MCP_OAUTH_ISSUER` | 배포 도메인 — `https://why-code.com` | 사용자가 브라우저·코딩 에이전트로 접속하는 **프론트 주소와 같아야 한다**(발급되는 토큰의 issuer이자 MCP 리소스 URL의 기준). 비우면 로컬 값(`http://localhost:5173`)으로 뜨므로 prod 오버라이드가 비어 있으면 기동을 거부한다 |
 | `MCP_OAUTH_PRIVATE_KEY` | `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \| awk '{printf "%s\\n", $0}'` | MCP access token(RS256) 서명키, **PKCS#8 PEM**을 한 줄(`\n` 리터럴)로. `openssl genrsa`가 내는 PKCS#1(`BEGIN RSA PRIVATE KEY`)은 읽지 못한다. 비면 backend가 임시 키로 떠서 **재기동마다 발급된 토큰이 전부 무효화**된다 — prod 오버라이드에서 필수라 비어 있으면 기동을 거부한다 |
 | `MCP_OAUTH_CLIENT_IP_HEADER` | (선택) 비우면 `CF-Connecting-IP` | MCP 인가 서버의 IP별 분당 상한이 요청자 IP를 읽을 헤더. 지금 공개 경로(Cloudflare 터널)에서는 비워 둔다. **공개 경로를 바꾸면(클라우드 이전) 반드시 다시 정한다** — 새 경로의 맨 앞단이 값을 통째로 덮어써 주는 헤더여야 하고, `X-Forwarded-For`처럼 이어붙는 헤더를 넣으면 요청자가 값을 바꿔 상한을 피한다 |
@@ -558,7 +559,8 @@ docker run --rm -i neo4j:5.26-community \
 
 ### 4-6. 모니터링·알림
 
-정식 지표 스택(actuator·prometheus·grafana)은 두지 않는다. 얇게 간다 — ai-engine과 pipeline-worker가 사건을 직접 Slack
+정식 지표 스택(prometheus·grafana)은 두지 않는다. backend·pipeline-worker의 actuator는 health 경로만 연다(AWS ALB 건강 검사용 —
+아래 「backend·pipeline-worker 헬스 경로」). 얇게 간다 — ai-engine과 pipeline-worker가 사건을 직접 Slack
 Incoming Webhook으로 push하고, 컨테이너 재시작만 호스트 cron 스크립트가 5분마다 확인한다. 약 한 달 뒤
 예정된 클라우드(AWS/Azure, 형태 미정) 이전이 재시작·자원 지표를 플랫폼 기능으로 제공하므로, 호스트에
 묶인 `restart-check.sh`는 그때 폐기하고 앱 안의 감지(ai-engine `alerts.py`, pipeline-worker `alert/OperatorAlert`)는 그대로 가져간다.
@@ -636,6 +638,27 @@ docker exec history-graph-ai-engine python -c "import urllib.request;print(urlli
 (`quota_exhausted_at`)·마지막으로 **실제 전달된** 알림의 경과 초(`last_alert_age_seconds`)·웹훅 설정 여부
 (`webhook_configured`)·전송 성공/실패 수(`alerts_sent`/`send_failures`)가 담긴다. 전송이 실패하면
 `suppressed_for_seconds`가 5분 이하로 줄어 곧 재시도됨을 보여 주고, `last_alert_age_seconds`는 바뀌지 않는다.
+
+#### backend·pipeline-worker 헬스 경로
+
+Spring Boot actuator의 health만 웹에 연다(Boot 기본값 — 상세 `components`는 내보내지 않는다).
+
+| 경로 | 보는 것 | 쓰는 곳 |
+|---|---|---|
+| `/actuator/health/readiness` | 앱이 요청을 받을 준비가 됐는지(종료가 시작되면 내려간다). **DB·브로커는 일부러 넣지 않는다** | AWS ALB 대상 그룹 건강 검사 |
+| `/actuator/health/liveness` | 프로세스 생존 | — |
+| `/actuator/health` | DB(·worker는 RabbitMQ까지) 포함 집계 | 배포 직후 점검 |
+
+- readiness에 DB·브로커를 넣지 않는 이유: 넣으면 순단 때마다 ECS가 태스크를 교체해 진행 중 작업만 끊는다. 태스크가 하나일 때 ALB는 대상이 전부 비정상이어도 그대로 보내므로(fail open) 얻는 것이 없다. worker의 웹훅은 DB 아웃박스로 받아 브로커와 분리돼 있다.
+- backend는 이 health 경로만 인증 없이 열고, 나머지 actuator 경로는 막는다(`SecurityConfig`). worker는 Spring Security가 없어 노출 자체를 health로 묶어 둔다(`ActuatorHealthEndpointTest`가 고정).
+- 홈서버에서는 밖으로 열리지 않는다 — nginx가 `/actuator`를 넘기지 않고, prod 오버라이드는 두 서비스의 포트를 열지 않는다. compose 헬스체크는 지금처럼 TCP(`/dev/tcp`)로 둔다.
+- 로컬 dev에서 확인할 때는 제한 시간을 붙인다 — 전체 집계는 DB·브로커가 응답 없이 막혀 있으면 연결 제한 시간만큼 기다린다.
+
+```bash
+curl -s --max-time 5 localhost:8080/actuator/health/readiness   # backend → {"status":"UP"}
+curl -s --max-time 5 localhost:8081/actuator/health/readiness   # pipeline-worker
+curl -s --max-time 10 localhost:8081/actuator/health            # DB·브로커 포함 집계
+```
 
 #### 검증 시나리오
 
@@ -766,18 +789,22 @@ docker exec history-graph-rabbitmq rabbitmqctl delete_queue history.retry
 ```
 
 **큐 발견 폴링 로그** — ai-engine이 5초마다 관리 API에 큐 목록을 묻는데, 그 httpx 요청 줄
-(`HTTP Request: GET http://rabbitmq:15672/api/queues/...`)은 `graph/queue_discovery.py`의 로깅 필터가 떨어뜨린다.
-OpenAI 호출의 httpx 줄은 남아 `HTTP/1.1 429` 확인에 쓴다. `logs -f ai-engine`에 `GET http://rabbitmq:15672/...` 줄이
-보이면 필터가 붙지 않은 것이다.
+(`HTTP Request: GET http://rabbitmq:15672/api/queues/...` — Amazon MQ면 `https://<브로커 호스트>:15671/...`)은
+`graph/queue_discovery.py`의 로깅 필터가 떨어뜨린다. OpenAI 호출의 httpx 줄은 남아 `HTTP/1.1 429` 확인에 쓴다.
+`logs -f ai-engine`에 관리 API 요청 줄이 보이면 필터가 붙지 않은 것이다. 필터는 관리 주소 문자열 일치라
+`RABBITMQ_MANAGEMENT_URL`로 덮어쓴 주소도 httpx가 찍는 모양(기본 포트 제거·호스트 소문자)으로 맞춰 쓴다.
 
 **배포 메모**
 - 아웃박스 재시도 열(`attempts`·`next_attempt_at`, V29)은 backend가 기동하며 Flyway로 추가한다. compose의
   `pipeline-worker depends_on backend`가 순서를 지키므로 따로 할 일은 없다. 열에 기본값이 있어 worker만 이전 버전으로
   되돌려도 동작한다. pipeline-worker의 알림은 ai-engine과 같은 `ALERT_SLACK_WEBHOOK_URL`을 쓴다(새 env 없음).
-- 서버 `.env`에 `INGEST_PREFETCH`가 명시돼 있으면 비운다. 이 값의 뜻이 "소비자 하나의 prefetch(12)"에서
-  "채널 전체 상한(기본 36)"으로 바뀌어, 옛 값이 남으면 채널 전체가 12로 묶인다.
-- 큐 발견은 관리 포트 15672를 쓴다. prod 오버라이드는 이 포트를 열지 않으므로 컨테이너 네트워크 안에서만 닿는다.
-  `RABBITMQ_URL`에서 관리 URL·인증을 파생하므로 새 env는 없다.
+- 서버 `.env`에 `INGEST_PREFETCH`가 남아 있으면 지운다. 채널 전체 상한(`global=true`)을 없애(Amazon MQ 4.3이 채널 오류로
+  거부한다) 더 이상 읽지 않는다. 받아 두는 미확인 메시지 총량은 "밀린 프로젝트 큐 수 × `INGEST_PREFETCH_PER_QUEUE`(기본 9)"다
+  — 동시에 밀린 프로젝트가 4개 이하면 예전 상한 36과 같다.
+- 큐 발견의 관리 API 주소는 `RABBITMQ_URL`의 스킴으로 정한다(`amqp` → `http://호스트:15672`, `amqps` → `https://호스트:15671`).
+  prod 오버라이드는 15672를 열지 않으므로 컨테이너 네트워크 안에서만 닿는다. 관리 API가 AMQP 호스트와 다를 때만
+  `RABBITMQ_MANAGEMENT_URL`을 쓴다. 구독은 큐 발견으로만 일어나서, 관리 API에 못 붙으면 기동·재연결 뒤 수집이 시작되지
+  않는다(이벤트는 큐에 남는다) — 로그의 `관리 API 큐 목록 조회 실패`를 본다.
 
 ---
 

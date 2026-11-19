@@ -24,23 +24,25 @@ flowchart LR
     NAT --> Ext[OpenAI · 소스 API · Paddle · Resend]
 ```
 
-| 구간 | 선택 | 직접 해볼 작업 |
-|---|---|---|
-| 계정과 권한 | IAM, GitHub Actions OIDC, Secrets Manager, KMS | 임시 배포 권한 발급, 앱별 비밀 읽기 권한 분리, 비밀 갱신 후 태스크 교체 |
-| 네트워크 | VPC, 2개 AZ, Security Group, NAT Gateway, S3 Gateway Endpoint | 서브넷·라우팅 구성, 허용 포트와 외부 API egress 확인, NAT 비용 측정 |
-| 공개 진입점 | Route 53, ACM, CloudFront, S3, ALB | 스테이징 서브도메인 위임, 인증서 검증, 정적 캐시 확인, 경로별 라우팅과 원본 접근 차단 |
-| 컨테이너 | ECR, ECS Fargate, Service Connect | SHA/다이제스트 배포, 태스크 교체, 내부 이름으로 호출, 이전 이미지 복구 |
-| 데이터 | RDS PostgreSQL 16, Amazon MQ for RabbitMQ, EC2 + 암호화된 gp3 EBS | RDS 시점 복구, MQ 재연결·DLQ 복구, Neo4j를 새 EBS/인스턴스에 복원 |
-| 운영 | Systems Manager Session Manager, CloudTrail, CloudWatch, SNS, AWS Budgets | SSH 없이 운영 접속, 배포 역할의 API 호출 추적, 장애 알람과 실청구 확인 |
+도입 범위는 핵심 구성(서비스 상자)과 그것이 동작하는 데 필요한 구성으로 한정한다. 그 밖의 서비스는 도입하지 않는다.
 
-기존 [배포 가이드](deployment.md)의 홈서버를 전환 전 운영 원본으로 삼는다. Route 53은 `aws.why-code.com` 위임 구역에서 먼저 사용한다. 운영 전환은 기존 DNS 관리처에서 `why-code.com`의 레코드만 바꾸는 안으로 잡고, 콜백·웹훅·MCP issuer 주소를 유지한다. Cloudflare를 DNS로 유지한다면 CloudFront 앞 레코드는 DNS-only로 검증한다. CloudFront용 ACM 인증서는 `us-east-1`, HTTPS ALB용은 서울에 발급한다. [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html) · [CloudFront 인증서 요건](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cnames-and-https-requirements.html)
+| 구간 | 핵심 구성 | 필요한 구성 (이유) | 직접 해볼 작업 |
+|---|---|---|---|
+| 계정과 권한 | — | IAM, GitHub Actions OIDC (CI가 장기 키 없이 배포), Secrets Manager (키·비밀번호를 태스크에 주입) | 임시 배포 권한 발급, 앱별 비밀 읽기 권한 분리, 비밀 갱신 후 태스크 교체 |
+| 네트워크 | VPC | 2개 AZ, Security Group, NAT Gateway (비공개 서브넷의 서버가 OpenAI·소스 API·Paddle·Resend·Slack 알림으로 나가는 출구) | 서브넷·라우팅 구성, 허용 포트와 외부 API egress 확인, NAT 비용 측정 |
+| 공개 진입점 | CloudFront, S3(웹), ALB | ACM (CloudFront·ALB의 HTTPS 인증서) | 스테이징 서브도메인 레코드, 인증서 검증, 정적 캐시 확인, 경로별 라우팅과 원본 접근 차단 |
+| 컨테이너 | ECS Fargate (backend·pipeline-worker·ai-engine) | ECR (이미지 저장소), Service Connect (서비스 간 내부 호출 이름) | SHA/다이제스트 배포, 태스크 교체, 내부 이름으로 호출, 이전 이미지 복구 |
+| 데이터 | RDS PostgreSQL 16, Amazon MQ for RabbitMQ, EC2 + 암호화된 gp3 EBS (Neo4j) | S3 추가 버킷 (Neo4j 덤프 보관, Terraform 상태) | RDS 시점 복구, MQ 재연결·DLQ 복구, Neo4j를 새 EBS/인스턴스에 복원 |
+| 운영 | — | Systems Manager Session Manager (공인 IP·SSH 없이 Neo4j EC2에 접속), CloudWatch, SNS, AWS Budgets | SSH 없이 운영 접속, 장애 알람과 실청구 확인 |
+
+기존 [배포 가이드](deployment.md)의 홈서버를 전환 전 운영 원본으로 삼는다. 스테이징은 기존 DNS 관리처에 `aws.why-code.com` 레코드를 추가해 CloudFront로 연결하고, 인증서 검증 레코드도 같은 곳에 둔다. 운영 전환은 같은 DNS 관리처에서 `why-code.com`의 레코드만 바꾸는 안으로 잡고, 콜백·웹훅·MCP issuer 주소를 유지한다. Cloudflare를 DNS로 유지한다면 CloudFront 앞 레코드는 DNS-only로 검증한다. CloudFront용 ACM 인증서는 `us-east-1`, HTTPS ALB용은 서울에 발급한다. [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html) · [CloudFront 인증서 요건](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cnames-and-https-requirements.html)
 
 1주 운영의 기준안은 **Amazon MQ와 관리형 NAT를 포함한 아래 구성**이다. 1주 안에 관리형 브로커와 네트워크도 경험할 수 있도록 잡았다. 예산이 우선이면 §5의 RabbitMQ 직접 운영안을 선택한다. RDS와 브로커는 비공개 Single-AZ, Neo4j는 EC2 한 대, Fargate는 서비스당 태스크 한 개로 시작한다. 내부 ALB는 2개 AZ에 걸친다. 앱 서브넷의 외부 경로는 NAT 한 개로 두므로 해당 AZ나 NAT 장애 시 수집·추론이 중단될 수 있다. 1주 실측 결과를 바탕으로 이후 상시 운영과 고가용성 도입 여부를 결정한다.
 
 ### 데이터 서비스 선택
 
 - **RDS PostgreSQL**에 backend와 worker가 공유하는 DB 하나를 옮긴다. 현재 메이저 버전 16과 Flyway 이력을 유지하고, 마이그레이션 역할과 런타임 역할을 분리한다.
-- **Amazon MQ**에 현재 아웃박스와 AMQP 계약을 연결한다. RabbitMQ 4.3/m7g를 첫 검증 후보로 두고 서울의 실제 생성 가능 조합을 확인한다. `mq.m7g.medium`은 실습용 후보, `mq.m7g.large`는 운영 견적의 시작점이다. SQS와 Lambda는 별도 실습에서 다룬다. [브로커 버전 관리](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-version-management.html) · [브로커 인스턴스 유형](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rmq-broker-instance-types.html)
+- **Amazon MQ**에 현재 아웃박스와 AMQP 계약을 연결한다. RabbitMQ 4.3/m7g를 첫 검증 후보로 두고 서울의 실제 생성 가능 조합을 확인한다. `mq.m7g.medium`은 실습용 후보, `mq.m7g.large`는 운영 견적의 시작점이다. [브로커 버전 관리](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-version-management.html) · [브로커 인스턴스 유형](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rmq-broker-instance-types.html)
 - **Neo4j 5.26 Community**는 현재 실행 중인 패치와 이미지 다이제스트를 확인해 같은 버전으로 EC2에 복원한다. Neo4j의 Cypher 제약과 벡터 프로시저를 사용하므로 Neptune 도입은 별도 애플리케이션 검증 과제로 둔다. Aurora·EKS·ElastiCache도 초기 운영 단계에서는 의존성을 추가할 구체적인 요구가 생긴 뒤 평가한다. [현재 벡터 스키마](../services/ai-engine/graph/schema.py) · [Neptune 마이그레이션 호환성](https://docs.aws.amazon.com/neptune/latest/userguide/migration-compatibility.html)
 
 ## 2. 구현 순서와 단계별 완료 조건
@@ -51,7 +53,7 @@ flowchart LR
 |---|---|---|---|
 | **AWS0 기준선·계정** | 비용과 복구 시간을 비교할 기준을 남긴다. | 오케스트레이터. 운영 리소스 사용량, DB/그래프 크기, 큐 수·메시지 크기, 요청 지연, 백업 소요를 수집한다. 스테이징에 샘플 데이터·테스트용 외부 앱을 준비한다. | 기준표와 전체 예산 후보, AWS 시작·복귀 일정, 비용 알림 수신자, 리전·브로커 가용 옵션을 기록했다. |
 | **AWS1 기반** | 환경을 삭제·재생성하고 배포 권한을 제한할 수 있게 한다. | 인프라 구현자 · AWS0 뒤. Terraform으로 VPC, SG, NAT, IAM/OIDC, 비용 태그, 로그 그룹, ECR을 만든다. 환경별 상태를 분리하고 S3 상태 버킷에 암호화·버전 관리·잠금(`use_lockfile`)을 적용한다. | 같은 입력으로 plan이 수렴하고, 허용된 GitHub 환경만 배포 역할을 맡는다. 테스트 태스크의 ECR pull과 외부 API egress, SG 차단을 확인했다. |
-| **AWS2 웹·진입점** | 컨테이너 밖에서 SPA를 제공하고 동일 출처의 API를 유지한다. | 웹·엣지 구현자 · AWS1 뒤. Route 53 위임, 인증서, OAC, CloudFront 동작, 내부 ALB를 샘플 타깃으로 확인한다. | 정적 응답은 캐시되고 API는 캐시되지 않는다. 브라우저와 다른 사용자 요청, 경로별 401·404, 내부 경로 차단을 확인했다. |
+| **AWS2 웹·진입점** | 컨테이너 밖에서 SPA를 제공하고 동일 출처의 API를 유지한다. | 웹·엣지 구현자 · AWS1 뒤. 스테이징 서브도메인 레코드, 인증서, OAC, CloudFront 동작, 내부 ALB를 샘플 타깃으로 확인한다. | 정적 응답은 캐시되고 API는 캐시되지 않는다. 브라우저와 다른 사용자 요청, 경로별 401·404, 내부 경로 차단을 확인했다. |
 | **AWS3a PostgreSQL** | DB 데이터를 옮기고 Flyway가 한 번만 실행되게 한다. | 인프라 및 backend 구현자 · AWS1 뒤. RDS, TLS, 권한, 이전·복원 작업을 구성한다. | 새 DB에 덤프를 복원하고 Flyway 검증·RDS PITR을 실행했다. 두 서비스의 권한과 애플리케이션 읽기·쓰기가 정상이다. |
 | **AWS3b 그래프** | 그래프와 수동 결정 데이터를 보존한다. | 데이터 인프라 구현자 · AWS1 뒤. EC2·EBS·SSM, S3 백업, 새 볼륨으로 복원을 실습한다. | 외부 포트 없이 SSM으로 접속했다. 노드·관계 집계와 수동 결정이 일치하고, 벡터 검색과 대표 질의가 작동한다. |
 | **AWS3c 수집 브로커** | 관리형 브로커에서도 발행·순서·실패 격리 계약을 재현한다. | 인프라·worker·ai-engine 구현자 · AWS1 뒤, 로컬 호환성부터 착수. TLS, 큐 발견, prefetch, DLX 정책을 검증한다. | 실제 Amazon MQ에서 수집, 순서, 공정성, 큐 제한, 재연결, 미확인 발행 재처리와 DLQ 재생을 확인했다. |
@@ -80,7 +82,7 @@ Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한
 ### 긴 질의와 태스크 교체
 
 - backend의 AI 읽기 제한은 현재 120초다. ALB idle timeout 기본 60초와 CloudFront origin 응답 기본 30초를 올린다. 긴 질의가 지나는 backend·AI의 Service Connect 포트는 TCP로 구성해 HTTP 기본 요청 제한 15초를 피한다. 실측으로 앱 종료가 가장 먼저 일어나는지 확인한다. CloudFront의 기본 응답 제한 상한 120초에는 여유가 없으므로 상향 승인·실제 적용 여부를 확인한다. 적용할 수 없다면 운영 전환을 보류하고, AWS에서만 앱 제한을 낮추는 안을 질의 실측과 함께 결정한다. 브라우저 `/api`와 MCP에서 60초 이상 걸리는 성공 요청과 앱 타임아웃 응답을 둘 다 검증한다. [CloudFront 제한](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) · [ALB idle timeout](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html) · [Service Connect 제한](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-connect-concepts-deploy.html)
-- ALB는 backend·worker의 내부 준비 상태만 확인한다. 현재 backend는 TCP 확인을 쓰고 ai-engine `/health`만으로는 MQ 준비 여부를 알 수 없다. 새 리비전의 트래픽 개방은 DB 스키마, 브로커, Neo4j 초기화와 대표 smoke 테스트까지 확인한다. 일시적인 외부 API 장애는 프로세스 liveness와 분리한다.
+- ALB는 backend·worker의 내부 준비 상태만 확인한다. 두 서비스에 `/actuator/health/readiness`가 있고(2026-11-18 코드 반영) DB·브로커는 일부러 넣지 않았다 — 넣으면 순단 때 ECS가 태스크만 교체한다. backend는 health 외 actuator 경로를 막는다. ai-engine `/health`만으로는 MQ 준비 여부를 알 수 없다. 새 리비전의 트래픽 개방은 DB 스키마, 브로커, Neo4j 초기화와 대표 smoke 테스트까지 확인한다. 일시적인 외부 API 장애는 프로세스 liveness와 분리한다.
 - backend의 동의 티켓·rate limit, worker의 프로젝트 직렬화·아웃박스 릴레이, AI의 소비·그래프 빌드 상태에 프로세스 로컬 전제가 있다. 태스크 한 개 설정에 더해 신규 작업을 멈추고 진행 중인 작업을 소진한 뒤 이전 태스크 종료를 확인하고 교체한다. Fargate 종료 유예는 최대 120초이고 worker executor의 대기 설정은 300초다. 종료 시그널에 의존하지 않고 선행 차단·드레인·배송 복구를 만든다. 오토스케일링과 무중단 다중 태스크 롤링은 상태 공유·작업 소유권 검증 이후 과제다. [ECS 태스크 설정](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html)
 
 ## 4. 데이터별 이전과 검증
@@ -92,12 +94,12 @@ Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한
 
 ### Amazon MQ
 
-- worker와 ai-engine의 AMQP 연결을 AMQPS 5671로 맞춘다. AI 큐 발견은 AMQP 호스트에 HTTP 15672를 붙이는 현재 방식에서 명시적인 HTTPS 관리 API 주소(443 또는 15671), 인증 정보, vhost를 받는 방식으로 바꾼다. 접속 비밀은 URL과 분리하고 인증서 검증과 특수문자 비밀번호를 시험한다. 기존 Compose 연결 계약도 검증한다. [Amazon MQ RabbitMQ 포트와 프로토콜](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/working-with-rabbitmq.html) · [현재 큐 발견 구현](../services/ai-engine/graph/queue_discovery.py)
-- RabbitMQ 4 계열의 기본 quorum 큐와 redelivery limit를 실제 생성된 정책에서 확인한다. 4.3에서 제거된 global QoS를 걷어내면서 프로젝트별 순서·공정성과 전체 미확인 메시지 상한을 보존한다. 기존 durable 큐 선언과 삭제, single-active-consumer, publisher confirm·return, TTL 재시도, dead-letter 전략과 중복 처리를 시험한다. 프로젝트 큐와 재시도 큐의 합, 채널당 소비자 수, 최대 이벤트 바이트를 기본 제한과 비교한다. 큐별 알람은 4 계열에서 관리 API 계측으로 구성하고 CloudWatch 브로커 지표와 구분한다. [RabbitMQ 4.3 변경](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-43.html) · [브로커 자원 제한](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-resource-limits-configuration.html) · [RabbitMQ 4 운영 차이](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-4.html)
+- worker와 ai-engine의 AMQP 연결을 AMQPS 5671로 맞춘다. AI 큐 발견의 관리 API 주소는 `RABBITMQ_URL`의 스킴으로 파생하고(`amqps` → `https://호스트:15671`, 2026-11-18 코드 반영) 호스트가 다르면 `RABBITMQ_MANAGEMENT_URL`로 덮어쓴다. 보안 그룹은 ai-engine → MQ로 5671·15671을 열고, 관리 API에 쓸 사용자 태그는 실브로커에서 확인한다. 접속 비밀은 URL을 나누지 않고 Terraform이 완성된 `RABBITMQ_URL`을 Secrets Manager 비밀 하나로 넣는다(`deployment-followups.md` 1은 그대로 둔다). 인증서 검증과 특수문자 비밀번호(URL 인코딩)를 시험한다. 기존 Compose 연결 계약도 검증한다. [Amazon MQ RabbitMQ 포트와 프로토콜](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/working-with-rabbitmq.html) · [현재 큐 발견 구현](../services/ai-engine/graph/queue_discovery.py)
+- RabbitMQ 4 계열의 기본 quorum 큐와 redelivery limit를 실제 생성된 정책에서 확인한다. 4.3에서 제거된 global QoS는 걷어냈다(2026-11-18 코드 반영). 프로젝트별 순서·공정성은 그대로이고, 전체 미확인 메시지 상한은 "밀린 프로젝트 큐 수 × 큐당 9"로 바뀌었다 — 대규모 대비는 수평 확장 과제로 넘긴다(`ingestion-queue-architecture.md` 2-6). 기존 durable 큐 선언과 삭제, single-active-consumer, publisher confirm·return, TTL 재시도, dead-letter 전략과 중복 처리를 시험한다. 프로젝트 큐와 재시도 큐의 합, 채널당 소비자 수, 최대 이벤트 바이트를 기본 제한과 비교한다. 큐별 알람은 4 계열에서 관리 API 계측으로 구성하고 CloudWatch 브로커 지표와 구분한다. [RabbitMQ 4.3 변경](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-43.html) · [브로커 자원 제한](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-resource-limits-configuration.html) · [RabbitMQ 4 운영 차이](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-4.html)
 
 ### Neo4j와 복구 시점
 
-- Neo4j는 public IP 없는 EC2에서 실행하고, AI의 SG만 Bolt에 접근하게 한다. 인스턴스에는 SSM으로 들어간다. Community의 오프라인 `neo4j-admin database dump/load`를 그대로 적용하고 KMS로 암호화한 별도 S3 버킷에 체크섬과 함께 보관한다. AWS에서 새 인스턴스나 볼륨에 실제 복원한다. [현재 백업 스크립트](../infra/scripts/backup.sh) · [Neo4j Docker 덤프·복원](https://neo4j.com/docs/operations-manual/current/docker/dump-load/)
+- Neo4j는 public IP 없는 EC2에서 실행하고, AI의 SG만 Bolt에 접근하게 한다. 인스턴스에는 SSM으로 들어간다. Community의 오프라인 `neo4j-admin database dump/load`를 그대로 적용하고, 덤프는 서버 측 암호화를 켜고 공개 접근을 막은 별도 S3 버킷에 체크섬과 함께 보관한다. AWS에서 새 인스턴스나 볼륨에 실제 복원한다. [현재 백업 스크립트](../infra/scripts/backup.sh) · [Neo4j Docker 덤프·복원](https://neo4j.com/docs/operations-manual/current/docker/dump-load/)
 - 노드·관계 유형별 건수와 `ActorDecision`, `IngestTombstone`, 대표 프로젝트 범위를 비교한다. `comm_embedding`, `issue_embedding`, `doc_section_embedding`이 모두 `ONLINE`이고 대표 벡터 검색 결과가 맞아야 consumer를 연다.
 - 정기 백업에는 PostgreSQL과 Neo4j의 공통 복원 시각, 이미지 다이제스트, 아웃박스·큐 상태를 기록한다. RDS PITR로 더 최근 DB를 복원할 경우 checkpoint가 그래프를 앞설 수 있으므로 누락 구간을 식별해 재처리할 수 있을 때만 사용한다. 복구 시간과 허용 데이터 손실 범위는 이 리허설의 측정값으로 정한다.
 
@@ -111,7 +113,7 @@ Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한
 | RDS·Amazon MQ | `db.t4g.small`, `mq.m7g.medium` 후보 | RDS PostgreSQL `db.t4g.small` + gp3 20 GiB, MQ `mq.m7g.large` + 기본 저장소 200 GB, 둘 다 Single-AZ |
 | EC2·EBS | Neo4j 복원 실습 시간과 스냅샷 | Linux x86 `t3.large`, 암호화 gp3 40 GiB 시작값. 디스크 크기는 운영 볼륨과 복원 여유 실측으로 확정 |
 | ALB·NAT | 생성~삭제까지 전체 시간 | 내부 ALB와 NAT 각 1개, ALB LCU, NAT 처리 GB·공인 IPv4·교차 AZ 전송료, 인터넷 송신량 |
-| 나머지 | 정적 웹·로그·백업·이미지 저장량 | CloudFront 요청·송신, S3 요청·보존·백업, ECR, CloudWatch 수집·보존, Secrets Manager, KMS, Route 53, SNS, 스냅샷과 CPU 크레딧 |
+| 나머지 | 정적 웹·로그·백업·이미지 저장량 | CloudFront 요청·송신, S3 요청·보존·백업, ECR, CloudWatch 수집·보존, Secrets Manager, SNS, 스냅샷과 CPU 크레딧 |
 
 | 구성 | 168시간 운영, 세전 | 부가세 포함 환산 |
 |---|---:|---:|
@@ -129,8 +131,6 @@ Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한
 - **장애와 복구** · 태스크 종료, MQ 연결 단절, DB 복원, 새 Neo4j 볼륨 복원, 이전 릴리스 복귀를 연습한다. CloudWatch에서 ALB 5xx·지연·타깃 상태, ECS 재시작, RDS 여유 공간, outbox 미발행 최장 시간, 큐 적체·DLQ·parking, 백업 경과 시간에 대한 알람을 SNS로 수신한다. 기준값은 평시·초기 수집 버스트를 실측해 확정한다.
 - **운영 결정** · 스테이징과 1주 운영의 합산 예산, 쓰기 개방·복귀 시각, 허용 중단 시간, 목표 RPO·RTO와 백업 보존 기간을 기록한다. 스테이징 결과가 기준을 넘으면 용량이나 전환 절차를 조정하고 재실측한다. 운영 데이터 적재 전 AWS 위탁·로그·백업 위치와 보존 정책을 현재 개인정보 안내와 대조한다.
 
-핵심 스택을 익힌 뒤에는 별도 스테이징에서 **EventBridge Scheduler → SQS → Lambda**로 가짜 백업 완료 이벤트를 처리한다. 동일 이벤트를 두 번 보내고 Lambda를 실패시켜 재시도와 DLQ 재생을 확인한다. DynamoDB는 실습을 확장할 때 이벤트 ID로 중복 처리 방지를 시험하는 용도로 쓴다. 실습 데이터는 식별자가 없는 합성 데이터로 두고 종료 후 리소스를 삭제한다.
-
 ## 6. 운영 전환과 복귀
 
 1. **리허설** · 스테이징에서 가용 옵션, 최종 덤프·복원 시간과 체크섬, 운영과 같은 호스트 규칙, 실수집·질의를 확인한다. 기존 DNS 레코드와 복원 절차를 보관하고 가능한 경우 전환 전에 TTL을 줄인다. 전환 시점 배포 다이제스트를 고정한다.
@@ -145,4 +145,4 @@ Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한
 1. **운영 중** · 쓰기 개방 시각부터 168시간 뒤를 목표 종료 시각으로 기록한다. 매일 비용·오류율·질의 지연·outbox와 큐 적체를 확인하고, 실패한 배송은 provider의 재전송 가능 기간 안에 대조한다. 역이전 리허설에 사용한 이미지와 호환되는 스키마·DB 버전·키를 유지한다. 종료 하루 전에 홈서버 용량, 터널과 기존 DNS 레코드, 덤프 전송·복원 소요를 다시 확인한다.
 2. **최종 덤프** · 종료 창에 AWS 동적 진입점과 예약 작업을 멈춘 뒤 실행기를 비우고 §6의 드레인 조건을 AWS에서 적용한다. DLQ·parking의 처리 또는 보존 대상을 기록한다. 모든 쓰기를 멈춘 같은 시점의 RDS `pg_dump -Fc`와 Neo4j 오프라인 덤프를 암호화해 AWS 밖으로 옮긴다. 덤프 체크섬과 별도 보관한 자격증명 복호화 키를 확인한다.
 3. **홈서버 복귀** · 새 DB에는 `pg_restore --no-owner --no-acl --exit-on-error`로 복원하고, Neo4j는 새 볼륨에 복원한다. Flyway, DB 건수·checkpoint, 그래프·벡터 인덱스, 연동 복호화와 AWS에서 추가된 데이터의 조회를 점검한다. 검증을 통과하면 기존 터널 DNS로 돌리고 홈서버에만 쓰기를 허용한다. AWS는 유지보수 상태로 두고 DNS 전파 구간의 실패 배송을 재전송·대조한다. 운영 로그인·질의·웹훅을 다시 확인한다.
-4. **유료 리소스 정리** · 홈서버 복귀와 백업 복원성을 확인한 뒤 임시 환경을 삭제한다. CloudFront는 비활성화·전파를 확인하고 제거하며, VPC Origin 연결을 해제한 뒤 ALB를 삭제한다. ECS, EC2, MQ, RDS, NAT와 남은 공인 IP를 확인한다. 보존할 RDS/EBS 스냅샷·S3 버전·ECR 이미지·로그·Route 53 위임 구역은 만료일과 비용을 기록한다. 암호화 백업이 참조하는 KMS 키는 복원 가능 기간까지 유지한다. 다음 비용 집계에서 삭제 대상 과금이 끝났는지 확인한다. [CloudFront 삭제](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/HowToDeleteDistribution.html) · [RDS 삭제와 백업](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_DeleteInstance.html) · [NAT 삭제](https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-working-with.html)
+4. **유료 리소스 정리** · 홈서버 복귀와 백업 복원성을 확인한 뒤 임시 환경을 삭제한다. CloudFront는 비활성화·전파를 확인하고 제거하며, VPC Origin 연결을 해제한 뒤 ALB를 삭제한다. ECS, EC2, MQ, RDS, NAT와 남은 공인 IP를 확인한다. 보존할 RDS/EBS 스냅샷·S3 버전·ECR 이미지·로그는 만료일과 비용을 기록한다. 다음 비용 집계에서 삭제 대상 과금이 끝났는지 확인한다. [CloudFront 삭제](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/HowToDeleteDistribution.html) · [RDS 삭제와 백업](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_DeleteInstance.html) · [NAT 삭제](https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-working-with.html)

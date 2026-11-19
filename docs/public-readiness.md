@@ -952,7 +952,8 @@ GitHub OAuth 콜백 하나가 가입·로그인을 동시에 처리해서, 원�
 
 actuator·micrometer·에러 트래킹 의존성이 아예 없고 `/health`만 있다. 수집이 멈춰도, 큐가 쌓여도,
 DLQ로 빠져도 알림이 오지 않는다. (과거 서술 — 이제 DLQ·parking·LLM 실패·잔액 소진에는 얇은 Slack
-알림이 붙었다. `docs/deployment.md` 4-6 참고.)
+알림이 붙었다. 2026-11-18부터 backend·pipeline-worker에 actuator가 들어왔지만 health 경로만 연다 — AWS ALB
+건강 검사용이고 지표 수집은 하지 않는다. `docs/deployment.md` 4-6 참고.)
 
 - [x] 최소한 DLQ 적재·수집 실패·컨테이너 재시작에 알림을 붙인다 — ai-engine Slack 웹훅(DLQ·parking·LLM
       실패·잔액 소진) + infra/scripts/restart-check.sh (2026-09-06). 아웃박스 발행 실패·아웃박스 적체는

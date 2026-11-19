@@ -62,7 +62,7 @@ docker exec history-graph-rabbitmq rabbitmqctl list_queues name messages message
 ```
 
 - `history.project.*` 큐의 `messages_ready`가 계속 줄지 않으면 ai-engine consumer가 멈췄거나 처리 적체.
-- prefetch는 큐당 9·채널 전체 36이고 큐마다 소비자는 1(단일 활성 소비자)이라, 초기 대량 수집 중에는 자연히 쌓였다 줄어든다.
+- prefetch는 큐당 9뿐이고(채널 전체 상한은 없앴다 — Amazon MQ 4.3이 거부) 큐마다 소비자는 1(단일 활성 소비자)이라, 초기 대량 수집 중에는 자연히 쌓였다 줄어든다.
 - 프로젝트 큐만 보려면 관리 API: `curl -u guest:guest 'localhost:15672/api/queues/%2F?name=^history\.project\.&use_regex=true&columns=name,messages,consumers'` (`consumers`가 1이어야 한다).
 - 큐에 오르기 전 단계인 아웃박스(worker가 DB에 적재 → 릴레이가 큐로 발행)도 본다:
 
