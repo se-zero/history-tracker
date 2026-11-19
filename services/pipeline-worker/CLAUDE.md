@@ -88,11 +88,19 @@ CLAUDE.md 「내부 서비스 API」 절 참고, 헤더 이름·매칭 방식을
 그 경로는 `GitHubWebhookVerifier`의 HMAC 서명 검증(secret이 비면 전부 거부하는 fail-closed)이 지킨다.
 **이 예외를 "구멍"으로 오인해 막으면 webhook 수집이 통째로 끊긴다.**
 
+**`/actuator/health` 계열도 토큰 밖이다** — AWS ALB 대상 그룹 건강 검사는 헤더를 붙일 수 없다. 필터가 막는 경로는
+위 두 접두사뿐이라 따로 열어 둘 것이 없다. 웹에 노출하는 Actuator 엔드포인트는 health 하나뿐이다(Boot 기본값 — `env` 같은
+엔드포인트는 설정값·시크릿 이름을 담아 열지 않으며 `ActuatorHealthEndpointTest`가 404로 고정한다). 상세(`components`)도
+내보내지 않으므로 토큰 없이 열려 있어도 상태 문자열 외에 새는 것이 없다.
+
 진입점별 상세 동작은 아래 흐름 다이어그램을 참고한다.
 
 - `POST /api/v1/webhook/github` — GitHub webhook 수신. `pull_request` + `action=closed` + `merged=true`만 수집 트리거하며, 머지 대상 브랜치(`pull_request.base.ref`)가 선택 브랜치와 같은 프로젝트 전부에 큐잉한다. 맞는 프로젝트가 없으면 `IGNORED`(200).
 - `POST /api/v1/collect/{provider}` — backend 연동 완료 후 해당 단일 provider의 초기 수집을 비동기로 요청(`202` 반환, 완료를 기다리지 않음). `{provider}`는 `CollectionProvider`가 아는 값이면 전부 받는다(github/jira/slack/discord/google-chat/linear/asana/clickup/notion).
 - `POST /api/v1/raw/{provider}` — 디버그용 raw 샘플(1페이지). DB checkpoint를 사용하지 않으며 전체 수집 용도가 아니다.
+- `GET /actuator/health` — 전체 상태 요약. 상태 문자열만 낸다.
+- `GET /actuator/health/readiness` — ALB 대상 그룹 건강 검사가 보는 경로. **readiness에 DB·RabbitMQ 지표를 넣지 않는 것은 의도다.** 웹훅은 DB 아웃박스에 쓰고 `OutboxRelay`가 나중에 브로커로 발행하므로 수신 경로가 브로커와 분리돼 있다. 넣으면 DB·브로커가 잠깐 끊길 때마다 ECS가 태스크를 비정상으로 보고 교체한다 — 브로커가 끊겨도 웹훅은 아웃박스로 받을 수 있고 DB가 끊기면 교체로 해결되지 않으니, 교체는 진행 중이던 수집을 끊고 교체되는 동안 도착한 GitHub 배송을 실패시킬 뿐이다(실패한 delivery는 자동 재전송되지 않는다). 태스크가 하나일 때 ALB는 대상이 전부 비정상이어도 그대로 보내고(fail open), 비정상 태스크를 빼는 것은 태스크가 여럿일 때다. `ActuatorHealthEndpointTest`가 DB·브로커 주소를 닫은 채로 UP을 고정한다.
+- `GET /actuator/health/liveness` — 프로세스 생존만 본다.
 
 ## 초기 수집 트리거 흐름
 
