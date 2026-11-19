@@ -54,8 +54,16 @@ public class SecurityConfig {
                                 "/api/v1/billing/webhook/paddle",
                                 // 로그인 전 요금 페이지가 결제 버튼 노출 여부만 본다. 비밀값은 없다.
                                 "/api/v1/billing/availability",
+                                // AWS ALB 건강 검사는 토큰을 붙일 수 없다. 노출은 health뿐이고 상세는 숨긴다(Boot 기본값).
+                                // ALB는 readiness를 보며 DB는 넣지 않는다 — 태스크가 하나라 얻는 게 없고, DB 순단 때 ECS가 태스크만 교체한다.
+                                "/actuator/health",
+                                "/actuator/health/**",
                                 "/error"
                         ).permitAll()
+                        // health 밖의 actuator는 로그인 사용자에게도 막는다. 노출 목록(management.endpoints.web.exposure.include)을
+                        // 나중에 넓혀도 env·heapdump 같은 엔드포인트를 일반 사용자가 읽지 못하게 하는 방어다.
+                        // 첫 매칭이 이기므로 위 health permitAll보다 앞에 두면 ALB 건강 검사까지 막힌다.
+                        .requestMatchers("/actuator/**").denyAll()
                         .anyRequest().authenticated()
                 )
                 // 동의 화면 API도 인가 서버 주소와 같은 IP 예산을 쓴다. 인증 없는 요청도 세려고 인증 필터들보다 앞에 둔다.
