@@ -92,6 +92,7 @@
 | [billing.md](billing.md) | 작업 | 결제 계획 (Paddle MoR 월 정기구독) | B0 — 강등 회수·만료 스케줄러. W — 요금·환불정책·약관 개정·앱 공지 배너(배포 2026-09-24). B1 — Paddle 웹훅 수신(`billing` 패키지, V24)·만료 재확인 잠금. B2 — 서버 거래 생성·포털·코드 강등, 요금제 카드 세 상태, CSP, 탈퇴·파기 시 구독 해지. B3 — 방침 개정(보호책임자·결제 기록·Resend 위탁)·결제일 7일 전 안내 메일(V26). B1·B2 샌드박스 실측 완료. 기본 결제 링크 페이지 `/checkout`(§8-3, 2026-11-10 코드 완료 — 로컬 샌드박스 실측 전) | G1 Paddle 심사 → 라이브 대시보드 준비(기본 결제 링크 `/checkout` 포함) → G2 라이브 자동갱신 실측 → 서버 `.env`로 결제 열기. 사업자 정보는 첫 결제자 이후 |
 | [mcp-integration.md](mcp-integration.md) | 정본 | 설계 | 코드 완료·main 배포(인가 서버·동의 흐름·`/mcp` 서버, backend `oauth/`·`mcp/`, 프론트 3화면, 프록시) + 인가 서버 보강(IP별 상한·미사용 등록 행 정리·문서 조회 총 시간 제한) + 실제 Claude Code로 로컬(2026-10-01)·배포 서버(2026-10-04·10-09) 확인(연결·폴더 연결·질의·갱신·철회 뒤 재인증·IP별 상한·분당 상한) + 에이전트 쪽 해제(공개 클라이언트 폐기 수용·연결 행 삭제, 로컬 2026-10-11) | Codex·MCP Inspector·claude.ai 등 Claude Code 외 클라이언트 미확인(§8), 125초 긴 질의·FREE 한도 문구 미관측(§10), 열린 후속 5건 — 무효 표시된 연결의 목록 잔존·목록 도구 상한·SSRF DNS 리바인딩 창 등(§9 표) |
 | [query-quality-issues.md](query-quality-issues.md) | 정본 | 분석 로그 | 케이스별 원인·개선안 | 닫히지 않음 |
+| [aws-migration-plan.md](aws-migration-plan.md) | 작업 | AWS 1주 운영 계획 | 앱 호환 코드 — Amazon MQ 4.3 QoS·관리 API 주소 파생, backend·worker 헬스 경로(2026-11-18·19). Terraform T0 — 상태 버킷·GitHub OIDC provider·환경 뼈대·검사 스크립트(`infra/terraform/`, 2026-11-20 코드, apply 전) | Terraform T1~T4·배포 워크플로, 스테이징 apply·검증, 예산·복구 기준 확정, 운영 전환, 홈서버 역이전과 리소스 정리 |
 | [answer-language.md](answer-language.md) | 작업 | 기능 계획 | 질문한 언어(ko·en)로 답하기 — A1·A2 코드·B·C1·D 완료, E 측정 완료(S2 미달). 계약 정본은 [i18n.md](i18n.md) §5 | 판별 재측정·S2 원인 확인은 하지 않음. 수동 확인은 끝남. 화면 글자는 [i18n.md](i18n.md) §8 |
 
 ---
@@ -100,7 +101,6 @@
 
 | 문서 | 필요 | 종류 | 남은 것 |
 |------|------|------|---------|
-| [aws-migration-plan.md](aws-migration-plan.md) | 작업 | AWS 1주 운영 계획 | 예산·복구 기준 확정, 스테이징 구성, 운영 전환, 홈서버 역이전과 리소스 정리 |
 | [teams-integration.md](teams-integration.md) | 작업 | 커넥터 계획 | 착수 보류. `TeamsCollector` 없음. Teams를 붙일 때 정본이 된다 |
 | [evidence-retrieval-fixes.md](evidence-retrieval-fixes.md) | 작업 | 수정 계획 | 근거 회수 결함 12건을 묶음 A~F로 수정. 후속 10건(임계값·시간 창·검색 확장)은 §7 |
 
@@ -115,6 +115,8 @@
 답변 언어 계약: [i18n.md](i18n.md) §5. 실험·설계 기록은 [answer-language.md](answer-language.md). 화면 글자 ko/en은 [i18n.md](i18n.md) §8.
 
 배포·공개: [deployment.md](deployment.md) → [deployment-followups.md](deployment-followups.md) → [public-readiness.md](public-readiness.md).
+
+AWS 이전: [aws-migration-plan.md](aws-migration-plan.md)(범위·순서·완료 조건) → [infra/terraform/README.md](../infra/terraform/README.md)(명령 순서).
 
 결제: [billing.md](billing.md). 무료 한도 자체는 [public-readiness.md](public-readiness.md) §1-1이 정본이고,
 billing.md는 **돈을 받는 경로와 플랜 만료·회수**만 다룬다.

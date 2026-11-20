@@ -41,7 +41,7 @@ flowchart LR
 
 ### 데이터 서비스 선택
 
-- **RDS PostgreSQL**에 backend와 worker가 공유하는 DB 하나를 옮긴다. 현재 메이저 버전 16과 Flyway 이력을 유지하고, 마이그레이션 역할과 런타임 역할을 분리한다.
+- **RDS PostgreSQL**에 backend와 worker가 공유하는 DB 하나를 옮긴다. 현재 메이저 버전 16과 Flyway 이력을 유지한다. 마이그레이션 역할과 런타임 역할의 분리는 후속이다(§2, 2026-11-19 결정).
 - **Amazon MQ**에 현재 아웃박스와 AMQP 계약을 연결한다. RabbitMQ 4.3/m7g를 첫 검증 후보로 두고 서울의 실제 생성 가능 조합을 확인한다. `mq.m7g.medium`은 실습용 후보, `mq.m7g.large`는 운영 견적의 시작점이다. [브로커 버전 관리](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-version-management.html) · [브로커 인스턴스 유형](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rmq-broker-instance-types.html)
 - **Neo4j 5.26 Community**는 현재 실행 중인 패치와 이미지 다이제스트를 확인해 같은 버전으로 EC2에 복원한다. Neo4j의 Cypher 제약과 벡터 프로시저를 사용하므로 Neptune 도입은 별도 애플리케이션 검증 과제로 둔다. Aurora·EKS·ElastiCache도 초기 운영 단계에서는 의존성을 추가할 구체적인 요구가 생긴 뒤 평가한다. [현재 벡터 스키마](../services/ai-engine/graph/schema.py) · [Neptune 마이그레이션 호환성](https://docs.aws.amazon.com/neptune/latest/userguide/migration-compatibility.html)
 
@@ -57,12 +57,14 @@ flowchart LR
 | **AWS3a PostgreSQL** | DB 데이터를 옮기고 Flyway가 한 번만 실행되게 한다. | 인프라 및 backend 구현자 · AWS1 뒤. RDS, TLS, 권한, 이전·복원 작업을 구성한다. | 새 DB에 덤프를 복원하고 Flyway 검증·RDS PITR을 실행했다. 두 서비스의 권한과 애플리케이션 읽기·쓰기가 정상이다. |
 | **AWS3b 그래프** | 그래프와 수동 결정 데이터를 보존한다. | 데이터 인프라 구현자 · AWS1 뒤. EC2·EBS·SSM, S3 백업, 새 볼륨으로 복원을 실습한다. | 외부 포트 없이 SSM으로 접속했다. 노드·관계 집계와 수동 결정이 일치하고, 벡터 검색과 대표 질의가 작동한다. |
 | **AWS3c 수집 브로커** | 관리형 브로커에서도 발행·순서·실패 격리 계약을 재현한다. | 인프라·worker·ai-engine 구현자 · AWS1 뒤, 로컬 호환성부터 착수. TLS, 큐 발견, prefetch, DLX 정책을 검증한다. | 실제 Amazon MQ에서 수집, 순서, 공정성, 큐 제한, 재연결, 미확인 발행 재처리와 DLQ 재생을 확인했다. |
-| **AWS4 앱 배포** | 이미지와 스키마 버전을 추적하고 실패한 배포를 복구한다. | 인프라·배포 및 앱 구현자 · AWS2, AWS3a~c 뒤. ECR 푸시, 마이그레이션, Fargate 배포, 정적 자산 발행을 연결한다. 신규 작업 차단과 스케줄러·relay·consumer 중지 모드를 만든다. | 외부에 유지보수를 응답하는 상태에서 DB·그래프를 조회해 준비 상태를 확인했다. 이전 이미지·웹 릴리스 복귀를 재현했고, 태스크 강제 종료 후 누락·중복을 대조했다. |
+| **AWS4 앱 배포** | 이미지와 스키마 버전을 추적하고 실패한 배포를 복구한다. | 인프라·배포 및 앱 구현자 · AWS2, AWS3a~c 뒤. ECR 푸시, backend 먼저 배포(기동 때 Flyway)와 나머지 서비스의 Fargate 배포, 정적 자산 발행을 연결한다. 신규 작업 차단과 스케줄러·relay·consumer 중지 모드를 만든다. | 외부에 유지보수를 응답하는 상태에서 DB·그래프를 조회해 준비 상태를 확인했다. 이전 이미지·웹 릴리스 복귀를 재현했고, 태스크 강제 종료 후 누락·중복을 대조했다. |
 | **AWS5 운영 리허설** | 장애를 발견하고 홈서버 복귀까지 걸리는 시간을 잰다. | 운영자 · AWS4 뒤. 스테이징에서 AWS에 쓰기를 발생시킨 뒤 홈서버의 새 볼륨에 역복원한다. | §5 점검표를 통과했고 양방향 중단 시간과 리허설·운영 합산 견적이 합의한 기준 안에 있다. |
 | **AWS6 운영 전환** | 기존 URL로 들어오는 트래픽을 AWS로 옮긴다. | 운영자 · AWS5 뒤. §6에 따라 쓰기 중지, 최종 복원, 트래픽 개방, 배송 대조를 진행한다. | 로그인·질의·수집·MCP·활성 웹훅이 운영 도메인에서 통과하고, 전환 구간 배송이 모두 대조됐다. |
 | **AWS7 1주 운영·종료** | 운영 중 생긴 데이터를 가져오고 과금을 끝낸다. | 운영자 · AWS6 뒤. §7에 따라 지표를 수집하고, 홈서버 역이전과 임시 인프라 정리를 수행한다. | 홈서버에서 최신 데이터와 배송을 대조했고, 보존 대상과 잔존 비용을 기록했다. |
 
-Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한으로 Secrets Manager에 적재한다. GitHub OIDC 역할은 저장소와 배포 환경을 제한하고, 인프라 적용·이미지 발행·ECS 배포 권한을 구분한다. 운영에는 테스트를 통과한 다이제스트를 올린다. 백엔드 Flyway와 worker 시작 순서에 관한 기존 Compose 의존성은 동일 릴리스의 일회성 마이그레이션과 성공 확인으로 옮긴다. AWS의 앱 태스크는 스키마 검증만 하며, 스키마가 바뀌는 배포는 이전 이미지와 호환되는지 확인한 뒤 복귀 절차를 정한다. [GitHub OIDC 신뢰 정책](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html) · [Terraform S3 상태](https://developer.hashicorp.com/terraform/language/backend/s3) · [현재 Compose 의존성](../infra/docker/docker-compose.yml)
+Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한으로 Secrets Manager에 적재한다. 인프라 적용(`terraform apply`)은 사람이 로컬에서 하고, GitHub OIDC 역할은 저장소와 배포 환경(`staging`·`production`)으로 제한해 이미지 발행과 ECS·정적 자산 배포 권한만 나눠 준다. 운영에는 테스트를 통과한 다이제스트를 올린다. 백엔드 Flyway는 지금처럼 backend가 기동할 때 돈다(2026-11-19 결정). 태스크가 하나라 마이그레이션이 겹치지 않고 코드·이미지를 바꾸지 않아도 된다. Compose의 `depends_on`이 없으므로 배포는 backend를 먼저 올린다. 새 DB에서 worker가 먼저 뜨면 backend가 만드는 `ingest_outbox`가 없다는 오류를 남기다가 표가 생기면 정상이 된다. 일회성 마이그레이션 작업과 마이그레이션·런타임 DB 역할 분리는 후속이다. 스키마가 바뀌는 배포는 이전 이미지와 호환되는지 확인한 뒤 복귀 절차를 정한다.
+
+Terraform 코드는 [`infra/terraform/`](../infra/terraform/README.md)에 있고, 명령 순서는 그 README가 정본이다. 2026-11-20 기준 T0(상태 버킷·GitHub OIDC provider·환경 뼈대·검사 스크립트)까지 코드가 있고 apply 전이다. 묶음 T1(네트워크·플랫폼) → T2(진입점)·T3(데이터) → T4(앱·배포)가 위 AWS1·AWS2·AWS3a~c·AWS4의 자원 부분을 맡는다. [GitHub OIDC 신뢰 정책](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html) · [Terraform S3 상태](https://developer.hashicorp.com/terraform/language/backend/s3) · [현재 Compose 의존성](../infra/docker/docker-compose.yml)
 
 ## 3. 앱·엣지에서 확인할 계약
 
