@@ -1,0 +1,9 @@
+# 이 파일을 같은 폴더의 terraform.auto.tfvars로 복사해 값을 채운다. *.auto.tfvars는 .gitignore 대상이라 커밋되지 않는다.
+# (또는 TF_VAR_alert_email, TF_VAR_monthly_budget_usd 환경변수로 넣는다.)
+
+# 예산·알림을 받을 이메일. 개인 정보라 레포에 두지 않는다.
+alert_email = "you@example.com"
+
+# 월 예산(USD). AWS Budgets는 계정 전체 지출을 센다 — 스테이징이 같이 떠 있으면 그 지출도 센다.
+# 계획서 5절 견적: 1주(168시간) 운영 130~140달러, 스테이징과 합산 155~175달러. 거기에 여유를 둔 값의 예시다.
+monthly_budget_usd = 200

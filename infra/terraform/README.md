@@ -19,8 +19,9 @@ whycode를 AWS 서울 리전(`ap-northeast-2`)에 올리는 인프라 코드다.
 | 경로 | 무엇 | 상태 파일 위치 |
 |---|---|---|
 | `bootstrap/` | 상태 버킷(S3)과 GitHub Actions용 OIDC provider. 계정당 한 번만 만든다 | 로컬 `bootstrap/terraform.tfstate`(커밋 안 함) |
-| `envs/staging/`, `envs/prod/` | 환경 루트. 지금은 버전·backend·provider 설정만 있고, T1부터 모듈을 연결한다 | 상태 버킷의 `staging/terraform.tfstate`, `prod/terraform.tfstate` |
-| `modules/` | T1부터 network·platform·edge·data·app 모듈이 들어온다 | — |
+| `envs/staging/`, `envs/prod/` | 환경 루트. network·platform 모듈을 연결하고(T1), 진입점·데이터·앱은 T2~T4에서 더한다 | 상태 버킷의 `staging/terraform.tfstate`, `prod/terraform.tfstate` |
+| `modules/network/` | VPC·서브넷·NAT·라우팅·보안 그룹 7개와 서비스 간 허용 규칙 | — |
+| `modules/platform/` | ECR 3개·로그 그룹·비밀 껍데기 6개·ECS 실행 역할(서비스별)·GitHub Actions CI 역할 2개·알림(SNS)·예산 | — |
 | `check.sh` | 모든 루트·모듈의 형식·문법·테스트 검사 | — |
 
 각 루트·모듈의 `tests/*.tftest.hcl`이 `terraform test`가 읽는 테스트다. `terraform test`는 실행한 디렉터리의 `tests/`만
@@ -108,10 +109,72 @@ terraform -chdir=infra/terraform/envs/staging init -backend-config="bucket=$BUCK
 - backend 블록 안에서는 변수를 못 쓴다. 그래서 버킷 이름은 블록에서 빼 두고 init 때 넘긴다(부분 설정). 나머지(경로·리전·암호화·잠금)는 블록에 있다.
 - 상태 잠금은 S3 자체 잠금(`use_lockfile`)이라 DynamoDB 표가 필요 없다. 두 사람이 동시에 apply하면 나중 사람이 잠금 오류로 멈춘다.
 - prod는 경로만 `envs/prod`로 바꿔 같은 명령을 친다.
-- 환경별 apply 순서와 비밀 값 넣는 명령은 T1~T4가 들어오면서 이 문서에 더한다.
+
+## 환경 apply — T1(네트워크·플랫폼)
+
+스테이징에서 먼저 한다. 이 묶음이 만드는 것은 74개다: 네트워크 47개(VPC·서브넷·NAT·라우팅·보안 그룹 7개·규칙 26개), 플랫폼 27개(ECR 3개와 수명 주기, 로그 그룹 3개, 비밀 껍데기 6개, 실행 역할 3개와 정책, CI 역할 2개와 푸시 정책, SNS 주제와 구독, 예산).
+
+> **요금은 NAT 게이트웨이와 그 공인 IP부터 시간 단위로 붙는다.** 나머지(ECR·로그·비밀·SNS)는 저장하는 양만큼이라 거의 안 나온다. 확인을 마치면 바로 `destroy`한다.
+
+1. 개인 값 파일을 만든다. 이메일과 월 예산이 들어가고, `*.auto.tfvars`는 `.gitignore` 대상이라 커밋되지 않는다.
+
+   ```bash
+   cp infra/terraform/envs/staging/terraform.auto.tfvars.example infra/terraform/envs/staging/terraform.auto.tfvars
+   # alert_email, monthly_budget_usd를 채운다. 예산은 계정 전체 지출 기준이라 두 환경이 같이 떠 있으면 서로의 지출도 센다.
+   ```
+
+2. 위 "환경 초기화"의 `init`을 한 번 한다. bootstrap이 먼저 apply돼 있어야 한다(OIDC provider를 주소로 찾는다. 없으면 plan이 여기서 멈춘다).
+3. plan을 파일로 저장하고 읽는다. 저장한 계획만 apply하면 읽은 것과 만든 것이 같다.
+
+   ```bash
+   terraform -chdir=infra/terraform/envs/staging plan -out=staging.tfplan
+   ```
+
+   읽을 것: 추가 74개·변경 0·삭제 0인지, 보안 그룹 규칙에 `0.0.0.0/0`이 인바운드로 없는지(아웃바운드는 `tcp 443` 네 개만).
+
+4. apply한다: `terraform -chdir=infra/terraform/envs/staging apply staging.tfplan`
+   - 예산(Budgets) 생성이 `AccessDenied`로 실패하면 로그인한 관리자에게 `budgets:*` 권한이 있는지 본다. 오래된 계정은 root가 "청구 정보에 대한 IAM 사용자 및 역할 액세스"를 켜야 할 수 있다(계정에 따라 달라 이 문서는 확인하지 못했다). 나머지 자원은 이미 만들어졌으니, 권한을 고친 뒤 plan을 다시 떠서 apply한다(상태가 바뀌어 저장한 계획은 더 쓸 수 없다).
+5. apply 뒤 확인한다.
+   - **알림 메일:** `alert_email`로 SNS 확인 메일이 온다. 링크를 눌러야 구독이 켜진다(예산 알림은 눌러도 안 눌러도 직접 온다).
+   - **수렴:** 같은 입력으로 `plan`을 다시 쳐서 `No changes`인지 본다.
+   - **인터넷에서 들어오는 길이 없는지:** 아래가 `[]`를 내야 한다. 가짜 provider로는 못 보는, 실제 계정의 상태다.
+
+     ```bash
+     SGS=$(aws ec2 describe-security-groups --filters 'Name=group-name,Values=whycode-staging-*' --query 'SecurityGroups[].GroupId' --output text | tr '\t' ',')
+     aws ec2 describe-security-group-rules --filters "Name=group-id,Values=$SGS" \
+       --query 'SecurityGroupRules[?IsEgress==`false` && (CidrIpv4!=`null` || CidrIpv6!=`null` || PrefixListId!=`null`)]'
+     ```
+
+   - **바깥으로 나가는 길이 443뿐인지:** 아래는 `443`이 4개(backend·pipeline-worker·ai-engine·neo4j)여야 한다.
+
+     ```bash
+     aws ec2 describe-security-group-rules --filters "Name=group-id,Values=$SGS" \
+       --query 'SecurityGroupRules[?IsEgress==`true` && CidrIpv4==`"0.0.0.0/0"`].[GroupId,FromPort,ToPort]' --output text
+     ```
+
+   - **ECR:** `aws ecr describe-repositories --query 'repositories[].[repositoryName,imageTagMutability,imageScanningConfiguration.scanOnPush]' --output text`가 서비스 3개에 `IMMUTABLE true`를 낸다.
+   - **테스트 태스크(계획서 AWS1 완료 조건):** ECR pull·바깥 호출·보안 그룹 차단을 태스크로 확인하는 일은 ECS 클러스터와 태스크 정의가 생기는 T4에서 한다. T1 apply만으로는 할 수 없다.
+6. 비밀 껍데기에는 값이 없다. 값은 앱 묶음(T4)에서 키 목록과 함께 넣는다. 값이 없으면 태스크가 뜨지 않는다.
+7. `terraform -chdir=infra/terraform/envs/staging output`의 `ci_push_role_arn`·`ci_deploy_role_arn`은 GitHub 환경(`staging`)에 등록할 값이다(T4).
+
+환경 신뢰 조건: CI 역할은 `se-zero/history-tracker`의 GitHub 환경 `staging`(운영은 `production`)에서 도는 워크플로만 빌릴 수 있다. 환경 이름이 한 글자라도 다르면 아무 워크플로도 빌리지 못한다.
 
 ## 지우기
 
 - 환경(`envs/*`)을 먼저 `terraform destroy`하고, bootstrap은 맨 마지막에 지운다. 상태 버킷이 환경들의 상태 파일을 담고 있다.
 - 상태 버킷은 `force_destroy`가 꺼져 있다. 객체가 남아 있으면 이전 버전까지 포함해 삭제가 실패한다.
   콘솔에서 버킷을 "비우기"로 비운 뒤 `terraform -chdir=infra/terraform/bootstrap destroy`를 친다.
+
+## 알려진 한계와 후속
+
+코드 리뷰에서 나온 항목 중 지금 고치지 않기로 한 것이다. 각 항목에 언제 다시 볼지 적었다.
+
+| 항목 | 내용 | 다시 볼 때 |
+|---|---|---|
+| 로그 보존 기간 검증 없음 | `log_retention_days`는 CloudWatch가 받는 값(1·3·5·7·14·30·60·90·…)만 쓸 수 있는데 모듈이 검사하지 않는다. 10 같은 값은 apply에서야 거부된다. 지금 호출부는 기본값 14만 쓴다. | 호출부가 이 값을 바꾸게 될 때 검증을 더한다 |
+| 기본 보안 그룹이 남는다 | VPC 기본 보안 그룹은 자기 자신에게서만 받고 바깥으로는 전부 나간다. 규칙 없이 비우는 하드닝은 하지 않았다(네트워크 테스트의 자원 검사가 계약 밖 자원을 막는다). 모든 서비스·EC2에 보안 그룹을 명시하면 열리는 길은 없다. | T4에서 모든 ECS 서비스와 Neo4j EC2의 보안 그룹이 명시됐는지 본다 |
+| 비밀 이름 `pipeline-worker`·`ai-engine` | 하이픈 뒤 6글자로 끝나는 이름이다. AWS는 이런 이름을 부분 ARN(끝의 임의 접미사를 뺀 ARN)으로 쓰면 접미사로 오해할 수 있다고 한다. 지금은 IAM 정책에 전체 ARN, CLI에 이름만 써서 문제없다. | T4 태스크 정의에서 ARN을 조립하지 않고 모듈 출력 `secret_arns`를 쓴다 |
+| `app_secrets`를 바꿀 때 | 읽을 비밀이 하나도 없는 서비스가 생기면 그 실행 정책의 `Resource`가 빈 목록이라 IAM이 거부한다. 기본값에서는 모든 서비스가 3~4개씩 읽어 해당하지 않는다. | `app_secrets`를 바꾸는 호출이 생길 때 |
+| CI 푸시 역할의 권한 | ECR 푸시 5개 동작만 있다. 워크플로가 이미지 존재 확인이나 빌드 캐시를 쓰면 `ecr:BatchGetImage` 등이 더 필요하다. | T4 배포 워크플로를 정할 때 |
+| ECR이 환경별이다 | 스테이징을 지우면 이미지도 사라져, 운영에서 스테이징에서 시험한 것과 같은 다이제스트를 쓸 수 없다. | T4에서 같은 커밋으로 다시 빌드할지, ECR을 bootstrap으로 옮길지 정한다 |
+| 예산이 계정 전체 기준 | 두 환경이 동시에 떠 있으면 예산이 서로의 지출도 센다. 비용 태그 필터는 청구 콘솔에서 태그를 켜지 않으면 조용히 0원으로 보여 쓰지 않았다. | 두 환경을 동시에 띄울 때 금액을 합산 기준으로 정한다 |
