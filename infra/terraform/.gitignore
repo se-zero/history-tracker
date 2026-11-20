@@ -1,0 +1,31 @@
+# provider 바이너리(수백 MB)와 init이 만든 작업 폴더. init으로 다시 만들 수 있다.
+.terraform/
+
+# 상태 파일. 비밀번호 같은 민감 값이 평문으로 들어갈 수 있다.
+# bootstrap은 로컬 상태를 쓰므로 그 폴더에 terraform.tfstate가 생긴다.
+*.tfstate
+*.tfstate.*
+
+# plan 결과 파일. 상태와 같은 값이 평문으로 들어간다.
+*.tfplan
+
+# terraform이 비정상 종료할 때 남기는 덤프. 상태 값이 섞여 들어갈 수 있다.
+crash.log
+crash.*.log
+
+# 환경별 변수 파일. 자동으로 읽히는 *.auto.tfvars에 비밀 값을 두기 쉽다.
+*.auto.tfvars
+*.auto.tfvars.json
+
+# 로컬에서만 설정을 덮어쓰는 파일. 커밋하면 다른 사람의 plan이 달라진다.
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# 개인 CLI 설정. 자격 증명이나 사설 미러 주소가 들어갈 수 있다.
+.terraformrc
+terraform.rc
+
+# 주의: .terraform.lock.hcl은 무시하지 않고 커밋한다.
+# provider 버전과 해시를 고정해서, 누가 init해도 같은 provider가 내려오게 한다.
