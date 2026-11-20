@@ -30,12 +30,12 @@ flowchart LR
 |---|---|---|---|
 | 계정과 권한 | — | IAM, GitHub Actions OIDC (CI가 장기 키 없이 배포), Secrets Manager (키·비밀번호를 태스크에 주입) | 임시 배포 권한 발급, 앱별 비밀 읽기 권한 분리, 비밀 갱신 후 태스크 교체 |
 | 네트워크 | VPC | 2개 AZ, Security Group, NAT Gateway (비공개 서브넷의 서버가 OpenAI·소스 API·Paddle·Resend·Slack 알림으로 나가는 출구) | 서브넷·라우팅 구성, 허용 포트와 외부 API egress 확인, NAT 비용 측정 |
-| 공개 진입점 | CloudFront, S3(웹), ALB | ACM (CloudFront·ALB의 HTTPS 인증서) | 스테이징 서브도메인 레코드, 인증서 검증, 정적 캐시 확인, 경로별 라우팅과 원본 접근 차단 |
+| 공개 진입점 | CloudFront, S3(웹), ALB | ACM (CloudFront·ALB의 HTTPS 인증서) | 스테이징은 CloudFront 기본 주소로 시작(운영 전환 때 인증서 검증·DNS 레코드), 정적 캐시 확인, 경로별 라우팅과 원본 접근 차단 |
 | 컨테이너 | ECS Fargate (backend·pipeline-worker·ai-engine) | ECR (이미지 저장소), Service Connect (서비스 간 내부 호출 이름) | SHA/다이제스트 배포, 태스크 교체, 내부 이름으로 호출, 이전 이미지 복구 |
 | 데이터 | RDS PostgreSQL 16, Amazon MQ for RabbitMQ, EC2 + 암호화된 gp3 EBS (Neo4j) | S3 추가 버킷 (Neo4j 덤프 보관, Terraform 상태) | RDS 시점 복구, MQ 재연결·DLQ 복구, Neo4j를 새 EBS/인스턴스에 복원 |
 | 운영 | — | Systems Manager Session Manager (공인 IP·SSH 없이 Neo4j EC2에 접속), CloudWatch, SNS, AWS Budgets | SSH 없이 운영 접속, 장애 알람과 실청구 확인 |
 
-기존 [배포 가이드](deployment.md)의 홈서버를 전환 전 운영 원본으로 삼는다. 스테이징은 기존 DNS 관리처에 `aws.why-code.com` 레코드를 추가해 CloudFront로 연결하고, 인증서 검증 레코드도 같은 곳에 둔다. 운영 전환은 같은 DNS 관리처에서 `why-code.com`의 레코드만 바꾸는 안으로 잡고, 콜백·웹훅·MCP issuer 주소를 유지한다. Cloudflare를 DNS로 유지한다면 CloudFront 앞 레코드는 DNS-only로 검증한다. CloudFront용 ACM 인증서는 `us-east-1`, HTTPS ALB용은 서울에 발급한다. [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html) · [CloudFront 인증서 요건](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cnames-and-https-requirements.html)
+기존 [배포 가이드](deployment.md)의 홈서버를 전환 전 운영 원본으로 삼는다. 스테이징은 CloudFront가 기본으로 주는 주소(`dxxxx.cloudfront.net`)로 올린다(2026-11-20 결정). 도메인·인증서·DNS 레코드 없이 시작하고, CloudFront 기본 인증서가 브라우저 구간 HTTPS를 맡으며, CloudFront와 내부 ALB 사이는 VPC 안 HTTP다. 앱이 쓰는 공개 주소(MCP issuer·콜백 주소)는 CloudFront를 만든 뒤에야 정해지고, 스테이징을 지웠다 다시 만들면 주소가 바뀌어 테스트용 OAuth 앱의 콜백을 다시 등록해야 한다. 운영 호스트명·인증서·DNS 경로(`custom_domain`)는 운영 전환 때 처음 켜지므로, 리허설(AWS5)에서 `aws.why-code.com`으로 한 번 켜 볼지는 그때 정한다. 인증서를 쓰는 운영 구성에서는 CloudFront용 인증서 검증 레코드도 기존 DNS 관리처에 둔다. 운영 전환은 같은 DNS 관리처에서 `why-code.com`의 레코드만 바꾸는 안으로 잡고, 콜백·웹훅·MCP issuer 주소를 유지한다. Cloudflare를 DNS로 유지한다면 CloudFront 앞 레코드는 DNS-only로 검증한다. CloudFront용 ACM 인증서는 `us-east-1`, HTTPS ALB용은 서울에 발급한다. [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html) · [CloudFront 인증서 요건](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cnames-and-https-requirements.html)
 
 1주 운영의 기준안은 **Amazon MQ와 관리형 NAT를 포함한 아래 구성**이다. 1주 안에 관리형 브로커와 네트워크도 경험할 수 있도록 잡았다. 예산이 우선이면 §5의 RabbitMQ 직접 운영안을 선택한다. RDS와 브로커는 비공개 Single-AZ, Neo4j는 EC2 한 대, Fargate는 서비스당 태스크 한 개로 시작한다. 내부 ALB는 2개 AZ에 걸친다. 앱 서브넷의 외부 경로는 NAT 한 개로 두므로 해당 AZ나 NAT 장애 시 수집·추론이 중단될 수 있다. 1주 실측 결과를 바탕으로 이후 상시 운영과 고가용성 도입 여부를 결정한다.
 
@@ -53,7 +53,7 @@ flowchart LR
 |---|---|---|---|
 | **AWS0 기준선·계정** | 비용과 복구 시간을 비교할 기준을 남긴다. | 오케스트레이터. 운영 리소스 사용량, DB/그래프 크기, 큐 수·메시지 크기, 요청 지연, 백업 소요를 수집한다. 스테이징에 샘플 데이터·테스트용 외부 앱을 준비한다. | 기준표와 전체 예산 후보, AWS 시작·복귀 일정, 비용 알림 수신자, 리전·브로커 가용 옵션을 기록했다. |
 | **AWS1 기반** | 환경을 삭제·재생성하고 배포 권한을 제한할 수 있게 한다. | 인프라 구현자 · AWS0 뒤. Terraform으로 VPC, SG, NAT, IAM/OIDC, 비용 태그, 로그 그룹, ECR을 만든다. 환경별 상태를 분리하고 S3 상태 버킷에 암호화·버전 관리·잠금(`use_lockfile`)을 적용한다. | 같은 입력으로 plan이 수렴하고, 허용된 GitHub 환경만 배포 역할을 맡는다. 테스트 태스크의 ECR pull과 외부 API egress, SG 차단을 확인했다. |
-| **AWS2 웹·진입점** | 컨테이너 밖에서 SPA를 제공하고 동일 출처의 API를 유지한다. | 웹·엣지 구현자 · AWS1 뒤. 스테이징 서브도메인 레코드, 인증서, OAC, CloudFront 동작, 내부 ALB를 샘플 타깃으로 확인한다. | 정적 응답은 캐시되고 API는 캐시되지 않는다. 브라우저와 다른 사용자 요청, 경로별 401·404, 내부 경로 차단을 확인했다. |
+| **AWS2 웹·진입점** | 컨테이너 밖에서 SPA를 제공하고 동일 출처의 API를 유지한다. | 웹·엣지 구현자 · AWS1 뒤. OAC, CloudFront 동작, 내부 ALB를 샘플 타깃으로 확인한다. 스테이징은 CloudFront 기본 주소(인증서·DNS 레코드 없음)이고 `custom_domain`을 주면 운영 구성(인증서·별칭·HTTPS ALB)으로 바뀐다. | 정적 응답은 캐시되고 API는 캐시되지 않는다. 브라우저와 다른 사용자 요청, 경로별 401·404, 내부 경로 차단을 확인했다. |
 | **AWS3a PostgreSQL** | DB 데이터를 옮기고 Flyway가 한 번만 실행되게 한다. | 인프라 및 backend 구현자 · AWS1 뒤. RDS, TLS, 권한, 이전·복원 작업을 구성한다. | 새 DB에 덤프를 복원하고 Flyway 검증·RDS PITR을 실행했다. 두 서비스의 권한과 애플리케이션 읽기·쓰기가 정상이다. |
 | **AWS3b 그래프** | 그래프와 수동 결정 데이터를 보존한다. | 데이터 인프라 구현자 · AWS1 뒤. EC2·EBS·SSM, S3 백업, 새 볼륨으로 복원을 실습한다. | 외부 포트 없이 SSM으로 접속했다. 노드·관계 집계와 수동 결정이 일치하고, 벡터 검색과 대표 질의가 작동한다. |
 | **AWS3c 수집 브로커** | 관리형 브로커에서도 발행·순서·실패 격리 계약을 재현한다. | 인프라·worker·ai-engine 구현자 · AWS1 뒤, 로컬 호환성부터 착수. TLS, 큐 발견, prefetch, DLX 정책을 검증한다. | 실제 Amazon MQ에서 수집, 순서, 공정성, 큐 제한, 재연결, 미확인 발행 재처리와 DLQ 재생을 확인했다. |
@@ -64,7 +64,7 @@ flowchart LR
 
 Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한으로 Secrets Manager에 적재한다. 인프라 적용(`terraform apply`)은 사람이 로컬에서 하고, GitHub OIDC 역할은 저장소와 배포 환경(`staging`·`production`)으로 제한해 이미지 발행과 ECS·정적 자산 배포 권한만 나눠 준다. 운영에는 테스트를 통과한 다이제스트를 올린다. 백엔드 Flyway는 지금처럼 backend가 기동할 때 돈다(2026-11-19 결정). 태스크가 하나라 마이그레이션이 겹치지 않고 코드·이미지를 바꾸지 않아도 된다. Compose의 `depends_on`이 없으므로 배포는 backend를 먼저 올린다. 새 DB에서 worker가 먼저 뜨면 backend가 만드는 `ingest_outbox`가 없다는 오류를 남기다가 표가 생기면 정상이 된다. 일회성 마이그레이션 작업과 마이그레이션·런타임 DB 역할 분리는 후속이다. 스키마가 바뀌는 배포는 이전 이미지와 호환되는지 확인한 뒤 복귀 절차를 정한다.
 
-Terraform 코드는 [`infra/terraform/`](../infra/terraform/README.md)에 있고, 명령 순서는 그 README가 정본이다. 2026-11-20 기준 T0(상태 버킷·GitHub OIDC provider·환경 뼈대·검사 스크립트)까지 코드가 있고 apply 전이다. 묶음 T1(네트워크·플랫폼) → T2(진입점)·T3(데이터) → T4(앱·배포)가 위 AWS1·AWS2·AWS3a~c·AWS4의 자원 부분을 맡는다. [GitHub OIDC 신뢰 정책](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html) · [Terraform S3 상태](https://developer.hashicorp.com/terraform/language/backend/s3) · [현재 Compose 의존성](../infra/docker/docker-compose.yml)
+Terraform 코드는 [`infra/terraform/`](../infra/terraform/README.md)에 있고, 명령 순서는 그 README가 정본이다. 2026-11-20 기준 T0(상태 버킷·GitHub OIDC provider·환경 뼈대·검사 스크립트)와 T1(네트워크·플랫폼 모듈, 환경 연결 — 위 AWS1의 자원 부분)까지 코드가 있고 apply 전이다. 묶음 T2(진입점)·T3(데이터) → T4(앱·배포)가 위 AWS2·AWS3a~c·AWS4의 자원 부분을 맡는다. AWS1의 "테스트 태스크 확인"은 태스크 정의가 생기는 T4에서 한다. [GitHub OIDC 신뢰 정책](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html) · [Terraform S3 상태](https://developer.hashicorp.com/terraform/language/backend/s3) · [현재 Compose 의존성](../infra/docker/docker-compose.yml)
 
 ## 3. 앱·엣지에서 확인할 계약
 
@@ -135,7 +135,7 @@ Terraform 코드는 [`infra/terraform/`](../infra/terraform/README.md)에 있고
 
 ## 6. 운영 전환과 복귀
 
-1. **리허설** · 스테이징에서 가용 옵션, 최종 덤프·복원 시간과 체크섬, 운영과 같은 호스트 규칙, 실수집·질의를 확인한다. 기존 DNS 레코드와 복원 절차를 보관하고 가능한 경우 전환 전에 TTL을 줄인다. 전환 시점 배포 다이제스트를 고정한다.
+1. **리허설** · 스테이징에서 가용 옵션, 최종 덤프·복원 시간과 체크섬, 운영과 같은 호스트 규칙(스테이징이 CloudFront 기본 주소라 `custom_domain`을 켜 `aws.why-code.com`으로 확인할지 이 단계에서 정한다), 실수집·질의를 확인한다. 기존 DNS 레코드와 복원 절차를 보관하고 가능한 경우 전환 전에 TTL을 줄인다. 전환 시점 배포 다이제스트를 고정한다.
 2. **신규 작업 차단** · 홈서버의 동적 진입점을 유지보수 503으로 전환해 웹훅과 GET OAuth 콜백까지 차단한다. 예약 작업과 신규 수집도 중지한다. 이미 2xx를 돌려준 웹훅과 초기 수집은 인메모리 실행기에서 진행 중일 수 있다. 실행기와 DB의 진행 중 작업을 먼저 확인한다.
 3. **드레인** · 홈서버의 relay와 consumer를 유지해 미발행 outbox가 0이고 모든 프로젝트·재시도 큐의 ready/unacked가 0인지 확인한다. AI의 지연 그래프 작업까지 끝낸다. `published_at`은 브로커 발행 확인 시각이다. DLQ·parking은 ID·헤더·건수를 대조하고 처리 또는 암호화 보존 경로를 정한다. 정해진 시간 안에 드레인되지 않으면 기존 서비스를 복구하고 전환을 재예약한다. [수집 큐 운영 절차](ingestion-queue-architecture.md)
 4. **최종 스냅샷과 복원** · 모든 기존 쓰기 프로세스를 차단한 뒤 PostgreSQL과 Neo4j의 같은 정지 시점 덤프를 만든다. AWS에 복원하고 §4 대조를 마친다. 스케줄러와 consumer는 검증이 끝날 때까지 차단하고 외부에는 유지보수를 응답한다.
