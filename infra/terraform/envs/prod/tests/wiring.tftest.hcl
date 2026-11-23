@@ -104,8 +104,10 @@ run "ci_roles_trust_only_the_production_github_environment" {
   }
 
   # 네트워크 모듈의 이름은 출력으로 드러나지 않아(보안 그룹·서브넷 이름에만 들어간다) 소스에서 확인한다.
+  # 운영 루트에 ALB·엣지 모듈이 붙어도(T2b) 한 모듈의 이름 오기를 놓치지 않게 모듈 블록 안에서 찾는다.
+  # 모듈 블록 안에는 중괄호가 없어 `[^}]*`가 그 블록까지만 본다.
   assert {
-    condition     = can(regex("(?m)^\\s*name\\s*=\\s*\"whycode-prod\"\\s*$", file("${path.module}/main.tf")))
-    error_message = "main.tf가 네트워크 모듈에 name = \"whycode-prod\"를 넘기지 않는다."
+    condition     = can(regex("module \"network\" \\{[^}]*\\n\\s*name\\s*=\\s*\"whycode-prod\"\\s*\\n", file("${path.module}/main.tf")))
+    error_message = "main.tf가 network 모듈에 name = \"whycode-prod\"를 넘기지 않는다."
   }
 }

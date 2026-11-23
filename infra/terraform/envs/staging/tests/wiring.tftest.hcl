@@ -12,6 +12,53 @@ mock_provider "aws" {
       arn = "arn:aws:sns:ap-northeast-2:123456789012:whycode-staging-alerts"
     }
   }
+
+  # 모듈 간에 넘기는 계산값은 AWS provider가 형식을 검사하므로 실제와 같은 모양으로 채운다.
+  mock_resource "aws_lb" {
+    defaults = {
+      arn      = "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:loadbalancer/app/whycode-staging-alb/50dc6c495c0c9188"
+      dns_name = "internal-whycode-staging-alb.ap-northeast-2.elb.amazonaws.com"
+    }
+  }
+
+  mock_resource "aws_lb_listener" {
+    defaults = {
+      arn = "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:listener/app/whycode-staging-alb/50dc6c495c0c9188/f2f7dc8efc522ab2"
+    }
+  }
+
+  mock_resource "aws_lb_target_group" {
+    defaults = {
+      arn = "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:targetgroup/whycode-staging-test/6d0ecf831eec9f09"
+    }
+  }
+
+  mock_resource "aws_cloudfront_function" {
+    defaults = {
+      arn = "arn:aws:cloudfront::123456789012:function/whycode-staging-test"
+    }
+  }
+
+  mock_resource "aws_cloudfront_distribution" {
+    defaults = {
+      arn         = "arn:aws:cloudfront::123456789012:distribution/E123EXAMPLE"
+      domain_name = "d123example.cloudfront.net"
+      id          = "E123EXAMPLE"
+    }
+  }
+
+  mock_resource "aws_s3_bucket" {
+    defaults = {
+      arn                         = "arn:aws:s3:::whycode-staging-test"
+      bucket_regional_domain_name = "whycode-staging-test.s3.ap-northeast-2.amazonaws.com"
+    }
+  }
+
+  mock_data "aws_security_group" {
+    defaults = {
+      id = "sg-0123456789abcdef0"
+    }
+  }
 }
 
 # bootstrap이 만든 OIDC provider는 주소로 찾는다. 가짜 provider 아래에서는 ARN이 무작위라 12자리 번호가 든 값으로 고정한다.
@@ -25,6 +72,13 @@ override_data {
 # 플랫폼 모듈이 실행 역할 신뢰 정책에 쓰는 계정 번호.
 override_data {
   target = module.platform.data.aws_caller_identity.current
+  values = {
+    account_id = "123456789012"
+  }
+}
+
+override_data {
+  target = module.edge.data.aws_caller_identity.current
   values = {
     account_id = "123456789012"
   }
@@ -80,6 +134,16 @@ run "outputs_expose_what_the_operator_needs" {
     condition     = output.sns_topic_arn == module.platform.sns_topic_arn
     error_message = "sns_topic_arn 출력이 플랫폼 모듈 값과 다르다."
   }
+
+  assert {
+    condition     = output.web_bucket_name == module.edge.web_bucket_name
+    error_message = "web_bucket_name 출력이 엣지 모듈 값과 다르다."
+  }
+
+  assert {
+    condition     = output.cloudfront_distribution_id == "E123EXAMPLE" && output.cloudfront_domain_name == "d123example.cloudfront.net"
+    error_message = "CloudFront 배포 ID와 스테이징 주소는 엣지 모듈에서 가져와야 한다."
+  }
 }
 
 # CI 역할이 신뢰하는 GitHub 환경 이름을 소스에서 확인한다. 환경 이름은 모듈 안에서 정책으로 바뀌어 여기서는 읽을 수 없다.
@@ -102,9 +166,21 @@ run "ci_roles_trust_only_the_staging_github_environment" {
     error_message = "main.tf가 플랫폼 모듈에 environment = \"staging\"을 넘기지 않는다."
   }
 
-  # 네트워크 모듈의 이름은 출력으로 드러나지 않아(보안 그룹·서브넷 이름에만 들어간다) 소스에서 확인한다.
+  # 네트워크·ALB·엣지 모듈의 이름은 출력으로 드러나지 않아(보안 그룹·서브넷·ALB·버킷 이름에만 들어간다) 소스에서 확인한다.
+  # 세 모듈이 같은 이름을 쓰므로 파일 전체에서 한 줄만 찾으면 한 모듈의 이름이 틀려도 통과한다. 그래서 모듈 블록 안에서 찾는다.
+  # 모듈 블록 안에는 중괄호가 없어 `[^}]*`가 그 블록까지만 본다.
   assert {
-    condition     = can(regex("(?m)^\\s*name\\s*=\\s*\"whycode-staging\"\\s*$", file("${path.module}/main.tf")))
-    error_message = "main.tf가 네트워크 모듈에 name = \"whycode-staging\"을 넘기지 않는다."
+    condition     = can(regex("module \"network\" \\{[^}]*\\n\\s*name\\s*=\\s*\"whycode-staging\"\\s*\\n", file("${path.module}/main.tf")))
+    error_message = "main.tf가 network 모듈에 name = \"whycode-staging\"을 넘기지 않는다."
+  }
+
+  assert {
+    condition     = can(regex("module \"alb\" \\{[^}]*\\n\\s*name\\s*=\\s*\"whycode-staging\"\\s*\\n", file("${path.module}/main.tf")))
+    error_message = "main.tf가 alb 모듈에 name = \"whycode-staging\"을 넘기지 않는다."
+  }
+
+  assert {
+    condition     = can(regex("module \"edge\" \\{[^}]*\\n\\s*name\\s*=\\s*\"whycode-staging\"\\s*\\n", file("${path.module}/main.tf")))
+    error_message = "main.tf가 edge 모듈에 name = \"whycode-staging\"을 넘기지 않는다."
   }
 }

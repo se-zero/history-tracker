@@ -7,6 +7,7 @@
 #   init      -backend=false라 원격 상태 backend에 접속하지 않는다
 #   validate  구문·참조 검사
 #   test      tests/*.tftest.hcl이 있는 디렉터리만
+#   js        functions/*.test.mjs가 있는 디렉터리만(node --test, CloudFront Functions 코드)
 #
 # 왜 두 겹으로 막나
 #   terraform test는 mock_provider가 없으면 진짜 provider로 돌아 실제 계정에 리소스를 만든다.
@@ -102,6 +103,20 @@ for d in "${targets[@]}"; do
 
   if ls "$ROOT/$d"/tests/*.tftest.hcl >/dev/null 2>&1; then
     terraform -chdir="$ROOT/$d" test || die "$d: test 실패"
+  fi
+
+  # CloudFront Functions 같은 JS 코드의 단위 테스트(node 내장 테스트 러너). 함수가 틀리면 사이트 전체가
+  # 502·403이 되는데 가짜 provider로는 코드 동작을 못 본다. node가 없으면 건너뛰되 건너뛴 것을 알린다.
+  if ls "$ROOT/$d"/functions/*.test.mjs >/dev/null 2>&1; then
+    if command -v node >/dev/null 2>&1; then
+      js_tests=()
+      for f in "$ROOT/$d"/functions/*.test.mjs; do
+        js_tests+=("$f")
+      done
+      node --test "${js_tests[@]}" || die "$d: JS 함수 테스트 실패"
+    else
+      echo "경고: node가 없어 $d/functions의 JS 테스트를 건너뜁니다" >&2
+    fi
   fi
 done
 

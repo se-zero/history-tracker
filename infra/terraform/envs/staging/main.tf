@@ -26,3 +26,28 @@ module "platform" {
   alert_email              = var.alert_email
   monthly_budget_usd       = var.monthly_budget_usd
 }
+
+module "alb" {
+  source = "../../modules/alb"
+
+  name              = "whycode-staging"
+  vpc_id            = module.network.vpc_id
+  security_group_id = module.network.security_group_ids.alb
+  subnet_ids        = module.network.private_subnet_ids
+}
+
+module "edge" {
+  source = "../../modules/edge"
+
+  name                        = "whycode-staging"
+  vpc_id                      = module.network.vpc_id
+  alb_arn                     = module.alb.alb_arn
+  alb_dns_name                = module.alb.alb_dns_name
+  alb_listener_port           = module.alb.listener_port
+  alb_security_group_id       = module.network.security_group_ids.alb
+  ci_deploy_role_name         = module.platform.ci_deploy_role_name
+  origin_read_timeout_seconds = var.origin_read_timeout_seconds
+
+  # CloudFront VPC 원본에는 인터넷 게이트웨이가 연결된 VPC와 준비된 ALB 리스너가 필요하다.
+  depends_on = [module.network, module.alb]
+}

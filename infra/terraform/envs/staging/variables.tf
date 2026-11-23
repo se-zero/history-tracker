@@ -10,6 +10,12 @@ variable "github_repository" {
   default     = "se-zero/history-tracker"
 }
 
+variable "origin_read_timeout_seconds" {
+  type        = number
+  description = "CloudFront가 ALB의 응답을 기다리는 시간(1~120초). AWS가 계정에 120초를 허용하지 않으면 앱의 AI 읽기 제한과 함께 낮춘다."
+  default     = 120
+}
+
 # 아래 둘은 기본값이 없다. 개인 값이라 레포에 두지 않고, 빠뜨리면 plan이 값을 물어서 멈춘다.
 # envs/staging/terraform.auto.tfvars.example을 terraform.auto.tfvars로 복사해 채운다(gitignore 대상).
 variable "alert_email" {
