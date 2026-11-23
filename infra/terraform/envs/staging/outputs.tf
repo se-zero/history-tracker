@@ -37,3 +37,34 @@ output "cloudfront_domain_name" {
   description = "CloudFront가 발급한 스테이징 도메인. https://를 붙여 앱 공개 주소와 테스트 OAuth 콜백을 설정한다."
   value       = module.edge.cloudfront_domain_name
 }
+
+output "rds_address" {
+  description = "RDS PostgreSQL 접속 주소(호스트). 포트는 5432이고, 앱은 whycode/staging/rds 비밀의 사용자·비밀번호로 접속한다."
+  value       = module.rds.address
+}
+
+output "mq_broker_id" {
+  description = "Amazon MQ 브로커 id. aws mq describe-broker로 관리 API 포트와 콘솔 주소를 확인할 때 쓴다."
+  value       = module.mq.broker_id
+}
+
+output "mq_amqp_host" {
+  description = "RabbitMQ AMQPS 접속 호스트(포트 5671). worker의 SPRING_RABBITMQ_HOST가 된다."
+  value       = module.mq.amqp_host
+}
+
+output "neo4j_instance_id" {
+  description = "Neo4j EC2 인스턴스 id. aws ssm start-session --target으로 접속한다(공인 IP·SSH 없음)."
+  value       = module.neo4j.instance_id
+}
+
+output "neo4j_private_ip" {
+  description = "Neo4j 사설 IP. ai-engine의 NEO4J_URI(bolt://<IP>:7687)가 된다. 인스턴스가 교체되면 바뀐다."
+  value       = module.neo4j.private_ip
+}
+
+output "neo4j_backup_bucket_name" {
+  description = "Neo4j 백업 버킷 이름. 인스턴스 역할이 객체를 올리고 읽을 수만 있다."
+  value       = module.neo4j.backup_bucket_name
+}
+
