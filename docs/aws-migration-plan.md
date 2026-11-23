@@ -1,6 +1,6 @@
 # whycode AWS 전환 계획
 
-2026-11-10 · 착수 전 · 기준 브랜치 `develop`
+2026-11-10 작성 · AWS 적용 전 · 기준 브랜치 `develop`
 
 서울 리전(`ap-northeast-2`)에서 `why-code.com`을 **1주일(168시간) 운영**한 뒤 홈서버로 돌린다. AWS에서 운영 쓰기를 개방한 시각을 시작점으로 기록한다. 그 전에 별도 스테이징에서 수집·질의, 양방향 복원과 장애 대응을 재현한다. 운영 예산은 리허설과 종료 작업까지 합산하고, 실제 개방 일시와 허용 중단 시간은 리허설 뒤 확정한다. 학습 완료는 AWS에서 실제 요청을 처리하고, 홈서버 복귀와 리소스 정리까지 검증한 것으로 판정한다.
 
@@ -64,7 +64,7 @@ flowchart LR
 
 Terraform이 리소스와 비밀 ARN을 관리하고 실제 값은 별도 권한으로 Secrets Manager에 적재한다. 인프라 적용(`terraform apply`)은 사람이 로컬에서 하고, GitHub OIDC 역할은 저장소와 배포 환경(`staging`·`production`)으로 제한해 이미지 발행과 ECS·정적 자산 배포 권한만 나눠 준다. 운영에는 테스트를 통과한 다이제스트를 올린다. 백엔드 Flyway는 지금처럼 backend가 기동할 때 돈다(2026-11-19 결정). 태스크가 하나라 마이그레이션이 겹치지 않고 코드·이미지를 바꾸지 않아도 된다. Compose의 `depends_on`이 없으므로 배포는 backend를 먼저 올린다. 새 DB에서 worker가 먼저 뜨면 backend가 만드는 `ingest_outbox`가 없다는 오류를 남기다가 표가 생기면 정상이 된다. 일회성 마이그레이션 작업과 마이그레이션·런타임 DB 역할 분리는 후속이다. 스키마가 바뀌는 배포는 이전 이미지와 호환되는지 확인한 뒤 복귀 절차를 정한다.
 
-Terraform 코드는 [`infra/terraform/`](../infra/terraform/README.md)에 있고, 명령 순서는 그 README가 정본이다. 2026-11-20 기준 T0(상태 버킷·GitHub OIDC provider·환경 뼈대·검사 스크립트)와 T1(네트워크·플랫폼 모듈, 환경 연결 — 위 AWS1의 자원 부분)까지 코드가 있고 apply 전이다. 묶음 T2(진입점)·T3(데이터) → T4(앱·배포)가 위 AWS2·AWS3a~c·AWS4의 자원 부분을 맡는다. AWS1의 "테스트 태스크 확인"은 태스크 정의가 생기는 T4에서 한다. [GitHub OIDC 신뢰 정책](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html) · [Terraform S3 상태](https://developer.hashicorp.com/terraform/language/backend/s3) · [현재 Compose 의존성](../infra/docker/docker-compose.yml)
+Terraform 코드는 [`infra/terraform/`](../infra/terraform/README.md)에 있고, 명령 순서는 그 README가 정본이다. T0(부트스트랩·검사 스크립트), T1(네트워크·플랫폼), T2 스테이징 진입점(ALB·CloudFront·S3)까지 코드가 있고 apply 전이다. 운영 도메인과 ACM·HTTPS ALB는 T2b에서 연결한다. T3(데이터)와 T4(앱·배포)가 위 AWS3a~c와 AWS4의 자원 부분을 맡는다. AWS1의 "테스트 태스크 확인"은 태스크 정의가 생기는 T4에서 한다. [GitHub OIDC 신뢰 정책](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html) · [Terraform S3 상태](https://developer.hashicorp.com/terraform/language/backend/s3) · [현재 Compose 의존성](../infra/docker/docker-compose.yml)
 
 ## 3. 앱·엣지에서 확인할 계약
 
@@ -72,13 +72,13 @@ Terraform 코드는 [`infra/terraform/`](../infra/terraform/README.md)에 있고
 
 | 요청 | AWS의 처리 |
 |---|---|
-| `/`, `/auth/callback`, `/mcp/setup` 등 웹 라우트 | 비공개 S3 REST 오리진 + OAC. 정적 동작에서 React Router의 허용 경로만 `/index.html`로 재작성한다. `/assets/*`, `robots.txt`, `sitemap.xml`과 실제 파일은 그대로 보낸다. |
+| `/`, `/auth/callback`, `/mcp/setup` 등 웹 라우트 | 비공개 S3 REST 오리진 + OAC. 정적 동작에서 마지막 경로 조각에 파일 확장자가 없으면 `/index.html`로 재작성한다. 해시가 붙은 에셋, `robots.txt`, `sitemap.xml` 같은 파일은 그대로 보낸다. |
 | `POST /api/v1/webhook/github` | ALB에서 경로·메서드가 일치할 때만 worker에 전달한다. 원문 바이트와 서명 헤더를 보존하고 최대 크기 근처의 요청으로 확인한다. |
 | `/api/*`, `/mcp`, `/oauth2/*`, `/.well-known/*` | ALB에서 backend로 전달한다. Slack Events·Commands와 Paddle 웹훅도 이 경로다. 캐시는 끄고 Authorization, 쿠키, 쿼리, 메서드, 서명 헤더를 전달한다. |
-| `/mcp/`, `/api/v1/internal/*`, worker의 `/api/v1/collect/*`·`/api/v1/raw/*`, 미등록 webhook 경로 | `/mcp/`는 기존 JSON 404를 유지한다. 내부·미등록 경로는 공개 리스너에서 차단한다. `/api/*` 허용 규칙보다 우선한다. |
+| `/mcp/`, `/api/v1/internal/*`, worker의 `/api/v1/collect/*`·`/api/v1/raw/*`, 미등록 webhook 경로 | ALB 리스너가 JSON 404를 반환한다. 내부 경로는 끝에 슬래시가 없는 경로도 차단하며, 차단 규칙이 `/api/*` 허용 규칙보다 우선한다. |
 
 - OAC는 CloudFront 배포만 S3에서 읽게 하는 권한 제어다. S3 직접 접근과 ALB 우회 접근을 테스트한다. 배포는 해시가 붙은 자산을 먼저 올리고 `index.html`을 나중에 교체한다. 이전 릴리스가 참조하는 자산은 복귀 기간 동안 보관한다. 전체 배포에 걸친 SPA 오류 치환은 사용 범위에서 제외한다. [S3 원본 제한](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html) · [현재 Nginx 경로와 보안 헤더](../clients/web-dashboard/nginx.conf)
-- 동적 동작에서 `Host`를 전달해 ALB 인증서와 일치시키고, viewer-request 함수에서 허용 도메인만 받는다. 수정 가능한 `Forwarded` 등 클라이언트 전달 헤더를 제거하고 `X-Whycode-Client-IP`를 `event.viewer.ip`로 덮어쓴다. `X-Forwarded-Proto`는 HTTPS ALB가 기록하는 값을 쓴다. ALB는 VPC Origin 서비스 SG에서만 받고, backend의 `MCP_OAUTH_CLIENT_IP_HEADER`에 전용 IP 헤더를 지정한다. 위조 헤더로 IP 상한을 우회할 수 없는지와 `Secure` 쿠키를 실측한다. [ALB와 CloudFront의 HTTPS](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/restrict-access-to-load-balancer.html) · [클라이언트 IP 함수 예제](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/example_cloudfront_functions_add_true_client_ip_header_section.html)
+- 동적 동작은 뷰어 HTTPS만 받고 `Host`를 전달한다. viewer-request 함수는 허용 도메인을 확인하고, 클라이언트가 보낸 `Forwarded` 등 전달 헤더를 제거한 뒤 `X-Whycode-Client-IP`를 `event.viewer.ip`로 덮어쓴다. 스테이징 원본에는 CloudFront가 `Forwarded: proto=https`를 넣어 HTTP ALB 뒤의 Spring에도 브라우저의 HTTPS를 전달한다. 운영 HTTPS ALB의 헤더 처리는 T2b에서 확인한다. ALB는 VPC Origin 서비스 SG에서만 받고, T4에서 backend의 `MCP_OAUTH_CLIENT_IP_HEADER`에 전용 IP 헤더를 지정한다. IP별 상한, HTTPS 리다이렉트와 `Secure` 쿠키를 스테이징에서 실측한다. [CloudFront 원본 헤더](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/add-origin-custom-headers.html) · [클라이언트 IP 함수 예제](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/example_cloudfront_functions_add_true_client_ip_header_section.html)
 - CloudFront 응답 헤더 정책으로 Nginx의 CSP·보안 헤더를 이전한다. 폰트와 Paddle 샌드박스 창까지 브라우저에서 확인한다. OAuth 코드·쿠키·인증 헤더·웹훅 본문은 로그에서 제외한다. 엣지와 ALB 로그 활성화 전 URL·쿼리 포함 여부와 접근·보존 정책을 확인한다.
 
 ### 긴 질의와 태스크 교체
